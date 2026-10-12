@@ -251,6 +251,10 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request, token, user, wor
 				return
 			}
 			for i, raw := range events {
+				if _, e = s.DB.Authenticate(ctx, token); e != nil {
+					c.Close(websocket.StatusPolicyViolation, "session expired")
+					return
+				}
 				_, fresh, _, _, e := s.DB.Access(ctx, workspace, user)
 				if e != nil || fresh != epoch {
 					c.Close(websocket.StatusPolicyViolation, "access changed")
