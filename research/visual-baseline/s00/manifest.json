@@ -1,0 +1,22 @@
+{
+  "reference_app": "/Applications/Lykeion.app",
+  "captured_on": "2026-10-12",
+  "files": [
+    {
+      "file": "board.ax.txt",
+      "sha256": "2512e9c6710e65488b308983ee657965ffe56d7de5448c3fd3104c54ad533783"
+    },
+    {
+      "file": "board.png",
+      "sha256": "ca6a5a30ab95e99cbd83bc22a2cb41d77e10853f448fe8ed442d3809e0033ac2"
+    },
+    {
+      "file": "members-filter.ax.txt",
+      "sha256": "3a6a2fe9c107ddcb910324004046d8623adc11e1f21b8f17c18df797118257f6"
+    },
+    {
+      "file": "members-filter.png",
+      "sha256": "9b370bedb0f7b9732a086456c01f5dd1b836e28fceb7eee4017cd605c5fa4872"
+    }
+  ]
+}

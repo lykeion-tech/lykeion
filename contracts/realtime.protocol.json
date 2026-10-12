@@ -1,0 +1,1706 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lykeion.local/schemas/workspace-frame-v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "subscribe"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "workspace",
+                  "programme",
+                  "document",
+                  "session"
+                ]
+              },
+              "maxItems": 1000
+            },
+            "subject_refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/Ref"
+              },
+              "maxItems": 1000
+            },
+            "after_cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          "required": [
+            "channels",
+            "subject_refs"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "subscribed"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "subscription_id": {
+              "$ref": "#/components/schemas/ID"
+            },
+            "high_water_cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "authorization_epoch": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            }
+          },
+          "required": [
+            "subscription_id",
+            "high_water_cursor",
+            "authorization_epoch"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "unsubscribe"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "subscription_id": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          "required": [
+            "subscription_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "event"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "$ref": "#/components/schemas/Event"
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "ack"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          "required": [
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "presence.update"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "subject_ref": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "viewing",
+                "editing",
+                "typing"
+              ]
+            },
+            "selection": {
+              "type": "object",
+              "properties": {
+                "block_id": {
+                  "$ref": "#/components/schemas/ID"
+                },
+                "revision": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "maxLength": 20
+                },
+                "anchor": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "focus": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "block_id",
+                "revision",
+                "anchor",
+                "focus"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "subject_ref",
+            "state"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "presence.snapshot"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "participants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "user_id": {
+                    "$ref": "#/components/schemas/ID"
+                  },
+                  "session_id": {
+                    "$ref": "#/components/schemas/ID"
+                  },
+                  "subject_ref": {
+                    "$ref": "#/components/schemas/Ref"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "viewing",
+                      "editing",
+                      "typing"
+                    ]
+                  },
+                  "expires_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "user_id",
+                  "session_id",
+                  "subject_ref",
+                  "state",
+                  "expires_at"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 1000
+            }
+          },
+          "required": [
+            "participants"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "presence.changed"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "$ref": "#/components/schemas/ID"
+            },
+            "session_id": {
+              "$ref": "#/components/schemas/ID"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "viewing",
+                "editing",
+                "typing",
+                "left"
+              ]
+            },
+            "expires_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "user_id",
+            "session_id",
+            "state",
+            "expires_at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "document.sync"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "document_id": {
+              "$ref": "#/components/schemas/ID"
+            },
+            "known_revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            }
+          },
+          "required": [
+            "document_id",
+            "known_revision"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "document.snapshot"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "document_id": {
+              "$ref": "#/components/schemas/ID"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "content_ref": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "edit_log_cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          "required": [
+            "document_id",
+            "revision",
+            "content_ref",
+            "edit_log_cursor"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "document.changed"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "document_id": {
+              "$ref": "#/components/schemas/ID"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "operation_id": {
+              "$ref": "#/components/schemas/ID"
+            },
+            "edit_ref": {
+              "$ref": "#/components/schemas/Ref"
+            }
+          },
+          "required": [
+            "document_id",
+            "revision",
+            "operation_id",
+            "edit_ref"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "resync_required"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "enum": [
+                "cursor_expired",
+                "access_changed",
+                "slow_consumer",
+                "protocol_changed"
+              ]
+            },
+            "snapshot_path": {
+              "type": "string",
+              "pattern": "^/v1/workspaces/"
+            }
+          },
+          "required": [
+            "reason",
+            "snapshot_path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "type": {
+          "const": "error"
+        },
+        "message_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "subscription_id": {
+          "$ref": "#/components/schemas/ID"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "payload": {
+          "$ref": "#/components/schemas/Problem"
+        }
+      },
+      "required": [
+        "schema_version",
+        "type",
+        "message_id",
+        "payload"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "components": {
+    "schemas": {
+      "ID": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{2,127}$"
+      },
+      "Revision": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]*)$",
+        "maxLength": 20
+      },
+      "Hash": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "Ref": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Hash"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "Target": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "programme",
+              "inquiry",
+              "request",
+              "document",
+              "membership",
+              "invitation"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "violations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            },
+            "maxItems": 1000
+          },
+          "current_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "schema_version",
+          "code",
+          "message",
+          "request_id",
+          "retryable",
+          "violations",
+          "current_versions"
+        ],
+        "additionalProperties": false
+      },
+      "Operation": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "command_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "blocked",
+              "failed",
+              "superseded"
+            ]
+          },
+          "target_ref": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "accepted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "result_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "decision_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "failure": {
+            "$ref": "#/components/schemas/Problem"
+          },
+          "event_cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "schema_version",
+          "id",
+          "command_name",
+          "state",
+          "target_ref",
+          "accepted_at",
+          "result_refs",
+          "event_cursor"
+        ],
+        "additionalProperties": false
+      },
+      "Member": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "access_role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "removed"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "workspace_id",
+          "display_name",
+          "access_role",
+          "state",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "Workspace": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "Programme": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "objective": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          },
+          "profile_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "policy_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "budget_ceiling": {
+            "$ref": "#/components/schemas/BudgetCeiling"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "name",
+          "objective",
+          "revision",
+          "profile_ref",
+          "policy_refs",
+          "budget_ceiling"
+        ],
+        "additionalProperties": false
+      },
+      "BudgetCeiling": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "model_microunits": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          },
+          "cpu_milliseconds": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          },
+          "gpu_milliseconds": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          },
+          "elapsed_milliseconds": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "currency",
+          "model_microunits",
+          "cpu_milliseconds",
+          "gpu_milliseconds",
+          "elapsed_milliseconds"
+        ],
+        "additionalProperties": false
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "csrf_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name",
+          "csrf_token",
+          "expires_at"
+        ],
+        "additionalProperties": false
+      },
+      "Capabilities": {
+        "type": "object",
+        "properties": {
+          "api_version": {
+            "const": "1"
+          },
+          "workspace_protocol": {
+            "const": "lykeion.workspace.v1"
+          },
+          "worker_protocol": {
+            "const": "lykeion.worker.v1"
+          },
+          "supported_commands": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "maxItems": 1000
+          },
+          "supported_features": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "api_version",
+          "workspace_protocol",
+          "worker_protocol",
+          "supported_commands",
+          "supported_features"
+        ],
+        "additionalProperties": false
+      },
+      "Attribution": {
+        "type": "object",
+        "properties": {
+          "initiator_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "authorizer_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "actor_kind": {
+            "type": "string",
+            "enum": [
+              "human",
+              "service",
+              "agent"
+            ]
+          },
+          "delegation_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "initiator_id",
+          "authorizer_id",
+          "actor_id",
+          "actor_kind",
+          "delegation_refs"
+        ],
+        "additionalProperties": false
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "subject_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "operation_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "causation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "correlation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "attribution_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "changed_fields": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "maxItems": 1000
+              }
+            },
+            "required": [
+              "changed_fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "subject_ref",
+          "revision",
+          "recorded_at",
+          "operation_id",
+          "causation_id",
+          "correlation_id",
+          "attribution_ref",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "Invitation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "recipient": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 320
+          },
+          "requested_role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "revoked",
+              "expired"
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "recipient",
+          "requested_role",
+          "state",
+          "expires_at",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "ProgrammeCreateCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "objective": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              },
+              "profile_ref": {
+                "$ref": "#/components/schemas/Ref"
+              },
+              "initial_policy_refs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Ref"
+                },
+                "maxItems": 1000
+              },
+              "budget_ceiling": {
+                "$ref": "#/components/schemas/BudgetCeiling"
+              }
+            },
+            "required": [
+              "name",
+              "objective",
+              "profile_ref",
+              "initial_policy_refs",
+              "budget_ceiling"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "ProgrammeAmendObjectiveCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "objective_ref": {
+                "$ref": "#/components/schemas/Ref"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              }
+            },
+            "required": [
+              "objective_ref",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "MemberInviteCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "destination": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 320
+              },
+              "requested_role": {
+                "type": "string",
+                "enum": [
+                  "admin",
+                  "member",
+                  "viewer"
+                ]
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "destination",
+              "requested_role",
+              "expires_at"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "InvitationRevokeCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "invitation_id": {
+                "$ref": "#/components/schemas/ID"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              }
+            },
+            "required": [
+              "invitation_id",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "MemberRemoveCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "member_id": {
+                "$ref": "#/components/schemas/ID"
+              },
+              "ownership_handoff_ref": {
+                "$ref": "#/components/schemas/Ref"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              }
+            },
+            "required": [
+              "member_id",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "MemberLeaveCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "ownership_handoff_ref": {
+                "$ref": "#/components/schemas/Ref"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "MemberChangeAccessCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "member_id": {
+                "$ref": "#/components/schemas/ID"
+              },
+              "requested_access": {
+                "type": "string",
+                "enum": [
+                  "admin",
+                  "member",
+                  "viewer"
+                ]
+              },
+              "approved_decision_ref": {
+                "$ref": "#/components/schemas/Ref"
+              }
+            },
+            "required": [
+              "member_id",
+              "requested_access",
+              "approved_decision_ref"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "WorkspaceTransferOwnerCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "recipient_member_id": {
+                "$ref": "#/components/schemas/ID"
+              },
+              "acceptance_decision_ref": {
+                "$ref": "#/components/schemas/Ref"
+              }
+            },
+            "required": [
+              "recipient_member_id",
+              "acceptance_decision_ref"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "PreferenceUpdateCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "preference_kind": {
+                "type": "string",
+                "enum": [
+                  "theme",
+                  "sidebar",
+                  "pane_width"
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "system",
+                      "light",
+                      "dark"
+                    ]
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 240,
+                    "maximum": 960
+                  }
+                ]
+              }
+            },
+            "required": [
+              "preference_kind",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

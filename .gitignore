@@ -5,3 +5,12 @@ test-results/
 playwright-report/
 .DS_Store
 *.local
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+backend/bin/
+.local-state/
