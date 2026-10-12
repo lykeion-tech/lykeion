@@ -1,0 +1,19 @@
+name: lykeion-redesign-dev
+services:
+  postgres:
+    image: postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_DB: lykeion_development
+      POSTGRES_USER: lykeion_dev
+      POSTGRES_PASSWORD: ${LYKEION_DEV_DB_PASSWORD:?Set a local development database password}
+    ports:
+      - '127.0.0.1:15439:5432'
+    volumes:
+      - lykeion_development:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U lykeion_dev -d lykeion_development']
+      interval: 2s
+      timeout: 2s
+      retries: 20
+volumes:
+  lykeion_development:
