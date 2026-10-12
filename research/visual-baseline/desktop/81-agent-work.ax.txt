@@ -1,0 +1,148 @@
+Window: "Literature Review & Gap Analyst", App: Lykeion.
+0 standard window Literature Review & Gap Analyst, Secondary Actions: Raise
+	1 container Literature Review & Gap Analyst
+		2 container
+			3 HTML content Literature Review & Gap Analyst, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 pop up button L Lab
+					10 content list
+						11 button Search...
+						12 button New
+					13 content list
+						14 link Description: Inbox, Value: localhost:3000/lab/inbox
+						15 link Description: Copilot, Value: localhost:3000/lab/chat
+					16 container
+						17 text Laboratory
+						18 content list
+							19 link Description: Tasks, Value: localhost:3000/lab/tasks
+							20 link Description: Researches, Value: localhost:3000/lab/projects
+							21 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							22 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					23 container
+						24 text Configure
+						25 content list
+							26 link Description: Agents, Value: localhost:3000/lab/agents
+							27 link Description: Teams, Value: localhost:3000/lab/squads
+							28 link Description: Skills, Value: localhost:3000/lab/skills
+							29 link Description: Connectors, Value: localhost:3000/lab/connectors
+							30 link Description: Machines, Value: localhost:3000/lab/runtimes
+					31 content list
+						32 link Description: Updates, Value: localhost:3000/lab/updates
+						33 link Description: Settings, Value: localhost:3000/lab/settings
+					34 pop up button Help
+					35 button Toggle left sidebar
+					36 container
+						37 sortable Literature Review & Gap Analyst
+							38 image Literature Review & Gap Analyst
+							39 text Literature Review & Gap Analyst
+						40 button New tab
+					41 container
+						42 link Description: Agents, Value: localhost:3000/lab/agents
+						43 text Literature Review & Gap Analyst
+						44 image Literature Review & Gap Analyst
+						45 heading Literature Review & Gap Analyst, Value: 1
+							46 text Literature Review & Gap Analyst
+						47 text Online · Idle Conducts traceable literature reviews, synthesizes evidence, and identifies research gaps framed as testable, falsifiable research questions. claude-opus-5-5 Claude (Mac)
+						48 container Personal · only the owner and people they allow can run this agent
+							49 text Personal
+						50 text Updated 4h ago
+						51 button DM
+						52 button Assign work
+						53 pop up button Agent actions
+					54 tab group Agent page
+						55 tab (settable, integer) Overview, Value: 0
+						56 tab (selected) Work, Value: 1
+						57 tab (settable, integer) Capabilities, Value: 0
+						58 tab (settable, integer) Settings, Value: 0
+					59 container
+						60 text field (settable) Search tasks...
+						61 button Assigned
+						62 button Created
+						63 pop up button Filter
+						64 pop up button Display
+						65 heading Grounding 0, Value: 3
+							66 checkbox 0
+							67 button Grounding 0
+								68 image
+								69 text Grounding
+								70 text 0
+							71 button
+						72 container Grounding 0
+							73 text No tasks
+						74 heading Hypotheses 0, Value: 3
+							75 checkbox 0
+							76 button Hypotheses 0
+								77 image
+								78 text Hypotheses
+								79 text 0
+							80 button
+						81 container Hypotheses 0
+							82 text No tasks
+						83 heading Experimentation 0, Value: 3
+							84 checkbox 0
+							85 button Experimentation 0
+								86 image
+								87 text Experimentation
+								88 text 0
+							89 button
+						90 container Experimentation 0
+							91 text No tasks
+						92 heading Validation 0, Value: 3
+							93 checkbox 0
+							94 button Validation 0
+								95 image
+								96 text Validation
+								97 text 0
+							98 button
+						99 container Validation 0
+							100 text No tasks
+						101 heading Blocked 1, Value: 3
+							102 checkbox 0
+							103 button Blocked 1
+								104 image
+								105 text Blocked
+								106 text 1
+							107 button
+						108 container Blocked 1
+							109 sortable LAB-2 Testing Literature Review & Gap Analyst
+								110 link Description: LAB-2 Testing Literature Review & Gap Analyst, Value: localhost:3000/lab/tasks/01a12ff7-766b-7eb9-80dd-47111c1ea7f2
+						111 heading Reporting 0, Value: 3
+							112 checkbox 0
+							113 button Reporting 0
+								114 image
+								115 text Reporting
+								116 text 0
+							117 button
+						118 container Reporting 0
+							119 text No tasks
+						120 heading Done 0, Value: 3
+							121 checkbox 0
+							122 button Done 0
+								123 image
+								124 text Done
+								125 text 0
+							126 button
+						127 container Done 0
+							128 text No tasks
+						129 text Hidden columns
+						130 image
+						131 text Cancelled 0
+						132 pop up button Show column
+					133 button Open Aristotle
+					134 container Notifications alt+T
+	135 close button
+	136 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	137 minimize button
+138 menu bar
+	139 Lykeion
+	140 File
+	141 Edit
+	142 View
+	143 Window
+	144 Help
+
+The focused UI element is 56 tab (selected) Work, Value: 1

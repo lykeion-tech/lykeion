@@ -1,0 +1,41 @@
+Window: "Machines", App: Lykeion.
+0 standard window Machines, Secondary Actions: Raise
+	1 container Machines
+		2 container
+			3 HTML content Machines, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 container Notifications alt+T
+					6 container Add a computer
+						7 heading Add a computer, Value: 2
+							8 text Add a computer
+						9 text Run these two commands on the computer you want to add. We'll detect it the moment the daemon comes online.
+						10 container
+							11 text 1 .  Install the Lykeion CLI
+						12 tab group Choose your platform
+							13 tab (selected) macOS / Linux, Value: 1
+							14 tab (settable, integer) Windows, Value: 0
+						15 container macOS / Linux
+							16 text curl -fsSL https://raw.githubusercontent.com/lykeion-ia/lykeion/main/scripts/install.sh | bash
+							17 button Copy
+						18 container
+							19 text 2 .  Start the daemon
+						20 text lykeion setup self-host --server-url http://localhost:8080 --app-url http://localhost:3000
+						21 button Copy
+						22 text Opens a browser to sign in, then keeps the daemon running in the background.
+						23 text Waiting for your computer
+						24 disclosure triangle Can't open a browser on that computer?
+							25 text Can't open a browser on that computer?
+						26 button Cancel
+						27 button Close
+	28 close button
+	29 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	30 minimize button
+31 menu bar
+	32 Lykeion
+	33 File
+	34 Edit
+	35 View
+	36 Window
+	37 Help
+
+The focused UI element is 13 tab (selected) macOS / Linux, Value: 1

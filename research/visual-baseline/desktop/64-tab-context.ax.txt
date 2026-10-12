@@ -1,0 +1,23 @@
+Window: "Tasks", App: Lykeion.
+0 standard window Tasks, Secondary Actions: Raise
+	1 container Tasks
+		2 container
+			3 HTML content Tasks, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 container Notifications alt+T
+					6 menu Secondary Actions: Cancel
+						7 Pin tab
+						8 (disabled) Close tab
+						9 (disabled) Close other tabs
+	10 close button
+	11 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	12 minimize button
+13 menu bar
+	14 Lykeion
+	15 File
+	16 Edit
+	17 View
+	18 Window
+	19 Help
+
+The focused UI element is 6 menu Secondary Actions: Cancel

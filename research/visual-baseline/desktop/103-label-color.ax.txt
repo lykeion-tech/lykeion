@@ -1,0 +1,49 @@
+Window: "Settings", App: Lykeion.
+0 standard window Settings, Secondary Actions: Raise
+	1 container Settings
+		2 container
+			3 HTML content Settings, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 container Notifications alt+T
+					6 container New label
+						7 heading New label, Value: 2
+							8 text New label
+						9 text This label belongs only to the Tasks catalog.
+						10 text Name
+						11 text field (settable) Name, Placeholder: e.g. Bug
+						12 text Description
+						13 text entry area (settable) Description, Placeholder: Describe when this label should be used
+						14 text Color
+						15 pop up button Color
+						16 container
+							17 slider Description: Saturation and brightness, Value: 96, Details: 76%, 96%, Secondary Actions: Increment, Decrement
+							18 button Pick a color from the screen
+							19 slider Description: Hue, Value: 217, Secondary Actions: Increment, Decrement
+							20 text field (settable) Description: Hex color, Value: #3B82F6
+							21 text Presets
+							22 button Random
+							23 toggle button Description: #6b7280, Value: 0
+							24 toggle button Description: #ef4444, Value: 0
+							25 toggle button Description: #f97316, Value: 0
+							26 toggle button Description: #eab308, Value: 0
+							27 toggle button Description: #22c55e, Value: 0
+							28 toggle button Description: #14b8a6, Value: 0
+							29 toggle button Description: #3b82f6, Value: 1
+							30 toggle button Description: #6366f1, Value: 0
+							31 toggle button Description: #a855f7, Value: 0
+							32 toggle button Description: #ec4899, Value: 0
+						33 button Cancel
+						34 button (disabled) Save label
+						35 button Close
+	36 close button
+	37 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	38 minimize button
+39 menu bar
+	40 Lykeion
+	41 File
+	42 Edit
+	43 View
+	44 Window
+	45 Help
+
+The focused UI element is 17 slider Description: Saturation and brightness, Value: 96, Details: 76%, 96%, Secondary Actions: Increment, Decrement

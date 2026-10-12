@@ -1,0 +1,27 @@
+flowchart LR
+  subgraph Reference[Multica responsibilities observed]
+    Web[Web shell] --> Shared[Shared TypeScript domain views and client]
+    Desktop[Desktop shell] --> Shared
+    Shared --> API[Go HTTP and realtime API]
+    API --> Intent[Issues, ownership, discussion]
+    Intent --> Queue[Durable task attempts]
+    Schedule[Scheduler and event wakeups] --> Queue
+    Queue --> Runtime[Daemon and provider execution]
+    Runtime --> Delivery[Durable terminal delivery]
+    Delivery --> Queue
+    Intent --> Review[Delivered work and review]
+    Queue --> DB[(PostgreSQL state)]
+  end
+  subgraph Proposed[Lykeion scientific meanings to discuss]
+    Question[Versioned research question] --> Grounding[Grounding evidence package]
+    Grounding --> Gate[Explicit acceptance decision]
+    Gate --> Next[Downstream scientific activity]
+    Compute[Computational attempt] --> Artifacts[Versioned artifacts and observations]
+    Artifacts --> Gate
+    Policy[Budget, permissions and protocol policy] --> Compute
+    Policy --> Gate
+  end
+  Intent -. reinterpret .-> Question
+  Queue -. preserve attempt separation .-> Compute
+  Delivery -. preserve durable delivery .-> Artifacts
+  Review -. replace acceptance target .-> Gate

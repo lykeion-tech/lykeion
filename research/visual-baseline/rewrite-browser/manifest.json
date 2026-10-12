@@ -1,0 +1,1228 @@
+{
+  "runId": "2026-10-12T18:13:52.775Z",
+  "surface": "browser",
+  "viewport": {
+    "width": 1920,
+    "height": 959,
+    "deviceScaleFactor": 1
+  },
+  "sharedDifferences": [
+    "Browser renderer at 1920×959 CSS pixels, DPR 1; not a native Electron window capture.",
+    "Local workspace is Lykeion; the reference workspace/account and its user data are not copied.",
+    "No agent runs, notifications, teammates, machines, secrets, or scientific outcomes are invented.",
+    "Brand animation pose, current dates, generated IDs and scrollbar rendering can vary.",
+    "Screenshots are observations for review, not assertions of pixel equality."
+  ],
+  "unavailableReferenceStates": [
+    {
+      "references": [
+        "45",
+        "76",
+        "77",
+        "78",
+        "79",
+        "80"
+      ],
+      "reason": "Machine/runtime details require a registered runtime; this suite does not fabricate runtime receipts."
+    },
+    {
+      "references": [
+        "55",
+        "56"
+      ],
+      "reason": "Native application menu captures cannot be reproduced by a browser screenshot."
+    },
+    {
+      "references": [
+        "98"
+      ],
+      "reason": "Run cost breakdown requires execution receipts; local drafts have no runs."
+    },
+    {
+      "references": [
+        "team-detail"
+      ],
+      "reason": "Team list drafts are reachable, but a distinct team detail surface is not implemented."
+    }
+  ],
+  "captures": [
+    {
+      "state": "01-tasks",
+      "reference": "01-tasks",
+      "file": "01-tasks.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "f5563d3d38cda90b3b04a672cd590f21a380128cdcfe4f14afe05d7453d72355",
+      "capturedAt": "2026-10-12T18:13:55.252Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "04-researches",
+      "reference": "04-researches",
+      "file": "04-researches.png",
+      "url": "http://127.0.0.1:1430/#/projects",
+      "sha256": "084671c9bf89fa3ad52aecaa5601f890a5079b0841199b34a57aae2a351adba8",
+      "capturedAt": "2026-10-12T18:13:55.392Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "06-colleagues",
+      "reference": "06-colleagues",
+      "file": "06-colleagues.png",
+      "url": "http://127.0.0.1:1430/#/colleagues",
+      "sha256": "5dea1ea109cff0eb1198a7944b61120188ba9bb672cddb8208d9397f0ab49de6",
+      "capturedAt": "2026-10-12T18:13:55.530Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "07-autopilot",
+      "reference": "07-autopilot",
+      "file": "07-autopilot.png",
+      "url": "http://127.0.0.1:1430/#/autopilots",
+      "sha256": "196e9b824da712c9ff03fef2b965cec720d748b3b9221244c83d99b0ad0d38b2",
+      "capturedAt": "2026-10-12T18:13:55.666Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "08-agents",
+      "reference": "08-agents",
+      "file": "08-agents.png",
+      "url": "http://127.0.0.1:1430/#/agents",
+      "sha256": "c3d4f0013eedb8dd31f29b6d4da21d6cabf60a2d7ed2929fcc9a2d3913ee4d7a",
+      "capturedAt": "2026-10-12T18:13:55.804Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "09-new-agent",
+      "reference": "09-new-agent",
+      "file": "09-new-agent.png",
+      "url": "http://127.0.0.1:1430/#/agents/new",
+      "sha256": "73174b3fe3297af6ce9f1499302fca02cfddb475eeff5b7ab8caa3c40690e329",
+      "capturedAt": "2026-10-12T18:13:55.943Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "10-teams",
+      "reference": "10-teams",
+      "file": "10-teams.png",
+      "url": "http://127.0.0.1:1430/#/squads",
+      "sha256": "2c39be8efa83748b7b3b5bc8fac3b3e9ced737b84c90d3ac1fe062cac885a1e6",
+      "capturedAt": "2026-10-12T18:13:56.076Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "11-skills",
+      "reference": "11-skills",
+      "file": "11-skills.png",
+      "url": "http://127.0.0.1:1430/#/skills",
+      "sha256": "13ad44f267646689f3c44ddb38f71049be6cc8cdbff9ece86b2b63975a286e92",
+      "capturedAt": "2026-10-12T18:13:56.220Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "12-connectors",
+      "reference": "12-connectors",
+      "file": "12-connectors.png",
+      "url": "http://127.0.0.1:1430/#/connectors",
+      "sha256": "eccc61630370a72a72970c9ba985177c7064fe46368ac365ebb3cd54e665d2b0",
+      "capturedAt": "2026-10-12T18:13:56.541Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "13-machines",
+      "reference": "13-machines",
+      "file": "13-machines.png",
+      "url": "http://127.0.0.1:1430/#/runtimes",
+      "sha256": "efb116dcfb4aec3b9f7ab1f422717ee087c16d7a701fd7de1732d0fdd2a607e3",
+      "capturedAt": "2026-10-12T18:13:56.756Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "14-updates",
+      "reference": "14-updates",
+      "file": "14-updates.png",
+      "url": "http://127.0.0.1:1430/#/updates",
+      "sha256": "6d8a14a4ebe9b5e11760cbf8e6d4d4fda4f1e9de0e558d611178e20c9048ced4",
+      "capturedAt": "2026-10-12T18:13:56.903Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "15-settings",
+      "reference": "15-settings",
+      "file": "15-settings.png",
+      "url": "http://127.0.0.1:1430/#/settings",
+      "sha256": "04d37ab1b037cb6ca020db3d18f213a6934e3b3631f8c4f5b9bfe9bf95d35469",
+      "capturedAt": "2026-10-12T18:13:57.072Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "16-preferences",
+      "reference": "16-preferences",
+      "file": "16-preferences.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=preferences",
+      "sha256": "1aee6ce88afe2a0702336bddc7ef4faa541af2bc7004a0c0f447c03e569d5183",
+      "capturedAt": "2026-10-12T18:13:57.251Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "17-inbox",
+      "reference": "17-inbox",
+      "file": "17-inbox.png",
+      "url": "http://127.0.0.1:1430/#/inbox",
+      "sha256": "7f28abe84acacfbc80d8becd399f22a1ac37fac9d01f608dc709021a0c8d946a",
+      "capturedAt": "2026-10-12T18:13:57.412Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "18-copilot",
+      "reference": "18-copilot",
+      "file": "18-copilot.png",
+      "url": "http://127.0.0.1:1430/#/chat",
+      "sha256": "3ba9da28ca1982c4472ad8de5c22eb5610d940868d508872b7c0fe389819777a",
+      "capturedAt": "2026-10-12T18:13:57.571Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "35-general-settings",
+      "reference": "35-general-settings",
+      "file": "35-general-settings.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=workspace",
+      "sha256": "2f959b0d283139bb1d800d51c7a7ff4c993fb3da304f0ea3e9ef33700e90a0f8",
+      "capturedAt": "2026-10-12T18:13:57.739Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "36-notifications",
+      "reference": "36-notifications",
+      "file": "36-notifications.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=notifications",
+      "sha256": "bdc8907964962efe55ee5890704867269c72c1fd32249f3274d3357eaca21520",
+      "capturedAt": "2026-10-12T18:13:57.897Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "37-labels",
+      "reference": "37-labels",
+      "file": "37-labels.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=labels",
+      "sha256": "b329baaf924e65677dfce35da196fe8c6aaca614a80092053b92d217e9b75e5a",
+      "capturedAt": "2026-10-12T18:13:58.055Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "38-properties",
+      "reference": "38-properties",
+      "file": "38-properties.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=properties",
+      "sha256": "051f4b6dfd5fab44fc63e44165880c4e7b24ee0f319ec87125214a6aae2f2cf0",
+      "capturedAt": "2026-10-12T18:13:58.196Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "39-analytics",
+      "reference": "39-analytics",
+      "file": "39-analytics.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=analytics",
+      "sha256": "f8bf67697421d79391eb3e41103162d8a8692a487a108cf85f3c9a7c031214d2",
+      "capturedAt": "2026-10-12T18:13:58.328Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "api-connection",
+      "reference": null,
+      "file": "api-connection.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=connection",
+      "sha256": "d36aa28615943959291e6c2a9774d1ea2a128fe9aae20bfde05eb715fa8bacd5",
+      "capturedAt": "2026-10-12T18:13:58.481Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "40-code",
+      "reference": "40-code",
+      "file": "40-code.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=code",
+      "sha256": "2b0ac25bd4ccbd957867a1a638721b4171ffd6be056c89f932e3b25cd53bea68",
+      "capturedAt": "2026-10-12T18:13:58.652Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "44-agent-manual",
+      "reference": "44-agent-manual",
+      "file": "44-agent-manual.png",
+      "url": "http://127.0.0.1:1430/#/agents/new/manual",
+      "sha256": "7e93ee5f13b81e951bd43c6ab093cf90096b7fdd158e3cd49bfac6208bec4239",
+      "capturedAt": "2026-10-12T18:13:58.813Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "48-api-tokens",
+      "reference": "48-api-tokens",
+      "file": "48-api-tokens.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=tokens",
+      "sha256": "892b2e140f70f0f2b51bb02e7ca4e5f38bb2f262140b433ca21eeb8b54402ab9",
+      "capturedAt": "2026-10-12T18:13:59.005Z",
+      "contextDifferences": [
+        "Fresh isolated context with no product records. Reference screenshots may contain existing account data."
+      ]
+    },
+    {
+      "state": "19-new-chat",
+      "reference": "19-new-chat",
+      "file": "19-new-chat.png",
+      "url": "http://127.0.0.1:1430/#/chat",
+      "sha256": "cdce771b1cbc04fc0ee11dd9a9f7a016372cf865b9dfd1ccba68e84a689145ab",
+      "capturedAt": "2026-10-12T18:13:59.346Z",
+      "contextDifferences": [
+        "No agents available; the composer shows the honest disconnected state."
+      ]
+    },
+    {
+      "state": "68-task-wakeups",
+      "reference": "68-task-wakeups",
+      "file": "68-task-wakeups.png",
+      "url": "http://127.0.0.1:1430/#/autopilots",
+      "sha256": "1d83559af130ed17ec1d8b87ba2bb18e0c7483697417a31d88099816ce455fff",
+      "capturedAt": "2026-10-12T18:13:59.680Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "42-tasks-empty-members",
+      "reference": "42-tasks-empty-members",
+      "file": "42-tasks-empty-members.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "07acf901225a4a66491ec62b12719459f239ff26c39cd0090e5ef875c9849487",
+      "capturedAt": "2026-10-12T18:13:59.851Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "106-working-agent-filter",
+      "reference": "106-working-agent-filter",
+      "file": "106-working-agent-filter.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "858f71eae87edc433ead2711bc737abfcf7e89e4687d3cb84fa199da769de246",
+      "capturedAt": "2026-10-12T18:13:59.986Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "03-create-agent",
+      "reference": "03-create-agent",
+      "file": "03-create-agent.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "0880c56205b2a7e36bea5fa988f46007faca53a79ee089e72f896193b25e60ca",
+      "capturedAt": "2026-10-12T18:14:01.554Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "30-create-manual",
+      "reference": "30-create-manual",
+      "file": "30-create-manual.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "1c441eb7706673ef5f87227cb04cbf2579285cba31c9a870b3d17fea2bb9124f",
+      "capturedAt": "2026-10-12T18:14:01.666Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "05-new-research",
+      "reference": "05-new-research",
+      "file": "05-new-research.png",
+      "url": "http://127.0.0.1:1430/#/projects",
+      "sha256": "528b4d7063da4008f26511b8fa7c27fa4f9c5c145dbaeba74baa1baa97134e5f",
+      "capturedAt": "2026-10-12T18:14:01.887Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "20-new-team",
+      "reference": "20-new-team",
+      "file": "20-new-team.png",
+      "url": "http://127.0.0.1:1430/#/squads",
+      "sha256": "c9e3b6b97ff23ba10865a0296b5b3852f8569f4ac11875b4db9497bfb63e3f3d",
+      "capturedAt": "2026-10-12T18:14:02.141Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "21-add-connector",
+      "reference": "21-add-connector",
+      "file": "21-add-connector.png",
+      "url": "http://127.0.0.1:1430/#/connectors",
+      "sha256": "2d44ec51d60bd341f3f713027fb5a2637418eebb2fb1e218c244c2428e28a1ed",
+      "capturedAt": "2026-10-12T18:14:02.413Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "65-connector-http",
+      "reference": "65-connector-http",
+      "file": "65-connector-http.png",
+      "url": "http://127.0.0.1:1430/#/connectors",
+      "sha256": "eadf656aaca789a6cdbc3f3da1c5ebf89270f543f5c2bf5bab8f0a04a68c46e2",
+      "capturedAt": "2026-10-12T18:14:02.513Z",
+      "contextDifferences": [
+        "Transport fields are unsaved; no credentials are entered."
+      ]
+    },
+    {
+      "state": "66-connector-header-row",
+      "reference": "66-connector-header-row",
+      "file": "66-connector-header-row.png",
+      "url": "http://127.0.0.1:1430/#/connectors",
+      "sha256": "bdbe0eb6120569377037742745c4d0fcf2c7d305070aff9aa1529384b6a73552",
+      "capturedAt": "2026-10-12T18:14:02.604Z",
+      "contextDifferences": [
+        "Empty header row; no credentials entered."
+      ]
+    },
+    {
+      "state": "67-connector-json",
+      "reference": "67-connector-json",
+      "file": "67-connector-json.png",
+      "url": "http://127.0.0.1:1430/#/connectors",
+      "sha256": "2ad2cc4f1b46849bdfb2b60e4e83db4afdc823854eba140a8d4b9f56c27f815a",
+      "capturedAt": "2026-10-12T18:14:02.718Z",
+      "contextDifferences": [
+        "Unsaved configuration; no remote connection."
+      ]
+    },
+    {
+      "state": "22-add-skill-menu",
+      "reference": "22-add-skill-menu",
+      "file": "22-add-skill-menu.png",
+      "url": "http://127.0.0.1:1430/#/skills",
+      "sha256": "51644c7dd288a6ad77a34c553b66d4ca99e78da8035717961284723dec1d2345",
+      "capturedAt": "2026-10-12T18:14:02.967Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "23-new-skill",
+      "reference": "23-new-skill",
+      "file": "23-new-skill.png",
+      "url": "http://127.0.0.1:1430/#/skills",
+      "sha256": "e94d6d4d079e36510e1db4d870ae710d6777e2f427ccba4bebd11ed6861bfcac",
+      "capturedAt": "2026-10-12T18:14:03.078Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "24-new-autopilot",
+      "reference": "24-new-autopilot",
+      "file": "24-new-autopilot.png",
+      "url": "http://127.0.0.1:1430/#/autopilots",
+      "sha256": "158a91ed0fea88e82432658436c7eb6260b39ad944a8650dd24743d7a5b846bd",
+      "capturedAt": "2026-10-12T18:14:03.310Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "70-autopilot-interval",
+      "reference": "70-autopilot-interval",
+      "file": "70-autopilot-interval.png",
+      "url": "http://127.0.0.1:1430/#/autopilots",
+      "sha256": "115165ae029fa957ec19d7488d5f1e0c6edf2ba361aeca557013c9230d5b84ba",
+      "capturedAt": "2026-10-12T18:14:03.466Z",
+      "contextDifferences": [
+        "Inactive unsaved draft; next runs require the scheduling adapter."
+      ]
+    },
+    {
+      "state": "71-autopilot-weekdays",
+      "reference": "71-autopilot-weekdays",
+      "file": "71-autopilot-weekdays.png",
+      "url": "http://127.0.0.1:1430/#/autopilots",
+      "sha256": "c106167f7537e8432871747480c1ef8eb0a0accd190f7b7bd59531cacd95e4b9",
+      "capturedAt": "2026-10-12T18:14:03.560Z",
+      "contextDifferences": [
+        "Day selection only; no scheduler started."
+      ]
+    },
+    {
+      "state": "72-autopilot-webhook",
+      "reference": "72-autopilot-webhook",
+      "file": "72-autopilot-webhook.png",
+      "url": "http://127.0.0.1:1430/#/autopilots",
+      "sha256": "faaa21956b51f24e7c41788de8f5d03f9a0d254660ba797857b46109a56ea006",
+      "capturedAt": "2026-10-12T18:14:03.711Z",
+      "contextDifferences": [
+        "No webhook URL is fabricated or provisioned without a connected adapter."
+      ]
+    },
+    {
+      "state": "25-add-computer",
+      "reference": "25-add-computer",
+      "file": "25-add-computer.png",
+      "url": "http://127.0.0.1:1430/#/runtimes",
+      "sha256": "d8335617ba0a7fe4826e720a86440d3b374a12651e9c695a73f7a2d2801b8a90",
+      "capturedAt": "2026-10-12T18:14:03.899Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "73-skill-url-import",
+      "reference": "73-skill-url-import",
+      "file": "73-skill-url-import.png",
+      "url": "http://127.0.0.1:1430/#/skills",
+      "sha256": "8bd01b760f92a0fa6cf95879d50882c4d0e10f384a2e9307301e418dd8dd9381",
+      "capturedAt": "2026-10-12T18:14:04.138Z",
+      "contextDifferences": [
+        "Import adapter is unavailable; no external files or URLs were imported."
+      ]
+    },
+    {
+      "state": "74-skill-local-import",
+      "reference": "74-skill-local-import",
+      "file": "74-skill-local-import.png",
+      "url": "http://127.0.0.1:1430/#/skills",
+      "sha256": "bf2bf4fd22941ed61f7aefddc25aa5b50f458215f3f2f2b8d1293ddda22b2bcd",
+      "capturedAt": "2026-10-12T18:14:04.289Z",
+      "contextDifferences": [
+        "Import adapter is unavailable; no external files or URLs were imported."
+      ]
+    },
+    {
+      "state": "75-skill-runtime-import",
+      "reference": "75-skill-runtime-import",
+      "file": "75-skill-runtime-import.png",
+      "url": "http://127.0.0.1:1430/#/skills",
+      "sha256": "07ee483a04bd8a6d1a6731137b6295562888d9f760fa43b0bded7a824a43c4e5",
+      "capturedAt": "2026-10-12T18:14:04.436Z",
+      "contextDifferences": [
+        "Import adapter is unavailable; no external files or URLs were imported."
+      ]
+    },
+    {
+      "state": "02-display",
+      "reference": "02-display",
+      "file": "02-display.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "9f857ec43424497b727957ff415c039106d49b98f13c12a2437ebf493b908873",
+      "capturedAt": "2026-10-12T18:14:05.305Z",
+      "contextDifferences": [
+        "The board is empty because this context contains no tasks."
+      ]
+    },
+    {
+      "state": "31-task-filter",
+      "reference": "31-task-filter",
+      "file": "31-task-filter.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "e6145fd6a916b691447aa5c1faaf200016fc8b84138ee8eb228086d1b8a908c2",
+      "capturedAt": "2026-10-12T18:14:05.407Z",
+      "contextDifferences": [
+        "The board is empty because this context contains no tasks."
+      ]
+    },
+    {
+      "state": "32-status-filter",
+      "reference": "32-status-filter",
+      "file": "32-status-filter.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "b4841cd8faa17302e6259d315ec61e1f762dbd1cf1631ad260090e4066141557",
+      "capturedAt": "2026-10-12T18:14:05.525Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "33-views",
+      "reference": "33-views",
+      "file": "33-views.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "781d932bd2ee1724bb5d6432d8364dea8c54f0054a9aee3fd20f700f8fba7499",
+      "capturedAt": "2026-10-12T18:14:05.609Z",
+      "contextDifferences": [
+        "The board is empty because this context contains no tasks."
+      ]
+    },
+    {
+      "state": "34-new-view",
+      "reference": "34-new-view",
+      "file": "34-new-view.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "b9b5721c25e9518c905b897643a95805e06a654489cae01ac07f3ddb6ffd7e5a",
+      "capturedAt": "2026-10-12T18:14:05.764Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "57-board-layout-menu",
+      "reference": "57-board-layout-menu",
+      "file": "57-board-layout-menu.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "4337b909dc79bc426b906834eb4e5a6597d173e3bcac67500f2cd681f22b3e8f",
+      "capturedAt": "2026-10-12T18:14:05.896Z",
+      "contextDifferences": [
+        "The board is empty because this context contains no tasks."
+      ]
+    },
+    {
+      "state": "27-search",
+      "reference": "27-search",
+      "file": "27-search.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "36ab50180153294e227d865bb537ffd7366aead6073736519bcf6dd28f1fe226",
+      "capturedAt": "2026-10-12T18:14:06.014Z",
+      "contextDifferences": [
+        "No task results exist in this context."
+      ]
+    },
+    {
+      "state": "28-new-tab",
+      "reference": "28-new-tab",
+      "file": "28-new-tab.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "c33c912d4009f8b3a8063697d46db82e48bf8a56730b4d020095f39485a0a308",
+      "capturedAt": "2026-10-12T18:14:06.113Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "64-tab-context",
+      "reference": "64-tab-context",
+      "file": "64-tab-context.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "8f886888239a6835752ff374d577e18b4093a5c009d8463ac39348ad856ef867",
+      "capturedAt": "2026-10-12T18:14:06.206Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "29-sidebar-collapsed",
+      "reference": "29-sidebar-collapsed",
+      "file": "29-sidebar-collapsed.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "d6e12c3804bfc4e81ee5c2322c1873e6014151777115c457324d680fbb0f048f",
+      "capturedAt": "2026-10-12T18:14:06.290Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "53-help-menu",
+      "reference": "53-help-menu",
+      "file": "53-help-menu.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "708dc6c74b5983c3068eec0d7dbde5a9469b709e9f620ad985983979f2132894",
+      "capturedAt": "2026-10-12T18:14:06.403Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "54-workspace-menu",
+      "reference": "54-workspace-menu",
+      "file": "54-workspace-menu.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "75071fb6ed50b1e1d35f033f3f7fd0bad794ce274234a600ec4b476d83bdc77b",
+      "capturedAt": "2026-10-12T18:14:06.508Z",
+      "contextDifferences": [
+        "Local profile has no signed-in account identity."
+      ]
+    },
+    {
+      "state": "41-aristotle",
+      "reference": "41-aristotle",
+      "file": "41-aristotle.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "1e1b7c84843d82554e23070e0c916b80fce5376998b5a36cd0d0b479eccc3213",
+      "capturedAt": "2026-10-12T18:14:06.611Z",
+      "contextDifferences": [
+        "No running task or fabricated assistant transcript."
+      ]
+    },
+    {
+      "state": "26-task-detail",
+      "reference": "26-task-detail",
+      "file": "26-task-detail.png",
+      "url": "http://127.0.0.1:1430/#/tasks/aea96730-891a-4f25-8e50-9a061d2e905c",
+      "sha256": "85cda73172989d2507848cec4ae9eb295806646ef2877a85e7cb76c20d1d3e72",
+      "capturedAt": "2026-10-12T18:14:07.596Z",
+      "contextDifferences": [
+        "One disposable user-created local draft, Grounding, no execution transcript, costs, linked PRs or evidence."
+      ]
+    },
+    {
+      "state": "91-task-inspector-files",
+      "reference": "91-task-inspector-files",
+      "file": "91-task-inspector-files.png",
+      "url": "http://127.0.0.1:1430/#/tasks/aea96730-891a-4f25-8e50-9a061d2e905c",
+      "sha256": "007cf9c1e226c514ffea35cd7d3f5090688af7dee0223a554a3fdf90133e3218",
+      "capturedAt": "2026-10-12T18:14:07.696Z",
+      "contextDifferences": [
+        "No files, workspace provider, or execution artifacts available."
+      ]
+    },
+    {
+      "state": "92-task-inspector-notebook",
+      "reference": "92-task-inspector-notebook",
+      "file": "92-task-inspector-notebook.png",
+      "url": "http://127.0.0.1:1430/#/tasks/aea96730-891a-4f25-8e50-9a061d2e905c",
+      "sha256": "d633b6233e54f41302b956ffa61dbfe8783bd95d62ac9a7ca85133f58334e7d6",
+      "capturedAt": "2026-10-12T18:14:07.796Z",
+      "contextDifferences": [
+        "No cells or kernel; execution adapter absent."
+      ]
+    },
+    {
+      "state": "93-task-inspector-compute",
+      "reference": "93-task-inspector-compute",
+      "file": "93-task-inspector-compute.png",
+      "url": "http://127.0.0.1:1430/#/tasks/aea96730-891a-4f25-8e50-9a061d2e905c",
+      "sha256": "d0770ec425f269701f9696f60254a0ecd495fa43521f1569d1a9d7b72dd12398",
+      "capturedAt": "2026-10-12T18:14:07.916Z",
+      "contextDifferences": [
+        "No connected machine/environment."
+      ]
+    },
+    {
+      "state": "95-task-new-wakeup",
+      "reference": "95-task-new-wakeup",
+      "file": "95-task-new-wakeup.png",
+      "url": "http://127.0.0.1:1430/#/tasks/aea96730-891a-4f25-8e50-9a061d2e905c",
+      "sha256": "496882a68455e7aab7a1c07d8e0e69b377f453a46ed85a326f6a862c25a774c6",
+      "capturedAt": "2026-10-12T18:14:08.032Z",
+      "contextDifferences": [
+        "Configuration draft only; no wakeup activated."
+      ]
+    },
+    {
+      "state": "96-wakeup-conditions",
+      "reference": "96-wakeup-conditions",
+      "file": "96-wakeup-conditions.png",
+      "url": "http://127.0.0.1:1430/#/tasks/aea96730-891a-4f25-8e50-9a061d2e905c",
+      "sha256": "c046f38adfcc5f47ade2e58b99324a791c488b126a8880321ce1e6d4a24ac4a1",
+      "capturedAt": "2026-10-12T18:14:08.125Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "99-task-link-pr",
+      "reference": "99-task-link-pr",
+      "file": "99-task-link-pr.png",
+      "url": "http://127.0.0.1:1430/#/tasks/aea96730-891a-4f25-8e50-9a061d2e905c",
+      "sha256": "d01b68de6283ca55c30a929df0c92220f85abd9dbbda7def6fb89403ff22338f",
+      "capturedAt": "2026-10-12T18:14:08.233Z",
+      "contextDifferences": [
+        "Empty URL field; no reference PR metadata copied."
+      ]
+    },
+    {
+      "state": "97-task-run-timeline",
+      "reference": "97-task-run-timeline",
+      "file": "97-task-run-timeline.png",
+      "url": "http://127.0.0.1:1430/#/tasks/aea96730-891a-4f25-8e50-9a061d2e905c",
+      "sha256": "d154db88d7c9d9251c138169732159f20a4dd47451fdfcfdef1e343e70f90b13",
+      "capturedAt": "2026-10-12T18:14:08.352Z",
+      "contextDifferences": [
+        "Intentional empty timeline: no run receipts exist. Reference plotted values are not copied."
+      ]
+    },
+    {
+      "state": "101-create-subtask",
+      "reference": "101-create-subtask",
+      "file": "101-create-subtask.png",
+      "url": "http://127.0.0.1:1430/#/tasks/aea96730-891a-4f25-8e50-9a061d2e905c",
+      "sha256": "b6e7c624f73963ab6b0c494bfdc6d182dc6066302ad23593e7c76d4ba5383fdb",
+      "capturedAt": "2026-10-12T18:14:08.497Z",
+      "contextDifferences": [
+        "Parent points to the UI-created capture inquiry; no assignee inherited because none exists."
+      ]
+    },
+    {
+      "state": "90-task-context",
+      "reference": "90-task-context",
+      "file": "90-task-context.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "a43778559cf18b96f362b6fa1e8b45576a5479b77a4979e5e302af42482c52c6",
+      "capturedAt": "2026-10-12T18:14:08.726Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "113-pinned-task",
+      "reference": "113-pinned-task",
+      "file": "113-pinned-task.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "4a776e608ed99e9e1339cc2c09799a5d014e9b9d2edc0e71387c5fe51b0f1405",
+      "capturedAt": "2026-10-12T18:14:08.832Z",
+      "contextDifferences": [
+        "Only the local capture draft is pinned."
+      ]
+    },
+    {
+      "state": "58-task-table",
+      "reference": "58-task-table",
+      "file": "58-task-table.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "1dab231cebbf7ae725f62986f361af454199cfae17fa2fbb20a62b25aa187c3f",
+      "capturedAt": "2026-10-12T18:14:09.007Z",
+      "contextDifferences": [
+        "One UI-created unassigned draft in Grounding."
+      ]
+    },
+    {
+      "state": "59-table-columns",
+      "reference": "59-table-columns",
+      "file": "59-table-columns.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "7cafb37177a94ac777a068035d2ad3585625879c28e58de0382c364fb6ba8f95",
+      "capturedAt": "2026-10-12T18:14:09.111Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "60-table-group",
+      "reference": "60-table-group",
+      "file": "60-table-group.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "4e809d6f8215c4f4769dd581d97efad590abed8df7d4f52e2665b92656f0f081",
+      "capturedAt": "2026-10-12T18:14:09.212Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "61-table-display",
+      "reference": "61-table-display",
+      "file": "61-table-display.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "dd0edd616746283001befd07d11a0ca7a46f18d5e9ae4caa73613c9a3f7e5344",
+      "capturedAt": "2026-10-12T18:14:09.299Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "62-task-swimlane",
+      "reference": "62-task-swimlane",
+      "file": "62-task-swimlane.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "28f3aa8f2effe1eeaddcd6961dc73ecb855a7d9a7c1411f2ebc1544174854381",
+      "capturedAt": "2026-10-12T18:14:09.418Z",
+      "contextDifferences": [
+        "One UI-created unassigned draft in Grounding."
+      ]
+    },
+    {
+      "state": "63-swimlane-display",
+      "reference": "63-swimlane-display",
+      "file": "63-swimlane-display.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "8fee521a0d665a5d53b4cbae34c46f194e7820367d31c6ad65ca69b42b7765b9",
+      "capturedAt": "2026-10-12T18:14:09.526Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "43-agent-detail",
+      "reference": "43-agent-detail",
+      "file": "43-agent-detail.png",
+      "url": "http://127.0.0.1:1430/#/agents/a50535c5-bf17-4b52-8783-e845fb35e055",
+      "sha256": "b1483b8e69964a5c9f578326c055abf6751be10cc5327139a2627108c425accc",
+      "capturedAt": "2026-10-12T18:14:10.345Z",
+      "contextDifferences": [
+        "UI-created offline agent draft. No runtime, access grants, activity or runs are invented."
+      ]
+    },
+    {
+      "state": "81-agent-work",
+      "reference": "81-agent-work",
+      "file": "81-agent-work.png",
+      "url": "http://127.0.0.1:1430/#/agents/a50535c5-bf17-4b52-8783-e845fb35e055",
+      "sha256": "8e8ef9ef4cc25159eec6748e478084923008486b25796c0ce32ebb9b7cf99066",
+      "capturedAt": "2026-10-12T18:14:10.439Z",
+      "contextDifferences": [
+        "UI-created offline agent draft."
+      ]
+    },
+    {
+      "state": "82-agent-capabilities",
+      "reference": "82-agent-capabilities",
+      "file": "82-agent-capabilities.png",
+      "url": "http://127.0.0.1:1430/#/agents/a50535c5-bf17-4b52-8783-e845fb35e055",
+      "sha256": "37eba9c7fb78c89b58973efa8ea0ec04be9b5bdab42bf3bc5d2bc7db782ce90e",
+      "capturedAt": "2026-10-12T18:14:10.533Z",
+      "contextDifferences": [
+        "UI-created offline agent draft."
+      ]
+    },
+    {
+      "state": "83-agent-skills",
+      "reference": "83-agent-skills",
+      "file": "83-agent-skills.png",
+      "url": "http://127.0.0.1:1430/#/agents/a50535c5-bf17-4b52-8783-e845fb35e055",
+      "sha256": "0195e4d8563ee6e381e427747eed4be27c7e978f189edc932f7c939282558df5",
+      "capturedAt": "2026-10-12T18:14:10.639Z",
+      "contextDifferences": [
+        "No assigned skills or connectors."
+      ]
+    },
+    {
+      "state": "84-agent-connectors",
+      "reference": "84-agent-connectors",
+      "file": "84-agent-connectors.png",
+      "url": "http://127.0.0.1:1430/#/agents/a50535c5-bf17-4b52-8783-e845fb35e055",
+      "sha256": "f6c3dda7b213dffc5c3dde6124f0274a27bd2876f4eb6aae4bd0c6facb78ba75",
+      "capturedAt": "2026-10-12T18:14:10.738Z",
+      "contextDifferences": [
+        "No assigned skills or connectors."
+      ]
+    },
+    {
+      "state": "85-agent-settings-general",
+      "reference": "85-agent-settings-general",
+      "file": "85-agent-settings-general.png",
+      "url": "http://127.0.0.1:1430/#/agents/a50535c5-bf17-4b52-8783-e845fb35e055",
+      "sha256": "6c567fb19f5cd88f16a60c19229687c4d48c477ca15f20e19f12cef3da0dab0c",
+      "capturedAt": "2026-10-12T18:14:10.831Z",
+      "contextDifferences": [
+        "UI-created offline agent draft."
+      ]
+    },
+    {
+      "state": "86-agent-access",
+      "reference": "86-agent-access",
+      "file": "86-agent-access.png",
+      "url": "http://127.0.0.1:1430/#/agents/a50535c5-bf17-4b52-8783-e845fb35e055",
+      "sha256": "82ca8d38035b4ebe2a51cae028cb8a95e578e8d9966869cc03f5acb221787b02",
+      "capturedAt": "2026-10-12T18:14:10.916Z",
+      "contextDifferences": [
+        "No access grants, runtime environment, or process invocation created."
+      ]
+    },
+    {
+      "state": "87-agent-environment",
+      "reference": "87-agent-environment",
+      "file": "87-agent-environment.png",
+      "url": "http://127.0.0.1:1430/#/agents/a50535c5-bf17-4b52-8783-e845fb35e055",
+      "sha256": "250e5c4a7d0890f37f23c74bb91f18351b61ac1da4a63a349aeac5832cd9fd69",
+      "capturedAt": "2026-10-12T18:14:11.001Z",
+      "contextDifferences": [
+        "No access grants, runtime environment, or process invocation created."
+      ]
+    },
+    {
+      "state": "88-agent-custom-args",
+      "reference": "88-agent-custom-args",
+      "file": "88-agent-custom-args.png",
+      "url": "http://127.0.0.1:1430/#/agents/a50535c5-bf17-4b52-8783-e845fb35e055",
+      "sha256": "6736d71b03c9eec2901909647a3333d46fde95748cea56ea5657da24fdafd7b3",
+      "capturedAt": "2026-10-12T18:14:11.107Z",
+      "contextDifferences": [
+        "No access grants, runtime environment, or process invocation created."
+      ]
+    },
+    {
+      "state": "10-teams-created",
+      "reference": "10-teams",
+      "file": "10-teams-created.png",
+      "url": "http://127.0.0.1:1430/#/squads",
+      "sha256": "d1f85563bf730afd2a36a7ea9abd2fc04d03edde36d09d41da1d90aac7bbb7ef",
+      "capturedAt": "2026-10-12T18:14:11.331Z",
+      "contextDifferences": [
+        "One UI-created inert team draft. A distinct team detail route is not implemented; this capture records the available list."
+      ]
+    },
+    {
+      "state": "research-project-detail",
+      "reference": null,
+      "file": "research-project-detail.png",
+      "url": "http://127.0.0.1:1430/#/projects",
+      "sha256": "80fbf7ceab275373fcf75cc3b6c4f45199dead3781ad4753b999687ff6a6f125",
+      "capturedAt": "2026-10-12T18:14:11.640Z",
+      "contextDifferences": [
+        "UI-created empty research project. No corresponding populated reference project detail has been captured."
+      ]
+    },
+    {
+      "state": "102-new-label",
+      "reference": "102-new-label",
+      "file": "102-new-label.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=labels",
+      "sha256": "24c802338b41a04485c8c051b43c052e167016b2bd674ae8916e0c9bf23d2277",
+      "capturedAt": "2026-10-12T18:14:12.372Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "104-new-property",
+      "reference": "104-new-property",
+      "file": "104-new-property.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=properties",
+      "sha256": "7a3b09a5dd8230fa6ce8447908b5d4a56e2f8bbb2a235205a7c2a2f8a93115f4",
+      "capturedAt": "2026-10-12T18:14:12.589Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "50-theme-midnight",
+      "reference": "50-theme-midnight",
+      "file": "50-theme-midnight.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=preferences",
+      "sha256": "0f7ab13f7ae92c07705bb1a03c122eafaa0aa05012927be6edc5a3a6a0609ba9",
+      "capturedAt": "2026-10-12T18:14:12.788Z",
+      "contextDifferences": [
+        "Local appearance preference only; isolated context discarded after capture."
+      ]
+    },
+    {
+      "state": "51-theme-dawn",
+      "reference": "51-theme-dawn",
+      "file": "51-theme-dawn.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=preferences",
+      "sha256": "2129139c2c3d55794a4660c274b032a27437cb1afc54b0778d346213f757f709",
+      "capturedAt": "2026-10-12T18:14:12.909Z",
+      "contextDifferences": [
+        "Local appearance preference only; isolated context discarded after capture."
+      ]
+    },
+    {
+      "state": "52-theme-pale",
+      "reference": "52-theme-pale",
+      "file": "52-theme-pale.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=preferences",
+      "sha256": "68ce270a0c31200ec6c469fae3461dbace6913cda07c06f36a8c608748958464",
+      "capturedAt": "2026-10-12T18:14:13.014Z",
+      "contextDifferences": [
+        "Local appearance preference only; isolated context discarded after capture."
+      ]
+    },
+    {
+      "state": "46-agent-suggestion",
+      "reference": "46-agent-suggestion",
+      "file": "46-agent-suggestion.png",
+      "url": "http://127.0.0.1:1430/#/agents/new/manual",
+      "sha256": "824da9a26ac3ff0154978a933b9d5b31ad7b20da0334cc4aedcdf904f93fd2ed",
+      "capturedAt": "2026-10-12T18:14:13.756Z",
+      "contextDifferences": [
+        "An empty unsaved suggestion; no source-account content."
+      ]
+    },
+    {
+      "state": "47-model-picker",
+      "reference": "47-model-picker",
+      "file": "47-model-picker.png",
+      "url": "http://127.0.0.1:1430/#/agents/new/manual",
+      "sha256": "b1eaf4c22141a1accb78114f4fb2222986663e6b79db91bcd7d95b01aac3c690",
+      "capturedAt": "2026-10-12T18:14:13.890Z",
+      "contextDifferences": [
+        "No runtime-supplied model catalog; provider default remains available."
+      ]
+    },
+    {
+      "state": "118-thinking-levels",
+      "reference": "118-thinking-levels",
+      "file": "118-thinking-levels.png",
+      "url": "http://127.0.0.1:1430/#/agents/new/manual",
+      "sha256": "6169eaff22510e2ee551c9e5af3d717289c2149e7f34d37cfd9d946e5217920d",
+      "capturedAt": "2026-10-12T18:14:13.985Z",
+      "contextDifferences": [
+        "Configuration choices only; no model or run is active."
+      ]
+    },
+    {
+      "state": "116-agent-avatar-picker",
+      "reference": "116-agent-avatar-picker",
+      "file": "116-agent-avatar-picker.png",
+      "url": "http://127.0.0.1:1430/#/agents/new/manual",
+      "sha256": "67a0bcee51f9ba039e9e6dfc54620de86ccaec21a8d11c417038501be199c355",
+      "capturedAt": "2026-10-12T18:14:14.102Z",
+      "contextDifferences": [
+        "Default icon; no user avatar or uploaded image copied."
+      ]
+    },
+    {
+      "state": "117-agent-emoji-browser",
+      "reference": "117-agent-emoji-browser",
+      "file": "117-agent-emoji-browser.png",
+      "url": "http://127.0.0.1:1430/#/agents/new/manual",
+      "sha256": "8ed885a2277533108d5cc1f0803d1ffd50d24a92883a0984de93f0f3d1efa182",
+      "capturedAt": "2026-10-12T18:14:14.226Z",
+      "contextDifferences": [
+        "Emoji history is the independent picker default, not the reference user history."
+      ]
+    },
+    {
+      "state": "89-agent-actions",
+      "reference": "89-agent-actions",
+      "file": "89-agent-actions.png",
+      "url": "http://127.0.0.1:1430/#/agents/902103ba-ab13-4a1d-9911-231d05caac0c",
+      "sha256": "9a6c331b8a61a52a29993ee270cad6601c51b1745e8d62c978be73a74a53f364",
+      "capturedAt": "2026-10-12T18:14:14.497Z",
+      "contextDifferences": [
+        "A UI-created offline configuration; actions requiring execution remain unavailable."
+      ]
+    },
+    {
+      "state": "94-task-add-property",
+      "reference": "94-task-add-property",
+      "file": "94-task-add-property.png",
+      "url": "http://127.0.0.1:1430/#/tasks/f8c1987f-5de9-401c-8e68-31a9dfa229cc",
+      "sha256": "db7be6ebe347193800a01c136a922c5429c439e1be5a123b981199bfddb09c90",
+      "capturedAt": "2026-10-12T18:14:15.404Z",
+      "contextDifferences": [
+        "The task is a local manual draft; no scientific result exists."
+      ]
+    },
+    {
+      "state": "100-task-pr-automation",
+      "reference": "100-task-pr-automation",
+      "file": "100-task-pr-automation.png",
+      "url": "http://127.0.0.1:1430/#/tasks/f8c1987f-5de9-401c-8e68-31a9dfa229cc",
+      "sha256": "0e2b6c3842eca61bb28d2b5033ad54fdbe426b942410934f883bcbf2558e09de",
+      "capturedAt": "2026-10-12T18:14:15.530Z",
+      "contextDifferences": [
+        "No PR provider or merge automation; scientific gates remain required."
+      ]
+    },
+    {
+      "state": "69-wakeup-task-picker",
+      "reference": "69-wakeup-task-picker",
+      "file": "69-wakeup-task-picker.png",
+      "url": "http://127.0.0.1:1430/#/autopilots",
+      "sha256": "a07f93c888608ac91e69eefe72f1654f87788f5ea0ef5b9def5462d15bfc6823",
+      "capturedAt": "2026-10-12T18:14:15.738Z",
+      "contextDifferences": [
+        "Blank search; only the disposable capture inquiry is eligible locally. No wakeup created."
+      ]
+    },
+    {
+      "state": "107-column-add-task",
+      "reference": "107-column-add-task",
+      "file": "107-column-add-task.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "b7904be21fa187dc8309f0051c85adceb13e055ca9cb20b69f382ed9aa38a160",
+      "capturedAt": "2026-10-12T18:14:16.559Z",
+      "contextDifferences": [
+        "Manual composer opened from Grounding; no automatic stage advancement."
+      ]
+    },
+    {
+      "state": "108-create-more-options",
+      "reference": "108-create-more-options",
+      "file": "108-create-more-options.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "2f6cbbd2c70c928d9e2137d6c1b03f1b467949ddddf3bde49a008461c1a2f0a1",
+      "capturedAt": "2026-10-12T18:14:16.684Z",
+      "contextDifferences": []
+    },
+    {
+      "state": "109-create-due-date",
+      "reference": "109-create-due-date",
+      "file": "109-create-due-date.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "4971de2a33ea800daf58b948a151734aaa69c21b53ab6d02fe81819f07255a04",
+      "capturedAt": "2026-10-12T18:14:16.805Z",
+      "contextDifferences": [
+        "Calendar uses capture date; no deadline saved."
+      ]
+    },
+    {
+      "state": "114-create-parent-picker",
+      "reference": "114-create-parent-picker",
+      "file": "114-create-parent-picker.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "ca449647090fce3ea105f484f1ced39a9807c03f7e535e41ba639b8c836ebf07",
+      "capturedAt": "2026-10-12T18:14:16.942Z",
+      "contextDifferences": [
+        "Search starts blank; no parent relation saved."
+      ]
+    },
+    {
+      "state": "115-create-subtask-picker",
+      "reference": "115-create-subtask-picker",
+      "file": "115-create-subtask-picker.png",
+      "url": "http://127.0.0.1:1430/#/tasks",
+      "sha256": "ca449647090fce3ea105f484f1ced39a9807c03f7e535e41ba639b8c836ebf07",
+      "capturedAt": "2026-10-12T18:14:17.103Z",
+      "contextDifferences": [
+        "Search starts blank. Attaching existing children requires the relationship adapter; no attachment is performed."
+      ]
+    },
+    {
+      "state": "49-token-expiry",
+      "reference": "49-token-expiry",
+      "file": "49-token-expiry.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=tokens",
+      "sha256": "08c000562a787d7fcebcd59bb4511b1f7d9d8f646bf27d8e7bdaaf7c311e1299",
+      "capturedAt": "2026-10-12T18:14:17.849Z",
+      "contextDifferences": [
+        "No token records copied; issuance unavailable without the token service."
+      ]
+    },
+    {
+      "state": "103-label-color",
+      "reference": "103-label-color",
+      "file": "103-label-color.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=labels",
+      "sha256": "b6619512faa2cf343d5308614d159a2b2bef991ff9d80ec234580b5d1a564d45",
+      "capturedAt": "2026-10-12T18:14:18.067Z",
+      "contextDifferences": [
+        "Unsaved new label, independent default color."
+      ]
+    },
+    {
+      "state": "105-property-types",
+      "reference": "105-property-types",
+      "file": "105-property-types.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=properties",
+      "sha256": "a06aa97d8dc75a0fcaa3b43c87b0bb16ebde818159fb8fc2468190ca3a6c4a01",
+      "capturedAt": "2026-10-12T18:14:18.313Z",
+      "contextDifferences": [
+        "Custom property type popup; draft not saved."
+      ]
+    },
+    {
+      "state": "110-create-field-preferences",
+      "reference": "110-create-field-preferences",
+      "file": "110-create-field-preferences.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=preferences",
+      "sha256": "8475e4e3df37bb3772bc0c0d83a6126c7abadde697ddd070b82d18d6e9891eb7",
+      "capturedAt": "2026-10-12T18:14:18.503Z",
+      "contextDifferences": [
+        "First-install field choices; no reference preferences copied."
+      ]
+    },
+    {
+      "state": "111-reply-mode-options",
+      "reference": "111-reply-mode-options",
+      "file": "111-reply-mode-options.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=preferences",
+      "sha256": "1d3c2418a13c25090867eb4e82e282d307a7172098083847c23083ee9c13370a",
+      "capturedAt": "2026-10-12T18:14:18.586Z",
+      "contextDifferences": [
+        "Custom reply menu; no running agent exists."
+      ]
+    },
+    {
+      "state": "112-timezone-picker",
+      "reference": "112-timezone-picker",
+      "file": "112-timezone-picker.png",
+      "url": "http://127.0.0.1:1430/#/settings?tab=preferences",
+      "sha256": "65b2fb9ec23c04161bcdf1f2b04e45643248504009ce4a5766b873763509154b",
+      "capturedAt": "2026-10-12T18:14:18.734Z",
+      "contextDifferences": [
+        "Capture environment uses Europe/Copenhagen; no user timezone setting copied."
+      ]
+    }
+  ]
+}

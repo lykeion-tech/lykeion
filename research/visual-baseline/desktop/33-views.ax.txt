@@ -1,0 +1,94 @@
+Window: "Tasks", App: Lykeion.
+0 standard window Tasks, Secondary Actions: Raise
+	1 container Tasks
+		2 container
+			3 HTML content Tasks, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 pop up button L Lab
+					10 content list
+						11 button Search...
+						12 button New
+					13 content list
+						14 link Description: Inbox, Value: localhost:3000/lab/inbox
+						15 link Description: Copilot, Value: localhost:3000/lab/chat
+					16 container
+						17 text Laboratory
+						18 content list
+							19 link Description: Tasks, Value: localhost:3000/lab/tasks
+							20 link Description: Researches, Value: localhost:3000/lab/projects
+							21 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							22 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					23 container
+						24 text Configure
+						25 content list
+							26 link Description: Agents, Value: localhost:3000/lab/agents
+							27 link Description: Teams, Value: localhost:3000/lab/squads
+							28 link Description: Skills, Value: localhost:3000/lab/skills
+							29 link Description: Connectors, Value: localhost:3000/lab/connectors
+							30 link Description: Machines, Value: localhost:3000/lab/runtimes
+					31 content list
+						32 link Description: Updates, Value: localhost:3000/lab/updates
+						33 link Description: Settings, Value: localhost:3000/lab/settings
+					34 pop up button Help
+					35 button Toggle left sidebar
+					36 container
+						37 sortable Tasks
+						38 button New tab
+					39 heading Tasks, Value: 1
+						40 text Tasks
+					41 container
+						42 button All
+						43 button Members
+						44 button Agents
+						45 pop up button Views
+						46 menu Views, Secondary Actions: Cancel
+							47 New view
+							48 Manage views
+					49 toggle button Description: 0 agents working, Value: 0
+					50 pop up button Filter
+					51 pop up button Display
+					52 pop up button Board
+					53 container
+						54 image
+						55 text Grounding 0
+						56 button
+						57 text No tasks
+						58 image
+						59 text Hypotheses 0
+						60 button
+						61 text No tasks
+						62 image
+						63 text Experimentation 0
+						64 button
+						65 text No tasks
+						66 image
+						67 text Validation 0
+						68 button
+						69 text No tasks
+						70 image
+						71 text Blocked 1
+						72 button
+						73 sortable LAB-2 Testing Literature Review & Gap Analyst Literature Review & Gap Analyst Updated 5h ago
+							74 link Description: LAB-2 Testing Literature Review & Gap Analyst Literature Review & Gap Analyst Updated 5h ago, Value: localhost:3000/lab/tasks/01a12ff7-766b-7eb9-80dd-47111c1ea7f2
+						75 image
+						76 text Reporting 0
+						77 button
+						78 text No tasks
+					79 button Open Aristotle
+					80 container Notifications alt+T
+	81 close button
+	82 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	83 minimize button
+84 menu bar
+	85 Lykeion
+	86 File
+	87 Edit
+	88 View
+	89 Window
+	90 Help
+
+The focused UI element is 46 menu Views, Secondary Actions: Cancel

@@ -1,0 +1,101 @@
+Window: "Literature Review & Gap Analyst", App: Lykeion.
+0 standard window Literature Review & Gap Analyst, Secondary Actions: Raise
+	1 container Literature Review & Gap Analyst
+		2 container
+			3 HTML content Literature Review & Gap Analyst, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 pop up button L Lab
+					10 content list
+						11 button Search...
+						12 button New
+					13 content list
+						14 link Description: Inbox, Value: localhost:3000/lab/inbox
+						15 link Description: Copilot, Value: localhost:3000/lab/chat
+					16 container
+						17 text Laboratory
+						18 content list
+							19 link Description: Tasks, Value: localhost:3000/lab/tasks
+							20 link Description: Researches, Value: localhost:3000/lab/projects
+							21 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							22 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					23 container
+						24 text Configure
+						25 content list
+							26 link Description: Agents, Value: localhost:3000/lab/agents
+							27 link Description: Teams, Value: localhost:3000/lab/squads
+							28 link Description: Skills, Value: localhost:3000/lab/skills
+							29 link Description: Connectors, Value: localhost:3000/lab/connectors
+							30 link Description: Machines, Value: localhost:3000/lab/runtimes
+					31 content list
+						32 link Description: Updates, Value: localhost:3000/lab/updates
+						33 link Description: Settings, Value: localhost:3000/lab/settings
+					34 pop up button Help
+					35 button Toggle left sidebar
+					36 container
+						37 sortable Literature Review & Gap Analyst
+							38 image Literature Review & Gap Analyst
+							39 text Literature Review & Gap Analyst
+						40 button New tab
+					41 container
+						42 link Description: Agents, Value: localhost:3000/lab/agents
+						43 text Literature Review & Gap Analyst
+						44 image Literature Review & Gap Analyst
+						45 heading Literature Review & Gap Analyst, Value: 1
+							46 text Literature Review & Gap Analyst
+						47 text Online · Idle Conducts traceable literature reviews, synthesizes evidence, and identifies research gaps framed as testable, falsifiable research questions. claude-opus-5-5 Claude (Mac)
+						48 container Personal · only the owner and people they allow can run this agent
+							49 text Personal
+						50 text Updated 4h ago
+						51 button DM
+						52 button Assign work
+						53 pop up button Agent actions
+					54 tab group Agent page
+						55 tab (settable, integer) Overview, Value: 0
+						56 tab (settable, integer) Work, Value: 0
+						57 tab (selected) Capabilities, Value: 1
+						58 tab (settable, integer) Settings, Value: 0
+					59 tab group Agent section
+						60 tab (settable, integer) Instructions, Value: 0
+						61 tab (settable, integer) Skills, Value: 0
+						62 tab (selected) Connectors, Value: 1
+					63 container
+						64 heading Connectors, Value: 2
+							65 text Connectors
+						66 heading Managed by Lykeion, Value: 3
+							67 text Managed by Lykeion
+						68 button Add connector
+						69 text No connectors are managed by Lykeion yet.
+						70 heading From the workspace library, Value: 3
+							71 text From the workspace library
+						72 text This workspace has no connectors to assign yet. Add them in workspace Settings → Connectors.
+						73 heading Inherited from Claude (Mac), Value: 3
+							74 text Inherited from Claude (Mac)
+						75 button Refresh
+						76 content list
+							77 container
+								78 image STDIO
+								79 text codegraph STDIO User config
+							80 container
+								81 image STDIO
+								82 text gsd STDIO User config
+							83 container
+								84 image Streamable HTTP
+								85 text railway Streamable HTTP User config
+					86 button Open Aristotle
+					87 container Notifications alt+T
+	88 close button
+	89 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	90 minimize button
+91 menu bar
+	92 Lykeion
+	93 File
+	94 Edit
+	95 View
+	96 Window
+	97 Help
+
+The focused UI element is 62 tab (selected) Connectors, Value: 1

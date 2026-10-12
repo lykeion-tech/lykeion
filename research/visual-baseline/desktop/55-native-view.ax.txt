@@ -1,0 +1,10 @@
+Window: "Tasks", App: Lykeion.
+0 View, Secondary Actions: Cancel, Pick
+	1 menu Secondary Actions: Cancel
+		2 Reload, ID: itemSelected:
+		3 Force Reload, ID: itemSelected:
+		4 Toggle Developer Tools, ID: itemSelected:
+		5 Actual Size, ID: itemSelected:
+		6 Zoom In, ID: itemSelected:
+		7 Zoom Out, ID: itemSelected:
+		8 Toggle Full Screen, ID: toggleFullScreenMode:

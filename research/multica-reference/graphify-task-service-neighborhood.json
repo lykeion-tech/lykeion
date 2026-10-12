@@ -1,0 +1,2617 @@
+{
+  "description": "Graphify AST metadata only: TaskService direct neighborhood, no upstream implementation text. Edges are source relations, not verified runtime guarantees.",
+  "nodes": [
+    {
+      "id": "server_linkedissueautopilotfixture",
+      "label": "linkedIssueAutopilotFixture",
+      "source_file": "server/cmd/server/autopilot_listeners_test.go",
+      "source_location": "L150"
+    },
+    {
+      "id": "server_cmd_server_main_backgroundservices",
+      "label": "backgroundServices()",
+      "source_file": "server/cmd/server/main.go",
+      "source_location": "L293"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_taskservicemetrics",
+      "label": "taskServiceMetrics()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L124"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_runruntimesweeper",
+      "label": "runRuntimeSweeper()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L163"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_rundelegatedfailurerecoverysweeper",
+      "label": "runDelegatedFailureRecoverySweeper()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L176"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_sweeppendingdelegatedfailurerecoveries",
+      "label": "sweepPendingDelegatedFailureRecoveries()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L192"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_sweepstaleruntimes",
+      "label": "sweepStaleRuntimes()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L221"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_sweepofflineruntimetasks",
+      "label": "sweepOfflineRuntimeTasks()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L304"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_sweepexpiredruntimereconnectretries",
+      "label": "sweepExpiredRuntimeReconnectRetries()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L332"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_sweepstaletasks",
+      "label": "sweepStaleTasks()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L593"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_sweepexpiredqueuedtasks",
+      "label": "sweepExpiredQueuedTasks()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L630"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_sweepdeferredchatfinalizations",
+      "label": "sweepDeferredChatFinalizations()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L661"
+    },
+    {
+      "id": "server_cmd_server_runtime_sweeper_broadcastfailedtasks",
+      "label": "broadcastFailedTasks()",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L692"
+    },
+    {
+      "id": "server_internal_analytics_client_go_analytics_client",
+      "label": "Client",
+      "source_file": "server/internal/analytics/client.go",
+      "source_location": "L60"
+    },
+    {
+      "id": "server_internal_entitlement_types_go_entitlement_provider",
+      "label": "Provider",
+      "source_file": "server/internal/entitlement/types.go",
+      "source_location": "L82"
+    },
+    {
+      "id": "server_internal_events_bus_go_events_bus",
+      "label": "Bus",
+      "source_file": "server/internal/events/bus.go",
+      "source_location": "L37"
+    },
+    {
+      "id": "server_internal_handler_handler_go_handler_handler",
+      "label": "Handler",
+      "source_file": "server/internal/handler/handler.go",
+      "source_location": "L203"
+    },
+    {
+      "id": "server_internal_metrics_business_go_metrics_businessmetrics",
+      "label": "BusinessMetrics",
+      "source_file": "server/internal/metrics/business.go",
+      "source_location": "L37"
+    },
+    {
+      "id": "server_internal_realtime_hub_go_realtime_hub",
+      "label": "Hub",
+      "source_file": "server/internal/realtime/hub.go",
+      "source_location": "L283"
+    },
+    {
+      "id": "service_chatquickactionsllm",
+      "label": "ChatQuickActionsLLM",
+      "source_file": "server/internal/service/chat_quick_actions_generate.go",
+      "source_location": "L88"
+    },
+    {
+      "id": "service_emptyclaimcache",
+      "label": "EmptyClaimCache",
+      "source_file": "server/internal/service/empty_claim_cache.go",
+      "source_location": "L71"
+    },
+    {
+      "id": "service_reclaimcheckcache",
+      "label": "ReclaimCheckCache",
+      "source_file": "server/internal/service/reclaim_check_cache.go",
+      "source_location": "L67"
+    },
+    {
+      "id": "server_internal_service_task",
+      "label": "task.go",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1"
+    },
+    {
+      "id": "server_internal_service_task_go_service_taskservice",
+      "label": "TaskService",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L39"
+    },
+    {
+      "id": "server_internal_service_task_go_txstarter",
+      "label": "TxStarter",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "service_sourcecontextobjectstore",
+      "label": "SourceContextObjectStore",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L95"
+    },
+    {
+      "id": "service_composiooverlaybuilder",
+      "label": "ComposioOverlayBuilder",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L117"
+    },
+    {
+      "id": "server_internal_service_task_go_service_taskwakeupnotifier",
+      "label": "TaskWakeupNotifier",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L121"
+    },
+    {
+      "id": "service_taskservice_tracktaskforreclaim",
+      "label": ".trackTaskForReclaim()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L200"
+    },
+    {
+      "id": "service_taskservice_extendtaskreclaimhint",
+      "label": ".extendTaskReclaimHint()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L218"
+    },
+    {
+      "id": "service_taskservice_forgettaskreclaim",
+      "label": ".forgetTaskReclaim()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L233"
+    },
+    {
+      "id": "service_taskservice_buildcommenttriggersummary_a73e0f",
+      "label": ".buildCommentTriggerSummary()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L255"
+    },
+    {
+      "id": "service_taskservice_resolveoriginatorfromtriggercomment",
+      "label": ".ResolveOriginatorFromTriggerComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L278"
+    },
+    {
+      "id": "service_taskservice_attributionformergedcomment",
+      "label": ".AttributionForMergedComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L299"
+    },
+    {
+      "id": "service_taskservice_buildcommenttriggersummary",
+      "label": ".BuildCommentTriggerSummary()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L311"
+    },
+    {
+      "id": "service_taskservice_buildruntimemcpoverlayformerge",
+      "label": ".BuildRuntimeMCPOverlayForMerge()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L323"
+    },
+    {
+      "id": "server_internal_service_task_newtaskservice",
+      "label": "NewTaskService()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L328"
+    },
+    {
+      "id": "service_taskservice_capturetaskqueued",
+      "label": ".captureTaskQueued()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L356"
+    },
+    {
+      "id": "service_taskservice_buildruntimemcpoverlay",
+      "label": ".buildRuntimeMCPOverlay()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L371"
+    },
+    {
+      "id": "service_taskservice_resolveoriginatorfromtriggercomment_fe028e",
+      "label": ".resolveOriginatorFromTriggerComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L429"
+    },
+    {
+      "id": "service_taskservice_attributionfromtriggercomment",
+      "label": ".attributionFromTriggerComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L448"
+    },
+    {
+      "id": "service_taskservice_attributionfromcomment",
+      "label": ".attributionFromComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L466"
+    },
+    {
+      "id": "service_taskservice_resolveoriginatorforissuetask",
+      "label": ".resolveOriginatorForIssueTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L494"
+    },
+    {
+      "id": "service_taskservice_attributionforissuetask",
+      "label": ".attributionForIssueTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L506"
+    },
+    {
+      "id": "service_taskservice_applyattributionfallback",
+      "label": ".applyAttributionFallback()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L780"
+    },
+    {
+      "id": "service_taskservice_originatorforissuetask",
+      "label": ".OriginatorForIssueTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L823"
+    },
+    {
+      "id": "service_taskservice_capturetaskdispatched",
+      "label": ".captureTaskDispatched()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L827"
+    },
+    {
+      "id": "service_taskservice_analyticscontextfortask",
+      "label": ".AnalyticsContextForTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L834"
+    },
+    {
+      "id": "service_taskservice_capturetaskstarted",
+      "label": ".captureTaskStarted()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L838"
+    },
+    {
+      "id": "service_taskservice_capturetaskcompleted",
+      "label": ".captureTaskCompleted()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L845"
+    },
+    {
+      "id": "service_taskservice_capturetaskfailed",
+      "label": ".captureTaskFailed()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L852"
+    },
+    {
+      "id": "service_taskservice_capturetaskcancelled",
+      "label": ".captureTaskCancelled()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L861"
+    },
+    {
+      "id": "service_taskservice_capturetaskusage",
+      "label": ".CaptureTaskUsage()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L880"
+    },
+    {
+      "id": "service_taskservice_capturequeuedexpiredtasks",
+      "label": ".CaptureQueuedExpiredTasks()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L888"
+    },
+    {
+      "id": "service_taskservice_captureleaseexpiredtasks",
+      "label": ".CaptureLeaseExpiredTasks()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L898"
+    },
+    {
+      "id": "service_taskservice_cachedtaskanalyticscontext",
+      "label": ".cachedTaskAnalyticsContext()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L908"
+    },
+    {
+      "id": "service_taskservice_storetaskanalyticscontext",
+      "label": ".storeTaskAnalyticsContext()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L922"
+    },
+    {
+      "id": "service_taskservice_taskmetricscontext",
+      "label": ".taskMetricsContext()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L960"
+    },
+    {
+      "id": "service_taskservice_taskanalyticscontext",
+      "label": ".taskAnalyticsContext()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L984"
+    },
+    {
+      "id": "service_taskservice_enqueuetaskforissue",
+      "label": ".EnqueueTaskForIssue()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1127"
+    },
+    {
+      "id": "service_taskservice_enqueuedeferredchannelissuetask",
+      "label": ".EnqueueDeferredChannelIssueTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1139"
+    },
+    {
+      "id": "service_taskservice_createdeferredchannelissuetaskwithqueries",
+      "label": ".createDeferredChannelIssueTaskWithQueries()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1156"
+    },
+    {
+      "id": "service_taskservice_hydratedeferredchannelissuetaskoverlay",
+      "label": ".hydrateDeferredChannelIssueTaskOverlay()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1165"
+    },
+    {
+      "id": "service_taskservice_enqueuetaskforissuebyactor",
+      "label": ".EnqueueTaskForIssueByActor()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1197"
+    },
+    {
+      "id": "service_taskservice_enqueuetaskforissuewithhandoff",
+      "label": ".EnqueueTaskForIssueWithHandoff()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1205"
+    },
+    {
+      "id": "service_taskservice_resolveissuereviewsha",
+      "label": ".ResolveIssueReviewSHA()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1225"
+    },
+    {
+      "id": "service_taskservice_resolveissuereviewshaparam",
+      "label": ".ResolveIssueReviewSHAParam()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1250"
+    },
+    {
+      "id": "service_taskservice_enqueueissuetask",
+      "label": ".enqueueIssueTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1254"
+    },
+    {
+      "id": "service_taskservice_enqueueissuetaskwithcommentplan",
+      "label": ".enqueueIssueTaskWithCommentPlan()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1258"
+    },
+    {
+      "id": "service_taskservice_enqueuetaskformention",
+      "label": ".EnqueueTaskForMention()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1391"
+    },
+    {
+      "id": "service_taskservice_enqueuetaskforthreadparent",
+      "label": ".EnqueueTaskForThreadParent()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1397"
+    },
+    {
+      "id": "service_taskservice_enqueuetaskforsquadleader",
+      "label": ".EnqueueTaskForSquadLeader()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1413"
+    },
+    {
+      "id": "service_taskservice_enqueuetaskforsquadleaderbyactor",
+      "label": ".EnqueueTaskForSquadLeaderByActor()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1421"
+    },
+    {
+      "id": "service_taskservice_enqueuetaskforsquadleaderwithhandoff",
+      "label": ".EnqueueTaskForSquadLeaderWithHandoff()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1427"
+    },
+    {
+      "id": "service_taskservice_enqueuementiontask",
+      "label": ".enqueueMentionTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1431"
+    },
+    {
+      "id": "service_taskservice_enqueuementiontaskwithcommentplan",
+      "label": ".enqueueMentionTaskWithCommentPlan()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1435"
+    },
+    {
+      "id": "service_taskservice_enqueuequickcreatetask",
+      "label": ".EnqueueQuickCreateTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1576"
+    },
+    {
+      "id": "service_taskservice_enqueuequickcreatetaskwithsourcecontext",
+      "label": ".EnqueueQuickCreateTaskWithSourceContext()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1580"
+    },
+    {
+      "id": "service_taskservice_enqueuequickcreatetask_9759e8",
+      "label": ".enqueueQuickCreateTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1584"
+    },
+    {
+      "id": "service_taskservice_retrysourcecontextquickcreate",
+      "label": ".RetrySourceContextQuickCreate()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1736"
+    },
+    {
+      "id": "service_taskservice_membermayinvokeagent",
+      "label": ".MemberMayInvokeAgent()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1865"
+    },
+    {
+      "id": "service_taskservice_preparechattaskenqueue",
+      "label": ".PrepareChatTaskEnqueue()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1879"
+    },
+    {
+      "id": "service_taskservice_enqueuechattask",
+      "label": ".EnqueueChatTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1915"
+    },
+    {
+      "id": "service_taskservice_enqueuechannelchattask",
+      "label": ".EnqueueChannelChatTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1929"
+    },
+    {
+      "id": "service_taskservice_enqueuechattask_dd1ea6",
+      "label": ".enqueueChatTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1947"
+    },
+    {
+      "id": "service_taskservice_enqueuepreparedchannelchattaskintx",
+      "label": ".EnqueuePreparedChannelChatTaskInTx()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1987"
+    },
+    {
+      "id": "service_taskservice_enqueuechattasktx",
+      "label": ".enqueueChatTaskTx()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2005"
+    },
+    {
+      "id": "service_taskservice_finalizechattaskenqueue",
+      "label": ".FinalizeChatTaskEnqueue()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2160"
+    },
+    {
+      "id": "service_taskservice_regeneratechatquickactions",
+      "label": ".RegenerateChatQuickActions()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2198"
+    },
+    {
+      "id": "service_taskservice_promotechannelchattasksifmediaready",
+      "label": ".PromoteChannelChatTasksIfMediaReady()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2264"
+    },
+    {
+      "id": "service_taskservice_promotedeferredchannelissuetask",
+      "label": ".PromoteDeferredChannelIssueTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2284"
+    },
+    {
+      "id": "service_taskservice_senddirectchatmessage",
+      "label": ".SendDirectChatMessage()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2326"
+    },
+    {
+      "id": "service_taskservice_openmikaonboardingchat",
+      "label": ".OpenMikaOnboardingChat()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2548"
+    },
+    {
+      "id": "service_taskservice_canceltasksforissue",
+      "label": ".CancelTasksForIssue()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2626"
+    },
+    {
+      "id": "service_taskservice_canceltasksforagent",
+      "label": ".CancelTasksForAgent()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2682"
+    },
+    {
+      "id": "service_taskservice_canceltasksbytriggercomment",
+      "label": ".CancelTasksByTriggerComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2710"
+    },
+    {
+      "id": "service_taskservice_broadcastcancelledtasks",
+      "label": ".BroadcastCancelledTasks()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2755"
+    },
+    {
+      "id": "service_taskservice_broadcasttaskqueued",
+      "label": ".BroadcastTaskQueued()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2771"
+    },
+    {
+      "id": "service_taskservice_capturecancelledtasks",
+      "label": ".CaptureCancelledTasks()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2780"
+    },
+    {
+      "id": "service_taskservice_canceltask",
+      "label": ".CancelTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2846"
+    },
+    {
+      "id": "service_taskservice_canceltaskbyuser",
+      "label": ".CancelTaskByUser()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2863"
+    },
+    {
+      "id": "service_taskservice_canceltaskwithreason",
+      "label": ".CancelTaskWithReason()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2881"
+    },
+    {
+      "id": "service_taskservice_canceltaskwithresult",
+      "label": ".CancelTaskWithResult()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2895"
+    },
+    {
+      "id": "service_taskservice_cancelqueuedchattasks",
+      "label": ".CancelQueuedChatTasks()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3023"
+    },
+    {
+      "id": "service_taskservice_settlequeuedchatinput",
+      "label": ".settleQueuedChatInput()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3130"
+    },
+    {
+      "id": "service_taskservice_finalizecancelledchatmessage",
+      "label": ".finalizeCancelledChatMessage()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3212"
+    },
+    {
+      "id": "service_taskservice_rebroadcastcancelledtask",
+      "label": ".RebroadcastCancelledTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3328"
+    },
+    {
+      "id": "service_taskservice_finalizedeferredcancelledchat",
+      "label": ".FinalizeDeferredCancelledChat()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3343"
+    },
+    {
+      "id": "service_taskservice_broadcastchatcancelfinalized",
+      "label": ".broadcastChatCancelFinalized()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3487"
+    },
+    {
+      "id": "service_taskservice_claimtask",
+      "label": ".ClaimTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3504"
+    },
+    {
+      "id": "service_taskservice_claimtask_3e5b2f",
+      "label": ".claimTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3513"
+    },
+    {
+      "id": "service_taskservice_claimtaskforruntime",
+      "label": ".ClaimTaskForRuntime()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3645"
+    },
+    {
+      "id": "service_taskservice_finalizetaskclaim",
+      "label": ".FinalizeTaskClaim()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3814"
+    },
+    {
+      "id": "service_taskservice_requeuetaskafterclaimfailure",
+      "label": ".RequeueTaskAfterClaimFailure()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3888"
+    },
+    {
+      "id": "service_taskservice_claimtasksforruntimes",
+      "label": ".ClaimTasksForRuntimes()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3930"
+    },
+    {
+      "id": "service_taskservice_cancelsupersededdeferredretries",
+      "label": ".cancelSupersededDeferredRetries()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4129"
+    },
+    {
+      "id": "service_taskservice_promoteduedeferredtasksforruntime",
+      "label": ".PromoteDueDeferredTasksForRuntime()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4150"
+    },
+    {
+      "id": "service_taskservice_maybelogclaimslow",
+      "label": ".maybeLogClaimSlow()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4186"
+    },
+    {
+      "id": "service_taskservice_starttask",
+      "label": ".StartTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4206"
+    },
+    {
+      "id": "service_taskservice_starttaskforclaim",
+      "label": ".StartTaskForClaim()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4222"
+    },
+    {
+      "id": "service_taskservice_taskstarted",
+      "label": ".taskStarted()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4255"
+    },
+    {
+      "id": "service_taskservice_extendtaskpreparelease",
+      "label": ".ExtendTaskPrepareLease()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4276"
+    },
+    {
+      "id": "service_taskservice_marktaskwaitinglocaldirectory",
+      "label": ".MarkTaskWaitingLocalDirectory()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4303"
+    },
+    {
+      "id": "service_taskservice_completetask",
+      "label": ".CompleteTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4402"
+    },
+    {
+      "id": "service_taskservice_completetaskwithtransition",
+      "label": ".CompleteTaskWithTransition()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4411"
+    },
+    {
+      "id": "service_taskservice_writechatcompletionoutcome",
+      "label": ".writeChatCompletionOutcome()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4645"
+    },
+    {
+      "id": "service_taskservice_observechatoutputlocalpath",
+      "label": ".observeChatOutputLocalPath()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4790"
+    },
+    {
+      "id": "service_taskservice_failtask",
+      "label": ".FailTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4828"
+    },
+    {
+      "id": "service_taskservice_failtaskwithtransition",
+      "label": ".FailTaskWithTransition()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4836"
+    },
+    {
+      "id": "service_taskservice_mayberetryfailedtask",
+      "label": ".MaybeRetryFailedTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5446"
+    },
+    {
+      "id": "service_taskservice_rerunissue",
+      "label": ".RerunIssue()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5668"
+    },
+    {
+      "id": "service_taskservice_promotenewestsurvivingcomment",
+      "label": ".promoteNewestSurvivingComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5871"
+    },
+    {
+      "id": "service_taskservice_enqueuereruntask",
+      "label": ".enqueueRerunTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5933"
+    },
+    {
+      "id": "service_taskservice_failtasksforofflineruntimes",
+      "label": ".FailTasksForOfflineRuntimes()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5956"
+    },
+    {
+      "id": "service_taskservice_failexpiredruntimereconnectretries",
+      "label": ".FailExpiredRuntimeReconnectRetries()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5964"
+    },
+    {
+      "id": "service_taskservice_failstaletasks",
+      "label": ".FailStaleTasks()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5971"
+    },
+    {
+      "id": "service_taskservice_expirestalequeuedtasks",
+      "label": ".ExpireStaleQueuedTasks()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5978"
+    },
+    {
+      "id": "service_taskservice_recoverorphanedtasksforruntime",
+      "label": ".RecoverOrphanedTasksForRuntime()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5985"
+    },
+    {
+      "id": "service_taskservice_canceltasksforarchivedagent",
+      "label": ".CancelTasksForArchivedAgent()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5998"
+    },
+    {
+      "id": "service_taskservice_terminatetasksintx",
+      "label": ".terminateTasksInTx()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6014"
+    },
+    {
+      "id": "service_taskservice_handlefailedtasks",
+      "label": ".HandleFailedTasks()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6038"
+    },
+    {
+      "id": "service_taskservice_ensuredelegatedfailurerecoverycomment",
+      "label": ".ensureDelegatedFailureRecoveryComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6337"
+    },
+    {
+      "id": "service_taskservice_exhaustdelegatedfailurerecovery",
+      "label": ".exhaustDelegatedFailureRecovery()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6431"
+    },
+    {
+      "id": "service_taskservice_dispatchdelegatedfailurerecovery",
+      "label": ".dispatchDelegatedFailureRecovery()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6584"
+    },
+    {
+      "id": "service_taskservice_recoverdelegatedtaskfailure",
+      "label": ".recoverDelegatedTaskFailure()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6722"
+    },
+    {
+      "id": "service_taskservice_recoverpendingdelegatedfailures",
+      "label": ".RecoverPendingDelegatedFailures()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6737"
+    },
+    {
+      "id": "service_taskservice_dispatchdelegatedfailurerecoverycomment",
+      "label": ".DispatchDelegatedFailureRecoveryComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6770"
+    },
+    {
+      "id": "service_taskservice_dispatchdelegatedfailurerecoverycomment_f5704a",
+      "label": ".dispatchDelegatedFailureRecoveryComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6775"
+    },
+    {
+      "id": "service_taskservice_runintx",
+      "label": ".runInTx()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6797"
+    },
+    {
+      "id": "service_taskservice_reportprogress",
+      "label": ".ReportProgress()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6813"
+    },
+    {
+      "id": "service_taskservice_reconcileagentstatus",
+      "label": ".ReconcileAgentStatus()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6832"
+    },
+    {
+      "id": "service_taskservice_updateagentstatus",
+      "label": ".updateAgentStatus()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6841"
+    },
+    {
+      "id": "service_taskservice_publishagentstatus",
+      "label": ".publishAgentStatus()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6852"
+    },
+    {
+      "id": "service_taskservice_loadagentskills",
+      "label": ".LoadAgentSkills()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6873"
+    },
+    {
+      "id": "service_taskservice_skillswithfiles",
+      "label": ".skillsWithFiles()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6889"
+    },
+    {
+      "id": "service_taskservice_loadagentskillbundles",
+      "label": ".LoadAgentSkillBundles()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6924"
+    },
+    {
+      "id": "service_taskservice_loadrequestedagentskillbundles",
+      "label": ".LoadRequestedAgentSkillBundles()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6963"
+    },
+    {
+      "id": "service_taskservice_notifytaskenqueued",
+      "label": ".NotifyTaskEnqueued()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7167"
+    },
+    {
+      "id": "service_taskservice_notifytaskfinished",
+      "label": ".NotifyTaskFinished()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7177"
+    },
+    {
+      "id": "service_taskservice_notifytasksfinished",
+      "label": ".notifyTasksFinished()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7185"
+    },
+    {
+      "id": "service_taskservice_notifytaskavailable",
+      "label": ".notifyTaskAvailable()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7208"
+    },
+    {
+      "id": "service_taskservice_notifyruntimemayhavework",
+      "label": ".notifyRuntimeMayHaveWork()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7214"
+    },
+    {
+      "id": "service_taskservice_broadcasttaskdispatch",
+      "label": ".broadcastTaskDispatch()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7232"
+    },
+    {
+      "id": "service_taskservice_publishtaskevent",
+      "label": ".publishTaskEvent()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7296"
+    },
+    {
+      "id": "service_taskservice_broadcasttaskevent",
+      "label": ".broadcastTaskEvent()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7303"
+    },
+    {
+      "id": "service_taskservice_publishtaskfailedevent",
+      "label": ".publishTaskFailedEvent()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7324"
+    },
+    {
+      "id": "service_taskservice_broadcasttaskfailedevent",
+      "label": ".broadcastTaskFailedEvent()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7328"
+    },
+    {
+      "id": "service_taskservice_resolvetaskworkspaceid",
+      "label": ".ResolveTaskWorkspaceID()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7343"
+    },
+    {
+      "id": "service_taskservice_resolvetaskworkspaceidchecked",
+      "label": ".ResolveTaskWorkspaceIDChecked()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7366"
+    },
+    {
+      "id": "service_taskservice_broadcastchatdone",
+      "label": ".broadcastChatDone()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7416"
+    },
+    {
+      "id": "service_taskservice_broadcastissueupdated",
+      "label": ".broadcastIssueUpdated()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7464"
+    },
+    {
+      "id": "service_taskservice_getissueprefix",
+      "label": ".getIssuePrefix()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7479"
+    },
+    {
+      "id": "service_taskservice_createagentcomment",
+      "label": ".createAgentComment()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7515"
+    },
+    {
+      "id": "service_taskservice_autounresolvethreadonreply",
+      "label": ".AutoUnresolveThreadOnReply()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7574"
+    },
+    {
+      "id": "service_taskservice_parsequickcreatecontext",
+      "label": ".parseQuickCreateContext()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7763"
+    },
+    {
+      "id": "service_taskservice_sourcecontextattachedbytask",
+      "label": ".sourceContextAttachedByTask()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7780"
+    },
+    {
+      "id": "service_taskservice_notifyquickcreatecompleted",
+      "label": ".notifyQuickCreateCompleted()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7843"
+    },
+    {
+      "id": "service_taskservice_notifyquickcreatefailed",
+      "label": ".notifyQuickCreateFailed()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7970"
+    },
+    {
+      "id": "service_taskservice_notifyquickcreateunconfirmed",
+      "label": ".notifyQuickCreateUnconfirmed()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7994"
+    },
+    {
+      "id": "service_taskservice_writequickcreateoutcomeinbox",
+      "label": ".writeQuickCreateOutcomeInbox()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L8008"
+    },
+    {
+      "id": "service_taskservice_publishquickcreateinbox",
+      "label": ".publishQuickCreateInbox()",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L8057"
+    },
+    {
+      "id": "server_pkg_db_generated_db_go_generated_queries",
+      "label": "Queries",
+      "source_file": "server/pkg/db/generated/db.go",
+      "source_location": "L24"
+    },
+    {
+      "id": "server_pkg_featureflag_service_go_featureflag_service",
+      "label": "Service",
+      "source_file": "server/pkg/featureflag/service.go",
+      "source_location": "L17"
+    },
+    {
+      "id": "go_type_sync_mutex",
+      "label": "sync.Mutex",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "go_type_sync_map",
+      "label": "sync.Map",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "go_type_sync_atomic_int64",
+      "label": "sync/atomic.Int64",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "go_type_github_com_multica_ai_multica_server_internal_analytics_taskcontext",
+      "label": "github.com/multica-ai/multica/server/internal/analytics.TaskContext",
+      "source_file": "",
+      "source_location": ""
+    }
+  ],
+  "edges": [
+    {
+      "source": "server_linkedissueautopilotfixture",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/autopilot_listeners_test.go",
+      "source_location": "L151"
+    },
+    {
+      "source": "server_cmd_server_main_backgroundservices",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/main.go",
+      "source_location": "L293"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_taskservicemetrics",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L124"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_runruntimesweeper",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L163"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_rundelegatedfailurerecoverysweeper",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L176"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_sweeppendingdelegatedfailurerecoveries",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L192"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_sweepstaleruntimes",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L221"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_sweepofflineruntimetasks",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L304"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_sweepexpiredruntimereconnectretries",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L332"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_sweepstaletasks",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L593"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_sweepexpiredqueuedtasks",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L630"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_sweepdeferredchatfinalizations",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L661"
+    },
+    {
+      "source": "server_cmd_server_runtime_sweeper_broadcastfailedtasks",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/cmd/server/runtime_sweeper.go",
+      "source_location": "L692"
+    },
+    {
+      "source": "server_internal_handler_handler_go_handler_handler",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/handler/handler.go",
+      "source_location": "L214"
+    },
+    {
+      "source": "server_internal_service_task",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L39"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "server_pkg_db_generated_db_go_generated_queries",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L40"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "server_internal_service_task_go_txstarter",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L41"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "server_internal_realtime_hub_go_realtime_hub",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L42"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "server_internal_events_bus_go_events_bus",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L43"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "server_internal_analytics_client_go_analytics_client",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L44"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "server_internal_metrics_business_go_metrics_businessmetrics",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L45"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "server_internal_service_task_go_service_taskwakeupnotifier",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L46"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "server_internal_entitlement_types_go_entitlement_provider",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L51"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_sourcecontextobjectstore",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L54"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "server_pkg_featureflag_service_go_featureflag_service",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L57"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_emptyclaimcache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L63"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_reclaimcheckcache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L67"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_composiooverlaybuilder",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L75"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_chatquickactionsllm",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L81"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "go_type_sync_map",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L87"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "go_type_sync_atomic_int64",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L88"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "go_type_sync_mutex",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L90"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "go_type_github_com_multica_ai_multica_server_internal_analytics_taskcontext",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L91"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_tracktaskforreclaim",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L200"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_extendtaskreclaimhint",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L218"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_forgettaskreclaim",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L233"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_buildcommenttriggersummary_a73e0f",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L255"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_resolveoriginatorfromtriggercomment",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L278"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_attributionformergedcomment",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L299"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_buildcommenttriggersummary",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L311"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_buildruntimemcpoverlayformerge",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L323"
+    },
+    {
+      "source": "server_internal_service_task_newtaskservice",
+      "target": "server_internal_service_task_go_service_taskservice",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L328"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_capturetaskqueued",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L356"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_buildruntimemcpoverlay",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L371"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_resolveoriginatorfromtriggercomment_fe028e",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L429"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_attributionfromtriggercomment",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L448"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_attributionfromcomment",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L466"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_resolveoriginatorforissuetask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L494"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_attributionforissuetask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L506"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_applyattributionfallback",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L780"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_originatorforissuetask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L823"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_capturetaskdispatched",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L827"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_analyticscontextfortask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L834"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_capturetaskstarted",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L838"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_capturetaskcompleted",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L845"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_capturetaskfailed",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L852"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_capturetaskcancelled",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L861"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_capturetaskusage",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L880"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_capturequeuedexpiredtasks",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L888"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_captureleaseexpiredtasks",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L898"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_cachedtaskanalyticscontext",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L908"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_storetaskanalyticscontext",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L922"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_taskmetricscontext",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L960"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_taskanalyticscontext",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L984"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuetaskforissue",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1127"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuedeferredchannelissuetask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1139"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_createdeferredchannelissuetaskwithqueries",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1156"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_hydratedeferredchannelissuetaskoverlay",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1165"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuetaskforissuebyactor",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1197"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuetaskforissuewithhandoff",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1205"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_resolveissuereviewsha",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1225"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_resolveissuereviewshaparam",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1250"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueueissuetask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1254"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueueissuetaskwithcommentplan",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1258"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuetaskformention",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1391"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuetaskforthreadparent",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1397"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuetaskforsquadleader",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1413"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuetaskforsquadleaderbyactor",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1421"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuetaskforsquadleaderwithhandoff",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1427"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuementiontask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1431"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuementiontaskwithcommentplan",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1435"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuequickcreatetask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1576"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuequickcreatetaskwithsourcecontext",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1580"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuequickcreatetask_9759e8",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1584"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_retrysourcecontextquickcreate",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1736"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_membermayinvokeagent",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1865"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_preparechattaskenqueue",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1879"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuechattask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1915"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuechannelchattask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1929"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuechattask_dd1ea6",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1947"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuepreparedchannelchattaskintx",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L1987"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuechattasktx",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2005"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_finalizechattaskenqueue",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2160"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_regeneratechatquickactions",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2198"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_promotechannelchattasksifmediaready",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2264"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_promotedeferredchannelissuetask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2284"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_senddirectchatmessage",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2326"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_openmikaonboardingchat",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2548"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_canceltasksforissue",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2626"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_canceltasksforagent",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2682"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_canceltasksbytriggercomment",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2710"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_broadcastcancelledtasks",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2755"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_broadcasttaskqueued",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2771"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_capturecancelledtasks",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2780"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_canceltask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2846"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_canceltaskbyuser",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2863"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_canceltaskwithreason",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2881"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_canceltaskwithresult",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L2895"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_cancelqueuedchattasks",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3023"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_settlequeuedchatinput",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3130"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_finalizecancelledchatmessage",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3212"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_rebroadcastcancelledtask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3328"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_finalizedeferredcancelledchat",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3343"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_broadcastchatcancelfinalized",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3487"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_claimtask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3504"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_claimtask_3e5b2f",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3513"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_claimtaskforruntime",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3645"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_finalizetaskclaim",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3814"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_requeuetaskafterclaimfailure",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3888"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_claimtasksforruntimes",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L3930"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_cancelsupersededdeferredretries",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4129"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_promoteduedeferredtasksforruntime",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4150"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_maybelogclaimslow",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4186"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_starttask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4206"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_starttaskforclaim",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4222"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_taskstarted",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4255"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_extendtaskpreparelease",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4276"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_marktaskwaitinglocaldirectory",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4303"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_completetask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4402"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_completetaskwithtransition",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4411"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_writechatcompletionoutcome",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4645"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_observechatoutputlocalpath",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4790"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_failtask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4828"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_failtaskwithtransition",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L4836"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_mayberetryfailedtask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5446"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_rerunissue",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5668"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_promotenewestsurvivingcomment",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5871"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_enqueuereruntask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5933"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_failtasksforofflineruntimes",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5956"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_failexpiredruntimereconnectretries",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5964"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_failstaletasks",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5971"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_expirestalequeuedtasks",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5978"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_recoverorphanedtasksforruntime",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5985"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_canceltasksforarchivedagent",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L5998"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_terminatetasksintx",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6014"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_handlefailedtasks",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6038"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_ensuredelegatedfailurerecoverycomment",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6337"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_exhaustdelegatedfailurerecovery",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6431"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_dispatchdelegatedfailurerecovery",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6584"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_recoverdelegatedtaskfailure",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6722"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_recoverpendingdelegatedfailures",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6737"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_dispatchdelegatedfailurerecoverycomment",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6770"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_dispatchdelegatedfailurerecoverycomment_f5704a",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6775"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_runintx",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6797"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_reportprogress",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6813"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_reconcileagentstatus",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6832"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_updateagentstatus",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6841"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_publishagentstatus",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6852"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_loadagentskills",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6873"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_skillswithfiles",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6889"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_loadagentskillbundles",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6924"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_loadrequestedagentskillbundles",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L6963"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_notifytaskenqueued",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7167"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_notifytaskfinished",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7177"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_notifytasksfinished",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7185"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_notifytaskavailable",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7208"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_notifyruntimemayhavework",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7214"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_broadcasttaskdispatch",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7232"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_publishtaskevent",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7296"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_broadcasttaskevent",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7303"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_publishtaskfailedevent",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7324"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_broadcasttaskfailedevent",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7328"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_resolvetaskworkspaceid",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7343"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_resolvetaskworkspaceidchecked",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7366"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_broadcastchatdone",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7416"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_broadcastissueupdated",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7464"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_getissueprefix",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7479"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_createagentcomment",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7515"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_autounresolvethreadonreply",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7574"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_parsequickcreatecontext",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7763"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_sourcecontextattachedbytask",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7780"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_notifyquickcreatecompleted",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7843"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_notifyquickcreatefailed",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7970"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_notifyquickcreateunconfirmed",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L7994"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_writequickcreateoutcomeinbox",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L8008"
+    },
+    {
+      "source": "server_internal_service_task_go_service_taskservice",
+      "target": "service_taskservice_publishquickcreateinbox",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "server/internal/service/task.go",
+      "source_location": "L8057"
+    }
+  ]
+}

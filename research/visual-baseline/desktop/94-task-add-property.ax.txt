@@ -1,0 +1,168 @@
+Window: "LAB-2: Testing", App: Lykeion.
+0 standard window LAB-2: Testing, Secondary Actions: Raise
+	1 container LAB-2: Testing
+		2 container
+			3 HTML content LAB-2: Testing, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 pop up button L Lab
+					10 content list
+						11 button Search...
+						12 button New
+					13 content list
+						14 link Description: Inbox, Value: localhost:3000/lab/inbox
+						15 link Description: Copilot, Value: localhost:3000/lab/chat
+					16 container
+						17 text Laboratory
+						18 content list
+							19 link Description: Tasks, Value: localhost:3000/lab/tasks
+							20 link Description: Researches, Value: localhost:3000/lab/projects
+							21 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							22 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					23 container
+						24 text Configure
+						25 content list
+							26 link Description: Agents, Value: localhost:3000/lab/agents
+							27 link Description: Teams, Value: localhost:3000/lab/squads
+							28 link Description: Skills, Value: localhost:3000/lab/skills
+							29 link Description: Connectors, Value: localhost:3000/lab/connectors
+							30 link Description: Machines, Value: localhost:3000/lab/runtimes
+					31 content list
+						32 link Description: Updates, Value: localhost:3000/lab/updates
+						33 link Description: Settings, Value: localhost:3000/lab/settings
+					34 pop up button Help
+					35 button Toggle left sidebar
+					36 container
+						37 sortable LAB-2: Testing
+							38 image
+							39 text LAB-2: Testing
+						40 button New tab
+					41 container
+						42 container
+							43 button Properties
+							44 text Status
+							45 pop up button Blocked
+								46 image
+								47 text Blocked
+							48 text Assignee
+							49 pop up button Literature Review & Gap Analyst Status: Online Literature Review & Gap Analyst
+								50 link Literature Review & Gap Analyst Status: Online
+									51 image Literature Review & Gap Analyst
+									52 container Status: Online
+								53 text Literature Review & Gap Analyst
+							54 text Project
+							55 pop up button No project
+							56 pop up button Add property
+							57 container
+								58 button Priority
+									59 image
+									60 text Priority
+								61 button Start date
+								62 button Due date
+								63 button Labels
+							64 button Wakeups 0
+								65 text Wakeups
+								66 text 0
+							67 pop up button New wakeup
+							68 button Pull requests
+							69 pop up button Link pull request
+							70 pop up button Pull request automation
+							71 text No linked pull requests.
+							72 button Execution log
+							73 button 2 runs · $0.39
+								74 text 2 runs
+								75 text ·
+								76 text $0.39
+							77 button Cumulative cost over time — open the run timeline
+							78 text 39s agent time  ·  36s elapsed Latest
+							79 container 5h ago · 24s · 209K · claude-opus-5-5
+								80 link Literature Review & Gap Analyst
+									81 image Literature Review & Gap Analyst
+								82 text Initial run
+								83 container Completed
+									84 text Completed · 5h ago $0.23
+							85 container 5h ago · 15s · 72.4K · claude-opus-5-5
+								86 link Literature Review & Gap Analyst
+									87 image Literature Review & Gap Analyst
+								88 text Initial run
+								89 container Completed
+									90 text Completed · 5h ago $0.15
+							91 button Open timeline
+							92 button Details
+							93 text Created by
+							94 link Literature Review & Gap Analyst
+								95 image Literature Review & Gap Analyst
+							96 text Literature Review & Gap Analyst Created Oct 12 Updated Oct 12
+						97 splitter 21.564
+						98 container
+							99 link Description: LAB-2 Testing, Value: localhost:3000/lab/tasks/01a12ff7-766b-7eb9-80dd-47111c1ea7f2
+							100 button
+							101 pop up button
+							102 button Open task inspector
+							103 button Testing
+							104 container
+								105 text entry area (settable) testing
+									106 text testing
+								107 pop up button Add reaction
+								108 button Attach file
+							109 button Add sub-tasks
+							110 heading Transcript, Value: 2
+								111 text Transcript
+							112 button Unsubscribe
+							113 pop up button Literature Review & Gap Analyst D
+								114 link Literature Review & Gap Analyst
+									115 image Literature Review & Gap Analyst
+								116 link D
+									117 text D
+							118 container
+								119 link Literature Review & Gap Analyst Status: Online
+									120 image Literature Review & Gap Analyst
+									121 container Status: Online
+								122 text Literature Review & Gap Analyst 5h ago
+								123 button Collapse thread
+								124 pop up button Add reaction
+								125 pop up button Comment actions
+								126 container Comment by Literature Review & Gap Analyst
+									127 button Ran 3 commands
+									128 text No research topic anywhere in the workspace: one task, no project, no comments, no domain. Per the contract I won't invent one, so I'm blocking and asking for the minimum context.
+									129 button Ran 2 steps
+									130 container
+										131 text Blocked: no research question to review yet.
+										132 text I checked everything available for this task. The title is "Testing", the description is "testing", there are no comments, and there is no linked project or scientific domain. 
+										133 link Description: This task · LAB-2, Value: localhost:3000/lab/tasks/01a12ff7-766b-7eb9-80dd-47111c1ea7f2
+										134 text  is also the only task in the workspace. Nothing here points to a scope I could defend, so I haven't picked a topic, run any searches or cited any literature. Making one up would give you a fake result. To start the literature review and gap analysis, please reply with:
+										135 content list
+											136 container
+												137 AXListMarker 1. 
+												138 text A research question or topic.  One sentence is enough, for example "Does X affect Y in population Z?"
+											139 container
+												140 AXListMarker 2. 
+												141 text Optional constraints:  date range, study types, a field or databases to focus on, and any key papers you already know.
+										142 text If this task was only a check that the platform works, it did: the task was assigned, my run started, and this comment posted. In that case you can cancel the task. When you reply with a question I'll restart from grounding. You'll get a logged search, PRISMA counts, an evidence table, a thematic synthesis and a ranked gap register.
+									143 link Literature Review & Gap Analyst
+										144 image Literature Review & Gap Analyst
+									145 text Literature Review & Gap Analyst
+									146 text completed a run
+									147 text 5h ago
+							148 container
+								149 button Leave a comment...
+									150 text Leave a comment...
+								151 button Attach file
+								152 button (disabled) Send
+					153 button Open Aristotle
+					154 container Notifications alt+T
+	155 close button
+	156 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	157 minimize button
+158 menu bar
+	159 Lykeion
+	160 File
+	161 Edit
+	162 View
+	163 Window
+	164 Help
+
+The focused UI element is 58 button Priority

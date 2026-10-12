@@ -1,0 +1,317 @@
+Window: "Create Agent", App: Lykeion.
+0 standard window Create Agent, Secondary Actions: Raise
+	1 container Create Agent
+		2 container
+			3 HTML content Create Agent, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 pop up button L Lab
+					10 content list
+						11 button Search...
+						12 button New
+					13 content list
+						14 link Description: Inbox, Value: localhost:3000/lab/inbox
+						15 link Description: Copilot, Value: localhost:3000/lab/chat
+					16 container
+						17 text Laboratory
+						18 content list
+							19 link Description: Tasks, Value: localhost:3000/lab/tasks
+							20 link Description: Researches, Value: localhost:3000/lab/projects
+							21 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							22 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					23 container
+						24 text Configure
+						25 content list
+							26 link Description: Agents, Value: localhost:3000/lab/agents
+							27 link Description: Teams, Value: localhost:3000/lab/squads
+							28 link Description: Skills, Value: localhost:3000/lab/skills
+							29 link Description: Connectors, Value: localhost:3000/lab/connectors
+							30 link Description: Machines, Value: localhost:3000/lab/runtimes
+					31 content list
+						32 link Description: Updates, Value: localhost:3000/lab/updates
+						33 link Description: Settings, Value: localhost:3000/lab/settings
+					34 pop up button Help
+					35 button Toggle left sidebar
+					36 container
+						37 sortable Create Agent
+						38 button New tab
+					39 container
+						40 button Go back
+						41 heading Create an agent, Value: 1
+							42 text Create an agent
+						43 text Review and configure Start blank Claude (Mac)
+					44 container
+						45 container Identity
+							46 heading Identity, Value: 3
+								47 text Identity
+							48 text Change avatar
+							49 container
+								50 pop up button Change avatar
+								51 container
+									52 container
+										53 container
+											54 button Frequently used
+												55 image
+											56 button Smileys & People
+												57 image
+											58 button Animals & Nature
+												59 image
+											60 button Food & Drink
+												61 image
+											62 button Activity
+												63 image
+											64 button Travel & Places
+												65 image
+											66 button Objects
+												67 image
+											68 button Symbols
+												69 image
+											70 button Flags
+												71 image
+										72 search text field (settable) Search
+										73 image
+										74 button Choose default skin tone
+										75 text Frequently used
+										76 container
+											77 button Description: 👍, Help: Thumbs Up
+											78 button Description: 😀, Help: Grinning Face
+											79 button Description: 😘, Help: Face Blowing a Kiss
+											80 button Description: 😍, Help: Smiling Face with Heart-Eyes
+											81 button Description: 😆, Help: Grinning Squinting Face
+											82 button Description: 😜, Help: Winking Face with Tongue
+											83 button Description: 😅, Help: Grinning Face with Sweat
+											84 button Description: 😂, Help: Face with Tears of Joy
+											85 button Description: 🌍, Help: Earth Globe Europe-Africa
+											86 button Description: 😱, Help: Face Screaming in Fear
+										87 text Smileys & People
+										88 container
+											89 button Description: 😀, Help: Grinning Face
+											90 button Description: 😃, Help: Grinning Face with Big Eyes
+											91 button Description: 😄, Help: Grinning Face with Smiling Eyes
+											92 button Description: 😁, Help: Beaming Face with Smiling Eyes
+											93 button Description: 😆, Help: Grinning Squinting Face
+											94 button Description: 😅, Help: Grinning Face with Sweat
+											95 button Description: 🤣, Help: Rolling on the Floor Laughing
+											96 button Description: 😂, Help: Face with Tears of Joy
+											97 button Description: 🙂, Help: Slightly Smiling Face
+											98 button Description: 🙃, Help: Upside-Down Face
+											99 button Description: 🫠, Help: Melting Face
+											100 button Description: 😉, Help: Winking Face
+											101 button Description: 😊, Help: Smiling Face with Smiling Eyes
+											102 button Description: 😇, Help: Smiling Face with Halo
+											103 button Description: 🥰, Help: Smiling Face with Hearts
+											104 button Description: 😍, Help: Smiling Face with Heart-Eyes
+											105 button Description: 🤩, Help: Star-Struck
+											106 button Description: 😘, Help: Face Blowing a Kiss
+											107 button Description: 😗, Help: Kissing Face
+											108 button Description: ☺️, Help: Smiling Face
+											109 button Description: 😚, Help: Kissing Face with Closed Eyes
+											110 button Description: 😙, Help: Kissing Face with Smiling Eyes
+											111 button Description: 🥲, Help: Smiling Face with Tear
+											112 button Description: 😋, Help: Face Savoring Food
+											113 button Description: 😛, Help: Face with Tongue
+											114 button Description: 😜, Help: Winking Face with Tongue
+											115 button Description: 🤪, Help: Zany Face
+											116 button Description: 😝, Help: Squinting Face with Tongue
+											117 button Description: 🤑, Help: Money-Mouth Face
+											118 button Description: 🤗, Help: Hugging Face
+											119 button Description: 🤭, Help: Face with Hand over Mouth
+											120 button Description: 🫢, Help: Face with Open Eyes and Hand over Mouth
+											121 button Description: 🫣, Help: Face with Peeking Eye
+											122 button Description: 🤫, Help: Shushing Face
+											123 button Description: 🤔, Help: Thinking Face
+											124 button Description: 🫡, Help: Saluting Face
+											125 button Description: 🤐, Help: Zipper-Mouth Face
+											126 button Description: 🤨, Help: Face with Raised Eyebrow
+											127 button Description: 😐, Help: Neutral Face
+											128 button Description: 😑, Help: Expressionless Face
+											129 button Description: 😶, Help: Face Without Mouth
+											130 button Description: 🫥, Help: Dotted Line Face
+											131 button Description: 😶‍🌫️, Help: Face in Clouds
+											132 button Description: 😏, Help: Smirking Face
+											133 button Description: 😒, Help: Unamused Face
+											134 button Description: 🙄, Help: Face with Rolling Eyes
+											135 button Description: 😬, Help: Grimacing Face
+											136 button Description: 😮‍💨, Help: Face Exhaling
+											137 button Description: 🤥, Help: Lying Face
+											138 button Description: 🫨, Help: Shaking Face
+											139 button Description: 😌, Help: Relieved Face
+											140 button Description: 😔, Help: Pensive Face
+											141 button Description: 😪, Help: Sleepy Face
+											142 button Description: 🤤, Help: Drooling Face
+											143 button Description: 😴, Help: Sleeping Face
+											144 button Description: 😷, Help: Face with Medical Mask
+											145 button Description: 🤒, Help: Face with Thermometer
+											146 button Description: 🤕, Help: Face with Head-Bandage
+											147 button Description: 🤢, Help: Nauseated Face
+											148 button Description: 🤮, Help: Face Vomiting
+											149 button Description: 🤧, Help: Sneezing Face
+											150 button Description: 🥵, Help: Hot Face
+											151 button Description: 🥶, Help: Cold Face
+											152 button Description: 🥴, Help: Woozy Face
+											153 button Description: 😵, Help: Dizzy Face
+											154 button Description: 😵‍💫, Help: Face with Spiral Eyes
+											155 button Description: 🤯, Help: Exploding Head
+											156 button Description: 🤠, Help: Cowboy Hat Face
+											157 button Description: 🥳, Help: Partying Face
+											158 button Description: 🥸, Help: Disguised Face
+											159 button Description: 😎, Help: Smiling Face with Sunglasses
+											160 button Description: 🤓, Help: Nerd Face
+											161 button Description: 🧐, Help: Face with Monocle
+											162 button Description: 😕, Help: Confused Face
+											163 button Description: 🫤, Help: Face with Diagonal Mouth
+											164 button Description: 😟, Help: Worried Face
+											165 button Description: 🙁, Help: Slightly Frowning Face
+											166 button Description: ☹️, Help: Frowning Face
+											167 button Description: 😮, Help: Face with Open Mouth
+											168 button Description: 😯, Help: Hushed Face
+											169 button Description: 😲, Help: Astonished Face
+											170 button Description: 😳, Help: Flushed Face
+											171 button Description: 🥺, Help: Pleading Face
+											172 button Description: 🥹, Help: Face Holding Back Tears
+											173 button Description: 😦, Help: Frowning Face with Open Mouth
+											174 button Description: 😧, Help: Anguished Face
+											175 button Description: 😨, Help: Fearful Face
+											176 button Description: 😰, Help: Anxious Face with Sweat
+											177 button Description: 😥, Help: Sad but Relieved Face
+											178 button Description: 😢, Help: Crying Face
+											179 button Description: 😭, Help: Loudly Crying Face
+											180 button Description: 😱, Help: Face Screaming in Fear
+											181 button Description: 😖, Help: Confounded Face
+											182 button Description: 😣, Help: Persevering Face
+											183 button Description: 😞, Help: Disappointed Face
+											184 button Description: 😓, Help: Face with Cold Sweat
+											185 button Description: 😩, Help: Weary Face
+											186 button Description: 😫, Help: Tired Face
+											187 button Description: 🥱, Help: Yawning Face
+											188 button Description: 😤, Help: Face with Look of Triumph
+											189 button Description: 😡, Help: Pouting Face
+											190 button Description: 😠, Help: Angry Face
+											191 button Description: 🤬, Help: Face with Symbols on Mouth
+											192 button Description: 😈, Help: Smiling Face with Horns
+											193 button Description: 👿, Help: Imp
+											194 button Description: 💀, Help: Skull
+											195 button Description: ☠️, Help: Skull and Crossbones
+											196 button Description: 💩, Help: Pile of Poo
+											197 button Description: 🤡, Help: Clown Face
+											198 button Description: 👹, Help: Ogre
+											199 button Description: 👺, Help: Goblin
+											200 button Description: 👻, Help: Ghost
+											201 button Description: 👽, Help: Alien
+											202 button Description: 👾, Help: Alien Monster
+											203 button Description: 👋, Help: Waving Hand
+											204 button Description: 🤚, Help: Raised Back of Hand
+											205 button Description: 🖐️, Help: Hand with Fingers Splayed
+											206 button Description: ✋, Help: Raised Hand
+											207 button Description: 🖖, Help: Vulcan Salute
+											208 button Description: 🫱, Help: Rightwards Hand
+											209 button Description: 🫲, Help: Leftwards Hand
+											210 button Description: 🫳, Help: Palm Down Hand
+											211 button Description: 🫴, Help: Palm Up Hand
+											212 button Description: 🫷, Help: Leftwards Pushing Hand
+											213 button Description: 🫸, Help: Rightwards Pushing Hand
+											214 button Description: 👌, Help: Ok Hand
+											215 button Description: 🤌, Help: Pinched Fingers
+											216 button Description: 🤏, Help: Pinching Hand
+											217 button Description: ✌️, Help: Victory Hand
+											218 button Description: 🤞, Help: Crossed Fingers
+											219 button Description: 🫰, Help: Hand with Index Finger and Thumb Crossed
+											220 button Description: 🤟, Help: Love-You Gesture
+											221 button Description: 🤘, Help: Sign of the Horns
+											222 button Description: 🤙, Help: Call Me Hand
+											223 button Description: 👈, Help: Backhand Index Pointing Left
+											224 button Description: 👉, Help: Backhand Index Pointing Right
+											225 button Description: 👆, Help: Backhand Index Pointing Up
+											226 button Description: 🖕, Help: Middle Finger
+											227 button Description: 👇, Help: Backhand Index Pointing Down
+											228 button Description: ☝️, Help: Index Pointing Up
+											229 button Description: 🫵, Help: Index Pointing at the Viewer
+											230 button Description: 👍, Help: Thumbs Up
+											231 button Description: 👎, Help: Thumbs Down
+											232 button Description: ✊, Help: Raised Fist
+											233 button Description: 👊, Help: Oncoming Fist
+											234 button Description: 🤛, Help: Left-Facing Fist
+											235 button Description: 🤜, Help: Right-Facing Fist
+											236 button Description: 👏, Help: Clapping Hands
+											237 button Description: 🙌, Help: Raising Hands
+											238 button Description: 🫶, Help: Heart Hands
+											239 button Description: 👐, Help: Open Hands
+											240 button Description: 🤲, Help: Palms Up Together
+											241 button Description: 🤝, Help: Handshake
+											242 button Description: 🙏, Help: Folded Hands
+											243 button Description: ✍️, Help: Writing Hand
+											244 button Description: 💅, Help: Nail Polish
+											245 button Description: 🤳, Help: Selfie
+											246 button Description: 💪, Help: Flexed Biceps
+											247 button Description: 🦾, Help: Mechanical Arm
+											248 button Description: 🦿, Help: Mechanical Leg
+											249 button Description: 🦵, Help: Leg
+											250 button Description: 🦶, Help: Foot
+										251 text Animals & Nature
+										252 text Food & Drink
+										253 text Activity
+										254 text Travel & Places
+										255 text Objects
+										256 text Symbols
+										257 text Flags
+							258 text Name
+							259 text field (settable) Description: Name, Placeholder: e.g. Deep Research Agent
+							260 text Description
+							261 text entry area (settable) Description: Description, Placeholder: What does this agent do?
+							262 container
+								263 text 0  /  255
+						264 container Behavior & capabilities
+							265 heading Behavior & capabilities, Value: 3
+								266 text Behavior & capabilities
+							267 text Instructions
+							268 text entry area (settable) Description: Instructions, Placeholder: Write what this agent should do, what to focus on, what to avoid…
+							269 text Conversation starters
+							270 text Up to three. Selecting one fills the composer without sending.
+							271 text field (settable) Description: Suggestion 1 label, Placeholder: Review a pull request
+							272 button Remove suggestion 1
+							273 text entry area (settable) Description: Suggestion 1 prompt, Placeholder: Review the open pull request, summarize the risks, and recommend next steps.
+							274 button Add suggestion
+							275 text Complete or remove each suggestion before saving.
+							276 text Preview of a new chat
+							277 text These are the built-in defaults. Add a suggestion above to replace all three.
+							278 text SKILLS
+							279 button Add skills from workspace
+								280 text Add skills from workspace
+						281 container Execution
+							282 heading Execution, Value: 3
+								283 text Execution
+							284 text Unspecified options use the runtime defaults.
+							285 text Runtime
+							286 pop up button Claude (Mac) diegomarono
+								287 image
+								288 text Claude (Mac)
+								289 text diegomarono
+							290 text Model
+							291 pop up button Default (provider)
+							292 text Thinking
+							293 pop up button Thinking · Follow CLI config
+						294 container Access
+							295 heading Access, Value: 3
+								296 text Access
+							297 Access
+								298 radio button Only me Only you can run this agent., Value: 1
+								299 radio button Entire workspace Every workspace member can run it., Value: 0
+								300 radio button Specific people Only selected members can run it., Value: 0
+						301 button (disabled) Create & open agent
+					302 button Open Aristotle
+					303 container Notifications alt+T
+	304 close button
+	305 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	306 minimize button
+307 menu bar
+	308 Lykeion
+	309 File
+	310 Edit
+	311 View
+	312 Window
+	313 Help
+
+The focused UI element is 51 container

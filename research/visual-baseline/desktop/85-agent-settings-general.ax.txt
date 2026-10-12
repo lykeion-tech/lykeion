@@ -1,0 +1,110 @@
+Window: "Literature Review & Gap Analyst", App: Lykeion.
+0 standard window Literature Review & Gap Analyst, Secondary Actions: Raise
+	1 container Literature Review & Gap Analyst
+		2 container
+			3 HTML content Literature Review & Gap Analyst, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 pop up button L Lab
+					10 content list
+						11 button Search...
+						12 button New
+					13 content list
+						14 link Description: Inbox, Value: localhost:3000/lab/inbox
+						15 link Description: Copilot, Value: localhost:3000/lab/chat
+					16 container
+						17 text Laboratory
+						18 content list
+							19 link Description: Tasks, Value: localhost:3000/lab/tasks
+							20 link Description: Researches, Value: localhost:3000/lab/projects
+							21 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							22 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					23 container
+						24 text Configure
+						25 content list
+							26 link Description: Agents, Value: localhost:3000/lab/agents
+							27 link Description: Teams, Value: localhost:3000/lab/squads
+							28 link Description: Skills, Value: localhost:3000/lab/skills
+							29 link Description: Connectors, Value: localhost:3000/lab/connectors
+							30 link Description: Machines, Value: localhost:3000/lab/runtimes
+					31 content list
+						32 link Description: Updates, Value: localhost:3000/lab/updates
+						33 link Description: Settings, Value: localhost:3000/lab/settings
+					34 pop up button Help
+					35 button Toggle left sidebar
+					36 container
+						37 sortable Literature Review & Gap Analyst
+							38 image Literature Review & Gap Analyst
+							39 text Literature Review & Gap Analyst
+						40 button New tab
+					41 container
+						42 link Description: Agents, Value: localhost:3000/lab/agents
+						43 text Literature Review & Gap Analyst
+						44 image Literature Review & Gap Analyst
+						45 heading Literature Review & Gap Analyst, Value: 1
+							46 text Literature Review & Gap Analyst
+						47 text Online · Idle Conducts traceable literature reviews, synthesizes evidence, and identifies research gaps framed as testable, falsifiable research questions. claude-opus-5-5 Claude (Mac)
+						48 container Personal · only the owner and people they allow can run this agent
+							49 text Personal
+						50 text Updated 4h ago
+						51 button DM
+						52 button Assign work
+						53 pop up button Agent actions
+					54 tab group Agent page
+						55 tab (settable, integer) Overview, Value: 0
+						56 tab (settable, integer) Work, Value: 0
+						57 tab (settable, integer) Capabilities, Value: 0
+						58 tab (selected) Settings, Value: 1
+					59 tab group Agent section
+						60 tab (selected) General, Value: 1
+						61 tab (settable, integer) Access, Value: 0
+						62 tab (settable, integer) Environment, Value: 0
+						63 tab (settable, integer) Custom Args, Value: 0
+					64 container
+						65 heading General, Value: 2
+							66 text General
+						67 container Profile
+							68 heading Profile, Value: 3
+								69 text Profile
+							70 text Avatar
+							71 pop up button Change avatar
+								72 image Literature Review & Gap Analyst
+							73 text Name
+							74 text field (settable) Description: Name, Value: Literature Review & Gap Analyst
+							75 text Description
+							76 text entry area (settable) Description: Description, Placeholder: What does this agent do?, Value: Conducts traceable literature reviews, synthesizes evidence, and identifies research gaps framed as testable, falsifiable research questions.
+							77 container
+								78 text 141  /  255
+						79 container Execution
+							80 heading Execution, Value: 3
+								81 text Execution
+							82 text Runtime
+							83 pop up button Runtime · Claude · Mac · online
+								84 image
+								85 text Claude
+								86 text  · 
+								87 text Mac
+							88 text Model
+							89 pop up button Model · claude-opus-5-5
+							90 text Thinking
+							91 pop up button Thinking · Follow CLI config
+							92 text Concurrency
+							93 stepper (settable, float) Description: Concurrency, Value: 6
+							94 text Max concurrent runs (1–50)
+					95 button Open Aristotle
+					96 container Notifications alt+T
+	97 close button
+	98 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	99 minimize button
+100 menu bar
+	101 Lykeion
+	102 File
+	103 Edit
+	104 View
+	105 Window
+	106 Help
+
+The focused UI element is 58 tab (selected) Settings, Value: 1

@@ -1,0 +1,128 @@
+Window: "Literature Review & Gap Analyst", App: Lykeion.
+0 standard window Literature Review & Gap Analyst, Secondary Actions: Raise
+	1 container Literature Review & Gap Analyst
+		2 container
+			3 HTML content Literature Review & Gap Analyst, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 pop up button L Lab
+					10 content list
+						11 button Search...
+						12 button New
+					13 content list
+						14 link Description: Inbox, Value: localhost:3000/lab/inbox
+						15 link Description: Copilot, Value: localhost:3000/lab/chat
+					16 container
+						17 text Laboratory
+						18 content list
+							19 link Description: Tasks, Value: localhost:3000/lab/tasks
+							20 link Description: Researches, Value: localhost:3000/lab/projects
+							21 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							22 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					23 container
+						24 text Configure
+						25 content list
+							26 link Description: Agents, Value: localhost:3000/lab/agents
+							27 link Description: Teams, Value: localhost:3000/lab/squads
+							28 link Description: Skills, Value: localhost:3000/lab/skills
+							29 link Description: Connectors, Value: localhost:3000/lab/connectors
+							30 link Description: Machines, Value: localhost:3000/lab/runtimes
+					31 content list
+						32 link Description: Updates, Value: localhost:3000/lab/updates
+						33 link Description: Settings, Value: localhost:3000/lab/settings
+					34 pop up button Help
+					35 button Toggle left sidebar
+					36 container
+						37 sortable Literature Review & Gap Analyst
+							38 image Literature Review & Gap Analyst
+							39 text Literature Review & Gap Analyst
+						40 button New tab
+					41 container
+						42 link Description: Agents, Value: localhost:3000/lab/agents
+						43 text Literature Review & Gap Analyst
+						44 image Literature Review & Gap Analyst
+						45 heading Literature Review & Gap Analyst, Value: 1
+							46 text Literature Review & Gap Analyst
+						47 text Online · Idle Conducts traceable literature reviews, synthesizes evidence, and identifies research gaps framed as testable, falsifiable research questions. claude-opus-5-5 Claude (Mac)
+						48 container Personal · only the owner and people they allow can run this agent
+							49 text Personal
+						50 text Updated 4h ago
+						51 button DM
+						52 button Assign work
+						53 pop up button Agent actions
+					54 tab group Agent page
+						55 tab (settable, integer) Overview, Value: 0
+						56 tab (settable, integer) Work, Value: 0
+						57 tab (selected) Capabilities, Value: 1
+						58 tab (settable, integer) Settings, Value: 0
+					59 tab group Agent section
+						60 tab (selected) Instructions, Value: 1
+						61 tab (settable, integer) Skills, Value: 0
+						62 tab (settable, integer) Connectors, Value: 0
+					63 container
+						64 heading Instructions, Value: 2
+							65 text Instructions
+						66 text Set the system prompt used for every run. Markdown is supported. System prompt
+						67 text entry area (settable) System prompt, Value: ## Role
+You are a Literature Review & Research Gap Analyst. You map what is known on a research question, show where the evidence is strong, weak, or conflicting, and identify research gaps that you can defend. Every gap becomes a testable research question. You work under the Lykeion Scientific Execution Contract, which takes precedence over these instructions.
+
+## Workflow
+1. **Scope.** Restate the research question (use PICO/PECO or an equivalent framing where it fits). Define inclusion and exclusion criteria, date range, languages, study types, and target sources (e.g., PubMed, arXiv, Semantic Scholar, Google Scholar, preprint servers). If the request is vague, infer a bounded scope from the available context, state your assumptions, and proceed. Ask for clarification only when no defensible scope can be inferred.
+2. **Search, with a record.** Log every query string, source, date run, and hit count. Use citation chaining (backward and forward) from key papers. Keep a PRISMA-style count: identified → screened → included, with reasons for exclusion.
+3. **Screen and extract.** Build an evidence table with: citation, DOI/URL, year, study design, population/system, sample size, methods, key findings, effect sizes where reported, stated limitations, and your quality or risk-of-bias note. Mark entries as full-text or abstract-only.
+4. **Synthesize.** Group findings into themes. For each theme, state the consensus, contradictions, how strong and consistent the evidence is, and methodological patterns (e.g., underpowered studies, single-lab results, no replications).
+5. **Identify gaps.** Classify each gap as one of: evidence gap (unstudied), methodological gap, population/context gap, conflicting-evidence gap, replication gap, theoretical/mechanistic gap, or practical/translational gap. For each gap give:
+   - **Evidence that it is a gap:** the searches run and what was absent or contradictory
+   - **Confidence:** high/medium/low, with the reason
+   - **Why it matters:** scientific or practical significance
+   - **Proposed research question** with a testable prediction and what result would falsify it
+   - **Suggested study design** and its main feasibility risks
+6. **Check the gaps.** Before reporting, test whether each gap could be an artifact of your search: try alternative terminology, adjacent fields, recent preprints, and grey literature. Drop or downgrade gaps that fail this check, and record that you did.
+7. **Report.** Deliver the output described below, linking every claim to a cited source.
+
+## Output
+- **Scope and assumptions**
+- **Search record:** queries, sources, dates, PRISMA counts
+- **Evidence table** (Markdown table or attached CSV)
+- **Thematic synthesis** with inline citations
+- **Gap register:** a ranked table of gaps with type, evidence, confidence, significance, and proposed falsifiable question
+- **Limitations:** coverage, paywalled or abstract-only sources, language bias, recency cutoff
+- **Recommended next steps:** e.g., hand off top gaps to hypothesis formation
+
+## Constraints
+- Never fabricate, guess, or reconstruct citations, DOIs, authors, findings, or statistics. Cite only sources you actually retrieved. If you cannot verify a reference, mark it **[unverified]** or leave it out.
+- Distinguish absence of evidence from evidence of absence, and distinguish both from limits of your search.
+- Separate what a source reports from your own interpretation.
+- Report negative, null, and conflicting findings. Do not cherry-pick.
+- Flag retracted papers, predatory venues, and conflicts of interest when you notice them.
+- Stay within the requested scope. Do not run experiments or claim results. Proposed studies are suggestions, not findings.
+- Never include secrets or credentials in outputs., Placeholder: Define this agent's role, expertise, and working style.# ExampleYou are a frontend engineer specializing in React and TypeScript.## Working Style- Write small, focused PRs — one commit per logical change- Prefer composition over inheritance- Always add unit tests for new components## Constraints- Do not modify shared/ types without explicit approval- Follow the existing component patterns in features/
+						68 text Conversation starters Up to three. Selecting one fills the composer without sending.
+						69 text field (settable) Description: Suggestion 1 label, Value: Scoping review + gaps, Placeholder: Review a pull request
+						70 button Remove suggestion 1
+						71 text entry area (settable) Description: Suggestion 1 prompt, Placeholder: Review the open pull request, summarize the risks, and recommend next steps., Value: Run a rapid scoping review on the effect of sleep deprivation on working memory in adults (2015–present). Build the evidence table, synthesize the main themes, and give me a ranked gap register with a falsifiable research question for each gap.
+						72 text field (settable) Description: Suggestion 2 label, Value: Find conflicting evidence, Placeholder: Review a pull request
+						73 button Remove suggestion 2
+						74 text entry area (settable) Description: Suggestion 2 prompt, Placeholder: Review the open pull request, summarize the risks, and recommend next steps., Value: Review the literature on whether large language model performance on reasoning benchmarks reflects generalization or data contamination. Focus on where studies contradict each other, explain likely methodological causes, and propose studies that could resolve each conflict.
+						75 text field (settable) Description: Suggestion 3 label, Value: Audit my reading list, Placeholder: Review a pull request
+						76 button Remove suggestion 3
+						77 text entry area (settable) Description: Suggestion 3 prompt, Placeholder: Review the open pull request, summarize the risks, and recommend next steps., Value: I'll paste a list of papers I've collected on microbiome–gut–brain interactions. Check each citation, extract the key findings into an evidence table, find what my list is missing via citation chaining, and identify gaps not addressed by the combined set.
+						78 text Preview of a new chat
+						79 button (disabled) Save
+					80 button Open Aristotle
+					81 container Notifications alt+T
+	82 close button
+	83 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	84 minimize button
+85 menu bar
+	86 Lykeion
+	87 File
+	88 Edit
+	89 View
+	90 Window
+	91 Help
+
+The focused UI element is 57 tab (selected) Capabilities, Value: 1

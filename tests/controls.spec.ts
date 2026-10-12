@@ -1,0 +1,163 @@
+import {expect,test,type Page} from '@playwright/test';
+
+async function manualComposer(page:Page){
+  await page.goto('/#/tasks');
+  await page.locator('.quick-actions').getByRole('button',{name:'New',exact:true}).click();
+  await page.getByRole('button',{name:'Switch to Manual'}).click();
+  return page.getByRole('dialog',{name:'Create manually',exact:true});
+}
+
+test('calendar keyboard crosses month boundaries and persists both dates without bypassing Grounding',async({page})=>{
+  await page.clock.setFixedTime(new Date('2030-01-15T12:00:00Z'));
+  const composer=await manualComposer(page);
+  await composer.getByRole('textbox',{name:'Task title',exact:true}).fill('Calendar persistence experiment');
+  await composer.getByRole('button',{name:'More properties'}).click();
+  await composer.getByRole('button',{name:'Set due date...'}).click();
+  let calendar=page.getByRole('dialog',{name:'Choose due date'});
+  await expect(calendar.getByRole('button',{name:'No due date'})).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(calendar).toHaveCount(0);
+  await expect(composer).toBeVisible();
+  await composer.getByRole('button',{name:'Due date',exact:true}).click();
+  calendar=page.getByRole('dialog',{name:'Choose due date'});
+  const january31=calendar.getByRole('button',{name:'Thursday, January 31st, 2030',exact:true});
+  await january31.focus();
+  await page.keyboard.press('PageDown');
+  await expect(calendar.getByRole('button',{name:'Thursday, February 28th, 2030',exact:true})).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(calendar.getByRole('button',{name:'Friday, March 1st, 2030',exact:true})).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Enter');
+  await expect(calendar).toHaveCount(0);
+  await composer.getByRole('button',{name:'More properties'}).click();
+  await composer.getByRole('button',{name:'Set start date...'}).click();
+  await page.getByRole('dialog',{name:'Choose start date'}).getByRole('button',{name:'Today, Tuesday, January 15th, 2030',exact:true}).click();
+  await composer.getByRole('button',{name:'Create Task'}).click();
+  await expect(composer).toHaveCount(0);
+  await page.reload();
+  await page.locator('.task-card').filter({hasText:'Calendar persistence experiment'}).click();
+  await expect(page.getByLabel('Due date',{exact:true})).toHaveValue('2030-02-28');
+  await expect(page.getByLabel('Start date',{exact:true})).toHaveValue('2030-01-15');
+  await expect(page.getByLabel('Scientific stage')).toHaveValue('Grounding');
+});
+
+test('color picker supports keyboard, rejects invalid hex, persists a valid color, and respects nested Escape',async({page})=>{
+  await page.goto('/#/settings?tab=labels');
+  await page.getByRole('button',{name:'New label',exact:true}).click();
+  const editor=page.getByRole('dialog',{name:'New label',exact:true});
+  await editor.getByRole('textbox',{name:'Name',exact:true}).fill('Evidence audited');
+  await editor.getByRole('button',{name:'Color',exact:true}).click();
+  let picker=page.getByRole('dialog',{name:'Color picker',exact:true});
+  const plane=picker.getByRole('slider',{name:'Saturation and brightness'});
+  await expect(plane).toBeFocused();
+  const originalBrightness=Number(await plane.getAttribute('aria-valuenow'));
+  await page.keyboard.press('ArrowDown');
+  await expect(plane).toHaveAttribute('aria-valuenow',String(originalBrightness-1));
+  const hex=picker.getByRole('textbox',{name:'Hex color'});
+  await hex.fill('#broken');
+  await hex.press('Enter');
+  await expect(hex).toHaveAttribute('aria-invalid','true');
+  await expect(picker.getByRole('alert')).toContainText('Enter a hex color');
+  await hex.fill('#12AB34');
+  await hex.press('Enter');
+  await expect(hex).toHaveAttribute('aria-invalid','false');
+  await page.keyboard.press('Escape');
+  await expect(picker).toHaveCount(0);
+  await expect(editor).toBeVisible();
+  await expect(editor.getByRole('button',{name:'Color',exact:true})).toBeFocused();
+  await expect(editor.getByRole('button',{name:'Color',exact:true})).toContainText('#12AB34');
+  await editor.getByRole('button',{name:'Save label',exact:true}).click();
+  await page.reload();
+  await page.getByRole('button',{name:'Evidence audited',exact:true}).click();
+  const saved=page.getByRole('dialog',{name:'Edit label',exact:true});
+  await expect(saved.getByRole('button',{name:'Color',exact:true})).toContainText('#12AB34');
+  await saved.getByRole('button',{name:'Color',exact:true}).click();
+  picker=page.getByRole('dialog',{name:'Color picker',exact:true});
+  await expect(picker).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(saved).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(saved).toHaveCount(0);
+});
+
+test('time zone search and keyboard selection persist explicit and browser defaults',async({page})=>{
+  await page.goto('/#/settings?tab=preferences');
+  const trigger=page.getByRole('button',{name:'Time zone',exact:true});
+  await expect(trigger).toContainText('(browser)');
+  await trigger.click();
+  const search=page.getByRole('combobox',{name:'Search time zones...'});
+  await search.fill('Tokyo');
+  await expect(page.getByRole('listbox',{name:'Time zones'}).getByRole('option')).toHaveCount(1);
+  await search.press('Enter');
+  await expect(trigger).toContainText('Asia/Tokyo');
+  await expect(trigger).not.toContainText('(browser)');
+  await page.reload();
+  await expect(trigger).toContainText('Asia/Tokyo');
+  await trigger.click();
+  await page.getByRole('combobox',{name:'Search time zones...'}).fill('(browser)');
+  await page.keyboard.press('Enter');
+  await expect(trigger).toContainText('(browser)');
+  await page.reload();
+  await expect(trigger).toContainText('(browser)');
+  await trigger.click();
+  await page.getByRole('combobox',{name:'Search time zones...'}).fill('not-a-real-zone');
+  await expect(page.getByRole('listbox',{name:'Time zones'})).toContainText('No matching time zones.');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('listbox',{name:'Time zones'})).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test('chosen emoji survives agent creation, reload and list rendering',async({page})=>{
+  await page.goto('/#/agents/new/manual');
+  await page.getByPlaceholder('e.g. Deep Research Agent').fill('Evidence custodian');
+  await page.getByRole('button',{name:'Change avatar',exact:true}).click();
+  await page.getByRole('dialog',{name:'Choose avatar'}).getByRole('button',{name:'🦉',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Change avatar',exact:true})).toContainText('🦉');
+  await page.getByRole('button',{name:'Create & open agent',exact:true}).click();
+  await expect(page.locator('.resource-identity h1')).toHaveText('Evidence custodian');
+  await expect(page.locator('.resource-identity .avatar-display')).toContainText('🦉');
+  await page.reload();
+  await expect(page.locator('.resource-identity .avatar-display')).toContainText('🦉');
+  await page.getByRole('link',{name:'Agents',exact:true}).click();
+  const row=page.locator('.agent-table-row').filter({hasText:'Evidence custodian'});
+  await expect(row.locator('.avatar-display')).toContainText('🦉');
+  await expect(row).toContainText('offline');
+});
+
+test('expanded emoji search finds named symbols and skin variants',async({page})=>{
+  await page.goto('/#/agents/new/manual');
+  await page.getByRole('button',{name:'Change avatar',exact:true}).click();
+  await page.getByRole('button',{name:'More emojis…',exact:true}).click();
+  const picker=page.getByRole('dialog',{name:'Choose avatar'});
+  await picker.getByRole('textbox',{name:'Search emojis'}).fill('microscope');
+  await picker.getByRole('button',{name:'microscope',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Change avatar',exact:true})).toContainText('🔬');
+  await page.getByRole('button',{name:'Change avatar',exact:true}).click();
+  await page.getByRole('button',{name:'More emojis…',exact:true}).click();
+  await picker.getByRole('textbox',{name:'Search emojis'}).fill('thumbs up');
+  await picker.getByRole('button',{name:'Skin tone',exact:true}).click();
+  await picker.getByRole('button',{name:'Medium skin tone',exact:true}).click();
+  await picker.getByRole('button',{name:'thumbs up',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Change avatar',exact:true})).toContainText('👍🏽');
+});
+
+test('custom settings menus support keyboard selection and persistence',async({page})=>{
+  await page.goto('/#/settings?tab=preferences');
+  const reply=page.getByRole('combobox',{name:'When replying to a running agent',exact:true});
+  await reply.click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await expect(reply).toContainText('Start after this run');
+  await page.reload();
+  await expect(reply).toContainText('Start after this run');
+  await page.getByRole('button',{name:'Properties',exact:true}).click();
+  await page.getByRole('button',{name:'New property',exact:true}).click();
+  const type=page.getByRole('combobox',{name:'Type',exact:true});
+  await type.click();
+  await page.getByRole('option',{name:'Checkbox',exact:true}).click();
+  await expect(type).toContainText('Checkbox');
+  await expect(page.getByRole('button',{name:'Add option',exact:true})).toHaveCount(0);
+  await type.click();
+  await page.keyboard.press('Escape');
+  await expect(type).toBeFocused();
+});

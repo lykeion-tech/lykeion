@@ -1,0 +1,104 @@
+Window: "Runtimes", App: Lykeion.
+0 standard window Runtimes, Secondary Actions: Raise
+	1 container Runtimes
+		2 container
+			3 HTML content Runtimes, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 container Notifications alt+T
+					6 container New custom runtime
+						7 heading New custom runtime, Value: 2
+							8 text New custom runtime
+						9 button Close
+						10 container
+							11 text Set up a custom command from Mac. The definition syncs workspace-wide and registers only on machines where that command is available.
+							12 link Description: View setup guide, Value: lykeion.ai/docs/daemon-runtimes#custom-runtime-profiles
+						13 text STEP 1 OF 2
+						14 heading Choose a base runtime, Value: 3
+							15 text Choose a base runtime
+						16 text Select the CLI this command is compatible with.
+						17 container Base runtime
+							18 button Claude
+								19 image
+								20 text Claude
+							21 button Codebuddy
+								22 image
+								23 text Codebuddy
+							24 button Codex
+								25 image
+								26 text Codex
+							27 button Copilot
+								28 image
+								29 text Copilot
+							30 button Opencode
+								31 image
+								32 text Opencode
+							33 button CodeArts Codearts
+								34 image CodeArts
+								35 text Codearts
+							36 button DevEco Code Deveco
+								37 image DevEco Code
+								38 text Deveco
+							39 button Openclaw
+								40 image
+								41 text Openclaw
+							42 button Hermes Hermes
+								43 image Hermes
+								44 text Hermes
+							45 button Pi
+								46 image
+								47 text Pi
+							48 button Cursor
+								49 image
+								50 text Cursor
+							51 button Kimi
+								52 image
+								53 text Kimi
+							54 button Reasonix Reasonix
+								55 image Reasonix
+								56 text Reasonix
+							57 button Dsh
+								58 image
+								59 text Dsh
+							60 button Dim
+							61 button Kiro
+								62 image
+								63 text Kiro
+							64 button Antigravity Antigravity
+								65 image Antigravity
+								66 text Antigravity
+							67 button Qoder
+								68 image
+								69 text Qoder
+							70 button Qoderclicn
+								71 image
+								72 text Qoderclicn
+							73 button Trae Traecli
+								74 image Trae
+								75 text Traecli
+							76 button Grok
+							77 button Qwen
+							78 button Qwenpaw
+								79 image
+								80 text Qwenpaw
+							81 button Mcode
+								82 image
+								83 text Mcode
+							84 button Zeroclaw
+								85 image
+								86 text Zeroclaw
+							87 button Oh-My-Pi
+								88 image
+								89 text Oh-My-Pi
+						90 button Cancel
+	91 close button
+	92 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	93 minimize button
+94 menu bar
+	95 Lykeion
+	96 File
+	97 Edit
+	98 View
+	99 Window
+	100 Help
+
+The focused UI element is 9 button Close

@@ -1,0 +1,94 @@
+Window: "Autopilot", App: Lykeion.
+0 standard window Autopilot, Secondary Actions: Raise
+	1 container Autopilot
+		2 container
+			3 HTML content Autopilot, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 pop up button L Lab
+					10 content list
+						11 button Search...
+						12 button New
+					13 content list
+						14 link Description: Inbox, Value: localhost:3000/lab/inbox
+						15 link Description: Copilot, Value: localhost:3000/lab/chat
+					16 container
+						17 text Laboratory
+						18 content list
+							19 link Description: Tasks, Value: localhost:3000/lab/tasks
+							20 link Description: Researches, Value: localhost:3000/lab/projects
+							21 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							22 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					23 container
+						24 text Configure
+						25 content list
+							26 link Description: Agents, Value: localhost:3000/lab/agents
+							27 link Description: Teams, Value: localhost:3000/lab/squads
+							28 link Description: Skills, Value: localhost:3000/lab/skills
+							29 link Description: Connectors, Value: localhost:3000/lab/connectors
+							30 link Description: Machines, Value: localhost:3000/lab/runtimes
+					31 content list
+						32 link Description: Updates, Value: localhost:3000/lab/updates
+						33 link Description: Settings, Value: localhost:3000/lab/settings
+					34 pop up button Help
+					35 button Toggle left sidebar
+					36 container
+						37 sortable Autopilot
+						38 button New tab
+					39 container
+						40 heading Autopilot, Value: 1
+							41 text Autopilot
+						42 button New wakeup
+						43 tab group Autopilot
+							44 tab (settable, integer) Autopilot, Value: 0
+							45 tab (selected) Task wakeups, Value: 1
+						46 container Task wakeups
+							47 container Scope
+								48 toggle button Waiting or executing 0, Value: 1
+									49 text Waiting or executing
+									50 text 0
+								51 toggle button Paused 0, Value: 0
+									52 text Paused
+									53 text 0
+								54 toggle button Turned off 0, Value: 0
+									55 text Turned off
+									56 text 0
+								57 toggle button Ended 0, Value: 0
+									58 text Ended
+									59 text 0
+								60 toggle button All 0, Value: 0
+									61 text All
+									62 text 0
+							63 combo box (settable) Description: Source, Value: Source: All
+								64 text Source: All
+							65 combo box (settable) Description: Trigger, Value: All triggers
+								66 text All triggers
+							67 combo box (settable) Description: Wake agent, Value: All agents
+								68 text All agents
+							69 search text field (settable) Search tasks or agents
+							70 heading No matching wakeups, Value: 2
+								71 text No matching wakeups
+							72 text Page 1 · 0 results
+							73 button (disabled) Previous
+							74 button (disabled) Next
+							75 container
+								76 heading Choose the task to add a wakeup to, Value: 2
+									77 text Choose the task to add a wakeup to
+								78 text The wakeup belongs to this task and ends with it.
+					79 button Open Aristotle
+					80 container Notifications alt+T
+	81 close button
+	82 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	83 minimize button
+84 menu bar
+	85 Lykeion
+	86 File
+	87 Edit
+	88 View
+	89 Window
+	90 Help
+
+The focused UI element is 45 tab (selected) Task wakeups, Value: 1

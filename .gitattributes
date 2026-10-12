@@ -1,0 +1,2 @@
+# Preserve accessibility captures verbatim as reference evidence.
+research/visual-baseline/**/*.ax.txt -whitespace

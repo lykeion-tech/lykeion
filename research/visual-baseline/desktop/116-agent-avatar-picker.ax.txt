@@ -1,0 +1,138 @@
+Window: "Create Agent", App: Lykeion.
+0 standard window Create Agent, Secondary Actions: Raise
+	1 container Create Agent
+		2 container
+			3 HTML content Create Agent, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 pop up button L Lab
+					10 content list
+						11 button Search...
+						12 button New
+					13 content list
+						14 link Description: Inbox, Value: localhost:3000/lab/inbox
+						15 link Description: Copilot, Value: localhost:3000/lab/chat
+					16 container
+						17 text Laboratory
+						18 content list
+							19 link Description: Tasks, Value: localhost:3000/lab/tasks
+							20 link Description: Researches, Value: localhost:3000/lab/projects
+							21 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							22 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					23 container
+						24 text Configure
+						25 content list
+							26 link Description: Agents, Value: localhost:3000/lab/agents
+							27 link Description: Teams, Value: localhost:3000/lab/squads
+							28 link Description: Skills, Value: localhost:3000/lab/skills
+							29 link Description: Connectors, Value: localhost:3000/lab/connectors
+							30 link Description: Machines, Value: localhost:3000/lab/runtimes
+					31 content list
+						32 link Description: Updates, Value: localhost:3000/lab/updates
+						33 link Description: Settings, Value: localhost:3000/lab/settings
+					34 pop up button Help
+					35 button Toggle left sidebar
+					36 container
+						37 sortable Create Agent
+						38 button New tab
+					39 container
+						40 button Go back
+						41 heading Create an agent, Value: 1
+							42 text Create an agent
+						43 text Review and configure Start blank Claude (Mac)
+					44 container
+						45 container Identity
+							46 heading Identity, Value: 3
+								47 text Identity
+							48 text Change avatar
+							49 container
+								50 pop up button Change avatar
+								51 container
+									52 button Upload image
+									53 text Emoji
+									54 toggle button 🐙, Value: 0
+									55 toggle button 🦊, Value: 0
+									56 toggle button 🦉, Value: 0
+									57 toggle button 🐝, Value: 0
+									58 toggle button 🐼, Value: 0
+									59 toggle button 🐸, Value: 0
+									60 toggle button 🐯, Value: 0
+									61 toggle button 🦁, Value: 0
+									62 toggle button 🐨, Value: 0
+									63 toggle button 🐵, Value: 0
+									64 toggle button 🐧, Value: 0
+									65 toggle button 🐳, Value: 0
+									66 toggle button 🦋, Value: 0
+									67 toggle button 🌞, Value: 0
+									68 toggle button 🌙, Value: 0
+									69 toggle button ⭐, Value: 0
+									70 toggle button 🔥, Value: 0
+									71 toggle button ⚡, Value: 0
+									72 toggle button 🍀, Value: 0
+									73 toggle button 🌈, Value: 0
+									74 toggle button 🚀, Value: 0
+									75 toggle button 🤖, Value: 0
+									76 toggle button 👾, Value: 0
+									77 toggle button 🧠, Value: 0
+									78 button More emojis…
+							79 text Name
+							80 text field (settable) Description: Name, Placeholder: e.g. Deep Research Agent
+							81 text Description
+							82 text entry area (settable) Description: Description, Placeholder: What does this agent do?
+							83 container
+								84 text 0  /  255
+						85 container Behavior & capabilities
+							86 heading Behavior & capabilities, Value: 3
+								87 text Behavior & capabilities
+							88 text Instructions
+							89 text entry area (settable) Description: Instructions, Placeholder: Write what this agent should do, what to focus on, what to avoid…
+							90 text Conversation starters
+							91 text Up to three. Selecting one fills the composer without sending.
+							92 text field (settable) Description: Suggestion 1 label, Placeholder: Review a pull request
+							93 button Remove suggestion 1
+							94 text entry area (settable) Description: Suggestion 1 prompt, Placeholder: Review the open pull request, summarize the risks, and recommend next steps.
+							95 button Add suggestion
+							96 text Complete or remove each suggestion before saving.
+							97 text Preview of a new chat
+							98 text These are the built-in defaults. Add a suggestion above to replace all three.
+							99 text SKILLS
+							100 button Add skills from workspace
+								101 text Add skills from workspace
+						102 container Execution
+							103 heading Execution, Value: 3
+								104 text Execution
+							105 text Unspecified options use the runtime defaults.
+							106 text Runtime
+							107 pop up button Claude (Mac) diegomarono
+								108 image
+								109 text Claude (Mac)
+								110 text diegomarono
+							111 text Model
+							112 pop up button Default (provider)
+							113 text Thinking
+							114 pop up button Thinking · Follow CLI config
+						115 container Access
+							116 heading Access, Value: 3
+								117 text Access
+							118 Access
+								119 radio button Only me Only you can run this agent., Value: 1
+								120 radio button Entire workspace Every workspace member can run it., Value: 0
+								121 radio button Specific people Only selected members can run it., Value: 0
+						122 button (disabled) Create & open agent
+					123 button Open Aristotle
+					124 container Notifications alt+T
+	125 close button
+	126 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	127 minimize button
+128 menu bar
+	129 Lykeion
+	130 File
+	131 Edit
+	132 View
+	133 Window
+	134 Help
+
+The focused UI element is 52 button Upload image

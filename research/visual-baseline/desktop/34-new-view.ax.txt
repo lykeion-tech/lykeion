@@ -1,0 +1,39 @@
+Window: "Tasks", App: Lykeion.
+0 standard window Tasks, Secondary Actions: Raise
+	1 container Tasks
+		2 container
+			3 HTML content Tasks, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 container Notifications alt+T
+					6 container Save as view
+						7 heading Save as view, Value: 2
+							8 text Save as view
+						9 text Based on all workspace tasks
+						10 text Name
+						11 text field (settable) Name, Placeholder: e.g. Needs review
+						12 text Visibility
+						13 combo box (settable) Description: Visibility, Value: Only visible to me
+							14 text Only visible to me
+						15 text Assignee type
+						16 combo box (settable) Description: Assignee type, Value: Any assignee
+							17 text Any assignee
+						18 text Filters
+						19 pop up button Add filter
+						20 button Default display Board · Status · Created date · Newest first
+							21 text Default display
+							22 text Board · Status · Created date · Newest first
+						23 button Cancel
+						24 button Create view
+						25 button Close
+	26 close button
+	27 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	28 minimize button
+29 menu bar
+	30 Lykeion
+	31 File
+	32 Edit
+	33 View
+	34 Window
+	35 Help
+
+The focused UI element is 11 text field (settable) Name, Placeholder: e.g. Needs review

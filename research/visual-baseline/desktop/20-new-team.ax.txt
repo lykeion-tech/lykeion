@@ -1,0 +1,41 @@
+Window: "Teams", App: Lykeion.
+0 standard window Teams, Secondary Actions: Raise
+	1 container Teams
+		2 container
+			3 HTML content Teams, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 container Notifications alt+T
+					6 container Create Team
+						7 heading Create Team, Value: 2
+							8 text Create Team
+						9 button Change avatar
+						10 text Name
+						11 text field (settable) e.g. Frontend Team
+						12 text Description
+						13 text field (settable) Describe what this team is responsible for...
+						14 container
+							15 text 0  /  255
+						16 text Leader Agent
+						17 text The leader receives all tasks assigned to this team and coordinates the team.
+						18 pop up button Select a leader agent
+							19 text Select a leader agent
+						20 container
+							21 text Additional Members (optional)
+						22 text The leader can delegate sub-tasks to these members.
+						23 combo box (settable) Add agents or workspace members
+							24 text Add agents or workspace members
+						25 button Cancel
+						26 button (disabled) Create Team
+						27 button Close
+	28 close button
+	29 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	30 minimize button
+31 menu bar
+	32 Lykeion
+	33 File
+	34 Edit
+	35 View
+	36 Window
+	37 Help
+
+The focused UI element is 11 text field (settable) e.g. Frontend Team
