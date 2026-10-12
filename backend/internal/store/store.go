@@ -101,9 +101,17 @@ func (s *Store) Provision(ctx context.Context, name, workspace string) (userID, 
 	return
 }
 
-type Session struct{ UserID, DisplayName, CSRF, ExpiresAt string }
+type Session struct{ UserID, DisplayName, CSRF, ExpiresAt, ClientKind string }
 
-func (s *Store) Exchange(ctx context.Context, code string) (token string, session Session, err error) {
+func (s *Store) Exchange(ctx context.Context, code string) (string, Session, error) {
+	return s.ExchangeFor(ctx, code, "browser")
+}
+func (s *Store) ExchangeFor(ctx context.Context, code, kind string) (token string, session Session, err error) {
+	if kind != "browser" && kind != "cli" {
+		err = errors.New("invalid session kind")
+		return
+	}
+	session.ClientKind = kind
 	tx, e := s.Pool.Begin(ctx)
 	if e != nil {
 		err = e
@@ -116,7 +124,7 @@ func (s *Store) Exchange(ctx context.Context, code string) (token string, sessio
 	}
 	token = Secret()
 	session.CSRF = Secret()
-	err = tx.QueryRow(ctx, "INSERT INTO sessions VALUES($1,$2,$3,$4,clock_timestamp()+interval '8 hours') RETURNING to_char(expires_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')", Hash(token), session.UserID, Hash(session.CSRF), session.CSRF).Scan(&session.ExpiresAt)
+	err = tx.QueryRow(ctx, "INSERT INTO sessions(digest,user_id,csrf_digest,csrf_token,expires_at,client_kind) VALUES($1,$2,$3,$4,clock_timestamp()+interval '8 hours',$5) RETURNING to_char(expires_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')", Hash(token), session.UserID, Hash(session.CSRF), session.CSRF, kind).Scan(&session.ExpiresAt)
 	if err != nil {
 		return
 	}
@@ -128,7 +136,7 @@ func (s *Store) Exchange(ctx context.Context, code string) (token string, sessio
 }
 func (s *Store) Authenticate(ctx context.Context, token string) (Session, error) {
 	var v Session
-	e := s.Pool.QueryRow(ctx, "SELECT s.user_id,u.display_name,s.csrf_token,to_char(s.expires_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.digest=$1 AND s.expires_at>clock_timestamp()", Hash(token)).Scan(&v.UserID, &v.DisplayName, &v.CSRF, &v.ExpiresAt)
+	e := s.Pool.QueryRow(ctx, "SELECT s.user_id,u.display_name,s.csrf_token,s.client_kind,to_char(s.expires_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.digest=$1 AND s.expires_at>clock_timestamp()", Hash(token)).Scan(&v.UserID, &v.DisplayName, &v.CSRF, &v.ClientKind, &v.ExpiresAt)
 	return v, e
 }
 func (s *Store) Access(ctx context.Context, w, u string) (role string, epoch, sequence, revision int64, err error) {

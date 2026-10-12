@@ -277,7 +277,178 @@ class MembershipDecision(BaseModel):
     subject_versions: list[Ref] = Field(..., max_length=1000)
 
 
+class Capability(StrEnum):
+    read = 'read'
+    comment = 'comment'
+    edit = 'edit'
+    manage_access = 'manage-access'
+
+
+class AccessGrant(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    programme_id: ID
+    user_id: ID
+    capabilities: list[Capability] = Field(..., max_length=1000)
+    revision: constr(pattern=r'^(0|[1-9][0-9]*)$', max_length=20)
+
+
+class DomainProfile(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    name: constr(min_length=1, max_length=120)
+    domain: Literal['computational']
+    description: constr(min_length=1, max_length=10000)
+
+
+class RequireItem(RootModel[constr(min_length=1, max_length=128)]):
+    root: constr(min_length=1, max_length=128)
+
+
+class Outcome(StrEnum):
+    advance = 'advance'
+    block = 'block'
+    route = 'route'
+    escalate = 'escalate'
+
+
+class Destination(StrEnum):
+    Backlog = 'Backlog'
+    Grounding = 'Grounding'
+    Hypotheses = 'Hypotheses'
+    Experimentation = 'Experimentation'
+    Validation = 'Validation'
+    Reporting = 'Reporting'
+    Done = 'Done'
+
+
+class GatePolicyRule(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    id: constr(min_length=1, max_length=128)
+    require: list[RequireItem] = Field(..., max_length=1000, min_length=1)
+    outcome: Outcome
+    destination: Destination | None = None
+
+
+class RequiredItem(RootModel[constr(min_length=1, max_length=128)]):
+    root: constr(min_length=1, max_length=128)
+
+
+class GatePolicy(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    version: constr(min_length=1, max_length=128)
+    required: list[RequiredItem] = Field(..., max_length=1000, min_length=1)
+    rules: list[GatePolicyRule] = Field(..., max_length=1000, min_length=1)
+
+
+class Change(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    user_id: ID
+    capabilities: list[Capability] = Field(..., max_length=4)
+
+
+class GrantPlan(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    subject_ref: Ref
+    changes: list[Change] = Field(..., max_length=100, min_length=1)
+
+
+class File(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    path: Literal['configuration.json']
+    upload_ref: Ref
+
+
+class ConfigManifest(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    files: list[File] = Field(..., max_length=1, min_length=1)
+
+
+class UploadReservation(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    id: ID
+    maximum_bytes: Literal[65536]
+    part_count: Literal[1]
+
+
+class UploadPartReceipt(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    upload_id: ID
+    sha256: Hash
+
+
+class ArtifactRecord(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    id: ID
+    revision: constr(pattern=r'^(0|[1-9][0-9]*)$', max_length=20)
+    sha256: Hash
+    manifest: ConfigManifest
+
+
+class AuthoredKind(StrEnum):
+    domain_profile = 'domain-profile'
+    gate_policy = 'gate-policy'
+    grant_changes = 'grant-changes'
+
+
 class Payload1(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    upload_receipt_refs: list[Ref] = Field(..., max_length=1000)
+    manifest_candidate: ConfigManifest
+    authored_kind: AuthoredKind
+
+
+class ArtifactSubmitCommand(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    schema_version: Literal['1']
+    target: Target
+    expected_versions: list[Ref] = Field(..., max_length=1000)
+    payload: Payload1
+
+
+class Payload2(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    subject_ref: Ref
+    grant_changes_ref: Ref
+
+
+class AccessChangeCommand(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    schema_version: Literal['1']
+    target: Target
+    expected_versions: list[Ref] = Field(..., max_length=1000)
+    payload: Payload2
+
+
+class Payload3(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -295,10 +466,10 @@ class ProgrammeCreateCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload1
+    payload: Payload3
 
 
-class Payload2(BaseModel):
+class Payload4(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -313,7 +484,7 @@ class ProgrammeAmendObjectiveCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload2
+    payload: Payload4
 
 
 class RequestedRole2(StrEnum):
@@ -322,7 +493,7 @@ class RequestedRole2(StrEnum):
     viewer = 'viewer'
 
 
-class Payload3(BaseModel):
+class Payload5(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -338,10 +509,10 @@ class MemberInviteCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload3
+    payload: Payload5
 
 
-class Payload4(BaseModel):
+class Payload6(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -356,10 +527,10 @@ class InvitationRevokeCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload4
+    payload: Payload6
 
 
-class Payload5(BaseModel):
+class Payload7(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -375,10 +546,10 @@ class MemberRemoveCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload5
+    payload: Payload7
 
 
-class Payload6(BaseModel):
+class Payload8(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -392,7 +563,7 @@ class MemberLeaveCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload6
+    payload: Payload8
 
 
 class RequestedAccess(StrEnum):
@@ -401,7 +572,7 @@ class RequestedAccess(StrEnum):
     viewer = 'viewer'
 
 
-class Payload7(BaseModel):
+class Payload9(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -417,10 +588,10 @@ class MemberChangeAccessCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload7
+    payload: Payload9
 
 
-class Payload8(BaseModel):
+class Payload10(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -435,10 +606,10 @@ class WorkspaceTransferOwnerCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload8
+    payload: Payload10
 
 
-class Payload9(BaseModel):
+class Payload11(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -454,10 +625,10 @@ class MemberRequestAccessChangeCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload9
+    payload: Payload11
 
 
-class Payload10(BaseModel):
+class Payload12(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -472,7 +643,7 @@ class WorkspaceRequestOwnerTransferCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload10
+    payload: Payload12
 
 
 class ChoiceId(StrEnum):
@@ -480,7 +651,7 @@ class ChoiceId(StrEnum):
     reject = 'reject'
 
 
-class Payload11(BaseModel):
+class Payload13(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -497,7 +668,7 @@ class DecisionRespondCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload11
+    payload: Payload13
 
 
 class PreferenceKind(StrEnum):
@@ -512,7 +683,7 @@ class Value(StrEnum):
     dark = 'dark'
 
 
-class Payload12(BaseModel):
+class Payload14(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -527,7 +698,15 @@ class PreferenceUpdateCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload12
+    payload: Payload14
+
+
+class DeviceSession(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    credential: constr(min_length=1, max_length=256)
+    session: Session
 
 
 class InvitationProof(BaseModel):

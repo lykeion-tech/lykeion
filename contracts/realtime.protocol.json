@@ -1341,6 +1341,380 @@
         ],
         "additionalProperties": false
       },
+      "AccessGrant": {
+        "type": "object",
+        "properties": {
+          "programme_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "comment",
+                "edit",
+                "manage-access"
+              ]
+            },
+            "maxItems": 1000
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "programme_id",
+          "user_id",
+          "capabilities",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "DomainProfile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "domain": {
+            "const": "computational"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "name",
+          "domain",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "GatePolicyRule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "require": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "advance",
+              "block",
+              "route",
+              "escalate"
+            ]
+          },
+          "destination": {
+            "type": "string",
+            "enum": [
+              "Backlog",
+              "Grounding",
+              "Hypotheses",
+              "Experimentation",
+              "Validation",
+              "Reporting",
+              "Done"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "require",
+          "outcome"
+        ],
+        "additionalProperties": false
+      },
+      "GatePolicy": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "required": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "rules": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "$ref": "#/components/schemas/GatePolicyRule"
+            }
+          }
+        },
+        "required": [
+          "version",
+          "required",
+          "rules"
+        ],
+        "additionalProperties": false
+      },
+      "GrantPlan": {
+        "type": "object",
+        "properties": {
+          "subject_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "changes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "properties": {
+                "user_id": {
+                  "$ref": "#/components/schemas/ID"
+                },
+                "capabilities": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "read",
+                      "comment",
+                      "edit",
+                      "manage-access"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "user_id",
+                "capabilities"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "subject_ref",
+          "changes"
+        ],
+        "additionalProperties": false
+      },
+      "ConfigManifest": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "const": "configuration.json"
+                },
+                "upload_ref": {
+                  "$ref": "#/components/schemas/Ref"
+                }
+              },
+              "required": [
+                "path",
+                "upload_ref"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "additionalProperties": false
+      },
+      "UploadReservation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "maximum_bytes": {
+            "const": 65536
+          },
+          "part_count": {
+            "const": 1
+          }
+        },
+        "required": [
+          "id",
+          "maximum_bytes",
+          "part_count"
+        ],
+        "additionalProperties": false
+      },
+      "UploadPartReceipt": {
+        "type": "object",
+        "properties": {
+          "upload_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Hash"
+          }
+        },
+        "required": [
+          "upload_id",
+          "sha256"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/ConfigManifest"
+          }
+        },
+        "required": [
+          "id",
+          "revision",
+          "sha256",
+          "manifest"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactSubmitCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "upload_receipt_refs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Ref"
+                },
+                "maxItems": 1000
+              },
+              "manifest_candidate": {
+                "$ref": "#/components/schemas/ConfigManifest"
+              },
+              "authored_kind": {
+                "type": "string",
+                "enum": [
+                  "domain-profile",
+                  "gate-policy",
+                  "grant-changes"
+                ]
+              }
+            },
+            "required": [
+              "upload_receipt_refs",
+              "manifest_candidate",
+              "authored_kind"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "AccessChangeCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "subject_ref": {
+                "$ref": "#/components/schemas/Ref"
+              },
+              "grant_changes_ref": {
+                "$ref": "#/components/schemas/Ref"
+              }
+            },
+            "required": [
+              "subject_ref",
+              "grant_changes_ref"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
       "ProgrammeCreateCommand": {
         "type": "object",
         "properties": {
@@ -1923,6 +2297,24 @@
           "target",
           "expected_versions",
           "payload"
+        ],
+        "additionalProperties": false
+      },
+      "DeviceSession": {
+        "type": "object",
+        "properties": {
+          "credential": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "session": {
+            "$ref": "#/components/schemas/Session"
+          }
+        },
+        "required": [
+          "credential",
+          "session"
         ],
         "additionalProperties": false
       },

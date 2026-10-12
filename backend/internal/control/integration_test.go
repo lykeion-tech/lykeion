@@ -68,6 +68,8 @@ func fixture(t *testing.T) (*Server, *store.Store, string, string, string, strin
 	if e != nil {
 		t.Fatal(e)
 	}
+	api.ArtifactRoot = t.TempDir()
+	t.Cleanup(api.Close)
 	return api, db, user, w, token, session.CSRF
 }
 func request(t *testing.T, client *http.Client, method, url, token, csrf, key string, body any) (int, []byte) {
@@ -163,7 +165,12 @@ func TestWebSocketReconnectAndRevocation(t *testing.T) {
 	api, db, user, w, token, csrf := fixture(t)
 	first := httptest.NewServer(api.Handler())
 	defer first.Close()
-	second := httptest.NewServer(api.Handler())
+	other, err := New(db, api.Key, []string{"http://127.0.0.1:1430"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	second := httptest.NewServer(other.Handler())
 	defer second.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

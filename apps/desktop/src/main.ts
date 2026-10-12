@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, safeStorage } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import {encryptedSessionVault} from './session-vault.js';
 import { controlBridge } from './control-bridge.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -9,6 +10,7 @@ if (developmentUrl && !['http://127.0.0.1:1430', 'http://localhost:1430'].includ
 app.setName('Lykeion Preview');
 app.setPath('userData', path.join(app.getPath('appData'), 'Lykeion Preview'));
 let window: BrowserWindow | null = null;
+let closeStream=()=>{};
 function createWindow() {
   window = new BrowserWindow({
     width: 1920, height: 960, minWidth: 900, minHeight: 640, title: 'Lykeion',
@@ -20,10 +22,12 @@ function createWindow() {
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   if (developmentUrl) void window.loadURL(developmentUrl);
   else void window.loadFile(path.resolve(directory, '../../../dist/dashboard/index.html'));
-  window.on('closed', () => { window = null; });
+  window.on('closed', () => { closeStream(); window = null; });
 }
 void app.whenReady().then(() => {
-  const control=controlBridge(()=>window,process.env.LYKEION_CONTROL_ORIGIN||'http://127.0.0.1:18431');
+  const origin=process.env.LYKEION_CONTROL_ORIGIN||'http://127.0.0.1:18431';
+  const vault=encryptedSessionVault(path.join(app.getPath('userData'),'control-session.enc'),new URL(origin).origin,{available:()=>safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text'),encrypt:value=>safeStorage.encryptString(value),decrypt:value=>safeStorage.decryptString(value)});
+  const control=controlBridge(()=>window,origin,vault);closeStream=control.close;
   ipcMain.handle('lykeion:control', control.request);
   ipcMain.handle('lykeion:realtime', control.realtime);
   app.on('before-quit',control.close);

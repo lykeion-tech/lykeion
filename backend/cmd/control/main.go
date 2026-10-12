@@ -36,6 +36,8 @@ func main() {
 	if e != nil {
 		log.Fatal(e)
 	}
+	api.ArtifactRoot = os.Getenv("LYKEION_ARTIFACT_ROOT")
+	defer api.Close()
 	addr := os.Getenv("LYKEION_LISTEN")
 	if addr == "" {
 		addr = "127.0.0.1:18431"

@@ -27,8 +27,19 @@ s={
  'Invitation':obj({'id':ref('ID'),'workspace_id':ref('ID'),'recipient':string(320),'requested_role':enum('admin','member','viewer'),'state':enum('pending','accepted','revoked','expired'),'expires_at':{'type':'string','format':'date-time'},'revision':rev}),
 }
 s['MembershipDecision']=obj({'id':ref('ID'),'workspace_id':ref('ID'),'requester_id':ref('ID'),'responder_id':ref('ID'),'member_id':ref('ID'),'action':enum('change-access','transfer-owner'),'requested_role':enum('owner','admin','member','viewer'),'state':enum('pending','approved','rejected','expired'),'revision':rev,'expires_at':{'type':'string','format':'date-time'},'subject_versions':arr(ref('Ref'))})
+s['AccessGrant']=obj({'programme_id':ref('ID'),'user_id':ref('ID'),'capabilities':arr(enum('read','comment','edit','manage-access')),'revision':rev})
+s['DomainProfile']=obj({'name':string(120),'domain':{'const':'computational'},'description':string()})
+s['GatePolicyRule']=obj({'id':string(128),'require':{'type':'array','minItems':1,'maxItems':1000,'items':string(128)},'outcome':enum('advance','block','route','escalate'),'destination':enum('Backlog','Grounding','Hypotheses','Experimentation','Validation','Reporting','Done')},['id','require','outcome'])
+s['GatePolicy']=obj({'version':string(128),'required':{'type':'array','minItems':1,'maxItems':1000,'uniqueItems':True,'items':string(128)},'rules':{'type':'array','minItems':1,'maxItems':1000,'items':ref('GatePolicyRule')}})
+s['GrantPlan']=obj({'subject_ref':ref('Ref'),'changes':{'type':'array','minItems':1,'maxItems':100,'items':obj({'user_id':ref('ID'),'capabilities':{'type':'array','maxItems':4,'uniqueItems':True,'items':enum('read','comment','edit','manage-access')}})}})
+s['ConfigManifest']=obj({'files':{'type':'array','minItems':1,'maxItems':1,'items':obj({'path':{'const':'configuration.json'},'upload_ref':ref('Ref')})}})
+s['UploadReservation']=obj({'id':ref('ID'),'maximum_bytes':{'const':65536},'part_count':{'const':1}})
+s['UploadPartReceipt']=obj({'upload_id':ref('ID'),'sha256':ref('Hash')})
+s['ArtifactRecord']=obj({'id':ref('ID'),'revision':rev,'sha256':ref('Hash'),'manifest':ref('ConfigManifest')})
 # Write payloads are closed and intentionally cover only the S01 freeze.
 payloads={
+ 'artifact.submit':obj({'upload_receipt_refs':arr(ref('Ref')),'manifest_candidate':ref('ConfigManifest'),'authored_kind':enum('domain-profile','gate-policy','grant-changes')}),
+ 'access.change':obj({'subject_ref':ref('Ref'),'grant_changes_ref':ref('Ref')}),
  'programme.create':obj({'name':string(120),'objective':string(),'profile_ref':ref('Ref'),'initial_policy_refs':arr(ref('Ref')),'budget_ceiling':ref('BudgetCeiling')}),
  'programme.amend-objective':obj({'objective_ref':ref('Ref'),'reason':string()}),
  'member.invite':obj({'destination':ref('ID'),'requested_role':enum('admin','member','viewer'),'expires_at':{'type':'string','format':'date-time'}}),
@@ -50,20 +61,34 @@ workspace_param={'name':'workspace_id','in':'path','required':True,'schema':ref(
 for name,payload in payloads.items():
  key=''.join(x.title() for x in name.replace('-','.').split('.'))+'Command'
  s[key]=obj({'schema_version':{'const':'1'},'target':ref('Target'),'expected_versions':arr(ref('Ref')),'payload':payload})
- paths['/v1/workspaces/{workspace_id}/commands/'+name]={'post':{'operationId':key,'parameters':[workspace_param,{'name':'Idempotency-Key','in':'header','required':True,'schema':string(128)},{'name':'X-CSRF-Token','in':'header','required':True,'schema':string(256)}],'requestBody':{'required':True,'content':{'application/json':{'schema':ref(key)}}},'responses':{'202':response(ref('Operation')),'default':response(ref('Problem'))}}}
-for path,model,page in [('/v1/session','Session',False),('/v1/capabilities','Capabilities',False),('/v1/workspaces','Workspace',True),('/v1/workspaces/{workspace_id}/members','Member',True),('/v1/workspaces/{workspace_id}/programmes','Programme',True),('/v1/workspaces/{workspace_id}/invitations','Invitation',True),('/v1/workspaces/{workspace_id}/membership-decisions','MembershipDecision',True),('/v1/workspaces/{workspace_id}/events','Event',True)]:
+ paths['/v1/workspaces/{workspace_id}/commands/'+name]={'post':{'operationId':key,'parameters':[workspace_param,{'name':'Idempotency-Key','in':'header','required':True,'schema':string(128)},{'name':'X-CSRF-Token','in':'header','required':False,'description':'Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.','schema':string(256)}],'requestBody':{'required':True,'content':{'application/json':{'schema':ref(key)}}},'responses':{'202':response(ref('Operation')),'default':response(ref('Problem'))}}}
+for path,model,page in [('/v1/session','Session',False),('/v1/capabilities','Capabilities',False),('/v1/workspaces','Workspace',True),('/v1/workspaces/{workspace_id}/members','Member',True),('/v1/workspaces/{workspace_id}/programmes','Programme',True),('/v1/workspaces/{workspace_id}/access-grants','AccessGrant',True),('/v1/workspaces/{workspace_id}/invitations','Invitation',True),('/v1/workspaces/{workspace_id}/membership-decisions','MembershipDecision',True),('/v1/workspaces/{workspace_id}/events','Event',True)]:
  params=[workspace_param] if '{workspace_id}' in path else []
  if page:params += [{'name':'cursor','in':'query','schema':string(2048)},{'name':'limit','in':'query','schema':{'type':'integer','minimum':1,'maximum':100}}]
  if path.endswith('/events'):params.append({'name':'after','in':'query','schema':string(2048)})
  paths[path]={'get':{'operationId':'get'+model+('Page' if page else ''),'parameters':params,'responses':{'200':response(page_schema(model) if page else read_schema(model)),'default':response(ref('Problem'))}}}
 paths['/v1/workspaces/{workspace_id}/operations/{operation_id}']={'get':{'operationId':'getOperation','parameters':[workspace_param,{'name':'operation_id','in':'path','required':True,'schema':ref('ID')}],'responses':{'200':response(ref('Operation')),'default':response(ref('Problem'))}}}
 paths['/v1/auth/exchange']={'post':{'operationId':'exchangeInstallationCode','security':[],'requestBody':{'required':True,'content':{'application/json':{'schema':obj({'code':string(256)})}}},'responses':{'200':response(read_schema('Session')),'default':response(ref('Problem'))}}}
-paths['/v1/auth/logout']={'post':{'operationId':'logout','parameters':[{'name':'X-CSRF-Token','in':'header','required':True,'schema':string(256)}],'responses':{'204':{'description':'Session revoked'}}}}
+s['DeviceSession']=obj({'credential':string(256),'session':ref('Session')})
+paths['/v1/auth/device/exchange']={'post':{'operationId':'exchangeDeviceCode','security':[],'requestBody':{'required':True,'content':{'application/json':{'schema':obj({'code':string(256)})}}},'responses':{'200':response(read_schema('DeviceSession')),'default':response(ref('Problem'))}}}
+paths['/v1/auth/logout']={'post':{'operationId':'logout','parameters':[{'name':'X-CSRF-Token','in':'header','required':False,'description':'Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.','schema':string(256)}],'responses':{'204':{'description':'Session revoked'}}}}
 s['InvitationProof']=obj({'invitation_id':ref('ID'),'proof':string(256)})
 paths['/v1/workspaces/{workspace_id}/invitations/{invitation_id}/proof']={'get':{'operationId':'getInvitationProof','parameters':[workspace_param,{'name':'invitation_id','in':'path','required':True,'schema':ref('ID')}],'responses':{'200':response(read_schema('InvitationProof')),'default':response(ref('Problem'))}}}
-paths['/v1/invitations/{invitation_id}/accept']={'post':{'operationId':'acceptInvitation','parameters':[{'name':'invitation_id','in':'path','required':True,'schema':ref('ID')},{'name':'Idempotency-Key','in':'header','required':True,'schema':string(128)},{'name':'X-CSRF-Token','in':'header','required':True,'schema':string(256)}],'requestBody':{'required':True,'content':{'application/json':{'schema':obj({'proof':string(256),'revision':rev})}}},'responses':{'202':response(ref('Operation')),'default':response(ref('Problem'))}}}
+paths['/v1/invitations/{invitation_id}/accept']={'post':{'operationId':'acceptInvitation','parameters':[{'name':'invitation_id','in':'path','required':True,'schema':ref('ID')},{'name':'Idempotency-Key','in':'header','required':True,'schema':string(128)},{'name':'X-CSRF-Token','in':'header','required':False,'description':'Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.','schema':string(256)}],'requestBody':{'required':True,'content':{'application/json':{'schema':obj({'proof':string(256),'revision':rev})}}},'responses':{'202':response(ref('Operation')),'default':response(ref('Problem'))}}}
 paths['/v1/me/operations/{operation_id}']={'get':{'operationId':'getOwnOperation','parameters':[{'name':'operation_id','in':'path','required':True,'schema':ref('ID')}],'responses':{'200':response(ref('Operation')),'default':response(ref('Problem'))}}}
-control={'openapi':'3.1.0','info':{'title':'Lykeion control API — S00/S01 freeze','version':'0.1.0'},'security':[{'session':[]}],'paths':paths,'components':{'securitySchemes':{'session':{'type':'apiKey','in':'cookie','name':'lykeion_session'}},'schemas':s}}
+paths['/v1/workspaces/{workspace_id}/programmes/{programme_id}']={'get':{'operationId':'getProgramme','parameters':[workspace_param,{'name':'programme_id','in':'path','required':True,'schema':ref('ID')}],'responses':{'200':response(read_schema('Programme')),'default':response(ref('Problem'))}}}
+for suffix,method,body,model in [
+ ('/uploads','post',obj({'sha256':ref('Hash'),'byte_length':{'type':'integer','minimum':1,'maximum':65536}}),'UploadReservation'),
+ ('/uploads/{upload_id}/parts/1','put',obj({'content_base64':string(90000)}),'UploadPartReceipt'),
+ ('/uploads/{upload_id}/complete','post',None,'Ref'),
+ ('/artifacts/{artifact_id}','get',None,'ArtifactRecord')]:
+ path='/v1/workspaces/{workspace_id}'+suffix
+ params=[workspace_param]+[{'name':name,'in':'path','required':True,'schema':ref('ID')} for name in ['upload_id','artifact_id'] if '{'+name+'}' in path]
+ operation={'operationId':method+model,'parameters':params,'responses':{'200':response(read_schema(model)),'default':response(ref('Problem'))}}
+ if method!='get':params += [{'name':'Idempotency-Key','in':'header','required':True,'schema':string(128)},{'name':'X-CSRF-Token','in':'header','required':False,'schema':string(256)}]
+ if body:operation['requestBody']={'required':True,'content':{'application/json':{'schema':body}}}
+ paths[path]={method:operation}
+control={'openapi':'3.1.0','info':{'title':'Lykeion control API — S00/S01 freeze','version':'0.1.0'},'security':[{'session':[]},{'device':[]}],'paths':paths,'components':{'securitySchemes':{'session':{'type':'apiKey','in':'cookie','name':'lykeion_session'},'device':{'type':'http','scheme':'bearer','description':'Dedicated CLI session; browser tokens are not accepted.'}},'schemas':s}}
 # Schemas for all workspace frame types; payloads are explicitly bounded.
 frame_payloads={
  'subscribe':obj({'channels':arr(enum('workspace','programme','document','session')),'subject_refs':arr(ref('Ref')),'after_cursor':string(2048)},['channels','subject_refs']),

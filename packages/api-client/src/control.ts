@@ -5,7 +5,7 @@ import type { components } from './generated/control';
 export type Model<K extends keyof components['schemas']> = components['schemas'][K];
 export interface Page<T> {schema_version:'1';items:T[];snapshot_revision:string;event_cursor:string;next_cursor?:string}
 export interface Read<T> {schema_version:'1';data:T;event_cursor:string}
-export type Transport = (method:'GET'|'POST', path:string, body?:unknown, key?:string, csrf?:string)=>Promise<{status:number;body:unknown}>;
+export type Transport = (method:'GET'|'POST'|'PUT', path:string, body?:unknown, key?:string, csrf?:string)=>Promise<{status:number;body:unknown}>;
 const ajv = new Ajv({strict:true}); addFormats(ajv);
 const convert = (value: unknown) => JSON.parse(JSON.stringify(value).replaceAll('#/components/schemas/','#/$defs/'));
 const definitions = convert(spec.components.schemas);
@@ -40,7 +40,7 @@ export class ControlClient {
  csrf='';
  private pending=new Map<string,{workspace:string;name:string;body:unknown}>();
  constructor(readonly transport:Transport){}
- async call<T>(method:'GET'|'POST',path:string,body?:unknown,key?:string):Promise<T>{
+ async call<T>(method:'GET'|'POST'|'PUT',path:string,body?:unknown,key?:string):Promise<T>{
   const response=await this.transport(method,path,body,key,this.csrf);
   validateResponse(method,path,response.status,response.body);
   if(response.status>=400){const p=response.body as Model<'Problem'>;throw new ControlError(response.status,p.code,p.message);}

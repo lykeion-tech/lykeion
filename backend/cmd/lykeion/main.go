@@ -17,8 +17,11 @@ func main() {
 	}
 }
 func run(argv []string) error {
+	if len(argv) > 0 && (argv[0] == "login" || argv[0] == "get" || argv[0] == "command" || argv[0] == "logout" || argv[0] == "request") {
+		return runAPI(argv)
+	}
 	if len(argv) == 0 || (argv[0] != "init" && argv[0] != "login-code") {
-		return errors.New("Usage: lykeion init --owner NAME --workspace NAME --code-file PATH, or login-code --user ID --code-file PATH")
+		return errors.New("Usage: lykeion init | login-code | login | get | command | request | logout (use COMMAND --help for options)")
 	}
 	args := flag.NewFlagSet(argv[0], flag.ContinueOnError)
 	owner := args.String("owner", "", "Owner display name")

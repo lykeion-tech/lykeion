@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,7 +20,12 @@ type Server struct {
 	DB            *store.Store
 	Key           []byte
 	Origins       map[string]bool
+	ArtifactRoot  string
 	SecureCookies bool
+	hints         wakeHub
+	hintsOnce     sync.Once
+	hintsCancel   context.CancelFunc
+	hintsDone     chan struct{}
 }
 
 func New(db *store.Store, key []byte, origins []string, secure bool) (*Server, error) {
@@ -35,9 +41,10 @@ func New(db *store.Store, key []byte, origins []string, secure bool) (*Server, e
 	if len(m) == 0 {
 		return nil, errors.New("explicit trusted origins required")
 	}
-	return &Server{db, key, m, secure}, nil
+	return &Server{DB: db, Key: key, Origins: m, SecureCookies: secure}, nil
 }
 func (s *Server) Handler() http.Handler {
+	s.startHints()
 	m := http.NewServeMux()
 	m.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]string{"status": "live"}) })
 	m.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +55,7 @@ func (s *Server) Handler() http.Handler {
 		write(w, 200, map[string]string{"status": "ready"})
 	})
 	m.HandleFunc("POST /v1/auth/exchange", s.exchange)
+	m.HandleFunc("POST /v1/auth/device/exchange", s.exchangeDevice)
 	m.HandleFunc("/v1/", s.authenticated)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -68,7 +76,7 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token, Idempotency-Key")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
 			w.WriteHeader(204)
 			return
 		}
@@ -104,6 +112,9 @@ func sessionData(v store.Session) map[string]any {
 	return map[string]any{"user_id": v.UserID, "display_name": v.DisplayName, "csrf_token": v.CSRF, "expires_at": v.ExpiresAt}
 }
 func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
+	if !s.allowRequest(w, r, "login:"+peerKey(r), 12) {
+		return
+	}
 	if !s.Origins[r.Header.Get("Origin")] {
 		problem(w, 403, "ORIGIN_REQUIRED")
 		return
@@ -124,18 +135,27 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
 	read(w, sessionData(v), "bootstrap")
 }
 func (s *Server) authenticated(w http.ResponseWriter, r *http.Request) {
-	cookie, e := r.Cookie("lykeion_session")
-	if e != nil {
+	token := ""
+	bearer := strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if bearer {
+		token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	} else if cookie, err := r.Cookie("lykeion_session"); err == nil {
+		token = cookie.Value
+	}
+	if token == "" {
 		problem(w, 401, "AUTH_REQUIRED")
 		return
 	}
-	session, e := s.DB.Authenticate(r.Context(), cookie.Value)
-	if e != nil {
+	session, e := s.DB.Authenticate(r.Context(), token)
+	if e != nil || (bearer && session.ClientKind != "cli") || (!bearer && session.ClientKind == "cli") {
 		problem(w, 401, "SESSION_EXPIRED")
 		return
 	}
-	if r.Method != "GET" && (subtle.ConstantTimeCompare([]byte(session.CSRF), []byte(r.Header.Get("X-CSRF-Token"))) != 1 || !s.Origins[r.Header.Get("Origin")]) {
+	if r.Method != "GET" && !bearer && (subtle.ConstantTimeCompare([]byte(session.CSRF), []byte(r.Header.Get("X-CSRF-Token"))) != 1 || !s.Origins[r.Header.Get("Origin")]) {
 		problem(w, 403, "CSRF_DENIED")
+		return
+	}
+	if !s.allowRequest(w, r, "account:"+session.UserID, 300) {
 		return
 	}
 	switch r.URL.Path {
@@ -151,14 +171,18 @@ func (s *Server) authenticated(w http.ResponseWriter, r *http.Request) {
 			problem(w, 405, "METHOD_NOT_ALLOWED")
 			return
 		}
-		read(w, map[string]any{"api_version": "1", "workspace_protocol": "lykeion.workspace.v1", "worker_protocol": "lykeion.worker.v1", "supported_commands": []string{"preference.update", "member.invite", "invitation.revoke", "member.remove", "member.leave", "member.request-access-change", "workspace.request-owner-transfer", "decision.respond"}, "supported_features": []string{"workspace.read", "membership.read", "events.replay", "workspace.websocket"}}, "bootstrap")
+		commands := []string{"preference.update", "member.invite", "invitation.revoke", "member.remove", "member.leave", "member.request-access-change", "workspace.request-owner-transfer", "decision.respond"}
+		if s.ArtifactRoot != "" {
+			commands = append(commands, "artifact.submit", "programme.create", "access.change")
+		}
+		read(w, map[string]any{"api_version": "1", "workspace_protocol": "lykeion.workspace.v1", "worker_protocol": "lykeion.worker.v1", "supported_commands": commands, "supported_features": []string{"workspace.read", "membership.read", "events.replay", "workspace.websocket", "workspace.presence"}}, "bootstrap")
 		return
 	case "/v1/auth/logout":
 		if r.Method != "POST" {
 			problem(w, 405, "METHOD_NOT_ALLOWED")
 			return
 		}
-		_, e = s.DB.Pool.Exec(r.Context(), "DELETE FROM sessions WHERE digest=$1", store.Hash(cookie.Value))
+		_, e = s.DB.Pool.Exec(r.Context(), "DELETE FROM sessions WHERE digest=$1", store.Hash(token))
 		if e != nil {
 			problem(w, 503, "STORE_UNAVAILABLE")
 			return
@@ -202,6 +226,22 @@ func (s *Server) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cursor := s.signCursor(workspace, session.UserID, epoch, seq)
+	if parts[3] == "uploads" {
+		s.upload(w, r, session.UserID, workspace, role, parts)
+		return
+	}
+	if len(parts) == 5 && parts[3] == "artifacts" && r.Method == "GET" {
+		s.artifactContent(w, r, session.UserID, workspace, parts[4])
+		return
+	}
+	if len(parts) == 5 && parts[3] == "programmes" && r.Method == "GET" {
+		s.programmeDetail(w, r, session.UserID, workspace, parts[4], cursor)
+		return
+	}
+	if len(parts) == 4 && parts[3] == "access-grants" && r.Method == "GET" {
+		s.accessGrants(w, r, session.UserID, workspace, role, cursor, epoch, revision)
+		return
+	}
 	if len(parts) == 6 && parts[3] == "invitations" && parts[5] == "proof" && r.Method == "GET" {
 		s.proof(w, r, session.UserID, workspace, parts[4], role)
 		return
@@ -253,7 +293,7 @@ func (s *Server) authenticated(w http.ResponseWriter, r *http.Request) {
 		}
 		s.page(w, r, items, workspace, session.UserID, epoch, revision, cursor)
 	case "programmes":
-		rows, e := s.DB.Pool.Query(r.Context(), "SELECT id,name,objective,revision,profile_ref,policy_refs,budget_ceiling FROM programmes WHERE workspace_id=$1 ORDER BY id", workspace)
+		rows, e := s.DB.Pool.Query(r.Context(), "SELECT id,name,objective,revision,profile_ref,policy_refs,budget_ceiling FROM programmes WHERE workspace_id=$1 AND EXISTS(SELECT 1 FROM programme_grants g WHERE g.programme_id=programmes.id AND g.user_id=$2 AND g.capabilities ? 'read') ORDER BY id", workspace, session.UserID)
 		if e != nil {
 			problem(w, 503, "STORE_UNAVAILABLE")
 			return
@@ -278,7 +318,7 @@ func (s *Server) authenticated(w http.ResponseWriter, r *http.Request) {
 	case "events":
 		s.replay(w, r, session.UserID, workspace, epoch, seq, revision)
 	case "realtime":
-		s.socket(w, r, cookie.Value, session.UserID, workspace, epoch)
+		s.socket(w, r, token, session.UserID, workspace, epoch)
 	default:
 		problem(w, 404, "NOT_FOUND")
 	}
@@ -363,6 +403,10 @@ type envelope struct {
 }
 
 func (s *Server) command(w http.ResponseWriter, r *http.Request, session store.Session, workspace, role string, epoch int64, name string) {
+	if name == "artifact.submit" || name == "programme.create" || name == "access.change" {
+		s.programmeCommand(w, r, session, workspace, name)
+		return
+	}
 	if decisionCommand(name) {
 		s.memberDecision(w, r, session, workspace, name)
 		return

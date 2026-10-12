@@ -4,6 +4,38 @@
  */
 
 export interface paths {
+    "/v1/workspaces/{workspace_id}/commands/artifact.submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ArtifactSubmitCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/commands/access.change": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AccessChangeCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{workspace_id}/commands/programme.create": {
         parameters: {
             query?: never;
@@ -276,6 +308,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/{workspace_id}/access-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAccessGrantPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{workspace_id}/invitations": {
         parameters: {
             query?: never;
@@ -356,6 +404,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/device/exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["exchangeDeviceCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/logout": {
         parameters: {
             query?: never;
@@ -412,6 +476,86 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getOwnOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/programmes/{programme_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getProgramme"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["postUploadReservation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/uploads/{upload_id}/parts/1": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["putUploadPartReceipt"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/uploads/{upload_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["postRef"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getArtifactRecord"];
         put?: never;
         post?: never;
         delete?: never;
@@ -565,6 +709,84 @@ export interface components {
             expires_at: string;
             subject_versions: components["schemas"]["Ref"][];
         };
+        AccessGrant: {
+            programme_id: components["schemas"]["ID"];
+            user_id: components["schemas"]["ID"];
+            capabilities: ("read" | "comment" | "edit" | "manage-access")[];
+            revision: string;
+        };
+        DomainProfile: {
+            name: string;
+            /** @constant */
+            domain: "computational";
+            description: string;
+        };
+        GatePolicyRule: {
+            id: string;
+            require: string[];
+            /** @enum {string} */
+            outcome: "advance" | "block" | "route" | "escalate";
+            /** @enum {string} */
+            destination?: "Backlog" | "Grounding" | "Hypotheses" | "Experimentation" | "Validation" | "Reporting" | "Done";
+        };
+        GatePolicy: {
+            version: string;
+            required: string[];
+            rules: components["schemas"]["GatePolicyRule"][];
+        };
+        GrantPlan: {
+            subject_ref: components["schemas"]["Ref"];
+            changes: {
+                user_id: components["schemas"]["ID"];
+                capabilities: ("read" | "comment" | "edit" | "manage-access")[];
+            }[];
+        };
+        ConfigManifest: {
+            files: {
+                /** @constant */
+                path: "configuration.json";
+                upload_ref: components["schemas"]["Ref"];
+            }[];
+        };
+        UploadReservation: {
+            id: components["schemas"]["ID"];
+            /** @constant */
+            maximum_bytes: 65536;
+            /** @constant */
+            part_count: 1;
+        };
+        UploadPartReceipt: {
+            upload_id: components["schemas"]["ID"];
+            sha256: components["schemas"]["Hash"];
+        };
+        ArtifactRecord: {
+            id: components["schemas"]["ID"];
+            revision: string;
+            sha256: components["schemas"]["Hash"];
+            manifest: components["schemas"]["ConfigManifest"];
+        };
+        ArtifactSubmitCommand: {
+            /** @constant */
+            schema_version: "1";
+            target: components["schemas"]["Target"];
+            expected_versions: components["schemas"]["Ref"][];
+            payload: {
+                upload_receipt_refs: components["schemas"]["Ref"][];
+                manifest_candidate: components["schemas"]["ConfigManifest"];
+                /** @enum {string} */
+                authored_kind: "domain-profile" | "gate-policy" | "grant-changes";
+            };
+        };
+        AccessChangeCommand: {
+            /** @constant */
+            schema_version: "1";
+            target: components["schemas"]["Target"];
+            expected_versions: components["schemas"]["Ref"][];
+            payload: {
+                subject_ref: components["schemas"]["Ref"];
+                grant_changes_ref: components["schemas"]["Ref"];
+            };
+        };
         ProgrammeCreateCommand: {
             /** @constant */
             schema_version: "1";
@@ -701,6 +923,10 @@ export interface components {
                 value: ("system" | "light" | "dark") | boolean | number;
             };
         };
+        DeviceSession: {
+            credential: string;
+            session: components["schemas"]["Session"];
+        };
         InvitationProof: {
             invitation_id: components["schemas"]["ID"];
             proof: string;
@@ -714,12 +940,91 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    ArtifactSubmitCommand: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
+            };
+            path: {
+                workspace_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtifactSubmitCommand"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    AccessChangeCommand: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
+            };
+            path: {
+                workspace_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccessChangeCommand"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     ProgrammeCreateCommand: {
         parameters: {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -757,7 +1062,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -795,7 +1101,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -833,7 +1140,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -871,7 +1179,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -909,7 +1218,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -947,7 +1257,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -985,7 +1296,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -1023,7 +1335,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -1061,7 +1374,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -1099,7 +1413,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -1137,7 +1452,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 workspace_id: components["schemas"]["ID"];
@@ -1359,6 +1675,47 @@ export interface operations {
             };
         };
     };
+    getAccessGrantPage: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        items: components["schemas"]["AccessGrant"][];
+                        next_cursor?: string;
+                        snapshot_revision: string;
+                        event_cursor: string;
+                    };
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getInvitationPage: {
         parameters: {
             query?: {
@@ -1555,11 +1912,52 @@ export interface operations {
             };
         };
     };
+    exchangeDeviceCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        data: components["schemas"]["DeviceSession"];
+                        event_cursor: string;
+                    };
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     logout: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path?: never;
             cookie?: never;
@@ -1617,7 +2015,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                /** @description Required for cookie authentication; CLI bearer sessions do not use CSRF tokens. */
+                "X-CSRF-Token"?: string;
             };
             path: {
                 invitation_id: components["schemas"]["ID"];
@@ -1671,6 +2070,212 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getProgramme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["schemas"]["ID"];
+                programme_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        data: components["schemas"]["Programme"];
+                        event_cursor: string;
+                    };
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    postUploadReservation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token"?: string;
+            };
+            path: {
+                workspace_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    sha256: components["schemas"]["Hash"];
+                    byte_length: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        data: components["schemas"]["UploadReservation"];
+                        event_cursor: string;
+                    };
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putUploadPartReceipt: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token"?: string;
+            };
+            path: {
+                workspace_id: components["schemas"]["ID"];
+                upload_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    content_base64: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        data: components["schemas"]["UploadPartReceipt"];
+                        event_cursor: string;
+                    };
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    postRef: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token"?: string;
+            };
+            path: {
+                workspace_id: components["schemas"]["ID"];
+                upload_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        data: components["schemas"]["Ref"];
+                        event_cursor: string;
+                    };
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getArtifactRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["schemas"]["ID"];
+                artifact_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        data: components["schemas"]["ArtifactRecord"];
+                        event_cursor: string;
+                    };
                 };
             };
             /** @description Typed response */

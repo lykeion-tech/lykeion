@@ -7,9 +7,148 @@
   "security": [
     {
       "session": []
+    },
+    {
+      "device": []
     }
   ],
   "paths": {
+    "/v1/workspaces/{workspace_id}/commands/artifact.submit": {
+      "post": {
+        "operationId": "ArtifactSubmitCommand",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactSubmitCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/commands/access.change": {
+      "post": {
+        "operationId": "AccessChangeCommand",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessChangeCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/workspaces/{workspace_id}/commands/programme.create": {
       "post": {
         "operationId": "ProgrammeCreateCommand",
@@ -35,7 +174,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -102,7 +242,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -169,7 +310,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -236,7 +378,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -303,7 +446,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -370,7 +514,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -437,7 +582,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -504,7 +650,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -571,7 +718,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -638,7 +786,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -705,7 +854,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -772,7 +922,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -1124,6 +1275,95 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/Programme"
+                      },
+                      "maxItems": 1000
+                    },
+                    "next_cursor": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    },
+                    "snapshot_revision": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$",
+                      "maxLength": 20
+                    },
+                    "event_cursor": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "items",
+                    "snapshot_revision",
+                    "event_cursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/access-grants": {
+      "get": {
+        "operationId": "getAccessGrantPage",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "const": "1"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AccessGrant"
                       },
                       "maxItems": 1000
                     },
@@ -1556,6 +1796,74 @@
         }
       }
     },
+    "/v1/auth/device/exchange": {
+      "post": {
+        "operationId": "exchangeDeviceCode",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "const": "1"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/DeviceSession"
+                    },
+                    "event_cursor": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "data",
+                    "event_cursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/auth/logout": {
       "post": {
         "operationId": "logout",
@@ -1563,7 +1871,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -1667,7 +1976,8 @@
           {
             "name": "X-CSRF-Token",
             "in": "header",
-            "required": true,
+            "required": false,
+            "description": "Required for cookie authentication; CLI bearer sessions do not use CSRF tokens.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -1762,6 +2072,424 @@
           }
         }
       }
+    },
+    "/v1/workspaces/{workspace_id}/programmes/{programme_id}": {
+      "get": {
+        "operationId": "getProgramme",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "programme_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "const": "1"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Programme"
+                    },
+                    "event_cursor": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "data",
+                    "event_cursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/uploads": {
+      "post": {
+        "operationId": "postUploadReservation",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "const": "1"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/UploadReservation"
+                    },
+                    "event_cursor": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "data",
+                    "event_cursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sha256": {
+                    "$ref": "#/components/schemas/Hash"
+                  },
+                  "byte_length": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65536
+                  }
+                },
+                "required": [
+                  "sha256",
+                  "byte_length"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/uploads/{upload_id}/parts/1": {
+      "put": {
+        "operationId": "putUploadPartReceipt",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "const": "1"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/UploadPartReceipt"
+                    },
+                    "event_cursor": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "data",
+                    "event_cursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content_base64": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 90000
+                  }
+                },
+                "required": [
+                  "content_base64"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/uploads/{upload_id}/complete": {
+      "post": {
+        "operationId": "postRef",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "const": "1"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Ref"
+                    },
+                    "event_cursor": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "data",
+                    "event_cursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/artifacts/{artifact_id}": {
+      "get": {
+        "operationId": "getArtifactRecord",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "const": "1"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ArtifactRecord"
+                    },
+                    "event_cursor": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "data",
+                    "event_cursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1770,6 +2498,11 @@
         "type": "apiKey",
         "in": "cookie",
         "name": "lykeion_session"
+      },
+      "device": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Dedicated CLI session; browser tokens are not accepted."
       }
     },
     "schemas": {
@@ -2419,6 +3152,380 @@
         ],
         "additionalProperties": false
       },
+      "AccessGrant": {
+        "type": "object",
+        "properties": {
+          "programme_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "comment",
+                "edit",
+                "manage-access"
+              ]
+            },
+            "maxItems": 1000
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "programme_id",
+          "user_id",
+          "capabilities",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "DomainProfile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "domain": {
+            "const": "computational"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "name",
+          "domain",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "GatePolicyRule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "require": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "advance",
+              "block",
+              "route",
+              "escalate"
+            ]
+          },
+          "destination": {
+            "type": "string",
+            "enum": [
+              "Backlog",
+              "Grounding",
+              "Hypotheses",
+              "Experimentation",
+              "Validation",
+              "Reporting",
+              "Done"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "require",
+          "outcome"
+        ],
+        "additionalProperties": false
+      },
+      "GatePolicy": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "required": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "rules": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "$ref": "#/components/schemas/GatePolicyRule"
+            }
+          }
+        },
+        "required": [
+          "version",
+          "required",
+          "rules"
+        ],
+        "additionalProperties": false
+      },
+      "GrantPlan": {
+        "type": "object",
+        "properties": {
+          "subject_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "changes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "properties": {
+                "user_id": {
+                  "$ref": "#/components/schemas/ID"
+                },
+                "capabilities": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "read",
+                      "comment",
+                      "edit",
+                      "manage-access"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "user_id",
+                "capabilities"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "subject_ref",
+          "changes"
+        ],
+        "additionalProperties": false
+      },
+      "ConfigManifest": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "const": "configuration.json"
+                },
+                "upload_ref": {
+                  "$ref": "#/components/schemas/Ref"
+                }
+              },
+              "required": [
+                "path",
+                "upload_ref"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "additionalProperties": false
+      },
+      "UploadReservation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "maximum_bytes": {
+            "const": 65536
+          },
+          "part_count": {
+            "const": 1
+          }
+        },
+        "required": [
+          "id",
+          "maximum_bytes",
+          "part_count"
+        ],
+        "additionalProperties": false
+      },
+      "UploadPartReceipt": {
+        "type": "object",
+        "properties": {
+          "upload_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Hash"
+          }
+        },
+        "required": [
+          "upload_id",
+          "sha256"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/ConfigManifest"
+          }
+        },
+        "required": [
+          "id",
+          "revision",
+          "sha256",
+          "manifest"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactSubmitCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "upload_receipt_refs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Ref"
+                },
+                "maxItems": 1000
+              },
+              "manifest_candidate": {
+                "$ref": "#/components/schemas/ConfigManifest"
+              },
+              "authored_kind": {
+                "type": "string",
+                "enum": [
+                  "domain-profile",
+                  "gate-policy",
+                  "grant-changes"
+                ]
+              }
+            },
+            "required": [
+              "upload_receipt_refs",
+              "manifest_candidate",
+              "authored_kind"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "AccessChangeCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "subject_ref": {
+                "$ref": "#/components/schemas/Ref"
+              },
+              "grant_changes_ref": {
+                "$ref": "#/components/schemas/Ref"
+              }
+            },
+            "required": [
+              "subject_ref",
+              "grant_changes_ref"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
       "ProgrammeCreateCommand": {
         "type": "object",
         "properties": {
@@ -3001,6 +4108,24 @@
           "target",
           "expected_versions",
           "payload"
+        ],
+        "additionalProperties": false
+      },
+      "DeviceSession": {
+        "type": "object",
+        "properties": {
+          "credential": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "session": {
+            "$ref": "#/components/schemas/Session"
+          }
+        },
+        "required": [
+          "credential",
+          "session"
         ],
         "additionalProperties": false
       },

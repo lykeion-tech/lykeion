@@ -146,6 +146,9 @@ func (s *Server) memberDecision(w http.ResponseWriter, r *http.Request, session 
 			if err == nil {
 				_, err = tx.Exec(ctx, "UPDATE memberships SET access_role=$2,revision=revision+1 WHERE id=$1", member, requestedRole)
 			}
+			if err == nil && requestedRole == "viewer" {
+				_, err = tx.Exec(ctx, "UPDATE programme_grants g SET capabilities=CASE WHEN g.capabilities ? 'read' THEN '[\"read\"]'::jsonb ELSE '[]'::jsonb END,revision=g.revision+1 FROM programmes p WHERE g.programme_id=p.id AND p.workspace_id=$1 AND g.user_id=$2", workspace, user)
+			}
 			if err != nil {
 				problem(w, 503, "STORE_UNAVAILABLE")
 				return

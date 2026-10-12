@@ -206,6 +206,9 @@ func (s *Server) membership(w http.ResponseWriter, r *http.Request, session stor
 		if err == nil {
 			_, err = tx.Exec(ctx, "UPDATE users SET account_revision=account_revision+1 WHERE id=$1", user)
 		}
+		if err == nil {
+			_, err = tx.Exec(ctx, "UPDATE programme_grants g SET capabilities='[]',revision=g.revision+1 FROM programmes p WHERE g.programme_id=p.id AND p.workspace_id=$1 AND g.user_id=$2", workspace, user)
+		}
 		epoch++
 		resultRefs = append(resultRefs, ref{Kind: "membership", ID: p.ID, Revision: formatRevision(v + 1)})
 		changed = []string{"members"}

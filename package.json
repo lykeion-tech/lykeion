@@ -7,7 +7,7 @@
     "dev": "vite --config apps/dashboard/vite.config.ts --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build --config apps/dashboard/vite.config.ts && tsc -p apps/desktop/tsconfig.json",
     "typecheck": "vue-tsc --noEmit && tsc -p apps/desktop/tsconfig.json --noEmit",
-    "test": "vitest run tests/research.test.ts tests/control-client.test.ts tests/native-bridge.test.ts --maxWorkers=1",
+    "test": "vitest run tests/research.test.ts tests/control-client.test.ts tests/native-bridge.test.ts tests/session-vault.test.ts --maxWorkers=1",
     "test:e2e": "playwright test --workers=1",
     "desktop": "electron apps/desktop/out/main.js",
     "desktop:dev": "LYKEION_RENDERER_URL=http://127.0.0.1:1430 electron apps/desktop/out/main.js",

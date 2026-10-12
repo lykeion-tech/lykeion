@@ -12,7 +12,8 @@ import TaskDetail from './views/TaskDetail.vue';
 import ResourceView from './views/ResourceView.vue';
 import SettingsView from './views/SettingsView.vue';
 import Members from './components/Members.vue';
-import {control,selectWorkspace,logoutControl,refreshControl} from './services/control';
+import Programmes from './components/Programmes.vue';
+import {control,selectWorkspace,logoutControl,refreshControl,restoreControl} from './services/control';
 import { state, workspaceName as localWorkspaceName, refresh, notice, notify, service } from './services/workspace';
 const workspaceName=computed(()=>control.active?(control.workspace?.name??'Lykeion'):localWorkspaceName.value);
 const route = useRoute(); const router = useRouter();
@@ -67,7 +68,7 @@ function key(event: KeyboardEvent) {
 watch(collapsed, x => {localStorage.setItem('lykeion.sidebar-collapsed', String(x));workspaceMenu.value=false;help.value=false;});
 watch(()=>route.fullPath,()=>{workspaceMenu.value=false;help.value=false;});
 watch(heading, x => { document.title = `${x} | Lykeion`; }, {immediate:true});
-onMounted(() => { void refresh(); window.addEventListener('keydown',key); window.addEventListener('lykeion:create-task',createRelated);window.addEventListener('lykeion:pinned-tasks',readPins);window.addEventListener('pointerdown',outsidePopup);window.addEventListener('lykeion:preferences',applySavedTheme); });
+onMounted(() => { void restoreControl();void refresh(); window.addEventListener('keydown',key); window.addEventListener('lykeion:create-task',createRelated);window.addEventListener('lykeion:pinned-tasks',readPins);window.addEventListener('pointerdown',outsidePopup);window.addEventListener('lykeion:preferences',applySavedTheme); });
 onUnmounted(() => {window.removeEventListener('lykeion:create-task',createRelated);window.removeEventListener('lykeion:pinned-tasks',readPins);window.removeEventListener('keydown',key);window.removeEventListener('pointerdown',outsidePopup);window.removeEventListener('lykeion:preferences',applySavedTheme);});
 </script>
 <template>
@@ -98,6 +99,7 @@ onUnmounted(() => {window.removeEventListener('lykeion:create-task',createRelate
         <div v-if="control.loading" class="center-empty" role="status">Loading workspace…</div>
         <div v-else-if="control.error||!control.workspace" class="center-empty" role="alert"><p>{{control.error||'No workspace selected.'}}</p><button class="button" @click="refreshControl().catch(()=>{})">Refresh</button><button class="text-button" @click="go('settings/connection')">Connection settings</button></div>
 
+        <Programmes v-else-if="current==='projects'"/>
         <div v-else class="center-empty"><Icon name="link" :size="28"/><p>{{heading}} is not supported by this service yet.</p><button class="button" @click="go('colleagues')">View colleagues</button></div>
       </template>
       <TaskBoard v-else-if="!state.error && !state.loading && ['tasks','my-tasks'].includes(current)" :personal="current==='my-tasks'" @create="openCreate()" />
