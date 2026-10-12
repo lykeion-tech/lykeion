@@ -2,56 +2,85 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/lykeion-ia/lykeion-redesign/backend/internal/store"
 	"os"
+	"strings"
 )
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "init" {
-		fmt.Fprintln(os.Stderr, "Usage: lykeion init --owner NAME --workspace NAME --code-file PATH")
-		os.Exit(2)
+	if err := run(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
-	args := flag.NewFlagSet("init", flag.ExitOnError)
+}
+func run(argv []string) error {
+	if len(argv) == 0 || (argv[0] != "init" && argv[0] != "login-code") {
+		return errors.New("Usage: lykeion init --owner NAME --workspace NAME --code-file PATH, or login-code --user ID --code-file PATH")
+	}
+	args := flag.NewFlagSet(argv[0], flag.ContinueOnError)
 	owner := args.String("owner", "", "Owner display name")
 	workspace := args.String("workspace", "", "Workspace name")
+	user := args.String("user", "", "Existing installation account ID")
 	path := args.String("code-file", "", "New private file for the single-use login code")
-	args.Parse(os.Args[2:])
-	if *owner == "" || *workspace == "" || *path == "" {
-		args.Usage()
-		os.Exit(2)
+	if err := args.Parse(argv[1:]); err != nil {
+		return err
 	}
-	file, e := os.OpenFile(*path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if e != nil {
-		fmt.Fprintln(os.Stderr, "Cannot create private code file")
-		os.Exit(1)
+	if *path == "" || args.NArg() != 0 {
+		return errors.New("a new code-file path is required")
 	}
-	defer file.Close()
-	dsn, e := store.RequiredDSN(os.Getenv("LYKEION_DATABASE_URL"))
-	if e != nil {
-		fmt.Fprintln(os.Stderr, e)
-		os.Exit(1)
+	if argv[0] == "init" && (strings.TrimSpace(*owner) == "" || len(*owner) > 120 || strings.TrimSpace(*workspace) == "" || len(*workspace) > 120) {
+		return errors.New("owner and workspace names must contain 1–120 characters")
 	}
-	db, e := store.Open(context.Background(), dsn)
-	if e != nil {
-		fmt.Fprintln(os.Stderr, "Database unavailable")
-		os.Exit(1)
+	if argv[0] == "login-code" && *user == "" {
+		return errors.New("an account ID is required")
+	}
+	dsn, err := store.RequiredDSN(os.Getenv("LYKEION_DATABASE_URL"))
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	db, err := store.Open(ctx, dsn)
+	if err != nil {
+		return errors.New("database unavailable")
 	}
 	defer db.Close()
-	if e = db.Migrate(context.Background()); e != nil {
-		fmt.Fprintln(os.Stderr, e)
-		os.Exit(1)
+	if err = db.Migrate(ctx); err != nil {
+		return err
 	}
-	user, w, code, e := db.Provision(context.Background(), *owner, *workspace)
-	if e != nil {
-		fmt.Fprintln(os.Stderr, "Provision failed")
-		os.Exit(1)
+	file, err := os.OpenFile(*path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return errors.New("cannot create private code file")
 	}
-	if _, e = file.WriteString(code + "\n"); e != nil {
-		fmt.Fprintln(os.Stderr, "Code file write failed")
-		os.Exit(1)
+	success := false
+	defer func() {
+		file.Close()
+		if !success {
+			os.Remove(*path)
+		}
+	}()
+	var code, w string
+	if argv[0] == "init" {
+		*user, w, code, err = db.Provision(ctx, *owner, *workspace)
+	} else {
+		code, err = db.IssueLoginCode(ctx, *user)
 	}
-	file.Sync()
-	fmt.Printf("Created user %s and workspace %s. Login code saved privately; expires in 10 minutes.\n", user, w)
+	if err != nil {
+		return errors.New("provisioning failed")
+	}
+	if _, err = file.WriteString(code + "\n"); err == nil {
+		err = file.Sync()
+	}
+	if err != nil {
+		return errors.New("code file write failed; use login-code with the account ID to recover")
+	}
+	success = true
+	fmt.Printf("Account %s", *user)
+	if w != "" {
+		fmt.Printf(" and workspace %s created", w)
+	}
+	fmt.Println(". Login code saved privately; expires in 10 minutes.")
+	return nil
 }

@@ -1,0 +1,94 @@
+Window: "Settings | Lykeion", App: Electron.
+0 standard window Settings | Lykeion, Secondary Actions: Raise
+	1 container Settings | Lykeion
+		2 container
+			3 HTML content Settings | Lykeion, URL: 127.0.0.1:1430/#/settings?tab=members
+				4 container
+					5 button Go back
+					6 button (disabled) Go forward
+					7 button Toggle left sidebar
+					8 tab group Workspace tabs
+						9 tab (selected) Description: Settings, Value: 1
+						10 button New tab
+					11 container Workspace navigation
+						12 pop up button S S01 acceptance · disposable
+						13 button Search...
+							14 text Search...
+							15 text ⌘
+							16 text K
+						17 button New
+							18 text New
+							19 text C
+						20 container
+							21 link Description: Inbox, Value: 127.0.0.1:1430/#/inbox
+							22 link Description: Copilot, Value: 127.0.0.1:1430/#/chat
+							23 text Laboratory
+							24 link Description: Tasks, Value: 127.0.0.1:1430/#/tasks
+							25 link Description: Researches, Value: 127.0.0.1:1430/#/projects
+							26 link Description: Colleagues, Value: 127.0.0.1:1430/#/colleagues
+							27 link Description: Autopilot, Value: 127.0.0.1:1430/#/autopilots
+							28 text Configure
+							29 link Description: Agents, Value: 127.0.0.1:1430/#/agents
+							30 link Description: Teams, Value: 127.0.0.1:1430/#/squads
+							31 link Description: Skills, Value: 127.0.0.1:1430/#/skills
+							32 link Description: Connectors, Value: 127.0.0.1:1430/#/connectors
+							33 link Description: Machines, Value: 127.0.0.1:1430/#/runtimes
+						34 link Description: Updates, Value: 127.0.0.1:1430/#/updates
+						35 link Description: Settings, Value: 127.0.0.1:1430/#/settings
+						36 pop up button Help
+					37 button Toggle left sidebar
+					38 container Settings
+						39 heading Settings, Value: 1
+							40 text Settings
+						41 search text field (settable) Search settings
+						42 container
+							43 text P
+							44 text Personal
+							45 text S01 Test Scientist
+							46 button Profile
+							47 button Preferences
+							48 button Notifications
+							49 button Analytics
+							50 button API Tokens
+						51 container
+							52 text S
+							53 text S01 acceptance · disposable
+							54 text Workspace
+							55 button General
+							56 button Members
+							57 button Labels
+							58 button Properties
+						59 container
+							60 text Connections & extensions
+							61 button Skills
+							62 button Connectors
+							63 button Code
+							64 button API connection
+					65 container
+						66 heading Members, Value: 2
+							67 text Members
+						68 text Manage access to this workspace.
+						69 button Invite member
+						70 button S S01 Test Scientist owner · You
+							71 text S
+							72 text S01 Test Scientist
+							73 text owner · You
+						74 heading Invitations, Value: 3
+							75 text Invitations
+						76 text No invitations yet
+						77 heading Leave workspace, Value: 3
+							78 text Leave workspace
+						79 text Transfer ownership before leaving this workspace.
+						80 button (disabled) Leave workspace
+					81 button Open Aristotle
+	82 close button
+	83 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	84 minimize button
+85 menu bar
+	86 Electron
+	87 File
+	88 Edit
+	89 View
+	90 Window
+
+The focused UI element is 3 HTML content Settings | Lykeion, URL: 127.0.0.1:1430/#/settings?tab=members

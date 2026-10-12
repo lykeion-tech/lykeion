@@ -11,7 +11,7 @@ for(const name of Object.keys(defs)) validators[name]=ajv.compile({$defs:defs,$r
 const wire=JSON.parse(fs.readFileSync('contracts/realtime.protocol.json','utf8'))
 const frame=ajv.compile({$defs:defs,oneOf:convert(wire.oneOf)})
 const target={kind:'workspace',id:'w_test'}
-const good={schema_version:'1',target,expected_versions:[],payload:{destination:'person@example.test',requested_role:'member',expires_at:'2027-01-01T00:00:00Z'}}
+const good={schema_version:'1',target,expected_versions:[],payload:{destination:'usr_recipient',requested_role:'member',expires_at:'2027-01-01T00:00:00Z'}}
 assert(validators.MemberInviteCommand(good),JSON.stringify(validators.MemberInviteCommand.errors))
 assert(!validators.MemberInviteCommand({...good,payload:{...good.payload,requested_role:'owner'}}))
 assert(!validators.MemberInviteCommand({...good,actor_id:'u_forged'}))

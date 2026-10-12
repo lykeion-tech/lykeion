@@ -1,6 +1,6 @@
 # Fresh backend and daemon implementation plan
 
-Version 0.2 · 12 October 2026 · proposed delivery plan; no backend implementation is claimed.
+Version 0.2 · 12 October 2026 · delivery plan. Current implementation receipts are recorded in [progress](../implementation/progress.md); uncompleted slices remain design requirements.
 
 Behavioral authority: [scientific workflow v0.2](../specs/scientific-workflow.md). Transport and command design: [backend API](../specs/backend-api.md). Inventory recheck: [capability gap audit](../../research/multica-reference/API-GAP-AUDIT.md). Machine-readable coverage: [API catalogue](../contracts/api-catalog.json). Desktop observations made during API design: [reference evidence](../../research/visual-baseline/api-design-reference/README.md).
 

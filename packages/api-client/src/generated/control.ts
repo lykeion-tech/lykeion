@@ -132,6 +132,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/{workspace_id}/commands/member.request-access-change": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["MemberRequestAccessChangeCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/commands/workspace.request-owner-transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["WorkspaceRequestOwnerTransferCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/commands/decision.respond": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["DecisionRespondCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{workspace_id}/commands/preference.update": {
         parameters: {
             query?: never;
@@ -244,6 +292,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/{workspace_id}/membership-decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getMembershipDecisionPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{workspace_id}/events": {
         parameters: {
             query?: never;
@@ -302,6 +366,54 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/invitations/{invitation_id}/proof": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getInvitationProof"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/invitations/{invitation_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["acceptInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/operations/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getOwnOperation"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -436,6 +548,23 @@ export interface components {
             expires_at: string;
             revision: string;
         };
+        MembershipDecision: {
+            id: components["schemas"]["ID"];
+            workspace_id: components["schemas"]["ID"];
+            requester_id: components["schemas"]["ID"];
+            responder_id: components["schemas"]["ID"];
+            member_id: components["schemas"]["ID"];
+            /** @enum {string} */
+            action: "change-access" | "transfer-owner";
+            /** @enum {string} */
+            requested_role: "owner" | "admin" | "member" | "viewer";
+            /** @enum {string} */
+            state: "pending" | "approved" | "rejected" | "expired";
+            revision: string;
+            /** Format: date-time */
+            expires_at: string;
+            subject_versions: components["schemas"]["Ref"][];
+        };
         ProgrammeCreateCommand: {
             /** @constant */
             schema_version: "1";
@@ -465,7 +594,7 @@ export interface components {
             target: components["schemas"]["Target"];
             expected_versions: components["schemas"]["Ref"][];
             payload: {
-                destination: string;
+                destination: components["schemas"]["ID"];
                 /** @enum {string} */
                 requested_role: "admin" | "member" | "viewer";
                 /** Format: date-time */
@@ -524,6 +653,43 @@ export interface components {
                 acceptance_decision_ref: components["schemas"]["Ref"];
             };
         };
+        MemberRequestAccessChangeCommand: {
+            /** @constant */
+            schema_version: "1";
+            target: components["schemas"]["Target"];
+            expected_versions: components["schemas"]["Ref"][];
+            payload: {
+                member_id: components["schemas"]["ID"];
+                /** @enum {string} */
+                requested_access: "admin" | "member" | "viewer";
+                /** Format: date-time */
+                expires_at: string;
+            };
+        };
+        WorkspaceRequestOwnerTransferCommand: {
+            /** @constant */
+            schema_version: "1";
+            target: components["schemas"]["Target"];
+            expected_versions: components["schemas"]["Ref"][];
+            payload: {
+                recipient_member_id: components["schemas"]["ID"];
+                /** Format: date-time */
+                expires_at: string;
+            };
+        };
+        DecisionRespondCommand: {
+            /** @constant */
+            schema_version: "1";
+            target: components["schemas"]["Target"];
+            expected_versions: components["schemas"]["Ref"][];
+            payload: {
+                decision_id: components["schemas"]["ID"];
+                decision_revision: string;
+                /** @enum {string} */
+                choice_id: "approve" | "reject";
+                subject_versions: components["schemas"]["Ref"][];
+            };
+        };
         PreferenceUpdateCommand: {
             /** @constant */
             schema_version: "1";
@@ -534,6 +700,10 @@ export interface components {
                 preference_kind: "theme" | "sidebar" | "pane_width";
                 value: ("system" | "light" | "dark") | boolean | number;
             };
+        };
+        InvitationProof: {
+            invitation_id: components["schemas"]["ID"];
+            proof: string;
         };
     };
     responses: never;
@@ -848,6 +1018,120 @@ export interface operations {
             };
         };
     };
+    MemberRequestAccessChangeCommand: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token": string;
+            };
+            path: {
+                workspace_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRequestAccessChangeCommand"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    WorkspaceRequestOwnerTransferCommand: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token": string;
+            };
+            path: {
+                workspace_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceRequestOwnerTransferCommand"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    DecisionRespondCommand: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token": string;
+            };
+            path: {
+                workspace_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionRespondCommand"];
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     PreferenceUpdateCommand: {
         parameters: {
             query?: never;
@@ -1116,6 +1400,47 @@ export interface operations {
             };
         };
     };
+    getMembershipDecisionPage: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        items: components["schemas"]["MembershipDecision"][];
+                        next_cursor?: string;
+                        snapshot_revision: string;
+                        event_cursor: string;
+                    };
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getEventPage: {
         parameters: {
             query?: {
@@ -1247,6 +1572,115 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    getInvitationProof: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["schemas"]["ID"];
+                invitation_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        data: components["schemas"]["InvitationProof"];
+                        event_cursor: string;
+                    };
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    acceptInvitation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token": string;
+            };
+            path: {
+                invitation_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    proof: string;
+                    revision: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Typed response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getOwnOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
             };
         };
     };

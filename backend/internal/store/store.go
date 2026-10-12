@@ -142,3 +142,16 @@ func RequiredDSN(value string) (string, error) {
 	}
 	return value, nil
 }
+
+// IssueLoginCode requires administrative database access; it is not an HTTP account-creation path.
+func (s *Store) IssueLoginCode(ctx context.Context, user string) (string, error) {
+	code := Secret()
+	result, err := s.Pool.Exec(ctx, "INSERT INTO login_codes(digest,user_id,expires_at) SELECT $1,id,clock_timestamp()+interval '10 minutes' FROM users WHERE id=$2", Hash(code), user)
+	if err != nil {
+		return "", err
+	}
+	if result.RowsAffected() != 1 {
+		return "", errors.New("account not found")
+	}
+	return code, nil
+}

@@ -151,7 +151,7 @@ func (s *Server) authenticated(w http.ResponseWriter, r *http.Request) {
 			problem(w, 405, "METHOD_NOT_ALLOWED")
 			return
 		}
-		read(w, map[string]any{"api_version": "1", "workspace_protocol": "lykeion.workspace.v1", "worker_protocol": "lykeion.worker.v1", "supported_commands": []string{"preference.update"}, "supported_features": []string{"workspace.read", "membership.read", "events.replay", "workspace.websocket"}}, "bootstrap")
+		read(w, map[string]any{"api_version": "1", "workspace_protocol": "lykeion.workspace.v1", "worker_protocol": "lykeion.worker.v1", "supported_commands": []string{"preference.update", "member.invite", "invitation.revoke", "member.remove", "member.leave", "member.request-access-change", "workspace.request-owner-transfer", "decision.respond"}, "supported_features": []string{"workspace.read", "membership.read", "events.replay", "workspace.websocket"}}, "bootstrap")
 		return
 	case "/v1/auth/logout":
 		if r.Method != "POST" {
@@ -171,17 +171,41 @@ func (s *Server) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 4 || parts[0] != "v1" || parts[1] != "workspaces" {
+	if len(parts) == 4 && parts[1] == "me" && parts[2] == "operations" && r.Method == "GET" {
+		var raw []byte
+		if s.DB.Pool.QueryRow(r.Context(), "SELECT result FROM operations WHERE id=$1 AND user_id=$2", parts[3], session.UserID).Scan(&raw) != nil {
+			problem(w, 404, "NOT_FOUND")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(raw)
+		return
+	}
+	if len(parts) < 4 || parts[0] != "v1" || (parts[1] != "workspaces" && parts[1] != "invitations") {
 		problem(w, 404, "NOT_FOUND")
 		return
 	}
+	if len(parts) == 4 && parts[1] == "invitations" && parts[3] == "accept" {
+		s.acceptInvitation(w, r, session, parts[2])
+		return
+	}
 	workspace := parts[2]
+	// A successful leave removes access. Permit authenticated receipt recovery;
+	// membership still checks authorization before creating any new effect.
+	if len(parts) == 5 && parts[1] == "workspaces" && parts[3] == "commands" && parts[4] == "member.leave" && r.Method == "POST" {
+		s.membership(w, r, session, workspace, parts[4])
+		return
+	}
 	role, epoch, seq, revision, e := s.DB.Access(r.Context(), workspace, session.UserID)
 	if e != nil {
 		problem(w, 404, "NOT_FOUND")
 		return
 	}
 	cursor := s.signCursor(workspace, session.UserID, epoch, seq)
+	if len(parts) == 6 && parts[3] == "invitations" && parts[5] == "proof" && r.Method == "GET" {
+		s.proof(w, r, session.UserID, workspace, parts[4], role)
+		return
+	}
 	if len(parts) == 5 && parts[3] == "commands" && r.Method == "POST" {
 		s.command(w, r, session, workspace, role, epoch, parts[4])
 		return
@@ -202,6 +226,10 @@ func (s *Server) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch parts[3] {
+	case "membership-decisions":
+		s.decisions(w, r, session.UserID, workspace, epoch, revision, cursor)
+	case "invitations":
+		s.invitations(w, r, session.UserID, workspace, role, epoch, revision, cursor)
 	case "members":
 		rows, e := s.DB.Pool.Query(r.Context(), "SELECT m.id,m.user_id,u.display_name,m.access_role,m.state,m.revision FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.state='active' ORDER BY m.id", workspace)
 		if e != nil {
@@ -280,7 +308,12 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request, user string)
 		problem(w, 503, "STORE_UNAVAILABLE")
 		return
 	}
-	s.page(w, r, items, "account", user, 0, 1, "bootstrap")
+	var revision int64
+	if s.DB.Pool.QueryRow(r.Context(), "SELECT account_revision FROM users WHERE id=$1", user).Scan(&revision) != nil {
+		problem(w, 503, "STORE_UNAVAILABLE")
+		return
+	}
+	s.page(w, r, items, "account", user, 0, revision, "bootstrap")
 }
 func (s *Server) page(w http.ResponseWriter, r *http.Request, items []any, workspace, user string, epoch, revision int64, eventCursor string) {
 	limit := 100
@@ -330,6 +363,14 @@ type envelope struct {
 }
 
 func (s *Server) command(w http.ResponseWriter, r *http.Request, session store.Session, workspace, role string, epoch int64, name string) {
+	if decisionCommand(name) {
+		s.memberDecision(w, r, session, workspace, name)
+		return
+	}
+	if membershipCommand(name) {
+		s.membership(w, r, session, workspace, name)
+		return
+	}
 	if name != "preference.update" {
 		problem(w, 422, "COMMAND_NOT_IMPLEMENTED")
 		return

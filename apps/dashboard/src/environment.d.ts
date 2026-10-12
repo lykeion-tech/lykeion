@@ -1,1 +1,1 @@
-interface Window { lykeionDesktop?: { platform: string; openDocumentation(): Promise<void> } }
+interface Window { lykeionDesktop?: { platform: string; openDocumentation(): Promise<void>; realtime(input:{action:'open'|'read'|'close';workspace?:string;after?:string;id?:string}):Promise<{id:string;frames:unknown[];closed:boolean}>; controlOrigin():Promise<string>; control(method:'GET'|'POST',path:string,body?:unknown,key?:string,csrf?:string):Promise<{status:number;body:unknown}> } }

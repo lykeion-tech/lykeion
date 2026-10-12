@@ -26,16 +26,20 @@ s={
  'Event':obj({'id':string(128),'type':string(100),'subject_ref':ref('Ref'),'revision':rev,'recorded_at':{'type':'string','format':'date-time'},'operation_id':ref('ID'),'causation_id':string(128),'correlation_id':string(128),'attribution_ref':ref('Ref'),'payload':obj({'changed_fields':arr(string(100))})}),
  'Invitation':obj({'id':ref('ID'),'workspace_id':ref('ID'),'recipient':string(320),'requested_role':enum('admin','member','viewer'),'state':enum('pending','accepted','revoked','expired'),'expires_at':{'type':'string','format':'date-time'},'revision':rev}),
 }
+s['MembershipDecision']=obj({'id':ref('ID'),'workspace_id':ref('ID'),'requester_id':ref('ID'),'responder_id':ref('ID'),'member_id':ref('ID'),'action':enum('change-access','transfer-owner'),'requested_role':enum('owner','admin','member','viewer'),'state':enum('pending','approved','rejected','expired'),'revision':rev,'expires_at':{'type':'string','format':'date-time'},'subject_versions':arr(ref('Ref'))})
 # Write payloads are closed and intentionally cover only the S01 freeze.
 payloads={
  'programme.create':obj({'name':string(120),'objective':string(),'profile_ref':ref('Ref'),'initial_policy_refs':arr(ref('Ref')),'budget_ceiling':ref('BudgetCeiling')}),
  'programme.amend-objective':obj({'objective_ref':ref('Ref'),'reason':string()}),
- 'member.invite':obj({'destination':string(320),'requested_role':enum('admin','member','viewer'),'expires_at':{'type':'string','format':'date-time'}}),
+ 'member.invite':obj({'destination':ref('ID'),'requested_role':enum('admin','member','viewer'),'expires_at':{'type':'string','format':'date-time'}}),
  'invitation.revoke':obj({'invitation_id':ref('ID'),'reason':string()}),
  'member.remove':obj({'member_id':ref('ID'),'ownership_handoff_ref':ref('Ref'),'reason':string()},['member_id','reason']),
  'member.leave':obj({'ownership_handoff_ref':ref('Ref')},[]),
  'member.change-access':obj({'member_id':ref('ID'),'requested_access':enum('admin','member','viewer'),'approved_decision_ref':ref('Ref')}),
  'workspace.transfer-owner':obj({'recipient_member_id':ref('ID'),'acceptance_decision_ref':ref('Ref')}),
+ 'member.request-access-change':obj({'member_id':ref('ID'),'requested_access':enum('admin','member','viewer'),'expires_at':{'type':'string','format':'date-time'}}),
+ 'workspace.request-owner-transfer':obj({'recipient_member_id':ref('ID'),'expires_at':{'type':'string','format':'date-time'}}),
+ 'decision.respond':obj({'decision_id':ref('ID'),'decision_revision':rev,'choice_id':enum('approve','reject'),'subject_versions':arr(ref('Ref'))}),
  'preference.update':obj({'preference_kind':enum('theme','sidebar','pane_width'),'value':{'oneOf':[enum('system','light','dark'),{'type':'boolean'},{'type':'integer','minimum':240,'maximum':960}]}}),
 }
 paths={}
@@ -47,7 +51,7 @@ for name,payload in payloads.items():
  key=''.join(x.title() for x in name.replace('-','.').split('.'))+'Command'
  s[key]=obj({'schema_version':{'const':'1'},'target':ref('Target'),'expected_versions':arr(ref('Ref')),'payload':payload})
  paths['/v1/workspaces/{workspace_id}/commands/'+name]={'post':{'operationId':key,'parameters':[workspace_param,{'name':'Idempotency-Key','in':'header','required':True,'schema':string(128)},{'name':'X-CSRF-Token','in':'header','required':True,'schema':string(256)}],'requestBody':{'required':True,'content':{'application/json':{'schema':ref(key)}}},'responses':{'202':response(ref('Operation')),'default':response(ref('Problem'))}}}
-for path,model,page in [('/v1/session','Session',False),('/v1/capabilities','Capabilities',False),('/v1/workspaces','Workspace',True),('/v1/workspaces/{workspace_id}/members','Member',True),('/v1/workspaces/{workspace_id}/programmes','Programme',True),('/v1/workspaces/{workspace_id}/invitations','Invitation',True),('/v1/workspaces/{workspace_id}/events','Event',True)]:
+for path,model,page in [('/v1/session','Session',False),('/v1/capabilities','Capabilities',False),('/v1/workspaces','Workspace',True),('/v1/workspaces/{workspace_id}/members','Member',True),('/v1/workspaces/{workspace_id}/programmes','Programme',True),('/v1/workspaces/{workspace_id}/invitations','Invitation',True),('/v1/workspaces/{workspace_id}/membership-decisions','MembershipDecision',True),('/v1/workspaces/{workspace_id}/events','Event',True)]:
  params=[workspace_param] if '{workspace_id}' in path else []
  if page:params += [{'name':'cursor','in':'query','schema':string(2048)},{'name':'limit','in':'query','schema':{'type':'integer','minimum':1,'maximum':100}}]
  if path.endswith('/events'):params.append({'name':'after','in':'query','schema':string(2048)})
@@ -55,6 +59,10 @@ for path,model,page in [('/v1/session','Session',False),('/v1/capabilities','Cap
 paths['/v1/workspaces/{workspace_id}/operations/{operation_id}']={'get':{'operationId':'getOperation','parameters':[workspace_param,{'name':'operation_id','in':'path','required':True,'schema':ref('ID')}],'responses':{'200':response(ref('Operation')),'default':response(ref('Problem'))}}}
 paths['/v1/auth/exchange']={'post':{'operationId':'exchangeInstallationCode','security':[],'requestBody':{'required':True,'content':{'application/json':{'schema':obj({'code':string(256)})}}},'responses':{'200':response(read_schema('Session')),'default':response(ref('Problem'))}}}
 paths['/v1/auth/logout']={'post':{'operationId':'logout','parameters':[{'name':'X-CSRF-Token','in':'header','required':True,'schema':string(256)}],'responses':{'204':{'description':'Session revoked'}}}}
+s['InvitationProof']=obj({'invitation_id':ref('ID'),'proof':string(256)})
+paths['/v1/workspaces/{workspace_id}/invitations/{invitation_id}/proof']={'get':{'operationId':'getInvitationProof','parameters':[workspace_param,{'name':'invitation_id','in':'path','required':True,'schema':ref('ID')}],'responses':{'200':response(read_schema('InvitationProof')),'default':response(ref('Problem'))}}}
+paths['/v1/invitations/{invitation_id}/accept']={'post':{'operationId':'acceptInvitation','parameters':[{'name':'invitation_id','in':'path','required':True,'schema':ref('ID')},{'name':'Idempotency-Key','in':'header','required':True,'schema':string(128)},{'name':'X-CSRF-Token','in':'header','required':True,'schema':string(256)}],'requestBody':{'required':True,'content':{'application/json':{'schema':obj({'proof':string(256),'revision':rev})}}},'responses':{'202':response(ref('Operation')),'default':response(ref('Problem'))}}}
+paths['/v1/me/operations/{operation_id}']={'get':{'operationId':'getOwnOperation','parameters':[{'name':'operation_id','in':'path','required':True,'schema':ref('ID')}],'responses':{'200':response(ref('Operation')),'default':response(ref('Problem'))}}}
 control={'openapi':'3.1.0','info':{'title':'Lykeion control API — S00/S01 freeze','version':'0.1.0'},'security':[{'session':[]}],'paths':paths,'components':{'securitySchemes':{'session':{'type':'apiKey','in':'cookie','name':'lykeion_session'}},'schemas':s}}
 # Schemas for all workspace frame types; payloads are explicitly bounded.
 frame_payloads={

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { controlBridge } from './control-bridge.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = process.env.LYKEION_RENDERER_URL;
@@ -22,6 +23,11 @@ function createWindow() {
   window.on('closed', () => { window = null; });
 }
 void app.whenReady().then(() => {
+  const control=controlBridge(()=>window,process.env.LYKEION_CONTROL_ORIGIN||'http://127.0.0.1:18431');
+  ipcMain.handle('lykeion:control', control.request);
+  ipcMain.handle('lykeion:realtime', control.realtime);
+  app.on('before-quit',control.close);
+  ipcMain.handle('lykeion:control-origin', event=>{if(event.sender!==window?.webContents||event.senderFrame!==window.webContents.mainFrame)throw new Error('Invalid sender');return process.env.LYKEION_CONTROL_ORIGIN||'http://127.0.0.1:18431';});
   ipcMain.handle('lykeion:open-documentation', async (event) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Invalid sender');
     await shell.openExternal('https://github.com/lykeion-ia/lykeion');

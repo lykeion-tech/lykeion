@@ -161,6 +161,8 @@ Reads: `GET /v1/session`, `/v1/capabilities`, `/v1/workspaces`; workspace-relati
 | programme.propose-policy | prior_policy_ref, candidate_ref, impact_classification_ref | Eligible proposer; DecisionItem, never active policy |
 | programme.apply-policy | approved_decision_ref, candidate_ref | Control service verifies exact approval; policy version + reassessment; policy.activated |
 | member.invite | destination, requested_role, expires_at | Authorized human; invitation delivery requires explicit user intent; membership not active until acceptance |
+| member.request-access-change | member_id, requested_access, expires_at | Owner/admin requests a pinned membership decision; requesting alone changes no access |
+| workspace.request-owner-transfer | recipient_member_id, expires_at | Current owner requests acceptance by the named active member; the requester cannot accept for them |
 | member.change-access | member_id, requested_access, approved_decision_ref | Human-authorized expansion; access/stream invalidation events |
 | invitation.revoke | invitation_id, reason | Authorized workspace administrator; unused proof becomes invalid |
 | member.remove | member_id, ownership_handoff_ref?, reason | Authorized administrator; revoke grants/subscriptions and re-evaluate attributed active work; preserve authorship/history |
@@ -170,6 +172,12 @@ Reads: `GET /v1/session`, `/v1/capabilities`, `/v1/workspaces`; workspace-relati
 | preference.update | preference_kind, value | Current human; presentation settings only; preference.changed |
 
 Authentication login/callback/logout/device authorization routes are provider-specific adapters selected in S00. Publish their schemas then; never expose a bootstrap-owner endpoint beyond authenticated installation setup. API token issuance uses `credential.issue` with approved decision, scopes and expiry; return the secret once through a credential-specific response/secure channel, never an operation event or reusable receipt. `credential.revoke` targets its ID. Enrollment credentials are separate.
+
+S01 installation-account binding: `member.invite.destination` is the exact installation user ID until a verified-email delivery adapter exists. The creator can retrieve the pending proof through `GET /v1/workspaces/{w}/invitations/{id}/proof`; no proof appears in receipts, events or diagnostics. This is manual private handoff, not email delivery. Invitations expire within a caller-selected period of at most 30 days. Only an owner can invite administrators. Requesting, accepting, revoking and consuming a proof are serialized under the workspace lock.
+
+Membership decisions are read at `/membership-decisions`, scoped to the requester or responder. The S01 `decision.respond` wire subset accepts only these membership decisions, with an exact decision revision, `approve` or `reject`, and pinned workspace/membership subject versions. Access changes require the authorized administrator's structured response; ownership transfer requires the recipient's. The successful response atomically applies the previously authorized effect and records its receipt. `member.change-access` and `workspace.transfer-owner` are internal effects of this response in S01, not independently callable bypasses. Expired, consumed or changed subjects cannot be approved. Scientific decision types remain unavailable until their S02 authority is implemented.
+
+Colleagues is the canonical membership-management page. Preserve its existing introduction and compact colleague rows; add invitation, access-decision and leave controls within that page. The sidebar label and route remain **Colleagues** and `/colleagues`. No separate Members navigation item is introduced. Rows show actual account roles; absent verified email is not fabricated.
 
 ### F02–F04 Inquiries, shared requests, board and planning
 

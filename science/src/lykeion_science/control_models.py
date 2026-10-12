@@ -241,6 +241,42 @@ class Invitation(BaseModel):
     revision: constr(pattern=r'^(0|[1-9][0-9]*)$', max_length=20)
 
 
+class Action(StrEnum):
+    change_access = 'change-access'
+    transfer_owner = 'transfer-owner'
+
+
+class RequestedRole1(StrEnum):
+    owner = 'owner'
+    admin = 'admin'
+    member = 'member'
+    viewer = 'viewer'
+
+
+class State3(StrEnum):
+    pending = 'pending'
+    approved = 'approved'
+    rejected = 'rejected'
+    expired = 'expired'
+
+
+class MembershipDecision(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    id: ID
+    workspace_id: ID
+    requester_id: ID
+    responder_id: ID
+    member_id: ID
+    action: Action
+    requested_role: RequestedRole1
+    state: State3
+    revision: constr(pattern=r'^(0|[1-9][0-9]*)$', max_length=20)
+    expires_at: AwareDatetime
+    subject_versions: list[Ref] = Field(..., max_length=1000)
+
+
 class Payload1(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -280,12 +316,18 @@ class ProgrammeAmendObjectiveCommand(BaseModel):
     payload: Payload2
 
 
+class RequestedRole2(StrEnum):
+    admin = 'admin'
+    member = 'member'
+    viewer = 'viewer'
+
+
 class Payload3(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    destination: constr(min_length=1, max_length=320)
-    requested_role: RequestedRole
+    destination: ID
+    requested_role: RequestedRole2
     expires_at: AwareDatetime
 
 
@@ -396,6 +438,68 @@ class WorkspaceTransferOwnerCommand(BaseModel):
     payload: Payload8
 
 
+class Payload9(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    member_id: ID
+    requested_access: RequestedAccess
+    expires_at: AwareDatetime
+
+
+class MemberRequestAccessChangeCommand(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    schema_version: Literal['1']
+    target: Target
+    expected_versions: list[Ref] = Field(..., max_length=1000)
+    payload: Payload9
+
+
+class Payload10(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    recipient_member_id: ID
+    expires_at: AwareDatetime
+
+
+class WorkspaceRequestOwnerTransferCommand(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    schema_version: Literal['1']
+    target: Target
+    expected_versions: list[Ref] = Field(..., max_length=1000)
+    payload: Payload10
+
+
+class ChoiceId(StrEnum):
+    approve = 'approve'
+    reject = 'reject'
+
+
+class Payload11(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    decision_id: ID
+    decision_revision: constr(pattern=r'^(0|[1-9][0-9]*)$', max_length=20)
+    choice_id: ChoiceId
+    subject_versions: list[Ref] = Field(..., max_length=1000)
+
+
+class DecisionRespondCommand(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    schema_version: Literal['1']
+    target: Target
+    expected_versions: list[Ref] = Field(..., max_length=1000)
+    payload: Payload11
+
+
 class PreferenceKind(StrEnum):
     theme = 'theme'
     sidebar = 'sidebar'
@@ -408,7 +512,7 @@ class Value(StrEnum):
     dark = 'dark'
 
 
-class Payload9(BaseModel):
+class Payload12(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
@@ -423,7 +527,15 @@ class PreferenceUpdateCommand(BaseModel):
     schema_version: Literal['1']
     target: Target
     expected_versions: list[Ref] = Field(..., max_length=1000)
-    payload: Payload9
+    payload: Payload12
+
+
+class InvitationProof(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    invitation_id: ID
+    proof: constr(min_length=1, max_length=256)
 
 
 class Programme(BaseModel):

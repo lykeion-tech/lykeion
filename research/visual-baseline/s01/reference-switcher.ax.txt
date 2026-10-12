@@ -1,0 +1,137 @@
+Window: "Settings", App: Lykeion.
+0 standard window Settings, Secondary Actions: Raise
+	1 container Settings
+		2 container
+			3 HTML content Settings, URL: file:///Applications/Lykeion.app/Contents/Resources/app.asar/out/renderer/index.html
+				4 container
+					5 pop up button Description: Go back, Help: Go back (press and hold for history)
+					6 pop up button (disabled) Description: Go forward, Help: Go forward (press and hold for history)
+					7 button Toggle left sidebar
+					8 content list
+						9 container
+							10 pop up button L Lab
+							11 menu L Lab, Secondary Actions: Cancel
+								12 text D
+								13 text diegomarono
+								14 text diegomarono@dev.com
+								15 container Workspaces
+									16 text Workspaces
+									17 L Lab
+									18 Create workspace
+								19 Log out
+					20 content list
+						21 button Search...
+						22 button New
+					23 content list
+						24 link Description: Inbox, Value: localhost:3000/lab/inbox
+						25 link Description: Copilot, Value: localhost:3000/lab/chat
+					26 container
+						27 text Laboratory
+						28 content list
+							29 link Description: Tasks, Value: localhost:3000/lab/tasks
+							30 link Description: Researches, Value: localhost:3000/lab/projects
+							31 link Description: Colleagues, Value: localhost:3000/lab/colleagues
+							32 link Description: Autopilot, Value: localhost:3000/lab/autopilots
+					33 container
+						34 text Configure
+						35 content list
+							36 link Description: Agents, Value: localhost:3000/lab/agents
+							37 link Description: Teams, Value: localhost:3000/lab/squads
+							38 link Description: Skills, Value: localhost:3000/lab/skills
+							39 link Description: Connectors, Value: localhost:3000/lab/connectors
+							40 link Description: Machines, Value: localhost:3000/lab/runtimes
+					41 content list
+						42 link Description: Updates, Value: localhost:3000/lab/updates
+						43 link Description: Settings, Value: localhost:3000/lab/settings
+					44 pop up button Help
+					45 button Toggle left sidebar
+					46 container
+						47 sortable Settings
+						48 button New tab
+					49 container
+						50 heading Settings, Value: 1
+							51 text Settings
+						52 search text field (settable) Search settings
+						53 container Settings
+							54 container D Personal diegomarono
+								55 heading D Personal diegomarono, Value: 2
+									56 text D
+									57 text Personal diegomarono
+								58 content list
+									59 link Description: Profile, Value: localhost:3000/lab/settings?tab=profile
+									60 link Description: Preferences, Value: localhost:3000/lab/settings?tab=preferences
+									61 link Description: Notifications, Value: localhost:3000/lab/settings?tab=notifications
+									62 link Description: Analytics, Value: localhost:3000/lab/settings?tab=analytics
+									63 link Description: API Tokens, Value: localhost:3000/lab/settings?tab=tokens
+							64 container L Lab Workspace
+								65 heading L Lab Workspace, Value: 2
+									66 text L Lab Workspace
+								67 content list
+									68 link Description: General, Value: localhost:3000/lab/settings?tab=workspace
+								69 content list
+									70 link Description: Labels, Value: localhost:3000/lab/settings?tab=labels
+									71 link Description: Properties, Value: localhost:3000/lab/settings?tab=properties
+								72 container Connections & extensions
+									73 heading Connections & extensions, Value: 3
+										74 text Connections & extensions
+									75 content list
+										76 link Description: Skills, Value: localhost:3000/lab/settings?tab=skills
+										77 link Description: Connectors, Value: localhost:3000/lab/settings?tab=mcp
+										78 link Description: Code, Value: localhost:3000/lab/settings?tab=code
+					79 container
+						80 heading General, Value: 2
+							81 text General
+						82 text Lab workspace
+						83 container Your career stage
+							84 heading Your career stage, Value: 3
+								85 text Your career stage
+							86 container
+								87 text Your career stage
+								88 pop up button Your career stage, Value: Choose a stage (optional)
+									89 (selected) Choose a stage (optional)
+							90 button Save career stage
+						91 container Workspace details
+							92 heading Workspace details, Value: 3
+								93 text Workspace details
+							94 text Workspace logo
+							95 text Click the logo to upload a new image
+							96 button Change workspace logo
+								97 text L
+							98 text Name
+							99 text field (settable) Description: Name, Value: Lab
+							100 text Description
+							101 text entry area (settable) Description: Description, Placeholder: What does this workspace focus on?
+							102 text Research context
+							103 text Shared research questions, methods, and context given to every agent in this workspace on every run.
+							104 text entry area (settable) Description: Research context, Placeholder: Background information and context for AI agents working in this workspace
+							105 text Slug
+							106 text Part of every workspace URL. It can't be changed.
+							107 text lab
+							108 button Copy slug
+							109 text Task prefix
+							110 text Used in task numbers like LAB-123.
+							111 text LAB
+							112 button Change prefix...
+						113 container Danger Zone
+							114 heading Danger Zone, Value: 3
+								115 text Danger Zone
+							116 text Leave workspace
+							117 text You're the only member. Delete the workspace to leave.
+							118 button (disabled) Leave workspace
+							119 text Delete workspace
+							120 text Permanently delete this workspace and its data.
+							121 button Delete workspace
+					122 button Open Aristotle
+					123 container Notifications alt+T
+	124 close button
+	125 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	126 minimize button
+127 menu bar
+	128 Lykeion
+	129 File
+	130 Edit
+	131 View
+	132 Window
+	133 Help
+
+The focused UI element is 11 menu L Lab, Secondary Actions: Cancel

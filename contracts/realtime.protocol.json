@@ -1266,6 +1266,81 @@
         ],
         "additionalProperties": false
       },
+      "MembershipDecision": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "requester_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "responder_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "member_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "change-access",
+              "transfer-owner"
+            ]
+          },
+          "requested_role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "expired"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "maxLength": 20
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subject_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "requester_id",
+          "responder_id",
+          "member_id",
+          "action",
+          "requested_role",
+          "state",
+          "revision",
+          "expires_at",
+          "subject_versions"
+        ],
+        "additionalProperties": false
+      },
       "ProgrammeCreateCommand": {
         "type": "object",
         "properties": {
@@ -1390,9 +1465,7 @@
             "type": "object",
             "properties": {
               "destination": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 320
+                "$ref": "#/components/schemas/ID"
               },
               "requested_role": {
                 "type": "string",
@@ -1638,6 +1711,158 @@
         ],
         "additionalProperties": false
       },
+      "MemberRequestAccessChangeCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "member_id": {
+                "$ref": "#/components/schemas/ID"
+              },
+              "requested_access": {
+                "type": "string",
+                "enum": [
+                  "admin",
+                  "member",
+                  "viewer"
+                ]
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "member_id",
+              "requested_access",
+              "expires_at"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "WorkspaceRequestOwnerTransferCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "recipient_member_id": {
+                "$ref": "#/components/schemas/ID"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "recipient_member_id",
+              "expires_at"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "DecisionRespondCommand": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "1"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "expected_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "maxItems": 1000
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "decision_id": {
+                "$ref": "#/components/schemas/ID"
+              },
+              "decision_revision": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 20
+              },
+              "choice_id": {
+                "type": "string",
+                "enum": [
+                  "approve",
+                  "reject"
+                ]
+              },
+              "subject_versions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Ref"
+                },
+                "maxItems": 1000
+              }
+            },
+            "required": [
+              "decision_id",
+              "decision_revision",
+              "choice_id",
+              "subject_versions"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "target",
+          "expected_versions",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
       "PreferenceUpdateCommand": {
         "type": "object",
         "properties": {
@@ -1698,6 +1923,24 @@
           "target",
           "expected_versions",
           "payload"
+        ],
+        "additionalProperties": false
+      },
+      "InvitationProof": {
+        "type": "object",
+        "properties": {
+          "invitation_id": {
+            "$ref": "#/components/schemas/ID"
+          },
+          "proof": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "invitation_id",
+          "proof"
         ],
         "additionalProperties": false
       }
