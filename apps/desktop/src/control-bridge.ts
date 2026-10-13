@@ -12,7 +12,7 @@ let stream:WebSocket|undefined;let streamID='';let frames:unknown[]=[];let close
  function authorize(event:IpcMainInvokeEvent){const window=getWindow();if(event.sender!==window?.webContents||event.senderFrame!==window.webContents.mainFrame)throw new Error('Invalid sender');}
  const close=()=>{clearInterval(heartbeat);stream?.terminate();stream=undefined;frames=[];closed=true;};
  const id='[a-z][a-z0-9_-]{2,127}';
- const read=new RegExp(`^/v1/(session|capabilities|workspaces|me/operations/${id}|workspaces/${id}/(members|membership-decisions|programmes(?:/${id})?|access-grants|invitations|events|artifacts/${id}|operations/${id}|invitations/${id}/proof))$`);
+ const read=new RegExp(`^/v1/(session|capabilities|workspaces|me/operations/${id}|workspaces/${id}/(members|membership-decisions|programmes(?:/${id})?|access-grants|invitations|events|artifacts/${id}(?:/content)?|operations/${id}|invitations/${id}/proof))$`);
  const put=new RegExp(`^/v1/workspaces/${id}/uploads/${id}/parts/1$`);
  const post=new RegExp(`^/v1/(auth/(exchange|logout)|invitations/${id}/accept|workspaces/${id}/uploads(?:/${id}/complete)?|workspaces/${id}/commands/(artifact\\.submit|programme\\.create|access\\.change|preference\\.update|member\\.invite|member\\.remove|member\\.leave|invitation\\.revoke|member\\.request-access-change|workspace\\.request-owner-transfer|decision\\.respond))$`);
  const request=async(event:IpcMainInvokeEvent,input:unknown)=>{

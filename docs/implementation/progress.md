@@ -50,3 +50,11 @@ Added an authenticated CLI lifecycle test against the real disposable PostgreSQL
 Paired native/browser verification found that a revoked programme disappeared from the list but its already-open detail retained cached content. Details now retain only a selected identity and resolve content against the latest authorized projection. A regression covers revision refresh, revocation and no automatic reopening after a later grant. Membership details use the same boundary. All 22 frontend tests and typecheck pass.
 
 Observed in the disposable workspace: invitation acceptance, programme hidden before sharing, programme visible after read grant, and member demotion propagated to the browser. A pending recipient ownership-transfer approval was blocked by automatic approval review; explicit user permission has been requested. S01 is not marked complete until that test and revocation retest finish.
+
+### S02 initial artifact boundary
+
+Started the independent S02 storage increment while final S01 native acceptance waits for the user's ownership-transfer approval and Mac unlock. Added migration 008 (sealed artifact update/delete guard), author-scoped content inspection, manifest/CAS/blob integrity checks and generated TypeScript/Python contracts. Public `artifact.submit` still rejects produced outputs; no scientific acceptance or execution authority is added. The native bridge allowlists the bounded content read, and the CLI can use its existing GET path.
+
+Real PostgreSQL/CAS tests cover private content round-trip, another member denial, rejected in-place mutation/delete and tampered-byte failure. All 25 Go tests pass with race detection. The installed desktop Agents list/Overview were inspected without changes; only the list was captured before the Mac locked. See `S02-artifacts-authority.md` for the implemented boundary and remaining work.
+
+S02 verification: 43 schemas, 36 routes and 13 closed frame variants validate; generation is reproducible. All 22 frontend tests, two Python tests and the production web/desktop build pass (existing large-chunk warning remains). The disposable control server was restarted against its existing schema with migration 008; the installed reference was not restarted or modified.

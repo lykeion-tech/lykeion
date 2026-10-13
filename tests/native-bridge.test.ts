@@ -9,6 +9,8 @@ describe('native credential boundary',()=>{
   const {event,bridge}=fixture();const result=await bridge.request(event,{method:'POST',path:'/v1/auth/exchange',body:{code:'single-use'}});
   expect(JSON.stringify(result)).not.toContain('private-test-token');
   await bridge.request(event,{method:'GET',path:'/v1/session'});
+  await bridge.request(event,{method:'GET',path:'/v1/workspaces/wsp_test/artifacts/art_test/content'});
+  await expect(bridge.request(event,{method:'GET',path:'/v1/workspaces/wsp_test/artifacts/art_test/content/private'})).rejects.toThrow('Unsupported');
   expect(requests[1]?.headers).toMatchObject({Cookie:'lykeion_session=private-test-token',Origin:'lykeion://desktop'});
   await expect(bridge.request(event,{method:'GET',path:'https://untrusted.test/v1/session'})).rejects.toThrow('Unsupported');
   await expect(bridge.request(event,{method:'GET',path:'/v1/session?url=https://untrusted.test'})).rejects.toThrow('Unsupported');

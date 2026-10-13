@@ -395,6 +395,21 @@ class UploadPartReceipt(BaseModel):
     sha256: Hash
 
 
+class AuthoredKind(StrEnum):
+    domain_profile = 'domain-profile'
+    gate_policy = 'gate-policy'
+    grant_changes = 'grant-changes'
+
+
+class ArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    artifact_ref: Ref
+    authored_kind: AuthoredKind
+    content_base64: constr(min_length=1, max_length=90000)
+
+
 class ArtifactRecord(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -403,12 +418,6 @@ class ArtifactRecord(BaseModel):
     revision: constr(pattern=r'^(0|[1-9][0-9]*)$', max_length=20)
     sha256: Hash
     manifest: ConfigManifest
-
-
-class AuthoredKind(StrEnum):
-    domain_profile = 'domain-profile'
-    gate_policy = 'gate-policy'
-    grant_changes = 'grant-changes'
 
 
 class Payload1(BaseModel):

@@ -7,6 +7,8 @@ import (
 	"github.com/lykeion-ia/lykeion-redesign/backend/internal/artifacts"
 	"github.com/lykeion-ia/lykeion-redesign/backend/internal/store"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -108,6 +110,54 @@ func TestSealedProgrammeAndNarrowResourceGrants(t *testing.T) {
 	}
 	if status, _ = request(t, server.Client(), "GET", base+"/programmes/"+programme.ID, mt, "", "", nil); status != 404 {
 		t.Fatal("rejoin restored revoked grant", status)
+	}
+
+	// Reviewed bytes can be inspected only by the author, without accepting them.
+	status, raw = request(t, server.Client(), "GET", base+"/artifacts/"+profile.ID+"/content", token, "", "", nil)
+	if status != 200 {
+		t.Fatalf("sealed content unavailable %d %s", status, raw)
+	}
+	var content struct {
+		Data struct {
+			Encoded string `json:"content_base64"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &content); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(content.Data.Encoded)
+	if err != nil || !strings.Contains(string(decoded), "Synthetic test profile") {
+		t.Fatal("sealed content altered")
+	}
+	if status, _ = request(t, server.Client(), "GET", base+"/artifacts/"+profile.ID+"/content", mt, "", "", nil); status != 404 {
+		t.Fatal("configuration content leaked", status)
+	}
+	if _, err = db.Pool.Exec(ctx, "UPDATE artifacts SET authored_kind='gate-policy' WHERE id=$1", profile.ID); err == nil {
+		t.Fatal("sealed manifest mutable")
+	}
+	if _, err = db.Pool.Exec(ctx, "DELETE FROM artifacts WHERE id=$1", profile.ID); err == nil {
+		t.Fatal("sealed artifact deleted")
+	}
+	// A missing or altered blob fails closed even if the logical manifest survives.
+	var manifestBytes []byte
+	if err = db.Pool.QueryRow(ctx, "SELECT manifest FROM artifacts WHERE id=$1", profile.ID).Scan(&manifestBytes); err != nil {
+		t.Fatal(err)
+	}
+	var manifest configManifest
+	if err = json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	blob := filepath.Join(api.ArtifactRoot, manifest.Files[0].Upload.SHA256)
+	if err = os.Chmod(blob, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(blob, []byte("tampered"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"", "/content"} {
+		if status, _ = request(t, server.Client(), "GET", base+"/artifacts/"+profile.ID+suffix, token, "", "", nil); status != 503 {
+			t.Fatal("tampered bytes served", status)
+		}
 	}
 
 	var ceilings int

@@ -901,6 +901,33 @@
         ],
         "additionalProperties": false
       },
+      "ArtifactContent": {
+        "type": "object",
+        "properties": {
+          "artifact_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "authored_kind": {
+            "type": "string",
+            "enum": [
+              "domain-profile",
+              "gate-policy",
+              "grant-changes"
+            ]
+          },
+          "content_base64": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 90000
+          }
+        },
+        "required": [
+          "artifact_ref",
+          "authored_kind",
+          "content_base64"
+        ],
+        "additionalProperties": false
+      },
       "ArtifactRecord": {
         "type": "object",
         "properties": {

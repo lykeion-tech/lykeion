@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"github.com/lykeion-ia/lykeion-redesign/backend/internal/artifacts"
@@ -123,14 +124,39 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request, user, workspace,
 	read(w, ref{Kind: "upload", ID: id, Revision: "1", SHA256: hash}, "bootstrap")
 }
 
-// Config artifacts are author-private until a programme explicitly references
-// them. Artifact visibility is not a scientific acceptance verdict.
+// Artifact IDs are authorized before hash addresses are resolved. Configuration
+// content stays author-private even when a programme references its manifest.
 func (s *Server) artifactContent(w http.ResponseWriter, r *http.Request, user, workspace, id string) {
 	var raw json.RawMessage
-	var hash string
-	err := s.DB.Pool.QueryRow(r.Context(), "SELECT manifest,sha256 FROM artifacts WHERE id=$1 AND workspace_id=$2 AND author_id=$3", id, workspace, user).Scan(&raw, &hash)
+	var hash, kind string
+	err := s.DB.Pool.QueryRow(r.Context(), "SELECT manifest,sha256,authored_kind FROM artifacts WHERE id=$1 AND workspace_id=$2 AND author_id=$3", id, workspace, user).Scan(&raw, &hash, &kind)
 	if err != nil {
 		problem(w, 404, "NOT_FOUND")
+		return
+	}
+	sealed, err := artifacts.Read(s.ArtifactRoot, hash)
+	if err != nil || !bytes.Equal(raw, sealed) {
+		problem(w, 503, "ARTIFACT_INTEGRITY_FAILURE")
+		return
+	}
+	var manifest configManifest
+	if json.Unmarshal(sealed, &manifest) != nil || len(manifest.Files) != 1 {
+		problem(w, 503, "ARTIFACT_INTEGRITY_FAILURE")
+		return
+	}
+	data, err := artifacts.Read(s.ArtifactRoot, manifest.Files[0].Upload.SHA256)
+	if err != nil {
+		problem(w, 503, "ARTIFACT_INTEGRITY_FAILURE")
+		return
+	}
+	// Recheck active membership after loading bytes; a revoked workspace is not
+	// authorized merely because its manifest was already in memory.
+	if _, _, _, _, err = s.DB.Access(r.Context(), workspace, user); err != nil {
+		problem(w, 404, "NOT_FOUND")
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/content") {
+		read(w, map[string]any{"artifact_ref": ref{Kind: "artifact", ID: id, Revision: "1", SHA256: hash}, "authored_kind": kind, "content_base64": base64.StdEncoding.EncodeToString(data)}, "bootstrap")
 		return
 	}
 	read(w, map[string]any{"id": id, "revision": "1", "sha256": hash, "manifest": raw}, "bootstrap")

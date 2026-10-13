@@ -230,7 +230,7 @@ func (s *Server) authenticated(w http.ResponseWriter, r *http.Request) {
 		s.upload(w, r, session.UserID, workspace, role, parts)
 		return
 	}
-	if len(parts) == 5 && parts[3] == "artifacts" && r.Method == "GET" {
+	if (len(parts) == 5 || (len(parts) == 6 && parts[5] == "content")) && parts[3] == "artifacts" && r.Method == "GET" {
 		s.artifactContent(w, r, session.UserID, workspace, parts[4])
 		return
 	}

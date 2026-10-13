@@ -564,6 +564,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/{workspace_id}/artifacts/{artifact_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getArtifactContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -758,6 +774,12 @@ export interface components {
         UploadPartReceipt: {
             upload_id: components["schemas"]["ID"];
             sha256: components["schemas"]["Hash"];
+        };
+        ArtifactContent: {
+            artifact_ref: components["schemas"]["Ref"];
+            /** @enum {string} */
+            authored_kind: "domain-profile" | "gate-policy" | "grant-changes";
+            content_base64: string;
         };
         ArtifactRecord: {
             id: components["schemas"]["ID"];
@@ -2274,6 +2296,43 @@ export interface operations {
                         /** @constant */
                         schema_version: "1";
                         data: components["schemas"]["ArtifactRecord"];
+                        event_cursor: string;
+                    };
+                };
+            };
+            /** @description Typed response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getArtifactContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["schemas"]["ID"];
+                artifact_id: components["schemas"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Typed response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schema_version: "1";
+                        data: components["schemas"]["ArtifactContent"];
                         event_cursor: string;
                     };
                 };

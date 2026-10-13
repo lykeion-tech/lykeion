@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Lykeion control API \u2014 S00/S01 freeze",
+    "title": "Lykeion control API \u2014 implemented slice contracts",
     "version": "0.1.0"
   },
   "security": [
@@ -2490,6 +2490,70 @@
           }
         }
       }
+    },
+    "/v1/workspaces/{workspace_id}/artifacts/{artifact_id}/content": {
+      "get": {
+        "operationId": "getArtifactContent",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ID"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "const": "1"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ArtifactContent"
+                    },
+                    "event_cursor": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "data",
+                    "event_cursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Typed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3402,6 +3466,33 @@
         "required": [
           "upload_id",
           "sha256"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactContent": {
+        "type": "object",
+        "properties": {
+          "artifact_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "authored_kind": {
+            "type": "string",
+            "enum": [
+              "domain-profile",
+              "gate-policy",
+              "grant-changes"
+            ]
+          },
+          "content_base64": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 90000
+          }
+        },
+        "required": [
+          "artifact_ref",
+          "authored_kind",
+          "content_base64"
         ],
         "additionalProperties": false
       },

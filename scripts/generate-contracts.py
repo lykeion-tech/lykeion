@@ -35,6 +35,7 @@ s['GrantPlan']=obj({'subject_ref':ref('Ref'),'changes':{'type':'array','minItems
 s['ConfigManifest']=obj({'files':{'type':'array','minItems':1,'maxItems':1,'items':obj({'path':{'const':'configuration.json'},'upload_ref':ref('Ref')})}})
 s['UploadReservation']=obj({'id':ref('ID'),'maximum_bytes':{'const':65536},'part_count':{'const':1}})
 s['UploadPartReceipt']=obj({'upload_id':ref('ID'),'sha256':ref('Hash')})
+s['ArtifactContent']=obj({'artifact_ref':ref('Ref'),'authored_kind':enum('domain-profile','gate-policy','grant-changes'),'content_base64':string(90000)})
 s['ArtifactRecord']=obj({'id':ref('ID'),'revision':rev,'sha256':ref('Hash'),'manifest':ref('ConfigManifest')})
 # Write payloads are closed and intentionally cover only the S01 freeze.
 payloads={
@@ -81,14 +82,15 @@ for suffix,method,body,model in [
  ('/uploads','post',obj({'sha256':ref('Hash'),'byte_length':{'type':'integer','minimum':1,'maximum':65536}}),'UploadReservation'),
  ('/uploads/{upload_id}/parts/1','put',obj({'content_base64':string(90000)}),'UploadPartReceipt'),
  ('/uploads/{upload_id}/complete','post',None,'Ref'),
- ('/artifacts/{artifact_id}','get',None,'ArtifactRecord')]:
+ ('/artifacts/{artifact_id}','get',None,'ArtifactRecord'),
+ ('/artifacts/{artifact_id}/content','get',None,'ArtifactContent')]:
  path='/v1/workspaces/{workspace_id}'+suffix
  params=[workspace_param]+[{'name':name,'in':'path','required':True,'schema':ref('ID')} for name in ['upload_id','artifact_id'] if '{'+name+'}' in path]
  operation={'operationId':method+model,'parameters':params,'responses':{'200':response(read_schema(model)),'default':response(ref('Problem'))}}
  if method!='get':params += [{'name':'Idempotency-Key','in':'header','required':True,'schema':string(128)},{'name':'X-CSRF-Token','in':'header','required':False,'schema':string(256)}]
  if body:operation['requestBody']={'required':True,'content':{'application/json':{'schema':body}}}
  paths[path]={method:operation}
-control={'openapi':'3.1.0','info':{'title':'Lykeion control API — S00/S01 freeze','version':'0.1.0'},'security':[{'session':[]},{'device':[]}],'paths':paths,'components':{'securitySchemes':{'session':{'type':'apiKey','in':'cookie','name':'lykeion_session'},'device':{'type':'http','scheme':'bearer','description':'Dedicated CLI session; browser tokens are not accepted.'}},'schemas':s}}
+control={'openapi':'3.1.0','info':{'title':'Lykeion control API — implemented slice contracts','version':'0.1.0'},'security':[{'session':[]},{'device':[]}],'paths':paths,'components':{'securitySchemes':{'session':{'type':'apiKey','in':'cookie','name':'lykeion_session'},'device':{'type':'http','scheme':'bearer','description':'Dedicated CLI session; browser tokens are not accepted.'}},'schemas':s}}
 # Schemas for all workspace frame types; payloads are explicitly bounded.
 frame_payloads={
  'subscribe':obj({'channels':arr(enum('workspace','programme','document','session')),'subject_refs':arr(ref('Ref')),'after_cursor':string(2048)},['channels','subject_refs']),
@@ -108,4 +110,4 @@ protocol={'$schema':'https://json-schema.org/draft/2020-12/schema','$id':'https:
 ROOT.joinpath('contracts/control.openapi.json').write_text(json.dumps(control,indent=2)+'\n')
 ROOT.joinpath('contracts/realtime.protocol.json').write_text(json.dumps(protocol,indent=2)+'\n')
 ROOT.joinpath('contracts/schemas/common.json').write_text(json.dumps({'$schema':'https://json-schema.org/draft/2020-12/schema','components':{'schemas':s}},indent=2)+'\n')
-print(f'Generated {len(paths)} S01 route contracts, {len(s)} schemas and {len(frames)} frame variants; later slice endpoints remain unfrozen.')
+print(f'Generated {len(paths)} implemented route contracts, {len(s)} schemas and {len(frames)} frame variants; later slice endpoints remain unfrozen.')
