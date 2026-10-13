@@ -20,7 +20,9 @@ export default defineConfig({
     reducedMotion: 'reduce',
     locale: 'en-US',
     timezoneId: 'Europe/Copenhagen',
-    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : undefined,
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE }
+      : undefined,
     trace: 'retain-on-failure',
   },
   webServer: {

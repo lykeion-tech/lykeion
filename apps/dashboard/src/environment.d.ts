@@ -1,1 +1,3 @@
-interface Window { lykeionDesktop?: { platform: string; openDocumentation(): Promise<void> } }
+interface Window {
+  lykeionDesktop?: { platform: string; openDocumentation(): Promise<void> };
+}

@@ -1,38 +1,462 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
-import { useRoute,useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { Pin, ListX } from '@lucide/vue';
 import Icon from './Icon.vue';
-const props=defineProps<{title:string;icon:string;collapsed:boolean}>();
-const emit=defineEmits<{toggle:[]}>();const route=useRoute();const router=useRouter();
-type Tab={id:number;path:string;title:string;icon:string;history:string[];index:number;pinned:boolean};
-const validPath=(value:unknown):value is string=>typeof value==='string'&&value.startsWith('/')&&!value.startsWith('//');
-function initial():Tab[]{try{const t=JSON.parse(sessionStorage.getItem('lykeion.tabs')||'null');if(Array.isArray(t)&&t.length&&t.every(x=>Number.isFinite(x.id)&&validPath(x.path)&&typeof x.title==='string'&&typeof x.icon==='string'&&Array.isArray(x.history)&&x.history.length>0&&x.history.every(validPath)&&Number.isInteger(x.index)&&x.index>=0&&x.index<x.history.length))return t.map(x=>({...x,pinned:x.pinned===true}));}catch{}return [{id:Date.now(),path:route.fullPath,title:props.title,icon:props.icon,history:[route.fullPath],index:0,pinned:false}];}
-const tabs=ref<Tab[]>(initial());const savedSelected=Number(sessionStorage.getItem('lykeion.active-tab'));const selected=ref(tabs.value.some(t=>t.id===savedSelected)?savedSelected:tabs.value[0]!.id);const active=computed(()=>tabs.value.find(t=>t.id===selected.value)!);let navigating=false;let nextId=Math.max(Date.now(),...tabs.value.map(t=>t.id))+1;
-const context=ref<{tabId:number;x:number;y:number}|null>(null);const contextMenu=ref<HTMLElement>();const contextTab=computed(()=>tabs.value.find(t=>t.id===context.value?.tabId));
-const canCloseOthers=computed(()=>tabs.value.some(t=>t.id!==contextTab.value?.id&&!t.pinned));
-watch(selected,id=>sessionStorage.setItem('lykeion.active-tab',String(id)),{immediate:true});
-function record(){if(navigating)return;const t=active.value;if(t.path!==route.fullPath){t.history=t.history.slice(0,t.index+1);t.history.push(route.fullPath);t.index=t.history.length-1;}t.path=route.fullPath;t.title=props.title;t.icon=props.icon;}
-watch(()=>[route.fullPath,props.title],record,{flush:'post'});watch(tabs,x=>sessionStorage.setItem('lykeion.tabs',JSON.stringify(x)),{deep:true});
-async function select(t:Tab){context.value=null;navigating=true;selected.value=t.id;try{await router.push(t.path);}finally{navigating=false;}}
-function add(path='/tasks',title='Tasks',icon='tasks'){if(!validPath(path))return;const t:Tab={id:nextId++,path,title,icon,history:[path],index:0,pinned:false};tabs.value.push(t);void select(t);}
-function openRequestedTab(event:Event){const detail=(event as CustomEvent<unknown>).detail;if(!detail||typeof detail!=='object')return;const value=detail as Record<string,unknown>;if(validPath(value.path))add(value.path,typeof value.title==='string'?value.title:'Workspace',typeof value.icon==='string'?value.icon:'monitor');}
-async function history(delta:number){const t=active.value;const index=t.index+delta;if(index<0||index>=t.history.length)return;t.index=index;t.path=t.history[index]!;await select(t);t.title=props.title;t.icon=props.icon;}
-function close(t:Tab){if(t.pinned||tabs.value.length===1)return;context.value=null;const i=tabs.value.indexOf(t);tabs.value.splice(i,1);if(t.id===selected.value)void select(tabs.value[Math.max(0,i-1)]!);}
-function closeOthers(){const t=contextTab.value;if(!t)return;tabs.value=tabs.value.filter(item=>item.id===t.id||item.pinned);context.value=null;if(!tabs.value.some(item=>item.id===selected.value))void select(t);else focusTab(t.id);}
-function focusTab(id:number){void nextTick(()=>document.getElementById('workspace-tab-'+id)?.focus());}
-function pinTab(){const t=contextTab.value;if(!t)return;t.pinned=!t.pinned;context.value=null;focusTab(t.id);}
-async function openContext(t:Tab,event:MouseEvent|KeyboardEvent){event.preventDefault();const target=event.currentTarget as HTMLElement;const bounds=target.getBoundingClientRect();const x=event instanceof MouseEvent?event.clientX:bounds.left+Math.min(bounds.width/2,60);const y=event instanceof MouseEvent?event.clientY+4:bounds.bottom+4;context.value={tabId:t.id,x:Math.min(Math.max(x,4),window.innerWidth-156),y:Math.min(Math.max(y,4),window.innerHeight-112)};await nextTick();contextMenu.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();}
-function contextKey(event:KeyboardEvent){const buttons=[...(contextMenu.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')||[])];let i=buttons.indexOf(document.activeElement as HTMLButtonElement);if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();if(event.key==='Home')i=0;else if(event.key==='End')i=buttons.length-1;else i=(i+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length;buttons[i]?.focus();}if(event.key==='Escape'){event.preventDefault();event.stopPropagation();const id=context.value?.tabId;context.value=null;if(id)focusTab(id);}if(event.key==='Tab')context.value=null;}
-function tabKey(event:KeyboardEvent,t:Tab){if(event.shiftKey&&event.key==='F10'){void openContext(t,event);return;}if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)&&!event.metaKey&&!event.ctrlKey){event.preventDefault();let i=tabs.value.indexOf(t);if(event.key==='Home')i=0;else if(event.key==='End')i=tabs.value.length-1;else i=(i+(event.key==='ArrowRight'?1:-1)+tabs.value.length)%tabs.value.length;const next=tabs.value[i]!;void select(next);focusTab(next.id);}}
-function key(e:KeyboardEvent){if(!(e.metaKey||e.ctrlKey)||document.querySelector('dialog[open]'))return;const letter=e.key.toLowerCase();if(letter==='t'){e.preventDefault();add();}if(letter==='w'){e.preventDefault();close(active.value);}if(e.key==='['){e.preventDefault();void history(-1);}if(e.key===']'){e.preventDefault();void history(1);}if(e.ctrlKey&&e.key==='Tab'){e.preventDefault();const next=tabs.value[(tabs.value.indexOf(active.value)+(e.shiftKey?-1:1)+tabs.value.length)%tabs.value.length]!;void select(next);focusTab(next.id);}}
-function outside(event:PointerEvent){if(!(event.target as HTMLElement).closest('.tab-context-menu'))context.value=null;}
-const dragged=ref<number|null>(null);function drop(t:Tab){const from=tabs.value.findIndex(x=>x.id===dragged.value);const to=tabs.value.indexOf(t);if(from>=0){const item=tabs.value.splice(from,1)[0]!;tabs.value.splice(to,0,item);}dragged.value=null;}
-onMounted(()=>{if(active.value.path!==route.fullPath)void select(active.value);window.addEventListener('keydown',key);window.addEventListener('pointerdown',outside);window.addEventListener('lykeion:open-tab',openRequestedTab);});onUnmounted(()=>{window.removeEventListener('keydown',key);window.removeEventListener('pointerdown',outside);window.removeEventListener('lykeion:open-tab',openRequestedTab);});
+const props = defineProps<{ title: string; icon: string; collapsed: boolean }>();
+const emit = defineEmits<{ toggle: [] }>();
+const route = useRoute();
+const router = useRouter();
+type Tab = {
+  id: number;
+  path: string;
+  title: string;
+  icon: string;
+  history: string[];
+  index: number;
+  pinned: boolean;
+};
+const validPath = (value: unknown): value is string =>
+  typeof value === 'string' && value.startsWith('/') && !value.startsWith('//');
+function initial(): Tab[] {
+  try {
+    const t = JSON.parse(sessionStorage.getItem('lykeion.tabs') || 'null');
+    if (
+      Array.isArray(t) &&
+      t.length &&
+      t.every(
+        (x) =>
+          Number.isFinite(x.id) &&
+          validPath(x.path) &&
+          typeof x.title === 'string' &&
+          typeof x.icon === 'string' &&
+          Array.isArray(x.history) &&
+          x.history.length > 0 &&
+          x.history.every(validPath) &&
+          Number.isInteger(x.index) &&
+          x.index >= 0 &&
+          x.index < x.history.length,
+      )
+    )
+      return t.map((x) => ({ ...x, pinned: x.pinned === true }));
+  } catch {}
+  return [
+    {
+      id: Date.now(),
+      path: route.fullPath,
+      title: props.title,
+      icon: props.icon,
+      history: [route.fullPath],
+      index: 0,
+      pinned: false,
+    },
+  ];
+}
+const tabs = ref<Tab[]>(initial());
+const savedSelected = Number(sessionStorage.getItem('lykeion.active-tab'));
+const selected = ref(
+  tabs.value.some((t) => t.id === savedSelected) ? savedSelected : tabs.value[0]!.id,
+);
+const active = computed(() => tabs.value.find((t) => t.id === selected.value)!);
+let navigating = false;
+let nextId = Math.max(Date.now(), ...tabs.value.map((t) => t.id)) + 1;
+const context = ref<{ tabId: number; x: number; y: number } | null>(null);
+const contextMenu = ref<HTMLElement>();
+const contextTab = computed(() => tabs.value.find((t) => t.id === context.value?.tabId));
+const canCloseOthers = computed(() =>
+  tabs.value.some((t) => t.id !== contextTab.value?.id && !t.pinned),
+);
+watch(selected, (id) => sessionStorage.setItem('lykeion.active-tab', String(id)), {
+  immediate: true,
+});
+function record() {
+  if (navigating) return;
+  const t = active.value;
+  if (t.path !== route.fullPath) {
+    t.history = t.history.slice(0, t.index + 1);
+    t.history.push(route.fullPath);
+    t.index = t.history.length - 1;
+  }
+  t.path = route.fullPath;
+  t.title = props.title;
+  t.icon = props.icon;
+}
+watch(() => [route.fullPath, props.title], record, { flush: 'post' });
+watch(tabs, (x) => sessionStorage.setItem('lykeion.tabs', JSON.stringify(x)), { deep: true });
+async function select(t: Tab) {
+  context.value = null;
+  navigating = true;
+  selected.value = t.id;
+  try {
+    await router.push(t.path);
+  } finally {
+    navigating = false;
+  }
+}
+function add(path = '/tasks', title = 'Tasks', icon = 'tasks') {
+  if (!validPath(path)) return;
+  const t: Tab = { id: nextId++, path, title, icon, history: [path], index: 0, pinned: false };
+  tabs.value.push(t);
+  void select(t);
+}
+function openRequestedTab(event: Event) {
+  const detail = (event as CustomEvent<unknown>).detail;
+  if (!detail || typeof detail !== 'object') return;
+  const value = detail as Record<string, unknown>;
+  if (validPath(value.path))
+    add(
+      value.path,
+      typeof value.title === 'string' ? value.title : 'Workspace',
+      typeof value.icon === 'string' ? value.icon : 'monitor',
+    );
+}
+async function history(delta: number) {
+  const t = active.value;
+  const index = t.index + delta;
+  if (index < 0 || index >= t.history.length) return;
+  t.index = index;
+  t.path = t.history[index]!;
+  await select(t);
+  t.title = props.title;
+  t.icon = props.icon;
+}
+function close(t: Tab) {
+  if (t.pinned || tabs.value.length === 1) return;
+  context.value = null;
+  const i = tabs.value.indexOf(t);
+  tabs.value.splice(i, 1);
+  if (t.id === selected.value) void select(tabs.value[Math.max(0, i - 1)]!);
+}
+function closeOthers() {
+  const t = contextTab.value;
+  if (!t) return;
+  tabs.value = tabs.value.filter((item) => item.id === t.id || item.pinned);
+  context.value = null;
+  if (!tabs.value.some((item) => item.id === selected.value)) void select(t);
+  else focusTab(t.id);
+}
+function focusTab(id: number) {
+  void nextTick(() => document.getElementById('workspace-tab-' + id)?.focus());
+}
+function pinTab() {
+  const t = contextTab.value;
+  if (!t) return;
+  t.pinned = !t.pinned;
+  context.value = null;
+  focusTab(t.id);
+}
+async function openContext(t: Tab, event: MouseEvent | KeyboardEvent) {
+  event.preventDefault();
+  const target = event.currentTarget as HTMLElement;
+  const bounds = target.getBoundingClientRect();
+  const x =
+    event instanceof MouseEvent ? event.clientX : bounds.left + Math.min(bounds.width / 2, 60);
+  const y = event instanceof MouseEvent ? event.clientY + 4 : bounds.bottom + 4;
+  context.value = {
+    tabId: t.id,
+    x: Math.min(Math.max(x, 4), window.innerWidth - 156),
+    y: Math.min(Math.max(y, 4), window.innerHeight - 112),
+  };
+  await nextTick();
+  contextMenu.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+}
+function contextKey(event: KeyboardEvent) {
+  const buttons = [
+    ...(contextMenu.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || []),
+  ];
+  let i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault();
+    if (event.key === 'Home') i = 0;
+    else if (event.key === 'End') i = buttons.length - 1;
+    else i = (i + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[i]?.focus();
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    const id = context.value?.tabId;
+    context.value = null;
+    if (id) focusTab(id);
+  }
+  if (event.key === 'Tab') context.value = null;
+}
+function tabKey(event: KeyboardEvent, t: Tab) {
+  if (event.shiftKey && event.key === 'F10') {
+    void openContext(t, event);
+    return;
+  }
+  if (
+    ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) &&
+    !event.metaKey &&
+    !event.ctrlKey
+  ) {
+    event.preventDefault();
+    let i = tabs.value.indexOf(t);
+    if (event.key === 'Home') i = 0;
+    else if (event.key === 'End') i = tabs.value.length - 1;
+    else i = (i + (event.key === 'ArrowRight' ? 1 : -1) + tabs.value.length) % tabs.value.length;
+    const next = tabs.value[i]!;
+    void select(next);
+    focusTab(next.id);
+  }
+}
+function key(e: KeyboardEvent) {
+  if (!(e.metaKey || e.ctrlKey) || document.querySelector('dialog[open]')) return;
+  const letter = e.key.toLowerCase();
+  if (letter === 't') {
+    e.preventDefault();
+    add();
+  }
+  if (letter === 'w') {
+    e.preventDefault();
+    close(active.value);
+  }
+  if (e.key === '[') {
+    e.preventDefault();
+    void history(-1);
+  }
+  if (e.key === ']') {
+    e.preventDefault();
+    void history(1);
+  }
+  if (e.ctrlKey && e.key === 'Tab') {
+    e.preventDefault();
+    const next =
+      tabs.value[
+        (tabs.value.indexOf(active.value) + (e.shiftKey ? -1 : 1) + tabs.value.length) %
+          tabs.value.length
+      ]!;
+    void select(next);
+    focusTab(next.id);
+  }
+}
+function outside(event: PointerEvent) {
+  if (!(event.target as HTMLElement).closest('.tab-context-menu')) context.value = null;
+}
+const dragged = ref<number | null>(null);
+function drop(t: Tab) {
+  const from = tabs.value.findIndex((x) => x.id === dragged.value);
+  const to = tabs.value.indexOf(t);
+  if (from >= 0) {
+    const item = tabs.value.splice(from, 1)[0]!;
+    tabs.value.splice(to, 0, item);
+  }
+  dragged.value = null;
+}
+onMounted(() => {
+  if (active.value.path !== route.fullPath) void select(active.value);
+  window.addEventListener('keydown', key);
+  window.addEventListener('pointerdown', outside);
+  window.addEventListener('lykeion:open-tab', openRequestedTab);
+});
+onUnmounted(() => {
+  window.removeEventListener('keydown', key);
+  window.removeEventListener('pointerdown', outside);
+  window.removeEventListener('lykeion:open-tab', openRequestedTab);
+});
 </script>
-<template><header class="workspace-tabs"><div class="window-navigation"><button class="icon-button" aria-label="Go back" :disabled="active.index===0" @click="history(-1)"><Icon name="back" :size="14"/></button><button class="icon-button" aria-label="Go forward" :disabled="active.index===active.history.length-1" @click="history(1)"><Icon name="forward" :size="14"/></button><button class="icon-button" aria-label="Toggle left sidebar" @click="emit('toggle')"><Icon name="sidebar" :size="15"/></button></div><div class="tab-strip" role="tablist" aria-label="Workspace tabs"><div v-for="t in tabs" :key="t.id" class="workspace-tab" :class="{active:t.id===selected,pinned:t.pinned}" draggable="true" @dragstart="dragged=t.id" @dragover.prevent @drop="drop(t)" @contextmenu="openContext(t,$event)"><button :id="'workspace-tab-'+t.id" role="tab" :tabindex="t.id===selected?0:-1" :aria-selected="t.id===selected" :aria-label="t.title+(t.pinned?' · pinned':'')" aria-haspopup="menu" @click="select(t)" @keydown="tabKey($event,t)"><Icon :name="t.icon" :size="13"/><span>{{t.title}}</span><Pin v-if="t.pinned" class="pinned-marker" :size="11" :stroke-width="1.7"/></button><button v-if="tabs.length>1&&!t.pinned" class="tab-control" aria-label="Close tab" @click="close(t)"><Icon name="close" :size="12"/></button></div><button class="icon-button new-tab" aria-label="New tab" @click="add()"><Icon name="plus" :size="15"/></button></div></header>
-<div v-if="context&&contextTab" ref="contextMenu" class="tab-context-menu" role="menu" aria-label="Tab actions" :style="{left:context.x+'px',top:context.y+'px'}" @keydown="contextKey"><button role="menuitem" @click="pinTab"><Pin :size="15" :stroke-width="1.7"/>{{contextTab.pinned?'Unpin tab':'Pin tab'}}</button><div class="menu-separator"/><button role="menuitem" class="close-action" :disabled="contextTab.pinned||tabs.length===1" @click="close(contextTab)"><Icon name="close" :size="15"/>Close tab</button><button role="menuitem" class="close-action" :disabled="!canCloseOthers" @click="closeOthers"><ListX :size="15" :stroke-width="1.7"/>Close other tabs</button></div>
+<template>
+  <header class="workspace-tabs">
+    <div class="window-navigation">
+      <button
+        class="icon-button"
+        aria-label="Go back"
+        :disabled="active.index === 0"
+        @click="history(-1)"
+      >
+        <Icon name="back" :size="14" /></button
+      ><button
+        class="icon-button"
+        aria-label="Go forward"
+        :disabled="active.index === active.history.length - 1"
+        @click="history(1)"
+      >
+        <Icon name="forward" :size="14" /></button
+      ><button class="icon-button" aria-label="Toggle left sidebar" @click="emit('toggle')">
+        <Icon name="sidebar" :size="15" />
+      </button>
+    </div>
+    <div class="tab-strip" role="tablist" aria-label="Workspace tabs">
+      <div
+        v-for="t in tabs"
+        :key="t.id"
+        class="workspace-tab"
+        :class="{ active: t.id === selected, pinned: t.pinned }"
+        draggable="true"
+        @dragstart="dragged = t.id"
+        @dragover.prevent
+        @drop="drop(t)"
+        @contextmenu="openContext(t, $event)"
+      >
+        <button
+          :id="'workspace-tab-' + t.id"
+          role="tab"
+          :tabindex="t.id === selected ? 0 : -1"
+          :aria-selected="t.id === selected"
+          :aria-label="t.title + (t.pinned ? ' · pinned' : '')"
+          aria-haspopup="menu"
+          @click="select(t)"
+          @keydown="tabKey($event, t)"
+        >
+          <Icon :name="t.icon" :size="13" /><span>{{ t.title }}</span
+          ><Pin v-if="t.pinned" class="pinned-marker" :size="11" :stroke-width="1.7" /></button
+        ><button
+          v-if="tabs.length > 1 && !t.pinned"
+          class="tab-control"
+          aria-label="Close tab"
+          @click="close(t)"
+        >
+          <Icon name="close" :size="12" />
+        </button>
+      </div>
+      <button class="icon-button new-tab" aria-label="New tab" @click="add()">
+        <Icon name="plus" :size="15" />
+      </button>
+    </div>
+  </header>
+  <div
+    v-if="context && contextTab"
+    ref="contextMenu"
+    class="tab-context-menu"
+    role="menu"
+    aria-label="Tab actions"
+    :style="{ left: context.x + 'px', top: context.y + 'px' }"
+    @keydown="contextKey"
+  >
+    <button role="menuitem" @click="pinTab">
+      <Pin :size="15" :stroke-width="1.7" />{{ contextTab.pinned ? 'Unpin tab' : 'Pin tab' }}
+    </button>
+    <div class="menu-separator" />
+    <button
+      role="menuitem"
+      class="close-action"
+      :disabled="contextTab.pinned || tabs.length === 1"
+      @click="close(contextTab)"
+    >
+      <Icon name="close" :size="15" />Close tab</button
+    ><button role="menuitem" class="close-action" :disabled="!canCloseOthers" @click="closeOthers">
+      <ListX :size="15" :stroke-width="1.7" />Close other tabs
+    </button>
+  </div>
 </template>
 <style scoped>
-.workspace-tabs{position:absolute;inset:0 0 auto;height:62px;display:flex;align-items:center;-webkit-app-region:drag}.window-navigation{width:224px;flex:none;display:flex;gap:8px;justify-content:flex-end;padding-right:12px}.window-navigation button,.tab-strip{-webkit-app-region:no-drag}.tab-strip{display:flex;align-items:center;gap:5px;overflow:auto;max-width:calc(100% - 224px);padding:2px 10px}.workspace-tab{min-width:94px;display:flex;align-items:center;height:30px;border-radius:5px;color:var(--muted);flex:none}.workspace-tab.active{background:var(--selected);color:var(--text)}.workspace-tab>button[role=tab]{display:flex;align-items:center;gap:7px;padding:6px 10px;font-size:14px;max-width:230px}.workspace-tab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.workspace-tab .icon{color:var(--primary)}.pinned-marker{color:var(--muted)}.tab-control{width:18px;padding:0;opacity:0}.workspace-tab:hover .tab-control,.tab-control:focus-visible{opacity:1}.new-tab{margin-left:0}.sidebar-hidden .window-navigation{width:200px}.sidebar-hidden .tab-strip{max-width:calc(100% - 200px)}.tab-context-menu{position:fixed;z-index:80;width:152px;border-radius:7px;padding:4px;background:color-mix(in srgb,var(--input) 90%,var(--text) 10%);border:1px solid color-mix(in srgb,var(--border) 75%,transparent);box-shadow:0 7px 22px #00000014;backdrop-filter:blur(12px);font-size:14px;-webkit-app-region:no-drag}.tab-context-menu button{width:100%;display:flex;align-items:center;gap:8px;height:28px;padding:4px 6px;text-align:left;white-space:nowrap;border-radius:4px}.tab-context-menu button:hover:not(:disabled),.tab-context-menu button:focus-visible{background:color-mix(in srgb,var(--surface) 28%,transparent);outline:none}.tab-context-menu .close-action{color:#d64660}.tab-context-menu button:disabled{opacity:.5}.menu-separator{height:1px;background:color-mix(in srgb,var(--surface) 35%,transparent);margin:4px -4px}
+.workspace-tabs {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 62px;
+  display: flex;
+  align-items: center;
+  -webkit-app-region: drag;
+}
+.window-navigation {
+  width: 224px;
+  flex: none;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-right: 12px;
+}
+.window-navigation button,
+.tab-strip {
+  -webkit-app-region: no-drag;
+}
+.tab-strip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: auto;
+  max-width: calc(100% - 224px);
+  padding: 2px 10px;
+}
+.workspace-tab {
+  min-width: 94px;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  border-radius: 5px;
+  color: var(--muted);
+  flex: none;
+}
+.workspace-tab.active {
+  background: var(--selected);
+  color: var(--text);
+}
+.workspace-tab > button[role='tab'] {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  font-size: 14px;
+  max-width: 230px;
+}
+.workspace-tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-tab .icon {
+  color: var(--primary);
+}
+.pinned-marker {
+  color: var(--muted);
+}
+.tab-control {
+  width: 18px;
+  padding: 0;
+  opacity: 0;
+}
+.workspace-tab:hover .tab-control,
+.tab-control:focus-visible {
+  opacity: 1;
+}
+.new-tab {
+  margin-left: 0;
+}
+.sidebar-hidden .window-navigation {
+  width: 200px;
+}
+.sidebar-hidden .tab-strip {
+  max-width: calc(100% - 200px);
+}
+.tab-context-menu {
+  position: fixed;
+  z-index: 80;
+  width: 152px;
+  border-radius: 7px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--input) 90%, var(--text) 10%);
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  box-shadow: 0 7px 22px #00000014;
+  backdrop-filter: blur(12px);
+  font-size: 14px;
+  -webkit-app-region: no-drag;
+}
+.tab-context-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 4px 6px;
+  text-align: left;
+  white-space: nowrap;
+  border-radius: 4px;
+}
+.tab-context-menu button:hover:not(:disabled),
+.tab-context-menu button:focus-visible {
+  background: color-mix(in srgb, var(--surface) 28%, transparent);
+  outline: none;
+}
+.tab-context-menu .close-action {
+  color: #d64660;
+}
+.tab-context-menu button:disabled {
+  opacity: 0.5;
+}
+.menu-separator {
+  height: 1px;
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
+  margin: 4px -4px;
+}
 </style>

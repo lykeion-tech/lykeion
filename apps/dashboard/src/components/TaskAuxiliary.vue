@@ -1,51 +1,1163 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import type { InquiryDetail, WakeupCondition, WakeupDraft, ExecutionRun } from '../../../../packages/contracts/src/research';
+import type {
+  InquiryDetail,
+  WakeupCondition,
+  WakeupDraft,
+  ExecutionRun,
+} from '../../../../packages/contracts/src/research';
 import { service, state, notify } from '../services/workspace';
 import { useRouter } from 'vue-router';
-const router=useRouter();
-import Icon from './Icon.vue';import Modal from './Modal.vue';
-const props=withDefaults(defineProps<{detail:InquiryDetail;taskCode:string;showPullRequests?:boolean}>(),{showPullRequests:true});
-const emit=defineEmits<{changed:[]}>();
-let popupTrigger:HTMLElement|null=null;
-const popup=ref(''),conditionsOpen=ref(false),condition=ref<WakeupCondition|null>(null),agentId=ref(''),instructions=ref(''),parameters=ref<Record<string,string>>({}),url=ref(''),error=ref(''),busy=ref(false),timeline=ref(false),hoveredRun=ref<string|null>(null),position=ref({left:0,top:0});
-const conditionGroups=[{name:'Time',items:[{id:'at-time',label:'At a time',hint:'In 10 min, tomorrow 09:00',icon:'clock'},{id:'interval',label:'Check regularly',hint:'Hourly or daily, with an end date',icon:'refresh'}]},{name:'Collaboration',items:[{id:'reply',label:'Someone replies',hint:'Anyone, or a specific person',icon:'chat'},{id:'field',label:'A field changes to a value',hint:'Status, assignee, label, property',icon:'circle'}]},{name:'Runs and sub-tasks',items:[{id:'run-end',label:"An agent’s run ends",hint:'Succeeded, failed or cancelled',icon:'bot'},{id:'subtasks',label:'Sub-tasks finish',hint:'All of them, or one stage',icon:'tasks'}]},{name:'Linked',items:[{id:'pull-request',label:"A linked PR’s CI finishes",hint:'Or it merges',icon:'link'},{id:'task-status',label:"Another task’s status",hint:'e.g. when it is done',icon:'link'}]},{name:'',items:[{id:'custom',label:'Custom events…',hint:'Configure an event name',icon:'zap'}]}];
-const conditionLabel=computed(()=>conditionGroups.flatMap(x=>x.items).find(x=>x.id===condition.value)?.label??'Choose a condition');
-const drafts=computed(()=>props.detail.inquiry.wakeupDrafts??[]),pullRequests=computed(()=>props.detail.inquiry.pullRequests??[]),runs=computed(()=>[...(props.detail.runs??[])].sort((a,b)=>a.startedAt.localeCompare(b.startedAt)));
-const totalCost=computed(()=>runs.value.length&&runs.value.every(x=>x.costUsd!==undefined)?runs.value.reduce((sum,x)=>sum+x.costUsd!,0):null);
-function seconds(run:ExecutionRun){return run.endedAt?Math.max(0,(Date.parse(run.endedAt)-Date.parse(run.startedAt))/1000):null;}
-const agentTime=computed(()=>runs.value.length&&runs.value.every(x=>seconds(x)!==null)?runs.value.reduce((sum,x)=>sum+seconds(x)!,0):null);
-const elapsed=computed(()=>runs.value.length&&runs.value.every(x=>x.endedAt)?Math.max(0,(Math.max(...runs.value.map(x=>Date.parse(x.endedAt!)))-Math.min(...runs.value.map(x=>Date.parse(x.startedAt))))/1000):null);
-const money=(amount?:number|null)=>amount===undefined||amount===null?'Not reported':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(amount);
-const time=(seconds?:number|null)=>seconds===undefined||seconds===null?'Not reported':seconds<60?`${Math.round(seconds)}s`:`${Math.floor(seconds/60)}m ${Math.round(seconds%60)}s`;
-const agentName=(id:string|null)=>state.data?.agents.find(x=>x.id===id)?.name??'Unassigned';
-const costLine=computed(()=>{if(totalCost.value===null||runs.value.some(x=>!Number.isFinite(Date.parse(x.startedAt))))return'';const min=Date.parse(runs.value[0]!.startedAt),max=Math.max(min+1000,...runs.value.map(x=>Date.parse(x.endedAt??x.startedAt)));let sum=0;const points=['0,150'];for(const run of runs.value){const x=(Date.parse(run.startedAt)-min)/(max-min)*850;points.push(`${x},${150-sum/Math.max(totalCost.value,.01)*140}`);sum+=run.costUsd!;points.push(`${x},${150-sum/Math.max(totalCost.value,.01)*140}`);}points.push(`850,${150-sum/Math.max(totalCost.value,.01)*140}`);return points.join(' ');});
-function runBar(run:ExecutionRun){const min=Math.min(...runs.value.map(x=>Date.parse(x.startedAt))),max=Math.max(min+1000,...runs.value.map(x=>Date.parse(x.endedAt??x.startedAt)));return {x:(Date.parse(run.startedAt)-min)/(max-min)*850,width:Math.max(2,(Date.parse(run.endedAt??run.startedAt)-Date.parse(run.startedAt))/(max-min)*850)};}
-function closePopup(){popup.value='';conditionsOpen.value=false;popupTrigger?.focus();}
-function open(kind:string,event:MouseEvent){popupTrigger=event.currentTarget as HTMLElement;const rect=popupTrigger.getBoundingClientRect();const width=kind==='wakeup'?420:kind==='automation'?240:320;position.value={left:Math.max(12,Math.min(window.innerWidth-width-12,rect.right-width-(kind==='wakeup'?30:0))),top:Math.max(12,Math.min(window.innerHeight-320,kind==='wakeup'?rect.top:rect.bottom+4))};popup.value=kind;error.value='';conditionsOpen.value=false;if(kind==='wakeup'){condition.value=null;agentId.value=props.detail.inquiry.assigneeId??'';instructions.value='';parameters.value={};}else url.value='';void nextTick(()=>document.querySelector<HTMLElement>('.task-aux-popover input,.task-aux-popover button')?.focus());}
-function selectCondition(value:string){condition.value=value as WakeupCondition;parameters.value={};conditionsOpen.value=false;}
-async function saveWakeup(){if(!condition.value||busy.value)return;busy.value=true;error.value='';try{const draft:WakeupDraft={id:crypto.randomUUID(),condition:condition.value,agentId:agentId.value||null,instructions:instructions.value,parameters:{...parameters.value},status:'draft',createdAt:new Date().toISOString()};await service.value.updateInquiry(props.detail.inquiry.id,props.detail.inquiry.revision,{wakeupDrafts:[...drafts.value,draft]});emit('changed');popup.value='';notify('Wakeup draft saved. It is not scheduled.');}catch(e){error.value=(e as Error).message;}finally{busy.value=false;}}
-async function linkPullRequest(){if(busy.value)return;error.value='';try{const parsed=new URL(url.value.trim());if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.search||parsed.hash||!/^\/[^/]+\/[^/]+\/pull\/\d+\/?$/.test(parsed.pathname))throw new Error('Enter an HTTPS pull request URL without credentials or query parameters.');if(pullRequests.value.some(x=>x.url===parsed.href))throw new Error('This pull request URL is already recorded.');busy.value=true;await service.value.updateInquiry(props.detail.inquiry.id,props.detail.inquiry.revision,{pullRequests:[...pullRequests.value,{id:crypto.randomUUID(),url:parsed.href,status:'unverified',createdAt:new Date().toISOString()}]});emit('changed');popup.value='';notify('Pull request URL recorded. Its content and status have not been verified.');}catch(e){error.value=e instanceof TypeError?'Enter a valid pull request URL.':(e as Error).message;}finally{busy.value=false;}}
-function dismiss(event:PointerEvent){if(!(event.target as HTMLElement).closest('.task-aux-popover,.aux-trigger')){popup.value='';conditionsOpen.value=false;}}
-function keys(event:KeyboardEvent){if(!popup.value)return;if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();if(conditionsOpen.value){conditionsOpen.value=false;void nextTick(()=>document.querySelector<HTMLButtonElement>('.condition-select')?.focus());}else closePopup();return;}if(conditionsOpen.value&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=[...document.querySelectorAll<HTMLButtonElement>('.condition-menu button')];const index=items.indexOf(document.activeElement as HTMLButtonElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus();}}
-watch(()=>props.detail.inquiry.id,()=>{popup.value='';timeline.value=false;});onMounted(()=>{document.addEventListener('pointerdown',dismiss);window.addEventListener('keydown',keys,true);});onUnmounted(()=>{document.removeEventListener('pointerdown',dismiss);window.removeEventListener('keydown',keys,true);});
+const router = useRouter();
+import Icon from './Icon.vue';
+import Modal from './Modal.vue';
+const props = withDefaults(
+  defineProps<{ detail: InquiryDetail; taskCode: string; showPullRequests?: boolean }>(),
+  { showPullRequests: true },
+);
+const emit = defineEmits<{ changed: [] }>();
+let popupTrigger: HTMLElement | null = null;
+const popup = ref(''),
+  conditionsOpen = ref(false),
+  condition = ref<WakeupCondition | null>(null),
+  agentId = ref(''),
+  instructions = ref(''),
+  parameters = ref<Record<string, string>>({}),
+  url = ref(''),
+  error = ref(''),
+  busy = ref(false),
+  timeline = ref(false),
+  hoveredRun = ref<string | null>(null),
+  position = ref({ left: 0, top: 0 });
+const conditionGroups = [
+  {
+    name: 'Time',
+    items: [
+      { id: 'at-time', label: 'At a time', hint: 'In 10 min, tomorrow 09:00', icon: 'clock' },
+      {
+        id: 'interval',
+        label: 'Check regularly',
+        hint: 'Hourly or daily, with an end date',
+        icon: 'refresh',
+      },
+    ],
+  },
+  {
+    name: 'Collaboration',
+    items: [
+      { id: 'reply', label: 'Someone replies', hint: 'Anyone, or a specific person', icon: 'chat' },
+      {
+        id: 'field',
+        label: 'A field changes to a value',
+        hint: 'Status, assignee, label, property',
+        icon: 'circle',
+      },
+    ],
+  },
+  {
+    name: 'Runs and sub-tasks',
+    items: [
+      {
+        id: 'run-end',
+        label: 'An agent’s run ends',
+        hint: 'Succeeded, failed or cancelled',
+        icon: 'bot',
+      },
+      {
+        id: 'subtasks',
+        label: 'Sub-tasks finish',
+        hint: 'All of them, or one stage',
+        icon: 'tasks',
+      },
+    ],
+  },
+  {
+    name: 'Linked',
+    items: [
+      {
+        id: 'pull-request',
+        label: 'A linked PR’s CI finishes',
+        hint: 'Or it merges',
+        icon: 'link',
+      },
+      {
+        id: 'task-status',
+        label: 'Another task’s status',
+        hint: 'e.g. when it is done',
+        icon: 'link',
+      },
+    ],
+  },
+  {
+    name: '',
+    items: [
+      { id: 'custom', label: 'Custom events…', hint: 'Configure an event name', icon: 'zap' },
+    ],
+  },
+];
+const conditionLabel = computed(
+  () =>
+    conditionGroups.flatMap((x) => x.items).find((x) => x.id === condition.value)?.label ??
+    'Choose a condition',
+);
+const drafts = computed(() => props.detail.inquiry.wakeupDrafts ?? []),
+  pullRequests = computed(() => props.detail.inquiry.pullRequests ?? []),
+  runs = computed(() =>
+    [...(props.detail.runs ?? [])].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
+  );
+const totalCost = computed(() =>
+  runs.value.length && runs.value.every((x) => x.costUsd !== undefined)
+    ? runs.value.reduce((sum, x) => sum + x.costUsd!, 0)
+    : null,
+);
+function seconds(run: ExecutionRun) {
+  return run.endedAt
+    ? Math.max(0, (Date.parse(run.endedAt) - Date.parse(run.startedAt)) / 1000)
+    : null;
+}
+const agentTime = computed(() =>
+  runs.value.length && runs.value.every((x) => seconds(x) !== null)
+    ? runs.value.reduce((sum, x) => sum + seconds(x)!, 0)
+    : null,
+);
+const elapsed = computed(() =>
+  runs.value.length && runs.value.every((x) => x.endedAt)
+    ? Math.max(
+        0,
+        (Math.max(...runs.value.map((x) => Date.parse(x.endedAt!))) -
+          Math.min(...runs.value.map((x) => Date.parse(x.startedAt)))) /
+          1000,
+      )
+    : null,
+);
+const money = (amount?: number | null) =>
+  amount === undefined || amount === null
+    ? 'Not reported'
+    : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+const time = (seconds?: number | null) =>
+  seconds === undefined || seconds === null
+    ? 'Not reported'
+    : seconds < 60
+      ? `${Math.round(seconds)}s`
+      : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+const agentName = (id: string | null) =>
+  state.data?.agents.find((x) => x.id === id)?.name ?? 'Unassigned';
+const costLine = computed(() => {
+  if (totalCost.value === null || runs.value.some((x) => !Number.isFinite(Date.parse(x.startedAt))))
+    return '';
+  const min = Date.parse(runs.value[0]!.startedAt),
+    max = Math.max(min + 1000, ...runs.value.map((x) => Date.parse(x.endedAt ?? x.startedAt)));
+  let sum = 0;
+  const points = ['0,150'];
+  for (const run of runs.value) {
+    const x = ((Date.parse(run.startedAt) - min) / (max - min)) * 850;
+    points.push(`${x},${150 - (sum / Math.max(totalCost.value, 0.01)) * 140}`);
+    sum += run.costUsd!;
+    points.push(`${x},${150 - (sum / Math.max(totalCost.value, 0.01)) * 140}`);
+  }
+  points.push(`850,${150 - (sum / Math.max(totalCost.value, 0.01)) * 140}`);
+  return points.join(' ');
+});
+function runBar(run: ExecutionRun) {
+  const min = Math.min(...runs.value.map((x) => Date.parse(x.startedAt))),
+    max = Math.max(min + 1000, ...runs.value.map((x) => Date.parse(x.endedAt ?? x.startedAt)));
+  return {
+    x: ((Date.parse(run.startedAt) - min) / (max - min)) * 850,
+    width: Math.max(
+      2,
+      ((Date.parse(run.endedAt ?? run.startedAt) - Date.parse(run.startedAt)) / (max - min)) * 850,
+    ),
+  };
+}
+function closePopup() {
+  popup.value = '';
+  conditionsOpen.value = false;
+  popupTrigger?.focus();
+}
+function open(kind: string, event: MouseEvent) {
+  popupTrigger = event.currentTarget as HTMLElement;
+  const rect = popupTrigger.getBoundingClientRect();
+  const width = kind === 'wakeup' ? 420 : kind === 'automation' ? 240 : 320;
+  position.value = {
+    left: Math.max(
+      12,
+      Math.min(window.innerWidth - width - 12, rect.right - width - (kind === 'wakeup' ? 30 : 0)),
+    ),
+    top: Math.max(
+      12,
+      Math.min(window.innerHeight - 320, kind === 'wakeup' ? rect.top : rect.bottom + 4),
+    ),
+  };
+  popup.value = kind;
+  error.value = '';
+  conditionsOpen.value = false;
+  if (kind === 'wakeup') {
+    condition.value = null;
+    agentId.value = props.detail.inquiry.assigneeId ?? '';
+    instructions.value = '';
+    parameters.value = {};
+  } else url.value = '';
+  void nextTick(() =>
+    document
+      .querySelector<HTMLElement>('.task-aux-popover input,.task-aux-popover button')
+      ?.focus(),
+  );
+}
+function selectCondition(value: string) {
+  condition.value = value as WakeupCondition;
+  parameters.value = {};
+  conditionsOpen.value = false;
+}
+async function saveWakeup() {
+  if (!condition.value || busy.value) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    const draft: WakeupDraft = {
+      id: crypto.randomUUID(),
+      condition: condition.value,
+      agentId: agentId.value || null,
+      instructions: instructions.value,
+      parameters: { ...parameters.value },
+      status: 'draft',
+      createdAt: new Date().toISOString(),
+    };
+    await service.value.updateInquiry(props.detail.inquiry.id, props.detail.inquiry.revision, {
+      wakeupDrafts: [...drafts.value, draft],
+    });
+    emit('changed');
+    popup.value = '';
+    notify('Wakeup draft saved. It is not scheduled.');
+  } catch (e) {
+    error.value = (e as Error).message;
+  } finally {
+    busy.value = false;
+  }
+}
+async function linkPullRequest() {
+  if (busy.value) return;
+  error.value = '';
+  try {
+    const parsed = new URL(url.value.trim());
+    if (
+      parsed.protocol !== 'https:' ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash ||
+      !/^\/[^/]+\/[^/]+\/pull\/\d+\/?$/.test(parsed.pathname)
+    )
+      throw new Error('Enter an HTTPS pull request URL without credentials or query parameters.');
+    if (pullRequests.value.some((x) => x.url === parsed.href))
+      throw new Error('This pull request URL is already recorded.');
+    busy.value = true;
+    await service.value.updateInquiry(props.detail.inquiry.id, props.detail.inquiry.revision, {
+      pullRequests: [
+        ...pullRequests.value,
+        {
+          id: crypto.randomUUID(),
+          url: parsed.href,
+          status: 'unverified',
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    emit('changed');
+    popup.value = '';
+    notify('Pull request URL recorded. Its content and status have not been verified.');
+  } catch (e) {
+    error.value = e instanceof TypeError ? 'Enter a valid pull request URL.' : (e as Error).message;
+  } finally {
+    busy.value = false;
+  }
+}
+function dismiss(event: PointerEvent) {
+  if (!(event.target as HTMLElement).closest('.task-aux-popover,.aux-trigger')) {
+    popup.value = '';
+    conditionsOpen.value = false;
+  }
+}
+function keys(event: KeyboardEvent) {
+  if (!popup.value) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (conditionsOpen.value) {
+      conditionsOpen.value = false;
+      void nextTick(() => document.querySelector<HTMLButtonElement>('.condition-select')?.focus());
+    } else closePopup();
+    return;
+  }
+  if (conditionsOpen.value && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault();
+    const items = [...document.querySelectorAll<HTMLButtonElement>('.condition-menu button')];
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    items[
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+    ]?.focus();
+  }
+}
+watch(
+  () => props.detail.inquiry.id,
+  () => {
+    popup.value = '';
+    timeline.value = false;
+  },
+);
+onMounted(() => {
+  document.addEventListener('pointerdown', dismiss);
+  window.addEventListener('keydown', keys, true);
+});
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', dismiss);
+  window.removeEventListener('keydown', keys, true);
+});
 </script>
 <template>
-<div class="task-auxiliary">
-<section class="aux-section"><header><details><summary>Wakeups {{drafts.length}}<Icon name="down" :size="12"/></summary><div class="aux-records"><p v-if="!drafts.length">No wakeups are scheduled.</p><article v-for="draft in drafts"><strong>{{conditionGroups.flatMap(x=>x.items).find(x=>x.id===draft.condition)?.label}}</strong><small>Draft · not scheduled</small><p>{{draft.instructions}}</p></article></div></details><button class="icon-button aux-trigger push-right" aria-label="New wakeup" @click="open('wakeup',$event)"><Icon name="plus" :size="13"/></button></header></section>
-<section v-if="showPullRequests" class="aux-section"><header><details open><summary>Pull requests<Icon name="down" :size="12"/></summary><div class="aux-records"><p v-if="!pullRequests.length">No linked pull requests.</p><article v-for="pr in pullRequests"><span class="pr-url">{{pr.url}}</span><small>URL saved · unverified</small></article></div></details><button class="icon-button aux-trigger push-right" aria-label="Link pull request" @click="open('pr',$event)"><Icon name="plus" :size="13"/></button><button class="icon-button aux-trigger" aria-label="Pull request automation" @click="open('automation',$event)"><Icon name="more" :size="13"/></button></header></section>
-<section class="aux-section execution-section"><header><strong>Execution log</strong><small v-if="runs.length" class="push-right">{{runs.length}} runs · {{money(totalCost)}}</small></header><p v-if="!runs.length" class="no-runs">No execution records available.</p><template v-else><svg v-if="costLine" class="mini-cost" viewBox="0 0 850 160" preserveAspectRatio="none" role="img" aria-label="Cumulative run cost"><polyline :points="costLine" fill="none" stroke="currentColor" stroke-width="4"/></svg><small class="duration">{{time(agentTime)}} agent time · {{time(elapsed)}} elapsed</small><p class="latest-caption">Latest</p><button v-for="run in [...runs].reverse().slice(0,3)" class="run-preview" @click="timeline=true;hoveredRun=run.id"><Icon name="bot" :size="16"/><span>{{run.name}}</span><small class="push-right">{{money(run.costUsd)}}</small></button></template><button class="timeline-link" @click="timeline=true"><Icon name="expand" :size="12"/>Open timeline</button></section>
-</div>
-<Teleport to="body"><div v-if="popup" class="task-aux-popover" :class="popup" :style="{left:position.left+'px',top:position.top+'px'}" role="dialog" :aria-label="popup==='wakeup'?'New wakeup':popup==='automation'?'Pull request automation':'Link pull request'">
-<form v-if="popup==='wakeup'" @submit.prevent="saveWakeup"><h3>New wakeup</h3><div class="wakeup-row"><span>When</span><div class="condition-anchor"><button type="button" class="condition-select" :aria-expanded="conditionsOpen" @click="conditionsOpen=!conditionsOpen"><Icon name="circle" :size="13"/>{{conditionLabel}}<Icon name="down" :size="12"/></button><div v-if="conditionsOpen" class="condition-menu" role="menu"><section v-for="group in conditionGroups"><small v-if="group.name">{{group.name}}</small><button v-for="item in group.items" type="button" role="menuitem" @click="selectCondition(item.id)"><Icon :name="item.icon" :size="14"/><span>{{item.label}}<small>{{item.hint}}</small></span></button></section></div></div></div>
-<div v-if="condition" class="condition-fields"><label v-if="condition==='at-time'">When<input v-model="parameters.at" type="datetime-local" required/></label><template v-else-if="condition==='interval'"><label>Every<select v-model="parameters.interval" required><option value="">Choose interval</option><option value="hourly">Hour</option><option value="daily">Day</option></select></label><label>Until<input v-model="parameters.until" type="datetime-local" required/></label></template><label v-else-if="condition==='reply'">Who<select v-model="parameters.personId"><option value="">Anyone</option><option v-for="person in state.data?.colleagues" :value="person.id">{{person.name}}</option></select></label><template v-else-if="condition==='field'"><label>Field<select v-model="parameters.field" required><option value="">Choose field</option><option>Status</option><option>Assignee</option><option>Label</option></select></label><label>Becomes<input v-model="parameters.value" required/></label></template><label v-else-if="condition==='run-end'">Outcome<select v-model="parameters.outcome" required><option value="">Choose outcome</option><option>Succeeded</option><option>Failed</option><option>Cancelled</option><option>Any</option></select></label><label v-else-if="condition==='subtasks'">When<select v-model="parameters.stage" required><option value="">Choose condition</option><option>All finish</option><option>Grounding</option><option>Hypotheses</option><option>Experimentation</option><option>Validation</option><option>Reporting</option></select></label><label v-else-if="condition==='pull-request'">Event<select v-model="parameters.event" required><option value="">Choose event</option><option>CI finishes</option><option>Merged</option></select></label><template v-else-if="condition==='task-status'"><label>Task<select v-model="parameters.taskId" required><option value="">Choose task</option><option v-for="task in state.data?.inquiries.filter(x=>x.id!==detail.inquiry.id)" :value="task.id">{{task.title}}</option></select></label><label>Status<input v-model="parameters.status" required placeholder="e.g. Done"/></label></template><label v-else>Event name<input v-model="parameters.event" required placeholder="event.name"/></label></div>
-<div class="wakeup-row"><span>Wake</span><select v-model="agentId"><option value="">Choose an agent</option><option v-for="agent in state.data?.agents" :value="agent.id">{{agent.name}}</option></select></div><label class="wake-instructions">What to do when woken<textarea v-model="instructions" placeholder="For example: check the result and continue if it looks right"/></label><p v-if="error" class="aux-error" role="alert">{{error}}</p><footer><small>Draft only · not scheduled</small><button type="button" class="text-button push-right" @click="popup=''">Cancel</button><button class="button primary compact" :disabled="busy||!condition">Save draft</button></footer></form>
-<div v-else-if="popup==='automation'" class="pr-automation"><button disabled><Icon name="circle" :size="14"/>Keep status when PRs merge</button><button @click="closePopup();router.push('/settings/code')"><Icon name="settings" :size="14"/>PR merge settings</button><small>Scientific stage changes require an accepted gate.</small></div><form v-else @submit.prevent="linkPullRequest"><label>Link pull request<input v-model="url" type="url" autofocus required placeholder="Paste a pull request URL"/></label><p>Record a URL for this task. Provider status requires a connected pull request adapter.</p><p v-if="error" class="aux-error" role="alert">{{error}}</p><footer><button class="button primary compact push-right" :disabled="busy||!url.trim()">Link</button></footer></form>
-</div></Teleport>
-<Modal v-if="timeline" title="Runs" class="run-timeline-modal" @close="timeline=false"><header><span>Runs<small>{{taskCode}} · {{detail.inquiry.title}}</small></span><button class="icon-button push-right" aria-label="Close runs" @click="timeline=false"><Icon name="close"/></button></header><div v-if="!runs.length" class="runs-empty"><Icon name="chart" :size="32"/><h3>No execution records available</h3><p>A connected runner must supply run receipts, timing and costs.</p></div><template v-else><div class="run-totals"><div><small>SPENT</small><strong>{{money(totalCost)}}</strong></div><div><small>AGENT TIME</small><span>{{time(agentTime)}}</span></div><div><small>ELAPSED</small><span>{{time(elapsed)}}</span></div><div><small>RUNS</small><span>{{runs.length}}</span></div><small class="push-right">Cumulative cost · Run width is duration</small></div><div v-if="costLine" class="cost-chart"><svg viewBox="0 0 850 170" preserveAspectRatio="none" role="img" aria-label="Cumulative run cost"><line v-for="y in [10,45,80,115,150]" x1="0" x2="850" :y1="y" :y2="y" stroke="#ffffff30"/><polygon :points="'0,150 '+costLine+' 850,150'" fill="#3274a420"/><polyline :points="costLine" fill="none" stroke="#3274a4" stroke-width="2"/><rect v-for="run in runs.filter(x=>x.endedAt)" :x="runBar(run).x" y="156" :width="runBar(run).width" height="6" fill="#3274a4" opacity=".6"><title>{{run.name}} · {{time(seconds(run))}}</title></rect></svg><small>{{money(totalCost)}}</small></div><p v-else class="cost-unavailable">Cost timeline unavailable: complete cost and timing receipts are required.</p><div class="cost-legend"><span v-for="(name,index) in ['Input','Output','Cache read','Cache write']"><i :class="'cost-'+index"/>{{name}}</span></div><div class="run-list"><div v-for="run in [...runs].reverse()" class="run-row"><time>{{new Date(run.startedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}}</time><span>{{run.name}}</span><span class="run-agent"><Icon name="bot" :size="12"/>{{agentName(run.agentId)}}</span><small>{{time(seconds(run))}}</small><div class="run-cost"><button :aria-expanded="hoveredRun===run.id" @mouseenter="hoveredRun=run.id" @focus="hoveredRun=run.id" @click="hoveredRun=hoveredRun===run.id?null:run.id">{{money(run.costUsd)}}</button><div v-if="hoveredRun===run.id" class="cost-breakdown" @mouseleave="hoveredRun=null"><div v-for="(part,index) in run.costParts"><i :class="'cost-'+index"/><span>{{part.kind.replace('-',' ')}}</span><span>{{part.tokens.toLocaleString()}}</span><span>{{money(part.costUsd)}}</span></div><p v-if="!run.costParts?.length">No token cost breakdown reported.</p><small>{{run.model??'Model not reported'}}</small></div></div></div></div><p class="cost-note">Costs and token counts are shown only when supplied by the runner. Missing values are not estimated.</p></template></Modal>
+  <div class="task-auxiliary">
+    <section class="aux-section">
+      <header>
+        <details>
+          <summary>Wakeups {{ drafts.length }}<Icon name="down" :size="12" /></summary>
+          <div class="aux-records">
+            <p v-if="!drafts.length">No wakeups are scheduled.</p>
+            <article v-for="draft in drafts">
+              <strong>{{
+                conditionGroups.flatMap((x) => x.items).find((x) => x.id === draft.condition)?.label
+              }}</strong
+              ><small>Draft · not scheduled</small>
+              <p>{{ draft.instructions }}</p>
+            </article>
+          </div>
+        </details>
+        <button
+          class="icon-button aux-trigger push-right"
+          aria-label="New wakeup"
+          @click="open('wakeup', $event)"
+        >
+          <Icon name="plus" :size="13" />
+        </button>
+      </header>
+    </section>
+    <section v-if="showPullRequests" class="aux-section">
+      <header>
+        <details open>
+          <summary>Pull requests<Icon name="down" :size="12" /></summary>
+          <div class="aux-records">
+            <p v-if="!pullRequests.length">No linked pull requests.</p>
+            <article v-for="pr in pullRequests">
+              <span class="pr-url">{{ pr.url }}</span
+              ><small>URL saved · unverified</small>
+            </article>
+          </div>
+        </details>
+        <button
+          class="icon-button aux-trigger push-right"
+          aria-label="Link pull request"
+          @click="open('pr', $event)"
+        >
+          <Icon name="plus" :size="13" /></button
+        ><button
+          class="icon-button aux-trigger"
+          aria-label="Pull request automation"
+          @click="open('automation', $event)"
+        >
+          <Icon name="more" :size="13" />
+        </button>
+      </header>
+    </section>
+    <section class="aux-section execution-section">
+      <header>
+        <strong>Execution log</strong
+        ><small v-if="runs.length" class="push-right"
+          >{{ runs.length }} runs · {{ money(totalCost) }}</small
+        >
+      </header>
+      <p v-if="!runs.length" class="no-runs">No execution records available.</p>
+      <template v-else
+        ><svg
+          v-if="costLine"
+          class="mini-cost"
+          viewBox="0 0 850 160"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Cumulative run cost"
+        >
+          <polyline :points="costLine" fill="none" stroke="currentColor" stroke-width="4" /></svg
+        ><small class="duration"
+          >{{ time(agentTime) }} agent time · {{ time(elapsed) }} elapsed</small
+        >
+        <p class="latest-caption">Latest</p>
+        <button
+          v-for="run in [...runs].reverse().slice(0, 3)"
+          class="run-preview"
+          @click="
+            timeline = true;
+            hoveredRun = run.id;
+          "
+        >
+          <Icon name="bot" :size="16" /><span>{{ run.name }}</span
+          ><small class="push-right">{{ money(run.costUsd) }}</small>
+        </button></template
+      ><button class="timeline-link" @click="timeline = true">
+        <Icon name="expand" :size="12" />Open timeline
+      </button>
+    </section>
+  </div>
+  <Teleport to="body"
+    ><div
+      v-if="popup"
+      class="task-aux-popover"
+      :class="popup"
+      :style="{ left: position.left + 'px', top: position.top + 'px' }"
+      role="dialog"
+      :aria-label="
+        popup === 'wakeup'
+          ? 'New wakeup'
+          : popup === 'automation'
+            ? 'Pull request automation'
+            : 'Link pull request'
+      "
+    >
+      <form v-if="popup === 'wakeup'" @submit.prevent="saveWakeup">
+        <h3>New wakeup</h3>
+        <div class="wakeup-row">
+          <span>When</span>
+          <div class="condition-anchor">
+            <button
+              type="button"
+              class="condition-select"
+              :aria-expanded="conditionsOpen"
+              @click="conditionsOpen = !conditionsOpen"
+            >
+              <Icon name="circle" :size="13" />{{ conditionLabel }}<Icon name="down" :size="12" />
+            </button>
+            <div v-if="conditionsOpen" class="condition-menu" role="menu">
+              <section v-for="group in conditionGroups">
+                <small v-if="group.name">{{ group.name }}</small
+                ><button
+                  v-for="item in group.items"
+                  type="button"
+                  role="menuitem"
+                  @click="selectCondition(item.id)"
+                >
+                  <Icon :name="item.icon" :size="14" /><span
+                    >{{ item.label }}<small>{{ item.hint }}</small></span
+                  >
+                </button>
+              </section>
+            </div>
+          </div>
+        </div>
+        <div v-if="condition" class="condition-fields">
+          <label v-if="condition === 'at-time'"
+            >When<input v-model="parameters.at" type="datetime-local" required /></label
+          ><template v-else-if="condition === 'interval'"
+            ><label
+              >Every<select v-model="parameters.interval" required>
+                <option value="">Choose interval</option>
+                <option value="hourly">Hour</option>
+                <option value="daily">Day</option>
+              </select></label
+            ><label
+              >Until<input
+                v-model="parameters.until"
+                type="datetime-local"
+                required /></label></template
+          ><label v-else-if="condition === 'reply'"
+            >Who<select v-model="parameters.personId">
+              <option value="">Anyone</option>
+              <option v-for="person in state.data?.colleagues" :value="person.id">
+                {{ person.name }}
+              </option>
+            </select></label
+          ><template v-else-if="condition === 'field'"
+            ><label
+              >Field<select v-model="parameters.field" required>
+                <option value="">Choose field</option>
+                <option>Status</option>
+                <option>Assignee</option>
+                <option>Label</option>
+              </select></label
+            ><label>Becomes<input v-model="parameters.value" required /></label></template
+          ><label v-else-if="condition === 'run-end'"
+            >Outcome<select v-model="parameters.outcome" required>
+              <option value="">Choose outcome</option>
+              <option>Succeeded</option>
+              <option>Failed</option>
+              <option>Cancelled</option>
+              <option>Any</option>
+            </select></label
+          ><label v-else-if="condition === 'subtasks'"
+            >When<select v-model="parameters.stage" required>
+              <option value="">Choose condition</option>
+              <option>All finish</option>
+              <option>Grounding</option>
+              <option>Hypotheses</option>
+              <option>Experimentation</option>
+              <option>Validation</option>
+              <option>Reporting</option>
+            </select></label
+          ><label v-else-if="condition === 'pull-request'"
+            >Event<select v-model="parameters.event" required>
+              <option value="">Choose event</option>
+              <option>CI finishes</option>
+              <option>Merged</option>
+            </select></label
+          ><template v-else-if="condition === 'task-status'"
+            ><label
+              >Task<select v-model="parameters.taskId" required>
+                <option value="">Choose task</option>
+                <option
+                  v-for="task in state.data?.inquiries.filter((x) => x.id !== detail.inquiry.id)"
+                  :value="task.id"
+                >
+                  {{ task.title }}
+                </option>
+              </select></label
+            ><label
+              >Status<input
+                v-model="parameters.status"
+                required
+                placeholder="e.g. Done" /></label></template
+          ><label v-else
+            >Event name<input v-model="parameters.event" required placeholder="event.name"
+          /></label>
+        </div>
+        <div class="wakeup-row">
+          <span>Wake</span
+          ><select v-model="agentId">
+            <option value="">Choose an agent</option>
+            <option v-for="agent in state.data?.agents" :value="agent.id">{{ agent.name }}</option>
+          </select>
+        </div>
+        <label class="wake-instructions"
+          >What to do when woken<textarea
+            v-model="instructions"
+            placeholder="For example: check the result and continue if it looks right"
+          />
+        </label>
+        <p v-if="error" class="aux-error" role="alert">{{ error }}</p>
+        <footer>
+          <small>Draft only · not scheduled</small
+          ><button type="button" class="text-button push-right" @click="popup = ''">Cancel</button
+          ><button class="button primary compact" :disabled="busy || !condition">Save draft</button>
+        </footer>
+      </form>
+      <div v-else-if="popup === 'automation'" class="pr-automation">
+        <button disabled><Icon name="circle" :size="14" />Keep status when PRs merge</button
+        ><button
+          @click="
+            closePopup();
+            router.push('/settings/code');
+          "
+        >
+          <Icon name="settings" :size="14" />PR merge settings</button
+        ><small>Scientific stage changes require an accepted gate.</small>
+      </div>
+      <form v-else @submit.prevent="linkPullRequest">
+        <label
+          >Link pull request<input
+            v-model="url"
+            type="url"
+            autofocus
+            required
+            placeholder="Paste a pull request URL"
+        /></label>
+        <p>
+          Record a URL for this task. Provider status requires a connected pull request adapter.
+        </p>
+        <p v-if="error" class="aux-error" role="alert">{{ error }}</p>
+        <footer>
+          <button class="button primary compact push-right" :disabled="busy || !url.trim()">
+            Link
+          </button>
+        </footer>
+      </form>
+    </div></Teleport
+  >
+  <Modal v-if="timeline" title="Runs" class="run-timeline-modal" @close="timeline = false"
+    ><header>
+      <span
+        >Runs<small>{{ taskCode }} · {{ detail.inquiry.title }}</small></span
+      ><button class="icon-button push-right" aria-label="Close runs" @click="timeline = false">
+        <Icon name="close" />
+      </button>
+    </header>
+    <div v-if="!runs.length" class="runs-empty">
+      <Icon name="chart" :size="32" />
+      <h3>No execution records available</h3>
+      <p>A connected runner must supply run receipts, timing and costs.</p>
+    </div>
+    <template v-else
+      ><div class="run-totals">
+        <div>
+          <small>SPENT</small><strong>{{ money(totalCost) }}</strong>
+        </div>
+        <div>
+          <small>AGENT TIME</small><span>{{ time(agentTime) }}</span>
+        </div>
+        <div>
+          <small>ELAPSED</small><span>{{ time(elapsed) }}</span>
+        </div>
+        <div>
+          <small>RUNS</small><span>{{ runs.length }}</span>
+        </div>
+        <small class="push-right">Cumulative cost · Run width is duration</small>
+      </div>
+      <div v-if="costLine" class="cost-chart">
+        <svg
+          viewBox="0 0 850 170"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Cumulative run cost"
+        >
+          <line
+            v-for="y in [10, 45, 80, 115, 150]"
+            x1="0"
+            x2="850"
+            :y1="y"
+            :y2="y"
+            stroke="#ffffff30"
+          />
+          <polygon :points="'0,150 ' + costLine + ' 850,150'" fill="#3274a420" />
+          <polyline :points="costLine" fill="none" stroke="#3274a4" stroke-width="2" />
+          <rect
+            v-for="run in runs.filter((x) => x.endedAt)"
+            :x="runBar(run).x"
+            y="156"
+            :width="runBar(run).width"
+            height="6"
+            fill="#3274a4"
+            opacity=".6"
+          >
+            <title>{{ run.name }} · {{ time(seconds(run)) }}</title>
+          </rect></svg
+        ><small>{{ money(totalCost) }}</small>
+      </div>
+      <p v-else class="cost-unavailable">
+        Cost timeline unavailable: complete cost and timing receipts are required.
+      </p>
+      <div class="cost-legend">
+        <span v-for="(name, index) in ['Input', 'Output', 'Cache read', 'Cache write']"
+          ><i :class="'cost-' + index" />{{ name }}</span
+        >
+      </div>
+      <div class="run-list">
+        <div v-for="run in [...runs].reverse()" class="run-row">
+          <time>{{
+            new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }}</time
+          ><span>{{ run.name }}</span
+          ><span class="run-agent"><Icon name="bot" :size="12" />{{ agentName(run.agentId) }}</span
+          ><small>{{ time(seconds(run)) }}</small>
+          <div class="run-cost">
+            <button
+              :aria-expanded="hoveredRun === run.id"
+              @mouseenter="hoveredRun = run.id"
+              @focus="hoveredRun = run.id"
+              @click="hoveredRun = hoveredRun === run.id ? null : run.id"
+            >
+              {{ money(run.costUsd) }}
+            </button>
+            <div
+              v-if="hoveredRun === run.id"
+              class="cost-breakdown"
+              @mouseleave="hoveredRun = null"
+            >
+              <div v-for="(part, index) in run.costParts">
+                <i :class="'cost-' + index" /><span>{{ part.kind.replace('-', ' ') }}</span
+                ><span>{{ part.tokens.toLocaleString() }}</span
+                ><span>{{ money(part.costUsd) }}</span>
+              </div>
+              <p v-if="!run.costParts?.length">No token cost breakdown reported.</p>
+              <small>{{ run.model ?? 'Model not reported' }}</small>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cost-note">
+        Costs and token counts are shown only when supplied by the runner. Missing values are not
+        estimated.
+      </p></template
+    ></Modal
+  >
 </template>
 <style scoped>
-.task-aux-popover.automation{width:240px;padding:0;overflow:hidden}.pr-automation button{display:flex;align-items:center;gap:8px;min-height:37px;padding:8px 10px;text-align:left;width:100%;font-size:14px}.pr-automation button+button{border-top:1px solid var(--border)}.pr-automation button:hover{background:var(--hover)}.pr-automation button:disabled{opacity:1;color:var(--muted)}.pr-automation small{display:block;padding:6px 10px 10px;color:var(--muted);font-size:11px;line-height:16px}
+.task-aux-popover.automation {
+  width: 240px;
+  padding: 0;
+  overflow: hidden;
+}
+.pr-automation button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 37px;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+  font-size: 14px;
+}
+.pr-automation button + button {
+  border-top: 1px solid var(--border);
+}
+.pr-automation button:hover {
+  background: var(--hover);
+}
+.pr-automation button:disabled {
+  opacity: 1;
+  color: var(--muted);
+}
+.pr-automation small {
+  display: block;
+  padding: 6px 10px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
+}
 
-.aux-section{margin-top:28px}.aux-section>header{display:flex;align-items:flex-start;gap:6px;font-size:14px;min-height:24px}.aux-section header>strong{font-weight:400}.aux-section details{flex:1;min-width:0}.aux-section summary{display:flex;align-items:center;gap:5px;cursor:pointer;list-style:none;line-height:24px}.aux-section summary::-webkit-details-marker{display:none}.aux-section details:not([open]) summary>.icon{transform:rotate(-90deg)}.aux-trigger{width:22px;height:22px;flex:none}.aux-records p,.no-runs{font-size:14px;line-height:22px;color:var(--muted);padding:8px 0}.aux-records article{padding:8px 0}.aux-records article strong{font-size:13px;font-weight:500}.aux-records small{display:block;color:var(--muted);font-size:11px;margin-top:3px}.pr-url{font-size:12px;overflow-wrap:anywhere}.mini-cost{width:100%;height:60px;color:var(--primary);margin-top:10px}.duration,.latest-caption{font-size:12px;color:var(--muted)}.latest-caption{margin:16px 0 8px}.run-preview{display:flex;align-items:center;gap:10px;width:100%;padding:10px 6px;font-size:14px;color:var(--muted)}.timeline-link{display:flex;align-items:center;gap:8px;font-size:13px;margin-top:12px;padding:6px}.task-aux-popover{position:fixed;z-index:100;background:var(--modal);border:1px solid #ffffff40;box-shadow:0 6px 16px #0002;border-radius:8px;padding:16px;width:420px;font-size:13px;max-height:calc(100vh - 24px);overflow:visible}.task-aux-popover.pr{width:320px;padding:10px}.task-aux-popover h3{font-size:16px;font-weight:600;margin:0 0 16px}.wakeup-row{display:flex;align-items:center;gap:6px;margin:0 0 10px}.wakeup-row>span{color:var(--muted);width:34px;flex:none}.wakeup-row select,.condition-select{border:1px solid #ffffff40;background:var(--input);border-radius:5px;padding:5px 8px;font-size:14px;max-width:310px}.condition-select{display:flex;align-items:center;gap:5px}.condition-anchor{position:relative}.condition-menu{position:absolute;left:0;top:100%;margin-top:4px;width:290px;border:1px solid #ffffff40;border-radius:8px;background:var(--modal);box-shadow:0 8px 20px #0002;z-index:2;max-height:55vh;overflow:auto;padding:5px}.condition-menu section>small{display:block;color:var(--muted);font-size:12px;padding:5px}.condition-menu button{display:flex;align-items:flex-start;gap:8px;width:100%;text-align:left;border-radius:5px;padding:7px;font-size:14px}.condition-menu button:hover,.condition-menu button:focus-visible{background:#00000008}.condition-menu button>.icon{margin-top:2px}.condition-menu button small{display:block;font-size:12px;color:var(--muted);margin-top:3px}.wake-instructions{display:flex;flex-direction:column;gap:8px;font-size:12px}.wake-instructions textarea{height:64px;border:1px solid #ffffff40;border-radius:7px;background:transparent;resize:vertical;padding:10px;font-size:13px;line-height:18px}.task-aux-popover footer{display:flex;align-items:center;gap:16px;border-top:1px solid #ffffff30;margin-top:16px;padding-top:12px}.task-aux-popover footer small{font-size:12px;color:var(--muted)}.task-aux-popover.pr label{display:block;font-size:12px}.task-aux-popover.pr input{display:block;width:100%;font-size:14px;padding:8px;margin:6px 0;border-radius:6px;border:1px solid #ffffff40;background:transparent}.task-aux-popover.pr p{font-size:12px;line-height:16px;color:var(--muted)}.task-aux-popover.pr footer{border:0;padding:0;margin-top:10px}.condition-fields{display:grid;gap:8px;padding:4px 0 12px 40px}.condition-fields label{display:flex;align-items:center;gap:8px;font-size:12px}.condition-fields input,.condition-fields select{min-width:0;flex:1;background:transparent;border:1px solid #ffffff50;border-radius:5px;padding:5px;font-size:13px}.aux-error{font-size:12px;color:#a12b38;padding:8px 0}.run-timeline-modal{width:1026px;height:calc(100vh - 64px);max-height:calc(100vh - 64px);background:var(--modal);padding:22px 24px;overflow:auto}.run-timeline-modal>header{display:flex;align-items:flex-start;font-size:16px}.run-timeline-modal header small{display:block;font-size:14px;color:var(--muted);margin-top:8px}.run-totals{display:flex;gap:28px;align-items:flex-end;margin-top:18px}.run-totals>div{display:flex;flex-direction:column;gap:8px;font-size:16px}.run-totals small{font-size:11px;color:var(--muted)}.run-totals strong{font-size:24px;font-weight:600}.cost-chart{height:186px;display:flex;gap:16px;padding:20px 0 0 108px;align-items:flex-start}.cost-chart svg{height:160px;flex:1;min-width:0}.cost-chart>small{font-size:11px;margin-top:8px}.cost-legend{display:flex;gap:12px;justify-content:flex-end;margin:20px 0 32px;font-size:11px;color:var(--muted)}.cost-legend>span{display:flex;align-items:center;gap:4px}.cost-legend i,.cost-breakdown i{width:8px;height:8px;border-radius:3px;display:inline-block;background:#3274a4}.cost-1{opacity:.7}.cost-2{opacity:.3}.cost-3{opacity:.5}.run-row{display:grid;grid-template-columns:60px minmax(120px,1fr) 130px 80px 140px;align-items:center;gap:14px;border-top:1px solid #ffffff40;padding:10px 0;font-size:14px}.run-row>time{font-size:11px;color:var(--muted);font-family:monospace}.run-agent{display:flex;align-items:center;gap:6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;color:var(--muted)}.run-row>small{font-size:12px;color:var(--muted)}.run-cost{position:relative;text-align:right}.run-cost>button{font-size:12px}.cost-breakdown{position:absolute;right:0;bottom:calc(100% + 10px);width:290px;background:var(--modal);border:1px solid #ffffff40;border-radius:8px;box-shadow:0 6px 20px #0001;padding:10px;text-align:left}.cost-breakdown>div{display:grid;grid-template-columns:8px 1fr 60px 64px;align-items:center;gap:8px;font-size:12px;line-height:21px}.cost-breakdown small{display:block;font-size:11px;color:var(--muted);border-top:1px solid #ffffff40;margin-top:8px;padding-top:6px}.cost-breakdown p,.cost-unavailable{font-size:12px;color:var(--muted)}.cost-note{font-size:11px;line-height:18px;color:var(--muted);border-top:1px solid #ffffff40;padding-top:16px}.runs-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:350px;color:var(--muted)}.runs-empty h3{font-size:16px;font-weight:500}.runs-empty p{font-size:14px}
+.aux-section {
+  margin-top: 28px;
+}
+.aux-section > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 14px;
+  min-height: 24px;
+}
+.aux-section header > strong {
+  font-weight: 400;
+}
+.aux-section details {
+  flex: 1;
+  min-width: 0;
+}
+.aux-section summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  list-style: none;
+  line-height: 24px;
+}
+.aux-section summary::-webkit-details-marker {
+  display: none;
+}
+.aux-section details:not([open]) summary > .icon {
+  transform: rotate(-90deg);
+}
+.aux-trigger {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+.aux-records p,
+.no-runs {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--muted);
+  padding: 8px 0;
+}
+.aux-records article {
+  padding: 8px 0;
+}
+.aux-records article strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.aux-records small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 3px;
+}
+.pr-url {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.mini-cost {
+  width: 100%;
+  height: 60px;
+  color: var(--primary);
+  margin-top: 10px;
+}
+.duration,
+.latest-caption {
+  font-size: 12px;
+  color: var(--muted);
+}
+.latest-caption {
+  margin: 16px 0 8px;
+}
+.run-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.timeline-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-top: 12px;
+  padding: 6px;
+}
+.task-aux-popover {
+  position: fixed;
+  z-index: 100;
+  background: var(--modal);
+  border: 1px solid #ffffff40;
+  box-shadow: 0 6px 16px #0002;
+  border-radius: 8px;
+  padding: 16px;
+  width: 420px;
+  font-size: 13px;
+  max-height: calc(100vh - 24px);
+  overflow: visible;
+}
+.task-aux-popover.pr {
+  width: 320px;
+  padding: 10px;
+}
+.task-aux-popover h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+.wakeup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.wakeup-row > span {
+  color: var(--muted);
+  width: 34px;
+  flex: none;
+}
+.wakeup-row select,
+.condition-select {
+  border: 1px solid #ffffff40;
+  background: var(--input);
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 14px;
+  max-width: 310px;
+}
+.condition-select {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.condition-anchor {
+  position: relative;
+}
+.condition-menu {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 4px;
+  width: 290px;
+  border: 1px solid #ffffff40;
+  border-radius: 8px;
+  background: var(--modal);
+  box-shadow: 0 8px 20px #0002;
+  z-index: 2;
+  max-height: 55vh;
+  overflow: auto;
+  padding: 5px;
+}
+.condition-menu section > small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 5px;
+}
+.condition-menu button {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border-radius: 5px;
+  padding: 7px;
+  font-size: 14px;
+}
+.condition-menu button:hover,
+.condition-menu button:focus-visible {
+  background: #00000008;
+}
+.condition-menu button > .icon {
+  margin-top: 2px;
+}
+.condition-menu button small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.wake-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.wake-instructions textarea {
+  height: 64px;
+  border: 1px solid #ffffff40;
+  border-radius: 7px;
+  background: transparent;
+  resize: vertical;
+  padding: 10px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.task-aux-popover footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid #ffffff30;
+  margin-top: 16px;
+  padding-top: 12px;
+}
+.task-aux-popover footer small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.task-aux-popover.pr label {
+  display: block;
+  font-size: 12px;
+}
+.task-aux-popover.pr input {
+  display: block;
+  width: 100%;
+  font-size: 14px;
+  padding: 8px;
+  margin: 6px 0;
+  border-radius: 6px;
+  border: 1px solid #ffffff40;
+  background: transparent;
+}
+.task-aux-popover.pr p {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.task-aux-popover.pr footer {
+  border: 0;
+  padding: 0;
+  margin-top: 10px;
+}
+.condition-fields {
+  display: grid;
+  gap: 8px;
+  padding: 4px 0 12px 40px;
+}
+.condition-fields label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.condition-fields input,
+.condition-fields select {
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+  border: 1px solid #ffffff50;
+  border-radius: 5px;
+  padding: 5px;
+  font-size: 13px;
+}
+.aux-error {
+  font-size: 12px;
+  color: #a12b38;
+  padding: 8px 0;
+}
+.run-timeline-modal {
+  width: 1026px;
+  height: calc(100vh - 64px);
+  max-height: calc(100vh - 64px);
+  background: var(--modal);
+  padding: 22px 24px;
+  overflow: auto;
+}
+.run-timeline-modal > header {
+  display: flex;
+  align-items: flex-start;
+  font-size: 16px;
+}
+.run-timeline-modal header small {
+  display: block;
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.run-totals {
+  display: flex;
+  gap: 28px;
+  align-items: flex-end;
+  margin-top: 18px;
+}
+.run-totals > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 16px;
+}
+.run-totals small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.run-totals strong {
+  font-size: 24px;
+  font-weight: 600;
+}
+.cost-chart {
+  height: 186px;
+  display: flex;
+  gap: 16px;
+  padding: 20px 0 0 108px;
+  align-items: flex-start;
+}
+.cost-chart svg {
+  height: 160px;
+  flex: 1;
+  min-width: 0;
+}
+.cost-chart > small {
+  font-size: 11px;
+  margin-top: 8px;
+}
+.cost-legend {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin: 20px 0 32px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cost-legend > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cost-legend i,
+.cost-breakdown i {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  display: inline-block;
+  background: #3274a4;
+}
+.cost-1 {
+  opacity: 0.7;
+}
+.cost-2 {
+  opacity: 0.3;
+}
+.cost-3 {
+  opacity: 0.5;
+}
+.run-row {
+  display: grid;
+  grid-template-columns: 60px minmax(120px, 1fr) 130px 80px 140px;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid #ffffff40;
+  padding: 10px 0;
+  font-size: 14px;
+}
+.run-row > time {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: monospace;
+}
+.run-agent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--muted);
+}
+.run-row > small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.run-cost {
+  position: relative;
+  text-align: right;
+}
+.run-cost > button {
+  font-size: 12px;
+}
+.cost-breakdown {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  width: 290px;
+  background: var(--modal);
+  border: 1px solid #ffffff40;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px #0001;
+  padding: 10px;
+  text-align: left;
+}
+.cost-breakdown > div {
+  display: grid;
+  grid-template-columns: 8px 1fr 60px 64px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 21px;
+}
+.cost-breakdown small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid #ffffff40;
+  margin-top: 8px;
+  padding-top: 6px;
+}
+.cost-breakdown p,
+.cost-unavailable {
+  font-size: 12px;
+  color: var(--muted);
+}
+.cost-note {
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--muted);
+  border-top: 1px solid #ffffff40;
+  padding-top: 16px;
+}
+.runs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 350px;
+  color: var(--muted);
+}
+.runs-empty h3 {
+  font-size: 16px;
+  font-weight: 500;
+}
+.runs-empty p {
+  font-size: 14px;
+}
 </style>

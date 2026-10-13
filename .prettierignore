@@ -1,0 +1,10 @@
+dist/
+apps/desktop/out/
+test-results/
+playwright-report/
+docs/
+research/
+science/
+contracts/
+package-lock.json
+apps/dashboard/src/data/emoji-data.ts
