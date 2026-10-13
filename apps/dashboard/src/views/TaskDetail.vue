@@ -9,6 +9,7 @@ import { usePreferences } from '../state/preferences';
 import { useSettingsDrafts } from '../state/settings-drafts';
 import { useTaskComposer } from '../state/task-composer';
 import Icon from '../components/Icon.vue';
+import { shortDate as date } from '../lib/dates';
 import TaskAuxiliary from '../components/TaskAuxiliary.vue';
 const props = defineProps<{ id: string }>();
 const emit = defineEmits<{ close: [] }>();
@@ -160,9 +161,6 @@ const taskCode = computed(
   () =>
     `${state.data?.workspace.taskPrefix || 'LYK'}-${Math.max(0, state.data?.inquiries.findIndex((item) => item.id === props.id) ?? 0) + 1}`,
 );
-function date(value: string) {
-  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
 async function load() {
   const current = ++generation;
   try {

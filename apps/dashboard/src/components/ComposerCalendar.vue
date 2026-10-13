@@ -1,46 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
 import Icon from './Icon.vue';
+import {
+  dateKey as key,
+  longDateLabel as label,
+  monthWeeks,
+  moveDate,
+  parseDateKey as parse,
+  weekdayNames as weekdays,
+} from '../lib/dates';
 const props = defineProps<{ modelValue: string; kind: 'due' | 'start' }>();
 const emit = defineEmits<{ 'update:modelValue': [value: string]; close: [] }>();
-const parse = (s: string) => {
-  const [y, m, d] = s.split('-').map(Number);
-  return y && m && d ? new Date(y, m - 1, d) : new Date();
-};
 const initial = parse(props.modelValue),
   month = ref(new Date(initial.getFullYear(), initial.getMonth(), 1)),
   focusDate = ref(initial),
   root = ref<HTMLElement>();
-function key(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 const today = key(new Date());
 const heading = computed(() =>
   month.value.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
 );
-const days = computed(() => {
-  const first = new Date(month.value);
-  first.setDate(1 - first.getDay());
-  const count =
-    Math.ceil(
-      (month.value.getDay() +
-        new Date(month.value.getFullYear(), month.value.getMonth() + 1, 0).getDate()) /
-        7,
-    ) * 7;
-  return Array.from(
-    { length: count },
-    (_, i) => new Date(first.getFullYear(), first.getMonth(), first.getDate() + i),
-  );
-});
-const weeks = computed(() =>
-  Array.from({ length: days.value.length / 7 }, (_, i) => days.value.slice(i * 7, i * 7 + 7)),
-);
-const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-function label(d: Date) {
-  const n = d.getDate(),
-    suffix = n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
-  return `${key(d) === today ? 'Today, ' : ''}${weekdays[d.getDay()]}, ${d.toLocaleDateString('en-US', { month: 'long' })} ${n}${suffix}, ${d.getFullYear()}`;
-}
+const weeks = computed(() => monthWeeks(month.value));
 function choose(value: string) {
   emit('update:modelValue', value);
   emit('close');
@@ -57,38 +36,8 @@ async function keys(e: KeyboardEvent) {
   }
   const target = (e.target as HTMLElement).dataset.date;
   if (!target) return;
-  let d = parse(target),
-    handled = true;
-  switch (e.key) {
-    case 'ArrowLeft':
-      d.setDate(d.getDate() - 1);
-      break;
-    case 'ArrowRight':
-      d.setDate(d.getDate() + 1);
-      break;
-    case 'ArrowUp':
-      d.setDate(d.getDate() - 7);
-      break;
-    case 'ArrowDown':
-      d.setDate(d.getDate() + 7);
-      break;
-    case 'Home':
-      d.setDate(d.getDate() - d.getDay());
-      break;
-    case 'End':
-      d.setDate(d.getDate() + 6 - d.getDay());
-      break;
-    case 'PageUp':
-    case 'PageDown': {
-      const delta = e.key === 'PageUp' ? -1 : 1;
-      const max = new Date(d.getFullYear(), d.getMonth() + delta + 1, 0).getDate();
-      d = new Date(d.getFullYear(), d.getMonth() + delta, Math.min(d.getDate(), max));
-      break;
-    }
-    default:
-      handled = false;
-  }
-  if (handled) {
+  const d = moveDate(parse(target), e.key);
+  if (d) {
     e.preventDefault();
     focusDate.value = d;
     month.value = new Date(d.getFullYear(), d.getMonth(), 1);

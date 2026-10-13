@@ -9,6 +9,30 @@ const layoutIcons: Record<string, unknown> = {
   Swimlane: Waves,
 };
 import { stages, type Inquiry, type Stage } from '../../../../packages/contracts/src/research';
+import {
+  assigneeName,
+  boardGroups,
+  cellPatch,
+  filterCategories as categories,
+  filterOptions,
+  filterValues,
+  groupByName,
+  hierarchyOrder,
+  matchesFilters,
+  priorities,
+  projectName,
+  sortTasks,
+  statusColumns as columns,
+  tableValue as cellText,
+  taskCode as code,
+  taskStatus as status,
+  visibleStatusColumns,
+  type FilterCategory as Category,
+  type Filters,
+} from '../lib/tasks';
+import { shortDate as displayDate } from '../lib/dates';
+import { toCsv } from '../lib/csv';
+import { matchesQuery } from '../lib/search';
 import { state, service, refresh, notify } from '../services/workspace';
 import { readJSON, writeJSON, writeText } from '../storage';
 import { usePreferences } from '../state/preferences';
@@ -19,18 +43,6 @@ import TaskContextMenu from '../components/TaskContextMenu.vue';
 defineProps<{ personal?: boolean }>();
 defineEmits<{ create: [] }>();
 const router = useRouter();
-const categories = [
-  'Status',
-  'Priority',
-  'Date',
-  'Assignee',
-  'Creator',
-  'Project',
-  'Project status',
-  'Label',
-] as const;
-type Category = (typeof categories)[number];
-type Filters = Partial<Record<Category, string[]>>;
 type Display = {
   mode: string;
   grouping: string;
@@ -91,7 +103,6 @@ const propertyNames = [
   'Labels',
   'Sub-task progress',
 ];
-const columns = [...stages.slice(0, 4), 'Blocked', 'Reporting', 'Done'];
 const categoryIcons: Record<Category, string> = {
   Status: 'circle',
   Priority: 'chart',
@@ -103,119 +114,14 @@ const categoryIcons: Record<Category, string> = {
   Label: 'tag',
 };
 const all = computed(() => state.data?.inquiries ?? []);
-const priorities = ['urgent', 'high', 'medium', 'low', 'none'];
-function status(t: Inquiry) {
-  return t.status === 'active' ? t.stage : t.status === 'done' ? 'Done' : 'Blocked';
-}
-function displayDate(value?: string | null) {
-  return value
-    ? new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : '';
-}
-function taskCode(t: Inquiry) {
-  return `${state.data?.workspace.taskPrefix || 'LYK'}-${all.value.findIndex((x) => x.id === t.id) + 1}`;
-}
-function assignee(id: string | null) {
-  return (
-    state.data?.agents.find((x) => x.id === id)?.name ??
-    state.data?.colleagues.find((x) => x.id === id)?.name ??
-    (id ? 'Unknown assignee' : 'Unassigned')
-  );
-}
-function project(id: string | null) {
-  return state.data?.projects.find((x) => x.id === id)?.name ?? 'No project';
-}
-function values(t: Inquiry, category: Category): string[] {
-  switch (category) {
-    case 'Status':
-      return [status(t)];
-    case 'Priority':
-      return [t.priority];
-    case 'Assignee':
-      return [t.assigneeId ?? 'none'];
-    case 'Creator':
-      return [t.creatorId ?? 'unknown'];
-    case 'Project':
-      return [t.projectId ?? 'none'];
-    case 'Project status':
-      return [state.data?.projects.find((p) => p.id === t.projectId)?.status ?? 'unknown'];
-    case 'Label':
-      return t.labels?.length ? t.labels : ['none'];
-    case 'Date': {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const due = t.dueDate ? new Date(t.dueDate) : null;
-      return [
-        !due
-          ? 'No due date'
-          : due < today
-            ? 'Overdue'
-            : due.getTime() < today.getTime() + 86400000
-              ? 'Due today'
-              : 'Upcoming',
-      ];
-    }
-  }
-}
-function options(category: Category): { value: string; label: string }[] {
-  switch (category) {
-    case 'Status':
-      return [...columns, 'Cancelled'].map((x) => ({ value: x, label: x }));
-    case 'Priority':
-      return priorities.map((x) => ({
-        value: x,
-        label: x === 'none' ? 'No priority' : x[0]!.toUpperCase() + x.slice(1),
-      }));
-    case 'Date':
-      return ['Overdue', 'Due today', 'Upcoming', 'No due date'].map((x) => ({
-        value: x,
-        label: x,
-      }));
-    case 'Assignee':
-      return [
-        { value: 'none', label: 'Unassigned' },
-        ...[...(state.data?.agents ?? []), ...(state.data?.colleagues ?? [])].map((x) => ({
-          value: x.id,
-          label: x.name,
-        })),
-      ];
-    case 'Creator':
-      return [
-        { value: 'unknown', label: 'Not recorded' },
-        ...(state.data?.colleagues ?? []).map((x) => ({ value: x.id, label: x.name })),
-      ];
-    case 'Project':
-      return [
-        { value: 'none', label: 'No project' },
-        ...(state.data?.projects ?? []).map((x) => ({ value: x.id, label: x.name })),
-      ];
-    case 'Project status':
-      return [
-        { value: 'unknown', label: 'Not recorded' },
-        ...[
-          ...new Set(
-            (state.data?.projects ?? []).map((x) => x.status).filter((x): x is string => !!x),
-          ),
-        ].map((x) => ({ value: x, label: x })),
-      ];
-    case 'Label':
-      return [
-        { value: 'none', label: 'No labels' },
-        ...[...new Set(all.value.flatMap((x) => x.labels ?? []))].map((x) => ({
-          value: x,
-          label: x,
-        })),
-      ];
-  }
-}
-function matches(t: Inquiry) {
-  return Object.entries(filters.value).every(
-    ([key, selected]) =>
-      !selected?.length || selected.some((value) => values(t, key as Category).includes(value)),
-  );
-}
+const taskCode = (t: Inquiry) => code(t, state.data);
+const assignee = (id: string | null) => assigneeName(id, state.data);
+const project = (id: string | null) => projectName(id, state.data);
+const values = (t: Inquiry, category: Category) => filterValues(t, category, state.data);
+const options = (category: Category) => filterOptions(category, state.data);
+const tableValue = (t: Inquiry, name: string) => cellText(t, name, state.data);
 const tasks = computed(() => {
-  let rows = all.value.filter(matches);
+  let rows = all.value.filter((t) => matchesFilters(t, filters.value, state.data));
   if (workingOnly.value)
     rows = rows.filter((t) =>
       state.data?.agents.some((a) => a.id === t.assigneeId && a.status === 'busy'),
@@ -225,53 +131,12 @@ const tasks = computed(() => {
     rows = rows.filter((t) => state.data?.agents.some((a) => a.id === t.assigneeId));
   if (tab.value === 'Members')
     rows = rows.filter((t) => state.data?.colleagues.some((a) => a.id === t.assigneeId));
-  return [...rows].sort((a, b) => {
-    const comparison =
-      display.order === 'Title'
-        ? a.title.localeCompare(b.title)
-        : display.order === 'Priority'
-          ? priorities.indexOf(a.priority) - priorities.indexOf(b.priority)
-          : display.order === 'Due date'
-            ? (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999')
-            : display.order === 'Updated date'
-              ? (a.updatedAt ?? a.createdAt).localeCompare(b.updatedAt ?? b.createdAt)
-              : a.createdAt.localeCompare(b.createdAt);
-    return comparison * (display.descending ? -1 : 1);
-  });
+  return sortTasks(rows, display.order, display.descending);
 });
 const activeFilterCount = computed(() =>
   Object.values(filters.value).reduce((sum, items) => sum + (items?.length ?? 0), 0),
 );
-const boardColumns = computed(() =>
-  display.grouping === 'Status'
-    ? columns
-        .filter((name) => name !== 'Done' || tasks.value.some((t) => t.status === 'done'))
-        .map((name) => ({ id: name, name, tasks: tasks.value.filter((t) => status(t) === name) }))
-    : display.grouping === 'Priority'
-      ? priorities.map((id) => ({
-          id,
-          name: id === 'none' ? 'No priority' : id[0]!.toUpperCase() + id.slice(1),
-          tasks: tasks.value.filter((t) => t.priority === id),
-        }))
-      : display.grouping === 'Assignee'
-        ? [
-            { id: 'none', name: 'Unassigned' },
-            ...[...(state.data?.agents ?? []), ...(state.data?.colleagues ?? [])].map((x) => ({
-              id: x.id,
-              name: x.name,
-            })),
-          ].map((group) => ({
-            ...group,
-            tasks: tasks.value.filter((t) => (t.assigneeId ?? 'none') === group.id),
-          }))
-        : display.grouping === 'Project'
-          ? [{ id: 'none', name: 'No project' }, ...(state.data?.projects ?? [])].map((group) => ({
-              id: group.id,
-              name: group.name,
-              tasks: tasks.value.filter((t) => (t.projectId ?? 'none') === group.id),
-            }))
-          : [{ id: 'all', name: 'All tasks', tasks: tasks.value }],
-);
+const boardColumns = computed(() => boardGroups(tasks.value, display.grouping, state.data));
 function toggleFilter(category: Category, value: string) {
   const selected = filters.value[category] ?? [];
   filters.value = {
@@ -478,38 +343,21 @@ const columnSearch = ref(''),
   savingCell = ref(false);
 const tableTasks = computed(() => {
   const rows = tasks.value.filter((t) =>
-    `${taskCode(t)} ${t.title}`.toLowerCase().includes(tableSearch.value.toLowerCase()),
+    matchesQuery(`${taskCode(t)} ${t.title}`, tableSearch.value),
   );
-  if (!display.hierarchy) return rows;
-  const result: Inquiry[] = [];
-  const seen = new Set<string>();
-  function visit(t: Inquiry) {
-    if (seen.has(t.id)) return;
-    seen.add(t.id);
-    result.push(t);
-    rows.filter((x) => x.parentId === t.id).forEach(visit);
-  }
-  rows.filter((t) => !t.parentId || !rows.some((p) => p.id === t.parentId)).forEach(visit);
-  rows.forEach(visit);
-  return result;
+  return display.hierarchy ? hierarchyOrder(rows) : rows;
 });
 const collapsedLanes = ref<string[]>([]);
-const swimColumns = computed(() =>
-  columns.filter((x) => x !== 'Done' || tasks.value.some((t) => t.status === 'done')),
+const swimColumns = computed(() => visibleStatusColumns(tasks.value));
+const swimLanes = computed(() =>
+  groupByName(tasks.value, (t) =>
+    display.swimGroup === 'Project'
+      ? project(t.projectId)
+      : display.swimGroup === 'Parent task'
+        ? (all.value.find((p) => p.id === t.parentId)?.title ?? 'No parent task')
+        : assignee(t.assigneeId),
+  ),
 );
-const swimLanes = computed(() => {
-  const groups = new Map<string, Inquiry[]>();
-  for (const t of tasks.value) {
-    const name =
-      display.swimGroup === 'Project'
-        ? project(t.projectId)
-        : display.swimGroup === 'Parent task'
-          ? (all.value.find((p) => p.id === t.parentId)?.title ?? 'No parent task')
-          : assignee(t.assigneeId);
-    groups.set(name, [...(groups.get(name) ?? []), t]);
-  }
-  return [...groups].map(([name, tasks]) => ({ name, tasks }));
-});
 function toggleLane(name: string) {
   collapsedLanes.value = collapsedLanes.value.includes(name)
     ? collapsedLanes.value.filter((x) => x !== name)
@@ -523,17 +371,13 @@ async function stageCellChange(t: Inquiry, event: Event) {
 
 const tableGroups = computed(() => {
   if (tablePrefs.group === 'No grouping') return [{ name: '', tasks: tableTasks.value }];
-  const groups = new Map<string, Inquiry[]>();
-  for (const t of tableTasks.value) {
-    const name =
-      tablePrefs.group === 'Status'
-        ? status(t)
-        : tablePrefs.group === 'Assignee'
-          ? assignee(t.assigneeId)
-          : project(t.projectId);
-    groups.set(name, [...(groups.get(name) ?? []), t]);
-  }
-  return [...groups].map(([name, tasks]) => ({ name, tasks }));
+  return groupByName(tableTasks.value, (t) =>
+    tablePrefs.group === 'Status'
+      ? status(t)
+      : tablePrefs.group === 'Assignee'
+        ? assignee(t.assigneeId)
+        : project(t.projectId),
+  );
 });
 function columnWidth(name: string) {
   return (
@@ -585,42 +429,6 @@ function resizeColumn(event: PointerEvent, name: string) {
   handle.addEventListener('pointerup', finish, { once: true });
   handle.addEventListener('pointercancel', finish, { once: true });
 }
-function tableValue(t: Inquiry, name: string): string {
-  switch (name) {
-    case 'Task':
-      return t.title;
-    case 'Identifier':
-      return taskCode(t);
-    case 'Status':
-      return status(t);
-    case 'Priority':
-      return t.priority === 'none' ? 'No priority' : t.priority;
-    case 'Assignee':
-      return assignee(t.assigneeId);
-    case 'Project':
-      return project(t.projectId);
-    case 'Labels':
-      return t.labels?.join(', ') || 'Empty';
-    case 'Start date':
-      return displayDate(t.startDate) || 'Start date';
-    case 'Due date':
-      return displayDate(t.dueDate) || 'Due date';
-    case 'Created':
-      return displayDate(t.createdAt);
-    case 'Updated':
-      return displayDate(t.updatedAt) || '—';
-    case 'Created by':
-      return state.data?.colleagues.find((x) => x.id === t.creatorId)?.name || 'Not recorded';
-    case 'Sub-task progress': {
-      const children = all.value.filter((x) => x.parentId === t.id);
-      return children.length
-        ? `${children.filter((x) => x.status === 'done').length}/${children.length}`
-        : '—';
-    }
-    default:
-      return '';
-  }
-}
 function editCell(t: Inquiry, name: string) {
   editingCell.value = `${t.id}:${name}`;
   cellDraft.value =
@@ -645,26 +453,7 @@ async function updateCell(t: Inquiry, name: string, value: string) {
       const receipt = await service.value.transition(t.id, t.revision, value as Stage);
       notify(receipt.accepted ? `Moved to ${value}` : receipt.reasons.join(' '));
     } else {
-      const patch =
-        name === 'Task'
-          ? { title: value }
-          : name === 'Priority'
-            ? { priority: value as Inquiry['priority'] }
-            : name === 'Assignee'
-              ? { assigneeId: value || null }
-              : name === 'Project'
-                ? { projectId: value || null }
-                : name === 'Labels'
-                  ? {
-                      labels: value
-                        .split(',')
-                        .map((x) => x.trim())
-                        .filter(Boolean),
-                    }
-                  : name === 'Due date'
-                    ? { dueDate: value || null }
-                    : { startDate: value || null };
-      await service.value.updateInquiry(t.id, t.revision, patch);
+      await service.value.updateInquiry(t.id, t.revision, cellPatch(name, value));
     }
     editingCell.value = '';
     await refresh();
@@ -683,17 +472,13 @@ function exportTasks(format: 'csv' | 'json') {
   const records = selectedRows.value.length
     ? tableTasks.value.filter((t) => selectedRows.value.includes(t.id))
     : tableTasks.value;
-  const csvCell = (value: string) =>
-    '"' + (/^(?:\s*[=+@-]|[\t\r\n])/.test(value) ? "'" + value : value).replaceAll('"', '""') + '"';
   const content =
     format === 'json'
       ? JSON.stringify(records, null, 2)
-      : [
+      : toCsv([
           tablePrefs.columns,
           ...records.map((t) => tablePrefs.columns.map((name) => tableValue(t, name))),
-        ]
-          .map((row) => row.map(csvCell).join(','))
-          .join('\r\n');
+        ]);
   const url = URL.createObjectURL(
     new Blob([content], {
       type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8',
@@ -921,9 +706,7 @@ onUnmounted(() => {
               aria-label="Search columns"
             /><small>Task properties</small
             ><button
-              v-for="name in tableColumnNames.filter((x) =>
-                x.toLowerCase().includes(columnSearch.toLowerCase()),
-              )"
+              v-for="name in tableColumnNames.filter((x) => matchesQuery(x, columnSearch))"
               :key="name"
               role="menuitemcheckbox"
               :aria-checked="tablePrefs.columns.includes(name)"

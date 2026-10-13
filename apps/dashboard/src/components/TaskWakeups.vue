@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { matchesQuery } from '../lib/search';
 import { state } from '../services/workspace';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
@@ -15,9 +16,7 @@ const status = ref('Waiting or executing'),
   error = ref('');
 const matches = computed(() =>
   taskQuery.value.trim()
-    ? (state.data?.inquiries ?? []).filter((x) =>
-        x.title.toLowerCase().includes(taskQuery.value.toLowerCase()),
-      )
+    ? (state.data?.inquiries ?? []).filter((x) => matchesQuery(x.title, taskQuery.value))
     : [],
 );
 const task = computed(() => state.data?.inquiries.find((x) => x.id === taskId.value));

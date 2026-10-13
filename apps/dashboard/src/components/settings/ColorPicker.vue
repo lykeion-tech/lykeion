@@ -1,23 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Pipette, Dices } from '@lucide/vue';
+import { colorPresets as presets, hexToHsv, hsvToHex, isHexColor } from '../../lib/color';
 const props = withDefaults(
   defineProps<{ modelValue: string; label?: string; swatchOnly?: boolean }>(),
   { label: 'Color', swatchOnly: false },
 );
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
-const presets = [
-  '#6b7280',
-  '#ef4444',
-  '#f97316',
-  '#eab308',
-  '#22c55e',
-  '#14b8a6',
-  '#3b82f6',
-  '#6366f1',
-  '#a855f7',
-  '#ec4899',
-];
 const root = ref<HTMLElement>();
 const trigger = ref<HTMLButtonElement>();
 const sv = ref<HTMLElement>();
@@ -30,62 +19,19 @@ const hex = ref(props.modelValue.toUpperCase());
 const hexInvalid = ref(false);
 const pickerError = ref('');
 let emitted = '';
-function rgbFromHex(value: string) {
-  return [
-    parseInt(value.slice(1, 3), 16),
-    parseInt(value.slice(3, 5), 16),
-    parseInt(value.slice(5, 7), 16),
-  ].map((c) => c / 255);
-}
 function sync(value: string) {
-  if (!/^#[0-9a-f]{6}$/i.test(value)) return;
+  if (!isHexColor(value)) return;
   hex.value = value.toUpperCase();
   hexInvalid.value = false;
   if (value.toLowerCase() === emitted) return;
-  const [r, g, b] = rgbFromHex(value) as [number, number, number];
-  const max = Math.max(r, g, b),
-    min = Math.min(r, g, b),
-    delta = max - min;
-  brightness.value = max * 100;
-  saturation.value = max ? (delta / max) * 100 : 0;
-  if (delta) {
-    hue.value =
-      ((max === r ? (g - b) / delta : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4) * 60 +
-        360) %
-      360;
-  }
+  const hsv = hexToHsv(value);
+  brightness.value = hsv.v;
+  saturation.value = hsv.s;
+  if (hsv.h !== null) hue.value = hsv.h;
 }
 watch(() => props.modelValue, sync, { immediate: true });
-function currentHex() {
-  const h = hue.value / 60,
-    c = ((brightness.value / 100) * saturation.value) / 100,
-    x = c * (1 - Math.abs((h % 2) - 1)),
-    m = brightness.value / 100 - c;
-  const rgb =
-    h < 1
-      ? [c, x, 0]
-      : h < 2
-        ? [x, c, 0]
-        : h < 3
-          ? [0, c, x]
-          : h < 4
-            ? [0, x, c]
-            : h < 5
-              ? [x, 0, c]
-              : [c, 0, x];
-  return (
-    '#' +
-    rgb
-      .map((v) =>
-        Math.round((v + m) * 255)
-          .toString(16)
-          .padStart(2, '0'),
-      )
-      .join('')
-  );
-}
 function publish() {
-  emitted = currentHex();
+  emitted = hsvToHex(hue.value, saturation.value, brightness.value);
   hex.value = emitted.toUpperCase();
   hexInvalid.value = false;
   emit('update:modelValue', emitted);
@@ -96,7 +42,7 @@ function choose(value: string) {
   emit('update:modelValue', value.toLowerCase());
 }
 function hexChange() {
-  if (/^#[0-9a-f]{6}$/i.test(hex.value)) {
+  if (isHexColor(hex.value)) {
     choose(hex.value);
     hexInvalid.value = false;
   } else hexInvalid.value = true;

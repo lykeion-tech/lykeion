@@ -5,6 +5,16 @@ import TimeZonePicker from './settings/TimeZonePicker.vue';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 import { service, state, refresh, workspaceName } from '../services/workspace';
+import { connectorConfig, connectorFields, parseConnectorJson } from '../lib/connectors';
+import {
+  scheduleError,
+  scheduleLabel,
+  scheduleSummary as summarise,
+  toggleWeekday,
+  weekdayAbbreviations as dayNames,
+  type Schedule,
+} from '../lib/schedule';
+import { matchesQuery } from '../lib/search';
 const props = defineProps<{ kind: string; preset?: string }>();
 const emit = defineEmits<{ close: [] }>();
 const autopilotExpanded = ref(false);
@@ -13,7 +23,7 @@ const editorForm = ref<HTMLFormElement>(),
   memberQuery = ref('');
 const memberMatches = computed(() =>
   (state.data?.agents ?? []).filter(
-    (x) => x.id !== agentId.value && x.name.toLowerCase().includes(memberQuery.value.toLowerCase()),
+    (x) => x.id !== agentId.value && matchesQuery(x.name, memberQuery.value),
   ),
 );
 const kind = ref(props.kind),
@@ -43,81 +53,34 @@ const memberSummary = computed(() =>
 );
 const headers = ref<{ key: string; value: string }[]>([]),
   extraConfig = ref<Record<string, unknown>>({});
-function connectorConfig() {
+function fields() {
   return {
-    ...extraConfig.value,
-    ...(transport.value === 'STDIO'
-      ? {
-          type: 'stdio',
-          command: command.value,
-          ...(argumentsList.value.length ? { args: argumentsList.value } : {}),
-          ...(env.value.length
-            ? { env: Object.fromEntries(env.value.map((x) => [x.key, x.value])) }
-            : {}),
-        }
-      : {
-          type: 'http',
-          url: url.value,
-          ...(headers.value.length
-            ? { headers: Object.fromEntries(headers.value.map((x) => [x.key, x.value])) }
-            : {}),
-        }),
+    transport: transport.value,
+    command: command.value,
+    url: url.value,
+    args: argumentsList.value,
+    env: env.value,
+    headers: headers.value,
+    extra: extraConfig.value,
   };
-}
-function readConnectorJson() {
-  const value: unknown = JSON.parse(json.value);
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('Configuration must be a JSON object.');
-  const config = value as Record<string, unknown>;
-  if (!['stdio', 'http'].includes(String(config.type)))
-    throw new Error('Transport type must be stdio or http.');
-  if (config.type === 'stdio' && typeof config.command !== 'string')
-    throw new Error('A STDIO configuration needs a command string.');
-  if (config.type === 'http' && typeof config.url !== 'string')
-    throw new Error('An HTTP configuration needs a URL string.');
-  if (
-    config.args !== undefined &&
-    (!Array.isArray(config.args) || config.args.some((x) => typeof x !== 'string'))
-  )
-    throw new Error('Arguments must be an array of strings.');
-  for (const key of ['env', 'headers']) {
-    const entry = config[key];
-    if (
-      entry !== undefined &&
-      (!entry ||
-        typeof entry !== 'object' ||
-        Array.isArray(entry) ||
-        Object.values(entry).some((x) => typeof x !== 'string'))
-    )
-      throw new Error('Headers and environment values must be string maps.');
-  }
-  return config;
 }
 function changeFormat(next: string) {
   error.value = '';
   if (next === format.value) return;
   if (next === 'JSON') {
-    json.value = JSON.stringify(connectorConfig(), null, 2);
+    json.value = JSON.stringify(connectorConfig(fields()), null, 2);
     format.value = next;
     return;
   }
   try {
-    const config = readConnectorJson();
-    transport.value = config.type === 'stdio' ? 'STDIO' : 'Streamable HTTP';
-    command.value = typeof config.command === 'string' ? config.command : '';
-    url.value = typeof config.url === 'string' ? config.url : '';
-    argumentsList.value = (config.args as string[] | undefined) ?? [];
-    env.value = Object.entries((config.env as Record<string, string> | undefined) ?? {}).map(
-      ([key, value]) => ({ key, value }),
-    );
-    headers.value = Object.entries(
-      (config.headers as Record<string, string> | undefined) ?? {},
-    ).map(([key, value]) => ({ key, value }));
-    extraConfig.value = Object.fromEntries(
-      Object.entries(config).filter(
-        ([key]) => !['type', 'command', 'url', 'args', 'env', 'headers'].includes(key),
-      ),
-    );
+    const parsed = connectorFields(parseConnectorJson(json.value));
+    transport.value = parsed.transport;
+    command.value = parsed.command;
+    url.value = parsed.url;
+    argumentsList.value = parsed.args;
+    env.value = parsed.env;
+    headers.value = parsed.headers;
+    extraConfig.value = parsed.extra;
     format.value = next;
   } catch (e) {
     error.value =
@@ -142,54 +105,31 @@ const triggerKind = ref<'schedule' | 'webhook'>('schedule'),
   eventFilters = ref<{ key: string; value: string }[]>([]),
   subscriberIds = ref<string[]>([]),
   subscriberMenu = ref(false);
-const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const schedule = computed<Schedule>(() => ({
+  kind: 'schedule',
+  timeMode: timeMode.value,
+  time: atTime.value,
+  interval: interval.value,
+  unit: intervalUnit.value,
+  windowStart: windowStart.value,
+  windowEnd: windowEnd.value,
+  dayMode: dayMode.value,
+  weekdays: weekdays.value,
+  monthDay: monthDay.value,
+  timezone: timezone.value,
+  cron: cron.value,
+}));
 const scheduleSummary = computed(() =>
-  triggerKind.value === 'webhook'
-    ? 'Webhook'
-    : cron.value
-      ? `Cron ${cron.value} (${timezone.value})`
-      : `${timeMode.value === 'time' ? 'At ' + atTime.value : 'Every ' + interval.value + ' ' + intervalUnit.value + ' between ' + windowStart.value + ' and ' + windowEnd.value} · ${dayMode.value === 'every' ? 'Every day' : dayMode.value === 'week' ? weekdays.value.map((x) => dayNames[x]).join(', ') : 'Day ' + monthDay.value + ' of the month'} · ${timezone.value}`,
+  triggerKind.value === 'webhook' ? 'Webhook' : summarise(schedule.value),
 );
-const displaySchedule = computed(() => {
-  if (cron.value) return cron.value;
-  const days =
-    dayMode.value === 'every'
-      ? 'Every day'
-      : dayMode.value === 'week'
-        ? weekdays.value.map((x) => dayNames[x]).join(', ')
-        : `Day ${monthDay.value}`;
-  const timing =
-    timeMode.value === 'time'
-      ? `At ${atTime.value}`
-      : intervalUnit.value === 'hours'
-        ? interval.value === 1
-          ? 'Every hour at :00'
-          : `Every ${interval.value} hours`
-        : `Every ${interval.value} minutes`;
-  return `${timing} · ${days}${timeMode.value === 'interval' && (windowStart.value !== '00:00' || windowEnd.value !== '23:00') ? ' · ' + windowStart.value + '–' + windowEnd.value : ''}`;
-});
+const displaySchedule = computed(() => scheduleLabel(schedule.value));
 const triggerSpec = computed(() =>
   triggerKind.value === 'webhook'
     ? { kind: 'webhook' as const, eventFilters: eventFilters.value }
-    : {
-        kind: 'schedule' as const,
-        timeMode: timeMode.value,
-        time: atTime.value,
-        interval: interval.value,
-        unit: intervalUnit.value,
-        windowStart: windowStart.value,
-        windowEnd: windowEnd.value,
-        dayMode: dayMode.value,
-        weekdays: weekdays.value,
-        monthDay: monthDay.value,
-        timezone: timezone.value,
-        cron: cron.value,
-      },
+    : schedule.value,
 );
 function toggleDay(day: number) {
-  weekdays.value = weekdays.value.includes(day)
-    ? weekdays.value.filter((x) => x !== day)
-    : [...weekdays.value, day].sort();
+  weekdays.value = toggleWeekday(weekdays.value, day);
 }
 function addEventFilter() {
   if (!eventKey.value.trim() || !eventValue.value.trim()) return;
@@ -254,8 +194,8 @@ async function save() {
         });
         break;
       case 'autopilot':
-        if (triggerKind.value === 'schedule' && dayMode.value === 'week' && !weekdays.value.length)
-          throw new Error('Choose at least one day of the week.');
+        if (triggerKind.value === 'schedule' && scheduleError(schedule.value))
+          throw new Error(scheduleError(schedule.value));
         await service.value.createResource('autopilots', {
           name: name.value,
           instructions: instructions.value,
@@ -268,7 +208,7 @@ async function save() {
         });
         break;
       case 'connector':
-        if (format.value === 'JSON') readConnectorJson();
+        if (format.value === 'JSON') parseConnectorJson(json.value);
         throw new Error(
           'Connector transport configuration requires the backend secret store. Nothing has been saved.',
         );

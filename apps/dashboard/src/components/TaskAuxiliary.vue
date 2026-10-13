@@ -10,6 +10,16 @@ import { service, state, notify } from '../services/workspace';
 import { useRouter } from 'vue-router';
 const router = useRouter();
 import Icon from './Icon.vue';
+import { formatDuration as time } from '../lib/dates';
+import {
+  agentSeconds,
+  costLine as costLineOf,
+  elapsedSeconds,
+  formatMoney as money,
+  runBar as runBarOf,
+  runSeconds as seconds,
+  totalCost as totalCostOf,
+} from '../lib/runs';
 import Modal from './Modal.vue';
 const props = withDefaults(
   defineProps<{ detail: InquiryDetail; taskCode: string; showPullRequests?: boolean }>(),
@@ -105,70 +115,13 @@ const drafts = computed(() => props.detail.inquiry.wakeupDrafts ?? []),
   runs = computed(() =>
     [...(props.detail.runs ?? [])].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
   );
-const totalCost = computed(() =>
-  runs.value.length && runs.value.every((x) => x.costUsd !== undefined)
-    ? runs.value.reduce((sum, x) => sum + x.costUsd!, 0)
-    : null,
-);
-function seconds(run: ExecutionRun) {
-  return run.endedAt
-    ? Math.max(0, (Date.parse(run.endedAt) - Date.parse(run.startedAt)) / 1000)
-    : null;
-}
-const agentTime = computed(() =>
-  runs.value.length && runs.value.every((x) => seconds(x) !== null)
-    ? runs.value.reduce((sum, x) => sum + seconds(x)!, 0)
-    : null,
-);
-const elapsed = computed(() =>
-  runs.value.length && runs.value.every((x) => x.endedAt)
-    ? Math.max(
-        0,
-        (Math.max(...runs.value.map((x) => Date.parse(x.endedAt!))) -
-          Math.min(...runs.value.map((x) => Date.parse(x.startedAt)))) /
-          1000,
-      )
-    : null,
-);
-const money = (amount?: number | null) =>
-  amount === undefined || amount === null
-    ? 'Not reported'
-    : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
-const time = (seconds?: number | null) =>
-  seconds === undefined || seconds === null
-    ? 'Not reported'
-    : seconds < 60
-      ? `${Math.round(seconds)}s`
-      : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+const totalCost = computed(() => totalCostOf(runs.value));
+const agentTime = computed(() => agentSeconds(runs.value));
+const elapsed = computed(() => elapsedSeconds(runs.value));
 const agentName = (id: string | null) =>
   state.data?.agents.find((x) => x.id === id)?.name ?? 'Unassigned';
-const costLine = computed(() => {
-  if (totalCost.value === null || runs.value.some((x) => !Number.isFinite(Date.parse(x.startedAt))))
-    return '';
-  const min = Date.parse(runs.value[0]!.startedAt),
-    max = Math.max(min + 1000, ...runs.value.map((x) => Date.parse(x.endedAt ?? x.startedAt)));
-  let sum = 0;
-  const points = ['0,150'];
-  for (const run of runs.value) {
-    const x = ((Date.parse(run.startedAt) - min) / (max - min)) * 850;
-    points.push(`${x},${150 - (sum / Math.max(totalCost.value, 0.01)) * 140}`);
-    sum += run.costUsd!;
-    points.push(`${x},${150 - (sum / Math.max(totalCost.value, 0.01)) * 140}`);
-  }
-  points.push(`850,${150 - (sum / Math.max(totalCost.value, 0.01)) * 140}`);
-  return points.join(' ');
-});
-function runBar(run: ExecutionRun) {
-  const min = Math.min(...runs.value.map((x) => Date.parse(x.startedAt))),
-    max = Math.max(min + 1000, ...runs.value.map((x) => Date.parse(x.endedAt ?? x.startedAt)));
-  return {
-    x: ((Date.parse(run.startedAt) - min) / (max - min)) * 850,
-    width: Math.max(
-      2,
-      ((Date.parse(run.endedAt ?? run.startedAt) - Date.parse(run.startedAt)) / (max - min)) * 850,
-    ),
-  };
-}
+const costLine = computed(() => costLineOf(runs.value));
+const runBar = (run: ExecutionRun) => runBarOf(run, runs.value);
 function closePopup() {
   popup.value = '';
   conditionsOpen.value = false;

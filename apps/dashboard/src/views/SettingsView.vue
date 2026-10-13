@@ -14,6 +14,16 @@ import { useProfile } from '../state/profile';
 import { useSettingsDrafts, type LabelDraft, type PropertyDraft } from '../state/settings-drafts';
 import { failedSettingsSaves, saveSetting } from '../state/settings-saves';
 import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
+import { colorPresets } from '../lib/color';
+import { matchesQuery } from '../lib/search';
+import {
+  copyCreateFields as fieldsCopy,
+  createFieldAvailable as fieldAvailable,
+  labelNameTaken,
+  propertyOptions,
+  repositoryUrl,
+  validCreateFields as validFields,
+} from '../lib/settings';
 const router = useRouter();
 const props = defineProps<{ section: string }>();
 const section = computed(() => props.section);
@@ -55,20 +65,6 @@ const createFieldNames = [
   'Start date',
 ];
 const prefs = usePreferences();
-function fieldAvailable(field: string, mode: 'agent' | 'manual') {
-  return mode === 'manual' || ['Priority', 'Project', 'Due date'].includes(field);
-}
-function fieldsCopy(value: { agent: string[]; manual: string[] }) {
-  return { agent: [...value.agent], manual: [...value.manual] };
-}
-function validFields(value: unknown): value is { agent: string[]; manual: string[] } {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    Array.isArray((value as { agent: unknown }).agent) &&
-    Array.isArray((value as { manual: unknown }).manual)
-  );
-}
 let fieldWorkspace = state.data?.workspace.id;
 if (fieldWorkspace && !prefs.createFieldsByWorkspace[fieldWorkspace])
   prefs.createFieldsByWorkspace[fieldWorkspace] = fieldsCopy(prefs.createFields);
@@ -154,14 +150,12 @@ const filteredLabels = computed(() =>
   settingsDraft.value.labels.filter(
     (item) =>
       item.scope === labelScope.value &&
-      (item.name + ' ' + item.description).toLowerCase().includes(tableFilter.value.toLowerCase()),
+      matchesQuery(item.name + ' ' + item.description, tableFilter.value),
   ),
 );
 const filteredProperties = computed(() =>
   settingsDraft.value.properties.filter(
-    (item) =>
-      (showArchived.value || !item.archived) &&
-      item.name.toLowerCase().includes(tableFilter.value.toLowerCase()),
+    (item) => (showArchived.value || !item.archived) && matchesQuery(item.name, tableFilter.value),
   ),
 );
 const editor = ref<'label' | 'property' | 'repository' | null>(null);
@@ -193,20 +187,17 @@ function openEditor(kind: 'label' | 'property' | 'repository', id = '') {
 function saveEditor() {
   editorError.value = '';
   if (editor.value === 'repository') {
-    try {
-      const url = new URL(draftUrl.value);
-      if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
-        throw new Error();
-      if (settingsDraft.value.repositories.some((item) => item.url === url.href)) {
-        editorError.value = 'This repository is already listed.';
-        return;
-      }
-      settingsDraft.value.repositories.push({ id: crypto.randomUUID(), url: url.href });
-    } catch {
+    const url = repositoryUrl(draftUrl.value);
+    if (!url) {
       editorError.value =
         'Enter an HTTPS repository URL without credentials, a query, or a fragment.';
       return;
     }
+    if (settingsDraft.value.repositories.some((item) => item.url === url)) {
+      editorError.value = 'This repository is already listed.';
+      return;
+    }
+    settingsDraft.value.repositories.push({ id: crypto.randomUUID(), url });
   } else {
     if (!draftName.value.trim()) {
       editorError.value = 'Enter a name.';
@@ -215,11 +206,11 @@ function saveEditor() {
     const updatedAt = new Date().toISOString();
     if (editor.value === 'label') {
       if (
-        settingsDraft.value.labels.some(
-          (item) =>
-            item.id !== editingId.value &&
-            item.scope === labelScope.value &&
-            item.name.toLowerCase() === draftName.value.trim().toLowerCase(),
+        labelNameTaken(
+          settingsDraft.value.labels,
+          draftName.value,
+          labelScope.value,
+          editingId.value,
         )
       ) {
         editorError.value = 'A label with this name already exists.';
@@ -250,16 +241,7 @@ function saveEditor() {
         description: draftDescription.value,
         icon: draftIcon.value,
         type: draftType.value,
-        options: ['Select', 'Multi-select'].includes(draftType.value)
-          ? [
-              ...new Set(
-                draftOptions.value
-                  .split('\n')
-                  .map((item) => item.trim())
-                  .filter(Boolean),
-              ),
-            ]
-          : [],
+        options: propertyOptions(draftType.value, draftOptions.value),
         optionColors: [...draftOptionColors.value],
         archived: false,
         updatedAt,
@@ -286,18 +268,6 @@ const propertyTypes = [
   'URL',
   'Member',
   'Members',
-];
-const colorPresets = [
-  '#6b7280',
-  '#ef4444',
-  '#f97316',
-  '#eab308',
-  '#22c55e',
-  '#14b8a6',
-  '#3b82f6',
-  '#6366f1',
-  '#a855f7',
-  '#ec4899',
 ];
 const optionRows = computed(() => draftOptions.value.split('\n'));
 function updateOption(index: number, event: Event) {
@@ -380,9 +350,7 @@ const groups = computed(() =>
   ]
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) =>
-        item.label.toLowerCase().includes(query.value.toLowerCase()),
-      ),
+      items: group.items.filter((item) => matchesQuery(item.label, query.value)),
     }))
     .filter((group) => group.items.length),
 );

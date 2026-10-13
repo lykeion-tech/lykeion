@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { matchesQuery } from './lib/search';
 import { useRoute, useRouter } from 'vue-router';
 import Icon from './components/Icon.vue';
 import { History, MessageCircle } from '@lucide/vue';
@@ -161,16 +162,10 @@ async function copyFeedback() {
   }
 }
 const foundPages = computed(() =>
-  (query.value ? destinations : []).filter((x) =>
-    x.name.toLowerCase().includes(query.value.toLowerCase()),
-  ),
+  (query.value ? destinations : []).filter((x) => matchesQuery(x.name, query.value)),
 );
 const foundTasks = computed(() =>
-  (
-    state.data?.inquiries.filter((x) =>
-      x.title.toLowerCase().includes(query.value.toLowerCase()),
-    ) ?? []
-  ).slice(0, 8),
+  (state.data?.inquiries.filter((x) => matchesQuery(x.title, query.value)) ?? []).slice(0, 8),
 );
 const searchIndex = ref(0);
 const searchEntries = computed(() => [

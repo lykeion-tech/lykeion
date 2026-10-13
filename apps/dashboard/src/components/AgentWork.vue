@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { matchesQuery } from '../lib/search';
 import { useRouter } from 'vue-router';
 import { state } from '../services/workspace';
 import Icon from './Icon.vue';
@@ -19,7 +20,7 @@ const tasks = computed(() =>
       (mode.value === 'Assigned'
         ? x.assigneeId === props.agentId
         : x.creatorId === props.agentId) &&
-      x.title.toLowerCase().includes(search.value.toLowerCase()) &&
+      matchesQuery(x.title, search.value) &&
       (filter.value === 'all' || x.priority === filter.value),
   ),
 );

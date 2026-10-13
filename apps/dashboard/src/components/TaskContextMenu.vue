@@ -4,6 +4,8 @@ import { Pin, Trash2, CalendarDays, CalendarClock, CircleSlash, Minus } from '@l
 import { stages, type Inquiry, type Stage } from '../../../../packages/contracts/src/research';
 import { service, state, refresh, notify } from '../services/workspace';
 import Icon from './Icon.vue';
+import { dateKey } from '../lib/dates';
+import { matchesQuery } from '../lib/search';
 import { usePins } from '../state/pins';
 import { useWorkspaceTabs } from '../state/workspace-tabs';
 import { useTaskComposer } from '../state/task-composer';
@@ -32,7 +34,7 @@ const assignees = computed(() =>
     { id: '', name: 'Unassigned' },
     ...(state.data?.agents ?? []),
     ...(state.data?.colleagues ?? []),
-  ].filter((x) => x.name.toLowerCase().includes(query.value.toLowerCase())),
+  ].filter((x) => matchesQuery(x.name, query.value)),
 );
 const days = computed(() => {
   const first = new Date(month.value.getFullYear(), month.value.getMonth(), 1);
@@ -51,7 +53,7 @@ const days = computed(() => {
       date.setDate(start.getDate() + i);
       return {
         date,
-        value: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+        value: dateKey(date),
         current: date.getMonth() === first.getMonth(),
       };
     },

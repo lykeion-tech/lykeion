@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { matchesQuery } from '../lib/search';
 import { useRoute, useRouter } from 'vue-router';
 import { state, service, refresh, notify } from '../services/workspace';
 import { readText, writeText } from '../storage';
@@ -54,7 +55,7 @@ const agents = computed(() =>
   [...(state.data?.agents ?? [])]
     .filter(
       (x) =>
-        x.name.toLowerCase().includes(search.value.toLowerCase()) &&
+        matchesQuery(x.name, search.value) &&
         (statusFilter.value === 'all' || x.status === statusFilter.value),
     )
     .sort((a, b) => (sort.value ? a.name.localeCompare(b.name) : 0)),
@@ -115,12 +116,8 @@ async function saveProject() {
 }
 const libraryItems = computed(() =>
   props.page === 'skills'
-    ? (state.data?.skills ?? []).filter((x) =>
-        x.name.toLowerCase().includes(search.value.toLowerCase()),
-      )
-    : (state.data?.connectors ?? []).filter((x) =>
-        x.name.toLowerCase().includes(search.value.toLowerCase()),
-      ),
+    ? (state.data?.skills ?? []).filter((x) => matchesQuery(x.name, search.value))
+    : (state.data?.connectors ?? []).filter((x) => matchesQuery(x.name, search.value)),
 );
 function unavailable(feature: string) {
   notify(`${feature} requires a connected Lykeion control plane.`);

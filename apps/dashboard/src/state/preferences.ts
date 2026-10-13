@@ -2,6 +2,7 @@ import { reactive, watch } from 'vue';
 import { applyTheme } from '../theme';
 import { readJSON, writeText } from '../storage';
 import { saveSetting } from './settings-saves';
+import { validCreateFields } from '../lib/settings';
 
 const key = 'lykeion.preferences';
 export type CreateFields = { agent: string[]; manual: string[] };
@@ -25,12 +26,7 @@ function load() {
     createFieldsByWorkspace: {} as Record<string, CreateFields>,
     ...stored,
   };
-  if (
-    !prefs.createFields ||
-    !Array.isArray(prefs.createFields.agent) ||
-    !Array.isArray(prefs.createFields.manual)
-  )
-    prefs.createFields = { ...defaultCreateFields };
+  if (!validCreateFields(prefs.createFields)) prefs.createFields = { ...defaultCreateFields };
   // Preferences saved before the automatic flag existed count as automatic only in that zone.
   if (typeof stored.timeZoneAutomatic !== 'boolean')
     prefs.timeZoneAutomatic = prefs.timeZone === zone;

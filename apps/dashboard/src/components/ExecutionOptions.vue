@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { matchesQuery } from '../lib/search';
 import type { Runtime } from '../../../../packages/contracts/src/research';
 import Icon from './Icon.vue';
 import { Brain, Cpu } from '@lucide/vue';
@@ -45,15 +46,11 @@ const availableModels = computed(() =>
 );
 const filteredModels = computed(() =>
   availableModels.value.filter((x) =>
-    (x.name + ' ' + x.id + ' ' + (x.provider ?? ''))
-      .toLowerCase()
-      .includes(query.value.toLowerCase()),
+    matchesQuery(x.name + ' ' + x.id + ' ' + (x.provider ?? ''), query.value),
   ),
 );
 const filteredRuntimes = computed(() =>
-  props.runtimes.filter((x) =>
-    (x.name + ' ' + x.platform).toLowerCase().includes(query.value.toLowerCase()),
-  ),
+  props.runtimes.filter((x) => matchesQuery(x.name + ' ' + x.platform, query.value)),
 );
 const modelLabel = computed(
   () =>

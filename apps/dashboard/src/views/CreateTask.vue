@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { matchesQuery } from '../lib/search';
 import type { Inquiry } from '../../../../packages/contracts/src/research';
 import Modal from '../components/Modal.vue';
 import ComposerCalendar from '../components/ComposerCalendar.vue';
@@ -46,7 +47,7 @@ const taskMatches = computed(() =>
   query.value.trim()
     ? (state.data?.inquiries ?? []).filter(
         (x) =>
-          `${taskLabel(x.id)} ${x.title}`.toLowerCase().includes(query.value.toLowerCase()) &&
+          matchesQuery(`${taskLabel(x.id)} ${x.title}`, query.value) &&
           !childIds.value.includes(x.id),
       )
     : [],
@@ -81,15 +82,11 @@ const parentLabel = computed(() => {
 const selectedProject = computed(() => state.data?.projects.find((x) => x.id === projectId.value));
 const matches = computed(() =>
   assignees.value.filter(
-    (x) =>
-      (manual.value || x.kind === 'agent') &&
-      x.name.toLowerCase().includes(query.value.toLowerCase()),
+    (x) => (manual.value || x.kind === 'agent') && matchesQuery(x.name, query.value),
   ),
 );
 const projects = computed(() =>
-  (state.data?.projects ?? []).filter((x) =>
-    x.name.toLowerCase().includes(query.value.toLowerCase()),
-  ),
+  (state.data?.projects ?? []).filter((x) => matchesQuery(x.name, query.value)),
 );
 const priorityOptions = [
   { id: 'none', label: 'No priority' },
@@ -101,7 +98,7 @@ const priorityOptions = [
 const knownLabels = computed(() =>
   [
     ...new Set([...(state.data?.inquiries.flatMap((x) => x.labels ?? []) ?? []), ...labels.value]),
-  ].filter((x) => x.toLowerCase().includes(query.value.toLowerCase())),
+  ].filter((x) => matchesQuery(x, query.value)),
 );
 async function openMenu(name: string) {
   menu.value = menu.value === name ? '' : name;
