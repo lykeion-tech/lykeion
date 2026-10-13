@@ -3,74 +3,21 @@ import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Pin, ListX } from '@lucide/vue';
 import Icon from './Icon.vue';
+import { useWorkspaceTabs, type Tab } from '../state/workspace-tabs';
 const props = defineProps<{ title: string; icon: string; collapsed: boolean }>();
 const emit = defineEmits<{ toggle: [] }>();
 const route = useRoute();
 const router = useRouter();
-type Tab = {
-  id: number;
-  path: string;
-  title: string;
-  icon: string;
-  history: string[];
-  index: number;
-  pinned: boolean;
-};
-const validPath = (value: unknown): value is string =>
-  typeof value === 'string' && value.startsWith('/') && !value.startsWith('//');
-function initial(): Tab[] {
-  try {
-    const t = JSON.parse(sessionStorage.getItem('lykeion.tabs') || 'null');
-    if (
-      Array.isArray(t) &&
-      t.length &&
-      t.every(
-        (x) =>
-          Number.isFinite(x.id) &&
-          validPath(x.path) &&
-          typeof x.title === 'string' &&
-          typeof x.icon === 'string' &&
-          Array.isArray(x.history) &&
-          x.history.length > 0 &&
-          x.history.every(validPath) &&
-          Number.isInteger(x.index) &&
-          x.index >= 0 &&
-          x.index < x.history.length,
-      )
-    )
-      return t.map((x) => ({ ...x, pinned: x.pinned === true }));
-  } catch {
-    // Storage can be unavailable or hold bad JSON; the default tabs below apply.
-  }
-  return [
-    {
-      id: Date.now(),
-      path: route.fullPath,
-      title: props.title,
-      icon: props.icon,
-      history: [route.fullPath],
-      index: 0,
-      pinned: false,
-    },
-  ];
-}
-const tabs = ref<Tab[]>(initial());
-const savedSelected = Number(sessionStorage.getItem('lykeion.active-tab'));
-const selected = ref(
-  tabs.value.some((t) => t.id === savedSelected) ? savedSelected : tabs.value[0]!.id,
-);
+const { tabs, selected, openTab: add, ensureTab } = useWorkspaceTabs();
+ensureTab(route.fullPath, props.title, props.icon);
 const active = computed(() => tabs.value.find((t) => t.id === selected.value)!);
 let navigating = false;
-let nextId = Math.max(Date.now(), ...tabs.value.map((t) => t.id)) + 1;
 const context = ref<{ tabId: number; x: number; y: number } | null>(null);
 const contextMenu = ref<HTMLElement>();
 const contextTab = computed(() => tabs.value.find((t) => t.id === context.value?.tabId));
 const canCloseOthers = computed(() =>
   tabs.value.some((t) => t.id !== contextTab.value?.id && !t.pinned),
 );
-watch(selected, (id) => sessionStorage.setItem('lykeion.active-tab', String(id)), {
-  immediate: true,
-});
 function record() {
   if (navigating) return;
   const t = active.value;
@@ -84,7 +31,10 @@ function record() {
   t.icon = props.icon;
 }
 watch(() => [route.fullPath, props.title], record, { flush: 'post' });
-watch(tabs, (x) => sessionStorage.setItem('lykeion.tabs', JSON.stringify(x)), { deep: true });
+// A tab opened from anywhere, the new-tab button included, is selected first and shown here.
+watch(selected, () => {
+  if (!navigating) void select(active.value);
+});
 async function select(t: Tab) {
   context.value = null;
   navigating = true;
@@ -94,23 +44,6 @@ async function select(t: Tab) {
   } finally {
     navigating = false;
   }
-}
-function add(path = '/tasks', title = 'Tasks', icon = 'tasks') {
-  if (!validPath(path)) return;
-  const t: Tab = { id: nextId++, path, title, icon, history: [path], index: 0, pinned: false };
-  tabs.value.push(t);
-  void select(t);
-}
-function openRequestedTab(event: Event) {
-  const detail = (event as CustomEvent<unknown>).detail;
-  if (!detail || typeof detail !== 'object') return;
-  const value = detail as Record<string, unknown>;
-  if (validPath(value.path))
-    add(
-      value.path,
-      typeof value.title === 'string' ? value.title : 'Workspace',
-      typeof value.icon === 'string' ? value.icon : 'monitor',
-    );
 }
 async function history(delta: number) {
   const t = active.value;
@@ -250,12 +183,10 @@ onMounted(() => {
   if (active.value.path !== route.fullPath) void select(active.value);
   window.addEventListener('keydown', key);
   window.addEventListener('pointerdown', outside);
-  window.addEventListener('lykeion:open-tab', openRequestedTab);
 });
 onUnmounted(() => {
   window.removeEventListener('keydown', key);
   window.removeEventListener('pointerdown', outside);
-  window.removeEventListener('lykeion:open-tab', openRequestedTab);
 });
 </script>
 <template>

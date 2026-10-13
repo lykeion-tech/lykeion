@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { state, service, refresh, notify } from '../services/workspace';
+import { readText, writeText } from '../storage';
 import Icon from '../components/Icon.vue';
 import AvatarDisplay from '../components/AvatarDisplay.vue';
 import { GitBranch } from '@lucide/vue';
@@ -44,7 +45,7 @@ const notifications = computed(
 const sort = ref(false),
   statusFilter = ref('all'),
   expanded = ref(true),
-  automaticUpdates = ref(localStorage.getItem('lykeion.automatic-updates') !== 'false');
+  automaticUpdates = ref(readText('lykeion.automatic-updates') !== 'false');
 const agentCreation = computed(() => props.page === 'agents' && props.creation);
 const agentManual = computed(() => props.manual);
 const machines = computed(() => state.data?.machines ?? []);
@@ -151,9 +152,7 @@ const chatStarters = computed(() =>
           'Review evidence and findings',
         ].map((prompt) => ({ label: prompt, prompt })),
 );
-watch(automaticUpdates, (value) =>
-  localStorage.setItem('lykeion.automatic-updates', String(value)),
-);
+watch(automaticUpdates, (value) => writeText('lykeion.automatic-updates', String(value)));
 </script>
 <template>
   <section class="resources" :class="'resource-' + page">

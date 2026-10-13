@@ -4,13 +4,13 @@ import type {
   WorkspaceSnapshot,
 } from '../../../../packages/contracts/src/research';
 import { HttpResearchService, LocalResearchService } from './research';
-let endpoint = '';
-let startupError = '';
-try {
-  endpoint = localStorage.getItem('lykeion.api-url') ?? '';
-} catch {
-  startupError = 'Connection preferences could not be read. Local storage may be unavailable.';
-}
+import { readText, writeText } from '../storage';
+const savedEndpoint = readText('lykeion.api-url');
+const endpoint = savedEndpoint ?? '';
+let startupError =
+  savedEndpoint === undefined
+    ? 'Connection preferences could not be read. Local storage may be unavailable.'
+    : '';
 let initialService: ResearchService = new LocalResearchService();
 try {
   if (endpoint) initialService = new HttpResearchService(endpoint);
@@ -57,11 +57,8 @@ export async function connect(url: string) {
   const data = await next.load(controller.signal);
   if (current !== connectionGeneration) return;
   // Keep the previous service active unless both the probe and preference write succeed.
-  try {
-    localStorage.setItem('lykeion.api-url', cleaned);
-  } catch {
+  if (!writeText('lykeion.api-url', cleaned))
     throw new Error('Could not save connection preferences. The existing connection is unchanged.');
-  }
   generation++;
   refreshController?.abort();
   startupError = '';

@@ -82,12 +82,3 @@ export function applyTheme(id: unknown) {
   root.style.setProperty('--primary', theme.accent);
   root.style.setProperty('--hover', theme.input);
 }
-
-export function savedThemeId(): unknown {
-  try {
-    return JSON.parse(localStorage.getItem('lykeion.preferences') || '{}').theme;
-  } catch {
-    // Storage can be unavailable or hold bad JSON; the default theme applies.
-    return undefined;
-  }
-}

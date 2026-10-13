@@ -4,6 +4,9 @@ import { Pin, Trash2, CalendarDays, CalendarClock, CircleSlash, Minus } from '@l
 import { stages, type Inquiry, type Stage } from '../../../../packages/contracts/src/research';
 import { service, state, refresh, notify } from '../services/workspace';
 import Icon from './Icon.vue';
+import { usePins } from '../state/pins';
+import { useWorkspaceTabs } from '../state/workspace-tabs';
+import { useTaskComposer } from '../state/task-composer';
 const props = defineProps<{ task: Inquiry; x: number; y: number }>();
 const emit = defineEmits<{ close: [] }>();
 const menu = ref<HTMLElement>(),
@@ -11,13 +14,9 @@ const menu = ref<HTMLElement>(),
   query = ref(''),
   busy = ref(false),
   month = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-const pinned = ref<string[]>([]);
-try {
-  const saved = JSON.parse(localStorage.getItem('lykeion.pinned-tasks') || '[]');
-  if (Array.isArray(saved)) pinned.value = saved.filter((x) => typeof x === 'string');
-} catch {
-  // Storage can be unavailable or hold bad JSON; no tasks start pinned.
-}
+const { pins: pinned, togglePin: savePin } = usePins();
+const { openTab: addTab } = useWorkspaceTabs();
+const { openSubtaskComposer } = useTaskComposer();
 const left = computed(() => Math.max(8, Math.min(props.x, window.innerWidth - 212))),
   top = computed(() => Math.max(8, Math.min(props.y, window.innerHeight - 354))),
   opensLeft = computed(() => left.value + 450 > window.innerWidth);
@@ -99,16 +98,8 @@ async function change(field: string, value: string) {
   }
 }
 function togglePin() {
-  try {
-    const next = pinned.value.includes(props.task.id)
-      ? pinned.value.filter((x) => x !== props.task.id)
-      : [...pinned.value, props.task.id];
-    localStorage.setItem('lykeion.pinned-tasks', JSON.stringify(next));
-    window.dispatchEvent(new CustomEvent('lykeion:pinned-tasks'));
-    emit('close');
-  } catch {
-    notify('Could not save the sidebar pin.');
-  }
+  if (savePin(props.task.id)) emit('close');
+  else notify('Could not save the sidebar pin.');
 }
 async function copyLink() {
   try {
@@ -122,15 +113,11 @@ async function copyLink() {
   }
 }
 function openTab(id = props.task.id, title = props.task.title) {
-  window.dispatchEvent(
-    new CustomEvent('lykeion:open-tab', { detail: { path: '/tasks/' + id, title, icon: 'tasks' } }),
-  );
+  addTab('/tasks/' + id, title, 'tasks');
   emit('close');
 }
 function child() {
-  window.dispatchEvent(
-    new CustomEvent('lykeion:create-task', { detail: { parentId: props.task.id } }),
-  );
+  openSubtaskComposer(props.task.id);
   emit('close');
 }
 function unsupported(message: string) {

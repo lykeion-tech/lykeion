@@ -14,6 +14,7 @@ import type {
 } from '../../../../packages/contracts/src/research';
 
 import { stages, resourceKinds } from '../../../../packages/contracts/src/research';
+import { localStore } from '../storage';
 
 export class ServiceError extends Error {
   constructor(
@@ -314,7 +315,7 @@ function initial(): LocalState {
 }
 export class LocalResearchService implements ResearchService {
   readonly mode = 'local' as const;
-  constructor(private storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage) {}
+  constructor(private storage: Pick<Storage, 'getItem' | 'setItem'> = localStore) {}
   private read(): LocalState {
     let raw: string | null;
     try {

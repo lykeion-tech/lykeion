@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { applyTheme, themes } from '../theme';
+import { themes } from '../theme';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { state, service, apiUrl, connect, refresh, notify } from '../services/workspace';
@@ -8,6 +8,11 @@ import TokenCreationForm from '../components/settings/TokenCreationForm.vue';
 import CompactSelect from '../components/settings/CompactSelect.vue';
 import Modal from '../components/Modal.vue';
 import ColorPicker from '../components/settings/ColorPicker.vue';
+import { readJSON } from '../storage';
+import { defaultCreateFields, usePreferences } from '../state/preferences';
+import { useProfile } from '../state/profile';
+import { useSettingsDrafts, type LabelDraft, type PropertyDraft } from '../state/settings-drafts';
+import { failedSettingsSaves, saveSetting } from '../state/settings-saves';
 import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
 const router = useRouter();
 const props = defineProps<{ section: string }>();
@@ -19,24 +24,17 @@ const name = ref(state.data?.workspace.name ?? 'Lykeion');
 const context = ref(state.data?.workspace.researchContext ?? '');
 const prefix = ref(state.data?.workspace.taskPrefix ?? 'LYK');
 const endpoint = ref(apiUrl.value);
-function stored<T extends object>(key: string, fallback: T): T {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || 'null');
-    return value && typeof value === 'object' ? { ...fallback, ...value } : fallback;
-  } catch {
-    return fallback;
-  }
-}
-const profile = reactive(
-  stored('lykeion.profile', { name: '', about: '', avatar: '', careerStage: '' }),
-);
+const profile = useProfile();
 const careerStage = ref(profile.careerStage);
-const workspaceExtras = reactive(
-  stored<Record<string, { description: string; logo: string }>>('lykeion.workspace-appearance', {}),
+const savedExtras = readJSON<unknown>('lykeion.workspace-appearance', null);
+const workspaceExtras = reactive<Record<string, { description: string; logo: string }>>(
+  savedExtras && typeof savedExtras === 'object' ? { ...savedExtras } : {},
 );
 const workspaceKey = computed(() => state.data?.workspace.id || 'local');
 const extras = computed(() => workspaceExtras[workspaceKey.value]!);
-watch(workspaceExtras, (value) => persist('lykeion.workspace-appearance', value), { deep: true });
+watch(workspaceExtras, (value) => saveSetting('lykeion.workspace-appearance', value), {
+  deep: true,
+});
 // Seed the current workspace's entry before anything reads it, so the computed stays pure.
 watch(
   workspaceKey,
@@ -56,41 +54,10 @@ const createFieldNames = [
   'Due date',
   'Start date',
 ];
-const defaultFields = {
-  agent: ['Project'],
-  manual: ['Status', 'Priority', 'Assignee', 'Labels', 'Project'],
-};
-const prefs = reactive(
-  stored('lykeion.preferences', {
-    theme: 'ash',
-    pinComments: true,
-    taskOpen: 'page',
-    replyMode: 'current',
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    timeZoneAutomatic: true,
-    createFields: defaultFields,
-    createFieldsByWorkspace: {} as Record<string, { agent: string[]; manual: string[] }>,
-  }),
-);
-if (
-  !prefs.createFields ||
-  !Array.isArray(prefs.createFields.agent) ||
-  !Array.isArray(prefs.createFields.manual)
-)
-  prefs.createFields = { ...defaultFields };
+const prefs = usePreferences();
 function fieldAvailable(field: string, mode: 'agent' | 'manual') {
   return mode === 'manual' || ['Priority', 'Project', 'Due date'].includes(field);
 }
-try {
-  const saved = JSON.parse(localStorage.getItem('lykeion.preferences') || '{}');
-  if (typeof saved.timeZoneAutomatic !== 'boolean')
-    prefs.timeZoneAutomatic = prefs.timeZone === Intl.DateTimeFormat().resolvedOptions().timeZone;
-} catch {
-  // Storage can be unavailable or hold bad JSON; the defaults stay in place.
-}
-if (prefs.replyMode === 'new') prefs.replyMode = 'after';
-if (!prefs.createFieldsByWorkspace || typeof prefs.createFieldsByWorkspace !== 'object')
-  prefs.createFieldsByWorkspace = {};
 function fieldsCopy(value: { agent: string[]; manual: string[] }) {
   return { agent: [...value.agent], manual: [...value.manual] };
 }
@@ -112,7 +79,7 @@ watch(
     if (fieldWorkspace)
       prefs.createFieldsByWorkspace[fieldWorkspace] = fieldsCopy(prefs.createFields);
     const next = prefs.createFieldsByWorkspace[id];
-    prefs.createFields = fieldsCopy(validFields(next) ? next : defaultFields);
+    prefs.createFields = fieldsCopy(validFields(next) ? next : defaultCreateFields);
     fieldWorkspace = id;
   },
 );
@@ -160,35 +127,7 @@ watch(
 watch(apiUrl, (value, old) => {
   if (endpoint.value === old) endpoint.value = value;
 });
-interface LabelDraft {
-  id: string;
-  name: string;
-  description: string;
-  color: string;
-  scope: 'Tasks' | 'Skills';
-  updatedAt: string;
-}
-interface PropertyDraft {
-  id: string;
-  name: string;
-  description?: string;
-  icon?: string;
-  type: string;
-  options: string[];
-  optionColors?: string[];
-  archived: boolean;
-  updatedAt: string;
-}
-interface SettingsDraft {
-  labels: LabelDraft[];
-  properties: PropertyDraft[];
-  notifications: Record<string, boolean>;
-  repositories: { id: string; url: string }[];
-  code: { sidebar: boolean; autoLink: boolean; coAuthor: boolean };
-}
-const localSettings = reactive(
-  stored<Record<string, SettingsDraft>>('lykeion.settings-drafts', {}),
-);
+const localSettings = useSettingsDrafts();
 const settingsDraft = computed(() => localSettings[workspaceKey.value]!);
 function seedSettingsDraft(id: string) {
   localSettings[id] ||= {
@@ -207,18 +146,6 @@ function seedSettingsDraft(id: string) {
     code: { sidebar: true, autoLink: false, coAuthor: false },
   };
 }
-watch(
-  localSettings,
-  (value) => {
-    persist('lykeion.settings-drafts', value);
-    window.dispatchEvent(
-      new CustomEvent('lykeion:settings-drafts', {
-        detail: { workspaceId: state.data?.workspace.id, ...settingsDraft.value },
-      }),
-    );
-  },
-  { deep: true },
-);
 watch(workspaceKey, seedSettingsDraft, { immediate: true, flush: 'sync' });
 const labelScope = ref<'Tasks' | 'Skills'>('Tasks');
 const tableFilter = ref('');
@@ -476,24 +403,9 @@ const sectionLabels: Record<string, string> = {
   connection: 'API connection',
 };
 const title = computed(() => sectionLabels[section.value] || 'Settings');
-function persist(key: string, value: object) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    error.value = 'Your browser could not save these settings. Free storage and try again.';
-  }
-}
-watch(profile, (value) => persist('lykeion.profile', value), { deep: true });
-watch(
-  prefs,
-  (value) => {
-    persist('lykeion.preferences', value);
-    applyTheme(value.theme);
-    localStorage.setItem('lykeion.theme', document.documentElement.dataset.theme!);
-    window.dispatchEvent(new CustomEvent('lykeion:preferences', { detail: { ...value } }));
-  },
-  { deep: true, immediate: true },
-);
+watch(failedSettingsSaves, () => {
+  error.value = 'Your browser could not save these settings. Free storage and try again.';
+});
 async function avatarChanged(event: Event, workspaceLogo = false) {
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file) return;

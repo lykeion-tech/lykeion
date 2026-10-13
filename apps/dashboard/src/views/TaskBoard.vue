@@ -10,6 +10,9 @@ const layoutIcons: Record<string, unknown> = {
 };
 import { stages, type Inquiry, type Stage } from '../../../../packages/contracts/src/research';
 import { state, service, refresh, notify } from '../services/workspace';
+import { readJSON, writeJSON, writeText } from '../storage';
+import { usePreferences } from '../state/preferences';
+import { useTaskComposer } from '../state/task-composer';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
 import TaskContextMenu from '../components/TaskContextMenu.vue';
@@ -48,14 +51,9 @@ const defaults: Display = {
   swimGroup: 'Assignee',
   hierarchy: true,
 };
-function read<T>(key: string, fallback: T): T {
-  try {
-    return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-const saved = read<Partial<Display>>('lykeion.task-display', {});
+const preferences = usePreferences();
+const { openManualComposer } = useTaskComposer();
+const saved = readJSON<Partial<Display>>('lykeion.task-display', {});
 const display = reactive<Display>({
   ...defaults,
   ...saved,
@@ -75,7 +73,7 @@ function openTaskContext(task: Inquiry, event: MouseEvent | KeyboardEvent) {
   };
 }
 function createFromColumn() {
-  window.dispatchEvent(new CustomEvent('lykeion:create-task', { detail: { manual: true } }));
+  openManualComposer();
 }
 const tab = ref('All'),
   popup = ref(''),
@@ -289,13 +287,7 @@ function toggleProperty(name: string) {
     : [...display.properties, name];
 }
 function open(id: string, event?: MouseEvent) {
-  let preview = false;
-  try {
-    preview =
-      JSON.parse(localStorage.getItem('lykeion.preferences') || '{}').taskOpen === 'preview';
-  } catch {
-    // Storage can be unavailable or hold bad JSON; tasks open in full.
-  }
+  let preview = preferences.taskOpen === 'preview';
   if (event?.shiftKey) preview = !preview;
   void router.push('/tasks/' + id + (preview ? '?preview=1' : ''));
 }
@@ -401,7 +393,7 @@ function menuKeys(e: KeyboardEvent) {
   }
 }
 type SavedView = { id: string; name: string; tab: string; filters: Filters; display: Display };
-const views = ref<SavedView[]>(read('lykeion.saved-views', [])),
+const views = ref<SavedView[]>(readJSON('lykeion.saved-views', [])),
   viewDialog = ref(''),
   viewName = ref(''),
   viewTab = ref('All'),
@@ -426,14 +418,11 @@ function saveView() {
     filters: JSON.parse(JSON.stringify(viewFilters.value)),
     display: JSON.parse(JSON.stringify(display)),
   };
-  try {
-    const next = [...views.value, entry];
-    localStorage.setItem('lykeion.saved-views', JSON.stringify(next));
+  const next = [...views.value, entry];
+  if (writeJSON('lykeion.saved-views', next)) {
     views.value = next;
     viewDialog.value = '';
-  } catch {
-    viewError.value = 'This view could not be saved on this device.';
-  }
+  } else viewError.value = 'This view could not be saved on this device.';
 }
 function applyView(view: SavedView) {
   filters.value = JSON.parse(JSON.stringify(view.filters));
@@ -444,22 +433,14 @@ function applyView(view: SavedView) {
 }
 function removeView(id: string) {
   const next = views.value.filter((v) => v.id !== id);
-  try {
-    localStorage.setItem('lykeion.saved-views', JSON.stringify(next));
-    views.value = next;
-  } catch {
-    viewError.value = 'Could not remove the saved view.';
-  }
+  if (writeJSON('lykeion.saved-views', next)) views.value = next;
+  else viewError.value = 'Could not remove the saved view.';
 }
 watch(
   display,
   (value) => {
-    try {
-      localStorage.setItem('lykeion.task-display', JSON.stringify(value));
-      localStorage.setItem('lykeion.task-view', value.mode);
-    } catch {
+    if (!writeJSON('lykeion.task-display', value) || !writeText('lykeion.task-view', value.mode))
       notify('Display preferences could not be saved.');
-    }
   },
   { deep: true },
 );
@@ -479,11 +460,14 @@ const tableColumnNames = [
   'Created by',
 ];
 const tablePrefs = reactive(
-  read<{ columns: string[]; group: string; widths: Record<string, number> }>('lykeion.task-table', {
-    columns: ['Task', 'Status', 'Priority', 'Assignee', 'Due date', 'Labels'],
-    group: 'No grouping',
-    widths: {},
-  }),
+  readJSON<{ columns: string[]; group: string; widths: Record<string, number> }>(
+    'lykeion.task-table',
+    {
+      columns: ['Task', 'Status', 'Priority', 'Assignee', 'Due date', 'Labels'],
+      group: 'No grouping',
+      widths: {},
+    },
+  ),
 );
 const columnSearch = ref(''),
   tableSearch = ref(''),
@@ -725,11 +709,7 @@ function exportTasks(format: 'csv' | 'json') {
 watch(
   tablePrefs,
   (value) => {
-    try {
-      localStorage.setItem('lykeion.task-table', JSON.stringify(value));
-    } catch {
-      notify('Table preferences could not be saved.');
-    }
+    if (!writeJSON('lykeion.task-table', value)) notify('Table preferences could not be saved.');
   },
   { deep: true },
 );

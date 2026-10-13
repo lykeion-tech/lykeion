@@ -8,6 +8,10 @@ import WorkspaceTabs from './components/WorkspaceTabs.vue';
 import Aristotle from './components/Aristotle.vue';
 import CreateTask from './views/CreateTask.vue';
 import { state, workspaceName, refresh, notice, notify, service } from './services/workspace';
+import { readText, writeText } from './storage';
+import { usePins } from './state/pins';
+import { useProfile } from './state/profile';
+import { useTaskComposer } from './state/task-composer';
 const route = useRoute();
 const router = useRouter();
 const current = computed(() => route.meta.page);
@@ -54,57 +58,16 @@ const tabTitle = computed(() =>
 const headingIcon = computed(
   () => destinations.find((x) => x.id === current.value)?.icon ?? 'tasks',
 );
-const collapsed = ref(localStorage.getItem('lykeion.sidebar-collapsed') === 'true');
-const pinnedIds = ref<string[]>([]);
-const pinnedExpanded = ref(localStorage.getItem('lykeion.pinned-expanded') !== 'false');
-function readPins() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('lykeion.pinned-tasks') || '[]');
-    pinnedIds.value = Array.isArray(saved) ? saved.filter((x) => typeof x === 'string') : [];
-  } catch {
-    pinnedIds.value = [];
-  }
-}
-readPins();
+const collapsed = ref(readText('lykeion.sidebar-collapsed') === 'true');
+const { pins: pinnedIds } = usePins();
+const pinnedExpanded = ref(readText('lykeion.pinned-expanded') !== 'false');
 const pinnedTasks = computed(() =>
   pinnedIds.value
     .map((id) => state.data?.inquiries.find((t) => t.id === id))
     .filter((t): t is NonNullable<typeof t> => !!t),
 );
-watch(pinnedExpanded, (value) => {
-  try {
-    localStorage.setItem('lykeion.pinned-expanded', String(value));
-  } catch {
-    // Storage can be unavailable; the preference just is not persisted.
-  }
-});
-const initialManual = ref(false);
-const create = ref(false);
-const initialAssigneeId = ref<string>();
-const initialParentId = ref<string>();
-const initialProjectId = ref<string>();
-function openCreate(assigneeId?: string) {
-  initialManual.value = false;
-  initialAssigneeId.value = assigneeId;
-  initialParentId.value = undefined;
-  initialProjectId.value = undefined;
-  create.value = true;
-}
-function createRelated(event: Event) {
-  const detail = (event as CustomEvent).detail;
-  if (detail?.manual === true) {
-    openCreate();
-    initialManual.value = true;
-    return;
-  }
-  if (!detail || typeof detail.parentId !== 'string') return;
-  const parent = state.data?.inquiries.find((x) => x.id === detail.parentId);
-  if (!parent) return;
-  initialParentId.value = parent.id;
-  initialProjectId.value = parent.projectId ?? undefined;
-  initialAssigneeId.value = parent.assigneeId ?? undefined;
-  create.value = true;
-}
+watch(pinnedExpanded, (value) => writeText('lykeion.pinned-expanded', String(value)));
+const { composer, openComposer: openCreate, closeComposer } = useTaskComposer();
 const search = ref(false);
 const query = ref('');
 const workspaceMenu = ref(false);
@@ -115,29 +78,21 @@ const workspacePopup = ref<HTMLElement>();
 const helpPopup = ref<HTMLElement>();
 const workspaceTrigger = ref<HTMLButtonElement>();
 const helpTrigger = ref<HTMLButtonElement>();
-const localProfile = ref({ name: '', avatar: '' });
+const profile = useProfile();
+const localProfile = computed(() => ({
+  name: typeof profile.name === 'string' ? profile.name : '',
+  avatar:
+    typeof profile.avatar === 'string' && profile.avatar.startsWith('data:image/')
+      ? profile.avatar
+      : '',
+}));
 const feedback = ref(false);
 const feedbackText = ref('');
-function readProfile() {
-  try {
-    const value = JSON.parse(localStorage.getItem('lykeion.profile') || '{}');
-    localProfile.value = {
-      name: typeof value.name === 'string' ? value.name : '',
-      avatar:
-        typeof value.avatar === 'string' && value.avatar.startsWith('data:image/')
-          ? value.avatar
-          : '',
-    };
-  } catch {
-    localProfile.value = { name: '', avatar: '' };
-  }
-}
 function menuButtons(popup: HTMLElement | undefined) {
   return [...(popup?.querySelectorAll<HTMLButtonElement>('[role=menuitem]:not(:disabled)') || [])];
 }
 async function toggleWorkspace() {
   help.value = false;
-  readProfile();
   workspaceMenu.value = !workspaceMenu.value;
   if (workspaceMenu.value) {
     await nextTick();
@@ -281,7 +236,7 @@ function key(event: KeyboardEvent) {
   }
 }
 watch(collapsed, (x) => {
-  localStorage.setItem('lykeion.sidebar-collapsed', String(x));
+  writeText('lykeion.sidebar-collapsed', String(x));
   workspaceMenu.value = false;
   help.value = false;
 });
@@ -302,13 +257,9 @@ watch(
 onMounted(() => {
   void refresh();
   window.addEventListener('keydown', key);
-  window.addEventListener('lykeion:create-task', createRelated);
-  window.addEventListener('lykeion:pinned-tasks', readPins);
   window.addEventListener('pointerdown', outsidePopup);
 });
 onUnmounted(() => {
-  window.removeEventListener('lykeion:create-task', createRelated);
-  window.removeEventListener('lykeion:pinned-tasks', readPins);
   window.removeEventListener('keydown', key);
   window.removeEventListener('pointerdown', outsidePopup);
 });
@@ -533,18 +484,12 @@ onUnmounted(() => {
       <p>No tasks are running right now.</p>
     </aside>
     <CreateTask
-      v-if="create"
-      :initial-manual="initialManual"
-      :initial-assignee-id="initialAssigneeId"
-      :initial-parent-id="initialParentId"
-      :initial-project-id="initialProjectId"
-      @close="
-        create = false;
-        initialManual = false;
-        initialAssigneeId = undefined;
-        initialParentId = undefined;
-        initialProjectId = undefined;
-      "
+      v-if="composer.open"
+      :initial-manual="composer.manual"
+      :initial-assignee-id="composer.assigneeId"
+      :initial-parent-id="composer.parentId"
+      :initial-project-id="composer.projectId"
+      @close="closeComposer()"
     />
     <Modal v-if="search" title="Search" @close="search = false"
       ><div class="search-box">

@@ -6,6 +6,7 @@ import ComposerCalendar from '../components/ComposerCalendar.vue';
 import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import { state, workspaceName, service, refresh, notify } from '../services/workspace';
+import { usePreferences } from '../state/preferences';
 const props = defineProps<{
   initialManual?: boolean;
   initialAssigneeId?: string;
@@ -32,25 +33,7 @@ const manual = ref(Boolean(props.initialParentId || props.initialManual)),
   startDate = ref('');
 const priority = ref<Inquiry['priority']>('none'),
   form = ref<HTMLFormElement>();
-const defaults = {
-  agent: ['Project'],
-  manual: ['Status', 'Priority', 'Assignee', 'Labels', 'Project'],
-};
-function readFields() {
-  try {
-    const value = JSON.parse(localStorage.getItem('lykeion.preferences') ?? '{}').createFields;
-    return {
-      agent: Array.isArray(value?.agent) ? value.agent : defaults.agent,
-      manual: Array.isArray(value?.manual) ? value.manual : defaults.manual,
-    };
-  } catch {
-    return defaults;
-  }
-}
-const preferences = ref(readFields());
-function preferencesChanged() {
-  preferences.value = readFields();
-}
+const preferences = computed(() => usePreferences().createFields);
 function show(field: string) {
   return (
     preferences.value[manual.value ? 'manual' : 'agent'].includes(field) ||
@@ -232,11 +215,9 @@ async function submit() {
 }
 onMounted(() => {
   document.addEventListener('pointerdown', outside);
-  window.addEventListener('lykeion:preferences', preferencesChanged);
 });
 onUnmounted(() => {
   document.removeEventListener('pointerdown', outside);
-  window.removeEventListener('lykeion:preferences', preferencesChanged);
 });
 </script>
 <template>

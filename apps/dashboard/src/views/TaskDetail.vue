@@ -4,6 +4,10 @@ import { useRoute, useRouter } from 'vue-router';
 import type { Inquiry, InquiryDetail, Stage } from '../../../../packages/contracts/src/research';
 import { stages } from '../../../../packages/contracts/src/research';
 import { service, state, refresh, notify } from '../services/workspace';
+import { readText, writeText } from '../storage';
+import { usePreferences } from '../state/preferences';
+import { useSettingsDrafts } from '../state/settings-drafts';
+import { useTaskComposer } from '../state/task-composer';
 import Icon from '../components/Icon.vue';
 import TaskAuxiliary from '../components/TaskAuxiliary.vue';
 const props = defineProps<{ id: string }>();
@@ -66,7 +70,7 @@ function dismissProperty(event: PointerEvent) {
   if (!(event.target as HTMLElement).closest('.property-menu-anchor')) propertyMenu.value = false;
 }
 const paneWidth = ref(
-  Math.max(260, Math.min(480, Number(localStorage.getItem('lykeion.detail-width')) || 364)),
+  Math.max(260, Math.min(480, Number(readText('lykeion.detail-width')) || 364)),
 );
 type InspectorTab = 'Files' | 'Notebook' | 'Compute';
 const inspectorOpen = ref(false);
@@ -74,7 +78,7 @@ const inspectorFocused = ref(false);
 const inspectorTabs = ref<InspectorTab[]>(['Files', 'Notebook']);
 const inspectorActive = ref<InspectorTab>('Files');
 const inspectorWidth = ref(
-  Math.max(280, Math.min(720, Number(localStorage.getItem('lykeion.task-inspector-width')) || 364)),
+  Math.max(280, Math.min(720, Number(readText('lykeion.task-inspector-width')) || 364)),
 );
 function toggleInspector() {
   if (!inspectorOpen.value && !inspectorTabs.value.length) {
@@ -129,7 +133,7 @@ function inspectorResize(event: PointerEvent) {
     handle.removeEventListener('pointermove', move);
     handle.removeEventListener('pointerup', finish);
     handle.removeEventListener('pointercancel', finish);
-    localStorage.setItem('lykeion.task-inspector-width', String(inspectorWidth.value));
+    writeText('lykeion.task-inspector-width', String(inspectorWidth.value));
   };
   handle.addEventListener('pointermove', move);
   handle.addEventListener('pointerup', finish, { once: true });
@@ -142,31 +146,20 @@ function inspectorAdjust(event: KeyboardEvent) {
     280,
     Math.min(720, inspectorWidth.value + (event.key === 'ArrowLeft' ? 16 : -16)),
   );
-  localStorage.setItem('lykeion.task-inspector-width', String(inspectorWidth.value));
+  writeText('lykeion.task-inspector-width', String(inspectorWidth.value));
 }
-const pinned = ref(true);
-const showPullRequests = ref(true);
+const preferences = usePreferences();
+const { openSubtaskComposer } = useTaskComposer();
+const settingsDrafts = useSettingsDrafts();
+const pinned = computed(() => preferences.pinComments !== false);
+const showPullRequests = computed(
+  () => settingsDrafts[state.data?.workspace.id || 'local']?.code?.sidebar !== false,
+);
 let generation = 0;
 const taskCode = computed(
   () =>
     `${state.data?.workspace.taskPrefix || 'LYK'}-${Math.max(0, state.data?.inquiries.findIndex((item) => item.id === props.id) ?? 0) + 1}`,
 );
-function readPrefs() {
-  try {
-    pinned.value =
-      JSON.parse(localStorage.getItem('lykeion.preferences') || '{}').pinComments !== false;
-  } catch {
-    pinned.value = true;
-  }
-}
-function readSettings() {
-  try {
-    const values = JSON.parse(localStorage.getItem('lykeion.settings-drafts') || '{}');
-    showPullRequests.value = values[state.data?.workspace.id || 'local']?.code?.sidebar !== false;
-  } catch {
-    showPullRequests.value = true;
-  }
-}
 function date(value: string) {
   return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
@@ -249,7 +242,7 @@ function selected(event: Event) {
   return (event.target as HTMLSelectElement).value;
 }
 function persistWidth() {
-  localStorage.setItem('lykeion.detail-width', String(paneWidth.value));
+  writeText('lykeion.detail-width', String(paneWidth.value));
 }
 function resize(event: PointerEvent) {
   const start = event.clientX;
@@ -300,10 +293,7 @@ function key(event: KeyboardEvent) {
   } else if (preview.value) emit('close');
 }
 function createSubtask() {
-  if (detail.value)
-    window.dispatchEvent(
-      new CustomEvent('lykeion:create-task', { detail: { parentId: detail.value.inquiry.id } }),
-    );
+  if (detail.value) openSubtaskComposer(detail.value.inquiry.id);
 }
 watch(
   () => props.id,
@@ -314,21 +304,14 @@ watch(
     load();
   },
 );
-watch(() => state.data?.workspace.id, readSettings);
 onMounted(() => {
   document.addEventListener('pointerdown', dismissProperty);
-  readPrefs();
-  readSettings();
   load();
-  window.addEventListener('lykeion:settings-drafts', readSettings);
-  window.addEventListener('lykeion:preferences', readPrefs);
   window.addEventListener('keydown', key);
 });
 onUnmounted(() => {
   document.removeEventListener('pointerdown', dismissProperty);
   generation++;
-  window.removeEventListener('lykeion:settings-drafts', readSettings);
-  window.removeEventListener('lykeion:preferences', readPrefs);
   window.removeEventListener('keydown', key);
 });
 </script>

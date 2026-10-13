@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { state, service, refresh, notify } from '../services/workspace';
 import AvatarDisplay from './AvatarDisplay.vue';
 import Icon from './Icon.vue';
+import { useWorkspaceTabs } from '../state/workspace-tabs';
 import Modal from './Modal.vue';
 import AgentPanels from './AgentPanels.vue';
 import AgentWork from './AgentWork.vue';
@@ -14,13 +15,10 @@ const emit = defineEmits<{ assign: [string] }>();
 const router = useRouter();
 const customRuntime = ref(false),
   runtimeMenu = ref('');
+const { openTab } = useWorkspaceTabs();
 const selectedRuntimeId = computed(() => props.runtimeId ?? null);
 function openRuntimeTab(id: string, title: string) {
-  window.dispatchEvent(
-    new CustomEvent('lykeion:open-tab', {
-      detail: { path: '/runtimes/' + props.id + '/runtime/' + id, title, icon: 'network' },
-    }),
-  );
+  openTab('/runtimes/' + props.id + '/runtime/' + id, title, 'network');
   runtimeMenu.value = '';
 }
 const tab = ref('Overview'),
