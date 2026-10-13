@@ -451,12 +451,12 @@ watch(
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: #e1e1e6;
+  background: var(--fill-avatar);
   flex: none;
 }
 .resource-avatar.machine {
   border-radius: 12px;
-  background: #edecf1;
+  background: var(--fill-card);
 }
 .identity-copy {
   min-width: 0;
@@ -520,7 +520,7 @@ watch(
 }
 .stop {
   color: #e6506d;
-  background: #fbe9ed;
+  background: var(--danger-bg);
 }
 .detail-tabs {
   border-bottom: 1px solid var(--border);
@@ -610,7 +610,7 @@ watch(
 .agent-summary {
   flex: none;
   width: 320px;
-  background: #edecf1;
+  background: var(--fill-card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 0 20px;
@@ -669,7 +669,7 @@ watch(
 .metrics-chart {
   height: 42px;
   margin: 14px 14px 0;
-  border-bottom: 1px solid #cccfd3;
+  border-bottom: 1px solid var(--chart-rule);
 }
 .summary-skill {
   font-size: 12px;
@@ -729,11 +729,11 @@ watch(
   height: 48px;
   width: 100%;
   text-align: left;
-  background: #edecf1;
+  background: var(--fill-card);
   font-size: 12px;
 }
 .runtime-row:hover {
-  background: #e1e1e6;
+  background: var(--fill-control);
 }
 .runtime-row > span:first-child {
   font-size: 14px;
@@ -743,7 +743,7 @@ watch(
 }
 .runtime-row small {
   font-size: 11px;
-  background: #dedee5;
+  background: var(--fill-chip);
   padding: 1px 4px;
   border-radius: 2px;
 }

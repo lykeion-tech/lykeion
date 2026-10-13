@@ -36,7 +36,7 @@
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: #e1e1e6;
+  background: var(--fill-avatar);
   color: var(--muted);
 }
 .resource-center .button {
@@ -98,7 +98,7 @@
   font-size: 12px;
 }
 .autopilot-content > .icon {
-  color: #898c90;
+  color: var(--icon-empty);
 }
 .template-grid {
   display: grid;
@@ -202,7 +202,7 @@
 .library-filter,
 .library-toolbar label {
   border-radius: 5px;
-  background: #e1e1e6;
+  background: var(--fill-control);
   color: var(--muted);
   padding: 0 10px;
   display: flex;
@@ -259,7 +259,7 @@
 .updates-card {
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #edecf1;
+  background: var(--fill-card);
   overflow: hidden;
 }
 .updates-card > div {
@@ -332,7 +332,7 @@
   width: 44px;
   height: 44px;
   border-radius: 8px;
-  background: #e1e1e6;
+  background: var(--fill-avatar);
   color: var(--muted);
 }
 .agent-heading {
@@ -385,7 +385,7 @@
 }
 .agent-options > button {
   position: relative;
-  background: #edecf1;
+  background: var(--fill-card);
   border: 1px solid var(--border);
   border-radius: 12px;
   height: 230px;
@@ -395,8 +395,8 @@
   flex-direction: column;
 }
 .agent-options .recommended {
-  background: #fafbfc;
-  border-color: #c8d3dc;
+  background: var(--fill-recommended);
+  border-color: var(--recommend-border);
 }
 .recommend-label {
   position: absolute;
@@ -405,8 +405,8 @@
   border-radius: 12px;
   font-size: 11px;
   padding: 5px 8px;
-  background: #e8eef4;
-  color: #306587;
+  background: var(--recommend-bg);
+  color: var(--recommend-text);
 }
 .agent-options strong {
   font-size: 16px;
@@ -470,7 +470,7 @@
   font-size: 18px;
 }
 .research-create {
-  background: #e1e1e6;
+  background: var(--fill-menu);
 }
 .research-create header {
   height: 56px;
@@ -631,7 +631,7 @@
   color: var(--muted);
 }
 .conversation-empty > .icon {
-  color: #898c90;
+  color: var(--icon-empty);
 }
 .notification-filter {
   display: flex;
@@ -673,7 +673,7 @@
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #edecf1;
+  background: var(--fill-card);
   font-size: 14px;
 }
 .chat-composer {
@@ -681,13 +681,13 @@
   width: calc(100% - 48px);
   max-width: 1010px;
   border: 1px solid var(--border);
-  background: #edecf1;
+  background: var(--fill-card);
   border-radius: 10px;
   padding: 8px 12px;
 }
 .chat-composer:focus-within {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px #2f6d9926;
+  box-shadow: 0 0 0 2px var(--focus-glow-soft);
 }
 .chat-composer textarea {
   border: 0;
@@ -704,7 +704,7 @@
   gap: 6px;
 }
 .chat-composer footer > span {
-  background: #dedee5;
+  background: var(--fill-chip);
   border-radius: 3px;
   padding: 2px 7px;
   color: var(--muted);

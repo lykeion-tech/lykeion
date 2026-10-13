@@ -453,7 +453,7 @@ onUnmounted(() => {
   width: 200px;
   padding: 4px;
   border-radius: 8px;
-  background: var(--menu-bg, #e1e1e6);
+  background: var(--fill-menu);
   border: 1px solid #ffffff55;
   box-shadow: 0 6px 18px #00000012;
   font-size: 14px;
@@ -498,7 +498,7 @@ onUnmounted(() => {
   padding: 4px;
   border-radius: 8px;
   border: 1px solid #ffffff55;
-  background: var(--menu-bg, #e1e1e6);
+  background: var(--fill-menu);
   box-shadow: 0 6px 18px #00000012;
 }
 .opens-left .context-submenu {

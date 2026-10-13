@@ -373,7 +373,7 @@ async function save() {
   place-items: center;
   width: 56px;
   height: 56px;
-  background: #dfdfe6;
+  background: var(--fill-avatar-agent);
   border-radius: 50%;
 }
 .avatar-menu {
@@ -426,7 +426,7 @@ async function save() {
   grid-template-columns: 1fr 28px;
   gap: 8px;
   align-items: center;
-  background: #e8e8ee;
+  background: var(--fill-preview);
   border-radius: 7px;
   padding: 10px;
 }
@@ -436,7 +436,7 @@ async function save() {
 .chat-preview {
   padding: 12px;
   border: 1px solid var(--border);
-  background: #e8e8ee;
+  background: var(--fill-preview);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
@@ -454,7 +454,7 @@ async function save() {
   padding: 10px 12px;
   text-align: left;
   font-size: 13px;
-  background: #e0e0e7;
+  background: var(--fill-preview-button);
   border-radius: 6px;
 }
 .skills-section {
@@ -543,7 +543,7 @@ async function save() {
   background: var(--surface);
 }
 .configuration-error {
-  color: #9c3b3b;
+  color: var(--error-text-agent);
   font-size: 13px;
 }
 .sr-only {

@@ -156,7 +156,7 @@ onMounted(() => root.value?.querySelector<HTMLButtonElement>('.clear-date')?.foc
   left: 0;
   z-index: 80;
   width: 214px;
-  background: #e1e1e6;
+  background: var(--fill-menu);
   border: 1px solid #ffffff70;
   border-radius: 9px;
   box-shadow: 0 5px 16px #0002;
@@ -215,7 +215,7 @@ td > button {
   padding: 0;
 }
 .outside {
-  color: #a1a1ac;
+  color: var(--text-dim);
 }
 .selected {
   background: var(--primary);

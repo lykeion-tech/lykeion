@@ -13,10 +13,160 @@
   font-optical-sizing: auto;
   --modal: #e2e2e8;
   --shadow: 0 12px 40px #0003;
+
+  --fill-menu: #e1e1e6;
+  --fill-avatar: #e1e1e6;
+  --fill-control: #e1e1e6;
+  --fill-card: #edecf1;
+  --fill-inset: #e8e8ef;
+  --fill-preview: #e8e8ee;
+  --fill-preview-button: #e0e0e7;
+  --fill-avatar-agent: #dfdfe6;
+  --fill-disc: #dddfe3;
+  --fill-chip: #dedee5;
+  --fill-field: #e4e4e9;
+  --fill-kbd: #e0e1e5;
+  --fill-active: #d4d5da;
+  --fill-selected: #d7d9e2;
+  --fill-highlight: #d6d6dd;
+  --fill-health: #dce4e4;
+  --fill-recommended: #fafbfc;
+  --fill-raised: #ffffff;
+  --table-header: #f5f5f7;
+  --lane-bg: #fdfbf4;
+  --lane-grounding: #f3f3f5;
+  --toggle-track: #f4f4f8;
+  --switch-track: #e9e9ec;
+  --toggle-track-strong: #aaa;
+  --card-border: #e1e1e666;
+  --chart-rule: #cccfd3;
+  --control-border: #c6c8ca;
+  --handle-hover: #bbb;
+  --scrollbar-thumb: #cbcbce;
+  --icon-faint: #8c9092;
+  --icon-empty: #898c90;
+  --icon-dim: #a2a4a9;
+  --text-faint: #96999c;
+  --text-dim: #a1a1ac;
+  --launcher-ink: #747c83;
+
+  --focus-ring: #4183b0;
+  --focus-ring-field: #4c87af;
+  --focus-glow: #4c87af50;
+  --focus-glow-faint: #4c87af30;
+  --focus-glow-soft: #2f6d9926;
+  --splitter-hover: #94b3cd;
+  --fill-accent-soft: #d1dfeb;
+
+  --stage-dot: #9b9fa3;
+  --stage-hypotheses-dot: #bd82e8;
+  --stage-experimentation-dot: #e0bd65;
+  --stage-validation-dot: #5d9e6b;
+  --stage-blocked-dot: #cc7777;
+  --stage-reporting-dot: #087bc1;
+  --stage-grounding-bg: #ecedf0;
+  --stage-hypotheses-bg: #f7eeff;
+  --stage-experimentation-bg: #fbf6e9;
+  --stage-validation-bg: #ebf4ec;
+  --stage-blocked-bg: #fce8ea;
+  --stage-reporting-bg: #e9f2fa;
+
+  --error: #923f3f;
+  --error-bg: #fbebeb;
+  --error-border: #e8c6c6;
+  --error-text: var(--error);
+  --error-text-custom-runtime: #963b3b;
+  --error-text-composer: #963d39;
+  --error-text-wakeup: #9a3939;
+  --error-text-editor: #9b3030;
+  --error-text-agent: #9c3b3b;
+  --error-text-panel: #9c3c3c;
+  --error-text-aux: #a12b38;
+  --danger-bg: #fbe9ed;
+  --recommend: #306587;
+  --recommend-bg: #e8eef4;
+  --recommend-border: #c8d3dc;
+  --recommend-text: var(--recommend);
 }
+/*
+ * A light neutral grey sits P% of the way from the light surface (#ffffff) to the light text
+ * (#44494d), averaged over the channels; its dark value mixes the palette's text into its
+ * surface by the same P. Tints mix their hue into the canvas: 20% for a fill, 40% for a border.
+ */
 :root[data-theme='dark'] {
   color-scheme: dark;
   --modal: #292e35;
+
+  --fill-menu: color-mix(in srgb, var(--text) 16%, var(--surface));
+  --fill-avatar: color-mix(in srgb, var(--text) 16%, var(--surface));
+  --fill-control: color-mix(in srgb, var(--text) 16%, var(--surface));
+  --fill-card: color-mix(in srgb, var(--text) 9%, var(--surface));
+  --fill-inset: color-mix(in srgb, var(--text) 11%, var(--surface));
+  --fill-preview: color-mix(in srgb, var(--text) 11%, var(--surface));
+  --fill-preview-button: color-mix(in srgb, var(--text) 16%, var(--surface));
+  --fill-avatar-agent: color-mix(in srgb, var(--text) 16%, var(--surface));
+  --fill-disc: color-mix(in srgb, var(--text) 17%, var(--surface));
+  --fill-chip: color-mix(in srgb, var(--text) 17%, var(--surface));
+  --fill-field: color-mix(in srgb, var(--text) 14%, var(--surface));
+  --fill-kbd: color-mix(in srgb, var(--text) 16%, var(--surface));
+  --fill-active: var(--selected);
+  --fill-selected: color-mix(in srgb, var(--text) 20%, var(--surface));
+  --fill-highlight: color-mix(in srgb, var(--text) 21%, var(--surface));
+  --fill-health: color-mix(in srgb, var(--text) 16%, var(--surface));
+  --fill-recommended: color-mix(in srgb, var(--text) 2%, var(--surface));
+  --fill-raised: var(--surface);
+  --table-header: color-mix(in srgb, var(--text) 5%, var(--surface));
+  --lane-bg: color-mix(in srgb, var(--text) 3%, var(--surface));
+  --lane-grounding: color-mix(in srgb, var(--text) 6%, var(--surface));
+  --toggle-track: color-mix(in srgb, var(--text) 5%, var(--surface));
+  --switch-track: color-mix(in srgb, var(--text) 12%, var(--surface));
+  --toggle-track-strong: color-mix(in srgb, var(--text) 47%, var(--surface));
+  --card-border: color-mix(in srgb, var(--fill-menu) 40%, transparent);
+  --chart-rule: color-mix(in srgb, var(--text) 26%, var(--surface));
+  --control-border: color-mix(in srgb, var(--text) 30%, var(--surface));
+  --handle-hover: color-mix(in srgb, var(--text) 37%, var(--surface));
+  --scrollbar-thumb: color-mix(in srgb, var(--text) 28%, var(--surface));
+  --icon-faint: color-mix(in srgb, var(--text) 61%, var(--surface));
+  --icon-empty: color-mix(in srgb, var(--text) 63%, var(--surface));
+  --icon-dim: color-mix(in srgb, var(--text) 49%, var(--surface));
+  --text-faint: color-mix(in srgb, var(--text) 56%, var(--surface));
+  --text-dim: color-mix(in srgb, var(--text) 50%, var(--surface));
+  --launcher-ink: color-mix(in srgb, var(--text) 72%, var(--surface));
+
+  --focus-ring: var(--primary);
+  --focus-ring-field: var(--primary);
+  --focus-glow: color-mix(in srgb, var(--primary) 31%, transparent);
+  --focus-glow-faint: color-mix(in srgb, var(--primary) 19%, transparent);
+  --focus-glow-soft: color-mix(in srgb, var(--primary) 15%, transparent);
+  --splitter-hover: color-mix(in srgb, var(--primary) 54%, var(--surface));
+  --fill-accent-soft: color-mix(in srgb, var(--primary) 12%, var(--canvas));
+
+  /* Stage fills carry about 12% of their dot colour, the share the light pastels have. */
+  --stage-grounding-bg: color-mix(in srgb, var(--stage-dot) 12%, var(--canvas));
+  --stage-hypotheses-bg: color-mix(in srgb, var(--stage-hypotheses-dot) 12%, var(--canvas));
+  --stage-experimentation-bg: color-mix(
+    in srgb,
+    var(--stage-experimentation-dot) 12%,
+    var(--canvas)
+  );
+  --stage-validation-bg: color-mix(in srgb, var(--stage-validation-dot) 12%, var(--canvas));
+  --stage-blocked-bg: color-mix(in srgb, var(--stage-blocked-dot) 12%, var(--canvas));
+  --stage-reporting-bg: color-mix(in srgb, var(--stage-reporting-dot) 12%, var(--canvas));
+
+  --error-bg: color-mix(in srgb, var(--error) 12%, var(--canvas));
+  --error-border: color-mix(in srgb, var(--error) 40%, var(--canvas));
+  --error-text: color-mix(in srgb, var(--error) 70%, var(--text));
+  --error-text-custom-runtime: color-mix(in srgb, #963b3b 70%, var(--text));
+  --error-text-composer: color-mix(in srgb, #963d39 70%, var(--text));
+  --error-text-wakeup: color-mix(in srgb, #9a3939 70%, var(--text));
+  --error-text-editor: color-mix(in srgb, #9b3030 70%, var(--text));
+  --error-text-agent: color-mix(in srgb, #9c3b3b 70%, var(--text));
+  --error-text-panel: color-mix(in srgb, #9c3c3c 70%, var(--text));
+  --error-text-aux: color-mix(in srgb, #a12b38 70%, var(--text));
+  --danger-bg: color-mix(in srgb, #e6506d 20%, var(--canvas));
+  --recommend-bg: color-mix(in srgb, var(--recommend) 20%, var(--canvas));
+  --recommend-border: color-mix(in srgb, var(--recommend) 40%, var(--canvas));
+  --recommend-text: color-mix(in srgb, var(--recommend) 70%, var(--text));
 }
 * {
   box-sizing: border-box;
@@ -61,7 +211,7 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid #4183b0;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 h1,
@@ -144,7 +294,7 @@ small {
   border-radius: 50%;
   width: 20px;
   height: 20px;
-  background: #dddfe3;
+  background: var(--fill-disc);
   display: grid;
   place-items: center;
   font-size: 12px;
@@ -165,7 +315,7 @@ kbd {
   height: 18px;
   padding: 0 3px;
   border-radius: 3px;
-  background: #e0e1e5;
+  background: var(--fill-kbd);
   font-family: inherit;
   font-size: 11px;
   line-height: 16px;
@@ -209,7 +359,7 @@ kbd {
   padding: 0;
 }
 .sidebar-handle:hover {
-  border-left: 2px solid #bbb;
+  border-left: 2px solid var(--handle-hover);
 }
 .main-pane {
   background: var(--surface);
@@ -279,7 +429,7 @@ kbd {
   gap: 4px;
 }
 .button.active {
-  background: #d4d5da;
+  background: var(--fill-active);
   color: var(--text);
 }
 .button.primary {
@@ -331,7 +481,7 @@ kbd {
   padding-bottom: 8px;
 }
 .board-empty > .icon {
-  color: #8c9092;
+  color: var(--icon-faint);
 }
 .board-scroll {
   display: flex;
@@ -344,7 +494,6 @@ kbd {
 .board-column {
   flex: 0 0 280px;
   border-radius: 12px;
-  background: var(--input);
   min-height: 100%;
   padding: 8px 10px;
   color: var(--text);
@@ -367,42 +516,10 @@ kbd {
   height: 12px;
   border: 1.5px solid currentColor;
   border-radius: 50%;
-  color: #9b9fa3;
+  color: var(--stage-dot);
   flex: none;
 }
-.stage-hypotheses {
-  background: #f6edff;
-}
-.stage-hypotheses .stage-dot {
-  color: #bd82e8;
-}
-.stage-experimentation {
-  background: #fbf5e7;
-}
-.stage-experimentation .stage-dot {
-  color: #e0bd65;
-}
-.stage-validation {
-  background: #e9f4ec;
-}
-.stage-validation .stage-dot {
-  color: #5d9e6b;
-}
-.stage-blocked {
-  background: #f9eded;
-}
-.stage-blocked .stage-dot {
-  color: #cc7777;
-}
-.stage-reporting {
-  background: #ecf2fa;
-}
-.stage-reporting .stage-dot {
-  color: #789ed1;
-}
-.stage-done {
-  background: #edf2ef;
-}
+
 .column-empty {
   text-align: center;
   margin-top: 30px;
@@ -415,7 +532,7 @@ kbd {
   text-align: left;
   gap: 6px;
   width: 100%;
-  border: 1px solid #e1e1e666;
+  border: 1px solid var(--card-border);
   box-shadow: 0 1px 2px #00000014;
   border-radius: 8px;
   padding: 14px 12px;
@@ -621,7 +738,7 @@ kbd {
   width: 24px;
   height: 14px;
   border-radius: 10px;
-  background: #f4f4f8;
+  background: var(--toggle-track);
   position: relative;
   margin: 0;
 }
@@ -649,12 +766,12 @@ kbd {
 .inline-error {
   margin: 8px 20px;
   padding: 10px;
-  background: #fbebeb;
-  border: 1px solid #e8c6c6;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
   border-radius: 6px;
   font-size: 12px;
   line-height: 18px;
-  color: #923f3f;
+  color: var(--error-text);
 }
 .modal-heading {
   padding: 20px;
@@ -745,7 +862,7 @@ kbd {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: #dddfe3;
+  background: var(--fill-disc);
   display: grid;
   place-items: center;
   color: var(--muted);
@@ -886,7 +1003,7 @@ kbd {
   touch-action: none;
 }
 .pane-splitter:hover {
-  background: #94b3cd;
+  background: var(--splitter-hover);
 }
 .properties-pane {
   width: var(--properties-width);
@@ -1024,8 +1141,7 @@ kbd {
   width: 60px;
   height: 70px;
   border-radius: 24px;
-  background: #e4e5e7;
-  color: #747c83;
+  color: var(--launcher-ink);
   font-family: Georgia, serif;
   font-size: 40px;
   box-shadow: 0 2px 8px #0001;
@@ -1125,15 +1241,6 @@ kbd {
     transition: none !important;
   }
 }
-:root[data-theme='dark'] .board-column {
-  background: var(--input);
-}
-:root[data-theme='dark'] .button.active {
-  background: var(--selected);
-}
-:root[data-theme='dark'] kbd {
-  background: #40464e;
-}
 /* Desktop reference geometry, measured from the installed application. */
 .application,
 .application.desktop {
@@ -1214,33 +1321,10 @@ kbd {
 .board-column {
   padding: 8px 10px;
   min-height: 100%;
-  background: #ededf1;
 }
 .board-column > header {
   height: 28px;
   margin-bottom: 12px;
-}
-.stage-grounding {
-  background: #ededf1;
-}
-.stage-hypotheses {
-  background: #f7efff;
-}
-.stage-experimentation {
-  background: #fbf7eb;
-}
-.stage-validation {
-  background: #eaf4ed;
-}
-.stage-blocked {
-  background: #fbe8eb;
-}
-.stage-reporting {
-  background: #e7f2fc;
-}
-.stage-reporting .stage-dot {
-  background: #087bc1;
-  color: #087bc1;
 }
 .column-empty {
   margin-top: 36px;
@@ -1315,27 +1399,43 @@ kbd {
   width: 6px;
 }
 .board-scroll::-webkit-scrollbar-thumb {
-  background: #cbcbce;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 .board-column,
 .stage-grounding {
-  background: #ecedf0;
+  background: var(--stage-grounding-bg);
 }
 .stage-hypotheses {
-  background: #f7eeff;
+  background: var(--stage-hypotheses-bg);
+}
+.stage-hypotheses .stage-dot {
+  color: var(--stage-hypotheses-dot);
 }
 .stage-experimentation {
-  background: #fbf6e9;
+  background: var(--stage-experimentation-bg);
+}
+.stage-experimentation .stage-dot {
+  color: var(--stage-experimentation-dot);
 }
 .stage-validation {
-  background: #ebf4ec;
+  background: var(--stage-validation-bg);
+}
+.stage-validation .stage-dot {
+  color: var(--stage-validation-dot);
 }
 .stage-blocked {
-  background: #fce8ea;
+  background: var(--stage-blocked-bg);
+}
+.stage-blocked .stage-dot {
+  color: var(--stage-blocked-dot);
 }
 .stage-reporting {
-  background: #e9f2fa;
+  background: var(--stage-reporting-bg);
+}
+.stage-reporting .stage-dot {
+  background: var(--stage-reporting-dot);
+  color: var(--stage-reporting-dot);
 }
 .column-empty {
   margin-top: 42px;
@@ -1361,7 +1461,7 @@ kbd {
   border-radius: 8px;
 }
 .search-results > button.highlighted {
-  background: #d6d6dd;
+  background: var(--fill-highlight);
 }
 .running-composer {
   position: fixed;

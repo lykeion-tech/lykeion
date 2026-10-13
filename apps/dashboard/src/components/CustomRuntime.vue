@@ -125,7 +125,7 @@ const providers = computed(() => [
 <style scoped>
 .custom-runtime {
   width: 676px;
-  background: #e1e1e6;
+  background: var(--fill-menu);
 }
 .custom-runtime form {
   display: flex;
@@ -235,7 +235,7 @@ const providers = computed(() => [
 }
 .custom-runtime-error {
   padding: 0 24px 16px;
-  color: #963b3b !important;
+  color: var(--error-text-custom-runtime) !important;
 }
 .custom-runtime main > .button {
   align-self: flex-start;

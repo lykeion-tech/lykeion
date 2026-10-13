@@ -142,7 +142,7 @@ defineExpose({ open });
   display: flex;
   padding: 2px;
   border-radius: 7px;
-  background: #e1e1e6;
+  background: var(--fill-control);
   white-space: nowrap;
 }
 .wakeup-statuses > button {
@@ -153,7 +153,7 @@ defineExpose({ open });
   color: var(--muted);
 }
 .wakeup-statuses > button.active {
-  background: #edecf1;
+  background: var(--fill-card);
   box-shadow: 0 1px 2px #0001;
   color: var(--text);
 }
@@ -195,7 +195,7 @@ defineExpose({ open });
   height: 48px;
   display: grid;
   place-items: center;
-  background: #e1e1e6;
+  background: var(--fill-avatar);
   border-radius: 50%;
   color: var(--muted);
 }
@@ -218,7 +218,7 @@ defineExpose({ open });
 }
 .wakeup-picker {
   width: 386px;
-  background: #e1e1e6;
+  background: var(--fill-menu);
   position: fixed;
   top: 33.3vh;
   bottom: auto;
@@ -229,10 +229,10 @@ defineExpose({ open });
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #e4e4e9;
+  background: var(--fill-field);
   border-radius: 8px;
   padding: 7px 10px;
-  color: #96999c;
+  color: var(--text-faint);
 }
 .wakeup-picker input {
   background: none;
@@ -286,7 +286,7 @@ defineExpose({ open });
 }
 .wakeup-error {
   font-size: 13px;
-  color: #9a3939;
+  color: var(--error-text-wakeup);
 }
 @media (max-width: 1500px) {
   .wakeup-toolbar {

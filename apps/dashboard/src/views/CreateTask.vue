@@ -645,7 +645,7 @@ onUnmounted(() => {
 .task-composer {
   width: 578px;
   max-width: calc(100vw - 48px);
-  background: #e1e1e6;
+  background: var(--fill-menu);
   overflow: visible;
 }
 .task-composer.manual {
@@ -682,7 +682,7 @@ onUnmounted(() => {
   font-weight: 400;
 }
 .composer-breadcrumb > .icon {
-  color: #a2a4a9;
+  color: var(--icon-dim);
 }
 .composer-breadcrumb .icon-button {
   width: 24px;
@@ -868,7 +868,7 @@ onUnmounted(() => {
   height: 14px;
   width: 24px;
   border-radius: 12px;
-  background: #e9e9ec;
+  background: var(--switch-track);
   padding: 1px;
   display: flex;
 }
@@ -888,7 +888,7 @@ onUnmounted(() => {
   outline-offset: 3px;
 }
 .composer-error {
-  color: #963d39;
+  color: var(--error-text-composer);
   font-size: 12px;
   line-height: 18px;
   padding: 4px 20px 12px;
@@ -962,7 +962,7 @@ onUnmounted(() => {
 .more-menu {
   min-width: 164px;
   max-width: 190px;
-  background: #e1e1e6;
+  background: var(--fill-menu);
   padding: 4px;
 }
 .more-menu > button {
@@ -988,7 +988,7 @@ onUnmounted(() => {
 .task-relation-picker {
   width: 386px;
   max-width: calc(100vw - 40px);
-  background: #e1e1e6;
+  background: var(--fill-menu);
   border: 1px solid #ffffff70;
   border-radius: 14px;
   padding: 8px;

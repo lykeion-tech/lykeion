@@ -968,7 +968,7 @@ async function save() {
 </template>
 <style scoped>
 .resource-editor {
-  background: #e1e1e6;
+  background: var(--fill-menu);
 }
 .resource-editor form {
   display: flex;
@@ -1087,7 +1087,7 @@ async function save() {
   text-align: left;
   padding: 16px;
   border-radius: 8px;
-  background: #edecf1;
+  background: var(--fill-card);
   font-size: 14px;
 }
 .skill-choices small {
@@ -1100,7 +1100,7 @@ async function save() {
   border-radius: 6px;
   display: grid;
   place-items: center;
-  background: #e1e1e6;
+  background: var(--fill-avatar);
 }
 .connector-body {
   padding: 32px;
@@ -1123,7 +1123,7 @@ async function save() {
   height: 28px;
 }
 .segmented > button.active {
-  background: white;
+  background: var(--fill-raised);
   box-shadow: 0 1px 3px #0002;
 }
 .transport-options {
@@ -1144,7 +1144,7 @@ async function save() {
 }
 .transport-options > button.active {
   border-color: var(--primary);
-  background: #d7d9e2;
+  background: var(--fill-selected);
 }
 .transport-options small,
 .inline-label small {
@@ -1210,7 +1210,7 @@ async function save() {
 .autopilot-runbook textarea {
   resize: none;
   flex: 1;
-  background: white;
+  background: var(--fill-raised);
   padding: 16px;
   line-height: 23px;
 }
@@ -1242,7 +1242,7 @@ async function save() {
 .output-mode {
   display: flex;
   gap: 10px;
-  background: white;
+  background: var(--fill-raised);
   border-radius: 7px;
   text-align: left;
   padding: 10px;
@@ -1251,7 +1251,7 @@ async function save() {
 }
 .output-mode.active {
   border-color: var(--primary);
-  background: #d7d9e2;
+  background: var(--fill-selected);
 }
 .output-mode small {
   display: block;
@@ -1262,7 +1262,7 @@ async function save() {
 }
 .editor-error {
   padding: 12px 20px;
-  color: #9b3030;
+  color: var(--error-text-editor);
   font-size: 13px;
 }
 .editor-machine,
@@ -1476,7 +1476,7 @@ async function save() {
 }
 .webhook-explanation {
   padding: 12px;
-  background: white;
+  background: var(--fill-raised);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 12px;
@@ -1496,7 +1496,7 @@ async function save() {
 .event-filter-fields input {
   min-width: 0;
   padding: 7px 8px !important;
-  background: white;
+  background: var(--fill-raised);
   font-size: 12px !important;
 }
 .event-filter-fields input:first-child {
@@ -1720,7 +1720,7 @@ async function save() {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: white;
+  background: var(--fill-raised);
   border: 1px solid var(--border);
   border-radius: 7px;
   padding: 0 12px;
@@ -1840,8 +1840,8 @@ async function save() {
   font-size: 12px;
 }
 .resource-editor input:focus-visible {
-  outline: 2px solid #4c87af;
-  box-shadow: 0 0 0 4px #4c87af50;
+  outline: 2px solid var(--focus-ring-field);
+  box-shadow: 0 0 0 4px var(--focus-glow);
   outline-offset: 0;
 }
 .editor-autopilot {
@@ -1864,7 +1864,7 @@ async function save() {
   place-items: center;
   width: 20px;
   height: 20px;
-  background: #d1dfeb;
+  background: var(--fill-accent-soft);
   color: var(--primary);
   border-radius: 4px;
 }
@@ -1928,7 +1928,7 @@ async function save() {
   position: relative;
   display: flex;
   align-items: center;
-  background: white;
+  background: var(--fill-raised);
   border-radius: 7px;
   height: 44px;
   flex: none;
@@ -1976,7 +1976,7 @@ async function save() {
   margin-top: 1px;
   width: 16px;
   height: 16px;
-  border: 1px solid #c6c8ca;
+  border: 1px solid var(--control-border);
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -2067,8 +2067,8 @@ async function save() {
   margin-top: 4px;
 }
 .interval-value:focus-within {
-  outline: 2px solid #4c87af;
-  box-shadow: 0 0 0 4px #4c87af30;
+  outline: 2px solid var(--focus-ring-field);
+  box-shadow: 0 0 0 4px var(--focus-glow-faint);
 }
 .interval-value input:focus-visible {
   outline: 0;

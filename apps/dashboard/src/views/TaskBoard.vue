@@ -1610,7 +1610,7 @@ onUnmounted(() => {
   z-index: 40;
   top: calc(100% + 4px);
   right: 0;
-  background: var(--menu-bg, #e1e1e6);
+  background: var(--fill-menu);
   border: 1px solid #ffffff55;
   box-shadow: 0 6px 16px #00000012;
   border-radius: 8px;
@@ -1756,7 +1756,7 @@ onUnmounted(() => {
   appearance: none;
   width: 24px;
   height: 14px;
-  background: #aaa;
+  background: var(--toggle-track-strong);
   border-radius: 10px;
   position: relative;
   cursor: pointer;
@@ -1834,7 +1834,7 @@ onUnmounted(() => {
 }
 .view-dialog {
   width: 578px;
-  background: #e1e1e6;
+  background: var(--fill-menu);
 }
 .view-dialog header {
   padding: 16px;
@@ -1988,7 +1988,7 @@ onUnmounted(() => {
   position: relative;
 }
 .tasks-table th {
-  background: #f5f5f7;
+  background: var(--table-header);
   font-weight: 400;
   font-size: 12px;
   letter-spacing: 0.3px;
@@ -2104,7 +2104,7 @@ onUnmounted(() => {
   padding: 8px;
 }
 .table-columns-popover input:focus {
-  outline: 2px solid #4183b0;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 .table-columns-popover input {
@@ -2155,7 +2155,7 @@ onUnmounted(() => {
   padding: 0 12px;
   gap: 8px;
   font-size: 12px;
-  background: #fdfbf4;
+  background: var(--lane-bg);
 }
 .swimlane-headings strong {
   font-weight: 500;
@@ -2165,7 +2165,7 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .lane-status-grounding {
-  background: #f3f3f5 !important;
+  background: var(--lane-grounding) !important;
 }
 .lane-title {
   display: flex;
@@ -2184,7 +2184,7 @@ onUnmounted(() => {
 .swimlane-cell {
   min-height: 144px;
   border-radius: 12px;
-  background: #fdfbf4;
+  background: var(--lane-bg);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -2233,7 +2233,7 @@ onUnmounted(() => {
   position: absolute;
   right: 0;
   top: calc(100% + 4px);
-  background: #e1e1e6;
+  background: var(--fill-menu);
   box-shadow: 0 4px 12px #0001;
   white-space: nowrap;
   padding: 10px 12px;

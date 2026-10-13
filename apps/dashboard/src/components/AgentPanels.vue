@@ -517,7 +517,7 @@ function toggleConnector(id: string) {
   overflow-wrap: anywhere;
 }
 .agent-panel-content > .panel-error {
-  color: #9c3c3c;
+  color: var(--error-text-panel);
   font-size: 13px;
 }
 </style>

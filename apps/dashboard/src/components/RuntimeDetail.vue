@@ -157,7 +157,7 @@ const agents = computed(() => state.data?.agents.filter((x) => x.runtimeId === p
   gap: 16px;
 }
 .runtime-info {
-  background: #edecf1;
+  background: var(--fill-card);
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
@@ -178,12 +178,12 @@ const agents = computed(() => state.data?.agents.filter((x) => x.runtimeId === p
   place-items: center;
   width: 36px;
   height: 36px;
-  background: #e8e8ef;
+  background: var(--fill-inset);
   border-radius: 6px;
 }
 .runtime-health {
   font-size: 12px;
-  background: #dce4e4;
+  background: var(--fill-health);
   color: var(--muted);
   border-radius: 14px;
   padding: 2px 8px;
@@ -221,7 +221,7 @@ const agents = computed(() => state.data?.agents.filter((x) => x.runtimeId === p
   grid-template-columns: 1fr 1fr;
   gap: 20px;
   padding: 14px 16px;
-  background: #e8e8ef;
+  background: var(--fill-inset);
 }
 .runtime-technical > div {
   display: flex;
@@ -292,7 +292,7 @@ const agents = computed(() => state.data?.agents.filter((x) => x.runtimeId === p
 .visibility-toggle {
   display: flex;
   align-self: flex-start;
-  background: #e1e1e6;
+  background: var(--fill-control);
   width: fit-content;
   border-radius: 6px;
   margin-top: 6px;

@@ -988,7 +988,7 @@ onUnmounted(() => {
 }
 .aux-error {
   font-size: 12px;
-  color: #a12b38;
+  color: var(--error-text-aux);
   padding: 8px 0;
 }
 .run-timeline-modal {
