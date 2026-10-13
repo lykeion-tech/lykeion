@@ -161,8 +161,6 @@ Reads: `GET /v1/session`, `/v1/capabilities`, `/v1/workspaces`; workspace-relati
 | programme.propose-policy | prior_policy_ref, candidate_ref, impact_classification_ref | Eligible proposer; DecisionItem, never active policy |
 | programme.apply-policy | approved_decision_ref, candidate_ref | Control service verifies exact approval; policy version + reassessment; policy.activated |
 | member.invite | destination, requested_role, expires_at | Authorized human; invitation delivery requires explicit user intent; membership not active until acceptance |
-| member.request-access-change | member_id, requested_access, expires_at | Owner/admin requests a pinned membership decision; requesting alone changes no access |
-| workspace.request-owner-transfer | recipient_member_id, expires_at | Current owner requests acceptance by the named active member; the requester cannot accept for them |
 | member.change-access | member_id, requested_access, approved_decision_ref | Human-authorized expansion; access/stream invalidation events |
 | invitation.revoke | invitation_id, reason | Authorized workspace administrator; unused proof becomes invalid |
 | member.remove | member_id, ownership_handoff_ref?, reason | Authorized administrator; revoke grants/subscriptions and re-evaluate attributed active work; preserve authorship/history |
@@ -172,12 +170,6 @@ Reads: `GET /v1/session`, `/v1/capabilities`, `/v1/workspaces`; workspace-relati
 | preference.update | preference_kind, value | Current human; presentation settings only; preference.changed |
 
 Authentication login/callback/logout/device authorization routes are provider-specific adapters selected in S00. Publish their schemas then; never expose a bootstrap-owner endpoint beyond authenticated installation setup. API token issuance uses `credential.issue` with approved decision, scopes and expiry; return the secret once through a credential-specific response/secure channel, never an operation event or reusable receipt. `credential.revoke` targets its ID. Enrollment credentials are separate.
-
-S01 installation-account binding: `member.invite.destination` is the exact installation user ID until a verified-email delivery adapter exists. The creator can retrieve the pending proof through `GET /v1/workspaces/{w}/invitations/{id}/proof`; no proof appears in receipts, events or diagnostics. This is manual private handoff, not email delivery. Invitations expire within a caller-selected period of at most 30 days. Only an owner can invite administrators. Requesting, accepting, revoking and consuming a proof are serialized under the workspace lock.
-
-Membership decisions are read at `/membership-decisions`, scoped to the requester or responder. The S01 `decision.respond` wire subset accepts only these membership decisions, with an exact decision revision, `approve` or `reject`, and pinned workspace/membership subject versions. Access changes require the authorized administrator's structured response; ownership transfer requires the recipient's. The successful response atomically applies the previously authorized effect and records its receipt. `member.change-access` and `workspace.transfer-owner` are internal effects of this response in S01, not independently callable bypasses. Expired, consumed or changed subjects cannot be approved. Scientific decision types remain unavailable until their S02 authority is implemented.
-
-Colleagues is the canonical membership-management page. Preserve its existing introduction and compact colleague rows; add invitation, access-decision and leave controls within that page. The sidebar label and route remain **Colleagues** and `/colleagues`. No separate Members navigation item is introduced. Rows show actual account roles; absent verified email is not fabricated.
 
 ### F02–F04 Inquiries, shared requests, board and planning
 
@@ -526,10 +518,3 @@ Retention is separate from task completion: release references, negative/failed 
 Operational endpoints: `GET /health/live` (process liveness), `GET /health/ready` (required store/schema readiness; no credentials exposed), and operator-authenticated `/metrics`. Track outbox/replay lag, dropped ephemeral frames, slow consumers, worker lease/claim age, terminal quarantine, artifact availability, storage pressure, review queue and budget settlement errors. Structured logs use attempt/operation/correlation IDs and redact secrets. Backup/restore tests cover PostgreSQL, artifact roots and daemon journals; restore cannot revive expired grants or trigger replayed scientific work. These are infrastructure health signals, never evidence of scientific validity.
 
 See the [inventory gap audit](../../research/multica-reference/API-GAP-AUDIT.md) for all reference capabilities, their existing coverage and the changes made here. No source implementation, module boundary or dependency list is adopted by this audit.
-
-
-## S02 initial artifact inspection contract (implemented subset)
-
-`GET /v1/workspaces/{workspace_id}/artifacts/{artifact_id}/content` returns an `ArtifactContent` read envelope: the exact immutable `artifact_ref`, `authored_kind`, and `content_base64` bytes. It is bounded to the existing 64 KiB configuration upload subset. Authorization is by logical artifact ID and author within an active workspace membership; a raw hash is never an access token. Programme read permission does not silently confer configuration-content access. Both manifest and content reads verify the database manifest against its CAS bytes and each referenced blob against its SHA-256. Missing or altered bytes fail with `ARTIFACT_INTEGRITY_FAILURE`; they are not returned as valid content.
-
-Migration 008 rejects updates/deletes of sealed artifact rows. New versions require new submissions; future supersession/revocation records will append lifecycle information. This database guard does not claim protection from a database superuser or implement the later approved-erasure protocol. Produced outputs still cannot use `artifact.submit`: its closed authored-kind list accepts only the three configuration kinds. Daemon capture/terminal receipt ingestion remains S04/S05. CLI reads and the desktop bridge use the same author-scoped public endpoint. Scientific acceptance, reviewer selection and role configuration remain separate S02 work.

@@ -11,11 +11,7 @@ import CreateTask from './views/CreateTask.vue';
 import TaskDetail from './views/TaskDetail.vue';
 import ResourceView from './views/ResourceView.vue';
 import SettingsView from './views/SettingsView.vue';
-import Members from './components/Members.vue';
-import Programmes from './components/Programmes.vue';
-import {control,selectWorkspace,logoutControl,refreshControl,restoreControl} from './services/control';
-import { state, workspaceName as localWorkspaceName, refresh, notice, notify, service } from './services/workspace';
-const workspaceName=computed(()=>control.active?(control.workspace?.name??'Lykeion'):localWorkspaceName.value);
+import { state, workspaceName, refresh, notice, notify, service } from './services/workspace';
 const route = useRoute(); const router = useRouter();
 const current = computed(() => route.path.split('/')[1] || 'tasks');
 const groups = [
@@ -34,7 +30,7 @@ readPins();const pinnedTasks=computed(()=>pinnedIds.value.map(id=>state.data?.in
 watch(pinnedExpanded,value=>{try{localStorage.setItem('lykeion.pinned-expanded',String(value));}catch{}});
 const initialManual=ref(false);
 const create = ref(false); const initialAssigneeId = ref<string>(); const initialParentId=ref<string>(); const initialProjectId=ref<string>();
-function openCreate(assigneeId?: string) { if(control.active){notify('Inquiry creation is not supported by this service yet.');return;} initialManual.value=false; initialAssigneeId.value=assigneeId; initialParentId.value=undefined; initialProjectId.value=undefined; create.value=true; }
+function openCreate(assigneeId?: string) { initialManual.value=false; initialAssigneeId.value=assigneeId; initialParentId.value=undefined; initialProjectId.value=undefined; create.value=true; }
 function createRelated(event:Event) { const detail=(event as CustomEvent).detail;if(detail?.manual===true){openCreate();initialManual.value=true;return;}if(!detail||typeof detail.parentId!=='string')return;const parent=state.data?.inquiries.find(x=>x.id===detail.parentId);if(!parent)return;initialParentId.value=parent.id;initialProjectId.value=parent.projectId??undefined;initialAssigneeId.value=parent.assigneeId??undefined;create.value=true; } const search = ref(false); const query = ref(''); const workspaceMenu = ref(false); const help = ref(false); const aristotle = ref(false);
 const desktop = Boolean(window.lykeionDesktop);
 const workspacePopup=ref<HTMLElement>();const helpPopup=ref<HTMLElement>();const workspaceTrigger=ref<HTMLButtonElement>();const helpTrigger=ref<HTMLButtonElement>();
@@ -68,7 +64,7 @@ function key(event: KeyboardEvent) {
 watch(collapsed, x => {localStorage.setItem('lykeion.sidebar-collapsed', String(x));workspaceMenu.value=false;help.value=false;});
 watch(()=>route.fullPath,()=>{workspaceMenu.value=false;help.value=false;});
 watch(heading, x => { document.title = `${x} | Lykeion`; }, {immediate:true});
-onMounted(() => { void restoreControl();void refresh(); window.addEventListener('keydown',key); window.addEventListener('lykeion:create-task',createRelated);window.addEventListener('lykeion:pinned-tasks',readPins);window.addEventListener('pointerdown',outsidePopup);window.addEventListener('lykeion:preferences',applySavedTheme); });
+onMounted(() => { void refresh(); window.addEventListener('keydown',key); window.addEventListener('lykeion:create-task',createRelated);window.addEventListener('lykeion:pinned-tasks',readPins);window.addEventListener('pointerdown',outsidePopup);window.addEventListener('lykeion:preferences',applySavedTheme); });
 onUnmounted(() => {window.removeEventListener('lykeion:create-task',createRelated);window.removeEventListener('lykeion:pinned-tasks',readPins);window.removeEventListener('keydown',key);window.removeEventListener('pointerdown',outsidePopup);window.removeEventListener('lykeion:preferences',applySavedTheme);});
 </script>
 <template>
@@ -77,34 +73,25 @@ onUnmounted(() => {window.removeEventListener('lykeion:create-task',createRelate
     <aside class="sidebar" aria-label="Workspace navigation">
       <button ref="workspaceTrigger" class="workspace-switch nav-item" data-shell-menu-trigger aria-haspopup="menu" :aria-expanded="workspaceMenu" aria-controls="workspace-menu" @click="toggleWorkspace" @keydown.down.prevent="!workspaceMenu&&toggleWorkspace()"><span class="workspace-avatar">{{ workspaceName[0] }}</span><span>{{ workspaceName }}</span><Icon name="down" class="push-right" :size="14" /></button>
       <div v-if="workspaceMenu" id="workspace-menu" ref="workspacePopup" class="shell-popup workspace-popup" role="menu" aria-label="Workspace" @keydown="popupKey($event,workspacePopup,'workspace')">
-        <button class="workspace-profile" role="menuitem" @click="go('settings?tab=profile')"><span class="profile-menu-avatar"><img v-if="localProfile.avatar" :src="localProfile.avatar" alt=""/><template v-else>{{(control.session?.display_name||localProfile.name||'Local profile')[0]?.toUpperCase()}}</template></span><span>{{control.session?.display_name||localProfile.name||'Local profile'}}<small>{{control.session?'Signed in':service.mode==='local'?'This device':'Account details unavailable'}}</small></span></button>
+        <button class="workspace-profile" role="menuitem" @click="go('settings?tab=profile')"><span class="profile-menu-avatar"><img v-if="localProfile.avatar" :src="localProfile.avatar" alt=""/><template v-else>{{(localProfile.name||'Local profile')[0]?.toUpperCase()}}</template></span><span>{{localProfile.name||'Local profile'}}<small>{{service.mode==='local'?'This device':'Account details unavailable'}}</small></span></button>
         <div class="shell-menu-divider"/><small class="workspace-menu-label">Workspaces</small>
-        <button v-for="workspace in control.active?control.workspaces:[]" :key="workspace.id" role="menuitem" @click="selectWorkspace(workspace.id);workspaceMenu=false"><span class="workspace-avatar">{{workspace.name[0]}}</span>{{workspace.name}}<Icon v-if="control.workspace?.id===workspace.id" name="check" class="push-right" :size="14"/></button>
-        <button v-if="!control.active" role="menuitem" @click="go('tasks')"><span class="workspace-avatar">{{workspaceName[0]}}</span>{{workspaceName}}<Icon name="check" class="push-right" :size="14"/></button>
+        <button role="menuitem" @click="go('tasks')"><span class="workspace-avatar">{{workspaceName[0]}}</span>{{workspaceName}}<Icon name="check" class="push-right" :size="14"/></button>
         <button role="menuitem" disabled title="Creating workspaces requires a workspace service"><Icon name="plus" :size="16"/>Create workspace</button>
-        <div class="shell-menu-divider"/><button role="menuitem" class="danger-menu-item" :disabled="!control.session" @click="logoutControl().catch(e=>notify(e.message));workspaceMenu=false" :title="control.session?'Sign out of this account':service.mode==='local'?'This local workspace has no signed-in session':'Account sign-out is not available through this connection'"><Icon name="logout" :size="16"/>Log out</button>
+        <div class="shell-menu-divider"/><button role="menuitem" class="danger-menu-item" disabled :title="service.mode==='local'?'This local workspace has no signed-in session':'Account sign-out is not available through this connection'"><Icon name="logout" :size="16"/>Log out</button>
       </div>
-      <div class="quick-actions"><button class="nav-item" @click="search=true;query=''" aria-label="Search..."><Icon name="search" />Search...<span class="push-right shortcuts"><kbd>⌘</kbd><kbd>K</kbd></span></button><button class="nav-item" :disabled="control.active" :title="control.active?'Inquiry creation is not supported by this service yet':undefined" aria-label="New" aria-keyshortcuts="C" @click="openCreate()"><Icon name="edit" />New<kbd class="push-right">C</kbd></button></div>
+      <div class="quick-actions"><button class="nav-item" @click="search=true;query=''" aria-label="Search..."><Icon name="search" />Search...<span class="push-right shortcuts"><kbd>⌘</kbd><kbd>K</kbd></span></button><button class="nav-item" aria-label="New" aria-keyshortcuts="C" @click="openCreate()"><Icon name="edit" />New<kbd class="push-right">C</kbd></button></div>
       <nav><template v-for="(group,groupIndex) in groups" :key="group.name"><section v-if="groupIndex===1&&pinnedTasks.length" class="nav-group pinned-task-group"><button class="nav-caption pinned-caption" :aria-label="`Pinned ${pinnedTasks.length}`" :aria-expanded="pinnedExpanded" @click="pinnedExpanded=!pinnedExpanded">Pinned<Icon :name="pinnedExpanded?'down':'right'" :size="11"/></button><template v-if="pinnedExpanded"><RouterLink v-for="task in pinnedTasks" :key="task.id" :to="'/tasks/'+task.id" class="nav-item" :class="{selected:route.path==='/tasks/'+task.id}"><Icon :name="task.status==='done'?'check':'circle'" :class="task.status==='blocked'?'pinned-blocked':''" :size="14"/><span>{{task.title}}</span></RouterLink></template></section><section class="nav-group"><div v-if="group.name" class="nav-caption">{{ group.name }}</div><RouterLink v-for="item in group.items" :key="item.id" :to="'/'+item.id" class="nav-item" :class="{selected:current===item.id}" :aria-current="current===item.id?'page':undefined"><Icon :name="item.icon" />{{ item.name }}</RouterLink></section></template></nav>
       <div class="sidebar-bottom"><RouterLink to="/updates" class="nav-item" :class="{selected:current==='updates'}"><Icon name="download" />Updates</RouterLink><div class="settings-line"><RouterLink to="/settings" class="nav-item" :class="{selected:current==='settings'}"><Icon name="settings" />Settings</RouterLink><button ref="helpTrigger" class="icon-button" aria-label="Help" data-shell-menu-trigger aria-haspopup="menu" :aria-expanded="help" aria-controls="help-menu" @click="toggleHelp" @keydown.up.prevent="!help&&toggleHelp()"><Icon name="help" /></button></div></div>
     </aside>
     <button class="sidebar-handle" aria-label="Toggle left sidebar" @click="collapsed=!collapsed" />
     <main class="main-pane">
       <header v-if="!['settings','chat','inbox'].includes(current)" class="page-header"><button v-if="collapsed" class="icon-button" aria-label="Toggle left sidebar" @click="collapsed=false"><Icon name="sidebar" /></button><h1>{{ heading }}</h1></header>
-      <div v-if="!control.active&&state.loading" class="center-empty" role="status"><Icon name="refresh" :size="28" /><span>Loading workspace…</span></div>
-      <div v-else-if="!control.active&&state.error" class="center-empty" role="alert"><Icon name="link" :size="32" /><p>{{ state.error }}</p><button class="button" @click="refresh">Try again</button><button class="text-button" @click="go('settings/connection')">Connection settings</button></div>
-      <SettingsView v-if="current==='settings' && (!state.loading||control.active)" />
-      <Members v-else-if="current==='colleagues'" manage page/>
-      <template v-else-if="control.active">
-        <div v-if="control.loading" class="center-empty" role="status">Loading workspace…</div>
-        <div v-else-if="control.error||!control.workspace" class="center-empty" role="alert"><p>{{control.error||'No workspace selected.'}}</p><button class="button" @click="refreshControl().catch(()=>{})">Refresh</button><button class="text-button" @click="go('settings/connection')">Connection settings</button></div>
-
-        <Programmes v-else-if="current==='projects'"/>
-        <div v-else class="center-empty"><Icon name="link" :size="28"/><p>{{heading}} is not supported by this service yet.</p><button class="button" @click="go('colleagues')">View colleagues</button></div>
-      </template>
+      <div v-if="state.loading" class="center-empty" role="status"><Icon name="refresh" :size="28" /><span>Loading workspace…</span></div>
+      <div v-else-if="state.error" class="center-empty" role="alert"><Icon name="link" :size="32" /><p>{{ state.error }}</p><button class="button" @click="refresh">Try again</button><button class="text-button" @click="go('settings/connection')">Connection settings</button></div>
+      <SettingsView v-if="current==='settings' && !state.loading" />
       <TaskBoard v-else-if="!state.error && !state.loading && ['tasks','my-tasks'].includes(current)" :personal="current==='my-tasks'" @create="openCreate()" />
       <ResourceView v-else-if="!state.error && !state.loading" :page="current" @create-task="openCreate()" @assign-agent="openCreate" />
-      <TaskDetail v-if="!control.active && current==='tasks' && route.path.split('/')[2]" :id="route.path.split('/')[2]" @close="go('tasks')" />
+      <TaskDetail v-if="current==='tasks' && route.path.split('/')[2]" :id="route.path.split('/')[2]" @close="go('tasks')" />
     </main>
     <button v-if="current!=='chat' && !aristotle" class="aristotle-launcher" :aria-expanded="aristotle" aria-label="Open Aristotle" @click="aristotle=!aristotle"><Aristotle /></button>
     <aside v-if="aristotle" class="running-composer" aria-label="Running task composer"><header><button class="text-button" @click="notify('No tasks are running right now.')">Choose a running task <Icon name="down" :size="12"/></button><button class="icon-button" aria-label="Close composer" @click="aristotle=false"><Icon name="close"/></button></header><Aristotle :portrait="false"/><p>No tasks are running right now.</p></aside>
@@ -122,7 +109,3 @@ onUnmounted(() => {window.removeEventListener('lykeion:create-task',createRelate
 </style>
 
 <style scoped>.pinned-caption{display:flex;align-items:center;gap:4px;width:100%;text-align:left}.pinned-task-group .nav-item>span{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.pinned-blocked{color:#dc354d}</style>
-
-<style scoped>.connected-members{padding:24px 32px;overflow:auto;flex:1}</style>
-
-<style scoped>.workspace-switch>.workspace-avatar{flex:none}.workspace-switch>span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}</style>

@@ -125,22 +125,6 @@
       "authority_and_effect": "Authorized human; invitation delivery requires explicit user intent; membership not active until acceptance"
     },
     {
-      "name": "member.request-access-change",
-      "feature_group": [
-        "F01"
-      ],
-      "payload_design": "member_id, requested_access, expires_at",
-      "authority_and_effect": "Owner/admin requests a pinned membership decision; requesting alone changes no access"
-    },
-    {
-      "name": "workspace.request-owner-transfer",
-      "feature_group": [
-        "F01"
-      ],
-      "payload_design": "recipient_member_id, expires_at",
-      "authority_and_effect": "Current owner requests acceptance by the named active member; the requester cannot accept for them"
-    },
-    {
       "name": "member.change-access",
       "feature_group": [
         "F01"
