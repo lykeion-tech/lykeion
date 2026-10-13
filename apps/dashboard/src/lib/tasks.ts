@@ -3,7 +3,7 @@ import {
   type Inquiry,
   type WorkspaceSnapshot,
 } from '../../../../packages/contracts/src/research';
-import { shortDate } from './dates';
+import { parseDateKey, shortDate } from './dates';
 
 // The slice of the workspace that task views look names and relations up in.
 export type Directory = Pick<
@@ -55,16 +55,12 @@ export function projectName(id: string | null, dir: Lookup) {
 
 // "Due today" is the 24 hours after local midnight; earlier is overdue.
 export function dueBucket(dueDate: string | null | undefined, now = new Date()) {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const due = dueDate ? new Date(dueDate) : null;
-  return !due
-    ? 'No due date'
-    : due < today
-      ? 'Overdue'
-      : due.getTime() < today.getTime() + 86400000
-        ? 'Due today'
-        : 'Upcoming';
+  if (!dueDate) return 'No due date';
+  // A bare date names a local calendar day; Date would read it as UTC midnight.
+  const due = /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? parseDateKey(dueDate) : new Date(dueDate);
+  const day = (d: Date) => d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate();
+  const diff = day(due) - day(now);
+  return diff < 0 ? 'Overdue' : diff === 0 ? 'Due today' : 'Upcoming';
 }
 
 // The values a task carries in a filter category; a filter option matches any of them.

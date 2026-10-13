@@ -155,6 +155,11 @@ describe('task filters', () => {
     expect(dueBucket(new Date(2026, 5, 10, 23, 59).toISOString(), now)).toBe('Due today');
     expect(dueBucket(new Date(2026, 5, 11, 0, 0).toISOString(), now)).toBe('Upcoming');
   });
+  it('keeps the whole 25-hour day when daylight saving ends', () => {
+    const now = new Date(2026, 9, 25, 9, 0);
+    expect(dueBucket(new Date(2026, 9, 25, 23, 30).toISOString(), now)).toBe('Due today');
+    expect(dueBucket(new Date(2026, 9, 26, 0, 0).toISOString(), now)).toBe('Upcoming');
+  });
 });
 
 describe('task sorting and grouping', () => {
