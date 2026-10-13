@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { useRouter } from 'vue-router';
 import { state, service, refresh, notify } from '../services/workspace';
 import AvatarDisplay from './AvatarDisplay.vue';
 import Icon from './Icon.vue';
@@ -9,15 +9,12 @@ import AgentPanels from './AgentPanels.vue';
 import AgentWork from './AgentWork.vue';
 import RuntimeDetail from './RuntimeDetail.vue';
 import CustomRuntime from './CustomRuntime.vue';
-const props = defineProps<{ kind: 'agents' | 'machines'; id: string }>();
+const props = defineProps<{ kind: 'agents' | 'machines'; id: string; runtimeId?: string }>();
 const emit = defineEmits<{ assign: [string] }>();
-const router = useRouter(),
-  route = useRoute();
+const router = useRouter();
 const customRuntime = ref(false),
   runtimeMenu = ref('');
-const selectedRuntimeId = computed(() =>
-  route.path.split('/')[3] === 'runtime' ? route.path.split('/')[4] : null,
-);
+const selectedRuntimeId = computed(() => props.runtimeId ?? null);
 function openRuntimeTab(id: string, title: string) {
   window.dispatchEvent(
     new CustomEvent('lykeion:open-tab', {

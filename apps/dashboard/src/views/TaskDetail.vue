@@ -523,7 +523,7 @@ onUnmounted(() => {
             v-if="preview"
             class="icon-button"
             aria-label="Open full page"
-            @click="router.replace({ path: route.path, query: {} })"
+            @click="router.replace({ query: {} })"
           >
             <Icon name="expand" /></button
           ><button

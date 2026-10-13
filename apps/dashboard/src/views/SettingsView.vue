@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { applyTheme, themes } from '../theme';
 import { computed, reactive, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRouter } from 'vue-router';
 import { state, service, apiUrl, connect, refresh, notify } from '../services/workspace';
 import Icon from '../components/Icon.vue';
 import TokenCreationForm from '../components/settings/TokenCreationForm.vue';
@@ -9,9 +9,9 @@ import CompactSelect from '../components/settings/CompactSelect.vue';
 import Modal from '../components/Modal.vue';
 import ColorPicker from '../components/settings/ColorPicker.vue';
 import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
-const route = useRoute();
 const router = useRouter();
-const section = computed(() => String(route.query.tab || route.path.split('/')[2] || 'profile'));
+const props = defineProps<{ section: string }>();
+const section = computed(() => props.section);
 const query = ref('');
 const error = ref('');
 const busy = ref(false);

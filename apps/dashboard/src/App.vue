@@ -6,15 +6,12 @@ import { History, MessageCircle } from '@lucide/vue';
 import Modal from './components/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
 import Aristotle from './components/Aristotle.vue';
-import TaskBoard from './views/TaskBoard.vue';
 import CreateTask from './views/CreateTask.vue';
-import TaskDetail from './views/TaskDetail.vue';
-import ResourceView from './views/ResourceView.vue';
-import SettingsView from './views/SettingsView.vue';
 import { state, workspaceName, refresh, notice, notify, service } from './services/workspace';
 const route = useRoute();
 const router = useRouter();
-const current = computed(() => route.path.split('/')[1] || 'tasks');
+const current = computed(() => route.meta.page);
+const taskId = computed(() => (current.value === 'tasks' ? route.params.taskId : undefined));
 const groups = [
   {
     name: '',
@@ -48,13 +45,11 @@ const destinations = [
   { id: 'updates', name: 'Updates', icon: 'download' },
   { id: 'settings', name: 'Settings', icon: 'settings' },
 ];
-const heading = computed(() => destinations.find((x) => x.id === current.value)?.name ?? 'Tasks');
+const heading = computed(() => route.meta.title ?? 'Tasks');
 const tabTitle = computed(() =>
-  route.path.startsWith('/tasks/')
-    ? (state.data?.inquiries.find((x) => x.id === route.path.split('/')[2])?.title ?? heading.value)
-    : route.path.startsWith('/agents/new')
-      ? 'Create Agent'
-      : heading.value,
+  taskId.value
+    ? (state.data?.inquiries.find((x) => x.id === taskId.value)?.title ?? heading.value)
+    : (route.meta.tabTitle ?? heading.value),
 );
 const headingIcon = computed(
   () => destinations.find((x) => x.id === current.value)?.icon ?? 'tasks',
@@ -324,7 +319,7 @@ onUnmounted(() => {
     :class="{
       'sidebar-hidden': collapsed,
       desktop,
-      'task-detail-open': current === 'tasks' && Boolean(route.path.split('/')[2]),
+      'task-detail-open': Boolean(taskId),
     }"
   >
     <WorkspaceTabs
@@ -427,7 +422,7 @@ onUnmounted(() => {
                 :key="task.id"
                 :to="'/tasks/' + task.id"
                 class="nav-item"
-                :class="{ selected: route.path === '/tasks/' + task.id }"
+                :class="{ selected: taskId === task.id }"
                 ><Icon
                   :name="task.status === 'done' ? 'check' : 'circle'"
                   :class="task.status === 'blocked' ? 'pinned-blocked' : ''"
@@ -479,7 +474,7 @@ onUnmounted(() => {
       @click="collapsed = !collapsed"
     />
     <main class="main-pane">
-      <header v-if="!['settings', 'chat', 'inbox'].includes(current)" class="page-header">
+      <header v-if="!['settings', 'chat', 'inbox'].includes(current ?? '')" class="page-header">
         <button
           v-if="collapsed"
           class="icon-button"
@@ -499,23 +494,23 @@ onUnmounted(() => {
         <button class="button" @click="refresh">Try again</button
         ><button class="text-button" @click="go('settings/connection')">Connection settings</button>
       </div>
-      <SettingsView v-if="current === 'settings' && !state.loading" />
-      <TaskBoard
-        v-else-if="!state.error && !state.loading && ['tasks', 'my-tasks'].includes(current)"
-        :personal="current === 'my-tasks'"
-        @create="openCreate()"
-      />
-      <ResourceView
-        v-else-if="!state.error && !state.loading"
-        :page="current"
-        @create-task="openCreate()"
-        @assign-agent="openCreate"
-      />
-      <TaskDetail
-        v-if="current === 'tasks' && route.path.split('/')[2]"
-        :id="route.path.split('/')[2]"
-        @close="go('tasks')"
-      />
+      <RouterView v-slot="{ Component }">
+        <component :is="Component" v-if="current === 'settings' && !state.loading" />
+        <component
+          :is="Component"
+          v-else-if="
+            !state.error && !state.loading && ['tasks', 'my-tasks'].includes(current ?? '')
+          "
+          @create="openCreate()"
+        />
+        <component
+          :is="Component"
+          v-else-if="!state.error && !state.loading"
+          @create-task="openCreate()"
+          @assign-agent="openCreate"
+        />
+      </RouterView>
+      <RouterView v-if="taskId" name="detail" @close="go('tasks')" />
     </main>
     <button
       v-if="current !== 'chat' && !aristotle"

@@ -10,7 +10,13 @@ import ResourceEditor from '../components/ResourceEditor.vue';
 import AgentConfiguration from '../components/AgentConfiguration.vue';
 import ResourceDetail from '../components/ResourceDetail.vue';
 import TaskWakeups from '../components/TaskWakeups.vue';
-const props = defineProps<{ page: string }>();
+const props = defineProps<{
+  page: string;
+  resourceId?: string;
+  runtimeId?: string;
+  creation?: boolean;
+  manual?: boolean;
+}>();
 const emit = defineEmits<{ createTask: []; assignAgent: [string] }>();
 const router = useRouter(),
   route = useRoute();
@@ -39,16 +45,10 @@ const sort = ref(false),
   statusFilter = ref('all'),
   expanded = ref(true),
   automaticUpdates = ref(localStorage.getItem('lykeion.automatic-updates') !== 'false');
-const agentCreation = computed(() => props.page === 'agents' && route.path.includes('/new'));
-const agentManual = computed(() => route.path.endsWith('/manual'));
+const agentCreation = computed(() => props.page === 'agents' && props.creation);
+const agentManual = computed(() => props.manual);
 const machines = computed(() => state.data?.machines ?? []);
-const detailId = computed(() =>
-  ['agents', 'runtimes'].includes(props.page) &&
-  route.path.split('/')[2] &&
-  route.path.split('/')[2] !== 'new'
-    ? route.path.split('/')[2]
-    : null,
-);
+const detailId = computed(() => props.resourceId ?? null);
 const agents = computed(() =>
   [...(state.data?.agents ?? [])]
     .filter(
@@ -710,6 +710,7 @@ watch(automaticUpdates, (value) =>
     <ResourceDetail
       v-if="detailId"
       :id="detailId"
+      :runtime-id="runtimeId"
       :kind="page === 'agents' ? 'agents' : 'machines'"
       @assign="emit('assignAgent', $event)"
     />
