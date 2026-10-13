@@ -210,60 +210,6 @@ async function copyFeedback() {
     notify('Clipboard access was unavailable. You can select and copy the feedback.');
   }
 }
-function applySavedTheme() {
-  try {
-    const theme = JSON.parse(localStorage.getItem('lykeion.preferences') || '{}').theme || 'ash';
-    const palettes: Record<string, Record<string, string>> = {
-      ash: {
-        canvas: '#f2f2f2',
-        surface: '#fff',
-        input: '#edeef2',
-        text: '#44494d',
-        muted: '#666a6d',
-        border: '#e9e9eb',
-        primary: '#3274a4',
-        selected: '#c9cacf',
-      },
-      midnight: {
-        canvas: '#1e1e21',
-        surface: '#0f0f0f',
-        input: '#151518',
-        text: '#f0f0f2',
-        muted: '#bdbdbf',
-        border: '#2a292c',
-        primary: '#d25f66',
-        selected: '#444447',
-      },
-      dawn: {
-        canvas: '#38323b',
-        surface: '#2a232c',
-        input: '#382a3c',
-        text: '#f0eef3',
-        muted: '#c6bec9',
-        border: '#413b44',
-        primary: '#aa4278',
-        selected: '#615662',
-      },
-      pale: {
-        canvas: '#373b4a',
-        surface: '#2a2d40',
-        input: '#2a2d40',
-        text: '#eceef7',
-        muted: '#c6c8d4',
-        border: '#414456',
-        primary: '#8054c4',
-        selected: '#545866',
-      },
-    };
-    const palette = palettes[theme] || palettes.ash!;
-    for (const [key, value] of Object.entries(palette))
-      document.documentElement.style.setProperty('--' + key, value);
-    document.documentElement.style.setProperty('--hover', palette.input!);
-  } catch {
-    // Storage can be unavailable or hold bad JSON; the default theme stays in place.
-  }
-}
-applySavedTheme();
 const foundPages = computed(() =>
   (query.value ? destinations : []).filter((x) =>
     x.name.toLowerCase().includes(query.value.toLowerCase()),
@@ -364,14 +310,12 @@ onMounted(() => {
   window.addEventListener('lykeion:create-task', createRelated);
   window.addEventListener('lykeion:pinned-tasks', readPins);
   window.addEventListener('pointerdown', outsidePopup);
-  window.addEventListener('lykeion:preferences', applySavedTheme);
 });
 onUnmounted(() => {
   window.removeEventListener('lykeion:create-task', createRelated);
   window.removeEventListener('lykeion:pinned-tasks', readPins);
   window.removeEventListener('keydown', key);
   window.removeEventListener('pointerdown', outsidePopup);
-  window.removeEventListener('lykeion:preferences', applySavedTheme);
 });
 </script>
 <template>

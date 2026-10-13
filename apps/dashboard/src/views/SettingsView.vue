@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { applyTheme, themes } from '../theme';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { state, service, apiUrl, connect, refresh, notify } from '../services/workspace';
@@ -475,60 +476,6 @@ const sectionLabels: Record<string, string> = {
   connection: 'API connection',
 };
 const title = computed(() => sectionLabels[section.value] || 'Settings');
-const themes = [
-  {
-    id: 'ash',
-    name: 'Ash',
-    description: "Clean white light theme in the logo's blue.",
-    surface: '#ffffff',
-    canvas: '#f2f2f2',
-    input: '#edeef2',
-    text: '#44494d',
-    muted: '#666a6d',
-    border: '#e9e9eb',
-    accent: '#3274a4',
-    selected: '#c9cacf',
-  },
-  {
-    id: 'midnight',
-    name: 'Midnight',
-    description: 'Near-black with a rose accent.',
-    surface: '#0f0f0f',
-    canvas: '#1e1e21',
-    input: '#151518',
-    text: '#f0f0f2',
-    muted: '#bdbdbf',
-    border: '#2a292c',
-    accent: '#d25f66',
-    selected: '#444447',
-  },
-  {
-    id: 'dawn',
-    name: 'Dawn',
-    description: 'Warm plum dark theme with a magenta accent.',
-    surface: '#2a232c',
-    canvas: '#38323b',
-    input: '#382a3c',
-    text: '#f0eef3',
-    muted: '#c6bec9',
-    border: '#413b44',
-    accent: '#aa4278',
-    selected: '#615662',
-  },
-  {
-    id: 'pale',
-    name: 'Pale',
-    description: 'Cool indigo dark theme with a violet accent.',
-    surface: '#2a2d40',
-    canvas: '#373b4a',
-    input: '#2a2d40',
-    text: '#eceef7',
-    muted: '#c6c8d4',
-    border: '#414456',
-    accent: '#8054c4',
-    selected: '#545866',
-  },
-];
 function persist(key: string, value: object) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
@@ -541,16 +488,8 @@ watch(
   prefs,
   (value) => {
     persist('lykeion.preferences', value);
-    const theme = themes.find((item) => item.id === value.theme) || themes[0]!;
-    const root = document.documentElement;
-    root.dataset.theme = theme.id === 'ash' ? 'light' : 'dark';
-    root.dataset.palette = theme.id;
-    for (const key of ['surface', 'canvas', 'input', 'text', 'muted', 'border'] as const)
-      root.style.setProperty('--' + key, theme[key]);
-    root.style.setProperty('--primary', theme.accent);
-    root.style.setProperty('--hover', theme.input);
-    root.style.setProperty('--selected', theme.selected);
-    localStorage.setItem('lykeion.theme', root.dataset.theme);
+    applyTheme(value.theme);
+    localStorage.setItem('lykeion.theme', document.documentElement.dataset.theme!);
     window.dispatchEvent(new CustomEvent('lykeion:preferences', { detail: { ...value } }));
   },
   { deep: true, immediate: true },

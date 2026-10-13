@@ -6,34 +6,16 @@
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
-  color: #44494d;
-  background: #f0f0f0;
+  color: var(--text);
+  background: var(--canvas);
   font-size: 14px;
   font-synthesis: none;
   font-optical-sizing: auto;
-  --canvas: #f0f0f0;
-  --surface: #fff;
-  --text: #44494d;
-  --muted: #666a6d;
-  --border: #e9e9ea;
-  --selected: #c8cacf;
-  --hover: #e3e4e7;
-  --input: #ebebf0;
-  --primary: #2f6d99;
-  --modal: #dcdde3;
+  --modal: #e2e2e8;
   --shadow: 0 12px 40px #0003;
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --canvas: #191b1e;
-  --surface: #222529;
-  --text: #dfe2e5;
-  --muted: #9da4aa;
-  --border: #353a40;
-  --selected: #3c4652;
-  --hover: #30363d;
-  --input: #2d3239;
-  --primary: #528ab5;
   --modal: #292e35;
 }
 * {
@@ -1153,13 +1135,6 @@ kbd {
   background: #40464e;
 }
 /* Desktop reference geometry, measured from the installed application. */
-:root {
-  --canvas: #f2f2f2;
-  --input: #ededf1;
-  --primary: #3274a4;
-  --selected: #ccccd1;
-  --modal: #e2e2e8;
-}
 .application,
 .application.desktop {
   padding: 62px 8px 8px 0;
@@ -1320,33 +1295,6 @@ kbd {
   .page-header {
     padding: 0 20px;
   }
-}
-:root[data-palette='midnight'] {
-  --canvas: #181818;
-  --surface: #111;
-  --input: #242424;
-  --text: #e1e1e3;
-  --muted: #a1a1a5;
-  --border: #333;
-  --primary: #d56373;
-}
-:root[data-palette='dawn'] {
-  --canvas: #251e29;
-  --surface: #2c2430;
-  --input: #392d40;
-  --text: #e8dfe9;
-  --muted: #b9aabc;
-  --border: #48394e;
-  --primary: #aa4b87;
-}
-:root[data-palette='pale'] {
-  --canvas: #222536;
-  --surface: #292c3c;
-  --input: #35394d;
-  --text: #e4e4ef;
-  --muted: #b2b4c9;
-  --border: #484d65;
-  --primary: #8560bf;
 }
 .nav-group + .nav-group {
   margin-top: 10px;
