@@ -2,8 +2,9 @@
 import {ref,computed,watch} from 'vue';
 import {control,currentMember,controlCommand,submitConfiguration} from '../services/control';
 import type {Model} from '../../../../packages/api-client/src/control';
+import {liveSelection} from '../services/live-selection';
 import Modal from './Modal.vue';import Icon from './Icon.vue';
-const creating=ref(false),selected=ref<Model<'Programme'>>(),name=ref(''),objective=ref(''),profile=ref(''),policy=ref(''),error=ref(''),busy=ref(false),key=ref('');
+const creating=ref(false),selected=liveSelection(()=>control.programmes),name=ref(''),objective=ref(''),profile=ref(''),policy=ref(''),error=ref(''),busy=ref(false),key=ref('');
 const sharing=ref(false),recipient=ref(''),permission=ref('read');
 const currency=ref(''),model=ref(''),cpu=ref(''),gpu=ref(''),elapsed=ref('');
 let profileRef:Model<'Ref'>|undefined,policyRef:Model<'Ref'>|undefined;

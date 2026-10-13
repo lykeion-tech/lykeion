@@ -42,3 +42,11 @@ Verification: 22 Go tests passed with the race detector against isolated Postgre
 ### S01 socket failure acceptance
 
 Added real WebSocket cases for session expiry, presence targeting an unauthorized workspace, replay overflow requiring resynchronization, and invalid-cursor recovery on the same connection. All four subcases pass; the full Go race suite now has 23 test functions. Session validity is checked before each queued event, alongside authorization epoch/membership, so revocation cannot leave the remainder of a loaded batch authorized. This extends transport acceptance; it does not complete the remaining paired-client UI and CLI cases.
+
+### S01 closure checks, first step (2026-10-13)
+
+Added an authenticated CLI lifecycle test against the real disposable PostgreSQL service: login, read, pinned command, same-key replay, changed-body rejection, logout and credential revocation. Added snapshot-to-WebSocket gap coverage across two distinct server instances, including private-cursor rejection for another member. All 25 Go tests pass with the race detector.
+
+Paired native/browser verification found that a revoked programme disappeared from the list but its already-open detail retained cached content. Details now retain only a selected identity and resolve content against the latest authorized projection. A regression covers revision refresh, revocation and no automatic reopening after a later grant. Membership details use the same boundary. All 22 frontend tests and typecheck pass.
+
+Observed in the disposable workspace: invitation acceptance, programme hidden before sharing, programme visible after read grant, and member demotion propagated to the browser. A pending recipient ownership-transfer approval was blocked by automatic approval review; explicit user permission has been requested. S01 is not marked complete until that test and revocation retest finish.

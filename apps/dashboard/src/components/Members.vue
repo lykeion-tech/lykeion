@@ -2,12 +2,14 @@
 import {ref,computed,watch} from 'vue';
 import {control,currentMember,canManageMembers,controlCommand,invitationProof} from '../services/control';
 import type {Model} from '../../../../packages/api-client/src/control';
+import {liveSelection} from '../services/live-selection';
 import Modal from './Modal.vue';import Icon from './Icon.vue';
 defineProps<{manage?:boolean;page?:boolean}>();
-const dialog=ref(''),selected=ref<Model<'Member'>>(),invite=ref<Model<'Invitation'>>(),destination=ref(''),access=ref('member'),days=ref(7),reason=ref(''),error=ref(''),busy=ref(false),proof=ref(''),createdId=ref('');
+const dialog=ref(''),selected=liveSelection(()=>control.members),invite=ref<Model<'Invitation'>>(),destination=ref(''),access=ref('member'),days=ref(7),reason=ref(''),error=ref(''),busy=ref(false),proof=ref(''),createdId=ref('');
 const decision=ref<Model<'MembershipDecision'>>();const choice=ref('approve');
 const operationKey=ref('');
 function open(kind:string,member?:Model<'Member'>,invitation?:Model<'Invitation'>){dialog.value=kind;selected.value=member;invite.value=invitation;error.value='';reason.value='';proof.value='';operationKey.value=crypto.randomUUID();}
+watch(selected,value=>{if(!value&&dialog.value==='detail')dialog.value='';});
 watch(()=>control.workspace?.id,()=>{dialog.value='';proof.value='';});
 const actionable=computed(()=>control.commands.includes(dialog.value==='invite'?'member.invite':dialog.value==='decision'?'decision.respond':dialog.value==='transfer'?'workspace.request-owner-transfer':dialog.value==='access'?'member.request-access-change':dialog.value==='revoke'?'invitation.revoke':dialog.value==='leave'?'member.leave':'member.remove'));
 async function submit(){busy.value=true;error.value='';try{
