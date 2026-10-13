@@ -33,11 +33,17 @@ const careerStage = ref(profile.careerStage);
 const workspaceExtras = reactive(
   stored<Record<string, { description: string; logo: string }>>('lykeion.workspace-appearance', {}),
 );
-const extras = computed(() => {
-  const id = state.data?.workspace.id || 'local';
-  return workspaceExtras[id] || (workspaceExtras[id] = { description: '', logo: '' });
-});
+const workspaceKey = computed(() => state.data?.workspace.id || 'local');
+const extras = computed(() => workspaceExtras[workspaceKey.value]!);
 watch(workspaceExtras, (value) => persist('lykeion.workspace-appearance', value), { deep: true });
+// Seed the current workspace's entry before anything reads it, so the computed stays pure.
+watch(
+  workspaceKey,
+  (id) => {
+    workspaceExtras[id] ||= { description: '', logo: '' };
+  },
+  { immediate: true, flush: 'sync' },
+);
 const prefixEditing = ref(false);
 const logoInput = ref<HTMLInputElement>();
 const createFieldNames = [
@@ -78,7 +84,9 @@ try {
   const saved = JSON.parse(localStorage.getItem('lykeion.preferences') || '{}');
   if (typeof saved.timeZoneAutomatic !== 'boolean')
     prefs.timeZoneAutomatic = prefs.timeZone === Intl.DateTimeFormat().resolvedOptions().timeZone;
-} catch {}
+} catch {
+  // Storage can be unavailable or hold bad JSON; the defaults stay in place.
+}
 if (prefs.replyMode === 'new') prefs.replyMode = 'after';
 if (!prefs.createFieldsByWorkspace || typeof prefs.createFieldsByWorkspace !== 'object')
   prefs.createFieldsByWorkspace = {};
@@ -180,27 +188,24 @@ interface SettingsDraft {
 const localSettings = reactive(
   stored<Record<string, SettingsDraft>>('lykeion.settings-drafts', {}),
 );
-const settingsDraft = computed(() => {
-  const id = state.data?.workspace.id || 'local';
-  return (
-    localSettings[id] ||
-    (localSettings[id] = {
-      labels: [],
-      properties: [],
-      notifications: {
-        assignments: true,
-        status: true,
-        comments: true,
-        mentions: true,
-        priority: true,
-        agents: true,
-        system: false,
-      },
-      repositories: [],
-      code: { sidebar: true, autoLink: false, coAuthor: false },
-    })
-  );
-});
+const settingsDraft = computed(() => localSettings[workspaceKey.value]!);
+function seedSettingsDraft(id: string) {
+  localSettings[id] ||= {
+    labels: [],
+    properties: [],
+    notifications: {
+      assignments: true,
+      status: true,
+      comments: true,
+      mentions: true,
+      priority: true,
+      agents: true,
+      system: false,
+    },
+    repositories: [],
+    code: { sidebar: true, autoLink: false, coAuthor: false },
+  };
+}
 watch(
   localSettings,
   (value) => {
@@ -213,6 +218,7 @@ watch(
   },
   { deep: true },
 );
+watch(workspaceKey, seedSettingsDraft, { immediate: true, flush: 'sync' });
 const labelScope = ref<'Tasks' | 'Skills'>('Tasks');
 const tableFilter = ref('');
 const showArchived = ref(false);

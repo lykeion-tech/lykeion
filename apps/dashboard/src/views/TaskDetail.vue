@@ -414,6 +414,7 @@ onUnmounted(() => {
               detail.inquiry[field] ||
               shownFields.includes(field === 'startDate' ? 'Start date' : 'Due date')
             "
+            :key="field"
             ><span>{{ field === 'startDate' ? 'Start date' : 'Due date' }}</span
             ><input
               type="date"
@@ -452,7 +453,12 @@ onUnmounted(() => {
               <Icon name="plus" :size="12" />Add property
             </button>
             <div v-if="propertyMenu" class="property-add-menu" role="menu" @keydown="propertyKeys">
-              <button v-for="field in optionalFields" role="menuitem" @click="addField(field.name)">
+              <button
+                v-for="field in optionalFields"
+                :key="field.name"
+                role="menuitem"
+                @click="addField(field.name)"
+              >
                 <Icon :name="field.icon" :size="14" />{{ field.name }}
               </button>
             </div>

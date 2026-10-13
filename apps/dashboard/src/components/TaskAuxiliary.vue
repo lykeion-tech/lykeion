@@ -325,7 +325,7 @@ onUnmounted(() => {
           <summary>Wakeups {{ drafts.length }}<Icon name="down" :size="12" /></summary>
           <div class="aux-records">
             <p v-if="!drafts.length">No wakeups are scheduled.</p>
-            <article v-for="draft in drafts">
+            <article v-for="draft in drafts" :key="draft.id">
               <strong>{{
                 conditionGroups.flatMap((x) => x.items).find((x) => x.id === draft.condition)?.label
               }}</strong
@@ -349,7 +349,7 @@ onUnmounted(() => {
           <summary>Pull requests<Icon name="down" :size="12" /></summary>
           <div class="aux-records">
             <p v-if="!pullRequests.length">No linked pull requests.</p>
-            <article v-for="pr in pullRequests">
+            <article v-for="pr in pullRequests" :key="pr.id">
               <span class="pr-url">{{ pr.url }}</span
               ><small>URL saved · unverified</small>
             </article>
@@ -394,6 +394,7 @@ onUnmounted(() => {
         <p class="latest-caption">Latest</p>
         <button
           v-for="run in [...runs].reverse().slice(0, 3)"
+          :key="run.id"
           class="run-preview"
           @click="
             timeline = true;
@@ -437,10 +438,11 @@ onUnmounted(() => {
               <Icon name="circle" :size="13" />{{ conditionLabel }}<Icon name="down" :size="12" />
             </button>
             <div v-if="conditionsOpen" class="condition-menu" role="menu">
-              <section v-for="group in conditionGroups">
+              <section v-for="group in conditionGroups" :key="group.name">
                 <small v-if="group.name">{{ group.name }}</small
                 ><button
                   v-for="item in group.items"
+                  :key="item.id"
                   type="button"
                   role="menuitem"
                   @click="selectCondition(item.id)"
@@ -471,7 +473,7 @@ onUnmounted(() => {
           ><label v-else-if="condition === 'reply'"
             >Who<select v-model="parameters.personId">
               <option value="">Anyone</option>
-              <option v-for="person in state.data?.colleagues" :value="person.id">
+              <option v-for="person in state.data?.colleagues" :key="person.id" :value="person.id">
                 {{ person.name }}
               </option>
             </select></label
@@ -514,6 +516,7 @@ onUnmounted(() => {
                 <option value="">Choose task</option>
                 <option
                   v-for="task in state.data?.inquiries.filter((x) => x.id !== detail.inquiry.id)"
+                  :key="task.id"
                   :value="task.id"
                 >
                   {{ task.title }}
@@ -532,7 +535,9 @@ onUnmounted(() => {
           <span>Wake</span
           ><select v-model="agentId">
             <option value="">Choose an agent</option>
-            <option v-for="agent in state.data?.agents" :value="agent.id">{{ agent.name }}</option>
+            <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
+              {{ agent.name }}
+            </option>
           </select>
         </div>
         <label class="wake-instructions"
@@ -618,6 +623,7 @@ onUnmounted(() => {
         >
           <line
             v-for="y in [10, 45, 80, 115, 150]"
+            :key="y"
             x1="0"
             x2="850"
             :y1="y"
@@ -628,6 +634,7 @@ onUnmounted(() => {
           <polyline :points="costLine" fill="none" stroke="#3274a4" stroke-width="2" />
           <rect
             v-for="run in runs.filter((x) => x.endedAt)"
+            :key="run.id"
             :x="runBar(run).x"
             y="156"
             :width="runBar(run).width"
@@ -643,12 +650,12 @@ onUnmounted(() => {
         Cost timeline unavailable: complete cost and timing receipts are required.
       </p>
       <div class="cost-legend">
-        <span v-for="(name, index) in ['Input', 'Output', 'Cache read', 'Cache write']"
+        <span v-for="(name, index) in ['Input', 'Output', 'Cache read', 'Cache write']" :key="name"
           ><i :class="'cost-' + index" />{{ name }}</span
         >
       </div>
       <div class="run-list">
-        <div v-for="run in [...runs].reverse()" class="run-row">
+        <div v-for="run in [...runs].reverse()" :key="run.id" class="run-row">
           <time>{{
             new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }}</time
@@ -669,7 +676,7 @@ onUnmounted(() => {
               class="cost-breakdown"
               @mouseleave="hoveredRun = null"
             >
-              <div v-for="(part, index) in run.costParts">
+              <div v-for="(part, index) in run.costParts" :key="part.kind">
                 <i :class="'cost-' + index" /><span>{{ part.kind.replace('-', ' ') }}</span
                 ><span>{{ part.tokens.toLocaleString() }}</span
                 ><span>{{ money(part.costUsd) }}</span>

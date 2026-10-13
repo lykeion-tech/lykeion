@@ -14,7 +14,7 @@ import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
 import TaskContextMenu from '../components/TaskContextMenu.vue';
 defineProps<{ personal?: boolean }>();
-const emit = defineEmits<{ create: [] }>();
+defineEmits<{ create: [] }>();
 const router = useRouter();
 const categories = [
   'Status',
@@ -293,7 +293,9 @@ function open(id: string, event?: MouseEvent) {
   try {
     preview =
       JSON.parse(localStorage.getItem('lykeion.preferences') || '{}').taskOpen === 'preview';
-  } catch {}
+  } catch {
+    // Storage can be unavailable or hold bad JSON; tasks open in full.
+  }
   if (event?.shiftKey) preview = !preview;
   void router.push('/tasks/' + id + (preview ? '?preview=1' : ''));
 }
@@ -780,7 +782,7 @@ onUnmounted(() => {
             "
           >
             <Icon name="settings" />Manage views</button
-          ><button v-for="view in views" role="menuitem" @click="applyView(view)">
+          ><button v-for="view in views" :key="view.id" role="menuitem" @click="applyView(view)">
             {{ view.name }}
           </button>
         </div>
@@ -827,7 +829,7 @@ onUnmounted(() => {
           aria-label="Filter"
           @keydown="menuKeys"
         >
-          <div v-for="category in categories" class="category">
+          <div v-for="category in categories" :key="category" class="category">
             <button
               role="menuitem"
               :data-category="category"
@@ -847,6 +849,7 @@ onUnmounted(() => {
             >
               <button
                 v-for="option in options(category)"
+                :key="option.value"
                 role="menuitemcheckbox"
                 :aria-checked="filters[category]?.includes(option.value) || false"
                 @click="toggleFilter(category, option.value)"
@@ -904,6 +907,7 @@ onUnmounted(() => {
           >
             <button
               v-for="name in ['No grouping', 'Status', 'Assignee', 'Project']"
+              :key="name"
               role="menuitemradio"
               :aria-checked="tablePrefs.group === name"
               @click="
@@ -940,6 +944,7 @@ onUnmounted(() => {
               v-for="name in tableColumnNames.filter((x) =>
                 x.toLowerCase().includes(columnSearch.toLowerCase()),
               )"
+              :key="name"
               role="menuitemcheckbox"
               :aria-checked="tablePrefs.columns.includes(name)"
               :disabled="name === 'Task'"
@@ -977,17 +982,22 @@ onUnmounted(() => {
                 >Nest sub-tasks beneath their parents</small
               ></span
             ><input
+              v-model="display.hierarchy"
               type="checkbox"
               role="switch"
-              aria-label="Hierarchy"
-              v-model="display.hierarchy" /></label
+              aria-label="Hierarchy" /></label
           ><label v-else-if="display.mode === 'Swimlane'" class="display-row"
             >Grouping<select v-model="display.swimGroup" aria-label="Grouping">
-              <option v-for="group in ['Parent task', 'Project', 'Assignee']">{{ group }}</option>
+              <option v-for="group in ['Parent task', 'Project', 'Assignee']" :key="group">
+                {{ group }}
+              </option>
             </select></label
           ><label v-else class="display-row"
             >Grouping<select v-model="display.grouping" aria-label="Grouping">
-              <option v-for="group in ['Status', 'Priority', 'Assignee', 'Project', 'None']">
+              <option
+                v-for="group in ['Status', 'Priority', 'Assignee', 'Project', 'None']"
+                :key="group"
+              >
                 {{ group }}
               </option>
             </select></label
@@ -996,6 +1006,7 @@ onUnmounted(() => {
             <select v-model="display.order" aria-label="Ordering">
               <option
                 v-for="order in ['Created date', 'Updated date', 'Title', 'Priority', 'Due date']"
+                :key="order"
               >
                 {{ order }}
               </option></select
@@ -1005,14 +1016,15 @@ onUnmounted(() => {
           </div>
           <label class="display-row"
             >Show sub-tasks<input
+              v-model="display.subtasks"
               type="checkbox"
               role="switch"
-              aria-label="Show sub-tasks"
-              v-model="display.subtasks" /></label
+              aria-label="Show sub-tasks" /></label
           ><span v-if="display.mode !== 'Table'" class="display-caption">Card properties</span>
           <div v-if="display.mode !== 'Table'" class="property-chips">
             <button
               v-for="name in propertyNames"
+              :key="name"
               :aria-pressed="display.properties.includes(name)"
               @click="toggleProperty(name)"
             >
@@ -1045,6 +1057,7 @@ onUnmounted(() => {
           <small class="mode-caption">View</small
           ><button
             v-for="name in ['Board', 'List', 'Table', 'Swimlane']"
+            :key="name"
             role="menuitemradio"
             :aria-checked="display.mode === name"
             @click="
@@ -1064,15 +1077,16 @@ onUnmounted(() => {
     </div>
   </div>
   <div v-if="activeFilterCount" class="filter-summary">
-    <template v-for="category in categories"
+    <template v-for="category in categories" :key="category"
       ><button
         v-for="value in filters[category]"
+        :key="value"
         class="filter-chip"
         @click="toggleFilter(category, value)"
       >
         {{ category }}: {{ options(category).find((o) => o.value === value)?.label ?? value
         }}<Icon name="close" :size="11" /></button></template
-    ><button @click="filters = {}" class="text-button">Clear</button>
+    ><button class="text-button" @click="filters = {}">Clear</button>
   </div>
   <div v-if="display.mode === 'Board' && tasks.length" class="board-scroll">
     <div
@@ -1123,7 +1137,7 @@ onUnmounted(() => {
           ><span v-if="display.properties.includes('Due date') && task.dueDate"
             >Due {{ displayDate(task.dueDate) }}</span
           ><template v-if="display.properties.includes('Labels')"
-            ><span v-for="label in task.labels"
+            ><span v-for="label in task.labels" :key="label"
               ><Icon name="tag" :size="12" />{{ label }}</span
             ></template
           ><span
@@ -1143,7 +1157,11 @@ onUnmounted(() => {
   </div>
   <section v-else-if="display.mode === 'Swimlane' && tasks.length" class="swimlane-scroll">
     <div class="swimlane-headings">
-      <div v-for="column in swimColumns" :class="'lane-status-' + column.toLowerCase()">
+      <div
+        v-for="column in swimColumns"
+        :key="column"
+        :class="'lane-status-' + column.toLowerCase()"
+      >
         <span class="stage-dot" :class="'status-' + column.toLowerCase()" /><strong>{{
           column
         }}</strong
@@ -1157,7 +1175,7 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
-    <section v-for="lane in swimLanes" class="swimlane">
+    <section v-for="lane in swimLanes" :key="lane.name" class="swimlane">
       <button
         class="lane-title"
         :aria-expanded="!collapsedLanes.includes(lane.name)"
@@ -1181,6 +1199,7 @@ onUnmounted(() => {
       <div v-if="!collapsedLanes.includes(lane.name)" class="swimlane-cells">
         <div
           v-for="column in swimColumns"
+          :key="column"
           class="swimlane-cell"
           :class="'lane-status-' + column.toLowerCase()"
           @dragover.prevent
@@ -1188,6 +1207,7 @@ onUnmounted(() => {
         >
           <button
             v-for="task in lane.tasks.filter((t) => status(t) === column)"
+            :key="task.id"
             class="task-card"
             draggable="true"
             @contextmenu="openTaskContext(task, $event)"
@@ -1223,7 +1243,7 @@ onUnmounted(() => {
               ><span v-if="display.properties.includes('Due date') && task.dueDate"
                 >Due {{ displayDate(task.dueDate) }}</span
               ><template v-if="display.properties.includes('Labels')"
-                ><span v-for="label in task.labels">{{ label }}</span></template
+                ><span v-for="label in task.labels" :key="label">{{ label }}</span></template
               >
             </div></button
           ><span v-if="!lane.tasks.some((t) => status(t) === column)" class="lane-dash">—</span
@@ -1257,7 +1277,11 @@ onUnmounted(() => {
       <table class="tasks-table">
         <colgroup>
           <col style="width: 58px" />
-          <col v-for="name in tablePrefs.columns" :style="{ width: columnWidth(name) + 'px' }" />
+          <col
+            v-for="name in tablePrefs.columns"
+            :key="name"
+            :style="{ width: columnWidth(name) + 'px' }"
+          />
           <col style="width: 64px" />
         </colgroup>
         <thead>
@@ -1278,6 +1302,7 @@ onUnmounted(() => {
             </th>
             <th
               v-for="name in tablePrefs.columns"
+              :key="name"
               :draggable="name !== 'Task'"
               @dragstart="draggedColumn = name"
               @dragover.prevent
@@ -1326,7 +1351,7 @@ onUnmounted(() => {
             </th>
           </tr>
         </thead>
-        <tbody v-for="group in tableGroups">
+        <tbody v-for="group in tableGroups" :key="group.name">
           <tr v-if="group.name" class="table-group-row">
             <td :colspan="tablePrefs.columns.length + 2">
               {{ group.name }} <small>{{ group.tasks.length }}</small>
@@ -1334,8 +1359,9 @@ onUnmounted(() => {
           </tr>
           <tr
             v-for="task in group.tasks"
-            @contextmenu="openTaskContext(task, $event)"
+            :key="task.id"
             :class="{ selected: selectedRows.includes(task.id) }"
+            @contextmenu="openTaskContext(task, $event)"
           >
             <td>
               <input
@@ -1345,7 +1371,7 @@ onUnmounted(() => {
                 @change="toggleRow(task.id)"
               />
             </td>
-            <td v-for="name in tablePrefs.columns">
+            <td v-for="name in tablePrefs.columns" :key="name">
               <form
                 v-if="editingCell === task.id + ':' + name"
                 @submit.prevent="updateCell(task, name, cellDraft)"
@@ -1377,7 +1403,7 @@ onUnmounted(() => {
                 :disabled="savingCell"
                 @change="stageCellChange(task, $event)"
               >
-                <option v-for="value in columns">{{ value }}</option></select
+                <option v-for="value in columns" :key="value">{{ value }}</option></select
               ><select
                 v-else-if="name === 'Priority'"
                 :value="task.priority"
@@ -1385,7 +1411,7 @@ onUnmounted(() => {
                 :disabled="savingCell"
                 @change="updateCell(task, name, ($event.target as HTMLSelectElement).value)"
               >
-                <option v-for="value in priorities" :value="value">
+                <option v-for="value in priorities" :key="value" :value="value">
                   {{ value === 'none' ? 'No priority' : value }}
                 </option></select
               ><select
@@ -1398,6 +1424,7 @@ onUnmounted(() => {
                 <option value="">Unassigned</option>
                 <option
                   v-for="option in options('Assignee').filter((x) => x.value !== 'none')"
+                  :key="option.value"
                   :value="option.value"
                 >
                   {{ option.label }}
@@ -1410,7 +1437,7 @@ onUnmounted(() => {
                 @change="updateCell(task, name, ($event.target as HTMLSelectElement).value)"
               >
                 <option value="">No project</option>
-                <option v-for="item in state.data?.projects" :value="item.id">
+                <option v-for="item in state.data?.projects" :key="item.id" :value="item.id">
                   {{ item.name }}
                 </option></select
               ><button
@@ -1515,7 +1542,9 @@ onUnmounted(() => {
             </button>
             <div v-if="viewChoice" class="view-filter-controls">
               <select v-model="viewCategory">
-                <option v-for="category in categories">{{ category }}</option></select
+                <option v-for="category in categories" :key="category">
+                  {{ category }}
+                </option></select
               ><select
                 @change="
                   viewFilters = {
@@ -1525,13 +1554,17 @@ onUnmounted(() => {
                 "
               >
                 <option value="">Select value</option>
-                <option v-for="option in options(viewCategory)" :value="option.value">
+                <option
+                  v-for="option in options(viewCategory)"
+                  :key="option.value"
+                  :value="option.value"
+                >
                   {{ option.label }}
                 </option>
               </select>
             </div>
-            <small v-for="(values, category) in viewFilters"
-              >{{ category }}: {{ values?.join(', ') }}</small
+            <small v-for="(selected, category) in viewFilters" :key="category"
+              >{{ category }}: {{ selected?.join(', ') }}</small
             >
           </div>
         </div>
@@ -1563,7 +1596,7 @@ onUnmounted(() => {
         </button>
       </header>
       <p v-if="!views.length">No saved views on this device.</p>
-      <div v-for="view in views">
+      <div v-for="view in views" :key="view.id">
         <button @click="applyView(view)">{{ view.name }}</button
         ><button class="text-button" @click="removeView(view.id)">Delete</button>
       </div>

@@ -33,6 +33,14 @@ export default tseslint.config(
       'vue/html-self-closing': 'off',
       'vue/html-indent': 'off',
       'vue/html-closing-bracket-newline': 'off',
+      'vue/html-quotes': 'off',
+      'vue/multi-word-component-names': 'off',
+      // TS-optional props are undefined by design.
+      'vue/require-default-prop': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
     },
   },
 );

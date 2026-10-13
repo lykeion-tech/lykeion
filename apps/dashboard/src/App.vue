@@ -79,7 +79,9 @@ const pinnedTasks = computed(() =>
 watch(pinnedExpanded, (value) => {
   try {
     localStorage.setItem('lykeion.pinned-expanded', String(value));
-  } catch {}
+  } catch {
+    // Storage can be unavailable; the preference just is not persisted.
+  }
 });
 const initialManual = ref(false);
 const create = ref(false);
@@ -257,7 +259,9 @@ function applySavedTheme() {
     for (const [key, value] of Object.entries(palette))
       document.documentElement.style.setProperty('--' + key, value);
     document.documentElement.style.setProperty('--hover', palette.input!);
-  } catch {}
+  } catch {
+    // Storage can be unavailable or hold bad JSON; the default theme stays in place.
+  }
 }
 applySavedTheme();
 const foundPages = computed(() =>
@@ -447,11 +451,11 @@ onUnmounted(() => {
       <div class="quick-actions">
         <button
           class="nav-item"
+          aria-label="Search..."
           @click="
             search = true;
             query = '';
           "
-          aria-label="Search..."
         >
           <Icon name="search" />Search...<span class="push-right shortcuts"
             ><kbd>⌘</kbd><kbd>K</kbd></span

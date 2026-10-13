@@ -60,7 +60,9 @@ test.beforeAll(async () => {
   try {
     const previous = JSON.parse(await readFile(manifestPath, 'utf8'));
     if (previous.runId === runId) entries = previous.captures;
-  } catch {}
+  } catch {
+    // No usable manifest from a previous run; start a fresh one.
+  }
   await writeFile(manifestPath, JSON.stringify(manifest(), null, 2));
 });
 async function capture(

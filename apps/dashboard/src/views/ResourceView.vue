@@ -25,9 +25,7 @@ const projectExpanded = ref(false);
 const name = ref(''),
   description = ref(''),
   instructions = ref(''),
-  schedule = ref('Every weekday at 09:00'),
   endpoint = ref(''),
-  runtime = ref(''),
   error = ref(''),
   busy = ref(false);
 const newChat = ref(Boolean(route.query.agent)),
@@ -108,23 +106,6 @@ async function saveProject() {
     await service.value.createProject({ name: name.value, description: description.value });
     await refresh();
     dialog.value = '';
-  } catch (e) {
-    error.value = (e as Error).message;
-  } finally {
-    busy.value = false;
-  }
-}
-async function saveAgent() {
-  busy.value = true;
-  error.value = '';
-  try {
-    await service.value.createResource('agents', {
-      name: name.value,
-      role: instructions.value,
-      runtimeId: runtime.value || null,
-    });
-    await refresh();
-    await router.push('/agents');
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -285,6 +266,7 @@ watch(automaticUpdates, (value) =>
       <div class="resource-tabs">
         <button
           v-for="t in ['Autopilot', 'Task wakeups']"
+          :key="t"
           :class="{ active: autopilotTab === t }"
           @click="autopilotTab = t"
         >
@@ -372,6 +354,7 @@ watch(automaticUpdates, (value) =>
           </label>
           <button
             v-for="t in ['Mine', 'All', 'Archived']"
+            :key="t"
             class="button compact"
             :class="{ active: tab === t }"
             @click="tab = t"
@@ -385,6 +368,7 @@ watch(automaticUpdates, (value) =>
             <div v-if="menu === 'filter'" class="floating-menu">
               <button
                 v-for="s in ['all', 'online', 'offline', 'busy']"
+                :key="s"
                 @click="
                   statusFilter = s;
                   menu = '';
@@ -408,30 +392,31 @@ watch(automaticUpdates, (value) =>
             <span>Last active ↓</span>
             <span>Runs</span>
           </div>
-          <div
-            v-if="tab !== 'Archived'"
-            v-for="agent in agents"
-            :key="agent.id"
-            class="agent-table-row"
-            role="button"
-            tabindex="0"
-            @click="router.push('/agents/' + agent.id)"
-            @keydown.enter.prevent="router.push('/agents/' + agent.id)"
-            @keydown.space.prevent="router.push('/agents/' + agent.id)"
-          >
-            <span>
-              <AvatarDisplay :value="agent.avatar" :size="28" />
-              <span
-                >{{ agent.name }}<small>{{ agent.role }}</small>
+          <template v-if="tab !== 'Archived'">
+            <div
+              v-for="agent in agents"
+              :key="agent.id"
+              class="agent-table-row"
+              role="button"
+              tabindex="0"
+              @click="router.push('/agents/' + agent.id)"
+              @keydown.enter.prevent="router.push('/agents/' + agent.id)"
+              @keydown.space.prevent="router.push('/agents/' + agent.id)"
+            >
+              <span>
+                <AvatarDisplay :value="agent.avatar" :size="28" />
+                <span
+                  >{{ agent.name }}<small>{{ agent.role }}</small>
+                </span>
               </span>
-            </span>
-            <span>{{ agent.status }}</span>
-            <span>—</span>
-            <span>Owner only</span>
-            <span>—</span>
-            <span>—</span>
-            <span>—</span>
-          </div>
+              <span>{{ agent.status }}</span>
+              <span>—</span>
+              <span>Owner only</span>
+              <span>—</span>
+              <span>—</span>
+              <span>—</span>
+            </div>
+          </template>
           <div v-if="!agents.length || tab === 'Archived'" class="small-empty">
             <Icon name="bot" :size="24" />
             <p>
@@ -602,17 +587,19 @@ watch(automaticUpdates, (value) =>
             </template>
           </header>
           <p v-if="page === 'chat' && !state.data?.conversations.length">No previous tasks</p>
-          <button
-            v-if="page === 'chat'"
-            v-for="conversation in state.data?.conversations"
-            class="conversation-row"
-            @click="
-              newChat = true;
-              notify('Conversation messages require the chat adapter.');
-            "
-          >
-            {{ conversation.title }}
-          </button>
+          <template v-if="page === 'chat'">
+            <button
+              v-for="conversation in state.data?.conversations"
+              :key="conversation.id"
+              class="conversation-row"
+              @click="
+                newChat = true;
+                notify('Conversation messages require the chat adapter.');
+              "
+            >
+              {{ conversation.title }}
+            </button>
+          </template>
           <template v-else>
             <div v-if="menu === 'notifications'" class="notification-filter">
               <button
@@ -637,6 +624,7 @@ watch(automaticUpdates, (value) =>
             <button
               v-for="notification in notifications"
               v-show="!archived"
+              :key="notification.id"
               class="conversation-row"
               @click="notify(notification.body)"
             >
@@ -721,8 +709,8 @@ watch(automaticUpdates, (value) =>
     </template>
     <ResourceDetail
       v-if="detailId"
-      :kind="page === 'agents' ? 'agents' : 'machines'"
       :id="detailId"
+      :kind="page === 'agents' ? 'agents' : 'machines'"
       @assign="emit('assignAgent', $event)"
     />
   </section>
@@ -785,8 +773,8 @@ watch(automaticUpdates, (value) =>
         <button
           type="button"
           class="pill"
-          @click="unavailable('Additional project properties')"
           aria-label="More project properties"
+          @click="unavailable('Additional project properties')"
         >
           <Icon name="more" :size="14" />
         </button>
@@ -814,6 +802,7 @@ watch(automaticUpdates, (value) =>
       <h3>Tasks</h3>
       <button
         v-for="task in state.data?.inquiries.filter((x) => x.projectId === selected)"
+        :key="task.id"
         class="nav-item"
         @click="router.push('/tasks/' + task.id)"
       >

@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { state, notify } from '../services/workspace';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
-const props = defineProps<{ machineName: string }>();
+defineProps<{ machineName: string }>();
 const emit = defineEmits<{ close: [] }>();
 const step = ref(1),
   provider = ref(''),

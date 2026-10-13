@@ -3,7 +3,7 @@ import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import Icon from './Icon.vue';
 import { Smile, Dog, Hamburger, Volleyball, Car, Lightbulb, Hash } from '@lucide/vue';
 import type { EmojiRecord } from '../data/emoji-data';
-const props = defineProps<{ modelValue: string }>();
+defineProps<{ modelValue: string }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; close: [] }>();
 const host = ref<HTMLElement>();
 function outside(event: PointerEvent) {
@@ -158,7 +158,7 @@ async function upload(event: Event) {
             query = '';
           "
         >
-          <component v-if="group.symbol" :is="group.symbol" :size="19" :stroke-width="1.7" /><Icon
+          <component :is="group.symbol" v-if="group.symbol" :size="19" :stroke-width="1.7" /><Icon
             v-else
             :name="group.icon!"
             :size="19"

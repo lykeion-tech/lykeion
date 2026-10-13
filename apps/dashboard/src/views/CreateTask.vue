@@ -27,7 +27,6 @@ const manual = ref(Boolean(props.initialParentId || props.initialManual)),
   error = ref(''),
   menu = ref(''),
   query = ref(''),
-  labelDraft = ref(''),
   labels = ref<string[]>([]),
   dueDate = ref(''),
   startDate = ref('');
@@ -246,6 +245,8 @@ onUnmounted(() => {
     :class="['task-composer', { manual, expanded }]"
     @close="emit('close')"
   >
+    <!-- keys() must see modified keys too (Shift+Escape, Cmd+Enter in a menu), so no .exact. -->
+    <!-- eslint-disable vue/use-v-on-exact -->
     <form
       ref="form"
       @submit.prevent="submit"
@@ -253,6 +254,7 @@ onUnmounted(() => {
       @keydown.meta.enter.prevent="submit"
       @keydown.ctrl.enter.prevent="submit"
     >
+      <!-- eslint-enable vue/use-v-on-exact -->
       <header class="composer-breadcrumb">
         <span>{{ workspaceName }}</span>
         <Icon name="right" :size="12" />
@@ -290,7 +292,7 @@ onUnmounted(() => {
         <template v-else>
           <div class="created-by">
             <span>Created by</span>
-            <button type="button" @click="openMenu('agent')" :aria-expanded="menu === 'agent'">
+            <button type="button" :aria-expanded="menu === 'agent'" @click="openMenu('agent')">
               <Icon v-if="selectedAssignee" name="bot" :size="14" />{{
                 selectedAssignee?.name ?? 'Pick an agent…'
               }}<Icon name="down" :size="12" />
@@ -623,7 +625,7 @@ onUnmounted(() => {
           <Icon name="filters" :size="14" />Switch to {{ manual ? 'Agent' : 'Manual' }}
         </button>
         <label class="another-switch">
-          <input type="checkbox" v-model="another" role="switch" />
+          <input v-model="another" type="checkbox" role="switch" />
           <span class="switch-track" />Create another</label
         >
         <button

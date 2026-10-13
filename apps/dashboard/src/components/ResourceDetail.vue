@@ -5,7 +5,6 @@ import { state, service, refresh, notify } from '../services/workspace';
 import AvatarDisplay from './AvatarDisplay.vue';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
-import AgentConfiguration from './AgentConfiguration.vue';
 import AgentPanels from './AgentPanels.vue';
 import AgentWork from './AgentWork.vue';
 import RuntimeDetail from './RuntimeDetail.vue';
@@ -33,7 +32,6 @@ const tab = ref('Overview'),
   newName = ref(''),
   error = ref(''),
   busy = ref(false),
-  selectedRuntime = ref(''),
   selectedSkill = ref('');
 const agent = computed(() => state.data?.agents.find((x) => x.id === props.id));
 const machine = computed(() => state.data?.machines.find((x) => x.id === props.id));
@@ -118,7 +116,7 @@ watch(
                     : (machine?.platform ?? '')
                 }}
               </p>
-              <div class="identity-meta" v-if="kind === 'agents'">
+              <div v-if="kind === 'agents'" class="identity-meta">
                 <span> <Icon name="bot" :size="14" />{{ agent?.model || 'Runtime default' }}</span>
                 <span> <Icon name="network" :size="14" />{{ runtime?.name ?? 'No runtime' }}</span>
                 <span> <Icon name="shield" :size="14" />{{ access }}</span>
@@ -261,7 +259,9 @@ watch(
               </button>
               <p v-if="!skills.length" class="work-empty">No skills assigned</p>
               <h2>Conversation starters</h2>
-              <p v-for="suggestion in agent.suggestions" class="work-row">{{ suggestion }}</p>
+              <p v-for="(suggestion, index) in agent.suggestions" :key="index" class="work-row">
+                {{ suggestion }}
+              </p>
               <p v-if="!agent.suggestions?.length" class="work-empty">
                 Using the default research conversation starters.
               </p>

@@ -39,7 +39,9 @@ function initial(): Tab[] {
       )
     )
       return t.map((x) => ({ ...x, pinned: x.pinned === true }));
-  } catch {}
+  } catch {
+    // Storage can be unavailable or hold bad JSON; the default tabs below apply.
+  }
   return [
     {
       id: Date.now(),

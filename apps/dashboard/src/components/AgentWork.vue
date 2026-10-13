@@ -69,6 +69,7 @@ function toggle(stage: string) {
           <small>Priority</small>
           <button
             v-for="priority in ['all', 'urgent', 'high', 'medium', 'low', 'none']"
+            :key="priority"
             @click="
               filter = priority;
               menu = '';

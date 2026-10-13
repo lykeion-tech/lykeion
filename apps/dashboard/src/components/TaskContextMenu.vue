@@ -15,7 +15,9 @@ const pinned = ref<string[]>([]);
 try {
   const saved = JSON.parse(localStorage.getItem('lykeion.pinned-tasks') || '[]');
   if (Array.isArray(saved)) pinned.value = saved.filter((x) => typeof x === 'string');
-} catch {}
+} catch {
+  // Storage can be unavailable or hold bad JSON; no tasks start pinned.
+}
 const left = computed(() => Math.max(8, Math.min(props.x, window.innerWidth - 212))),
   top = computed(() => Math.max(8, Math.min(props.y, window.innerHeight - 354))),
   opensLeft = computed(() => left.value + 450 > window.innerWidth);
@@ -225,6 +227,7 @@ onUnmounted(() => {
     >
       <div
         v-for="name in ['Status', 'Priority', 'Assignee', 'Start date', 'Due date']"
+        :key="name"
         class="context-group"
       >
         <button
@@ -252,6 +255,7 @@ onUnmounted(() => {
           <template v-if="name === 'Status'"
             ><button
               v-for="value in [...stages.slice(0, 4), 'Blocked', 'Reporting', 'Done', 'Cancelled']"
+              :key="value"
               role="menuitemradio"
               :aria-checked="
                 (task.status === 'active'
@@ -280,6 +284,7 @@ onUnmounted(() => {
           <template v-else-if="name === 'Priority'"
             ><button
               v-for="value in priorities"
+              :key="value.id"
               role="menuitemradio"
               :aria-checked="task.priority === value.id"
               :disabled="busy"
@@ -300,6 +305,7 @@ onUnmounted(() => {
               aria-label="Search assignees"
             /><button
               v-for="value in assignees"
+              :key="value.id"
               role="menuitemradio"
               :aria-checked="(task.assigneeId ?? '') === value.id"
               :disabled="busy"
@@ -341,9 +347,12 @@ onUnmounted(() => {
               </button>
             </div>
             <div class="calendar-days">
-              <small v-for="day in ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']">{{ day }}</small
+              <small v-for="day in ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']" :key="day">{{
+                day
+              }}</small
               ><button
                 v-for="day in days"
+                :key="day.value"
                 data-calendar-day
                 :class="{
                   outside: !day.current,
@@ -404,6 +413,7 @@ onUnmounted(() => {
             Open parent task</button
           ><button
             v-for="childTask in children"
+            :key="childTask.id"
             role="menuitem"
             @click="openTab(childTask.id, childTask.title)"
           >

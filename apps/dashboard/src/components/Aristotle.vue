@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import type { AnimationItem } from 'lottie-web';
 import lottie from 'lottie-web/build/player/lottie_light';
-const props = withDefaults(defineProps<{ portrait?: boolean }>(), { portrait: true });
+withDefaults(defineProps<{ portrait?: boolean }>(), { portrait: true });
 const host = ref<HTMLElement>();
 let animation: AnimationItem | undefined;
 onMounted(() => {

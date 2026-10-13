@@ -4,7 +4,7 @@ import { SquareTerminal, Globe, Trash2, UserRoundPlus, Rocket, Webhook } from '@
 import TimeZonePicker from './settings/TimeZonePicker.vue';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
-import { service, state, refresh, notify, workspaceName } from '../services/workspace';
+import { service, state, refresh, workspaceName } from '../services/workspace';
 const props = defineProps<{ kind: string; preset?: string }>();
 const emit = defineEmits<{ close: [] }>();
 const autopilotExpanded = ref(false);
@@ -22,7 +22,6 @@ const kind = ref(props.kind),
   instructions = ref(''),
   agentId = ref(''),
   members = ref<string[]>([]),
-  schedule = ref('Every weekday at 09:00'),
   transport = ref('STDIO'),
   format = ref('Visual editor'),
   command = ref(''),
@@ -403,7 +402,7 @@ async function save() {
               aria-label="Leader agent"
             >
               <option value="">Select a leader agent</option>
-              <option v-for="agent in state.data?.agents" :value="agent.id">
+              <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
                 {{ agent.name }}
               </option></select
             ><Icon name="down" :size="14" />
@@ -541,6 +540,7 @@ async function save() {
         <div class="segmented">
           <button
             v-for="f in ['Visual editor', 'JSON']"
+            :key="f"
             type="button"
             :class="{ active: format === f }"
             @click="changeFormat(f)"
@@ -553,6 +553,7 @@ async function save() {
           <div class="transport-options">
             <button
               v-for="t in ['STDIO', 'Streamable HTTP']"
+              :key="t"
               type="button"
               :class="{ active: transport === t }"
               @click="transport = t"
@@ -672,7 +673,7 @@ async function save() {
                 aria-label="Autopilot assignee"
               >
                 <option value="">Select agent or team</option>
-                <option v-for="agent in state.data?.agents" :value="agent.id">
+                <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
                   {{ agent.name }}
                 </option></select
               ><Icon name="down" :size="12" />
@@ -681,6 +682,7 @@ async function save() {
           <label>OUTPUT MODE</label>
           <button
             v-for="mode in ['Create task', 'Run only']"
+            :key="mode"
             type="button"
             :class="['output-mode', { active: output === mode }]"
             @click="output = mode"
@@ -707,7 +709,7 @@ async function save() {
                 aria-label="Autopilot project"
               >
                 <option value="">No project</option>
-                <option v-for="p in state.data?.projects" :value="p.id">
+                <option v-for="p in state.data?.projects" :key="p.id" :value="p.id">
                   {{ p.name }}
                 </option></select
               ><Icon name="down" :size="12" />
@@ -868,8 +870,8 @@ async function save() {
               />
               <button
                 type="button"
-                @click="addEventFilter"
                 :disabled="!eventKey.trim() || !eventValue.trim()"
+                @click="addEventFilter"
               >
                 <Icon name="plus" :size="12" />Add
               </button>
@@ -894,6 +896,7 @@ async function save() {
         <div class="segmented">
           <button
             v-for="platform in ['macOS / Linux', 'Windows']"
+            :key="platform"
             type="button"
             :class="{ active: os === platform }"
             @click="os = platform"

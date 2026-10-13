@@ -26,7 +26,6 @@ import {
   LayoutGrid,
   List,
   SlidersHorizontal,
-  Folder,
   Users,
   Bot,
   Monitor,
