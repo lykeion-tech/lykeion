@@ -269,6 +269,7 @@ cat >/dev/null
 }
 func startDaemon(t *testing.T, cfg daemon.Config) func() {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- daemon.Run(ctx, cfg) }()
@@ -380,6 +381,7 @@ func TestDaemonProcess(t *testing.T) {
 	}
 	var c struct{ Server, Token, StateDir, Home, Bin string }
 	must(t, json.Unmarshal([]byte(raw), &c))
+	t.Setenv("HOME", t.TempDir())
 	must(t, daemon.Run(context.Background(), daemon.Config{Server: c.Server, Token: c.Token, StateDir: c.StateDir, Home: c.Home, Device: "kill-helper", Harnesses: map[string]string{"claude": c.Bin}, Slots: 1, Poll: 50 * time.Millisecond, Heartbeat: 75 * time.Millisecond, Flush: 50 * time.Millisecond}))
 }
 func startProcess(t *testing.T, c daemon.Config) *exec.Cmd {
