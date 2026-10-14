@@ -242,9 +242,14 @@ func (g GEO) summaries(ctx context.Context, term string) ([]geoSummary, error) {
 	var out []geoSummary
 	for _, id := range ids.R.IDs {
 		var s geoSummary
-		if raw, ok := sum.Result[id]; ok && json.Unmarshal(raw, &s) == nil {
-			out = append(out, s)
+		raw, ok := sum.Result[id]
+		if !ok {
+			return nil, fmt.Errorf("geo: summary for %s missing", id)
 		}
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil, fmt.Errorf("geo: summary for %s: %w", id, err)
+		}
+		out = append(out, s)
 	}
 	return out, nil
 }

@@ -177,3 +177,72 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 }
 
 func hashToken(s string) string { return auth.Hash(s) }
+
+func TestInvalidGEOSummaryDoesNotRecordSuccessfulSearch(t *testing.T) {
+	for _, tc := range []struct{ name, response string }{
+		{"missing summary", `{"result":{"uids":["200001"]}}`},
+		{"malformed summary", `{"result":{"uids":["200001"],"200001":{"accession":"GSE1","n_samples":"bad"}}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := testutil.Setup(t)
+			st := &store.Store{Pool: env.App}
+			ctx := context.Background()
+			u, err := st.Global().UpsertUserByEmail(ctx, "invalid-geo@lab.org")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ws, card, run := uuid.New(), uuid.New(), uuid.New()
+			for _, q := range []struct {
+				sql  string
+				args []any
+			}{
+				{`INSERT INTO workspace (id,slug,name) VALUES ($1,'w','w')`, []any{ws}},
+				{`INSERT INTO card (id,workspace_id,number,title,question,owner_id,board_column,round) VALUES ($1,$2,1,'t','q',$3,'grounding',1)`, []any{card, ws, u.ID}},
+				{`INSERT INTO agent_run (id,workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt,status,attempt) VALUES ($1,$2,$3,$4,'grounding',1,'literature-scout','claude','p','running',1)`, []any{run, ws, card, u.ID}},
+				{`INSERT INTO agent_run_token (token_hash,workspace_id,agent_run_id,card_id,role,attempt,expires_at) VALUES ($1,$2,$3,$4,'literature-scout',1,now()+interval '1 hour')`, []any{hashToken("ltk_invalid_geo"), ws, run, card}},
+			} {
+				if _, err := env.Owner.Exec(ctx, q.sql, q.args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/esearch.fcgi":
+					w.Write([]byte(`{"esearchresult":{"idlist":["200001"]}}`))
+				case "/esummary.fcgi":
+					w.Write([]byte(tc.response))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer api.Close()
+			h := &Hosted{GEO: GEO{Base: api.URL}, Store: st, Blobs: storage.Local{Dir: t.TempDir()}}
+			srv := httptest.NewServer(middleware.AgentRunAuth(st)(h.Handler()))
+			defer srv.Close()
+			cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: bearer("ltk_invalid_geo")}}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cs.Close()
+			res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "search_datasets", Arguments: map[string]any{"query": "mouse"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !res.IsError {
+				t.Errorf("invalid GEO summary returned successful tool result: %+v", res)
+			}
+			if err := st.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+				view, err := records.Load(ctx, tx, h.Blobs, card, "grounding")
+				if err != nil {
+					return err
+				}
+				if searches := view.Kind("search"); len(searches) != 0 {
+					t.Errorf("invalid GEO response wrote %d successful search records", len(searches))
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

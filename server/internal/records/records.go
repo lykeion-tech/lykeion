@@ -88,6 +88,9 @@ func (v *View) Digest(skip ...string) string {
 // which the gate's checks then fail.
 func Body[T any](r db.Record) T {
 	var v T
-	json.Unmarshal(r.Body, &v)
+	if err := json.Unmarshal(r.Body, &v); err != nil {
+		var zero T
+		return zero
+	}
 	return v
 }
