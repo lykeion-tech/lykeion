@@ -11,6 +11,7 @@ import (
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
@@ -151,6 +152,17 @@ func TestRoleKindsExcludeServerRecords(t *testing.T) {
 	}
 	if !contains(RoleKinds(Literature), "evidence") {
 		t.Fatal("evidence must be superseded on rerun")
+	}
+}
+
+func TestSourceRecordSchemasDecodeStoredMetadata(t *testing.T) {
+	fetch := records.Body[Fetch](db.Record{Body: []byte(`{"source_id":"europepmc:PMC1","full_text":true,"retracted":true}`)})
+	if fetch.SourceID != "europepmc:PMC1" || !fetch.FullText || !fetch.Retracted {
+		t.Fatalf("decoded fetch metadata: %+v", fetch)
+	}
+	search := records.Body[Search](db.Record{Body: []byte(`{"database":"openalex","query":"x no effect"}`)})
+	if search.Database != "openalex" || search.Query != "x no effect" {
+		t.Fatalf("decoded search metadata: %+v", search)
 	}
 }
 

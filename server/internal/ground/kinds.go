@@ -58,6 +58,17 @@ type Verdict struct {
 	Reason string `json:"reason"`
 }
 
+type Fetch struct {
+	SourceID  string `json:"source_id"`
+	FullText  bool   `json:"full_text"`
+	Retracted bool   `json:"retracted"`
+}
+
+type Search struct {
+	Database string `json:"database"`
+	Query    string `json:"query"`
+}
+
 func decode[T any](raw json.RawMessage) (T, error) {
 	var v T
 	d := json.NewDecoder(strings.NewReader(string(raw)))
