@@ -60,7 +60,7 @@ func New(harness, bin string) (Backend, error) {
 func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 func classify(text string) string {
 	s := strings.ToLower(text)
-	for _, h := range []string{"prompt_too_long", "prompt is too long", "context window", "context_length_exceeded", "maximum context length"} {
+	for _, h := range []string{"prompt_too_long", "prompt is too long", "context window", "context_length_exceeded", "maximum context length", "input exceeds the maximum length of"} {
 		if strings.Contains(s, h) {
 			return ReasonContextExhausted
 		}

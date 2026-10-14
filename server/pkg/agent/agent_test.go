@@ -123,6 +123,22 @@ func TestExitWithoutResultIsClassified(t *testing.T) {
 	}
 }
 
+func TestCodexInputSizeLimitIsContextExhausted(t *testing.T) {
+	bin := script(t, `echo '{"type":"thread.started","thread_id":"local-input-limit"}'
+cat >&2 <<'EOF'
+Error: turn/start: turn/start failed: Input exceeds the maximum length of 1048576 characters. (code -32602), data: {"input_error_code":"input_too_large","max_chars":1048576,"actual_chars":7200013}
+EOF
+exit 1`)
+	s, err := (Codex{Bin: bin}).Execute(t.Context(), "oversized input", ExecOptions{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, res := collect(t, s)
+	if res.Err == nil || res.Reason != ReasonContextExhausted || len(res.Usage) != 0 || res.SessionID != "local-input-limit" {
+		t.Fatalf("local input rejection: %+v", res)
+	}
+}
+
 func TestCodexJSONL(t *testing.T) {
 	args := filepath.Join(t.TempDir(), "args")
 	bin := script(t, `printf '%s\n' "$@" > `+args+`
