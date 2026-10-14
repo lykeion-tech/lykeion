@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -22,7 +24,8 @@ const (
 func RequestBounds(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A WebSocket owns its connection and lifetime after the handshake.
-		if r.URL.Path == "/ws" {
+		if r.Method == http.MethodGet && (r.URL.Path == "/ws" || r.URL.Path == "/api/daemon/ws") &&
+			websocket.IsWebSocketUpgrade(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

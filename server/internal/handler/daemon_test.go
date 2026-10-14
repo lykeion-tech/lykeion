@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 )
@@ -331,5 +332,35 @@ func TestPeopleCancelAndDaemonAcknowledges(t *testing.T) {
 	ref["attempt"] = int32(2)
 	if got := s.call(t, "POST", "/api/daemon/agent-runs/"+id+"/cancel-ack", tok, "", ref, nil); got != 409 {
 		t.Fatalf("wrong attempt: %d", got)
+	}
+}
+
+func TestDaemonSocketSurvivesRequestTimeout(t *testing.T) {
+	s := newServer(t)
+	jwt := s.signIn(t, "long-lived@lab.org")
+	tok := s.personalToken(t, jwt)
+	w := s.workspace(t, jwt, "lab")
+	var c card
+	if got := s.call(t, http.MethodPost, "/api/cards", jwt, w.ID, map[string]any{"question": "q"}, &c); got != http.StatusCreated || c.ID == "" {
+		t.Fatalf("card: %d %+v", got, c)
+	}
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(s.URL, "http")+"/api/daemon/ws", http.Header{"Authorization": {"Bearer " + tok}})
+	if err != nil {
+		t.Fatalf("dial daemon socket: %v %v", err, resp)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var ready struct{ Type string }
+	if err := conn.ReadJSON(&ready); err != nil || ready.Type != "ready" {
+		t.Fatalf("ready: %+v %v", ready, err)
+	}
+	// The old request bound cancelled the socket at ten seconds. Readiness makes
+	// this wait start only after the owner subscription is established.
+	time.Sleep(middleware.RequestTimeout + 250*time.Millisecond)
+	s.queue(t, w.ID, c.ID, s.userID(t, jwt), "claude")
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var hint struct{ Type string }
+	if err := conn.ReadJSON(&hint); err != nil || hint.Type != "agent_run_available" {
+		t.Fatalf("hint after request deadline: %+v %v", hint, err)
 	}
 }
