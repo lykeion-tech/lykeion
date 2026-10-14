@@ -24,7 +24,9 @@ import (
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/realtime"
+	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/migrations"
@@ -141,17 +143,39 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		return err
 	}
 	runs := &service.AgentRuns{Store: st, MCPURL: strings.TrimRight(getenv("PUBLIC_URL"), "/") + "/mcp/sources"}
+	engine := &round.Engine{Store: st, AgentRuns: runs, Blobs: blobs, JevKey: getenv("TYPESAFE_API_KEY")}
+	runs.OnSettled = engine.OnSettled
+	hosted := &sources.Hosted{OA: sources.OpenAlex{Base: sources.OpenAlexBase}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},
+		GEO: sources.GEO{Base: sources.EUtilsBase}, Store: st, Blobs: blobs}
 	var mail auth.Mailer = auth.LogMailer{}
 	if addr := getenv("SMTP_ADDR"); addr != "" {
 		mail = auth.SMTPMailer{Addr: addr, From: getenv("SMTP_FROM"), User: getenv("SMTP_USER"), Pass: getenv("SMTP_PASS")}
 	}
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
-		AgentRuns: runs, Blobs: blobs,
+		AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Kinds: round.Kinds(),
 		Google: auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback")}
 	if err := runs.RecoverSettlements(ctx); err != nil {
 		return fmt.Errorf("recover settlements: %w", err)
 	}
+	engineCtx, stopEngine := context.WithCancel(ctx)
+	engineDone := make(chan struct{})
+	go func() {
+		defer close(engineDone)
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-engineCtx.Done():
+				return
+			case <-ticker.C:
+				if err := engine.Tick(engineCtx); err != nil && engineCtx.Err() == nil {
+					slog.Error("engine tick", "err", err)
+				}
+			}
+		}
+	}()
+	defer func() { stopEngine(); <-engineDone }()
 	sweepCtx, stopSweep := context.WithCancel(ctx)
 	sweepDone := make(chan struct{})
 	go func() {

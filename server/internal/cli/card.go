@@ -40,7 +40,7 @@ func byNumber(cmd *cobra.Command, e *env, arg string) (cardView, error) {
 
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
-	var title string
+	var title, followsFrom string
 	var usd float64
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
@@ -51,6 +51,13 @@ func cardCmd(e *env) *cobra.Command {
 		if title != "" {
 			in["title"] = title
 		}
+		if followsFrom != "" {
+			previous, err := byNumber(cmd, e, followsFrom)
+			if err != nil {
+				return err
+			}
+			in["follows_from"] = []string{previous.ID}
+		}
 		if err := e.client().Do(cmd.Context(), "POST", "/api/cards", in, &out); err != nil {
 			return err
 		}
@@ -59,6 +66,7 @@ func cardCmd(e *env) *cobra.Command {
 	}}
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().Float64Var(&usd, "usd", 0, "model budget in USD")
+	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
 	c.AddCommand(newCmd,
 		&cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := e.inWorkspace(); err != nil {
@@ -106,6 +114,7 @@ func cardCmd(e *env) *cobra.Command {
 			return e.client().Do(cmd.Context(), "POST", "/api/cards/"+x.ID+"/comments", map[string]string{"body": strings.Join(a[1:], " ")}, nil)
 		}},
 	)
+	steerCmds(e, c)
 	return c
 }
 
