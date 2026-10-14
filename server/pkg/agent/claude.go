@@ -23,23 +23,28 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if err != nil {
 		return nil, err
 	}
+	accounting, err := beginClaudeUsage(home, o.Resume)
+	if err != nil {
+		cleanup(true)
+		return nil, err
+	}
 	cfg := filepath.Join(o.Dir, ".lyk-mcp.json")
 	// Replace only the adapter's prior file; never follow a planted link.
 	if st, e := os.Lstat(cfg); e == nil {
 		if !st.Mode().IsRegular() {
-			cleanup()
+			cleanup(true)
 			return nil, fmt.Errorf("MCP config is not a regular file: %s", cfg)
 		}
 		if err = os.Remove(cfg); err != nil {
-			cleanup()
+			cleanup(true)
 			return nil, err
 		}
 	} else if !errors.Is(e, os.ErrNotExist) {
-		cleanup()
+		cleanup(true)
 		return nil, e
 	}
 	if err = privateFile(cfg, claudeMCP(o)); err != nil {
-		cleanup()
+		cleanup(true)
 		return nil, err
 	}
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--allowedTools", claudeTools, "--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"}
@@ -53,7 +58,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if bin == "" {
 		bin = "claude"
 	}
-	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseClaude(o.Model))
+	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseClaude(o.Model, accounting), accounting.finish)
 }
 
 // Later duplicate JSON keys win. Sources is last so server-sent add-ons cannot
@@ -89,7 +94,7 @@ type claudeTokens struct {
 	Cost       *float64 `json:"costUSD"`
 }
 
-func parseClaude(fallbackModel string) parser {
+func parseClaude(fallbackModel string, accounting *claudeAccounting) parser {
 	return func(line []byte, emit emitMessage, res *Result) (bool, error) {
 		var ev struct {
 			Type           string   `json:"type"`
@@ -168,6 +173,10 @@ func parseClaude(fallbackModel string) parser {
 					u.CacheReadTokens, u.CacheWriteTokens = ev.Usage.CacheRead, ev.Usage.CacheWrite
 				}
 				res.Usage = []Usage{u}
+			}
+			if err := accounting.normalize(res, ev.ModelUsage); err != nil {
+				res.Usage = nil
+				return false, err
 			}
 			if strings.TrimSpace(ev.TerminalReason) == "prompt_too_long" {
 				res.Err = fmt.Errorf("Claude terminal_reason=prompt_too_long: context exhausted: %s", ev.Result)

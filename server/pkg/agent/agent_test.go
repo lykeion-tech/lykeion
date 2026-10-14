@@ -596,6 +596,16 @@ sleep 300`))
 echo '{"type":"result","is_error":false}'
 echo '{"type":"turn.completed","usage":{}}'`))
 			s, err = b.Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: "session"})
+			if h == "claude" {
+				if err == nil || !strings.Contains(err.Error(), "baseline") {
+					t.Fatalf("cancelled Claude history resumed without baseline: %v", err)
+				}
+				history, e := os.ReadFile(filepath.Join(dir, ".cli-home", "sessions", "test"))
+				if e != nil || string(history) != "history\n" {
+					t.Fatalf("owned history was removed: %v", e)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

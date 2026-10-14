@@ -45,7 +45,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	if bin == "" {
 		bin = "codex"
 	}
-	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseCodex(model))
+	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseCodex(model), nil)
 }
 func parseCodex(model string) parser {
 	return func(line []byte, emit emitMessage, res *Result) (bool, error) {

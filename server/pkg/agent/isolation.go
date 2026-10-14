@@ -10,11 +10,15 @@ import (
 	"strings"
 )
 
+// scratchCleanup removes credentials immediately; release also relinquishes the
+// scratch lock after output accounting has finished.
+type scratchCleanup func(release bool)
+
 var discoveryNames = []string{".codex", ".claude", ".agents", ".claude.json", ".mcp.json", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"}
 
 // prepareScratch protects discovery boundaries, not arbitrary filesystem access.
 // Only this scratch's own history is reusable; personal config is never copied.
-func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile string) (home string, cleanup func(), err error) {
+func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile string) (home string, cleanup scratchCleanup, err error) {
 	if o.MCPToken != "" && !strings.HasPrefix(o.MCPToken, "ltk_") {
 		return "", nil, errors.New("MCP token must be a run-scoped ltk_ token")
 	}
@@ -46,16 +50,18 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 	}
 	f.Close()
 	cred := ""
-	cleanup = func() {
+	cleanup = func(release bool) {
 		if cred != "" {
 			os.Remove(cred)
 		}
-		os.Remove(lock)
+		if release {
+			os.Remove(lock)
+		}
 	}
 	success := false
 	defer func() {
 		if !success {
-			cleanup()
+			cleanup(true)
 		}
 	}()
 	home = filepath.Join(dir, ".cli-home")

@@ -75,14 +75,14 @@ type parser func([]byte, emitMessage, *Result) (terminal bool, err error)
 // run drains stdout while exec concurrently feeds stdin. Waiting independently
 // of message delivery lets cancellation and credential cleanup survive a slow
 // consumer. Only cancellation may discard messages already being parsed.
-func run(ctx context.Context, cmd *exec.Cmd, cleanup func(), parse parser) (*Session, error) {
+func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parser, finish func(*Result)) (*Session, error) {
 	if err := configureProcess(cmd); err != nil {
-		cleanup()
+		cleanup(true)
 		return nil, err
 	}
 	stdout, writer, err := os.Pipe()
 	if err != nil {
-		cleanup()
+		cleanup(true)
 		return nil, err
 	}
 	cmd.Stdout = writer
@@ -92,12 +92,12 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup func(), parse parser) (*Ses
 	if err := cmd.Start(); err != nil {
 		stdout.Close()
 		writer.Close()
-		cleanup()
+		cleanup(true)
 		return nil, err
 	}
 	writer.Close()
 	waited := make(chan error, 1)
-	go func() { err := cmd.Wait(); killProcessTree(cmd); cleanup(); waited <- err }()
+	go func() { err := cmd.Wait(); killProcessTree(cmd); cleanup(false); waited <- err }()
 	msgs := make(chan Message, 64)
 	done := make(chan Result, 1)
 	go func() {
@@ -138,6 +138,10 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup func(), parse parser) (*Ses
 		case res.Err == nil && !terminal:
 			res.Err = errors.New("agent exited without a terminal result")
 		}
+		if finish != nil {
+			finish(&res)
+		}
+		cleanup(true)
 		if res.Err != nil {
 			detail := stderr.String()
 			if detail != "" {
