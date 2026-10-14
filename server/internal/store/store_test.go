@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/testutil"
 	db "lykeion/server/pkg/db/generated"
@@ -36,13 +38,26 @@ func seed(t *testing.T, s *Store) (user uuid.UUID, ws uuid.UUID) {
 
 func TestEmitPublishesAfterCommitOnly(t *testing.T) {
 	env := testutil.Setup(t)
+	observer, err := pgx.Connect(t.Context(), env.OwnerURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer observer.Close(context.Background())
 	var published []db.Event
-	s := &Store{Pool: env.App, Publish: func(_ context.Context, evs []db.Event) { published = append(published, evs...) }}
+	s := &Store{Pool: env.App, Publish: func(ctx context.Context, evs []db.Event) {
+		for _, e := range evs {
+			var typ string
+			if err := observer.QueryRow(ctx, "SELECT type FROM event WHERE id=$1", e.ID).Scan(&typ); err != nil || typ != e.Type {
+				t.Fatalf("publication before committed visibility: type=%q err=%v", typ, err)
+			}
+		}
+		published = append(published, evs...)
+	}}
 	u, ws := seed(t, s)
 	if len(published) != 1 || published[0].Type != "workspace.created" || published[0].WorkspaceID != ws {
 		t.Fatalf("%+v", published)
 	}
-	err := s.InWorkspace(context.Background(), ws, u, func(tx *Tx) error {
+	err = s.InWorkspace(context.Background(), ws, u, func(tx *Tx) error {
 		if err := tx.Emit(context.Background(), "x", nil, System, nil); err != nil {
 			return err
 		}
@@ -94,5 +109,99 @@ func TestAsUserSeesOnlyOwnWorkspaces(t *testing.T) {
 	}
 	if len(rows) != 0 {
 		t.Fatal("a stranger listed workspaces")
+	}
+}
+
+// This uses Emit directly: handler workspace locks must not mask a missing
+// event-insert lock and allow a higher id to commit before a lower one.
+func TestDirectConcurrentEmitCommitsInCursorOrder(t *testing.T) {
+	env := testutil.Setup(t)
+	s := &Store{Pool: env.App}
+	u, ws := seed(t, s)
+	ready := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan error, 1)
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+		<-firstDone
+	}()
+	go func() {
+		firstDone <- s.InWorkspace(t.Context(), ws, u, func(tx *Tx) error {
+			if err := tx.Emit(t.Context(), "first", nil, System, nil); err != nil {
+				return err
+			}
+			close(ready)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("first emit did not reach commit barrier")
+	}
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- s.InWorkspace(t.Context(), ws, u, func(tx *Tx) error { return tx.Emit(t.Context(), "second", nil, System, nil) })
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		select {
+		case err := <-secondDone:
+			t.Fatalf("second event committed before first: %v", err)
+		default:
+		}
+		var blocked bool
+		if err := env.Owner.QueryRow(t.Context(), "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND usename='lykeion_app' AND wait_event='advisory')").Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("second emit did not wait on workspace event lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var rows []db.Event
+	read := func(after int64) error {
+		return s.InWorkspace(t.Context(), ws, u, func(tx *Tx) error {
+			var err error
+			rows, err = tx.Q.EventsAfter(t.Context(), db.EventsAfterParams{WorkspaceID: ws, After: after, Lim: 500})
+			return err
+		})
+	}
+	if err := read(0); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("uncommitted events visible: %+v", rows)
+	}
+	close(release)
+	released = true
+	// Leave firstDone for deferred cleanup; its transaction has to commit before
+	// the second waiter can finish, regardless of callback scheduling.
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second emit stayed blocked")
+	}
+	if err := read(rows[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Type != "first" || rows[1].Type != "second" || rows[0].ID >= rows[1].ID {
+		t.Fatalf("cursor order: %+v", rows)
+	}
+	if err := read(rows[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Type != "second" {
+		t.Fatalf("resuming cursor missed second event: %+v", rows)
 	}
 }
