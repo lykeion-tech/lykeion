@@ -6,24 +6,65 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 // TestEveryWorkspaceRouteHidesOtherWorkspaces audits every registered API
 // route that operates on workspace data. Workspace routes use A's workspace
-// URL; card and inbox routes use B's scope with A's resource identifiers.
+// URL; resource routes use B's scope with real identifiers owned by A.
 func TestWorkspaceRouteIsolation(t *testing.T) {
 	s := newServer(t)
 	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@else.org")
 	wa := s.workspace(t, a, "lab-a")
 	wb := s.workspace(t, b, "lab-b")
 	var c card
-	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q"}, &c)
+	if code := s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q"}, &c); code != http.StatusCreated || c.ID == "" {
+		t.Fatalf("create card fixture: %d %+v", code, c)
+	}
+	personal := s.personalToken(t, a)
+	var runtimes []struct{ ID string }
+	if code := s.call(t, "POST", "/api/daemon/register", personal, "", map[string]any{
+		"workspace_id": wa.ID, "daemon_id": "isolation-daemon", "harnesses": []string{"claude"},
+	}, &runtimes); code != http.StatusOK || len(runtimes) != 1 || runtimes[0].ID == "" {
+		t.Fatalf("register runtime fixture: %d %+v", code, runtimes)
+	}
+	runtimeID := runtimes[0].ID
+	s.queue(t, wa.ID, c.ID, s.userID(t, a), "claude")
+	var runID uuid.UUID
+	var originalStatus string
+	var originalAttempt int32
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT id, status, attempt FROM agent_run
+		WHERE workspace_id = $1 AND card_id = $2`, wa.ID, c.ID).Scan(&runID, &originalStatus, &originalAttempt); err != nil {
+		t.Fatal(err)
+	}
+	if runID == uuid.Nil || originalStatus != "queued" || originalAttempt != 0 {
+		t.Fatalf("invalid agent-run fixture: id=%s status=%s attempt=%d", runID, originalStatus, originalAttempt)
+	}
 	var item string
 	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
 		VALUES ($1, $2, $3, 'escalated', 'x') RETURNING id`, wa.ID, c.ID, s.userID(t, a)).Scan(&item); err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]string{"{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
+	// Positive controls prove the probed resources resolve for their owner.
+	var ownRun struct {
+		ID     string
+		Status string
+	}
+	if code := s.call(t, http.MethodGet, "/api/agent-runs/"+runID.String(), a, wa.ID, nil, &ownRun); code != http.StatusOK || ownRun.ID != runID.String() || ownRun.Status != originalStatus {
+		t.Fatalf("owner cannot read agent-run fixture: %d %+v", code, ownRun)
+	}
+	var ownMessages []map[string]any
+	if code := s.call(t, http.MethodGet, "/api/agent-runs/"+runID.String()+"/messages", a, wa.ID, nil, &ownMessages); code != http.StatusOK || len(ownMessages) != 0 {
+		t.Fatalf("owner cannot read agent-run messages: %d %+v", code, ownMessages)
+	}
+	var ownRuntimes []struct{ ID string }
+	if code := s.call(t, http.MethodGet, "/api/runtimes", a, wa.ID, nil, &ownRuntimes); code != http.StatusOK || len(ownRuntimes) != 1 || ownRuntimes[0].ID != runtimeID {
+		t.Fatalf("owner cannot list runtime fixture: %d %+v", code, ownRuntimes)
+	}
+	if code := s.call(t, http.MethodPatch, "/api/runtimes/"+runtimeID, a, wa.ID, map[string]any{"custom_name": "owner control"}, nil); code != http.StatusNoContent {
+		t.Fatalf("owner cannot patch runtime fixture: %d", code)
+	}
 
 	checked := 0
 	err := chi.Walk(NewRouter(s.H).(chi.Routes), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
@@ -44,6 +85,10 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		}
 		if route == "/api/inbox/{id}/read" {
 			path = strings.Replace(path, "{id}", item, 1)
+		} else if strings.HasPrefix(route, "/api/runtimes/{id}") {
+			path = strings.Replace(path, "{id}", runtimeID, 1)
+		} else if strings.HasPrefix(route, "/api/agent-runs/{id}") {
+			path = strings.Replace(path, "{id}", runID.String(), 1)
 		} else {
 			for k, v := range ids {
 				path = strings.ReplaceAll(path, k, v)
@@ -108,5 +153,22 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	}
 	if comments != 0 {
 		t.Fatalf("an outsider added %d comments to workspace A", comments)
+	}
+	if code := s.call(t, http.MethodPost, "/api/agent-runs/"+runID.String()+"/cancel", b, wb.ID, nil, nil); code != http.StatusNotFound {
+		t.Fatalf("outsider cancelled A's real agent run: %d", code)
+	}
+	var statusAfter string
+	var attemptAfter int32
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT status, attempt FROM agent_run WHERE workspace_id = $1 AND id = $2`, wa.ID, runID).Scan(&statusAfter, &attemptAfter); err != nil {
+		t.Fatal(err)
+	}
+	if statusAfter != originalStatus || attemptAfter != originalAttempt {
+		t.Fatalf("outsider changed agent run: status=%s attempt=%d, want %s/%d", statusAfter, attemptAfter, originalStatus, originalAttempt)
+	}
+	if code := s.call(t, http.MethodGet, "/api/agent-runs/"+runID.String(), a, wa.ID, nil, &ownRun); code != http.StatusOK || ownRun.Status != originalStatus {
+		t.Fatalf("owner cannot read unchanged agent run: %d %+v", code, ownRun)
+	}
+	if code := s.call(t, http.MethodDelete, "/api/runtimes/"+runtimeID, a, wa.ID, nil, nil); code != http.StatusNoContent {
+		t.Fatalf("owner cannot delete runtime fixture: %d", code)
 	}
 }
