@@ -2,6 +2,7 @@ package migrate_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -86,5 +87,41 @@ func TestFailedMigrationDoesNotRecordVersionAndCanRetry(t *testing.T) {
 	}
 	if n != 7 {
 		t.Fatalf("retried migration inserted %d, want 7", n)
+	}
+}
+
+func TestDuplicateVersionsFailBeforeApplyingAnyFile(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, env.OwnerURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	fsys := fstest.MapFS{
+		"0400_first.up.sql": {Data: []byte("CREATE TABLE t_first (n int)")},
+		"0401_a.up.sql":     {Data: []byte("CREATE TABLE t_duplicate_a (n int)")},
+		"401_b.up.sql":      {Data: []byte("CREATE TABLE t_duplicate_b (n int)")},
+	}
+	err = migrate.Up(ctx, conn, fsys)
+	if err == nil {
+		t.Fatal("duplicate numeric migration versions were accepted")
+	}
+	if !strings.Contains(err.Error(), "duplicate migration version 401") {
+		t.Fatalf("want explicit duplicate error, got %v", err)
+	}
+	var exists bool
+	if err := conn.QueryRow(ctx, "SELECT to_regclass('t_first') IS NOT NULL").Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("applied earlier file before rejecting duplicate versions")
+	}
+	var n int
+	if err := conn.QueryRow(ctx, "SELECT count(*) FROM schema_migrations WHERE version IN (400, 401)").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("recorded %d invalid batch versions", n)
 	}
 }

@@ -2,6 +2,8 @@ package migrations_test
 
 import (
 	"context"
+	"errors"
+	"github.com/jackc/pgx/v5/pgconn"
 	"testing"
 
 	"github.com/google/uuid"
@@ -93,5 +95,73 @@ func TestAppRoleCannotTouchMigrations(t *testing.T) {
 	env := testutil.Setup(t)
 	if _, err := env.App.Exec(context.Background(), "SELECT * FROM schema_migrations"); err == nil {
 		t.Fatal("the app role can read schema_migrations")
+	}
+}
+
+func TestCardAssociationsCannotCrossWorkspaces(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := context.Background()
+	user, a, b, cardA, cardB := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO "user" (id, email) VALUES ($1, 'association@x')`, user); err != nil {
+		t.Fatal(err)
+	}
+	for i, ws := range []uuid.UUID{a, b} {
+		if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace (id, slug, name) VALUES ($1, $2, 'w')`, ws, []string{"a", "b"}[i]); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := env.Owner.Exec(ctx, `INSERT INTO card (id, workspace_id, number, title, question, owner_id) VALUES ($1, $2, 1, 't', 'q', $3)`, []uuid.UUID{cardA, cardB}[i], ws, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct{ name, query string }{
+		{"comment", `INSERT INTO comment (workspace_id, card_id, author_id, body) VALUES ($1, $2, $3, 'body')`},
+		{"inbox_item", `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, 'released', 'text')`},
+		{"event", `INSERT INTO event (workspace_id, card_id, actor_id, type, actor_type) VALUES ($1, $2, $3, 'card.created', 'user')`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, err := env.App.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.workspace_id', $1, true)", a.String()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.Exec(ctx, tc.query, a, cardA, user); err != nil {
+				t.Fatalf("same-workspace association: %v", err)
+			}
+			_, err = tx.Exec(ctx, tc.query, a, cardB, user)
+			var pgerr *pgconn.PgError
+			if !errors.As(err, &pgerr) || pgerr.Code != "23503" {
+				t.Fatalf("cross-workspace association must fail foreign key, got %v", err)
+			}
+		})
+	}
+}
+
+func TestDeletingCardPreservesEventWithoutCardAssociation(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := context.Background()
+	user, ws, card := uuid.New(), uuid.New(), uuid.New()
+	for _, tc := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO "user" (id, email) VALUES ($1, 'delete@x')`, []any{user}},
+		{`INSERT INTO workspace (id, slug, name) VALUES ($1, 'delete', 'w')`, []any{ws}},
+		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id) VALUES ($1, $2, 1, 't', 'q', $3)`, []any{card, ws, user}},
+		{`INSERT INTO event (workspace_id, card_id, type, actor_type) VALUES ($1, $2, 'created', 'system')`, []any{ws, card}},
+		{`DELETE FROM card WHERE id = $1`, []any{card}},
+	} {
+		if _, err := env.Owner.Exec(ctx, tc.query, tc.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	if err := env.Owner.QueryRow(ctx, `SELECT count(*) FROM event WHERE workspace_id = $1 AND card_id IS NULL`, ws).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("retained unlinked events: %d, want 1", n)
 	}
 }

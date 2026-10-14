@@ -33,11 +33,16 @@ func Up(ctx context.Context, conn *pgx.Conn, fsys fs.FS) error {
 		name    string
 	}
 	var todo []file
+	versions := make(map[int]string)
 	for _, f := range files {
 		v, err := strconv.Atoi(strings.SplitN(f, "_", 2)[0])
 		if err != nil {
 			return fmt.Errorf("migration %s: name must start with a number", f)
 		}
+		if previous, ok := versions[v]; ok {
+			return fmt.Errorf("duplicate migration version %d: %s and %s", v, previous, f)
+		}
+		versions[v] = f
 		todo = append(todo, file{v, f})
 	}
 	sort.Slice(todo, func(i, j int) bool { return todo[i].version < todo[j].version })

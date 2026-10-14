@@ -83,27 +83,30 @@ CREATE TABLE card (
   follows_from uuid[] NOT NULL DEFAULT '{}',
   version bigint NOT NULL DEFAULT 1,
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, number)
+  UNIQUE (workspace_id, number),
+  UNIQUE (workspace_id, id)
 );
 
 CREATE TABLE comment (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
-  card_id uuid NOT NULL REFERENCES card ON DELETE CASCADE,
+  card_id uuid NOT NULL,
   author_id uuid NOT NULL REFERENCES "user",
   body text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (workspace_id, card_id) REFERENCES card (workspace_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE inbox_item (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
-  card_id uuid NOT NULL REFERENCES card ON DELETE CASCADE,
+  card_id uuid NOT NULL,
   user_id uuid NOT NULL REFERENCES "user" ON DELETE CASCADE,
   kind text NOT NULL CHECK (kind IN ('escalated', 'out_of_budget', 'released', 'publish_request')),
   text text NOT NULL,
   read_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (workspace_id, card_id) REFERENCES card (workspace_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE event (
@@ -114,7 +117,8 @@ CREATE TABLE event (
   actor_type text NOT NULL CHECK (actor_type IN ('user', 'role', 'system')),
   actor_id uuid,
   payload jsonb NOT NULL DEFAULT '{}',
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (workspace_id, card_id) REFERENCES card (workspace_id, id) ON DELETE SET NULL (card_id)
 );
 CREATE INDEX event_workspace_id ON event (workspace_id, id);
 
