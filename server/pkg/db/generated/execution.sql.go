@@ -624,6 +624,34 @@ func (q *Queries) LockAgentRun(ctx context.Context, arg LockAgentRunParams) (Age
 	return i, err
 }
 
+const lockAgentRunToken = `-- name: LockAgentRunToken :one
+SELECT token_hash, workspace_id, agent_run_id, card_id, role, attempt, expires_at FROM agent_run_token
+WHERE token_hash = $1 AND workspace_id = $2 AND agent_run_id = $3
+  AND expires_at > clock_timestamp()
+FOR UPDATE
+`
+
+type LockAgentRunTokenParams struct {
+	TokenHash   string    `json:"token_hash"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+}
+
+func (q *Queries) LockAgentRunToken(ctx context.Context, arg LockAgentRunTokenParams) (AgentRunToken, error) {
+	row := q.db.QueryRow(ctx, lockAgentRunToken, arg.TokenHash, arg.WorkspaceID, arg.AgentRunID)
+	var i AgentRunToken
+	err := row.Scan(
+		&i.TokenHash,
+		&i.WorkspaceID,
+		&i.AgentRunID,
+		&i.CardID,
+		&i.Role,
+		&i.Attempt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const lookupAgentRunToken = `-- name: LookupAgentRunToken :one
 SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, card_id::uuid AS card_id,
   role::text AS role, board_column::text AS board_column, round::int AS round
@@ -692,6 +720,26 @@ func (q *Queries) RequeueAgentRun(ctx context.Context, arg RequeueAgentRunParams
 		arg.WorkspaceID,
 	)
 	return err
+}
+
+const roleBlobExists = `-- name: RoleBlobExists :one
+SELECT EXISTS (
+  SELECT 1 FROM event WHERE workspace_id = $1 AND card_id = $2
+    AND type = 'blob.created' AND payload->>'blob_key' = $3::text
+)::boolean
+`
+
+type RoleBlobExistsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      *uuid.UUID `json:"card_id"`
+	BlobKey     string     `json:"blob_key"`
+}
+
+func (q *Queries) RoleBlobExists(ctx context.Context, arg RoleBlobExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, roleBlobExists, arg.WorkspaceID, arg.CardID, arg.BlobKey)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const setRuntimeConcurrency = `-- name: SetRuntimeConcurrency :execrows

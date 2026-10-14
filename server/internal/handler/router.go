@@ -21,6 +21,14 @@ func NewRouter(h *H) http.Handler {
 	r.Get("/auth/google", h.googleStart)
 	r.Get("/auth/google/callback", h.googleCallback)
 
+	r.Route("/api/role", func(r chi.Router) {
+		r.Use(middleware.AgentRunAuth(h.Store))
+		r.Post("/records", h.createRecord)
+		r.Get("/records", h.listRecords)
+		r.Post("/blobs", h.putBlob)
+		r.Get("/blobs/{sha}", h.getBlob)
+	})
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(h.Store, h.JWT))
 		if h.Hub != nil {

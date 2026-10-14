@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -42,4 +44,46 @@ func TestRequestBoundsOnlyExemptsWebSocketUpgrades(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The raw upload must authenticate before reading; every other route keeps the JSON bound.
+func TestRequestBoundsStreamsOnlyExactBlobPost(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		stream       bool
+	}{{"POST", "/api/role/blobs", true}, {"PUT", "/api/role/blobs", false}, {"POST", "/api/role/blobs/", false}, {"POST", "/api/role/records", false}} {
+		body := &countingBody{Reader: strings.NewReader(strings.Repeat("x", MaxBodyBytes+1))}
+		reached := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reached = true
+			if body.read != 0 {
+				t.Errorf("body read before auth: %d", body.read)
+			}
+			if _, ok := r.Context().Deadline(); !ok {
+				t.Error("missing request deadline")
+			}
+			w.WriteHeader(401)
+		})
+		req := httptest.NewRequest(tc.method, tc.path, body)
+		rec := httptest.NewRecorder()
+		RequestBounds(next).ServeHTTP(rec, req)
+		if tc.stream {
+			if !reached || rec.Code != 401 {
+				t.Fatalf("stream %s %s: %d", tc.method, tc.path, rec.Code)
+			}
+		} else if reached || rec.Code != 413 {
+			t.Fatalf("JSON bound %s %s: %d", tc.method, tc.path, rec.Code)
+		}
+	}
+}
+
+type countingBody struct {
+	io.Reader
+	read int
+}
+
+func (b *countingBody) Read(p []byte) (int, error) {
+	n, e := b.Reader.Read(p)
+	b.read += n
+	return n, e
 }
