@@ -49,12 +49,13 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func readJSON(r *http.Request, v any) error {
-	data, err := io.ReadAll(io.LimitReader(r.Body, middleware.MaxBodyBytes+1))
+	limit := middleware.JSONBodyLimit(r)
+	data, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		return err
 	}
-	if len(data) > middleware.MaxBodyBytes {
-		return errors.New("request body exceeds 1 MiB")
+	if int64(len(data)) > limit {
+		return errors.New("request body exceeds endpoint limit")
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()

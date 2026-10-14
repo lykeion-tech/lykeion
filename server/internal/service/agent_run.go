@@ -321,7 +321,8 @@ func (s *AgentRuns) Messages(ctx context.Context, user uuid.UUID, ref RuntimeRef
 		if err != nil {
 			return err
 		}
-		if !runningOn(t, ref) {
+		// A person may cancel before the daemon drains the final output.
+		if !runningOn(t, ref) && !(t.Status == "cancelled" && t.StartedAt != nil && t.LateUsageAt == nil) {
 			return ErrConflict
 		}
 		for _, m := range ms {
@@ -376,7 +377,11 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 			out = t
 			return nil
 		}
-		if t.Status != "cancelled" && !runningOn(t, ref) {
+		if t.Status == "dispatched" && !ok {
+			if (r.FailureReason != "agent_error" && r.FailureReason != "runtime_offline") || len(r.Usage) != 0 || r.SessionID != "" {
+				return ErrBadReport
+			}
+		} else if t.Status != "cancelled" && !runningOn(t, ref) {
 			return ErrConflict
 		}
 		spent := 0.0

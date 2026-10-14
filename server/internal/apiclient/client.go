@@ -1,4 +1,4 @@
-package cli
+package apiclient
 
 import (
 	"bytes"
@@ -70,10 +70,17 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 				e.Error += ": " + text
 			}
 		}
-		return fmt.Errorf("%s %s: %s", method, path, e.Error)
+		return &HTTPError{Status: resp.StatusCode, Msg: fmt.Sprintf("%s %s: %s", method, path, e.Error)}
 	}
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil
 }
+
+type HTTPError struct {
+	Status int
+	Msg    string
+}
+
+func (e *HTTPError) Error() string { return e.Msg }

@@ -5,6 +5,8 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+
+	"lykeion/server/internal/apiclient"
 )
 
 // env bundles what every command needs: config, its path, a client, and the
@@ -17,8 +19,8 @@ type env struct {
 	openBrowser func(string) error
 }
 
-func (e *env) client() *Client {
-	return &Client{Server: e.cfg.Server, Token: e.cfg.Token, Workspace: e.cfg.Workspace}
+func (e *env) client() *apiclient.Client {
+	return &apiclient.Client{Server: e.cfg.Server, Token: e.cfg.Token, Workspace: e.cfg.Workspace}
 }
 
 func (e *env) signedIn() error {

@@ -7,17 +7,20 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
 const (
-	MaxBodyBytes        = 1 << 20
-	BodyReadTimeout     = 2 * time.Second
-	RequestTimeout      = 10 * time.Second
-	BlobBodyReadTimeout = 30 * time.Second
-	BlobRequestTimeout  = 60 * time.Second
+	MaxBodyBytes          = 1 << 20
+	MaxDaemonMessageBytes = 32 << 20
+	BodyReadTimeout       = 2 * time.Second
+	RequestTimeout        = 10 * time.Second
+	BlobBodyReadTimeout   = 30 * time.Second
+	BlobRequestTimeout    = 60 * time.Second
 )
 
 // RequestBounds buffers JSON before workspace transactions. Raw role uploads
@@ -59,7 +62,8 @@ func RequestBounds(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
+			limit := JSONBodyLimit(r)
+			data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 			if err != nil {
 				// Do not let net/http drain an incomplete or oversized body on keep-alive.
 				w.Header().Set("Connection", "close")
@@ -68,7 +72,7 @@ func RequestBounds(next http.Handler) http.Handler {
 				var network net.Error
 				switch {
 				case errors.As(err, &tooLarge):
-					deny(w, http.StatusRequestEntityTooLarge, "request body exceeds 1 MiB")
+					deny(w, http.StatusRequestEntityTooLarge, "request body exceeds endpoint limit")
 				case errors.As(err, &network) && network.Timeout(), ctx.Err() != nil:
 					deny(w, http.StatusRequestTimeout, "request body timed out")
 				default:
@@ -81,4 +85,25 @@ func RequestBounds(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Match only the UUID message route, not a permissive prefix.
+func daemonMessagePost(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	p := strings.Split(r.URL.Path, "/")
+	if len(p) != 6 || p[1] != "api" || p[2] != "daemon" || p[3] != "agent-runs" || p[5] != "messages" || len(p[4]) != 36 {
+		return false
+	}
+	_, err := uuid.Parse(p[4])
+	return err == nil
+}
+
+// JSONBodyLimit is shared by pre-transaction buffering and strict decoding.
+func JSONBodyLimit(r *http.Request) int64 {
+	if daemonMessagePost(r) {
+		return MaxDaemonMessageBytes
+	}
+	return MaxBodyBytes
 }

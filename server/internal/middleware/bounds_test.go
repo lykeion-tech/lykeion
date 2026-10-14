@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -86,4 +87,33 @@ func (b *countingBody) Read(p []byte) (int, error) {
 	n, e := b.Reader.Read(p)
 	b.read += n
 	return n, e
+}
+
+func TestDaemonMessageBodyBoundIsExact(t *testing.T) {
+	const root = "/api/daemon/agent-runs/00000000-0000-0000-0000-000000000001/messages"
+	for _, tc := range []struct {
+		method, path string
+		size, want   int
+	}{
+		{"POST", root, 2 << 20, 204}, {"POST", root, 32 << 20, 204}, {"POST", root, (32 << 20) + 1, 413},
+		{"PUT", root, 2 << 20, 413}, {"POST", root + "/", 2 << 20, 413}, {"POST", "/api/daemon/agent-runs/not-uuid/messages", 2 << 20, 413}, {"POST", "/api/daemon/agent-runs/00000000-0000-0000-0000-000000000001/complete", 2 << 20, 413},
+	} {
+		t.Run(tc.method+tc.path+strconv.Itoa(tc.size), func(t *testing.T) {
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, err := io.ReadAll(r.Body)
+				if err != nil || len(b) != tc.size {
+					t.Errorf("read %d %v", len(b), err)
+				}
+				if _, ok := r.Context().Deadline(); !ok {
+					t.Error("no deadline")
+				}
+				w.WriteHeader(204)
+			})
+			rec := httptest.NewRecorder()
+			RequestBounds(next).ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(strings.Repeat("x", tc.size))))
+			if rec.Code != tc.want {
+				t.Fatalf("status %d want %d", rec.Code, tc.want)
+			}
+		})
+	}
 }

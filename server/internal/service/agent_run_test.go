@@ -1038,3 +1038,79 @@ func TestStaleSettlementConsumerCannotAcknowledgeOrReleaseNewLease(t *testing.T)
 		})
 	}
 }
+
+func TestCancelledTailBeforeUsageAndAttemptFence(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.enqueue(t, 1, "claude")
+	ref := f.runtime(t, f.Owner, "tail", "claude")
+	got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim %v %v", got, err)
+	}
+	id := got[0].AgentRun.ID
+	if err = f.T.Start(ctx, f.Owner, ref, id); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.T.Cancel(ctx, f.WS, f.Owner, id); err != nil {
+		t.Fatal(err)
+	}
+	ms := []Message{{Seq: 1, Type: "text", Content: []byte(`"final tail"`)}}
+	for i := 0; i < 2; i++ {
+		if err = f.T.Messages(ctx, f.Owner, ref, id, ms); err != nil {
+			t.Fatalf("cancelled tail: %v", err)
+		}
+	}
+	var count int
+	if err = f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1", id).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("count %d %v", count, err)
+	}
+	stale := ref
+	stale.Attempt++
+	if !errors.Is(f.T.Messages(ctx, f.Owner, stale, id, ms), ErrConflict) {
+		t.Fatal("accepted wrong attempt")
+	}
+	if _, err = f.T.Complete(ctx, f.Owner, ref, id, Report{}); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(f.T.Messages(ctx, f.Owner, ref, id, ms), ErrConflict) {
+		t.Fatal("accepted tail after final usage")
+	}
+}
+func TestDispatchedPreparationFailure(t *testing.T) {
+	for _, reason := range []string{"agent_error", "runtime_offline"} {
+		t.Run(reason, func(t *testing.T) {
+			f := setup(t)
+			ctx := context.Background()
+			f.enqueue(t, 1, "claude")
+			ref := f.runtime(t, f.Owner, "prepare", "claude")
+			got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+			if err != nil || len(got) != 1 {
+				t.Fatalf("claim %v %v", got, err)
+			}
+			id := got[0].AgentRun.ID
+			if _, err = f.T.Complete(ctx, f.Owner, ref, id, Report{}); !errors.Is(err, ErrConflict) {
+				t.Fatalf("prestart complete %v", err)
+			}
+			for _, r := range []Report{{FailureReason: reason, SessionID: "fabricated"}, {FailureReason: reason, Usage: []agent.Usage{{Model: "m", CostUSD: usd(1)}}}, {FailureReason: "provider_network"}} {
+				if _, err = f.T.Fail(ctx, f.Owner, ref, id, r); err == nil {
+					t.Fatalf("accepted invalid prestart report %+v", r)
+				}
+			}
+			out, err := f.T.Fail(ctx, f.Owner, ref, id, Report{FailureReason: reason, Error: "setup failed"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "failed"
+			if reason == "runtime_offline" {
+				want = "queued"
+			}
+			if out.Status != want || out.CostUsd != 0 {
+				t.Fatalf("result %+v", out)
+			}
+			if _, err = f.T.Fail(ctx, f.Owner, ref, id, Report{FailureReason: reason}); err != nil {
+				t.Fatal("replay", err)
+			}
+		})
+	}
+}
