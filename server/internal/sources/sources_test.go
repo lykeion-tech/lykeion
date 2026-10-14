@@ -166,6 +166,27 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 		t.Fatal("a person's token reached the sources server")
 	}
 
+	// The server keeps no MCP session: it never hands out a session id, and it
+	// offers no standalone stream, so any server node can answer any call.
+	raw := func(method, body string) *http.Response {
+		req, _ := http.NewRequest(method, srv.URL+"/mcp/sources", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer ltk_test")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	if res := raw("POST", `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`); res.StatusCode != 200 || res.Header.Get("Mcp-Session-Id") != "" {
+		t.Errorf("initialize: %d, session %q", res.StatusCode, res.Header.Get("Mcp-Session-Id"))
+	}
+	if res := raw("GET", ""); res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /mcp/sources: %d, want 405", res.StatusCode)
+	}
+
 	// A run that settled after its request was authenticated records nothing.
 	if _, err := env.Owner.Exec(ctx, `UPDATE agent_run SET status = 'completed' WHERE id = $1`, run); err != nil {
 		t.Fatal(err)

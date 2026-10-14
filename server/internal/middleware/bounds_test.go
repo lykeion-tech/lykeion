@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRequestBoundsOnlyExemptsWebSocketUpgrades(t *testing.T) {
@@ -142,4 +143,23 @@ func TestMalformedWebSocketHandshakeKeepsDeadline(t *testing.T) {
 			t.Error("missing version exempted")
 		}
 	})).ServeHTTP(httptest.NewRecorder(), req)
+}
+
+// A sources-server call may wait on two upstream calls; only its POST
+// outlives the ordinary deadline.
+func TestOnlyTheSourcesServerPostGetsTheSourcesDeadline(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		long         bool
+	}{{"POST", "/mcp/sources", true}, {"GET", "/mcp/sources", false}, {"POST", "/mcp/sources/x", false}, {"POST", "/api/cards", false}} {
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			d, ok := r.Context().Deadline()
+			left := time.Until(d)
+			if !ok || (tc.long && left <= 30*time.Second) || (!tc.long && left > RequestTimeout) {
+				t.Errorf("%s %s: deadline in %v", tc.method, tc.path, left)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+		RequestBounds(next).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}")))
+	}
 }

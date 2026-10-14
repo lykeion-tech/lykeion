@@ -32,7 +32,7 @@ type Hosted struct {
 func (h *Hosted) Handler() http.Handler {
 	return mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		return h.server(middleware.RoleFrom(r.Context()))
-	}, nil)
+	}, &mcp.StreamableHTTPOptions{Stateless: true})
 }
 
 // runToken is the bearer of the HTTP request carrying an MCP call.

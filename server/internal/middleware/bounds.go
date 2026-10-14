@@ -22,6 +22,9 @@ const (
 	RequestTimeout        = 10 * time.Second
 	BlobBodyReadTimeout   = 30 * time.Second
 	BlobRequestTimeout    = 60 * time.Second
+	// SourcesRequestTimeout bounds a sources-server call, which may wait on
+	// two upstream calls of up to 30 s each before recording what it got.
+	SourcesRequestTimeout = 60 * time.Second
 )
 
 // RequestBounds buffers JSON before workspace transactions. Raw role uploads
@@ -40,6 +43,9 @@ func RequestBounds(next http.Handler) http.Handler {
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
 		if rawBlob {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
+			requestTimeout = SourcesRequestTimeout
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()

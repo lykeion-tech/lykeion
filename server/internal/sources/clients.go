@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -39,7 +40,21 @@ type Doc struct {
 	FullText bool
 }
 
-var client = &http.Client{Timeout: 60 * time.Second}
+const (
+	// CallTimeout bounds one upstream call, from dial to the last body byte.
+	CallTimeout = 30 * time.Second
+	// ConnectTimeout bounds reaching the upstream: the dial and the TLS handshake.
+	ConnectTimeout = 10 * time.Second
+)
+
+var client = newClient(CallTimeout, ConnectTimeout)
+
+func newClient(call, connect time.Duration) *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: connect, KeepAlive: 30 * time.Second}).DialContext
+	t.TLSHandshakeTimeout = connect
+	return &http.Client{Timeout: call, Transport: t}
+}
 
 func get(ctx context.Context, h *http.Client, u string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
