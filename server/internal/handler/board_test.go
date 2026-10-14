@@ -304,3 +304,61 @@ func TestDuplicateLookupInfrastructureFailureIsServerError(t *testing.T) {
 		t.Fatalf("failed lookup changed the card: %s", ending)
 	}
 }
+
+func TestExplicitSteeringCancelsInflightRunsAcrossRounds(t *testing.T) {
+	for _, action := range []string{"stop", "send-back"} {
+		t.Run(action, func(t *testing.T) {
+			s := newServer(t)
+			s.H.Engine = nil
+			s.H.AgentRuns.OnSettled = nil
+			a := s.signIn(t, "steer@lab.org")
+			w := s.workspace(t, a, "lab")
+			var c card
+			if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
+				t.Fatal(code)
+			}
+			for _, harness := range []string{"claude", "codex", "claude", "codex"} {
+				s.queue(t, w.ID, c.ID, s.userID(t, a), harness)
+			}
+			if _, err := s.Env.Owner.Exec(t.Context(), `WITH card_update AS (UPDATE card SET board_column='hypotheses', round=2 WHERE id=$1 RETURNING id), numbered AS (SELECT id,row_number() OVER (ORDER BY created_at,id) AS n FROM agent_run WHERE card_id=$1) UPDATE agent_run SET status=CASE numbered.n WHEN 1 THEN 'running' WHEN 2 THEN 'queued' WHEN 3 THEN 'dispatched' ELSE 'completed' END, round=CASE WHEN numbered.n=3 THEN 2 ELSE 1 END, board_column=CASE WHEN numbered.n=3 THEN 'hypotheses' ELSE 'grounding' END FROM numbered WHERE agent_run.id=numbered.id`, c.ID); err != nil {
+				t.Fatal(err)
+			}
+			committed := false
+			previous := s.H.Store.Publish
+			s.H.Store.Publish = func(ctx context.Context, events []db.Event) {
+				for _, event := range events {
+					if event.Type == "card.steered" {
+						committed = true
+						var active int
+						if err := s.Env.Owner.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE card_id=$1 AND status IN ('running','dispatched','queued')`, c.ID).Scan(&active); err != nil {
+							t.Error(err)
+						}
+						if active != 3 {
+							t.Errorf("runs cancelled before steering commit: %d active", active)
+						}
+					}
+				}
+				if previous != nil {
+					previous(ctx, events)
+				}
+			}
+			body := map[string]string{"reason": "reconsider"}
+			if action == "send-back" {
+				body["to"] = "grounding"
+			}
+			if code := s.call(t, "POST", "/api/cards/"+c.ID+"/"+action, a, w.ID, body, nil); code != 200 {
+				t.Fatalf("steering: %d", code)
+			}
+			if !committed {
+				t.Fatal("steering event was not committed")
+			}
+			var cancelled, completed int
+			if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FILTER (WHERE status='cancelled'),count(*) FILTER (WHERE status='completed') FROM agent_run WHERE card_id=$1`, c.ID).Scan(&cancelled, &completed); err != nil {
+				t.Fatal(err)
+			}
+			if cancelled != 3 || completed != 1 {
+				t.Fatalf("all-round cancellation: cancelled=%d completed=%d", cancelled, completed)
+			}
+		})
+	}
+}

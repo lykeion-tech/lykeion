@@ -76,14 +76,12 @@ func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, 
 			}
 		}
 		if cancelAgentRuns {
-			ts, err := tx.Q.RoundAgentRuns(r.Context(), db.RoundAgentRunsParams{WorkspaceID: ws, CardID: id, BoardColumn: c.BoardColumn, Round: c.Round})
+			ts, err := tx.Q.CardInflightAgentRuns(r.Context(), db.CardInflightAgentRunsParams{WorkspaceID: ws, CardID: id})
 			if err != nil {
 				return err
 			}
 			for _, t := range ts {
-				if t.Status == "queued" || t.Status == "dispatched" || t.Status == "running" {
-					cancel = append(cancel, t.ID)
-				}
+				cancel = append(cancel, t)
 			}
 		}
 		if err := tx.Q.SaveCardBoard(r.Context(), s.Params(id, ws)); err != nil {

@@ -175,6 +175,38 @@ func (q *Queries) CardGates(ctx context.Context, arg CardGatesParams) ([]Record,
 	return items, nil
 }
 
+const cardInflightAgentRuns = `-- name: CardInflightAgentRuns :many
+SELECT id FROM agent_run
+WHERE workspace_id = $1 AND card_id = $2
+  AND status IN ('queued', 'dispatched', 'running')
+ORDER BY created_at, id
+`
+
+type CardInflightAgentRunsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) CardInflightAgentRuns(ctx context.Context, arg CardInflightAgentRunsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, cardInflightAgentRuns, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countKindRecords = `-- name: CountKindRecords :one
 SELECT count(*) FROM record WHERE workspace_id = $1 AND card_id = $2
   AND board_column = $3 AND kind = $4

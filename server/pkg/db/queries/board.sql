@@ -89,3 +89,9 @@ ORDER BY created_at;
 
 -- name: SetWorkspaceSettings :exec
 UPDATE workspace SET settings = @settings WHERE id = @id;
+
+-- name: CardInflightAgentRuns :many
+SELECT id FROM agent_run
+WHERE workspace_id = @workspace_id AND card_id = @card_id
+  AND status IN ('queued', 'dispatched', 'running')
+ORDER BY created_at, id;

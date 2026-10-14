@@ -229,11 +229,44 @@ type geoSummary struct {
 	Title     string `json:"title"`
 	Summary   string `json:"summary"`
 	GPL       string `json:"gpl"`
-	NSamples  int    `json:"n_samples"`
+	NSamples  *int   `json:"n_samples"`
 	Samples   []struct {
 		Accession string `json:"accession"`
 		Title     string `json:"title"`
 	} `json:"samples"`
+}
+
+// UnmarshalJSON accepts GEO's integer and string count representations.
+// A blank count has no value, rather than meaning zero samples.
+func (s *geoSummary) UnmarshalJSON(data []byte) error {
+	type summary geoSummary
+	var wire struct {
+		*summary
+		NSamples json.RawMessage `json:"n_samples"`
+	}
+	wire.summary = (*summary)(s)
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	s.NSamples = nil
+	if len(wire.NSamples) == 0 || string(wire.NSamples) == "null" {
+		return nil
+	}
+	raw := string(wire.NSamples)
+	if strings.HasPrefix(raw, "\"") {
+		if err := json.Unmarshal(wire.NSamples, &raw); err != nil {
+			return err
+		}
+		if raw == "" {
+			return nil
+		}
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return fmt.Errorf("n_samples: %w", err)
+	}
+	s.NSamples = &n
+	return nil
 }
 
 func (g GEO) summaries(ctx context.Context, term string) ([]geoSummary, error) {
@@ -273,7 +306,10 @@ func (g GEO) Search(ctx context.Context, q string) ([]Hit, error) {
 	ss, err := g.summaries(ctx, q)
 	hits := make([]Hit, len(ss))
 	for i, s := range ss {
-		hits[i] = Hit{ID: s.Accession, Title: s.Title, Abstract: fmt.Sprintf("%d samples", s.NSamples)}
+		hits[i] = Hit{ID: s.Accession, Title: s.Title}
+		if s.NSamples != nil {
+			hits[i].Abstract = fmt.Sprintf("%d samples", *s.NSamples)
+		}
 	}
 	return hits, err
 }
@@ -289,7 +325,12 @@ func (g GEO) Open(ctx context.Context, accession string) (string, error) {
 			continue
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "accession: %s\ntitle: %s\nplatform: GPL%s\nsummary: %s\nsamples (%d):\n", s.Accession, s.Title, s.GPL, s.Summary, s.NSamples)
+		fmt.Fprintf(&b, "accession: %s\ntitle: %s\nplatform: GPL%s\nsummary: %s\n", s.Accession, s.Title, s.GPL, s.Summary)
+		if s.NSamples == nil {
+			b.WriteString("samples:\n")
+		} else {
+			fmt.Fprintf(&b, "samples (%d):\n", *s.NSamples)
+		}
 		for _, sm := range s.Samples {
 			fmt.Fprintf(&b, "- %s: %s\n", sm.Accession, sm.Title)
 		}
