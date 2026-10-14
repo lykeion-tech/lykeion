@@ -2,12 +2,15 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
 )
 
 // Role identifies one run's authority over a card, column and round.
@@ -40,4 +43,35 @@ func AgentRunAuth(st *store.Store) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), roleKey, role)))
 		})
 	}
+}
+
+// ErrRoleUnauthorized is a run that settled, moved on or lost its token after
+// its request was authenticated.
+var ErrRoleUnauthorized = errors.New("invalid or finished agent run")
+
+// LockRole follows settlement's run-then-token lock order and checks, inside
+// the caller's transaction, that the run still holds the role it was
+// authenticated for and that the token belongs to its current attempt.
+func LockRole(ctx context.Context, tx *store.Tx, role Role, token string) error {
+	run, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{ID: role.AgentRunID, WorkspaceID: role.WorkspaceID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrRoleUnauthorized
+	}
+	if err != nil {
+		return err
+	}
+	if run.Status != "running" || run.CardID != role.CardID || run.Role != role.Role || run.BoardColumn != role.Column || run.Round != role.Round {
+		return ErrRoleUnauthorized
+	}
+	tok, err := tx.Q.LockAgentRunToken(ctx, db.LockAgentRunTokenParams{TokenHash: auth.Hash(token), WorkspaceID: role.WorkspaceID, AgentRunID: role.AgentRunID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrRoleUnauthorized
+	}
+	if err != nil {
+		return err
+	}
+	if tok.Attempt != run.Attempt || tok.CardID != run.CardID || tok.Role != run.Role {
+		return ErrRoleUnauthorized
+	}
+	return nil
 }

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/storage"
@@ -27,7 +26,7 @@ import (
 
 const maxBlob = 50 << 20
 
-var errRoleUnauthorized = errors.New("invalid or finished agent run")
+var errRoleUnauthorized = middleware.ErrRoleUnauthorized
 var errBlobReference = errors.New("blob is not available on this card")
 
 func blobKey(role middleware.Role, sum string) string {
@@ -41,34 +40,19 @@ func validSHA(sum string) bool {
 	return err == nil
 }
 
-// roleTx follows settlement's run-then-token lock order. The middleware lookup
-// alone is insufficient: the run can settle while a body is read or validated.
+// roleTx re-checks the run under row locks: the middleware lookup alone is
+// insufficient, because the run can settle while a body is read or validated.
 func (h *H) roleTx(r *http.Request, fn func(*store.Tx, middleware.Role) error) error {
 	role := middleware.RoleFrom(r.Context())
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	return h.Store.InWorkspace(r.Context(), role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
-		run, err := tx.Q.LockAgentRun(r.Context(), db.LockAgentRunParams{ID: role.AgentRunID, WorkspaceID: role.WorkspaceID})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errRoleUnauthorized
-		}
-		if err != nil {
+		if err := middleware.LockRole(r.Context(), tx, role, token); err != nil {
 			return err
-		}
-		if run.Status != "running" || run.CardID != role.CardID || run.Role != role.Role || run.BoardColumn != role.Column || run.Round != role.Round {
-			return errRoleUnauthorized
-		}
-		token, err := tx.Q.LockAgentRunToken(r.Context(), db.LockAgentRunTokenParams{TokenHash: auth.Hash(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")), WorkspaceID: role.WorkspaceID, AgentRunID: role.AgentRunID})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errRoleUnauthorized
-		}
-		if err != nil {
-			return err
-		}
-		if token.Attempt != run.Attempt || token.CardID != run.CardID || token.Role != run.Role {
-			return errRoleUnauthorized
 		}
 		return fn(tx, role)
 	})
 }
+
 func roleError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errRoleUnauthorized):

@@ -34,6 +34,7 @@ type H struct {
 	AgentRuns *service.AgentRuns
 	Blobs     storage.Storage
 	Kinds     map[string]service.Kind
+	Sources   http.Handler
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
