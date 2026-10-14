@@ -66,9 +66,9 @@ func (c *Client) Choice(ctx context.Context, state, instructions string, options
 	if out.Model != c.Model {
 		return Answer{}, fmt.Errorf("jev answered with %s, pinned %s", out.Model, c.Model)
 	}
-	a, ok := out.Answers["q"]
-	if !ok {
-		return Answer{}, fmt.Errorf("jev returned no answer")
+	a := out.Answers["q"]
+	if _, known := options[a.Choice]; !known {
+		return Answer{}, fmt.Errorf("jev returned no choice among the options (got %q)", a.Choice)
 	}
 	return a, nil
 }

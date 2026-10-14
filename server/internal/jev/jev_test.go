@@ -49,3 +49,29 @@ func TestErrorsAreNeverAnswers(t *testing.T) {
 		s.Close()
 	}
 }
+
+// replying answers every request with body, verbatim.
+func replying(body string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+}
+
+func TestAMissingVerdictIsAnError(t *testing.T) {
+	for name, body := range map[string]string{
+		"no q":           `{"model":"jev-1.13.0","answers":{}}`,
+		"null q":         `{"model":"jev-1.13.0","answers":{"q":null}}`,
+		"no choice":      `{"model":"jev-1.13.0","answers":{"q":{"probabilities":{"a":0.9},"confidence":0.9}}}`,
+		"empty choice":   `{"model":"jev-1.13.0","answers":{"q":{"choice":"","probabilities":{"a":0.9}}}}`,
+		"unknown choice": `{"model":"jev-1.13.0","answers":{"q":{"choice":"c","probabilities":{"c":0.9}}}}`,
+		"not json":       `{"model":`,
+	} {
+		s := replying(body)
+		c := &Client{BaseURL: s.URL, Key: "k", Model: "jev-1.13.0"}
+		a, err := c.Choice(context.Background(), "s", "pick", map[string]string{"a": "A", "b": "B"})
+		if err == nil || a.Choice != "" || a.Probabilities != nil {
+			t.Errorf("%s: want an error and no answer, got %+v %v", name, a, err)
+		}
+		s.Close()
+	}
+}
