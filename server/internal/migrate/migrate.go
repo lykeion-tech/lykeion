@@ -1,0 +1,76 @@
+// Package migrate applies numbered SQL files once each, in order, under an
+// advisory lock so several servers starting together do not race.
+package migrate
+
+import (
+	"context"
+	"fmt"
+	"io/fs"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+)
+
+const lockKey = 724501
+
+func Up(ctx context.Context, conn *pgx.Conn, fsys fs.FS) error {
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
+		return err
+	}
+	defer conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockKey)
+	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version int PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		return err
+	}
+	files, err := fs.Glob(fsys, "*.up.sql")
+	if err != nil {
+		return err
+	}
+	type file struct {
+		version int
+		name    string
+	}
+	var todo []file
+	for _, f := range files {
+		v, err := strconv.Atoi(strings.SplitN(f, "_", 2)[0])
+		if err != nil {
+			return fmt.Errorf("migration %s: name must start with a number", f)
+		}
+		todo = append(todo, file{v, f})
+	}
+	sort.Slice(todo, func(i, j int) bool { return todo[i].version < todo[j].version })
+	for _, f := range todo {
+		var done bool
+		if err := conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)", f.version).Scan(&done); err != nil {
+			return err
+		}
+		if done {
+			continue
+		}
+		sql, err := fs.ReadFile(fsys, f.name)
+		if err != nil {
+			return err
+		}
+		if err := apply(ctx, conn, f.version, string(sql)); err != nil {
+			return fmt.Errorf("%s: %w", f.name, err)
+		}
+	}
+	return nil
+}
+
+func apply(ctx context.Context, conn *pgx.Conn, version int, sql string) error {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, sql); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO schema_migrations (version) VALUES ($1)", version); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
