@@ -227,7 +227,7 @@ const resourceChecks: Record<ResourceKind, Check> = {
     email: string,
     role: oneOf('owner', 'member', 'viewer'),
   }),
-  autopilots: object({
+  autoresearch: object({
     triggerSpec: optional(triggerSpecCheck),
     subscriberIds: optional(array(string)),
     id: string,
@@ -289,7 +289,7 @@ function emptyResources() {
     connectors: [],
     machines: [],
     colleagues: [],
-    autopilots: [],
+    autoresearch: [],
     conversations: [],
     notifications: [],
   };
@@ -371,7 +371,7 @@ export class LocalResearchService implements ResearchService {
         ? { status: 'offline' }
         : kind === 'connectors'
           ? { status: 'unconfigured' }
-          : kind === 'autopilots'
+          : kind === 'autoresearch'
             ? { status: 'draft' }
             : {};
     const record = checked<ResourceMap[K]>(

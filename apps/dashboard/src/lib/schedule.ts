@@ -1,4 +1,4 @@
-// Autopilot schedules: a time of day or an interval inside a daily window, on every day,
+// Autoresearch schedules: a time of day or an interval inside a daily window, on every day,
 // chosen weekdays (0 = Sunday) or one day of the month. A cron expression overrides all of it.
 export type Schedule = {
   kind: 'schedule';
@@ -29,7 +29,7 @@ function dayText(s: Schedule, monthDay: string) {
       : monthDay;
 }
 
-// The sentence stored with the autopilot.
+// The sentence stored with the autoresearch.
 export function scheduleSummary(s: Schedule) {
   if (s.cron) return `Cron ${s.cron} (${s.timezone})`;
   const timing =

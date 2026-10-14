@@ -17,7 +17,7 @@ import {
 import { matchesQuery } from '../lib/search';
 const props = defineProps<{ kind: string; preset?: string }>();
 const emit = defineEmits<{ close: [] }>();
-const autopilotExpanded = ref(false);
+const autoresearchExpanded = ref(false);
 const editorForm = ref<HTMLFormElement>(),
   memberMenu = ref(false),
   memberQuery = ref('');
@@ -159,7 +159,7 @@ const titles: Record<string, string> = {
   'import-skill': 'Import from URL',
   'import-local': 'Import from local',
   'import-runtime': 'Copy from runtime',
-  autopilot: 'New autopilot',
+  autoresearch: 'New autoresearch',
   machine: 'Add a computer',
   daemon: 'Daemon',
 };
@@ -193,10 +193,10 @@ async function save() {
           instructions: instructions.value,
         });
         break;
-      case 'autopilot':
+      case 'autoresearch':
         if (triggerKind.value === 'schedule' && scheduleError(schedule.value))
           throw new Error(scheduleError(schedule.value));
-        await service.value.createResource('autopilots', {
+        await service.value.createResource('autoresearch', {
           name: name.value,
           instructions: instructions.value,
           schedule: scheduleSummary.value,
@@ -232,7 +232,7 @@ async function save() {
     :class="[
       'resource-editor',
       'editor-' + kind,
-      { 'autopilot-expanded': kind === 'autopilot' && autopilotExpanded },
+      { 'autoresearch-expanded': kind === 'autoresearch' && autoresearchExpanded },
     ]"
     @close="emit('close')"
   >
@@ -247,20 +247,20 @@ async function save() {
         >
           <Icon name="back" />
         </button>
-        <template v-if="kind === 'autopilot'"
-          ><span class="autopilot-header-icon"><Rocket :size="13" :stroke-width="1.5" /></span
-          ><span>New autopilot</span><span class="autopilot-header-muted">·</span
-          ><span class="autopilot-header-muted">Recurring AI work</span
-          ><Icon name="right" :size="12" /><span class="autopilot-header-muted">{{
+        <template v-if="kind === 'autoresearch'"
+          ><span class="autoresearch-header-icon"><Rocket :size="13" :stroke-width="1.5" /></span
+          ><span>New autoresearch</span><span class="autoresearch-header-muted">·</span
+          ><span class="autoresearch-header-muted">Recurring AI work</span
+          ><Icon name="right" :size="12" /><span class="autoresearch-header-muted">{{
             workspaceName
           }}</span
           ><button
             type="button"
             class="icon-button push-right"
             :aria-label="
-              autopilotExpanded ? 'Collapse autopilot editor' : 'Expand autopilot editor'
+              autoresearchExpanded ? 'Collapse autoresearch editor' : 'Expand autoresearch editor'
             "
-            @click="autopilotExpanded = !autopilotExpanded"
+            @click="autoresearchExpanded = !autoresearchExpanded"
           >
             <Icon name="expand" :size="15" /></button
         ></template>
@@ -272,7 +272,7 @@ async function save() {
         </span>
         <button
           type="button"
-          :class="['icon-button', { 'push-right': kind !== 'autopilot' }]"
+          :class="['icon-button', { 'push-right': kind !== 'autoresearch' }]"
           aria-label="Close"
           @click="emit('close')"
         >
@@ -594,9 +594,9 @@ async function save() {
           />
         </label>
       </div>
-      <div v-else-if="kind === 'autopilot'" class="autopilot-editor">
-        <div class="autopilot-runbook">
-          <input v-model="name" required autofocus placeholder="Autopilot name" />
+      <div v-else-if="kind === 'autoresearch'" class="autoresearch-editor">
+        <div class="autoresearch-runbook">
+          <input v-model="name" required autofocus placeholder="Autoresearch name" />
           <label>RUNBOOK <span>Read by the agent on every run</span> </label>
           <textarea
             v-model="instructions"
@@ -607,10 +607,10 @@ async function save() {
         <aside>
           <label
             ><span>ASSIGNEE<span class="required-mark">*</span></span>
-            <div class="autopilot-assignee">
+            <div class="autoresearch-assignee">
               <Rocket :size="16" :stroke-width="1.5" /><select
                 v-model="agentId"
-                aria-label="Autopilot assignee"
+                aria-label="Autoresearch assignee"
               >
                 <option value="">Select agent or team</option>
                 <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
@@ -639,14 +639,14 @@ async function save() {
               }}</small>
             </span>
           </button>
-          <label class="autopilot-project"
+          <label class="autoresearch-project"
             >PROJECT<small
               >Also sets where runs execute — the project's repository or local directory</small
             >
-            <div class="autopilot-project-select">
+            <div class="autoresearch-project-select">
               <Icon name="folder" :size="15" /><select
                 v-model="projectId"
-                aria-label="Autopilot project"
+                aria-label="Autoresearch project"
               >
                 <option value="">No project</option>
                 <option v-for="p in state.data?.projects" :key="p.id" :value="p.id">
@@ -656,7 +656,7 @@ async function save() {
             </div>
           </label>
           <label
-            >SUBSCRIBERS<small>Auto-subscribed to every task this autopilot creates</small>
+            >SUBSCRIBERS<small>Auto-subscribed to every task this autoresearch creates</small>
             <button
               type="button"
               class="subscriber-button"
@@ -865,7 +865,7 @@ async function save() {
       </div>
       <p v-if="error" class="editor-error" role="alert">{{ error }}</p>
       <footer v-if="kind !== 'skills'">
-        <small v-if="kind === 'autopilot'" class="footer-note"
+        <small v-if="kind === 'autoresearch'" class="footer-note"
           ><Icon name="zap" :size="14" />{{
             service.mode === 'local'
               ? 'Saved as an inactive draft.'
@@ -895,8 +895,8 @@ async function save() {
                   ? 'Create skill'
                   : kind === 'connector'
                     ? 'Add'
-                    : kind === 'autopilot'
-                      ? 'Create autopilot'
+                    : kind === 'autoresearch'
+                      ? 'Create autoresearch'
                       : kind === 'import-runtime'
                         ? 'Import to Workspace'
                         : 'Import'
@@ -1111,50 +1111,50 @@ async function save() {
   min-height: 300px;
   font-family: monospace;
 }
-.editor-autopilot {
+.editor-autoresearch {
   width: 1024px;
   max-width: calc(100vw - 48px);
 }
-.editor-autopilot header {
+.editor-autoresearch header {
   font-size: 12px;
 }
-.autopilot-editor {
+.autoresearch-editor {
   height: min(620px, 65vh);
   display: grid;
   grid-template-columns: minmax(400px, 1.7fr) minmax(300px, 1fr);
   overflow: hidden;
 }
-.autopilot-runbook {
+.autoresearch-runbook {
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-.autopilot-runbook > input {
+.autoresearch-runbook > input {
   padding: 0;
   font-size: 24px;
   font-weight: 600;
   border: 0;
 }
-.autopilot-runbook > label {
+.autoresearch-runbook > label {
   font-size: 11px;
   display: flex;
   flex-direction: row;
   gap: 8px;
   letter-spacing: 0.5px;
 }
-.autopilot-runbook > label > span {
+.autoresearch-runbook > label > span {
   font-size: 12px;
   letter-spacing: 0;
 }
-.autopilot-runbook textarea {
+.autoresearch-runbook textarea {
   resize: none;
   flex: 1;
   background: var(--fill-raised);
   padding: 16px;
   line-height: 23px;
 }
-.autopilot-editor aside {
+.autoresearch-editor aside {
   padding: 20px;
   border-left: 1px solid #ffffff40;
   overflow: auto;
@@ -1162,20 +1162,20 @@ async function save() {
   flex-direction: column;
   gap: 12px;
 }
-.autopilot-editor aside > label {
+.autoresearch-editor aside > label {
   font-size: 11px;
   letter-spacing: 1px;
   margin-top: 8px;
 }
-.autopilot-editor aside > label:first-child {
+.autoresearch-editor aside > label:first-child {
   margin-top: 0;
 }
-.autopilot-editor aside select,
-.autopilot-editor aside input {
+.autoresearch-editor aside select,
+.autoresearch-editor aside input {
   letter-spacing: 0;
   font-size: 14px;
 }
-.autopilot-editor aside small {
+.autoresearch-editor aside small {
   letter-spacing: 0;
   font-size: 11px;
 }
@@ -1197,7 +1197,7 @@ async function save() {
   display: block;
   margin-top: 3px;
 }
-.editor-autopilot footer {
+.editor-autoresearch footer {
   background: var(--surface);
 }
 .editor-error {
@@ -1294,7 +1294,7 @@ async function save() {
   justify-content: center;
   gap: 8px;
 }
-.autopilot-editor aside > .trigger-tabs {
+.autoresearch-editor aside > .trigger-tabs {
   margin-bottom: 8px;
 }
 .schedule-fields {
@@ -1423,7 +1423,7 @@ async function save() {
   color: var(--muted);
   line-height: 20px;
 }
-.autopilot-editor aside > .event-filter-heading {
+.autoresearch-editor aside > .event-filter-heading {
   flex-direction: row;
   align-items: center;
   gap: 4px;
@@ -1784,10 +1784,10 @@ async function save() {
   box-shadow: 0 0 0 4px var(--focus-glow);
   outline-offset: 0;
 }
-.editor-autopilot {
+.editor-autoresearch {
   width: 1026px;
 }
-.editor-autopilot form > header {
+.editor-autoresearch form > header {
   height: 48px;
   min-height: 48px;
   padding: 10px 20px;
@@ -1795,11 +1795,11 @@ async function save() {
   flex: none;
   font-size: 12px;
 }
-.editor-autopilot header .icon-button {
+.editor-autoresearch header .icon-button {
   height: 24px;
   width: 24px;
 }
-.autopilot-header-icon {
+.autoresearch-header-icon {
   display: grid;
   place-items: center;
   width: 20px;
@@ -1808,18 +1808,18 @@ async function save() {
   color: var(--primary);
   border-radius: 4px;
 }
-.autopilot-header-muted {
+.autoresearch-header-muted {
   color: var(--muted);
 }
-.autopilot-editor {
+.autoresearch-editor {
   grid-template-columns: minmax(0, 644px) minmax(0, 1fr);
   height: min(620px, 65vh);
 }
-.autopilot-runbook {
+.autoresearch-runbook {
   padding: 20px 24px 24px;
   gap: 12px;
 }
-.autopilot-runbook > input {
+.autoresearch-runbook > input {
   font-size: 24px;
   line-height: 29px;
   height: 29px;
@@ -1829,42 +1829,42 @@ async function save() {
   border: 0 !important;
   border-radius: 0;
 }
-.autopilot-runbook > input::placeholder {
+.autoresearch-runbook > input::placeholder {
   color: var(--muted);
   opacity: 1;
 }
-.autopilot-runbook > label {
+.autoresearch-runbook > label {
   line-height: 16px;
   gap: 8px;
   margin-bottom: -3px;
 }
-.autopilot-runbook textarea {
+.autoresearch-runbook textarea {
   font-size: 14px;
   line-height: 23px;
   padding: 12px 16px;
   border-radius: 8px;
 }
-.autopilot-editor aside {
+.autoresearch-editor aside {
   padding: 20px 30px 24px 20px;
   gap: 8px;
   scrollbar-width: thin;
 }
-.autopilot-editor aside > label {
+.autoresearch-editor aside > label {
   font-size: 11px;
   line-height: 16px;
   letter-spacing: 0.8px;
   margin-top: 12px;
   gap: 8px;
 }
-.autopilot-editor aside > label:first-child {
+.autoresearch-editor aside > label:first-child {
   margin-top: 0;
 }
 .required-mark {
   color: #d43b50;
   margin-left: 2px;
 }
-.autopilot-assignee,
-.autopilot-project-select {
+.autoresearch-assignee,
+.autoresearch-project-select {
   position: relative;
   display: flex;
   align-items: center;
@@ -1873,7 +1873,7 @@ async function save() {
   height: 44px;
   flex: none;
 }
-.autopilot-assignee > svg:first-child {
+.autoresearch-assignee > svg:first-child {
   position: absolute;
   left: 14px;
   color: var(--muted);
@@ -1884,15 +1884,15 @@ async function save() {
   height: 28px;
   pointer-events: none;
 }
-.autopilot-assignee > select {
+.autoresearch-assignee > select {
   appearance: none;
   height: 44px;
   padding: 8px 36px 8px 50px;
   min-width: 0;
   border: 0;
 }
-.autopilot-assignee > .icon:last-child,
-.autopilot-project-select > .icon:last-child {
+.autoresearch-assignee > .icon:last-child,
+.autoresearch-project-select > .icon:last-child {
   position: absolute;
   right: 12px;
   pointer-events: none;
@@ -1927,18 +1927,18 @@ async function save() {
   color: white;
   border-color: var(--primary);
 }
-.autopilot-project-select {
+.autoresearch-project-select {
   align-self: flex-start;
   height: 38px;
   max-width: 100%;
   width: max-content;
 }
-.autopilot-project-select > .icon:first-child {
+.autoresearch-project-select > .icon:first-child {
   position: absolute;
   left: 12px;
   pointer-events: none;
 }
-.autopilot-project-select > select {
+.autoresearch-project-select > select {
   appearance: none;
   height: 38px;
   padding: 7px 34px 7px 42px;
@@ -1946,7 +1946,7 @@ async function save() {
   max-width: 100%;
   border: 0;
 }
-.autopilot-editor aside small {
+.autoresearch-editor aside small {
   line-height: 15px;
 }
 .subscriber-button {
@@ -1975,12 +1975,12 @@ async function save() {
 .schedule-fields .segmented > button {
   height: 24px;
 }
-.editor-autopilot footer {
+.editor-autoresearch footer {
   height: 52px;
   min-height: 52px;
   padding: 12px 20px;
 }
-.editor-autopilot footer .button {
+.editor-autoresearch footer .button {
   font-size: 14px;
   font-weight: 400;
   height: 28px;
@@ -1993,17 +1993,17 @@ async function save() {
 .footer-note > .icon {
   color: #dc9d24;
 }
-.autopilot-expanded {
+.autoresearch-expanded {
   width: min(1400px, calc(100vw - 64px));
 }
-.autopilot-expanded .autopilot-editor {
+.autoresearch-expanded .autoresearch-editor {
   grid-template-columns: minmax(0, 1fr) 380px;
   height: calc(85vh - 100px);
 }
-.autopilot-editor aside > .trigger-tabs {
+.autoresearch-editor aside > .trigger-tabs {
   margin-bottom: 0;
 }
-.autopilot-editor aside > .trigger-tabs + label {
+.autoresearch-editor aside > .trigger-tabs + label {
   margin-top: 4px;
 }
 .interval-value:focus-within {

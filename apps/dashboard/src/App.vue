@@ -22,7 +22,7 @@ const groups = [
     name: '',
     items: [
       { id: 'inbox', name: 'Inbox', icon: 'inbox' },
-      { id: 'chat', name: 'Copilot', icon: 'chat' },
+      { id: 'chat', name: 'Coresearch', icon: 'chat' },
     ],
   },
   {
@@ -31,7 +31,7 @@ const groups = [
       { id: 'tasks', name: 'Tasks', icon: 'tasks' },
       { id: 'projects', name: 'Researches', icon: 'folder' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
-      { id: 'autopilots', name: 'Autopilot', icon: 'zap' },
+      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
     ],
   },
   {

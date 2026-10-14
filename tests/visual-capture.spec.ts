@@ -133,7 +133,7 @@ const emptyRoutes: [string, string][] = [
   ['01-tasks', '/tasks'],
   ['04-researches', '/projects'],
   ['06-colleagues', '/colleagues'],
-  ['07-autopilot', '/autopilots'],
+  ['07-autoresearch', '/autoresearch'],
   ['08-agents', '/agents'],
   ['09-new-agent', '/agents/new'],
   ['10-teams', '/squads'],
@@ -144,7 +144,7 @@ const emptyRoutes: [string, string][] = [
   ['15-settings', '/settings'],
   ['16-preferences', '/settings?tab=preferences'],
   ['17-inbox', '/inbox'],
-  ['18-copilot', '/chat'],
+  ['18-coresearch', '/chat'],
   ['35-general-settings', '/settings?tab=workspace'],
   ['36-notifications', '/settings?tab=notifications'],
   ['37-labels', '/settings?tab=labels'],
@@ -174,7 +174,7 @@ test('empty routes and first-install settings', async ({ page }) => {
   await capture(page, '19-new-chat', [
     'No agents available; the composer shows the honest disconnected state.',
   ]);
-  await navigate(page, '/autopilots');
+  await navigate(page, '/autoresearch');
   await page.getByRole('button', { name: 'Task wakeups', exact: true }).click();
   await capture(page, '68-task-wakeups');
   await navigate(page, '/tasks');
@@ -197,7 +197,7 @@ test('create dialogs without saving product records', async ({ page }) => {
     ['20-new-team', '/squads', 'New team'],
     ['21-add-connector', '/connectors', 'Add connector'],
     ['22-add-skill-menu', '/skills', 'Add skill'],
-    ['24-new-autopilot', '/autopilots', 'New autopilot'],
+    ['24-new-autoresearch', '/autoresearch', 'New autoresearch'],
     ['25-add-computer', '/runtimes', 'Add a computer'],
   ];
   for (const [state, route, name] of dialogs) {
@@ -218,21 +218,25 @@ test('create dialogs without saving product records', async ({ page }) => {
       await page.getByRole('button', { name: 'JSON', exact: true }).click();
       await capture(page, '67-connector-json', ['Unsaved configuration; no remote connection.']);
     }
-    if (state === '24-new-autopilot') {
-      const autopilot = page.getByRole('dialog', { name: 'New autopilot', exact: true });
-      await autopilot.getByRole('button', { name: 'At an interval', exact: true }).click();
-      await autopilot.getByLabel('Interval', { exact: true }).focus();
-      await autopilot.locator('.autopilot-editor aside').evaluate((element) => {
+    if (state === '24-new-autoresearch') {
+      const autoresearch = page.getByRole('dialog', { name: 'New autoresearch', exact: true });
+      await autoresearch.getByRole('button', { name: 'At an interval', exact: true }).click();
+      await autoresearch.getByLabel('Interval', { exact: true }).focus();
+      await autoresearch.locator('.autoresearch-editor aside').evaluate((element) => {
         element.scrollTop = 308;
       });
-      await capture(page, '70-autopilot-interval', [
+      await capture(page, '70-autoresearch-interval', [
         'Inactive unsaved draft; next runs require the scheduling adapter.',
       ]);
-      await autopilot.getByLabel('Schedule days', { exact: true }).selectOption('week');
-      await capture(page, '71-autopilot-weekdays', ['Day selection only; no scheduler started.']);
-      await autopilot.getByRole('button', { name: 'Webhook', exact: true }).click();
-      await autopilot.getByLabel('Event filter values', { exact: true }).scrollIntoViewIfNeeded();
-      await capture(page, '72-autopilot-webhook', [
+      await autoresearch.getByLabel('Schedule days', { exact: true }).selectOption('week');
+      await capture(page, '71-autoresearch-weekdays', [
+        'Day selection only; no scheduler started.',
+      ]);
+      await autoresearch.getByRole('button', { name: 'Webhook', exact: true }).click();
+      await autoresearch
+        .getByLabel('Event filter values', { exact: true })
+        .scrollIntoViewIfNeeded();
+      await capture(page, '72-autoresearch-webhook', [
         'No webhook URL is fabricated or provisioned without a connected adapter.',
       ]);
     }
@@ -556,7 +560,7 @@ test('task property, pull request automation and wakeup task picker', async ({ p
     'No PR provider or merge automation; scientific gates remain required.',
   ]);
   await page.keyboard.press('Escape');
-  await navigate(page, '/autopilots');
+  await navigate(page, '/autoresearch');
   await page.getByRole('button', { name: 'Task wakeups', exact: true }).click();
   await page
     .locator('.resource-header-actions')

@@ -78,7 +78,7 @@ describe('resource records and HTTP boundary', () => {
     expect(agent.status).toBe('offline');
     expect(agent.runtimeId).toBe('selected-runtime');
     expect(await service.readResource('agents', agent.id)).toEqual(agent);
-    const autopilot = await service.createResource('autopilots', {
+    const autoresearch = await service.createResource('autoresearch', {
       name: 'Weekly review',
       instructions: 'Review new evidence',
       schedule: 'Weekly',
@@ -86,9 +86,9 @@ describe('resource records and HTTP boundary', () => {
       outputMode: 'run',
       projectId: 'selected-project',
     });
-    expect(autopilot.status).toBe('draft');
-    expect(autopilot.outputMode).toBe('run');
-    expect(autopilot.projectId).toBe('selected-project');
+    expect(autoresearch.status).toBe('draft');
+    expect(autoresearch.outputMode).toBe('run');
+    expect(autoresearch.projectId).toBe('selected-project');
     const team = await service.createResource('teams', {
       name: 'Review team',
       description: '',

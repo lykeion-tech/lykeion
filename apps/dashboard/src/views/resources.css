@@ -83,21 +83,21 @@
   right: 0;
   background: var(--text);
 }
-.autopilot-content {
+.autoresearch-content {
   display: flex;
   align-items: center;
   flex-direction: column;
   padding: 64px 20px 24px;
   color: var(--muted);
 }
-.autopilot-content > p {
+.autoresearch-content > p {
   margin-top: 14px;
 }
-.autopilot-content > small {
+.autoresearch-content > small {
   margin-top: 6px;
   font-size: 12px;
 }
-.autopilot-content > .icon {
+.autoresearch-content > .icon {
   color: var(--icon-empty);
 }
 .template-grid {
@@ -530,7 +530,7 @@
   padding: 0 20px;
 }
 .resource-center .button,
-.autopilot-content > .button {
+.autoresearch-content > .button {
   font-size: 13px;
 }
 @media (max-width: 1100px) {

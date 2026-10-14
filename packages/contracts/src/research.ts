@@ -17,22 +17,22 @@ export interface Skill { id: string; name: string; description: string; instruct
 export interface Connector { id: string; name: string; provider: string; status: 'unconfigured' | 'connected' | 'error' }
 export interface Machine { id: string; name: string; platform: string; status: 'connected' | 'disconnected' }
 export interface Colleague { id: string; name: string; email: string; role: 'owner' | 'member' | 'viewer' }
-export interface AutopilotTriggerSpec { kind: 'schedule'|'webhook'; timeMode?: 'time'|'interval'; time?: string; interval?: number; unit?: 'minutes'|'hours'; windowStart?: string; windowEnd?: string; dayMode?: 'every'|'week'|'month'; weekdays?: number[]; monthDay?: number; timezone?: string; cron?: string; eventFilters?: {key:string;value:string}[] }
-export interface Autopilot { triggerSpec?: AutopilotTriggerSpec; subscriberIds?: string[]; id: string; name: string; instructions: string; schedule: string; agentId: string | null; status: 'draft' | 'paused' | 'active'; outputMode?: 'task' | 'run'; projectId?: string | null }
+export interface AutoresearchTriggerSpec { kind: 'schedule'|'webhook'; timeMode?: 'time'|'interval'; time?: string; interval?: number; unit?: 'minutes'|'hours'; windowStart?: string; windowEnd?: string; dayMode?: 'every'|'week'|'month'; weekdays?: number[]; monthDay?: number; timezone?: string; cron?: string; eventFilters?: {key:string;value:string}[] }
+export interface Autoresearch { triggerSpec?: AutoresearchTriggerSpec; subscriberIds?: string[]; id: string; name: string; instructions: string; schedule: string; agentId: string | null; status: 'draft' | 'paused' | 'active'; outputMode?: 'task' | 'run'; projectId?: string | null }
 export interface Conversation { id: string; title: string; agentId: string; updatedAt: string }
 export interface Notification { id: string; title: string; body: string; read: boolean; createdAt: string; inquiryId: string | null }
 export interface ResourceMap {
   agents: Agent; runtimes: Runtime; teams: Team; skills: Skill; connectors: Connector; machines: Machine;
-  colleagues: Colleague; autopilots: Autopilot; conversations: Conversation; notifications: Notification;
+  colleagues: Colleague; autoresearch: Autoresearch; conversations: Conversation; notifications: Notification;
 }
 export type ResourceKind = keyof ResourceMap;
-export const resourceKinds = ['agents', 'runtimes', 'teams', 'skills', 'connectors', 'machines', 'colleagues', 'autopilots', 'conversations', 'notifications'] as const satisfies readonly ResourceKind[];
+export const resourceKinds = ['agents', 'runtimes', 'teams', 'skills', 'connectors', 'machines', 'colleagues', 'autoresearch', 'conversations', 'notifications'] as const satisfies readonly ResourceKind[];
 export interface ResourceCreateMap {
   agents: Pick<Agent, 'name' | 'role' | 'runtimeId' | 'description' | 'instructions' | 'model' | 'access' | 'memberIds' | 'suggestions' | 'conversationStarters' | 'thinking' | 'skillIds' | 'disabledSkillIds' | 'connectorIds' | 'customArgs' | 'avatar'>; runtimes: Pick<Runtime, 'name' | 'platform'>;
   teams: Pick<Team, 'name' | 'description' | 'agentIds' | 'leaderAgentId'>; skills: Pick<Skill, 'name' | 'description' | 'instructions'>;
   connectors: Pick<Connector, 'name' | 'provider'>; machines: Pick<Machine, 'name' | 'platform'>;
   colleagues: Pick<Colleague, 'name' | 'email' | 'role'>;
-  autopilots: Pick<Autopilot, 'name' | 'instructions' | 'schedule' | 'agentId' | 'outputMode' | 'projectId' | 'triggerSpec' | 'subscriberIds'>;
+  autoresearch: Pick<Autoresearch, 'name' | 'instructions' | 'schedule' | 'agentId' | 'outputMode' | 'projectId' | 'triggerSpec' | 'subscriberIds'>;
   conversations: Pick<Conversation, 'title' | 'agentId'>;
   notifications: Pick<Notification, 'title' | 'body' | 'inquiryId'>;
 }

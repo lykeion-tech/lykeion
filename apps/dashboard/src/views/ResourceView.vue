@@ -25,7 +25,7 @@ const router = useRouter(),
 const wakeups = ref<InstanceType<typeof TaskWakeups>>();
 const search = ref(''),
   tab = ref('Mine'),
-  autopilotTab = ref('Autopilot'),
+  autoresearchTab = ref('Autoresearch'),
   menu = ref(''),
   dialog = ref(''),
   selected = ref('');
@@ -168,11 +168,13 @@ watch(automaticUpdates, (value) => writeText('lykeion.automatic-updates', String
         <Icon name="plus" />New team
       </button>
       <button
-        v-else-if="page === 'autopilots'"
+        v-else-if="page === 'autoresearch'"
         class="button primary"
-        @click="autopilotTab === 'Task wakeups' ? wakeups?.open() : open('autopilot')"
+        @click="autoresearchTab === 'Task wakeups' ? wakeups?.open() : open('autoresearch')"
       >
-        <Icon name="plus" />{{ autopilotTab === 'Task wakeups' ? 'New wakeup' : 'New autopilot' }}
+        <Icon name="plus" />{{
+          autoresearchTab === 'Task wakeups' ? 'New wakeup' : 'New autoresearch'
+        }}
       </button>
       <template v-else-if="page === 'runtimes'">
         <button class="button" @click="open('daemon')"><Icon name="network" />Daemon</button>
@@ -258,48 +260,52 @@ watch(automaticUpdates, (value) => writeText('lykeion.automatic-updates', String
         <p>No colleagues yet</p>
       </div>
     </template>
-    <template v-else-if="page === 'autopilots'">
+    <template v-else-if="page === 'autoresearch'">
       <div class="resource-tabs">
         <button
-          v-for="t in ['Autopilot', 'Task wakeups']"
+          v-for="t in ['Autoresearch', 'Task wakeups']"
           :key="t"
-          :class="{ active: autopilotTab === t }"
-          @click="autopilotTab = t"
+          :class="{ active: autoresearchTab === t }"
+          @click="autoresearchTab = t"
         >
           {{ t }}
         </button>
       </div>
       <div
-        v-if="autopilotTab === 'Autopilot' && state.data?.autopilots.length"
+        v-if="autoresearchTab === 'Autoresearch' && state.data?.autoresearch.length"
         class="project-list"
       >
         <button
-          v-for="autopilot in state.data.autopilots"
-          :key="autopilot.id"
-          @click="notify(autopilot.instructions)"
+          v-for="entry in state.data.autoresearch"
+          :key="entry.id"
+          @click="notify(entry.instructions)"
         >
           <Icon name="zap" />
           <span
-            >{{ autopilot.name }}<small>{{ autopilot.schedule }}</small>
+            >{{ entry.name }}<small>{{ entry.schedule }}</small>
           </span>
-          <small class="push-right">{{ autopilot.status }}</small>
+          <small class="push-right">{{ entry.status }}</small>
         </button>
       </div>
-      <div v-else-if="autopilotTab === 'Autopilot'" class="autopilot-content">
+      <div v-else-if="autoresearchTab === 'Autoresearch'" class="autoresearch-content">
         <Icon name="zap" :size="40" />
-        <p>No autopilots yet</p>
+        <p>No autoresearch yet</p>
         <small
           >Schedule recurring work for your AI agents. Pick a template or start from scratch.</small
         >
         <div class="template-grid">
-          <button v-for="item in templates" :key="item.name" @click="open('autopilot', item.name)">
+          <button
+            v-for="item in templates"
+            :key="item.name"
+            @click="open('autoresearch', item.name)"
+          >
             <Icon :name="item.icon" :size="20" />
             <span
               >{{ item.name }}<small>{{ item.text }}</small>
             </span>
           </button>
         </div>
-        <button class="button primary compact" @click="open('autopilot')">
+        <button class="button primary compact" @click="open('autoresearch')">
           <Icon name="plus" />Start from scratch
         </button>
       </div>

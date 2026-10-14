@@ -253,7 +253,7 @@ describe('task table cells', () => {
   });
 });
 
-describe('autopilot schedules', () => {
+describe('autoresearch schedules', () => {
   const base: Schedule = {
     kind: 'schedule',
     timeMode: 'time',
