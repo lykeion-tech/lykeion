@@ -66,14 +66,18 @@ type runtimeRef struct {
 }
 type claimed struct {
 	AgentRun struct {
-		ID          uuid.UUID  `json:"id"`
-		WorkspaceID uuid.UUID  `json:"workspace_id"`
-		RuntimeID   *uuid.UUID `json:"runtime_id"`
-		Attempt     int32      `json:"attempt"`
-		Harness     string     `json:"harness"`
-		Prompt      string     `json:"prompt"`
-		Skill       string     `json:"skill"`
-		SessionID   string     `json:"session_id"`
+		ID                uuid.UUID  `json:"id"`
+		WorkspaceID       uuid.UUID  `json:"workspace_id"`
+		ResponsibleUserID uuid.UUID  `json:"responsible_user_id"`
+		RuntimeID         *uuid.UUID `json:"runtime_id"`
+		Attempt           int32      `json:"attempt"`
+		Harness           string     `json:"harness"`
+		Prompt            string     `json:"prompt"`
+		Skill             string     `json:"skill"`
+		SessionID         string     `json:"session_id"`
+		// ContinuityScope keys session continuity; empty never resumes.
+		ContinuityScope string `json:"continuity_scope"`
+		RunPrivate      bool   `json:"run_private"`
 	} `json:"agent_run"`
 	Token  string            `json:"token"`
 	MCPURL string            `json:"mcp_url"`
@@ -94,6 +98,7 @@ type daemon struct {
 	knownWorkspaces map[uuid.UUID]bool
 	activeRefs      map[string]runtimeRef
 	activeCancels   map[string]context.CancelFunc
+	scopes          map[string]bool
 }
 
 func daemonID(dir, server string) (string, error) {
@@ -147,7 +152,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}}
+	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}}
 	d.messages = &Outbox{Dir: filepath.Join(cfg.StateDir, "messages"), Send: d.sendMessages}
 	d.out = &Outbox{Dir: filepath.Join(cfg.StateDir, "outbox"), Send: d.send}
 	if err = d.recoverAttempts(ctx); err != nil {
@@ -392,7 +397,7 @@ func (d *daemon) send(ctx context.Context, r Report) error {
 	return d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+r.AgentRunID.String()+"/"+r.Kind, reportBody(r), nil)
 }
 func reportBody(r Report) map[string]any {
-	return map[string]any{"workspace_id": r.WorkspaceID, "runtime_id": r.RuntimeID, "attempt": r.Attempt, "usage": r.Usage, "session_id": r.SessionID, "error": r.Error, "failure_reason": r.FailureReason}
+	return map[string]any{"workspace_id": r.WorkspaceID, "runtime_id": r.RuntimeID, "attempt": r.Attempt, "usage": r.Usage, "session_id": r.SessionID, "error": r.Error, "failure_reason": r.FailureReason, "mode": r.Mode, "policy_digest": r.PolicyDigest, "model": r.Model}
 }
 func (d *daemon) sendMessages(ctx context.Context, r Report) error {
 	return d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+r.AgentRunID.String()+"/messages", messageBody(r), nil)

@@ -262,7 +262,10 @@ case "$HOME" in "$PWD"/*) ;; *) exit 43;; esac
 cat >/dev/null
 `
 	must(t, os.WriteFile(bin, []byte(prelude+script), 0700))
-	return daemon.Config{Server: l.url, Token: token, StateDir: t.TempDir(), Home: t.TempDir(), Device: "acceptance", Harnesses: map[string]string{"claude": bin}, Slots: 3, Poll: 50 * time.Millisecond, Heartbeat: 75 * time.Millisecond, Flush: 50 * time.Millisecond}
+	// These scenarios accept F2's private isolation; continuity has its own.
+	state := t.TempDir()
+	must(t, daemon.SavePolicy(state, l.ws, daemon.Policy{Mode: daemon.ModePrivate}))
+	return daemon.Config{Server: l.url, Token: token, StateDir: state, Home: t.TempDir(), Device: "acceptance", Harnesses: map[string]string{"claude": bin}, Slots: 3, Poll: 50 * time.Millisecond, Heartbeat: 75 * time.Millisecond, Flush: 50 * time.Millisecond}
 }
 func startDaemon(t *testing.T, cfg daemon.Config) func() {
 	t.Helper()

@@ -22,6 +22,12 @@ type ExecOptions struct {
 	Env                             []string
 	Model, MCPURL, MCPToken, Resume string
 	MCP                             []MCPServer
+	// Inherit runs the CLI as the account's own: its sign-in, history, personal
+	// settings, skills, instructions, hooks and MCP all apply. Nothing is copied.
+	Inherit bool
+	// ClaudeBaseline is the opaque usage snapshot a prior Lykeion attempt
+	// returned for Resume. It is consumed before launch.
+	ClaudeBaseline []byte
 	// OnMessage, when set, durably accepts each normalized message instead of
 	// publishing it to Session.Messages. An error stops the child and is reported.
 	OnMessage func(Message) error
@@ -39,6 +45,14 @@ type Result struct {
 	SessionID, Reason string
 	Err               error
 	RetainedEvidence  []string
+	// ResumeRefused means the CLI rejected Resume before doing any model work,
+	// so a fresh session can run without unaccounted spend.
+	ResumeRefused bool
+	// Model is the model the attempt ran on, as chosen or reported.
+	Model string
+	// ClaudeSnapshot is the cumulative usage baseline for resuming SessionID,
+	// present only after a clean terminal result.
+	ClaudeSnapshot []byte
 }
 type Session struct {
 	Messages <-chan Message

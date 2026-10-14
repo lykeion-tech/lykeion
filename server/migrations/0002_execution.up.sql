@@ -36,6 +36,11 @@ CREATE TABLE agent_run (
   attempt int NOT NULL DEFAULT 0,
   max_attempts int NOT NULL DEFAULT 2,
   session_id text NOT NULL DEFAULT '',
+  continuity_scope text NOT NULL DEFAULT '',
+  run_private boolean NOT NULL DEFAULT false,
+  profile_mode text NOT NULL DEFAULT '',
+  policy_digest text NOT NULL DEFAULT '',
+  model text NOT NULL DEFAULT '',
   error text NOT NULL DEFAULT '',
   failure_reason text CHECK (failure_reason IN
     ('runtime_offline', 'timeout', 'provider_network', 'context_exhausted', 'agent_error')),
@@ -60,6 +65,7 @@ CREATE TABLE agent_run_usage (
   cache_read_tokens bigint NOT NULL CHECK (cache_read_tokens >= 0),
   cache_write_tokens bigint NOT NULL CHECK (cache_write_tokens >= 0),
   cost_usd double precision NOT NULL CHECK (cost_usd >= 0),
+  cost_reported boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (agent_run_id, attempt, model),
   FOREIGN KEY (agent_run_id, workspace_id) REFERENCES agent_run (id, workspace_id) ON DELETE CASCADE

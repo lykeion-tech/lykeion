@@ -156,6 +156,9 @@ func (a *claudeAccounting) finish(res *Result) {
 	if err == nil {
 		err = writeClaudeSnapshot(a.path, data)
 	}
+	if err == nil {
+		res.ClaudeSnapshot = data
+	}
 	if err != nil {
 		res.Err = fmt.Errorf("persist Claude usage baseline: %w", err)
 		res.Reason = ReasonAgentError

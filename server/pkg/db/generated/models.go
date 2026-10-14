@@ -32,6 +32,11 @@ type AgentRun struct {
 	Attempt               int32      `json:"attempt"`
 	MaxAttempts           int32      `json:"max_attempts"`
 	SessionID             string     `json:"session_id"`
+	ContinuityScope       string     `json:"continuity_scope"`
+	RunPrivate            bool       `json:"run_private"`
+	ProfileMode           string     `json:"profile_mode"`
+	PolicyDigest          string     `json:"policy_digest"`
+	Model                 string     `json:"model"`
 	Error                 string     `json:"error"`
 	FailureReason         *string    `json:"failure_reason"`
 	CostUsd               float64    `json:"cost_usd"`
@@ -89,6 +94,7 @@ type AgentRunUsage struct {
 	CacheReadTokens  int64     `json:"cache_read_tokens"`
 	CacheWriteTokens int64     `json:"cache_write_tokens"`
 	CostUsd          float64   `json:"cost_usd"`
+	CostReported     bool      `json:"cost_reported"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 

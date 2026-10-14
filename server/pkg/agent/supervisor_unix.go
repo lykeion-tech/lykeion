@@ -224,7 +224,7 @@ func RecoverScratch(dir string) error {
 		}
 	}
 	var failures []error
-	for _, name := range []string{".cli-home/.credentials.json", ".cli-home/auth.json", ".agent-lock"} {
+	for _, name := range []string{".cli-home/.credentials.json", ".cli-home/auth.json"} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			failures = append(failures, err)
 		}

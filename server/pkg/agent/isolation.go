@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 )
 
 // scratchCleanup removes credentials immediately; release also relinquishes the
@@ -33,29 +35,30 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 	if err != nil {
 		return "", nil, err
 	}
-	if err = checkAncestors(dir); err != nil {
-		return "", nil, err
-	}
-	if err = checkManagedConfig(harness); err != nil {
-		return "", nil, err
+	if !o.Inherit {
+		if err = checkAncestors(dir); err != nil {
+			return "", nil, err
+		}
+		if err = checkManagedConfig(harness); err != nil {
+			return "", nil, err
+		}
 	}
 	if err = privateDir(dir); err != nil {
 		return "", nil, err
 	}
 	o.Dir = dir
-	lock := filepath.Join(dir, ".agent-lock")
-	f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	unlock, err := lockScratch(filepath.Join(dir, ".agent-lock"))
 	if err != nil {
-		return "", nil, fmt.Errorf("scratch is already in use or unavailable: %w", err)
+		return "", nil, err
 	}
-	f.Close()
 	cred := ""
+	var once sync.Once
 	cleanup = func(release bool) {
 		if cred != "" {
 			os.Remove(cred)
 		}
 		if release {
-			os.Remove(lock)
+			once.Do(unlock)
 		}
 	}
 	success := false
@@ -92,6 +95,12 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 		if err = privateDir(p); err != nil {
 			return "", cleanup, err
 		}
+		// The daemon owns these folders and rewrites them on every prepare.
+		for _, placed := range placedFolders {
+			if err = os.RemoveAll(filepath.Join(p, placed)); err != nil {
+				return "", cleanup, err
+			}
+		}
 		if err = checkOwnedState(p); err != nil {
 			return "", cleanup, err
 		}
@@ -105,6 +114,11 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 		if err = privateDir(p); err != nil {
 			return "", cleanup, err
 		}
+	}
+	if o.Inherit {
+		// The account's own config home stays authoritative; no sign-in copy.
+		success = true
+		return home, cleanup, nil
 	}
 	realHome := os.Getenv(homeVar)
 	if realHome == "" {
@@ -198,6 +212,11 @@ func privateFile(p string, b []byte) error {
 	}
 	return closeErr
 }
+
+// placedFolders are the skill folders the daemon places in an isolated CLI
+// state root; checkOwnedState exempts them there and nowhere deeper.
+var placedFolders = []string{"skills", ".agents"}
+
 func checkOwnedState(root string) error {
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -205,6 +224,9 @@ func checkOwnedState(root string) error {
 		}
 		if p == root {
 			return nil
+		}
+		if filepath.Dir(p) == root && d.IsDir() && slices.Contains(placedFolders, d.Name()) {
+			return filepath.SkipDir
 		}
 		if d.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("symlink in isolated CLI state: %s", p)
@@ -261,6 +283,15 @@ func childEnv(o ExecOptions, home string) []string {
 			}
 		}
 	}
+	if o.Inherit {
+		for _, entry := range os.Environ() {
+			k, v, ok := strings.Cut(entry, "=")
+			if ok && inheritedEnvKey(k) {
+				values[k] = v
+			}
+		}
+		return envList(values)
+	}
 	userHome := filepath.Join(o.Dir, ".home")
 	values["HOME"] = userHome
 	values["USERPROFILE"] = userHome
@@ -272,6 +303,18 @@ func childEnv(o ExecOptions, home string) []string {
 	values["XDG_DATA_DIRS"] = values["XDG_DATA_HOME"]
 	values["XDG_CACHE_HOME"] = filepath.Join(userHome, ".cache")
 	values["XDG_STATE_HOME"] = filepath.Join(userHome, ".state")
+	return envList(values)
+}
+
+// inheritedEnvKey names the account locations a continuity run keeps as-is.
+func inheritedEnvKey(k string) bool {
+	switch strings.ToUpper(k) {
+	case "HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME":
+		return true
+	}
+	return false
+}
+func envList(values map[string]string) []string {
 	env := make([]string, 0, len(values))
 	for k, v := range values {
 		env = append(env, k+"="+v)

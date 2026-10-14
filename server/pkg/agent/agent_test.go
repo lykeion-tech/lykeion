@@ -11,8 +11,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"lykeion/server/internal/pricing"
 )
 
 // TestMain points HOME at an empty folder, so no test copies the developer's
@@ -32,9 +30,13 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// testCatalog is what a fake Codex lists for `debug models`.
+const testCatalog = `{"models":[{"slug":"gpt-5.6-sol","visibility":"list"}]}`
+
 func script(t *testing.T, body string) string {
 	p := filepath.Join(t.TempDir(), "bin")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+	catalog := "if [ \"$1\" = debug ]; then echo '" + testCatalog + "'; exit 0; fi\n"
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+catalog+body), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -167,20 +169,14 @@ EOF`)
 		t.Fatalf("usage %+v", res.Usage)
 	}
 	u := res.Usage[0]
-	if u.Model != CodexModel || u.InputTokens != 600 || u.CacheReadTokens != 400 || u.OutputTokens != 50 || u.CostUSD != nil {
+	if u.Model != "gpt-5.6-sol" || res.Model != "gpt-5.6-sol" || u.InputTokens != 600 || u.CacheReadTokens != 400 || u.OutputTokens != 50 || u.CostUSD != nil {
 		t.Fatalf("usage %+v", u)
 	}
 	a, _ := os.ReadFile(args)
-	for _, want := range []string{"exec", "--json", "-m\n" + CodexModel, "--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_sources.url=", "bearer_token_env_var", "-"} {
+	for _, want := range []string{"exec", "--json", "-m\ngpt-5.6-sol", "--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_sources.url=", "bearer_token_env_var", "-"} {
 		if !strings.Contains(string(a), want) {
 			t.Errorf("codex args missing %q", want)
 		}
-	}
-}
-
-func TestPinnedCodexModelHasAPrice(t *testing.T) {
-	if _, ok := pricing.Prices[CodexModel]; !ok {
-		t.Fatalf("%s has no price, so every Codex agent run would cost 0", CodexModel)
 	}
 }
 
@@ -250,7 +246,7 @@ func TestSourcesEntryIsWrittenLast(t *testing.T) {
 	}
 	// encoding/json, like JSON.parse, keeps the last of two equal keys.
 	if err := json.Unmarshal(cfg, &parsed); err != nil || parsed.Servers["lyk_sources"].URL != "http://lyk/mcp/sources" ||
-		parsed.Servers["tools"].URL != "http://tools" || !strings.HasSuffix(strings.TrimSpace(string(cfg)), `"Bearer ltk_x"},"type":"http","url":"http://lyk/mcp/sources"}}}`) {
+		parsed.Servers["lyk_tools"].URL != "http://tools" || !strings.HasSuffix(strings.TrimSpace(string(cfg)), `"Bearer ltk_x"},"type":"http","url":"http://lyk/mcp/sources"}}}`) {
 		t.Fatalf("claude mcp config: %s", cfg)
 	}
 
@@ -901,12 +897,6 @@ func TestCodexRejectsInvalidUsageCounts(t *testing.T) {
 		if err == nil || len(res.Usage) != 0 {
 			t.Fatalf("accepted invalid usage %s: %+v, %v", usage, res, err)
 		}
-	}
-}
-
-func TestCodexPinnedSupportedModel(t *testing.T) {
-	if CodexModel != "gpt-5.6-sol" {
-		t.Fatalf("unsupported model still pinned: %s", CodexModel)
 	}
 }
 

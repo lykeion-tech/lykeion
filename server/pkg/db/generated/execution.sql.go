@@ -107,7 +107,7 @@ WHERE id = (
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, error, failure_reason, cost_usd, late_usage_at, created_at
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at
 `
 
 type ClaimAgentRunParams struct {
@@ -139,6 +139,11 @@ func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (A
 		&i.Attempt,
 		&i.MaxAttempts,
 		&i.SessionID,
+		&i.ContinuityScope,
+		&i.RunPrivate,
+		&i.ProfileMode,
+		&i.PolicyDigest,
+		&i.Model,
 		&i.Error,
 		&i.FailureReason,
 		&i.CostUsd,
@@ -181,9 +186,9 @@ func (q *Queries) DeleteRuntime(ctx context.Context, arg DeleteRuntimeParams) (i
 }
 
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
-INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, error, failure_reason, cost_usd, late_usage_at, created_at
+INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at
 `
 
 type EnqueueAgentRunParams struct {
@@ -197,6 +202,8 @@ type EnqueueAgentRunParams struct {
 	Prompt            string    `json:"prompt"`
 	Skill             string    `json:"skill"`
 	MaxAttempts       int32     `json:"max_attempts"`
+	ContinuityScope   string    `json:"continuity_scope"`
+	RunPrivate        bool      `json:"run_private"`
 }
 
 func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams) (AgentRun, error) {
@@ -211,6 +218,8 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		arg.Prompt,
 		arg.Skill,
 		arg.MaxAttempts,
+		arg.ContinuityScope,
+		arg.RunPrivate,
 	)
 	var i AgentRun
 	err := row.Scan(
@@ -234,6 +243,11 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		&i.Attempt,
 		&i.MaxAttempts,
 		&i.SessionID,
+		&i.ContinuityScope,
+		&i.RunPrivate,
+		&i.ProfileMode,
+		&i.PolicyDigest,
+		&i.Model,
 		&i.Error,
 		&i.FailureReason,
 		&i.CostUsd,
@@ -292,7 +306,7 @@ func (q *Queries) FinishAgentRun(ctx context.Context, arg FinishAgentRunParams) 
 }
 
 const getAgentRun = `-- name: GetAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, error, failure_reason, cost_usd, late_usage_at, created_at FROM agent_run WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at FROM agent_run WHERE id = $1 AND workspace_id = $2
 `
 
 type GetAgentRunParams struct {
@@ -324,6 +338,11 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 		&i.Attempt,
 		&i.MaxAttempts,
 		&i.SessionID,
+		&i.ContinuityScope,
+		&i.RunPrivate,
+		&i.ProfileMode,
+		&i.PolicyDigest,
+		&i.Model,
 		&i.Error,
 		&i.FailureReason,
 		&i.CostUsd,
@@ -419,8 +438,8 @@ func (q *Queries) InsertAgentRunToken(ctx context.Context, arg InsertAgentRunTok
 }
 
 const insertAgentRunUsage = `-- name: InsertAgentRunUsage :exec
-INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, cost_reported)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type InsertAgentRunUsageParams struct {
@@ -433,6 +452,7 @@ type InsertAgentRunUsageParams struct {
 	CacheReadTokens  int64     `json:"cache_read_tokens"`
 	CacheWriteTokens int64     `json:"cache_write_tokens"`
 	CostUsd          float64   `json:"cost_usd"`
+	CostReported     bool      `json:"cost_reported"`
 }
 
 func (q *Queries) InsertAgentRunUsage(ctx context.Context, arg InsertAgentRunUsageParams) error {
@@ -446,6 +466,7 @@ func (q *Queries) InsertAgentRunUsage(ctx context.Context, arg InsertAgentRunUsa
 		arg.CacheReadTokens,
 		arg.CacheWriteTokens,
 		arg.CostUsd,
+		arg.CostReported,
 	)
 	return err
 }
@@ -583,7 +604,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Ru
 }
 
 const lockAgentRun = `-- name: LockAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, error, failure_reason, cost_usd, late_usage_at, created_at FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
 
 type LockAgentRunParams struct {
@@ -615,6 +636,11 @@ func (q *Queries) LockAgentRun(ctx context.Context, arg LockAgentRunParams) (Age
 		&i.Attempt,
 		&i.MaxAttempts,
 		&i.SessionID,
+		&i.ContinuityScope,
+		&i.RunPrivate,
+		&i.ProfileMode,
+		&i.PolicyDigest,
+		&i.Model,
 		&i.Error,
 		&i.FailureReason,
 		&i.CostUsd,
@@ -691,6 +717,30 @@ func (q *Queries) LookupAgentRunToken(ctx context.Context, tokenHash string) (Lo
 		&i.Round,
 	)
 	return i, err
+}
+
+const recordAgentRunProfile = `-- name: RecordAgentRunProfile :exec
+UPDATE agent_run SET profile_mode = $1, policy_digest = $2, model = $3
+WHERE id = $4 AND workspace_id = $5
+`
+
+type RecordAgentRunProfileParams struct {
+	ProfileMode  string    `json:"profile_mode"`
+	PolicyDigest string    `json:"policy_digest"`
+	Model        string    `json:"model"`
+	ID           uuid.UUID `json:"id"`
+	WorkspaceID  uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) RecordAgentRunProfile(ctx context.Context, arg RecordAgentRunProfileParams) error {
+	_, err := q.db.Exec(ctx, recordAgentRunProfile,
+		arg.ProfileMode,
+		arg.PolicyDigest,
+		arg.Model,
+		arg.ID,
+		arg.WorkspaceID,
+	)
+	return err
 }
 
 const recordLateUsage = `-- name: RecordLateUsage :exec

@@ -232,6 +232,21 @@ func TestSettleOnceAndAddSpend(t *testing.T) {
 	if math.Abs(spent-want) > 1e-9 || math.Abs(cost-want) > 1e-9 || rows != 3 || msgs != 1 || f.settledCount() != 1 {
 		t.Fatalf("spent %v, cost %v (want %v), usage rows %d, messages %d, settled %d", spent, cost, want, rows, msgs, f.settledCount())
 	}
+	// Only the CLI's own figure is marked reported; rate-table prices are estimates.
+	var reported []string
+	rs, err := f.Env.Owner.Query(ctx, "SELECT model FROM agent_run_usage WHERE agent_run_id = $1 AND cost_reported ORDER BY model", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rs.Next() {
+		var m string
+		rs.Scan(&m)
+		reported = append(reported, m)
+	}
+	rs.Close()
+	if len(reported) != 1 || reported[0] != "reported" {
+		t.Fatalf("cost_reported rows %v", reported)
+	}
 	if _, err := f.T.Fail(ctx, f.Owner, ref, id, Report{Error: "late", Usage: usage}); err != nil {
 		t.Fatalf("a late fail after complete should return the stored result: %v", err)
 	}

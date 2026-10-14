@@ -24,6 +24,9 @@ func (d *daemon) forgetAttempt(r Report) error {
 // Recover before registration revives the persistent runtime identity. Existing
 // reports remain authoritative; lost attempts get a fenced runtime-loss report.
 func (d *daemon) recoverAttempts(ctx context.Context) error {
+	if err := d.recoverSessions(); err != nil {
+		return fmt.Errorf("recover session registry: %w", err)
+	}
 	j := d.journal()
 	if err := privateDir(j.Dir); err != nil {
 		return err

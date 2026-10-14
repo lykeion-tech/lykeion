@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"sort"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"lykeion/server/internal/daemon"
 )
 
 type workspace struct {
@@ -71,6 +76,7 @@ func workspaceCmd(e *env) *cobra.Command {
 			return nil
 		}},
 		inviteCmd(e),
+		continuityCmd(e),
 		&cobra.Command{Use: "accept TOKEN", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 			if err := e.signedIn(); err != nil {
 				return err
@@ -102,5 +108,75 @@ func inviteCmd(e *env) *cobra.Command {
 		return nil
 	}}
 	cmd.Flags().StringVar(&role, "role", "member", "member or admin")
+	return cmd
+}
+
+// continuityCmd manages this machine's daemon policy for a workspace. Changes
+// apply to agent runs claimed afterwards.
+func continuityCmd(e *env) *cobra.Command {
+	var id string
+	target := func() (uuid.UUID, error) {
+		if id == "" {
+			id = e.cfg.Workspace
+		}
+		if id == "" {
+			return uuid.Nil, errors.New("no workspace selected: pass --workspace or run lyk workspace switch <slug>")
+		}
+		return uuid.Parse(id)
+	}
+	set := func(mode, done string) *cobra.Command {
+		return &cobra.Command{Use: map[string]string{daemon.ModeContinuity: "enable", daemon.ModePrivate: "disable"}[mode], Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+			ws, err := target()
+			if err != nil {
+				return err
+			}
+			if err := daemon.SavePolicy(stateDir(e), ws, daemon.Policy{Mode: mode}); err != nil {
+				return err
+			}
+			fmt.Fprintln(e.out, done)
+			return nil
+		}}
+	}
+	cmd := &cobra.Command{Use: "continuity", Short: "Run agents as your own CLI and continue each card and role's session (the default)"}
+	cmd.PersistentFlags().StringVar(&id, "workspace", "", "workspace id (default: the selected workspace)")
+	cmd.AddCommand(
+		&cobra.Command{Use: "status", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+			ws, err := target()
+			if err != nil {
+				return err
+			}
+			pol, counts, err := daemon.ProfileStatus(stateDir(e), ws)
+			if err != nil {
+				return err
+			}
+			source := "default"
+			if pol.Explicit {
+				source = "policy " + pol.Digest[:12]
+			}
+			fmt.Fprintf(e.out, "mode %s (%s), sessions kept %d days\n", pol.Mode, source, pol.RetentionDays)
+			states := make([]string, 0, len(counts))
+			for s := range counts {
+				states = append(states, s)
+			}
+			sort.Strings(states)
+			for _, s := range states {
+				fmt.Fprintf(e.out, "%-8s %d\n", s, counts[s])
+			}
+			return nil
+		}},
+		set(daemon.ModeContinuity, "Continuity on: agents use your sign-in, history, settings, skills and MCP."),
+		set(daemon.ModePrivate, "Continuity off: agents run isolated, with a copied sign-in and no personal configuration."),
+		&cobra.Command{Use: "reset", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+			ws, err := target()
+			if err != nil {
+				return err
+			}
+			if err := daemon.ResetProfile(stateDir(e), ws); err != nil {
+				return err
+			}
+			fmt.Fprintln(e.out, "Forgot this workspace's policy and recorded sessions; your CLI history and sign-in are untouched.")
+			return nil
+		}},
+	)
 	return cmd
 }

@@ -32,8 +32,8 @@ WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 DELETE FROM runtime WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 
 -- name: EnqueueAgentRun :one
-INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts)
-VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts)
+INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private)
+VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts, @continuity_scope, @run_private)
 RETURNING *;
 
 -- name: ClaimAgentRun :one
@@ -85,6 +85,10 @@ UPDATE agent_run SET status = @status, completed_at = now(), cost_usd = cost_usd
   session_id = @session_id, error = @error, failure_reason = sqlc.narg(failure_reason)
 WHERE id = @id AND workspace_id = @workspace_id;
 
+-- name: RecordAgentRunProfile :exec
+UPDATE agent_run SET profile_mode = @profile_mode, policy_digest = @policy_digest, model = @model
+WHERE id = @id AND workspace_id = @workspace_id;
+
 -- name: RequeueAgentRun :exec
 UPDATE agent_run SET status = 'queued', runtime_id = NULL, prepare_lease_expires_at = NULL, started_at = NULL,
   cost_usd = cost_usd + @cost_usd, error = @error, failure_reason = @failure_reason
@@ -95,8 +99,8 @@ UPDATE agent_run SET cost_usd = cost_usd + @cost_usd, late_usage_at = now()
 WHERE id = @id AND workspace_id = @workspace_id AND status = 'cancelled';
 
 -- name: InsertAgentRunUsage :exec
-INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
-VALUES (@workspace_id, @agent_run_id, @attempt, @model, @input_tokens, @output_tokens, @cache_read_tokens, @cache_write_tokens, @cost_usd);
+INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, cost_reported)
+VALUES (@workspace_id, @agent_run_id, @attempt, @model, @input_tokens, @output_tokens, @cache_read_tokens, @cache_write_tokens, @cost_usd, @cost_reported);
 
 -- name: CancelAgentRun :execrows
 UPDATE agent_run SET status = 'cancelled', completed_at = now()

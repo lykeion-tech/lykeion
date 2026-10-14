@@ -57,6 +57,8 @@ type NewAgentRun struct {
 	Round                        int32
 	Role, Harness, Prompt, Skill string
 	MaxAttempts                  int32
+	// RunPrivate forces the daemon's isolated mode whatever the workspace policy.
+	RunPrivate bool
 }
 
 type Claimed struct {
@@ -71,12 +73,18 @@ type Report struct {
 	SessionID     string        `json:"session_id"`
 	Error         string        `json:"error"`
 	FailureReason string        `json:"failure_reason"`
+	// Mode and PolicyDigest record how the daemon ran the attempt.
+	Mode         string `json:"mode"`
+	PolicyDigest string `json:"policy_digest"`
+	// Model is the model the attempt ran on; pricing and review use it.
+	Model string `json:"model"`
 }
 
 // check refuses a report that would lower spend or name an unknown reason,
 // and fills in agent_error for a failure that names none.
 func (r *Report) check(ok bool) error {
-	if len(r.Usage) > 32 || (r.FailureReason != "" && !slices.Contains(FailureReasons, r.FailureReason)) {
+	if len(r.Usage) > 32 || (r.FailureReason != "" && !slices.Contains(FailureReasons, r.FailureReason)) ||
+		!slices.Contains([]string{"", "workspace_continuity", "private"}, r.Mode) || len(r.PolicyDigest) > 128 || len(r.Model) > 200 {
 		return ErrBadReport
 	}
 	seen := make(map[string]bool)
@@ -87,6 +95,7 @@ func (r *Report) check(ok bool) error {
 		}
 		seen[u.Model] = true
 		cost := 0.0
+		r.Usage[i].CostReported = u.CostUSD != nil
 		if u.CostUSD != nil {
 			cost = *u.CostUSD
 		} else {
@@ -150,6 +159,7 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 	t, err := tx.Q.EnqueueAgentRun(ctx, db.EnqueueAgentRunParams{
 		WorkspaceID: tx.WS, CardID: n.Card, ResponsibleUserID: owner, BoardColumn: n.Column, Round: n.Round, Role: n.Role,
 		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, MaxAttempts: n.MaxAttempts,
+		ContinuityScope: "card:" + n.Card.String() + "/role:" + n.Role, RunPrivate: n.RunPrivate,
 	})
 	if err != nil {
 		return t, err
@@ -448,7 +458,7 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 		spent := 0.0
 		for _, u := range r.Usage {
 			cost := *u.CostUSD
-			if err := tx.Q.InsertAgentRunUsage(ctx, db.InsertAgentRunUsageParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run, Attempt: ref.Attempt, Model: u.Model, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens, CostUsd: cost}); err != nil {
+			if err := tx.Q.InsertAgentRunUsage(ctx, db.InsertAgentRunUsageParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run, Attempt: ref.Attempt, Model: u.Model, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens, CostUsd: cost, CostReported: u.CostReported}); err != nil {
 				return err
 			}
 			spent += cost
@@ -471,6 +481,11 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 		}
 		if err := tx.Q.DeleteAgentRunTokens(ctx, db.DeleteAgentRunTokensParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run}); err != nil {
 			return err
+		}
+		if r.Mode != "" || r.Model != "" {
+			if err := tx.Q.RecordAgentRunProfile(ctx, db.RecordAgentRunProfileParams{WorkspaceID: ref.WorkspaceID, ID: run, ProfileMode: r.Mode, PolicyDigest: r.PolicyDigest, Model: r.Model}); err != nil {
+				return err
+			}
 		}
 		switch {
 		case ok:

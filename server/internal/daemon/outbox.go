@@ -30,6 +30,9 @@ type Report struct {
 	SessionID     string        `json:"session_id,omitempty"`
 	Error         string        `json:"error,omitempty"`
 	FailureReason string        `json:"failure_reason,omitempty"`
+	Mode          string        `json:"mode,omitempty"`
+	PolicyDigest  string        `json:"policy_digest,omitempty"`
+	Model         string        `json:"model,omitempty"`
 	Messages      []wireMsg     `json:"messages,omitempty"`
 	Rejections    []time.Time   `json:"rejections,omitempty"`
 }

@@ -128,10 +128,20 @@ func fakeClaude(t *testing.T) string {
 case "$LYK_TOKEN" in ltk_*) ;; *) exit 41;; esac
 case "$LYK_CONFIG" in "$PWD"/*) ;; *) exit 42;; esac
 [ ! -f "$LYK_CONFIG" ] || exit 43
-case "$HOME" in "$PWD"/*) ;; *) exit 44;; esac
-cat >/dev/null
+printf '%s\n' "$*" >> "$(dirname "$0")/argv"
+case "$*" in
+*"--input-format stream-json"*)
+	# Continuity: the account's own HOME, one NDJSON frame, stdin left open.
+	case "$HOME" in "$PWD"/*) exit 45;; esac
+	IFS= read -r first || exit 46
+	case "$first" in *'"type":"user"'*) ;; *) exit 47;; esac
+	mkdir -p "$CLAUDE_CONFIG_DIR/projects/fake" && : > "$CLAUDE_CONFIG_DIR/projects/fake/s.jsonl" ;;
+*)
+	case "$HOME" in "$PWD"/*) ;; *) exit 44;; esac
+	cat >/dev/null ;;
+esac
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}'
-echo '{"type":"result","is_error":false,"total_cost_usd":0.25,"session_id":"s"}'
+echo '{"type":"result","is_error":false,"total_cost_usd":0.25,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.25}}}'
 `), 0700))
 	return p
 }
@@ -208,6 +218,13 @@ func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	if cost != .25 || usage != 1 || messages == 0 {
 		t.Fatalf("cost %v usage %d messages %d", cost, usage, messages)
 	}
+	var scope, mode, digest, model string
+	var reported bool
+	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT continuity_scope, profile_mode, policy_digest, model FROM agent_run WHERE id=$1", f.id).Scan(&scope, &mode, &digest, &model))
+	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT cost_reported FROM agent_run_usage WHERE agent_run_id=$1", f.id).Scan(&reported))
+	if scope != "card:"+f.card.String()+"/role:scoper" || mode != ModeContinuity || digest != defaultPolicyHash || model != "m" || !reported {
+		t.Fatalf("scope %q mode %q digest %q model %q reported %v", scope, mode, digest, model, reported)
+	}
 	dir := filepath.Join(f.cfg.Home, f.id.String()+"-1")
 	skill, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 	must(t, err)
@@ -216,6 +233,79 @@ func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	}
 	if _, err = os.Stat(filepath.Join(dir, ".finished")); err != nil {
 		t.Fatal(err)
+	}
+}
+func TestPrivateWorkspaceKeepsF2Isolation(t *testing.T) {
+	f := fixture(t)
+	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{Mode: ModePrivate}))
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
+	must(t, err)
+	if strings.Contains(string(argv), "stream-json --verbose --allowedTools") || !strings.Contains(string(argv), "--strict-mcp-config") {
+		t.Fatalf("private workspace ran without F2 isolation: %s", argv)
+	}
+	if _, err := os.Stat(filepath.Join(f.cfg.StateDir, "workspace-profiles", f.ws.String(), "sessions")); !os.IsNotExist(err) {
+		t.Fatal("private workspace recorded a session")
+	}
+}
+func TestRunPrivateOverridesTheContinuityDefault(t *testing.T) {
+	f := fixture(t)
+	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET run_private=true WHERE id=$1", f.id)
+	must(t, err)
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
+	must(t, err)
+	if !strings.Contains(string(argv), "--strict-mcp-config") || strings.Contains(string(argv), "--input-format") {
+		t.Fatalf("run_private ran with the account's setup: %s", argv)
+	}
+	var mode string
+	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT profile_mode FROM agent_run WHERE id=$1", f.id).Scan(&mode))
+	if mode != ModePrivate {
+		t.Fatalf("recorded mode %q", mode)
+	}
+}
+func TestSecondRunOnTheCardAndRoleResumesWithoutDoubleCharge(t *testing.T) {
+	f := fixture(t)
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	first := f.id
+	f.enqueue(t)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
+	must(t, err)
+	lines := strings.Split(strings.TrimSpace(string(argv)), "\n")
+	if len(lines) != 2 || strings.Contains(lines[0], "--resume") || !strings.HasSuffix(lines[1], "--resume s") {
+		t.Fatalf("invocations:\n%s", argv)
+	}
+	var cost float64
+	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT spent_usd FROM card WHERE id=$1", f.card).Scan(&cost))
+	// The resumed CLI reports cumulative usage; only the first run is charged.
+	if cost != .25 || first == f.id {
+		t.Fatalf("card spent %v", cost)
+	}
+}
+func TestUnreachableSessionStartsFreshInTheSameRun(t *testing.T) {
+	f := fixture(t)
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	must(t, os.RemoveAll(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects")))
+	f.enqueue(t)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
+	must(t, err)
+	if strings.Contains(string(argv), "--resume") {
+		t.Fatalf("resumed a session its store no longer holds:\n%s", argv)
+	}
+	var notes int
+	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1 AND type='status' AND content->>'type'='continuity' AND content->>'message' LIKE '%not in the CLI''s session store%'", f.id).Scan(&notes))
+	if notes != 1 {
+		t.Fatalf("continuity notes %d", notes)
 	}
 }
 func TestDaemonReplaysFinalMessagesBeforeReportAfterRestart(t *testing.T) {
@@ -672,12 +762,8 @@ func TestControlPlaneTransportLossRetriesWithoutDuplicateCLI(t *testing.T) {
 			} else {
 				f.dropStartACK.Store(true)
 			}
-			invocations := filepath.Join(t.TempDir(), "invocations")
-			bin := f.cfg.Harnesses["claude"]
-			script, err := os.ReadFile(bin)
-			must(t, err)
-			script = []byte(strings.Replace(string(script), "cat >/dev/null", "echo started >> '"+invocations+"'\ncat >/dev/null", 1))
-			must(t, os.WriteFile(bin, script, 0700))
+			// The fake CLI appends one argv line per launch.
+			invocations := filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv")
 			cancel, done := startDaemon(t, f.cfg)
 			waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" })
 			stopDaemon(t, cancel, done)
@@ -686,7 +772,7 @@ func TestControlPlaneTransportLossRetriesWithoutDuplicateCLI(t *testing.T) {
 			}
 			b, err := os.ReadFile(invocations)
 			must(t, err)
-			if string(b) != "started\n" {
+			if strings.Count(string(b), "\n") != 1 {
 				t.Fatalf("duplicate CLI execution: %q", b)
 			}
 			var attempt, usage int
@@ -705,7 +791,7 @@ func TestRealAdapterCancellationBacklogIsDurable(t *testing.T) {
 	ready := filepath.Join(t.TempDir(), "written")
 	bin := f.cfg.Harnesses["claude"]
 	must(t, os.WriteFile(bin, []byte(`#!/bin/sh
-cat >/dev/null
+IFS= read -r first
 i=0; while [ "$i" -lt 200 ]; do echo '{"type":"log","message":"evidence"}';i=$((i+1));done
 echo ready > '`+ready+`'
 sleep 300

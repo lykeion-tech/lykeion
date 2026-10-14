@@ -7,48 +7,100 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"runtime"
 
 	"lykeion/server/internal/pricing"
 )
 
 type Codex struct{ Bin string }
 
-// Codex does not price events or report their model; pin it for server pricing.
-const CodexModel = "gpt-5.6-sol"
 const codexCredFile = "auth.json"
 
 var plainKey = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
-	model := o.Model
-	if model == "" {
-		model = CodexModel
-	}
-	// These flags belong to exec, before the optional resume subcommand.
-	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", "workspace-write", "-m", model, "--ignore-user-config", "--ignore-rules", "--disable", "apps", "--disable", "plugins", "--disable", "remote_plugin"}
 	for _, s := range o.MCP {
 		if !plainKey.MatchString(s.Name) {
 			return nil, fmt.Errorf("MCP server name %q is not a plain key", s.Name)
 		}
-		args = append(args, "-c", fmt.Sprintf("mcp_servers.%s.url=%s", s.Name, raw(s.URL)))
 	}
-	if o.MCPURL != "" {
-		args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_sources.url=%s", raw(o.MCPURL)), "-c", `mcp_servers.lyk_sources.bearer_token_env_var="LYK_TOKEN"`)
+	bin := c.Bin
+	if bin == "" {
+		bin = "codex"
 	}
 	home, cleanup, err := prepareScratch(&o, "codex", "CODEX_HOME", ".codex", codexCredFile)
 	if err != nil {
 		return nil, err
+	}
+	var personal codexConfig
+	if o.Inherit {
+		personal = readCodexConfig(accountHome("codex"))
+	}
+	// Codex events name no model, so the run must know which one it chose.
+	model := o.Model
+	if model == "" {
+		if model, err = codexModel(ctx, bin, o.Dir, childEnv(o, home), personal.Model); err != nil {
+			cleanup(true)
+			return nil, err
+		}
+	}
+	// These flags belong to exec, before the optional resume subcommand.
+	args := append([]string{"exec", "--json", "--skip-git-repo-check"}, codexSandbox(runtime.GOOS)...)
+	args = append(args, "-m", model)
+	if !o.Inherit {
+		args = append(args, "--ignore-user-config", "--ignore-rules", "--disable", "apps", "--disable", "plugins", "--disable", "remote_plugin")
+	} else if clash := personalClash(personal, o); clash != "" {
+		// -c deep-merges into a personal entry of the same name, so its headers
+		// would reach Lykeion's server. Only ignoring config.toml lets ours win.
+		// Personal servers are not re-supplied: their secrets would sit in argv.
+		args = append(args, "--ignore-user-config")
+		if o.OnMessage != nil {
+			text := "Your Codex config.toml has an MCP server named " + clash + ", which Lykeion uses; this run ignores your config.toml. Rename that entry to keep your Codex settings in Lykeion runs."
+			if err = o.OnMessage(Message{Type: "status", Content: raw(map[string]string{"type": "continuity", "message": text})}); err != nil {
+				cleanup(true)
+				return nil, err
+			}
+		}
+	}
+	for _, s := range o.MCP {
+		args = append(args, "-c", fmt.Sprintf("mcp_servers.%s.url=%s", ServerName(s.Name), raw(s.URL)))
+	}
+	if o.MCPURL != "" {
+		args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_sources.url=%s", raw(o.MCPURL)), "-c", `mcp_servers.lyk_sources.bearer_token_env_var="LYK_TOKEN"`)
 	}
 	args = append(args, "--cd", o.Dir)
 	if o.Resume != "" {
 		args = append(args, "resume", o.Resume)
 	}
 	args = append(args, "-")
-	bin := c.Bin
-	if bin == "" {
-		bin = "codex"
+	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseCodex(model), func(res *Result) { res.Model = model }, o.OnMessage)
+}
+
+// personalClash names a personal MCP entry that shares a Lykeion entry's name.
+func personalClash(personal codexConfig, o ExecOptions) string {
+	names := make([]string, 0, len(o.MCP)+1)
+	for _, s := range o.MCP {
+		names = append(names, ServerName(s.Name))
 	}
-	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseCodex(model), nil, o.OnMessage)
+	if o.MCPURL != "" {
+		names = append(names, "lyk_sources")
+	}
+	for _, n := range names {
+		if _, ok := personal.MCPServers[n]; ok {
+			return n
+		}
+	}
+	return ""
+}
+
+// codexSandbox always keeps network, so lyk reaches the server and the daemon
+// socket. macOS Seatbelt ignores network_access (openai/codex#10390), so there
+// both modes run unsandboxed until a Codex release with the fix is known.
+func codexSandbox(goos string) []string {
+	if goos == "darwin" {
+		return []string{"-s", "danger-full-access"}
+	}
+	return []string{"-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true"}
 }
 func parseCodex(model string) parser {
 	return func(line []byte, emit emitMessage, res *Result) (bool, error) {
@@ -113,8 +165,12 @@ func parseCodex(model string) parser {
 			if upper {
 				message += " Per-request pricing bands are unavailable; long-context rates applied to all aggregate tokens are a conservative upper bound."
 			}
+			_, priced := pricing.Prices[model]
+			if !priced {
+				message = "No list price is known for " + model + "; its tokens are recorded but count $0 against the card budget."
+			}
 			emit(Message{Type: "status", Content: cp})
-			emit(Message{Type: "status", Content: raw(map[string]any{"type": "accounting", "model": model, "policy": "api_list_price_estimate", "conservative_upper_bound": upper, "message": message})})
+			emit(Message{Type: "status", Content: raw(map[string]any{"type": "accounting", "model": model, "policy": "api_list_price_estimate", "priced": priced, "conservative_upper_bound": upper, "message": message})})
 			return true, nil
 		case "turn.failed":
 			detail := ev.Error.Message

@@ -22,6 +22,8 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	r := Report{AgentRunID: c.AgentRun.ID, WorkspaceID: c.AgentRun.WorkspaceID, RuntimeID: *c.AgentRun.RuntimeID, Attempt: c.AgentRun.Attempt, Kind: "complete"}
 	dir := filepath.Join(d.cfg.Home, scratchName(r.AgentRunID, r.Attempt))
 	created := false
+	var cont *continuity
+	var final agent.Result
 	fail := func(err error) { r.Kind = "fail"; r.Error = err.Error(); r.FailureReason = agent.ReasonAgentError }
 	// Journal before the server can enter running or any CLI can launch.
 	journalRecord := r
@@ -40,6 +42,8 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			localErr = errors.Join(localErr, err)
 			return
 		}
+		// Only after the final report is durable may a baseline become resumable.
+		localErr = errors.Join(localErr, d.finishContinuity(cont, final))
 		if created {
 			if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt}); err != nil {
 				localErr = errors.Join(localErr, err)
@@ -61,6 +65,13 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		prompt = "Read and follow the skill in SKILL.md in your working directory.\n\n" + prompt
 	}
+	// The attempt keeps this snapshot even if the policy file changes later.
+	pol, err := LoadPolicy(d.cfg.StateDir, c.AgentRun.WorkspaceID)
+	if err != nil {
+		fail(fmt.Errorf("workspace policy: %w", err))
+		return nil
+	}
+	r.Mode, r.PolicyDigest = runMode(c, pol), pol.Digest
 	backend, err := d.cfg.NewBackend(c.AgentRun.Harness, d.cfg.Harnesses[c.AgentRun.Harness])
 	if err != nil {
 		fail(err)
@@ -103,18 +114,65 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		sinkErr = d.persistMessage(r, sequence, m)
 		return sinkErr
 	}
-	sess, err := backend.Execute(runCtx, prompt, agent.ExecOptions{OnMessage: sink, Dir: dir, MCPURL: c.MCPURL, MCPToken: c.Token, MCP: c.MCP, Resume: c.AgentRun.SessionID, Env: []string{
+	opts := agent.ExecOptions{OnMessage: sink, Dir: dir, MCPURL: c.MCPURL, MCPToken: c.Token, MCP: c.MCP, Resume: c.AgentRun.SessionID, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + filepath.Dir(self) + string(os.PathListSeparator) + os.Getenv("PATH"),
-	}})
-	if err != nil {
+	}}
+	if cont, err = d.beginContinuity(c, pol); err != nil {
 		fail(err)
 		return nil
 	}
-	streamErr := d.stream(r, sess.Messages, cancel)
-	res, ok := <-sess.Done
-	if !ok {
-		fail(errors.New("backend closed without a result"))
-		return streamErr
+	note := func(text string) error {
+		return sink(agent.Message{Type: "status", Content: rawJSON(map[string]string{"type": "continuity", "message": text})})
+	}
+	if cont != nil {
+		opts.Inherit, opts.Resume, opts.ClaudeBaseline = true, cont.resume, cont.baseline
+		if cont.note != "" {
+			if err = note(cont.note); err != nil {
+				fail(err)
+				return errors.Join(err, d.abandonContinuity(cont))
+			}
+		}
+	}
+	// Resume only what this run's CLI can find; otherwise continue fresh.
+	if opts.Resume != "" && !agent.SessionReachable(c.AgentRun.Harness, opts.Resume, opts.Inherit, dir) {
+		if err = note("session " + opts.Resume + " is not in the CLI's session store; starting a fresh session"); err != nil {
+			fail(err)
+			return errors.Join(err, d.abandonContinuity(cont))
+		}
+		opts.Resume, opts.ClaudeBaseline = "", nil
+	}
+	// execute returns the launch error, or the result and the stream error.
+	execute := func() (res agent.Result, streamErr, launchErr error) {
+		sess, err := backend.Execute(runCtx, prompt, opts)
+		if err != nil {
+			return res, nil, err
+		}
+		streamErr = d.stream(r, sess.Messages, cancel)
+		res, ok := <-sess.Done
+		if !ok {
+			res.Err = errors.New("backend closed without a result")
+		}
+		return res, streamErr, nil
+	}
+	res, streamErr, launchErr := execute()
+	if launchErr != nil {
+		fail(launchErr)
+		return d.abandonContinuity(cont)
+	}
+	// A refused resume did no model work, so one fresh session is safe.
+	if cont != nil && opts.Resume != "" && res.ResumeRefused && streamErr == nil && sinkErr == nil && runCtx.Err() == nil {
+		if err = note("the CLI refused to resume session " + opts.Resume + "; starting a fresh session"); err == nil {
+			opts.Resume, opts.ClaudeBaseline = "", nil
+			if res, streamErr, launchErr = execute(); launchErr != nil {
+				fail(launchErr)
+				final.Err = launchErr
+				return nil
+			}
+		}
+	}
+	final = res
+	if final.Err == nil && streamErr != nil {
+		final.Err = streamErr
 	}
 	if sinkErr != nil {
 		var oversized *oversizedMessageError
@@ -122,7 +180,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			localErr = errors.Join(localErr, sinkErr)
 		}
 	}
-	r.Usage, r.SessionID = res.Usage, res.SessionID
+	r.Usage, r.SessionID, r.Model = res.Usage, res.SessionID, res.Model
 	if res.Err != nil {
 		fail(res.Err)
 		r.FailureReason = res.Reason
@@ -145,6 +203,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	return localErr
 }
+func rawJSON(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 func messageBody(r Report) map[string]any {
 	return map[string]any{"workspace_id": r.WorkspaceID, "runtime_id": r.RuntimeID, "attempt": r.Attempt, "messages": r.Messages}
 }

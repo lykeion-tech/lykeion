@@ -21,7 +21,7 @@ func TestRevokedReferencesDoNotStarveHealthyWorkspace(t *testing.T) {
 			// Leave the first workspace busy so losing authority must cancel local work.
 			bin := f.cfg.Harnesses["claude"]
 			must(t, os.WriteFile(bin, []byte(`#!/bin/sh
-cat >/dev/null
+IFS= read -r first
 case "$PWD" in *`+f.id.String()+`*) echo ready > "$PWD/ready";exec sleep 300;; esac
 echo '{"type":"result","is_error":false}'
 `), 0700))
