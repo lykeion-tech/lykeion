@@ -3,6 +3,8 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -62,58 +64,71 @@ func (l Local) Put(ctx context.Context, key string, r io.Reader, _ int64) (retEr
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	root, p, err := l.paths(key)
+	rootPath, path, err := l.paths(key)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return fmt.Errorf("create blob directory: %w", err)
-	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(p))
+	root, err := os.OpenRoot(rootPath)
 	if err != nil {
-		return fmt.Errorf("resolve blob directory: %w", err)
+		return fmt.Errorf("open storage directory: %w", err)
 	}
-	if !within(root, parent) {
+	defer func() {
+		if err := root.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close storage directory: %w", err))
+		}
+	}()
+	relative, err := filepath.Rel(rootPath, path)
+	if err != nil || !within(rootPath, path) {
 		return fmt.Errorf("storage key %q escapes storage directory", key)
 	}
-	p = filepath.Join(parent, filepath.Base(p))
-	tmp, err := os.CreateTemp(parent, ".put-*")
+	parent := filepath.Dir(relative)
+	if err := root.MkdirAll(parent, 0o700); err != nil {
+		return fmt.Errorf("create blob directory: %w", err)
+	}
+	var temp string
+	var file *os.File
+	for range 10 {
+		suffix := make([]byte, 12)
+		if _, err := rand.Read(suffix); err != nil {
+			return fmt.Errorf("generate temporary blob name: %w", err)
+		}
+		temp = filepath.Join(parent, ".put-"+hex.EncodeToString(suffix))
+		file, err = root.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if !errors.Is(err, os.ErrExist) {
+			break
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("create temporary blob: %w", err)
 	}
-	tmpPath := tmp.Name()
 	committed := false
 	defer func() {
 		if !committed {
-			if err := os.Remove(tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := root.Remove(temp); err != nil && !errors.Is(err, os.ErrNotExist) {
 				retErr = errors.Join(retErr, fmt.Errorf("remove temporary blob: %w", err))
 			}
 		}
 	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		retErr = errors.Join(fmt.Errorf("set temporary blob permissions: %w", err), tmp.Close())
-		return retErr
-	}
-	if _, err := io.Copy(tmp, contextReader{ctx: ctx, reader: r}); err != nil {
-		retErr = errors.Join(fmt.Errorf("write blob: %w", err), tmp.Close())
+	if _, err := io.Copy(file, contextReader{ctx: ctx, reader: r}); err != nil {
+		retErr = errors.Join(fmt.Errorf("write blob: %w", err), file.Close())
 		return retErr
 	}
 	if err := ctx.Err(); err != nil {
-		retErr = errors.Join(err, tmp.Close())
+		retErr = errors.Join(err, file.Close())
 		return retErr
 	}
-	if err := tmp.Sync(); err != nil {
-		retErr = errors.Join(fmt.Errorf("sync blob: %w", err), tmp.Close())
+	if err := file.Sync(); err != nil {
+		retErr = errors.Join(fmt.Errorf("sync blob: %w", err), file.Close())
 		return retErr
 	}
-	if err := tmp.Close(); err != nil {
+	if err := file.Close(); err != nil {
 		return fmt.Errorf("close temporary blob: %w", err)
 	}
-	if err := os.Rename(tmpPath, p); err != nil {
+	if err := root.Rename(temp, relative); err != nil {
 		return fmt.Errorf("replace blob: %w", err)
 	}
 	committed = true
-	dir, err := os.Open(parent)
+	dir, err := root.Open(parent)
 	if err != nil {
 		return fmt.Errorf("open blob directory for sync: %w", err)
 	}

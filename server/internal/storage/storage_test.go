@@ -51,11 +51,11 @@ func TestLocalRejectsSymlinkEscape(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "linked")); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	if err := (Local{Dir: dir}).Put(context.Background(), "linked/blob", strings.NewReader("escape"), 6); err == nil {
+	if err := (Local{Dir: dir}).Put(context.Background(), "linked/new/blob", strings.NewReader("escape"), 6); err == nil {
 		t.Fatal("Put followed a symlink outside storage directory")
 	}
-	if _, err := os.Stat(filepath.Join(outside, "blob")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("outside blob exists or could not be checked: %v", err)
+	if _, err := os.Stat(filepath.Join(outside, "new")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside directory was created or could not be checked: %v", err)
 	}
 }
 
