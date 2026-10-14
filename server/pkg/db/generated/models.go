@@ -42,6 +42,7 @@ type AgentRun struct {
 type AgentRunMessage struct {
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
 	AgentRunID  uuid.UUID       `json:"agent_run_id"`
+	Attempt     int32           `json:"attempt"`
 	Seq         int32           `json:"seq"`
 	Type        string          `json:"type"`
 	Tool        string          `json:"tool"`
@@ -55,6 +56,7 @@ type AgentRunToken struct {
 	AgentRunID  uuid.UUID `json:"agent_run_id"`
 	CardID      uuid.UUID `json:"card_id"`
 	Role        string    `json:"role"`
+	Attempt     int32     `json:"attempt"`
 	ExpiresAt   time.Time `json:"expires_at"`
 }
 
@@ -62,6 +64,7 @@ type AgentRunUsage struct {
 	ID               uuid.UUID `json:"id"`
 	WorkspaceID      uuid.UUID `json:"workspace_id"`
 	AgentRunID       uuid.UUID `json:"agent_run_id"`
+	Attempt          int32     `json:"attempt"`
 	Model            string    `json:"model"`
 	InputTokens      int64     `json:"input_tokens"`
 	OutputTokens     int64     `json:"output_tokens"`

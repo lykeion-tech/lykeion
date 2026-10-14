@@ -30,18 +30,24 @@ func (q *Queries) AddCardSpend(ctx context.Context, arg AddCardSpendParams) erro
 }
 
 const agentRunMessagesAfter = `-- name: AgentRunMessagesAfter :many
-SELECT workspace_id, agent_run_id, seq, type, tool, content, created_at FROM agent_run_message WHERE workspace_id = $1 AND agent_run_id = $2 AND seq > $3
+SELECT workspace_id, agent_run_id, attempt, seq, type, tool, content, created_at FROM agent_run_message WHERE workspace_id = $1 AND agent_run_id = $2 AND attempt = $3 AND seq > $4
 ORDER BY seq LIMIT 500
 `
 
 type AgentRunMessagesAfterParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	Attempt     int32     `json:"attempt"`
 	After       int32     `json:"after"`
 }
 
 func (q *Queries) AgentRunMessagesAfter(ctx context.Context, arg AgentRunMessagesAfterParams) ([]AgentRunMessage, error) {
-	rows, err := q.db.Query(ctx, agentRunMessagesAfter, arg.WorkspaceID, arg.AgentRunID, arg.After)
+	rows, err := q.db.Query(ctx, agentRunMessagesAfter,
+		arg.WorkspaceID,
+		arg.AgentRunID,
+		arg.Attempt,
+		arg.After,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +58,7 @@ func (q *Queries) AgentRunMessagesAfter(ctx context.Context, arg AgentRunMessage
 		if err := rows.Scan(
 			&i.WorkspaceID,
 			&i.AgentRunID,
+			&i.Attempt,
 			&i.Seq,
 			&i.Type,
 			&i.Tool,
@@ -355,14 +362,15 @@ func (q *Queries) GetRuntime(ctx context.Context, arg GetRuntimeParams) (Runtime
 }
 
 const insertAgentRunMessage = `-- name: InsertAgentRunMessage :exec
-INSERT INTO agent_run_message (workspace_id, agent_run_id, seq, type, tool, content)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (agent_run_id, seq) DO NOTHING
+INSERT INTO agent_run_message (workspace_id, agent_run_id, attempt, seq, type, tool, content)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (agent_run_id, attempt, seq) DO NOTHING
 `
 
 type InsertAgentRunMessageParams struct {
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
 	AgentRunID  uuid.UUID       `json:"agent_run_id"`
+	Attempt     int32           `json:"attempt"`
 	Seq         int32           `json:"seq"`
 	Type        string          `json:"type"`
 	Tool        string          `json:"tool"`
@@ -373,6 +381,7 @@ func (q *Queries) InsertAgentRunMessage(ctx context.Context, arg InsertAgentRunM
 	_, err := q.db.Exec(ctx, insertAgentRunMessage,
 		arg.WorkspaceID,
 		arg.AgentRunID,
+		arg.Attempt,
 		arg.Seq,
 		arg.Type,
 		arg.Tool,
@@ -382,8 +391,8 @@ func (q *Queries) InsertAgentRunMessage(ctx context.Context, arg InsertAgentRunM
 }
 
 const insertAgentRunToken = `-- name: InsertAgentRunToken :exec
-INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type InsertAgentRunTokenParams struct {
@@ -392,6 +401,7 @@ type InsertAgentRunTokenParams struct {
 	AgentRunID  uuid.UUID `json:"agent_run_id"`
 	CardID      uuid.UUID `json:"card_id"`
 	Role        string    `json:"role"`
+	Attempt     int32     `json:"attempt"`
 	ExpiresAt   time.Time `json:"expires_at"`
 }
 
@@ -402,19 +412,21 @@ func (q *Queries) InsertAgentRunToken(ctx context.Context, arg InsertAgentRunTok
 		arg.AgentRunID,
 		arg.CardID,
 		arg.Role,
+		arg.Attempt,
 		arg.ExpiresAt,
 	)
 	return err
 }
 
 const insertAgentRunUsage = `-- name: InsertAgentRunUsage :exec
-INSERT INTO agent_run_usage (workspace_id, agent_run_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type InsertAgentRunUsageParams struct {
 	WorkspaceID      uuid.UUID `json:"workspace_id"`
 	AgentRunID       uuid.UUID `json:"agent_run_id"`
+	Attempt          int32     `json:"attempt"`
 	Model            string    `json:"model"`
 	InputTokens      int64     `json:"input_tokens"`
 	OutputTokens     int64     `json:"output_tokens"`
@@ -427,6 +439,7 @@ func (q *Queries) InsertAgentRunUsage(ctx context.Context, arg InsertAgentRunUsa
 	_, err := q.db.Exec(ctx, insertAgentRunUsage,
 		arg.WorkspaceID,
 		arg.AgentRunID,
+		arg.Attempt,
 		arg.Model,
 		arg.InputTokens,
 		arg.OutputTokens,

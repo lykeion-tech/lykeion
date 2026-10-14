@@ -49,8 +49,8 @@ WHERE id = (
 RETURNING *;
 
 -- name: InsertAgentRunToken :exec
-INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, expires_at)
-VALUES (@token_hash, @workspace_id, @agent_run_id, @card_id, @role, @expires_at);
+INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, expires_at)
+VALUES (@token_hash, @workspace_id, @agent_run_id, @card_id, @role, @attempt, @expires_at);
 
 -- name: ExtendLease :execrows
 UPDATE agent_run SET prepare_lease_expires_at = now() + interval '2 minutes'
@@ -68,12 +68,12 @@ SELECT * FROM agent_run WHERE id = @id AND workspace_id = @workspace_id;
 SELECT * FROM agent_run WHERE id = @id AND workspace_id = @workspace_id FOR UPDATE;
 
 -- name: InsertAgentRunMessage :exec
-INSERT INTO agent_run_message (workspace_id, agent_run_id, seq, type, tool, content)
-VALUES (@workspace_id, @agent_run_id, @seq, @type, @tool, @content)
-ON CONFLICT (agent_run_id, seq) DO NOTHING;
+INSERT INTO agent_run_message (workspace_id, agent_run_id, attempt, seq, type, tool, content)
+VALUES (@workspace_id, @agent_run_id, @attempt, @seq, @type, @tool, @content)
+ON CONFLICT (agent_run_id, attempt, seq) DO NOTHING;
 
 -- name: AgentRunMessagesAfter :many
-SELECT * FROM agent_run_message WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND seq > @after
+SELECT * FROM agent_run_message WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt = @attempt AND seq > @after
 ORDER BY seq LIMIT 500;
 
 -- name: FinishAgentRun :exec
@@ -91,8 +91,8 @@ UPDATE agent_run SET cost_usd = cost_usd + @cost_usd, late_usage_at = now()
 WHERE id = @id AND workspace_id = @workspace_id AND status = 'cancelled';
 
 -- name: InsertAgentRunUsage :exec
-INSERT INTO agent_run_usage (workspace_id, agent_run_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
-VALUES (@workspace_id, @agent_run_id, @model, @input_tokens, @output_tokens, @cache_read_tokens, @cache_write_tokens, @cost_usd);
+INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+VALUES (@workspace_id, @agent_run_id, @attempt, @model, @input_tokens, @output_tokens, @cache_read_tokens, @cache_write_tokens, @cost_usd);
 
 -- name: CancelAgentRun :execrows
 UPDATE agent_run SET status = 'cancelled', completed_at = now()

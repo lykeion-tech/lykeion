@@ -10,13 +10,14 @@ CREATE TABLE runtime (
   last_seen_at timestamptz NOT NULL DEFAULT now(),
   max_concurrent int NOT NULL DEFAULT 2 CHECK (max_concurrent BETWEEN 1 AND 32),
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, daemon_id, harness)
+  UNIQUE (workspace_id, daemon_id, harness),
+  UNIQUE (id, workspace_id)
 );
 
 CREATE TABLE agent_run (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
-  card_id uuid NOT NULL REFERENCES card ON DELETE CASCADE,
+  card_id uuid NOT NULL,
   responsible_user_id uuid NOT NULL REFERENCES "user",
   board_column text NOT NULL,
   round int NOT NULL,
@@ -27,7 +28,7 @@ CREATE TABLE agent_run (
   status text NOT NULL DEFAULT 'queued'
     CHECK (status IN ('queued', 'dispatched', 'running', 'completed', 'failed', 'cancelled')),
   queue_reason text CHECK (queue_reason IN ('runtime_offline', 'budget')),
-  runtime_id uuid REFERENCES runtime ON DELETE SET NULL,
+  runtime_id uuid,
   prepare_lease_expires_at timestamptz,
   dispatched_at timestamptz,
   started_at timestamptz,
@@ -40,48 +41,60 @@ CREATE TABLE agent_run (
     ('runtime_offline', 'timeout', 'provider_network', 'context_exhausted', 'agent_error')),
   cost_usd double precision NOT NULL DEFAULT 0,
   late_usage_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (id, workspace_id),
+  UNIQUE (id, workspace_id, card_id, role),
+  FOREIGN KEY (workspace_id, card_id) REFERENCES card (workspace_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (runtime_id, workspace_id) REFERENCES runtime (id, workspace_id) ON DELETE SET NULL (runtime_id)
 );
 CREATE INDEX agent_run_queued ON agent_run (workspace_id, created_at) WHERE status = 'queued';
 
 CREATE TABLE agent_run_usage (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
-  agent_run_id uuid NOT NULL REFERENCES agent_run ON DELETE CASCADE,
+  agent_run_id uuid NOT NULL,
+  attempt int NOT NULL CHECK (attempt > 0),
   model text NOT NULL,
   input_tokens bigint NOT NULL CHECK (input_tokens >= 0),
   output_tokens bigint NOT NULL CHECK (output_tokens >= 0),
   cache_read_tokens bigint NOT NULL CHECK (cache_read_tokens >= 0),
   cache_write_tokens bigint NOT NULL CHECK (cache_write_tokens >= 0),
   cost_usd double precision NOT NULL CHECK (cost_usd >= 0),
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (agent_run_id, attempt, model),
+  FOREIGN KEY (agent_run_id, workspace_id) REFERENCES agent_run (id, workspace_id) ON DELETE CASCADE
 );
 CREATE INDEX agent_run_usage_agent_run ON agent_run_usage (agent_run_id);
 
 CREATE TABLE agent_run_message (
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
-  agent_run_id uuid NOT NULL REFERENCES agent_run ON DELETE CASCADE,
+  agent_run_id uuid NOT NULL,
+  attempt int NOT NULL CHECK (attempt > 0),
   seq int NOT NULL,
   type text NOT NULL CHECK (type IN ('text', 'thinking', 'tool_use', 'tool_result', 'status', 'error', 'log')),
   tool text NOT NULL DEFAULT '',
   content jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (agent_run_id, seq)
+  PRIMARY KEY (agent_run_id, attempt, seq),
+  FOREIGN KEY (agent_run_id, workspace_id) REFERENCES agent_run (id, workspace_id) ON DELETE CASCADE
 );
 
 CREATE TABLE agent_run_token (
   token_hash text PRIMARY KEY,
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
-  agent_run_id uuid NOT NULL REFERENCES agent_run ON DELETE CASCADE,
+  agent_run_id uuid NOT NULL,
   card_id uuid NOT NULL,
   role text NOT NULL,
+  attempt int NOT NULL CHECK (attempt > 0),
+  FOREIGN KEY (agent_run_id, workspace_id, card_id, role)
+    REFERENCES agent_run (id, workspace_id, card_id, role) ON DELETE CASCADE,
   expires_at timestamptz NOT NULL
 );
 
 CREATE TABLE record (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
-  card_id uuid NOT NULL REFERENCES card ON DELETE CASCADE,
+  card_id uuid NOT NULL,
   board_column text NOT NULL,
   round int NOT NULL,
   kind text NOT NULL,
@@ -89,9 +102,11 @@ CREATE TABLE record (
   key text NOT NULL DEFAULT '',
   body jsonb NOT NULL DEFAULT '{}',
   blob_key text NOT NULL DEFAULT '',
-  agent_run_id uuid REFERENCES agent_run ON DELETE SET NULL,
+  agent_run_id uuid,
   superseded_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (workspace_id, card_id) REFERENCES card (workspace_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (agent_run_id, workspace_id) REFERENCES agent_run (id, workspace_id) ON DELETE SET NULL (agent_run_id)
 );
 CREATE INDEX record_live ON record (card_id, board_column, kind) WHERE superseded_at IS NULL;
 
@@ -114,6 +129,8 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT t.id, t.workspace_id, t.card_id, k.role, t.board_column, t.round
   FROM agent_run_token k JOIN agent_run t ON t.id = k.agent_run_id
   WHERE k.token_hash = h AND k.expires_at > now() AND t.status = 'running'
+    AND k.attempt = t.attempt AND k.workspace_id = t.workspace_id
+    AND k.card_id = t.card_id AND k.role = t.role
 $$;
 
 CREATE FUNCTION sweep_runtimes(stale interval) RETURNS int
@@ -138,8 +155,8 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
       prepare_lease_expires_at = NULL,
       started_at = NULL
     WHERE (t.status = 'dispatched' AND t.prepare_lease_expires_at < now())
-       OR (t.status = 'running' AND EXISTS (
-            SELECT 1 FROM runtime r WHERE r.id = t.runtime_id AND r.status = 'offline'))
+       OR (t.status = 'running' AND (t.runtime_id IS NULL OR EXISTS (
+            SELECT 1 FROM runtime r WHERE r.id = t.runtime_id AND r.status = 'offline')))
     RETURNING t.id, t.workspace_id, t.card_id, t.status
   ), dropped AS (
     DELETE FROM agent_run_token k USING swept s WHERE k.agent_run_id = s.id
