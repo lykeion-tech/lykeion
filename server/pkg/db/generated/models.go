@@ -50,6 +50,22 @@ type AgentRunMessage struct {
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
+type AgentRunReceipt struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	AgentRunID  uuid.UUID       `json:"agent_run_id"`
+	Attempt     int32           `json:"attempt"`
+	RuntimeID   *uuid.UUID      `json:"runtime_id"`
+	Result      json.RawMessage `json:"result"`
+}
+
+type AgentRunSettlement struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	AgentRunID  uuid.UUID       `json:"agent_run_id"`
+	Result      json.RawMessage `json:"result"`
+	CreatedAt   time.Time       `json:"created_at"`
+	DeliveredAt *time.Time      `json:"delivered_at"`
+}
+
 type AgentRunToken struct {
 	TokenHash   string    `json:"token_hash"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`

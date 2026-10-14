@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	db "lykeion/server/pkg/db/generated"
@@ -28,6 +29,7 @@ type Store struct {
 }
 
 type Tx struct {
+	raw    pgx.Tx
 	Q      *db.Queries
 	WS     uuid.UUID
 	events []db.Event
@@ -85,7 +87,7 @@ func (s *Store) run(ctx context.Context, ws uuid.UUID, settings map[string]strin
 			return err
 		}
 	}
-	t := &Tx{Q: db.New(tx), WS: ws}
+	t := &Tx{Q: db.New(tx), WS: ws, raw: tx}
 	if err := fn(t); err != nil {
 		return err
 	}
@@ -95,5 +97,21 @@ func (s *Store) run(ctx context.Context, ws uuid.UUID, settings map[string]strin
 	if s.Publish != nil && len(t.events) > 0 {
 		s.Publish(ctx, t.events)
 	}
+	return nil
+}
+
+// Maintenance runs narrowly scoped global maintenance helpers and all resulting
+// tenant mutations in one commit. Call Workspace before accessing tenant rows.
+func (s *Store) Maintenance(ctx context.Context, fn func(*Tx) error) error {
+	return s.run(ctx, uuid.Nil, map[string]string{"app.workspace_id": uuid.Nil.String(), "app.user_id": uuid.Nil.String()}, fn)
+}
+
+// Workspace changes tenant scope inside a maintenance transaction. It preserves
+// the transaction and its accumulated events for publication only after commit.
+func (t *Tx) Workspace(ctx context.Context, ws uuid.UUID) error {
+	if _, err := t.raw.Exec(ctx, "SELECT set_config('app.workspace_id', $1, true)", ws.String()); err != nil {
+		return err
+	}
+	t.WS = ws
 	return nil
 }
