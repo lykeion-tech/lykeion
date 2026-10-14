@@ -25,7 +25,33 @@ func without(xs []string, x string) []string {
 	return slices.DeleteFunc(xs, func(y string) bool { return y == x })
 }
 
+// RouteTarget accepts only a stage earlier than from.
+func RouteTarget(from, to string) error {
+	if i := StageIndex(to); i < 0 || i >= StageIndex(from) {
+		return fmt.Errorf("%q is not a stage before %s", to, from)
+	}
+	return nil
+}
+
+// applicable checks a gate before Apply changes anything: the card must be in
+// a stage, and a failing gate may route only to its own column or an earlier one.
+func applicable(s *State, g *Gate) error {
+	if StageIndex(s.Column) < 0 {
+		return fmt.Errorf("a %s gate reached a card in %s, which is not a stage", g.Column, s.Column)
+	}
+	if r := g.Route; g.Verdict == VFail && r != nil && r.Column != "" && r.Column != s.Column {
+		if err := RouteTarget(s.Column, r.Column); err != nil {
+			return fmt.Errorf("the %s gate routes to %s: %w", s.Column, r.Column, err)
+		}
+	}
+	return nil
+}
+
 func Apply(s *State, g *Gate, lim Limits) []Item {
+	if err := applicable(s, g); err != nil {
+		s.Flag = Escalated
+		return []Item{{"escalated", err.Error()}}
+	}
 	switch g.Verdict {
 	case VPass:
 		s.Rounds, s.Rerun, s.HandoffNote = 0, "", ""
@@ -77,8 +103,8 @@ func routeBack(s *State, to, step, reason string, lim Limits) []Item {
 }
 
 func SendBack(s *State, to, step, reason string, lim Limits) ([]Item, error) {
-	if StageIndex(to) < 0 || StageIndex(to) >= StageIndex(s.Column) {
-		return nil, fmt.Errorf("a card can only be sent back to an earlier stage, not from %s to %s", s.Column, to)
+	if err := RouteTarget(s.Column, to); err != nil {
+		return nil, fmt.Errorf("a card can only be sent back to an earlier stage: %w", err)
 	}
 	return routeBack(s, to, step, reason, lim), nil
 }

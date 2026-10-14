@@ -2,6 +2,7 @@ package board
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -111,6 +112,38 @@ func TestFifthRouteBackEscalates(t *testing.T) {
 	s.RouteBacks = 4
 	if items := Apply(s, fail(Hypotheses, Grounding, ""), lim); s.Flag != Escalated || len(items) != 1 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+func TestAnInvalidRouteEscalatesWithoutMoving(t *testing.T) {
+	for _, to := range []string{Validation, Reporting, Done, Backlog, "nowhere"} {
+		s := at(Hypotheses)
+		items := Apply(s, fail(Hypotheses, to, "selector"), lim)
+		if s.Column != Hypotheses || s.Flag != Escalated || s.Round != 4 || s.RouteBacks != 0 || s.Rerun != "" || len(s.Stale) != 0 ||
+			len(items) != 1 || items[0].Kind != "escalated" || !strings.Contains(items[0].Text, to) {
+			t.Fatalf("route to %s: %+v %+v", to, s, items)
+		}
+	}
+}
+
+func TestAGateForACardOutsideTheStagesEscalates(t *testing.T) {
+	for _, col := range []string{Backlog, Done} {
+		s := at(col)
+		if items := Apply(s, &Gate{Column: col, Verdict: VPass}, lim); s.Column != col || s.Flag != Escalated || len(items) != 1 {
+			t.Fatalf("%s: %+v %+v", col, s, items)
+		}
+	}
+}
+
+func TestRouteTarget(t *testing.T) {
+	for _, c := range []struct {
+		from, to string
+		ok       bool
+	}{{Validation, Grounding, true}, {Validation, Experimentation, true}, {Validation, Validation, false},
+		{Validation, Reporting, false}, {Grounding, Grounding, false}, {Validation, Done, false}, {Validation, "", false}, {Done, Grounding, false}} {
+		if err := RouteTarget(c.from, c.to); (err == nil) != c.ok {
+			t.Errorf("RouteTarget(%q, %q) = %v", c.from, c.to, err)
+		}
 	}
 }
 
