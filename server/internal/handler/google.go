@@ -55,6 +55,9 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "google sign-in is not configured")
 		return
 	}
+	if h.limited(w, r, map[string]int{"google:start:ip:" + clientIP(r): 30}) {
+		return
+	}
 	port, ok := validCLIPort(r.URL.Query().Get("cli_port"))
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "cli_port must be between 1024 and 65535")
@@ -87,6 +90,9 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
+	if h.limited(w, r, map[string]int{"google:callback:ip:" + clientIP(r): 60}) {
+		return
+	}
 	c, err := r.Cookie(oauthCookie)
 	if err != nil || len(h.JWT.Secret) == 0 {
 		writeErr(w, http.StatusBadRequest, "sign-in expired; start again")
@@ -136,6 +142,9 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 	gu, err := h.Google.Exchange(r.Context(), code)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "google sign-in failed")
+		return
+	}
+	if h.limited(w, r, map[string]int{"google:email:" + normEmail(gu.Email): 5}) {
 		return
 	}
 	u, err := h.Store.Global().UpsertUserByGoogle(r.Context(), db.UpsertUserByGoogleParams{Email: gu.Email, Name: gu.Name, GoogleSub: &gu.Sub})

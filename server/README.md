@@ -38,14 +38,27 @@ GOMAXPROCS=2 go run -p 1 ./cmd/server
 Optional Google sign-in uses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and
 `PUBLIC_URL` plus `/auth/google/callback` as the registered redirect URI.
 Optional email uses `SMTP_ADDR`, `SMTP_FROM`, `SMTP_USER`, and `SMTP_PASS`;
-without SMTP the development mailer logs codes.
+without SMTP the development mailer logs codes. SMTP dialing and the complete
+conversation have a five-second limit; request cancellation closes the socket.
+STARTTLS is used when advertised. When credentials are configured, AUTH must be
+advertised; legacy HELO-only servers cannot silently bypass configured credentials.
+With both SMTP_USER and SMTP_PASS empty, unauthenticated delivery is allowed.
 
 `/health` reports process health. `/readyz` requires working PostgreSQL and Redis;
 startup verifies both before announcing readiness. After startup, Redis loss
 allows realtime delivery through database polling, while sign-in rate limiting
 fails closed and `/readyz` returns 503. Redis remains required at startup.
 SIGINT/SIGTERM close realtime sockets before database pool cleanup and allow
-HTTP requests up to ten seconds to finish. HTTP headers have a ten-second timeout.
+HTTP requests up to ten seconds to finish. Shutdown cancels request contexts,
+including SMTP and database work, before pool cleanup. HTTP headers have a
+ten-second timeout; idle keep-alive connections expire after one minute. Ordinary
+HTTP requests have a ten-second context deadline. Bodies are fully read before
+workspace transactions and locks, have a two-second network read deadline, and
+are limited to 1 MiB (413 on oversize, 408 on timeout). WebSocket lifetimes use
+the hub's own cancellation and I/O bounds. Google sign-in permits 30 starts and
+60 callbacks per IP per hour, then five sign-ins per verified email per hour;
+Redis errors return 503 before provider calls at the IP check, or before session
+creation at the identity check.
 Browser/dashboard transport integration is deferred; the existing frontend is
 not connected to this server yet.
 
@@ -98,4 +111,6 @@ replace the file atomically with mode 0600 with newly created config directories
 are preserved, including when `LYK_CONFIG` points into a shared directory.
 Google sign-in requires configured Google credentials and a local browser; the CLI
 waits up to five minutes on an ephemeral loopback listener and accepts only the
-correlated callback. Browser launch failures are returned immediately.
+correlated callback. Launcher startup errors are returned immediately. A launcher
+that starts but later exits unsuccessfully can leave the CLI waiting for the
+callback timeout; some platform launchers remain attached to the browser lifetime.

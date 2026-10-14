@@ -3,12 +3,16 @@ package handler
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/redis/go-redis/v9"
 	"lykeion/server/internal/auth"
 )
 
@@ -197,5 +201,100 @@ func TestGoogleCLINonceHandOff(t *testing.T) {
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("invalid nonce accepted: %s %d", query, resp.StatusCode)
 		}
+	}
+}
+
+func TestGoogleIPLimitsFailClosedBeforeProvider(t *testing.T) {
+	for _, route := range []string{"start", "callback"} {
+		for _, outage := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/outage=%v", route, outage), func(t *testing.T) {
+				s := googleServer(t, true, "limited-subject")
+				state, c := start(t, s, "")
+				var contacted atomic.Int32
+				provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { contacted.Add(1); w.WriteHeader(500) }))
+				defer provider.Close()
+				s.H.Google.TokenURL = provider.URL
+				status := 429
+				if outage {
+					s.H.Limit.R = redis.NewClient(s.Env.Redis.Options())
+					if err := s.H.Limit.R.Close(); err != nil {
+						t.Fatal(err)
+					}
+					status = 503
+				} else {
+					key := "google:" + route + ":ip:127.0.0.1"
+					if err := s.Env.Redis.Set(t.Context(), "lyk:rl:"+key, 1000, time.Hour).Err(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var resp *http.Response
+				if route == "callback" {
+					resp = callback(t, s, state, "good", c)
+				} else {
+					var err error
+					resp, err = noRedirect.Get(s.URL + "/auth/google")
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer resp.Body.Close()
+				}
+				if resp.StatusCode != status {
+					t.Fatalf("want %d got %d", status, resp.StatusCode)
+				}
+				if contacted.Load() != 0 {
+					t.Fatal("rate-limited/outage request contacted provider")
+				}
+				if len(resp.Cookies()) != 0 {
+					t.Fatal("refused request changed auth cookies")
+				}
+			})
+		}
+	}
+}
+
+func TestGoogleVerifiedIdentityLimitAndOutageDoNotMintSession(t *testing.T) {
+	for _, outage := range []bool{false, true} {
+		t.Run(fmt.Sprintf("outage=%v", outage), func(t *testing.T) {
+			s := googleServer(t, true, "identity-subject")
+			state, c := start(t, s, "")
+			status := 429
+			if outage {
+				s.H.Limit.R = redis.NewClient(s.Env.Redis.Options())
+				// Make Redis disappear only after the callback IP check and verified identity.
+				provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/token" {
+						json.NewEncoder(w).Encode(map[string]string{"access_token": "at"})
+						return
+					}
+					if err := s.H.Limit.R.Close(); err != nil {
+						t.Error(err)
+					}
+					json.NewEncoder(w).Encode(map[string]any{"sub": "identity-subject", "email": "G@Lab.org", "email_verified": true})
+				}))
+				defer provider.Close()
+				s.H.Google.TokenURL, s.H.Google.UserinfoURL = provider.URL+"/token", provider.URL+"/userinfo"
+				status = 503
+			} else {
+				if err := s.Env.Redis.Set(t.Context(), "lyk:rl:google:email:g@lab.org", 1000, time.Hour).Err(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			resp := callback(t, s, state, "good", c)
+			if resp.StatusCode != status {
+				t.Fatalf("want %d got %d", status, resp.StatusCode)
+			}
+			for _, cookie := range resp.Cookies() {
+				if cookie.Name == "lyk_session" {
+					t.Fatal("minted session after identity refusal")
+				}
+			}
+			var n int
+			if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM "user" WHERE email='g@lab.org'`).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n != 0 {
+				t.Fatal("created user after identity refusal")
+			}
+		})
 	}
 }

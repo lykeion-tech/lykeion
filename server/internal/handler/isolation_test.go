@@ -19,8 +19,10 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	var c card
 	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q"}, &c)
 	var item string
-	s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
-		VALUES ($1, $2, $3, 'escalated', 'x') RETURNING id`, wa.ID, c.ID, s.userID(t, a)).Scan(&item)
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
+		VALUES ($1, $2, $3, 'escalated', 'x') RETURNING id`, wa.ID, c.ID, s.userID(t, a)).Scan(&item); err != nil {
+		t.Fatal(err)
+	}
 	ids := map[string]string{"{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
 
 	checked := 0
@@ -99,7 +101,9 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		t.Fatalf("an outsider changed workspace A: %d cards", len(cards))
 	}
 	var comments int
-	s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM comment WHERE workspace_id = $1 AND card_id = $2`, wa.ID, c.ID).Scan(&comments)
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM comment WHERE workspace_id = $1 AND card_id = $2`, wa.ID, c.ID).Scan(&comments); err != nil {
+		t.Fatal(err)
+	}
 	if comments != 0 {
 		t.Fatalf("an outsider added %d comments to workspace A", comments)
 	}

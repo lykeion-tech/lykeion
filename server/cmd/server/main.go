@@ -107,7 +107,8 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		return err
 	}
 	defer ln.Close()
-	srv := &http.Server{Handler: handler.NewRouter(h), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: handler.NewRouter(h), ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout: time.Minute, BaseContext: func(net.Listener) context.Context { return ctx }}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()
 	defer srv.Close()

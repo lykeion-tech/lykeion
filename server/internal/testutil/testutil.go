@@ -149,13 +149,19 @@ func Setup(t *testing.T) *Env {
 }
 
 func WithDB(u, db string) string {
-	p, _ := url.Parse(u)
+	p, err := url.Parse(u)
+	if err != nil {
+		return u
+	}
 	p.Path = "/" + db
 	return p.String()
 }
 
 func withUser(u, user, pass string) string {
-	p, _ := url.Parse(u)
+	p, err := url.Parse(u)
+	if err != nil {
+		return u
+	}
 	p.User = url.UserPassword(user, pass)
 	return p.String()
 }

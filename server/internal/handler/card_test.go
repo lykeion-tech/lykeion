@@ -85,8 +85,10 @@ func TestInbox(t *testing.T) {
 	var c card
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
 	var item uuid.UUID
-	s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
-		VALUES ($1, $2, $3, 'escalated', '3 failed gates') RETURNING id`, w.ID, c.ID, s.userID(t, a)).Scan(&item)
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
+		VALUES ($1, $2, $3, 'escalated', '3 failed gates') RETURNING id`, w.ID, c.ID, s.userID(t, a)).Scan(&item); err != nil {
+		t.Fatal(err)
+	}
 	var inbox []map[string]any
 	s.call(t, "GET", "/api/inbox", a, w.ID, nil, &inbox)
 	if len(inbox) != 1 {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/url"
@@ -177,11 +178,37 @@ func TestServerCancellationClosesWebSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	addr, cancel, done := start(t, values)
+	req, err := http.NewRequest("POST", "http://"+addr+"/api/workspaces", strings.NewReader(`{"slug":"socket-lab","name":"Socket lab"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ws struct{ ID string }
+	err = json.NewDecoder(resp.Body).Decode(&ws)
+	resp.Body.Close()
+	if err != nil || resp.StatusCode != http.StatusCreated {
+		t.Fatalf("workspace: %d %v", resp.StatusCode, err)
+	}
 	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/ws", http.Header{"Authorization": {"Bearer " + tok}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Close()
+	if err := conn.WriteJSON(map[string]any{"type": "subscribe", "workspace": ws.ID, "cursor": 0}); err != nil {
+		t.Fatal(err)
+	}
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	var message struct {
+		Type  string
+		Event struct{ Type string }
+	}
+	if err := conn.ReadJSON(&message); err != nil || message.Event.Type != "workspace.created" {
+		t.Fatalf("active subscription: %+v %v", message, err)
+	}
 	cancel()
 	stopped(t, done)
 	conn.SetReadDeadline(time.Now().Add(time.Second))
@@ -205,5 +232,74 @@ func TestServerReadyDeliveryIsBounded(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("unread ready channel stalled startup")
+	}
+}
+
+func TestServerCancellationDuringSMTPReleasesPoolAndRollsBack(t *testing.T) {
+	env := testutil.Setup(t)
+	values := config(env)
+	user, ws := uuid.New(), uuid.New()
+	if _, err := env.Owner.Exec(t.Context(), `INSERT INTO "user" (id,email,name) VALUES ($1,'owner@lab.org','owner')`, user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(t.Context(), `INSERT INTO workspace (id,slug,name) VALUES ($1,'shutdown-mail','mail')`, ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(t.Context(), `INSERT INTO member (workspace_id,user_id,role) VALUES ($1,$2,'owner')`, ws, user); err != nil {
+		t.Fatal(err)
+	}
+	token, err := (auth.Issuer{Secret: []byte(values["JWT_SECRET"]), TTL: time.Hour}).Issue(user, "owner@lab.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	values["SMTP_ADDR"], values["SMTP_FROM"] = ln.Addr().String(), "owner@lab.org"
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			accepted <- c
+		}
+	}()
+	addr, cancel, done := start(t, values)
+	req, err := http.NewRequest("POST", "http://"+addr+"/api/workspaces/"+ws.String()+"/invitations", strings.NewReader(`{"email":"guest@lab.org","role":"member"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	response := make(chan error, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if resp != nil {
+			resp.Body.Close()
+		}
+		response <- err
+	}()
+	var conn net.Conn
+	select {
+	case conn = <-accepted:
+	case <-time.After(time.Second):
+		t.Fatal("SMTP not connected")
+	}
+	defer conn.Close()
+	cancel()
+	stopped(t, done)
+	select {
+	case <-response:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP request retained")
+	}
+	for _, table := range []string{"workspace_invitation", "event"} {
+		var n int
+		if err := env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM "+table+" WHERE workspace_id=$1", ws).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Fatalf("%s committed during SMTP cancellation: %d", table, n)
+		}
 	}
 }

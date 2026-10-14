@@ -3,6 +3,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/store"
 )
@@ -40,7 +42,14 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func readJSON(r *http.Request, v any) error {
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	data, err := io.ReadAll(io.LimitReader(r.Body, middleware.MaxBodyBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > middleware.MaxBodyBytes {
+		return errors.New("request body exceeds 1 MiB")
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return err
