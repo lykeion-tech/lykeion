@@ -306,6 +306,28 @@ func (q *Queries) ListMyWorkspaces(ctx context.Context, userID uuid.UUID) ([]Lis
 	return items, nil
 }
 
+const lockInvitationByToken = `-- name: LockInvitationByToken :one
+SELECT id, workspace_id, email, role, token_hash, invited_by, expires_at, accepted_at, created_at FROM workspace_invitation
+WHERE token_hash = $1 AND accepted_at IS NULL AND expires_at > now() FOR UPDATE
+`
+
+func (q *Queries) LockInvitationByToken(ctx context.Context, tokenHash string) (WorkspaceInvitation, error) {
+	row := q.db.QueryRow(ctx, lockInvitationByToken, tokenHash)
+	var i WorkspaceInvitation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Email,
+		&i.Role,
+		&i.TokenHash,
+		&i.InvitedBy,
+		&i.ExpiresAt,
+		&i.AcceptedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const lockMember = `-- name: LockMember :one
 SELECT workspace_id, user_id, role, created_at FROM member WHERE workspace_id = $1 AND user_id = $2 FOR SHARE
 `
@@ -393,6 +415,15 @@ func (q *Queries) RevokeInvitation(ctx context.Context, arg RevokeInvitationPara
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setInvitationWorkspace = `-- name: SetInvitationWorkspace :exec
+SELECT set_config('app.workspace_id', $1::text, true)
+`
+
+func (q *Queries) SetInvitationWorkspace(ctx context.Context, workspaceID string) error {
+	_, err := q.db.Exec(ctx, setInvitationWorkspace, workspaceID)
+	return err
 }
 
 const setMemberRole = `-- name: SetMemberRole :execrows

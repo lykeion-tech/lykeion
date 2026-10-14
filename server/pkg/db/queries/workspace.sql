@@ -60,3 +60,10 @@ SELECT id FROM workspace WHERE id = @id FOR UPDATE;
 
 -- name: LockMember :one
 SELECT * FROM member WHERE workspace_id = @workspace_id AND user_id = @user_id FOR SHARE;
+
+-- name: SetInvitationWorkspace :exec
+SELECT set_config('app.workspace_id', @workspace_id::text, true);
+
+-- name: LockInvitationByToken :one
+SELECT * FROM workspace_invitation
+WHERE token_hash = @token_hash AND accepted_at IS NULL AND expires_at > now() FOR UPDATE;
