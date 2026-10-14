@@ -54,3 +54,9 @@ WHERE token_hash = @token_hash AND accepted_at IS NULL AND expires_at > now();
 
 -- name: AcceptInvitation :exec
 UPDATE workspace_invitation SET accepted_at = now() WHERE id = @id;
+
+-- name: LockWorkspaceForMutation :one
+SELECT id FROM workspace WHERE id = @id FOR UPDATE;
+
+-- name: LockMember :one
+SELECT * FROM member WHERE workspace_id = @workspace_id AND user_id = @user_id FOR SHARE;

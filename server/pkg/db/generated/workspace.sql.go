@@ -306,6 +306,38 @@ func (q *Queries) ListMyWorkspaces(ctx context.Context, userID uuid.UUID) ([]Lis
 	return items, nil
 }
 
+const lockMember = `-- name: LockMember :one
+SELECT workspace_id, user_id, role, created_at FROM member WHERE workspace_id = $1 AND user_id = $2 FOR SHARE
+`
+
+type LockMemberParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) LockMember(ctx context.Context, arg LockMemberParams) (Member, error) {
+	row := q.db.QueryRow(ctx, lockMember, arg.WorkspaceID, arg.UserID)
+	var i Member
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.UserID,
+		&i.Role,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const lockWorkspaceForMutation = `-- name: LockWorkspaceForMutation :one
+SELECT id FROM workspace WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) LockWorkspaceForMutation(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockWorkspaceForMutation, id)
+	var id_2 uuid.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
 const removeMember = `-- name: RemoveMember :execrows
 DELETE FROM member WHERE workspace_id = $1 AND user_id = $2
 `
