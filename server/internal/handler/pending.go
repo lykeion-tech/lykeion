@@ -4,8 +4,6 @@ import "net/http"
 
 func notYet(w http.ResponseWriter, _ *http.Request) { writeErr(w, 501, "not implemented yet") }
 
-func (h *H) googleStart(w http.ResponseWriter, r *http.Request)      { notYet(w, r) }
-func (h *H) googleCallback(w http.ResponseWriter, r *http.Request)   { notYet(w, r) }
 func (h *H) listWorkspaces(w http.ResponseWriter, r *http.Request)   { notYet(w, r) }
 func (h *H) createWorkspace(w http.ResponseWriter, r *http.Request)  { notYet(w, r) }
 func (h *H) acceptInvitation(w http.ResponseWriter, r *http.Request) { notYet(w, r) }
