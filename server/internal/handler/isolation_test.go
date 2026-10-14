@@ -29,7 +29,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	err := chi.Walk(NewRouter(s.H).(chi.Routes), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		if !strings.HasPrefix(route, "/api/") || strings.HasPrefix(route, "/api/tokens") ||
 			route == "/api/me" || route == "/api/cli-token" || route == "/api/workspaces" ||
-			strings.HasPrefix(route, "/api/invitations") {
+			strings.HasPrefix(route, "/api/invitations") || strings.HasPrefix(route, "/api/daemon") {
 			return nil
 		}
 
@@ -38,7 +38,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		if strings.HasPrefix(route, "/api/workspaces/{id}") {
 			path = strings.Replace(path, "{id}", wa.ID, 1)
 			header = ""
-		} else if route == "/api/cards" || route == "/api/inbox" {
+		} else if route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID
 		}
@@ -58,6 +58,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			body = map[string]string{"body": "outsider comment"}
 		case strings.HasSuffix(route, "/") && method == http.MethodPatch:
 			body = map[string]string{"name": "outsider rename"}
+		case route == "/api/runtimes/{id}" && method == http.MethodPatch:
+			body = map[string]any{"max_concurrent": 2}
 		case strings.HasSuffix(route, "/members/{user}") && method == http.MethodPatch:
 			body = map[string]string{"role": "member"}
 		case route == "/api/workspaces/{id}/invitations" && method == http.MethodPost:

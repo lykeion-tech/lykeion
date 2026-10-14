@@ -4,6 +4,7 @@ package realtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -40,19 +41,33 @@ type Hub struct {
 var upgrader = websocket.Upgrader{} // Default origin protection requires the same host.
 func channel(ws uuid.UUID) string   { return "lyk:ws:" + ws.String() }
 
+// OwnerChannel wakes the daemons owned by a card's responsible user.
+func OwnerChannel(owner uuid.UUID) string { return "lyk:owner:" + owner.String() }
+
 // Publish wakes clients only after the store has committed their events.
 func (h *Hub) Publish(ctx context.Context, evs []db.Event) {
 	if h.Redis == nil {
 		return
 	}
-	done := map[uuid.UUID]bool{}
+	done := map[string]bool{}
 	for _, e := range evs {
-		if done[e.WorkspaceID] {
-			continue
+		chans := []string{channel(e.WorkspaceID)}
+		if e.Type == "agent_run.queued" {
+			var payload struct {
+				OwnerID uuid.UUID `json:"owner_id"`
+			}
+			if json.Unmarshal(e.Payload, &payload) == nil && payload.OwnerID != uuid.Nil {
+				chans = append(chans, OwnerChannel(payload.OwnerID))
+			}
 		}
-		done[e.WorkspaceID] = true
-		if err := h.Redis.Publish(ctx, channel(e.WorkspaceID), e.ID).Err(); err != nil {
-			slog.Warn("realtime wake-up not sent; clients fall back to polling", "err", err)
+		for _, ch := range chans {
+			if done[ch] {
+				continue
+			}
+			done[ch] = true
+			if err := h.Redis.Publish(ctx, ch, e.ID).Err(); err != nil {
+				slog.Warn("realtime wake-up not sent; clients fall back to polling", "err", err)
+			}
 		}
 	}
 }
@@ -108,6 +123,75 @@ func (h *Hub) poll() time.Duration {
 		return h.Poll
 	}
 	return 2 * time.Second
+}
+
+// ServeDaemonWS sends owner-level queue hints. The daemon still polls for work.
+func (h *Hub) ServeDaemonWS(w http.ResponseWriter, r *http.Request) {
+	user := middleware.IdentityFrom(r.Context()).UserID
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(r.Context())
+	if !h.register(conn, cancel) {
+		cancel()
+		conn.Close()
+		return
+	}
+	defer h.unregister(conn)
+	defer cancel()
+	defer conn.Close()
+	conn.SetReadLimit(4096)
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				cancel()
+				return
+			}
+		}
+	}()
+	defer func() { cancel(); conn.Close(); <-readerDone }()
+	var wake <-chan *redis.Message
+	if h.Redis != nil {
+		opt := *h.Redis.Options()
+		opt.DialTimeout = redisTimeout
+		opt.ReadTimeout = redisTimeout
+		opt.WriteTimeout = redisTimeout
+		opt.ContextTimeoutEnabled = true
+		opt.MaxRetries = -1
+		rd := redis.NewClient(&opt)
+		defer rd.Close()
+		subCtx, stop := context.WithTimeout(ctx, redisTimeout)
+		ps := rd.Subscribe(subCtx, OwnerChannel(user))
+		defer ps.Close()
+		if _, err := ps.ReceiveTimeout(subCtx, redisTimeout); err == nil {
+			wake = ps.Channel()
+		}
+		stop()
+	}
+	// This first frame acknowledges that the subscription is active, allowing
+	// callers to enqueue without guessing how long Redis setup takes.
+	conn.SetWriteDeadline(time.Now().Add(flushTimeout))
+	if err := conn.WriteJSON(map[string]string{"type": "ready"}); err != nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-wake:
+			if !ok {
+				wake = nil
+				continue
+			}
+			conn.SetWriteDeadline(time.Now().Add(flushTimeout))
+			if err := conn.WriteJSON(map[string]string{"type": "agent_run_available"}); err != nil {
+				return
+			}
+		}
+	}
 }
 
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {

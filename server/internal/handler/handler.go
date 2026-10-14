@@ -10,23 +10,30 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 )
 
 type H struct {
-	Store  *store.Store
-	JWT    auth.Issuer
-	Mail   auth.Mailer
-	Limit  auth.Limiter
-	Google auth.Google
-	Secure bool // cookies only over HTTPS
-	Hub    *realtime.Hub
+	Store     *store.Store
+	JWT       auth.Issuer
+	Mail      auth.Mailer
+	Limit     auth.Limiter
+	Google    auth.Google
+	Secure    bool // cookies only over HTTPS
+	Hub       *realtime.Hub
+	AgentRuns *service.AgentRuns
+	Blobs     storage.Storage
+	Kinds     map[string]service.Kind
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -73,4 +80,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
 	writeErr(w, 500, "internal error")
+}
+
+func (h *H) scope(r *http.Request) (uuid.UUID, uuid.UUID) {
+	return middleware.WorkspaceFrom(r.Context()).ID, middleware.IdentityFrom(r.Context()).UserID
 }
