@@ -37,16 +37,21 @@ REVOKE ALL ON FUNCTION mark_queue_offline() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION mark_queue_offline() TO lykeion_app;
 
 -- Cards the engine should look at: Backlog cards (for WIP pull) and stage
--- cards with no agent run still in flight for their current round.
+-- cards with no run in flight or a settled outcome to inspect this round.
 CREATE FUNCTION board_candidates() RETURNS TABLE (workspace_id uuid, card_id uuid, board_column text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT c.workspace_id, c.id, c.board_column FROM card c
   WHERE c.ending = '' AND c.flag = '' AND (
     c.board_column = 'backlog'
     OR (c.board_column IN ('grounding', 'hypotheses', 'experimentation', 'validation', 'reporting')
-        AND NOT EXISTS (
-          SELECT 1 FROM agent_run t WHERE t.card_id = c.id AND t.board_column = c.board_column
-            AND t.round = c.round AND t.status IN ('queued', 'dispatched', 'running'))))
+        AND (NOT EXISTS (
+          SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
+            AND t.board_column = c.board_column AND t.round = c.round
+            AND t.status IN ('queued', 'dispatched', 'running'))
+          OR EXISTS (
+            SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
+              AND t.board_column = c.board_column AND t.round = c.round
+              AND t.status IN ('completed', 'failed', 'cancelled')))))
 $$;
 REVOKE ALL ON FUNCTION board_candidates() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION board_candidates() TO lykeion_app;

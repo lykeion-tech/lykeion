@@ -593,3 +593,41 @@ func TestSettledScoutFailureEscalatesWhilePeersAreInFlight(t *testing.T) {
 		})
 	}
 }
+
+func TestTickRecoversMissedFailureKickWhileScoutPeersAreQueued(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	card := f.card(t, board.Grounding, 1)
+	if err := f.e.Advance(ctx, f.ws, card); err != nil {
+		t.Fatal(err)
+	}
+	f.complete(t, f.agentRuns(t, card)[0].ID)
+	if err := f.e.Advance(ctx, f.ws, card); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.env.Owner.Exec(ctx, `UPDATE agent_run SET status = 'failed', failure_reason = 'agent_error', error = 'missed kick' WHERE card_id = $1 AND role = 'literature-scout'`, card); err != nil {
+		t.Fatal(err)
+	}
+	// No settlement kick reaches Advance; Tick must discover the failed scout.
+	if err := f.e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	c := f.cardRow(t, card)
+	items := f.inbox(t, card)
+	if c.Flag != board.Escalated || c.Rerun != ground.Literature || c.Round != 2 || len(items) != 1 || !strings.Contains(items[0], "failed (agent_error): missed kick") {
+		t.Fatalf("Tick missed the failed scout: %+v, inbox %v", c, items)
+	}
+	var queued, runs int
+	if err := f.env.Owner.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status = 'queued'), count(*) FROM agent_run WHERE card_id = $1`, card).Scan(&queued, &runs); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 3 || runs != 5 {
+		t.Fatalf("Tick cancelled peers or queued new work: queued %d, total %d", queued, runs)
+	}
+	if err := f.e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if items := f.inbox(t, card); len(items) != 1 {
+		t.Fatalf("Tick duplicated escalation: %v", items)
+	}
+}
