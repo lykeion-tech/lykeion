@@ -42,6 +42,7 @@ type AgentRun struct {
 	CostUsd               float64    `json:"cost_usd"`
 	LateUsageAt           *time.Time `json:"late_usage_at"`
 	CreatedAt             time.Time  `json:"created_at"`
+	HandoffNote           string     `json:"handoff_note"`
 }
 
 type AgentRunMessage struct {
@@ -120,6 +121,9 @@ type Card struct {
 	FollowsFrom []uuid.UUID `json:"follows_from"`
 	Version     int64       `json:"version"`
 	CreatedAt   time.Time   `json:"created_at"`
+	Round       int32       `json:"round"`
+	HandoffNote string      `json:"handoff_note"`
+	GatingUntil *time.Time  `json:"gating_until"`
 }
 
 type Comment struct {

@@ -15,7 +15,7 @@ import (
 const createCard = `-- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, budget_usd, deadline, follows_from)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at
+RETURNING id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until
 `
 
 type CreateCardParams struct {
@@ -63,6 +63,9 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		&i.FollowsFrom,
 		&i.Version,
 		&i.CreatedAt,
+		&i.Round,
+		&i.HandoffNote,
+		&i.GatingUntil,
 	)
 	return i, err
 }
@@ -99,7 +102,7 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 }
 
 const getCard = `-- name: GetCard :one
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at FROM card WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until FROM card WHERE workspace_id = $1 AND id = $2
 `
 
 type GetCardParams struct {
@@ -132,12 +135,15 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.FollowsFrom,
 		&i.Version,
 		&i.CreatedAt,
+		&i.Round,
+		&i.HandoffNote,
+		&i.GatingUntil,
 	)
 	return i, err
 }
 
 const listCards = `-- name: ListCards :many
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at FROM card WHERE workspace_id = $1 ORDER BY number
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until FROM card WHERE workspace_id = $1 ORDER BY number
 `
 
 func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]Card, error) {
@@ -171,6 +177,9 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]Card,
 			&i.FollowsFrom,
 			&i.Version,
 			&i.CreatedAt,
+			&i.Round,
+			&i.HandoffNote,
+			&i.GatingUntil,
 		); err != nil {
 			return nil, err
 		}

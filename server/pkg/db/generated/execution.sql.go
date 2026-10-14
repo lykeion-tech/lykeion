@@ -107,7 +107,7 @@ WHERE id = (
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note
 `
 
 type ClaimAgentRunParams struct {
@@ -149,6 +149,7 @@ func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (A
 		&i.CostUsd,
 		&i.LateUsageAt,
 		&i.CreatedAt,
+		&i.HandoffNote,
 	)
 	return i, err
 }
@@ -188,7 +189,7 @@ func (q *Queries) DeleteRuntime(ctx context.Context, arg DeleteRuntimeParams) (i
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
 INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note
 `
 
 type EnqueueAgentRunParams struct {
@@ -253,6 +254,7 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		&i.CostUsd,
 		&i.LateUsageAt,
 		&i.CreatedAt,
+		&i.HandoffNote,
 	)
 	return i, err
 }
@@ -306,7 +308,7 @@ func (q *Queries) FinishAgentRun(ctx context.Context, arg FinishAgentRunParams) 
 }
 
 const getAgentRun = `-- name: GetAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at FROM agent_run WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note FROM agent_run WHERE id = $1 AND workspace_id = $2
 `
 
 type GetAgentRunParams struct {
@@ -348,6 +350,7 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 		&i.CostUsd,
 		&i.LateUsageAt,
 		&i.CreatedAt,
+		&i.HandoffNote,
 	)
 	return i, err
 }
@@ -604,7 +607,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Ru
 }
 
 const lockAgentRun = `-- name: LockAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
 
 type LockAgentRunParams struct {
@@ -646,6 +649,7 @@ func (q *Queries) LockAgentRun(ctx context.Context, arg LockAgentRunParams) (Age
 		&i.CostUsd,
 		&i.LateUsageAt,
 		&i.CreatedAt,
+		&i.HandoffNote,
 	)
 	return i, err
 }
