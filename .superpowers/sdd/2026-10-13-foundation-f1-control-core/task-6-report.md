@@ -13,3 +13,11 @@ The original Lykeion checkout at `/Users/diegomarono/lykeion` was searched for a
 - Full server suite, same provided services and sequential settings: `GOMAXPROCS=2 ... go test -p 1 ./...` passed.
 - Server build: `GOMAXPROCS=2 go build -p 1 ./...` passed after the suite exited.
 - `git diff --check` passed.
+
+## Empty collection correction
+
+A follow-up review found that the sqlc list queries return nil slices for zero rows, replacing the handlers' initialized slices. Added exact HTTP response regressions for empty cards, Inbox, comments, and card events after the latest cursor; before the fix each returned `null\n`. The four handlers now normalize nil query results after successful queries, preserving error handling while returning `[]\n` for empty collections.
+
+- Red: the new `EmptyCollection` test failed on all four endpoints with HTTP 200 and body `null\n`.
+- Green: `GOMAXPROCS=2 LYK_TEST_PG=... LYK_TEST_REDIS=... go test -p 1 ./internal/handler/ -run 'EmptyCollection'` passed.
+- Focused regression coverage: `GOMAXPROCS=2 LYK_TEST_PG=... LYK_TEST_REDIS=... go test -p 1 ./internal/handler/ -run 'Card|Inbox'` passed.

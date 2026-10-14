@@ -114,6 +114,9 @@ func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	if cards == nil {
+		cards = []db.Card{}
+	}
 	writeJSON(w, http.StatusOK, cards)
 }
 
@@ -188,6 +191,9 @@ func (h *H) listComments(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	if comments == nil {
+		comments = []db.Comment{}
+	}
 	writeJSON(w, http.StatusOK, comments)
 }
 
@@ -222,6 +228,9 @@ func (h *H) cardEvents(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	if events == nil {
+		events = []db.Event{}
+	}
 	writeJSON(w, http.StatusOK, events)
 }
 
@@ -235,6 +244,9 @@ func (h *H) listInbox(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, r, err)
 		return
+	}
+	if items == nil {
+		items = []db.InboxItem{}
 	}
 	writeJSON(w, http.StatusOK, items)
 }

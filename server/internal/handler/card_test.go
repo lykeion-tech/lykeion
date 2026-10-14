@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"io"
+	"net/http"
 	"testing"
 
 	"github.com/google/uuid"
@@ -96,4 +98,48 @@ func TestInbox(t *testing.T) {
 	if code := s.call(t, "POST", "/api/inbox/"+item.String()+"/read", a, w.ID, nil, nil); code != 404 {
 		t.Fatalf("read twice: %d", code)
 	}
+}
+
+func TestEmptyCollectionResponsesAreJSONArrays(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "empty@lab.org")
+	w := s.workspace(t, a, "empty-lab")
+	assertBody := func(method, path string) {
+		t.Helper()
+		req, err := http.NewRequest(method, s.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+a)
+		req.Header.Set("X-Workspace-ID", w.ID)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK || string(body) != "[]\n" {
+			t.Errorf("%s %s = status %d body %q, want 200 and []", method, path, resp.StatusCode, body)
+		}
+	}
+
+	assertBody("GET", "/api/cards")
+	assertBody("GET", "/api/inbox")
+
+	var c card
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != http.StatusCreated {
+		t.Fatalf("create card: %d", code)
+	}
+	assertBody("GET", "/api/cards/"+c.ID+"/comments")
+
+	var events []struct {
+		ID int64
+	}
+	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/events?after=0", a, w.ID, nil, &events); code != http.StatusOK || len(events) == 0 {
+		t.Fatalf("read initial events: status %d events %v", code, events)
+	}
+	assertBody("GET", "/api/cards/"+c.ID+"/events?after="+itoa(events[len(events)-1].ID))
 }
