@@ -10,20 +10,61 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const acknowledgeSettlement = `-- name: AcknowledgeSettlement :exec
-UPDATE agent_run_settlement SET delivered_at = now() WHERE workspace_id = $1 AND agent_run_id = $2
+const acknowledgeSettlement = `-- name: AcknowledgeSettlement :execrows
+UPDATE agent_run_settlement SET delivered_at = now(), delivery_id = NULL, lease_expires_at = NULL
+WHERE workspace_id = $1 AND agent_run_id = $2
+ AND delivered_at IS NULL AND delivery_id = $3 AND lease_expires_at > now()
 `
 
 type AcknowledgeSettlementParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	AgentRunID  uuid.UUID  `json:"agent_run_id"`
+	DeliveryID  *uuid.UUID `json:"delivery_id"`
 }
 
-func (q *Queries) AcknowledgeSettlement(ctx context.Context, arg AcknowledgeSettlementParams) error {
-	_, err := q.db.Exec(ctx, acknowledgeSettlement, arg.WorkspaceID, arg.AgentRunID)
-	return err
+func (q *Queries) AcknowledgeSettlement(ctx context.Context, arg AcknowledgeSettlementParams) (int64, error) {
+	result, err := q.db.Exec(ctx, acknowledgeSettlement, arg.WorkspaceID, arg.AgentRunID, arg.DeliveryID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const claimSettlement = `-- name: ClaimSettlement :one
+UPDATE agent_run_settlement SET delivery_id = $1, lease_expires_at = now() + $2::interval
+WHERE workspace_id = $3 AND agent_run_id = $4 AND delivered_at IS NULL
+ AND (lease_expires_at IS NULL OR lease_expires_at <= now())
+RETURNING workspace_id, agent_run_id, result, created_at, delivered_at, delivery_id, lease_expires_at
+`
+
+type ClaimSettlementParams struct {
+	DeliveryID  *uuid.UUID      `json:"delivery_id"`
+	Lease       pgtype.Interval `json:"lease"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	AgentRunID  uuid.UUID       `json:"agent_run_id"`
+}
+
+func (q *Queries) ClaimSettlement(ctx context.Context, arg ClaimSettlementParams) (AgentRunSettlement, error) {
+	row := q.db.QueryRow(ctx, claimSettlement,
+		arg.DeliveryID,
+		arg.Lease,
+		arg.WorkspaceID,
+		arg.AgentRunID,
+	)
+	var i AgentRunSettlement
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.AgentRunID,
+		&i.Result,
+		&i.CreatedAt,
+		&i.DeliveredAt,
+		&i.DeliveryID,
+		&i.LeaseExpiresAt,
+	)
+	return i, err
 }
 
 const countRuntimeActive = `-- name: CountRuntimeActive :one
@@ -106,29 +147,6 @@ func (q *Queries) InsertSettlement(ctx context.Context, arg InsertSettlementPara
 	return err
 }
 
-const lockPendingSettlement = `-- name: LockPendingSettlement :one
-SELECT workspace_id, agent_run_id, result, created_at, delivered_at FROM agent_run_settlement WHERE workspace_id = $1 AND agent_run_id = $2
- AND delivered_at IS NULL FOR UPDATE SKIP LOCKED
-`
-
-type LockPendingSettlementParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	AgentRunID  uuid.UUID `json:"agent_run_id"`
-}
-
-func (q *Queries) LockPendingSettlement(ctx context.Context, arg LockPendingSettlementParams) (AgentRunSettlement, error) {
-	row := q.db.QueryRow(ctx, lockPendingSettlement, arg.WorkspaceID, arg.AgentRunID)
-	var i AgentRunSettlement
-	err := row.Scan(
-		&i.WorkspaceID,
-		&i.AgentRunID,
-		&i.Result,
-		&i.CreatedAt,
-		&i.DeliveredAt,
-	)
-	return i, err
-}
-
 const lockRuntime = `-- name: LockRuntime :one
 SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at FROM runtime WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
@@ -184,6 +202,26 @@ func (q *Queries) PendingSettlements(ctx context.Context) ([]PendingSettlementsR
 		return nil, err
 	}
 	return items, nil
+}
+
+const releaseSettlement = `-- name: ReleaseSettlement :execrows
+UPDATE agent_run_settlement SET delivery_id = NULL, lease_expires_at = NULL
+WHERE workspace_id = $1 AND agent_run_id = $2
+ AND delivered_at IS NULL AND delivery_id = $3
+`
+
+type ReleaseSettlementParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	AgentRunID  uuid.UUID  `json:"agent_run_id"`
+	DeliveryID  *uuid.UUID `json:"delivery_id"`
+}
+
+func (q *Queries) ReleaseSettlement(ctx context.Context, arg ReleaseSettlementParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseSettlement, arg.WorkspaceID, arg.AgentRunID, arg.DeliveryID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const sweepCandidates = `-- name: SweepCandidates :many

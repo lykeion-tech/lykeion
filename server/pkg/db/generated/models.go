@@ -59,11 +59,13 @@ type AgentRunReceipt struct {
 }
 
 type AgentRunSettlement struct {
-	WorkspaceID uuid.UUID       `json:"workspace_id"`
-	AgentRunID  uuid.UUID       `json:"agent_run_id"`
-	Result      json.RawMessage `json:"result"`
-	CreatedAt   time.Time       `json:"created_at"`
-	DeliveredAt *time.Time      `json:"delivered_at"`
+	WorkspaceID    uuid.UUID       `json:"workspace_id"`
+	AgentRunID     uuid.UUID       `json:"agent_run_id"`
+	Result         json.RawMessage `json:"result"`
+	CreatedAt      time.Time       `json:"created_at"`
+	DeliveredAt    *time.Time      `json:"delivered_at"`
+	DeliveryID     *uuid.UUID      `json:"delivery_id"`
+	LeaseExpiresAt *time.Time      `json:"lease_expires_at"`
 }
 
 type AgentRunToken struct {

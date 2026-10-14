@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	AgentRunPrefix = "ltk_"
-	tokenTTL       = 24 * time.Hour
+	AgentRunPrefix  = "ltk_"
+	tokenTTL        = 24 * time.Hour
+	settlementLease = 5 * time.Minute
 )
 
 var (
@@ -647,31 +648,65 @@ func (s *AgentRuns) deliverSettlement(ctx context.Context, ws, run uuid.UUID) er
 	if s.OnSettlement == nil && s.OnSettled == nil {
 		return nil
 	}
-	return s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
-		n, err := tx.Q.LockPendingSettlement(ctx, db.LockPendingSettlementParams{WorkspaceID: ws, AgentRunID: run})
+	deliveryID := uuid.New()
+	var n db.AgentRunSettlement
+	claimed := false
+	err := s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		var err error
+		n, err = tx.Q.ClaimSettlement(ctx, db.ClaimSettlementParams{WorkspaceID: ws, AgentRunID: run, DeliveryID: &deliveryID, Lease: pgtype.Interval{Microseconds: settlementLease.Microseconds(), Valid: true}})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		var t db.AgentRun
-		if err = json.Unmarshal(n.Result, &t); err != nil {
+		claimed = true
+		return nil
+	})
+	if err != nil || !claimed {
+		return err
+	}
+
+	// The claim has committed and released its connection before consumer code
+	// runs. Consumers may use this same pool to atomically deduplicate effects.
+	// A process dying here leaves an expiring claim for a recovery worker.
+	callbackCtx, cancel := context.WithDeadline(ctx, *n.LeaseExpiresAt)
+	defer cancel()
+	var t db.AgentRun
+	consumeErr := json.Unmarshal(n.Result, &t)
+	if consumeErr == nil {
+		if s.OnSettlement != nil {
+			consumeErr = s.OnSettlement(callbackCtx, Settlement{ID: run, AgentRun: t})
+		} else {
+			s.OnSettled(callbackCtx, t)
+		}
+		if consumeErr == nil {
+			consumeErr = callbackCtx.Err()
+		}
+	}
+	finishErr := s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		var changed int64
+		var err error
+		if consumeErr != nil {
+			changed, err = tx.Q.ReleaseSettlement(ctx, db.ReleaseSettlementParams{WorkspaceID: ws, AgentRunID: run, DeliveryID: &deliveryID})
+		} else {
+			changed, err = tx.Q.AcknowledgeSettlement(ctx, db.AcknowledgeSettlementParams{WorkspaceID: ws, AgentRunID: run, DeliveryID: &deliveryID})
+		}
+		if err != nil {
 			return err
 		}
-		if s.OnSettlement != nil {
-			if err = s.OnSettlement(ctx, Settlement{ID: run, AgentRun: t}); err != nil {
-				return err
-			}
-		} else {
-			s.OnSettled(ctx, t)
+		if changed == 0 {
+			return errors.New("settlement delivery lease lost")
 		}
-		return tx.Q.AcknowledgeSettlement(ctx, db.AcknowledgeSettlementParams{WorkspaceID: ws, AgentRunID: run})
+		return nil
 	})
+	return errors.Join(consumeErr, finishErr)
 }
 
 // RecoverSettlements retries pending notifications after startup or a failed
-// delivery. Concurrent workers skip a notification another worker has locked.
+// delivery. Concurrent workers skip active leases; expired leases are reclaimed.
+// Consumers receive a context bounded by the five-minute lease and should honor it.
+// A stale worker cannot acknowledge or release a newer worker's claim.
 // Configure an idempotent consumer before calling; nil callbacks leave it pending.
 func (s *AgentRuns) RecoverSettlements(ctx context.Context) error {
 	if s.OnSettlement == nil && s.OnSettled == nil {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"lykeion/server/internal/pricing"
 	"lykeion/server/internal/store"
@@ -136,16 +137,25 @@ func TestClaimRaceDispatchesEachAgentRunOnce(t *testing.T) {
 func TestOnlyTheCardOwnersMatchingRuntimeClaims(t *testing.T) {
 	f := setup(t)
 	f.enqueue(t, 1, "claude")
-	other, _ := f.T.Store.Global().UpsertUserByEmail(context.Background(), "b@lab.org")
-	f.T.Store.InWorkspace(context.Background(), f.WS, f.Owner, func(tx *store.Tx) error {
+	other, err := f.T.Store.Global().UpsertUserByEmail(context.Background(), "b@lab.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.T.Store.InWorkspace(context.Background(), f.WS, f.Owner, func(tx *store.Tx) error {
 		return tx.Q.AddMember(context.Background(), db.AddMemberParams{WorkspaceID: f.WS, UserID: other.ID, Role: "member"})
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	bRef := f.runtime(t, other.ID, "db", "claude")
-	if got, _ := f.T.Claim(context.Background(), other.ID, []RuntimeRef{bRef}, 5); len(got) != 0 {
+	if got, err := f.T.Claim(context.Background(), other.ID, []RuntimeRef{bRef}, 5); err != nil {
+		t.Fatal(err)
+	} else if len(got) != 0 {
 		t.Fatal("another member's runtime claimed the owner's card")
 	}
 	codex := f.runtime(t, f.Owner, "d1", "codex")
-	if got, _ := f.T.Claim(context.Background(), f.Owner, []RuntimeRef{codex}, 5); len(got) != 0 {
+	if got, err := f.T.Claim(context.Background(), f.Owner, []RuntimeRef{codex}, 5); err != nil {
+		t.Fatal(err)
+	} else if len(got) != 0 {
 		t.Fatal("a codex runtime claimed a claude agent run")
 	}
 	if _, err := f.T.Claim(context.Background(), other.ID, []RuntimeRef{codex}, 5); err == nil {
@@ -159,13 +169,21 @@ func TestFlaggedOrEndedCardsAreNotClaimed(t *testing.T) {
 	ref := f.runtime(t, f.Owner, "d1", "claude")
 	ctx := context.Background()
 	for _, set := range []string{"flag = 'out_of_budget'", "flag = '', ending = 'stopped'"} {
-		f.Env.Owner.Exec(ctx, "UPDATE card SET "+set+" WHERE id = $1", f.Card)
-		if got, _ := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 5); len(got) != 0 {
+		if _, err := f.Env.Owner.Exec(ctx, "UPDATE card SET "+set+" WHERE id = $1", f.Card); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 5); err != nil {
+			t.Fatal(err)
+		} else if len(got) != 0 {
 			t.Fatalf("claimed an agent run of a card with %s", set)
 		}
 	}
-	f.Env.Owner.Exec(ctx, "UPDATE card SET flag = '', ending = '' WHERE id = $1", f.Card)
-	if got, _ := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 5); len(got) != 1 {
+	if _, err := f.Env.Owner.Exec(ctx, "UPDATE card SET flag = '', ending = '' WHERE id = $1", f.Card); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 5); err != nil {
+		t.Fatal(err)
+	} else if len(got) != 1 {
 		t.Fatal("the agent run was not claimed once the card was clear")
 	}
 }
@@ -174,13 +192,18 @@ func TestSettleOnceAndAddSpend(t *testing.T) {
 	f := setup(t)
 	f.enqueue(t, 1, "claude")
 	ref := f.runtime(t, f.Owner, "d1", "claude")
-	got, _ := f.T.Claim(context.Background(), f.Owner, []RuntimeRef{ref}, 1)
+	got, err := f.T.Claim(context.Background(), f.Owner, []RuntimeRef{ref}, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim: %v, got %d runs", err, len(got))
+	}
 	id := got[0].AgentRun.ID
 	ctx := context.Background()
 	if err := f.T.Start(ctx, f.Owner, ref, id); err != nil {
 		t.Fatal(err)
 	}
-	f.T.Messages(ctx, f.Owner, ref, id, []Message{{Seq: 1, Type: "text", Content: []byte(`"hi"`)}, {Seq: 1, Type: "text", Content: []byte(`"dup"`)}})
+	if err := f.T.Messages(ctx, f.Owner, ref, id, []Message{{Seq: 1, Type: "text", Content: []byte(`"hi"`)}, {Seq: 1, Type: "text", Content: []byte(`"dup"`)}}); err != nil {
+		t.Fatal(err)
+	}
 	var priced string
 	var price pricing.Price
 	for priced, price = range pricing.Prices {
@@ -199,17 +222,28 @@ func TestSettleOnceAndAddSpend(t *testing.T) {
 	want := 0.5 + price.Input
 	var spent, cost float64
 	var msgs, rows int
-	f.Env.Owner.QueryRow(ctx, "SELECT spent_usd FROM card WHERE id = $1", f.Card).Scan(&spent)
-	f.Env.Owner.QueryRow(ctx, "SELECT cost_usd FROM agent_run WHERE id = $1", id).Scan(&cost)
-	f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_message WHERE agent_run_id = $1", id).Scan(&msgs)
-	f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id = $1", id).Scan(&rows)
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT spent_usd FROM card WHERE id = $1", f.Card).Scan(&spent); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT cost_usd FROM agent_run WHERE id = $1", id).Scan(&cost); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_message WHERE agent_run_id = $1", id).Scan(&msgs); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id = $1", id).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
 	if math.Abs(spent-want) > 1e-9 || math.Abs(cost-want) > 1e-9 || rows != 3 || msgs != 1 || f.settledCount() != 1 {
 		t.Fatalf("spent %v, cost %v (want %v), usage rows %d, messages %d, settled %d", spent, cost, want, rows, msgs, f.settledCount())
 	}
 	if _, err := f.T.Fail(ctx, f.Owner, ref, id, Report{Error: "late", Usage: usage}); err != nil {
 		t.Fatalf("a late fail after complete should return the stored result: %v", err)
 	}
-	if f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id = $1", id).Scan(&rows); rows != 3 {
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id = $1", id).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 3 {
 		t.Fatalf("a late report added usage rows: %d", rows)
 	}
 }
@@ -220,12 +254,17 @@ func TestOnlyMachineAndNetworkFailuresRetry(t *testing.T) {
 	ctx := context.Background()
 	attempt := func() uuid.UUID {
 		t.Helper()
-		got, _ := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+		got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("claim: %v, got %d runs", err, len(got))
+		}
 		if len(got) != 1 {
 			t.Fatal("nothing to claim")
 		}
 		ref.Attempt = got[0].AgentRun.Attempt
-		f.T.Start(ctx, f.Owner, ref, got[0].AgentRun.ID)
+		if err := f.T.Start(ctx, f.Owner, ref, got[0].AgentRun.ID); err != nil {
+			t.Fatal(err)
+		}
 		return got[0].AgentRun.ID
 	}
 
@@ -257,9 +296,14 @@ func TestBadReportIsRefused(t *testing.T) {
 	f.enqueue(t, 1, "claude")
 	ref := f.runtime(t, f.Owner, "d1", "claude")
 	ctx := context.Background()
-	got, _ := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim: %v, got %d runs", err, len(got))
+	}
 	id := got[0].AgentRun.ID
-	f.T.Start(ctx, f.Owner, ref, id)
+	if err := f.T.Start(ctx, f.Owner, ref, id); err != nil {
+		t.Fatal(err)
+	}
 	for name, r := range map[string]Report{
 		"negative cost":   {Usage: []agent.Usage{{Model: "m", CostUSD: usd(-5)}}},
 		"negative tokens": {Usage: []agent.Usage{{Model: "m", InputTokens: -1}}},
@@ -269,7 +313,9 @@ func TestBadReportIsRefused(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
-	if s, _ := f.T.Status(ctx, f.Owner, ref, id); s != "running" {
+	if s, err := f.T.Status(ctx, f.Owner, ref, id); err != nil {
+		t.Fatal(err)
+	} else if s != "running" {
 		t.Fatalf("a refused report changed the agent run: %s", s)
 	}
 }
@@ -278,9 +324,14 @@ func TestEnqueueAndClaimBookkeeping(t *testing.T) {
 	f := setup(t)
 	f.enqueue(t, 1, "claude")
 	ctx := context.Background()
-	f.Env.Owner.Exec(ctx, "UPDATE agent_run SET queue_reason = 'runtime_offline' WHERE card_id = $1", f.Card)
+	if _, err := f.Env.Owner.Exec(ctx, "UPDATE agent_run SET queue_reason = 'runtime_offline' WHERE card_id = $1", f.Card); err != nil {
+		t.Fatal(err)
+	}
 	ref := f.runtime(t, f.Owner, "d1", "claude")
-	got, _ := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim: %v, got %d runs", err, len(got))
+	}
 	if got[0].AgentRun.ResponsibleUserID != f.Owner {
 		t.Fatalf("responsible user %s, want the card owner", got[0].AgentRun.ResponsibleUserID)
 	}
@@ -294,24 +345,42 @@ func TestSweepReclaimsLostWork(t *testing.T) {
 	f.enqueue(t, 1, "claude")
 	ref := f.runtime(t, f.Owner, "d1", "claude")
 	ctx := context.Background()
-	got, _ := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
-	f.T.Start(ctx, f.Owner, ref, got[0].AgentRun.ID)
+	got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim: %v, got %d runs", err, len(got))
+	}
+	if err := f.T.Start(ctx, f.Owner, ref, got[0].AgentRun.ID); err != nil {
+		t.Fatal(err)
+	}
 	time.Sleep(1200 * time.Millisecond) // Stale is 1 s and no heartbeat came
 	if err := f.T.Sweep(ctx); err != nil {
 		t.Fatal(err)
 	}
 	var status, reason string
-	f.Env.Owner.QueryRow(ctx, "SELECT status, failure_reason FROM agent_run WHERE id = $1", got[0].AgentRun.ID).Scan(&status, &reason)
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT status, failure_reason FROM agent_run WHERE id = $1", got[0].AgentRun.ID).Scan(&status, &reason); err != nil {
+		t.Fatal(err)
+	}
 	if status != "queued" || reason != "runtime_offline" {
 		t.Fatalf("after one lost attempt: %s %s", status, reason)
 	}
-	f.T.Heartbeat(ctx, f.Owner, []RuntimeRef{ref})
-	got, _ = f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	if _, err := f.T.Heartbeat(ctx, f.Owner, []RuntimeRef{ref}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim: %v, got %d runs", err, len(got))
+	}
 	ref.Attempt = got[0].AgentRun.Attempt
-	f.T.Start(ctx, f.Owner, ref, got[0].AgentRun.ID)
+	if err := f.T.Start(ctx, f.Owner, ref, got[0].AgentRun.ID); err != nil {
+		t.Fatal(err)
+	}
 	time.Sleep(1200 * time.Millisecond)
-	f.T.Sweep(ctx)
-	f.Env.Owner.QueryRow(ctx, "SELECT status FROM agent_run WHERE id = $1", got[0].AgentRun.ID).Scan(&status)
+	if err := f.T.Sweep(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT status FROM agent_run WHERE id = $1", got[0].AgentRun.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
 	if status != "failed" || f.settledCount() != 1 {
 		t.Fatalf("after the last attempt: %s, settled %d", status, f.settledCount())
 	}
@@ -328,13 +397,20 @@ func TestExpiredLeaseRequeuesAsTimeout(t *testing.T) {
 	f.enqueue(t, 1, "claude")
 	ref := f.runtime(t, f.Owner, "d1", "claude")
 	ctx := context.Background()
-	got, _ := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
-	f.Env.Owner.Exec(ctx, "UPDATE agent_run SET prepare_lease_expires_at = now() - interval '1 second' WHERE id = $1", got[0].AgentRun.ID)
+	got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim: %v, got %d runs", err, len(got))
+	}
+	if _, err := f.Env.Owner.Exec(ctx, "UPDATE agent_run SET prepare_lease_expires_at = now() - interval '1 second' WHERE id = $1", got[0].AgentRun.ID); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.T.Sweep(ctx); err != nil {
 		t.Fatal(err)
 	}
 	var status, reason string
-	f.Env.Owner.QueryRow(ctx, "SELECT status, failure_reason FROM agent_run WHERE id = $1", got[0].AgentRun.ID).Scan(&status, &reason)
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT status, failure_reason FROM agent_run WHERE id = $1", got[0].AgentRun.ID).Scan(&status, &reason); err != nil {
+		t.Fatal(err)
+	}
 	if status != "queued" || reason != "timeout" {
 		t.Fatalf("after an expired lease: %s %s", status, reason)
 	}
@@ -345,12 +421,19 @@ func TestCancel(t *testing.T) {
 	f.enqueue(t, 1, "claude")
 	ref := f.runtime(t, f.Owner, "d1", "claude")
 	ctx := context.Background()
-	got, _ := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
-	f.T.Start(ctx, f.Owner, ref, got[0].AgentRun.ID)
+	got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim: %v, got %d runs", err, len(got))
+	}
+	if err := f.T.Start(ctx, f.Owner, ref, got[0].AgentRun.ID); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.T.Cancel(ctx, f.WS, f.Owner, got[0].AgentRun.ID); err != nil {
 		t.Fatal(err)
 	}
-	if s, _ := f.T.Status(ctx, f.Owner, ref, got[0].AgentRun.ID); s != "cancelled" {
+	if s, err := f.T.Status(ctx, f.Owner, ref, got[0].AgentRun.ID); err != nil {
+		t.Fatal(err)
+	} else if s != "cancelled" {
 		t.Fatalf("status %s", s)
 	}
 	if f.settledCount() != 1 {
@@ -363,9 +446,14 @@ func TestLateReportOfACancelledRunCountsUsageOnce(t *testing.T) {
 	f.enqueue(t, 1, "claude")
 	ref := f.runtime(t, f.Owner, "d1", "claude")
 	ctx := context.Background()
-	got, _ := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim: %v, got %d runs", err, len(got))
+	}
 	id := got[0].AgentRun.ID
-	f.T.Start(ctx, f.Owner, ref, id)
+	if err := f.T.Start(ctx, f.Owner, ref, id); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.T.Cancel(ctx, f.WS, f.Owner, id); err != nil {
 		t.Fatal(err)
 	}
@@ -382,9 +470,15 @@ func TestLateReportOfACancelledRunCountsUsageOnce(t *testing.T) {
 	var spent, cost float64
 	var rows int
 	var status string
-	f.Env.Owner.QueryRow(ctx, "SELECT spent_usd FROM card WHERE id = $1", f.Card).Scan(&spent)
-	f.Env.Owner.QueryRow(ctx, "SELECT status, cost_usd FROM agent_run WHERE id = $1", id).Scan(&status, &cost)
-	f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id = $1", id).Scan(&rows)
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT spent_usd FROM card WHERE id = $1", f.Card).Scan(&spent); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT status, cost_usd FROM agent_run WHERE id = $1", id).Scan(&status, &cost); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id = $1", id).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
 	if status != "cancelled" || spent != 0.3 || cost != 0.3 || rows != 1 || f.settledCount() != 1 {
 		t.Fatalf("status %s, spent %v, cost %v, rows %d, settled %d", status, spent, cost, rows, f.settledCount())
 	}
@@ -761,5 +855,186 @@ func TestSweepAndCancelDoNotDeadlockAcrossTwoRuns(t *testing.T) {
 	}
 	if f.settledCount() != 2 {
 		t.Fatalf("settled %d", f.settledCount())
+	}
+}
+
+func TestSettlementConsumersCanUseTheSameSingleConnectionPool(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		name := "OnSettlement"
+		if legacy {
+			name = "OnSettled"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := setup(t)
+			ctx := context.Background()
+			f.enqueue(t, 1, "claude")
+			ref, id := f.claimStart(t, f.runtime(t, f.Owner, "d1", "claude"))
+			config, err := pgxpool.ParseConfig(f.Env.AppURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config.MaxConns = 1
+			pool, err := pgxpool.NewWithConfig(ctx, config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer pool.Close()
+			f.T.Store = &store.Store{Pool: pool}
+			var consumerErr error
+			calls := 0
+			consume := func(ctx context.Context, run db.AgentRun) error {
+				calls++
+				bounded, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+				defer cancel()
+				consumerErr = f.T.Store.InWorkspace(bounded, f.WS, f.Owner, func(tx *store.Tx) error {
+					got, err := tx.Q.GetAgentRun(bounded, db.GetAgentRunParams{WorkspaceID: f.WS, ID: run.ID})
+					if err != nil {
+						return err
+					}
+					if got.Status != "completed" {
+						return errors.New("consumer did not observe committed completion")
+					}
+					return nil
+				})
+				return consumerErr
+			}
+			if legacy {
+				f.T.OnSettled = func(ctx context.Context, run db.AgentRun) { _ = consume(ctx, run) }
+			} else {
+				f.T.OnSettlement = func(ctx context.Context, n Settlement) error { return consume(ctx, n.AgentRun) }
+			}
+			if _, err := f.T.Complete(ctx, f.Owner, ref, id, Report{}); err != nil {
+				t.Fatal(err)
+			}
+			if consumerErr != nil {
+				t.Fatalf("consumer blocked on its own app pool: %v", consumerErr)
+			}
+			if calls != 1 {
+				t.Fatalf("calls %d", calls)
+			}
+			if err := f.T.RecoverSettlements(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if calls != 1 {
+				t.Fatalf("acknowledged consumer called %d times", calls)
+			}
+		})
+	}
+}
+
+func TestExpiredSettlementDeliveryLeaseIsRecovered(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.enqueue(t, 1, "claude")
+	ref, id := f.claimStart(t, f.runtime(t, f.Owner, "d1", "claude"))
+	f.T.OnSettled = nil
+	if _, err := f.T.Complete(ctx, f.Owner, ref, id, Report{}); err != nil {
+		t.Fatal(err)
+	}
+	abandoned := uuid.New()
+	if _, err := f.Env.Owner.Exec(ctx, "UPDATE agent_run_settlement SET delivery_id=$2, lease_expires_at=now()+interval '1 minute' WHERE agent_run_id=$1", id, abandoned); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	f.T.OnSettlement = func(context.Context, Settlement) error { calls++; return nil }
+	if err := f.T.RecoverSettlements(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatal("an unexpired lease was stolen")
+	}
+	if _, err := f.Env.Owner.Exec(ctx, "UPDATE agent_run_settlement SET lease_expires_at=now()-interval '1 second' WHERE agent_run_id=$1", id); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.T.RecoverSettlements(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("expired lease calls %d", calls)
+	}
+	var delivered bool
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT delivered_at IS NOT NULL AND delivery_id IS NULL AND lease_expires_at IS NULL FROM agent_run_settlement WHERE agent_run_id=$1", id).Scan(&delivered); err != nil {
+		t.Fatal(err)
+	}
+	if !delivered {
+		t.Fatal("recovered delivery not acknowledged")
+	}
+}
+
+func TestStaleSettlementConsumerCannotAcknowledgeOrReleaseNewLease(t *testing.T) {
+	for _, failOld := range []bool{false, true} {
+		name := "acknowledge"
+		if failOld {
+			name = "release"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := setup(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			f.enqueue(t, 1, "claude")
+			ref, id := f.claimStart(t, f.runtime(t, f.Owner, "d1", "claude"))
+			f.T.OnSettled = nil
+			if _, err := f.T.Complete(ctx, f.Owner, ref, id, Report{}); err != nil {
+				t.Fatal(err)
+			}
+			enteredOld, finishOld := make(chan struct{}), make(chan struct{})
+			enteredNew, finishNew := make(chan struct{}), make(chan struct{})
+			old := &AgentRuns{Store: f.T.Store, OnSettlement: func(ctx context.Context, _ Settlement) error {
+				close(enteredOld)
+				select {
+				case <-finishOld:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				if failOld {
+					return errors.New("old consumer failed")
+				}
+				return nil
+			}}
+			current := &AgentRuns{Store: f.T.Store, OnSettlement: func(ctx context.Context, _ Settlement) error {
+				close(enteredNew)
+				select {
+				case <-finishNew:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}}
+			oldDone, newDone := make(chan error, 1), make(chan error, 1)
+			go func() { oldDone <- old.RecoverSettlements(ctx) }()
+			select {
+			case <-enteredOld:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			if _, err := f.Env.Owner.Exec(ctx, "UPDATE agent_run_settlement SET lease_expires_at=now()-interval '1 second' WHERE agent_run_id=$1", id); err != nil {
+				t.Fatal(err)
+			}
+			go func() { newDone <- current.RecoverSettlements(ctx) }()
+			select {
+			case <-enteredNew:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			var lease uuid.UUID
+			if err := f.Env.Owner.QueryRow(ctx, "SELECT delivery_id FROM agent_run_settlement WHERE agent_run_id=$1", id).Scan(&lease); err != nil {
+				t.Fatal(err)
+			}
+			close(finishOld)
+			if err := <-oldDone; err == nil {
+				t.Fatal("stale consumer did not report lost lease")
+			}
+			var intact bool
+			if err := f.Env.Owner.QueryRow(ctx, "SELECT delivered_at IS NULL AND delivery_id=$2 AND lease_expires_at>now() FROM agent_run_settlement WHERE agent_run_id=$1", id, lease).Scan(&intact); err != nil {
+				t.Fatal(err)
+			}
+			if !intact {
+				t.Fatal("stale consumer modified the new delivery lease")
+			}
+			close(finishNew)
+			if err := <-newDone; err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
