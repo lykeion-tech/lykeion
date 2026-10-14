@@ -127,8 +127,8 @@ func (e *Engine) WIPPull(ctx context.Context, ws uuid.UUID) error {
 		if _, err := tx.Q.GetWorkspace(ctx, ws); err != nil {
 			return err
 		}
-		// serialises WIP pull passes on one workspace
-		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
+		// Serialize WIP admission before touching cards, independently of events.
+		if _, err := tx.Q.LockWorkspaceExecution(ctx, ws); err != nil {
 			return err
 		}
 		s, err := e.settings(ctx, tx)
@@ -274,6 +274,9 @@ func (e *Engine) Advance(ctx context.Context, ws, id uuid.UUID) error {
 // read is the read phase. It returns what the call phase needs when the gate
 // is due, or nil when it finished the step itself or there is nothing to do.
 func (e *Engine) read(ctx context.Context, tx *store.Tx, id uuid.UUID) (*pending, error) {
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		return nil, err
+	}
 	ok, err := tx.Q.TryLockCard(ctx, id)
 	if err != nil || !ok {
 		return nil, err
@@ -397,6 +400,9 @@ func (e *Engine) call(ctx context.Context, p *pending) (*board.Gate, error) {
 // nothing it was judged on has changed: a decided gate finishes, a draft
 // queues the reviewer. A stale result is dropped and the card kicked.
 func (e *Engine) write(ctx context.Context, tx *store.Tx, p *pending, g *board.Gate) (kick bool, err error) {
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		return false, err
+	}
 	if err := tx.Q.WaitLockCard(ctx, p.c.ID); err != nil {
 		return false, err
 	}
@@ -443,6 +449,9 @@ func changed(was, now db.Card) bool {
 // next tick retries without waiting the lease out.
 func (e *Engine) release(ctx context.Context, ws, id uuid.UUID) {
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		if _, err := tx.Q.LockWorkspaceExecution(ctx, ws); err != nil {
+			return err
+		}
 		return tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: id, WorkspaceID: ws})
 	})
 	if err != nil {

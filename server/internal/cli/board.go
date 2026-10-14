@@ -128,8 +128,11 @@ func installCmd(e *env) *cobra.Command {
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return err
 		}
+		if err := os.WriteFile(filepath.Join(dst, "SKILL.md"), b, 0o644); err != nil {
+			return err
+		}
 		fmt.Fprintln(e.out, "Installed", strings.TrimPrefix(filepath.Join(dst, "SKILL.md"), "./"))
-		return os.WriteFile(filepath.Join(dst, "SKILL.md"), b, 0o644)
+		return nil
 	}}
 	cmd.Flags().StringVar(&project, "project", ".", "project directory")
 	return cmd

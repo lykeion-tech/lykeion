@@ -435,9 +435,40 @@ func TestDataScoutNothingFoundStopsWithNoUsableData(t *testing.T) {
 	if _, err := f.write(t, Scoper, "question", map[string]string{"text": "Does X raise Y in mice?"}); err != nil {
 		t.Fatal(err)
 	}
+	f.record(t, DataScout, "search", "", map[string]any{"database": "geo", "query": "mouse Y"}, "")
 	f.nothingFound(t, DataScout, "nothing measures Y")
 	if g := f.gate(t, nil); g.Verdict != board.CannotProceed || g.Reason != "no usable data: nothing measures Y" {
 		t.Fatalf("%+v", g)
+	}
+}
+
+func TestDataScoutNothingFoundRequiresLiveGEOSearch(t *testing.T) {
+	for _, tc := range []struct {
+		name, role, database, query string
+		superseded                  bool
+	}{
+		{name: "no search"},
+		{name: "wrong role", role: Literature, database: "geo", query: "mouse"},
+		{name: "wrong database", role: DataScout, database: "openalex", query: "mouse"},
+		{name: "empty query", role: DataScout, database: "geo", query: "  "},
+		{name: "superseded search", role: DataScout, database: "geo", query: "mouse", superseded: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setup(t)
+			if tc.role != "" {
+				f.record(t, tc.role, "search", "", map[string]any{"database": tc.database, "query": tc.query}, "")
+			}
+			if tc.superseded {
+				if _, err := f.env.Owner.Exec(context.Background(), `UPDATE record SET superseded_at=now() WHERE card_id=$1 AND kind='search' AND role=$2`, f.card, DataScout); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.nothingFound(t, DataScout, "nothing measures Y")
+			g := f.gate(t, nil)
+			if g.Verdict != board.VFail || result(g, "search.datasets") != board.Fail || g.Route == nil || g.Route.Step != DataScout {
+				t.Fatalf("unsearched no-data result: %+v", g)
+			}
+		})
 	}
 }
 

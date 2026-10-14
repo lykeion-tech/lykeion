@@ -88,6 +88,10 @@ func (f *fix) result(t *testing.T, id uuid.UUID, kind, reason string) {
 
 // complete is an agent run that searched and found nothing: a legitimate result.
 func (f *fix) complete(t *testing.T, id uuid.UUID) {
+	if _, err := f.env.Owner.Exec(context.Background(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, agent_run_id, body)
+        SELECT workspace_id, card_id, board_column, round, 'search', role, id, '{"database":"geo","query":"X Y"}'::jsonb FROM agent_run WHERE id=$1 AND role='data-scout'`, id); err != nil {
+		t.Fatal(err)
+	}
 	f.result(t, id, "nothing_found", "nothing")
 	f.settle(t, id)
 }

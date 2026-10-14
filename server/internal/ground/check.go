@@ -56,6 +56,19 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 	if len(ds) == 0 {
 		for _, r := range v.Kind("nothing_found") {
 			if r.Role == DataScout {
+				searched := false
+				for _, search := range v.Kind("search") {
+					body := records.Body[Search](search)
+					if search.Role == DataScout && body.Database == "geo" && strings.TrimSpace(body.Query) != "" {
+						searched = true
+						break
+					}
+				}
+				if !searched {
+					g.Checks = []board.Check{codeCheck("search.datasets", DataScout, false, "no recorded GEO search with a nonempty query")}
+					board.Decide(g)
+					return g, nil
+				}
 				g.Verdict = board.CannotProceed
 				g.Reason = "no usable data: " + records.Body[struct {
 					Reason string `json:"reason"`

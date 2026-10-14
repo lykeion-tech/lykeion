@@ -340,6 +340,10 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 
 func (s *AgentRuns) onAgentRun(ctx context.Context, user uuid.UUID, ref RuntimeRef, fn func(tx *store.Tx) error) error {
 	return s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
+		// Match board and role mutations before taking run or card locks.
+		if _, err := tx.Q.LockWorkspaceExecution(ctx, ref.WorkspaceID); err != nil {
+			return err
+		}
 		if err := owned(ctx, tx, user, ref); err != nil {
 			return err
 		}
@@ -584,6 +588,9 @@ func (s *AgentRuns) Status(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 func (s *AgentRuns) Cancel(ctx context.Context, ws, user, run uuid.UUID) error {
 	var t db.AgentRun
 	err := s.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
+		if _, err := tx.Q.LockWorkspaceExecution(ctx, ws); err != nil {
+			return err
+		}
 		if _, err := tx.Q.GetMember(ctx, db.GetMemberParams{WorkspaceID: ws, UserID: user}); err != nil {
 			return ErrNotYours
 		}

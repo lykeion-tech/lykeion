@@ -49,10 +49,23 @@ func AgentRunAuth(st *store.Store) func(http.Handler) http.Handler {
 // its request was authenticated.
 var ErrRoleUnauthorized = errors.New("invalid or finished agent run")
 
-// LockRole follows settlement's run-then-token lock order and checks, inside
-// the caller's transaction, that the run still holds the role it was
-// authenticated for and that the token belongs to its current attempt.
+// LockRole protects the workspace before child rows and serializes every role
+// write with the gate's card snapshot. The execution mutex prevents opposing
+// card/run orders; run precedes token as in settlement. Authority is rechecked
+// after these locks, including the current attempt.
 func LockRole(ctx context.Context, tx *store.Tx, role Role, token string) error {
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, role.WorkspaceID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoleUnauthorized
+		}
+		return err
+	}
+	if _, err := tx.Q.LockCard(ctx, db.LockCardParams{ID: role.CardID, WorkspaceID: role.WorkspaceID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoleUnauthorized
+		}
+		return err
+	}
 	run, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{ID: role.AgentRunID, WorkspaceID: role.WorkspaceID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrRoleUnauthorized

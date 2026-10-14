@@ -155,7 +155,7 @@ func TestOnlyTheSourcesServerPostGetsTheSourcesDeadline(t *testing.T) {
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			d, ok := r.Context().Deadline()
 			left := time.Until(d)
-			if !ok || (tc.long && left <= 30*time.Second) || (!tc.long && left > RequestTimeout) {
+			if !ok || (tc.long && (left > 60*time.Second || left < 59*time.Second)) || (!tc.long && left > RequestTimeout) {
 				t.Errorf("%s %s: deadline in %v", tc.method, tc.path, left)
 			}
 			w.WriteHeader(http.StatusNoContent)

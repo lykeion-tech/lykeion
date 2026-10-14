@@ -1,5 +1,5 @@
 -- name: LockCard :one
-SELECT * FROM card WHERE id = @id AND workspace_id = @workspace_id FOR UPDATE;
+SELECT * FROM card WHERE id = @id AND workspace_id = @workspace_id FOR NO KEY UPDATE;
 
 -- name: TryLockCard :one
 SELECT pg_try_advisory_xact_lock(hashtextextended(sqlc.arg(card_id)::uuid::text, 1)) AS ok;

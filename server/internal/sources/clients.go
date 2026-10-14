@@ -294,6 +294,10 @@ func (g GEO) summaries(ctx context.Context, term string) ([]geoSummary, error) {
 		if !ok {
 			return nil, fmt.Errorf("geo: summary for %s missing", id)
 		}
+		var entity map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &entity); err != nil || len(entity) == 0 {
+			return nil, fmt.Errorf("geo: summary for %s missing or empty", id)
+		}
 		if err := json.Unmarshal(raw, &s); err != nil {
 			return nil, fmt.Errorf("geo: summary for %s: %w", id, err)
 		}

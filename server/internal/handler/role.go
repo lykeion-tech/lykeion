@@ -131,11 +131,6 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 				return errBlobReference
 			}
 		}
-		if kind.KeyPrefix != "" || kind.Prepare != nil {
-			if _, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: role.CardID, WorkspaceID: role.WorkspaceID}); err != nil {
-				return err
-			}
-		}
 		if kind.KeyPrefix != "" {
 			n, err := tx.Q.CountKindRecords(r.Context(), db.CountKindRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: role.Column, Kind: in.Kind})
 			if err != nil {

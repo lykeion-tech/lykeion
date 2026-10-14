@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/auth"
@@ -87,7 +88,17 @@ func newBoardLab(t *testing.T) *boardLab {
 	runs := &service.AgentRuns{Store: l.st}
 	l.engine = &round.Engine{Store: l.st, AgentRuns: runs, Blobs: blobs, JevKey: "k", JevURL: fakeJev(t)}
 	runs.OnSettled = l.engine.OnSettled
-	l.hosted = &sources.Hosted{Store: l.st, Blobs: blobs}
+	geo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/esearch.fcgi" || r.URL.Query().Get("term") != "X Y mice" {
+			t.Errorf("unexpected GEO query: %s", r.URL)
+			http.Error(w, "unexpected query", 400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"esearchresult":{"idlist":[]}}`))
+	}))
+	t.Cleanup(geo.Close)
+	l.hosted = &sources.Hosted{Store: l.st, Blobs: blobs, GEO: sources.GEO{Base: geo.URL, HTTP: geo.Client()}}
 	iss := auth.Issuer{Secret: []byte("s"), TTL: time.Hour}
 	srv := httptest.NewServer(handler.NewRouter(&handler.H{Store: l.st, JWT: iss, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
 		AgentRuns: runs, Blobs: blobs, Kinds: round.Kinds(), Engine: l.engine, Sources: l.hosted.Handler()}))
@@ -144,7 +155,17 @@ func (l *boardLab) startCard(t *testing.T) uuid.UUID {
 			t.Fatal(err)
 		}
 		role := middleware.Role{AgentRunID: run, WorkspaceID: l.ws, CardID: card, Role: name, Column: "grounding", Round: 0}
-		if err := l.hosted.Record(ctx, role, token, kind, key, body, text); err != nil {
+		if name == ground.DataScout && kind == "search" {
+			client, err := mcp.NewClient(&mcp.Implementation{Name: "board-test", Version: "1"}, nil).Connect(ctx,
+				&mcp.StreamableClientTransport{Endpoint: l.url + "/mcp/sources", HTTPClient: &http.Client{Transport: boardSourceBearer(token)}}, nil)
+			must(t, err)
+			result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "search_datasets", Arguments: map[string]any{"query": body["query"]}})
+			must(t, err)
+			must(t, client.Close())
+			if result.IsError {
+				t.Fatalf("dataset search failed: %+v", result)
+			}
+		} else if err := l.hosted.Record(ctx, role, token, kind, key, body, text); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := l.env.Owner.Exec(ctx, `UPDATE agent_run SET status = 'completed', completed_at = now() WHERE id = $1`, run); err != nil {
@@ -155,6 +176,7 @@ func (l *boardLab) startCard(t *testing.T) uuid.UUID {
 	rec(ground.Contrarian, "search", "", map[string]any{"database": "openalex", "query": "x no effect"}, "")
 	rec(ground.Literature, "fetch", "europepmc:PMC1", map[string]any{"source_id": "europepmc:PMC1", "full_text": true}, "In treated mice, X raised Y by 40% over controls.")
 	rec(ground.Contrarian, "fetch", "openalex:W2", map[string]any{"source_id": "openalex:W2"}, "We found no effect of X on Y in rats.")
+	rec(ground.DataScout, "search", "", map[string]any{"database": "geo", "query": "X Y mice"}, "")
 	rec(ground.DataScout, "open_dataset", "GSE1", map[string]any{"accession": "GSE1"}, "accession: GSE1\n- GSM1: mouse 1\n- GSM2: mouse 2\n")
 	return card
 }
@@ -315,4 +337,12 @@ func TestNoDataStopsTheCard(t *testing.T) {
 	if c.BoardColumn != "done" || !strings.Contains(c.EndReason, "no usable data") {
 		t.Fatalf("%+v", c)
 	}
+}
+
+type boardSourceBearer string
+
+func (b boardSourceBearer) RoundTrip(r *http.Request) (*http.Response, error) {
+	copy := r.Clone(r.Context())
+	copy.Header.Set("Authorization", "Bearer "+string(b))
+	return http.DefaultTransport.RoundTrip(copy)
 }

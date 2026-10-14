@@ -201,6 +201,8 @@ func hashToken(s string) string { return auth.Hash(s) }
 
 func TestInvalidGEOSummaryDoesNotRecordSuccessfulSearch(t *testing.T) {
 	for _, tc := range []struct{ name, response string }{
+		{"null summary", `{"result":{"200001":null}}`},
+		{"empty summary", `{"result":{"200001":{}}}`},
 		{"missing summary", `{"result":{"uids":["200001"]}}`},
 		{"malformed summary", `{"result":{"uids":["200001"],"200001":{"accession":"GSE1","n_samples":"bad"}}}`},
 	} {

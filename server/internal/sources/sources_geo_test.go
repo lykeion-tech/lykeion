@@ -10,14 +10,18 @@ import (
 )
 
 func TestGEOSampleCountWireRepresentations(t *testing.T) {
-	for _, count := range []string{`"2"`, `2`, `""`} {
+	for _, count := range []string{`"2"`, `2`, `""`, `null`, `omitted`} {
 		t.Run(count, func(t *testing.T) {
 			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/esearch.fcgi":
 					fmt.Fprint(w, `{"esearchresult":{"idlist":["200001"]}}`)
 				case "/esummary.fcgi":
-					fmt.Fprintf(w, `{"result":{"uids":["200001"],"200001":{"accession":"GSE1","title":"Mouse liver","summary":"Dataset summary","gpl":"1234","n_samples":%s,"samples":[{"accession":"GSM1","title":"mouse 1"},{"accession":"GSM2","title":"mouse 2"}]}}}`, count)
+					countField := `,"n_samples":` + count
+					if count == "omitted" {
+						countField = ""
+					}
+					fmt.Fprintf(w, `{"result":{"uids":["200001"],"200001":{"accession":"GSE1","title":"Mouse liver","summary":"Dataset summary","gpl":"1234"%s,"samples":[{"accession":"GSM1","title":"mouse 1"},{"accession":"GSM2","title":"mouse 2"}]}}}`, countField)
 				default:
 					t.Errorf("unexpected upstream path %s", r.URL.Path)
 				}
@@ -28,14 +32,14 @@ func TestGEOSampleCountWireRepresentations(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Search: %v", err)
 			}
-			if len(hits) != 1 || hits[0].ID != "GSE1" || hits[0].Abstract != map[bool]string{true: "", false: "2 samples"}[count == `""`] {
+			if len(hits) != 1 || hits[0].ID != "GSE1" || hits[0].Abstract != map[bool]string{true: "", false: "2 samples"}[count == `""` || count == "null" || count == "omitted"] {
 				t.Fatalf("Search hits: %+v", hits)
 			}
 			text, err := g.Open(context.Background(), "GSE1")
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
-			if count == `""` {
+			if count == `""` || count == "null" || count == "omitted" {
 				if strings.Contains(text, "samples (0)") || strings.Contains(text, "samples (2)") {
 					t.Errorf("absent count rendered: %s", text)
 				}
