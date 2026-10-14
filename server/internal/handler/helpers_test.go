@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -108,3 +109,5 @@ func (s *server) signIn(t *testing.T, email string) string {
 }
 
 func jsonBody(v any) io.Reader { b, _ := json.Marshal(v); return bytes.NewReader(b) }
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
