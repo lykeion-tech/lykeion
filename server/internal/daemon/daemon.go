@@ -80,16 +80,20 @@ type claimed struct {
 	MCP    []agent.MCPServer `json:"mcp"`
 }
 type daemon struct {
-	cfg           Config
-	api           *apiclient.Client
-	refs          []runtimeRef
-	out, messages *Outbox
-	wake          chan struct{}
-	failures      chan error
-	mu            sync.Mutex
-	active        map[string]bool
-	wg            sync.WaitGroup
-	rotation      int
+	cfg             Config
+	api             *apiclient.Client
+	refs            []runtimeRef
+	out, messages   *Outbox
+	wake            chan struct{}
+	failures        chan error
+	mu              sync.Mutex
+	active          map[string]bool
+	wg              sync.WaitGroup
+	rotation        int
+	id              string
+	knownWorkspaces map[uuid.UUID]bool
+	activeRefs      map[string]runtimeRef
+	activeCancels   map[string]context.CancelFunc
 }
 
 func daemonID(dir, server string) (string, error) {
@@ -143,10 +147,16 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}}
+	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}}
 	d.messages = &Outbox{Dir: filepath.Join(cfg.StateDir, "messages"), Send: d.sendMessages}
 	d.out = &Outbox{Dir: filepath.Join(cfg.StateDir, "outbox"), Send: d.send}
+	if err = d.recoverAttempts(ctx); err != nil {
+		return err
+	}
 	if err = d.register(ctx, id); err != nil {
+		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+			return nil
+		}
 		return err
 	}
 	if err = d.flush(ctx); err != nil {
@@ -235,6 +245,7 @@ func (d *daemon) register(ctx context.Context, id string) error {
 		if err := d.api.Do(ctx, "POST", "/api/daemon/register", map[string]any{"workspace_id": ws.ID, "daemon_id": id, "device_name": d.cfg.Device, "harnesses": harnesses}, &runtimes); err != nil {
 			return err
 		}
+		d.knownWorkspaces[ws.ID] = true
 		for _, r := range runtimes {
 			d.refs = append(d.refs, runtimeRef{WorkspaceID: ws.ID, RuntimeID: r.ID})
 		}
@@ -242,8 +253,12 @@ func (d *daemon) register(ctx context.Context, id string) error {
 	return nil
 }
 func (d *daemon) heartbeat(ctx context.Context) {
-	for i := 0; i < len(d.refs); i += 64 {
-		if err := d.api.Do(ctx, "POST", "/api/daemon/heartbeat", map[string]any{"runtimes": d.refs[i:min(i+64, len(d.refs))]}, nil); err != nil {
+	if err := d.refreshReferences(ctx); err != nil {
+		slog.Warn("runtime refresh pending", "err", err)
+	}
+	refs := d.references()
+	for i := 0; i < len(refs); i += 64 {
+		if err := d.api.Do(ctx, "POST", "/api/daemon/heartbeat", map[string]any{"runtimes": refs[i:min(i+64, len(refs))]}, nil); err != nil {
 			slog.Warn("heartbeat failed", "err", err)
 		}
 	}
@@ -252,16 +267,24 @@ func (d *daemon) claim(ctx context.Context) {
 	d.mu.Lock()
 	free := d.cfg.Slots - len(d.active)
 	d.mu.Unlock()
-	if free <= 0 || len(d.refs) == 0 {
+	currentRefs := d.references()
+	if free <= 0 || len(currentRefs) == 0 {
 		return
 	}
 	// Rotate the first batch so a busy early workspace cannot starve later ones.
-	refs := append(append([]runtimeRef{}, d.refs[d.rotation:]...), d.refs[:d.rotation]...)
-	d.rotation = (d.rotation + 64) % len(d.refs)
+	d.rotation %= len(currentRefs)
+	refs := append(append([]runtimeRef{}, currentRefs[d.rotation:]...), currentRefs[:d.rotation]...)
+	d.rotation = (d.rotation + 64) % len(currentRefs)
 	for i := 0; i < len(refs) && free > 0 && ctx.Err() == nil; i += 64 {
 		var got []claimed
 		if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/claim", map[string]any{"runtimes": refs[i:min(i+64, len(refs))], "slots": free}, &got); err != nil {
 			slog.Warn("claim failed", "err", err)
+			var he *apiclient.HTTPError
+			if errors.As(err, &he) && he.Status == 404 {
+				if err := d.refreshReferences(ctx); err != nil {
+					slog.Warn("runtime refresh pending", "err", err)
+				}
+			}
 			return
 		}
 		if len(got) > free {
@@ -283,11 +306,28 @@ func (d *daemon) claim(ctx context.Context) {
 				return
 			}
 			free--
+			runCtx, stop := context.WithCancel(ctx)
+			d.mu.Lock()
+			if d.activeRefs == nil {
+				d.activeRefs = map[string]runtimeRef{}
+				d.activeCancels = map[string]context.CancelFunc{}
+			}
+			d.activeRefs[key] = runtimeRef{c.AgentRun.WorkspaceID, *c.AgentRun.RuntimeID}
+			d.activeCancels[key] = stop
+			d.mu.Unlock()
 			d.wg.Add(1)
 			go func(c claimed, key string) {
 				defer d.wg.Done()
-				defer func() { d.mu.Lock(); delete(d.active, key); d.mu.Unlock(); d.signal() }()
-				d.fatal(d.runAgentRun(ctx, c))
+				defer stop()
+				defer func() {
+					d.mu.Lock()
+					delete(d.active, key)
+					delete(d.activeRefs, key)
+					delete(d.activeCancels, key)
+					d.mu.Unlock()
+					d.signal()
+				}()
+				d.fatal(d.runAgentRun(runCtx, c))
 			}(c, key)
 		}
 	}

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -740,5 +741,100 @@ i=0; while [ "$i" -lt 100 ]; do echo '{"type":"log"}'; i=$((i+1)); done`))
 			}
 			collect(t, s)
 		})
+	}
+}
+
+func TestCancellationRetainsEveryParsedBacklogMessage(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(t.TempDir(), "written")
+	bin := script(t, `i=0; while [ "$i" -lt 200 ]; do echo '{"type":"log","message":"evidence"}'; i=$((i+1)); done
+echo ready > '`+ready+`'
+sleep 300`)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	sess, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFile(t, ready)
+	cancel()
+	select {
+	case <-sess.Done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("blocked behind consumer")
+	}
+	n := 0
+	for range sess.Messages {
+		n++
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, ".undelivered-*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		retained, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n += strings.Count(string(retained), "\n")
+	}
+	if n != 200 {
+		t.Fatalf("parsed backlog lost: delivered+retained=%d want 200", n)
+	}
+}
+
+func TestDurableSinkReceivesCancellationBacklogWithoutChannelDuplication(t *testing.T) {
+	ready := filepath.Join(t.TempDir(), "ready")
+	bin := script(t, `i=0; while [ "$i" -lt 200 ]; do echo '{"type":"log","message":"evidence"}'; i=$((i+1)); done
+echo ready > '`+ready+`'
+sleep 300`)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	n := 0
+	sess, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Dir: t.TempDir(), OnMessage: func(m Message) error {
+		n++
+		if n == 1 {
+			close(entered)
+			<-release
+		}
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-entered
+	waitFile(t, ready)
+	cancel()
+	close(release)
+	select {
+	case r := <-sess.Done:
+		if r.Reason != ReasonRuntimeOffline {
+			t.Fatalf("%+v", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("sink drain blocked")
+	}
+	if n != 200 {
+		t.Fatalf("sink lost backlog: %d", n)
+	}
+	if _, ok := <-sess.Messages; ok {
+		t.Fatal("sink also emitted channel message")
+	}
+}
+func TestDurableSinkFailureStopsChildAndSurfaces(t *testing.T) {
+	want := errors.New("durable storage unavailable")
+	sess, err := (Claude{Bin: script(t, `echo '{"type":"log","message":"evidence"}'; sleep 300`)}).Execute(t.Context(), "p", ExecOptions{Dir: t.TempDir(), OnMessage: func(Message) error { return want }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-sess.Done:
+		if !errors.Is(r.Err, want) {
+			t.Fatalf("sink error hidden: %+v", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("sink failure did not stop child")
 	}
 }

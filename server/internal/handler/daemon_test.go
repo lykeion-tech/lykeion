@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -362,5 +363,82 @@ func TestDaemonSocketSurvivesRequestTimeout(t *testing.T) {
 	var hint struct{ Type string }
 	if err := conn.ReadJSON(&hint); err != nil || hint.Type != "agent_run_available" {
 		t.Fatalf("hint after request deadline: %+v %v", hint, err)
+	}
+}
+
+func TestDaemonUnavailableSubscriptionDoesNotAnnounceReady(t *testing.T) {
+	s := newServer(t)
+	jwt := s.signIn(t, "hint@lab.org")
+	tok := s.personalToken(t, jwt)
+	s.H.Hub.Redis = nil
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(s.URL, "http")+"/api/daemon/ws", http.Header{"Authorization": {"Bearer " + tok}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	var msg struct{ Type string }
+	err = conn.ReadJSON(&msg)
+	if err == nil && msg.Type == "ready" {
+		t.Fatal("ready promised an unavailable subscription")
+	}
+}
+
+func TestDaemonInvalidBatchNeverHidesCommittedClaims(t *testing.T) {
+	for _, kind := range []string{"invalid", "membership", "deleted"} {
+		for _, invalidFirst := range []bool{false, true} {
+			t.Run(kind+fmt.Sprint(invalidFirst), func(t *testing.T) {
+				s := newServer(t)
+				jwt := s.signIn(t, "batch@lab.org")
+				tok := s.personalToken(t, jwt)
+				w := s.workspace(t, jwt, "batch")
+				var card card
+				if got := s.call(t, "POST", "/api/cards", jwt, w.ID, map[string]any{"question": "q"}, &card); got != 201 {
+					t.Fatal(got)
+				}
+				var refs []struct{ ID string }
+				if got := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": w.ID, "daemon_id": "batch", "device_name": "test", "harnesses": []string{"claude"}}, &refs); got != 200 {
+					t.Fatal(got)
+				}
+				s.queue(t, w.ID, card.ID, s.userID(t, jwt), "claude")
+				valid := service.RuntimeRef{WorkspaceID: uuid.MustParse(w.ID), RuntimeID: uuid.MustParse(refs[0].ID)}
+				bad := service.RuntimeRef{WorkspaceID: valid.WorkspaceID, RuntimeID: uuid.New()}
+				if kind != "invalid" {
+					other := s.workspace(t, jwt, "other")
+					var rs []struct{ ID string }
+					if got := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": other.ID, "daemon_id": "batch", "harnesses": []string{"claude"}}, &rs); got != 200 {
+						t.Fatal(got)
+					}
+					bad = service.RuntimeRef{WorkspaceID: uuid.MustParse(other.ID), RuntimeID: uuid.MustParse(rs[0].ID)}
+					query := "DELETE FROM runtime WHERE id=$1"
+					args := []any{bad.RuntimeID}
+					if kind == "membership" {
+						query = "DELETE FROM member WHERE workspace_id=$1 AND user_id=$2"
+						args = []any{bad.WorkspaceID, uuid.MustParse(s.userID(t, jwt))}
+					}
+					if _, err := s.Env.Owner.Exec(t.Context(), query, args...); err != nil {
+						t.Fatal(err)
+					}
+				}
+				batch := []service.RuntimeRef{valid, bad}
+				if invalidFirst {
+					batch = []service.RuntimeRef{bad, valid}
+				}
+				if got := s.call(t, "POST", "/api/daemon/agent-runs/claim", tok, "", map[string]any{"runtimes": batch, "slots": 2}, nil); got != 404 {
+					t.Fatalf("invalid batch=%d", got)
+				}
+				if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": batch}, nil); got != 404 {
+					t.Fatalf("invalid heartbeat=%d", got)
+				}
+				var heartbeat struct{ Touched int }
+				if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": []service.RuntimeRef{valid}}, &heartbeat); got != 200 || heartbeat.Touched != 1 {
+					t.Fatalf("healthy heartbeat status=%d touched=%d", got, heartbeat.Touched)
+				}
+				var got []service.Claimed
+				if status := s.call(t, "POST", "/api/daemon/agent-runs/claim", tok, "", map[string]any{"runtimes": []service.RuntimeRef{valid}, "slots": 2}, &got); status != 200 || len(got) != 1 || got[0].AgentRun.Attempt != 1 || got[0].Token == "" {
+					t.Fatalf("claim hidden by prior rejection: status=%d claims=%+v", status, got)
+				}
+			})
+		}
 	}
 }

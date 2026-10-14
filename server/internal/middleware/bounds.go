@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
@@ -31,7 +32,7 @@ func RequestBounds(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A WebSocket owns its connection and lifetime after the handshake.
 		if r.Method == http.MethodGet && (r.URL.Path == "/ws" || r.URL.Path == "/api/daemon/ws") &&
-			websocket.IsWebSocketUpgrade(r) {
+			websocket.IsWebSocketUpgrade(r) && validWebSocketHandshake(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -106,4 +107,12 @@ func JSONBodyLimit(r *http.Request) int64 {
 		return MaxDaemonMessageBytes
 	}
 	return MaxBodyBytes
+}
+
+func validWebSocketHandshake(r *http.Request) bool {
+	if r.Header.Get("Sec-WebSocket-Version") != "13" {
+		return false
+	}
+	key, err := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))
+	return err == nil && len(key) == 16
 }

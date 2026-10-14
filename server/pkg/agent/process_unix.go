@@ -18,8 +18,17 @@ func killProcessTree(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return os.ErrProcessDone
 	}
-	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	if errors.Is(err, syscall.ESRCH) {
+	owner, err := readProcess(cmd.Dir)
+	if errors.Is(err, os.ErrNotExist) || (err == nil && owner.PID != cmd.Process.Pid) {
+		// Before ownership is committed the launch gate is closed: only the
+		// supervisor exists, and the exec-owned process handle can stop it.
+		return cmd.Process.Kill()
+	}
+	if err != nil {
+		return err
+	}
+	killed, err := signalOwned(owner)
+	if err == nil && !killed {
 		return os.ErrProcessDone
 	}
 	return err

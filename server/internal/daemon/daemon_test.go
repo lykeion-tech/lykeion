@@ -30,6 +30,8 @@ import (
 type daemonFixture struct {
 	dropMessageACK     atomic.Bool
 	dropReportACK      atomic.Bool
+	dropStartACK       atomic.Bool
+	refusePrepare      atomic.Bool
 	env                *testutil.Env
 	runs               *service.AgentRuns
 	ws, user, card, id uuid.UUID
@@ -54,6 +56,15 @@ func fixture(t *testing.T) *daemonFixture {
 	issuer := auth.Issuer{Secret: []byte("test"), TTL: time.Hour}
 	router := handler.NewRouter(&handler.H{Store: st, JWT: issuer, Limit: auth.Limiter{R: f.env.Redis}, Hub: hub, AgentRuns: f.runs, Blobs: storage.Local{Dir: t.TempDir()}})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/prepare-lease") && f.refusePrepare.Swap(false) {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			conn.Close()
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/messages") {
 			f.messageCalls.Add(1)
 			if f.rejectMessages.Load() {
@@ -61,7 +72,7 @@ func fixture(t *testing.T) *daemonFixture {
 				return
 			}
 		}
-		drop := (strings.HasSuffix(r.URL.Path, "/messages") && f.dropMessageACK.Swap(false)) || (strings.HasSuffix(r.URL.Path, "/complete") && f.dropReportACK.Swap(false))
+		drop := (strings.HasSuffix(r.URL.Path, "/start") && f.dropStartACK.Swap(false)) || (strings.HasSuffix(r.URL.Path, "/messages") && f.dropMessageACK.Swap(false)) || (strings.HasSuffix(r.URL.Path, "/complete") && f.dropReportACK.Swap(false))
 		if drop {
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, r)
@@ -641,5 +652,247 @@ func TestOversizeDoesNotMaskLaterPersistenceFailure(t *testing.T) {
 	var oversized *oversizedMessageError
 	if err == nil || errors.As(err, &oversized) {
 		t.Fatalf("persistence failure hidden by oversize diagnostic: %v", err)
+	}
+}
+
+// A control-plane loss must release the attempt for retry without executing it.
+func TestControlPlaneTransportLossRetriesWithoutDuplicateCLI(t *testing.T) {
+	for _, stage := range []string{"prepare", "start"} {
+		t.Run(stage, func(t *testing.T) {
+			f := fixture(t)
+			_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET max_attempts=2 WHERE id=$1", f.id)
+			must(t, err)
+			if stage == "prepare" {
+				f.refusePrepare.Store(true)
+			} else {
+				f.dropStartACK.Store(true)
+			}
+			invocations := filepath.Join(t.TempDir(), "invocations")
+			bin := f.cfg.Harnesses["claude"]
+			script, err := os.ReadFile(bin)
+			must(t, err)
+			script = []byte(strings.Replace(string(script), "cat >/dev/null", "echo started >> '"+invocations+"'\ncat >/dev/null", 1))
+			must(t, os.WriteFile(bin, script, 0700))
+			cancel, done := startDaemon(t, f.cfg)
+			waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" })
+			stopDaemon(t, cancel, done)
+			if s := f.status(t); s != "completed" {
+				t.Fatalf("transport loss terminally settled run: %s", s)
+			}
+			b, err := os.ReadFile(invocations)
+			must(t, err)
+			if string(b) != "started\n" {
+				t.Fatalf("duplicate CLI execution: %q", b)
+			}
+			var attempt, usage int
+			var cost float64
+			must(t, f.env.Owner.QueryRow(t.Context(), "SELECT attempt,cost_usd FROM agent_run WHERE id=$1", f.id).Scan(&attempt, &cost))
+			must(t, f.env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM agent_run_usage WHERE agent_run_id=$1", f.id).Scan(&usage))
+			if attempt != 2 || cost != .25 || usage != 1 {
+				t.Fatalf("attempt=%d cost=%v usage=%d", attempt, cost, usage)
+			}
+		})
+	}
+}
+
+func TestRealAdapterCancellationBacklogIsDurable(t *testing.T) {
+	f := fixture(t)
+	ready := filepath.Join(t.TempDir(), "written")
+	bin := f.cfg.Harnesses["claude"]
+	must(t, os.WriteFile(bin, []byte(`#!/bin/sh
+cat >/dev/null
+i=0; while [ "$i" -lt 200 ]; do echo '{"type":"log","message":"evidence"}';i=$((i+1));done
+echo ready > '`+ready+`'
+sleep 300
+`), 0700))
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	f.cfg.Flush = time.Hour
+	f.cfg.NewBackend = func(h, b string) (agent.Backend, error) {
+		real, err := agent.New(h, b)
+		if err != nil {
+			return nil, err
+		}
+		return backendFunc(func(ctx context.Context, prompt string, o agent.ExecOptions) (*agent.Session, error) {
+			persist := o.OnMessage
+			first := true
+			o.OnMessage = func(m agent.Message) error {
+				if first {
+					first = false
+					close(entered)
+					<-release
+				}
+				return persist(m)
+			}
+			return real.Execute(ctx, prompt, o)
+		}), nil
+	}
+	cancel, done := startDaemon(t, f.cfg)
+	<-entered
+	waitFor(t, func() bool { _, err := os.Stat(ready); return err == nil })
+	cancel()
+	close(release)
+	stopDaemon(t, cancel, done)
+	paths, err := filepath.Glob(filepath.Join(f.cfg.StateDir, "messages", "*.json"))
+	must(t, err)
+	n := 0
+	for _, p := range paths {
+		r, err := readReport(p)
+		must(t, err)
+		n += len(r.Messages)
+	}
+	if n != 200 {
+		t.Fatalf("real adapter cancellation lost durable messages: %d", n)
+	}
+	reports, err := filepath.Glob(filepath.Join(f.cfg.StateDir, "outbox", "*.json"))
+	must(t, err)
+	if len(reports) != 1 {
+		t.Fatal("missing final report", reports)
+	}
+}
+
+func TestRecoveryPreservesExistingFinalAndMakesScratchGCEligible(t *testing.T) {
+	r := reportFixture()
+	r.Kind = "complete"
+	cost := .4
+	r.Usage = []agent.Usage{{Model: "m", CostUSD: &cost}}
+	state, home := t.TempDir(), t.TempDir()
+	d := &daemon{cfg: Config{StateDir: state, Home: home}, active: map[string]bool{}}
+	d.messages = &Outbox{Dir: filepath.Join(state, "messages"), Send: func(context.Context, Report) error { return nil }}
+	var delivered []Report
+	d.out = &Outbox{Dir: filepath.Join(state, "outbox"), Send: func(_ context.Context, r Report) error {
+		delivered = append(delivered, r)
+		return errors.New("offline")
+	}}
+	j := r
+	j.Kind = "fail"
+	j.Usage = nil
+	must(t, d.journal().Put(j))
+	must(t, d.out.Put(r))
+	dir := filepath.Join(home, scratchName(r.AgentRunID, r.Attempt))
+	must(t, os.Mkdir(dir, 0700))
+	must(t, os.Mkdir(filepath.Join(dir, ".cli-home"), 0700))
+	must(t, os.WriteFile(filepath.Join(dir, ".cli-home", "auth.json"), []byte("synthetic"), 0600))
+	must(t, d.recoverAttempts(t.Context()))
+	saved, err := readReport(d.out.file(r))
+	must(t, err)
+	if saved.Kind != "complete" || len(saved.Usage) != 1 || *saved.Usage[0].CostUSD != .4 {
+		t.Fatalf("final report replaced: %+v", saved)
+	}
+	for _, r := range delivered {
+		if r.Kind != "complete" {
+			t.Fatal("declared valid final lost")
+		}
+	}
+	must(t, d.gc(t.Context()))
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatal("recent recovered scratch deleted")
+	}
+	old := time.Now().Add(-25 * time.Hour)
+	must(t, os.Chtimes(filepath.Join(dir, ".finished"), old, old))
+	must(t, d.gc(t.Context()))
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatal("recovered finished scratch never became collectible")
+	}
+}
+
+func TestRecoveryNeverSynthesizesLossForAcknowledgedFinals(t *testing.T) {
+	state := t.TempDir()
+	d := &daemon{cfg: Config{StateDir: state, Home: t.TempDir()}}
+	d.messages = &Outbox{Dir: filepath.Join(state, "messages"), Send: func(context.Context, Report) error { return nil }}
+	count := 0
+	d.out = &Outbox{Dir: filepath.Join(state, "outbox"), Send: func(_ context.Context, r Report) error {
+		count++
+		if r.Kind != "complete" {
+			t.Errorf("valid final declared lost: %+v", r)
+		}
+		return nil
+	}}
+	for i := 0; i < 2; i++ {
+		r := reportFixture()
+		r.Kind = "complete"
+		must(t, d.out.Put(r))
+		j := r
+		j.Kind = "fail"
+		must(t, d.journal().Put(j))
+	}
+	must(t, d.recoverAttempts(t.Context()))
+	if count != 2 {
+		t.Fatalf("final deliveries=%d want 2", count)
+	}
+}
+
+func TestPrepareConnectionRefusalAndTimeoutAreRetryable(t *testing.T) {
+	for _, fault := range []string{"refused", "timeout"} {
+		t.Run(fault, func(t *testing.T) {
+			f := fixture(t)
+			_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET max_attempts=2 WHERE id=$1", f.id)
+			must(t, err)
+			refs, err := f.runs.Register(t.Context(), f.user, f.ws, "transport", "test", []string{"claude"})
+			must(t, err)
+			claims, err := f.runs.Claim(t.Context(), f.user, []service.RuntimeRef{{WorkspaceID: f.ws, RuntimeID: refs[0].ID}}, 1)
+			must(t, err)
+			if len(claims) != 1 {
+				t.Fatal("no test claim")
+			}
+			b, err := json.Marshal(claims[0])
+			must(t, err)
+			var c claimed
+			must(t, json.Unmarshal(b, &c))
+			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				select {
+				case <-r.Context().Done():
+				case <-time.After(150 * time.Millisecond):
+				}
+			}))
+			defer endpoint.Close()
+			if fault == "refused" {
+				endpoint.Close()
+			}
+			f.cfg.defaults()
+			d := &daemon{cfg: f.cfg, api: &apiclient.Client{Server: endpoint.URL, Token: f.cfg.Token, HTTP: &http.Client{Timeout: 40 * time.Millisecond}}}
+			d.messages = &Outbox{Dir: filepath.Join(f.cfg.StateDir, "messages"), Send: d.sendMessages}
+			d.out = &Outbox{Dir: filepath.Join(f.cfg.StateDir, "outbox"), Send: d.send}
+			must(t, d.runAgentRun(t.Context(), c))
+			r, err := readReport(d.out.file(Report{AgentRunID: f.id, Attempt: 1}))
+			must(t, err)
+			if r.FailureReason != agent.ReasonRuntimeOffline {
+				t.Fatalf("%s became %s", fault, r.FailureReason)
+			}
+			if _, err := os.Stat(filepath.Join(f.cfg.Home, f.id.String()+"-1", ".agent-process")); !os.IsNotExist(err) {
+				t.Fatal("CLI launched after unavailable prepare")
+			}
+			d.api = &apiclient.Client{Server: f.cfg.Server, Token: f.cfg.Token}
+			must(t, d.flush(t.Context()))
+			if status := f.status(t); status != "queued" {
+				t.Fatalf("%s did not retry: %s", fault, status)
+			}
+			var spend float64
+			must(t, f.env.Owner.QueryRow(t.Context(), "SELECT cost_usd FROM agent_run WHERE id=$1", f.id).Scan(&spend))
+			if spend != 0 {
+				t.Fatalf("transport loss spent %v", spend)
+			}
+		})
+	}
+}
+
+func TestShutdownDuringInitialRegistrationIsGraceful(t *testing.T) {
+	started := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { close(started); <-r.Context().Done() }))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{Server: srv.URL, Token: "lyk_synthetic", StateDir: t.TempDir(), Home: t.TempDir(), Harnesses: map[string]string{"claude": "unused"}, Ready: func() error { t.Error("cancelled registration announced ready"); return nil }})
+	}()
+	<-started
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ordinary startup shutdown: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("shutdown blocked")
 	}
 }

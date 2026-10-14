@@ -171,6 +171,9 @@ func (h *Hub) ServeDaemonWS(w http.ResponseWriter, r *http.Request) {
 		}
 		stop()
 	}
+	if wake == nil {
+		return // The daemon reconnects; periodic polling continues independently.
+	}
 	// This first frame acknowledges that the subscription is active, allowing
 	// callers to enqueue without guessing how long Redis setup takes.
 	conn.SetWriteDeadline(time.Now().Add(flushTimeout))

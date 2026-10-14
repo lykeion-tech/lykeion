@@ -1,3 +1,7 @@
+-- name: LockWorkspaceExecution :one
+-- Serialize execution batches without blocking workspace foreign-key checks.
+SELECT id FROM workspace WHERE id = @id FOR NO KEY UPDATE;
+
 -- name: UpsertRuntime :one
 INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, status, last_seen_at)
 VALUES (@workspace_id, @owner_id, @daemon_id, @harness, @device_name, 'online', now())

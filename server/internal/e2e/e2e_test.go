@@ -442,31 +442,9 @@ func TestKilledDaemonsAgentRunIsRetriedThenFails(t *testing.T) {
 		tokenFile := pidFile + ".token"
 		cfg := l.config(t, tok, fmt.Sprintf("echo \"$LYK_TOKEN\" > '%s'\necho $$ > '%s'\nexec sleep 300\n", tokenFile, pidFile))
 		cmd := startProcess(t, cfg)
-		// Register cleanup before waiting, so a failed readiness assertion cannot
-		// strand an agent that already wrote its private ownership record.
+		// Cleanup uses the adapter's birth-verified ownership record.
 		t.Cleanup(func() {
-			b, err := os.ReadFile(pidFile)
-			if errors.Is(err, os.ErrNotExist) {
-				return
-			}
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
-			if err != nil || pid <= 1 {
-				t.Errorf("invalid owned agent PID: %q", b)
-				return
-			}
-			pgid, err := syscall.Getpgid(pid)
-			if err == syscall.ESRCH {
-				return
-			}
-			if err != nil || pgid != pid {
-				t.Errorf("owned agent group changed: pid=%d pgid=%d error=%v", pid, pgid, err)
-				return
-			}
-			if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+			if err := agent.RecoverScratch(filepath.Join(cfg.Home, fmt.Sprintf("%s-%d", id, attempt))); err != nil {
 				t.Error(err)
 			}
 		})
@@ -481,7 +459,7 @@ func TestKilledDaemonsAgentRunIsRetriedThenFails(t *testing.T) {
 		must(t, err)
 		pgid, err := syscall.Getpgid(pid)
 		must(t, err)
-		if pid <= 1 || pgid != pid {
+		if pid <= 1 || pgid <= 1 {
 			t.Fatalf("agent has no owned group: %d/%d", pid, pgid)
 		}
 		ref := l.ref(t, id)
@@ -699,4 +677,104 @@ func TestCancellationRevokesRoleAndAcceptsLateUsageExactlyOnce(t *testing.T) {
 		t.Fatalf("late usage redelivered cancellation %d times", calls)
 	}
 	expectHTTP(t, role.Do(context.Background(), "GET", "/api/role/records", nil, nil), 401)
+}
+
+// Reusing the same state must reconcile the previous incarnation before its
+// heartbeat can revive the runtime and strand its occupied slot indefinitely.
+func TestSameStateImmediateRestartRecoversKilledAttempts(t *testing.T) {
+	l := newLab(t)
+	owner, tok, _ := l.member(t, "restart@lab.org")
+	_, ids := l.queue(t, owner, 1)
+	id := ids[0]
+	signin := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(signin, ".credentials.json"), []byte("synthetic-signin"), 0600))
+	t.Setenv("CLAUDE_CONFIG_DIR", signin)
+	cfg := l.config(t, tok, `echo $$ > "$PWD/child.pid"
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"durable-before-death"}]}}'
+exec sleep 300
+`)
+	cmd := startProcess(t, cfg)
+	for attempt := int32(1); attempt <= 2; attempt++ {
+		dir := filepath.Join(cfg.Home, fmt.Sprintf("%s-%d", id, attempt))
+		waitFor(t, "same-store attempt running", func() bool {
+			r := l.run(t, id)
+			_, e := os.Stat(filepath.Join(dir, "child.pid"))
+			return r.Status == "running" && r.Attempt == attempt && e == nil
+		})
+		b, err := os.ReadFile(filepath.Join(dir, "child.pid"))
+		must(t, err)
+		pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+		must(t, err)
+		group, err := syscall.Getpgid(pid)
+		must(t, err)
+		t.Cleanup(func() {
+			if err := agent.RecoverScratch(dir); err != nil {
+				t.Error(err)
+			}
+		})
+		_ = group
+
+		waitFor(t, "message persisted before death", func() bool {
+			return l.count(t, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1 AND attempt=$2", id, attempt) == 1
+		})
+		must(t, cmd.Process.Kill())
+		err = cmd.Wait()
+		var killed *exec.ExitError
+		if !errors.As(err, &killed) {
+			t.Fatalf("hard death: %v", err)
+		}
+		if l.run(t, id).Status != "running" {
+			t.Fatal("hard death unexpectedly settled")
+		}
+		cmd = startProcess(t, cfg) // Deliberately no sleep, sweep, or state-directory change.
+		waitFor(t, "prior child and copied credential recovered", func() bool {
+			_, e := os.Stat(filepath.Join(dir, ".cli-home", ".credentials.json"))
+			_, finished := os.Stat(filepath.Join(dir, ".finished"))
+			return errors.Is(e, os.ErrNotExist) && finished == nil
+		})
+		if attempt == 1 {
+			waitFor(t, "retry after immediate restart", func() bool { r := l.run(t, id); return r.Status == "running" && r.Attempt == 2 })
+		}
+	}
+	waitFor(t, "retry exhaustion after second immediate restart", func() bool { return l.run(t, id).Status == "failed" })
+	r := l.run(t, id)
+	if r.Attempt != 2 || r.FailureReason == nil || *r.FailureReason != "runtime_offline" {
+		t.Fatalf("recovery result: %+v", r)
+	}
+	l.settled(t, ids)
+	if n := l.count(t, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1", id); n != 2 {
+		t.Fatalf("lost prior evidence: %d", n)
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id=$1", id); n != 0 {
+		t.Fatalf("invented usage: %d", n)
+	}
+}
+
+func TestCopiedSigninRemovedAfterParentSIGKILLAndCLIExit(t *testing.T) {
+	l := newLab(t)
+	owner, tok, _ := l.member(t, "credentials@lab.org")
+	_, ids := l.queue(t, owner, 1)
+	signin := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(signin, ".credentials.json"), []byte("synthetic-signin"), 0600))
+	t.Setenv("CLAUDE_CONFIG_DIR", signin)
+	flag := filepath.Join(t.TempDir(), "finish")
+	cfg := l.config(t, tok, fmt.Sprintf("echo ready > \"$PWD/ready\"\nwhile [ ! -f '%s' ]; do sleep 0.05; done\n", flag))
+	cmd := startProcess(t, cfg)
+	dir := filepath.Join(cfg.Home, ids[0].String()+"-1")
+	waitFor(t, "CLI copied signin", func() bool {
+		_, a := os.Stat(filepath.Join(dir, "ready"))
+		_, b := os.Stat(filepath.Join(dir, ".cli-home", ".credentials.json"))
+		return a == nil && b == nil
+	})
+	must(t, cmd.Process.Kill())
+	err := cmd.Wait()
+	var killed *exec.ExitError
+	if !errors.As(err, &killed) {
+		t.Fatalf("hard death: %v", err)
+	}
+	must(t, os.WriteFile(flag, nil, 0600))
+	waitFor(t, "signin removed without daemon restart", func() bool {
+		_, e := os.Stat(filepath.Join(dir, ".cli-home", ".credentials.json"))
+		return errors.Is(e, os.ErrNotExist)
+	})
 }

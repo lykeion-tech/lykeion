@@ -58,7 +58,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if bin == "" {
 		bin = "claude"
 	}
-	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseClaude(o.Model, accounting), accounting.finish)
+	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseClaude(o.Model, accounting), accounting.finish, o.OnMessage)
 }
 
 // Later duplicate JSON keys win. Sources is last so server-sent add-ons cannot

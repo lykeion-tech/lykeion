@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -161,6 +162,11 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, device string, harnesses []string) ([]db.Runtime, error) {
 	var out []db.Runtime
 	err := s.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
+		// Registration may update an existing runtime before emitting its event.
+		// Match workspace mutations so the event's FK check cannot invert locks.
+		if _, err := tx.Q.LockWorkspaceExecution(ctx, ws); err != nil {
+			return err
+		}
 		if _, err := tx.Q.GetMember(ctx, db.GetMemberParams{WorkspaceID: ws, UserID: user}); err != nil {
 			return ErrNotYours
 		}
@@ -179,20 +185,58 @@ func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, 
 	return out, err
 }
 
-func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []RuntimeRef) (int, error) {
-	n := 0
-	for _, ref := range refs {
-		err := s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
+// Runtime batches commit atomically: a later invalid reference cannot hide an
+// earlier dispatch token or a partially acknowledged heartbeat.
+func (s *AgentRuns) runtimeBatch(ctx context.Context, user uuid.UUID, refs []RuntimeRef, fn func(*store.Tx, []RuntimeRef) error) error {
+	refs = append([]RuntimeRef(nil), refs...)
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].WorkspaceID != refs[j].WorkspaceID {
+			return refs[i].WorkspaceID.String() < refs[j].WorkspaceID.String()
+		}
+		return refs[i].RuntimeID.String() < refs[j].RuntimeID.String()
+	})
+	return s.Store.AsUser(ctx, user, "", func(tx *store.Tx) error {
+		// Token/event FK checks need workspace row locks. Take these before
+		// runtime and event locks, matching normal workspace mutations.
+		for _, ref := range refs {
+			if err := tx.Workspace(ctx, ref.WorkspaceID); err != nil {
+				return err
+			}
+			if _, err := tx.Q.LockWorkspaceExecution(ctx, ref.WorkspaceID); err != nil {
+				return err
+			}
+		}
+		for _, ref := range refs {
+			if err := tx.Workspace(ctx, ref.WorkspaceID); err != nil {
+				return err
+			}
 			if err := owned(ctx, tx, user, ref); err != nil {
 				return err
 			}
-			k, err := tx.Q.TouchRuntime(ctx, db.TouchRuntimeParams{ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID, OwnerID: user})
-			n += int(k)
-			return err
-		})
-		if err != nil {
-			return n, err
+			if _, err := tx.Q.LockRuntime(ctx, db.LockRuntimeParams{ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID}); err != nil {
+				return err
+			}
 		}
+		return fn(tx, refs)
+	})
+}
+func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []RuntimeRef) (int, error) {
+	n := 0
+	err := s.runtimeBatch(ctx, user, refs, func(tx *store.Tx, refs []RuntimeRef) error {
+		for _, ref := range refs {
+			if err := tx.Workspace(ctx, ref.WorkspaceID); err != nil {
+				return err
+			}
+			k, err := tx.Q.TouchRuntime(ctx, db.TouchRuntimeParams{ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID, OwnerID: user})
+			if err != nil {
+				return err
+			}
+			n += int(k)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 	return n, nil
 }
@@ -214,55 +258,72 @@ func owned(ctx context.Context, tx *store.Tx, user uuid.UUID, ref RuntimeRef) er
 // runtime per pass, until nothing more can be claimed.
 func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef, slots int) ([]Claimed, error) {
 	var out []Claimed
-	for slots > 0 {
-		progress := false
-		for _, ref := range refs {
-			if slots == 0 {
+	dispatchRefs := refs
+	err := s.runtimeBatch(ctx, user, refs, func(tx *store.Tx, ordered []RuntimeRef) error {
+		// Event locks also span workspaces; acquire them in canonical order,
+		// then preserve the caller's scheduling order for dispatch.
+		for _, ref := range ordered {
+			if err := tx.Q.LockWorkspaceEvents(ctx, ref.WorkspaceID); err != nil {
+				return err
+			}
+		}
+		for slots > 0 {
+			progress := false
+			for _, ref := range dispatchRefs {
+				if slots == 0 {
+					break
+				}
+				var c *Claimed
+				err := func() error {
+					if err := tx.Workspace(ctx, ref.WorkspaceID); err != nil {
+						return err
+					}
+					if err := owned(ctx, tx, user, ref); err != nil {
+						return err
+					}
+					runtime, err := tx.Q.LockRuntime(ctx, db.LockRuntimeParams{ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID})
+					if err != nil {
+						return err
+					}
+					active, err := tx.Q.CountRuntimeActive(ctx, db.CountRuntimeActiveParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID})
+					if err != nil {
+						return err
+					}
+					if active >= int64(runtime.MaxConcurrent) {
+						return nil
+					}
+					t, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID})
+					if errors.Is(err, pgx.ErrNoRows) {
+						return nil
+					}
+					if err != nil {
+						return err
+					}
+					plain, hash, _ := auth.NewToken(AgentRunPrefix)
+					if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: hash, WorkspaceID: ref.WorkspaceID,
+						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
+						return err
+					}
+					c = &Claimed{AgentRun: t, Token: plain, MCPURL: s.MCPURL, MCP: []agent.MCPServer{}}
+					return tx.Emit(ctx, "agent_run.dispatched", &t.CardID, store.System, agentRunEvent(t))
+				}()
+				if err != nil {
+					return err
+				}
+				if c != nil {
+					out = append(out, *c)
+					slots--
+					progress = true
+				}
+			}
+			if !progress {
 				break
 			}
-			var c *Claimed
-			err := s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
-				if err := owned(ctx, tx, user, ref); err != nil {
-					return err
-				}
-				runtime, err := tx.Q.LockRuntime(ctx, db.LockRuntimeParams{ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID})
-				if err != nil {
-					return err
-				}
-				active, err := tx.Q.CountRuntimeActive(ctx, db.CountRuntimeActiveParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID})
-				if err != nil {
-					return err
-				}
-				if active >= int64(runtime.MaxConcurrent) {
-					return nil
-				}
-				t, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID})
-				if errors.Is(err, pgx.ErrNoRows) {
-					return nil
-				}
-				if err != nil {
-					return err
-				}
-				plain, hash, _ := auth.NewToken(AgentRunPrefix)
-				if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: hash, WorkspaceID: ref.WorkspaceID,
-					AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
-					return err
-				}
-				c = &Claimed{AgentRun: t, Token: plain, MCPURL: s.MCPURL, MCP: []agent.MCPServer{}}
-				return tx.Emit(ctx, "agent_run.dispatched", &t.CardID, store.System, agentRunEvent(t))
-			})
-			if err != nil {
-				return out, err
-			}
-			if c != nil {
-				out = append(out, *c)
-				slots--
-				progress = true
-			}
 		}
-		if !progress {
-			break
-		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

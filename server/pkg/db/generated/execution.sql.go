@@ -652,6 +652,18 @@ func (q *Queries) LockAgentRunToken(ctx context.Context, arg LockAgentRunTokenPa
 	return i, err
 }
 
+const lockWorkspaceExecution = `-- name: LockWorkspaceExecution :one
+SELECT id FROM workspace WHERE id = $1 FOR NO KEY UPDATE
+`
+
+// Serialize execution batches without blocking workspace foreign-key checks.
+func (q *Queries) LockWorkspaceExecution(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockWorkspaceExecution, id)
+	var id_2 uuid.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
 const lookupAgentRunToken = `-- name: LookupAgentRunToken :one
 SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, card_id::uuid AS card_id,
   role::text AS role, board_column::text AS board_column, round::int AS round

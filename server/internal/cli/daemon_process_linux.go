@@ -8,29 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
+
+	"lykeion/server/internal/processidentity"
 )
 
-func processStart(pid int) (string, error) {
-	if pid <= 0 {
-		return "", errors.New("invalid process ID")
-	}
-	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return "", err
-	}
-	i := strings.LastIndexByte(string(b), ')')
-	if i < 0 {
-		return "", errors.New("invalid process stat")
-	}
-	fields := strings.Fields(string(b[i+1:]))
-	if len(fields) < 20 {
-		return "", errors.New("short process stat")
-	}
-	return fields[19], nil
-}
+func processStart(pid int) (string, error) { return processidentity.Start(pid) }
 
 func detach(c *exec.Cmd) error {
 	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

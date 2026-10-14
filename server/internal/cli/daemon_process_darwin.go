@@ -10,23 +10,10 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"golang.org/x/sys/unix"
+	"lykeion/server/internal/processidentity"
 )
 
-func processStart(pid int) (string, error) {
-	if pid <= 0 {
-		return "", errors.New("invalid process ID")
-	}
-	p, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-	if err != nil {
-		return "", err
-	}
-	if int(p.Proc.P_pid) != pid {
-		return "", errors.New("process ID changed")
-	}
-	t := p.Proc.P_starttime
-	return fmt.Sprintf("%d:%d", t.Sec, t.Usec), nil
-}
+func processStart(pid int) (string, error) { return processidentity.Start(pid) }
 
 func detach(c *exec.Cmd) error {
 	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

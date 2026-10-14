@@ -1114,3 +1114,137 @@ func TestDispatchedPreparationFailure(t *testing.T) {
 		})
 	}
 }
+
+// A workspace mutation owns the workspace row before emitting an event. Claim
+// must wait for that row before taking the event lock, including implicit FK locks.
+func TestRuntimeOperationsOrderWorkspaceBeforeEventLock(t *testing.T) {
+	for _, operation := range []string{"claim", "register"} {
+		t.Run(operation, func(t *testing.T) {
+			f := setup(t)
+			f.enqueue(t, 1, "claude")
+			ref := f.runtime(t, f.Owner, "lock-order", "claude")
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			mutation, err := f.Env.Owner.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer mutation.Rollback(context.Background())
+			if _, err := mutation.Exec(ctx, "SELECT id FROM workspace WHERE id=$1 FOR UPDATE", f.WS); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				var err error
+				if operation == "claim" {
+					got, claimErr := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+					err = claimErr
+					if err == nil && len(got) != 1 {
+						err = errors.New("claim did not return its dispatch")
+					}
+				} else {
+					_, err = f.T.Register(ctx, f.Owner, f.WS, "lock-order", "updated", []string{"claude"})
+				}
+				done <- err
+			}()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				var blocked bool
+				err = f.Env.Owner.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1::int=ANY(pg_blocking_pids(pid)))", mutation.Conn().PgConn().PID()).Scan(&blocked)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if blocked {
+					break
+				}
+				select {
+				case err := <-done:
+					t.Fatalf("operation completed before workspace mutation: %v", err)
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				case <-ticker.C:
+				}
+			}
+			var available bool
+			if err := mutation.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock(hashtextextended($1::uuid::text,0))", f.WS).Scan(&available); err != nil {
+				t.Fatal(err)
+			}
+			if !available {
+				t.Fatal("runtime operation holds event lock while waiting for workspace mutation")
+			}
+			if err := mutation.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// Existing event writers take the advisory lock before their INSERT needs a
+// workspace FK KEY SHARE lock. Runtime operations must not invert that order.
+func TestRuntimeOperationsCompatibleWithReportWorkspaceLocks(t *testing.T) {
+	for _, operation := range []string{"claim", "register"} {
+		t.Run(operation, func(t *testing.T) {
+			f := setup(t)
+			f.enqueue(t, 1, "claude")
+			ref := f.runtime(t, f.Owner, "report-lock", "claude")
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			report, err := f.Env.Owner.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer report.Rollback(context.Background())
+			if _, err := report.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text,0))", f.WS); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				var err error
+				if operation == "claim" {
+					got, claimErr := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
+					err = claimErr
+					if err == nil && len(got) != 1 {
+						err = errors.New("claim did not return its dispatch")
+					}
+				} else {
+					_, err = f.T.Register(ctx, f.Owner, f.WS, "report-lock", "updated", []string{"claude"})
+				}
+				done <- err
+			}()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				var blocked bool
+				err = f.Env.Owner.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1::int=ANY(pg_blocking_pids(pid)))", report.Conn().PgConn().PID()).Scan(&blocked)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if blocked {
+					break
+				}
+				select {
+				case err := <-done:
+					t.Fatalf("operation completed before report event lock released: %v", err)
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				case <-ticker.C:
+				}
+			}
+			// Claim/Register demonstrably waits on our event lock. Its workspace lock
+			// must permit the FK check needed to finish and release this transaction.
+			if _, err := report.Exec(ctx, "SELECT id FROM workspace WHERE id=$1 FOR KEY SHARE NOWAIT", f.WS); err != nil {
+				t.Fatalf("event writer cannot acquire workspace FK lock: %v", err)
+			}
+			if err := report.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

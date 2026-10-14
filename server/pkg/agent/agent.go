@@ -22,6 +22,9 @@ type ExecOptions struct {
 	Env                             []string
 	Model, MCPURL, MCPToken, Resume string
 	MCP                             []MCPServer
+	// OnMessage, when set, durably accepts each normalized message instead of
+	// publishing it to Session.Messages. An error stops the child and is reported.
+	OnMessage func(Message) error
 }
 
 const (
@@ -35,6 +38,7 @@ type Result struct {
 	Usage             []Usage
 	SessionID, Reason string
 	Err               error
+	RetainedEvidence  []string
 }
 type Session struct {
 	Messages <-chan Message
@@ -74,8 +78,19 @@ type parser func([]byte, emitMessage, *Result) (terminal bool, err error)
 
 // run drains stdout while exec concurrently feeds stdin. Waiting independently
 // of message delivery lets cancellation and credential cleanup survive a slow
-// consumer. Only cancellation may discard messages already being parsed.
-func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parser, finish func(*Result)) (*Session, error) {
+// consumer. Cancellation overflow is retained on disk, never silently dropped.
+func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parser, finish func(*Result), sink func(Message) error) (*Session, error) {
+	original := cmd
+	var gateRead, gateWrite *os.File
+	var nonce string
+	var err error
+	cmd, gateRead, gateWrite, nonce, err = supervised(ctx, original)
+	if err != nil {
+		cleanup(true)
+		return nil, err
+	}
+	defer gateRead.Close()
+	defer gateWrite.Close()
 	if err := configureProcess(cmd); err != nil {
 		cleanup(true)
 		return nil, err
@@ -97,19 +112,68 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 	}
 	writer.Close()
 	waited := make(chan error, 1)
-	go func() { err := cmd.Wait(); killProcessTree(cmd); cleanup(false); waited <- err }()
+	go func() { err := cmd.Wait(); cleanup(false); waited <- supervisorExit(cmd, nonce, err) }()
+	if err := recordProcess(cmd, nonce); err != nil {
+		gateWrite.Close()
+		<-waited
+		stdout.Close()
+		cleanup(true)
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		gateWrite.Close()
+		killProcessTree(cmd)
+		<-waited
+		stdout.Close()
+		cleanup(true)
+		return nil, err
+	}
+	if _, err := gateWrite.Write([]byte("run\n")); err != nil {
+		killProcessTree(cmd)
+		<-waited
+		stdout.Close()
+		cleanup(true)
+		return nil, err
+	}
+	gateWrite.Close()
 	msgs := make(chan Message, 64)
 	done := make(chan Result, 1)
 	go func() {
 		defer stdout.Close()
 		var res Result
 		terminal := false
+		var emitErr error
+		spill := &messageRetention{dir: cmd.Dir}
+		defer spill.close()
 		emit := func(m Message) {
-			select {
-			case msgs <- m:
-			case <-ctx.Done():
+			if emitErr != nil {
+				return
+			}
+			if sink != nil {
+				emitErr = sink(m)
+				if emitErr != nil {
+					killProcessTree(cmd)
+				}
+				return
+			}
+			if !spill.started {
+				select {
+				case msgs <- m:
+					return
+				default:
+				}
+				select {
+				case msgs <- m:
+					return
+				case <-ctx.Done():
+				}
+			}
+			emitErr = spill.put(m)
+			if emitErr != nil {
+				killProcessTree(cmd)
 			}
 		}
+
 		sc := bufio.NewScanner(stdout)
 		sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
 		var parseErr error
@@ -117,6 +181,9 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 			var ended bool
 			ended, parseErr = parse(sc.Bytes(), emit, &res)
 			terminal = terminal || ended
+			if emitErr != nil {
+				parseErr = emitErr
+			}
 			if parseErr != nil {
 				killProcessTree(cmd)
 				break
@@ -127,7 +194,12 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 			killProcessTree(cmd)
 		}
 		waitErr := <-waited
+		if err := spill.close(); err != nil {
+			emitErr = errors.Join(emitErr, err)
+		}
 		switch {
+		case emitErr != nil:
+			res.Err, res.Reason = emitErr, ReasonAgentError
 		case ctx.Err() != nil:
 			res.Err, res.Reason = ctx.Err(), ReasonRuntimeOffline
 		case parseErr != nil:
@@ -151,6 +223,7 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 				res.Reason = classify(res.Err.Error())
 			}
 		}
+		res.RetainedEvidence = spill.paths
 		close(msgs)
 		done <- res
 		close(done)

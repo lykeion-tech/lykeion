@@ -23,17 +23,30 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	dir := filepath.Join(d.cfg.Home, scratchName(r.AgentRunID, r.Attempt))
 	created := false
 	fail := func(err error) { r.Kind = "fail"; r.Error = err.Error(); r.FailureReason = agent.ReasonAgentError }
-	// Persist even setup/start failures; finalization happens only after Done.
+	// Journal before the server can enter running or any CLI can launch.
+	journalRecord := r
+	journalRecord.Kind = "fail"
+	journalRecord.FailureReason = agent.ReasonRuntimeOffline
+	if err := d.journal().Put(journalRecord); err != nil {
+		return err
+	}
 	defer func() {
 		if ctx.Err() != nil {
 			r.Kind = "fail"
 			r.Error = ctx.Err().Error()
 			r.FailureReason = agent.ReasonRuntimeOffline
 		}
-		localErr = errors.Join(localErr, d.out.Put(r))
-		if created {
-			localErr = errors.Join(localErr, atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt}))
+		if err := d.out.Put(r); err != nil {
+			localErr = errors.Join(localErr, err)
+			return
 		}
+		if created {
+			if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt}); err != nil {
+				localErr = errors.Join(localErr, err)
+				return
+			}
+		}
+		localErr = errors.Join(localErr, d.forgetAttempt(r))
 	}()
 	if err := os.Mkdir(dir, 0700); err != nil {
 		fail(fmt.Errorf("prepare scratch: %w", err))
@@ -57,10 +70,16 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	ref := reportBody(r)
 	if err = d.api.Do(ctx, "POST", base+"/prepare-lease", ref, nil); err != nil {
 		fail(err)
+		if retryableControlLoss(err) {
+			r.FailureReason = agent.ReasonRuntimeOffline
+		}
 		return nil
 	}
 	if err = d.api.Do(ctx, "POST", base+"/start", ref, nil); err != nil {
 		fail(err)
+		if retryableControlLoss(err) {
+			r.FailureReason = agent.ReasonRuntimeOffline
+		}
 		return nil
 	}
 	runCtx, cancel := context.WithCancel(ctx)
@@ -73,7 +92,18 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(err)
 		return nil
 	}
-	sess, err := backend.Execute(runCtx, prompt, agent.ExecOptions{Dir: dir, MCPURL: c.MCPURL, MCPToken: c.Token, MCP: c.MCP, Resume: c.AgentRun.SessionID, Env: []string{
+	var sinkErr error
+	var sequence int32
+	sink := func(m agent.Message) error {
+		if sequence == math.MaxInt32 {
+			sinkErr = errors.New("message sequence exhausted")
+			return sinkErr
+		}
+		sequence++
+		sinkErr = d.persistMessage(r, sequence, m)
+		return sinkErr
+	}
+	sess, err := backend.Execute(runCtx, prompt, agent.ExecOptions{OnMessage: sink, Dir: dir, MCPURL: c.MCPURL, MCPToken: c.Token, MCP: c.MCP, Resume: c.AgentRun.SessionID, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + filepath.Dir(self) + string(os.PathListSeparator) + os.Getenv("PATH"),
 	}})
 	if err != nil {
@@ -85,6 +115,12 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	if !ok {
 		fail(errors.New("backend closed without a result"))
 		return streamErr
+	}
+	if sinkErr != nil {
+		var oversized *oversizedMessageError
+		if !errors.As(sinkErr, &oversized) {
+			localErr = errors.Join(localErr, sinkErr)
+		}
 	}
 	r.Usage, r.SessionID = res.Usage, res.SessionID
 	if res.Err != nil {
@@ -228,4 +264,37 @@ func (d *daemon) watchCancel(ctx context.Context, cancel context.CancelFunc, bas
 			}
 		}
 	}
+}
+
+// The CLI has not started: ambiguous control-plane acknowledgements are safe
+// to settle as runtime loss, fenced by attempt, without rerunning the command.
+func retryableControlLoss(err error) bool {
+	var response *apiclient.HTTPError
+	if errors.As(err, &response) {
+		return response.Status == 408 || response.Status == 429 || response.Status >= 500
+	}
+	var transport *url.Error
+	return errors.As(err, &transport) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// The real adapter invokes this synchronously before accepting its next record.
+func (d *daemon) persistMessage(r Report, seq int32, m agent.Message) error {
+	r.Kind = "messages"
+	content := m.Content
+	if len(content) == 0 {
+		content = json.RawMessage(`null`)
+	}
+	r.Messages = []wireMsg{{Seq: seq, Type: m.Type, Tool: m.Tool, Content: content}}
+	b, err := json.Marshal(messageBody(r))
+	if err != nil {
+		return err
+	}
+	if len(b) > middleware.MaxDaemonMessageBytes {
+		dir := filepath.Join(d.cfg.StateDir, "oversized-messages")
+		if err := atomicJSON(dir, fmt.Sprintf("%s-%010d-%010d.json", r.AgentRunID, r.Attempt, seq), r); err != nil {
+			return err
+		}
+		return &oversizedMessageError{seq: seq, size: len(b)}
+	}
+	return d.messages.Put(r)
 }

@@ -36,6 +36,8 @@ func TestRequestBoundsOnlyExemptsWebSocketUpgrades(t *testing.T) {
 				req.Header.Set("Upgrade", tc.upgrade)
 				if !tc.wantDeadline {
 					req.Header.Set("Connection", "Upgrade")
+					req.Header.Set("Sec-WebSocket-Version", "13")
+					req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
 				}
 			}
 			res := httptest.NewRecorder()
@@ -116,4 +118,28 @@ func TestDaemonMessageBodyBoundIsExact(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMalformedWebSocketHandshakeKeepsDeadline(t *testing.T) {
+	for _, key := range []string{"", "broken", "YWJj"} {
+		req := httptest.NewRequest("GET", "/api/daemon/ws", nil)
+		req.Header.Set("Connection", "Upgrade")
+		req.Header.Set("Upgrade", "websocket")
+		req.Header.Set("Sec-WebSocket-Version", "13")
+		req.Header.Set("Sec-WebSocket-Key", key)
+		RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := r.Context().Deadline(); !ok {
+				t.Errorf("invalid key %q exempted", key)
+			}
+		})).ServeHTTP(httptest.NewRecorder(), req)
+	}
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.Context().Deadline(); !ok {
+			t.Error("missing version exempted")
+		}
+	})).ServeHTTP(httptest.NewRecorder(), req)
 }
