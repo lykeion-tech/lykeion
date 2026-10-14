@@ -4,15 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/round"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -20,8 +23,8 @@ import (
 var errEnded = errors.New("the card has ended; continue with a new card that follows from it")
 
 // steer applies one person's action to a card under its lock, cancels the
-// card's in-flight agent runs when asked, and kicks the engine afterwards. An error
-// from act is the person's mistake and answers 400. Its routes sit outside
+// card's in-flight agent runs when asked, and kicks the engine afterwards. A typed
+// input error from act answers 400; other errors retain their server handling. Its routes sit outside
 // Scope, like agent-run cancel: Scope's transaction holds the workspace row,
 // which the cancellations' own transactions need after this one commits.
 func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, act func(tx *store.Tx, c db.Card, s *board.State, set round.Settings) ([]board.Item, error)) {
@@ -64,7 +67,7 @@ func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, 
 		s := board.FromCard(c)
 		items, err := act(tx, c, &s, round.ParseSettings(wsRow.Settings))
 		if err != nil {
-			return cardInputError(err.Error())
+			return err
 		}
 		if c.Flag == board.OutOfBudget && s.Flag != board.OutOfBudget {
 			// the next tick restores runtime_offline where it still holds
@@ -110,11 +113,19 @@ func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, 
 		fail(w, r, err)
 		return
 	}
+	incomplete := false
 	for _, t := range cancel {
-		h.AgentRuns.Cancel(r.Context(), ws, who, t)
+		if err := h.AgentRuns.Cancel(r.Context(), ws, who, t); err != nil && !errors.Is(err, service.ErrConflict) {
+			incomplete = true
+			slog.Error("steering agent-run cancellation failed", "workspace", ws, "card", id, "agent_run", t, "err", err)
+		}
 	}
 	if h.Engine != nil {
 		h.Engine.Kick(ws, id)
+	}
+	if incomplete {
+		writeErr(w, 500, "steering was applied; agent-run cancellation incomplete")
+		return
 	}
 	writeJSON(w, 200, out)
 }
@@ -130,7 +141,11 @@ func (h *H) sendBack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.steer(w, r, true, func(_ *store.Tx, _ db.Card, s *board.State, set round.Settings) ([]board.Item, error) {
-		return board.SendBack(s, in.To, in.Step, in.Reason, set.Limits)
+		items, err := board.SendBack(s, in.To, in.Step, in.Reason, set.Limits)
+		if err != nil {
+			return nil, cardInputError(err.Error())
+		}
+		return items, nil
 	})
 }
 
@@ -148,8 +163,11 @@ func (h *H) stopCard(w http.ResponseWriter, r *http.Request) {
 		reason := in.Reason
 		if in.DuplicateOf != 0 {
 			o, err := tx.Q.GetCardByNumber(r.Context(), db.GetCardByNumberParams{WorkspaceID: tx.WS, Number: in.DuplicateOf})
-			if err != nil || o.ID == c.ID {
-				return nil, fmt.Errorf("duplicate_of: no other card #%d", in.DuplicateOf)
+			if errors.Is(err, pgx.ErrNoRows) || (err == nil && o.ID == c.ID) {
+				return nil, cardInputError(fmt.Sprintf("duplicate_of: no other card #%d", in.DuplicateOf))
+			}
+			if err != nil {
+				return nil, err
 			}
 			reason = fmt.Sprintf("duplicate of #%d", o.Number)
 		}
