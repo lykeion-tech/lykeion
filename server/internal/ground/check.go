@@ -13,7 +13,7 @@ import (
 
 // ReviewKinds are the reviewer's records; the gate's input digest leaves them
 // out because they answer the gate rather than feed it.
-var ReviewKinds = []string{"review_item", "verdict"}
+var ReviewKinds = []string{"review_item", "verdict", "gate_draft", "gate"}
 
 var relation = map[string]string{
 	"supports":     "The passage states the claim or directly implies that it is true",
@@ -67,9 +67,16 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 	_, hasQ := v.Latest("question")
 	_, hasN := v.Latest("notes")
 	ev := v.Kind("evidence")
+	hasLiteratureEvidence := false
+	for _, r := range ev {
+		if r.Role == Literature {
+			hasLiteratureEvidence = true
+			break
+		}
+	}
 	g.Checks = []board.Check{
 		codeCheck("question.present", Scoper, hasQ, "no scoped question"),
-		codeCheck("evidence.present", Literature, len(ev) > 0, "no evidence"),
+		codeCheck("evidence.present", Literature, hasLiteratureEvidence, "no evidence from the literature scout"),
 		codeCheck("notes.present", Methods, hasN, "no methods notes"),
 	}
 	for _, r := range ev {
@@ -118,6 +125,14 @@ func passage(text, quote string) string {
 	return t[max(0, i-600):min(len(t), i+len(q)+600)]
 }
 
+// Origins classify whether a passage reports a paper's own result, its own
+// synthesis, or another study's work.
+var Origins = map[string]string{
+	"own_result":  "The passage reports a finding from the study this paper describes",
+	"synthesis":   "The passage states a review's or meta-analysis's own synthesis",
+	"others_work": "The passage describes findings from other, earlier studies",
+}
+
 func jevChecks(ctx context.Context, v *records.View, j *jev.Client, ev, ds []db.Record) ([]board.Check, error) {
 	var out []board.Check
 	for _, r := range ev {
@@ -132,6 +147,16 @@ func jevChecks(ctx context.Context, v *records.View, j *jev.Client, ev, ds []db.
 		out = append(out, ask(ctx, j, ch, "claim: "+e.Claim+"\n\npassage: "+passage(txt, e.Quote), relation,
 			func(a jev.Answer) (board.Result, float64) {
 				return board.FromP(a.Probabilities["supports"]), a.Probabilities["supports"]
+			}))
+		oc := board.Check{ID: "origin." + r.Key, Owner: r.Role, Evidence: []string{"evidence#" + r.Key},
+			Question: "Does the passage report this paper's own result or synthesis, or describe another study's work?"}
+		out = append(out, ask(ctx, j, oc, "passage: "+passage(txt, e.Quote), Origins,
+			func(a jev.Answer) (board.Result, float64) {
+				p := a.Probabilities["own_result"] + a.Probabilities["synthesis"]
+				if p >= 0.70 {
+					return board.Pass, p
+				}
+				return board.Attention, p
 			}))
 	}
 	for _, r := range ds {

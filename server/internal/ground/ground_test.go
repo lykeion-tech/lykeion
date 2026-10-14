@@ -245,6 +245,10 @@ func fakeJev(t *testing.T, fail bool) *jev.Client {
 		}
 		choice := "supports"
 		switch {
+		case body.Questions["q"].Criteria["others_work"] != "" && strings.Contains(body.State, "et al. reported"):
+			choice = "others_work"
+		case body.Questions["q"].Criteria["others_work"] != "":
+			choice = "own_result"
 		case body.Questions["q"].Criteria["biological_replicates"] != "" && strings.Contains(body.State, "GSM1: mouse 1 liver"):
 			choice = "biological_replicates"
 		case body.Questions["q"].Criteria["biological_replicates"] != "":
@@ -332,6 +336,31 @@ func TestSupportAsksWhetherThePassageStatesTheClaim(t *testing.T) {
 	}
 }
 
+// A passage retelling another study's result is flagged for the reviewer,
+// never failed by Jev; the paper's own result passes.
+func TestSecondHandEvidenceNeedsTheReviewer(t *testing.T) {
+	f := setup(t)
+	f.record(t, Literature, "fetch", "europepmc:PMC3", map[string]any{"source_id": "europepmc:PMC3", "full_text": true}, "Smith et al. reported that X raised Y in rats.")
+	f.complete(t, "X raised Y by 40%")
+	if _, err := f.write(t, Literature, "evidence", map[string]string{"claim": "X raises Y in rats", "source_id": "europepmc:PMC3", "quote": "X raised Y in rats", "stance": "supports"}); err != nil {
+		t.Fatal(err)
+	}
+	g := f.gate(t, fakeJev(t, false))
+	if result(g, "origin.E1") != board.Pass || result(g, "origin.E2") != board.Pass || result(g, "origin.E3") != board.Attention || g.Verdict != "" {
+		t.Fatalf("%+v", g.Checks)
+	}
+	if _, err := f.write(t, Reviewer, "review_item", map[string]string{"check": "origin.E3", "result": "fail", "note": "Smith's result, retold"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.write(t, Reviewer, "verdict", map[string]string{"result": "pass", "reason": "fits"}); err != nil {
+		t.Fatal(err)
+	}
+	f.finalize(t, g)
+	if g.Verdict != board.VFail || g.Route == nil || g.Route.Step != Literature {
+		t.Fatalf("a confirmed second-hand source must send the evidence back to its role: %+v", g)
+	}
+}
+
 func TestJevDownNeedsReviewerNeverPasses(t *testing.T) {
 	f := setup(t)
 	f.complete(t, "X raised Y by 40%")
@@ -352,7 +381,7 @@ func TestEgressOffReviewerAnswers(t *testing.T) {
 	f := setup(t)
 	f.complete(t, "X raised Y by 40%")
 	g := f.gate(t, nil)
-	for _, id := range []string{"support.E1", "support.E2"} {
+	for _, id := range []string{"support.E1", "support.E2", "origin.E1", "origin.E2"} {
 		if _, err := f.write(t, Reviewer, "review_item", map[string]string{"check": id, "result": "pass", "note": "read it"}); err != nil {
 			t.Fatal(err)
 		}
@@ -368,7 +397,7 @@ func TestEgressOffReviewerAnswers(t *testing.T) {
 		t.Fatalf("%+v", g)
 	}
 	for _, ch := range g.Checks {
-		if strings.HasPrefix(ch.ID, "support.") && ch.Judge != board.Reviewer {
+		if (strings.HasPrefix(ch.ID, "support.") || strings.HasPrefix(ch.ID, "origin.")) && ch.Judge != board.Reviewer {
 			t.Fatalf("egress-off check not recorded as reviewer: %+v", ch)
 		}
 		if ch.ID == "unit.D1" && ch.Choice != "biological_replicates" {
@@ -440,5 +469,53 @@ func TestMissingReviewerVerdictFails(t *testing.T) {
 	f.finalize(t, g)
 	if g.Verdict != board.VFail || result(g, "review.verdict") != board.Fail {
 		t.Fatalf("%+v", g)
+	}
+}
+
+func TestGateDigestIgnoresGateRecordsButIncludesEvidence(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X raised Y by 40%")
+	before := f.view(t).Digest(ReviewKinds...)
+	if err := f.st.InWorkspace(context.Background(), f.ws, uuid.Nil, func(tx *store.Tx) error {
+		for _, kind := range []string{"gate_draft", "gate"} {
+			if _, err := tx.Q.InsertRecord(context.Background(), insertParams(f, Reviewer, kind, "", []byte(`{}`))); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	afterGates := f.view(t).Digest(ReviewKinds...)
+	if afterGates != before {
+		t.Fatalf("gate records changed the scientific input digest: before %s after %s", before, afterGates)
+	}
+	if _, err := f.write(t, Literature, "evidence", map[string]string{"claim": "X raises Y in another model", "source_id": "europepmc:PMC1", "quote": "X raised Y by 40%", "stance": "supports"}); err != nil {
+		t.Fatal(err)
+	}
+	afterEvidence := f.view(t).Digest(ReviewKinds...)
+	if afterEvidence == afterGates {
+		t.Fatal("new evidence did not change the scientific input digest")
+	}
+}
+
+func TestLiteratureNothingFoundFailsEvidenceDespiteContrarianEvidence(t *testing.T) {
+	f := setup(t)
+	if _, err := f.write(t, Scoper, "question", map[string]string{"text": "Does X raise Y in mice?"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.write(t, DataScout, "dataset", map[string]string{"accession": "GSE1", "note": "liver"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.write(t, Methods, "notes", map[string]string{"text": "DESeq2"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.write(t, Contrarian, "evidence", map[string]string{"claim": "X does not raise Y", "source_id": "openalex:W2", "quote": "no effect of X on Y", "stance": "challenges"}); err != nil {
+		t.Fatal(err)
+	}
+	f.nothingFound(t, Literature, "no paper measures Y")
+	g := f.gate(t, nil)
+	if g.Verdict != board.VFail || result(g, "evidence.present") != board.Fail {
+		t.Fatalf("contrarian evidence satisfied the literature requirement: %+v", g)
 	}
 }
