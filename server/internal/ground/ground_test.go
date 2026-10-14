@@ -3,6 +3,8 @@ package ground
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,6 +12,8 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/board"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
@@ -180,4 +184,261 @@ func countParams(f *fixture, kind string) db.CountKindRecordsParams {
 }
 func insertParams(f *fixture, role, kind, key string, body []byte) db.InsertRecordParams {
 	return db.InsertRecordParams{WorkspaceID: f.ws, CardID: f.card, BoardColumn: "grounding", Round: 1, Kind: kind, Role: role, Key: key, Body: body}
+}
+
+func (f *fixture) complete(t *testing.T, quote string) {
+	t.Helper()
+	for _, w := range []struct {
+		role, kind string
+		body       any
+	}{
+		{Scoper, "question", map[string]string{"text": "Does X raise Y in mice?"}},
+		{Literature, "evidence", map[string]string{"claim": "X raises Y", "source_id": "europepmc:PMC1", "quote": quote, "stance": "supports"}},
+		{Contrarian, "evidence", map[string]string{"claim": "X does not raise Y", "source_id": "openalex:W2", "quote": "no effect of X on Y", "stance": "challenges"}},
+		{DataScout, "dataset", map[string]string{"accession": "GSE1", "note": "liver"}},
+		{Methods, "notes", map[string]string{"text": "DESeq2"}},
+	} {
+		if _, err := f.write(t, w.role, w.kind, w.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func (f *fixture) view(t *testing.T) *records.View {
+	t.Helper()
+	var v *records.View
+	if err := f.st.InWorkspace(context.Background(), f.ws, uuid.Nil, func(tx *store.Tx) error {
+		var err error
+		v, err = records.Load(context.Background(), tx, f.blobs, f.card, "grounding")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func (f *fixture) gate(t *testing.T, j *jev.Client) *board.Gate {
+	t.Helper()
+	g, err := Check(context.Background(), f.view(t), j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+func (f *fixture) finalize(t *testing.T, g *board.Gate) {
+	Finalize(f.view(t), g)
+}
+
+func fakeJev(t *testing.T, fail bool) *jev.Client {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		var body struct {
+			State     string
+			Questions map[string]struct{ Criteria map[string]string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode Jev request: %v", err)
+		}
+		choice := "supports"
+		switch {
+		case body.Questions["q"].Criteria["biological_replicates"] != "" && strings.Contains(body.State, "GSM1: mouse 1 liver"):
+			choice = "biological_replicates"
+		case body.Questions["q"].Criteria["biological_replicates"] != "":
+			choice = "unclear"
+		case strings.Contains(body.State, "no effect") != strings.Contains(body.State, "does not"):
+			choice = "challenges"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": "jev-1.13.0", "answers": map[string]any{
+			"q": map[string]any{"choice": choice, "probabilities": map[string]float64{choice: 0.9}, "confidence": 0.9},
+		}})
+	}))
+	t.Cleanup(s.Close)
+	return &jev.Client{BaseURL: s.URL, Key: "k", Model: "jev-1.13.0"}
+}
+
+func result(g *board.Gate, id string) board.Result {
+	for _, ch := range g.Checks {
+		if ch.ID == id {
+			return ch.Result
+		}
+	}
+	return "missing"
+}
+
+func TestQuoteMatchesAcrossCaseAndLineBreaks(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "x raised y by 40%")
+	g := f.gate(t, fakeJev(t, false))
+	if result(g, "quote.E1") != board.Pass || g.Verdict != "" {
+		t.Fatalf("%+v", g)
+	}
+	for _, id := range []string{"support.E1", "support.E2", "unit.D1"} {
+		if result(g, id) != board.Pass {
+			t.Fatalf("%s: %+v", id, g.Checks)
+		}
+	}
+}
+
+func TestParaphraseFailsAndRoutesToItsScout(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X increased Y by forty percent")
+	g := f.gate(t, fakeJev(t, false))
+	if g.Verdict != board.VFail || g.Route.Step != Literature {
+		t.Fatalf("%+v %+v", g.Verdict, g.Route)
+	}
+}
+
+func TestRetractedSourceFails(t *testing.T) {
+	f := setup(t)
+	f.record(t, Contrarian, "fetch", "openalex:W2", map[string]any{"source_id": "openalex:W2", "retracted": true}, "We found no effect of X on Y in rats.")
+	f.complete(t, "X raised Y by 40%")
+	if g := f.gate(t, fakeJev(t, false)); result(g, "retracted.E2") != board.Fail {
+		t.Fatalf("%+v", g.Checks)
+	}
+}
+
+func TestMissingContrarySearchFails(t *testing.T) {
+	f := setup(t)
+	if err := f.st.InWorkspace(context.Background(), f.ws, uuid.Nil, func(tx *store.Tx) error {
+		_, err := tx.Q.InsertRecord(context.Background(), insertParams(f, Literature, "search", "", []byte(`{"database":"openalex","query":"q"}`)))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.env.Owner.Exec(context.Background(), `UPDATE record SET superseded_at = now() WHERE kind = 'search' AND role = 'contrarian'`); err != nil {
+		t.Fatal(err)
+	}
+	f.complete(t, "X raised Y by 40%")
+	if g := f.gate(t, fakeJev(t, false)); result(g, "search.contrary") != board.Fail {
+		t.Fatalf("%+v", g.Checks)
+	}
+}
+
+// A claim's stance is its direction against the card question; this check asks
+// whether the passage states that claim as written.
+func TestSupportAsksWhetherThePassageStatesTheClaim(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X raised Y by 40%")
+	if _, err := f.write(t, Literature, "evidence", map[string]string{"claim": "X does not raise Y", "source_id": "europepmc:PMC1", "quote": "X raised Y by 40%", "stance": "challenges"}); err != nil {
+		t.Fatal(err)
+	}
+	g := f.gate(t, fakeJev(t, false))
+	if result(g, "support.E2") != board.Pass || result(g, "support.E3") != board.Fail {
+		t.Fatalf("%+v", g.Checks)
+	}
+}
+
+func TestJevDownNeedsReviewerNeverPasses(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X raised Y by 40%")
+	g := f.gate(t, fakeJev(t, true))
+	if result(g, "support.E1") != board.Attention {
+		t.Fatalf("%+v", g.Checks)
+	}
+	if _, err := f.write(t, Reviewer, "verdict", map[string]string{"result": "pass", "reason": "fits"}); err != nil {
+		t.Fatal(err)
+	}
+	f.finalize(t, g)
+	if g.Verdict != board.VFail {
+		t.Fatal("unsettled attention passed the gate")
+	}
+}
+
+func TestEgressOffReviewerAnswers(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X raised Y by 40%")
+	g := f.gate(t, nil)
+	for _, id := range []string{"support.E1", "support.E2"} {
+		if _, err := f.write(t, Reviewer, "review_item", map[string]string{"check": id, "result": "pass", "note": "read it"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.write(t, Reviewer, "review_item", map[string]string{"check": "unit.D1", "result": "pass", "choice": "biological_replicates", "note": "one mouse per sample"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.write(t, Reviewer, "verdict", map[string]string{"result": "pass", "reason": "fits"}); err != nil {
+		t.Fatal(err)
+	}
+	f.finalize(t, g)
+	if g.Verdict != board.VPass {
+		t.Fatalf("%+v", g)
+	}
+	for _, ch := range g.Checks {
+		if strings.HasPrefix(ch.ID, "support.") && ch.Judge != board.Reviewer {
+			t.Fatalf("egress-off check not recorded as reviewer: %+v", ch)
+		}
+		if ch.ID == "unit.D1" && ch.Choice != "biological_replicates" {
+			t.Fatalf("unit not recorded: %+v", ch)
+		}
+	}
+}
+
+func TestCannotProceedShortCircuits(t *testing.T) {
+	f := setup(t)
+	if _, err := f.write(t, Scoper, "cannot_proceed", map[string]string{"reason": "no viable question: needs wet-lab work"}); err != nil {
+		t.Fatal(err)
+	}
+	if g := f.gate(t, nil); g.Verdict != board.CannotProceed || !strings.Contains(g.Reason, "no viable question") {
+		t.Fatalf("%+v", g)
+	}
+}
+
+func (f *fixture) nothingFound(t *testing.T, role, reason string) {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"reason": reason})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.InWorkspace(context.Background(), f.ws, uuid.Nil, func(tx *store.Tx) error {
+		_, err := tx.Q.InsertRecord(context.Background(), insertParams(f, role, "nothing_found", "", body))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDataScoutNothingFoundStopsWithNoUsableData(t *testing.T) {
+	f := setup(t)
+	if _, err := f.write(t, Scoper, "question", map[string]string{"text": "Does X raise Y in mice?"}); err != nil {
+		t.Fatal(err)
+	}
+	f.nothingFound(t, DataScout, "nothing measures Y")
+	if g := f.gate(t, nil); g.Verdict != board.CannotProceed || g.Reason != "no usable data: nothing measures Y" {
+		t.Fatalf("%+v", g)
+	}
+}
+
+func TestContrarianNothingFoundIsAResult(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X raised Y by 40%")
+	f.nothingFound(t, Contrarian, "no null results after five searches")
+	g := f.gate(t, fakeJev(t, false))
+	if result(g, "search.contrary") != board.Pass || g.Verdict != "" {
+		t.Fatalf("%+v", g)
+	}
+}
+
+func TestLiteratureNothingFoundFailsEvidence(t *testing.T) {
+	f := setup(t)
+	if _, err := f.write(t, Scoper, "question", map[string]string{"text": "Does X raise Y in mice?"}); err != nil {
+		t.Fatal(err)
+	}
+	f.nothingFound(t, Literature, "no paper measures Y")
+	if g := f.gate(t, nil); g.Verdict != board.VFail || result(g, "evidence.present") != board.Fail {
+		t.Fatalf("%+v", g)
+	}
+}
+
+func TestMissingReviewerVerdictFails(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X raised Y by 40%")
+	g := f.gate(t, fakeJev(t, false))
+	f.finalize(t, g)
+	if g.Verdict != board.VFail || result(g, "review.verdict") != board.Fail {
+		t.Fatalf("%+v", g)
+	}
 }
