@@ -13,6 +13,9 @@ import (
 	"time"
 )
 
+// Model is the pinned model used for server-side scientific judgments.
+const Model = "jev-1.13.0"
+
 type Client struct {
 	BaseURL string
 	Key     string
