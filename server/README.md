@@ -94,7 +94,8 @@ Sign in with an emailed code entered in the terminal, or Google in the browser:
 90-day personal token, clears the selected workspace, and requires a workspace
 switch before card or Inbox commands. `logout` forgets the local token. Configuration
 uses `LYK_CONFIG` when set, otherwise `<UserConfigDir>/lyk/config.json`; writes
-replace the file atomically with mode 0600 in a directory restricted to 0700.
+replace the file atomically with mode 0600 with newly created config directories using 0700. Existing directory permissions
+are preserved, including when `LYK_CONFIG` points into a shared directory.
 Google sign-in requires configured Google credentials and a local browser; the CLI
 waits up to five minutes on an ephemeral loopback listener and accepts only the
 correlated callback. Browser launch failures are returned immediately.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -32,7 +33,7 @@ func TestConfigAtomicPrivate(t *testing.T) {
 	if err != nil || got != want || path != p {
 		t.Fatalf("%+v %s %v", got, path, err)
 	}
-	for path, mode := range map[string]os.FileMode{p: 0600, dir: 0700} {
+	for path, mode := range map[string]os.FileMode{p: 0600, dir: 0755} {
 		st, err := os.Stat(path)
 		if err != nil || st.Mode().Perm() != mode {
 			t.Fatalf("%s permissions: %v %v", path, st, err)
@@ -170,5 +171,67 @@ func TestLoginRejectsEmptyTokenAndConflictingMethods(t *testing.T) {
 	}
 	if _, err := os.Stat(p); !os.IsNotExist(err) {
 		t.Fatalf("invalid login saved config: %v", err)
+	}
+}
+
+func TestConfigPreservesExistingParentPermissions(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	t.Setenv("LYK_CONFIG", "./config.json")
+	_, path, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConfig(path, Config{Token: "private"}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0755 {
+		t.Fatalf("existing parent changed to %o; want 755", st.Mode().Perm())
+	}
+	nested := filepath.Join(dir, "new-cli", "nested", "config.json")
+	if err := SaveConfig(nested, Config{Token: "private"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Dir(nested), filepath.Dir(filepath.Dir(nested))} {
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm() != 0700 {
+			t.Fatalf("new directory %s mode %o; want 700", p, st.Mode().Perm())
+		}
+	}
+}
+
+func TestClientInjectedHTTPRejectsRedirect(t *testing.T) {
+	var requests atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1); w.Write([]byte(`{"name":"leaked"}`)) }))
+	defer destination.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL+"/credentials", http.StatusFound)
+	}))
+	defer origin.Close()
+	injected := &http.Client{Timeout: time.Second}
+	c := Client{Server: origin.URL, Token: "secret", Workspace: "private-workspace", HTTP: injected}
+	var out struct{ Name string }
+	err := c.Do(context.Background(), "GET", "/redirect", nil, &out)
+	if requests.Load() != 0 {
+		t.Fatalf("redirect destination received %d requests with possible credentials", requests.Load())
+	}
+	if err == nil {
+		t.Fatal("redirect accepted")
+	}
+	if injected.CheckRedirect != nil || injected.Timeout != time.Second {
+		t.Fatal("caller client mutated")
 	}
 }

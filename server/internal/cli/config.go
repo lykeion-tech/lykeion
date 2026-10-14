@@ -50,9 +50,6 @@ func SaveConfig(path string, c Config) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("restrict config directory: %w", err)
-	}
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err

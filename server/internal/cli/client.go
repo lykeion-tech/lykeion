@@ -44,10 +44,12 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 	if c.Workspace != "" {
 		req.Header.Set("X-Workspace-ID", c.Workspace)
 	}
-	h := c.HTTP
-	if h == nil {
-		h = &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	h := http.Client{Timeout: 30 * time.Second}
+	if c.HTTP != nil {
+		h = *c.HTTP
 	}
+	// Redirect policy applies to injected clients without modifying their settings.
+	h.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := h.Do(req)
 	if err != nil {
 		return err
