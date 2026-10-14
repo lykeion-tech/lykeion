@@ -31,7 +31,7 @@ func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 	t.Setenv("PATH", binDir)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", "")
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	scratch := t.TempDir()
 	if err := os.Chmod(scratch, 0o700); err != nil {
 		t.Fatal(err)

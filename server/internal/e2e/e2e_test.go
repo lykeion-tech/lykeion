@@ -74,7 +74,7 @@ func newLab(t *testing.T) *lab {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", "")
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("LYK_TOKEN", "lyk_fake_parent_secret")
 	t.Setenv("LYK_CONFIG", "/fake/parent/config")
 	l := &lab{env: testutil.Setup(t), ws: uuid.New(), issuer: auth.Issuer{Secret: []byte("test"), TTL: time.Hour}, blobs: t.TempDir(), calls: map[uuid.UUID]int{}, connections: map[net.Conn]bool{}}

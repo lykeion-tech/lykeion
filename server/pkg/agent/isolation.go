@@ -120,11 +120,11 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 	if err = os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", cleanup, err
 	}
-	data, err := os.ReadFile(filepath.Join(realHome, credFile))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	data, err := readSignIn(filepath.Join(realHome, credFile), harness, runtime.GOOS, os.Getenv(homeVar) != "", defaultClaudeSignIn)
+	if err != nil {
 		return "", cleanup, err
 	}
-	if err == nil {
+	if len(data) != 0 {
 		cred = target
 		if err = privateFile(target, data); err != nil {
 			return "", cleanup, err

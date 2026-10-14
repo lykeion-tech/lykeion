@@ -44,7 +44,7 @@ func fixture(t *testing.T) *daemonFixture {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", "")
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("LYK_TOKEN", "lyk_owner_must_never_leak")
 	t.Setenv("LYK_CONFIG", "/private/owner/config")
 	f := &daemonFixture{env: testutil.Setup(t), ws: uuid.New()}
@@ -518,8 +518,13 @@ func TestDaemonLargeMessageCrossesRealHTTP(t *testing.T) {
 		}), nil
 	}
 	cancel, done := startDaemon(t, f.cfg)
-	waitFor(t, func() bool { return f.messageCalls.Load() > 0 })
-	time.Sleep(200 * time.Millisecond)
+	// Handler entry does not mean the large payload's transaction committed.
+	// Observe persistence before stopping; cancellation can abort an in-flight write.
+	waitFor(t, func() bool {
+		var n int
+		must(t, f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1", f.id).Scan(&n))
+		return n == 1
+	})
 	stopDaemon(t, cancel, done)
 	var n int
 	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1", f.id).Scan(&n))

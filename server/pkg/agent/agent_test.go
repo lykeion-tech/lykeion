@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +23,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("HOME", home)
-	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	os.Unsetenv("CODEX_HOME")
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	os.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local/share"))
@@ -159,7 +160,7 @@ EOF`)
 	for _, m := range ms {
 		types = append(types, m.Type)
 	}
-	if strings.Join(types, ",") != "log,thinking,tool_use,tool_use,text,status" || res.SessionID != "th1" || res.Err != nil {
+	if strings.Join(types, ",") != "log,thinking,tool_use,tool_use,text,status,status" || res.SessionID != "th1" || res.Err != nil {
 		t.Fatalf("%v %+v", types, res)
 	}
 	if len(res.Usage) != 1 {
@@ -170,7 +171,7 @@ EOF`)
 		t.Fatalf("usage %+v", u)
 	}
 	a, _ := os.ReadFile(args)
-	for _, want := range []string{"exec", "--json", "-m\n" + CodexModel, "mcp_servers.lyk_sources.url=", "bearer_token_env_var", "-"} {
+	for _, want := range []string{"exec", "--json", "-m\n" + CodexModel, "--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_sources.url=", "bearer_token_env_var", "-"} {
 		if !strings.Contains(string(a), want) {
 			t.Errorf("codex args missing %q", want)
 		}
@@ -198,6 +199,7 @@ func TestCodexTurnFailed(t *testing.T) {
 func TestConfigHomeIsIsolated(t *testing.T) {
 	real := t.TempDir()
 	t.Setenv("HOME", real)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	for _, c := range []struct{ harness, env, home, cred string }{
 		{"claude", "CLAUDE_CONFIG_DIR", ".claude", claudeCredFile},
 		{"codex", "CODEX_HOME", ".codex", codexCredFile},
@@ -852,5 +854,106 @@ func TestDurableSinkFailureStopsChildAndSurfaces(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("sink failure did not stop child")
+	}
+}
+
+func TestCodexAccountingNoticeAndCacheWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		input, read, write int64
+		upper              bool
+	}{
+		{"base", 272000, 100000, 50000, false},
+		{"upper", 272001, 100000, 50000, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			line := fmt.Sprintf(`{"type":"turn.completed","usage":{"input_tokens":%d,"cached_input_tokens":%d,"cache_write_input_tokens":%d,"output_tokens":7}}`, tc.input, tc.read, tc.write)
+			var messages []Message
+			res := &Result{}
+			terminal, err := parseCodex("gpt-5.6-sol")([]byte(line), func(m Message) { messages = append(messages, m) }, res)
+			if err != nil || !terminal || len(res.Usage) != 1 {
+				t.Fatalf("result %+v, %v", res, err)
+			}
+			u := res.Usage[0]
+			if u.InputTokens != tc.input-tc.read-tc.write || u.CacheReadTokens != tc.read || u.CacheWriteTokens != tc.write || u.OutputTokens != 7 || u.CostUSD != nil {
+				t.Fatalf("usage %+v", u)
+			}
+			var notice struct {
+				Type, Model, Policy    string
+				ConservativeUpperBound bool `json:"conservative_upper_bound"`
+				Message                string
+			}
+			if len(messages) != 2 || json.Unmarshal(messages[1].Content, &notice) != nil || notice.Type != "accounting" || notice.Model != "gpt-5.6-sol" || notice.Policy != "api_list_price_estimate" || notice.ConservativeUpperBound != tc.upper || !strings.Contains(notice.Message, "not ChatGPT billed") {
+				t.Fatalf("missing truthful accounting notice: %+v", messages)
+			}
+		})
+	}
+}
+
+func TestCodexRejectsInvalidUsageCounts(t *testing.T) {
+	for _, usage := range []string{
+		`{"input_tokens":-1}`, `{"input_tokens":10,"output_tokens":-1}`,
+		`{"input_tokens":10,"cached_input_tokens":-1}`, `{"input_tokens":10,"cache_write_input_tokens":-1}`,
+		`{"input_tokens":10,"cached_input_tokens":11}`, `{"input_tokens":10,"cached_input_tokens":6,"cache_write_input_tokens":5}`,
+	} {
+		res := &Result{}
+		_, err := parseCodex("gpt-5.6-sol")([]byte(`{"type":"turn.completed","usage":`+usage+`}`), func(Message) {}, res)
+		if err == nil || len(res.Usage) != 0 {
+			t.Fatalf("accepted invalid usage %s: %+v, %v", usage, res, err)
+		}
+	}
+}
+
+func TestCodexPinnedSupportedModel(t *testing.T) {
+	if CodexModel != "gpt-5.6-sol" {
+		t.Fatalf("unsupported model still pinned: %s", CodexModel)
+	}
+}
+
+func TestCodexFeatureIsolationFlags(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "args")
+	bin := script(t, `printf '%s\n' "$@" > `+path+`
+echo '{"type":"turn.completed","usage":{}}'`)
+	s, err := (Codex{Bin: bin}).Execute(t.Context(), "ready", ExecOptions{Dir: t.TempDir(), MCPURL: "http://localhost/sources"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, s)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_sources.url=\"http://localhost/sources\""} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("missing %q in %s", want, b)
+		}
+	}
+}
+
+func TestCodexAccountingNoticeUsesDurableSink(t *testing.T) {
+	var messages []Message
+	bin := script(t, `echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'`)
+	s, err := (Codex{Bin: bin}).Execute(t.Context(), "ready", ExecOptions{Dir: t.TempDir(), OnMessage: func(m Message) error { messages = append(messages, m); return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamed, res := collect(t, s)
+	if res.Err != nil || len(streamed) != 0 || len(messages) != 2 || !strings.Contains(string(messages[1].Content), "api_list_price_estimate") {
+		t.Fatalf("sink=%+v streamed=%+v result=%+v", messages, streamed, res)
+	}
+}
+
+func TestCodexAggregateUsageHasConservativeNotice(t *testing.T) {
+	var messages []Message
+	res := &Result{}
+	parse := parseCodex("gpt-5.6-sol")
+	for i := 0; i < 2; i++ {
+		_, err := parse([]byte(`{"type":"turn.completed","usage":{"input_tokens":200000,"output_tokens":1}}`), func(m Message) { messages = append(messages, m) }, res)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if res.Usage[0].InputTokens != 400000 || len(messages) != 4 || !strings.Contains(string(messages[3].Content), `"conservative_upper_bound":true`) {
+		t.Fatalf("result=%+v messages=%+v", res, messages)
 	}
 }

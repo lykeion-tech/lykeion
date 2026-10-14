@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
+
+	"lykeion/server/internal/pricing"
 )
 
 type Codex struct{ Bin string }
 
 // Codex does not price events or report their model; pin it for server pricing.
-const CodexModel = "gpt-5-codex"
+const CodexModel = "gpt-5.6-sol"
 const codexCredFile = "auth.json"
 
 var plainKey = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -22,7 +25,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		model = CodexModel
 	}
 	// These flags belong to exec, before the optional resume subcommand.
-	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", "workspace-write", "-m", model, "--ignore-user-config", "--ignore-rules"}
+	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", "workspace-write", "-m", model, "--ignore-user-config", "--ignore-rules", "--disable", "apps", "--disable", "plugins", "--disable", "remote_plugin"}
 	for _, s := range o.MCP {
 		if !plainKey.MatchString(s.Name) {
 			return nil, fmt.Errorf("MCP server name %q is not a plain key", s.Name)
@@ -58,9 +61,10 @@ func parseCodex(model string) parser {
 			} `json:"error"`
 			Item  struct{ Type, Text, Tool string } `json:"item"`
 			Usage struct {
-				Input  int64 `json:"input_tokens"`
-				Cached int64 `json:"cached_input_tokens"`
-				Output int64 `json:"output_tokens"`
+				Input      int64 `json:"input_tokens"`
+				Cached     int64 `json:"cached_input_tokens"`
+				CacheWrite int64 `json:"cache_write_input_tokens"`
+				Output     int64 `json:"output_tokens"`
 			} `json:"usage"`
 		}
 		if err := json.Unmarshal(line, &ev); err != nil {
@@ -85,14 +89,32 @@ func parseCodex(model string) parser {
 				emit(Message{Type: "log", Content: cp})
 			}
 		case "turn.completed":
-			if len(res.Usage) == 0 {
-				res.Usage = []Usage{{Model: model}}
+			v := ev.Usage
+			if v.Input < 0 || v.Output < 0 || v.Cached < 0 || v.CacheWrite < 0 || v.Cached > v.Input || v.CacheWrite > v.Input-v.Cached {
+				return false, errors.New("invalid Codex usage: negative or inconsistent token counts")
 			}
-			u := &res.Usage[0]
-			u.InputTokens += ev.Usage.Input - ev.Usage.Cached
-			u.CacheReadTokens += ev.Usage.Cached
-			u.OutputTokens += ev.Usage.Output
+			ordinary := v.Input - v.Cached - v.CacheWrite
+			var u Usage
+			if len(res.Usage) > 0 {
+				u = res.Usage[0]
+			} else {
+				u.Model = model
+			}
+			if ordinary > math.MaxInt64-u.InputTokens || v.Output > math.MaxInt64-u.OutputTokens || v.Cached > math.MaxInt64-u.CacheReadTokens || v.CacheWrite > math.MaxInt64-u.CacheWriteTokens {
+				return false, errors.New("invalid Codex usage: aggregate token count overflow")
+			}
+			u.InputTokens += ordinary
+			u.CacheReadTokens += v.Cached
+			u.CacheWriteTokens += v.CacheWrite
+			u.OutputTokens += v.Output
+			res.Usage = []Usage{u}
+			upper := pricing.ConservativeUpperBound(model, u.InputTokens, u.CacheReadTokens, u.CacheWriteTokens)
+			message := "Standard API list-price estimate with no Fast tier requested; not ChatGPT billed spend."
+			if upper {
+				message += " Per-request pricing bands are unavailable; long-context rates applied to all aggregate tokens are a conservative upper bound."
+			}
 			emit(Message{Type: "status", Content: cp})
+			emit(Message{Type: "status", Content: raw(map[string]any{"type": "accounting", "model": model, "policy": "api_list_price_estimate", "conservative_upper_bound": upper, "message": message})})
 			return true, nil
 		case "turn.failed":
 			detail := ev.Error.Message

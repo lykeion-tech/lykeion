@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"lykeion/server/internal/pricing"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
 	"lykeion/server/pkg/agent"
@@ -204,14 +203,9 @@ func TestSettleOnceAndAddSpend(t *testing.T) {
 	if err := f.T.Messages(ctx, f.Owner, ref, id, []Message{{Seq: 1, Type: "text", Content: []byte(`"hi"`)}, {Seq: 1, Type: "text", Content: []byte(`"dup"`)}}); err != nil {
 		t.Fatal(err)
 	}
-	var priced string
-	var price pricing.Price
-	for priced, price = range pricing.Prices {
-		break
-	}
 	usage := []agent.Usage{
 		{Model: "reported", InputTokens: 10, OutputTokens: 2, CostUSD: usd(0.5)},
-		{Model: priced, InputTokens: 1_000_000},
+		{Model: "gpt-5.6-sol", InputTokens: 1_000_000},
 		{Model: "nobody-knows", OutputTokens: 5},
 	}
 	for i := 0; i < 2; i++ {
@@ -219,7 +213,8 @@ func TestSettleOnceAndAddSpend(t *testing.T) {
 			t.Fatalf("complete %d: %v", i, err)
 		}
 	}
-	want := 0.5 + price.Input
+	// One million aggregate input tokens uses the disclosed long-band upper bound.
+	want := 8.5 // 0.5 reported cost + 8.0 estimated cost.
 	var spent, cost float64
 	var msgs, rows int
 	if err := f.Env.Owner.QueryRow(ctx, "SELECT spent_usd FROM card WHERE id = $1", f.Card).Scan(&spent); err != nil {
