@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"lykeion/server/internal/apiclient"
 )
 
 func loginCmd(e *env) *cobra.Command {
@@ -55,7 +57,7 @@ func loginCmd(e *env) *cobra.Command {
 			var tok struct {
 				Token string `json:"token"`
 			}
-			c := &Client{Server: e.cfg.Server, Token: session}
+			c := &apiclient.Client{Server: e.cfg.Server, Token: session}
 			if err := c.Do(ctx, "POST", "/api/tokens", map[string]string{"name": "CLI (" + host + ")"}, &tok); err != nil {
 				return err
 			}
@@ -78,7 +80,7 @@ func loginCmd(e *env) *cobra.Command {
 }
 
 func emailLogin(ctx context.Context, e *env, email string) (string, error) {
-	c := &Client{Server: e.cfg.Server}
+	c := &apiclient.Client{Server: e.cfg.Server}
 	if err := c.Do(ctx, "POST", "/auth/send-code", map[string]string{"email": email}, nil); err != nil {
 		return "", err
 	}

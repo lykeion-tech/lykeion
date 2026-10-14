@@ -3,35 +3,50 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 const (
-	MaxBodyBytes    = 1 << 20
-	BodyReadTimeout = 2 * time.Second
-	RequestTimeout  = 10 * time.Second
+	MaxBodyBytes          = 1 << 20
+	MaxDaemonMessageBytes = 32 << 20
+	BodyReadTimeout       = 2 * time.Second
+	RequestTimeout        = 10 * time.Second
+	BlobBodyReadTimeout   = 30 * time.Second
+	BlobRequestTimeout    = 60 * time.Second
 )
 
-// RequestBounds reads the entire bounded body before authorization opens a
-// workspace transaction. A network deadline actually interrupts stalled reads;
+// RequestBounds buffers JSON before workspace transactions. Raw role uploads
+// authenticate first and spool in their handler before opening a transaction.
+// A network deadline actually interrupts stalled reads;
 // the context also bounds database lock waits and external calls afterward.
 func RequestBounds(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A WebSocket owns its connection and lifetime after the handshake.
-		if r.URL.Path == "/ws" {
+		if r.Method == http.MethodGet && (r.URL.Path == "/ws" || r.URL.Path == "/api/daemon/ws") &&
+			websocket.IsWebSocketUpgrade(r) && validWebSocketHandshake(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), RequestTimeout)
+		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs"
+		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
+		if rawBlob {
+			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
 		r = r.WithContext(ctx)
 		if r.Body != nil && r.Body != http.NoBody {
 			controller := http.NewResponseController(w)
-			deadline := time.Now().Add(BodyReadTimeout)
+			deadline := time.Now().Add(bodyTimeout)
 			if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 				deadline = d
 			}
@@ -39,7 +54,17 @@ func RequestBounds(next http.Handler) http.Handler {
 				deny(w, http.StatusInternalServerError, "body read unavailable")
 				return
 			}
-			data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
+			// Only this exact raw endpoint may defer reading until after authentication.
+			// Keep the deadline through the spool. Close these upload connections so
+			// net/http never drains an unread body after early authentication failure.
+			if rawBlob {
+				w.Header().Set("Connection", "close")
+				defer func() { _ = controller.SetReadDeadline(time.Now()) }()
+				next.ServeHTTP(w, r)
+				return
+			}
+			limit := JSONBodyLimit(r)
+			data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 			if err != nil {
 				// Do not let net/http drain an incomplete or oversized body on keep-alive.
 				w.Header().Set("Connection", "close")
@@ -48,7 +73,7 @@ func RequestBounds(next http.Handler) http.Handler {
 				var network net.Error
 				switch {
 				case errors.As(err, &tooLarge):
-					deny(w, http.StatusRequestEntityTooLarge, "request body exceeds 1 MiB")
+					deny(w, http.StatusRequestEntityTooLarge, "request body exceeds endpoint limit")
 				case errors.As(err, &network) && network.Timeout(), ctx.Err() != nil:
 					deny(w, http.StatusRequestTimeout, "request body timed out")
 				default:
@@ -61,4 +86,33 @@ func RequestBounds(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Match only the UUID message route, not a permissive prefix.
+func daemonMessagePost(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	p := strings.Split(r.URL.Path, "/")
+	if len(p) != 6 || p[1] != "api" || p[2] != "daemon" || p[3] != "agent-runs" || p[5] != "messages" || len(p[4]) != 36 {
+		return false
+	}
+	_, err := uuid.Parse(p[4])
+	return err == nil
+}
+
+// JSONBodyLimit is shared by pre-transaction buffering and strict decoding.
+func JSONBodyLimit(r *http.Request) int64 {
+	if daemonMessagePost(r) {
+		return MaxDaemonMessageBytes
+	}
+	return MaxBodyBytes
+}
+
+func validWebSocketHandshake(r *http.Request) bool {
+	if r.Header.Get("Sec-WebSocket-Version") != "13" {
+		return false
+	}
+	key, err := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))
+	return err == nil && len(key) == 16
 }

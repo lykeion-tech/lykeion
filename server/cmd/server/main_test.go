@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,11 +15,73 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/testutil"
 )
 
-func config(env *testutil.Env) map[string]string {
-	return map[string]string{"DATABASE_URL": env.AppURL, "MIGRATE_DATABASE_URL": env.OwnerURL, "REDIS_URL": env.RedisURL, "JWT_SECRET": "0123456789abcdef0123456789abcdef", "LISTEN_ADDR": "127.0.0.1:0", "COOKIE_SECURE": "false"}
+func config(t *testing.T, env *testutil.Env) map[string]string {
+	t.Helper()
+	return map[string]string{"DATABASE_URL": env.AppURL, "MIGRATE_DATABASE_URL": env.OwnerURL, "REDIS_URL": env.RedisURL, "JWT_SECRET": "0123456789abcdef0123456789abcdef", "LISTEN_ADDR": "127.0.0.1:0", "COOKIE_SECURE": "false", "STORAGE": "local:" + t.TempDir()}
+}
+
+func TestStorageSetting(t *testing.T) {
+	if _, err := newStorage(context.Background(), func(k string) string { return map[string]string{"STORAGE": "local:" + t.TempDir()}[k] }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newStorage(context.Background(), func(string) string { return "" }); err == nil {
+		t.Fatal("no STORAGE setting was accepted")
+	}
+	for _, setting := range []string{"local:", "local:relative", "local:" + filepath.Join(t.TempDir(), "file"), "unknown"} {
+		if strings.HasSuffix(setting, "file") {
+			if err := os.WriteFile(strings.TrimPrefix(setting, "local:"), []byte("not a directory"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := newStorage(context.Background(), func(k string) string {
+			if k == "STORAGE" {
+				return setting
+			}
+			return ""
+		}); err == nil {
+			t.Fatalf("invalid STORAGE accepted: %q", setting)
+		}
+	}
+	for _, values := range []map[string]string{
+		{"STORAGE": "s3"},
+		{"STORAGE": "s3", "S3_BUCKET": "bucket"},
+		{"STORAGE": "s3", "S3_BUCKET": "bucket", "S3_REGION": "us-east-1", "S3_ENDPOINT": "not-a-url"},
+	} {
+		if _, err := newStorage(context.Background(), func(k string) string { return values[k] }); err == nil {
+			t.Fatalf("invalid S3 configuration accepted: %+v", values)
+		}
+	}
+	t.Setenv("AWS_ACCESS_KEY_ID", "test-only-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-only-secret")
+	validS3 := map[string]string{"STORAGE": "s3", "S3_BUCKET": "test-bucket", "S3_REGION": "us-east-1", "S3_ENDPOINT": "http://127.0.0.1:9000"}
+	blobs, err := newStorage(context.Background(), func(k string) string { return validS3[k] })
+	if err != nil {
+		t.Fatalf("valid S3 settings: %v", err)
+	}
+	if _, ok := blobs.(*storage.S3); !ok {
+		t.Fatalf("STORAGE=s3 selected %T", blobs)
+	}
+}
+
+func TestServerRejectsMissingStorageBeforeReady(t *testing.T) {
+	env := testutil.Setup(t)
+	values := config(t, env)
+	delete(values, "STORAGE")
+	ready := make(chan string, 1)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	if err := run(ctx, func(k string) string { return values[k] }, ready); err == nil || !strings.Contains(err.Error(), "STORAGE") {
+		t.Fatalf("missing storage was accepted: %v", err)
+	}
+	select {
+	case addr := <-ready:
+		t.Fatalf("announced ready without storage: %s", addr)
+	default:
+	}
 }
 func start(t *testing.T, values map[string]string) (string, context.CancelFunc, <-chan error) {
 	t.Helper()
@@ -52,7 +116,7 @@ func TestServerStartsMigratedAndReady(t *testing.T) {
 	if _, err := env.Owner.Exec(context.Background(), "DROP SCHEMA public CASCADE; CREATE SCHEMA public"); err != nil {
 		t.Fatal(err)
 	}
-	addr, cancel, done := start(t, config(env))
+	addr, cancel, done := start(t, config(t, env))
 	resp, err := http.Get("http://" + addr + "/readyz")
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +159,7 @@ func TestServerRejectsUnsafeDatabaseRoles(t *testing.T) {
 	env := testutil.Setup(t)
 	for _, mode := range []string{"owner", "wrong-role", "superuser", "bypassrls", "table-owner"} {
 		t.Run(mode, func(t *testing.T) {
-			values := config(env)
+			values := config(t, env)
 			switch mode {
 			case "owner":
 				values["DATABASE_URL"] = env.OwnerURL
@@ -148,7 +212,7 @@ func TestServerRejectsUnavailableDependenciesBeforeReady(t *testing.T) {
 	ln.Close()
 	for _, key := range []string{"DATABASE_URL", "REDIS_URL"} {
 		t.Run(key, func(t *testing.T) {
-			values := config(env)
+			values := config(t, env)
 			u, _ := url.Parse(values[key])
 			u.Host = addr
 			values[key] = u.String()
@@ -168,7 +232,7 @@ func TestServerRejectsUnavailableDependenciesBeforeReady(t *testing.T) {
 }
 func TestServerCancellationClosesWebSocket(t *testing.T) {
 	env := testutil.Setup(t)
-	values := config(env)
+	values := config(t, env)
 	id := uuid.New()
 	if _, err := env.Owner.Exec(context.Background(), `INSERT INTO "user" (id,email,name) VALUES ($1,'socket@example.org','socket')`, id); err != nil {
 		t.Fatal(err)
@@ -220,7 +284,7 @@ func TestServerCancellationClosesWebSocket(t *testing.T) {
 }
 func TestServerReadyDeliveryIsBounded(t *testing.T) {
 	env := testutil.Setup(t)
-	values := config(env)
+	values := config(t, env)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -237,7 +301,7 @@ func TestServerReadyDeliveryIsBounded(t *testing.T) {
 
 func TestServerCancellationDuringSMTPReleasesPoolAndRollsBack(t *testing.T) {
 	env := testutil.Setup(t)
-	values := config(env)
+	values := config(t, env)
 	user, ws := uuid.New(), uuid.New()
 	if _, err := env.Owner.Exec(t.Context(), `INSERT INTO "user" (id,email,name) VALUES ($1,'owner@lab.org','owner')`, user); err != nil {
 		t.Fatal(err)

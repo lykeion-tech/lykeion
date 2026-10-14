@@ -21,11 +21,38 @@ func NewRouter(h *H) http.Handler {
 	r.Get("/auth/google", h.googleStart)
 	r.Get("/auth/google/callback", h.googleCallback)
 
+	r.Route("/api/role", func(r chi.Router) {
+		r.Use(middleware.AgentRunAuth(h.Store))
+		r.Post("/records", h.createRecord)
+		r.Get("/records", h.listRecords)
+		r.Post("/blobs", h.putBlob)
+		r.Get("/blobs/{sha}", h.getBlob)
+	})
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(h.Store, h.JWT))
 		if h.Hub != nil {
 			r.Get("/ws", h.Hub.ServeWS)
 		}
+		r.Route("/api/daemon", func(r chi.Router) {
+			r.Use(personalOnly)
+			r.Get("/workspaces", h.listWorkspaces)
+			if h.Hub != nil {
+				r.Get("/ws", h.Hub.ServeDaemonWS)
+			}
+			r.Post("/register", h.daemonRegister)
+			r.Post("/heartbeat", h.daemonHeartbeat)
+			r.Post("/agent-runs/claim", h.daemonClaim)
+			r.Post("/agent-runs/{id}/prepare-lease", h.daemonPrepare())
+			r.Post("/agent-runs/{id}/start", h.daemonStart())
+			r.Post("/agent-runs/{id}/messages", h.daemonMessages())
+			r.Post("/agent-runs/{id}/complete", h.daemonSettle(true))
+			r.Post("/agent-runs/{id}/fail", h.daemonSettle(false))
+			r.Get("/agent-runs/{id}/status", h.daemonStatus)
+			r.Post("/agent-runs/{id}/cancel-ack", h.daemonCancelAck())
+		})
+		// Cancel opens its own service transaction; keep it outside Scope's transaction.
+		r.Post("/api/agent-runs/{id}/cancel", h.cancelAgentRun)
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
 		r.Post("/api/cli-token", h.cliToken)
@@ -52,6 +79,11 @@ func NewRouter(h *H) http.Handler {
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Scope(h.Store, middleware.FromHeader))
+			r.Get("/api/runtimes", h.listRuntimes)
+			r.Patch("/api/runtimes/{id}", h.patchRuntime)
+			r.Delete("/api/runtimes/{id}", h.deleteRuntime)
+			r.Get("/api/agent-runs/{id}", h.getAgentRun)
+			r.Get("/api/agent-runs/{id}/messages", h.agentRunMessages)
 			r.Get("/api/cards", h.listCards)
 			r.Post("/api/cards", h.createCard)
 			r.Get("/api/cards/{id}", h.getCard)

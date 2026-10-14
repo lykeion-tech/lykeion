@@ -1,0 +1,101 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"time"
+
+	"github.com/pelletier/go-toml/v2"
+)
+
+const codexCatalogTimeout = 15 * time.Second
+const codexCatalogLimit = 4 << 20
+
+// codexModel chooses the run's model: an explicit one, else the account's
+// configured default when the account can see it, else the first model in
+// Codex's own catalog. The live catalog is account-visible; --bundled is the
+// binary's offline snapshot.
+func codexModel(ctx context.Context, bin, dir string, env []string, configured string) (string, error) {
+	var models []string
+	for _, args := range [][]string{{"debug", "models"}, {"debug", "models", "--bundled"}} {
+		models = codexCatalog(ctx, bin, dir, env, args...)
+		if len(models) > 0 {
+			break
+		}
+	}
+	if configured != "" && (len(models) == 0 || slices.Contains(models, configured)) {
+		return configured, nil
+	}
+	if len(models) > 0 {
+		return models[0], nil
+	}
+	return "", errors.New("cannot determine the Codex model: the catalog is unavailable and no default is configured")
+}
+
+// codexCatalog lists visible model slugs in catalog order, or nil on failure.
+func codexCatalog(ctx context.Context, bin, dir string, env []string, args ...string) []string {
+	ctx, cancel := context.WithTimeout(ctx, codexCatalogTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir, cmd.Env, cmd.Stderr = dir, env, io.Discard
+	cmd.WaitDelay = time.Second
+	out, err := cmd.StdoutPipe()
+	if err != nil || cmd.Start() != nil {
+		return nil
+	}
+	raw, _ := io.ReadAll(io.LimitReader(out, codexCatalogLimit+1))
+	if cmd.Wait() != nil || len(raw) > codexCatalogLimit {
+		return nil
+	}
+	var catalog struct {
+		Models []struct{ Slug, Visibility string } `json:"models"`
+	}
+	if json.Unmarshal(raw, &catalog) != nil {
+		return nil
+	}
+	var slugs []string
+	for _, m := range catalog.Models {
+		if m.Slug != "" && len(m.Slug) <= 200 && m.Visibility != "hide" {
+			slugs = append(slugs, m.Slug)
+		}
+	}
+	return slugs
+}
+
+// codexConfig is the part of the account's config.toml Lykeion reads.
+type codexConfig struct {
+	Model      string                    `toml:"model"`
+	MCPServers map[string]map[string]any `toml:"mcp_servers"`
+}
+
+// readCodexConfig parses the account's config.toml; a missing or unreadable
+// file reads as empty, leaving Codex to report its own config errors.
+func readCodexConfig(home string) codexConfig {
+	var cfg codexConfig
+	if home == "" {
+		return cfg
+	}
+	b, err := readLimited(filepath.Join(home, "config.toml"), codexCatalogLimit)
+	if err != nil || toml.Unmarshal(b, &cfg) != nil || len(cfg.Model) > 200 {
+		return codexConfig{}
+	}
+	return cfg
+}
+func readLimited(p string, limit int64) ([]byte, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err == nil && int64(len(b)) > limit {
+		err = errors.New("file too large")
+	}
+	return b, err
+}

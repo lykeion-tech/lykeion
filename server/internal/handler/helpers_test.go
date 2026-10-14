@@ -16,6 +16,8 @@ import (
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/realtime"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
 )
@@ -60,8 +62,10 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 	st.Publish = hub.Publish
 	mail := &fakeMail{}
 	h := &H{Store: st, JWT: auth.Issuer{Secret: []byte("test-secret"), TTL: time.Hour}, Mail: mail, Limit: auth.Limiter{R: env.Redis}, Hub: hub}
+	h.AgentRuns = &service.AgentRuns{Store: st, MCPURL: "http://test/mcp/sources", Stale: time.Second}
+	h.Blobs = storage.Local{Dir: t.TempDir()}
 	srv := httptest.NewServer(NewRouter(h))
-	t.Cleanup(srv.Close)
+	t.Cleanup(func() { srv.Close(); hub.Close() })
 	return &server{Server: srv, H: h, Mail: mail, Env: env}
 }
 

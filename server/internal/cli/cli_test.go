@@ -15,6 +15,8 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/realtime"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
 )
@@ -48,7 +50,8 @@ func serve(t *testing.T) (*httptest.Server, *mail) {
 	t.Cleanup(func() { _ = hub.Close() })
 	m := &mail{}
 	srv := httptest.NewServer(handler.NewRouter(&handler.H{Store: st, JWT: auth.Issuer{Secret: []byte("s"), TTL: time.Hour},
-		Mail: m, Limit: auth.Limiter{R: env.Redis}, Hub: hub}))
+		Mail: m, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
+		AgentRuns: &service.AgentRuns{Store: st}, Blobs: storage.Local{Dir: t.TempDir()}}))
 	t.Cleanup(srv.Close)
 	return srv, m
 }

@@ -11,6 +11,93 @@ import (
 	"github.com/google/uuid"
 )
 
+type AgentRun struct {
+	ID                    uuid.UUID  `json:"id"`
+	WorkspaceID           uuid.UUID  `json:"workspace_id"`
+	CardID                uuid.UUID  `json:"card_id"`
+	ResponsibleUserID     uuid.UUID  `json:"responsible_user_id"`
+	BoardColumn           string     `json:"board_column"`
+	Round                 int32      `json:"round"`
+	Role                  string     `json:"role"`
+	Harness               string     `json:"harness"`
+	Prompt                string     `json:"prompt"`
+	Skill                 string     `json:"skill"`
+	Status                string     `json:"status"`
+	QueueReason           *string    `json:"queue_reason"`
+	RuntimeID             *uuid.UUID `json:"runtime_id"`
+	PrepareLeaseExpiresAt *time.Time `json:"prepare_lease_expires_at"`
+	DispatchedAt          *time.Time `json:"dispatched_at"`
+	StartedAt             *time.Time `json:"started_at"`
+	CompletedAt           *time.Time `json:"completed_at"`
+	Attempt               int32      `json:"attempt"`
+	MaxAttempts           int32      `json:"max_attempts"`
+	SessionID             string     `json:"session_id"`
+	ContinuityScope       string     `json:"continuity_scope"`
+	RunPrivate            bool       `json:"run_private"`
+	ProfileMode           string     `json:"profile_mode"`
+	PolicyDigest          string     `json:"policy_digest"`
+	Model                 string     `json:"model"`
+	Error                 string     `json:"error"`
+	FailureReason         *string    `json:"failure_reason"`
+	CostUsd               float64    `json:"cost_usd"`
+	LateUsageAt           *time.Time `json:"late_usage_at"`
+	CreatedAt             time.Time  `json:"created_at"`
+}
+
+type AgentRunMessage struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	AgentRunID  uuid.UUID       `json:"agent_run_id"`
+	Attempt     int32           `json:"attempt"`
+	Seq         int32           `json:"seq"`
+	Type        string          `json:"type"`
+	Tool        string          `json:"tool"`
+	Content     json.RawMessage `json:"content"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
+type AgentRunReceipt struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	AgentRunID  uuid.UUID       `json:"agent_run_id"`
+	Attempt     int32           `json:"attempt"`
+	RuntimeID   *uuid.UUID      `json:"runtime_id"`
+	Result      json.RawMessage `json:"result"`
+}
+
+type AgentRunSettlement struct {
+	WorkspaceID    uuid.UUID       `json:"workspace_id"`
+	AgentRunID     uuid.UUID       `json:"agent_run_id"`
+	Result         json.RawMessage `json:"result"`
+	CreatedAt      time.Time       `json:"created_at"`
+	DeliveredAt    *time.Time      `json:"delivered_at"`
+	DeliveryID     *uuid.UUID      `json:"delivery_id"`
+	LeaseExpiresAt *time.Time      `json:"lease_expires_at"`
+}
+
+type AgentRunToken struct {
+	TokenHash   string    `json:"token_hash"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Role        string    `json:"role"`
+	Attempt     int32     `json:"attempt"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
+type AgentRunUsage struct {
+	ID               uuid.UUID `json:"id"`
+	WorkspaceID      uuid.UUID `json:"workspace_id"`
+	AgentRunID       uuid.UUID `json:"agent_run_id"`
+	Attempt          int32     `json:"attempt"`
+	Model            string    `json:"model"`
+	InputTokens      int64     `json:"input_tokens"`
+	OutputTokens     int64     `json:"output_tokens"`
+	CacheReadTokens  int64     `json:"cache_read_tokens"`
+	CacheWriteTokens int64     `json:"cache_write_tokens"`
+	CostUsd          float64   `json:"cost_usd"`
+	CostReported     bool      `json:"cost_reported"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
 type Card struct {
 	ID          uuid.UUID   `json:"id"`
 	WorkspaceID uuid.UUID   `json:"workspace_id"`
@@ -82,6 +169,36 @@ type PersonalAccessToken struct {
 	ExpiresAt time.Time  `json:"expires_at"`
 	RevokedAt *time.Time `json:"revoked_at"`
 	CreatedAt time.Time  `json:"created_at"`
+}
+
+type Record struct {
+	ID           uuid.UUID       `json:"id"`
+	WorkspaceID  uuid.UUID       `json:"workspace_id"`
+	CardID       uuid.UUID       `json:"card_id"`
+	BoardColumn  string          `json:"board_column"`
+	Round        int32           `json:"round"`
+	Kind         string          `json:"kind"`
+	Role         string          `json:"role"`
+	Key          string          `json:"key"`
+	Body         json.RawMessage `json:"body"`
+	BlobKey      string          `json:"blob_key"`
+	AgentRunID   *uuid.UUID      `json:"agent_run_id"`
+	SupersededAt *time.Time      `json:"superseded_at"`
+	CreatedAt    time.Time       `json:"created_at"`
+}
+
+type Runtime struct {
+	ID            uuid.UUID `json:"id"`
+	WorkspaceID   uuid.UUID `json:"workspace_id"`
+	OwnerID       uuid.UUID `json:"owner_id"`
+	DaemonID      string    `json:"daemon_id"`
+	Harness       string    `json:"harness"`
+	DeviceName    string    `json:"device_name"`
+	CustomName    *string   `json:"custom_name"`
+	Status        string    `json:"status"`
+	LastSeenAt    time.Time `json:"last_seen_at"`
+	MaxConcurrent int32     `json:"max_concurrent"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type User struct {

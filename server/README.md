@@ -114,3 +114,29 @@ waits up to five minutes on an ephemeral loopback listener and accepts only the
 correlated callback. Launcher startup errors are returned immediately. A launcher
 that starts but later exits unsuccessfully can leave the CLI waiting for the
 callback timeout; some platform launchers remain attached to the browser lifetime.
+
+## Agent runs on your machine: continuity and private mode
+
+By default (`workspace_continuity`) `lyk daemon` runs Claude Code and Codex as your
+own CLI: your sign-in, history, settings, permission rules, skills, instructions,
+hooks, plugins and personal MCP servers all apply, and nothing is copied. Lykeion
+adds its own MCP entries, always named with a `lyk_` prefix, and continues the
+same CLI session for the next run of the same scope (for a board role,
+`card:<id>/role:<role>`). A run the server marks `run_private`, any harness other
+than `claude` and `codex`, and any workspace switched off below run in private
+mode: an isolated config home holding only a copy of the sign-in file.
+
+```sh
+/tmp/lyk workspace continuity status    # mode, retention, recorded sessions
+/tmp/lyk workspace continuity disable   # private mode for this workspace
+/tmp/lyk workspace continuity enable
+/tmp/lyk workspace continuity reset     # forget Lykeion's policy and session records
+```
+
+The policy lives in the daemon's state directory and applies to runs claimed
+afterwards. Reset never touches your CLI history or sign-in.
+
+Accepted limits of continuity mode: personal stdio MCP servers and hooks run inside
+the agent's environment and inherit its run-scoped `LYK_TOKEN`, and the agent can
+read your own `lyk` login file in your real `HOME`. Runs that must not see either
+are marked `run_private`.

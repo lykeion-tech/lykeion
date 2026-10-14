@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"lykeion/server/internal/apiclient"
 )
 
 func TestConfigAtomicPrivate(t *testing.T) {
@@ -80,7 +82,7 @@ func TestClientResponsesAndContext(t *testing.T) {
 		}
 	}))
 	defer s.Close()
-	c := Client{Server: s.URL + "/", Token: "secret", Workspace: "w"}
+	c := apiclient.Client{Server: s.URL + "/", Token: "secret", Workspace: "w"}
 	var out struct{ Name string }
 	if err := c.Do(context.Background(), "GET", "/json", nil, &out); err != nil || out.Name != "Ada" {
 		t.Fatalf("%+v %v", out, err)
@@ -222,7 +224,7 @@ func TestClientInjectedHTTPRejectsRedirect(t *testing.T) {
 	}))
 	defer origin.Close()
 	injected := &http.Client{Timeout: time.Second}
-	c := Client{Server: origin.URL, Token: "secret", Workspace: "private-workspace", HTTP: injected}
+	c := apiclient.Client{Server: origin.URL, Token: "secret", Workspace: "private-workspace", HTTP: injected}
 	var out struct{ Name string }
 	err := c.Do(context.Background(), "GET", "/redirect", nil, &out)
 	if requests.Load() != 0 {

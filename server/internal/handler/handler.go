@@ -10,23 +10,30 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 )
 
 type H struct {
-	Store  *store.Store
-	JWT    auth.Issuer
-	Mail   auth.Mailer
-	Limit  auth.Limiter
-	Google auth.Google
-	Secure bool // cookies only over HTTPS
-	Hub    *realtime.Hub
+	Store     *store.Store
+	JWT       auth.Issuer
+	Mail      auth.Mailer
+	Limit     auth.Limiter
+	Google    auth.Google
+	Secure    bool // cookies only over HTTPS
+	Hub       *realtime.Hub
+	AgentRuns *service.AgentRuns
+	Blobs     storage.Storage
+	Kinds     map[string]service.Kind
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -42,12 +49,13 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func readJSON(r *http.Request, v any) error {
-	data, err := io.ReadAll(io.LimitReader(r.Body, middleware.MaxBodyBytes+1))
+	limit := middleware.JSONBodyLimit(r)
+	data, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		return err
 	}
-	if len(data) > middleware.MaxBodyBytes {
-		return errors.New("request body exceeds 1 MiB")
+	if int64(len(data)) > limit {
+		return errors.New("request body exceeds endpoint limit")
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -73,4 +81,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
 	writeErr(w, 500, "internal error")
+}
+
+func (h *H) scope(r *http.Request) (uuid.UUID, uuid.UUID) {
+	return middleware.WorkspaceFrom(r.Context()).ID, middleware.IdentityFrom(r.Context()).UserID
 }
