@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -19,6 +20,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -129,6 +131,25 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 				return errBlobReference
 			}
 		}
+		if kind.KeyPrefix != "" || kind.Prepare != nil {
+			if _, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: role.CardID, WorkspaceID: role.WorkspaceID}); err != nil {
+				return err
+			}
+		}
+		if kind.KeyPrefix != "" {
+			n, err := tx.Q.CountKindRecords(r.Context(), db.CountKindRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: role.Column, Kind: in.Kind})
+			if err != nil {
+				return err
+			}
+			in.Key = fmt.Sprintf("%s%d", kind.KeyPrefix, n+1)
+		}
+		if kind.Prepare != nil {
+			w := service.Writer{Card: role.CardID, AgentRun: role.AgentRunID, Column: role.Column, Role: role.Role, Round: role.Round}
+			var err error
+			if in.Body, err = kind.Prepare(r.Context(), tx, w, in.Body); err != nil {
+				return err
+			}
+		}
 		var err error
 		rec, err = tx.Q.InsertRecord(r.Context(), db.InsertRecordParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: role.Column, Round: role.Round, Kind: in.Kind, Role: role.Role, Key: in.Key, Body: in.Body, BlobKey: in.BlobKey, AgentRunID: &role.AgentRunID})
 		if err != nil {
@@ -136,6 +157,11 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 		}
 		return tx.Emit(r.Context(), "record.created", &role.CardID, store.Actor{Type: "role", ID: role.AgentRunID}, map[string]any{"record_id": rec.ID, "kind": in.Kind, "key": in.Key, "role": role.Role})
 	})
+	var inv service.Invalid
+	if errors.As(err, &inv) {
+		writeErr(w, 400, string(inv))
+		return
+	}
 	if err != nil {
 		roleError(w, r, err)
 		return
