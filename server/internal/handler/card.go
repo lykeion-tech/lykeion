@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,18 +47,20 @@ func cardID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	return id, true
 }
 
+var errDuplicate = errors.New("duplicate")
+
 func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	var in newCard
 	if err := readJSON(r, &in); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid card: "+err.Error())
+		writeErr(w, 400, "invalid card: "+err.Error())
 		return
 	}
 	if strings.TrimSpace(in.Question) == "" {
-		writeErr(w, http.StatusBadRequest, "question required")
+		writeErr(w, 400, "question required")
 		return
 	}
 	if in.BudgetUSD < 0 {
-		writeErr(w, http.StatusBadRequest, "budget cannot be negative")
+		writeErr(w, 400, "budget cannot be negative")
 		return
 	}
 	if strings.TrimSpace(in.Title) == "" {
@@ -66,7 +69,8 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if in.FollowsFrom == nil {
 		in.FollowsFrom = []uuid.UUID{}
 	}
-	var created db.Card
+	var c db.Card
+	var dup db.ActiveDuplicateRow
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		for _, parentID := range in.FollowsFrom {
 			if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: parentID}); err != nil {
@@ -76,31 +80,50 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		number, err := tx.Q.NextCardNumber(r.Context(), ws)
+		// A follow-up may ask the same question again; any other card may not
+		// while an active card asks it. The workspace lock makes two identical
+		// cards created at once see each other.
+		if len(in.FollowsFrom) == 0 {
+			if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+				return err
+			}
+			d, err := tx.Q.ActiveDuplicate(r.Context(), db.ActiveDuplicateParams{WorkspaceID: ws, Title: in.Title, Question: in.Question})
+			switch {
+			case err == nil:
+				dup = d
+				return errDuplicate
+			case !errors.Is(err, pgx.ErrNoRows):
+				return err
+			}
+		}
+		n, err := tx.Q.NextCardNumber(r.Context(), ws)
 		if err != nil {
 			return err
 		}
-		created, err = tx.Q.CreateCard(r.Context(), db.CreateCardParams{
-			WorkspaceID: ws, Number: number, Title: in.Title, Question: in.Question,
-			OwnerID: user, BudgetUsd: in.BudgetUSD, Deadline: in.Deadline, FollowsFrom: in.FollowsFrom,
+		c, err = tx.Q.CreateCard(r.Context(), db.CreateCardParams{
+			WorkspaceID: ws, Number: n, Title: in.Title, Question: in.Question, OwnerID: user,
+			BudgetUsd: in.BudgetUSD, Deadline: in.Deadline, FollowsFrom: in.FollowsFrom,
 		})
 		if err != nil {
 			return err
 		}
-		return tx.Emit(r.Context(), "card.created", &created.ID, store.User(user), map[string]any{
-			"number": created.Number, "title": created.Title,
-		})
+		return tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title})
 	})
+	if errors.Is(err, errDuplicate) {
+		writeJSON(w, 409, map[string]any{"error": fmt.Sprintf("an active card already asks this: #%d", dup.Number),
+			"card_id": dup.ID, "number": dup.Number})
+		return
+	}
 	var inputErr cardInputError
 	if errors.As(err, &inputErr) {
-		writeErr(w, http.StatusBadRequest, inputErr.Error())
+		writeErr(w, 400, inputErr.Error())
 		return
 	}
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, created)
+	writeJSON(w, 201, c)
 }
 
 func (h *H) listCards(w http.ResponseWriter, r *http.Request) {

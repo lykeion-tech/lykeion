@@ -97,6 +97,15 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		path = strings.TrimSuffix(path, "/")
 		var body any
 		switch {
+		case strings.HasSuffix(route, "/send-back"):
+			body = map[string]string{"to": "grounding", "reason": "outsider"}
+		case strings.HasSuffix(route, "/stop"):
+			body = map[string]string{"reason": "outsider"}
+		case strings.HasSuffix(route, "/budget"):
+			body = map[string]float64{"usd": 1}
+		case strings.HasSuffix(route, "/settings"):
+			body = map[string]any{"settings": map[string]any{}}
+
 		case route == "/api/cards":
 			body = map[string]any{"question": "outsider card"}
 		case strings.HasSuffix(route, "/comments") && method == http.MethodPost:

@@ -57,6 +57,11 @@ func NewRouter(h *H) http.Handler {
 		})
 		// Cancel opens its own service transaction; keep it outside Scope's transaction.
 		r.Post("/api/agent-runs/{id}/cancel", h.cancelAgentRun)
+		r.Post("/api/cards/{id}/send-back", h.sendBack)
+		r.Post("/api/cards/{id}/stop", h.stopCard)
+		r.Post("/api/cards/{id}/budget", h.budgetCard)
+		r.Post("/api/cards/{id}/resume", h.resumeCard)
+
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
 		r.Post("/api/cli-token", h.cliToken)
@@ -72,6 +77,7 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/", h.getWorkspace)
 			r.With(middleware.RequireAdmin).Patch("/", h.renameWorkspace)
 			r.With(middleware.RequireOwner).Delete("/", h.deleteWorkspace)
+			r.With(middleware.RequireOwner).Patch("/settings", h.setSettings)
 			r.Get("/members", h.listMembers)
 			r.With(middleware.RequireAdmin).Patch("/members/{user}", h.setMemberRole)
 			r.With(middleware.RequireAdmin).Delete("/members/{user}", h.removeMember)
@@ -94,6 +100,9 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/cards/{id}/comments", h.listComments)
 			r.Post("/api/cards/{id}/comments", h.createComment)
 			r.Get("/api/cards/{id}/events", h.cardEvents)
+			r.Get("/api/cards/{id}/records", h.cardRecords)
+			r.Get("/api/cards/{id}/gates", h.cardGates)
+
 			r.Get("/api/inbox", h.listInbox)
 			r.Post("/api/inbox/{id}/read", h.readInbox)
 		})

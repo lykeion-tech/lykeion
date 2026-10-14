@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -74,7 +75,7 @@ func TestReconnectMissesNothingUnderConcurrentWrites(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, nil)
+			s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": fmt.Sprintf("q%d", i)}, nil)
 		}()
 	}
 	wg.Wait()

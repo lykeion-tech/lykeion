@@ -18,6 +18,7 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
+	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -31,6 +32,7 @@ type H struct {
 	Google    auth.Google
 	Secure    bool // cookies only over HTTPS
 	Hub       *realtime.Hub
+	Engine    *round.Engine
 	AgentRuns *service.AgentRuns
 	Blobs     storage.Storage
 	Kinds     map[string]service.Kind
