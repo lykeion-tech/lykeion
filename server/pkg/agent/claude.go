@@ -174,10 +174,6 @@ func parseClaude(fallbackModel string, accounting *claudeAccounting) parser {
 				}
 				res.Usage = []Usage{u}
 			}
-			if err := accounting.normalize(res, ev.ModelUsage); err != nil {
-				res.Usage = nil
-				return false, err
-			}
 			if strings.TrimSpace(ev.TerminalReason) == "prompt_too_long" {
 				res.Err = fmt.Errorf("Claude terminal_reason=prompt_too_long: context exhausted: %s", ev.Result)
 				res.Reason = ReasonContextExhausted
@@ -187,6 +183,16 @@ func parseClaude(fallbackModel string, accounting *claudeAccounting) parser {
 					detail = "Claude returned an error result without details"
 				}
 				res.Err = errors.New(detail)
+			}
+			if err := accounting.normalize(res, ev.ModelUsage); err != nil {
+				res.Usage = nil
+				// Accounting uncertainty must not erase the provider's terminal
+				// failure or its retry classification. No ambiguous spend is sent.
+				if res.Err != nil {
+					res.Err = fmt.Errorf("%w; usage unavailable: %v", res.Err, err)
+					return true, nil
+				}
+				return false, err
 			}
 			return true, nil
 		default:

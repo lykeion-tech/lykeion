@@ -294,3 +294,31 @@ func TestClaudeResumeCancellationConsumesBaseline(t *testing.T) {
 		t.Fatal("cancelled execution left reusable stale baseline")
 	}
 }
+
+func TestClaudeResumeTerminalFailureSurvivesMissingUsage(t *testing.T) {
+	for _, tc := range []struct{ name, frame, reason, detail string }{
+		{"exhausted_without_error_flag", `{"type":"result","session_id":"s","terminal_reason":"prompt_too_long","is_error":false}`, ReasonContextExhausted, "prompt_too_long"},
+		{"exhausted_with_error_flag", `{"type":"result","session_id":"s","terminal_reason":"prompt_too_long","is_error":true,"result":"stopped","total_cost_usd":1.25}`, ReasonContextExhausted, "prompt_too_long"},
+		{"provider_failure", `{"type":"result","session_id":"s","is_error":true,"result":"rate limited"}`, ReasonProviderNetwork, "rate limited"},
+		{"subtype_failure", `{"type":"result","session_id":"s","subtype":"error_during_execution","errors":["connection reset"]}`, ReasonProviderNetwork, "connection reset"},
+		{"agent_failure", `{"type":"result","session_id":"s","is_error":true,"result":"max turns reached"}`, ReasonAgentError, "max turns reached"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			first := runClaudeUsage(t, dir, "", usageFrame("s", map[string]any{"main": modelUsage(100, 20, 300, 40, 1.0)}))
+			if first.Err != nil {
+				t.Fatal(first.Err)
+			}
+			r := runClaudeUsage(t, dir, "s", tc.frame)
+			if r.Err == nil || r.Reason != tc.reason || !strings.Contains(r.Err.Error(), tc.detail) || r.SessionID != "s" {
+				t.Fatalf("terminal reason lost: %+v", r)
+			}
+			if len(r.Usage) != 0 {
+				t.Fatalf("ambiguous resumed usage retained: %+v", r.Usage)
+			}
+			if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: "s"}); err == nil {
+				t.Fatal("failed terminal result restored unsafe baseline")
+			}
+		})
+	}
+}
