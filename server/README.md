@@ -66,3 +66,35 @@ Run each command sequentially and wait for its exit before the next. Use
 isolated test services: tests create/drop databases, change the test app role,
 and flush Redis. The PostgreSQL test administrator needs role management and
 CREATE DATABASE privileges (the unsafe-role tests also require superuser).
+
+## People's CLI
+
+Build the CLI from `server/` with `GOMAXPROCS=2 go build -p 1 -o /tmp/lyk ./cmd/lyk`.
+Sign in with an emailed code entered in the terminal, or Google in the browser:
+
+```sh
+/tmp/lyk login --email you@lab.org --server http://127.0.0.1:8080
+# Alternatively: /tmp/lyk login --google --server http://127.0.0.1:8080
+/tmp/lyk whoami
+/tmp/lyk workspace create 'Smith Lab' smith-lab
+/tmp/lyk workspace list
+/tmp/lyk workspace switch smith-lab
+/tmp/lyk workspace members
+/tmp/lyk workspace invite colleague@lab.org --role member
+# The invited person signs in, then runs: /tmp/lyk workspace accept TOKEN
+/tmp/lyk card new 'Does X raise Y?' --title 'X and Y' --usd 20
+/tmp/lyk card list
+/tmp/lyk card comment 1 'Focus on the fasting state.'
+/tmp/lyk card show 1
+/tmp/lyk inbox
+/tmp/lyk logout
+```
+
+`--server` is required on first login and is remembered. Successful login stores a
+90-day personal token, clears the selected workspace, and requires a workspace
+switch before card or Inbox commands. `logout` forgets the local token. Configuration
+uses `LYK_CONFIG` when set, otherwise `<UserConfigDir>/lyk/config.json`; writes
+replace the file atomically with mode 0600 in a directory restricted to 0700.
+Google sign-in requires configured Google credentials and a local browser; the CLI
+waits up to five minutes on an ephemeral loopback listener and accepts only the
+correlated callback. Browser launch failures are returned immediately.

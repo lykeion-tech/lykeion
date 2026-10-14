@@ -27,11 +27,26 @@ func validCLIPort(port string) (string, bool) {
 	return strconv.Itoa(n), true
 }
 
-func oauthSignature(key []byte, state, port string) []byte {
+func validCLIState(state, port string) bool {
+	if state == "" {
+		return true
+	}
+	if port == "" || len(state) != 43 {
+		return false
+	}
+	b, err := base64.RawURLEncoding.DecodeString(state)
+	return err == nil && len(b) == 32 && base64.RawURLEncoding.EncodeToString(b) == state
+}
+
+func oauthSignature(key []byte, state, port string, cliState ...string) []byte {
 	mac := hmac.New(sha256.New, key)
 	_, _ = mac.Write([]byte(state))
 	_, _ = mac.Write([]byte{0})
 	_, _ = mac.Write([]byte(port))
+	if len(cliState) > 0 && cliState[0] != "" {
+		_, _ = mac.Write([]byte{0})
+		_, _ = mac.Write([]byte(cliState[0]))
+	}
 	return mac.Sum(nil)
 }
 
@@ -45,6 +60,11 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "cli_port must be between 1024 and 65535")
 		return
 	}
+	cliState := r.URL.Query().Get("cli_state")
+	if !validCLIState(cliState, port) {
+		writeErr(w, http.StatusBadRequest, "invalid CLI callback state")
+		return
+	}
 	if len(h.JWT.Secret) == 0 {
 		writeErr(w, http.StatusInternalServerError, "google sign-in is unavailable")
 		return
@@ -56,8 +76,12 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := base64.RawURLEncoding.EncodeToString(rawState)
-	signature := base64.RawURLEncoding.EncodeToString(oauthSignature(h.JWT.Secret, state, port))
-	http.SetCookie(w, &http.Cookie{Name: oauthCookie, Value: state + "|" + port + "|" + signature, Path: "/auth/google",
+	signature := base64.RawURLEncoding.EncodeToString(oauthSignature(h.JWT.Secret, state, port, cliState))
+	cookieValue := state + "|" + port + "|" + signature
+	if cliState != "" {
+		cookieValue = state + "|" + port + "|" + cliState + "|" + signature
+	}
+	http.SetCookie(w, &http.Cookie{Name: oauthCookie, Value: cookieValue, Path: "/auth/google",
 		HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, MaxAge: 600})
 	http.Redirect(w, r, h.Google.AuthCodeURL(state), http.StatusFound)
 }
@@ -69,13 +93,25 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(c.Value, "|")
-	if len(parts) != 3 || parts[0] == "" || parts[2] == "" {
+	if (len(parts) != 3 && len(parts) != 4) || parts[0] == "" || parts[len(parts)-1] == "" {
 		writeErr(w, http.StatusBadRequest, "sign-in expired; start again")
 		return
 	}
 	state, port := parts[0], parts[1]
-	providedSignature, err := base64.RawURLEncoding.DecodeString(parts[2])
-	expectedSignature := oauthSignature(h.JWT.Secret, state, port)
+	cliState := ""
+	if len(parts) == 4 {
+		cliState = parts[2]
+		if cliState == "" {
+			writeErr(w, http.StatusBadRequest, "invalid CLI callback state")
+			return
+		}
+	}
+	if !validCLIState(cliState, port) {
+		writeErr(w, http.StatusBadRequest, "invalid CLI callback state")
+		return
+	}
+	providedSignature, err := base64.RawURLEncoding.DecodeString(parts[len(parts)-1])
+	expectedSignature := oauthSignature(h.JWT.Secret, state, port, cliState)
 	if err != nil || subtle.ConstantTimeCompare(providedSignature, expectedSignature) != 1 {
 		writeErr(w, http.StatusBadRequest, "state mismatch")
 		return
@@ -113,7 +149,11 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if port != "" {
-		callbackURL := "http://127.0.0.1:" + port + "/callback?" + url.Values{"token": {tok}}.Encode()
+		query := url.Values{"token": {tok}}
+		if cliState != "" {
+			query.Set("state", cliState)
+		}
+		callbackURL := "http://127.0.0.1:" + port + "/callback?" + query.Encode()
 		http.Redirect(w, r, callbackURL, http.StatusFound)
 		return
 	}

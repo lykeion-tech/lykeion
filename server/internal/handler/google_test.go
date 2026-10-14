@@ -169,3 +169,33 @@ func TestGoogleCallbackHandlesMalformedProviderURL(t *testing.T) {
 		t.Fatalf("malformed token URL: %d", resp.StatusCode)
 	}
 }
+
+func TestGoogleCLINonceHandOff(t *testing.T) {
+	s := googleServer(t, true, "nonce-subject")
+	nonce := base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("n", 32)))
+	state, c := start(t, s, "?cli_port=45123&cli_state="+nonce)
+	loc, err := url.Parse(callback(t, s, state, "good", c).Header.Get("Location"))
+	if err != nil || loc.Query().Get("state") != nonce || loc.Query().Get("token") == "" {
+		t.Fatalf("nonce handoff: %v %v", loc, err)
+	}
+	tampered := *c
+	parts := strings.Split(c.Value, "|")
+	if len(parts) != 4 {
+		t.Fatalf("nonce not bound in cookie: %s", c.Value)
+	}
+	parts[2] = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("x", 32)))
+	tampered.Value = strings.Join(parts, "|")
+	if resp := callback(t, s, state, "good", &tampered); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("tampered nonce: %d", resp.StatusCode)
+	}
+	for _, query := range []string{"?cli_state=" + nonce, "?cli_port=45123&cli_state=bad", "?cli_port=45123&cli_state=" + strings.Repeat("x", 200)} {
+		resp, err := noRedirect.Get(s.URL + "/auth/google" + query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("invalid nonce accepted: %s %d", query, resp.StatusCode)
+		}
+	}
+}
