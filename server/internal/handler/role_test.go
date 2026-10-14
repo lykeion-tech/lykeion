@@ -340,8 +340,7 @@ func TestRoleBlobCommitFailureIsInaccessible(t *testing.T) {
 	}
 }
 
-// Blocking only the external storage call leaves the real database lock and
-// settlement code in place, so this detects releasing authority before Put.
+// Hold only external storage I/O while exercising the real cancellation API.
 type heldStorage struct {
 	storage.Storage
 	entered chan struct{}
@@ -357,64 +356,209 @@ func (s heldStorage) Put(ctx context.Context, key string, r io.Reader, size int6
 	}
 	return s.Storage.Put(ctx, key, r, size)
 }
-func TestRoleBlobWriteSerializesWithSettlement(t *testing.T) {
+
+// Cancellation must commit while provisional storage remains blocked. The
+// eventual Put cannot publish metadata using the authority it had before cancel.
+func TestRoleBlobSlowPutDoesNotBlockCancellation(t *testing.T) {
 	s := newServer(t)
-	_, _, c, run := s.roleFixture(t)
+	s.H.Kinds = map[string]service.Kind{"free": {Roles: []string{"scoper"}}}
+	jwt, ws, c, run := s.roleFixture(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	unblock := func() { once.Do(func() { close(release) }) }
 	defer unblock()
 	s.H.Blobs = heldStorage{s.H.Blobs, entered, release}
-	upload := make(chan int, 1)
-	go func() {
-		code, _ := s.blobRequest(t, "POST", "/api/role/blobs", run.token, strings.NewReader("serialized"))
-		upload <- code
-	}()
+	upload := s.roleRequestAsync("POST", "/api/role/blobs", run.token, "", strings.NewReader("provisional"))
 	select {
 	case <-entered:
 	case <-time.After(3 * time.Second):
 		t.Fatal("storage not reached")
 	}
-	done := make(chan int, 1)
-	go func() {
-		done <- s.call(t, "POST", "/api/daemon/agent-runs/"+run.id+"/complete", run.personal, "", run.ref, nil)
-	}()
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		var blocked int
-		err := s.Env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%LockAgentRun%'`).Scan(&blocked)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if blocked > 0 {
-			break
-		}
-		select {
-		case code := <-done:
-			t.Fatalf("settlement passed active blob write: %d", code)
-		default:
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("settlement did not wait for run lock")
-		}
-		time.Sleep(10 * time.Millisecond)
+	s.cancelWhileStorageBlocked(t, jwt, ws, run.id)
+	var state string
+	if err := s.Env.Owner.QueryRow(context.Background(), "SELECT status FROM agent_run WHERE id=$1", run.id).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "cancelled" {
+		t.Fatalf("cancel did not commit: %s", state)
+	}
+	select {
+	case result := <-upload:
+		t.Fatalf("upload finished before storage released: %+v", result)
+	default:
 	}
 	unblock()
-	if code := <-upload; code != 201 {
-		t.Fatalf("upload %d", code)
+	result := awaitRoleRequest(t, upload)
+	if result.code != 401 {
+		t.Fatalf("cancelled upload %d %s", result.code, result.body)
 	}
-	if code := <-done; code != 200 {
-		t.Fatalf("settle %d", code)
+	sum := sha256.Sum256([]byte("provisional"))
+	sha := hex.EncodeToString(sum[:])
+	key := ws + "/" + c.ID + "/" + sha
+	rc, err := s.H.Blobs.Get(context.Background(), key)
+	if err != nil {
+		t.Fatalf("provisional object missing: %v", err)
 	}
-	var blobEvent, settleEvent int64
-	if err := s.Env.Owner.QueryRow(context.Background(), "SELECT id FROM event WHERE card_id=$1 AND type='blob.created'", c.ID).Scan(&blobEvent); err != nil {
+	if err := rc.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Env.Owner.QueryRow(context.Background(), "SELECT id FROM event WHERE card_id=$1 AND type='agent_run.completed'", c.ID).Scan(&settleEvent); err != nil {
+	var count int
+	if err := s.Env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM event WHERE card_id=$1 AND type='blob.created'", c.ID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if blobEvent >= settleEvent {
-		t.Fatalf("event order: blob=%d settlement=%d", blobEvent, settleEvent)
+	if count != 0 {
+		t.Fatalf("cancelled upload events %d", count)
+	}
+	fresh := s.running(t, jwt, ws, c.ID)
+	if code, _ := s.blobRequest(t, "GET", "/api/role/blobs/"+sha, fresh.token, nil); code != 404 {
+		t.Fatalf("orphan accessible to fresh token: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/role/records", fresh.token, "", map[string]any{"kind": "free", "body": map[string]any{}, "blob_key": key}, nil); code != 400 {
+		t.Fatalf("orphan reference %d", code)
+	}
+}
+
+type roleRequestResult struct {
+	code int
+	body []byte
+	err  error
+}
+
+func (s *server) roleRequestAsync(method, path, token, ws string, body io.Reader) <-chan roleRequestResult {
+	out := make(chan roleRequestResult, 1)
+	go func() {
+		req, err := http.NewRequest(method, s.URL+path, body)
+		if err != nil {
+			out <- roleRequestResult{err: err}
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Workspace-ID", ws)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			out <- roleRequestResult{err: err}
+			return
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		out <- roleRequestResult{resp.StatusCode, b, err}
+	}()
+	return out
+}
+func awaitRoleRequest(t *testing.T, out <-chan roleRequestResult) roleRequestResult {
+	t.Helper()
+	select {
+	case result := <-out:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		return result
+	case <-time.After(3 * time.Second):
+		t.Fatal("role request did not finish")
+		return roleRequestResult{}
+	}
+}
+func (s *server) cancelWhileStorageBlocked(t *testing.T, jwt, ws, id string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", s.URL+"/api/agent-runs/"+id+"/cancel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("X-Workspace-ID", ws)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("cancellation blocked by storage I/O: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 204 {
+		t.Fatalf("cancellation during storage I/O: %d", resp.StatusCode)
+	}
+}
+
+type heldGetStorage struct {
+	storage.Storage
+	entered, release chan struct{}
+	closed           chan struct{}
+	once             sync.Once
+}
+
+func (s *heldGetStorage) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	s.once.Do(func() { close(s.entered) })
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	rc, err := s.Storage.Get(ctx, key)
+	if err != nil {
+		return rc, err
+	}
+	return observedRoleCloser{ReadCloser: rc, closed: s.closed}, nil
+}
+
+type observedRoleCloser struct {
+	io.ReadCloser
+	closed chan struct{}
+}
+
+func (r observedRoleCloser) Close() error { err := r.ReadCloser.Close(); close(r.closed); return err }
+func TestRoleBlobSlowGetDoesNotBlockCancellation(t *testing.T) {
+	for _, operation := range []string{"reference", "download"} {
+		t.Run(operation, func(t *testing.T) {
+			s := newServer(t)
+			s.H.Kinds = map[string]service.Kind{"free": {Roles: []string{"scoper"}}}
+			jwt, ws, c, run := s.roleFixture(t)
+			code, b := s.blobRequest(t, "POST", "/api/role/blobs", run.token, strings.NewReader("stored"))
+			if code != 201 {
+				t.Fatal(code)
+			}
+			var blob struct {
+				Key string `json:"blob_key"`
+				SHA string `json:"sha256"`
+			}
+			if err := json.Unmarshal(b, &blob); err != nil {
+				t.Fatal(err)
+			}
+			entered, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(release) }) }
+			defer unblock()
+			closed := make(chan struct{})
+			s.H.Blobs = &heldGetStorage{Storage: s.H.Blobs, entered: entered, release: release, closed: closed}
+			var pending <-chan roleRequestResult
+			if operation == "reference" {
+				pending = s.roleRequestAsync("POST", "/api/role/records", run.token, "", jsonBody(map[string]any{"kind": "free", "body": map[string]any{}, "blob_key": blob.Key}))
+			} else {
+				pending = s.roleRequestAsync("GET", "/api/role/blobs/"+blob.SHA, run.token, "", nil)
+			}
+			select {
+			case <-entered:
+			case <-time.After(3 * time.Second):
+				t.Fatal("storage not reached")
+			}
+			s.cancelWhileStorageBlocked(t, jwt, ws, run.id)
+			unblock()
+			result := awaitRoleRequest(t, pending)
+			if result.code != 401 {
+				t.Fatalf("cancelled %s: %d %s", operation, result.code, result.body)
+			}
+			select {
+			case <-closed:
+			default:
+				t.Fatal("provisional storage reader was not closed")
+			}
+
+			var count int
+			if err := s.Env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM record WHERE card_id=$1", c.ID).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatalf("cancelled reference wrote %d records", count)
+			}
+		})
 	}
 }
 

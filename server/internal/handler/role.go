@@ -119,6 +119,20 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "invalid blob_key for this card")
 			return
 		}
+		// Probe availability without holding lifecycle locks. The final transaction
+		// still requires current authority and committed metadata before insertion.
+		rc, err := h.Blobs.Get(r.Context(), in.BlobKey)
+		if errors.Is(err, storage.ErrNotFound) {
+			err = errBlobReference
+		}
+		if err != nil {
+			roleError(w, r, err)
+			return
+		}
+		if err := rc.Close(); err != nil {
+			fail(w, r, err)
+			return
+		}
 	}
 	var rec db.Record
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
@@ -129,16 +143,6 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 			}
 			if !exists {
 				return errBlobReference
-			}
-			rc, err := h.Blobs.Get(r.Context(), in.BlobKey)
-			if errors.Is(err, storage.ErrNotFound) {
-				return errBlobReference
-			}
-			if err != nil {
-				return err
-			}
-			if err := rc.Close(); err != nil {
-				return err
 			}
 		}
 		var err error
@@ -175,8 +179,9 @@ func (h *H) listRecords(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, records)
 }
 
-// putBlob spools and hashes before acquiring tenant locks. Only a committed
-// blob.created event makes the stored object available to readers or records.
+// putBlob spools, hashes and provisionally stores bytes without lifecycle locks,
+// allowing cancellation during slow storage. Only the final authorized commit
+// of blob.created makes the object available to readers or records.
 func (h *H) putBlob(w http.ResponseWriter, r *http.Request) {
 	tmp, err := os.CreateTemp("", "lyk-blob-*")
 	if err != nil {
@@ -219,10 +224,17 @@ func (h *H) putBlob(w http.ResponseWriter, r *http.Request) {
 	defer input.Close()
 	sum := hex.EncodeToString(hash.Sum(nil))
 	key := blobKey(middleware.RoleFrom(r.Context()), sum)
+	// Avoid provisional storage for a token that expired while spooling. This
+	// precheck is only an optimization; roleTx revalidates after external I/O.
+	if _, err := h.Store.Global().LookupAgentRunToken(r.Context(), auth.Hash(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))); err != nil {
+		roleError(w, r, errRoleUnauthorized)
+		return
+	}
+	if err := h.Blobs.Put(r.Context(), key, input, n); err != nil {
+		fail(w, r, err)
+		return
+	}
 	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
-		if err := h.Blobs.Put(r.Context(), key, input, n); err != nil {
-			return err
-		}
 		return tx.Emit(r.Context(), "blob.created", &role.CardID, store.Actor{Type: "role", ID: role.AgentRunID}, map[string]any{"blob_key": key, "sha256": sum, "size": n})
 	})
 	if err != nil {
@@ -237,9 +249,18 @@ func (h *H) getBlob(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid sha256")
 		return
 	}
-	var rc io.ReadCloser
-	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
-		key := blobKey(role, sum)
+	// Opening storage is provisional: no bytes are sent until current token
+	// authority and committed blob metadata have been checked under locks.
+	key := blobKey(middleware.RoleFrom(r.Context()), sum)
+	rc, err := h.Blobs.Get(r.Context(), key)
+	if rc != nil {
+		defer rc.Close()
+	}
+	if err != nil {
+		roleError(w, r, err)
+		return
+	}
+	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
 		exists, err := tx.Q.RoleBlobExists(r.Context(), db.RoleBlobExistsParams{WorkspaceID: role.WorkspaceID, CardID: &role.CardID, BlobKey: key})
 		if err != nil {
 			return err
@@ -247,12 +268,8 @@ func (h *H) getBlob(w http.ResponseWriter, r *http.Request) {
 		if !exists {
 			return storage.ErrNotFound
 		}
-		rc, err = h.Blobs.Get(r.Context(), key)
-		return err
+		return nil
 	})
-	if rc != nil {
-		defer rc.Close()
-	}
 	if err != nil {
 		roleError(w, r, err)
 		return
