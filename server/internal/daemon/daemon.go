@@ -29,6 +29,8 @@ type Config struct {
 	Slots                                 int
 	Poll, Heartbeat, Flush                time.Duration
 	NewBackend                            func(harness, bin string) (agent.Backend, error)
+	Ready                                 func() error
+	OnExit                                func()
 }
 
 func (c *Config) defaults() {
@@ -129,6 +131,9 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer lock.Close()
+	if cfg.OnExit != nil {
+		defer cfg.OnExit()
+	}
 	if err = privateDir(cfg.Home); err != nil {
 		return err
 	}
@@ -146,6 +151,11 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	if err = d.flush(ctx); err != nil {
 		return err
+	}
+	if cfg.Ready != nil {
+		if err = cfg.Ready(); err != nil {
+			return fmt.Errorf("announce daemon readiness: %w", err)
+		}
 	}
 	background := func(fn func()) { d.wg.Add(1); go func() { defer d.wg.Done(); fn() }() }
 	background(func() { d.every(ctx, cfg.Heartbeat, d.heartbeat) })

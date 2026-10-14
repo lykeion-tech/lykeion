@@ -124,6 +124,31 @@ echo '{"type":"result","is_error":false,"total_cost_usd":0.25,"session_id":"s"}'
 `), 0700))
 	return p
 }
+
+func TestReadyCallbackRunsAfterRegistrationAndExitsUnderOwnership(t *testing.T) {
+	f := fixture(t)
+	want := errors.New("readiness record unavailable")
+	var exited atomic.Bool
+	f.cfg.Ready = func() error {
+		return f.runs.Store.InWorkspace(t.Context(), f.ws, f.user, func(tx *store.Tx) error {
+			runtimes, err := tx.Q.ListRuntimes(t.Context(), f.ws)
+			if err != nil {
+				return err
+			}
+			if len(runtimes) == 0 || runtimes[0].Status != "online" {
+				return errors.New("readiness preceded runtime registration")
+			}
+			return want
+		})
+	}
+	f.cfg.OnExit = func() { exited.Store(true) }
+	if err := Run(t.Context(), f.cfg); !errors.Is(err, want) {
+		t.Fatalf("readiness failure: %v", err)
+	}
+	if !exited.Load() {
+		t.Fatal("exit callback was not run")
+	}
+}
 func waitFor(t *testing.T, fn func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(12 * time.Second)

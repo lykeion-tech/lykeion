@@ -8,8 +8,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,9 +24,51 @@ import (
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/realtime"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/migrations"
 )
+
+func newStorage(ctx context.Context, getenv func(string) string) (storage.Storage, error) {
+	s := getenv("STORAGE")
+	switch {
+	case strings.HasPrefix(s, "local:"):
+		root := strings.TrimPrefix(s, "local:")
+		if root == "" || !filepath.IsAbs(root) {
+			return nil, errors.New("STORAGE local path must be a nonempty absolute path")
+		}
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return nil, fmt.Errorf("STORAGE local directory: %w", err)
+		}
+		if _, err := filepath.EvalSymlinks(root); err != nil {
+			return nil, fmt.Errorf("STORAGE local directory: %w", err)
+		}
+		probe, err := os.CreateTemp(root, ".lyk-storage-*")
+		if err != nil {
+			return nil, fmt.Errorf("STORAGE local directory is not writable: %w", err)
+		}
+		if err := errors.Join(probe.Close(), os.Remove(probe.Name())); err != nil {
+			return nil, fmt.Errorf("STORAGE local probe: %w", err)
+		}
+		return storage.Local{Dir: root}, nil
+	case s == "s3":
+		bucket, region := strings.TrimSpace(getenv("S3_BUCKET")), strings.TrimSpace(getenv("S3_REGION"))
+		if bucket == "" || region == "" {
+			return nil, errors.New("S3_BUCKET and S3_REGION are required for STORAGE=s3")
+		}
+		endpoint := getenv("S3_ENDPOINT")
+		if endpoint != "" {
+			u, err := url.Parse(endpoint)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+				return nil, errors.New("S3_ENDPOINT must be an http or https URL")
+			}
+		}
+		return storage.NewS3(ctx, bucket, endpoint, region)
+	default:
+		return nil, errors.New("STORAGE must be local:/path or s3")
+	}
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -91,13 +136,40 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	// Hijacked sockets must finish their database work before the pool closes.
 	defer hub.Close()
 	st.Publish = hub.Publish
+	blobs, err := newStorage(ctx, getenv)
+	if err != nil {
+		return err
+	}
+	runs := &service.AgentRuns{Store: st, MCPURL: strings.TrimRight(getenv("PUBLIC_URL"), "/") + "/mcp/sources"}
 	var mail auth.Mailer = auth.LogMailer{}
 	if addr := getenv("SMTP_ADDR"); addr != "" {
 		mail = auth.SMTPMailer{Addr: addr, From: getenv("SMTP_FROM"), User: getenv("SMTP_USER"), Pass: getenv("SMTP_PASS")}
 	}
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
+		AgentRuns: runs, Blobs: blobs,
 		Google: auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback")}
+	if err := runs.RecoverSettlements(ctx); err != nil {
+		return fmt.Errorf("recover settlements: %w", err)
+	}
+	sweepCtx, stopSweep := context.WithCancel(ctx)
+	sweepDone := make(chan struct{})
+	go func() {
+		defer close(sweepDone)
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-ticker.C:
+				if err := runs.Sweep(sweepCtx); err != nil && sweepCtx.Err() == nil {
+					slog.Error("sweep", "err", err)
+				}
+			}
+		}
+	}()
+	defer func() { stopSweep(); <-sweepDone }()
 	addr := getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":8080"
