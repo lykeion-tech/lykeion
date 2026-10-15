@@ -11,6 +11,8 @@ type Price struct {
 // Prices are the providers' list prices per million tokens, keyed by the model
 // name the CLI reports. Only models whose CLI reports no cost need a row.
 var Prices = map[string]Price{
+	// Cursor uses subscription billing; this is an API list-price estimate.
+	"gpt-5":       {Input: 1.25, Output: 10, CacheRead: 0.125},
 	"gpt-5-codex": {Input: 1.25, Output: 10, CacheRead: 0.125},
 	"gpt-5.6-sol": {Input: 4, Output: 20, CacheRead: 0.4, CacheWrite: 5},
 }

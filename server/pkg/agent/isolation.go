@@ -247,7 +247,7 @@ func checkOwnedState(root string) error {
 func filteredEnvKey(k string) bool {
 	u := strings.ToUpper(k)
 	switch u {
-	case "LYK_TOKEN", "LYK_CONFIG", "LYK_SERVER", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_APP_TOOLS_PIPE_PATH", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "CODEX_CONFIG", "CODEX_CONFIG_TOML", "CODEX_MANAGED_CONFIG_PATH", "HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME", "BASH_ENV", "ENV", "ZDOTDIR":
+	case "LYK_TOKEN", "LYK_CONFIG", "LYK_SERVER", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_APP_TOOLS_PIPE_PATH", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "CODEX_CONFIG", "CODEX_CONFIG_TOML", "CODEX_MANAGED_CONFIG_PATH", "HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "CURSOR_DATA_DIR", "GEMINI_CLI_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME", "BASH_ENV", "ENV", "ZDOTDIR":
 		return true
 	}
 	return strings.HasPrefix(u, "CLAUDECODE_") || strings.HasPrefix(u, "LYKEION_")
@@ -297,6 +297,8 @@ func childEnv(o ExecOptions, home string) []string {
 	values["USERPROFILE"] = userHome
 	values["CODEX_HOME"] = home
 	values["CLAUDE_CONFIG_DIR"] = home
+	values["CURSOR_DATA_DIR"] = home
+	values["GEMINI_CLI_HOME"] = home
 	values["XDG_CONFIG_HOME"] = filepath.Join(userHome, ".config")
 	values["XDG_CONFIG_DIRS"] = values["XDG_CONFIG_HOME"]
 	values["XDG_DATA_HOME"] = filepath.Join(userHome, ".local", "share")
@@ -309,7 +311,7 @@ func childEnv(o ExecOptions, home string) []string {
 // inheritedEnvKey names the account locations a continuity run keeps as-is.
 func inheritedEnvKey(k string) bool {
 	switch strings.ToUpper(k) {
-	case "HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME":
+	case "HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "CURSOR_DATA_DIR", "GEMINI_CLI_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME":
 		return true
 	}
 	return false

@@ -1,0 +1,8 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/w","session_id":"c-1","model":"GPT-5","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"scope it"}]},"session_id":"c-1"}
+{"type":"thinking","subtype":"delta","text":"plan the search","session_id":"c-1"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Searching."}]},"session_id":"c-1"}
+{"type":"tool_call","subtype":"started","call_id":"t1","tool_call":{"mcpToolCall":{"args":{"name":"search_literature","args":{"q":"x"}}}},"session_id":"c-1"}
+{"type":"tool_call","subtype":"completed","call_id":"t1","tool_call":{"mcpToolCall":{"args":{"name":"search_literature"},"result":{"success":{"content":"3 hits"}}}},"session_id":"c-1"}
+{"type":"step_finish","usage":{"inputTokens":600,"outputTokens":40},"session_id":"c-1"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1200,"result":"Done.","session_id":"c-1","usage":{"inputTokens":1000,"outputTokens":80,"cacheReadTokens":300,"cacheWriteTokens":0}}

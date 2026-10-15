@@ -69,6 +69,8 @@ func New(harness, bin string) (Backend, error) {
 	switch harness {
 	case "claude":
 		return Claude{Bin: bin}, nil
+	case "cursor":
+		return Cursor{Bin: bin}, nil
 	case "codex":
 		return Codex{Bin: bin}, nil
 	}
@@ -92,6 +94,9 @@ func classify(text string) string {
 
 type emitMessage func(Message)
 type parser func([]byte, emitMessage, *Result) (terminal bool, err error)
+
+// errStop lets a terminal parser stop a CLI which remains alive after its result.
+var errStop = errors.New("stop after the terminal event")
 
 // run drains stdout while exec concurrently feeds stdin. Waiting independently
 // of message delivery lets cancellation and credential cleanup survive a slow
@@ -194,12 +199,18 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 		sc := bufio.NewScanner(stdout)
 		sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
 		var parseErr error
+		stopped := false
 		for sc.Scan() {
 			var ended bool
 			ended, parseErr = parse(sc.Bytes(), emit, &res)
 			terminal = terminal || ended
 			if emitErr != nil {
 				parseErr = emitErr
+			}
+			if errors.Is(parseErr, errStop) {
+				parseErr, stopped = nil, true
+				killProcessTree(cmd)
+				break
 			}
 			if parseErr != nil {
 				killProcessTree(cmd)
@@ -222,7 +233,7 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 		case parseErr != nil:
 			res.Err = parseErr
 			res.Reason = ReasonAgentError
-		case res.Err == nil && waitErr != nil:
+		case res.Err == nil && waitErr != nil && !stopped:
 			res.Err = fmt.Errorf("agent exit: %w", waitErr)
 		case res.Err == nil && !terminal:
 			res.Err = errors.New("agent exited without a terminal result")

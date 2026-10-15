@@ -9,9 +9,10 @@ import (
 var sessionToken = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
 
 // SessionReachable reports whether this run's CLI can find the transcript of
-// session. Both CLIs resume from their own store even after the original
-// working folder is gone, so the store is what must be reachable. A private
-// run's store is its new scratch, which never holds an earlier session.
+// session. Each CLI resumes from its own store even after the original working
+// folder is gone, so the store is what must be reachable. A private run's store
+// is its scratch's .cli-home, which the next private run of the same scope and
+// harness reuses; a run with no scope gets a new scratch and finds nothing.
 func SessionReachable(harness, session string, inherit bool, dir string) bool {
 	if !sessionToken.MatchString(session) {
 		return false
@@ -29,6 +30,9 @@ func SessionReachable(harness, session string, inherit bool, dir string) bool {
 		pattern = filepath.Join(home, "projects", "*", session+".jsonl")
 	case "codex":
 		pattern = filepath.Join(home, "sessions", "*", "*", "*", "rollout-*-"+session+".jsonl")
+	case "cursor":
+		// cursor-agent stores chats by workspace in its data folder.
+		pattern = filepath.Join(home, "chats", "*", session, "store.db")
 	default:
 		return false
 	}
@@ -44,11 +48,17 @@ func SessionReachable(harness, session string, inherit bool, dir string) bool {
 	return false
 }
 
-// accountHome is the CLI's own config home in the daemon's environment.
+// accountHome is the CLI's own config home in the daemon's environment. Only
+// Claude and Codex run on the account's setup; the others have none here.
 func accountHome(harness string) string {
-	env, dflt := "CLAUDE_CONFIG_DIR", ".claude"
-	if harness == "codex" {
+	var env, dflt string
+	switch harness {
+	case "claude":
+		env, dflt = "CLAUDE_CONFIG_DIR", ".claude"
+	case "codex":
 		env, dflt = "CODEX_HOME", ".codex"
+	default:
+		return ""
 	}
 	if v := os.Getenv(env); v != "" {
 		return v
