@@ -21,6 +21,10 @@ import {
 } from '../api/queries';
 import type { Column } from '../api/types';
 import {
+  actionLabel,
+  canResume,
+  sendBackTargets,
+  type ComposerAction,
   checkLine,
   columnName,
   earlierColumns,
@@ -79,6 +83,28 @@ const budgetDraft = ref(0);
 const comment = ref('');
 const busy = ref(false);
 const error = ref('');
+const action = ref<ComposerAction>({ kind: 'comment' });
+const picker = ref<'' | 'main' | 'send-back'>('');
+const placeholders: Record<ComposerAction['kind'], string> = {
+  comment: 'Leave a comment… the stage roles read it next round.',
+  'send-back': 'Why it goes back; the redone roles read this.',
+  stop: 'Why the study stops.',
+  resume: 'Optional: a comment for the next round.',
+};
+let draftRevision = 0;
+let acknowledgedResumeComment: string | null = null;
+watch(
+  [comment, action],
+  () => {
+    draftRevision++;
+    acknowledgedResumeComment = null;
+  },
+  { flush: 'sync' },
+);
+function pick(a: ComposerAction) {
+  action.value = a;
+  picker.value = '';
+}
 
 let generation = 0;
 watch(
@@ -92,6 +118,9 @@ watch(
     error.value = '';
     expanded.value = '';
     openChecks.value = [];
+    action.value = { kind: 'comment' };
+    picker.value = '';
+    acknowledgedResumeComment = null;
   },
   { flush: 'sync' },
 );
@@ -130,17 +159,39 @@ const toggleCheck = (id: string) =>
     : [...openChecks.value, id]);
 const verdictLabel = { pass: 'Passed', fail: 'Routed back', cannot_proceed: 'Stopped' };
 
-async function sendComment() {
-  if (busy.value || !comment.value.trim()) return;
+// Each continuation, including the second Resume write, belongs to its captured visit.
+async function send() {
+  const text = comment.value.trim();
+  const a = action.value;
+  if (busy.value || (!text && a.kind !== 'resume') || !c.value) return;
+  if (a.kind === 'stop' && !confirm(`Stop ${number.value}? Ended studies are never reopened.`))
+    return;
   const scope = mutationScope();
-  const body = comment.value.trim();
+  const ownDraftRevision = draftRevision;
+  const base = `/api/cards/${scope.id}`;
   busy.value = true;
   error.value = '';
   try {
-    await api('POST', `/api/cards/${scope.id}/comments`, { body });
+    if (
+      a.kind === 'comment' ||
+      (a.kind === 'resume' && text && acknowledgedResumeComment !== text)
+    ) {
+      await api('POST', `${base}/comments`, { body: text });
+      if (!scope.current()) return;
+      // Retry only the remaining Resume after this comment was acknowledged.
+      if (a.kind === 'resume' && ownDraftRevision === draftRevision)
+        acknowledgedResumeComment = text;
+    }
+    if (!scope.current()) return;
+    if (a.kind === 'send-back') await api('POST', `${base}/send-back`, { to: a.to, reason: text });
+    if (a.kind === 'stop') await api('POST', `${base}/stop`, { reason: text });
+    if (a.kind === 'resume') await api('POST', `${base}/resume`);
     if (!scope.current()) return;
     comment.value = '';
-    await client.invalidateQueries({ queryKey: keys.comments(scope.workspace, scope.id) });
+    action.value = { kind: 'comment' };
+    acknowledgedResumeComment = null;
+    await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
+    if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
   } catch (e) {
     if (scope.current()) error.value = (e as Error).message;
   } finally {
@@ -349,20 +400,78 @@ function pin() {
           </template>
         </div>
       </div>
-      <div v-if="c && !c.ending" class="pinned-composer">
-        <form class="task-comment" @submit.prevent="sendComment">
+      <div v-if="c && !c.ending" class="pinned-composer" @keydown.esc="picker = ''">
+        <form class="task-comment" @submit.prevent="send">
           <textarea
             v-model="comment"
-            placeholder="Leave a comment… the stage roles read it next round."
+            :placeholder="placeholders[action.kind]"
             aria-label="Comment"
-            @keydown.meta.enter.prevent="sendComment"
-            @keydown.ctrl.enter.prevent="sendComment"
+            @keydown.meta.enter.prevent="send"
+            @keydown.ctrl.enter.prevent="send"
           />
           <footer>
+            <div class="action-anchor">
+              <button
+                type="button"
+                class="action-mode"
+                aria-label="Action"
+                aria-haspopup="menu"
+                :aria-expanded="picker !== ''"
+                @click="picker = picker ? '' : 'main'"
+              >
+                {{ actionLabel(action) }} <Icon name="down" :size="11" />
+              </button>
+              <div v-if="picker === 'main'" class="action-menu" role="menu" aria-label="Actions">
+                <button type="button" role="menuitem" @click="pick({ kind: 'comment' })">
+                  Comment<small>next round</small>
+                </button>
+                <button
+                  v-if="sendBackTargets(c).length"
+                  type="button"
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  @click="picker = 'send-back'"
+                >
+                  Send back to<small>▸</small>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="danger"
+                  @click="pick({ kind: 'stop' })"
+                >
+                  Stop<small>ends the study</small>
+                </button>
+                <button
+                  v-if="canResume(c)"
+                  type="button"
+                  role="menuitem"
+                  @click="pick({ kind: 'resume' })"
+                >
+                  Resume<small>clears the block</small>
+                </button>
+              </div>
+              <div
+                v-if="picker === 'send-back'"
+                class="action-menu"
+                role="menu"
+                aria-label="Send back to"
+              >
+                <button
+                  v-for="to in sendBackTargets(c)"
+                  :key="to"
+                  type="button"
+                  role="menuitem"
+                  @click="pick({ kind: 'send-back', to })"
+                >
+                  {{ columnName(to) }}
+                </button>
+              </div>
+            </div>
             <button
               class="round-send"
               type="submit"
-              :disabled="busy || !comment.trim()"
+              :disabled="busy || (!comment.trim() && action.kind !== 'resume')"
               aria-label="Send"
             >
               <Icon name="up" :size="18" />
@@ -1298,5 +1407,50 @@ function pin() {
 .status-reporting,
 .status-done {
   color: #0672c5;
+}
+.action-anchor {
+  position: relative;
+  margin-right: auto;
+}
+.action-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12.5px;
+  background: var(--surface);
+}
+.action-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: 230px;
+  background: var(--fill-menu);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px #0003;
+  padding: 4px;
+  z-index: 20;
+}
+.action-menu button {
+  display: flex;
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: 5px;
+  font-size: 13px;
+  text-align: left;
+}
+.action-menu button:hover,
+.action-menu button:focus-visible {
+  background: var(--hover);
+}
+.action-menu small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.action-menu .danger {
+  color: var(--error-text);
 }
 </style>

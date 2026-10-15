@@ -342,3 +342,27 @@ describe('records and transcript', () => {
     ]);
   });
 });
+
+import { actionLabel, canResume, sendBackTargets } from '../apps/dashboard/src/lib/studies';
+
+describe('composer actions', () => {
+  it('offers only the earlier stages for Send back', () => {
+    expect(sendBackTargets(card({ board_column: 'validation' }))).toEqual([
+      'grounding',
+      'hypotheses',
+      'experimentation',
+    ]);
+    expect(sendBackTargets(card({ board_column: 'grounding' }))).toEqual([]);
+    expect(sendBackTargets(card({ board_column: 'backlog' }))).toEqual([]);
+    expect(sendBackTargets(card({ board_column: 'done', ending: 'stopped' }))).toEqual([]);
+  });
+  it('offers Resume to a blocked active study only', () => {
+    expect(canResume(card({ flag: 'escalated' }))).toBe(true);
+    expect(canResume(card({ flag: '' }))).toBe(false);
+    expect(canResume(card({ flag: 'escalated', ending: 'stopped' }))).toBe(false);
+  });
+  it('labels the chosen action', () => {
+    expect(actionLabel({ kind: 'send-back', to: 'grounding' })).toBe('Send back to Grounding');
+    expect(actionLabel({ kind: 'comment' })).toBe('Comment');
+  });
+});

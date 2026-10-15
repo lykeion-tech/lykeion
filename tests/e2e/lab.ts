@@ -63,3 +63,8 @@ export async function newStudy(
 export async function labRecords(request: APIRequestContext, cardId: string, n: number) {
   expect((await request.post(`${LAB}/lab/records/${cardId}?n=${n}`)).status()).toBe(204);
 }
+
+// Puts a study in Hypotheses, which has no roles yet, so it can be sent back.
+export async function labHypotheses(request: APIRequestContext, cardId: string) {
+  expect((await request.post(`${LAB}/lab/hypotheses/${cardId}`)).status()).toBe(204);
+}

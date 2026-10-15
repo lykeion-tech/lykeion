@@ -268,3 +268,17 @@ export function routeBackLimit(settings?: Record<string, unknown>): number {
   const limits = settings?.limits as { route_backs?: number } | undefined;
   return limits?.route_backs ?? 5;
 }
+
+export type ComposerAction =
+  { kind: 'comment' } | { kind: 'send-back'; to: Column } | { kind: 'stop' } | { kind: 'resume' };
+
+// Send back offers the stages before the study's own; Grounding has none.
+export function sendBackTargets(card: Card): Column[] {
+  const index = stages.indexOf(card.board_column);
+  return card.ending || index < 0 ? [] : stages.slice(0, index);
+}
+export const canResume = (card: Card) => !card.ending && card.flag !== '';
+export function actionLabel(a: ComposerAction): string {
+  if (a.kind === 'send-back') return `Send back to ${columnName(a.to)}`;
+  return { comment: 'Comment', stop: 'Stop', resume: 'Resume' }[a.kind];
+}
