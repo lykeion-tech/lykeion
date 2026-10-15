@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
+import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
+import AddComputerDialog from '../components/AddComputerDialog.vue';
 import { api, ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
@@ -10,10 +12,13 @@ import { useMembers, useRuntimes } from '../api/queries';
 import { groupDaemons, type Daemon } from '../lib/machines';
 import { timeAgo } from '../lib/studies';
 
+const props = defineProps<{ machineId?: string }>();
+const router = useRouter();
 const client = useQueryClient();
 const runtimes = useRuntimes();
 const members = useMembers();
 const daemons = computed(() => groupDaemons(runtimes.data.value ?? []));
+const machine = computed(() => daemons.value.find((d) => d.id === props.machineId));
 const menuFor = ref('');
 const dialog = ref<'' | 'add' | 'daemon' | 'rename'>('');
 const renaming = ref<Daemon | null>(null);
@@ -23,7 +28,7 @@ const removalError = ref<{ id: string; message: string } | null>(null);
 const busy = ref(false);
 let generation = 0;
 watch(
-  workspaceId,
+  [workspaceId, () => props.machineId],
   () => {
     generation++;
     menuFor.value = '';
@@ -81,6 +86,10 @@ const refresh = (workspace: string) =>
   client.invalidateQueries({ queryKey: keys.runtimes(workspace) });
 
 function startRename(d: Daemon) {
+  document.activeElement
+    ?.closest('.menu-anchor')
+    ?.querySelector<HTMLButtonElement>('[aria-haspopup]')
+    ?.focus();
   menuFor.value = '';
   renaming.value = d;
   draft.value = d.name;
@@ -121,7 +130,9 @@ async function remove(d: Daemon) {
       if (!own.current()) return;
       await api('DELETE', `/api/runtimes/${id}`);
     }
-    if (own.current()) await refresh(own.workspace);
+    if (!own.current()) return;
+    await refresh(own.workspace);
+    if (own.current() && props.machineId === own.id) await router.push('/machines');
   } catch (e) {
     if (!own.current()) return;
     removalError.value = { id: own.id, message: message(e, 'remove') };
@@ -130,208 +141,284 @@ async function remove(d: Daemon) {
     if (own.current()) busy.value = false;
   }
 }
+async function toggleMenu(d: Daemon, event: MouseEvent) {
+  const anchor = (event.currentTarget as HTMLElement).parentElement;
+  menuFor.value = menuFor.value === d.id ? '' : d.id;
+  if (menuFor.value) {
+    await nextTick();
+    anchor?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+  }
+}
+function menuKey(event: KeyboardEvent) {
+  const anchor = event.currentTarget as HTMLElement;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    menuFor.value = '';
+    anchor.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus();
+  } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault();
+    const items = [...anchor.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    const index =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : (current + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
+    items[index]?.focus();
+  }
+}
 </script>
 <template>
-  <section class="resources resource-machines">
-    <div class="resource-header-actions">
+  <section class="resources resource-machines" :class="{ 'machine-detail': machineId }">
+    <div v-if="!machineId" class="resource-header-actions">
       <button class="button" @click="dialog = 'daemon'"><Icon name="network" />Daemon</button>
       <button class="button primary" @click="dialog = 'add'">
         <Icon name="plus" />Add a computer
       </button>
     </div>
-    <div class="inset-content">
-      <p v-if="runtimes.error.value" class="inline-error" role="alert">
-        {{ runtimes.error.value.message }}
-      </p>
-      <ul v-if="daemons.length" class="machine-rows">
-        <li v-for="d in daemons" :key="d.id" class="machine-row" :class="{ offline: !d.online }">
-          <span class="square-icon"><Icon name="monitor" /></span>
-          <div class="name">
-            <b>{{ d.name }}</b
-            ><small
-              >daemon {{ d.id.slice(0, 8) }}…<template v-if="owner(d.ownerId)">
-                · {{ owner(d.ownerId) }}</template
-              ></small
-            >
-            <p v-if="removalError?.id === d.id" class="inline-error" role="alert">
+    <p v-if="runtimes.error.value" class="inline-error machine-error" role="alert">
+      {{ runtimes.error.value.message }}
+    </p>
+    <template v-if="machineId">
+      <template v-if="machine">
+        <header class="machine-detail-header">
+          <div class="machine-rail">
+            <nav class="machine-breadcrumb" aria-label="Machine breadcrumb">
+              <RouterLink to="/machines">Machines</RouterLink><span aria-hidden="true">/</span
+              ><span>{{ machine.name }}</span>
+            </nav>
+            <div class="machine-heading-row">
+              <span class="machine-icon"><Icon name="monitor" :size="24" /></span>
+              <div class="machine-heading-copy">
+                <div class="machine-title">
+                  <h1>{{ machine.name }}</h1>
+                  <span class="machine-health" :class="{ online: machine.online }"
+                    ><Icon name="network" :size="12" />{{
+                      machine.online ? 'Online' : 'Offline'
+                    }}</span
+                  >
+                </div>
+                <p class="daemon-id" :title="machine.id">daemon {{ machine.id }}</p>
+                <div class="machine-metadata">
+                  <span
+                    >{{ machine.runtimes.length }} runtime{{
+                      machine.runtimes.length === 1 ? '' : 's'
+                    }}</span
+                  ><span>{{
+                    machine.online
+                      ? machine.activeRuns
+                        ? `${machine.activeRuns} active run${machine.activeRuns === 1 ? '' : 's'}`
+                        : 'All idle'
+                      : '—'
+                  }}</span
+                  ><span v-if="owner(machine.ownerId)">{{ owner(machine.ownerId) }}</span
+                  ><time :datetime="machine.lastSeen" :title="machine.lastSeen">{{
+                    timeAgo(machine.lastSeen)
+                  }}</time>
+                </div>
+              </div>
+              <div class="machine-actions">
+                <button class="button" @click="startRename(machine)">
+                  <Icon name="edit" :size="14" />Rename machine
+                </button>
+                <button
+                  class="button"
+                  disabled
+                  title="Read logs on the computer using Daemon instructions"
+                >
+                  <Icon name="file" :size="14" />View logs
+                </button>
+                <button
+                  class="button"
+                  disabled
+                  title="Restart on the computer using Daemon instructions"
+                >
+                  <Icon name="refresh" :size="14" />Restart
+                </button>
+                <button
+                  class="button stop-machine"
+                  disabled
+                  title="Stop on the computer using Daemon instructions"
+                >
+                  <Icon name="archive" :size="14" />Stop
+                </button>
+                <button
+                  v-if="!machine.online"
+                  class="button"
+                  :disabled="busy"
+                  @click="remove(machine)"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+            <p v-if="removalError?.id === machine.id" class="inline-error" role="alert">
               {{ removalError.message }}
             </p>
           </div>
-          <span class="status">{{ d.online ? 'Online' : 'Offline' }}</span>
-          <span class="clis"
-            ><small>{{ d.runtimes.length }} runtime{{ d.runtimes.length === 1 ? '' : 's' }}</small
-            ><i
-              v-for="r in d.runtimes"
-              :key="r.id"
-              :title="cliName(r.harness) + (r.cli_version ? ' ' + r.cli_version : '')"
-              >{{ cli(r.harness) }}</i
-            ></span
-          >
-          <small class="runs">{{
-            !d.online
-              ? '—'
-              : d.activeRuns
-                ? `${d.activeRuns} run${d.activeRuns === 1 ? '' : 's'}`
-                : 'All idle'
-          }}</small>
-          <small class="seen">{{ timeAgo(d.lastSeen) }}</small>
-          <span class="menu-anchor">
+        </header>
+        <div class="machine-rail machine-runtime-section">
+          <div class="runtime-heading">
+            <div>
+              <h2>Runtimes</h2>
+              <p>Agent CLIs appear automatically when the daemon detects them.</p>
+            </div>
             <button
+              class="button primary"
+              disabled
+              title="Custom runtime configuration is not available in this version"
+            >
+              <Icon name="plus" :size="14" />Add custom runtime
+            </button>
+          </div>
+          <div class="runtime-table-scroll">
+            <table class="machine-runtime-table" aria-label="Runtimes">
+              <thead>
+                <tr>
+                  <th>Runtime</th>
+                  <th>Health</th>
+                  <th>Active runs</th>
+                  <th>Cost · 7d</th>
+                  <th>CLI</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in machine.runtimes" :key="r.id">
+                  <td>
+                    <span class="runtime-name"
+                      ><i class="harness-icon" :class="r.harness" aria-hidden="true">{{
+                        cli(r.harness)
+                      }}</i
+                      >{{ cliName(r.harness) }}<small>Built-in</small></span
+                    >
+                  </td>
+                  <td>
+                    <span class="machine-health" :class="{ online: r.status === 'online' }"
+                      ><Icon name="network" :size="12" />{{
+                        r.status === 'online' ? 'Online' : 'Offline'
+                      }}</span
+                    >
+                  </td>
+                  <td>{{ r.active_runs }}</td>
+                  <td class="unknown-metric" title="Seven-day runtime cost is not recorded">—</td>
+                  <td class="runtime-version" :title="r.cli_version || 'Version not reported'">
+                    {{ r.cli_version || '—' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="remote-limit">
+            <p>
+              Remote controls and custom runtimes are unavailable. Use Daemon instructions on the
+              computer.
+            </p>
+            <button class="button" @click="dialog = 'daemon'">
+              <Icon name="network" :size="14" />Daemon instructions
+            </button>
+          </div>
+        </div>
+      </template>
+      <div v-else class="small-empty">
+        <Icon name="monitor" :size="28" />
+        <p>{{ runtimes.isPending.value ? 'Loading computer…' : 'Computer not found' }}</p>
+        <RouterLink class="button" to="/machines">Back to Machines</RouterLink>
+      </div>
+    </template>
+    <div v-else class="inset-content">
+      <ul v-if="daemons.length" class="machine-rows">
+        <li v-for="d in daemons" :key="d.id" class="machine-row" :class="{ offline: !d.online }">
+          <RouterLink class="machine-link" :to="'/machines/' + encodeURIComponent(d.id)">
+            <span class="square-icon"><Icon name="monitor" /></span>
+            <div class="name">
+              <b>{{ d.name }}</b
+              ><small
+                >daemon {{ d.id.slice(0, 8) }}…<template v-if="owner(d.ownerId)">
+                  · {{ owner(d.ownerId) }}</template
+                ></small
+              >
+              <p v-if="removalError?.id === d.id" class="inline-error" role="alert">
+                {{ removalError.message }}
+              </p>
+            </div>
+            <span class="status">{{ d.online ? 'Online' : 'Offline' }}</span>
+            <span class="clis"
+              ><small>{{ d.runtimes.length }} runtime{{ d.runtimes.length === 1 ? '' : 's' }}</small
+              ><i
+                v-for="r in d.runtimes"
+                :key="r.id"
+                :class="r.harness"
+                :title="cliName(r.harness) + (r.cli_version ? ' ' + r.cli_version : '')"
+                >{{ cli(r.harness) }}</i
+              ></span
+            >
+            <small class="runs">{{
+              !d.online
+                ? '—'
+                : d.activeRuns
+                  ? `${d.activeRuns} run${d.activeRuns === 1 ? '' : 's'}`
+                  : 'All idle'
+            }}</small
+            ><small class="seen">{{ timeAgo(d.lastSeen) }}</small>
+          </RouterLink>
+          <span class="menu-anchor" @keydown="menuKey"
+            ><button
               class="icon-button"
               :disabled="busy"
               aria-label="Machine actions"
-              @click="menuFor = menuFor === d.id ? '' : d.id"
+              aria-haspopup="menu"
+              :aria-expanded="menuFor === d.id"
+              @click="toggleMenu(d, $event)"
             >
-              <Icon name="right" />
-            </button>
-            <span v-if="menuFor === d.id" class="row-menu" role="menu">
-              <button role="menuitem" @click="startRename(d)">Rename…</button>
-              <button v-if="!d.online" role="menuitem" class="danger" @click="remove(d)">
+              <Icon name="more" /></button
+            ><span v-if="menuFor === d.id" class="row-menu" role="menu" aria-label="Machine actions"
+              ><button role="menuitem" @click="startRename(d)">Rename…</button
+              ><button v-if="!d.online" role="menuitem" class="danger" @click="remove(d)">
                 Remove
-              </button>
-            </span>
-          </span>
+              </button></span
+            ></span
+          >
         </li>
       </ul>
       <div v-else-if="runtimes.isSuccess.value" class="small-empty">
         <Icon name="monitor" :size="28" />
         <p>No computers connected</p>
-        <small>Add a computer to run your agents.</small>
-        <button class="button primary" @click="dialog = 'add'">
+        <small>Add a computer to run your agents.</small
+        ><button class="button primary" @click="dialog = 'add'">
           <Icon name="plus" />Add a computer
         </button>
       </div>
     </div>
   </section>
-  <Modal v-if="dialog === 'add'" title="Add a computer" @close="dialog = ''">
-    <div class="resource-form">
-      <h2>Add a computer</h2>
-      <p>On the computer whose agent CLIs (Claude Code, Codex) should run your studies:</p>
-      <p><code>lyk login</code> signs the CLI in to this server.</p>
-      <p>
-        <code>lyk daemon start</code> starts the daemon; it registers each CLI it finds as a runtime
-        here.
-      </p>
-      <button class="button" @click="dialog = ''">Done</button>
-    </div>
-  </Modal>
-  <Modal v-if="dialog === 'daemon'" title="Daemon" @close="dialog = ''">
-    <div class="resource-form">
+  <AddComputerDialog v-if="dialog === 'add'" @close="dialog = ''" />
+  <Modal v-if="dialog === 'daemon'" title="Daemon" @close="dialog = ''"
+    ><div class="resource-form daemon-instructions">
       <h2>Daemon</h2>
       <p>
-        <code>lyk daemon start</code> starts it in the background;
+        On macOS or Linux, <code>lyk daemon start</code> starts it in the background;
         <code>lyk daemon status</code> and <code>lyk daemon logs</code> show what it is doing;
         <code>lyk daemon stop</code> stops it.
       </p>
+      <p>
+        On Windows, use <code>lyk.exe daemon run</code> and keep the terminal open. Read logs there;
+        press Ctrl+C to stop.
+      </p>
+      <p>
+        Use <code>./lyk</code> (macOS / Linux) or <code>.\lyk.exe</code> (Windows) when running a
+        CLI built in the current directory.
+      </p>
       <button class="button" @click="dialog = ''">Done</button>
-    </div>
-  </Modal>
-  <Modal v-if="dialog === 'rename'" title="Rename machine" @close="dialog = ''">
-    <form class="resource-form" @submit.prevent="rename">
+    </div></Modal
+  >
+  <Modal v-if="dialog === 'rename'" title="Rename machine" @close="dialog = ''"
+    ><form class="resource-form" @submit.prevent="rename">
       <h2>Rename machine</h2>
       <label>Name<input v-model="draft" aria-label="Name" maxlength="64" autofocus /></label>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
       <button class="button primary" :disabled="busy">Save</button>
-    </form>
-  </Modal>
+    </form></Modal
+  >
 </template>
 <style scoped src="./resources.css"></style>
-<style scoped>
-.machine-rows {
-  list-style: none;
-  padding: 20px 0 0;
-  margin: 0 auto;
-  max-width: 1000px;
-}
-.machine-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  background: var(--input);
-  border-radius: 10px;
-  padding: 12px 18px;
-  margin-top: 12px;
-  font-size: 13px;
-}
-.machine-row.offline {
-  opacity: 0.75;
-}
-.name {
-  flex: 1;
-}
-.name b {
-  display: block;
-  font-weight: 500;
-}
-.name small,
-.seen,
-.clis small {
-  color: var(--muted);
-  font-size: 12px;
-}
-.status {
-  width: 120px;
-}
-.machine-row:not(.offline) .status {
-  color: var(--stage-validation-dot);
-}
-.clis {
-  width: 150px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-}
-.clis small {
-  width: 100%;
-}
-.clis i {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  background: var(--surface);
-  display: inline-grid;
-  place-items: center;
-  font-size: 10px;
-  font-style: normal;
-}
-.seen {
-  width: 80px;
-}
-.runs {
-  width: 120px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.row-menu {
-  position: absolute;
-  right: 0;
-  top: 100%;
-  z-index: 5;
-  background: var(--fill-menu);
-  border-radius: 8px;
-  padding: 4px;
-  width: 160px;
-  box-shadow: 0 10px 30px #0003;
-}
-.machine-row:has(.row-menu) {
-  position: relative;
-  z-index: 6;
-}
-.row-menu button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 6px 9px;
-  border-radius: 5px;
-}
-.row-menu .danger {
-  color: var(--error-text);
-}
-code {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 12px;
-  background: var(--input);
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-</style>
+<style scoped src="./machines.css"></style>

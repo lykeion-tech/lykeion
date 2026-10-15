@@ -450,7 +450,13 @@ onUnmounted(() => {
       @click="$event.detail === 0 && (collapsed = !collapsed)"
     />
     <main class="main-pane">
-      <header v-if="!['settings', 'inbox'].includes(current ?? '')" class="page-header">
+      <header
+        v-if="!['settings', 'inbox'].includes(current ?? '')"
+        class="page-header"
+        :class="{
+          'machine-detail-shell-heading': current === 'machines' && route.params.machineId,
+        }"
+      >
         <button
           v-if="collapsed"
           class="icon-button"
@@ -738,5 +744,31 @@ onUnmounted(() => {
 .sidebar-handle:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
+}
+</style>
+
+<style scoped>
+.machine-detail-shell-heading {
+  position: absolute;
+  z-index: 4;
+  height: 0;
+  padding: 0;
+  border: 0;
+}
+.machine-detail-shell-heading h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.sidebar-hidden :deep(.machine-breadcrumb) {
+  padding-left: 32px;
+}
+.machine-detail-shell-heading .icon-button {
+  position: absolute;
+  top: 12px;
+  left: 12px;
 }
 </style>

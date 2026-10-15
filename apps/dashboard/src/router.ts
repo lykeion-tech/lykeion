@@ -81,7 +81,8 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'colleagues', title: 'Colleagues' },
   },
   {
-    path: '/machines',
+    path: '/machines/:machineId?',
+    props: true,
     component: MachinesView,
     meta: { page: 'machines', title: 'Machines' },
   },

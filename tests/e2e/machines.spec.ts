@@ -122,6 +122,12 @@ test('two real runtimes group into one machine with versions, rename together, a
         .filter((r) => records.some((x) => x.id === r.id))
         .map((r) => r.custom_name),
     ).toEqual(['Renamed two CLI computer', 'Renamed two CLI computer']);
+    await expect(
+      page
+        .getByRole('listitem')
+        .filter({ hasText: 'Renamed two CLI computer' })
+        .getByRole('button', { name: 'Machine actions' }),
+    ).toBeFocused();
     await edit(page, 'Renamed two CLI computer', '');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(row).toBeVisible();
@@ -328,6 +334,7 @@ test('another owner gets real rename/remove refusals; offline own machines can b
 for (const outcome of ['accepted', 'refused'] as const) {
   for (const destination of [
     'another machine',
+    'another machine detail',
     'same machine after return',
     'another workspace',
   ] as const) {
@@ -391,7 +398,14 @@ for (const outcome of ['accepted', 'refused'] as const) {
           await expect(page.getByRole('dialog')).toHaveCount(0);
         } else {
           await page.keyboard.press('Escape');
-          if (destination === 'same machine after return') {
+          if (destination === 'another machine detail') {
+            const target = (await runtimeList(page, ws)).find(
+              (r) => !records.some((x) => x.id === r.id),
+            )!;
+            await page.goto('/#/machines/' + target.daemon_id);
+            await page.getByRole('button', { name: 'Rename machine', exact: true }).click();
+            await page.getByRole('textbox', { name: 'Name' }).fill('Current draft');
+          } else if (destination === 'same machine after return') {
             await page.goto('/#/inbox');
             await expect(page.getByRole('navigation', { name: 'Inbox items' })).toBeVisible();
             await page.goto('/#/machines');
@@ -490,4 +504,158 @@ test('Machines active run count follows lifecycle transitions without navigation
   ).toBe(204);
   await expect(machine.locator('.runs')).toHaveText('All idle');
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
+});
+
+const refinementArtifacts =
+  '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-3-artifacts';
+
+test('computer setup offers supported platform commands, real clipboard, and detects only a newly online machine', async ({
+  page,
+  context,
+}) => {
+  const ws = await labWorkspace(page.request);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto('/#/machines');
+  await expect(page.getByRole('listitem').filter({ hasText: 'lab-mac' })).toBeVisible();
+  const trigger = page.getByRole('button', { name: 'Add a computer', exact: true });
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: 'Add a computer', exact: true });
+  await expect(dialog.getByText('1. Build the Lykeion CLI', { exact: true })).toBeVisible();
+  await expect(dialog.locator('.connection-status')).toHaveText('Waiting for your computer');
+  await expect(dialog).toHaveCSS('width', '512px');
+  await dialog.getByRole('tab', { name: 'macOS / Linux', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(dialog.getByRole('tab', { name: 'Windows', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await page.keyboard.press('ArrowLeft');
+  await expect(dialog.getByRole('tab', { name: 'macOS / Linux', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await dialog.getByRole('button', { name: 'Copy build command' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'go build -o lyk ./cmd/lyk',
+  );
+  await dialog.getByRole('button', { name: 'Copy start commands' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    './lyk login --server http://127.0.0.1:18080 --email you@lab.org\n./lyk daemon start',
+  );
+  await dialog.getByRole('tab', { name: 'Windows', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Copy build command' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'go build -o lyk.exe ./cmd/lyk',
+  );
+  await dialog.getByRole('button', { name: 'Copy start commands' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    '.\\lyk.exe login --server http://127.0.0.1:18080 --email you@lab.org\n.\\lyk.exe daemon run',
+  );
+  await dialog.getByText('Can’t open a browser on that computer?', { exact: true }).click();
+  await expect(dialog.getByText(/email code in the terminal/)).toBeVisible();
+  await dialog.getByText('Can’t open a browser on that computer?', { exact: true }).click();
+  await dialog.getByRole('tab', { name: 'macOS / Linux', exact: true }).click();
+  await page.screenshot({ path: `${refinementArtifacts}/add-light.png` });
+  await page.evaluate(async () => {
+    const path = '/src/theme.ts';
+    const { applyTheme } = await import(path);
+    applyTheme('midnight');
+  });
+  await page.screenshot({ path: `${refinementArtifacts}/add-dark.png` });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(dialog).toHaveCSS('width', '350px');
+  await page.screenshot({ path: `${refinementArtifacts}/add-narrow.png` });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const records = await registered(page.request, ws, 'Freshly connected computer');
+  try {
+    await expect(dialog.locator('.connection-status')).toHaveText(
+      'Connected: Freshly connected computer',
+    );
+    await dialog.getByRole('link', { name: 'View computer' }).click();
+    await expect(page).toHaveURL(new RegExp('#/machines/' + records[0]!.daemon_id + '$'));
+    await page
+      .getByRole('navigation', { name: 'Machine breadcrumb' })
+      .getByRole('link', { name: 'Machines', exact: true })
+      .click();
+    await trigger.click();
+    await expect(dialog.locator('.connection-status')).toHaveText('Waiting for your computer');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toBeFocused();
+  } finally {
+    for (const r of records)
+      await page.request.delete(`/api/runtimes/${r.id}`, { headers: headers(ws) });
+  }
+});
+
+test('machine detail uses actual versions, canonical rename, keyboard links and live runtime refresh', async ({
+  page,
+}) => {
+  const ws = await labWorkspace(page.request);
+  const records = await registered(page.request, ws, 'Detail computer');
+  try {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto('/#/machines');
+    const link = page.getByRole('link', { name: /Detail computer/ });
+    await expect(link).toBeVisible();
+    await link.focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(new RegExp('#/machines/' + records[0]!.daemon_id + '$'));
+    await expect(page.getByRole('heading', { name: 'Detail computer', exact: true })).toBeVisible();
+    const table = page.getByRole('table', { name: 'Runtimes' });
+    await expect(table.getByRole('row')).toHaveCount(3);
+    await expect(table.getByRole('row').filter({ hasText: 'Claude Code' })).toContainText('2.3.4');
+    await expect(table.getByRole('row').filter({ hasText: 'Codex' })).toContainText('1.2.3');
+    await expect(page.getByText('This device', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Managed by Desktop', { exact: true })).toHaveCount(0);
+    for (const name of ['View logs', 'Restart', 'Stop', 'Add custom runtime'])
+      await expect(page.getByRole('button', { name, exact: true })).toBeDisabled();
+    await expect(
+      page.getByText(
+        'Remote controls and custom runtimes are unavailable. Use Daemon instructions on the computer.',
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await page.screenshot({ path: `${refinementArtifacts}/detail-light.png` });
+    await page.evaluate(async () => {
+      const path = '/src/theme.ts';
+      const { applyTheme } = await import(path);
+      applyTheme('midnight');
+    });
+    await page.screenshot({ path: `${refinementArtifacts}/detail-dark.png` });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await page.screenshot({ path: `${refinementArtifacts}/detail-narrow.png` });
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.getByRole('button', { name: 'Rename machine', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Name' }).fill('Renamed detail computer');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(
+      page.getByRole('heading', { name: 'Renamed detail computer', exact: true }),
+    ).toBeVisible();
+    expect(
+      (await runtimeList(page, ws))
+        .filter((r) => records.some((x) => x.id === r.id))
+        .map((r) => r.custom_name),
+    ).toEqual(['Renamed detail computer', 'Renamed detail computer']);
+    const runtime = records.find((r) => r.harness === 'codex')!;
+    expect(
+      (await page.request.delete(`/api/runtimes/${runtime.id}`, { headers: headers(ws) })).status(),
+    ).toBe(204);
+    await expect(table.getByRole('row')).toHaveCount(2);
+    await expect(table).not.toContainText('1.2.3');
+    await page
+      .getByRole('navigation', { name: 'Machine breadcrumb' })
+      .getByRole('link', { name: 'Machines', exact: true })
+      .click();
+    await expect(
+      page.getByRole('listitem').filter({ hasText: 'Renamed detail computer' }),
+    ).toContainText('1 runtime');
+  } finally {
+    for (const r of records)
+      await page.request.delete(`/api/runtimes/${r.id}`, { headers: headers(ws) });
+  }
 });

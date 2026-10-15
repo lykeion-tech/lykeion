@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const api = process.env.LYK_API_URL ?? 'http://127.0.0.1:8080';
 
 export default defineConfig({
+  define: { __LYK_PUBLIC_API_ORIGIN__: JSON.stringify(new URL(api).origin) },
   root: fileURLToPath(new URL('.', import.meta.url)),
   base: './',
   plugins: [vue()],
