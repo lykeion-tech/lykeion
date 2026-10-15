@@ -572,18 +572,37 @@ func (q *Queries) ListRecords(ctx context.Context, arg ListRecordsParams) ([]Rec
 }
 
 const listRuntimes = `-- name: ListRuntimes :many
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version FROM runtime WHERE workspace_id = $1 ORDER BY created_at
+SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
+  AND t.status IN ('dispatched', 'running'))::int AS active_runs
+FROM runtime r WHERE r.workspace_id = $1 ORDER BY r.created_at
 `
 
-func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Runtime, error) {
+type ListRuntimesRow struct {
+	ID            uuid.UUID `json:"id"`
+	WorkspaceID   uuid.UUID `json:"workspace_id"`
+	OwnerID       uuid.UUID `json:"owner_id"`
+	DaemonID      string    `json:"daemon_id"`
+	Harness       string    `json:"harness"`
+	DeviceName    string    `json:"device_name"`
+	CustomName    *string   `json:"custom_name"`
+	Status        string    `json:"status"`
+	LastSeenAt    time.Time `json:"last_seen_at"`
+	MaxConcurrent int32     `json:"max_concurrent"`
+	CreatedAt     time.Time `json:"created_at"`
+	CliVersion    string    `json:"cli_version"`
+	ActiveRuns    int32     `json:"active_runs"`
+}
+
+// active_runs: the runtime's agent runs that are dispatched or running.
+func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]ListRuntimesRow, error) {
 	rows, err := q.db.Query(ctx, listRuntimes, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Runtime
+	var items []ListRuntimesRow
 	for rows.Next() {
-		var i Runtime
+		var i ListRuntimesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -597,6 +616,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Ru
 			&i.MaxConcurrent,
 			&i.CreatedAt,
 			&i.CliVersion,
+			&i.ActiveRuns,
 		); err != nil {
 			return nil, err
 		}
@@ -971,10 +991,10 @@ func (q *Queries) TouchRuntime(ctx context.Context, arg TouchRuntimeParams) (int
 }
 
 const upsertRuntime = `-- name: UpsertRuntime :one
-INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, status, last_seen_at)
-VALUES ($1, $2, $3, $4, $5, 'online', now())
+INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, cli_version, status, last_seen_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'online', now())
 ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
-  SET device_name = EXCLUDED.device_name, status = 'online', last_seen_at = now()
+  SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
 RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version
 `
@@ -985,6 +1005,7 @@ type UpsertRuntimeParams struct {
 	DaemonID    string    `json:"daemon_id"`
 	Harness     string    `json:"harness"`
 	DeviceName  string    `json:"device_name"`
+	CliVersion  string    `json:"cli_version"`
 }
 
 func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (Runtime, error) {
@@ -994,6 +1015,7 @@ func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (R
 		arg.DaemonID,
 		arg.Harness,
 		arg.DeviceName,
+		arg.CliVersion,
 	)
 	var i Runtime
 	err := row.Scan(

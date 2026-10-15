@@ -42,10 +42,11 @@ func user(r *http.Request) uuid.UUID { return middleware.IdentityFrom(r.Context(
 
 func (h *H) daemonRegister(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		WorkspaceID uuid.UUID `json:"workspace_id"`
-		DaemonID    string    `json:"daemon_id"`
-		DeviceName  string    `json:"device_name"`
-		Harnesses   []string  `json:"harnesses"`
+		WorkspaceID uuid.UUID         `json:"workspace_id"`
+		DaemonID    string            `json:"daemon_id"`
+		DeviceName  string            `json:"device_name"`
+		Harnesses   []string          `json:"harnesses"`
+		Versions    map[string]string `json:"versions"`
 	}
 	if err := readJSON(r, &in); err != nil || in.WorkspaceID == uuid.Nil || strings.TrimSpace(in.DaemonID) == "" || len(in.Harnesses) == 0 || len(in.Harnesses) > 16 {
 		writeErr(w, 400, "workspace_id, daemon_id and harnesses required")
@@ -57,7 +58,7 @@ func (h *H) daemonRegister(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	rts, err := h.AgentRuns.Register(r.Context(), user(r), in.WorkspaceID, in.DaemonID, in.DeviceName, in.Harnesses)
+	rts, err := h.AgentRuns.Register(r.Context(), user(r), in.WorkspaceID, in.DaemonID, in.DeviceName, in.Harnesses, in.Versions)
 	if err != nil {
 		agentRunFail(w, r, err)
 		return

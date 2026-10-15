@@ -169,7 +169,8 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 	return t, tx.Emit(ctx, "agent_run.queued", &t.CardID, store.System, p)
 }
 
-func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, device string, harnesses []string) ([]db.Runtime, error) {
+// Register brings the daemon's runtimes online. A missing version stores an empty string.
+func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, device string, harnesses []string, versions map[string]string) ([]db.Runtime, error) {
 	var out []db.Runtime
 	err := s.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
 		// Registration may update an existing runtime before emitting its event.
@@ -181,7 +182,7 @@ func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, 
 			return ErrNotYours
 		}
 		for _, h := range harnesses {
-			r, err := tx.Q.UpsertRuntime(ctx, db.UpsertRuntimeParams{WorkspaceID: ws, OwnerID: user, DaemonID: daemonID, Harness: h, DeviceName: device})
+			r, err := tx.Q.UpsertRuntime(ctx, db.UpsertRuntimeParams{WorkspaceID: ws, OwnerID: user, DaemonID: daemonID, Harness: h, DeviceName: device, CliVersion: agent.VersionLine(versions[h])})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrNotYours // the daemon id belongs to someone else
 			}

@@ -791,6 +791,7 @@ func TestRealAdapterCancellationBacklogIsDurable(t *testing.T) {
 	ready := filepath.Join(t.TempDir(), "written")
 	bin := f.cfg.Harnesses["claude"]
 	must(t, os.WriteFile(bin, []byte(`#!/bin/sh
+[ "$1" = --version ] && exit 0
 IFS= read -r first
 i=0; while [ "$i" -lt 200 ]; do echo '{"type":"log","message":"evidence"}';i=$((i+1));done
 echo ready > '`+ready+`'
@@ -919,7 +920,7 @@ func TestPrepareConnectionRefusalAndTimeoutAreRetryable(t *testing.T) {
 			f := fixture(t)
 			_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET max_attempts=2 WHERE id=$1", f.id)
 			must(t, err)
-			refs, err := f.runs.Register(t.Context(), f.user, f.ws, "transport", "test", []string{"claude"})
+			refs, err := f.runs.Register(t.Context(), f.user, f.ws, "transport", "test", []string{"claude"}, nil)
 			must(t, err)
 			claims, err := f.runs.Claim(t.Context(), f.user, []service.RuntimeRef{{WorkspaceID: f.ws, RuntimeID: refs[0].ID}}, 1)
 			must(t, err)

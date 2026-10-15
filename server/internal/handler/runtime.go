@@ -15,7 +15,7 @@ import (
 )
 
 func (h *H) listRuntimes(w http.ResponseWriter, r *http.Request) {
-	var out []db.Runtime
+	var out []db.ListRuntimesRow
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		var err error
 		out, err = tx.Q.ListRuntimes(r.Context(), ws)
@@ -26,7 +26,7 @@ func (h *H) listRuntimes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if out == nil {
-		out = []db.Runtime{}
+		out = []db.ListRuntimesRow{}
 	}
 	writeJSON(w, 200, out)
 }

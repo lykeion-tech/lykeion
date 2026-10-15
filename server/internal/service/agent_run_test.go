@@ -85,7 +85,7 @@ func (f *fixture) enqueue(t *testing.T, n int, harness string) {
 
 func (f *fixture) runtime(t *testing.T, user uuid.UUID, daemon, harness string) RuntimeRef {
 	t.Helper()
-	rs, err := f.T.Register(context.Background(), user, f.WS, daemon, "laptop", []string{harness})
+	rs, err := f.T.Register(context.Background(), user, f.WS, daemon, "laptop", []string{harness}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1153,7 +1153,7 @@ func TestRuntimeOperationsOrderWorkspaceBeforeEventLock(t *testing.T) {
 						err = errors.New("claim did not return its dispatch")
 					}
 				} else {
-					_, err = f.T.Register(ctx, f.Owner, f.WS, "lock-order", "updated", []string{"claude"})
+					_, err = f.T.Register(ctx, f.Owner, f.WS, "lock-order", "updated", []string{"claude"}, nil)
 				}
 				done <- err
 			}()
@@ -1221,7 +1221,7 @@ func TestRuntimeOperationsCompatibleWithReportWorkspaceLocks(t *testing.T) {
 						err = errors.New("claim did not return its dispatch")
 					}
 				} else {
-					_, err = f.T.Register(ctx, f.Owner, f.WS, "report-lock", "updated", []string{"claude"})
+					_, err = f.T.Register(ctx, f.Owner, f.WS, "report-lock", "updated", []string{"claude"}, nil)
 				}
 				done <- err
 			}()

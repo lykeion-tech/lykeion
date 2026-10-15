@@ -3,10 +3,10 @@
 SELECT id FROM workspace WHERE id = @id FOR NO KEY UPDATE;
 
 -- name: UpsertRuntime :one
-INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, status, last_seen_at)
-VALUES (@workspace_id, @owner_id, @daemon_id, @harness, @device_name, 'online', now())
+INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, cli_version, status, last_seen_at)
+VALUES (@workspace_id, @owner_id, @daemon_id, @harness, @device_name, @cli_version, 'online', now())
 ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
-  SET device_name = EXCLUDED.device_name, status = 'online', last_seen_at = now()
+  SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
 RETURNING *;
 
@@ -17,8 +17,11 @@ WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 -- name: GetRuntime :one
 SELECT * FROM runtime WHERE id = @id AND workspace_id = @workspace_id;
 
+-- active_runs: the runtime's agent runs that are dispatched or running.
 -- name: ListRuntimes :many
-SELECT * FROM runtime WHERE workspace_id = @workspace_id ORDER BY created_at;
+SELECT r.*, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
+  AND t.status IN ('dispatched', 'running'))::int AS active_runs
+FROM runtime r WHERE r.workspace_id = @workspace_id ORDER BY r.created_at;
 
 -- name: SetRuntimeConcurrency :execrows
 UPDATE runtime SET max_concurrent = @max_concurrent
