@@ -85,7 +85,12 @@ function ofCard<T>(
 export const useCard = (id: MaybeRefOrGetter<string>) =>
   ofCard<Card>(id, keys.card, (c) => `/api/cards/${c}`);
 export const useGates = (id: MaybeRefOrGetter<string>) =>
-  ofCard<StudyRecord[]>(id, keys.gates, (c) => `/api/cards/${c}/gates`);
+  useQuery({
+    queryKey: computed(() => keys.gates(ws.value, toValue(id))),
+    queryFn: async () =>
+      (await api<StudyRecord[] | null>('GET', `/api/cards/${toValue(id)}/gates`)) ?? [],
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+  });
 export const useComments = (id: MaybeRefOrGetter<string>) =>
   ofCard<Comment[]>(id, keys.comments, (c) => `/api/cards/${c}/comments`);
 export const useCardEvents = (id: MaybeRefOrGetter<string>) =>
