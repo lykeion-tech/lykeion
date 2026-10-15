@@ -12,6 +12,7 @@ import ResourceView from './views/ResourceView.vue';
 import SettingsView from './views/SettingsView.vue';
 import SignInView from './views/SignInView.vue';
 import AcceptInvite from './views/AcceptInvite.vue';
+import OnboardingView from './views/OnboardingView.vue';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -45,6 +46,7 @@ const routes: RouteRecordRaw[] = [
     meta: { bare: true, title: 'Invitation' },
     props: (route) => ({ token: param(route, 'token') ?? '' }),
   },
+  { path: '/onboarding', component: OnboardingView, meta: { bare: true, title: 'Set up' } },
   {
     path: '/studies/:cardId?',
     components: { default: TaskBoard, detail: TaskDetail },

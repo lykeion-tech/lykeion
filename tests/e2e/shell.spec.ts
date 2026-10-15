@@ -182,6 +182,8 @@ test('a real invitation returns through email sign-in and joins the invited work
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   await page.getByRole('textbox', { name: 'Digit 1' }).click();
   await page.keyboard.type(await labCode(page.request, email));
+  await expect(page).toHaveURL(/#\/onboarding$/);
+  await page.getByRole('button', { name: "I've done this before" }).click();
   await expect(page).toHaveURL(/#\/studies$/);
   await expect(page.getByRole('button', { name: /Invitation lab/ })).toBeVisible();
   expect(await page.evaluate(() => sessionStorage.getItem('lykeion.invite'))).toBe('');

@@ -2,7 +2,11 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import type { AnimationItem } from 'lottie-web';
 import lottie from 'lottie-web/build/player/lottie_light';
-withDefaults(defineProps<{ portrait?: boolean }>(), { portrait: true });
+// still: the first frame only; the animated mascot belongs to the chat assistant.
+const props = withDefaults(defineProps<{ portrait?: boolean; still?: boolean }>(), {
+  portrait: true,
+  still: false,
+});
 const host = ref<HTMLElement>();
 let animation: AnimationItem | undefined;
 onMounted(() => {
@@ -10,8 +14,8 @@ onMounted(() => {
   animation = lottie.loadAnimation({
     container: host.value,
     renderer: 'svg',
-    loop: true,
-    autoplay: !matchMedia('(prefers-reduced-motion: reduce)').matches,
+    loop: !props.still,
+    autoplay: !props.still && !matchMedia('(prefers-reduced-motion: reduce)').matches,
     path: new URL('brand/aristotle-idle.json', document.baseURI).href,
   });
 });

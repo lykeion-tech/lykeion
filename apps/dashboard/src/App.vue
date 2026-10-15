@@ -127,6 +127,23 @@ function recoverWorkspace() {
 watch(lost, (gone) => {
   if (gone) recoverWorkspace();
 });
+// The shell must stay unmounted until the onboarding redirect finishes, so its
+// restored tab cannot navigate over the wizard.
+const onboardingTarget = computed(() => {
+  const m = me.data.value;
+  const list = workspaces.data.value;
+  if (!m || !list) return '';
+  if (!m.onboarded_at) return '/onboarding';
+  return list.length ? '' : '/onboarding?step=workspace';
+});
+watch(
+  [onboardingTarget, () => route.meta.bare, unauthorized],
+  ([target, bare, signedOut]) => {
+    if (target && !bare && !signedOut) void router.replace(target);
+  },
+  { immediate: true },
+);
+
 watch(
   () => workspace.error.value,
   (error) => {
@@ -280,7 +297,7 @@ onUnmounted(() => {
 <template>
   <RouterView v-if="route.meta.bare" />
   <div
-    v-else-if="!unauthorized"
+    v-else-if="!unauthorized && !onboardingTarget"
     class="application"
     :class="{ 'sidebar-hidden': collapsed, desktop, 'task-detail-open': Boolean(cardId) }"
   >
