@@ -32,3 +32,28 @@ export async function labFixture(request: APIRequestContext): Promise<UILabFixtu
   expect(res.status()).toBe(201);
   return res.json();
 }
+
+// The id of the workspace the setup project created.
+export async function labWorkspace(request: APIRequestContext): Promise<string> {
+  const list = (await (await request.get('/api/workspaces')).json()) as {
+    id: string;
+    slug: string;
+  }[];
+  const ws = list.find((w) => w.slug === 'beta-cell-lab');
+  expect(ws).toBeTruthy();
+  return ws!.id;
+}
+
+// Creates a study through the API, as another person's browser would.
+export async function newStudy(
+  request: APIRequestContext,
+  question: string,
+  extra: Record<string, unknown> = {},
+): Promise<{ id: string; number: number; title: string }> {
+  const res = await request.post('/api/cards', {
+    headers: { 'X-Workspace-ID': await labWorkspace(request) },
+    data: { question, ...extra },
+  });
+  expect(res.status()).toBe(201);
+  return res.json();
+}

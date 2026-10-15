@@ -1,142 +1,102 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { Columns3, List, Table2, Waves, FunnelX } from '@lucide/vue';
-const layoutIcons: Record<string, unknown> = {
-  Board: Columns3,
-  List,
-  Table: Table2,
-  Swimlane: Waves,
-};
-import { stages, type Inquiry, type Stage } from '../../../../packages/contracts/src/research';
+import { Columns3, List, FunnelX } from '@lucide/vue';
+import Icon from '../components/Icon.vue';
+import { useCards, useMe, useMembers, useWorkspace } from '../api/queries';
+import type { Card } from '../api/types';
 import {
-  assigneeName,
-  boardGroups,
-  cellPatch,
+  boardColumns,
+  columnName,
+  endLabel,
   filterCategories as categories,
   filterOptions,
-  filterValues,
-  groupByName,
-  hierarchyOrder,
+  groupByColumn,
   matchesFilters,
-  priorities,
-  projectName,
-  sortTasks,
-  statusColumns as columns,
-  tableValue as cellText,
-  taskCode as code,
-  taskStatus as status,
-  visibleStatusColumns,
+  roleLabel,
+  stateLabel,
+  studyNumber,
+  timeAgo,
   type FilterCategory as Category,
-  type Filters,
-} from '../lib/tasks';
-import { shortDate as displayDate } from '../lib/dates';
-import { toCsv } from '../lib/csv';
-import { matchesQuery } from '../lib/search';
-import { state, service, refresh, notify } from '../services/workspace';
-import { readJSON, writeJSON, writeText } from '../storage';
-import { usePreferences } from '../state/preferences';
+  type StudyFilters,
+} from '../lib/studies';
+import { readJSON, writeJSON } from '../storage';
+import { notify } from '../state/notice';
 import { useTaskComposer } from '../state/task-composer';
-import Icon from '../components/Icon.vue';
-import Modal from '../components/Modal.vue';
-import TaskContextMenu from '../components/TaskContextMenu.vue';
-defineProps<{ personal?: boolean }>();
 defineEmits<{ create: [] }>();
 const router = useRouter();
-type Display = {
-  mode: string;
-  grouping: string;
-  order: string;
-  descending: boolean;
-  subtasks: boolean;
-  properties: string[];
-  swimGroup: string;
-  hierarchy: boolean;
-};
-const defaults: Display = {
-  mode: 'Board',
-  grouping: 'Status',
-  order: 'Created date',
-  descending: true,
-  subtasks: true,
-  properties: ['Priority', 'Assignee', 'Due date', 'Project', 'Sub-task progress'],
-  swimGroup: 'Assignee',
-  hierarchy: true,
-};
-const preferences = usePreferences();
-const { openManualComposer } = useTaskComposer();
-const saved = readJSON<Partial<Display>>('lykeion.task-display', {});
+const cards = useCards();
+const me = useMe();
+const members = useMembers();
+const workspace = useWorkspace();
+const { openComposer } = useTaskComposer();
+
+type Display = { mode: 'Board' | 'List'; properties: string[] };
+const propertyNames = ['Role', 'Updated'];
+const saved = readJSON<Partial<Display>>('lykeion.study-display', {});
 const display = reactive<Display>({
-  ...defaults,
-  ...saved,
-  properties: Array.isArray(saved.properties) ? saved.properties : defaults.properties,
+  mode: saved.mode === 'List' ? 'List' : 'Board',
+  properties: Array.isArray(saved.properties) ? saved.properties : propertyNames,
 });
-const workingOnly = ref(false),
-  taskContext = ref<{ id: string; x: number; y: number } | null>(null);
-const contextTask = computed(() => all.value.find((t) => t.id === taskContext.value?.id));
-function openTaskContext(task: Inquiry, event: MouseEvent | KeyboardEvent) {
-  event.preventDefault();
-  closeMenus();
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  taskContext.value = {
-    id: task.id,
-    x: event instanceof MouseEvent ? event.clientX : rect.left + 60,
-    y: event instanceof MouseEvent ? event.clientY : rect.bottom,
-  };
-}
-function createFromColumn() {
-  openManualComposer();
-}
-const tab = ref('All'),
-  popup = ref(''),
-  submenu = ref<Category | null>(null),
-  filters = ref<Filters>({}),
-  menuRoot = ref<HTMLElement>(),
-  trigger = ref<HTMLElement>();
-const propertyNames = [
-  'Priority',
-  'Description',
-  'Assignee',
-  'Start date',
-  'Due date',
-  'Project',
-  'Labels',
-  'Sub-task progress',
-];
+watch(
+  display,
+  (value) => {
+    if (!writeJSON('lykeion.study-display', value))
+      notify('Display preferences could not be saved.');
+  },
+  { deep: true },
+);
+
+const tab = ref<'All' | 'Mine'>('All');
+const popup = ref('');
+const submenu = ref<Category | null>(null);
+const filters = ref<StudyFilters>({});
+const menuRoot = ref<HTMLElement>();
+const trigger = ref<HTMLElement>();
 const categoryIcons: Record<Category, string> = {
-  Status: 'circle',
-  Priority: 'chart',
-  Date: 'clock',
-  Assignee: 'users',
-  Creator: 'users',
-  Project: 'folder',
-  'Project status': 'circle',
-  Label: 'tag',
+  Column: 'columns',
+  State: 'circle',
+  Flag: 'flag',
+  Owner: 'users',
 };
-const all = computed(() => state.data?.inquiries ?? []);
-const taskCode = (t: Inquiry) => code(t, state.data);
-const assignee = (id: string | null) => assigneeName(id, state.data);
-const project = (id: string | null) => projectName(id, state.data);
-const values = (t: Inquiry, category: Category) => filterValues(t, category, state.data);
-const options = (category: Category) => filterOptions(category, state.data);
-const tableValue = (t: Inquiry, name: string) => cellText(t, name, state.data);
-const tasks = computed(() => {
-  let rows = all.value.filter((t) => matchesFilters(t, filters.value, state.data));
-  if (workingOnly.value)
-    rows = rows.filter((t) =>
-      state.data?.agents.some((a) => a.id === t.assigneeId && a.status === 'busy'),
-    );
-  if (!display.subtasks) rows = rows.filter((t) => !t.parentId);
-  if (tab.value === 'Agents')
-    rows = rows.filter((t) => state.data?.agents.some((a) => a.id === t.assigneeId));
-  if (tab.value === 'Members')
-    rows = rows.filter((t) => state.data?.colleagues.some((a) => a.id === t.assigneeId));
-  return sortTasks(rows, display.order, display.descending);
-});
+const all = computed(() => cards.data.value ?? []);
+const number = (c: Card) => studyNumber(workspace.data.value, c);
+function ownerName(id: string) {
+  const m = members.data.value?.find((x) => x.user_id === id);
+  return m ? m.name || m.email : 'Former member';
+}
+const options = (category: Category) =>
+  category === 'Owner'
+    ? (members.data.value ?? []).map((m) => ({ value: m.user_id, label: m.name || m.email }))
+    : filterOptions[category];
+const visible = computed(() =>
+  all.value.filter(
+    (c) =>
+      (tab.value === 'All' || c.owner_id === me.data.value?.id) && matchesFilters(c, filters.value),
+  ),
+);
+const grouped = computed(() => groupByColumn(visible.value));
+const working = computed(() => all.value.filter((c) => c.role && !c.queued && !c.ending).length);
 const activeFilterCount = computed(() =>
   Object.values(filters.value).reduce((sum, items) => sum + (items?.length ?? 0), 0),
 );
-const boardColumns = computed(() => boardGroups(tasks.value, display.grouping, state.data));
+// The list keeps stopped studies under "Hidden columns", as the mock kept Cancelled.
+const listGroups = computed(() =>
+  boardColumns.map((c) => ({
+    ...c,
+    cards:
+      c.id === 'done'
+        ? grouped.value.done.filter((x) => x.ending !== 'stopped')
+        : grouped.value[c.id],
+  })),
+);
+const stopped = computed(() => grouped.value.done.filter((x) => x.ending === 'stopped'));
+const collapsedGroups = ref<string[]>(['stopped']);
+function toggleGroup(id: string) {
+  collapsedGroups.value = collapsedGroups.value.includes(id)
+    ? collapsedGroups.value.filter((x) => x !== id)
+    : [...collapsedGroups.value, id];
+}
 function toggleFilter(category: Category, value: string) {
   const selected = filters.value[category] ?? [];
   filters.value = {
@@ -151,34 +111,8 @@ function toggleProperty(name: string) {
     ? display.properties.filter((x) => x !== name)
     : [...display.properties, name];
 }
-function open(id: string, event?: MouseEvent) {
-  let preview = preferences.taskOpen === 'preview';
-  if (event?.shiftKey) preview = !preview;
-  void router.push('/tasks/' + id + (preview ? '?preview=1' : ''));
-}
-function drag(event: DragEvent, id: string) {
-  event.dataTransfer?.setData('text/plain', id);
-}
-async function drop(event: DragEvent, destination: string) {
-  event.preventDefault();
-  if (display.grouping !== 'Status' && display.mode !== 'Swimlane') {
-    notify('Drag tasks between scientific stages using Status grouping.');
-    return;
-  }
-  const id = event.dataTransfer?.getData('text/plain');
-  const task = all.value.find((x) => x.id === id);
-  if (!task || task.stage === destination) return;
-  if (!stages.includes(destination as Stage)) {
-    notify('Operational status changes require the control plane.');
-    return;
-  }
-  try {
-    const receipt = await service.value.transition(task.id, task.revision, destination as Stage);
-    notify(receipt.accepted ? `Moved to ${destination}` : receipt.reasons.join(' '));
-    if (receipt.accepted) await refresh();
-  } catch (e) {
-    notify((e as Error).message);
-  }
+function open(id: string) {
+  void router.push('/studies/' + id);
 }
 function closeMenus() {
   popup.value = '';
@@ -189,44 +123,24 @@ async function menu(name: string, event: Event) {
   popup.value = popup.value === name ? '' : name;
   submenu.value = null;
   await nextTick();
-  const root = trigger.value?.closest('.menu-anchor')?.querySelector<HTMLElement>('.board-menu');
-  if (name === 'table-columns') root?.querySelector<HTMLInputElement>('input')?.focus();
-  else if (event instanceof KeyboardEvent || (event instanceof MouseEvent && event.detail === 0))
-    root?.querySelector<HTMLElement>('button:not([disabled]),select,input')?.focus();
+  if (event instanceof KeyboardEvent || (event instanceof MouseEvent && event.detail === 0))
+    menuRoot.value?.querySelector<HTMLElement>('button:not([disabled])')?.focus();
 }
 function dismiss(e: Event) {
   if (!(e.target as HTMLElement).closest('.menu-anchor')) closeMenus();
 }
 function key(e: KeyboardEvent) {
-  if (!popup.value) return;
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    if (submenu.value) {
-      submenu.value = null;
-    } else {
-      closeMenus();
-      trigger.value?.focus();
-    }
+  if (!popup.value || e.key !== 'Escape') return;
+  e.preventDefault();
+  if (submenu.value) submenu.value = null;
+  else {
+    closeMenus();
+    trigger.value?.focus();
   }
 }
 function menuKeys(e: KeyboardEvent) {
   const target = e.target as HTMLElement;
-  if (
-    target instanceof HTMLInputElement &&
-    target.closest('.table-columns-popover') &&
-    e.key === 'ArrowDown'
-  ) {
-    e.preventDefault();
-    target
-      .closest('.table-columns-popover')
-      ?.querySelector<HTMLButtonElement>('button:not([disabled])')
-      ?.focus();
-    return;
-  }
-  if (
-    ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key) &&
-    !['SELECT', 'INPUT', 'TEXTAREA'].includes(target.tagName)
-  ) {
+  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
     e.preventDefault();
     const scope = target.closest('[role=menu]') ?? menuRoot.value;
     const buttons = [
@@ -246,259 +160,19 @@ function menuKeys(e: KeyboardEvent) {
   if (e.key === 'ArrowRight' && target.dataset.category) {
     e.preventDefault();
     submenu.value = target.dataset.category as Category;
-    nextTick(() => menuRoot.value?.querySelector<HTMLElement>('.filter-submenu button')?.focus());
+    void nextTick(() =>
+      menuRoot.value?.querySelector<HTMLElement>('.filter-submenu button')?.focus(),
+    );
   }
   if (e.key === 'ArrowLeft' && submenu.value) {
     e.preventDefault();
     const category = submenu.value;
     submenu.value = null;
-    nextTick(() =>
+    void nextTick(() =>
       menuRoot.value?.querySelector<HTMLElement>(`[data-category="${category}"]`)?.focus(),
     );
   }
 }
-type SavedView = { id: string; name: string; tab: string; filters: Filters; display: Display };
-const views = ref<SavedView[]>(readJSON('lykeion.saved-views', [])),
-  viewDialog = ref(''),
-  viewName = ref(''),
-  viewTab = ref('All'),
-  viewFilters = ref<Filters>({}),
-  viewCategory = ref<Category>('Status'),
-  viewChoice = ref(''),
-  viewError = ref('');
-function newView() {
-  closeMenus();
-  viewName.value = '';
-  viewTab.value = tab.value;
-  viewFilters.value = JSON.parse(JSON.stringify(filters.value));
-  viewError.value = '';
-  viewDialog.value = 'new';
-}
-function saveView() {
-  if (!viewName.value.trim()) return;
-  const entry: SavedView = {
-    id: crypto.randomUUID(),
-    name: viewName.value.trim(),
-    tab: viewTab.value,
-    filters: JSON.parse(JSON.stringify(viewFilters.value)),
-    display: JSON.parse(JSON.stringify(display)),
-  };
-  const next = [...views.value, entry];
-  if (writeJSON('lykeion.saved-views', next)) {
-    views.value = next;
-    viewDialog.value = '';
-  } else viewError.value = 'This view could not be saved on this device.';
-}
-function applyView(view: SavedView) {
-  filters.value = JSON.parse(JSON.stringify(view.filters));
-  Object.assign(display, view.display);
-  tab.value = view.tab;
-  closeMenus();
-  viewDialog.value = '';
-}
-function removeView(id: string) {
-  const next = views.value.filter((v) => v.id !== id);
-  if (writeJSON('lykeion.saved-views', next)) views.value = next;
-  else viewError.value = 'Could not remove the saved view.';
-}
-watch(
-  display,
-  (value) => {
-    if (!writeJSON('lykeion.task-display', value) || !writeText('lykeion.task-view', value.mode))
-      notify('Display preferences could not be saved.');
-  },
-  { deep: true },
-);
-const tableColumnNames = [
-  'Task',
-  'Identifier',
-  'Status',
-  'Priority',
-  'Assignee',
-  'Labels',
-  'Project',
-  'Start date',
-  'Due date',
-  'Created',
-  'Updated',
-  'Sub-task progress',
-  'Created by',
-];
-const tablePrefs = reactive(
-  readJSON<{ columns: string[]; group: string; widths: Record<string, number> }>(
-    'lykeion.task-table',
-    {
-      columns: ['Task', 'Status', 'Priority', 'Assignee', 'Due date', 'Labels'],
-      group: 'No grouping',
-      widths: {},
-    },
-  ),
-);
-const columnSearch = ref(''),
-  tableSearch = ref(''),
-  selectedRows = ref<string[]>([]),
-  draggedColumn = ref(''),
-  editingCell = ref(''),
-  cellDraft = ref(''),
-  savingCell = ref(false);
-const tableTasks = computed(() => {
-  const rows = tasks.value.filter((t) =>
-    matchesQuery(`${taskCode(t)} ${t.title}`, tableSearch.value),
-  );
-  return display.hierarchy ? hierarchyOrder(rows) : rows;
-});
-const collapsedLanes = ref<string[]>([]);
-const swimColumns = computed(() => visibleStatusColumns(tasks.value));
-const swimLanes = computed(() =>
-  groupByName(tasks.value, (t) =>
-    display.swimGroup === 'Project'
-      ? project(t.projectId)
-      : display.swimGroup === 'Parent task'
-        ? (all.value.find((p) => p.id === t.parentId)?.title ?? 'No parent task')
-        : assignee(t.assigneeId),
-  ),
-);
-function toggleLane(name: string) {
-  collapsedLanes.value = collapsedLanes.value.includes(name)
-    ? collapsedLanes.value.filter((x) => x !== name)
-    : [...collapsedLanes.value, name];
-}
-async function stageCellChange(t: Inquiry, event: Event) {
-  const select = event.target as HTMLSelectElement;
-  await updateCell(t, 'Status', select.value);
-  select.value = status(all.value.find((x) => x.id === t.id) ?? t);
-}
-
-const tableGroups = computed(() => {
-  if (tablePrefs.group === 'No grouping') return [{ name: '', tasks: tableTasks.value }];
-  return groupByName(tableTasks.value, (t) =>
-    tablePrefs.group === 'Status'
-      ? status(t)
-      : tablePrefs.group === 'Assignee'
-        ? assignee(t.assigneeId)
-        : project(t.projectId),
-  );
-});
-function columnWidth(name: string) {
-  return (
-    tablePrefs.widths[name] ??
-    (
-      {
-        Task: 478,
-        Status: 200,
-        Priority: 172,
-        Assignee: 240,
-        'Due date': 185,
-        Labels: 292,
-      } as Record<string, number>
-    )[name] ??
-    190
-  );
-}
-function toggleColumn(name: string) {
-  if (name === 'Task') return;
-  tablePrefs.columns = tablePrefs.columns.includes(name)
-    ? tablePrefs.columns.filter((x) => x !== name)
-    : [...tablePrefs.columns, name];
-}
-function reorderColumn(name: string) {
-  if (name === 'Task' || draggedColumn.value === 'Task') return;
-  const from = tablePrefs.columns.indexOf(draggedColumn.value),
-    to = tablePrefs.columns.indexOf(name);
-  if (from < 0 || to < 0) return;
-  const next = [...tablePrefs.columns];
-  next.splice(from, 1);
-  next.splice(to, 0, draggedColumn.value);
-  tablePrefs.columns = next;
-  draggedColumn.value = '';
-}
-function resizeColumn(event: PointerEvent, name: string) {
-  event.preventDefault();
-  const start = event.clientX,
-    width = columnWidth(name),
-    handle = event.currentTarget as HTMLElement;
-  handle.setPointerCapture(event.pointerId);
-  const move = (e: PointerEvent) =>
-    (tablePrefs.widths[name] = Math.max(110, width + e.clientX - start));
-  const finish = () => {
-    handle.removeEventListener('pointermove', move);
-    handle.removeEventListener('pointerup', finish);
-    handle.removeEventListener('pointercancel', finish);
-  };
-  handle.addEventListener('pointermove', move);
-  handle.addEventListener('pointerup', finish, { once: true });
-  handle.addEventListener('pointercancel', finish, { once: true });
-}
-function editCell(t: Inquiry, name: string) {
-  editingCell.value = `${t.id}:${name}`;
-  cellDraft.value =
-    name === 'Labels'
-      ? (t.labels ?? []).join(', ')
-      : name === 'Due date'
-        ? (t.dueDate ?? '')
-        : name === 'Start date'
-          ? (t.startDate ?? '')
-          : t.title;
-  nextTick(() => document.querySelector<HTMLInputElement>('.table-cell-editor')?.focus());
-}
-async function updateCell(t: Inquiry, name: string, value: string) {
-  if (savingCell.value) return;
-  savingCell.value = true;
-  try {
-    if (name === 'Status') {
-      if (!stages.includes(value as Stage)) {
-        notify('Operational status changes require the control plane.');
-        return;
-      }
-      const receipt = await service.value.transition(t.id, t.revision, value as Stage);
-      notify(receipt.accepted ? `Moved to ${value}` : receipt.reasons.join(' '));
-    } else {
-      await service.value.updateInquiry(t.id, t.revision, cellPatch(name, value));
-    }
-    editingCell.value = '';
-    await refresh();
-  } catch (e) {
-    notify((e as Error).message);
-  } finally {
-    savingCell.value = false;
-  }
-}
-function toggleRow(id: string) {
-  selectedRows.value = selectedRows.value.includes(id)
-    ? selectedRows.value.filter((x) => x !== id)
-    : [...selectedRows.value, id];
-}
-function exportTasks(format: 'csv' | 'json') {
-  const records = selectedRows.value.length
-    ? tableTasks.value.filter((t) => selectedRows.value.includes(t.id))
-    : tableTasks.value;
-  const content =
-    format === 'json'
-      ? JSON.stringify(records, null, 2)
-      : toCsv([
-          tablePrefs.columns,
-          ...records.map((t) => tablePrefs.columns.map((name) => tableValue(t, name))),
-        ]);
-  const url = URL.createObjectURL(
-    new Blob([content], {
-      type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8',
-    }),
-  );
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `lykeion-tasks.${format}`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  closeMenus();
-}
-watch(
-  tablePrefs,
-  (value) => {
-    if (!writeJSON('lykeion.task-table', value)) notify('Table preferences could not be saved.');
-  },
-  { deep: true },
-);
-
 onMounted(() => {
   document.addEventListener('click', dismiss);
   window.addEventListener('keydown', key);
@@ -512,65 +186,21 @@ onUnmounted(() => {
   <div class="task-toolbar">
     <div class="toolbar-group">
       <button
-        v-for="name in ['All', 'Members', 'Agents']"
+        v-for="name in ['All', 'Mine'] as const"
         :key="name"
         class="button compact"
         :class="{ active: tab === name }"
+        :aria-pressed="tab === name"
         @click="tab = name"
       >
         {{ name }}
       </button>
-      <div class="menu-anchor">
-        <button
-          class="icon-button"
-          aria-label="Views"
-          aria-haspopup="menu"
-          @click="menu('views', $event)"
-          @keydown.down.prevent="menu('views', $event)"
-        >
-          <Icon name="layers" :size="14" />
-        </button>
-        <div
-          v-if="popup === 'views'"
-          ref="menuRoot"
-          class="board-menu views-menu"
-          role="menu"
-          aria-label="Views"
-          @keydown="menuKeys"
-        >
-          <button role="menuitem" @click="newView"><Icon name="plus" />New view</button
-          ><button
-            role="menuitem"
-            @click="
-              viewDialog = 'manage';
-              closeMenus();
-            "
-          >
-            <Icon name="settings" />Manage views</button
-          ><button v-for="view in views" :key="view.id" role="menuitem" @click="applyView(view)">
-            {{ view.name }}
-          </button>
-        </div>
-      </div>
     </div>
     <div class="toolbar-group push-right">
-      <small v-if="workingOnly" class="working-caption">Viewing tasks with agents working</small>
       <div class="working-control">
-        <button
-          class="button compact"
-          :class="{ 'working-active': workingOnly }"
-          role="checkbox"
-          :aria-checked="workingOnly"
-          @click="workingOnly = !workingOnly"
-        >
-          {{ state.data?.agents.filter((x) => x.status === 'busy').length ?? 0 }} agents working
-        </button>
+        <button class="button compact" disabled>{{ working }} agents working</button>
         <div class="working-tooltip" role="tooltip">
-          {{
-            state.data?.agents.some((x) => x.status === 'busy')
-              ? 'Filter by agents currently marked busy'
-              : 'No agents working right now'
-          }}
+          {{ working ? 'Studies with a role running now' : 'No agents working right now' }}
         </div>
       </div>
       <div class="menu-anchor">
@@ -601,7 +231,7 @@ onUnmounted(() => {
               aria-haspopup="menu"
               :aria-expanded="submenu === category"
               @mouseenter="submenu = category"
-              @click="submenu = submenu === category ? null : category"
+              @click="submenu = category"
             >
               <Icon :name="categoryIcons[category]" :size="14" />{{ category
               }}<Icon name="right" class="push-right" :size="12" />
@@ -625,19 +255,10 @@ onUnmounted(() => {
                     name="check"
                     :size="12" /></span
                 ><span
-                  v-if="category === 'Status'"
+                  v-if="category === 'Column'"
                   class="stage-dot"
-                  :class="'status-' + option.value.toLowerCase()"
-                /><span>{{ option.label }}</span
-                ><small
-                  v-if="all.filter((t) => values(t, category).includes(option.value)).length"
-                  class="push-right"
-                  >{{ all.filter((t) => values(t, category).includes(option.value)).length }} task{{
-                    all.filter((t) => values(t, category).includes(option.value)).length === 1
-                      ? ''
-                      : 's'
-                  }}</small
-                >
+                  :class="'status-' + option.value"
+                /><span>{{ option.label }}</span>
               </button>
             </div>
           </div>
@@ -654,75 +275,6 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
-      <template v-if="display.mode === 'Table'"
-        ><div class="menu-anchor">
-          <button
-            class="button compact"
-            @click="menu('table-group', $event)"
-            @keydown.down.prevent="menu('table-group', $event)"
-          >
-            <Icon name="list" :size="14" />Group<Icon name="down" :size="11" />
-          </button>
-          <div
-            v-if="popup === 'table-group'"
-            class="board-menu table-group-menu"
-            role="menu"
-            aria-label="Group"
-            @keydown="menuKeys"
-          >
-            <button
-              v-for="name in ['No grouping', 'Status', 'Assignee', 'Project']"
-              :key="name"
-              role="menuitemradio"
-              :aria-checked="tablePrefs.group === name"
-              @click="
-                tablePrefs.group = name;
-                closeMenus();
-              "
-            >
-              {{ name
-              }}<Icon v-if="tablePrefs.group === name" name="check" class="push-right" :size="14" />
-            </button>
-          </div>
-        </div>
-        <div class="menu-anchor">
-          <button
-            class="button compact"
-            @click="menu('table-columns', $event)"
-            @keydown.down.prevent="menu('table-columns', $event)"
-          >
-            <Icon name="columns" :size="14" />Columns<Icon name="down" :size="11" />
-          </button>
-          <div
-            v-if="popup === 'table-columns'"
-            class="board-menu table-columns-popover"
-            role="menu"
-            @keydown="menuKeys"
-          >
-            <input
-              v-model="columnSearch"
-              autofocus
-              placeholder="Search columns…"
-              aria-label="Search columns"
-            /><small>Task properties</small
-            ><button
-              v-for="name in tableColumnNames.filter((x) => matchesQuery(x, columnSearch))"
-              :key="name"
-              role="menuitemcheckbox"
-              :aria-checked="tablePrefs.columns.includes(name)"
-              :disabled="name === 'Task'"
-              @click="toggleColumn(name)"
-            >
-              {{ name
-              }}<Icon
-                v-if="tablePrefs.columns.includes(name)"
-                name="check"
-                class="push-right"
-                :size="14"
-              />
-            </button>
-          </div></div
-      ></template>
       <div class="menu-anchor">
         <button
           class="button compact"
@@ -736,55 +288,10 @@ onUnmounted(() => {
           v-if="popup === 'display'"
           ref="menuRoot"
           class="board-menu display-popover"
-          :class="{ 'table-display': display.mode === 'Table' }"
           @keydown="menuKeys"
         >
-          <label v-if="display.mode === 'Table'" class="display-row"
-            ><span
-              >Hierarchy<small class="hierarchy-help"
-                >Nest sub-tasks beneath their parents</small
-              ></span
-            ><input
-              v-model="display.hierarchy"
-              type="checkbox"
-              role="switch"
-              aria-label="Hierarchy" /></label
-          ><label v-else-if="display.mode === 'Swimlane'" class="display-row"
-            >Grouping<select v-model="display.swimGroup" aria-label="Grouping">
-              <option v-for="group in ['Parent task', 'Project', 'Assignee']" :key="group">
-                {{ group }}
-              </option>
-            </select></label
-          ><label v-else class="display-row"
-            >Grouping<select v-model="display.grouping" aria-label="Grouping">
-              <option
-                v-for="group in ['Status', 'Priority', 'Assignee', 'Project', 'None']"
-                :key="group"
-              >
-                {{ group }}
-              </option>
-            </select></label
-          ><span class="display-caption">Ordering</span>
-          <div class="order-row">
-            <select v-model="display.order" aria-label="Ordering">
-              <option
-                v-for="order in ['Created date', 'Updated date', 'Title', 'Priority', 'Due date']"
-                :key="order"
-              >
-                {{ order }}
-              </option></select
-            ><button @click="display.descending = !display.descending">
-              {{ display.descending ? 'Newest first' : 'Oldest first' }}
-            </button>
-          </div>
-          <label class="display-row"
-            >Show sub-tasks<input
-              v-model="display.subtasks"
-              type="checkbox"
-              role="switch"
-              aria-label="Show sub-tasks" /></label
-          ><span v-if="display.mode !== 'Table'" class="display-caption">Card properties</span>
-          <div v-if="display.mode !== 'Table'" class="property-chips">
+          <span class="display-caption">Card properties</span>
+          <div class="property-chips">
             <button
               v-for="name in propertyNames"
               :key="name"
@@ -796,47 +303,17 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div class="menu-anchor">
-        <button
-          class="button compact"
-          :aria-expanded="popup === 'mode'"
-          @click="menu('mode', $event)"
-          @keydown.down.prevent="menu('mode', $event)"
-        >
-          <component
-            :is="layoutIcons[display.mode]"
-            :size="14"
-            :stroke-width="1.7"
-            aria-hidden="true"
-          />{{ display.mode }}
-        </button>
-        <div
-          v-if="popup === 'mode'"
-          ref="menuRoot"
-          class="board-menu mode-menu"
-          role="menu"
-          @keydown="menuKeys"
-        >
-          <small class="mode-caption">View</small
-          ><button
-            v-for="name in ['Board', 'List', 'Table', 'Swimlane']"
-            :key="name"
-            role="menuitemradio"
-            :aria-checked="display.mode === name"
-            @click="
-              display.mode = name;
-              closeMenus();
-            "
-          >
-            <component
-              :is="layoutIcons[name]"
-              :size="16"
-              :stroke-width="1.7"
-              aria-hidden="true"
-            />{{ name }}<Icon v-if="display.mode === name" name="check" class="push-right" />
-          </button>
-        </div>
-      </div>
+      <button
+        class="button compact"
+        @click="display.mode = display.mode === 'Board' ? 'List' : 'Board'"
+      >
+        <component
+          :is="display.mode === 'Board' ? Columns3 : List"
+          :size="14"
+          :stroke-width="1.7"
+          aria-hidden="true"
+        />{{ display.mode }}
+      </button>
     </div>
   </div>
   <div v-if="activeFilterCount" class="filter-summary">
@@ -851,522 +328,142 @@ onUnmounted(() => {
         }}<Icon name="close" :size="11" /></button></template
     ><button class="text-button" @click="filters = {}">Clear</button>
   </div>
-  <div v-if="display.mode === 'Board' && tasks.length" class="board-scroll">
-    <div
+  <div v-if="display.mode === 'Board'" class="board-scroll">
+    <section
       v-for="column in boardColumns"
       :key="column.id"
       class="board-column"
-      :class="
-        display.grouping === 'Status' ? 'stage-' + column.id.toLowerCase() : 'stage-grounding'
-      "
-      @dragover.prevent
-      @drop="drop($event, column.id)"
+      :class="'stage-' + column.id"
+      :aria-label="column.name"
     >
       <header>
         <span class="stage-dot" /><strong>{{ column.name }}</strong
-        ><span>{{ column.tasks.length }}</span
+        ><span>{{ grouped[column.id].length }}</span
         ><button
+          v-if="column.id === 'backlog'"
           class="icon-button push-right"
-          :aria-label="'New task in ' + column.name"
-          @click="createFromColumn"
+          aria-label="New study"
+          @click="openComposer()"
         >
           <Icon name="plus" :size="14" />
         </button>
       </header>
       <button
-        v-for="task in column.tasks"
-        :key="task.id"
+        v-for="card in grouped[column.id]"
+        :key="card.id"
         class="task-card"
-        draggable="true"
-        @contextmenu="openTaskContext(task, $event)"
-        @keydown.shift.f10="openTaskContext(task, $event)"
-        @dragstart="drag($event, task.id)"
-        @click="open(task.id, $event)"
+        :data-card="card.id"
+        @click="open(card.id)"
       >
-        <small>{{ taskCode(task) }}</small
-        ><span>{{ task.title }}</span>
-        <p v-if="display.properties.includes('Description') && task.description">
-          {{ task.description }}
-        </p>
+        <small class="card-id"
+          >{{ number(card) }}<span v-if="card.queued" class="chip chip-queued">queued</span
+          ><span v-if="card.flag === 'escalated'" class="chip chip-escalated">escalated</span
+          ><span v-if="card.flag === 'out_of_budget'" class="chip chip-out_of_budget"
+            >out of budget</span
+          ><span v-if="column.id === 'blocked'" class="chip">{{
+            columnName(card.board_column)
+          }}</span></small
+        ><span>{{ card.title }}</span>
         <div class="card-metadata">
-          <span v-if="display.properties.includes('Priority') && task.priority !== 'none'"
-            ><Icon name="flag" :size="12" />{{ task.priority }}</span
-          ><span v-if="display.properties.includes('Assignee') && task.assigneeId"
-            ><Icon name="users" :size="12" />{{ assignee(task.assigneeId) }}</span
-          ><span v-if="display.properties.includes('Project') && task.projectId"
-            ><Icon name="folder" :size="12" />{{ project(task.projectId) }}</span
-          ><span v-if="display.properties.includes('Start date') && task.startDate"
-            >Starts {{ displayDate(task.startDate) }}</span
-          ><span v-if="display.properties.includes('Due date') && task.dueDate"
-            >Due {{ displayDate(task.dueDate) }}</span
-          ><template v-if="display.properties.includes('Labels')"
-            ><span v-for="label in task.labels" :key="label"
-              ><Icon name="tag" :size="12" />{{ label }}</span
-            ></template
+          <span v-if="display.properties.includes('Role')"
+            ><Icon :name="card.role ? 'bot' : 'users'" :size="12" />{{
+              card.role ? roleLabel(card.role) : ownerName(card.owner_id)
+            }}</span
           ><span
-            v-if="
-              display.properties.includes('Sub-task progress') &&
-              all.some((x) => x.parentId === task.id)
-            "
-            >{{ all.filter((x) => x.parentId === task.id && x.status === 'done').length }}/{{
-              all.filter((x) => x.parentId === task.id).length
-            }}
-            sub-tasks</span
+            v-if="stateLabel(card) && column.id !== 'blocked'"
+            class="chip"
+            :class="'chip-' + card.state"
+            >{{ stateLabel(card) }}</span
+          ><span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{
+            endLabel(card)
+          }}</span
+          ><span v-if="display.properties.includes('Updated')" class="push-right"
+            >Updated {{ timeAgo(card.updated_at) }}</span
           >
         </div>
       </button>
-      <p v-if="!column.tasks.length" class="column-empty">No tasks</p>
-    </div>
-  </div>
-  <section v-else-if="display.mode === 'Swimlane' && tasks.length" class="swimlane-scroll">
-    <div class="swimlane-headings">
-      <div
-        v-for="column in swimColumns"
-        :key="column"
-        :class="'lane-status-' + column.toLowerCase()"
-      >
-        <span class="stage-dot" :class="'status-' + column.toLowerCase()" /><strong>{{
-          column
-        }}</strong
-        ><small>{{ tasks.filter((t) => status(t) === column).length }}</small
-        ><button
-          class="icon-button push-right"
-          :aria-label="'Add task in ' + column"
-          @click="createFromColumn"
-        >
-          <Icon name="more" :size="14" />
-        </button>
-      </div>
-    </div>
-    <section v-for="lane in swimLanes" :key="lane.name" class="swimlane">
-      <button
-        class="lane-title"
-        :aria-expanded="!collapsedLanes.includes(lane.name)"
-        @click="toggleLane(lane.name)"
-      >
-        <Icon name="more" :size="12" /><Icon
-          :name="collapsedLanes.includes(lane.name) ? 'right' : 'down'"
-          :size="12"
-        /><Icon
-          :name="
-            display.swimGroup === 'Project'
-              ? 'folder'
-              : display.swimGroup === 'Parent task'
-                ? 'tasks'
-                : 'users'
-          "
-          :size="18"
-        /><strong>{{ lane.name }}</strong
-        ><small>{{ lane.tasks.length }}</small>
-      </button>
-      <div v-if="!collapsedLanes.includes(lane.name)" class="swimlane-cells">
-        <div
-          v-for="column in swimColumns"
-          :key="column"
-          class="swimlane-cell"
-          :class="'lane-status-' + column.toLowerCase()"
-          @dragover.prevent
-          @drop="drop($event, column)"
-        >
-          <button
-            v-for="task in lane.tasks.filter((t) => status(t) === column)"
-            :key="task.id"
-            class="task-card"
-            draggable="true"
-            @contextmenu="openTaskContext(task, $event)"
-            @keydown.shift.f10="openTaskContext(task, $event)"
-            @dragstart="drag($event, task.id)"
-            @click="open(task.id, $event)"
-          >
-            <small>{{ taskCode(task) }}</small
-            ><span>{{ task.title }}</span>
-            <p v-if="display.properties.includes('Description') && task.description">
-              {{ task.description }}
-            </p>
-            <div class="card-metadata">
-              <span v-if="display.properties.includes('Priority') && task.priority !== 'none'">{{
-                task.priority
-              }}</span
-              ><span
-                v-if="
-                  display.properties.includes('Assignee') &&
-                  task.assigneeId &&
-                  display.swimGroup !== 'Assignee'
-                "
-                >{{ assignee(task.assigneeId) }}</span
-              ><span
-                v-if="
-                  display.properties.includes('Project') &&
-                  task.projectId &&
-                  display.swimGroup !== 'Project'
-                "
-                >{{ project(task.projectId) }}</span
-              ><span v-if="display.properties.includes('Start date') && task.startDate"
-                >Starts {{ displayDate(task.startDate) }}</span
-              ><span v-if="display.properties.includes('Due date') && task.dueDate"
-                >Due {{ displayDate(task.dueDate) }}</span
-              ><template v-if="display.properties.includes('Labels')"
-                ><span v-for="label in task.labels" :key="label">{{ label }}</span></template
-              >
-            </div></button
-          ><span v-if="!lane.tasks.some((t) => status(t) === column)" class="lane-dash">—</span
-          ><button class="lane-add" :aria-label="'New task in ' + column" @click="createFromColumn">
-            <Icon name="plus" :size="14" />
-          </button>
-        </div>
-      </div>
+      <p v-if="!grouped[column.id].length" class="column-empty">No studies</p>
     </section>
-  </section>
-  <section v-else-if="display.mode === 'Table'" class="table-workspace">
-    <div class="table-actions">
-      <label
-        ><Icon name="search" :size="13" /><input
-          v-model="tableSearch"
-          type="search"
-          placeholder="Search title or task ID…"
-          aria-label="Search title or task ID" /></label
-      ><small v-if="selectedRows.length">{{ selectedRows.length }} selected</small>
-      <div class="menu-anchor push-right">
-        <button class="export-button" @click="menu('export', $event)">
-          <Icon name="download" :size="14" />Export<Icon name="down" :size="10" />
-        </button>
-        <div v-if="popup === 'export'" class="board-menu">
-          <button @click="exportTasks('csv')">Export CSV</button
-          ><button @click="exportTasks('json')">Export JSON</button>
-        </div>
-      </div>
-    </div>
-    <div class="table-scroll">
-      <table class="tasks-table">
-        <colgroup>
-          <col style="width: 58px" />
-          <col
-            v-for="name in tablePrefs.columns"
-            :key="name"
-            :style="{ width: columnWidth(name) + 'px' }"
-          />
-          <col style="width: 64px" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>
-              <input
-                type="checkbox"
-                aria-label="Select all visible tasks"
-                :checked="
-                  tableTasks.length > 0 && tableTasks.every((t) => selectedRows.includes(t.id))
-                "
-                @change="
-                  selectedRows = tableTasks.every((t) => selectedRows.includes(t.id))
-                    ? []
-                    : tableTasks.map((t) => t.id)
-                "
-              />
-            </th>
-            <th
-              v-for="name in tablePrefs.columns"
-              :key="name"
-              :draggable="name !== 'Task'"
-              @dragstart="draggedColumn = name"
-              @dragover.prevent
-              @drop="reorderColumn(name)"
-            >
-              <button
-                @click="
-                  display.order =
-                    name === 'Task'
-                      ? 'Title'
-                      : name === 'Created'
-                        ? 'Created date'
-                        : name === 'Updated'
-                          ? 'Updated date'
-                          : name === 'Due date'
-                            ? 'Due date'
-                            : name === 'Priority'
-                              ? 'Priority'
-                              : display.order;
-                  display.descending = !display.descending;
-                "
-              >
-                {{ name }}</button
-              ><span
-                class="column-resizer"
-                role="separator"
-                :aria-label="'Resize ' + name + ' column'"
-                aria-orientation="vertical"
-                tabindex="0"
-                :aria-valuenow="columnWidth(name)"
-                @pointerdown="resizeColumn($event, name)"
-                @keydown.left.prevent="
-                  tablePrefs.widths[name] = Math.max(110, columnWidth(name) - 16)
-                "
-                @keydown.right.prevent="tablePrefs.widths[name] = columnWidth(name) + 16"
-              />
-            </th>
-            <th>
-              <button
-                aria-label="Add column"
-                @click="menu('table-columns', $event)"
-                @keydown.down.prevent="menu('table-columns', $event)"
-              >
-                <Icon name="plus" :size="14" />
-              </button>
-            </th>
-          </tr>
-        </thead>
-        <tbody v-for="group in tableGroups" :key="group.name">
-          <tr v-if="group.name" class="table-group-row">
-            <td :colspan="tablePrefs.columns.length + 2">
-              {{ group.name }} <small>{{ group.tasks.length }}</small>
-            </td>
-          </tr>
-          <tr
-            v-for="task in group.tasks"
-            :key="task.id"
-            :class="{ selected: selectedRows.includes(task.id) }"
-            @contextmenu="openTaskContext(task, $event)"
-          >
-            <td>
-              <input
-                type="checkbox"
-                :aria-label="'Select ' + taskCode(task)"
-                :checked="selectedRows.includes(task.id)"
-                @change="toggleRow(task.id)"
-              />
-            </td>
-            <td v-for="name in tablePrefs.columns" :key="name">
-              <form
-                v-if="editingCell === task.id + ':' + name"
-                @submit.prevent="updateCell(task, name, cellDraft)"
-              >
-                <input
-                  v-model="cellDraft"
-                  class="table-cell-editor"
-                  :aria-label="'Edit ' + name"
-                  :type="name.includes('date') ? 'date' : 'text'"
-                  @keydown.esc="editingCell = ''"
-                  @blur="updateCell(task, name, cellDraft)"
-                />
-              </form>
-              <div
-                v-else-if="name === 'Task'"
-                class="table-title"
-                :class="{ 'nested-task': display.hierarchy && task.parentId }"
-              >
-                <small>{{ taskCode(task) }}</small
-                ><button @click="open(task.id, $event)">{{ task.title }}</button
-                ><button class="rename-task" aria-label="Rename task" @click="editCell(task, name)">
-                  <Icon name="edit" :size="13" />
-                </button>
-              </div>
-              <select
-                v-else-if="name === 'Status'"
-                :value="status(task)"
-                :aria-label="'Status for ' + taskCode(task)"
-                :disabled="savingCell"
-                @change="stageCellChange(task, $event)"
-              >
-                <option v-for="value in columns" :key="value">{{ value }}</option></select
-              ><select
-                v-else-if="name === 'Priority'"
-                :value="task.priority"
-                :aria-label="'Priority for ' + taskCode(task)"
-                :disabled="savingCell"
-                @change="updateCell(task, name, ($event.target as HTMLSelectElement).value)"
-              >
-                <option v-for="value in priorities" :key="value" :value="value">
-                  {{ value === 'none' ? 'No priority' : value }}
-                </option></select
-              ><select
-                v-else-if="name === 'Assignee'"
-                :value="task.assigneeId ?? ''"
-                :aria-label="'Assignee for ' + taskCode(task)"
-                :disabled="savingCell"
-                @change="updateCell(task, name, ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">Unassigned</option>
-                <option
-                  v-for="option in options('Assignee').filter((x) => x.value !== 'none')"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option></select
-              ><select
-                v-else-if="name === 'Project'"
-                :value="task.projectId ?? ''"
-                :aria-label="'Project for ' + taskCode(task)"
-                :disabled="savingCell"
-                @change="updateCell(task, name, ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">No project</option>
-                <option v-for="item in state.data?.projects" :key="item.id" :value="item.id">
-                  {{ item.name }}
-                </option></select
-              ><button
-                v-else-if="['Labels', 'Start date', 'Due date'].includes(name)"
-                class="table-edit-button"
-                @click="editCell(task, name)"
-              >
-                {{ tableValue(task, name) }}</button
-              ><span v-else>{{ tableValue(task, name) }}</span>
-            </td>
-            <td />
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="!tableTasks.length" class="table-empty">No tasks found.</p>
-    </div>
-  </section>
-  <div v-else-if="tasks.length" class="task-list">
-    <button
-      v-for="task in tasks"
-      :key="task.id"
-      @contextmenu="openTaskContext(task, $event)"
-      @keydown.shift.f10="openTaskContext(task, $event)"
-      @click="open(task.id, $event)"
-    >
-      <span class="stage-dot" /><small>{{ taskCode(task) }}</small
-      ><span>{{ task.title }}</span
-      ><span class="push-right muted">{{ status(task) }}</span>
-    </button>
   </div>
-  <div v-else class="center-empty board-empty">
-    <FunnelX
-      v-if="activeFilterCount || workingOnly"
-      :size="40"
-      :stroke-width="1.7"
-      aria-hidden="true"
-    /><Icon v-else name="tasks" :size="40" /><span>{{
-      activeFilterCount || workingOnly ? 'No tasks match these filters' : 'No tasks yet'
-    }}</span
+  <div v-else class="study-list">
+    <section v-for="group in listGroups" :key="group.id">
+      <button
+        class="list-group"
+        :aria-expanded="!collapsedGroups.includes(group.id)"
+        @click="toggleGroup(group.id)"
+      >
+        <Icon :name="collapsedGroups.includes(group.id) ? 'right' : 'down'" :size="12" /><span
+          class="stage-dot"
+          :class="'status-' + group.id"
+        />{{ group.name }}<small>{{ group.cards.length }}</small>
+      </button>
+      <template v-if="!collapsedGroups.includes(group.id)">
+        <button v-for="card in group.cards" :key="card.id" class="list-row" @click="open(card.id)">
+          <small>{{ number(card) }}</small
+          ><span class="truncate">{{ card.title }}</span>
+          <span class="row-meta push-right">
+            <span
+              v-if="stateLabel(card) && group.id !== 'blocked'"
+              class="chip"
+              :class="'chip-' + card.state"
+              >{{ stateLabel(card) }}</span
+            >
+            <span v-if="card.queued" class="chip chip-queued">queued</span>
+            <span v-if="card.flag" class="chip" :class="'chip-' + card.flag">{{
+              card.flag.replace(/_/g, ' ')
+            }}</span>
+            <span v-if="group.id === 'blocked'" class="chip">{{
+              columnName(card.board_column)
+            }}</span>
+            <span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{
+              endLabel(card)
+            }}</span>
+            <span v-if="card.role">{{ roleLabel(card.role) }}</span>
+            <span>{{ ownerName(card.owner_id) }}</span>
+          </span>
+        </button>
+        <p v-if="!group.cards.length" class="list-empty">No studies</p>
+      </template>
+    </section>
+    <section>
+      <h3 class="hidden-heading">Hidden columns</h3>
+      <button
+        class="list-group hidden-group"
+        :aria-expanded="!collapsedGroups.includes('stopped')"
+        @click="toggleGroup('stopped')"
+      >
+        <Icon name="close" :size="12" />Stopped<small>{{ stopped.length }}</small>
+      </button>
+      <template v-if="!collapsedGroups.includes('stopped')">
+        <button v-for="card in stopped" :key="card.id" class="list-row" @click="open(card.id)">
+          <small>{{ number(card) }}</small
+          ><span class="truncate">{{ card.title }}</span>
+          <span class="row-meta push-right"
+            ><span class="chip chip-stopped">{{ endLabel(card) }}</span
+            ><span>{{ ownerName(card.owner_id) }}</span></span
+          >
+        </button>
+      </template>
+    </section>
+  </div>
+  <div
+    v-if="cards.isSuccess.value && !visible.length && (activeFilterCount || tab === 'Mine')"
+    class="center-empty board-empty"
+  >
+    <FunnelX :size="40" :stroke-width="1.7" aria-hidden="true" /><span
+      >No studies match these filters</span
     ><button
-      v-if="activeFilterCount || workingOnly"
       class="button compact"
       @click="
         filters = {};
-        workingOnly = false;
+        tab = 'All';
       "
     >
       Clear filters
     </button>
   </div>
-  <TaskContextMenu
-    v-if="taskContext && contextTask"
-    :key="taskContext.id"
-    :task="contextTask"
-    :x="taskContext.x"
-    :y="taskContext.y"
-    @close="taskContext = null"
-  />
-  <Modal
-    v-if="viewDialog"
-    :title="viewDialog === 'new' ? 'Save as view' : 'Manage views'"
-    class="view-dialog"
-    @close="viewDialog = ''"
-    ><form v-if="viewDialog === 'new'" @submit.prevent="saveView">
-      <header>
-        <span>Save as view<small>Based on all workspace tasks</small></span
-        ><button
-          type="button"
-          class="icon-button push-right"
-          aria-label="Close"
-          @click="viewDialog = ''"
-        >
-          <Icon name="close" />
-        </button>
-      </header>
-      <div class="view-fields">
-        <label
-          ><span>Name</span
-          ><input v-model="viewName" required autofocus placeholder="e.g. Needs review" /></label
-        ><label
-          ><span>Visibility</span
-          ><select disabled>
-            <option>Only visible to me</option>
-          </select></label
-        ><label
-          ><span>Assignee type</span
-          ><select v-model="viewTab">
-            <option value="All">Any assignee</option>
-            <option value="Members">Members</option>
-            <option value="Agents">Agents</option>
-          </select></label
-        >
-        <div class="view-filter-row">
-          <span>Filters</span>
-          <div>
-            <button
-              type="button"
-              class="button compact"
-              @click="viewChoice = viewChoice ? '' : 'add'"
-            >
-              <Icon name="plus" :size="12" />Add filter
-            </button>
-            <div v-if="viewChoice" class="view-filter-controls">
-              <select v-model="viewCategory">
-                <option v-for="category in categories" :key="category">
-                  {{ category }}
-                </option></select
-              ><select
-                @change="
-                  viewFilters = {
-                    ...viewFilters,
-                    [viewCategory]: [($event.target as HTMLSelectElement).value],
-                  }
-                "
-              >
-                <option value="">Select value</option>
-                <option
-                  v-for="option in options(viewCategory)"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
-            </div>
-            <small v-for="(selected, category) in viewFilters" :key="category"
-              >{{ category }}: {{ selected?.join(', ') }}</small
-            >
-          </div>
-        </div>
-        <details>
-          <summary>
-            Default display
-            <span
-              >{{ display.mode }} · {{ display.grouping }} · {{ display.order }} ·
-              {{ display.descending ? 'Newest first' : 'Oldest first' }}</span
-            >
-          </summary>
-          <p>The current display is saved with this view on this device.</p>
-        </details>
-      </div>
-      <p v-if="viewError" class="form-error" role="alert">{{ viewError }}</p>
-      <footer>
-        <button type="button" class="text-button push-right" @click="viewDialog = ''">Cancel</button
-        ><button class="button primary compact" :disabled="!viewName.trim()">Create view</button>
-      </footer>
-    </form>
-    <div v-else class="manage-views">
-      <header>
-        Manage views<button
-          class="icon-button push-right"
-          aria-label="Close"
-          @click="viewDialog = ''"
-        >
-          <Icon name="close" />
-        </button>
-      </header>
-      <p v-if="!views.length">No saved views on this device.</p>
-      <div v-for="view in views" :key="view.id">
-        <button @click="applyView(view)">{{ view.name }}</button
-        ><button class="text-button" @click="removeView(view.id)">Delete</button>
-      </div>
-      <p v-if="viewError" role="alert">{{ viewError }}</p>
-    </div></Modal
-  >
 </template>
+
 <style scoped>
 .board-menu {
   position: absolute;
@@ -2008,5 +1105,81 @@ onUnmounted(() => {
 .working-control:hover .working-tooltip,
 .working-control:focus-within .working-tooltip {
   display: block;
+}
+.board-column.stage-backlog {
+  background: color-mix(in srgb, var(--stage-grounding-bg) 55%, var(--surface));
+}
+.board-column.stage-done {
+  background: var(--stage-grounding-bg);
+}
+.card-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.status-backlog {
+  border-style: dashed;
+}
+.study-list {
+  flex: 1;
+  overflow: auto;
+  padding: 0 14px 24px;
+}
+.list-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--input);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.list-group small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 7px 10px 7px 38px;
+  font-size: 13.5px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.list-row:hover {
+  background: var(--hover);
+}
+.list-row > small {
+  color: var(--muted);
+  width: 62px;
+  flex: none;
+}
+.row-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.list-empty {
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
+  padding: 12px 0 6px;
+}
+.hidden-heading {
+  font-size: 13.5px;
+  font-weight: 400;
+  margin: 14px 0 6px 4px;
+}
+.hidden-group {
+  background: transparent;
+  font-weight: 400;
 }
 </style>
