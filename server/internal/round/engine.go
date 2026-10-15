@@ -488,6 +488,11 @@ func (e *Engine) queue(ctx context.Context, tx *store.Tx, c db.Card, s board.Sta
 	if err != nil {
 		return err
 	}
+	// Read at queue time, so a change to the research context reaches the next run.
+	ws, err := tx.Q.GetWorkspace(ctx, tx.WS)
+	if err != nil {
+		return err
+	}
 	for _, role := range roles {
 		if err := tx.Q.SupersedeRoleKinds(ctx, db.SupersedeRoleKindsParams{WorkspaceID: tx.WS, CardID: c.ID,
 			BoardColumn: c.BoardColumn, Role: role, Kinds: slices.Concat(sr.RoleKinds(role), ResultKinds)}); err != nil {
@@ -498,7 +503,7 @@ func (e *Engine) queue(ctx context.Context, tx *store.Tx, c db.Card, s board.Sta
 			note = c.HandoffNote
 		}
 		t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-			Role: role, Harness: set.HarnessFor(role), Prompt: prompt(c, role, comments, note, extra), Skill: skill[role]})
+			Role: role, Harness: set.HarnessFor(role), Prompt: prompt(c, role, comments, ws.ResearchContext, note, extra), Skill: skill[role]})
 		if err != nil {
 			return err
 		}

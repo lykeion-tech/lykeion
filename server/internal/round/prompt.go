@@ -7,10 +7,18 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-func prompt(c db.Card, role string, comments []db.Comment, handoff, extra string) string {
+// researchContextHeading introduces the workspace's research context in every
+// role prompt. It is what the lab told Lykeion about itself: it may shape the
+// work, but no claim may rest on it.
+const researchContextHeading = "The lab's research context — background on who asks and why, never evidence:"
+
+func prompt(c db.Card, role string, comments []db.Comment, researchContext, handoff, extra string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the %s role on Lykeion card #%d, column %s, round %d.\n\nThe card's question:\n%s\n",
 		role, c.Number, c.BoardColumn, c.Round, c.Question)
+	if strings.TrimSpace(researchContext) != "" {
+		fmt.Fprintf(&b, "\n%s\n%s\n", researchContextHeading, researchContext)
+	}
 	if handoff != "" {
 		fmt.Fprintf(&b, "\nYour part is being redone. Why — context for this round, never evidence:\n%s\n", handoff)
 		b.WriteString("Records you wrote in earlier rounds no longer count: redo your part and record it again.\n")
