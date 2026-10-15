@@ -7,7 +7,7 @@ export interface TranscriptBlock {
   messages: RunMessage[];
 }
 
-// Text fragments join only while adjacent in the same recorded attempt.
+// Text records are complete adapter messages; only adjacent activity is grouped.
 export function transcriptBlocks(messages: readonly RunMessage[]): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
   for (const message of [...messages].sort((a, b) => a.attempt - b.attempt || a.seq - b.seq)) {
@@ -15,9 +15,12 @@ export function transcriptBlocks(messages: readonly RunMessage[]): TranscriptBlo
       message.type === 'text' && typeof message.content === 'string' ? 'text' : 'activity';
     const previous = blocks.at(-1);
     const text = kind === 'text' ? (message.content as string) : '';
-    if (previous?.kind === kind && previous.messages[0]?.attempt === message.attempt) {
+    if (
+      kind === 'activity' &&
+      previous?.kind === kind &&
+      previous.messages[0]?.attempt === message.attempt
+    ) {
       previous.messages.push(message);
-      previous.text += text;
     } else {
       blocks.push({ key: `${message.attempt}:${message.seq}`, kind, text, messages: [message] });
     }

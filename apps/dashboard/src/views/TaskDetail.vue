@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
 import RunTurn from '../components/RunTurn.vue';
@@ -59,9 +59,37 @@ const runs = useRuns(() => props.id);
 const members = useMembers();
 const agents = useAgents();
 const researches = useResearches();
-const inspector = usePaneResize('lykeion.study-inspector-width', 364, 240, 480, 1, () =>
-  Math.max(160, window.innerWidth - (Number(readText('lykeion.sidebar-width')) || 224) - 400),
+const studyElement = ref<HTMLElement>();
+const studyWidth = ref(0);
+const inspectorMinimum = 240;
+const studyMinimum = 400;
+const embeddedConstrained = computed(
+  () => props.embedded && studyWidth.value < inspectorMinimum + studyMinimum,
 );
+const inspector = usePaneResize(
+  props.embedded ? 'lykeion.embedded-study-inspector-width' : 'lykeion.study-inspector-width',
+  props.embedded ? 260 : 364,
+  inspectorMinimum,
+  480,
+  1,
+  () =>
+    props.embedded
+      ? Math.max(0, studyWidth.value - studyMinimum)
+      : Math.max(
+          160,
+          window.innerWidth - (Number(readText('lykeion.sidebar-width')) || 224) - studyMinimum,
+        ),
+);
+let studyObserver: ResizeObserver | undefined;
+onMounted(() => {
+  if (!props.embedded || !studyElement.value) return;
+  studyWidth.value = studyElement.value.getBoundingClientRect().width;
+  studyObserver = new ResizeObserver(([entry]) => {
+    if (entry) studyWidth.value = entry.contentRect.width;
+  });
+  studyObserver.observe(studyElement.value);
+});
+onUnmounted(() => studyObserver?.disconnect());
 const detailsOpen = ref(true);
 const propertyBusy = ref(false);
 const assigneeValue = computed(() =>
@@ -299,8 +327,12 @@ function pin() {
 </script>
 <template>
   <section
+    ref="studyElement"
     class="task-detail"
-    :class="embedded ? 'embedded-task' : 'desktop-task'"
+    :class="[
+      embedded ? 'embedded-task' : 'desktop-task',
+      { 'embedded-constrained': embeddedConstrained },
+    ]"
     :style="{ '--properties-width': inspector.width.value + 'px' }"
     aria-label="Study"
   >
@@ -1391,7 +1423,12 @@ function pin() {
     padding-right: 20px;
   }
 }
+.embedded-constrained > .task-properties,
+.embedded-constrained > .task-splitter {
+  display: none;
+}
 .embedded-task {
+  min-width: 0;
   position: relative;
   flex: 1;
   display: flex;

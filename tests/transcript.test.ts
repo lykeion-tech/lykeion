@@ -82,17 +82,30 @@ describe('reading-first recorded run', () => {
     expect(html).toContain('Attempt 2');
     expect(html).toContain('Sequence 4');
   });
-  it('coalesces adjacent text fragments without crossing activity boundaries', async () => {
-    const html = await render([
-      msg(1, 'text', '## Stream'),
-      msg(2, 'text', 'ed\n\nBefore'),
-      msg(3, 'status', 'waiting'),
-      msg(4, 'text', 'After'),
-    ]);
-    expect(html).toContain('<h2>Streamed</h2>');
-    expect(html).toContain('<p>Before</p>');
-    expect(html).toContain('<p>After</p>');
-  });
+  it.each(['claude', 'codex'])(
+    'preserves adjacent complete %s text records as independent Markdown blocks',
+    async (harness) => {
+      const html = await render(
+        [
+          msg(1, 'text', 'First paragraph.'),
+          msg(2, 'text', '## Result\n\nSecond paragraph.'),
+          msg(3, 'text', '- first item\n- second item'),
+          msg(4, 'text', '```python\nprint("recorded")\n```'),
+          msg(5, 'status', 'waiting'),
+          msg(6, 'text', 'After activity.'),
+        ],
+        { harness },
+      );
+      expect(html).toContain('<p>First paragraph.</p>');
+      expect(html).toContain('<h2>Result</h2>');
+      expect(html).toContain('<p>Second paragraph.</p>');
+      expect(html).toContain('<li>first item</li>');
+      expect(html).toContain('print(&quot;recorded&quot;)');
+      expect(html.match(/class="markdown-body"/g)).toHaveLength(5);
+      expect(html.indexOf('<h2>Result')).toBeLessThan(html.indexOf('Activity'));
+      expect(html.indexOf('Activity')).toBeLessThan(html.indexOf('<p>After activity.</p>'));
+    },
+  );
   it('keeps Codex completed command errors and output in their recorded tool entry', async () => {
     const html = await render(
       [

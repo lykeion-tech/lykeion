@@ -1,11 +1,20 @@
 import { expect, test } from '@playwright/test';
 import { labCode, labSignIn } from './lab';
 
-test('the sidebar shows the UI-1 destinations only', async ({ page }) => {
+test('the sidebar shows the implemented workspace destinations only', async ({ page }) => {
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
   await expect(nav.getByRole('button', { name: /Beta-cell lab/ })).toBeVisible();
-  for (const name of ['New', 'Inbox', 'Studies', 'Colleagues', 'Machines', 'Settings'])
+  for (const name of [
+    'New',
+    'Inbox',
+    'Studies',
+    'Researches',
+    'Agents',
+    'Colleagues',
+    'Machines',
+    'Settings',
+  ])
     await expect(
       nav
         .getByRole('link', { name, exact: true })
@@ -13,9 +22,7 @@ test('the sidebar shows the UI-1 destinations only', async ({ page }) => {
     ).toBeVisible();
   for (const name of [
     'Coresearch',
-    'Researches',
     'Autoresearch',
-    'Agents',
     'Teams',
     'Skills',
     'Connectors',
@@ -27,8 +34,27 @@ test('the sidebar shows the UI-1 destinations only', async ({ page }) => {
   await page.screenshot({ path: 'test-results/ui-lab/task11-shell.png', fullPage: true });
 });
 
+test('the approved Researches and Agents directory routes are reachable', async ({ page }) => {
+  for (const [path, heading] of [
+    ['projects', 'Researches'],
+    ['agents', 'Agents'],
+  ]) {
+    await page.goto(`/#/${path}`);
+    await expect(page).toHaveURL(new RegExp(`#/${path}$`));
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    await expect(
+      page
+        .locator('.page-header')
+        .getByRole('button', {
+          name: heading === 'Agents' ? 'New agent' : 'New Research',
+          exact: true,
+        }),
+    ).toBeVisible();
+  }
+});
+
 test("a later slice's route and an unknown route land on Studies", async ({ page }) => {
-  for (const path of ['/#/agents', '/#/autoresearch', '/#/no-such-page']) {
+  for (const path of ['/#/autoresearch', '/#/teams', '/#/no-such-page']) {
     await page.goto(path);
     await expect(page).toHaveURL(/#\/studies$/);
   }

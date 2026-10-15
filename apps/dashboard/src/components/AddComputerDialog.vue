@@ -5,7 +5,7 @@ import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 import MachineCommand from './MachineCommand.vue';
 import { useRuntimes } from '../api/queries';
-import { groupDaemons } from '../lib/machines';
+import { computerStartCommands, groupDaemons } from '../lib/machines';
 
 const emit = defineEmits<{ close: [] }>();
 const runtimes = useRuntimes();
@@ -15,10 +15,7 @@ const build = computed(
   () => `go build -o ${platform.value === 'windows' ? 'lyk.exe' : 'lyk'} ./cmd/lyk`,
 );
 const server = import.meta.env.DEV ? __LYK_PUBLIC_API_ORIGIN__ : window.location.origin;
-const start = computed(
-  () =>
-    `${executable.value} login --server ${server} --email you@lab.org\n${executable.value} daemon ${platform.value === 'windows' ? 'run' : 'start'}`,
-);
+const start = computed(() => computerStartCommands(server, platform.value));
 const daemons = computed(() => groupDaemons(runtimes.data.value ?? []));
 const detected = computed(() =>
   baseline.value ? daemons.value.find((d) => d.online && !baseline.value!.has(d.id)) : undefined,
@@ -114,7 +111,8 @@ onUnmounted(() => {
         <p class="hint">
           Replace <code>you@lab.org</code> with your email and enter the emailed code.
           <template v-if="platform === 'windows'"
-            >Keep this terminal open; background control requires macOS or Linux.</template
+            >Use PowerShell and keep this terminal open; background control requires macOS or
+            Linux.</template
           ><template v-else>The daemon then runs in the background.</template>
         </p>
       </div>

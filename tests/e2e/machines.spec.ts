@@ -541,7 +541,7 @@ test('computer setup offers supported platform commands, real clipboard, and det
   );
   await dialog.getByRole('button', { name: 'Copy start commands' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    './lyk login --server http://127.0.0.1:18080 --email you@lab.org\n./lyk daemon start',
+    "./lyk login --server 'http://127.0.0.1:18080' --email you@lab.org\n./lyk daemon start",
   );
   await dialog.getByRole('tab', { name: 'Windows', exact: true }).click();
   await dialog.getByRole('button', { name: 'Copy build command' }).click();
@@ -550,7 +550,7 @@ test('computer setup offers supported platform commands, real clipboard, and det
   );
   await dialog.getByRole('button', { name: 'Copy start commands' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    '.\\lyk.exe login --server http://127.0.0.1:18080 --email you@lab.org\n.\\lyk.exe daemon run',
+    ".\\lyk.exe login --server 'http://127.0.0.1:18080' --email you@lab.org\n.\\lyk.exe daemon run",
   );
   await dialog.getByText('Can’t open a browser on that computer?', { exact: true }).click();
   await expect(dialog.getByText(/email code in the terminal/)).toBeVisible();

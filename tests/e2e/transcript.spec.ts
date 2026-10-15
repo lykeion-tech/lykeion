@@ -127,6 +127,15 @@ test('current attempt pagination retains every message and compact raw payload a
   await page.goto(`/#/studies/${fixture.card_id}`);
   const turn = page.locator('.agent-turn').first();
   await expect(turn.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
+  await expect(turn.locator('.markdown-body')).toHaveCount(498);
+  await expect(turn.locator('.markdown-body').nth(1)).toHaveText('Attempt 2 message 005');
+  await expect(turn.locator('.markdown-body').nth(2)).toHaveText('Attempt 2 message 006');
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await turn.locator('.markdown-body').first().scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/final-fix-artifacts/adjacent-recorded-text-1920.png',
+  });
+
   expect(urls.some((url) => url.includes('attempt=2&after=500'))).toBe(true);
   expect(urls.every((url) => url.includes('attempt=2'))).toBe(true);
   await turn.locator('.run-activity:not(.full-history) > summary').click();
