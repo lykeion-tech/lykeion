@@ -22,6 +22,10 @@ export const keys = {
   inbox: (ws: string, archived: boolean) =>
     ['ws', ws, 'inbox', archived ? 'archived' : 'open'] as const,
   runtimes: (ws: string) => ['ws', ws, 'runtimes'] as const,
+  researches: (ws: string) => ['ws', ws, 'researches'] as const,
+  research: (ws: string, id: string) => ['ws', ws, 'research', id] as const,
+  agents: (ws: string) => ['ws', ws, 'agents'] as const,
+  agent: (ws: string, id: string) => ['ws', ws, 'agent', id] as const,
   members: (ws: string) => ['ws', ws, 'members'] as const,
   invitations: (ws: string) => ['ws', ws, 'invitations'] as const,
 };

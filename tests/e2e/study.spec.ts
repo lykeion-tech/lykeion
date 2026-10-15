@@ -31,7 +31,7 @@ test('the study page shows the question, the run turn, events, comments and the 
   await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
 
   const meta = page.getByRole('complementary', { name: 'Study details' });
-  await expect(meta.getByText('Ana Ruiz')).toBeVisible();
+  await expect(meta.locator('.metadata-owner')).toContainText('Ana Ruiz');
   await expect(meta.getByText('Grounding')).toBeVisible();
   await meta.getByRole('button', { name: 'Change' }).click();
   await meta.getByRole('spinbutton', { name: 'Budget in USD' }).fill('3');
@@ -42,6 +42,22 @@ test('the study page shows the question, the run turn, events, comments and the 
     path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-16-artifacts/study-comments-commands-metadata.png',
     fullPage: true,
   });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await expect(meta.getByText('Stage', { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/recorded-spend-inspector.png',
+  });
+  await meta.getByRole('button', { name: 'Open timeline', exact: true }).click();
+  const runDialog = page.getByRole('dialog', { name: 'Runs', exact: true });
+  await expect(runDialog.locator('.run-metrics')).toContainText('$0.01');
+  await expect(runDialog.locator('.timeline-chart .cost-stroke')).not.toHaveAttribute(
+    'd',
+    'M0,100 L1000,100',
+  );
+  await page.screenshot({
+    path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/recorded-spend-timeline.png',
+  });
+  await runDialog.getByRole('button', { name: 'Close Runs' }).click();
   await page.getByRole('button', { name: 'Toggle details' }).click();
   await expect(meta).toHaveCount(0);
 });

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { MessageCircle } from '@lucide/vue';
 import Icon from './components/Icon.vue';
+import { usePaneResize } from './lib/resize';
 import Modal from './components/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
 import CreateTask from './views/CreateTask.vue';
@@ -69,10 +70,17 @@ const groups = [
     name: 'Laboratory',
     items: [
       { id: 'studies', name: 'Studies', icon: 'tasks' },
+      { id: 'projects', name: 'Researches', icon: 'folder' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
   },
-  { name: 'Configure', items: [{ id: 'machines', name: 'Machines', icon: 'monitor' }] },
+  {
+    name: 'Configure',
+    items: [
+      { id: 'agents', name: 'Agents', icon: 'bot' },
+      { id: 'machines', name: 'Machines', icon: 'monitor' },
+    ],
+  },
 ];
 const destinations = [
   ...groups.flatMap((g) => g.items),
@@ -89,6 +97,7 @@ const tabTitle = computed(() =>
 const headingIcon = computed(
   () => destinations.find((x) => x.id === current.value)?.icon ?? 'tasks',
 );
+const rail = usePaneResize('lykeion.sidebar-width', 224, 200, 360);
 const collapsed = ref(readText('lykeion.sidebar-collapsed') === 'true');
 const { pins: pinnedIds } = usePins();
 const pinnedExpanded = ref(readText('lykeion.pinned-expanded') !== 'false');
@@ -300,6 +309,7 @@ onUnmounted(() => {
     v-else-if="!unauthorized && !onboardingTarget"
     class="application"
     :class="{ 'sidebar-hidden': collapsed, desktop, 'task-detail-open': Boolean(cardId) }"
+    :style="{ '--rail-width': rail.width.value + 'px' }"
   >
     <WorkspaceTabs
       :title="tabTitle"
@@ -429,8 +439,15 @@ onUnmounted(() => {
     </aside>
     <button
       class="sidebar-handle"
-      aria-label="Toggle left sidebar"
-      @click="collapsed = !collapsed"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize left sidebar"
+      :aria-valuenow="rail.width.value"
+      :aria-valuemin="200"
+      :aria-valuemax="rail.maximum.value"
+      @pointerdown="rail.pointerdown($event, () => (collapsed = !collapsed))"
+      @keydown="rail.keydown"
+      @click="$event.detail === 0 && (collapsed = !collapsed)"
     />
     <main class="main-pane">
       <header v-if="!['settings', 'inbox'].includes(current ?? '')" class="page-header">
@@ -704,5 +721,22 @@ onUnmounted(() => {
   flex: none;
   align-self: flex-end;
   padding: 4px 16px;
+}
+</style>
+
+<style scoped>
+.application .sidebar {
+  flex-basis: var(--rail-width);
+  width: var(--rail-width);
+}
+.application .sidebar-handle {
+  left: calc(var(--rail-width) - 5px);
+}
+.application.sidebar-hidden .sidebar-handle {
+  left: 0;
+}
+.sidebar-handle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 </style>

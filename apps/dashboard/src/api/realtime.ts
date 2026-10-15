@@ -13,7 +13,27 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     card ? make.map((k) => k(ws, card)) : [];
   switch (e.type.split('.')[0]) {
     case 'card':
-      return [keys.cards(ws), keys.inboxAll(ws), ...own(keys.card, keys.events)];
+      return [
+        keys.cards(ws),
+        keys.inboxAll(ws),
+        ...own(keys.card, keys.events),
+        keys.researches(ws),
+        ...[e.payload.previous_research_id, e.payload.research_id]
+          .filter((id): id is string => typeof id === 'string')
+          .map((id) => keys.research(ws, id)),
+      ];
+    case 'research':
+      return [
+        keys.researches(ws),
+        ...(typeof e.payload.research_id === 'string'
+          ? [keys.research(ws, e.payload.research_id)]
+          : []),
+      ];
+    case 'agent':
+      return [
+        keys.agents(ws),
+        ...(typeof e.payload.agent_id === 'string' ? [keys.agent(ws, e.payload.agent_id)] : []),
+      ];
     case 'gate':
       return [
         keys.cards(ws),
@@ -31,7 +51,7 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'runtime':
       return [keys.runtimes(ws)];
     case 'member':
-      return [keys.members(ws), keys.workspaces];
+      return [keys.members(ws), keys.workspaces, keys.agents(ws), ['ws', ws, 'agent']];
     case 'invitation':
       return [keys.invitations(ws), keys.members(ws)];
     case 'workspace':

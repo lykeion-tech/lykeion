@@ -49,6 +49,9 @@ export interface Card {
   number: number;
   title: string;
   question: string;
+  research_id: string | null;
+  assignee_type: 'member' | 'agent' | null;
+  assignee_id: string | null;
   owner_id: string;
   budget_usd: number;
   deadline: string | null;
@@ -226,4 +229,31 @@ export interface NewToken {
   prefix: string;
   name: string;
   expires_at: string;
+}
+
+export interface Research {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface ResearchDetail extends Research {
+  studies: Card[];
+}
+export interface AgentDefinition {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  harness: 'claude' | 'codex';
+  model: string;
+  visibility: 'workspace' | 'private';
+  owner_id: string;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
 }

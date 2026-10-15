@@ -1,9 +1,12 @@
 import { computed, toValue, watch, type MaybeRefOrGetter } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
-import { api } from './client';
+import { api, ApiError } from './client';
 import { keys } from './keys';
 import { workspaceId as ws } from './session';
 import type {
+  AgentDefinition,
+  Research,
+  ResearchDetail,
   AgentRun,
   Card,
   Comment,
@@ -205,3 +208,31 @@ export const useRunMessages = (
   );
   return query;
 };
+
+export const useResearches = () => list<Research>(keys.researches, '/api/researches');
+export const useResearch = (id: MaybeRefOrGetter<string>) =>
+  ofCard<ResearchDetail>(id, keys.research, (r) => `/api/researches/${r}`);
+export const useAgents = () => list<AgentDefinition>(keys.agents, '/api/agents');
+export function useAgent(id: MaybeRefOrGetter<string>) {
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: computed(() => keys.agent(ws.value, toValue(id))),
+    queryFn: async () => {
+      const workspace = ws.value;
+      const agent = toValue(id);
+      try {
+        return await api<AgentDefinition>('GET', `/api/agents/${agent}`);
+      } catch (error) {
+        if (error instanceof ApiError && [403, 404].includes(error.status)) {
+          client.setQueryData(keys.agent(workspace, agent), null);
+          client.setQueryData<AgentDefinition[]>(keys.agents(workspace), (old) =>
+            old?.filter((a) => a.id !== agent),
+          );
+        }
+        throw error;
+      }
+    },
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+    retry: false,
+  });
+}

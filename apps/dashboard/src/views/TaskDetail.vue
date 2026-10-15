@@ -3,10 +3,14 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
 import RunTurn from '../components/RunTurn.vue';
+import ExecutionLog from '../components/ExecutionLog.vue';
+import { usePaneResize } from '../lib/resize';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import {
+  useAgents,
+  useResearches,
   useCard,
   useCardEvents,
   useCards,
@@ -19,7 +23,7 @@ import {
   useRuntimes,
   useWorkspace,
 } from '../api/queries';
-import type { Column } from '../api/types';
+import type { Card, Column } from '../api/types';
 import {
   actionLabel,
   canResume,
@@ -53,6 +57,42 @@ const comments = useComments(() => props.id);
 const events = useCardEvents(() => props.id);
 const runs = useRuns(() => props.id);
 const members = useMembers();
+const agents = useAgents();
+const researches = useResearches();
+const inspector = usePaneResize('lykeion.study-inspector-width', 364, 240, 480, -1, () =>
+  Math.max(160, window.innerWidth - (Number(readText('lykeion.sidebar-width')) || 224) - 400),
+);
+const detailsOpen = ref(true);
+const propertyBusy = ref(false);
+const assigneeValue = computed(() =>
+  c.value?.assignee_id ? `${c.value.assignee_type}:${c.value.assignee_id}` : '',
+);
+const assignableAgents = computed(() =>
+  (agents.data.value ?? []).filter(
+    (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === c.value?.owner_id),
+  ),
+);
+async function saveProperty(body: Record<string, unknown>) {
+  const scope = mutationScope();
+  propertyBusy.value = true;
+  error.value = '';
+  try {
+    const saved = await api<Card>('PATCH', `/api/cards/${scope.id}/properties`, body);
+    if (!scope.current()) return;
+    client.setQueryData(keys.card(scope.workspace, scope.id), saved);
+    await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
+    await client.invalidateQueries({ queryKey: keys.researches(scope.workspace) });
+  } catch (e) {
+    if (scope.current()) error.value = (e as Error).message;
+  } finally {
+    if (scope.current()) propertyBusy.value = false;
+  }
+}
+function assign(event: Event) {
+  const [type, id] = (event.target as HTMLSelectElement).value.split(':');
+  void saveProperty({ assignee_type: type || null, assignee_id: id || null });
+}
+
 const runtimes = useRuntimes();
 const workspace = useWorkspace();
 const me = useMe();
@@ -60,6 +100,15 @@ const { pins, togglePin } = usePins();
 const { openComposer } = useTaskComposer();
 
 const c = computed(() => card.data.value);
+const creator = computed(
+  () =>
+    events.data.value?.find(
+      (e) => e.type === 'card.created' && e.actor_type === 'user' && e.actor_id,
+    )?.actor_id,
+);
+const updatedAt = computed(
+  () => c.value?.updated_at || cards.data.value?.find((x) => x.id === props.id)?.updated_at,
+);
 const number = computed(() => (c.value ? studyNumber(workspace.data.value, c.value) : ''));
 const stage = computed(() =>
   c.value && stages.includes(c.value.board_column) ? c.value.board_column : '',
@@ -129,6 +178,8 @@ watch(
   [workspaceId, () => props.id],
   () => {
     generation++;
+    detailsOpen.value = true;
+    propertyBusy.value = false;
     editingBudget.value = false;
     budgetDraft.value = 0;
     comment.value = '';
@@ -167,7 +218,6 @@ function machine(runtimeId: string | null) {
   const r = runtimes.data.value?.find((x) => x.id === runtimeId);
   return r ? r.custom_name || r.device_name : '';
 }
-const spent = computed(() => (runs.data.value ?? []).reduce((sum, r) => sum + r.cost_usd, 0));
 const usd = (n: number) => `$${n.toFixed(2)}`;
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -251,7 +301,7 @@ function pin() {
   <section
     class="task-detail"
     :class="embedded ? 'embedded-task' : 'desktop-task'"
-    :style="{ '--properties-width': '260px' }"
+    :style="{ '--properties-width': inspector.width.value + 'px' }"
     aria-label="Study"
   >
     <div class="task-main">
@@ -519,64 +569,180 @@ function pin() {
         </button>
       </p>
     </div>
-    <div v-if="showMeta && c" class="task-splitter" />
+    <div
+      v-if="showMeta && c"
+      class="task-splitter"
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      aria-label="Resize study inspector"
+      :aria-valuenow="inspector.width.value"
+      :aria-valuemin="inspector.minimum.value"
+      :aria-valuemax="inspector.maximum.value"
+      @pointerdown="inspector.pointerdown($event)"
+      @keydown="inspector.keydown"
+    />
     <aside v-if="showMeta && c" class="task-properties study-meta" aria-label="Study details">
-      <small>Column</small>
-      <div class="v">
-        <span class="stage-dot" :class="'status-' + c.board_column" />{{ columnName(c.board_column)
-        }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
-          stateLabel(c)
+      <header class="properties-title"><h2>Properties</h2></header>
+      <div class="property-row">
+        <small>Stage</small>
+        <div class="v">
+          <span class="stage-dot" :class="'status-' + c.board_column" />{{
+            columnName(c.board_column)
+          }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
+            stateLabel(c)
+          }}</span
+          ><span v-if="c.ending" class="chip ending-chip" :class="'chip-' + c.ending">{{
+            endLabel(c)
+          }}</span>
+        </div>
+      </div>
+      <div class="property-row">
+        <label for="study-assignee">Assignee</label
+        ><span class="avatar property-avatar">{{
+          c.assignee_type === 'agent'
+            ? (agents.data.value?.find((a) => a.id === c?.assignee_id)?.name[0] ?? 'A')
+            : c.assignee_id
+              ? name(c.assignee_id)[0]
+              : '?'
         }}</span
-        ><span v-if="c.ending" class="chip ending-chip" :class="'chip-' + c.ending">{{
-          endLabel(c)
-        }}</span>
+        ><select
+          id="study-assignee"
+          aria-label="Assignee"
+          :value="assigneeValue"
+          :disabled="propertyBusy || members.isPending.value || agents.isPending.value"
+          @change="assign"
+        >
+          <option value="">Unassigned</option>
+          <optgroup label="Members">
+            <option
+              v-for="m in members.data.value ?? []"
+              :key="m.user_id"
+              :value="'member:' + m.user_id"
+            >
+              {{ m.name || m.email }}
+            </option>
+          </optgroup>
+          <optgroup label="Agents">
+            <option v-for="a in assignableAgents" :key="a.id" :value="'agent:' + a.id">
+              {{ a.name }}
+            </option>
+          </optgroup>
+          <option
+            v-if="
+              c.assignee_type === 'agent' && !assignableAgents.some((a) => a.id === c?.assignee_id)
+            "
+            :value="assigneeValue"
+            disabled
+          >
+            {{
+              agents.data.value?.find((a) => a.id === c?.assignee_id)?.name ?? 'Unavailable agent'
+            }}
+            (archived or unavailable)
+          </option>
+        </select>
       </div>
-      <small>Owner</small>
-      <div class="v">
-        <span class="avatar">{{ name(c.owner_id)[0] }}</span
-        >{{ name(c.owner_id) }}
-      </div>
-      <small>Budget</small>
-      <div v-if="!editingBudget" class="v">
-        {{ usd(c.spent_usd) }} {{ c.budget_usd > 0 ? `of ${usd(c.budget_usd)}` : '· no limit'
-        }}<button
-          v-if="!c.ending"
-          class="text-button push-right"
-          @click="
-            budgetDraft = c.budget_usd;
-            editingBudget = true;
+      <div class="property-row">
+        <label for="study-research">Research</label><Icon name="folder" :size="13" /><select
+          id="study-research"
+          aria-label="Research"
+          :value="c.research_id ?? ''"
+          :disabled="propertyBusy || researches.isPending.value"
+          @change="
+            saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
           "
         >
-          Change
-        </button>
+          <option value="">No research</option>
+          <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
+            {{ r.name }}
+          </option></select
+        ><RouterLink
+          v-if="c.research_id"
+          :to="'/projects/' + c.research_id"
+          aria-label="Open Research"
+          ><Icon name="right" :size="12"
+        /></RouterLink>
       </div>
-      <form v-else class="v" @submit.prevent="saveBudget">
-        <input
-          v-model.number="budgetDraft"
-          type="number"
-          min="0"
-          step="0.5"
-          aria-label="Budget in USD"
-        /><button class="button compact">Save budget</button>
-      </form>
-      <div v-if="c.budget_usd > 0" class="budget-bar">
-        <i :style="{ width: Math.min(100, (100 * c.spent_usd) / c.budget_usd) + '%' }" />
+      <div
+        v-for="read in [
+          { query: members, label: 'members' },
+          { query: agents, label: 'agents' },
+          { query: researches, label: 'Researches' },
+        ].filter((x) => x.query.error.value)"
+        :key="read.label"
+        class="inline-error"
+      >
+        {{ read.query.error.value?.message }}
+        <button @click="read.query.refetch()">Retry {{ read.label }}</button>
       </div>
-      <small>Deadline</small>
-      <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
-      <small>Round</small>
-      <div class="v">
-        {{ c.round }} · {{ c.route_backs }} route-back{{ c.route_backs === 1 ? '' : 's' }} of
-        {{ routeBackLimit(workspace.data.value?.settings) }}
+      <ExecutionLog :runs="runs.data.value ?? []" :title="number + ' · ' + c.title" />
+      <button
+        class="details-heading"
+        :aria-expanded="detailsOpen"
+        @click="detailsOpen = !detailsOpen"
+      >
+        Details <Icon :name="detailsOpen ? 'down' : 'right'" :size="11" />
+      </button>
+      <div v-if="detailsOpen" class="details-body">
+        <small>Owner</small>
+        <div class="v metadata-owner">
+          <span class="avatar">{{ name(c.owner_id)[0] }}</span
+          >{{ name(c.owner_id) }}
+        </div>
+        <small>Budget</small>
+        <div v-if="!editingBudget" class="v">
+          {{ usd(c.spent_usd) }} {{ c.budget_usd > 0 ? `of ${usd(c.budget_usd)}` : '· no limit'
+          }}<button
+            v-if="!c.ending"
+            class="text-button push-right"
+            @click="
+              budgetDraft = c.budget_usd;
+              editingBudget = true;
+            "
+          >
+            Change
+          </button>
+        </div>
+        <form v-else class="v" @submit.prevent="saveBudget">
+          <input
+            v-model.number="budgetDraft"
+            type="number"
+            min="0"
+            step="0.5"
+            aria-label="Budget in USD"
+          /><button class="button compact">Save budget</button>
+        </form>
+        <div v-if="c.budget_usd > 0" class="budget-bar">
+          <i :style="{ width: Math.min(100, (100 * c.spent_usd) / c.budget_usd) + '%' }" />
+        </div>
+        <small>Deadline</small>
+        <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
+        <small>Round</small>
+        <div class="v">
+          {{ c.round }} · {{ c.route_backs }} route-back{{ c.route_backs === 1 ? '' : 's' }} of
+          {{ routeBackLimit(workspace.data.value?.settings) }}
+        </div>
+        <template v-if="c.follows_from.length">
+          <small>Follows from</small>
+          <div class="v">
+            <RouterLink
+              v-for="fid in c.follows_from"
+              :key="fid"
+              class="link"
+              :to="'/studies/' + fid"
+              >{{ cards.data.value?.find((x) => x.id === fid)?.title ?? 'Study' }}</RouterLink
+            >
+          </div>
+        </template>
+        <small>Created</small>
+        <div class="v">{{ new Date(c.created_at).toLocaleString() }}</div>
+        <small>Updated</small>
+        <div class="v">{{ updatedAt ? new Date(updatedAt).toLocaleString() : '—' }}</div>
+        <template v-if="creator"
+          ><small>Created by</small>
+          <div class="v">{{ name(creator) }}</div></template
+        >
       </div>
-      <template v-if="c.follows_from.length">
-        <small>Follows from</small>
-        <RouterLink v-for="fid in c.follows_from" :key="fid" class="v link" :to="'/studies/' + fid">
-          {{ cards.data.value?.find((x) => x.id === fid)?.title ?? 'Study' }}
-        </RouterLink>
-      </template>
-      <small>Runs</small>
-      <div class="v">{{ runs.data.value?.length ?? 0 }} · {{ usd(spent) }}</div>
     </aside>
   </section>
 </template>
@@ -1494,5 +1660,98 @@ function pin() {
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+</style>
+
+<style scoped>
+.task-properties {
+  flex-basis: var(--properties-width) !important;
+  width: var(--properties-width) !important;
+}
+.study-meta {
+  padding: 0 12px 24px;
+}
+.study-meta .properties-title {
+  height: 56px;
+  padding: 0 4px;
+}
+.properties-title h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+.property-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  font-size: 13px;
+}
+.property-row > small,
+.property-row > label {
+  width: 64px;
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+.property-row .v {
+  margin: 0;
+  min-width: 0;
+}
+.property-row select {
+  border: 0;
+  background: transparent;
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  padding: 5px 0;
+  border-radius: 4px;
+}
+.property-avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+}
+.property-row select:hover {
+  background: var(--hover);
+}
+.execution-log {
+  margin-top: 32px;
+}
+.details-heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  margin: 26px 0 16px;
+}
+.details-body {
+  display: grid;
+  grid-template-columns: 75px minmax(0, 1fr);
+  gap: 14px 6px;
+  align-items: center;
+}
+.details-body > small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.details-body .v {
+  font-size: 12px;
+  margin: 0;
+}
+.details-body .budget-bar {
+  grid-column: 2;
+}
+.details-body .v input {
+  width: 70px;
+}
+.task-splitter:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+}
+@media (max-width: 850px) {
+  .task-properties,
+  .task-splitter {
+    display: none;
+  }
 }
 </style>
