@@ -7,7 +7,7 @@ import Icon from './components/Icon.vue';
 import Modal from './components/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
 import CreateTask from './views/CreateTask.vue';
-import { api } from './api/client';
+import { api, ApiError } from './api/client';
 import { workspaceId } from './api/session';
 import { useCards, useMe, useWorkspace, useWorkspaces } from './api/queries';
 import { useRealtimeSync } from './api/realtime';
@@ -23,6 +23,42 @@ const workspaces = useWorkspaces();
 const workspace = useWorkspace();
 const cards = useCards();
 const { reconnecting, lost } = useRealtimeSync(workspaceId, client);
+const unauthorized = computed(() =>
+  [me.error.value, workspaces.error.value, workspace.error.value, cards.error.value].some(
+    (error) => error instanceof ApiError && error.status === 401,
+  ),
+);
+// A cached refusal still protects navigation after the request has settled.
+watch(
+  [() => route.fullPath, unauthorized],
+  ([, signedOut]) => {
+    if (!signedOut || route.meta.public) return;
+    if (route.params.token) writeText('lykeion.invite', String(route.params.token), 'session');
+    void router.replace('/signin');
+  },
+  { immediate: true },
+);
+
+const shellQueries = [me, workspaces, workspace];
+const shellFailure = computed(
+  () =>
+    shellQueries.find((query) => query.data.value === undefined && query.isError.value)?.error
+      .value,
+);
+const shellPending = computed(
+  () =>
+    me.data.value === undefined ||
+    workspaces.data.value === undefined ||
+    (Boolean(workspaceId.value) && workspace.data.value === undefined),
+);
+const shellRetrying = computed(() => shellQueries.some((query) => query.isFetching.value));
+async function retryShell() {
+  await Promise.all(
+    shellQueries
+      .filter((query) => query.data.value === undefined && query.isError.value)
+      .map((query) => query.refetch()),
+  );
+}
 const current = computed(() => route.meta.page);
 const cardId = computed(() =>
   current.value === 'studies' ? String(route.params.cardId || '') : '',
@@ -83,12 +119,20 @@ watch(
   { immediate: true },
 );
 // The socket refused the workspace (removed, or deleted): pick another and show the switcher.
-watch(lost, (gone) => {
-  if (!gone) return;
+function recoverWorkspace() {
   workspaceId.value = '';
   void client.invalidateQueries({ queryKey: ['workspaces'] });
   workspaceMenu.value = true;
+}
+watch(lost, (gone) => {
+  if (gone) recoverWorkspace();
 });
+watch(
+  () => workspace.error.value,
+  (error) => {
+    if (error instanceof ApiError && [403, 404].includes(error.status)) recoverWorkspace();
+  },
+);
 function chooseWorkspace(id: string) {
   workspaceId.value = id;
   workspaceMenu.value = false;
@@ -236,7 +280,7 @@ onUnmounted(() => {
 <template>
   <RouterView v-if="route.meta.bare" />
   <div
-    v-else
+    v-else-if="!unauthorized"
     class="application"
     :class="{ 'sidebar-hidden': collapsed, desktop, 'task-detail-open': Boolean(cardId) }"
   >
@@ -384,7 +428,12 @@ onUnmounted(() => {
         <h1>{{ heading }}</h1>
         <small v-if="reconnecting" class="reconnecting" role="status">Reconnecting…</small>
       </header>
-      <div v-if="me.isPending.value" class="center-empty" role="status">
+      <div v-if="shellFailure" class="center-empty" role="alert">
+        <Icon name="link" :size="32" />
+        <p>{{ shellFailure.message }}</p>
+        <button class="button" :disabled="shellRetrying" @click="retryShell">Try again</button>
+      </div>
+      <div v-else-if="shellPending" class="center-empty" role="status">
         <Icon name="refresh" :size="28" /><span>Loading workspace…</span>
       </div>
       <template v-else>
