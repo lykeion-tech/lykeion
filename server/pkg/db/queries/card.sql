@@ -35,12 +35,26 @@ RETURNING *;
 SELECT * FROM comment WHERE workspace_id = @workspace_id AND card_id = @card_id ORDER BY created_at;
 
 -- name: ListInbox :many
-SELECT * FROM inbox_item WHERE workspace_id = @workspace_id AND user_id = @user_id
+SELECT * FROM inbox_item WHERE workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NULL
 ORDER BY created_at DESC LIMIT 200;
 
--- name: MarkInboxRead :execrows
-UPDATE inbox_item SET read_at = now()
-WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND read_at IS NULL;
+-- name: ListArchivedInbox :many
+SELECT * FROM inbox_item WHERE workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NOT NULL
+ORDER BY created_at DESC, id DESC LIMIT 200;
+
+-- Reading an item marks it read; a released item needs nothing more, so
+-- reading it also resolves it.
+-- name: MarkInboxRead :one
+UPDATE inbox_item SET read_at = now(), resolved_at = CASE WHEN kind = 'released' THEN now() ELSE resolved_at END
+WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND read_at IS NULL
+RETURNING *;
+
+-- A person answered a blocked card (resume, stop, budget): its open escalated
+-- and out-of-budget items are resolved, whoever they were addressed to.
+-- name: ResolveCardInbox :many
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind IN ('escalated', 'out_of_budget') AND resolved_at IS NULL
+RETURNING id;
 
 -- People edit and delete a card only while it is in Backlog; the column check
 -- is repeated here so a card WIP pull has started is never changed.

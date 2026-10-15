@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,21 @@ import (
 )
 
 var errEnded = errors.New("the card has ended; continue with a new card that follows from it")
+
+// resolveBlocked resolves the card's open escalated and out-of-budget inbox
+// items: a person has answered them by resuming, stopping or changing the budget.
+func resolveBlocked(ctx context.Context, tx *store.Tx, card, who uuid.UUID) error {
+	ids, err := tx.Q.ResolveCardInbox(ctx, db.ResolveCardInboxParams{WorkspaceID: tx.WS, CardID: card})
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := tx.Emit(ctx, "inbox.resolved", &card, store.User(who), map[string]string{"inbox_item_id": id.String()}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // steer applies one person's action to a card under its lock, cancels the
 // card's in-flight agent runs when asked, and kicks the engine afterwards. A typed
@@ -170,7 +186,7 @@ func (h *H) stopCard(w http.ResponseWriter, r *http.Request) {
 			reason = fmt.Sprintf("duplicate of #%d", o.Number)
 		}
 		board.Stop(s, reason)
-		return nil, nil
+		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
 	})
 }
 
@@ -182,19 +198,19 @@ func (h *H) budgetCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "usd required")
 		return
 	}
-	h.steer(w, r, false, func(_ *store.Tx, _ db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+	h.steer(w, r, false, func(tx *store.Tx, c db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
 		s.BudgetUSD = in.USD
 		if s.Flag == board.OutOfBudget {
 			s.Flag = ""
 		}
-		return nil, nil
+		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
 	})
 }
 
 func (h *H) resumeCard(w http.ResponseWriter, r *http.Request) {
-	h.steer(w, r, false, func(_ *store.Tx, _ db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+	h.steer(w, r, false, func(tx *store.Tx, c db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
 		board.Resume(s)
-		return nil, nil
+		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
 	})
 }
 

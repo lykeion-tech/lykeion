@@ -334,6 +334,46 @@ func (q *Queries) ListAllRecords(ctx context.Context, arg ListAllRecordsParams) 
 	return items, nil
 }
 
+const listArchivedInbox = `-- name: ListArchivedInbox :many
+SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at FROM inbox_item WHERE workspace_id = $1 AND user_id = $2 AND resolved_at IS NOT NULL
+ORDER BY created_at DESC, id DESC LIMIT 200
+`
+
+type ListArchivedInboxParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxParams) ([]InboxItem, error) {
+	rows, err := q.db.Query(ctx, listArchivedInbox, arg.WorkspaceID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.UserID,
+			&i.Kind,
+			&i.Text,
+			&i.ReadAt,
+			&i.CreatedAt,
+			&i.ResolvedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCards = `-- name: ListCards :many
 SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.budget_usd, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.route_backs, c.stale, c.rerun, c.follows_from, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
@@ -466,7 +506,7 @@ func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]C
 }
 
 const listInbox = `-- name: ListInbox :many
-SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at FROM inbox_item WHERE workspace_id = $1 AND user_id = $2
+SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at FROM inbox_item WHERE workspace_id = $1 AND user_id = $2 AND resolved_at IS NULL
 ORDER BY created_at DESC LIMIT 200
 `
 
@@ -505,9 +545,10 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]InboxIt
 	return items, nil
 }
 
-const markInboxRead = `-- name: MarkInboxRead :execrows
-UPDATE inbox_item SET read_at = now()
+const markInboxRead = `-- name: MarkInboxRead :one
+UPDATE inbox_item SET read_at = now(), resolved_at = CASE WHEN kind = 'released' THEN now() ELSE resolved_at END
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND read_at IS NULL
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at
 `
 
 type MarkInboxReadParams struct {
@@ -516,12 +557,23 @@ type MarkInboxReadParams struct {
 	UserID      uuid.UUID `json:"user_id"`
 }
 
-func (q *Queries) MarkInboxRead(ctx context.Context, arg MarkInboxReadParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markInboxRead, arg.ID, arg.WorkspaceID, arg.UserID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+// Reading an item marks it read; a released item needs nothing more, so
+// reading it also resolves it.
+func (q *Queries) MarkInboxRead(ctx context.Context, arg MarkInboxReadParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, markInboxRead, arg.ID, arg.WorkspaceID, arg.UserID)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.UserID,
+		&i.Kind,
+		&i.Text,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+	)
+	return i, err
 }
 
 const nextCardNumber = `-- name: NextCardNumber :one
@@ -533,4 +585,37 @@ func (q *Queries) NextCardNumber(ctx context.Context, id uuid.UUID) (int32, erro
 	var card_counter int32
 	err := row.Scan(&card_counter)
 	return card_counter, err
+}
+
+const resolveCardInbox = `-- name: ResolveCardInbox :many
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = $1 AND card_id = $2 AND kind IN ('escalated', 'out_of_budget') AND resolved_at IS NULL
+RETURNING id
+`
+
+type ResolveCardInboxParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+// A person answered a blocked card (resume, stop, budget): its open escalated
+// and out-of-budget items are resolved, whoever they were addressed to.
+func (q *Queries) ResolveCardInbox(ctx context.Context, arg ResolveCardInboxParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, resolveCardInbox, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

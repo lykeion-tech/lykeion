@@ -284,11 +284,17 @@ func (h *H) cardEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
+// listInbox lists the caller's open items, or with ?archived=1 the resolved ones.
 func (h *H) listInbox(w http.ResponseWriter, r *http.Request) {
+	archived := r.URL.Query().Get("archived") == "1"
 	items := []db.InboxItem{}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
-		items, err = tx.Q.ListInbox(r.Context(), db.ListInboxParams{WorkspaceID: ws, UserID: user})
+		if archived {
+			items, err = tx.Q.ListArchivedInbox(r.Context(), db.ListArchivedInboxParams{WorkspaceID: ws, UserID: user})
+		} else {
+			items, err = tx.Q.ListInbox(r.Context(), db.ListInboxParams{WorkspaceID: ws, UserID: user})
+		}
 		return err
 	})
 	if err != nil {
@@ -307,14 +313,17 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		n, err := tx.Q.MarkInboxRead(r.Context(), db.MarkInboxReadParams{ID: id, WorkspaceID: ws, UserID: user})
+		item, err := tx.Q.MarkInboxRead(r.Context(), db.MarkInboxReadParams{ID: id, WorkspaceID: ws, UserID: user})
 		if err != nil {
 			return err
 		}
-		if n == 0 {
-			return pgx.ErrNoRows
+		if err := tx.Emit(r.Context(), "inbox.read", nil, store.User(user), map[string]string{"inbox_item_id": id.String()}); err != nil {
+			return err
 		}
-		return tx.Emit(r.Context(), "inbox.read", nil, store.User(user), map[string]string{"inbox_item_id": id.String()})
+		if item.ResolvedAt == nil {
+			return nil
+		}
+		return tx.Emit(r.Context(), "inbox.resolved", &item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})
 	})
 	if err != nil {
 		fail(w, r, err)
