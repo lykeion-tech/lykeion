@@ -3,10 +3,16 @@ import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import Icon from '../Icon.vue';
 type TokenExpiry = '30' | '90' | '365' | 'none';
 const props = withDefaults(
-  defineProps<{ available?: boolean; pending?: boolean; unavailableReason?: string }>(),
+  defineProps<{
+    available?: boolean;
+    pending?: boolean;
+    showExpiry?: boolean;
+    unavailableReason?: string;
+  }>(),
   {
     available: false,
     pending: false,
+    showExpiry: true,
     unavailableReason: 'Token creation requires a connected identity API.',
   },
 );
@@ -109,6 +115,7 @@ onUnmounted(() => {
       maxlength="120"
       autocomplete="off"
     /><button
+      v-if="showExpiry"
       ref="trigger"
       type="button"
       class="expiry-trigger"

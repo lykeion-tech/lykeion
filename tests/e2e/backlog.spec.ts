@@ -105,6 +105,9 @@ test('the Backlog menu edits, moves to top and deletes with real confirmation', 
       'data-card',
       lower.id,
     );
+    await expect
+      .poll(async () => (await cards(page.request, ws)).find((c) => c.id === lower.id)!.position)
+      .toBeLessThan(upper.position);
     expect((await cards(page.request, ws)).find((c) => c.id === lower.id)!.position).toBeLessThan(
       upper.position,
     );

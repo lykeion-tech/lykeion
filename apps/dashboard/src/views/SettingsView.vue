@@ -1,436 +1,295 @@
 <script setup lang="ts">
-import { themes } from '../theme';
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { state, service, apiUrl, connect, refresh, notify } from '../services/workspace';
+import { useQueryClient } from '@tanstack/vue-query';
+import { themes } from '../theme';
 import Icon from '../components/Icon.vue';
 import TokenCreationForm from '../components/settings/TokenCreationForm.vue';
-import CompactSelect from '../components/settings/CompactSelect.vue';
-import Modal from '../components/Modal.vue';
-import ColorPicker from '../components/settings/ColorPicker.vue';
-import { readJSON } from '../storage';
-import { defaultCreateFields, usePreferences } from '../state/preferences';
-import { useProfile } from '../state/profile';
-import { useSettingsDrafts, type LabelDraft, type PropertyDraft } from '../state/settings-drafts';
-import { failedSettingsSaves, saveSetting } from '../state/settings-saves';
 import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
-import { colorPresets } from '../lib/color';
+import { api } from '../api/client';
+import { keys } from '../api/keys';
+import { workspaceId } from '../api/session';
+import { useMe, useTokens, useWorkspace, useWorkspaces } from '../api/queries';
+import { careerStages, type NewToken, type Workspace } from '../api/types';
+import { careerStageLabels } from '../lib/studies';
 import { matchesQuery } from '../lib/search';
-import {
-  copyCreateFields as fieldsCopy,
-  createFieldAvailable as fieldAvailable,
-  labelNameTaken,
-  propertyOptions,
-  repositoryUrl,
-  validCreateFields as validFields,
-} from '../lib/settings';
+import { notify } from '../state/notice';
+import { usePreferences } from '../state/preferences';
+
 const router = useRouter();
 const props = defineProps<{ section: string }>();
-const section = computed(() => props.section);
+const client = useQueryClient();
+const me = useMe();
+const workspace = useWorkspace();
+const workspaces = useWorkspaces();
+const tokens = useTokens();
+const prefs = usePreferences();
+const section = computed(() => (props.section === 'workspace' ? 'general' : props.section));
 const query = ref('');
 const error = ref('');
-const busy = ref(false);
-const name = ref(state.data?.workspace.name ?? 'Lykeion');
-const context = ref(state.data?.workspace.researchContext ?? '');
-const prefix = ref(state.data?.workspace.taskPrefix ?? 'LYK');
-const endpoint = ref(apiUrl.value);
-const profile = useProfile();
-const careerStage = ref(profile.careerStage);
-const savedExtras = readJSON<unknown>('lykeion.workspace-appearance', null);
-const workspaceExtras = reactive<Record<string, { description: string; logo: string }>>(
-  savedExtras && typeof savedExtras === 'object' ? { ...savedExtras } : {},
-);
-const workspaceKey = computed(() => state.data?.workspace.id || 'local');
-const extras = computed(() => workspaceExtras[workspaceKey.value]!);
-watch(workspaceExtras, (value) => saveSetting('lykeion.workspace-appearance', value), {
-  deep: true,
-});
-// Seed the current workspace's entry before anything reads it, so the computed stays pure.
-watch(
-  workspaceKey,
-  (id) => {
-    workspaceExtras[id] ||= { description: '', logo: '' };
-  },
-  { immediate: true, flush: 'sync' },
-);
+const pending = ref(0);
+const busy = computed(() => pending.value > 0);
+const name = ref('');
+const created = ref<NewToken | null>(null);
+const wsName = ref('');
+const description = ref('');
+const context = ref('');
 const prefixEditing = ref(false);
+const prefix = ref('');
 const logoInput = ref<HTMLInputElement>();
-const createFieldNames = [
-  'Status',
-  'Priority',
-  'Assignee',
-  'Labels',
-  'Project',
-  'Due date',
-  'Start date',
-];
-const prefs = usePreferences();
-let fieldWorkspace = state.data?.workspace.id;
-if (fieldWorkspace && !prefs.createFieldsByWorkspace[fieldWorkspace])
-  prefs.createFieldsByWorkspace[fieldWorkspace] = fieldsCopy(prefs.createFields);
-watch(
-  () => state.data?.workspace.id,
-  (id) => {
-    if (!id || id === fieldWorkspace) return;
-    if (fieldWorkspace)
-      prefs.createFieldsByWorkspace[fieldWorkspace] = fieldsCopy(prefs.createFields);
-    const next = prefs.createFieldsByWorkspace[id];
-    prefs.createFields = fieldsCopy(validFields(next) ? next : defaultCreateFields);
-    fieldWorkspace = id;
-  },
-);
-function toggleField(field: string, mode: 'agent' | 'manual', event: Event) {
-  const enabled = (event.target as HTMLInputElement).checked;
-  prefs.createFields[mode] = enabled
-    ? [...new Set([...prefs.createFields[mode], field])]
-    : prefs.createFields[mode].filter((item) => item !== field);
-  if (fieldWorkspace)
-    prefs.createFieldsByWorkspace[fieldWorkspace] = fieldsCopy(prefs.createFields);
-}
-type WorkspaceDraft = { name: string; researchContext: string; taskPrefix: string };
-const workspaceDrafts = new Map<string, WorkspaceDraft>();
-let loadedWorkspaceId = state.data?.workspace.id;
-let baseline: WorkspaceDraft = {
-  name: name.value,
-  researchContext: context.value,
-  taskPrefix: prefix.value,
-};
-function draft(): WorkspaceDraft {
-  return { name: name.value, researchContext: context.value, taskPrefix: prefix.value };
-}
-function hydrate(value: WorkspaceDraft) {
-  name.value = value.name;
-  context.value = value.researchContext;
-  prefix.value = value.taskPrefix;
-}
-watch(
-  () => state.data?.workspace,
-  (workspace) => {
-    if (!workspace) return;
-    const changedId = loadedWorkspaceId !== workspace.id;
-    const dirty = JSON.stringify(draft()) !== JSON.stringify(baseline);
-    if (changedId && loadedWorkspaceId && dirty) workspaceDrafts.set(loadedWorkspaceId, draft());
-    if (changedId || !dirty) hydrate(workspaceDrafts.get(workspace.id) || workspace);
-    loadedWorkspaceId = workspace.id;
-    baseline = {
-      name: workspace.name,
-      researchContext: workspace.researchContext,
-      taskPrefix: workspace.taskPrefix,
-    };
-  },
-  { deep: true },
-);
-watch(apiUrl, (value, old) => {
-  if (endpoint.value === old) endpoint.value = value;
-});
-const localSettings = useSettingsDrafts();
-const settingsDraft = computed(() => localSettings[workspaceKey.value]!);
-function seedSettingsDraft(id: string) {
-  localSettings[id] ||= {
-    labels: [],
-    properties: [],
-    notifications: {
-      assignments: true,
-      status: true,
-      comments: true,
-      mentions: true,
-      priority: true,
-      agents: true,
-      system: false,
-    },
-    repositories: [],
-    code: { sidebar: true, autoLink: false, coAuthor: false },
-  };
-}
-watch(workspaceKey, seedSettingsDraft, { immediate: true, flush: 'sync' });
-const labelScope = ref<'Tasks' | 'Skills'>('Tasks');
-const tableFilter = ref('');
-const showArchived = ref(false);
-const filteredLabels = computed(() =>
-  settingsDraft.value.labels.filter(
-    (item) =>
-      item.scope === labelScope.value &&
-      matchesQuery(item.name + ' ' + item.description, tableFilter.value),
-  ),
-);
-const filteredProperties = computed(() =>
-  settingsDraft.value.properties.filter(
-    (item) => (showArchived.value || !item.archived) && matchesQuery(item.name, tableFilter.value),
-  ),
-);
-const editor = ref<'label' | 'property' | 'repository' | null>(null);
-const editingId = ref('');
-const draftName = ref('');
-const draftDescription = ref('');
-const draftColor = ref('#3b82f6');
-const draftIcon = ref('filters');
-const draftType = ref('Select');
-const draftOptions = ref('');
-const draftOptionColors = ref<string[]>([]);
-const draftUrl = ref('');
-const editorError = ref('');
-function openEditor(kind: 'label' | 'property' | 'repository', id = '') {
-  editor.value = kind;
-  editingId.value = id;
-  editorError.value = '';
-  const label = settingsDraft.value.labels.find((item) => item.id === id);
-  const property = settingsDraft.value.properties.find((item) => item.id === id);
-  draftName.value = label?.name || property?.name || '';
-  draftDescription.value = label?.description || property?.description || '';
-  draftColor.value = label?.color || '#3b82f6';
-  draftIcon.value = property?.icon || 'filters';
-  draftType.value = property?.type || 'Select';
-  draftOptions.value = property?.options.join('\n') || '';
-  draftOptionColors.value = property?.optionColors ? [...property.optionColors] : ['#3b82f6'];
-  draftUrl.value = '';
-}
-function saveEditor() {
-  editorError.value = '';
-  if (editor.value === 'repository') {
-    const url = repositoryUrl(draftUrl.value);
-    if (!url) {
-      editorError.value =
-        'Enter an HTTPS repository URL without credentials, a query, or a fragment.';
-      return;
-    }
-    if (settingsDraft.value.repositories.some((item) => item.url === url)) {
-      editorError.value = 'This repository is already listed.';
-      return;
-    }
-    settingsDraft.value.repositories.push({ id: crypto.randomUUID(), url });
-  } else {
-    if (!draftName.value.trim()) {
-      editorError.value = 'Enter a name.';
-      return;
-    }
-    const updatedAt = new Date().toISOString();
-    if (editor.value === 'label') {
-      if (
-        labelNameTaken(
-          settingsDraft.value.labels,
-          draftName.value,
-          labelScope.value,
-          editingId.value,
-        )
-      ) {
-        editorError.value = 'A label with this name already exists.';
-        return;
-      }
-      const value: LabelDraft = {
-        id: editingId.value || crypto.randomUUID(),
-        name: draftName.value.trim(),
-        description: draftDescription.value,
-        color: draftColor.value,
-        scope: labelScope.value,
-        updatedAt,
-      };
-      const index = settingsDraft.value.labels.findIndex((item) => item.id === value.id);
-      if (index < 0) settingsDraft.value.labels.push(value);
-      else settingsDraft.value.labels[index] = value;
-    } else {
-      if (
-        !editingId.value &&
-        settingsDraft.value.properties.filter((item) => !item.archived).length >= 20
-      ) {
-        editorError.value = 'Archive a property before adding another.';
-        return;
-      }
-      const value: PropertyDraft = {
-        id: editingId.value || crypto.randomUUID(),
-        name: draftName.value.trim(),
-        description: draftDescription.value,
-        icon: draftIcon.value,
-        type: draftType.value,
-        options: propertyOptions(draftType.value, draftOptions.value),
-        optionColors: [...draftOptionColors.value],
-        archived: false,
-        updatedAt,
-      };
-      if (['Select', 'Multi-select'].includes(value.type) && !value.options.length) {
-        editorError.value = 'Add at least one option.';
-        return;
-      }
-      const index = settingsDraft.value.properties.findIndex((item) => item.id === value.id);
-      if (index < 0) settingsDraft.value.properties.push(value);
-      else settingsDraft.value.properties[index] = value;
-    }
-  }
-  editor.value = null;
-  notify('Saved on this device.');
-}
-const propertyTypes = [
-  'Text',
-  'Number',
-  'Select',
-  'Multi-select',
-  'Date',
-  'Checkbox',
-  'URL',
-  'Member',
-  'Members',
-];
-const optionRows = computed(() => draftOptions.value.split('\n'));
-function updateOption(index: number, event: Event) {
-  const options = [...optionRows.value];
-  options[index] = (event.target as HTMLInputElement).value;
-  draftOptions.value = options.join('\n');
-}
-function removeOption(index: number) {
-  const options = [...optionRows.value];
-  if (options.length > 1) {
-    options.splice(index, 1);
-    draftOptionColors.value.splice(index, 1);
-    draftOptions.value = options.join('\n');
-  }
-}
-const notificationRows = [
-  {
-    id: 'assignments',
-    title: 'Assignments',
-    description: 'When you are assigned or unassigned from a task',
-  },
-  {
-    id: 'status',
-    title: 'Status changes',
-    description: 'When a task you follow changes scientific stage or status',
-  },
-  { id: 'comments', title: 'Comments', description: 'New comments on tasks you follow' },
-  {
-    id: 'mentions',
-    title: 'Mentions',
-    description: 'When someone @mentions you, including @all and @team',
-  },
-  {
-    id: 'priority',
-    title: 'Priority & Due date',
-    description: 'When priority or due date changes on tasks you follow',
-  },
-  { id: 'agents', title: 'Agent activity', description: 'When an agent run fails' },
-];
-
-const analyticsTab = ref('Usage');
-const analyticsPeriod = ref('30');
-const analyticsProject = ref('');
-const analyticsMetric = ref('Tokens');
-const analyticsDimension = ref('Daily');
-const leaderboardMetric = ref('Tokens');
-const avatarInput = ref<HTMLInputElement>();
+let generation = 0;
+let baseline: Workspace | undefined;
+const myRole = computed(() => workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role);
+const isAdmin = computed(() => myRole.value === 'owner' || myRole.value === 'admin');
 const groups = computed(() =>
   [
     {
       title: 'Personal',
-      suffix: profile.name || 'This device',
+      suffix: me.data.value?.email.split('@')[0] ?? '',
       items: [
         { id: 'profile', label: 'Profile', icon: 'users' },
         { id: 'preferences', label: 'Preferences', icon: 'filters' },
-        { id: 'notifications', label: 'Notifications', icon: 'bell' },
-        { id: 'analytics', label: 'Analytics', icon: 'chart' },
         { id: 'tokens', label: 'API Tokens', icon: 'link' },
       ],
     },
     {
-      title: state.data?.workspace.name || 'Lykeion',
+      title: workspace.data.value?.name ?? 'Workspace',
       suffix: 'Workspace',
-      items: [
-        { id: 'workspace', label: 'General', icon: 'settings' },
-        { id: 'labels', label: 'Labels', icon: 'tag' },
-        { id: 'properties', label: 'Properties', icon: 'list' },
-      ],
-    },
-    {
-      title: 'Connections & extensions',
-      suffix: '',
-      items: [
-        { id: 'skills', label: 'Skills', icon: 'book' },
-        { id: 'mcp', label: 'Connectors', icon: 'link' },
-        { id: 'code', label: 'Code', icon: 'folder' },
-        { id: 'connection', label: 'API connection', icon: 'network' },
-      ],
+      items: [{ id: 'general', label: 'General', icon: 'settings' }],
     },
   ]
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => matchesQuery(item.label, query.value)),
-    }))
-    .filter((group) => group.items.length),
+    .map((g) => ({ ...g, items: g.items.filter((i) => matchesQuery(i.label, query.value)) }))
+    .filter((g) => g.items.length),
 );
-const sectionLabels: Record<string, string> = {
+const titles: Record<string, string> = {
   profile: 'Profile',
   preferences: 'Preferences',
-  appearance: 'Preferences',
-  notifications: 'Notifications',
-  analytics: 'Analytics',
   tokens: 'API Tokens',
-  workspace: 'General',
   general: 'General',
-  labels: 'Labels',
-  properties: 'Properties',
-  skills: 'Skills',
-  mcp: 'Connectors',
-  code: 'Code',
-  connection: 'API connection',
 };
-const title = computed(() => sectionLabels[section.value] || 'Settings');
-watch(failedSettingsSaves, () => {
-  error.value = 'Your browser could not save these settings. Free storage and try again.';
+function open(id: string) {
+  void router.push({ path: '/settings', query: { tab: id } });
+}
+function hydrate(w: Workspace | undefined, reset = false) {
+  const previous = reset ? undefined : baseline;
+  if (!previous || wsName.value === previous.name) wsName.value = w?.name ?? '';
+  if (!previous || description.value === previous.description)
+    description.value = w?.description ?? '';
+  if (!previous || context.value === previous.research_context)
+    context.value = w?.research_context ?? '';
+  if (!previous || prefix.value === previous.card_prefix) prefix.value = w?.card_prefix ?? '';
+  baseline = w;
+}
+watch(
+  [workspaceId, section, () => me.data.value?.id],
+  () => {
+    generation++;
+    error.value = '';
+    pending.value = 0;
+    created.value = null;
+    prefixEditing.value = false;
+    name.value = me.data.value?.name ?? '';
+    hydrate(
+      workspace.data.value?.id === workspaceId.value ? workspace.data.value : undefined,
+      true,
+    );
+  },
+  { immediate: true, flush: 'sync' },
+);
+watch(
+  () => workspace.data.value,
+  (w) => {
+    if (w?.id === workspaceId.value) hydrate(w);
+  },
+);
+watch(
+  () => me.data.value?.name,
+  (value, old) => {
+    if (name.value === (old ?? '')) name.value = value ?? '';
+  },
+  { immediate: true },
+);
+onUnmounted(() => {
+  generation++;
+  created.value = null;
 });
-async function avatarChanged(event: Event, workspaceLogo = false) {
-  const file = (event.target as HTMLInputElement).files?.[0];
-  if (!file) return;
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 1024 * 1024) {
-    error.value = 'Choose a PNG, JPEG or WebP smaller than 1 MB.';
+function scope() {
+  const workspace = workspaceId.value,
+    visit = generation,
+    account = me.data.value?.id;
+  return {
+    workspace,
+    account,
+    current: () =>
+      generation === visit && workspaceId.value === workspace && me.data.value?.id === account,
+  };
+}
+type Scope = ReturnType<typeof scope>;
+async function save(fn: (own: Scope) => Promise<void>, done?: string, concurrent = false) {
+  if (busy.value && !concurrent) return;
+  const own = scope();
+  pending.value++;
+  error.value = '';
+  try {
+    await fn(own);
+    if (own.current() && done) notify(done);
+  } catch (e) {
+    if (own.current()) error.value = (e as Error).message;
+  } finally {
+    if (own.current()) pending.value--;
+  }
+}
+// Account queries remain current across settings tabs; local drafts belong to a visit.
+const refreshAccount = (own: Scope, key: readonly string[]) =>
+  own.account && me.data.value?.id === own.account
+    ? client.invalidateQueries({ queryKey: key })
+    : Promise.resolve();
+function patchMe(body: Record<string, unknown>) {
+  const submittedName = name.value;
+  return save(
+    async (own) => {
+      await api('PATCH', '/api/me', body);
+      await refreshAccount(own, keys.me);
+      if (
+        own.current() &&
+        typeof body.name === 'string' &&
+        name.value === submittedName &&
+        me.data.value
+      )
+        name.value = me.data.value.name;
+    },
+    undefined,
+    true,
+  );
+}
+function changeCareer(el: HTMLSelectElement) {
+  const requested = el.value;
+  el.value = me.data.value?.career_stage ?? '';
+  void patchMe({ career_stage: requested });
+}
+const timezone = computed({
+  get: () => me.data.value?.timezone ?? 'UTC',
+  set: (zone: string) => void patchMe({ timezone: zone }),
+});
+const createToken = (request: { name: string }) => {
+  const body = { name: request.name };
+  return save(async (own) => {
+    const token = await api<NewToken>('POST', '/api/tokens', body);
+    if (own.current()) created.value = token;
+    await refreshAccount(own, keys.tokens);
+  });
+};
+const revoke = (id: string) =>
+  save(async (own) => {
+    await api('DELETE', `/api/tokens/${id}`);
+    if (own.current() && created.value?.id === id) created.value = null;
+    await refreshAccount(own, keys.tokens);
+  });
+const liveTokens = computed(() => (tokens.data.value ?? []).filter((t) => !t.revoked_at));
+const day = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+async function copy(text: string) {
+  const own = scope();
+  try {
+    await navigator.clipboard.writeText(text);
+    if (own.current()) notify('Copied.');
+  } catch {
+    if (own.current()) error.value = 'Could not access your clipboard.';
+  }
+}
+const dirty = computed(
+  () =>
+    !!workspace.data.value &&
+    (wsName.value !== workspace.data.value.name ||
+      description.value !== workspace.data.value.description ||
+      context.value !== workspace.data.value.research_context),
+);
+const refreshWorkspace = (ws: string) =>
+  Promise.all([
+    client.invalidateQueries({ queryKey: keys.workspace(ws) }),
+    client.invalidateQueries({ queryKey: keys.workspaces }),
+  ]);
+function saveDetails() {
+  const submittedName = wsName.value;
+  const body = {
+    name: submittedName.trim(),
+    description: description.value,
+    research_context: context.value,
+  };
+  return save(async (own) => {
+    await api('PATCH', `/api/workspaces/${own.workspace}`, body);
+    if (!own.current()) return;
+    await refreshWorkspace(own.workspace);
+    if (
+      own.current() &&
+      wsName.value === submittedName &&
+      workspace.data.value?.id === own.workspace
+    )
+      wsName.value = workspace.data.value.name;
+  }, 'Workspace saved.');
+}
+async function savePrefix() {
+  if (busy.value) return;
+  if (prefix.value && !/^[A-Z]{2,6}$/.test(prefix.value)) {
+    error.value = 'A card prefix is two to six capital letters, or empty to follow the URL.';
     return;
   }
-  const reader = new FileReader();
-  reader.onload = () => {
-    if (workspaceLogo) extras.value.logo = String(reader.result);
-    else profile.avatar = String(reader.result);
-  };
-  reader.readAsDataURL(file);
+  const value = prefix.value;
+  await save(async (own) => {
+    await api('PATCH', `/api/workspaces/${own.workspace}`, { card_prefix: value });
+    if (!own.current()) return;
+    await refreshWorkspace(own.workspace);
+    if (own.current() && prefix.value === value) prefixEditing.value = false;
+  }, 'Card prefix saved.');
 }
-async function save() {
-  busy.value = true;
-  error.value = '';
-  try {
-    await service.value.updateWorkspace({
-      name: name.value,
-      researchContext: context.value,
-      taskPrefix: prefix.value,
+async function logoChanged(event: Event) {
+  const input = event.target as HTMLInputElement,
+    file = input.files?.[0];
+  input.value = '';
+  if (!file || busy.value) return;
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 512 * 1024) {
+    error.value = 'Choose a PNG, JPEG or WebP of at most 512 KB.';
+    return;
+  }
+  await save(async (own) => {
+    await api('PUT', `/api/workspaces/${own.workspace}/logo`, undefined, {
+      data: file,
+      type: file.type,
     });
-    await refresh();
-    baseline = draft();
-    if (loadedWorkspaceId) workspaceDrafts.delete(loadedWorkspaceId);
-    notify('Workspace settings saved.');
-  } catch (e) {
-    error.value = (e as Error).message;
-  } finally {
-    busy.value = false;
-  }
+    if (own.current()) await refreshWorkspace(own.workspace);
+  });
 }
-async function applyConnection() {
-  busy.value = true;
-  error.value = '';
-  try {
-    await connect(endpoint.value);
-    notify(endpoint.value ? 'Control plane connected.' : 'Local workspace opened.');
-  } catch (e) {
-    error.value = (e as Error).message;
-  } finally {
-    busy.value = false;
-  }
+async function leaveOrDelete(kind: 'leave' | 'delete') {
+  if (busy.value) return;
+  const label = workspace.data.value?.name ?? 'this workspace';
+  if (
+    !confirm(
+      kind === 'leave'
+        ? `Leave ${label}? You lose access until someone invites you again.`
+        : `Delete ${label} and every study in it? This cannot be undone.`,
+    )
+  )
+    return;
+  await save(async (own) => {
+    await api(
+      kind === 'leave' ? 'POST' : 'DELETE',
+      `/api/workspaces/${own.workspace}${kind === 'leave' ? '/leave' : ''}`,
+    );
+    if (!own.current()) return;
+    await client.cancelQueries({ queryKey: keys.ws(own.workspace) });
+    if (!own.current()) return;
+    workspaceId.value = '';
+    const transition = generation;
+    await nextTick();
+    if (generation !== transition || workspaceId.value) return;
+    // Keep the shell's mounted observers while it selects a remaining workspace.
+    const refreshed = client.resetQueries({ queryKey: keys.workspaces });
+    void router.replace('/studies');
+    await refreshed;
+  });
 }
 async function copySlug() {
-  try {
-    await navigator.clipboard.writeText(state.data?.workspace.slug || '');
-    notify('Workspace slug copied.');
-  } catch {
-    error.value = 'Could not access your clipboard.';
-  }
-}
-function open(id: string) {
-  error.value = '';
-  tableFilter.value = '';
-  router.push({ path: '/settings', query: { tab: id } });
+  await copy(workspace.data.value?.slug ?? '');
 }
 </script>
 <template>
@@ -444,13 +303,9 @@ function open(id: string) {
           placeholder="Search settings"
           aria-label="Search settings"
       /></label>
-      <section
-        v-for="(group, index) in groups"
-        :key="group.title"
-        :class="{ 'extension-group': index === 2 }"
-      >
+      <section v-for="group in groups" :key="group.title">
         <header>
-          <span v-if="index < 2" class="tiny-avatar">{{ group.title.charAt(0) }}</span
+          <span class="tiny-avatar">{{ group.title.charAt(0) }}</span
           ><strong>{{ group.title }}</strong
           ><small>{{ group.suffix }}</small>
         </header>
@@ -469,91 +324,53 @@ function open(id: string) {
     <div class="settings-scroll">
       <section
         class="settings-body"
-        :class="{
-          wide: ['preferences', 'appearance', 'labels', 'properties'].includes(section),
-          'analytics-layout': section === 'analytics',
-          'table-layout': ['labels', 'properties', 'tokens'].includes(section),
-          'notifications-layout': section === 'notifications',
-          'code-layout': section === 'code',
-        }"
+        :class="{ wide: section === 'preferences', 'table-layout': section === 'tokens' }"
       >
         <header class="settings-heading">
-          <h2>{{ title }}</h2>
-          <span v-if="section === 'profile'" class="scope-badge"
-            ><Icon name="monitor" :size="11" />This device only</span
-          ><span
-            v-else-if="
-              ['workspace', 'general', 'labels', 'properties', 'code', 'notifications'].includes(
-                section,
-              )
-            "
-            class="scope-badge"
-            ><Icon name="users" :size="11" />{{ state.data?.workspace.name || 'Lykeion' }} · This
-            device</span
-          ><span v-if="section === 'analytics'" class="analytics-status"
-            >No analytics service connected
-            <button
-              class="icon-button"
-              aria-label="Refresh"
-              @click="notify('Analytics require a connected control plane with usage reporting.')"
-            >
-              <Icon name="refresh" /></button
-          ></span>
+          <h2>{{ titles[section] ?? 'Settings' }}</h2>
+          <span v-if="section === 'general'" class="scope-badge"
+            ><Icon name="users" :size="11" />{{ workspace.data.value?.name }} workspace</span
+          >
         </header>
+        <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
+
         <template v-if="section === 'profile'">
           <h3>Personal information</h3>
           <div class="setting-box">
-            <div class="setting-row avatar-row">
-              <div>Avatar<small>Click to upload avatar</small></div>
-              <input
-                ref="avatarInput"
-                hidden
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                @change="avatarChanged"
-              /><button
-                class="profile-avatar"
-                aria-label="Change avatar"
-                @click="avatarInput?.click()"
-              >
-                <img v-if="profile.avatar" :src="profile.avatar" alt="Your avatar" /><template
-                  v-else
-                  >{{ profile.name.charAt(0).toUpperCase() || 'L' }}</template
-                >
-              </button>
-            </div>
             <label class="setting-row"
               ><span>Name</span
               ><input
-                v-model="profile.name"
+                v-model="name"
                 aria-label="Name"
                 placeholder="Your name"
                 maxlength="120"
+                @change="patchMe({ name: name.trim() })"
             /></label>
-            <label class="setting-row about-row"
-              ><span>About you<small>Saved on this device for your research profile.</small></span>
-              <div class="about-control">
-                <textarea
-                  v-model="profile.about"
-                  aria-label="About you"
-                  maxlength="2000"
-                  placeholder="e.g. Backend engineer (Go + Postgres). Prefer terse PRs and tests alongside the change."
-                /><small>{{ profile.about.length }}/2000</small>
-              </div></label
+            <div class="setting-row">
+              <span>Email</span><span class="muted">{{ me.data.value?.email }}</span>
+            </div>
+            <label class="setting-row"
+              ><span>Your career stage</span
+              ><select
+                :value="me.data.value?.career_stage ?? ''"
+                aria-label="Your career stage"
+                @change="changeCareer($event.target as HTMLSelectElement)"
+              >
+                <option value="">Choose a stage (optional)</option>
+                <option v-for="c in careerStages" :key="c" :value="c">
+                  {{ careerStageLabels[c] }}
+                </option>
+              </select></label
             >
           </div>
         </template>
-        <template v-else-if="section === 'preferences' || section === 'appearance'">
-          <h3>Language & region <span class="scope-badge">This device only</span></h3>
+
+        <template v-else-if="section === 'preferences'">
+          <h3>Language & region</h3>
           <div class="setting-box">
             <label class="setting-row"
-              ><span>Language</span
-              ><select aria-label="Language">
-                <option>English</option>
-              </select></label
-            ><label class="setting-row"
-              ><span>Time zone<small>Used for dates and charts on this device.</small></span
-              ><TimeZonePicker v-model="prefs.timeZone" v-model:automatic="prefs.timeZoneAutomatic"
+              ><span>Time zone<small>Used for your dates and schedules.</small></span
+              ><TimeZonePicker v-model="timezone" :automatic="false"
             /></label>
           </div>
           <h3>
@@ -585,171 +402,118 @@ function open(id: string) {
               </footer>
             </button>
           </div>
-          <h3>
-            Comments & chat
-            <span class="scope-badge"><Icon name="monitor" :size="11" />This device only</span>
-          </h3>
-          <div class="setting-box">
-            <label class="setting-row"
-              ><span>Pin comment bar to bottom</span
-              ><input
-                v-model="prefs.pinComments"
-                class="setting-switch"
-                type="checkbox"
-                role="switch"
-                aria-label="Pin comment bar to bottom" /></label
-            ><label class="setting-row"
-              ><span
-                >When replying to a running agent<small
-                  >Sets the default only. You can still change it for any message before
-                  sending.</small
-                ></span
-              ><CompactSelect
-                v-model="prefs.replyMode"
-                class="reply-mode-select"
-                label="When replying to a running agent"
-                :width="192"
-                :options="[
-                  { value: 'current', label: 'Add to current run' },
-                  { value: 'after', label: 'Start after this run' },
-                ]"
-            /></label>
-          </div>
-          <h3>
-            Opening tasks
-            <span class="scope-badge"><Icon name="monitor" :size="11" />This device only</span>
-          </h3>
-          <div class="setting-box">
-            <div class="setting-row">
-              <span
-                >Clicking a card or row opens<small>Shift+Click opens the other one.</small></span
-              >
-              <div class="segmented">
-                <button :aria-pressed="prefs.taskOpen === 'page'" @click="prefs.taskOpen = 'page'">
-                  Full page</button
-                ><button
-                  :aria-pressed="prefs.taskOpen === 'preview'"
-                  @click="prefs.taskOpen = 'preview'"
-                >
-                  Side preview
+        </template>
+
+        <template v-else-if="section === 'tokens'">
+          <p class="table-description">
+            Personal <code>lyk_</code> tokens for scripts. <code>lyk login</code> makes its own. A
+            token expires after 90 days.
+          </p>
+          <div class="tokens-body">
+            <TokenCreationForm
+              :available="true"
+              :pending="busy"
+              :show-expiry="false"
+              @create="createToken"
+            />
+            <div v-if="created" class="setting-box new-token">
+              <div class="setting-row">
+                <span
+                  >Copy it now. It won't be shown again.<code>{{ created.token }}</code></span
+                ><button class="button compact" @click="copy(created.token)">
+                  <Icon name="copy" :size="13" />Copy
                 </button>
               </div>
             </div>
-          </div>
-          <h3>
-            Fields shown when creating tasks
-            <span class="scope-badge"
-              ><Icon name="monitor" :size="11" />This device ·
-              {{ state.data?.workspace.name || 'Lykeion' }}</span
-            >
-          </h3>
-          <p class="fields-description">
-            Choose which fields each create dialog keeps on its toolbar. Hidden fields stay
-            available from the ⋯ menu and reappear while they hold a value.
-          </p>
-          <div class="setting-box">
-            <table class="field-table">
-              <thead>
-                <tr>
-                  <th>Field</th>
-                  <th>Create with agent</th>
-                  <th>Manual create</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="field in createFieldNames" :key="field">
-                  <th scope="row">{{ field }}</th>
-                  <td v-for="mode in ['agent', 'manual'] as const" :key="mode">
-                    <input
-                      v-if="fieldAvailable(field, mode)"
-                      type="checkbox"
-                      :aria-label="
-                        field + ' · ' + (mode === 'agent' ? 'Create with agent' : 'Manual create')
-                      "
-                      :checked="prefs.createFields[mode].includes(field)"
-                      @change="toggleField(field, mode, $event)"
-                    /><span v-else aria-label="Not available when creating with an agent">—</span>
-                  </td>
-                </tr>
-              </tbody>
+            <h3>Your tokens</h3>
+            <table class="setting-box tokens-table" aria-label="Your tokens">
+              <tr v-for="t in liveTokens" :key="t.id">
+                <td>{{ t.name }}</td>
+                <td class="muted">Created {{ day(t.created_at) }}</td>
+                <td class="muted">Expires {{ day(t.expires_at) }}</td>
+                <td>
+                  <button class="text-button danger-text" :disabled="busy" @click="revoke(t.id)">
+                    Revoke
+                  </button>
+                </td>
+              </tr>
             </table>
+            <p v-if="tokens.isSuccess.value && !liveTokens.length" class="muted">No tokens yet.</p>
           </div>
         </template>
-        <template v-else-if="section === 'workspace' || section === 'general'">
+
+        <template v-else-if="section === 'general'">
           <h3>Your career stage</h3>
-          <div class="setting-box career-box">
-            <label
-              >Your career stage<select v-model="careerStage" aria-label="Your career stage">
+          <div class="setting-box">
+            <label class="setting-row"
+              ><span>Your career stage</span
+              ><select
+                :value="me.data.value?.career_stage ?? ''"
+                aria-label="Your career stage"
+                @change="changeCareer($event.target as HTMLSelectElement)"
+              >
                 <option value="">Choose a stage (optional)</option>
-                <option>Undergraduate student</option>
-                <option>Graduate student</option>
-                <option>Doctoral researcher</option>
-                <option>Postdoctoral researcher</option>
-                <option>Faculty</option>
-                <option>Industry researcher</option>
-                <option>Independent researcher</option>
-                <option>Other</option>
+                <option v-for="c in careerStages" :key="c" :value="c">
+                  {{ careerStageLabels[c] }}
+                </option>
               </select></label
-            ><button
-              class="button primary"
-              @click="
-                profile.careerStage = careerStage;
-                notify('Career stage saved on this device.');
-              "
             >
-              Save career stage
-            </button>
           </div>
           <h3 class="subsequent-heading">Workspace details</h3>
-          <form @submit.prevent="save">
+          <form @submit.prevent="saveDetails">
             <div class="setting-box">
               <div class="setting-row avatar-row">
-                <div>
-                  Workspace logo<small>Click the logo to upload a new image · This device</small>
-                </div>
+                <div>Workspace logo<small>Click the logo to upload a new image</small></div>
                 <input
                   ref="logoInput"
                   hidden
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
-                  @change="avatarChanged($event, true)"
+                  @change="logoChanged"
                 /><button
                   type="button"
                   class="profile-avatar"
                   aria-label="Change workspace logo"
+                  :disabled="!isAdmin || busy"
                   @click="logoInput?.click()"
                 >
-                  <img v-if="extras.logo" :src="extras.logo" alt="Workspace logo" /><template
-                    v-else
-                    >{{ name.charAt(0).toUpperCase() || 'L' }}</template
-                  >
+                  <img
+                    v-if="workspace.data.value?.logo_blob"
+                    :src="`/api/workspaces/${workspaceId}/logo?v=${workspace.data.value.logo_blob}`"
+                    alt="Workspace logo"
+                  /><template v-else>{{ wsName.charAt(0).toUpperCase() || 'L' }}</template>
                 </button>
               </div>
               <label class="setting-row"
                 ><span>Name</span
-                ><input v-model="name" aria-label="Workspace name" required /></label
+                ><input
+                  v-model="wsName"
+                  aria-label="Workspace name"
+                  required
+                  :disabled="!isAdmin || busy" /></label
               ><label class="setting-row about-row"
-                ><span>Description<small>This device only</small></span
+                ><span>Description</span
                 ><textarea
-                  v-model="extras.description"
+                  v-model="description"
                   aria-label="Workspace description"
                   placeholder="What does this workspace focus on?"
+                  :disabled="!isAdmin || busy"
                 /></label
               ><label class="setting-row about-row"
                 ><span
                   >Research context<small
-                    >Shared research questions, methods, and context for this workspace.</small
+                    >Given to every agent in this workspace on every run.</small
                   ></span
                 ><textarea
                   v-model="context"
                   aria-label="Research context"
-                  placeholder="Background information and context for AI agents working in this workspace"
+                  :disabled="!isAdmin || busy"
                 />
               </label>
               <div class="setting-row">
                 <span>Slug<small>Part of every workspace URL. It can't be changed.</small></span>
                 <div class="inline-setting">
-                  <code>{{ state.data?.workspace.slug }}</code
+                  <code>{{ workspace.data.value?.slug }}</code
                   ><button
                     type="button"
                     class="icon-button"
@@ -760,615 +524,69 @@ function open(id: string) {
                   </button>
                 </div>
               </div>
-              <div class="setting-row">
+              <div class="setting-row prefix">
                 <span
-                  >Task prefix<small>Used in task numbers like {{ prefix }}-123.</small></span
+                  >Card prefix<small
+                    >Used in study numbers like
+                    {{ workspace.data.value?.display_prefix }}-38.</small
+                  ></span
                 >
                 <div class="inline-setting">
-                  <input
-                    v-if="prefixEditing"
-                    v-model="prefix"
-                    aria-label="Task prefix"
-                    required
-                    maxlength="12"
-                  /><code v-else>{{ prefix }}</code
-                  ><button
-                    type="button"
-                    class="button compact"
-                    @click="prefixEditing = !prefixEditing"
+                  <template v-if="prefixEditing"
+                    ><input
+                      v-model="prefix"
+                      aria-label="Card prefix"
+                      maxlength="6"
+                      placeholder="Follows the URL"
+                      @input="prefix = prefix.toUpperCase()"
+                    /><button
+                      type="button"
+                      class="button compact"
+                      :disabled="busy"
+                      @click="savePrefix"
+                    >
+                      Save prefix
+                    </button></template
+                  ><template v-else
+                    ><code>{{ workspace.data.value?.display_prefix }}</code
+                    ><button
+                      v-if="isAdmin"
+                      type="button"
+                      class="button compact"
+                      @click="prefixEditing = true"
+                    >
+                      Change prefix…
+                    </button></template
                   >
-                    {{ prefixEditing ? 'Done' : 'Change prefix…' }}
-                  </button>
                 </div>
               </div>
             </div>
-            <button
-              v-if="
-                name !== state.data?.workspace.name ||
-                context !== state.data?.workspace.researchContext ||
-                prefix !== state.data?.workspace.taskPrefix
-              "
-              class="button primary save-button"
-              :disabled="busy"
-            >
+            <button v-if="dirty" class="button primary save-button" :disabled="busy">
               {{ busy ? 'Saving…' : 'Save changes' }}
             </button>
           </form>
           <h3 class="subsequent-heading">Danger Zone</h3>
           <div class="setting-box">
             <div class="setting-row">
-              <span
-                >Leave workspace<small
-                  >Membership changes require a connected control plane.</small
-                ></span
-              ><button class="button" disabled>Leave workspace</button>
-            </div>
-            <div class="setting-row">
-              <span
-                >Delete workspace<small
-                  >Workspace deletion is unavailable in this frontend.</small
-                ></span
-              ><button class="button danger-button" disabled>Delete workspace</button>
-            </div>
-          </div>
-        </template>
-        <template v-else-if="section === 'tokens'">
-          <p class="table-description">Authenticate the CLI and API.</p>
-          <div class="tokens-body">
-            <p class="token-note">
-              API tokens are credentials. Token management requires your connected control plane.
-            </p>
-            <details class="token-usage">
-              <summary>Usage</summary>
-              <p>
-                Tokens are issued and revoked by the account service. This frontend never generates
-                or stores token values.
-              </p>
-            </details>
-            <TokenCreationForm />
-            <div class="setting-box tokens-empty">
-              <Icon name="link" :size="22" /><span
-                >Token creation requires a connected identity API.</span
-              ><button class="text-button" @click="open('connection')">Configure connection</button>
-            </div>
-          </div>
-        </template>
-        <template v-else-if="section === 'notifications'">
-          <h3>Inbox Notifications</h3>
-          <p class="section-description">
-            Muted events remain visible on the task. These preferences are saved locally; delivery
-            requires a connected control plane.
-          </p>
-          <div class="setting-box notification-box">
-            <label v-for="item in notificationRows" :key="item.id" class="setting-row"
-              ><span
-                >{{ item.title }}<small>{{ item.description }}</small></span
-              ><input
-                v-model="settingsDraft.notifications[item.id]"
-                type="checkbox"
-                class="setting-switch"
-                role="switch"
-                :aria-label="item.title"
-            /></label>
-          </div>
-          <h3 class="subsequent-heading">System Notifications</h3>
-          <p class="section-description">
-            Show system notifications when Lykeion is in the background.
-          </p>
-          <div class="setting-box">
-            <label class="setting-row"
-              ><span
-                >Show system notifications<small
-                  >System notification delivery is not connected.</small
-                ></span
-              ><input
-                type="checkbox"
-                class="setting-switch"
-                role="switch"
-                aria-label="Show system notifications"
-                disabled
-            /></label>
-          </div>
-        </template>
-        <template v-else-if="section === 'labels'">
-          <p class="table-description">Task labels and skill labels are separate.</p>
-          <div class="segmented label-scope" role="tablist" aria-label="Labels">
-            <button
-              v-for="scope in ['Tasks', 'Skills'] as const"
-              :key="scope"
-              role="tab"
-              :aria-selected="labelScope === scope"
-              :aria-pressed="labelScope === scope"
-              @click="labelScope = scope"
-            >
-              {{ scope }}
-              <small>{{
-                settingsDraft.labels.filter((item) => item.scope === scope).length
-              }}</small>
-            </button>
-          </div>
-          <div class="table-toolbar">
-            <label class="table-search"
-              ><Icon name="search" /><input
-                v-model="tableFilter"
-                placeholder="Filter by name or description..."
-                aria-label="Filter labels" /></label
-            ><button class="button primary" @click="openEditor('label')">
-              <Icon name="plus" />New label
-            </button>
-          </div>
-          <div class="settings-data-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Description</th>
-                  <th>Used by</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="label in filteredLabels" :key="label.id">
-                  <td>
-                    <button @click="openEditor('label', label.id)">
-                      <i class="label-color" :style="{ background: label.color }" />{{ label.name }}
-                    </button>
-                  </td>
-                  <td>{{ label.description }}</td>
-                  <td>—</td>
-                  <td>{{ new Date(label.updatedAt).toLocaleDateString() }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-if="!filteredLabels.length" class="table-empty">
-              <Icon name="tag" :size="24" />
-              <p>{{ tableFilter ? 'No matching labels' : `No ${labelScope} labels yet` }}</p>
-            </div>
-          </div>
-        </template>
-        <template v-else-if="section === 'properties'">
-          <p class="table-description">Add custom fields to tasks.</p>
-          <div class="table-toolbar properties-toolbar">
-            <label class="table-search"
-              ><Icon name="search" /><input
-                v-model="tableFilter"
-                placeholder="Filter by name..."
-                aria-label="Filter properties" /></label
-            ><label class="archived-control"
-              ><input
-                v-model="showArchived"
-                class="setting-switch"
-                type="checkbox"
-                role="switch"
-              />Show archived</label
-            ><small
-              >{{ settingsDraft.properties.filter((item) => !item.archived).length }}/20 active
-              properties</small
-            ><button
-              class="button primary"
-              :disabled="settingsDraft.properties.filter((item) => !item.archived).length >= 20"
-              @click="openEditor('property')"
-            >
-              <Icon name="plus" />New property
-            </button>
-          </div>
-          <div class="settings-data-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Options</th>
-                  <th>Used by</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="property in filteredProperties" :key="property.id">
-                  <td>
-                    <button @click="openEditor('property', property.id)">{{ property.name }}</button
-                    ><small v-if="property.archived"> · Archived</small>
-                  </td>
-                  <td>{{ property.type }}</td>
-                  <td>{{ property.options.join(', ') || '—' }}</td>
-                  <td>—</td>
-                  <td>
-                    {{ new Date(property.updatedAt).toLocaleDateString() }}
-                    <button class="text-button" @click="property.archived = !property.archived">
-                      {{ property.archived ? 'Restore' : 'Archive' }}
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-if="!filteredProperties.length" class="table-empty property-empty">
-              <Icon name="filters" :size="24" />
-              <p>{{ tableFilter ? 'No matching properties' : 'No properties yet' }}</p>
-              <small>For example, Severity or Environment.</small>
-            </div>
-          </div>
-        </template>
-        <template v-else-if="section === 'analytics'">
-          <div class="analytics-toolbar">
-            <div class="analytics-tabs" role="tablist">
-              <button
-                v-for="tab in ['Usage', 'Errors']"
-                :key="tab"
-                role="tab"
-                :aria-selected="analyticsTab === tab"
-                @click="analyticsTab = tab"
-              >
-                {{ tab }}
+              <span>Leave workspace<small>The last owner cannot leave.</small></span
+              ><button class="button" :disabled="busy" @click="leaveOrDelete('leave')">
+                Leave workspace
               </button>
             </div>
-            <select v-model="analyticsPeriod" aria-label="Period">
-              <option value="7">7d</option>
-              <option value="30">30d</option>
-              <option value="90">90d</option></select
-            ><select v-model="analyticsProject" aria-label="Project">
-              <option value="">All projects</option>
-              <option v-for="project in state.data?.projects" :key="project.id" :value="project.id">
-                {{ project.name }}
-              </option>
-            </select>
-          </div>
-          <div class="analytics-content">
-            <template v-if="analyticsTab === 'Usage'"
-              ><div class="usage-metrics">
-                <div v-for="metric in ['Cost', 'Tokens', 'Run time', 'Runs']" :key="metric">
-                  <small>{{ metric.toUpperCase() }} · {{ analyticsPeriod }}D</small
-                  ><strong>—</strong><small>No reported data</small>
-                </div>
-              </div>
-              <section class="analytics-panel">
-                <header>
-                  <h3>{{ analyticsDimension }} {{ analyticsMetric.toLowerCase() }}</h3>
-                  <div class="segmented">
-                    <button
-                      v-for="metric in ['Tokens', 'Cost', 'Time', 'Runs']"
-                      :key="metric"
-                      :aria-pressed="analyticsMetric === metric"
-                      @click="analyticsMetric = metric"
-                    >
-                      {{ metric }}
-                    </button>
-                  </div>
-                  <div class="segmented">
-                    <button
-                      v-for="dimension in ['Daily', 'Weekly']"
-                      :key="dimension"
-                      :aria-pressed="analyticsDimension === dimension"
-                      @click="analyticsDimension = dimension"
-                    >
-                      {{ dimension }}
-                    </button>
-                  </div>
-                </header>
-                <p>No usage data available for this window.</p>
-              </section>
-              <section class="analytics-panel">
-                <header>
-                  <h3>Leaderboard</h3>
-                  <div class="segmented">
-                    <button
-                      v-for="metric in ['Tokens', 'Cost', 'Time', 'Runs']"
-                      :key="metric"
-                      :aria-pressed="leaderboardMetric === metric"
-                      @click="leaderboardMetric = metric"
-                    >
-                      {{ metric }}
-                    </button>
-                  </div>
-                </header>
-                <p>Agent usage will appear when your control plane reports it.</p>
-              </section></template
-            >
-            <section v-else class="analytics-panel">
-              <header><h3>Errors</h3></header>
-              <p>No error-reporting service connected.</p>
-            </section>
-          </div>
-        </template>
-        <template v-else-if="section === 'code'">
-          <h3>Code hosting</h3>
-          <div class="setting-box">
-            <div class="setting-row code-host">
-              <span class="code-host-icon"><Icon name="folder" :size="24" /></span
-              ><span
-                >GitHub <small class="inline-muted">Not connected</small
-                ><small
-                  >GitHub integration requires a connected control plane. No credentials are stored
-                  here.</small
-                ></span
-              ><button class="button compact" disabled>Connect GitHub</button>
-            </div>
-          </div>
-          <header class="subsection-toolbar">
-            <div>
-              <h3>Repositories</h3>
-              <p class="section-description">Repository references saved on this device.</p>
-            </div>
-            <button class="button primary compact" @click="openEditor('repository')">
-              <Icon name="plus" :size="14" />Add repository<Icon name="down" :size="12" />
-            </button>
-          </header>
-          <div class="setting-box">
-            <p v-if="!settingsDraft.repositories.length" class="repositories-empty">
-              No repositories yet.
-            </p>
-            <div
-              v-for="repository in settingsDraft.repositories"
-              :key="repository.id"
-              class="setting-row"
-            >
-              <span class="repository-url">{{ repository.url }}</span
+            <div v-if="myRole === 'owner'" class="setting-row">
+              <span>Delete workspace<small>Deletes every study, record and run in it.</small></span
               ><button
-                class="icon-button"
-                aria-label="Remove repository reference"
-                @click="
-                  settingsDraft.repositories = settingsDraft.repositories.filter(
-                    (item) => item.id !== repository.id,
-                  )
-                "
+                class="button danger-button"
+                :disabled="busy"
+                @click="leaveOrDelete('delete')"
               >
-                <Icon name="close" />
+                Delete workspace
               </button>
             </div>
           </div>
-          <h3 class="subsequent-heading">Pull requests & tasks</h3>
-          <div class="setting-box">
-            <label class="setting-row"
-              ><span
-                >Pull Request sidebar<small
-                  >Show linked pull requests inside the task detail sidebar.</small
-                ></span
-              ><input
-                v-model="settingsDraft.code.sidebar"
-                class="setting-switch"
-                type="checkbox"
-                role="switch"
-                aria-label="Pull Request sidebar" /></label
-            ><label class="setting-row"
-              ><span
-                >Auto-link tasks and PRs<small
-                  >Requires a connected code-hosting service.</small
-                ></span
-              ><input
-                class="setting-switch"
-                type="checkbox"
-                role="switch"
-                disabled
-                aria-label="Auto-link tasks and PRs" /></label
-            ><label class="setting-row"
-              ><span
-                >Co-authored-by trailer<small
-                  >Commit attribution requires a connected code-hosting service.</small
-                ></span
-              ><input
-                class="setting-switch"
-                type="checkbox"
-                role="switch"
-                disabled
-                aria-label="Co-authored-by trailer"
-            /></label>
-            <div class="setting-row">
-              <span
-                >After PRs merge, move the task to<small
-                  >Scientific stages advance only after their evidence gates pass.</small
-                ></span
-              ><select aria-label="After PRs merge, move the task to" disabled>
-                <option>Keep current stage</option>
-              </select>
-            </div>
-          </div>
         </template>
-        <template v-else-if="section === 'connection'">
-          <h3>Research control plane</h3>
-          <form @submit.prevent="applyConnection">
-            <div class="setting-box">
-              <label class="setting-row"
-                ><span>API endpoint<small>Leave blank to use local drafts.</small></span
-                ><input v-model="endpoint" type="url" placeholder="http://localhost:8080"
-              /></label>
-            </div>
-            <p class="settings-note">
-              {{
-                service.mode === 'local'
-                  ? 'Local drafts are saved on this device. Scientific execution requires a control plane.'
-                  : 'Connected to the research control plane.'
-              }}
-              Changing the connection preserves local drafts.
-            </p>
-            <button class="button primary save-button" :disabled="busy">
-              {{ busy ? 'Connecting…' : 'Save connection' }}
-            </button>
-          </form>
-        </template>
-        <template v-else-if="section === 'skills' || section === 'mcp'"
-          ><h3>Workspace {{ section === 'skills' ? 'skills' : 'connectors' }}</h3>
-          <div class="setting-box">
-            <div class="setting-row">
-              <span
-                >Manage {{ section === 'skills' ? 'skills' : 'connectors' }} in your
-                workspace.</span
-              ><button
-                class="button"
-                @click="router.push(section === 'skills' ? '/skills' : '/connectors')"
-              >
-                Open {{ section === 'skills' ? 'Skills' : 'Connectors' }}<Icon name="right" />
-              </button>
-            </div></div
-        ></template>
-        <template v-else
-          ><div class="settings-unavailable">
-            <Icon
-              :name="
-                section === 'tokens'
-                  ? 'link'
-                  : section === 'notifications'
-                    ? 'bell'
-                    : section === 'analytics'
-                      ? 'chart'
-                      : 'settings'
-              "
-              :size="28"
-            />
-            <h3>{{ title }}</h3>
-            <p>
-              {{
-                section === 'tokens'
-                  ? 'API tokens will be managed by your connected control plane.'
-                  : section === 'notifications'
-                    ? 'Notification delivery requires your connected control plane.'
-                    : section === 'analytics'
-                      ? 'Usage analytics appear when your control plane records research activity.'
-                      : 'This setting requires a connected control plane with settings support.'
-              }}
-            </p>
-            <button class="button" @click="open('connection')">Configure connection</button>
-          </div></template
-        >
-        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       </section>
     </div>
-    <Modal
-      v-if="editor"
-      class="settings-dialog"
-      :title="
-        editor === 'repository' ? 'Add repository' : `${editingId ? 'Edit' : 'New'} ${editor}`
-      "
-      @close="editor = null"
-      ><form class="settings-editor" @submit.prevent="saveEditor">
-        <header>
-          <h2>
-            {{
-              editor === 'repository' ? 'Add repository' : `${editingId ? 'Edit' : 'New'} ${editor}`
-            }}
-          </h2>
-          <button type="button" class="icon-button" aria-label="Close" @click="editor = null">
-            <Icon name="close" />
-          </button>
-        </header>
-        <p>
-          {{
-            editor === 'label'
-              ? `This label belongs only to the ${labelScope} catalog.`
-              : 'Saved on this device.'
-          }}
-        </p>
-        <div class="settings-editor-fields">
-          <template v-if="editor === 'repository'"
-            ><label
-              >Repository URL<input
-                v-model="draftUrl"
-                type="url"
-                placeholder="https://github.com/owner/repository"
-                autofocus
-                required /></label></template
-          ><template v-else-if="editor === 'label'"
-            ><label
-              >Name<input
-                v-model="draftName"
-                aria-label="Name"
-                placeholder="e.g. Bug"
-                maxlength="120"
-                autofocus
-                required /></label
-            ><label
-              >Description<textarea
-                v-model="draftDescription"
-                aria-label="Description"
-                placeholder="Describe when this label should be used"
-                maxlength="2000"
-              />
-            </label>
-            <div class="editor-color-field">
-              <span>Color</span><ColorPicker v-model="draftColor" label="Color" /></div></template
-          ><template v-else
-            ><div class="property-editor-row">
-              <label
-                >Icon<select v-model="draftIcon" aria-label="Choose icon">
-                  <option value="filters">☷</option>
-                  <option value="flag">⚑</option>
-                  <option value="tag">◇</option>
-                  <option value="clock">◷</option>
-                  <option value="users">♙</option>
-                </select></label
-              ><label
-                >Name<input
-                  v-model="draftName"
-                  aria-label="Name"
-                  placeholder="e.g. Severity"
-                  maxlength="120"
-                  autofocus
-                  required /></label
-              ><label
-                >Type<CompactSelect
-                  v-model="draftType"
-                  label="Type"
-                  :width="148"
-                  :options="propertyTypes.map((type) => ({ value: type, label: type }))"
-              /></label>
-            </div>
-            <label
-              >Description<textarea
-                v-model="draftDescription"
-                aria-label="Description"
-                placeholder="What this property means and when to set it"
-                maxlength="2000"
-              />
-            </label>
-            <div v-if="['Select', 'Multi-select'].includes(draftType)" class="property-options">
-              <span>Options</span>
-              <div v-for="(option, index) in optionRows" :key="index" class="property-option-row">
-                <Icon name="menu" :size="12" /><ColorPicker
-                  :model-value="
-                    draftOptionColors[index] || colorPresets[(index + 6) % colorPresets.length]!
-                  "
-                  :label="'Option ' + (index + 1) + ' color'"
-                  swatch-only
-                  @update:model-value="draftOptionColors[index] = $event"
-                /><input
-                  :value="option"
-                  aria-label="Option name"
-                  placeholder="Option name"
-                  @input="updateOption(index, $event)"
-                /><button
-                  class="icon-button"
-                  type="button"
-                  aria-label="Remove option"
-                  :disabled="optionRows.length === 1"
-                  @click="removeOption(index)"
-                >
-                  <Icon name="close" :size="14" />
-                </button>
-              </div>
-              <button class="add-option" type="button" @click="draftOptions += '\n'">
-                <Icon name="plus" :size="14" />Add option
-              </button>
-            </div></template
-          >
-        </div>
-        <p v-if="editorError" class="form-error" role="alert">{{ editorError }}</p>
-        <footer>
-          <small v-if="editor === 'label'" class="catalog-storage-note">Saved on this device.</small
-          ><button type="button" class="cancel-editor" @click="editor = null">Cancel</button
-          ><button
-            class="button primary"
-            type="submit"
-            :disabled="editor !== 'repository' && !draftName.trim()"
-          >
-            {{
-              editor === 'label'
-                ? 'Save label'
-                : editor === 'property'
-                  ? 'Save property'
-                  : 'Add repository'
-            }}
-          </button>
-        </footer>
-      </form></Modal
-    >
   </div>
 </template>
 <style scoped>
@@ -2477,5 +1695,31 @@ function open(id: string) {
 }
 .editor-color-field :deep(.color-surface) {
   gap: 9px;
+}
+.new-token {
+  margin-top: 10px;
+  background: #e6f1e8;
+}
+.new-token code {
+  display: block;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.tokens-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.tokens-table td {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.tokens-table tr:first-child td {
+  border-top: 0;
+}
+.danger-text {
+  color: var(--error-text);
 }
 </style>

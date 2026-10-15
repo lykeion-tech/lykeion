@@ -566,6 +566,8 @@ onUnmounted(() => {
   left: 8px;
   top: 98px;
   width: 224px;
+  max-height: calc(100dvh - 106px);
+  overflow-y: auto;
 }
 .workspace-popup > .workspace-profile {
   height: 44px;
