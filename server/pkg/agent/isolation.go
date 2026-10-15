@@ -40,14 +40,24 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 			return "", nil, err
 		}
 	}
-	if err = privateDir(dir); err != nil {
-		return "", nil, err
+	var unlock func()
+	if o.ScratchReservation != nil {
+		unlock, err = o.ScratchReservation.borrow(dir)
+	} else {
+		var reservation *ScratchReservation
+		reservation, err = ReserveScratch(dir)
+		if err == nil {
+			unlock = reservation.Release
+		}
 	}
-	o.Dir = dir
-	unlock, err := lockScratch(filepath.Join(dir, ".agent-lock"))
 	if err != nil {
 		return "", nil, err
 	}
+	if err = privateDir(dir); err != nil {
+		unlock()
+		return "", nil, err
+	}
+	o.Dir = dir
 	cred := ""
 	var once sync.Once
 	cleanup = func(release bool) {

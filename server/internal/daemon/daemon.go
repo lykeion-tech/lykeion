@@ -491,6 +491,18 @@ func (d *daemon) gc(context.Context) error {
 // for an attempt's own folder; for a scope's folder, whose sessions later runs
 // resume, the retention its marker records, or a day when it records none.
 func collectScratch(dir string) error {
+	reservation, err := agent.ReserveScratch(dir)
+	if errors.Is(err, agent.ErrScratchBusy) || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer reservation.Release()
+	if strings.HasPrefix(filepath.Base(dir), agent.RetiredScratchPrefix) {
+		return reservation.Remove()
+	}
+
 	marker := filepath.Join(dir, ".finished")
 	fi, err := os.Lstat(marker)
 	if errors.Is(err, os.ErrNotExist) {
@@ -514,5 +526,5 @@ func collectScratch(dir string) error {
 	if time.Since(fi.ModTime()) < keep {
 		return nil
 	}
-	return os.RemoveAll(dir)
+	return reservation.Remove()
 }

@@ -28,7 +28,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// Registered before the deferred report, so it runs after the finished
 	// marker: gc never finds the folder unheld with only an older marker.
 	var held string
+	var reservation *agent.ScratchReservation
 	defer func() {
+		reservation.Release()
 		if held != "" {
 			d.releaseScratch(held)
 		}
@@ -88,6 +90,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			// Attempt metadata changes before launch; delivery reports stay immutable.
 			journal := d.journal()
 			if err = atomicJSON(journal.Dir, filepath.Base(journal.file(journalRecord)), journalRecord); err != nil {
+				fail(fmt.Errorf("journal scope scratch: %w", err))
 				return err
 			}
 		}
@@ -95,7 +98,12 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	if held == "" {
 		err = os.Mkdir(dir, 0700)
 	} else {
-		err = reuseScratch(dir)
+		if err = os.Mkdir(dir, 0700); err == nil || errors.Is(err, os.ErrExist) {
+			reservation, err = agent.ReserveScratch(dir)
+			if err == nil {
+				err = reuseScratch(dir)
+			}
+		}
 	}
 	if err != nil {
 		fail(fmt.Errorf("prepare scratch: %w", err))
@@ -152,7 +160,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		sinkErr = d.persistMessage(r, sequence, m)
 		return sinkErr
 	}
-	opts := agent.ExecOptions{OnMessage: sink, Dir: dir, MCPURL: c.MCPURL, MCPToken: c.Token, MCP: c.MCP, Resume: c.AgentRun.SessionID, Env: []string{
+	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPURL: c.MCPURL, MCPToken: c.Token, MCP: c.MCP, Resume: c.AgentRun.SessionID, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + filepath.Dir(self) + string(os.PathListSeparator) + os.Getenv("PATH"),
 	}}
 	if cont, err = d.beginContinuity(c, pol); err != nil {
@@ -422,7 +430,7 @@ func reuseScratch(dir string) error {
 	if err := privateDir(dir); err != nil {
 		return err
 	}
-	for _, name := range []string{"SKILL.md", ".lyk-config.json"} {
+	for _, name := range []string{".finished", "SKILL.md", ".lyk-config.json"} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}

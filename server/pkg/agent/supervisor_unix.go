@@ -194,8 +194,8 @@ func supervisorExit(cmd *exec.Cmd, nonce string, waitErr error) error {
 	return nil
 }
 
-// RecoverScratch is called only for a journaled attempt while its daemon state
-// lock is held. No bare PID may authorize a signal.
+// RecoverScratch reconciles a journaled attempt after its daemon reserves the
+// scratch. No bare PID may authorize a signal.
 func RecoverScratch(dir string) error {
 	owner, err := readProcess(dir)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -224,7 +224,7 @@ func RecoverScratch(dir string) error {
 		}
 	}
 	var failures []error
-	for _, name := range []string{".cli-home/.credentials.json", ".cli-home/auth.json"} {
+	for _, name := range []string{".cli-home/.credentials.json", ".cli-home/auth.json", ".cli-home/cli-config.json", ".cli-home/.gemini/oauth_creds.json"} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			failures = append(failures, err)
 		}

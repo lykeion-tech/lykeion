@@ -18,6 +18,9 @@ type Message struct {
 	Content json.RawMessage `json:"content"`
 }
 type ExecOptions struct {
+	// ScratchReservation is a parent-owned lock borrowed for this execution.
+	// With nil, the adapter acquires and releases its own reservation.
+	ScratchReservation              *ScratchReservation
 	Dir                             string
 	Env                             []string
 	Model, MCPURL, MCPToken, Resume string

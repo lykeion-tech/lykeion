@@ -70,42 +70,54 @@ func (d *daemon) recoverAttempts(ctx context.Context) error {
 		if j.file(r) != filepath.Join(j.Dir, e.Name()) {
 			return errors.New("attempt journal identity mismatch")
 		}
-		name := r.Scratch
-		if name == "" {
-			name = scratchName(r.AgentRunID, r.Attempt)
-		}
-		if name != filepath.Base(name) || name == "." || name == ".." {
-			return errors.New("journaled scratch is not a folder name")
-		}
-		dir := filepath.Join(d.cfg.Home, name)
-		if info, err := os.Lstat(dir); err == nil {
-			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-				return errors.New("journaled scratch is not a directory")
-			}
-			if err := agent.RecoverScratch(dir); err != nil {
-				return fmt.Errorf("recover attempt %s: %w", e.Name(), err)
-			}
-			if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": r.RetentionDays}); err != nil {
-				return err
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		if err := d.flush(ctx); err != nil {
-			return err
-		}
-		if !finals[e.Name()] {
-			r.Kind = "fail"
-			r.FailureReason = agent.ReasonRuntimeOffline
-			r.Error = "daemon process exited before final report"
-			if err := d.out.Put(r); err != nil {
-				return err
-			}
-		}
-
-		if err := d.forgetAttempt(r); err != nil {
+		if err := d.recoverAttempt(ctx, r, finals[e.Name()]); err != nil {
 			return err
 		}
 	}
 	return d.flush(ctx)
+}
+
+func (d *daemon) recoverAttempt(ctx context.Context, r Report, hasFinal bool) error {
+	name := r.Scratch
+	if name == "" {
+		name = scratchName(r.AgentRunID, r.Attempt)
+	}
+	if name != filepath.Base(name) || name == "." || name == ".." {
+		return errors.New("journaled scratch is not a folder name")
+	}
+	dir := filepath.Join(d.cfg.Home, name)
+	if info, err := os.Lstat(dir); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("journaled scratch is not a directory")
+		}
+		reservation, err := agent.ReserveScratch(dir)
+		if err != nil {
+			return err
+		}
+		defer reservation.Release()
+		if err := agent.RecoverScratch(dir); err != nil {
+			return fmt.Errorf("recover attempt %s: %w", r.AgentRunID, err)
+		}
+		if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": r.RetentionDays}); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := d.flush(ctx); err != nil {
+		return err
+	}
+	if !hasFinal {
+		r.Kind = "fail"
+		r.FailureReason = agent.ReasonRuntimeOffline
+		r.Error = "daemon process exited before final report"
+		if err := d.out.Put(r); err != nil {
+			return err
+		}
+	}
+
+	if err := d.forgetAttempt(r); err != nil {
+		return err
+	}
+	return nil
 }

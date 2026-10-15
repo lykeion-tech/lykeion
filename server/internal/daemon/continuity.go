@@ -201,10 +201,16 @@ func (d *daemon) ForgetScope(ws, user uuid.UUID, harness, scope string) error {
 	if !d.holdScratch(name) {
 		return errors.New("the scope's folder is in use")
 	}
-	err := os.RemoveAll(filepath.Join(d.cfg.Home, name))
-	d.releaseScratch(name)
-	if err != nil {
+	defer d.releaseScratch(name)
+	reservation, err := agent.ReserveScratch(filepath.Join(d.cfg.Home, name))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	if reservation != nil {
+		defer reservation.Release()
+		if err = reservation.Remove(); err != nil {
+			return err
+		}
 	}
 	dir := sessionsDir(d.cfg.StateDir, ws)
 	if err := checkProfileDir(filepath.Dir(dir)); err != nil {

@@ -190,3 +190,24 @@ func TestSupervisorPreservesExecutableResolution(t *testing.T) {
 		}
 	})
 }
+
+func TestRecoveryRemovesEveryHarnessSigninCopy(t *testing.T) {
+	for harness, file := range map[string]string{"claude": ".credentials.json", "codex": "auth.json", "cursor": "cli-config.json", "antigravity": ".gemini/oauth_creds.json"} {
+		t.Run(harness, func(t *testing.T) {
+			dir := t.TempDir()
+			copy := filepath.Join(dir, ".cli-home", file)
+			if err := os.MkdirAll(filepath.Dir(copy), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(copy, []byte("synthetic signin"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := RecoverScratch(dir); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Lstat(copy); !os.IsNotExist(err) {
+				t.Fatalf("recovery left %s copied sign-in: %v", harness, err)
+			}
+		})
+	}
+}

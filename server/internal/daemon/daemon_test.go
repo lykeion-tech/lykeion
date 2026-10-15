@@ -1124,18 +1124,18 @@ func TestPrivateResumeWithoutABaselineStartsFresh(t *testing.T) {
 	}
 }
 
-// twoPrivateRuns runs two runs of one private scope, claimed in one batch, on
-// a daemon that waits up to wait for a held scope folder. Each run stays live
+// twoPrivateRuns queues a second run after the first backend starts, on
+// a daemon that waits up to wait for their shared scope folder. Each run stays live
 // until both have started, or for at most live. It returns each run's folder
 // and how long after the first the second started.
 func twoPrivateRuns(t *testing.T, wait, live time.Duration) (dirs []string, gap time.Duration) {
 	t.Helper()
 	f := fixture(t)
 	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{Mode: ModePrivate}))
-	f.enqueue(t)
 	f.cfg.ScopeWait = wait
 	var mu sync.Mutex
 	var starts []time.Time
+	firstStarted := make(chan struct{})
 	both := make(chan struct{})
 	f.cfg.NewBackend = func(string, string) (agent.Backend, error) {
 		return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
@@ -1163,6 +1163,9 @@ func twoPrivateRuns(t *testing.T, wait, live time.Duration) (dirs []string, gap 
 			}
 			mu.Lock()
 			dirs, starts = append(dirs, o.Dir), append(starts, time.Now())
+			if len(dirs) == 1 {
+				close(firstStarted)
+			}
 			if len(dirs) == 2 {
 				close(both)
 			}
@@ -1183,6 +1186,12 @@ func twoPrivateRuns(t *testing.T, wait, live time.Duration) (dirs []string, gap 
 		}), nil
 	}
 	cancel, done := startDaemon(t, f.cfg)
+	select {
+	case <-firstStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first backend did not start")
+	}
+	f.enqueue(t)
 	waitFor(t, func() bool {
 		var n int
 		must(t, f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM agent_run WHERE card_id=$1 AND status IN ('completed','failed')", f.card).Scan(&n))
