@@ -10,7 +10,7 @@ import TaskBoard from './views/TaskBoard.vue';
 import TaskDetail from './views/TaskDetail.vue';
 import MachinesView from './views/MachinesView.vue';
 import InboxView from './views/InboxView.vue';
-import ResourceView from './views/ResourceView.vue';
+import ColleaguesView from './views/ColleaguesView.vue';
 import SettingsView from './views/SettingsView.vue';
 import SignInView from './views/SignInView.vue';
 import AcceptInvite from './views/AcceptInvite.vue';
@@ -63,9 +63,8 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/colleagues',
-    component: ResourceView,
+    component: ColleaguesView,
     meta: { page: 'colleagues', title: 'Colleagues' },
-    props: { page: 'colleagues' },
   },
   {
     path: '/machines',
