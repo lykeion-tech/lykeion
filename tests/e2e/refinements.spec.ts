@@ -91,7 +91,7 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   const right = (await inspector.boundingBox())!;
   await page.mouse.move(right.x, right.y + 60);
   await page.mouse.down();
-  await page.mouse.move(right.x - 70, right.y + 60);
+  await page.mouse.move(right.x + 70, right.y + 60);
   await page.mouse.up();
   await expect(page.locator('.study-meta')).toHaveCSS('width', '310px');
   await page.goto('/#/projects');

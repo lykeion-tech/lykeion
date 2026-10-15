@@ -90,8 +90,7 @@ async function save() {
         </div>
       </div></template
     ><template v-else
-      ><div class="directory-toolbar">
-        <p class="muted">Organize studies around a shared research question.</p>
+      ><Teleport to="#page-header-actions">
         <button
           class="button primary"
           @click="
@@ -102,7 +101,7 @@ async function save() {
         >
           New Research
         </button>
-      </div>
+      </Teleport>
       <div class="directory-list">
         <RouterLink v-for="r in list.data.value ?? []" :key="r.id" :to="'/projects/' + r.id"
           ><Icon name="folder" /><span

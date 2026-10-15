@@ -466,6 +466,7 @@ onUnmounted(() => {
           <Icon name="sidebar" />
         </button>
         <h1>{{ heading }}</h1>
+        <div id="page-header-actions" class="page-header-actions" />
       </header>
       <small v-if="reconnecting" class="reconnecting shared-reconnecting" role="status"
         >Reconnecting…</small
@@ -731,6 +732,11 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
 .application .sidebar {
   flex-basis: var(--rail-width);
   width: var(--rail-width);
