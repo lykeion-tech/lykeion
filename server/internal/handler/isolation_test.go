@@ -21,6 +21,13 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if code := s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q"}, &c); code != http.StatusCreated || c.ID == "" {
 		t.Fatalf("create card fixture: %d %+v", code, c)
 	}
+	var research, agent struct{ ID string }
+	if code := s.call(t, "POST", "/api/researches", a, wa.ID, map[string]string{"name": "Isolation research"}, &research); code != http.StatusCreated || research.ID == "" {
+		t.Fatalf("research fixture: %d %+v", code, research)
+	}
+	if code := s.call(t, "POST", "/api/agents", a, wa.ID, map[string]string{"name": "Isolation agent", "harness": "codex"}, &agent); code != http.StatusCreated || agent.ID == "" {
+		t.Fatalf("agent fixture: %d %+v", code, agent)
+	}
 	personal := s.personalToken(t, a)
 	var runtimes []struct{ ID string }
 	if code := s.call(t, "POST", "/api/daemon/register", personal, "", map[string]any{
@@ -79,7 +86,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		if strings.HasPrefix(route, "/api/workspaces/{id}") {
 			path = strings.Replace(path, "{id}", wa.ID, 1)
 			header = ""
-		} else if route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" {
+		} else if route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID
 		}
@@ -87,6 +94,10 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			path = strings.Replace(path, "{id}", item, 1)
 		} else if strings.HasPrefix(route, "/api/runtimes/{id}") {
 			path = strings.Replace(path, "{id}", runtimeID, 1)
+		} else if strings.HasPrefix(route, "/api/researches/{id}") {
+			path = strings.Replace(path, "{id}", research.ID, 1)
+		} else if strings.HasPrefix(route, "/api/agents/{id}") {
+			path = strings.Replace(path, "{id}", agent.ID, 1)
 		} else if strings.HasPrefix(route, "/api/agent-runs/{id}") {
 			path = strings.Replace(path, "{id}", runID.String(), 1)
 		} else {
@@ -106,6 +117,12 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		case strings.HasSuffix(route, "/settings"):
 			body = map[string]any{"settings": map[string]any{}}
 
+		case route == "/api/researches" || route == "/api/researches/{id}":
+			body = map[string]string{"name": "outsider research"}
+		case route == "/api/agents" || route == "/api/agents/{id}":
+			body = map[string]string{"name": "outsider agent", "harness": "codex"}
+		case route == "/api/cards/{id}/properties":
+			body = map[string]any{"research_id": nil}
 		case route == "/api/cards":
 			body = map[string]any{"question": "outsider card"}
 		case route == "/api/cards/{id}" && method == http.MethodPatch:

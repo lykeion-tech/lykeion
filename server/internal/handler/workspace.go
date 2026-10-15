@@ -323,6 +323,27 @@ func (h *H) remove(w http.ResponseWriter, r *http.Request, target uuid.UUID) {
 		if _, err := tx.Q.RemoveMember(r.Context(), db.RemoveMemberParams{WorkspaceID: ws, UserID: target}); err != nil {
 			return err
 		}
+		cards, err := tx.Q.ClearDepartedMemberAssignees(r.Context(), db.ClearDepartedMemberAssigneesParams{WorkspaceID: ws, UserID: &target})
+		if err != nil {
+			return err
+		}
+		for _, c := range cards {
+			if err := tx.Emit(r.Context(), "card.properties_updated", &c.ID, store.User(user), map[string]any{
+				"fields": []string{"assignee_type", "assignee_id"}, "research_id": c.ResearchID, "previous_research_id": c.ResearchID,
+				"assignee_type": nil, "assignee_id": nil,
+			}); err != nil {
+				return err
+			}
+		}
+		agents, err := tx.Q.ArchiveOwnedAgents(r.Context(), db.ArchiveOwnedAgentsParams{WorkspaceID: ws, OwnerID: target})
+		if err != nil {
+			return err
+		}
+		for _, a := range agents {
+			if err := tx.Emit(r.Context(), "agent.archived", nil, store.User(user), map[string]any{"agent_id": a.ID}); err != nil {
+				return err
+			}
+		}
 		return tx.Emit(r.Context(), "member.removed", nil, store.User(user), map[string]string{"user_id": target.String()})
 	})
 	if err != nil {

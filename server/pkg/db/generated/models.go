@@ -11,6 +11,21 @@ import (
 	"github.com/google/uuid"
 )
 
+type Agent struct {
+	ID           uuid.UUID  `json:"id"`
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	Name         string     `json:"name"`
+	Description  string     `json:"description"`
+	Instructions string     `json:"instructions"`
+	Harness      string     `json:"harness"`
+	Model        string     `json:"model"`
+	Visibility   string     `json:"visibility"`
+	OwnerID      uuid.UUID  `json:"owner_id"`
+	ArchivedAt   *time.Time `json:"archived_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
 type AgentRun struct {
 	ID                    uuid.UUID  `json:"id"`
 	WorkspaceID           uuid.UUID  `json:"workspace_id"`
@@ -100,31 +115,34 @@ type AgentRunUsage struct {
 }
 
 type Card struct {
-	ID          uuid.UUID   `json:"id"`
-	WorkspaceID uuid.UUID   `json:"workspace_id"`
-	Number      int32       `json:"number"`
-	Title       string      `json:"title"`
-	Question    string      `json:"question"`
-	OwnerID     uuid.UUID   `json:"owner_id"`
-	BudgetUsd   float64     `json:"budget_usd"`
-	Deadline    *time.Time  `json:"deadline"`
-	SpentUsd    float64     `json:"spent_usd"`
-	BoardColumn string      `json:"board_column"`
-	State       string      `json:"state"`
-	Flag        string      `json:"flag"`
-	Ending      string      `json:"ending"`
-	EndReason   string      `json:"end_reason"`
-	Rounds      int32       `json:"rounds"`
-	RouteBacks  int32       `json:"route_backs"`
-	Stale       []string    `json:"stale"`
-	Rerun       string      `json:"rerun"`
-	FollowsFrom []uuid.UUID `json:"follows_from"`
-	Version     int64       `json:"version"`
-	CreatedAt   time.Time   `json:"created_at"`
-	Round       int32       `json:"round"`
-	HandoffNote string      `json:"handoff_note"`
-	GatingUntil *time.Time  `json:"gating_until"`
-	Position    float64     `json:"position"`
+	ID           uuid.UUID   `json:"id"`
+	WorkspaceID  uuid.UUID   `json:"workspace_id"`
+	Number       int32       `json:"number"`
+	Title        string      `json:"title"`
+	Question     string      `json:"question"`
+	OwnerID      uuid.UUID   `json:"owner_id"`
+	BudgetUsd    float64     `json:"budget_usd"`
+	Deadline     *time.Time  `json:"deadline"`
+	SpentUsd     float64     `json:"spent_usd"`
+	BoardColumn  string      `json:"board_column"`
+	State        string      `json:"state"`
+	Flag         string      `json:"flag"`
+	Ending       string      `json:"ending"`
+	EndReason    string      `json:"end_reason"`
+	Rounds       int32       `json:"rounds"`
+	RouteBacks   int32       `json:"route_backs"`
+	Stale        []string    `json:"stale"`
+	Rerun        string      `json:"rerun"`
+	FollowsFrom  []uuid.UUID `json:"follows_from"`
+	Version      int64       `json:"version"`
+	CreatedAt    time.Time   `json:"created_at"`
+	Round        int32       `json:"round"`
+	HandoffNote  string      `json:"handoff_note"`
+	GatingUntil  *time.Time  `json:"gating_until"`
+	Position     float64     `json:"position"`
+	ResearchID   *uuid.UUID  `json:"research_id"`
+	AssigneeType *string     `json:"assignee_type"`
+	AssigneeID   *uuid.UUID  `json:"assignee_id"`
 }
 
 type Comment struct {
@@ -191,6 +209,16 @@ type Record struct {
 	AgentRunID   *uuid.UUID      `json:"agent_run_id"`
 	SupersededAt *time.Time      `json:"superseded_at"`
 	CreatedAt    time.Time       `json:"created_at"`
+}
+
+type Research struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	CreatedBy   uuid.UUID `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type Runtime struct {
