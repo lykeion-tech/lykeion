@@ -1,0 +1,219 @@
+import { expect, test, type Page } from '@playwright/test';
+import { labFixture, labHypotheses, labRecords, labWorkspace, newStudy } from './lab';
+
+test('an escalation reaches the Inbox, is read on opening, and resolves into Archived on Resume', async ({
+  page,
+}) => {
+  const title = `Sleep loss and microglial pruning ${Date.now()}`;
+  await newStudy(page.request, `${title}?`, { title });
+  await page.goto('/#/inbox');
+  const list = page.getByRole('navigation', { name: 'Inbox items' });
+  const item = list.getByRole('link', { name: new RegExp(title) }).first();
+  await expect(item).toBeVisible({ timeout: 30_000 });
+  await expect(item).toContainText('Escalated');
+  await expect(item.locator('.unread')).toHaveCount(1);
+
+  await page.screenshot({ path: `${artifacts}/open-unread.png`, fullPage: true });
+  const id = (await item.getAttribute('href'))!.split('/').at(-1)!;
+  await item.click();
+  await expect(
+    page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: title }),
+  ).toBeVisible();
+  await expect(item.locator('.unread')).toHaveCount(0);
+
+  await page.screenshot({ path: `${artifacts}/selected-read.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Action' }).click();
+  await page.getByRole('menuitem', { name: 'Resume' }).click();
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  await expect.poll(async () => (await inbox(page, true)).some((i) => i.id === id)).toBe(true);
+  await list.getByRole('button', { name: 'Archived' }).click();
+  await expect(list.locator(`a[href="#/inbox/${id}"]`)).toBeVisible();
+  await page.screenshot({ path: `${artifacts}/archived.png`, fullPage: true });
+});
+
+const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-18-artifacts';
+type Item = { id: string; card_id: string; read_at: string | null; resolved_at: string | null };
+async function inbox(page: Page, archived = false) {
+  const response = await page.request.get(`/api/inbox${archived ? '?archived=1' : ''}`, {
+    headers: { 'X-Workspace-ID': await labWorkspace(page.request) },
+  });
+  expect(response.status()).toBe(200);
+  return ((await response.json()) ?? []) as Item[];
+}
+async function escalation(page: Page, name: string) {
+  const card = await newStudy(page.request, `${name} ${Date.now()}?`);
+  let item!: Item;
+  await expect
+    .poll(async () => {
+      item = (await inbox(page)).find((i) => i.card_id === card.id)!;
+      return Boolean(item);
+    })
+    .toBe(true);
+  return { card, item };
+}
+const row = (page: Page, id: string) =>
+  page.getByRole('navigation', { name: 'Inbox items' }).locator(`a[href="#/inbox/${id}"]`);
+
+test('a failed read shows an inline error and keeps the actual unread item', async ({ page }) => {
+  const { item } = await escalation(page, 'Transport read failure');
+  await page.route(`**/api/inbox/${item.id}/read`, (route) => route.abort('failed'));
+  await page.goto('/#/inbox');
+  await row(page, item.id).click();
+  await expect(page.getByRole('alert')).toContainText(/Failed to fetch/);
+  await expect(row(page, item.id).locator('.unread')).toHaveCount(1);
+  expect((await inbox(page)).find((i) => i.id === item.id)?.read_at).toBeNull();
+  await page.screenshot({ path: `${artifacts}/read-error.png`, fullPage: true });
+});
+
+for (const destination of [
+  'another item',
+  'same item after a return',
+  'another workspace',
+] as const) {
+  test(`a delayed read refusal cannot affect ${destination}`, async ({ page }) => {
+    const a = await escalation(page, 'Old read visit');
+    const b = await escalation(page, 'Current read visit');
+    const other = await labFixture(page.request);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let accepted!: (status: number) => void;
+    const refused = new Promise<number>((resolve) => {
+      accepted = resolve;
+    });
+    let drain!: () => void;
+    const drained = new Promise<void>((resolve) => {
+      drain = resolve;
+    });
+    let first = true;
+    await page.route(`**/api/inbox/${a.item.id}/read`, async (route) => {
+      if (!first) return route.continue();
+      first = false;
+      try {
+        const response = await route.fetch({
+          headers: { ...route.request().headers(), 'X-Workspace-ID': other.workspace_id },
+        });
+        accepted(response.status());
+        await gate;
+        await route.fulfill({ response });
+      } finally {
+        drain();
+      }
+    });
+    try {
+      await page.goto(`/#/inbox/${a.item.id}`);
+      expect(await refused).toBe(404);
+      if (destination === 'another workspace') {
+        await page
+          .getByRole('complementary', { name: 'Workspace navigation' })
+          .getByRole('button', { name: /Beta-cell lab/ })
+          .click();
+        await page
+          .getByRole('menu', { name: 'Workspace' })
+          .getByRole('menuitem', { name: /Browser fixtures/ })
+          .first()
+          .click();
+        await expect(page).toHaveURL(/#\/studies$/);
+        await page.goto('/#/inbox');
+        await expect(page.getByText('Nothing needs you right now')).toBeVisible();
+      } else {
+        await row(page, b.item.id).click();
+        await expect(
+          page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: b.card.title }),
+        ).toBeVisible();
+        await page.getByRole('textbox', { name: 'Comment' }).fill('Current visit draft');
+        if (destination === 'same item after a return') {
+          await row(page, a.item.id).click();
+          await expect(row(page, a.item.id).locator('.unread')).toHaveCount(0);
+          await page.getByRole('textbox', { name: 'Comment' }).fill('Return visit draft');
+        }
+      }
+      release();
+      await drained;
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      if (destination !== 'another workspace')
+        await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveValue(
+          destination === 'another item' ? 'Current visit draft' : 'Return visit draft',
+        );
+    } finally {
+      release();
+      await drained;
+    }
+  });
+}
+
+test('the embedded study fits long evidence and resets drafts on selection; Send back stays open and budget archives', async ({
+  page,
+}) => {
+  const a = await escalation(page, 'Embedded long evidence');
+  const b = await escalation(page, 'Embedded next selection');
+  await labHypotheses(page.request, a.card.id);
+  await labRecords(page.request, a.card.id, 25);
+  await page.goto(`/#/inbox/${a.item.id}`);
+  const study = page.getByRole('region', { name: 'Study' });
+  await expect(study.getByRole('heading', { name: a.card.title })).toBeVisible();
+  await expect(study.locator('.record-line')).toHaveCount(25);
+  const meta = page.getByRole('complementary', { name: 'Study details' });
+  expect((await meta.boundingBox())!.width).toBe(260);
+  await page.getByRole('textbox', { name: 'Comment' }).fill('Embedded draft must reset');
+  await page.getByRole('button', { name: 'Action' }).click();
+  await page.getByRole('menuitem', { name: 'Send back to' }).click();
+  await page.getByRole('menuitem', { name: 'Grounding' }).click();
+  await page.screenshot({ path: `${artifacts}/embedded-long-content.png`, fullPage: true });
+  const bounds = await study.evaluate((element) => ({
+    width: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    body: document.documentElement.scrollWidth,
+    viewport: innerWidth,
+  }));
+  expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width);
+  expect(bounds.body).toBeLessThanOrEqual(bounds.viewport);
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(study.getByText(/^Sent back to Grounding/)).toBeVisible();
+  expect((await inbox(page)).some((i) => i.id === a.item.id && !i.resolved_at)).toBe(true);
+  await page.getByRole('textbox', { name: 'Comment' }).fill('Unsaved previous study draft');
+  await meta.getByRole('button', { name: 'Change', exact: true }).click();
+  await row(page, b.item.id).click();
+  await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Action' })).toHaveText('Comment');
+  await expect(page.getByRole('spinbutton', { name: 'Budget in USD' })).toHaveCount(0);
+  await meta.getByRole('button', { name: 'Change', exact: true }).click();
+  await page.getByRole('spinbutton', { name: 'Budget in USD' }).fill('42');
+  await meta.getByRole('button', { name: 'Save budget' }).click();
+  await expect
+    .poll(async () => (await inbox(page, true)).some((i) => i.id === b.item.id))
+    .toBe(true);
+  await page
+    .getByRole('navigation', { name: 'Inbox items' })
+    .getByRole('button', { name: 'Archived' })
+    .click();
+  await expect(row(page, b.item.id)).toBeVisible();
+});
+
+test('Stop in the embedded study archives the original item and keeps the ended study selected', async ({
+  page,
+}) => {
+  const { card, item } = await escalation(page, 'Embedded Stop resolution');
+  await page.goto(`/#/inbox/${item.id}`);
+  await expect(
+    page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: card.title }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Action' }).click();
+  await page.getByRole('menuitem', { name: 'Stop' }).click();
+  await page.getByRole('textbox', { name: 'Comment' }).fill('No usable primary data');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect.poll(async () => (await inbox(page, true)).some((i) => i.id === item.id)).toBe(true);
+  await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: card.title })).toBeVisible();
+  await page
+    .getByRole('navigation', { name: 'Inbox items' })
+    .getByRole('button', { name: 'Archived' })
+    .click();
+  await expect(row(page, item.id)).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await expect(row(page, item.id)).toHaveCount(0);
+});

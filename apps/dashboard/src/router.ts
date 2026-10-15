@@ -8,6 +8,7 @@ import {
 // The board is the landing route and loads eagerly.
 import TaskBoard from './views/TaskBoard.vue';
 import TaskDetail from './views/TaskDetail.vue';
+import InboxView from './views/InboxView.vue';
 import ResourceView from './views/ResourceView.vue';
 import SettingsView from './views/SettingsView.vue';
 import SignInView from './views/SignInView.vue';
@@ -54,10 +55,10 @@ const routes: RouteRecordRaw[] = [
     props: { default: false, detail: (route) => ({ id: param(route, 'cardId') ?? '' }) },
   },
   {
-    path: '/inbox',
-    component: ResourceView,
+    path: '/inbox/:itemId?',
+    component: InboxView,
     meta: { page: 'inbox', title: 'Inbox' },
-    props: { page: 'inbox' },
+    props: (route) => ({ itemId: param(route, 'itemId') }),
   },
   {
     path: '/colleagues',
