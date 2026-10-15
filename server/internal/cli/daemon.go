@@ -161,7 +161,7 @@ func scratchHome() (string, error) {
 func daemonCmd(e *env) *cobra.Command {
 	d := &cobra.Command{Use: "daemon", Short: "Run agents on this machine for your cards"}
 	var slots int
-	var claudeBin, codexBin, ownerNonce string
+	var claudeBin, codexBin, cursorBin, antigravityBin, ownerNonce string
 	var forDur time.Duration
 	run := &cobra.Command{Use: "run", Short: "Run in the foreground", RunE: func(cmd *cobra.Command, _ []string) error {
 		if err := e.signedIn(); err != nil {
@@ -186,6 +186,21 @@ func daemonCmd(e *env) *cobra.Command {
 			}
 			h["codex"] = bin
 		}
+		if cursorBin != "" {
+			bin, err := exec.LookPath(cursorBin)
+			if err != nil {
+				return fmt.Errorf("--cursor-bin: %w", err)
+			}
+			h["cursor"] = bin
+		}
+		if antigravityBin != "" {
+			bin, err := exec.LookPath(antigravityBin)
+			if err != nil {
+				return fmt.Errorf("--antigravity-bin: %w", err)
+			}
+			h["antigravity"] = bin
+		}
+
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		if forDur > 0 {
@@ -220,6 +235,9 @@ func daemonCmd(e *env) *cobra.Command {
 	run.Flags().IntVar(&slots, "slots", 2, "agent runs at once")
 	run.Flags().StringVar(&claudeBin, "claude-bin", "", "path to claude")
 	run.Flags().StringVar(&codexBin, "codex-bin", "", "path to codex")
+	run.Flags().StringVar(&cursorBin, "cursor-bin", "", "path to cursor-agent")
+	run.Flags().StringVar(&antigravityBin, "antigravity-bin", "", "path to agy")
+
 	run.Flags().DurationVar(&forDur, "for", 0, "stop after this long")
 	run.Flags().StringVar(&ownerNonce, "owner-nonce", "", "background ownership nonce")
 	_ = run.Flags().MarkHidden("for")

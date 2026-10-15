@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/store"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -36,8 +38,8 @@ func validateAgent(a db.Agent) error {
 	if len(a.Instructions) > 65536 || strings.ContainsRune(a.Instructions, 0) || !utf8.ValidString(a.Instructions) {
 		return cardInputError("instructions must be valid UTF-8 without NUL, at most 64 KiB")
 	}
-	if a.Harness != "claude" && a.Harness != "codex" {
-		return cardInputError("harness must be claude or codex")
+	if _, ok := agent.Harnesses[a.Harness]; !ok {
+		return cardInputError(fmt.Sprintf("unknown harness %q", a.Harness))
 	}
 	if !agentModelPattern.MatchString(a.Model) {
 		return cardInputError("invalid model")

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
+	"lykeion/server/pkg/agent"
 )
 
 // Daemon routes accept only personal tokens; Auth has already checked validity.
@@ -53,8 +55,8 @@ func (h *H) daemonRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, name := range in.Harnesses {
-		if name != "claude" && name != "codex" {
-			writeErr(w, 400, "harness must be claude or codex")
+		if _, ok := agent.Harnesses[name]; !ok {
+			writeErr(w, 400, fmt.Sprintf("unknown harness %q", name))
 			return
 		}
 	}

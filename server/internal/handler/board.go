@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -18,6 +20,7 @@ import (
 	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -273,6 +276,15 @@ func (h *H) setSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "settings object required")
 		return
 	}
+	// A harness no daemon can run would queue agent runs nobody ever claims.
+	set := round.ParseSettings(in.Settings)
+	for _, h := range append(slices.Collect(maps.Values(set.Harness.Roles)), set.Harness.Default) {
+		if _, ok := agent.Harnesses[h]; !ok {
+			writeErr(w, 400, fmt.Sprintf("unknown harness %q", h))
+			return
+		}
+	}
+
 	var pin struct {
 		Jev struct {
 			Model *string `json:"model"`

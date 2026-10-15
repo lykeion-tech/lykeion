@@ -52,8 +52,8 @@ func (c *Config) defaults() {
 }
 func Detect() map[string]string {
 	out := map[string]string{}
-	for _, h := range []string{"claude", "codex"} {
-		if p, err := exec.LookPath(h); err == nil {
+	for h, bin := range agent.Harnesses {
+		if p, err := exec.LookPath(bin); err == nil {
 			out[h] = p
 		}
 	}
@@ -134,7 +134,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return errors.New("invalid daemon directories, slots or intervals")
 	}
 	if len(cfg.Harnesses) == 0 {
-		return errors.New("no agent CLI found: install claude or codex")
+		return errors.New("no agent CLI found: install claude, codex, cursor-agent or agy")
 	}
 	lock, err := ownState(cfg.StateDir)
 	if err != nil {

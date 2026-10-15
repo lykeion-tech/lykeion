@@ -986,3 +986,33 @@ func TestReadOnlyClaudeAndCodex(t *testing.T) {
 		})
 	}
 }
+
+func TestEveryHarnessHasABackend(t *testing.T) {
+	for h := range Harnesses {
+		if b, err := New(h, ""); err != nil || b == nil {
+			t.Fatalf("%s: %v", h, err)
+		}
+	}
+}
+
+// ReadOnlyHarnesses must say exactly which adapters accept a read-only run.
+func TestReadOnlyHarnessesMatchTheAdapters(t *testing.T) {
+	for h := range ReadOnlyHarnesses {
+		if _, ok := Harnesses[h]; !ok {
+			t.Fatalf("unknown read-only harness %s", h)
+		}
+	}
+	for h := range Harnesses {
+		b, _ := New(h, script(t, "exit 0"))
+		s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), ReadOnly: true})
+		if s != nil {
+			collectWithin(t, s, 5*time.Second)
+		}
+		if err != nil && !errors.Is(err, ErrNoReadOnly) {
+			t.Fatalf("%s: unexpected execution error: %v", h, err)
+		}
+		if refused := errors.Is(err, ErrNoReadOnly); refused == ReadOnlyHarnesses[h] {
+			t.Fatalf("%s: ReadOnlyHarnesses says %v, the adapter refused: %v", h, ReadOnlyHarnesses[h], refused)
+		}
+	}
+}

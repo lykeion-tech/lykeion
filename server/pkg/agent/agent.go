@@ -65,6 +65,14 @@ type Backend interface {
 	Execute(context.Context, string, ExecOptions) (*Session, error)
 }
 
+// Harnesses maps every harness Lykeion can run to the binary the daemon looks
+// for on PATH. The database harness constraints mirror these names.
+var Harnesses = map[string]string{"claude": "claude", "codex": "codex", "cursor": "cursor-agent", "antigravity": "agy"}
+
+// ReadOnlyHarnesses are the harnesses whose adapter honours ExecOptions.ReadOnly;
+// the others refuse a read-only run with ErrNoReadOnly.
+var ReadOnlyHarnesses = map[string]bool{"claude": true, "codex": true, "cursor": true}
+
 func New(harness, bin string) (Backend, error) {
 	switch harness {
 	case "claude":
