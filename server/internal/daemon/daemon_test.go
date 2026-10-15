@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -138,7 +140,8 @@ case "$*" in
 	mkdir -p "$CLAUDE_CONFIG_DIR/projects/fake" && : > "$CLAUDE_CONFIG_DIR/projects/fake/s.jsonl" ;;
 *)
 	case "$HOME" in "$PWD"/*) ;; *) exit 44;; esac
-	cat >/dev/null ;;
+	cat >/dev/null
+	mkdir -p "$CLAUDE_CONFIG_DIR/projects/fake" && : > "$CLAUDE_CONFIG_DIR/projects/fake/s.jsonl" ;;
 esac
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}'
 echo '{"type":"result","is_error":false,"total_cost_usd":0.25,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.25}}}'
@@ -512,7 +515,7 @@ func TestStateOwnershipAndFinishedOnlyGC(t *testing.T) {
 	must(t, owner.Close())
 	home := t.TempDir()
 	d := &daemon{cfg: Config{Home: home}, active: map[string]bool{"active": true}}
-	for _, name := range []string{"active", "finished", "unfinished", "recent"} {
+	for _, name := range []string{"active", "finished", "unfinished", "recent", "held"} {
 		p := filepath.Join(home, name)
 		must(t, os.Mkdir(p, 0700))
 		if name != "unfinished" {
@@ -525,14 +528,44 @@ func TestStateOwnershipAndFinishedOnlyGC(t *testing.T) {
 		past := time.Now().Add(-48 * time.Hour)
 		must(t, os.Chtimes(p, past, past))
 	}
+	// A scope folder follows the retention its marker records; one whose
+	// marker records none keeps F2's day.
+	for name, m := range map[string]struct {
+		body string
+		age  time.Duration
+	}{
+		"scope-kept":   {`{"retention_days":30}`, 29 * 24 * time.Hour},
+		"scope-old":    {`{"retention_days":30}`, 31 * 24 * time.Hour},
+		"scope-short":  {`{"retention_days":2}`, 49 * time.Hour},
+		"scope-legacy": {`done`, 25 * time.Hour},
+	} {
+		p := filepath.Join(home, name)
+		must(t, os.Mkdir(p, 0700))
+		must(t, os.WriteFile(filepath.Join(p, ".finished"), []byte(m.body), 0600))
+		past := time.Now().Add(-m.age)
+		must(t, os.Chtimes(filepath.Join(p, ".finished"), past, past))
+	}
+
+	d.holdScratch("held")
 	must(t, d.gc(context.Background()))
-	for _, name := range []string{"active", "unfinished", "recent"} {
+	for _, name := range []string{"active", "unfinished", "recent", "held"} {
 		if _, err := os.Stat(filepath.Join(home, name)); err != nil {
 			t.Fatal("removed live/recent scratch", name, err)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(home, "finished")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("retained old finished scratch", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "scope-kept")); err != nil {
+		t.Fatal("removed a scope folder within its retention", err)
+	}
+	for _, name := range []string{"scope-old", "scope-short", "scope-legacy"} {
+		if _, err := os.Stat(filepath.Join(home, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("retained a scope folder past its retention", name, err)
+		}
+	}
+	if !d.holdScratch("unfinished") {
+		t.Fatal("gc kept its hold on a folder")
 	}
 }
 func TestDaemonOwnerHintWakesWithoutPoll(t *testing.T) {
@@ -986,5 +1019,269 @@ func TestShutdownDuringInitialRegistrationIsGraceful(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("shutdown blocked")
+	}
+}
+
+// privateTurn queues one more run of the fixture's card and role, claiming
+// session s, applies set to it, and runs it to completion on a new daemon.
+func (f *daemonFixture) privateTurn(t *testing.T, set string, args ...any) {
+	t.Helper()
+	f.enqueue(t)
+	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET session_id='s'"+set+" WHERE id=$1", append([]any{f.id}, args...)...)
+	must(t, err)
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+}
+func privateFirstTurn(t *testing.T) *daemonFixture {
+	t.Helper()
+	f := fixture(t)
+	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{Mode: ModePrivate}))
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	return f
+}
+func (f *daemonFixture) invocations(t *testing.T) []string {
+	t.Helper()
+	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
+	must(t, err)
+	return strings.Split(strings.TrimSpace(string(argv)), "\n")
+}
+func (f *daemonFixture) notes(t *testing.T, like string) (n int) {
+	t.Helper()
+	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM agent_run_message m JOIN agent_run r ON r.id=m.agent_run_id WHERE r.card_id=$1 AND m.type='status' AND m.content->>'type'='continuity' AND m.content->>'message' LIKE $2", f.card, like).Scan(&n))
+	return n
+}
+func scopeFolders(t *testing.T, home string) (scoped []string, others []string) {
+	t.Helper()
+	es, err := os.ReadDir(home)
+	must(t, err)
+	for _, e := range es {
+		if strings.HasPrefix(e.Name(), "scope-") {
+			scoped = append(scoped, e.Name())
+		} else {
+			others = append(others, e.Name())
+		}
+	}
+	return scoped, others
+}
+
+// The second private run of a card and role finds its session in the folder
+// the first one left, resumes it, and is charged only for its own work.
+func TestPrivateRunResumesInItsScopeFolder(t *testing.T) {
+	f := privateFirstTurn(t)
+	f.privateTurn(t, "")
+	lines := f.invocations(t)
+	if len(lines) != 2 || strings.Contains(lines[0], "--resume") || !strings.Contains(lines[1], "--strict-mcp-config") || !strings.HasSuffix(lines[1], "--resume s") {
+		t.Fatalf("invocations:\n%s", strings.Join(lines, "\n"))
+	}
+	if scoped, others := scopeFolders(t, f.cfg.Home); len(scoped) != 1 || len(others) != 0 {
+		t.Fatalf("scratch folders %v %v", scoped, others)
+	}
+	var cost float64
+	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT spent_usd FROM card WHERE id=$1", f.card).Scan(&cost))
+	if cost != .25 {
+		t.Fatalf("card spent %v", cost)
+	}
+}
+
+// Another scope has its own folder and an empty scope the attempt's own; the
+// claimed session is in neither, so both start fresh.
+func TestPrivateRunsOfOtherScopesStartFresh(t *testing.T) {
+	f := privateFirstTurn(t)
+	f.privateTurn(t, ", continuity_scope=$2", boardScope(f.card, "critic"))
+	f.privateTurn(t, ", continuity_scope=''")
+	for _, l := range f.invocations(t) {
+		if strings.Contains(l, "--resume") {
+			t.Fatalf("resumed in another scope's folder: %s", l)
+		}
+	}
+	scoped, others := scopeFolders(t, f.cfg.Home)
+	if len(scoped) != 2 || len(others) != 1 || others[0] != scratchName(f.id, 1) {
+		t.Fatalf("scratch folders %v %v", scoped, others)
+	}
+	if n := f.notes(t, "%not in the CLI's session store%"); n != 2 {
+		t.Fatalf("continuity notes %d", n)
+	}
+}
+
+// A folder whose usage baseline is gone (its last run failed, or the daemon
+// died) continues fresh instead of failing at launch.
+func TestPrivateResumeWithoutABaselineStartsFresh(t *testing.T) {
+	f := privateFirstTurn(t)
+	scoped, _ := scopeFolders(t, f.cfg.Home)
+	if len(scoped) != 1 {
+		t.Fatalf("scope folders %v", scoped)
+	}
+	must(t, os.Remove(filepath.Join(f.cfg.Home, scoped[0], ".cli-home", ".lyk-usage.json")))
+	f.privateTurn(t, "")
+	if lines := f.invocations(t); len(lines) != 2 || strings.Contains(lines[1], "--resume") {
+		t.Fatalf("invocations:\n%s", strings.Join(lines, "\n"))
+	}
+	if n := f.notes(t, "%no usage baseline%"); n != 1 {
+		t.Fatalf("continuity notes %d", n)
+	}
+}
+
+// twoPrivateRuns runs two runs of one private scope, claimed in one batch, on
+// a daemon that waits up to wait for a held scope folder. Each run stays live
+// until both have started, or for at most live. It returns each run's folder
+// and how long after the first the second started.
+func twoPrivateRuns(t *testing.T, wait, live time.Duration) (dirs []string, gap time.Duration) {
+	t.Helper()
+	f := fixture(t)
+	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{Mode: ModePrivate}))
+	f.enqueue(t)
+	f.cfg.ScopeWait = wait
+	var mu sync.Mutex
+	var starts []time.Time
+	both := make(chan struct{})
+	f.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+		return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
+			if strings.HasPrefix(filepath.Base(o.Dir), "scope-") {
+				entries, err := os.ReadDir(filepath.Join(f.cfg.StateDir, "attempts"))
+				if err != nil {
+					return nil, err
+				}
+				recorded := false
+				for _, entry := range entries {
+					if !strings.HasSuffix(entry.Name(), ".json") {
+						continue
+					}
+					r, err := readReport(filepath.Join(f.cfg.StateDir, "attempts", entry.Name()))
+					if err != nil {
+						return nil, err
+					}
+					if r.Scratch == filepath.Base(o.Dir) && r.RetentionDays == defaultRetention {
+						recorded = true
+					}
+				}
+				if !recorded {
+					return nil, errors.New("selected scope and retention were not journaled before launch")
+				}
+			}
+			mu.Lock()
+			dirs, starts = append(dirs, o.Dir), append(starts, time.Now())
+			if len(dirs) == 2 {
+				close(both)
+			}
+			mu.Unlock()
+			msgs := make(chan agent.Message)
+			done := make(chan agent.Result, 1)
+			go func() {
+				select {
+				case <-both:
+				case <-time.After(live):
+				}
+				close(msgs)
+				cost := .1
+				done <- agent.Result{Usage: []agent.Usage{{Model: "m", CostUSD: &cost}}}
+				close(done)
+			}()
+			return &agent.Session{Messages: msgs, Done: done}, nil
+		}), nil
+	}
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool {
+		var n int
+		must(t, f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM agent_run WHERE card_id=$1 AND status IN ('completed','failed')", f.card).Scan(&n))
+		return n == 2
+	})
+	stopDaemon(t, cancel, done)
+	if len(dirs) != 2 {
+		t.Fatalf("folders %v", dirs)
+	}
+	return dirs, starts[1].Sub(starts[0])
+}
+
+// A run that finds its scope's folder held waits for it, and resumes there
+// once the run holding it lets go.
+func TestPrivateRunWaitsForItsHeldScopeFolder(t *testing.T) {
+	dirs, gap := twoPrivateRuns(t, 8*time.Second, 300*time.Millisecond)
+	if dirs[0] != dirs[1] || !strings.HasPrefix(filepath.Base(dirs[0]), "scope-") || gap < 300*time.Millisecond {
+		t.Fatalf("folders %v, second started %v after the first", dirs, gap)
+	}
+}
+
+// Two runs of one scope never share its folder: one holds it, the other waits
+// out the bounded wait and then works in its attempt's own folder.
+func TestPrivateRunTakesItsOwnFolderAfterTheWait(t *testing.T) {
+	dirs, gap := twoPrivateRuns(t, time.Second, 8*time.Second)
+	scoped := 0
+	for _, d := range dirs {
+		if strings.HasPrefix(filepath.Base(d), "scope-") {
+			scoped++
+		}
+	}
+	if dirs[0] == dirs[1] || scoped != 1 || gap < time.Second {
+		t.Fatalf("folders %v, second started %v after the first", dirs, gap)
+	}
+}
+
+// A run cancelled while it waits for a held folder ends there and takes none.
+func TestScopeWaitEndsWithTheRun(t *testing.T) {
+	d := &daemon{cfg: Config{ScopeWait: time.Hour}}
+	d.holdScratch("scope-x")
+	ctx, cancel := context.WithCancel(t.Context())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	if ok, err := d.waitScratch(ctx, "scope-x"); ok || !errors.Is(err, context.Canceled) {
+		t.Fatalf("waitScratch after cancel: %v %v", ok, err)
+	}
+}
+
+// A crashed run's scope folder is recovered like an attempt folder: its
+// sign-in copy goes and gc can collect it.
+func TestRecoveryReachesAScopeFolder(t *testing.T) {
+	r := reportFixture()
+	r.Kind = "fail"
+	r.Scratch, r.RetentionDays = "scope-test", 7
+	state, home := t.TempDir(), t.TempDir()
+	d := &daemon{cfg: Config{StateDir: state, Home: home}, active: map[string]bool{}}
+	d.messages = &Outbox{Dir: filepath.Join(state, "messages"), Send: func(context.Context, Report) error { return nil }}
+	d.out = &Outbox{Dir: filepath.Join(state, "outbox"), Send: func(context.Context, Report) error { return errors.New("offline") }}
+	must(t, d.journal().Put(r))
+	dir := filepath.Join(home, "scope-test")
+	must(t, os.MkdirAll(filepath.Join(dir, ".cli-home"), 0700))
+	must(t, os.WriteFile(filepath.Join(dir, ".cli-home", "auth.json"), []byte("synthetic"), 0600))
+	must(t, d.recoverAttempts(t.Context()))
+	if _, err := os.Stat(filepath.Join(dir, ".cli-home", "auth.json")); !os.IsNotExist(err) {
+		t.Fatal("sign-in copy left in a crashed scope folder")
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".finished"))
+	var m struct {
+		RetentionDays int `json:"retention_days"`
+	}
+	if err != nil || json.Unmarshal(b, &m) != nil || m.RetentionDays != 7 {
+		t.Fatalf("crashed scope folder's marker %q %v", b, err)
+	}
+}
+
+func TestScopeWaitAlreadyCanceledTakesNoFolder(t *testing.T) {
+	d := &daemon{cfg: Config{ScopeWait: time.Second}}
+	ctx, cancel := context.WithCancelCause(t.Context())
+	cause := errors.New("run ended")
+	cancel(cause)
+	if ok, err := d.waitScratch(ctx, "scope-free"); ok || !errors.Is(err, cause) {
+		t.Fatalf("canceled waiter took scratch: %v %v", ok, err)
+	}
+	if !d.holdScratch("scope-free") {
+		t.Fatal("canceled waiter kept scratch")
+	}
+}
+
+func TestScopeGCInvalidRetentionFallsBackToOneDay(t *testing.T) {
+	for _, days := range []int{-1, 0, maxRetentionDays + 1, int(^uint(0) >> 1)} {
+		t.Run(strconv.Itoa(days), func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "scope-invalid")
+			must(t, os.Mkdir(dir, 0700))
+			must(t, atomicJSON(dir, ".finished", map[string]int{"retention_days": days}))
+			past := time.Now().Add(-25 * time.Hour)
+			must(t, os.Chtimes(filepath.Join(dir, ".finished"), past, past))
+			must(t, collectScratch(dir))
+			if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("invalid retention kept scope: %v", err)
+			}
+		})
 	}
 }

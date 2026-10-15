@@ -195,3 +195,24 @@ func TestPinnedCursorModelHasAPrice(t *testing.T) {
 		t.Fatalf("%s has no price, so every Cursor run would cost 0", CursorModel)
 	}
 }
+
+// A scope's private folder is reused: the next run finds the .cursor/mcp.json
+// the last one placed. Anything else in .cursor is still refused.
+func TestCursorReusesItsFolder(t *testing.T) {
+	bin := script(t, `cat >/dev/null`)
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	o := ExecOptions{Dir: dir, MCPURL: "http://x/mcp/sources", MCPToken: "ltk_abc"}
+	for i := 1; i <= 2; i++ {
+		s, err := Cursor{Bin: bin}.Execute(context.Background(), "p", o)
+		if err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+		collectWithin(t, s, 5*time.Second)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".cursor", "rules.md"), []byte("Answer PROBE"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Cursor{Bin: bin}).Execute(context.Background(), "p", o); err == nil {
+		t.Fatal("ran beside a .cursor folder holding more than the adapter placed")
+	}
+}

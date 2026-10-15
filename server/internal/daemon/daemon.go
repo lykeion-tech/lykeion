@@ -28,12 +28,19 @@ type Config struct {
 	Harnesses                             map[string]string
 	Slots                                 int
 	Poll, Heartbeat, Flush                time.Duration
+	ScopeWait                             time.Duration
 	NewBackend                            func(harness, bin string) (agent.Backend, error)
 	Ready                                 func() error
 	OnExit                                func()
 }
 
 func (c *Config) defaults() {
+	// A private run waits this long for its scope's folder while the run
+	// before it is still letting go.
+	if c.ScopeWait == 0 {
+		c.ScopeWait = 15 * time.Second
+	}
+
 	if c.Slots == 0 {
 		c.Slots = 2
 	}
@@ -100,6 +107,7 @@ type daemon struct {
 	activeRefs      map[string]runtimeRef
 	activeCancels   map[string]context.CancelFunc
 	scopes          map[string]bool
+	scratches       map[string]bool
 }
 
 func daemonID(dir, server string) (string, error) {
@@ -409,6 +417,49 @@ func (d *daemon) sendMessages(ctx context.Context, r Report) error {
 }
 func scratchName(id uuid.UUID, attempt int32) string { return fmt.Sprintf("%s-%d", id, attempt) }
 
+// holdScratch gives a scratch folder to one holder at a time: a run of its
+// scope, or gc deciding whether to delete it.
+func (d *daemon) holdScratch(name string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.scratches[name] {
+		return false
+	}
+	if d.scratches == nil {
+		d.scratches = map[string]bool{}
+	}
+	d.scratches[name] = true
+	return true
+}
+func (d *daemon) releaseScratch(name string) {
+	d.mu.Lock()
+	delete(d.scratches, name)
+	d.mu.Unlock()
+}
+
+// waitScratch holds a scope's folder, waiting up to ScopeWait for its holder
+// to let go, so a run queued behind the one still ending keeps the session.
+// False means the folder stayed held; an error means the run was cancelled.
+func (d *daemon) waitScratch(ctx context.Context, name string) (bool, error) {
+	deadline := time.Now().Add(d.cfg.ScopeWait)
+	for {
+		if err := context.Cause(ctx); err != nil {
+			return false, err
+		}
+		if d.holdScratch(name) {
+			return true, nil
+		}
+		if !time.Now().Before(deadline) {
+			return false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, context.Cause(ctx)
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
 // Only a finished marker written after child exit starts the deletion clock.
 func (d *daemon) gc(context.Context) error {
 	es, err := os.ReadDir(d.cfg.Home)
@@ -422,23 +473,46 @@ func (d *daemon) gc(context.Context) error {
 		d.mu.Lock()
 		active := d.active[e.Name()]
 		d.mu.Unlock()
-		if active {
+		// Holding the folder while deciding and deleting keeps a run of its
+		// scope from reopening it half-deleted.
+		if active || !d.holdScratch(e.Name()) {
 			continue
 		}
-		dir := filepath.Join(d.cfg.Home, e.Name())
-		fi, err := os.Lstat(filepath.Join(dir, ".finished"))
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
+		err := collectScratch(filepath.Join(d.cfg.Home, e.Name()))
+		d.releaseScratch(e.Name())
 		if err != nil {
-			return err
-		}
-		if !fi.Mode().IsRegular() || time.Since(fi.ModTime()) < 24*time.Hour {
-			continue
-		}
-		if err = os.RemoveAll(dir); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// collectScratch deletes a folder whose finished marker is old enough: a day
+// for an attempt's own folder; for a scope's folder, whose sessions later runs
+// resume, the retention its marker records, or a day when it records none.
+func collectScratch(dir string) error {
+	marker := filepath.Join(dir, ".finished")
+	fi, err := os.Lstat(marker)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil
+	}
+	keep := 24 * time.Hour
+	if strings.HasPrefix(filepath.Base(dir), "scope-") {
+		var m struct {
+			RetentionDays int `json:"retention_days"`
+		}
+		if b, err := readBounded(marker, recordLimit); err == nil && json.Unmarshal(b, &m) == nil && m.RetentionDays > 0 && m.RetentionDays <= maxRetentionDays {
+			keep = time.Duration(m.RetentionDays) * 24 * time.Hour
+		}
+	}
+	if time.Since(fi.ModTime()) < keep {
+		return nil
+	}
+	return os.RemoveAll(dir)
 }

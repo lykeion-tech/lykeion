@@ -16,7 +16,7 @@ import (
 // scratch lock after output accounting has finished.
 type scratchCleanup func(release bool)
 
-var discoveryNames = []string{".codex", ".claude", ".agents", ".claude.json", ".mcp.json", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"}
+var discoveryNames = []string{".cursor", ".codex", ".claude", ".agents", ".claude.json", ".mcp.json", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"}
 
 // prepareScratch protects discovery boundaries, not arbitrary filesystem access.
 // Only this scratch's own history is reusable; personal config is never copied.
@@ -36,9 +36,6 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 		return "", nil, err
 	}
 	if !o.Inherit {
-		if err = checkAncestors(dir); err != nil {
-			return "", nil, err
-		}
 		if err = checkManagedConfig(harness); err != nil {
 			return "", nil, err
 		}
@@ -81,6 +78,16 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 	}
 	if readErr == nil && string(owned) != "lykeion-agent-v1:"+harness {
 		return "", cleanup, errors.New("scratch belongs to a different harness")
+	}
+	if !o.Inherit {
+		if harness == "cursor" && readErr == nil {
+			if err = removePriorCursorConfig(dir); err != nil {
+				return "", cleanup, err
+			}
+		}
+		if err = checkAncestors(dir); err != nil {
+			return "", cleanup, err
+		}
 	}
 	for _, p := range []string{home, userHome} {
 		if readErr != nil {

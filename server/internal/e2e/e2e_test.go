@@ -435,10 +435,22 @@ func (l *lab) ref(t *testing.T, id uuid.UUID) service.RuntimeRef {
 	return service.RuntimeRef{WorkspaceID: l.ws, RuntimeID: *r.RuntimeID, Attempt: r.Attempt}
 }
 
+// useAttemptScratch keeps crash and credential lifecycle scenarios on fresh
+// attempt folders; scoped session reuse is exercised separately.
+func (l *lab) useAttemptScratch(t *testing.T, id uuid.UUID) {
+	t.Helper()
+	result, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET continuity_scope='' WHERE id=$1", id)
+	must(t, err)
+	if result.RowsAffected() != 1 {
+		t.Fatal("missing run for attempt scratch fixture")
+	}
+}
+
 func TestKilledDaemonsAgentRunIsRetriedThenFails(t *testing.T) {
 	l := newLab(t)
 	owner, tok, _ := l.member(t, "owner@lab.org")
 	_, ids := l.queue(t, owner, 1)
+	l.useAttemptScratch(t, ids[0])
 	id := ids[0]
 	api := &apiclient.Client{Server: l.url, Token: tok}
 	var old service.RuntimeRef
@@ -690,6 +702,7 @@ func TestSameStateImmediateRestartRecoversKilledAttempts(t *testing.T) {
 	l := newLab(t)
 	owner, tok, _ := l.member(t, "restart@lab.org")
 	_, ids := l.queue(t, owner, 1)
+	l.useAttemptScratch(t, ids[0])
 	id := ids[0]
 	signin := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(signin, ".credentials.json"), []byte("synthetic-signin"), 0600))
@@ -759,6 +772,7 @@ func TestCopiedSigninRemovedAfterParentSIGKILLAndCLIExit(t *testing.T) {
 	l := newLab(t)
 	owner, tok, _ := l.member(t, "credentials@lab.org")
 	_, ids := l.queue(t, owner, 1)
+	l.useAttemptScratch(t, ids[0])
 	signin := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(signin, ".credentials.json"), []byte("synthetic-signin"), 0600))
 	t.Setenv("CLAUDE_CONFIG_DIR", signin)

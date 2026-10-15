@@ -192,17 +192,28 @@ func runMode(c claimed, pol PolicySnapshot) string {
 	return ModeContinuity
 }
 
-// ForgetScope deletes one scope's session record, e.g. when its chat is
-// deleted. The account's own CLI history is untouched.
-func ForgetScope(stateDir string, ws, user uuid.UUID, harness, scope string) error {
-	dir := sessionsDir(stateDir, ws)
+// ForgetScope deletes one scope's private folder and session record, e.g. when
+// its chat is deleted. A folder a run holds stays, and the forget fails for the
+// caller to retry. The account's own CLI history is untouched.
+func (d *daemon) ForgetScope(ws, user uuid.UUID, harness, scope string) error {
+	key := sessionScope{Workspace: ws, User: user, Harness: harness, Scope: scope}.key()
+	name := "scope-" + key
+	if !d.holdScratch(name) {
+		return errors.New("the scope's folder is in use")
+	}
+	err := os.RemoveAll(filepath.Join(d.cfg.Home, name))
+	d.releaseScratch(name)
+	if err != nil {
+		return err
+	}
+	dir := sessionsDir(d.cfg.StateDir, ws)
 	if err := checkProfileDir(filepath.Dir(dir)); err != nil {
 		return err
 	}
 	if err := checkProfileDir(dir); err != nil {
 		return err
 	}
-	err := os.Remove(filepath.Join(dir, sessionScope{Workspace: ws, User: user, Harness: harness, Scope: scope}.key()+".json"))
+	err = os.Remove(filepath.Join(dir, key+".json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

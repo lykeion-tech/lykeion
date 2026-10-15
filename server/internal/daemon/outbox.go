@@ -21,10 +21,17 @@ import (
 
 // Report contains no credential. Attempt and sequence identify immutable evidence.
 type Report struct {
-	AgentRunID    uuid.UUID     `json:"agent_run_id"`
-	WorkspaceID   uuid.UUID     `json:"workspace_id"`
-	RuntimeID     uuid.UUID     `json:"runtime_id"`
-	Attempt       int32         `json:"attempt"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	RuntimeID   uuid.UUID `json:"runtime_id"`
+	Attempt     int32     `json:"attempt"`
+	// Scratch is the scope folder a private attempt used; empty means the
+	// attempt's own folder, scratchName(AgentRunID, Attempt).
+	Scratch string `json:"scratch,omitempty"`
+	// RetentionDays is how long after its last run gc keeps a scope folder,
+	// from the workspace policy the attempt started under.
+	RetentionDays int `json:"retention_days,omitempty"`
+
 	Kind          string        `json:"kind"`
 	Usage         []agent.Usage `json:"usage,omitempty"`
 	SessionID     string        `json:"session_id,omitempty"`

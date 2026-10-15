@@ -25,6 +25,15 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	var cont *continuity
 	var final agent.Result
 	fail := func(err error) { r.Kind = "fail"; r.Error = err.Error(); r.FailureReason = agent.ReasonAgentError }
+	// Registered before the deferred report, so it runs after the finished
+	// marker: gc never finds the folder unheld with only an older marker.
+	var held string
+	defer func() {
+		if held != "" {
+			d.releaseScratch(held)
+		}
+	}()
+
 	// Journal before the server can enter running or any CLI can launch.
 	journalRecord := r
 	journalRecord.Kind = "fail"
@@ -45,14 +54,50 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		// Only after the final report is durable may a baseline become resumable.
 		localErr = errors.Join(localErr, d.finishContinuity(cont, final))
 		if created {
-			if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt}); err != nil {
+			if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": journalRecord.RetentionDays}); err != nil {
 				localErr = errors.Join(localErr, err)
 				return
 			}
 		}
 		localErr = errors.Join(localErr, d.forgetAttempt(r))
 	}()
-	if err := os.Mkdir(dir, 0700); err != nil {
+	// The attempt keeps this snapshot even if the policy file changes later.
+	pol, err := LoadPolicy(d.cfg.StateDir, c.AgentRun.WorkspaceID)
+	if err != nil {
+		fail(fmt.Errorf("workspace policy: %w", err))
+		return nil
+	}
+	r.Mode, r.PolicyDigest = runMode(c, pol), pol.Digest
+	if r.Mode == ModePrivate && c.AgentRun.ContinuityScope != "" {
+		if !continuityScope.MatchString(c.AgentRun.ContinuityScope) {
+			fail(fmt.Errorf("invalid continuity scope %q", c.AgentRun.ContinuityScope))
+			return nil
+		}
+		// A private scope keeps one folder, whose .cli-home holds the CLI's
+		// sessions. A run that finds it held waits for it a while, then works in
+		// its attempt's own folder.
+		name := privateScratch(c)
+		var ok bool
+		if ok, err = d.waitScratch(ctx, name); err != nil {
+			fail(err)
+			return nil
+		}
+		if ok {
+			held, r.Scratch, journalRecord.Scratch, journalRecord.RetentionDays = name, name, name, pol.RetentionDays
+			dir = filepath.Join(d.cfg.Home, name)
+			// Attempt metadata changes before launch; delivery reports stay immutable.
+			journal := d.journal()
+			if err = atomicJSON(journal.Dir, filepath.Base(journal.file(journalRecord)), journalRecord); err != nil {
+				return err
+			}
+		}
+	}
+	if held == "" {
+		err = os.Mkdir(dir, 0700)
+	} else {
+		err = reuseScratch(dir)
+	}
+	if err != nil {
 		fail(fmt.Errorf("prepare scratch: %w", err))
 		return nil
 	}
@@ -65,13 +110,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		prompt = "Read and follow the skill in SKILL.md in your working directory.\n\n" + prompt
 	}
-	// The attempt keeps this snapshot even if the policy file changes later.
-	pol, err := LoadPolicy(d.cfg.StateDir, c.AgentRun.WorkspaceID)
-	if err != nil {
-		fail(fmt.Errorf("workspace policy: %w", err))
-		return nil
-	}
-	r.Mode, r.PolicyDigest = runMode(c, pol), pol.Digest
 	backend, err := d.cfg.NewBackend(c.AgentRun.Harness, d.cfg.Harnesses[c.AgentRun.Harness])
 	if err != nil {
 		fail(err)
@@ -141,6 +179,16 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		opts.Resume, opts.ClaudeBaseline = "", nil
 	}
+	// A private Claude resume is charged against its folder's usage baseline;
+	// with none for this session, continue fresh rather than fail at launch.
+	if opts.Resume != "" && !opts.Inherit && c.AgentRun.Harness == "claude" && !agent.ClaudeResumable(dir, opts.Resume) {
+		if err = note("session " + opts.Resume + " has no usage baseline in this run's folder; starting a fresh session"); err != nil {
+			fail(err)
+			return errors.Join(err, d.abandonContinuity(cont))
+		}
+		opts.Resume, opts.ClaudeBaseline = "", nil
+	}
+
 	// execute returns the launch error, or the result and the stream error.
 	execute := func() (res agent.Result, streamErr, launchErr error) {
 		sess, err := backend.Execute(runCtx, prompt, opts)
@@ -356,4 +404,28 @@ func (d *daemon) persistMessage(r Report, seq int32, m agent.Message) error {
 		return &oversizedMessageError{seq: seq, size: len(b)}
 	}
 	return d.messages.Put(r)
+}
+
+// privateScratch names the folder every private run of one scope shares: the
+// scope's key, a sha256 of workspace, responsible user, harness and scope, so
+// the scope's "/" and ":" never reach a path and another harness or user is
+// another folder.
+func privateScratch(c claimed) string {
+	run := c.AgentRun
+	return "scope-" + sessionScope{Workspace: run.WorkspaceID, User: run.ResponsibleUserID, Harness: run.Harness, Scope: run.ContinuityScope}.key()
+}
+
+// reuseScratch makes a scope's folder or reopens it as it is: the CLI's state,
+// its sessions and the agent's files stay; the files the daemon writes for one
+// run go, so each run places its own.
+func reuseScratch(dir string) error {
+	if err := privateDir(dir); err != nil {
+		return err
+	}
+	for _, name := range []string{"SKILL.md", ".lyk-config.json"} {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
