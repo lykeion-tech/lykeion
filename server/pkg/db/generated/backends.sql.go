@@ -14,20 +14,26 @@ import (
 )
 
 const claimInputFetch = `-- name: ClaimInputFetch :execrows
-UPDATE agent_run SET input_fetch_expires_at = now() + $1::interval
-WHERE id = $2 AND workspace_id = $3
+UPDATE agent_run SET input_fetch_id = $1::uuid, input_fetch_expires_at = now() + $2::interval
+WHERE id = $3 AND workspace_id = $4
   AND (input_fetch_expires_at IS NULL OR input_fetch_expires_at <= now())
 `
 
 type ClaimInputFetchParams struct {
+	FetchID     uuid.UUID       `json:"fetch_id"`
 	Lease       pgtype.Interval `json:"lease"`
 	ID          uuid.UUID       `json:"id"`
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
 }
 
-// Takes the fetch claim when no live claim holds it; one row means taken.
+// Takes an unheld or expired fetch claim using a fresh acquisition identity.
 func (q *Queries) ClaimInputFetch(ctx context.Context, arg ClaimInputFetchParams) (int64, error) {
-	result, err := q.db.Exec(ctx, claimInputFetch, arg.Lease, arg.ID, arg.WorkspaceID)
+	result, err := q.db.Exec(ctx, claimInputFetch,
+		arg.FetchID,
+		arg.Lease,
+		arg.ID,
+		arg.WorkspaceID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -35,7 +41,8 @@ func (q *Queries) ClaimInputFetch(ctx context.Context, arg ClaimInputFetchParams
 }
 
 const clearInputFetch = `-- name: ClearInputFetch :exec
-UPDATE agent_run SET input_lease_expires_at = NULL, input_outcomes = '{}'
+UPDATE agent_run SET input_fetch_id = NULL, input_fetch_expires_at = NULL,
+  input_lease_expires_at = NULL, input_outcomes = '{}'
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -49,51 +56,73 @@ func (q *Queries) ClearInputFetch(ctx context.Context, arg ClearInputFetchParams
 	return err
 }
 
-const recordInputOutcome = `-- name: RecordInputOutcome :exec
+const recordInputOutcome = `-- name: RecordInputOutcome :execrows
 UPDATE agent_run SET input_outcomes = input_outcomes || $1::jsonb
-WHERE id = $2 AND workspace_id = $3
+WHERE id = $2 AND workspace_id = $3 AND input_fetch_id = $4::uuid
+  AND input_fetch_expires_at > now() AND input_lease_expires_at > now()
 `
 
 type RecordInputOutcomeParams struct {
 	Outcome     json.RawMessage `json:"outcome"`
 	ID          uuid.UUID       `json:"id"`
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	FetchID     uuid.UUID       `json:"fetch_id"`
 }
 
-func (q *Queries) RecordInputOutcome(ctx context.Context, arg RecordInputOutcomeParams) error {
-	_, err := q.db.Exec(ctx, recordInputOutcome, arg.Outcome, arg.ID, arg.WorkspaceID)
-	return err
+// An expired or replaced fetcher cannot publish outcomes.
+func (q *Queries) RecordInputOutcome(ctx context.Context, arg RecordInputOutcomeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordInputOutcome,
+		arg.Outcome,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.FetchID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const releaseInputFetch = `-- name: ReleaseInputFetch :exec
-UPDATE agent_run SET input_fetch_expires_at = NULL WHERE id = $1 AND workspace_id = $2
+const releaseInputFetch = `-- name: ReleaseInputFetch :execrows
+UPDATE agent_run SET input_fetch_id = NULL, input_fetch_expires_at = NULL
+WHERE id = $1 AND workspace_id = $2 AND input_fetch_id = $3::uuid
 `
 
 type ReleaseInputFetchParams struct {
 	ID          uuid.UUID `json:"id"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
+	FetchID     uuid.UUID `json:"fetch_id"`
 }
 
-func (q *Queries) ReleaseInputFetch(ctx context.Context, arg ReleaseInputFetchParams) error {
-	_, err := q.db.Exec(ctx, releaseInputFetch, arg.ID, arg.WorkspaceID)
-	return err
+func (q *Queries) ReleaseInputFetch(ctx context.Context, arg ReleaseInputFetchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseInputFetch, arg.ID, arg.WorkspaceID, arg.FetchID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const renewInputFetch = `-- name: RenewInputFetch :execrows
 UPDATE agent_run SET input_fetch_expires_at = now() + $1::interval
-WHERE id = $2 AND workspace_id = $3 AND input_lease_expires_at > now()
+WHERE id = $2 AND workspace_id = $3 AND input_fetch_id = $4::uuid
+  AND input_fetch_expires_at > now() AND input_lease_expires_at > now()
 `
 
 type RenewInputFetchParams struct {
 	Lease       pgtype.Interval `json:"lease"`
 	ID          uuid.UUID       `json:"id"`
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	FetchID     uuid.UUID       `json:"fetch_id"`
 }
 
-// Renews a fetch's claim only while a daemon still asks; no row means the
-// input lease lapsed and the fetch stops.
+// Only the current owner can renew, while both leases remain live.
 func (q *Queries) RenewInputFetch(ctx context.Context, arg RenewInputFetchParams) (int64, error) {
-	result, err := q.db.Exec(ctx, renewInputFetch, arg.Lease, arg.ID, arg.WorkspaceID)
+	result, err := q.db.Exec(ctx, renewInputFetch,
+		arg.Lease,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.FetchID,
+	)
 	if err != nil {
 		return 0, err
 	}

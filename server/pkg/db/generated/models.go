@@ -60,6 +60,7 @@ type AgentRun struct {
 	HandoffNote           string          `json:"handoff_note"`
 	InputLeaseExpiresAt   *time.Time      `json:"input_lease_expires_at"`
 	InputFetchExpiresAt   *time.Time      `json:"input_fetch_expires_at"`
+	InputFetchID          *uuid.UUID      `json:"input_fetch_id"`
 	InputOutcomes         json.RawMessage `json:"input_outcomes"`
 }
 

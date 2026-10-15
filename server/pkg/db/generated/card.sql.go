@@ -13,7 +13,7 @@ import (
 )
 
 const cardAgentRuns = `-- name: CardAgentRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_outcomes FROM agent_run WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes FROM agent_run WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
 `
 
 type CardAgentRunsParams struct {
@@ -64,6 +64,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.HandoffNote,
 			&i.InputLeaseExpiresAt,
 			&i.InputFetchExpiresAt,
+			&i.InputFetchID,
 			&i.InputOutcomes,
 		); err != nil {
 			return nil, err

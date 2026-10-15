@@ -13,4 +13,5 @@ ALTER TABLE agent DROP CONSTRAINT agent_harness_check,
 ALTER TABLE agent_run
   ADD COLUMN input_lease_expires_at timestamptz,
   ADD COLUMN input_fetch_expires_at timestamptz,
+  ADD COLUMN input_fetch_id uuid,
   ADD COLUMN input_outcomes jsonb NOT NULL DEFAULT '{}';
