@@ -247,6 +247,8 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 		}
 		if emitErr != nil {
 			res.Err, res.Reason = emitErr, ReasonAgentError
+		} else if ctx.Err() != nil {
+			res.Err, res.Reason = ctx.Err(), ReasonRuntimeOffline
 		}
 		cleanup(true)
 		if res.Err != nil {

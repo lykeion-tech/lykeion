@@ -171,7 +171,7 @@ func TestAntigravityRecoveryPrivatePaths(t *testing.T) {
 			if kind == "first app match" {
 				log = "CLI app data directory: " + outside + "\n" + log
 			}
-			if got := recoverAgyTranscript([]byte(log), home, id); got != "" {
+			if got := recoverAgyTranscript(context.Background(), []byte(log), home, id); got != "" {
 				t.Fatalf("escaped or invalid transcript: %q", got)
 			}
 		})
@@ -190,7 +190,7 @@ func TestAntigravityRecoveryScannerLineLimit(t *testing.T) {
 			line := record("PLANNER_RESPONSE", "MODEL", "DONE", strings.Repeat("x", (16<<20)-len(base)-1+extra))
 			content := record("PLANNER_RESPONSE", "MODEL", "DONE", "prefix") + line
 			os.WriteFile(p, []byte(content), 0600)
-			got := recoverAgyTranscript([]byte("CLI app data directory: "+app+"\n"), home, agyID)
+			got := recoverAgyTranscript(context.Background(), []byte("CLI app data directory: "+app+"\n"), home, agyID)
 			if extra == 0 {
 				if !strings.HasPrefix(got, "prefix\n\n") || len(got) != len("prefix\n\n")+(16<<20)-len(base)-1 {
 					t.Fatalf("exact limit rejected: %d", len(got))
@@ -229,15 +229,17 @@ func TestRunFinishEmitterKeepsRecoverySpillOpen(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r := &agyRun{model: AntigravityModel}
-	hook := r.finish(logPath, home)
+	hook := r.finish(ctx, logPath, home)
 	finished := make(chan struct{})
 	s, err := run(ctx, command(ctx, script(t, "exit 0"), "", ExecOptions{Dir: dir}, home), func(bool) {}, func([]byte, emitMessage, *Result) (bool, error) { return true, nil }, func(res *Result, emit emitMessage) {
 		for i := 0; i < 64; i++ {
 			emit(Message{Type: "log", Content: raw(i)})
 		}
-		cancel()
-		emit(Message{Type: "log", Content: raw("spilled before recovery")})
-		hook(res, emit)
+		hook(res, func(m Message) {
+			cancel()
+			emit(Message{Type: "log", Content: raw("spilled before recovery")})
+			emit(m)
+		})
 		close(finished)
 	}, nil)
 	if err != nil {
@@ -249,7 +251,7 @@ func TestRunFinishEmitterKeepsRecoverySpillOpen(t *testing.T) {
 		t.Fatal("finish blocked")
 	}
 	ms, res := collectWithin(t, s, 10*time.Second)
-	if res.Err != nil || len(ms) != 64 || len(res.RetainedEvidence) != 1 {
+	if !errors.Is(res.Err, context.Canceled) || res.Reason != ReasonRuntimeOffline || len(ms) != 64 || len(res.RetainedEvidence) != 1 {
 		t.Fatalf("%d %+v", len(ms), res)
 	}
 	b, err := os.ReadFile(res.RetainedEvidence[0])
@@ -275,5 +277,70 @@ func TestAntigravityRecoveryPreservesExistingEmitFailure(t *testing.T) {
 	_, res := collectWithin(t, s, 10*time.Second)
 	if !errors.Is(res.Err, sent) || len(seen) != 1 || seen[0].Type != "log" {
 		t.Fatalf("%+v %+v", seen, res)
+	}
+}
+
+func TestAntigravityCancellationDuringRecoveredMessage(t *testing.T) {
+	for _, sinkFails := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cancel", true: "cancel and sink failure"}[sinkFails], func(t *testing.T) {
+			dir, _ := filepath.EvalSymlinks(t.TempDir())
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			sinkErr := errors.New("recovery persistence failed")
+			var seen []Message
+			bin := recoveryScript(t, dir, record("PLANNER_RESPONSE", "MODEL", "DONE", "recovered"), "exit 0", "")
+			s, err := (Antigravity{Bin: bin}).Execute(ctx, "p", ExecOptions{Dir: dir, OnMessage: func(m Message) error {
+				seen = append(seen, m)
+				cancel()
+				if sinkFails {
+					return sinkErr
+				}
+				return nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ms, res := collectWithin(t, s, 10*time.Second)
+			if len(ms) != 0 || len(seen) != 1 || string(seen[0].Content) != `"recovered"` {
+				t.Fatalf("%+v %+v %+v", ms, seen, res)
+			}
+			if sinkFails {
+				if !errors.Is(res.Err, sinkErr) || res.Reason != ReasonAgentError {
+					t.Fatalf("sink failure lost: %+v", res)
+				}
+			} else if !errors.Is(res.Err, context.Canceled) || res.Reason != ReasonRuntimeOffline {
+				t.Fatalf("cancelled recovery succeeded: %+v", res)
+			}
+		})
+	}
+}
+
+type cancelTranscriptReader struct {
+	reader *strings.Reader
+	cancel context.CancelFunc
+	reads  int
+}
+
+func (r *cancelTranscriptReader) Read(p []byte) (int, error) {
+	r.reads++
+	n, err := r.reader.Read(p)
+	r.cancel()
+	return n, err
+}
+
+func TestAntigravityTranscriptScanStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	line := record("PLANNER_RESPONSE", "MODEL", "DONE", "must not recover")
+	reader := &cancelTranscriptReader{reader: strings.NewReader(strings.Repeat(line, 20000)), cancel: cancel}
+	if got := scanAgyTranscript(ctx, reader); got != "" {
+		t.Fatalf("recovered cancelled scan: %q", got)
+	}
+	if reader.reads != 1 {
+		t.Fatalf("scan continued after cancellation: %d reads", reader.reads)
+	}
+	reader.reads = 0
+	if got := scanAgyTranscript(ctx, reader); got != "" || reader.reads != 0 {
+		t.Fatalf("already cancelled scan read input: %q, %d reads", got, reader.reads)
 	}
 }

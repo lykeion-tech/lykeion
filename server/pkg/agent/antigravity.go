@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -78,7 +79,7 @@ func (a Antigravity) Execute(ctx context.Context, prompt string, o ExecOptions) 
 		bin = "agy"
 	}
 	r := &agyRun{model: model, steps: map[int]agyUsage{}, tools: map[int]int{}}
-	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, r.parse, r.finish(logPath, home), o.OnMessage)
+	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, r.parse, r.finish(ctx, logPath, home), o.OnMessage)
 }
 
 type agyUsage struct {
@@ -200,7 +201,7 @@ func (r *agyRun) parse(line []byte, emit emitMessage, _ *Result) (bool, error) {
 // exited and its log is final. A failure agy reports only in its log, or no
 // output at all, replaces run's generic verdict, which says less; run then
 // classifies it.
-func (r *agyRun) finish(logPath, home string) func(*Result, emitMessage) {
+func (r *agyRun) finish(ctx context.Context, logPath, home string) func(*Result, emitMessage) {
 	return func(res *Result, emit emitMessage) {
 		log, _ := os.ReadFile(logPath)
 		res.SessionID = r.session
@@ -247,7 +248,7 @@ func (r *agyRun) finish(logPath, home string) func(*Result, emitMessage) {
 			return
 		}
 		if !r.text {
-			if text := recoverAgyTranscript(log, home, res.SessionID); text != "" {
+			if text := recoverAgyTranscript(ctx, log, home, res.SessionID); text != "" && ctx.Err() == nil {
 				emit(Message{Type: "text", Content: raw(text)})
 				res.Err = nil
 			} else {
@@ -268,8 +269,8 @@ var agyAppData = regexp.MustCompile(`CLI app data directory:\s*([^\r\n]+)`)
 
 // recoverAgyTranscript selects completed model narration after the latest user
 // input. A private run never follows a logged path outside its own CLI home.
-func recoverAgyTranscript(log []byte, home, session string) string {
-	if !sessionToken.MatchString(session) {
+func recoverAgyTranscript(ctx context.Context, log []byte, home, session string) string {
+	if ctx.Err() != nil || !sessionToken.MatchString(session) {
 		return ""
 	}
 	match := agyAppData.FindSubmatch(log)
@@ -308,10 +309,17 @@ func recoverAgyTranscript(log []byte, home, session string) string {
 		return ""
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
+	return scanAgyTranscript(ctx, f)
+}
+
+func scanAgyTranscript(ctx context.Context, input io.Reader) string {
+	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 0, 64<<10), 16<<20)
 	var selected []string
-	for scanner.Scan() {
+	for ctx.Err() == nil && scanner.Scan() {
+		if ctx.Err() != nil {
+			return ""
+		}
 		var item struct {
 			Type    string          `json:"type"`
 			Source  string          `json:"source"`
@@ -333,7 +341,7 @@ func recoverAgyTranscript(log []byte, home, session string) string {
 			selected = append(selected, text)
 		}
 	}
-	if scanner.Err() != nil {
+	if ctx.Err() != nil || scanner.Err() != nil {
 		return ""
 	}
 	return strings.Join(selected, "\n\n")
