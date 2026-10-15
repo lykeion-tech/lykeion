@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { useQueryClient } from '@tanstack/vue-query';
+import { api } from '../api/client';
+import { keys } from '../api/keys';
+import { workspaceId } from '../api/session';
 import { useRouter } from 'vue-router';
 import { Columns3, List, FunnelX } from '@lucide/vue';
 import Icon from '../components/Icon.vue';
@@ -13,6 +17,7 @@ import {
   filterOptions,
   groupByColumn,
   matchesFilters,
+  positionAt,
   roleLabel,
   stateLabel,
   studyNumber,
@@ -30,6 +35,98 @@ const me = useMe();
 const members = useMembers();
 const workspace = useWorkspace();
 const { openComposer } = useTaskComposer();
+const client = useQueryClient();
+const dragged = ref<{ id: string; workspace: string; scope: number } | null>(null);
+const studyMenu = ref<{ id: string; x: number; y: number } | null>(null);
+let scope = 0;
+watch(
+  workspaceId,
+  () => {
+    scope++;
+    dragged.value = null;
+    studyMenu.value = null;
+  },
+  { flush: 'sync' },
+);
+onUnmounted(() => {
+  scope++;
+});
+
+// Refusals restore the snapshot only while this board still owns the scope.
+async function moveTo(id: string, index: number) {
+  const workspace = workspaceId.value;
+  const ownScope = scope;
+  const key = keys.cards(workspace);
+  const before = client.getQueryData<Card[]>(key);
+  const position = positionAt(grouped.value.backlog, id, index);
+  client.setQueryData<Card[]>(key, (list) =>
+    list?.map((c) => (c.id === id ? { ...c, position } : c)),
+  );
+  const current = () => scope === ownScope && workspaceId.value === workspace;
+  try {
+    await api('PATCH', `/api/cards/${id}`, { position });
+  } catch (e) {
+    if (current()) {
+      client.setQueryData(key, before);
+      notify((e as Error).message);
+    }
+  } finally {
+    if (current()) void client.invalidateQueries({ queryKey: key });
+  }
+}
+function dragStart(event: DragEvent, id: string) {
+  dragged.value = { id, workspace: workspaceId.value, scope };
+  event.dataTransfer?.setData('text/plain', id);
+}
+function takeDragged() {
+  const drag = dragged.value;
+  dragged.value = null;
+  return drag?.workspace === workspaceId.value && drag.scope === scope ? drag.id : '';
+}
+// The upper half inserts above the target; the lower half inserts below it.
+function dropOn(event: DragEvent, target: Card) {
+  event.preventDefault();
+  const id = takeDragged();
+  if (!id || id === target.id) return;
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const rest = grouped.value.backlog.filter((c) => c.id !== id);
+  const index =
+    rest.findIndex((c) => c.id === target.id) +
+    (event.clientY > rect.top + rect.height / 2 ? 1 : 0);
+  void moveTo(id, index);
+}
+function dropAtEnd(event: DragEvent) {
+  event.preventDefault();
+  const id = takeDragged();
+  if (id) void moveTo(id, grouped.value.backlog.filter((c) => c.id !== id).length);
+}
+function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card) {
+  if (card.board_column !== 'backlog' || card.ending) return;
+  event.preventDefault();
+  closeMenus();
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  studyMenu.value = {
+    id: card.id,
+    x: event instanceof MouseEvent ? event.clientX : rect.left + 60,
+    y: event instanceof MouseEvent ? event.clientY : rect.bottom,
+  };
+  void nextTick(() => document.querySelector<HTMLButtonElement>('.study-menu button')?.focus());
+}
+async function removeStudy(id: string) {
+  studyMenu.value = null;
+  const card = all.value.find((c) => c.id === id);
+  if (!card || !confirm(`Delete ${number(card)} “${card.title}”? This cannot be undone.`)) return;
+  const workspace = workspaceId.value;
+  const ownScope = scope;
+  const key = keys.cards(workspace);
+  const current = () => scope === ownScope && workspaceId.value === workspace;
+  try {
+    await api('DELETE', `/api/cards/${id}`);
+    if (current()) await client.invalidateQueries({ queryKey: key });
+  } catch (e) {
+    if (current()) notify((e as Error).message);
+  }
+}
 
 type Display = { mode: 'Board' | 'List'; properties: string[] };
 const propertyNames = ['Role', 'Updated'];
@@ -112,6 +209,7 @@ function toggleProperty(name: string) {
     : [...display.properties, name];
 }
 function open(id: string) {
+  studyMenu.value = null;
   void router.push('/studies/' + id);
 }
 function closeMenus() {
@@ -128,8 +226,10 @@ async function menu(name: string, event: Event) {
 }
 function dismiss(e: Event) {
   if (!(e.target as HTMLElement).closest('.menu-anchor')) closeMenus();
+  if (!(e.target as HTMLElement).closest('.study-menu')) studyMenu.value = null;
 }
 function key(e: KeyboardEvent) {
+  if (e.key === 'Escape') studyMenu.value = null;
   if (!popup.value || e.key !== 'Escape') return;
   e.preventDefault();
   if (submenu.value) submenu.value = null;
@@ -335,6 +435,8 @@ onUnmounted(() => {
       class="board-column"
       :class="'stage-' + column.id"
       :aria-label="column.name"
+      @dragover="column.id === 'backlog' && $event.preventDefault()"
+      @drop="column.id === 'backlog' && dropAtEnd($event)"
     >
       <header>
         <span class="stage-dot" /><strong>{{ column.name }}</strong
@@ -353,6 +455,13 @@ onUnmounted(() => {
         :key="card.id"
         class="task-card"
         :data-card="card.id"
+        :draggable="column.id === 'backlog' ? 'true' : undefined"
+        @dragstart="dragStart($event, card.id)"
+        @dragend="dragged = null"
+        @dragover="column.id === 'backlog' && $event.preventDefault()"
+        @drop.stop="column.id === 'backlog' ? dropOn($event, card) : undefined"
+        @contextmenu="openStudyMenu($event, card)"
+        @keydown.shift.f10="openStudyMenu($event, card)"
         @click="open(card.id)"
       >
         <small class="card-id"
@@ -461,6 +570,36 @@ onUnmounted(() => {
     >
       Clear filters
     </button>
+  </div>
+  <div
+    v-if="studyMenu"
+    class="board-menu study-menu"
+    role="menu"
+    aria-label="Study actions"
+    :style="{ left: studyMenu.x + 'px', top: studyMenu.y + 'px' }"
+    @keydown="menuKeys"
+  >
+    <button role="menuitem" @click="open(studyMenu.id)">Open</button>
+    <button
+      role="menuitem"
+      @click="
+        openComposer(studyMenu.id);
+        studyMenu = null;
+      "
+    >
+      Edit…
+    </button>
+    <button
+      role="menuitem"
+      @click="
+        moveTo(studyMenu.id, 0);
+        studyMenu = null;
+      "
+    >
+      Move to top
+    </button>
+    <hr />
+    <button role="menuitem" class="danger-item" @click="removeStudy(studyMenu.id)">Delete…</button>
   </div>
 </template>
 
@@ -1181,5 +1320,22 @@ onUnmounted(() => {
 .hidden-group {
   background: transparent;
   font-weight: 400;
+}
+.study-menu {
+  position: fixed;
+  right: auto;
+  top: auto;
+  width: 200px;
+}
+.study-menu hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 3px 0;
+}
+.danger-item {
+  color: var(--error-text);
+}
+.task-card[draggable='true'] {
+  cursor: grab;
 }
 </style>

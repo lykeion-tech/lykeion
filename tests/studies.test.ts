@@ -28,6 +28,7 @@ import {
   boardColumns,
   endLabel,
   groupByColumn,
+  positionAt,
   matchesFilters,
   roleLabel,
   stateLabel,
@@ -141,5 +142,22 @@ describe('study filters', () => {
     expect(matchesFilters(blocked, { Owner: ['u2'], State: ['working'] })).toBe(true);
     expect(matchesFilters(blocked, { Owner: ['u1'] })).toBe(false);
     expect(matchesFilters(blocked, {})).toBe(true);
+  });
+});
+
+describe('backlog positions', () => {
+  const list = [
+    card({ id: 'a', position: 1 }),
+    card({ id: 'b', position: 2 }),
+    card({ id: 'c', position: 4 }),
+  ];
+  it('puts a moved study between its new neighbours', () => {
+    expect(positionAt(list, 'c', 1)).toBe(1.5);
+    expect(positionAt(list, 'a', 1)).toBe(3);
+  });
+  it('goes above the top and below the bottom', () => {
+    expect(positionAt(list, 'c', 0)).toBe(0);
+    expect(positionAt(list, 'a', 2)).toBe(5);
+    expect(positionAt([card({ id: 'a', position: 7 })], 'a', 0)).toBe(7);
   });
 });

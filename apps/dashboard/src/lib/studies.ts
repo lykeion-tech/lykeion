@@ -149,3 +149,14 @@ export function matchesFilters(card: Card, filters: StudyFilters): boolean {
     return !chosen?.length || valuesOf(card, category).some((v) => chosen.includes(v));
   });
 }
+
+// Place the moved study between its new neighbours, or one past either end.
+export function positionAt(list: Card[], movedId: string, index: number): number {
+  const rest = list.filter((c) => c.id !== movedId);
+  const before = rest[index - 1];
+  const after = rest[index];
+  if (before && after) return (before.position + after.position) / 2;
+  if (after) return after.position - 1;
+  if (before) return before.position + 1;
+  return list.find((c) => c.id === movedId)?.position ?? 0;
+}
