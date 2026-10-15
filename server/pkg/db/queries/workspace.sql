@@ -2,7 +2,7 @@
 INSERT INTO workspace (id, slug, name) VALUES (@id, @slug, @name) RETURNING *;
 
 -- name: ListMyWorkspaces :many
-SELECT w.id, w.slug, w.name, w.created_at, m.role FROM workspace w
+SELECT w.id, w.slug, w.name, w.created_at, w.description, w.research_context, w.card_prefix, w.logo_blob, m.role FROM workspace w
 JOIN member m ON m.workspace_id = w.id
 WHERE m.user_id = @user_id ORDER BY w.created_at;
 
@@ -11,6 +11,13 @@ SELECT * FROM workspace WHERE id = @id;
 
 -- name: RenameWorkspace :one
 UPDATE workspace SET name = @name WHERE id = @id RETURNING *;
+
+-- name: UpdateWorkspace :one
+UPDATE workspace SET name = @name, description = @description, research_context = @research_context, card_prefix = @card_prefix
+WHERE id = @id RETURNING *;
+
+-- name: SetWorkspaceLogo :exec
+UPDATE workspace SET logo_blob = @logo_blob WHERE id = @id;
 
 -- name: DeleteWorkspace :exec
 DELETE FROM workspace WHERE id = @id;

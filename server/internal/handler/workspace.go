@@ -24,22 +24,68 @@ const inviteTTL = 7 * 24 * time.Hour
 
 var errLastOwner = errors.New("a workspace needs at least one owner")
 
+var prefixRe = regexp.MustCompile(`^([A-Z]{2,6})?$`)
+
+// displayPrefix is the prefix card numbers show with: the workspace's own,
+// else the first four letters of its slug in capitals, else LYK when the slug
+// has fewer than two letters.
+func displayPrefix(prefix, slug string) string {
+	if prefix != "" {
+		return prefix
+	}
+	var b strings.Builder
+	for _, c := range slug {
+		if c >= 'a' && c <= 'z' && b.Len() < 4 {
+			b.WriteRune(c - 'a' + 'A')
+		}
+	}
+	if b.Len() < 2 {
+		return "LYK"
+	}
+	return b.String()
+}
+
+// workspaceView is a workspace with the prefix its card numbers show and its
+// newest event id, read in the same transaction: a browser's first /ws
+// subscription starts from that cursor instead of replaying the history.
+type workspaceView struct {
+	db.Workspace
+	DisplayPrefix string `json:"display_prefix"`
+	EventCursor   int64  `json:"event_cursor"`
+}
+
+type myWorkspace struct {
+	db.ListMyWorkspacesRow
+	DisplayPrefix string `json:"display_prefix"`
+	EventCursor   int64  `json:"event_cursor"`
+}
+
 func (h *H) listWorkspaces(w http.ResponseWriter, r *http.Request) {
 	id := middleware.IdentityFrom(r.Context())
-	rows := []db.ListMyWorkspacesRow{}
+	out := []myWorkspace{}
 	err := h.Store.AsUser(r.Context(), id.UserID, id.Email, func(tx *store.Tx) error {
-		var err error
-		rows, err = tx.Q.ListMyWorkspaces(r.Context(), id.UserID)
-		return err
+		rows, err := tx.Q.ListMyWorkspaces(r.Context(), id.UserID)
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			// Events are visible only inside their workspace's scope.
+			if err := tx.Workspace(r.Context(), row.ID); err != nil {
+				return err
+			}
+			cursor, err := tx.Q.LatestEventID(r.Context(), row.ID)
+			if err != nil {
+				return err
+			}
+			out = append(out, myWorkspace{row, displayPrefix(row.CardPrefix, row.Slug), cursor})
+		}
+		return nil
 	})
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	if rows == nil {
-		rows = []db.ListMyWorkspacesRow{}
-	}
-	writeJSON(w, 200, rows)
+	writeJSON(w, 200, out)
 }
 
 func (h *H) createWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -82,10 +128,14 @@ func (h *H) inWS(r *http.Request, fn func(tx *store.Tx, ws uuid.UUID, user uuid.
 }
 
 func (h *H) getWorkspace(w http.ResponseWriter, r *http.Request) {
-	var out db.Workspace
+	var out workspaceView
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		var err error
-		out, err = tx.Q.GetWorkspace(r.Context(), ws)
+		if out.Workspace, err = tx.Q.GetWorkspace(r.Context(), ws); err != nil {
+			return err
+		}
+		out.DisplayPrefix = displayPrefix(out.CardPrefix, out.Slug)
+		out.EventCursor, err = tx.Q.LatestEventID(r.Context(), ws)
 		return err
 	})
 	if err != nil {
@@ -95,21 +145,59 @@ func (h *H) getWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-func (h *H) renameWorkspace(w http.ResponseWriter, r *http.Request) {
+// updateWorkspace changes any of the workspace's name, description, research
+// context and card prefix. The slug never changes.
+func (h *H) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name string `json:"name"`
+		Name            *string `json:"name"`
+		Description     *string `json:"description"`
+		ResearchContext *string `json:"research_context"`
+		CardPrefix      *string `json:"card_prefix"`
 	}
-	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Name) == "" {
-		writeErr(w, 400, "name required")
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, 400, "invalid workspace: "+err.Error())
 		return
 	}
-	var out db.Workspace
+	switch {
+	case in.Name == nil && in.Description == nil && in.ResearchContext == nil && in.CardPrefix == nil:
+		writeErr(w, 400, "nothing to change")
+		return
+	case in.Name != nil && strings.TrimSpace(*in.Name) == "":
+		writeErr(w, 400, "name cannot be empty")
+		return
+	case in.CardPrefix != nil && !prefixRe.MatchString(*in.CardPrefix):
+		writeErr(w, 400, "card_prefix must be 2 to 6 capital letters, or empty")
+		return
+	}
+	var out workspaceView
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		var err error
-		if out, err = tx.Q.RenameWorkspace(r.Context(), db.RenameWorkspaceParams{ID: ws, Name: in.Name}); err != nil {
+		cur, err := tx.Q.GetWorkspace(r.Context(), ws)
+		if err != nil {
 			return err
 		}
-		return tx.Emit(r.Context(), "workspace.renamed", nil, store.User(user), map[string]string{"name": in.Name})
+		p := db.UpdateWorkspaceParams{ID: ws, Name: cur.Name, Description: cur.Description, ResearchContext: cur.ResearchContext, CardPrefix: cur.CardPrefix}
+		var fields []string
+		if in.Name != nil {
+			p.Name, fields = *in.Name, append(fields, "name")
+		}
+		if in.Description != nil {
+			p.Description, fields = *in.Description, append(fields, "description")
+		}
+		if in.ResearchContext != nil {
+			p.ResearchContext, fields = *in.ResearchContext, append(fields, "research_context")
+		}
+		if in.CardPrefix != nil {
+			p.CardPrefix, fields = *in.CardPrefix, append(fields, "card_prefix")
+		}
+		if out.Workspace, err = tx.Q.UpdateWorkspace(r.Context(), p); err != nil {
+			return err
+		}
+		if err := tx.Emit(r.Context(), "workspace.updated", nil, store.User(user), map[string]any{"fields": fields}); err != nil {
+			return err
+		}
+		out.DisplayPrefix = displayPrefix(out.CardPrefix, out.Slug)
+		out.EventCursor, err = tx.Q.LatestEventID(r.Context(), ws)
+		return err
 	})
 	if err != nil {
 		fail(w, r, err)
@@ -270,8 +358,8 @@ func (h *H) createInvitation(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	body := "You have been invited to a Lykeion workspace. Accept with:\n  lyk workspace accept " + plain +
-		"\nor POST /api/invitations/" + plain + "/accept"
+	body := "You have been invited to a Lykeion workspace. Open " + h.PublicURL + "/#/invite/" + plain +
+		"\nor accept with:\n  lyk workspace accept " + plain + "\nor POST /api/invitations/" + plain + "/accept"
 	if err := h.Mail.Send(r.Context(), email, "Lykeion invitation", body); err != nil {
 		fail(w, r, err)
 		return

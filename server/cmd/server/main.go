@@ -154,7 +154,8 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
 		AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Kinds: round.Kinds(),
-		Google: auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback")}
+		Google:    auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
+		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/")}
 	if err := runs.RecoverSettlements(ctx); err != nil {
 		return fmt.Errorf("recover settlements: %w", err)
 	}

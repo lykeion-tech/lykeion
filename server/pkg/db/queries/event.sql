@@ -12,3 +12,8 @@ SELECT * FROM event WHERE workspace_id = @workspace_id AND id > @after ORDER BY 
 -- name: CardEventsAfter :many
 SELECT * FROM event WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND id > @after
 ORDER BY id LIMIT 500;
+
+-- The newest event id of the workspace, 0 when it has none: where a new
+-- realtime subscription starts.
+-- name: LatestEventID :one
+SELECT COALESCE(max(id), 0)::bigint FROM event WHERE workspace_id = @workspace_id;

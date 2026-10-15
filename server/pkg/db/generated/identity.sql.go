@@ -166,32 +166,6 @@ func (q *Queries) RevokeToken(ctx context.Context, arg RevokeTokenParams) (int64
 	return result.RowsAffected(), nil
 }
 
-const setUserTimezone = `-- name: SetUserTimezone :one
-UPDATE "user" SET timezone = $1 WHERE id = $2
-RETURNING id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at
-`
-
-type SetUserTimezoneParams struct {
-	Timezone string    `json:"timezone"`
-	ID       uuid.UUID `json:"id"`
-}
-
-func (q *Queries) SetUserTimezone(ctx context.Context, arg SetUserTimezoneParams) (User, error) {
-	row := q.db.QueryRow(ctx, setUserTimezone, arg.Timezone, arg.ID)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Email,
-		&i.Name,
-		&i.GoogleSub,
-		&i.Timezone,
-		&i.CreatedAt,
-		&i.CareerStage,
-		&i.OnboardedAt,
-	)
-	return i, err
-}
-
 const setVerificationCode = `-- name: SetVerificationCode :exec
 INSERT INTO verification_code (email, code_hash, expires_at) VALUES ($1, $2, $3)
 ON CONFLICT (email) DO UPDATE SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0
@@ -222,6 +196,45 @@ func (q *Queries) TokenByHash(ctx context.Context, tokenHash string) (TokenByHas
 	row := q.db.QueryRow(ctx, tokenByHash, tokenHash)
 	var i TokenByHashRow
 	err := row.Scan(&i.UserID, &i.Email)
+	return i, err
+}
+
+const updateMe = `-- name: UpdateMe :one
+UPDATE "user" SET name = COALESCE($1, name), timezone = COALESCE($2, timezone),
+  career_stage = COALESCE($3, career_stage),
+  onboarded_at = CASE WHEN $4::boolean THEN COALESCE(onboarded_at, now()) ELSE onboarded_at END
+WHERE id = $5
+RETURNING id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at
+`
+
+type UpdateMeParams struct {
+	Name        *string   `json:"name"`
+	Timezone    *string   `json:"timezone"`
+	CareerStage *string   `json:"career_stage"`
+	Onboarded   bool      `json:"onboarded"`
+	ID          uuid.UUID `json:"id"`
+}
+
+// Changes only the fields given; onboarded stamps onboarded_at once and never clears it.
+func (q *Queries) UpdateMe(ctx context.Context, arg UpdateMeParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateMe,
+		arg.Name,
+		arg.Timezone,
+		arg.CareerStage,
+		arg.Onboarded,
+		arg.ID,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.GoogleSub,
+		&i.Timezone,
+		&i.CreatedAt,
+		&i.CareerStage,
+		&i.OnboardedAt,
+	)
 	return i, err
 }
 

@@ -275,17 +275,21 @@ func (q *Queries) ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]Lis
 }
 
 const listMyWorkspaces = `-- name: ListMyWorkspaces :many
-SELECT w.id, w.slug, w.name, w.created_at, m.role FROM workspace w
+SELECT w.id, w.slug, w.name, w.created_at, w.description, w.research_context, w.card_prefix, w.logo_blob, m.role FROM workspace w
 JOIN member m ON m.workspace_id = w.id
 WHERE m.user_id = $1 ORDER BY w.created_at
 `
 
 type ListMyWorkspacesRow struct {
-	ID        uuid.UUID `json:"id"`
-	Slug      string    `json:"slug"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	Role      string    `json:"role"`
+	ID              uuid.UUID `json:"id"`
+	Slug            string    `json:"slug"`
+	Name            string    `json:"name"`
+	CreatedAt       time.Time `json:"created_at"`
+	Description     string    `json:"description"`
+	ResearchContext string    `json:"research_context"`
+	CardPrefix      string    `json:"card_prefix"`
+	LogoBlob        string    `json:"logo_blob"`
+	Role            string    `json:"role"`
 }
 
 func (q *Queries) ListMyWorkspaces(ctx context.Context, userID uuid.UUID) ([]ListMyWorkspacesRow, error) {
@@ -302,6 +306,10 @@ func (q *Queries) ListMyWorkspaces(ctx context.Context, userID uuid.UUID) ([]Lis
 			&i.Slug,
 			&i.Name,
 			&i.CreatedAt,
+			&i.Description,
+			&i.ResearchContext,
+			&i.CardPrefix,
+			&i.LogoBlob,
 			&i.Role,
 		); err != nil {
 			return nil, err
@@ -454,4 +462,55 @@ func (q *Queries) SetMemberRole(ctx context.Context, arg SetMemberRoleParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setWorkspaceLogo = `-- name: SetWorkspaceLogo :exec
+UPDATE workspace SET logo_blob = $1 WHERE id = $2
+`
+
+type SetWorkspaceLogoParams struct {
+	LogoBlob string    `json:"logo_blob"`
+	ID       uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SetWorkspaceLogo(ctx context.Context, arg SetWorkspaceLogoParams) error {
+	_, err := q.db.Exec(ctx, setWorkspaceLogo, arg.LogoBlob, arg.ID)
+	return err
+}
+
+const updateWorkspace = `-- name: UpdateWorkspace :one
+UPDATE workspace SET name = $1, description = $2, research_context = $3, card_prefix = $4
+WHERE id = $5 RETURNING id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob
+`
+
+type UpdateWorkspaceParams struct {
+	Name            string    `json:"name"`
+	Description     string    `json:"description"`
+	ResearchContext string    `json:"research_context"`
+	CardPrefix      string    `json:"card_prefix"`
+	ID              uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams) (Workspace, error) {
+	row := q.db.QueryRow(ctx, updateWorkspace,
+		arg.Name,
+		arg.Description,
+		arg.ResearchContext,
+		arg.CardPrefix,
+		arg.ID,
+	)
+	var i Workspace
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Settings,
+		&i.CardCounter,
+		&i.CreatedAt,
+		&i.Description,
+		&i.ResearchContext,
+		&i.CardPrefix,
+		&i.LogoBlob,
+	)
+	return i, err
 }

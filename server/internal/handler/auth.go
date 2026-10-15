@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -155,23 +156,50 @@ func (h *H) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, u)
 }
 
-// updateMe sets the caller's timezone. Only names the Go time database knows
-// are stored, so later schedule and date rendering can load them without error.
+var careerStages = []string{"", "undergraduate", "masters", "phd", "postdoc", "research_staff", "faculty", "industry", "other"}
+
+// updateMe changes any of the caller's name, timezone and career stage, and
+// marks onboarding finished (onboarded can only be true). Only timezone names
+// the Go time database knows are stored, so later schedule and date rendering
+// can load them without error.
 func (h *H) updateMe(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Timezone string `json:"timezone"`
+		Name        *string `json:"name"`
+		Timezone    *string `json:"timezone"`
+		CareerStage *string `json:"career_stage"`
+		Onboarded   *bool   `json:"onboarded"`
 	}
-	if err := readJSON(r, &in); err != nil || in.Timezone == "" {
-		writeErr(w, 400, "timezone required")
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, 400, "invalid profile: "+err.Error())
 		return
 	}
-	// LoadLocation also accepts "Local" and "", which are not portable names.
-	if _, err := time.LoadLocation(in.Timezone); err != nil || in.Timezone == "Local" {
-		writeErr(w, 400, "unknown timezone")
+	switch {
+	case in.Name == nil && in.Timezone == nil && in.CareerStage == nil && in.Onboarded == nil:
+		writeErr(w, 400, "nothing to change")
+		return
+	case in.Name != nil && strings.TrimSpace(*in.Name) == "":
+		writeErr(w, 400, "name cannot be empty")
+		return
+	case in.CareerStage != nil && !slices.Contains(careerStages, *in.CareerStage):
+		writeErr(w, 400, "unknown career stage")
+		return
+	case in.Onboarded != nil && !*in.Onboarded:
+		writeErr(w, 400, "onboarded can only be set to true")
 		return
 	}
-	u, err := h.Store.Global().SetUserTimezone(r.Context(), db.SetUserTimezoneParams{
-		ID: middleware.IdentityFrom(r.Context()).UserID, Timezone: in.Timezone})
+	if in.Timezone != nil {
+		// LoadLocation also accepts "Local" and "", which are not portable names.
+		if _, err := time.LoadLocation(*in.Timezone); err != nil || *in.Timezone == "" || *in.Timezone == "Local" {
+			writeErr(w, 400, "unknown timezone")
+			return
+		}
+	}
+	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		in.Name = &name
+	}
+	u, err := h.Store.Global().UpdateMe(r.Context(), db.UpdateMeParams{Name: in.Name, Timezone: in.Timezone,
+		CareerStage: in.CareerStage, Onboarded: in.Onboarded != nil, ID: middleware.IdentityFrom(r.Context()).UserID})
 	if err != nil {
 		fail(w, r, err)
 		return

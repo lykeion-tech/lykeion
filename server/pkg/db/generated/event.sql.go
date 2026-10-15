@@ -129,6 +129,19 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (Event
 	return i, err
 }
 
+const latestEventID = `-- name: LatestEventID :one
+SELECT COALESCE(max(id), 0)::bigint FROM event WHERE workspace_id = $1
+`
+
+// The newest event id of the workspace, 0 when it has none: where a new
+// realtime subscription starts.
+func (q *Queries) LatestEventID(ctx context.Context, workspaceID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, latestEventID, workspaceID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const lockWorkspaceEvents = `-- name: LockWorkspaceEvents :exec
 SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text, 0))
 `

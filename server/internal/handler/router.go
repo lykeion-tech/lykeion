@@ -73,18 +73,24 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/workspaces", h.createWorkspace)
 		r.Post("/api/invitations/{token}/accept", h.acceptInvitation)
 		r.Route("/api/workspaces/{id}", func(r chi.Router) {
-			r.Use(middleware.Scope(h.Store, middleware.FromURL("id")))
-			r.Get("/", h.getWorkspace)
-			r.With(middleware.RequireAdmin).Patch("/", h.renameWorkspace)
-			r.With(middleware.RequireOwner).Delete("/", h.deleteWorkspace)
-			r.With(middleware.RequireOwner).Patch("/settings", h.setSettings)
-			r.Get("/members", h.listMembers)
-			r.With(middleware.RequireAdmin).Patch("/members/{user}", h.setMemberRole)
-			r.With(middleware.RequireAdmin).Delete("/members/{user}", h.removeMember)
-			r.With(middleware.RequireAdmin).Get("/invitations", h.listInvitations)
-			r.With(middleware.RequireAdmin).Post("/invitations", h.createInvitation)
-			r.With(middleware.RequireAdmin).Delete("/invitations/{inv}", h.revokeInvitation)
-			r.Post("/leave", h.leave)
+			// The logo routes check membership themselves, outside Scope's
+			// transaction, because they call storage.
+			r.Put("/logo", h.putLogo)
+			r.Get("/logo", h.getLogo)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.Scope(h.Store, middleware.FromURL("id")))
+				r.Get("/", h.getWorkspace)
+				r.With(middleware.RequireAdmin).Patch("/", h.updateWorkspace)
+				r.With(middleware.RequireOwner).Delete("/", h.deleteWorkspace)
+				r.With(middleware.RequireOwner).Patch("/settings", h.setSettings)
+				r.Get("/members", h.listMembers)
+				r.With(middleware.RequireAdmin).Patch("/members/{user}", h.setMemberRole)
+				r.With(middleware.RequireAdmin).Delete("/members/{user}", h.removeMember)
+				r.With(middleware.RequireAdmin).Get("/invitations", h.listInvitations)
+				r.With(middleware.RequireAdmin).Post("/invitations", h.createInvitation)
+				r.With(middleware.RequireAdmin).Delete("/invitations/{inv}", h.revokeInvitation)
+				r.Post("/leave", h.leave)
+			})
 		})
 
 		r.Group(func(r chi.Router) {

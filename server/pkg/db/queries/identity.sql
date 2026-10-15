@@ -12,8 +12,12 @@ RETURNING *;
 -- name: GetUser :one
 SELECT * FROM "user" WHERE id = @id;
 
--- name: SetUserTimezone :one
-UPDATE "user" SET timezone = @timezone WHERE id = @id
+-- Changes only the fields given; onboarded stamps onboarded_at once and never clears it.
+-- name: UpdateMe :one
+UPDATE "user" SET name = COALESCE(sqlc.narg(name), name), timezone = COALESCE(sqlc.narg(timezone), timezone),
+  career_stage = COALESCE(sqlc.narg(career_stage), career_stage),
+  onboarded_at = CASE WHEN @onboarded::boolean THEN COALESCE(onboarded_at, now()) ELSE onboarded_at END
+WHERE id = @id
 RETURNING *;
 
 -- name: SetVerificationCode :exec

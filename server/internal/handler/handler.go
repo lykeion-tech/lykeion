@@ -37,6 +37,7 @@ type H struct {
 	Blobs     storage.Storage
 	Kinds     map[string]service.Kind
 	Sources   http.Handler
+	PublicURL string // where people reach the dashboard, without a trailing slash
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

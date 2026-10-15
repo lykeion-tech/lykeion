@@ -250,7 +250,7 @@ func TestWorkspaceEventsMissingIDsAndDeletion(t *testing.T) {
 		types[typ] = true
 	}
 	rows.Close()
-	for _, typ := range []string{"workspace.created", "workspace.renamed", "member.joined", "member.role_changed", "member.removed", "invitation.created", "invitation.accepted", "invitation.revoked"} {
+	for _, typ := range []string{"workspace.created", "workspace.updated", "member.joined", "member.role_changed", "member.removed", "invitation.created", "invitation.accepted", "invitation.revoked"} {
 		if !types[typ] {
 			t.Fatal(typ)
 		}
