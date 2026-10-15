@@ -182,13 +182,18 @@ func (l *boardLab) startCard(t *testing.T) uuid.UUID {
 }
 
 func (l *boardLab) run(t *testing.T) context.CancelFunc {
+	return l.runOn(t, "claude", "testdata/fake-claude.sh")
+}
+
+// runOn starts a daemon with one harness and the engine tick.
+func (l *boardLab) runOn(t *testing.T, harness, script string) context.CancelFunc {
 	ctx, cancel := context.WithCancel(context.Background())
-	fake, err := filepath.Abs("testdata/fake-claude.sh")
+	fake, err := filepath.Abs(script)
 	must(t, err)
 	done := make(chan error, 1)
 	go func() {
 		done <- daemon.Run(ctx, daemon.Config{Server: l.url, Token: l.token, StateDir: t.TempDir(), Home: t.TempDir(), Device: "test",
-			Harnesses: map[string]string{"claude": fake}, Slots: 5, Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond})
+			Harnesses: map[string]string{harness: fake}, Slots: 5, Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond})
 	}()
 	tickDone := make(chan struct{})
 	go func() {
