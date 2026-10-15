@@ -561,3 +561,140 @@ for (const operation of ['comment', 'budget', 'delete'] as const) {
     }
   });
 }
+
+test('study events page beyond 500 and refresh later steering live', async ({ page }) => {
+  const f = await labFixture(page.request);
+  expect((await page.request.post(`${LAB}/lab/events/${f.card_id}?n=501`)).status()).toBe(204);
+  const headers = { 'X-Workspace-ID': f.workspace_id };
+  expect(
+    (
+      await page.request.post(`/api/cards/${f.card_id}/budget`, { headers, data: { usd: 13 } })
+    ).status(),
+  ).toBe(200);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
+  const pages: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes(`/api/cards/${f.card_id}/events`)) pages.push(r.url());
+  });
+  await page.goto(`/#/studies/${f.card_id}`);
+  await expect(page.locator('.event-line', { hasText: 'Budget changed' })).toHaveCount(1);
+  expect(pages.some((url) => /after=[1-9]/.test(url))).toBe(true);
+  const origin = await page.evaluate(() => performance.timeOrigin);
+  expect(
+    (
+      await page.request.post(`/api/cards/${f.card_id}/budget`, { headers, data: { usd: 14 } })
+    ).status(),
+  ).toBe(200);
+  await expect(page.locator('.event-line', { hasText: 'Budget changed' })).toHaveCount(2);
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
+});
+
+test('expanded run preserves every ordered recorded message and full tool content', async ({
+  page,
+}) => {
+  const f = await labFixture(page.request);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
+  await page.goto(`/#/studies/${f.card_id}`);
+  await expect(page.getByText('Attempt 2 message 501', { exact: true })).toBeVisible();
+  await expect(page.getByText('Attempt 2 message 001', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Ran 1 command', exact: true }).click();
+  const messages = page.locator('.run-messages > li');
+  await expect(messages).toHaveCount(501);
+  await expect(messages.nth(0)).toContainText('Attempt 2 message 001');
+  await expect(messages.nth(1)).toContainText('END OF FULL TOOL INPUT');
+  await expect(messages.nth(2)).toContainText('Recorded tool refusal');
+  await expect(messages.nth(3)).toContainText('Recorded continuity status');
+  await expect(messages.nth(500)).toContainText('Attempt 2 message 501');
+  await messages.nth(1).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await page.screenshot({
+    path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/final-fix-artifacts/expanded-run.png',
+    fullPage: true,
+  });
+  expect(
+    await page.locator('.transcript-scroll').evaluate((el) => el.scrollWidth - el.clientWidth),
+  ).toBeLessThanOrEqual(0);
+});
+
+test('transcript and run message refusals show retries and keep already loaded data', async ({
+  page,
+}) => {
+  const f = await labFixture(page.request);
+  const comment = 'A real cached comment retained through failed reads';
+  const headers = { 'X-Workspace-ID': f.workspace_id };
+  expect(
+    (
+      await page.request.post(`/api/cards/${f.card_id}/comments`, {
+        headers,
+        data: { body: comment },
+      })
+    ).status(),
+  ).toBe(201);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
+  let refuse = true;
+  for (const path of [
+    `/api/cards/${f.card_id}/comments`,
+    `/api/agent-runs/${f.run_id}/messages**`,
+  ]) {
+    await page.route(`**${path}`, async (route) => {
+      if (!refuse) return route.continue();
+      const response = await route.fetch({
+        headers: {
+          ...route.request().headers(),
+          'X-Workspace-ID': '00000000-0000-0000-0000-000000000001',
+        },
+      });
+      expect(response.status()).toBe(404);
+      await route.fulfill({ response });
+    });
+  }
+  await page.goto(`/#/studies/${f.card_id}`);
+  await expect(page.locator('.study-read-error', { hasText: 'Comments' })).toBeVisible();
+  await expect(page.locator('.run-read-error')).toBeVisible();
+  await page
+    .locator('.study-read-error')
+    .first()
+    .evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await page.screenshot({
+    path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/final-fix-artifacts/study-read-errors.png',
+    fullPage: true,
+  });
+  refuse = false;
+  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();
+  await expect(page.locator('.bubble', { hasText: comment })).toBeVisible();
+  await expect(page.getByText('Attempt 2 message 501', { exact: true })).toBeVisible();
+  refuse = true;
+  await page.evaluate(async () => {
+    const app = document.querySelector('#app') as Element & {
+      __vue_app__: {
+        _context: { provides: Record<string, { invalidateQueries: () => Promise<void> }> };
+      };
+    };
+    await app.__vue_app__._context.provides.VUE_QUERY_CLIENT!.invalidateQueries();
+  });
+  await expect(page.locator('.study-read-error', { hasText: 'Comments' })).toBeVisible();
+  await expect(page.locator('.run-read-error')).toBeVisible();
+  await expect(page.locator('.bubble', { hasText: comment })).toBeVisible();
+  await expect(page.getByText('Attempt 2 message 501', { exact: true })).toBeVisible();
+  refuse = false;
+  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();
+  await expect(page.locator('.study-read-error')).toHaveCount(0);
+  await expect(page.locator('.run-read-error')).toHaveCount(0);
+});
+
+test('a real study deletion refusal remains inline on the study', async ({ page }) => {
+  const { a } = await linkedStudies(page);
+  await page.route(`**/api/cards/${a}`, async (route) => {
+    if (route.request().method() !== 'DELETE') return route.continue();
+    expect((await page.request.post(`${LAB}/lab/hypotheses/${a}`)).status()).toBe(204);
+    const response = await route.fetch();
+    expect(response.status()).toBe(409);
+    await route.fulfill({ response });
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Delete study' }).click();
+  await expect(page.getByRole('region', { name: 'Study' }).getByRole('alert')).toContainText(
+    'Backlog',
+  );
+});

@@ -317,6 +317,10 @@ test('Resume captures its action and text before its comment response arrives', 
     await page.getByRole('textbox', { name: 'Comment' }).fill('A later different action');
     await held.finish();
     await expect(page.getByText(/^Resumed/)).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveValue(
+      'A later different action',
+    );
+    await expect(page.getByRole('button', { name: 'Action', exact: true })).toHaveText(/Stop/);
     expect(stops).toBe(0);
     expect((await actualComments(page, f.workspace_id, f.card_id)).map((c) => c.body)).toEqual([
       'Original captured Resume text',

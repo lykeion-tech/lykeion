@@ -268,3 +268,50 @@ test('the workspace menu names the workspace and logs out', async ({ page }) => 
     await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toHaveCount(0);
   }
 });
+
+for (const destination of ['inbox', 'settings']) {
+  test(`shared reconnect status stays visible on ${destination}`, async ({ page }) => {
+    let disconnect!: () => void;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    await page.routeWebSocket('**/ws', async (route) => {
+      if (!first) await gate;
+      first = false;
+      const server = route.connectToServer();
+      disconnect = () => {
+        route.close();
+        server.close();
+      };
+    });
+    try {
+      await page.goto(`/#/${destination}`);
+      await expect.poll(() => Boolean(disconnect)).toBe(true);
+      disconnect();
+      await expect(page.getByText('Reconnecting…', { exact: true })).toBeVisible();
+      await page.screenshot({
+        path: `.superpowers/sdd/2026-10-15-ui1-frontend-wiring/final-fix-artifacts/reconnecting-${destination}.png`,
+        fullPage: true,
+      });
+    } finally {
+      release();
+    }
+  });
+}
+
+test('Colleagues navigation has no extraneous global create listener warning', async ({ page }) => {
+  const warnings: string[] = [];
+  page.on('console', (message) => {
+    if (
+      message.type() === 'warning' &&
+      message.text().includes('Extraneous non-emits event listeners (create)')
+    )
+      warnings.push(message.text());
+  });
+  await page.goto('/#/colleagues');
+  await expect(page.getByRole('heading', { name: 'Colleagues', exact: true })).toBeVisible();
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  expect(warnings).toEqual([]);
+});

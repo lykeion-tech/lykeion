@@ -144,8 +144,8 @@ func TestCardRecordsCanIncludeSuperseded(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	var c card
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
-	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, superseded_at)
-		VALUES ($1, $2, 'grounding', 1, 'scope', 'scoper', 'old', now()), ($1, $2, 'grounding', 2, 'scope', 'scoper', 'new', NULL)`, w.ID, c.ID); err != nil {
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, superseded_at, created_at)
+		VALUES ($1, $2, 'grounding', 1, 'scope', 'scoper', 'old', now(), now() - interval '1 second'), ($1, $2, 'grounding', 2, 'scope', 'scoper', 'new', NULL, now())`, w.ID, c.ID); err != nil {
 		t.Fatal(err)
 	}
 	type rec struct {

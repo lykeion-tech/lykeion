@@ -48,13 +48,20 @@ test('the board shows eight columns and a new study moving live to Blocked', asy
 });
 
 test('the filter narrows the board to a column', async ({ page }) => {
+  const fixture = await labFixture(page.request);
+  await page.addInitScript(
+    (id) => localStorage.setItem('lykeion.workspace', id),
+    fixture.workspace_id,
+  );
   await page.goto('/#/studies');
-  await expect(page.getByRole('region', { name: 'Blocked' }).locator('.task-card')).toHaveCount(1);
+  await expect(
+    page.getByRole('region', { name: 'Blocked' }).locator(`[data-card="${fixture.card_id}"]`),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Filter' }).click();
   await page.getByRole('menuitem', { name: 'Column' }).click();
   await page.getByRole('menuitemcheckbox', { name: /Backlog/ }).click();
   await expect(page.locator('.filter-chip')).toHaveText(/Column: Backlog/);
-  await expect(page.getByRole('region', { name: 'Blocked' }).locator('.task-card')).toHaveCount(0);
+  await expect(page.locator(`[data-card="${fixture.card_id}"]`)).toHaveCount(0);
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await page.screenshot({ path: `${artifacts}/filtered-board.png`, fullPage: true });
@@ -102,4 +109,91 @@ test('clearing a real blocked study flag moves it live and display preferences p
   await page.keyboard.press('Escape');
   await expect(page.locator('.display-popover')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Display', exact: true })).toBeFocused();
+});
+
+test('Display and filter keyboard paths retain focus', async ({ page }) => {
+  await page.goto('/#/studies');
+  await page.getByRole('button', { name: 'Display', exact: true }).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(
+    page.locator('.property-chips').getByRole('button', { name: 'Role', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(
+    page.locator('.property-chips').getByRole('button', { name: 'Updated', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(
+    page.locator('.property-chips').getByRole('button', { name: 'Role', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(
+    page.locator('.property-chips').getByRole('button', { name: 'Updated', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(
+    page.locator('.property-chips').getByRole('button', { name: 'Role', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Filter', exact: true }).focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('menuitemcheckbox', { name: 'Backlog', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menuitem', { name: 'Column', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Filter', exact: true })).toBeFocused();
+});
+
+test('initial cards refusal shows a local retry and cached studies survive a refresh refusal', async ({
+  page,
+}) => {
+  const fixture = await labFixture(page.request);
+  await page.addInitScript(
+    (id) => localStorage.setItem('lykeion.workspace', id),
+    fixture.workspace_id,
+  );
+  let refuse = true;
+  await page.route('**/api/cards', async (route) => {
+    if (!refuse) return route.continue();
+    const response = await route.fetch({
+      headers: {
+        ...route.request().headers(),
+        'X-Workspace-ID': '00000000-0000-0000-0000-000000000001',
+      },
+    });
+    expect(response.status()).toBe(404);
+    await route.fulfill({ response });
+  });
+  await page.goto('/#/studies');
+  const failure = page.locator('.board-read-error');
+  await expect(failure).toBeVisible();
+  await expect(page.getByText('No studies', { exact: true })).toHaveCount(0);
+  await page.screenshot({
+    path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/final-fix-artifacts/board-read-error.png',
+    fullPage: true,
+  });
+  refuse = false;
+  await failure.getByRole('button', { name: 'Retry studies' }).click();
+  await expect(page.locator(`[data-card="${fixture.card_id}"]`)).toBeVisible();
+  refuse = true;
+  await page.evaluate(async () => {
+    const path = '/src/api/session.ts';
+    const { workspaceId } = await import(path);
+    const app = document.querySelector('#app') as Element & {
+      __vue_app__: {
+        _context: {
+          provides: Record<string, { invalidateQueries: (options: unknown) => Promise<void> }>;
+        };
+      };
+    };
+    await app.__vue_app__._context.provides.VUE_QUERY_CLIENT!.invalidateQueries({
+      queryKey: ['ws', workspaceId.value, 'cards'],
+    });
+  });
+  await expect(failure).toBeVisible();
+  await expect(page.locator(`[data-card="${fixture.card_id}"]`)).toBeVisible();
+  refuse = false;
+  await failure.getByRole('button', { name: 'Retry studies' }).click();
+  await expect(failure).toHaveCount(0);
 });

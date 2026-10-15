@@ -25,6 +25,7 @@ const question = ref('');
 const budget = ref(0);
 const deadline = ref('');
 const followsFrom = ref<string[]>([]);
+const originalFollowsFrom = ref<string[]>([]);
 const another = ref(false);
 const expanded = ref(false);
 const busy = ref(false);
@@ -57,6 +58,7 @@ watch(
     budget.value = c.budget_usd;
     deadline.value = c.deadline ? dateKey(new Date(c.deadline)) : '';
     followsFrom.value = [...c.follows_from];
+    originalFollowsFrom.value = [...c.follows_from];
   },
   { immediate: true },
 );
@@ -97,7 +99,10 @@ async function submit() {
     question: question.value.trim(),
     budget_usd: Math.max(0, Number(budget.value) || 0),
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
-    follows_from: followsFrom.value,
+    ...(!props.editId ||
+    JSON.stringify(followsFrom.value) !== JSON.stringify(originalFollowsFrom.value)
+      ? { follows_from: followsFrom.value }
+      : {}),
   };
   try {
     if (props.editId) await api('PATCH', `/api/cards/${props.editId}`, fields);
@@ -194,7 +199,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           </div>
           <div class="property-anchor">
             <button type="button" class="property-pill" @click="openMenu('budget')">
-              $ {{ budget > 0 ? `$${budget} budget` : 'No budget limit' }}
+              {{ budget > 0 ? `$${budget} budget` : 'No budget limit' }}
             </button>
             <div v-if="menu === 'budget'" class="composer-menu" role="dialog" aria-label="Budget">
               <label

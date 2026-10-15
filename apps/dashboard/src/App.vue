@@ -443,8 +443,10 @@ onUnmounted(() => {
           <Icon name="sidebar" />
         </button>
         <h1>{{ heading }}</h1>
-        <small v-if="reconnecting" class="reconnecting" role="status">Reconnecting…</small>
       </header>
+      <small v-if="reconnecting" class="reconnecting shared-reconnecting" role="status"
+        >Reconnecting…</small
+      >
       <div v-if="shellFailure" class="center-empty" role="alert">
         <Icon name="link" :size="32" />
         <p>{{ shellFailure.message }}</p>
@@ -454,7 +456,7 @@ onUnmounted(() => {
         <Icon name="refresh" :size="28" /><span>Loading workspace…</span>
       </div>
       <template v-else>
-        <RouterView @create="openCreate()" />
+        <RouterView />
         <RouterView v-if="cardId" name="detail" @close="go('studies')" />
       </template>
     </main>
@@ -697,5 +699,10 @@ onUnmounted(() => {
   margin-left: auto;
   color: var(--muted);
   font-size: 12px;
+}
+.shared-reconnecting {
+  flex: none;
+  align-self: flex-end;
+  padding: 4px 16px;
 }
 </style>

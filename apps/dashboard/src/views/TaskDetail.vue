@@ -73,6 +73,24 @@ const earlier = computed(() => (c.value ? earlierColumns(c.value, allGates.value
 const expanded = ref<Column | ''>('');
 const earlierRecords = useRecords(() => props.id, expanded);
 const openChecks = ref<string[]>([]);
+const resourceReads = computed(() =>
+  [
+    { label: 'Gates', query: gates },
+    { label: 'Comments', query: comments },
+    { label: 'Events', query: events },
+    { label: 'Runs', query: runs },
+    ...(stage.value ? [{ label: 'Records', query: records }] : []),
+    ...(expanded.value ? [{ label: 'Earlier records', query: earlierRecords }] : []),
+  ].map(({ label, query }) => ({
+    label,
+    error: query.error.value,
+    pending: query.isPending.value,
+    fetching: query.isFetching.value,
+    retry: () => query.refetch(),
+  })),
+);
+const readErrors = computed(() => resourceReads.value.filter((read) => read.error));
+const transcriptPending = computed(() => resourceReads.value.some((read) => read.pending));
 const entries = computed(() =>
   transcript(comments.data.value ?? [], runs.data.value ?? [], events.data.value ?? []),
 );
@@ -187,9 +205,11 @@ async function send() {
     if (a.kind === 'stop') await api('POST', `${base}/stop`, { reason: text });
     if (a.kind === 'resume') await api('POST', `${base}/resume`);
     if (!scope.current()) return;
-    comment.value = '';
-    action.value = { kind: 'comment' };
-    acknowledgedResumeComment = null;
+    if (ownDraftRevision === draftRevision) {
+      comment.value = '';
+      action.value = { kind: 'comment' };
+      acknowledgedResumeComment = null;
+    }
     await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
     if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
   } catch (e) {
@@ -220,7 +240,7 @@ async function remove() {
     await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
     if (scope.current()) emit('close');
   } catch (e) {
-    if (scope.current()) notify((e as Error).message);
+    if (scope.current()) error.value = (e as Error).message;
   }
 }
 function pin() {
@@ -368,6 +388,18 @@ function pin() {
               </div>
             </template>
           </div>
+          <div
+            v-for="read in readErrors"
+            :key="read.label"
+            class="inline-error study-read-error"
+            role="alert"
+          >
+            {{ read.label }}: {{ read.error?.message }}
+            <button class="text-button" :disabled="read.fetching" @click="read.retry()">
+              Retry {{ read.label }}
+            </button>
+          </div>
+          <p v-if="transcriptPending" role="status">Loading study activity…</p>
           <header class="transcript-heading"><h2>Transcript</h2></header>
           <template
             v-for="entry in entries"
@@ -482,6 +514,9 @@ function pin() {
       <p v-if="card.isPending.value" class="detail-loading" role="status">Loading study…</p>
       <p v-else-if="card.isError.value" class="inline-error" role="alert">
         {{ card.error.value?.message }}
+        <button class="text-button" :disabled="card.isFetching.value" @click="card.refetch()">
+          Retry study
+        </button>
       </p>
     </div>
     <div v-if="showMeta && c" class="task-splitter" />

@@ -307,7 +307,7 @@ test('a real refusal restores the optimistic order and explains why; active stud
     });
     expect((await page.request.post(`${LAB}/lab/hypotheses/${lower.id}`)).status()).toBe(204);
     releaseWrite();
-    await expect(page.getByRole('status')).toContainText('Backlog');
+    await expect(page.locator('.board-action-error')).toContainText('Backlog');
     await expect.poll(() => order(page)).toEqual(initial);
     await page.screenshot({ path: `${artifacts}/refusal-rollback.png`, fullPage: true });
     expect((await cards(page.request, ws)).find((c) => c.id === lower.id)!.position).toBe(
@@ -319,7 +319,7 @@ test('a real refusal restores the optimistic order and explains why; active stud
     );
     await action(page, lower.id, 'Delete…');
     expect((await refusedDelete).status()).toBe(409);
-    await expect(page.getByRole('status')).toContainText('Backlog');
+    await expect(page.locator('.board-action-error')).toContainText('Backlog');
     await expect(card(page, lower.id)).toBeVisible();
     releaseReads();
     await expect(card(page, lower.id)).toHaveCount(0);
@@ -415,4 +415,50 @@ test('a delayed old-workspace refusal cannot recreate its cleared cache or chang
     await wip(page.request, ws, 100);
     if (destination) await wip(page.request, destination, 100);
   }
+});
+
+test('a deleted predecessor stays canonical while an unrelated title edit succeeds', async ({
+  page,
+}) => {
+  const ws = await workspace(page);
+  const predecessor = await create(page.request, ws, 'Retained predecessor');
+  const res = await page.request.post('/api/cards', {
+    headers: headers(ws),
+    data: {
+      title: 'Dependent retained study',
+      question: `Retained provenance ${Date.now()}?`,
+      follows_from: [predecessor.id],
+    },
+  });
+  expect(res.status()).toBe(201);
+  const dependent = await res.json();
+  expect(
+    (await page.request.delete(`/api/cards/${predecessor.id}`, { headers: headers(ws) })).status(),
+  ).toBe(204);
+  await page.goto('/#/studies');
+  await action(page, dependent.id, 'Edit…');
+  const dialog = page.getByRole('dialog', { name: 'Edit study' });
+  await dialog.getByRole('textbox', { name: 'Study title' }).fill('Updated dependent title');
+  const saved = page.waitForResponse(
+    (r) => r.request().method() === 'PATCH' && r.url().endsWith(`/api/cards/${dependent.id}`),
+  );
+  await dialog.getByRole('button', { name: /Save study/ }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(dialog).toHaveCount(0);
+  const canonical = await page.request.get(`/api/cards/${dependent.id}`, { headers: headers(ws) });
+  expect(await canonical.json()).toMatchObject({
+    title: 'Updated dependent title',
+    follows_from: [predecessor.id],
+  });
+});
+
+test('study context-menu Escape restores the originating card focus', async ({ page }) => {
+  const ws = await workspace(page);
+  const study = await create(page.request, ws, 'Keyboard context study');
+  await page.goto('/#/studies');
+  await card(page, study.id).focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem', { name: 'Open', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(card(page, study.id)).toBeFocused();
 });

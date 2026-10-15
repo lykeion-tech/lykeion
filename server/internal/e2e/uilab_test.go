@@ -162,6 +162,96 @@ func TestUILab(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// Real stored history with enough non-rendered events to cross a page boundary.
+	mux.HandleFunc("POST /lab/events/{card}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(r.PathValue("card"))
+		n, countErr := strconv.Atoi(r.URL.Query().Get("n"))
+		if err != nil || countErr != nil || n < 1 || n > 1000 {
+			http.Error(w, "invalid history fixture", 400)
+			return
+		}
+		var ws uuid.UUID
+		if err := env.Owner.QueryRow(r.Context(), "SELECT workspace_id FROM card WHERE id=$1", id).Scan(&ws); err != nil {
+			http.Error(w, "no such card", 404)
+			return
+		}
+		err = st.InWorkspace(r.Context(), ws, uuid.Nil, func(tx *store.Tx) error {
+			for i := 0; i < n; i++ {
+				if err := tx.Emit(r.Context(), "record.created", &id, store.System, map[string]any{"fixture": i}); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	// Drives only a disposable fixture run through the real lifecycle queries,
+	// with no agent execution or scientific output.
+	mux.HandleFunc("POST /lab/run/{run}/{action}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(r.PathValue("run"))
+		if err != nil {
+			http.Error(w, "no such run", 404)
+			return
+		}
+		var ws uuid.UUID
+		if err := env.Owner.QueryRow(r.Context(), "SELECT workspace_id FROM agent_run WHERE id=$1", id).Scan(&ws); err != nil {
+			http.Error(w, "no such run", 404)
+			return
+		}
+		err = st.InWorkspace(r.Context(), ws, uuid.Nil, func(tx *store.Tx) error {
+			run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: ws, ID: id})
+			if err != nil || run.RuntimeID == nil {
+				return fmt.Errorf("no fixture runtime")
+			}
+			if r.PathValue("action") == "start" {
+				if _, err := tx.Q.TouchRuntime(r.Context(), db.TouchRuntimeParams{WorkspaceID: ws, ID: *run.RuntimeID, OwnerID: run.ResponsibleUserID}); err != nil {
+					return err
+				}
+				if err := tx.Q.RequeueAgentRun(r.Context(), db.RequeueAgentRunParams{WorkspaceID: ws, ID: id}); err != nil {
+					return err
+				}
+				c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{WorkspaceID: ws, ID: run.CardID})
+				if err != nil {
+					return err
+				}
+				state := board.FromCard(c)
+				state.Flag = ""
+				if err := tx.Q.SaveCardBoard(r.Context(), state.Params(c.ID, ws)); err != nil {
+					return err
+				}
+				claimed, err := tx.Q.ClaimAgentRun(r.Context(), db.ClaimAgentRunParams{WorkspaceID: ws, RuntimeID: run.RuntimeID})
+				if err != nil || claimed.ID != id {
+					return fmt.Errorf("fixture claim: %v", err)
+				}
+				if _, err := tx.Q.StartAgentRun(r.Context(), db.StartAgentRunParams{WorkspaceID: ws, ID: id, RuntimeID: run.RuntimeID}); err != nil {
+					return err
+				}
+				state.Flag = c.Flag
+				if err := tx.Q.SaveCardBoard(r.Context(), state.Params(c.ID, ws)); err != nil {
+					return err
+				}
+				return tx.Emit(r.Context(), "agent_run.started", &run.CardID, store.System, map[string]any{"id": id})
+			}
+			if r.PathValue("action") != "finish" {
+				return fmt.Errorf("unknown fixture action")
+			}
+			failure := "agent_error"
+			if err := tx.Q.FinishAgentRun(r.Context(), db.FinishAgentRunParams{WorkspaceID: ws, ID: id, Status: "failed", Error: "fixture lifecycle stopped", FailureReason: &failure}); err != nil {
+				return err
+			}
+			return tx.Emit(r.Context(), "agent_run.failed", &run.CardID, store.System, map[string]any{"id": id})
+		})
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc("POST /lab/fixtures", func(w http.ResponseWriter, r *http.Request) {
 		fixture, err := seedUIFixture(r.Context(), st)
 		if err != nil {
@@ -303,7 +393,21 @@ func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
 				if err != nil {
 					return err
 				}
-				if err := tx.Q.InsertAgentRunMessage(ctx, db.InsertAgentRunMessageParams{WorkspaceID: ws, AgentRunID: run.ID, Attempt: attempt, Seq: int32(seq), Type: "text", Content: body}); err != nil {
+				kind, tool := "text", ""
+				if attempt == 2 {
+					switch seq {
+					case 2:
+						kind, tool = "tool_use", "recorded-tool"
+						body, _ = json.Marshal(map[string]string{"input": strings.Repeat("long-input-", 40) + "END OF FULL TOOL INPUT"})
+					case 3:
+						kind, tool = "tool_result", "recorded-tool"
+						body, _ = json.Marshal("Recorded tool refusal")
+					case 4:
+						kind = "status"
+						body, _ = json.Marshal("Recorded continuity status")
+					}
+				}
+				if err := tx.Q.InsertAgentRunMessage(ctx, db.InsertAgentRunMessageParams{WorkspaceID: ws, AgentRunID: run.ID, Attempt: attempt, Seq: int32(seq), Type: kind, Tool: tool, Content: body}); err != nil {
 					return err
 				}
 			}

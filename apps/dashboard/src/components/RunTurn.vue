@@ -25,12 +25,9 @@ const status = computed(() =>
 );
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-// A command's own text when the tool carried one, else its input, shortened.
-function preview(m: RunMessage) {
-  const c = m.content as { command?: unknown } | null;
-  return c && typeof c === 'object' && typeof c.command === 'string'
-    ? c.command
-    : JSON.stringify(m.content).slice(0, 200);
+// Preserve the full recorded content for inspection in sequence order.
+function content(m: RunMessage) {
+  return typeof m.content === 'string' ? m.content : JSON.stringify(m.content, null, 2);
 }
 </script>
 <template>
@@ -43,16 +40,32 @@ function preview(m: RunMessage) {
     ><span v-if="status" class="chip">{{ status }}</span>
   </div>
   <div class="agent-turn">
-    <button v-if="commands.length" class="ran" :aria-expanded="open" @click="open = !open">
-      <Icon :name="open ? 'down' : 'right'" :size="12" />Ran {{ commands.length }}
-      {{ commands.length === 1 ? 'command' : 'commands' }}
+    <p v-if="messages.isError.value" class="run-error run-read-error" role="alert">
+      Run messages: {{ messages.error.value?.message }}
+      <button class="text-button" :disabled="messages.isFetching.value" @click="messages.refetch()">
+        Retry run messages
+      </button>
+    </p>
+    <p v-if="messages.isPending.value && run.attempt > 0" role="status">Loading run messages…</p>
+    <button
+      v-if="messages.data.value?.length"
+      class="ran"
+      :aria-expanded="open"
+      @click="open = !open"
+    >
+      <Icon :name="open ? 'down' : 'right'" :size="12" /><template v-if="commands.length"
+        >Ran {{ commands.length }} {{ commands.length === 1 ? 'command' : 'commands' }}</template
+      ><template v-else>Recorded messages</template>
     </button>
-    <ol v-if="open" class="commands">
-      <li v-for="m in commands" :key="m.seq">
-        <code>{{ m.tool }}</code> {{ preview(m) }}
+    <ol v-if="open" class="commands run-messages" aria-label="Recorded run messages">
+      <li v-for="m in messages.data.value ?? []" :key="m.seq" :data-message-type="m.type">
+        <strong
+          >{{ m.type.replace(/_/g, ' ') }}<template v-if="m.tool"> · {{ m.tool }}</template></strong
+        >
+        <pre>{{ content(m) }}</pre>
       </li>
     </ol>
-    <p v-if="said">{{ said }}</p>
+    <p v-if="said && !open">{{ said }}</p>
     <p v-if="run.error" class="run-error">{{ run.error }}</p>
   </div>
 </template>
@@ -98,5 +111,11 @@ function preview(m: RunMessage) {
 }
 .run-error {
   color: var(--error-text);
+}
+.run-messages pre {
+  margin: 4px 0 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
 }
 </style>

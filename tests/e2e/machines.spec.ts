@@ -441,3 +441,53 @@ for (const outcome of ['accepted', 'refused'] as const) {
     });
   }
 }
+
+test('Machines active run count follows lifecycle transitions without navigation', async ({
+  page,
+}) => {
+  const f = await labFixture(page.request);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
+  let subscribed = false;
+  await page.routeWebSocket(/\/ws$/, (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((raw) => {
+      if (JSON.parse(String(raw)).type === 'subscribe') subscribed = true;
+      server.send(raw);
+    });
+  });
+  await page.goto('/#/machines');
+  await expect.poll(() => subscribed).toBe(true);
+  // The socket's first-open refresh must finish before the lifecycle begins.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const app = document.querySelector('#app') as Element & {
+          __vue_app__: {
+            _context: {
+              provides: Record<
+                string,
+                { getQueryCache: () => { getAll: () => { state: { fetchStatus: string } }[] } }
+              >;
+            };
+          };
+        };
+        return app.__vue_app__._context.provides
+          .VUE_QUERY_CLIENT!.getQueryCache()
+          .getAll()
+          .every((q) => q.state.fetchStatus === 'idle');
+      }),
+    )
+    .toBe(true);
+  const machine = page.getByRole('listitem').filter({ hasText: 'Recorded transcript' });
+  await expect(machine.locator('.runs')).toHaveText('All idle');
+  const origin = await page.evaluate(() => performance.timeOrigin);
+  expect(
+    (await page.request.post(`http://127.0.0.1:18080/lab/run/${f.run_id}/start`)).status(),
+  ).toBe(204);
+  await expect(machine.locator('.runs')).toHaveText('1 run');
+  expect(
+    (await page.request.post(`http://127.0.0.1:18080/lab/run/${f.run_id}/finish`)).status(),
+  ).toBe(204);
+  await expect(machine.locator('.runs')).toHaveText('All idle');
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
+});

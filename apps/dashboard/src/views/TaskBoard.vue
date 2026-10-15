@@ -36,6 +36,8 @@ const members = useMembers();
 const workspace = useWorkspace();
 const { openComposer } = useTaskComposer();
 const client = useQueryClient();
+const actionError = ref('');
+const studyMenuTrigger = ref<HTMLElement>();
 const dragged = ref<{ id: string; workspace: string; scope: number } | null>(null);
 const studyMenu = ref<{ id: string; x: number; y: number } | null>(null);
 let scope = 0;
@@ -43,6 +45,7 @@ watch(
   workspaceId,
   () => {
     scope++;
+    actionError.value = '';
     dragged.value = null;
     studyMenu.value = null;
   },
@@ -58,6 +61,7 @@ async function moveTo(id: string, index: number) {
   const ownScope = scope;
   const key = keys.cards(workspace);
   const before = client.getQueryData<Card[]>(key);
+  actionError.value = '';
   const position = positionAt(grouped.value.backlog, id, index);
   client.setQueryData<Card[]>(key, (list) =>
     list?.map((c) => (c.id === id ? { ...c, position } : c)),
@@ -68,7 +72,7 @@ async function moveTo(id: string, index: number) {
   } catch (e) {
     if (current()) {
       client.setQueryData(key, before);
-      notify((e as Error).message);
+      actionError.value = (e as Error).message;
     }
   } finally {
     if (current()) void client.invalidateQueries({ queryKey: key });
@@ -104,7 +108,8 @@ function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card) {
   if (card.board_column !== 'backlog' || card.ending) return;
   event.preventDefault();
   closeMenus();
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  studyMenuTrigger.value = event.currentTarget as HTMLElement;
+  const rect = studyMenuTrigger.value.getBoundingClientRect();
   studyMenu.value = {
     id: card.id,
     x: event instanceof MouseEvent ? event.clientX : rect.left + 60,
@@ -120,11 +125,12 @@ async function removeStudy(id: string) {
   const ownScope = scope;
   const key = keys.cards(workspace);
   const current = () => scope === ownScope && workspaceId.value === workspace;
+  actionError.value = '';
   try {
     await api('DELETE', `/api/cards/${id}`);
     if (current()) await client.invalidateQueries({ queryKey: key });
   } catch (e) {
-    if (current()) notify((e as Error).message);
+    if (current()) actionError.value = (e as Error).message;
   }
 }
 
@@ -229,11 +235,19 @@ function dismiss(e: Event) {
   if (!(e.target as HTMLElement).closest('.study-menu')) studyMenu.value = null;
 }
 function key(e: KeyboardEvent) {
-  if (e.key === 'Escape') studyMenu.value = null;
+  if (e.key === 'Escape' && studyMenu.value) {
+    studyMenu.value = null;
+    studyMenuTrigger.value?.focus();
+  }
   if (!popup.value || e.key !== 'Escape') return;
   e.preventDefault();
-  if (submenu.value) submenu.value = null;
-  else {
+  if (submenu.value) {
+    const category = submenu.value;
+    submenu.value = null;
+    void nextTick(() =>
+      menuRoot.value?.querySelector<HTMLElement>(`[data-category="${category}"]`)?.focus(),
+    );
+  } else {
     closeMenus();
     trigger.value?.focus();
   }
@@ -245,7 +259,7 @@ function menuKeys(e: KeyboardEvent) {
     const scope = target.closest('[role=menu]') ?? menuRoot.value;
     const buttons = [
       ...(scope?.querySelectorAll<HTMLButtonElement>(
-        ':scope > button:not([disabled]), :scope > .category > button:not([disabled])',
+        ':scope > button:not([disabled]), :scope > .category > button:not([disabled]), :scope > .property-chips > button:not([disabled])',
       ) ?? []),
     ];
     const index = buttons.indexOf(target as HTMLButtonElement);
@@ -428,7 +442,15 @@ onUnmounted(() => {
         }}<Icon name="close" :size="11" /></button></template
     ><button class="text-button" @click="filters = {}">Clear</button>
   </div>
-  <div v-if="display.mode === 'Board'" class="board-scroll">
+  <p v-if="actionError" class="board-action-error" role="alert">{{ actionError }}</p>
+  <p v-if="cards.isError.value" class="board-read-error" role="alert">
+    Studies: {{ cards.error.value?.message }}
+    <button class="text-button" :disabled="cards.isFetching.value" @click="cards.refetch()">
+      Retry studies
+    </button>
+  </p>
+  <p v-if="cards.isPending.value" role="status">Loading studies…</p>
+  <div v-if="cards.data.value && display.mode === 'Board'" class="board-scroll">
     <section
       v-for="column in boardColumns"
       :key="column.id"
@@ -494,7 +516,7 @@ onUnmounted(() => {
       <p v-if="!grouped[column.id].length" class="column-empty">No studies</p>
     </section>
   </div>
-  <div v-else class="study-list">
+  <div v-else-if="cards.data.value" class="study-list">
     <section v-for="group in listGroups" :key="group.id">
       <button
         class="list-group"
@@ -1337,5 +1359,11 @@ onUnmounted(() => {
 }
 .task-card[draggable='true'] {
   cursor: grab;
+}
+.board-action-error,
+.board-read-error {
+  margin: 8px 20px;
+  color: var(--error-text);
+  font-size: 13px;
 }
 </style>

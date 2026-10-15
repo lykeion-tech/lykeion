@@ -50,10 +50,13 @@ describe('event to query map', () => {
   it("agent-run events refresh the card's runs, the card and the board", () => {
     for (const type of [
       'agent_run.queued',
+      'agent_run.dispatched',
       'agent_run.started',
       'agent_run.completed',
+      'agent_run.cancelled',
       'agent_run.failed',
     ]) {
+      has(type, keys.runtimes('w1'));
       has(type, keys.runs('w1', 'c1'));
       has(type, keys.card('w1', 'c1'));
       has(type, keys.cards('w1'));

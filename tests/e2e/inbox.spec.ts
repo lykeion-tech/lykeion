@@ -130,8 +130,12 @@ for (const destination of [
           await page.getByRole('textbox', { name: 'Comment' }).fill('Return visit draft');
         }
       }
+      const browserResponse = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && r.url().endsWith(`/api/inbox/${a.item.id}/read`),
+      );
       release();
       await drained;
+      await (await browserResponse).finished();
       await page.evaluate(() => new Promise(requestAnimationFrame));
       await expect(page.getByRole('alert')).toHaveCount(0);
       if (destination !== 'another workspace')

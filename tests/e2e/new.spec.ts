@@ -142,7 +142,7 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue(
     'Original edit question?',
   );
-  await expect(dialog.getByRole('button', { name: '$ $8 budget', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '$8 budget', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: '2026-11-12', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: /Follows from: / })).toHaveCount(1);
   await expect(dialog.getByRole('switch', { name: 'Create another' })).toHaveCount(0);
@@ -150,7 +150,7 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   await dialog
     .getByRole('textbox', { name: 'Research question' })
     .fill('Edited research question?');
-  await dialog.getByRole('button', { name: '$ $8 budget', exact: true }).click();
+  await dialog.getByRole('button', { name: '$8 budget', exact: true }).click();
   await dialog.getByRole('spinbutton', { name: 'Budget limit in USD' }).fill('12.5');
   await dialog.getByRole('button', { name: '2026-11-12', exact: true }).click();
   await dialog.getByRole('button', { name: 'No due date', exact: true }).click();

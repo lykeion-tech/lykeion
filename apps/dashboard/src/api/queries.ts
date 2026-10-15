@@ -94,7 +94,26 @@ export const useGates = (id: MaybeRefOrGetter<string>) =>
 export const useComments = (id: MaybeRefOrGetter<string>) =>
   ofCard<Comment[]>(id, keys.comments, (c) => `/api/cards/${c}/comments`);
 export const useCardEvents = (id: MaybeRefOrGetter<string>) =>
-  ofCard<LykEvent[]>(id, keys.events, (c) => `/api/cards/${c}/events`);
+  useQuery({
+    queryKey: computed(() => keys.events(ws.value, toValue(id))),
+    queryFn: async ({ signal }) => {
+      const workspace = ws.value;
+      const card = toValue(id);
+      const events: LykEvent[] = [];
+      let after = 0;
+      while (true) {
+        const page =
+          (await api<LykEvent[] | null>('GET', `/api/cards/${card}/events?after=${after}`)) ?? [];
+        // Cancellation fences subsequent pages even when fetch has not aborted.
+        if (signal.aborted || ws.value !== workspace || toValue(id) !== card)
+          throw new Error('Study history read cancelled');
+        events.push(...page);
+        if (page.length < 500) return events;
+        after = page[page.length - 1]!.id;
+      }
+    },
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+  });
 export const useRuns = (id: MaybeRefOrGetter<string>) =>
   ofCard<AgentRun[]>(id, keys.runs, (c) => `/api/cards/${c}/runs`);
 

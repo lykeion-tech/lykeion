@@ -351,8 +351,12 @@ for (const action of ['invite', 'role', 'revoke', 'remove'] as const) {
           }
           const newDialog = await openInvite(page, 'current-visit@lab.test');
           await newDialog.getByRole('combobox', { name: 'Role' }).selectOption('admin');
+          const browserResponse = page.waitForResponse(
+            (r) => r.request().method() === method && r.url().includes(`/api/workspaces/${ws}/`),
+          );
           release();
           await drained;
+          await (await browserResponse).finished();
           await page.evaluate(() => new Promise(requestAnimationFrame));
           await expect(newDialog).toBeVisible();
           await expect(newDialog.getByRole('textbox', { name: 'Email' })).toHaveValue(
