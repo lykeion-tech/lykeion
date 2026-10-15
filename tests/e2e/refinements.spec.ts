@@ -151,6 +151,7 @@ test('Research creation/edit and member/agent responsibility use canonical write
   ).json();
   await page.goto('/#/agents');
   await page.getByRole('button', { name: 'New agent', exact: true }).click();
+  await page.getByRole('button', { name: /Start blank/ }).click();
   const agentDialog = page.getByRole('dialog', { name: 'New agent', exact: true });
   await agentDialog.getByRole('textbox', { name: 'Agent name' }).fill('Evidence curator');
   await agentDialog
@@ -159,10 +160,10 @@ test('Research creation/edit and member/agent responsibility use canonical write
   await agentDialog.getByRole('button', { name: 'Create agent', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Evidence curator', exact: true })).toBeVisible();
   const agentId = page.url().split('/').pop()!;
-  await page.getByRole('button', { name: 'Edit agent', exact: true }).click();
+  await page.getByRole('tab', { name: 'Settings' }).click();
   await page.getByRole('textbox', { name: 'Agent description' }).fill('Curates recorded evidence');
-  await page.getByRole('button', { name: 'Save agent', exact: true }).click();
-  await expect(page.locator('.description')).toHaveText('Curates recorded evidence');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.locator('.agent-description')).toHaveText('Curates recorded evidence');
   const before = await (await page.request.get(`/api/cards/${f.card_id}`, { headers })).json();
   const runsBefore = await (
     await page.request.get(`/api/cards/${f.card_id}/runs`, { headers })
@@ -235,7 +236,8 @@ test('Research creation/edit and member/agent responsibility use canonical write
   );
   await page.goto('/#/agents/' + agentId);
   page.once('dialog', (d) => d.accept());
-  await page.getByRole('button', { name: 'Archive agent', exact: true }).click();
+  await page.getByRole('button', { name: 'Agent actions' }).click();
+  await page.getByRole('menuitem', { name: 'Archive agent' }).click();
   await expect(page.getByText('Archived', { exact: true })).toBeVisible();
   await page.goto(`/#/studies/${f.card_id}`);
   await expect(meta.getByRole('combobox', { name: 'Assignee', exact: true })).toContainText(
@@ -295,7 +297,8 @@ test('agent visibility revocation clears protected cached details and fences a h
       f.workspace_id,
     );
     await member.goto('/#/agents/' + agent.id);
-    await expect(member.locator('.agent-instructions')).toHaveText(
+    await member.getByRole('tab', { name: 'Capabilities' }).click();
+    await expect(member.getByRole('textbox', { name: 'Agent instructions' })).toHaveValue(
       'PROTECTED RESEARCH INSTRUCTIONS',
     );
     let release!: () => void, held!: () => void;
@@ -320,10 +323,10 @@ test('agent visibility revocation clears protected cached details and fences a h
       data: { visibility: 'private' },
     });
     await expect(member.getByRole('alert')).toContainText('not found');
-    await expect(member.locator('.agent-instructions')).toHaveCount(0);
+    await expect(member.getByRole('textbox', { name: 'Agent instructions' })).toHaveCount(0);
     release();
     await member.waitForTimeout(150);
-    await expect(member.locator('.agent-instructions')).toHaveCount(0);
+    await expect(member.getByRole('textbox', { name: 'Agent instructions' })).toHaveCount(0);
     await expect(member.getByText('PROTECTED RESEARCH INSTRUCTIONS', { exact: true })).toHaveCount(
       0,
     );
@@ -411,6 +414,7 @@ for (const kind of ['researches', 'agents'] as const) {
     });
     const label = kind === 'researches' ? 'Research' : 'agent';
     await page.getByRole('button', { name: 'New ' + label, exact: true }).click();
+    if (kind === 'agents') await page.getByRole('button', { name: /Start blank/ }).click();
     const dialog = page.getByRole('dialog', { name: 'New ' + label, exact: true });
     const name = 'Held ' + kind + ' creation';
     await dialog

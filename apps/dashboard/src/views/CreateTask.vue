@@ -7,18 +7,22 @@ import Icon from '../components/Icon.vue';
 import { api, ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { useCards, useWorkspace } from '../api/queries';
+import { useAgents, useCards, useMe, useMembers, useWorkspace } from '../api/queries';
 import type { Card } from '../api/types';
 import { dateKey } from '../lib/dates';
 import { matchesQuery } from '../lib/search';
 import { studyNumber } from '../lib/studies';
 import { notify } from '../state/notice';
+import type { Assignee } from '../state/task-composer';
 
-const props = defineProps<{ editId?: string }>();
+const props = defineProps<{ editId?: string; assignee?: Assignee }>();
 const emit = defineEmits<{ close: [] }>();
 const client = useQueryClient();
 const cards = useCards();
 const workspace = useWorkspace();
+const members = useMembers();
+const agents = useAgents();
+const me = useMe();
 const isMac = navigator.platform.includes('Mac');
 const title = ref('');
 const question = ref('');
@@ -34,6 +38,35 @@ const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
 const query = ref('');
 const form = ref<HTMLFormElement>();
+const assignee = ref<Assignee | null>(props.assignee ? { ...props.assignee } : null);
+
+// The creator owns the study, so a private agent is offered only to its owner.
+const assignableAgents = computed(() =>
+  (agents.data.value ?? []).filter(
+    (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
+  ),
+);
+const memberName = (id: string) => {
+  const m = members.data.value?.find((x) => x.user_id === id);
+  return m ? m.name || m.email : 'Member';
+};
+const assigneeName = computed(() =>
+  !assignee.value
+    ? ''
+    : assignee.value.type === 'agent'
+      ? (agents.data.value?.find((a) => a.id === assignee.value!.id)?.name ?? 'Agent')
+      : memberName(assignee.value.id),
+);
+const matchingMembers = computed(() =>
+  (members.data.value ?? []).filter((m) => matchesQuery(`${m.name} ${m.email}`, query.value)),
+);
+const matchingAgents = computed(() =>
+  assignableAgents.value.filter((a) => matchesQuery(a.name, query.value)),
+);
+function assign(value: typeof assignee.value) {
+  assignee.value = value;
+  closeMenu();
+}
 
 const editing = computed(() => cards.data.value?.find((c) => c.id === props.editId));
 const heading = computed(() => (props.editId ? 'Edit study' : 'New study'));
@@ -106,7 +139,15 @@ async function submit() {
   };
   try {
     if (props.editId) await api('PATCH', `/api/cards/${props.editId}`, fields);
-    else await api('POST', '/api/cards', fields);
+    else {
+      const created = await api<Card>('POST', '/api/cards', fields);
+      // ponytail: two requests, so a refused assignment leaves the study created unassigned; fold into POST /api/cards if that matters.
+      if (assignee.value)
+        await api('PATCH', `/api/cards/${created.id}/properties`, {
+          assignee_type: assignee.value.type,
+          assignee_id: assignee.value.id,
+        }).catch((e: Error) => notify(`Study created, but not assigned: ${e.message}`));
+    }
     await client.invalidateQueries({ queryKey: keys.cards(workspaceId.value) });
     if (props.editId) {
       await client.invalidateQueries({ queryKey: keys.card(workspaceId.value, props.editId) });
@@ -118,6 +159,7 @@ async function submit() {
     if (another.value) {
       title.value = question.value = deadline.value = '';
       budget.value = 0;
+      assignee.value = props.assignee ? { ...props.assignee } : null;
       followsFrom.value = [];
       await nextTick();
       form.value?.querySelector<HTMLInputElement>('.composer-title')?.focus();
@@ -222,6 +264,43 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               kind="due"
               @close="closeMenu"
             />
+          </div>
+          <div v-if="!editId" class="property-anchor">
+            <button
+              type="button"
+              class="property-pill assignee-pill"
+              :aria-label="assignee ? `Assignee: ${assigneeName}` : 'Unassigned'"
+              @click="openMenu('assignee')"
+            >
+              <span v-if="assignee" class="avatar">{{ assigneeName[0] }}</span
+              ><span>{{ assignee ? assigneeName : 'Unassigned' }}</span>
+            </button>
+            <div v-if="menu === 'assignee'" class="composer-menu" role="menu">
+              <input v-model="query" placeholder="Assign to…" aria-label="Search assignees" />
+              <button type="button" role="menuitem" @click="assign(null)">Unassigned</button>
+              <p v-if="matchingMembers.length" class="menu-group">Members</p>
+              <button
+                v-for="m in matchingMembers"
+                :key="m.user_id"
+                type="button"
+                role="menuitem"
+                @click="assign({ type: 'member', id: m.user_id })"
+              >
+                <span class="avatar">{{ (m.name || m.email)[0] }}</span
+                ><span>{{ m.name || m.email }}</span>
+              </button>
+              <p v-if="matchingAgents.length" class="menu-group">Agents</p>
+              <button
+                v-for="a in matchingAgents"
+                :key="a.id"
+                type="button"
+                role="menuitem"
+                @click="assign({ type: 'agent', id: a.id })"
+              >
+                <Icon name="bot" :size="14" /><span>{{ a.name }}</span>
+              </button>
+              <p v-if="!matchingMembers.length && !matchingAgents.length">No matches</p>
+            </div>
           </div>
           <div v-for="id in followsFrom" :key="id" class="property-anchor">
             <button
@@ -570,6 +649,10 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .composer-menu small {
   margin-left: auto;
   color: var(--muted);
+  font-size: 11px;
+}
+.composer-menu p.menu-group {
+  padding: 6px 8px 2px;
   font-size: 11px;
 }
 .composer-menu p {

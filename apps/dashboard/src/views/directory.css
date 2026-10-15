@@ -139,3 +139,221 @@
 .directory-form .instructions-input {
   min-height: 130px;
 }
+.agent-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+  font-size: 13px;
+}
+.agent-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 224px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+}
+.agent-search input {
+  border: 0;
+  background: none;
+  outline: 0;
+  width: 100%;
+  font-size: 13px;
+}
+.agent-tabs {
+  display: flex;
+  gap: 4px;
+}
+.agent-tabs button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.agent-tabs button[aria-selected='true'] {
+  background: var(--hover);
+}
+.agent-tabs small {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.agent-sort {
+  margin-left: auto;
+  gap: 5px;
+}
+.agent-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 120px 150px 110px 120px 110px 70px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  font-size: 12px;
+}
+a.agent-row:hover {
+  background: var(--hover);
+}
+.agent-head {
+  padding: 6px 16px;
+  color: var(--muted);
+}
+.agent-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.agent-cell > span:last-child {
+  min-width: 0;
+}
+.agent-cell b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.agent-cell small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.you-badge {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 400;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--hover);
+  color: var(--muted);
+}
+.agent-active {
+  color: #2f7d3b;
+}
+.agent-active::before {
+  content: '●';
+  margin-right: 5px;
+  font-size: 9px;
+}
+.agent-owner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.avatar.small {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+}
+.agent-studies {
+  text-align: right;
+}
+.agent-none {
+  padding: 24px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.agent-create-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 -24px;
+  padding: 8px 24px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.agent-create-header h1 {
+  font-size: 13px;
+  font-weight: 500;
+}
+.agent-create-header p {
+  color: var(--muted);
+  font-size: 11px;
+}
+.agent-create-start {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18vh 20px 40px;
+}
+.agent-create-start > small {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.agent-create-start h2 {
+  margin: 10px 0 34px;
+  font-size: 32px;
+  font-weight: 500;
+}
+.agent-create-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 376px));
+  gap: 16px;
+  width: 100%;
+  justify-content: center;
+}
+.agent-create-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 20px;
+  min-height: 230px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--hover);
+  text-align: left;
+  font-size: 13px;
+}
+.agent-create-option:not(:disabled):hover {
+  border-color: var(--primary);
+}
+.agent-create-option:disabled {
+  background: none;
+  opacity: 0.6;
+  cursor: default;
+}
+.agent-create-option .option-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 26px;
+  border-radius: 8px;
+  background: var(--input);
+}
+.agent-create-option strong {
+  font-size: 15px;
+  font-weight: 500;
+}
+.agent-create-option > span:not(.option-icon) {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.agent-create-option em {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+  font-style: normal;
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .agent-create-options {
+    grid-template-columns: 1fr;
+  }
+}
+.agent-cell > .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}

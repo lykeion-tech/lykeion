@@ -9,6 +9,7 @@ import {
 import TaskBoard from './views/TaskBoard.vue';
 import ResearchesView from './views/ResearchesView.vue';
 import AgentsView from './views/AgentsView.vue';
+import AgentDetail from './views/AgentDetail.vue';
 import TaskDetail from './views/TaskDetail.vue';
 import MachinesView from './views/MachinesView.vue';
 import InboxView from './views/InboxView.vue';
@@ -30,6 +31,8 @@ declare module 'vue-router' {
     bare?: boolean;
     // Reachable without a session.
     public?: boolean;
+    // The view draws its own heading instead of the shell's.
+    ownHeader?: boolean;
   }
 }
 
@@ -49,10 +52,17 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'projects', title: 'Researches' },
   },
   {
-    path: '/agents/:id?',
+    path: '/agents/new',
     component: AgentsView,
+    props: { create: true },
+    meta: { page: 'agents', title: 'Create an agent', tabTitle: 'Agents', ownHeader: true },
+  },
+  { path: '/agents', component: AgentsView, meta: { page: 'agents', title: 'Agents' } },
+  {
+    path: '/agents/:id',
+    component: AgentDetail,
     props: true,
-    meta: { page: 'agents', title: 'Agents' },
+    meta: { page: 'agents', title: 'Agents', ownHeader: true },
   },
   { path: '/', redirect: '/studies' },
   { path: '/signin', component: SignInView, meta: { bare: true, public: true, title: 'Sign in' } },

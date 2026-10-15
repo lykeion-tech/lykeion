@@ -451,7 +451,7 @@ onUnmounted(() => {
     />
     <main class="main-pane">
       <header
-        v-if="!['settings', 'inbox'].includes(current ?? '')"
+        v-if="!['settings', 'inbox'].includes(current ?? '') && !route.meta.ownHeader"
         class="page-header"
         :class="{
           'machine-detail-shell-heading': current === 'machines' && route.params.machineId,
@@ -466,6 +466,7 @@ onUnmounted(() => {
           <Icon name="sidebar" />
         </button>
         <h1>{{ heading }}</h1>
+        <span id="page-header-count" class="page-header-count" />
         <div id="page-header-actions" class="page-header-actions" />
       </header>
       <small v-if="reconnecting" class="reconnecting shared-reconnecting" role="status"
@@ -484,7 +485,12 @@ onUnmounted(() => {
         <RouterView v-if="cardId" name="detail" @close="go('studies')" />
       </template>
     </main>
-    <CreateTask v-if="composer.open" :edit-id="composer.editId" @close="closeComposer()" />
+    <CreateTask
+      v-if="composer.open"
+      :edit-id="composer.editId"
+      :assignee="composer.assignee"
+      @close="closeComposer()"
+    />
     <div
       v-if="help"
       id="help-menu"
@@ -732,6 +738,11 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
+.page-header-count {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .page-header-actions {
   display: flex;
   align-items: center;

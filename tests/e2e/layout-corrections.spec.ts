@@ -133,6 +133,8 @@ test('Agents and Researches create from scoped title actions with decorative plu
   await expect(page.locator('.directory-toolbar')).toHaveCount(0);
   await page.screenshot({ path: `${artifacts}/agents-header-plus-1920.png` });
   await create.click();
+  await expect(page).toHaveURL(/#\/agents\/new$/);
+  await page.getByRole('button', { name: /Start blank/ }).click();
   const dialog = page.getByRole('dialog', { name: 'New agent', exact: true });
   await dialog
     .getByRole('textbox', { name: 'Agent name', exact: true })

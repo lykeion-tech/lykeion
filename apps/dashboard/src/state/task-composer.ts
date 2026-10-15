@@ -1,13 +1,21 @@
 import { reactive, readonly } from 'vue';
 
-// Whether the New study modal is open, and which Backlog study it edits.
-const composer = reactive<{ open: boolean; editId?: string }>({ open: false });
+export interface Assignee {
+  type: 'member' | 'agent';
+  id: string;
+}
 
-function openComposer(editId?: string) {
-  Object.assign(composer, { open: true, editId });
+// Whether the New study modal is open, which Backlog study it edits, and who a
+// new study starts assigned to.
+const composer = reactive<{ open: boolean; editId?: string; assignee?: Assignee }>({
+  open: false,
+});
+
+function openComposer(editId?: string, assignee?: Assignee) {
+  Object.assign(composer, { open: true, editId, assignee });
 }
 function closeComposer() {
-  Object.assign(composer, { open: false, editId: undefined });
+  Object.assign(composer, { open: false, editId: undefined, assignee: undefined });
 }
 
 export function useTaskComposer() {

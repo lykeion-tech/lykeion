@@ -2,18 +2,20 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
-import { api, ApiError } from '../api/client';
-import { useAgent, useAgents, useMe, useWorkspaces } from '../api/queries';
+import { api } from '../api/client';
+import { useAgents, useCards, useMe, useMembers } from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import type { AgentDefinition } from '../api/types';
 import Modal from '../components/Modal.vue';
 import Icon from '../components/Icon.vue';
-const props = defineProps<{ id?: string }>();
+import { matchesQuery } from '../lib/search';
+import { timeAgo } from '../lib/studies';
+defineProps<{ create?: boolean }>();
 const list = useAgents(),
-  detail = useAgent(() => props.id ?? ''),
   me = useMe(),
-  workspaces = useWorkspaces();
+  members = useMembers(),
+  cards = useCards();
 const client = useQueryClient(),
   router = useRouter();
 const editor = ref(false),
@@ -29,154 +31,167 @@ const empty = () => ({
 });
 const draft = ref(empty());
 let visit = 0;
-const denied = computed(
-  () => detail.error.value instanceof ApiError && [403, 404].includes(detail.error.value.status),
+const tab = ref<'mine' | 'all' | 'archived'>('mine'),
+  search = ref(''),
+  newestFirst = ref(true);
+const inTab = (a: AgentDefinition, t: typeof tab.value) =>
+  t === 'archived'
+    ? !!a.archived_at
+    : !a.archived_at && (t === 'all' || a.owner_id === me.data.value?.id);
+const count = (t: typeof tab.value) => (list.data.value ?? []).filter((a) => inTab(a, t)).length;
+const rows = computed(() =>
+  (list.data.value ?? [])
+    .filter((a) => inTab(a, tab.value) && matchesQuery(`${a.name} ${a.description}`, search.value))
+    .sort((a, b) => (newestFirst.value ? -1 : 1) * a.updated_at.localeCompare(b.updated_at)),
 );
-const agent = computed(() => (denied.value ? undefined : detail.data.value));
-const editable = computed(
-  () =>
-    agent.value &&
-    !agent.value.archived_at &&
-    (agent.value.owner_id === me.data.value?.id ||
-      ['owner', 'admin'].includes(
-        workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role ?? '',
-      )),
-);
-watch(
-  [workspaceId, () => props.id],
-  () => {
-    visit++;
-    editor.value = false;
-    draft.value = empty();
-    error.value = '';
-    busy.value = false;
-  },
-  { flush: 'sync' },
-);
-watch(
-  denied,
-  (value) => {
-    if (value) {
-      editor.value = false;
-      draft.value = empty();
-      error.value = '';
-    }
-  },
-  { flush: 'sync' },
-);
+const owner = (id: string) => members.data.value?.find((m) => m.user_id === id);
+const studies = (id: string) =>
+  (cards.data.value ?? []).filter((c) => c.assignee_type === 'agent' && c.assignee_id === id)
+    .length;
+watch(workspaceId, () => {
+  visit++;
+  editor.value = false;
+  busy.value = false;
+});
 onUnmounted(() => visit++);
 function edit() {
-  const a = agent.value;
-  draft.value = a
-    ? {
-        name: a.name,
-        description: a.description,
-        instructions: a.instructions,
-        harness: a.harness,
-        model: a.model,
-        visibility: a.visibility,
-      }
-    : empty();
+  draft.value = empty();
   editor.value = true;
   error.value = '';
 }
 async function save() {
   const ws = workspaceId.value,
-    id = props.id,
     v = visit;
   busy.value = true;
   error.value = '';
   try {
-    const saved = await api<AgentDefinition>(
-      id ? 'PATCH' : 'POST',
-      id ? `/api/agents/${id}` : '/api/agents',
-      draft.value,
-    );
+    const saved = await api<AgentDefinition>('POST', '/api/agents', draft.value);
     if (v !== visit || ws !== workspaceId.value) return;
     editor.value = false;
     await client.invalidateQueries({ queryKey: keys.agents(ws) });
     if (v !== visit || ws !== workspaceId.value) return;
-    if (id) await client.invalidateQueries({ queryKey: keys.agent(ws, id) });
-    else await router.push('/agents/' + saved.id);
+    await router.push('/agents/' + saved.id);
   } catch (e) {
     if (v === visit) error.value = (e as Error).message;
   } finally {
     if (v === visit) busy.value = false;
   }
 }
-async function archive() {
-  if (!agent.value || !confirm(`Archive ${agent.value.name}? Existing study assignments remain.`))
-    return;
-  const ws = workspaceId.value,
-    id = props.id!,
-    v = visit;
-  try {
-    await api('POST', `/api/agents/${id}/archive`);
-    if (v !== visit) return;
-    await client.invalidateQueries({ queryKey: keys.agents(ws) });
-    await client.invalidateQueries({ queryKey: keys.agent(ws, id) });
-  } catch (e) {
-    if (v === visit) error.value = (e as Error).message;
-  }
-}
 </script>
 <template>
   <section class="directory-page">
-    <template v-if="id"
-      ><RouterLink to="/agents" class="text-button">← Agents</RouterLink>
-      <div v-if="agent" class="research-detail">
-        <header>
-          <h1>{{ agent.name }}</h1>
-          <template v-if="editable"
-            ><button class="button" @click="edit">Edit agent</button
-            ><button class="button" @click="archive">Archive agent</button></template
-          >
-        </header>
-        <p v-if="agent.archived_at" class="muted">Archived</p>
-        <p class="description">{{ agent.description || 'No description.' }}</p>
-        <dl class="agent-facts">
-          <dt>Harness</dt>
-          <dd>{{ agent.harness === 'claude' ? 'Claude Code' : 'Codex' }}</dd>
-          <dt>Model</dt>
-          <dd>{{ agent.model || 'Harness default' }}</dd>
-          <dt>Visibility</dt>
-          <dd>{{ agent.visibility }}</dd>
-        </dl>
-        <h2>Instructions</h2>
-        <pre class="agent-instructions">{{ agent.instructions || 'No instructions.' }}</pre>
+    <template v-if="create"
+      ><header class="agent-create-header">
+        <RouterLink to="/agents" class="icon-button" aria-label="Back to agents"
+          ><Icon name="back" :size="16"
+        /></RouterLink>
+        <div>
+          <h1>Create an agent</h1>
+          <p>Choose a starting point</p>
+        </div>
+      </header>
+      <div class="agent-create-start">
+        <small>Agent creation</small>
+        <h2>How would you like to start?</h2>
+        <div class="agent-create-options">
+          <button class="agent-create-option" @click="edit">
+            <span class="option-icon"><Icon name="file" :size="18" /></span>
+            <strong>Start blank</strong>
+            <span>Set the name, instructions, and harness yourself.</span>
+            <em>Continue <Icon name="right" :size="12" /></em>
+          </button>
+          <button class="agent-create-option" disabled>
+            <span class="option-icon"><Icon name="chat" :size="18" /></span>
+            <strong>Build with AI</strong>
+            <span>Create an editable configuration through conversation.</span>
+            <em>Not available yet</em>
+          </button>
+        </div>
       </div></template
     ><template v-else
+      ><Teleport to="#page-header-count">{{ list.isSuccess.value ? count('all') : '' }}</Teleport
       ><Teleport to="#page-header-actions">
-        <button class="button primary" @click="edit">
+        <button class="button primary" @click="router.push('/agents/new')">
           <Icon name="plus" :size="14" />New agent
         </button>
       </Teleport>
-      <div class="directory-list">
-        <RouterLink v-for="a in list.data.value ?? []" :key="a.id" :to="'/agents/' + a.id"
-          ><span class="avatar">{{ a.name[0] }}</span
-          ><span
-            >{{ a.name
-            }}<small
-              >{{ a.harness }} · {{ a.visibility }}{{ a.archived_at ? ' · Archived' : '' }}</small
+      <div v-if="list.data.value?.length" class="agent-toolbar">
+        <label class="agent-search"
+          ><Icon name="search" :size="14" /><input
+            v-model="search"
+            placeholder="Search agents..."
+            aria-label="Search agents"
+        /></label>
+        <div class="agent-tabs" role="tablist">
+          <button
+            v-for="t in ['mine', 'all', 'archived'] as const"
+            :key="t"
+            role="tab"
+            :aria-selected="tab === t"
+            @click="tab = t"
+          >
+            {{ t[0]!.toUpperCase() + t.slice(1) }} <small>{{ count(t) }}</small>
+          </button>
+        </div>
+        <button class="button agent-sort" @click="newestFirst = !newestFirst">
+          <Icon :name="newestFirst ? 'down' : 'up'" :size="13" />Last updated
+        </button>
+      </div>
+      <div v-if="list.data.value?.length" class="agent-table" role="table" aria-label="Agents">
+        <div class="agent-row agent-head" role="row">
+          <span role="columnheader">Agent</span><span role="columnheader">Status</span
+          ><span role="columnheader">Owner</span><span role="columnheader">Access</span
+          ><span role="columnheader">Harness</span
+          ><span role="columnheader" aria-sort="descending">Last updated</span
+          ><span role="columnheader">Studies</span>
+        </div>
+        <RouterLink
+          v-for="a in rows"
+          :key="a.id"
+          :to="'/agents/' + a.id"
+          class="agent-row"
+          role="row"
+          ><span class="agent-cell" role="cell"
+            ><span class="avatar">{{ a.name[0] }}</span
+            ><span
+              ><b
+                >{{ a.name }}<Icon v-if="a.visibility === 'private'" name="shield" :size="12" /><i
+                  v-if="a.owner_id === me.data.value?.id"
+                  class="you-badge"
+                  >You</i
+                ></b
+              ><small>{{ a.description }}</small></span
             ></span
-          ><Icon name="right"
-        /></RouterLink>
+          ><span role="cell" :class="a.archived_at ? 'muted' : 'agent-active'">{{
+            a.archived_at ? 'Archived' : 'Active'
+          }}</span
+          ><span role="cell" class="agent-owner"
+            ><span class="avatar small">{{
+              (owner(a.owner_id)?.name || owner(a.owner_id)?.email || '?')[0]
+            }}</span
+            >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
+          ><span role="cell">{{ a.visibility === 'private' ? 'Owner only' : 'Workspace' }}</span
+          ><span role="cell">{{ a.harness === 'claude' ? 'Claude Code' : 'Codex' }}</span
+          ><span role="cell">{{ timeAgo(a.updated_at) }}</span
+          ><span role="cell" class="agent-studies">{{ studies(a.id) }}</span></RouterLink
+        >
+        <p v-if="!rows.length" class="agent-none">No matching agents</p>
       </div>
       <div v-if="list.isSuccess.value && !list.data.value?.length" class="directory-empty">
         <Icon name="bot" :size="30" />
         <h2>No agents yet</h2>
         <p>Create a profile to assign responsibility for a study.</p>
-        <button class="button" @click="edit">Create agent</button>
+        <button class="button" @click="router.push('/agents/new')">Create agent</button>
       </div></template
     >
-    <p v-if="id ? detail.error.value : list.error.value" class="inline-error" role="alert">
-      {{ (id ? detail.error.value : list.error.value)?.message }}
-      <button @click="id ? detail.refetch() : list.refetch()">Retry</button>
+    <p v-if="list.error.value" class="inline-error" role="alert">
+      {{ list.error.value.message }}
+      <button @click="list.refetch()">Retry</button>
     </p>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-    <Modal v-if="editor" :title="id ? 'Edit agent' : 'New agent'" @close="editor = false"
+    <Modal v-if="editor" :title="'New agent'" @close="editor = false"
       ><form class="directory-form agent-form" @submit.prevent="save">
-        <h2>{{ id ? 'Edit agent' : 'New agent' }}</h2>
+        <h2>New agent</h2>
         <label
           >Name<input v-model="draft.name" required maxlength="64" aria-label="Agent name" /></label
         ><label
@@ -211,7 +226,7 @@ async function archive() {
         <footer>
           <button type="button" class="button" @click="editor = false">Cancel</button
           ><button class="button primary" :disabled="busy || !draft.name.trim()">
-            {{ id ? 'Save agent' : 'Create agent' }}
+            Create agent
           </button>
         </footer>
       </form></Modal
