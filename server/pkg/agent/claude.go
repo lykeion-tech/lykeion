@@ -57,11 +57,18 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		cleanup(true)
 		return nil, err
 	}
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--allowedTools", claudeTools, "--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"}
+	mode := "dontAsk"
+	if o.Inherit {
+		mode = "default" // the account's own allow and deny rules decide the rest
+	}
+	if o.ReadOnly {
+		mode = "plan" // reads and answers; no edits, no commands
+	}
+	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools", claudeTools, "--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"}
 	if o.Inherit {
 		// The account's settings, permission rules and MCP apply; the role's
 		// servers are added and Lykeion's own tools are pre-approved.
-		args = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", "default", "--allowedTools", claudeTools, "--mcp-config", cfg}
+		args = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools", claudeTools, "--mcp-config", cfg}
 	}
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)

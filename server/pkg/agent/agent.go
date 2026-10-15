@@ -25,6 +25,9 @@ type ExecOptions struct {
 	// Inherit runs the CLI as the account's own: its sign-in, history, personal
 	// settings, skills, instructions, hooks and MCP all apply. Nothing is copied.
 	Inherit bool
+	// ReadOnly lets the CLI's own tools read, but not write files or run
+	// commands that change anything.
+	ReadOnly bool
 	// ClaudeBaseline is the opaque usage snapshot a prior Lykeion attempt
 	// returned for Resume. It is consumed before launch.
 	ClaudeBaseline []byte

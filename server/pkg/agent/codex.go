@@ -45,7 +45,12 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		}
 	}
 	// These flags belong to exec, before the optional resume subcommand.
-	args := append([]string{"exec", "--json", "--skip-git-repo-check"}, codexSandbox(runtime.GOOS)...)
+	sandbox := codexSandbox(runtime.GOOS)
+	if o.ReadOnly {
+		// Reads only, without network, on every platform and in both modes.
+		sandbox = []string{"-s", "read-only"}
+	}
+	args := append([]string{"exec", "--json", "--skip-git-repo-check"}, sandbox...)
 	args = append(args, "-m", model)
 	if !o.Inherit {
 		args = append(args, "--ignore-user-config", "--ignore-rules", "--disable", "apps", "--disable", "plugins", "--disable", "remote_plugin")

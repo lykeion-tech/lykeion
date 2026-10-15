@@ -953,3 +953,34 @@ func TestCodexAggregateUsageHasConservativeNotice(t *testing.T) {
 		t.Fatalf("result=%+v messages=%+v", res, messages)
 	}
 }
+
+// A read-only run swaps the permission mode or sandbox in both modes, and
+// never keeps the writable one beside it.
+func TestReadOnlyClaudeAndCodex(t *testing.T) {
+	for _, c := range []struct {
+		harness     string
+		inherit     bool
+		want, never string
+	}{
+		{"claude", false, "--permission-mode\nplan\n", "dontAsk"},
+		{"claude", true, "--permission-mode\nplan\n", "--permission-mode\ndefault\n"},
+		{"codex", false, "-s\nread-only\n", "-s\nworkspace-write\n"},
+		{"codex", true, "-s\nread-only\n", "-s\nworkspace-write\n"},
+		{"codex", false, "-s\nread-only\n", "danger-full-access"},
+		{"codex", true, "-s\nread-only\n", "network_access"},
+	} {
+		t.Run(fmt.Sprintf("%s inherit=%v", c.harness, c.inherit), func(t *testing.T) {
+			args := filepath.Join(t.TempDir(), "args")
+			b, _ := New(c.harness, script(t, `printf '%s\n' "$@" > `+args))
+			s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), ReadOnly: true, Inherit: c.inherit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			collect(t, s)
+			a, _ := os.ReadFile(args)
+			if !strings.Contains(string(a), c.want) || strings.Contains(string(a), c.never) {
+				t.Fatalf("read-only %s ran with\n%s", c.harness, a)
+			}
+		})
+	}
+}
