@@ -129,7 +129,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
-	cards := []db.Card{}
+	cards := []db.ListCardsRow{}
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		var err error
 		cards, err = tx.Q.ListCards(r.Context(), ws)
@@ -140,9 +140,34 @@ func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cards == nil {
-		cards = []db.Card{}
+		cards = []db.ListCardsRow{}
 	}
 	writeJSON(w, http.StatusOK, cards)
+}
+
+// cardRuns lists a card's agent runs, oldest first, for its transcript.
+func (h *H) cardRuns(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	runs := []db.AgentRun{}
+	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
+		if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id}); err != nil {
+			return err
+		}
+		var err error
+		runs, err = tx.Q.CardAgentRuns(r.Context(), db.CardAgentRunsParams{WorkspaceID: ws, CardID: id})
+		return err
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if runs == nil {
+		runs = []db.AgentRun{}
+	}
+	writeJSON(w, http.StatusOK, runs)
 }
 
 func (h *H) getCard(w http.ResponseWriter, r *http.Request) {

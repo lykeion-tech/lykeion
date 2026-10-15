@@ -213,6 +213,11 @@ func (h *H) cardRecords(w http.ResponseWriter, r *http.Request) {
 		if col == "" {
 			col = c.BoardColumn
 		}
+		// all=1 adds the superseded records, each with its superseded_at.
+		if r.URL.Query().Get("all") == "1" {
+			out, err = tx.Q.ListAllRecords(r.Context(), db.ListAllRecordsParams{WorkspaceID: ws, CardID: id, BoardColumn: col})
+			return err
+		}
 		out, err = tx.Q.ListRecords(r.Context(), db.ListRecordsParams{WorkspaceID: ws, CardID: id, BoardColumn: col})
 		return err
 	})

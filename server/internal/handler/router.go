@@ -102,6 +102,7 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/cards/{id}/comments", h.listComments)
 			r.Post("/api/cards/{id}/comments", h.createComment)
 			r.Get("/api/cards/{id}/events", h.cardEvents)
+			r.Get("/api/cards/{id}/runs", h.cardRuns)
 			r.Get("/api/cards/{id}/records", h.cardRecords)
 			r.Get("/api/cards/{id}/gates", h.cardGates)
 

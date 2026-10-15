@@ -12,6 +12,67 @@ import (
 	"github.com/google/uuid"
 )
 
+const cardAgentRuns = `-- name: CardAgentRuns :many
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note FROM agent_run WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
+`
+
+type CardAgentRunsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, cardAgentRuns, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentRun
+	for rows.Next() {
+		var i AgentRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.ResponsibleUserID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Role,
+			&i.Harness,
+			&i.Prompt,
+			&i.Skill,
+			&i.Status,
+			&i.QueueReason,
+			&i.RuntimeID,
+			&i.PrepareLeaseExpiresAt,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.SessionID,
+			&i.ContinuityScope,
+			&i.RunPrivate,
+			&i.ProfileMode,
+			&i.PolicyDigest,
+			&i.Model,
+			&i.Error,
+			&i.FailureReason,
+			&i.CostUsd,
+			&i.LateUsageAt,
+			&i.CreatedAt,
+			&i.HandoffNote,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createCard = `-- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, budget_usd, deadline, follows_from, position)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
@@ -227,19 +288,107 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 	return i, err
 }
 
-const listCards = `-- name: ListCards :many
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position FROM card WHERE workspace_id = $1 ORDER BY number
+const listAllRecords = `-- name: ListAllRecords :many
+SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2 AND board_column = $3
+ORDER BY created_at
 `
 
-func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]Card, error) {
+type ListAllRecordsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	BoardColumn string    `json:"board_column"`
+}
+
+// Every record of a card's column, superseded ones included, for the card page.
+func (q *Queries) ListAllRecords(ctx context.Context, arg ListAllRecordsParams) ([]Record, error) {
+	rows, err := q.db.Query(ctx, listAllRecords, arg.WorkspaceID, arg.CardID, arg.BoardColumn)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Record
+	for rows.Next() {
+		var i Record
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Kind,
+			&i.Role,
+			&i.Key,
+			&i.Body,
+			&i.BlobKey,
+			&i.AgentRunID,
+			&i.SupersededAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCards = `-- name: ListCards :many
+SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.budget_usd, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.route_backs, c.stale, c.rerun, c.follows_from, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position,
+  EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
+    AND t.status = 'queued' AND t.queue_reason IS NOT NULL)::boolean AS queued,
+  COALESCE((SELECT t.role FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
+    AND t.status IN ('queued', 'dispatched', 'running') ORDER BY t.created_at DESC, t.id DESC LIMIT 1), '')::text AS role,
+  GREATEST(c.created_at, (SELECT max(e.created_at) FROM event e WHERE e.workspace_id = c.workspace_id AND e.card_id = c.id))::timestamptz AS updated_at
+FROM card c WHERE c.workspace_id = $1
+ORDER BY c.board_column, c.position, c.number
+`
+
+type ListCardsRow struct {
+	ID          uuid.UUID   `json:"id"`
+	WorkspaceID uuid.UUID   `json:"workspace_id"`
+	Number      int32       `json:"number"`
+	Title       string      `json:"title"`
+	Question    string      `json:"question"`
+	OwnerID     uuid.UUID   `json:"owner_id"`
+	BudgetUsd   float64     `json:"budget_usd"`
+	Deadline    *time.Time  `json:"deadline"`
+	SpentUsd    float64     `json:"spent_usd"`
+	BoardColumn string      `json:"board_column"`
+	State       string      `json:"state"`
+	Flag        string      `json:"flag"`
+	Ending      string      `json:"ending"`
+	EndReason   string      `json:"end_reason"`
+	Rounds      int32       `json:"rounds"`
+	RouteBacks  int32       `json:"route_backs"`
+	Stale       []string    `json:"stale"`
+	Rerun       string      `json:"rerun"`
+	FollowsFrom []uuid.UUID `json:"follows_from"`
+	Version     int64       `json:"version"`
+	CreatedAt   time.Time   `json:"created_at"`
+	Round       int32       `json:"round"`
+	HandoffNote string      `json:"handoff_note"`
+	GatingUntil *time.Time  `json:"gating_until"`
+	Position    float64     `json:"position"`
+	Queued      bool        `json:"queued"`
+	Role        string      `json:"role"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+}
+
+// The board's cards. queued: an agent run of the card waits with a reason
+// (budget or runtime_offline). role: the role of its latest queued,
+// dispatched or running agent run, empty when it has none. updated_at: the
+// card's newest event, or its creation when it has none.
+func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListCardsRow, error) {
 	rows, err := q.db.Query(ctx, listCards, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Card
+	var items []ListCardsRow
 	for rows.Next() {
-		var i Card
+		var i ListCardsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -266,6 +415,9 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]Card,
 			&i.HandoffNote,
 			&i.GatingUntil,
 			&i.Position,
+			&i.Queued,
+			&i.Role,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
