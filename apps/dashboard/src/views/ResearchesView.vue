@@ -99,7 +99,7 @@ async function save() {
             editor = true;
           "
         >
-          New Research
+          <Icon name="plus" :size="14" />New Research
         </button>
       </Teleport>
       <div class="directory-list">

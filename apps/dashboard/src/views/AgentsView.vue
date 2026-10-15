@@ -146,10 +146,11 @@ async function archive() {
         <pre class="agent-instructions">{{ agent.instructions || 'No instructions.' }}</pre>
       </div></template
     ><template v-else
-      ><div class="directory-toolbar">
-        <p class="muted">Agent profiles for study responsibility.</p>
-        <button class="button primary" @click="edit">New agent</button>
-      </div>
+      ><Teleport to="#page-header-actions">
+        <button class="button primary" @click="edit">
+          <Icon name="plus" :size="14" />New agent
+        </button>
+      </Teleport>
       <div class="directory-list">
         <RouterLink v-for="a in list.data.value ?? []" :key="a.id" :to="'/agents/' + a.id"
           ><span class="avatar">{{ a.name[0] }}</span
