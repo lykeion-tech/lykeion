@@ -356,7 +356,7 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 }
 
 const getRuntime = `-- name: GetRuntime :one
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at FROM runtime WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version FROM runtime WHERE id = $1 AND workspace_id = $2
 `
 
 type GetRuntimeParams struct {
@@ -379,6 +379,7 @@ func (q *Queries) GetRuntime(ctx context.Context, arg GetRuntimeParams) (Runtime
 		&i.LastSeenAt,
 		&i.MaxConcurrent,
 		&i.CreatedAt,
+		&i.CliVersion,
 	)
 	return i, err
 }
@@ -571,7 +572,7 @@ func (q *Queries) ListRecords(ctx context.Context, arg ListRecordsParams) ([]Rec
 }
 
 const listRuntimes = `-- name: ListRuntimes :many
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at FROM runtime WHERE workspace_id = $1 ORDER BY created_at
+SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version FROM runtime WHERE workspace_id = $1 ORDER BY created_at
 `
 
 func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Runtime, error) {
@@ -595,6 +596,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Ru
 			&i.LastSeenAt,
 			&i.MaxConcurrent,
 			&i.CreatedAt,
+			&i.CliVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -974,7 +976,7 @@ VALUES ($1, $2, $3, $4, $5, 'online', now())
 ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
   SET device_name = EXCLUDED.device_name, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
-RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at
+RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version
 `
 
 type UpsertRuntimeParams struct {
@@ -1006,6 +1008,7 @@ func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (R
 		&i.LastSeenAt,
 		&i.MaxConcurrent,
 		&i.CreatedAt,
+		&i.CliVersion,
 	)
 	return i, err
 }

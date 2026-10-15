@@ -94,7 +94,7 @@ func (q *Queries) CreateInvitation(ctx context.Context, arg CreateInvitationPara
 }
 
 const createWorkspace = `-- name: CreateWorkspace :one
-INSERT INTO workspace (id, slug, name) VALUES ($1, $2, $3) RETURNING id, slug, name, settings, card_counter, created_at
+INSERT INTO workspace (id, slug, name) VALUES ($1, $2, $3) RETURNING id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob
 `
 
 type CreateWorkspaceParams struct {
@@ -113,6 +113,10 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		&i.Settings,
 		&i.CardCounter,
 		&i.CreatedAt,
+		&i.Description,
+		&i.ResearchContext,
+		&i.CardPrefix,
+		&i.LogoBlob,
 	)
 	return i, err
 }
@@ -148,7 +152,7 @@ func (q *Queries) GetMember(ctx context.Context, arg GetMemberParams) (Member, e
 }
 
 const getWorkspace = `-- name: GetWorkspace :one
-SELECT id, slug, name, settings, card_counter, created_at FROM workspace WHERE id = $1
+SELECT id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob FROM workspace WHERE id = $1
 `
 
 func (q *Queries) GetWorkspace(ctx context.Context, id uuid.UUID) (Workspace, error) {
@@ -161,6 +165,10 @@ func (q *Queries) GetWorkspace(ctx context.Context, id uuid.UUID) (Workspace, er
 		&i.Settings,
 		&i.CardCounter,
 		&i.CreatedAt,
+		&i.Description,
+		&i.ResearchContext,
+		&i.CardPrefix,
+		&i.LogoBlob,
 	)
 	return i, err
 }
@@ -378,7 +386,7 @@ func (q *Queries) RemoveMember(ctx context.Context, arg RemoveMemberParams) (int
 }
 
 const renameWorkspace = `-- name: RenameWorkspace :one
-UPDATE workspace SET name = $1 WHERE id = $2 RETURNING id, slug, name, settings, card_counter, created_at
+UPDATE workspace SET name = $1 WHERE id = $2 RETURNING id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob
 `
 
 type RenameWorkspaceParams struct {
@@ -396,6 +404,10 @@ func (q *Queries) RenameWorkspace(ctx context.Context, arg RenameWorkspaceParams
 		&i.Settings,
 		&i.CardCounter,
 		&i.CreatedAt,
+		&i.Description,
+		&i.ResearchContext,
+		&i.CardPrefix,
+		&i.LogoBlob,
 	)
 	return i, err
 }

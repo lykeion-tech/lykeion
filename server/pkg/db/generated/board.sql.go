@@ -51,7 +51,7 @@ func (q *Queries) ActiveDuplicate(ctx context.Context, arg ActiveDuplicateParams
 }
 
 const backlogCards = `-- name: BacklogCards :many
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until FROM card WHERE workspace_id = $1 AND board_column = 'backlog' AND flag = ''
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position FROM card WHERE workspace_id = $1 AND board_column = 'backlog' AND flag = ''
 ORDER BY created_at
 `
 
@@ -89,6 +89,7 @@ func (q *Queries) BacklogCards(ctx context.Context, workspaceID uuid.UUID) ([]Ca
 			&i.Round,
 			&i.HandoffNote,
 			&i.GatingUntil,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -232,7 +233,7 @@ func (q *Queries) CountKindRecords(ctx context.Context, arg CountKindRecordsPara
 }
 
 const getCardByNumber = `-- name: GetCardByNumber :one
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until FROM card WHERE workspace_id = $1 AND number = $2
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position FROM card WHERE workspace_id = $1 AND number = $2
 `
 
 type GetCardByNumberParams struct {
@@ -268,6 +269,7 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 		&i.Round,
 		&i.HandoffNote,
 		&i.GatingUntil,
+		&i.Position,
 	)
 	return i, err
 }
@@ -297,7 +299,7 @@ func (q *Queries) InsertInboxItem(ctx context.Context, arg InsertInboxItemParams
 }
 
 const lockCard = `-- name: LockCard :one
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
 `
 
 type LockCardParams struct {
@@ -333,6 +335,7 @@ func (q *Queries) LockCard(ctx context.Context, arg LockCardParams) (Card, error
 		&i.Round,
 		&i.HandoffNote,
 		&i.GatingUntil,
+		&i.Position,
 	)
 	return i, err
 }

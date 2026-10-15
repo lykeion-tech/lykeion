@@ -124,6 +124,7 @@ type Card struct {
 	Round       int32       `json:"round"`
 	HandoffNote string      `json:"handoff_note"`
 	GatingUntil *time.Time  `json:"gating_until"`
+	Position    float64     `json:"position"`
 }
 
 type Comment struct {
@@ -155,6 +156,7 @@ type InboxItem struct {
 	Text        string     `json:"text"`
 	ReadAt      *time.Time `json:"read_at"`
 	CreatedAt   time.Time  `json:"created_at"`
+	ResolvedAt  *time.Time `json:"resolved_at"`
 }
 
 type Member struct {
@@ -203,15 +205,18 @@ type Runtime struct {
 	LastSeenAt    time.Time `json:"last_seen_at"`
 	MaxConcurrent int32     `json:"max_concurrent"`
 	CreatedAt     time.Time `json:"created_at"`
+	CliVersion    string    `json:"cli_version"`
 }
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	GoogleSub *string   `json:"google_sub"`
-	Timezone  string    `json:"timezone"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          uuid.UUID  `json:"id"`
+	Email       string     `json:"email"`
+	Name        string     `json:"name"`
+	GoogleSub   *string    `json:"google_sub"`
+	Timezone    string     `json:"timezone"`
+	CreatedAt   time.Time  `json:"created_at"`
+	CareerStage string     `json:"career_stage"`
+	OnboardedAt *time.Time `json:"onboarded_at"`
 }
 
 type VerificationCode struct {
@@ -222,12 +227,16 @@ type VerificationCode struct {
 }
 
 type Workspace struct {
-	ID          uuid.UUID       `json:"id"`
-	Slug        string          `json:"slug"`
-	Name        string          `json:"name"`
-	Settings    json.RawMessage `json:"settings"`
-	CardCounter int32           `json:"card_counter"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID              uuid.UUID       `json:"id"`
+	Slug            string          `json:"slug"`
+	Name            string          `json:"name"`
+	Settings        json.RawMessage `json:"settings"`
+	CardCounter     int32           `json:"card_counter"`
+	CreatedAt       time.Time       `json:"created_at"`
+	Description     string          `json:"description"`
+	ResearchContext string          `json:"research_context"`
+	CardPrefix      string          `json:"card_prefix"`
+	LogoBlob        string          `json:"logo_blob"`
 }
 
 type WorkspaceInvitation struct {
