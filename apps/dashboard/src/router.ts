@@ -5,21 +5,26 @@ import {
   type RouteRecordRaw,
 } from 'vue-router';
 
-// The tasks page is the landing route and loads eagerly, so the first navigation resolves
-// without waiting on the network; every other view is fetched on demand.
+// The board is the landing route and loads eagerly.
 import TaskBoard from './views/TaskBoard.vue';
 import TaskDetail from './views/TaskDetail.vue';
 import ResourceView from './views/ResourceView.vue';
 import SettingsView from './views/SettingsView.vue';
+import SignInView from './views/SignInView.vue';
+import AcceptInvite from './views/AcceptInvite.vue';
 
 declare module 'vue-router' {
   interface RouteMeta {
-    // Sidebar destination the route belongs to; unset for unknown paths.
+    // Sidebar destination the route belongs to.
     page?: string;
-    // Page heading; App falls back to "Tasks" when unset.
+    // Page heading; App falls back to "Studies".
     title?: string;
     // Workspace tab label when it differs from the heading.
     tabTitle?: string;
+    // Shown without the sidebar and tab strip.
+    bare?: boolean;
+    // Reachable without a session.
+    public?: boolean;
   }
 }
 
@@ -28,58 +33,42 @@ function param(route: RouteLocationNormalized, name: string) {
   return (Array.isArray(value) ? value[0] : value) || undefined;
 }
 
-// ResourceView renders every non-task, non-settings destination, selected by `page`.
-function resource(
-  path: string,
-  page: string,
-  title: string,
-  extra: { creation?: boolean; manual?: boolean; tabTitle?: string } = {},
-): RouteRecordRaw {
-  return {
-    path,
-    component: ResourceView,
-    meta: { page, title, tabTitle: extra.tabTitle },
-    props: (route) => ({
-      page,
-      resourceId: param(route, 'agentId') ?? param(route, 'machineId'),
-      runtimeId: param(route, 'runtimeId'),
-      creation: extra.creation ?? false,
-      manual: extra.manual ?? false,
-    }),
-  };
-}
-
-const create = { creation: true, tabTitle: 'Create Agent' };
-
+// Later slices' destinations (agents, teams, skills, connectors, Autoresearch,
+// Researches, Coresearch, updates) are not routed until their slice; their
+// views stay in the tree.
 const routes: RouteRecordRaw[] = [
-  { path: '/', component: TaskBoard, meta: { page: 'tasks', title: 'Tasks' } },
+  { path: '/', redirect: '/studies' },
+  { path: '/signin', component: SignInView, meta: { bare: true, public: true, title: 'Sign in' } },
   {
-    path: '/tasks/:taskId?',
+    path: '/invite/:token',
+    component: AcceptInvite,
+    meta: { bare: true, title: 'Invitation' },
+    props: (route) => ({ token: param(route, 'token') ?? '' }),
+  },
+  {
+    path: '/studies/:cardId?',
     components: { default: TaskBoard, detail: TaskDetail },
-    meta: { page: 'tasks', title: 'Tasks' },
-    props: { default: false, detail: (route) => ({ id: param(route, 'taskId') ?? '' }) },
+    meta: { page: 'studies', title: 'Studies' },
+    props: { default: false, detail: (route) => ({ id: param(route, 'cardId') ?? '' }) },
   },
   {
-    path: '/my-tasks',
-    component: TaskBoard,
-    meta: { page: 'my-tasks' },
-    props: { personal: true },
+    path: '/inbox',
+    component: ResourceView,
+    meta: { page: 'inbox', title: 'Inbox' },
+    props: { page: 'inbox' },
   },
-  resource('/inbox', 'inbox', 'Inbox'),
-  resource('/chat', 'chat', 'Coresearch'),
-  resource('/projects', 'projects', 'Researches'),
-  resource('/colleagues', 'colleagues', 'Colleagues'),
-  resource('/autoresearch', 'autoresearch', 'Autoresearch'),
-  resource('/agents', 'agents', 'Agents'),
-  resource('/agents/new', 'agents', 'Agents', create),
-  resource('/agents/new/manual', 'agents', 'Agents', { ...create, manual: true }),
-  resource('/agents/:agentId', 'agents', 'Agents'),
-  resource('/squads', 'squads', 'Teams'),
-  resource('/skills', 'skills', 'Skills'),
-  resource('/connectors', 'connectors', 'Connectors'),
-  resource('/runtimes/:machineId?', 'runtimes', 'Machines'),
-  resource('/runtimes/:machineId/runtime/:runtimeId', 'runtimes', 'Machines'),
-  resource('/updates', 'updates', 'Updates'),
+  {
+    path: '/colleagues',
+    component: ResourceView,
+    meta: { page: 'colleagues', title: 'Colleagues' },
+    props: { page: 'colleagues' },
+  },
+  {
+    path: '/machines',
+    component: ResourceView,
+    meta: { page: 'machines', title: 'Machines' },
+    props: { page: 'runtimes' },
+  },
   {
     path: '/settings/:section?',
     component: SettingsView,
@@ -88,14 +77,8 @@ const routes: RouteRecordRaw[] = [
       section: String(route.query.tab || param(route, 'section') || 'profile'),
     }),
   },
-  // Unknown paths keep the shell's "Tasks" heading over an empty resource page named after
-  // their first segment.
-  {
-    path: '/:pathMatch(.*)*',
-    component: ResourceView,
-    props: (route) => ({ page: param(route, 'pathMatch') ?? '' }),
-  },
+  { path: '/:pathMatch(.*)*', redirect: '/studies' },
 ];
 
-// Case-sensitive so a miscased path stays an unknown path rather than matching a page.
+// Case-sensitive so a miscased path is an unknown path.
 export const router = createRouter({ history: createWebHashHistory(), routes, sensitive: true });

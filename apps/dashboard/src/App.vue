@@ -1,59 +1,53 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { matchesQuery } from './lib/search';
 import { useRoute, useRouter } from 'vue-router';
+import { useQueryClient } from '@tanstack/vue-query';
+import { MessageCircle } from '@lucide/vue';
 import Icon from './components/Icon.vue';
-import { History, MessageCircle } from '@lucide/vue';
 import Modal from './components/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
-import Aristotle from './components/Aristotle.vue';
 import CreateTask from './views/CreateTask.vue';
-import { state, workspaceName, refresh, notice, notify, service } from './services/workspace';
+import { api } from './api/client';
+import { workspaceId } from './api/session';
+import { useCards, useMe, useWorkspace, useWorkspaces } from './api/queries';
+import { useRealtimeSync } from './api/realtime';
+import { notice, notify } from './state/notice';
 import { readText, writeText } from './storage';
 import { usePins } from './state/pins';
-import { useProfile } from './state/profile';
 import { useTaskComposer } from './state/task-composer';
 const route = useRoute();
 const router = useRouter();
+const client = useQueryClient();
+const me = useMe();
+const workspaces = useWorkspaces();
+const workspace = useWorkspace();
+const cards = useCards();
+const { reconnecting, lost } = useRealtimeSync(workspaceId, client);
 const current = computed(() => route.meta.page);
-const taskId = computed(() => (current.value === 'tasks' ? route.params.taskId : undefined));
+const cardId = computed(() =>
+  current.value === 'studies' ? String(route.params.cardId || '') : '',
+);
 const groups = [
-  {
-    name: '',
-    items: [
-      { id: 'inbox', name: 'Inbox', icon: 'inbox' },
-      { id: 'chat', name: 'Coresearch', icon: 'chat' },
-    ],
-  },
+  { name: '', items: [{ id: 'inbox', name: 'Inbox', icon: 'inbox' }] },
   {
     name: 'Laboratory',
     items: [
-      { id: 'tasks', name: 'Tasks', icon: 'tasks' },
-      { id: 'projects', name: 'Researches', icon: 'folder' },
+      { id: 'studies', name: 'Studies', icon: 'tasks' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
-      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
     ],
   },
-  {
-    name: 'Configure',
-    items: [
-      { id: 'agents', name: 'Agents', icon: 'bot' },
-      { id: 'squads', name: 'Teams', icon: 'users' },
-      { id: 'skills', name: 'Skills', icon: 'book' },
-      { id: 'connectors', name: 'Connectors', icon: 'plug' },
-      { id: 'runtimes', name: 'Machines', icon: 'monitor' },
-    ],
-  },
+  { name: 'Configure', items: [{ id: 'machines', name: 'Machines', icon: 'monitor' }] },
 ];
 const destinations = [
   ...groups.flatMap((g) => g.items),
-  { id: 'updates', name: 'Updates', icon: 'download' },
   { id: 'settings', name: 'Settings', icon: 'settings' },
 ];
-const heading = computed(() => route.meta.title ?? 'Tasks');
+const workspaceName = computed(() => workspace.data.value?.name ?? 'Lykeion');
+const heading = computed(() => route.meta.title ?? 'Studies');
+const shownCard = computed(() => cards.data.value?.find((c) => c.id === cardId.value));
 const tabTitle = computed(() =>
-  taskId.value
-    ? (state.data?.inquiries.find((x) => x.id === taskId.value)?.title ?? heading.value)
+  shownCard.value
+    ? `${workspace.data.value?.display_prefix ?? ''}-${shownCard.value.number}: ${shownCard.value.title}`
     : (route.meta.tabTitle ?? heading.value),
 );
 const headingIcon = computed(
@@ -62,33 +56,60 @@ const headingIcon = computed(
 const collapsed = ref(readText('lykeion.sidebar-collapsed') === 'true');
 const { pins: pinnedIds } = usePins();
 const pinnedExpanded = ref(readText('lykeion.pinned-expanded') !== 'false');
-const pinnedTasks = computed(() =>
+const pinnedCards = computed(() =>
   pinnedIds.value
-    .map((id) => state.data?.inquiries.find((t) => t.id === id))
-    .filter((t): t is NonNullable<typeof t> => !!t),
+    .map((id) => cards.data.value?.find((c) => c.id === id))
+    .filter((c): c is NonNullable<typeof c> => !!c),
 );
 watch(pinnedExpanded, (value) => writeText('lykeion.pinned-expanded', String(value)));
 const { composer, openComposer: openCreate, closeComposer } = useTaskComposer();
-const search = ref(false);
-const query = ref('');
 const workspaceMenu = ref(false);
 const help = ref(false);
-const aristotle = ref(false);
 const desktop = Boolean(window.lykeionDesktop);
 const workspacePopup = ref<HTMLElement>();
 const helpPopup = ref<HTMLElement>();
 const workspaceTrigger = ref<HTMLButtonElement>();
 const helpTrigger = ref<HTMLButtonElement>();
-const profile = useProfile();
-const localProfile = computed(() => ({
-  name: typeof profile.name === 'string' ? profile.name : '',
-  avatar:
-    typeof profile.avatar === 'string' && profile.avatar.startsWith('data:image/')
-      ? profile.avatar
-      : '',
-}));
 const feedback = ref(false);
 const feedbackText = ref('');
+
+// The shown workspace must be one the person belongs to; otherwise the first.
+watch(
+  () => workspaces.data.value,
+  (list) => {
+    if (list && !list.some((w) => w.id === workspaceId.value))
+      workspaceId.value = list[0]?.id ?? '';
+  },
+  { immediate: true },
+);
+// The socket refused the workspace (removed, or deleted): pick another and show the switcher.
+watch(lost, (gone) => {
+  if (!gone) return;
+  workspaceId.value = '';
+  void client.invalidateQueries({ queryKey: ['workspaces'] });
+  workspaceMenu.value = true;
+});
+function chooseWorkspace(id: string) {
+  workspaceId.value = id;
+  workspaceMenu.value = false;
+  void router.push('/studies');
+}
+async function logOut() {
+  workspaceMenu.value = false;
+  try {
+    await api('POST', '/auth/logout');
+  } catch {
+    notify('Could not reach the server to log out. Try again.');
+    return;
+  }
+  await client.cancelQueries();
+  workspaceId.value = '';
+  await nextTick();
+  await router.replace('/signin');
+  // Retain the shell's observers while dropping data from the previous session.
+  await client.resetQueries();
+}
+
 function menuButtons(popup: HTMLElement | undefined) {
   return [...(popup?.querySelectorAll<HTMLButtonElement>('[role=menuitem]:not(:disabled)') || [])];
 }
@@ -161,55 +182,16 @@ async function copyFeedback() {
     notify('Clipboard access was unavailable. You can select and copy the feedback.');
   }
 }
-const foundPages = computed(() =>
-  (query.value ? destinations : []).filter((x) => matchesQuery(x.name, query.value)),
-);
-const foundTasks = computed(() =>
-  (state.data?.inquiries.filter((x) => matchesQuery(x.title, query.value)) ?? []).slice(0, 8),
-);
-const searchIndex = ref(0);
-const searchEntries = computed(() => [
-  { id: 'new', name: 'New', icon: 'plus' },
-  ...foundTasks.value.map((x) => ({ id: 'tasks/' + x.id, name: x.title, icon: 'tasks' })),
-  ...foundPages.value,
-]);
-watch(query, () => (searchIndex.value = 0));
-function activateSearch(index: number) {
-  const item = searchEntries.value[index];
-  if (!item) return;
-  if (item.id === 'new') {
-    search.value = false;
-    openCreate();
-  } else go(item.id);
-}
-function searchKey(e: KeyboardEvent) {
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    searchIndex.value =
-      (searchIndex.value + (e.key === 'ArrowDown' ? 1 : -1) + searchEntries.value.length) %
-      searchEntries.value.length;
-  }
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    activateSearch(searchIndex.value);
-  }
-}
 function go(id: string) {
   void router.push('/' + id);
-  search.value = false;
   workspaceMenu.value = false;
   help.value = false;
 }
 function key(event: KeyboardEvent) {
-  if (event.defaultPrevented) return;
+  if (event.defaultPrevented || route.meta.bare) return;
   const editable = (event.target as HTMLElement).closest(
     'input, textarea, select, [contenteditable="true"]',
   );
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-    event.preventDefault();
-    query.value = '';
-    search.value = !search.value;
-  }
   if ((event.metaKey || event.ctrlKey) && event.key === 'b') {
     event.preventDefault();
     collapsed.value = !collapsed.value;
@@ -227,7 +209,6 @@ function key(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     workspaceMenu.value = false;
     help.value = false;
-    aristotle.value = false;
   }
 }
 watch(collapsed, (x) => {
@@ -242,15 +223,8 @@ watch(
     help.value = false;
   },
 );
-watch(
-  heading,
-  (x) => {
-    document.title = `${x} | Lykeion`;
-  },
-  { immediate: true },
-);
+watch(heading, (x) => (document.title = `${x} | Lykeion`), { immediate: true });
 onMounted(() => {
-  void refresh();
   window.addEventListener('keydown', key);
   window.addEventListener('pointerdown', outsidePopup);
 });
@@ -260,13 +234,11 @@ onUnmounted(() => {
 });
 </script>
 <template>
+  <RouterView v-if="route.meta.bare" />
   <div
+    v-else
     class="application"
-    :class="{
-      'sidebar-hidden': collapsed,
-      desktop,
-      'task-detail-open': Boolean(taskId),
-    }"
+    :class="{ 'sidebar-hidden': collapsed, desktop, 'task-detail-open': Boolean(cardId) }"
   >
     <WorkspaceTabs
       :title="tabTitle"
@@ -299,81 +271,64 @@ onUnmounted(() => {
         @keydown="popupKey($event, workspacePopup, 'workspace')"
       >
         <button class="workspace-profile" role="menuitem" @click="go('settings?tab=profile')">
-          <span class="profile-menu-avatar"
-            ><img v-if="localProfile.avatar" :src="localProfile.avatar" alt="" /><template v-else>{{
-              (localProfile.name || 'Local profile')[0]?.toUpperCase()
-            }}</template></span
+          <span class="profile-menu-avatar">{{
+            (me.data.value?.name || me.data.value?.email || '?')[0]?.toUpperCase()
+          }}</span
           ><span
-            >{{ localProfile.name || 'Local profile'
-            }}<small>{{
-              service.mode === 'local' ? 'This device' : 'Account details unavailable'
-            }}</small></span
+            >{{ me.data.value?.name || me.data.value?.email
+            }}<small>{{ me.data.value?.email }}</small></span
           >
         </button>
         <div class="shell-menu-divider" />
         <small class="workspace-menu-label">Workspaces</small>
-        <button role="menuitem" @click="go('tasks')">
-          <span class="workspace-avatar">{{ workspaceName[0] }}</span
-          >{{ workspaceName }}<Icon name="check" class="push-right" :size="14" />
+        <button
+          v-for="w in workspaces.data.value ?? []"
+          :key="w.id"
+          role="menuitem"
+          @click="chooseWorkspace(w.id)"
+        >
+          <span class="workspace-avatar">{{ w.name[0] }}</span
+          >{{ w.name
+          }}<Icon v-if="w.id === workspaceId" name="check" class="push-right" :size="14" />
         </button>
-        <button role="menuitem" disabled title="Creating workspaces requires a workspace service">
+        <button role="menuitem" @click="go('onboarding?step=workspace')">
           <Icon name="plus" :size="16" />Create workspace
         </button>
         <div class="shell-menu-divider" />
-        <button
-          role="menuitem"
-          class="danger-menu-item"
-          disabled
-          :title="
-            service.mode === 'local'
-              ? 'This local workspace has no signed-in session'
-              : 'Account sign-out is not available through this connection'
-          "
-        >
+        <button role="menuitem" class="danger-menu-item" @click="logOut">
           <Icon name="logout" :size="16" />Log out
         </button>
       </div>
       <div class="quick-actions">
-        <button
-          class="nav-item"
-          aria-label="Search..."
-          @click="
-            search = true;
-            query = '';
-          "
-        >
-          <Icon name="search" />Search...<span class="push-right shortcuts"
-            ><kbd>⌘</kbd><kbd>K</kbd></span
-          ></button
-        ><button class="nav-item" aria-label="New" aria-keyshortcuts="C" @click="openCreate()">
+        <button class="nav-item" aria-label="New" aria-keyshortcuts="C" @click="openCreate()">
           <Icon name="edit" />New<kbd class="push-right">C</kbd>
         </button>
       </div>
       <nav>
         <template v-for="(group, groupIndex) in groups" :key="group.name"
           ><section
-            v-if="groupIndex === 1 && pinnedTasks.length"
+            v-if="groupIndex === 1 && pinnedCards.length"
             class="nav-group pinned-task-group"
           >
             <button
               class="nav-caption pinned-caption"
-              :aria-label="`Pinned ${pinnedTasks.length}`"
+              :aria-label="`Pinned ${pinnedCards.length}`"
               :aria-expanded="pinnedExpanded"
               @click="pinnedExpanded = !pinnedExpanded"
             >
               Pinned<Icon :name="pinnedExpanded ? 'down' : 'right'" :size="11" /></button
             ><template v-if="pinnedExpanded"
               ><RouterLink
-                v-for="task in pinnedTasks"
-                :key="task.id"
-                :to="'/tasks/' + task.id"
+                v-for="card in pinnedCards"
+                :key="card.id"
+                :to="'/studies/' + card.id"
                 class="nav-item"
-                :class="{ selected: taskId === task.id }"
+                :class="{ selected: cardId === card.id }"
                 ><Icon
-                  :name="task.status === 'done' ? 'check' : 'circle'"
-                  :class="task.status === 'blocked' ? 'pinned-blocked' : ''"
+                  :name="card.ending ? 'check' : 'circle'"
+                  :class="card.flag ? 'pinned-blocked' : ''"
                   :size="14"
-                /><span>{{ task.title }}</span></RouterLink
+                /><span>{{ card.title }}</span></RouterLink
               ></template
             >
           </section>
@@ -392,9 +347,6 @@ onUnmounted(() => {
         >
       </nav>
       <div class="sidebar-bottom">
-        <RouterLink to="/updates" class="nav-item" :class="{ selected: current === 'updates' }"
-          ><Icon name="download" />Updates</RouterLink
-        >
         <div class="settings-line">
           <RouterLink to="/settings" class="nav-item" :class="{ selected: current === 'settings' }"
             ><Icon name="settings" />Settings</RouterLink
@@ -420,7 +372,7 @@ onUnmounted(() => {
       @click="collapsed = !collapsed"
     />
     <main class="main-pane">
-      <header v-if="!['settings', 'chat', 'inbox'].includes(current ?? '')" class="page-header">
+      <header v-if="!['settings', 'inbox'].includes(current ?? '')" class="page-header">
         <button
           v-if="collapsed"
           class="icon-button"
@@ -430,94 +382,17 @@ onUnmounted(() => {
           <Icon name="sidebar" />
         </button>
         <h1>{{ heading }}</h1>
+        <small v-if="reconnecting" class="reconnecting" role="status">Reconnecting…</small>
       </header>
-      <div v-if="state.loading" class="center-empty" role="status">
+      <div v-if="me.isPending.value" class="center-empty" role="status">
         <Icon name="refresh" :size="28" /><span>Loading workspace…</span>
       </div>
-      <div v-else-if="state.error" class="center-empty" role="alert">
-        <Icon name="link" :size="32" />
-        <p>{{ state.error }}</p>
-        <button class="button" @click="refresh">Try again</button
-        ><button class="text-button" @click="go('settings/connection')">Connection settings</button>
-      </div>
-      <RouterView v-slot="{ Component }">
-        <component :is="Component" v-if="current === 'settings' && !state.loading" />
-        <component
-          :is="Component"
-          v-else-if="
-            !state.error && !state.loading && ['tasks', 'my-tasks'].includes(current ?? '')
-          "
-          @create="openCreate()"
-        />
-        <component
-          :is="Component"
-          v-else-if="!state.error && !state.loading"
-          @create-task="openCreate()"
-          @assign-agent="openCreate"
-        />
-      </RouterView>
-      <RouterView v-if="taskId" name="detail" @close="go('tasks')" />
+      <template v-else>
+        <RouterView @create="openCreate()" />
+        <RouterView v-if="cardId" name="detail" @close="go('studies')" />
+      </template>
     </main>
-    <button
-      v-if="current !== 'chat' && !aristotle"
-      class="aristotle-launcher"
-      :aria-expanded="aristotle"
-      aria-label="Open Aristotle"
-      @click="aristotle = !aristotle"
-    >
-      <Aristotle />
-    </button>
-    <aside v-if="aristotle" class="running-composer" aria-label="Running task composer">
-      <header>
-        <button class="text-button" @click="notify('No tasks are running right now.')">
-          Choose a running task <Icon name="down" :size="12" /></button
-        ><button class="icon-button" aria-label="Close composer" @click="aristotle = false">
-          <Icon name="close" />
-        </button>
-      </header>
-      <Aristotle :portrait="false" />
-      <p>No tasks are running right now.</p>
-    </aside>
-    <CreateTask
-      v-if="composer.open"
-      :initial-manual="composer.manual"
-      :initial-assignee-id="composer.assigneeId"
-      :initial-parent-id="composer.parentId"
-      :initial-project-id="composer.projectId"
-      @close="closeComposer()"
-    />
-    <Modal v-if="search" title="Search" @close="search = false"
-      ><div class="search-box">
-        <Icon name="search" :size="20" /><input
-          v-model="query"
-          autofocus
-          placeholder="Type a command or search..."
-          aria-label="Search workspace"
-          role="combobox"
-          aria-controls="search-options"
-          :aria-activedescendant="'search-option-' + searchIndex"
-          aria-expanded="true"
-          @keydown="searchKey"
-        /><kbd>Esc</kbd>
-      </div>
-      <div id="search-options" class="search-results" role="listbox">
-        <template v-for="(item, index) in searchEntries" :key="item.id"
-          ><small v-if="index === 0">Commands</small
-          ><small v-else-if="index === 1">{{ query ? 'Results' : 'Recent' }}</small
-          ><button
-            :id="'search-option-' + index"
-            role="option"
-            :aria-selected="searchIndex === index"
-            :class="{ highlighted: searchIndex === index }"
-            @mousemove="searchIndex = index"
-            @click="activateSearch(index)"
-          >
-            <Icon :name="item.icon" />{{ item.name }}
-          </button></template
-        >
-        <p v-if="query && searchEntries.length === 1" class="muted">No results found.</p>
-      </div></Modal
-    >
+    <CreateTask v-if="composer.open" :initial-manual="true" @close="closeComposer()" />
     <div
       v-if="help"
       id="help-menu"
@@ -529,11 +404,6 @@ onUnmounted(() => {
     >
       <button role="menuitem" @click="documentation">
         <Icon name="book" />Docs<Icon name="external" :size="10" /></button
-      ><button role="menuitem" @click="go('updates')">
-        <History :size="16" :stroke-width="1.7" />Change log<Icon
-          name="external"
-          :size="10"
-        /></button
       ><button role="menuitem" disabled title="A community invitation has not been configured">
         <Icon name="users" />Discord<Icon name="external" :size="10" /></button
       ><button
@@ -553,8 +423,8 @@ onUnmounted(() => {
         <header>
           <h2>Feedback</h2>
           <button
-            class="icon-button"
             type="button"
+            class="icon-button"
             aria-label="Close feedback"
             @click="feedback = false"
           >
@@ -754,5 +624,10 @@ onUnmounted(() => {
 }
 .pinned-blocked {
   color: #dc354d;
+}
+.reconnecting {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
 }
 </style>

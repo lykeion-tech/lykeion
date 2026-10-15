@@ -10,6 +10,23 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 15_000 },
   reporter: 'list',
+  projects: [
+    // Signs in once through the dashboard; every spec reuses the session.
+    { name: 'setup', testMatch: 'signin.setup.ts' },
+    {
+      name: 'lab',
+      testMatch: '*.spec.ts',
+      testIgnore: 'lab.spec.ts',
+      dependencies: ['setup'],
+      use: { storageState: 'test-results/ui-lab/session.json' },
+    },
+    {
+      name: 'lab-contract',
+      testMatch: 'lab.spec.ts',
+      dependencies: ['setup'],
+      use: { storageState: { cookies: [], origins: [] } },
+    },
+  ],
   use: {
     baseURL: 'http://127.0.0.1:1431',
     viewport: { width: 1512, height: 982 },
