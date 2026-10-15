@@ -212,7 +212,8 @@ func ask(ctx context.Context, j *jev.Client, ch board.Check, state string, opts 
 		ch.Result, ch.Note = board.Attention, "jev unavailable: "+err.Error()
 		return ch
 	}
-	ch.Result, ch.P = judge(a)
+	result, probability := judge(a)
+	ch.Result, ch.P = result, &probability
 	ch.Choice = a.Choice
 	return ch
 }

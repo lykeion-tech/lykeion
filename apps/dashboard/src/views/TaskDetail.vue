@@ -1,633 +1,327 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import type { Inquiry, InquiryDetail, Stage } from '../../../../packages/contracts/src/research';
-import { stages } from '../../../../packages/contracts/src/research';
-import { service, state, refresh, notify } from '../services/workspace';
-import { readText, writeText } from '../storage';
-import { usePreferences } from '../state/preferences';
-import { useSettingsDrafts } from '../state/settings-drafts';
+import { computed, ref, watch } from 'vue';
+import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
-import { shortDate as date } from '../lib/dates';
-import TaskAuxiliary from '../components/TaskAuxiliary.vue';
-const props = defineProps<{ id: string }>();
+import RunTurn from '../components/RunTurn.vue';
+import { api } from '../api/client';
+import { keys } from '../api/keys';
+import { workspaceId } from '../api/session';
+import {
+  useCard,
+  useCardEvents,
+  useCards,
+  useComments,
+  useGates,
+  useMe,
+  useMembers,
+  useRecords,
+  useRuns,
+  useRuntimes,
+  useWorkspace,
+} from '../api/queries';
+import type { Column } from '../api/types';
+import {
+  checkLine,
+  columnName,
+  earlierColumns,
+  endLabel,
+  gateOf,
+  jevThresholds,
+  recordLine,
+  routeBackLimit,
+  stages,
+  stateLabel,
+  studyNumber,
+  transcript,
+} from '../lib/studies';
+import { notify } from '../state/notice';
+import { usePins } from '../state/pins';
+import { useTaskComposer } from '../state/task-composer';
+import { readText, writeText } from '../storage';
+
+const props = defineProps<{ id: string; embedded?: boolean }>();
 const emit = defineEmits<{ close: [] }>();
-const route = useRoute();
-const router = useRouter();
-const preview = computed(() => route.query.preview === '1');
-const detail = ref<InquiryDetail>();
-const error = ref('');
+const client = useQueryClient();
+const card = useCard(() => props.id);
+const cards = useCards();
+const gates = useGates(() => props.id);
+const comments = useComments(() => props.id);
+const events = useCardEvents(() => props.id);
+const runs = useRuns(() => props.id);
+const members = useMembers();
+const runtimes = useRuntimes();
+const workspace = useWorkspace();
+const me = useMe();
+const { pins, togglePin } = usePins();
+const { openComposer } = useTaskComposer();
+
+const c = computed(() => card.data.value);
+const number = computed(() => (c.value ? studyNumber(workspace.data.value, c.value) : ''));
+const stage = computed(() =>
+  c.value && stages.includes(c.value.board_column) ? c.value.board_column : '',
+);
+const records = useRecords(() => props.id, stage);
+const allGates = computed(() => (gates.data.value ?? []).map(gateOf));
+const latestGate = computed(() =>
+  [...allGates.value].reverse().find((g) => g.column === stage.value),
+);
+const earlier = computed(() => (c.value ? earlierColumns(c.value, allGates.value) : []));
+const expanded = ref<Column | ''>('');
+const earlierRecords = useRecords(() => props.id, expanded);
+const openChecks = ref<string[]>([]);
+const entries = computed(() =>
+  transcript(comments.data.value ?? [], runs.data.value ?? [], events.data.value ?? []),
+);
+const showMeta = ref(readText('lykeion.study-meta') !== 'false');
+watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
+const editingBudget = ref(false);
+const budgetDraft = ref(0);
 const comment = ref('');
 const busy = ref(false);
-const saving = ref(false);
-const editing = ref(false);
-const title = ref('');
-const description = ref('');
-const showProperties = ref(true);
-const showPriority = ref(false);
-const propertyMenu = ref(false),
-  shownFields = ref<string[]>([]);
-const optionalFields = [
-  { name: 'Priority', icon: 'chart' },
-  { name: 'Start date', icon: 'calendar' },
-  { name: 'Due date', icon: 'calendar' },
-  { name: 'Labels', icon: 'tag' },
-];
-const labelText = computed(() => (detail.value?.inquiry.labels ?? []).join(', '));
-function togglePropertyMenu() {
-  propertyMenu.value = !propertyMenu.value;
-  if (propertyMenu.value)
-    void nextTick(() =>
-      document.querySelector<HTMLButtonElement>('.property-add-menu button')?.focus(),
-    );
+const error = ref('');
+
+function name(userId: string) {
+  const m = members.data.value?.find((x) => x.user_id === userId);
+  return m ? m.name || m.email : 'Former member';
 }
-function addField(name: string) {
-  shownFields.value.push(name);
-  if (name === 'Priority') showPriority.value = true;
-  propertyMenu.value = false;
-  void nextTick(() =>
-    document
-      .querySelector<HTMLInputElement | HTMLSelectElement>('[aria-label="' + name + '"]')
-      ?.focus(),
-  );
+function machine(runtimeId: string | null) {
+  const r = runtimes.data.value?.find((x) => x.id === runtimeId);
+  return r ? r.custom_name || r.device_name : '';
 }
-function propertyKeys(event: KeyboardEvent) {
-  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-  event.preventDefault();
-  const buttons = [
-    ...(event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button'),
-  ];
-  const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-  const index =
-    event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? buttons.length - 1
-        : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
-  buttons[index]?.focus();
-}
-function dismissProperty(event: PointerEvent) {
-  if (!(event.target as HTMLElement).closest('.property-menu-anchor')) propertyMenu.value = false;
-}
-const paneWidth = ref(
-  Math.max(260, Math.min(480, Number(readText('lykeion.detail-width')) || 364)),
-);
-type InspectorTab = 'Files' | 'Notebook' | 'Compute';
-const inspectorOpen = ref(false);
-const inspectorFocused = ref(false);
-const inspectorTabs = ref<InspectorTab[]>(['Files', 'Notebook']);
-const inspectorActive = ref<InspectorTab>('Files');
-const inspectorWidth = ref(
-  Math.max(280, Math.min(720, Number(readText('lykeion.task-inspector-width')) || 364)),
-);
-function toggleInspector() {
-  if (!inspectorOpen.value && !inspectorTabs.value.length) {
-    inspectorTabs.value = ['Files', 'Notebook'];
-    inspectorActive.value = 'Files';
-  }
-  inspectorOpen.value = !inspectorOpen.value;
-  if (!inspectorOpen.value) inspectorFocused.value = false;
-}
-function closeInspector() {
-  inspectorOpen.value = false;
-  inspectorFocused.value = false;
-  void nextTick(() => document.getElementById('open-task-inspector')?.focus());
-}
-function closeInspectorTab(tab: InspectorTab) {
-  const index = inspectorTabs.value.indexOf(tab);
-  inspectorTabs.value.splice(index, 1);
-  if (!inspectorTabs.value.length) {
-    closeInspector();
-    return;
-  }
-  if (inspectorActive.value === tab)
-    inspectorActive.value = inspectorTabs.value[Math.max(0, index - 1)]!;
-}
-function openCompute() {
-  if (!inspectorTabs.value.includes('Compute'))
-    inspectorTabs.value.splice(Math.min(1, inspectorTabs.value.length), 0, 'Compute');
-  inspectorActive.value = 'Compute';
-}
-function inspectorKey(event: KeyboardEvent, tab: InspectorTab) {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-  event.preventDefault();
-  let index = inspectorTabs.value.indexOf(tab);
-  if (event.key === 'Home') index = 0;
-  else if (event.key === 'End') index = inspectorTabs.value.length - 1;
-  else
-    index =
-      (index + (event.key === 'ArrowRight' ? 1 : -1) + inspectorTabs.value.length) %
-      inspectorTabs.value.length;
-  inspectorActive.value = inspectorTabs.value[index]!;
-  void nextTick(() => document.getElementById('inspector-tab-' + inspectorActive.value)?.focus());
-}
-function inspectorResize(event: PointerEvent) {
-  const start = event.clientX;
-  const width = inspectorWidth.value;
-  const handle = event.currentTarget as HTMLElement;
-  handle.setPointerCapture(event.pointerId);
-  const move = (e: PointerEvent) => {
-    inspectorWidth.value = Math.max(280, Math.min(720, width + start - e.clientX));
-  };
-  const finish = () => {
-    handle.removeEventListener('pointermove', move);
-    handle.removeEventListener('pointerup', finish);
-    handle.removeEventListener('pointercancel', finish);
-    writeText('lykeion.task-inspector-width', String(inspectorWidth.value));
-  };
-  handle.addEventListener('pointermove', move);
-  handle.addEventListener('pointerup', finish, { once: true });
-  handle.addEventListener('pointercancel', finish, { once: true });
-}
-function inspectorAdjust(event: KeyboardEvent) {
-  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-  event.preventDefault();
-  inspectorWidth.value = Math.max(
-    280,
-    Math.min(720, inspectorWidth.value + (event.key === 'ArrowLeft' ? 16 : -16)),
-  );
-  writeText('lykeion.task-inspector-width', String(inspectorWidth.value));
-}
-const preferences = usePreferences();
-const settingsDrafts = useSettingsDrafts();
-const pinned = computed(() => preferences.pinComments !== false);
-const showPullRequests = computed(
-  () => settingsDrafts[state.data?.workspace.id || 'local']?.code?.sidebar !== false,
-);
-let generation = 0;
-const taskCode = computed(
-  () =>
-    `${state.data?.workspace.taskPrefix || 'LYK'}-${Math.max(0, state.data?.inquiries.findIndex((item) => item.id === props.id) ?? 0) + 1}`,
-);
-async function load() {
-  const current = ++generation;
-  try {
-    const next = await service.value.detail(props.id);
-    if (current !== generation) return;
-    detail.value = next;
-    title.value = next.inquiry.title;
-    description.value = next.inquiry.description;
-    error.value = '';
-  } catch (e) {
-    if (current === generation) error.value = (e as Error).message;
-  }
-}
-async function update(
-  patch: Partial<
-    Pick<
-      Inquiry,
-      | 'title'
-      | 'description'
-      | 'priority'
-      | 'projectId'
-      | 'assigneeId'
-      | 'startDate'
-      | 'dueDate'
-      | 'labels'
-    >
-  >,
-) {
-  if (!detail.value || saving.value) return;
-  saving.value = true;
-  try {
-    await service.value.updateInquiry(props.id, detail.value.inquiry.revision, patch);
-    editing.value = false;
-    await load();
-    await refresh();
-  } catch (e) {
-    error.value = (e as Error).message;
-  } finally {
-    saving.value = false;
-  }
-}
-function save() {
-  if (!title.value.trim()) {
-    error.value = 'Enter a task title.';
-    return;
-  }
-  return update({ title: title.value.trim(), description: description.value });
-}
-async function send() {
+const spent = computed(() => (runs.data.value ?? []).reduce((sum, r) => sum + r.cost_usd, 0));
+const usd = (n: number) => `$${n.toFixed(2)}`;
+const time = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const toggleCheck = (id: string) =>
+  (openChecks.value = openChecks.value.includes(id)
+    ? openChecks.value.filter((x) => x !== id)
+    : [...openChecks.value, id]);
+const verdictLabel = { pass: 'Passed', fail: 'Routed back', cannot_proceed: 'Stopped' };
+
+async function sendComment() {
   if (busy.value || !comment.value.trim()) return;
   busy.value = true;
+  error.value = '';
   try {
-    await service.value.comment(props.id, comment.value);
+    await api('POST', `/api/cards/${props.id}/comments`, { body: comment.value.trim() });
     comment.value = '';
-    await load();
+    await client.invalidateQueries({ queryKey: keys.comments(workspaceId.value, props.id) });
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
     busy.value = false;
   }
 }
-async function transition(event: Event) {
-  const element = event.target as HTMLSelectElement;
-  const target = element.value as Stage;
-  if (!detail.value) return;
+async function saveBudget() {
   try {
-    const result = await service.value.transition(props.id, detail.value.inquiry.revision, target);
-    notify(result.accepted ? `Moved to ${target}` : result.reasons.join(' '));
-    await load();
-    await refresh();
+    await api('POST', `/api/cards/${props.id}/budget`, {
+      usd: Math.max(0, Number(budgetDraft.value) || 0),
+    });
+    editingBudget.value = false;
+    await client.invalidateQueries({ queryKey: keys.card(workspaceId.value, props.id) });
   } catch (e) {
     error.value = (e as Error).message;
   }
-  if (detail.value) element.value = detail.value.inquiry.stage;
 }
-function selected(event: Event) {
-  return (event.target as HTMLSelectElement).value;
-}
-function persistWidth() {
-  writeText('lykeion.detail-width', String(paneWidth.value));
-}
-function resize(event: PointerEvent) {
-  const start = event.clientX;
-  const width = paneWidth.value;
-  const handle = event.currentTarget as HTMLElement;
-  handle.setPointerCapture(event.pointerId);
-  const move = (e: PointerEvent) => {
-    paneWidth.value = Math.max(260, Math.min(480, width + e.clientX - start));
-  };
-  const finish = () => {
-    handle.removeEventListener('pointermove', move);
-    handle.removeEventListener('pointerup', finish);
-    handle.removeEventListener('pointercancel', finish);
-    persistWidth();
-  };
-  handle.addEventListener('pointermove', move);
-  handle.addEventListener('pointerup', finish, { once: true });
-  handle.addEventListener('pointercancel', finish, { once: true });
-}
-function adjust(event: KeyboardEvent) {
-  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-  event.preventDefault();
-  paneWidth.value = Math.max(
-    260,
-    Math.min(480, paneWidth.value + (event.key === 'ArrowRight' ? 16 : -16)),
-  );
-  persistWidth();
-}
-function key(event: KeyboardEvent) {
-  if (event.key === 'Escape' && propertyMenu.value) {
-    propertyMenu.value = false;
-    event.preventDefault();
+async function remove() {
+  if (!c.value || !confirm(`Delete ${number.value} “${c.value.title}”? This cannot be undone.`))
     return;
+  try {
+    await api('DELETE', `/api/cards/${props.id}`);
+    await client.invalidateQueries({ queryKey: keys.cards(workspaceId.value) });
+    emit('close');
+  } catch (e) {
+    notify((e as Error).message);
   }
-  if (
-    event.defaultPrevented ||
-    event.key !== 'Escape' ||
-    editing.value ||
-    document.querySelector('dialog[open]')
-  )
-    return;
-  if (inspectorFocused.value) {
-    inspectorFocused.value = false;
-    event.preventDefault();
-  } else if (inspectorOpen.value) {
-    closeInspector();
-    event.preventDefault();
-  } else if (preview.value) emit('close');
 }
-watch(
-  () => props.id,
-  () => {
-    detail.value = undefined;
-    editing.value = false;
-    comment.value = '';
-    load();
-  },
-);
-onMounted(() => {
-  document.addEventListener('pointerdown', dismissProperty);
-  load();
-  window.addEventListener('keydown', key);
-});
-onUnmounted(() => {
-  document.removeEventListener('pointerdown', dismissProperty);
-  generation++;
-  window.removeEventListener('keydown', key);
-});
+function pin() {
+  if (!togglePin(props.id)) notify('The pin could not be saved on this device.');
+}
 </script>
 <template>
   <section
-    class="task-detail desktop-task"
-    :class="{
-      'task-preview': preview,
-      'comments-pinned': pinned,
-      'has-inspector': inspectorOpen,
-      'inspector-focused': inspectorFocused,
-    }"
-    :style="{ '--properties-width': paneWidth + 'px', '--inspector-width': inspectorWidth + 'px' }"
-    aria-label="Task detail"
+    class="task-detail"
+    :class="embedded ? 'embedded-task' : 'desktop-task'"
+    :style="{ '--properties-width': '260px' }"
+    aria-label="Study"
   >
-    <aside v-if="showProperties" class="task-properties">
-      <header>
-        <h2>Properties</h2>
-        <Icon name="down" :size="12" />
-      </header>
-      <template v-if="detail">
-        <div class="property-rows">
-          <label
-            ><span>Status</span
-            ><select
-              :value="detail.inquiry.stage"
-              aria-label="Scientific stage"
-              @change="transition"
-            >
-              <option v-for="stage in stages" :key="stage">{{ stage }}</option>
-            </select></label
-          >
-          <p v-if="detail.inquiry.status !== 'active'" class="state-note">
-            {{ detail.inquiry.status === 'blocked' ? 'Blocked' : 'Done' }} ·
-            {{ detail.inquiry.stage }}
-          </p>
-          <label
-            ><span>Assignee</span
-            ><select
-              :value="detail.inquiry.assigneeId || ''"
-              aria-label="Assignee"
-              :disabled="saving"
-              @change="update({ assigneeId: selected($event) || null })"
-            >
-              <option value="">Unassigned</option>
-              <option v-for="item in state.data?.agents" :key="item.id" :value="item.id">
-                {{ item.name }}
-              </option>
-            </select></label
-          >
-          <label
-            ><span>Project</span
-            ><select
-              :value="detail.inquiry.projectId || ''"
-              aria-label="Project"
-              :disabled="saving"
-              @change="update({ projectId: selected($event) || null })"
-            >
-              <option value="">No project</option>
-              <option v-for="item in state.data?.projects" :key="item.id" :value="item.id">
-                {{ item.name }}
-              </option>
-            </select></label
-          >
-          <label v-if="showPriority || detail.inquiry.priority !== 'none'"
-            ><span>Priority</span
-            ><select
-              :value="detail.inquiry.priority"
-              aria-label="Priority"
-              :disabled="saving"
-              @change="update({ priority: selected($event) as Inquiry['priority'] })"
-            >
-              <option value="none">No priority</option>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select></label
-          >
-          <label
-            v-for="field in ['startDate', 'dueDate'] as const"
-            v-show="
-              detail.inquiry[field] ||
-              shownFields.includes(field === 'startDate' ? 'Start date' : 'Due date')
-            "
-            :key="field"
-            ><span>{{ field === 'startDate' ? 'Start date' : 'Due date' }}</span
-            ><input
-              type="date"
-              :aria-label="field === 'startDate' ? 'Start date' : 'Due date'"
-              :value="detail.inquiry[field] || ''"
-              :disabled="saving"
-              @change="update({ [field]: selected($event) || null })"
-          /></label>
-          <label v-if="detail.inquiry.labels?.length || shownFields.includes('Labels')"
-            ><span>Labels</span
-            ><input
-              aria-label="Labels"
-              :value="labelText"
-              placeholder="Comma-separated labels"
-              :disabled="saving"
-              @change="
-                update({
-                  labels: [
-                    ...new Set(
-                      selected($event)
-                        .split(',')
-                        .map((x) => x.trim())
-                        .filter(Boolean),
-                    ),
-                  ],
-                })
-              "
-          /></label>
-          <div class="property-menu-anchor">
-            <button
-              class="add-property"
-              :aria-expanded="propertyMenu"
-              aria-haspopup="menu"
-              @click="togglePropertyMenu"
-            >
-              <Icon name="plus" :size="12" />Add property
-            </button>
-            <div v-if="propertyMenu" class="property-add-menu" role="menu" @keydown="propertyKeys">
-              <button
-                v-for="field in optionalFields"
-                :key="field.name"
-                role="menuitem"
-                @click="addField(field.name)"
-              >
-                <Icon :name="field.icon" :size="14" />{{ field.name }}
-              </button>
-            </div>
-          </div>
-        </div>
-        <TaskAuxiliary
-          :detail="detail"
-          :task-code="taskCode"
-          :show-pull-requests="showPullRequests"
-          @changed="load"
-        />
-        <details class="properties-section" open>
-          <summary>Evidence<Icon name="down" :size="12" /></summary>
-          <p>
-            {{
-              detail.claims.length
-                ? `${detail.claims.length} validated claims in the ledger.`
-                : 'No validated claims yet.'
-            }}
-          </p>
-        </details>
-        <details class="properties-section task-metadata" open>
-          <summary>Details<Icon name="down" :size="12" /></summary>
-          <p><span>Created by</span>{{ service.mode === 'local' ? 'You' : 'Workspace member' }}</p>
-          <p><span>Created</span>{{ date(detail.inquiry.createdAt) }}</p>
-          <p><span>Revision</span>{{ detail.inquiry.revision }}</p>
-        </details>
-      </template>
-    </aside>
-    <div
-      v-if="showProperties"
-      class="task-splitter"
-      role="separator"
-      tabindex="0"
-      aria-label="Resize properties"
-      aria-orientation="vertical"
-      :aria-valuenow="paneWidth"
-      :aria-valuemin="260"
-      :aria-valuemax="480"
-      @pointerdown="resize"
-      @keydown="adjust"
-    />
     <div class="task-main">
       <header class="task-heading">
         <button
-          v-if="preview"
-          class="icon-button"
-          aria-label="Close preview"
-          @click="emit('close')"
-        >
-          <Icon name="close" /></button
-        ><button
-          v-else
+          v-if="!embedded"
           class="icon-button back-task"
-          aria-label="Back to tasks"
+          aria-label="Back to studies"
           @click="emit('close')"
         >
           <Icon name="back" /></button
-        ><span>{{ taskCode }} {{ detail?.inquiry.title }}</span>
+        ><span>{{ number }} {{ c?.title }}</span>
         <div class="push-right">
           <button
-            v-if="preview"
             class="icon-button"
-            aria-label="Open full page"
-            @click="router.replace({ query: {} })"
+            :aria-pressed="pins.includes(id)"
+            aria-label="Pin"
+            @click="pin"
           >
-            <Icon name="expand" /></button
-          ><button
+            <Icon name="tag" />
+          </button>
+          <template v-if="c?.board_column === 'backlog'"
+            ><button class="icon-button" aria-label="Edit study" @click="openComposer(id)">
+              <Icon name="edit" /></button
+            ><button class="icon-button" aria-label="Delete study" @click="remove">
+              <Icon name="close" /></button
+          ></template>
+          <button
             class="icon-button"
-            :aria-pressed="showProperties"
-            aria-label="Toggle properties"
-            @click="showProperties = !showProperties"
-          >
-            <Icon name="sidebar" /></button
-          ><button
-            id="open-task-inspector"
-            class="icon-button"
-            :aria-expanded="inspectorOpen"
-            aria-label="Open task inspector"
-            @click="toggleInspector"
+            :aria-pressed="showMeta"
+            aria-label="Toggle details"
+            @click="showMeta = !showMeta"
           >
             <Icon name="panel" />
           </button>
         </div>
       </header>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-      <div v-if="detail" class="transcript-scroll">
-        <div class="transcript-content">
-          <div class="task-description">
-            <template v-if="editing"
-              ><input v-model="title" class="task-title-input" aria-label="Task title" /><textarea
-                v-model="description"
-                class="task-description-input"
-                aria-label="Description"
-              />
-              <div class="toolbar-group">
-                <button class="button primary" :disabled="saving" @click="save">
-                  {{ saving ? 'Saving…' : 'Save changes' }}</button
-                ><button
-                  class="button"
-                  @click="
-                    editing = false;
-                    title = detail.inquiry.title;
-                    description = detail.inquiry.description;
-                  "
-                >
-                  Cancel
-                </button>
-              </div></template
-            ><template v-else
-              ><button class="task-title" @click="editing = true">{{ detail.inquiry.title }}</button
-              ><button class="task-description-text" @click="editing = true">
-                {{ detail.inquiry.description || 'Add description...' }}
-              </button></template
+      <div v-if="c" class="transcript-scroll">
+        <div class="transcript-content study-content">
+          <h1 class="study-title">{{ c.title }}</h1>
+          <p class="study-question">{{ c.question }}</p>
+          <div v-for="col in earlier" :key="col" class="stage-box collapsed-stage">
+            <button
+              :aria-expanded="expanded === col"
+              @click="expanded = expanded === col ? '' : col"
             >
-          </div>
-          <header class="transcript-heading">
-            <h2>Transcript</h2>
-            <span
-              >{{ detail.activity.length }}
-              {{ detail.activity.length === 1 ? 'entry' : 'entries' }}</span
-            >
-          </header>
-          <div class="transcript-entry creation-entry">
-            <span class="avatar">L</span
-            ><span>{{
-              service.mode === 'local' ? 'You saved this local draft' : 'Task created'
-            }}</span
-            ><time>{{ date(detail.inquiry.createdAt) }}</time>
-          </div>
-          <article v-for="entry in detail.activity" :key="entry.id" class="transcript-entry">
-            <span class="avatar">{{ entry.kind === 'comment' ? 'Y' : 'L' }}</span>
-            <div>
-              <header>
-                <strong>{{
-                  entry.kind === 'comment'
-                    ? service.mode === 'local'
-                      ? 'You'
-                      : 'Workspace comment'
-                    : 'Lykeion'
-                }}</strong
-                ><time>{{
-                  new Date(entry.createdAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                }}</time>
-              </header>
-              <p>{{ entry.text }}</p>
-            </div>
-          </article>
-          <section v-if="detail.claims.length" class="task-claims">
-            <h2>Claim ledger</h2>
-            <article v-for="claim in detail.claims" :key="claim.id">
-              <span class="pill">{{ claim.status }}</span>
-              <p>{{ claim.text }}</p>
-              <small>{{ claim.evidenceRefs.join(', ') }}</small>
-            </article>
-          </section>
-          <form v-if="!pinned" class="task-comment" @submit.prevent="send">
-            <textarea
-              v-model="comment"
-              placeholder="Leave a comment..."
-              aria-label="Comment"
-              @keydown.meta.enter.prevent="send"
-              @keydown.ctrl.enter.prevent="send"
-            />
-            <footer>
-              <small v-if="service.mode === 'local'">Local comment</small
-              ><button
-                class="round-send"
-                type="submit"
-                :disabled="busy || !comment.trim()"
-                aria-label="Send"
+              <Icon :name="expanded === col ? 'down' : 'right'" :size="12" /><span
+                class="stage-dot"
+                :class="'status-' + col"
+              />{{ columnName(col) }}<span v-if="c.stale.includes(col)" class="chip">stale</span>
+            </button>
+            <template v-if="expanded === col">
+              <div
+                v-for="r in earlierRecords.data.value ?? []"
+                :key="r.id"
+                class="record-line"
+                :class="{ superseded: r.superseded_at }"
               >
-                <Icon name="up" :size="18" />
-              </button>
-            </footer>
-          </form>
+                <span class="key">{{ recordLine(r).key }}</span
+                ><span>{{ recordLine(r).text }}</span
+                ><span v-if="recordLine(r).source" class="source">{{ recordLine(r).source }}</span
+                ><span v-if="r.superseded_at" class="superseded-mark">superseded</span>
+              </div>
+              <div
+                v-for="(g, i) in allGates.filter((x) => x.column === col)"
+                :key="i"
+                class="gate-line"
+              >
+                Gate · round {{ g.round }} · {{ verdictLabel[g.verdict]
+                }}<span v-if="g.reason" class="why"> · {{ g.reason }}</span>
+              </div>
+            </template>
+          </div>
+          <div v-if="stage" class="stage-box">
+            <h4>
+              <span class="stage-dot" :class="'status-' + stage" />{{ columnName(stage) }} · round
+              {{ c.round
+              }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
+                stateLabel(c)
+              }}</span
+              ><span v-if="c.flag" class="chip" :class="'chip-' + c.flag">{{
+                c.flag.replace(/_/g, ' ')
+              }}</span>
+            </h4>
+            <div
+              v-for="r in records.data.value ?? []"
+              :key="r.id"
+              class="record-line"
+              :class="{ superseded: r.superseded_at }"
+            >
+              <span class="key">{{ recordLine(r).key }}</span
+              ><span>{{ recordLine(r).text }}</span
+              ><span v-if="recordLine(r).source" class="source">{{ recordLine(r).source }}</span
+              ><span v-if="r.superseded_at" class="superseded-mark">superseded</span>
+            </div>
+            <p v-if="records.isSuccess.value && !records.data.value?.length" class="muted">
+              No records yet.
+            </p>
+          </div>
+          <div v-if="latestGate" class="stage-box">
+            <h4>
+              Gate · round {{ latestGate.round
+              }}<span class="chip" :class="'gate-' + latestGate.verdict">{{
+                verdictLabel[latestGate.verdict]
+              }}</span>
+            </h4>
+            <p v-if="latestGate.route?.reason || latestGate.reason" class="gate-reason">
+              {{ latestGate.route?.reason || latestGate.reason }}
+            </p>
+            <template v-for="check in latestGate.checks" :key="check.id">
+              <div class="gate-line">
+                <span :class="checkLine(check).tone">{{ checkLine(check).mark }}</span
+                ><span class="name">{{ checkLine(check).name }}</span
+                ><span class="why">{{ checkLine(check).why }}</span
+                ><button
+                  v-if="checkLine(check).jev"
+                  class="text-button more"
+                  @click="toggleCheck(check.id)"
+                >
+                  Details {{ openChecks.includes(check.id) ? '▾' : '▸' }}
+                </button>
+              </div>
+              <div v-if="openChecks.includes(check.id)" class="gate-details">
+                <p>Jev asked: {{ check.question }}</p>
+                <p>
+                  It chose: {{ check.choice ?? 'no answer' }}, with probability
+                  {{ check.p?.toFixed(2) ?? '—' }}
+                </p>
+                <p>
+                  Threshold: passes at p ≥ {{ jevThresholds.pass }}, fails below
+                  {{ jevThresholds.fail }}; between, the reviewer decides.
+                </p>
+              </div>
+            </template>
+          </div>
+          <header class="transcript-heading"><h2>Transcript</h2></header>
+          <template
+            v-for="entry in entries"
+            :key="
+              entry.kind +
+              (entry.kind === 'event'
+                ? entry.id
+                : entry.kind === 'run'
+                  ? entry.run.id
+                  : entry.comment.id)
+            "
+          >
+            <template v-if="entry.kind === 'comment'">
+              <div class="who" :class="{ mine: entry.comment.author_id === me.data.value?.id }">
+                <span class="avatar">{{ name(entry.comment.author_id)[0] }}</span
+                >{{ name(entry.comment.author_id) }}<span class="tm">{{ time(entry.at) }}</span>
+              </div>
+              <p class="bubble" :class="{ mine: entry.comment.author_id === me.data.value?.id }">
+                {{ entry.comment.body }}
+              </p>
+            </template>
+            <RunTurn
+              v-else-if="entry.kind === 'run'"
+              :run="entry.run"
+              :machine="machine(entry.run.runtime_id)"
+            />
+            <div v-else class="event-line">
+              <span class="dot" />{{ entry.text }} · {{ time(entry.at) }}
+            </div>
+          </template>
         </div>
       </div>
-      <div v-if="detail && pinned" class="pinned-composer">
-        <form class="task-comment" @submit.prevent="send">
+      <div v-if="c && !c.ending" class="pinned-composer">
+        <form class="task-comment" @submit.prevent="sendComment">
           <textarea
             v-model="comment"
-            placeholder="Leave a comment..."
+            placeholder="Leave a comment… the stage roles read it next round."
             aria-label="Comment"
-            @keydown.meta.enter.prevent="send"
-            @keydown.ctrl.enter.prevent="send"
+            @keydown.meta.enter.prevent="sendComment"
+            @keydown.ctrl.enter.prevent="sendComment"
           />
           <footer>
-            <small v-if="service.mode === 'local'">Local comment</small
-            ><button
+            <button
               class="round-send"
               type="submit"
               :disabled="busy || !comment.trim()"
@@ -638,133 +332,67 @@ onUnmounted(() => {
           </footer>
         </form>
       </div>
-      <p v-if="!detail && !error" class="detail-loading" role="status">Loading task…</p>
+      <p v-if="card.isPending.value" class="detail-loading" role="status">Loading study…</p>
+      <p v-else-if="card.isError.value" class="inline-error" role="alert">
+        {{ card.error.value?.message }}
+      </p>
     </div>
-    <div
-      v-if="inspectorOpen && !inspectorFocused"
-      class="inspector-splitter"
-      role="separator"
-      tabindex="0"
-      aria-label="Resize task inspector"
-      aria-orientation="vertical"
-      :aria-valuenow="inspectorWidth"
-      :aria-valuemin="280"
-      :aria-valuemax="720"
-      @pointerdown="inspectorResize"
-      @keydown="inspectorAdjust"
-    />
-    <aside v-if="inspectorOpen" class="task-inspector" aria-label="Task inspector">
-      <header class="inspector-toolbar">
-        <div class="inspector-tabs" role="tablist" aria-label="Task inspector">
-          <div
-            v-for="tab in inspectorTabs"
-            :key="tab"
-            class="inspector-tab"
-            :class="{ active: inspectorActive === tab }"
-          >
-            <button
-              :id="'inspector-tab-' + tab"
-              role="tab"
-              :aria-selected="inspectorActive === tab"
-              :tabindex="inspectorActive === tab ? 0 : -1"
-              :aria-controls="'inspector-panel-' + tab"
-              @click="inspectorActive = tab"
-              @keydown="inspectorKey($event, tab)"
-            >
-              <Icon v-if="tab === 'Notebook'" name="book" :size="12" />{{ tab }}</button
-            ><button
-              class="inspector-tab-close"
-              :aria-label="'Close inspector ' + tab"
-              @click="closeInspectorTab(tab)"
-            >
-              <Icon name="close" :size="12" />
-            </button>
-          </div>
-        </div>
-        <button
-          class="icon-button"
-          :aria-label="inspectorFocused ? 'Restore task' : 'Focus inspector'"
-          :aria-pressed="inspectorFocused"
-          @click="inspectorFocused = !inspectorFocused"
+    <div v-if="showMeta && c" class="task-splitter" />
+    <aside v-if="showMeta && c" class="task-properties study-meta" aria-label="Study details">
+      <small>Column</small>
+      <div class="v">
+        <span class="stage-dot" :class="'status-' + c.board_column" />{{ columnName(c.board_column)
+        }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
+          stateLabel(c)
+        }}</span
+        ><span v-if="c.ending" class="chip" :class="'chip-' + c.ending">{{ endLabel(c) }}</span>
+      </div>
+      <small>Owner</small>
+      <div class="v">
+        <span class="avatar">{{ name(c.owner_id)[0] }}</span
+        >{{ name(c.owner_id) }}
+      </div>
+      <small>Budget</small>
+      <div v-if="!editingBudget" class="v">
+        {{ usd(c.spent_usd) }} {{ c.budget_usd > 0 ? `of ${usd(c.budget_usd)}` : '· no limit'
+        }}<button
+          v-if="!c.ending"
+          class="text-button push-right"
+          @click="
+            budgetDraft = c.budget_usd;
+            editingBudget = true;
+          "
         >
-          <Icon name="expand" :size="15" /></button
-        ><button class="icon-button" aria-label="Close inspector" @click="closeInspector">
-          <Icon name="close" :size="16" />
+          Change
         </button>
-      </header>
-      <section
-        :id="'inspector-panel-' + inspectorActive"
-        class="inspector-panel"
-        role="tabpanel"
-        :aria-labelledby="'inspector-tab-' + inspectorActive"
-      >
-        <template v-if="inspectorActive === 'Files'"
-          ><header>
-            <Icon name="file" :size="14" />
-            <h2>Files</h2>
-          </header>
-          <p>
-            {{
-              service.mode === 'local'
-                ? 'No files saved in this task yet.'
-                : 'The task file service is not connected.'
-            }}
-          </p></template
-        >
-        <template v-else-if="inspectorActive === 'Notebook'"
-          ><header>
-            <Icon name="book" :size="14" />
-            <h2>Notebook</h2>
-          </header>
-          <p>
-            No cells yet. Connect a runtime to execute code; each task keeps its own notebook
-            context.
-          </p>
-          <footer class="notebook-footer">
-            <div class="notebook-environment">
-              <label
-                >Language
-                <select aria-label="Language" disabled>
-                  <option>Python</option>
-                </select></label
-              ><label
-                >Environment
-                <select aria-label="Environment" disabled>
-                  <option>Not connected</option>
-                </select></label
-              >
-            </div>
-            <button class="notebook-link" @click="openCompute">Set up environment</button>
-            <p>· view only — no kernel is connected</p>
-            <div>
-              <button class="notebook-link" @click="openCompute">Full details</button
-              ><span>0 cells</span>
-            </div>
-          </footer></template
-        >
-        <template v-else
-          ><header>
-            <Icon name="monitor" :size="14" />
-            <h2>Compute</h2>
-            <small>Not connected</small>
-          </header>
-          <p class="compute-runtime">No runtime assigned</p>
-          <div class="compute-stats">
-            <div v-for="metric in ['Memory', 'Processor', 'Disk free']" :key="metric">
-              <small>{{ metric }}</small
-              ><span>—</span><i />
-            </div>
-          </div>
-          <p class="compute-description">The Python kernel environment has not been set up.</p>
-          <div class="kernel-section">
-            <h3>Kernels</h3>
-            <small>No running kernel</small
-            ><button class="notebook-link" @click="router.push('/runtimes')">
-              Configure a machine
-            </button>
-          </div></template
-        >
-      </section>
+      </div>
+      <form v-else class="v" @submit.prevent="saveBudget">
+        <input
+          v-model.number="budgetDraft"
+          type="number"
+          min="0"
+          step="0.5"
+          aria-label="Budget in USD"
+        /><button class="button compact">Save budget</button>
+      </form>
+      <div v-if="c.budget_usd > 0" class="budget-bar">
+        <i :style="{ width: Math.min(100, (100 * c.spent_usd) / c.budget_usd) + '%' }" />
+      </div>
+      <small>Deadline</small>
+      <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
+      <small>Round</small>
+      <div class="v">
+        {{ c.round }} · {{ c.route_backs }} route-back{{ c.route_backs === 1 ? '' : 's' }} of
+        {{ routeBackLimit(workspace.data.value?.settings) }}
+      </div>
+      <template v-if="c.follows_from.length">
+        <small>Follows from</small>
+        <RouterLink v-for="fid in c.follows_from" :key="fid" class="v link" :to="'/studies/' + fid">
+          {{ cards.data.value?.find((x) => x.id === fid)?.title ?? 'Study' }}
+        </RouterLink>
+      </template>
+      <small>Runs</small>
+      <div class="v">{{ runs.data.value?.length ?? 0 }} · {{ usd(spent) }}</div>
     </aside>
   </section>
 </template>
@@ -1412,5 +1040,225 @@ onUnmounted(() => {
     padding-left: 20px;
     padding-right: 20px;
   }
+}
+.embedded-task {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  background: var(--surface);
+}
+.study-content {
+  max-width: 780px;
+  padding: 22px 20px 40px;
+}
+.study-title {
+  font-size: 25px;
+  line-height: 32px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.study-question {
+  font-size: 14.5px;
+  margin-bottom: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stage-box {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.stage-box h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  margin-bottom: 6px;
+}
+.collapsed-stage > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  color: var(--muted);
+}
+.record-line {
+  display: flex;
+  gap: 10px;
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+.record-line .key {
+  color: var(--muted);
+  min-width: 20px;
+}
+.record-line.superseded {
+  color: var(--muted);
+}
+.superseded-mark {
+  color: #8a6a1c;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.record-line .source {
+  color: var(--primary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.gate-reason {
+  background: var(--input);
+  border-left: 3px solid var(--control-border);
+  padding: 6px 10px;
+  margin: 6px 0 8px;
+  overflow-wrap: anywhere;
+}
+.gate-line {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.gate-line .name {
+  min-width: 170px;
+  font-weight: 500;
+}
+.gate-line .why {
+  color: var(--muted);
+  min-width: 0;
+}
+.gate-line .more {
+  margin-left: auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.gate-details {
+  margin: 2px 0 6px 22px;
+  padding: 8px 10px;
+  background: var(--input);
+  border-radius: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ok {
+  color: #3c7a4a;
+}
+.bad {
+  color: #a33a44;
+}
+.att {
+  color: #8a6a1c;
+}
+.gate-pass {
+  background: #e6f1e8;
+  color: #3c7a4a;
+}
+.gate-fail {
+  background: #fbf0d9;
+  color: #8a6a1c;
+}
+.who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  margin: 8px 0 6px 14px;
+}
+.who.mine {
+  justify-content: flex-end;
+}
+.who .tm {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.bubble {
+  max-width: 460px;
+  background: var(--input);
+  border-radius: 12px;
+  padding: 10px 13px;
+  font-size: 13.5px;
+  margin: 0 0 14px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bubble.mine {
+  margin-left: auto;
+  margin-right: 0;
+  background: var(--fill-active);
+}
+.event-line {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 4px 0 10px 14px;
+}
+.event-line .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--control-border);
+  flex: none;
+}
+.study-meta {
+  padding: 16px;
+  font-size: 13px;
+}
+.study-meta > small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 12px;
+}
+.study-meta .v {
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.study-meta .v input {
+  width: 90px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+}
+.study-meta .link {
+  color: var(--primary);
+}
+.budget-bar {
+  height: 5px;
+  background: var(--border);
+  border-radius: 3px;
+  margin-top: 5px;
+}
+.budget-bar i {
+  display: block;
+  height: 5px;
+  background: var(--primary);
+  border-radius: 3px;
+}
+
+.status-hypotheses {
+  color: #ab54f4;
+}
+.status-experimentation {
+  color: #c69c25;
+}
+.status-validation {
+  color: #278241;
+}
+.status-blocked {
+  color: #d5213d;
+}
+.status-reporting,
+.status-done {
+  color: #0672c5;
 }
 </style>

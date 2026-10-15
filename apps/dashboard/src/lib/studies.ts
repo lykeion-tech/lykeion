@@ -1,4 +1,14 @@
-import type { Card, CareerStage, Column } from '../api/types';
+import type {
+  Card,
+  CareerStage,
+  Column,
+  AgentRun,
+  Comment,
+  Gate,
+  GateCheck,
+  LykEvent,
+  StudyRecord,
+} from '../api/types';
 
 // A workspace URL the server accepts (^[a-z0-9][a-z0-9-]{1,38}$), or '' when the
 // name has too few letters or digits to make one.
@@ -159,4 +169,102 @@ export function positionAt(list: Card[], movedId: string, index: number): number
   if (after) return after.position - 1;
   if (before) return before.position + 1;
   return list.find((c) => c.id === movedId)?.position ?? 0;
+}
+
+export const gateOf = (r: StudyRecord) => r.body as unknown as Gate;
+
+// Jev's verdict bands.
+export const jevThresholds = { pass: 0.7, fail: 0.35 };
+
+export function checkLine(c: GateCheck) {
+  const tone: 'ok' | 'bad' | 'att' =
+    c.result === 'pass' ? 'ok' : c.result === 'fail' ? 'bad' : 'att';
+  return {
+    mark: { ok: '✓', bad: '✗', att: '!' }[tone],
+    tone,
+    name: c.id,
+    why: c.note ?? '',
+    jev: c.judge === 'jev' && Boolean(c.question),
+  };
+}
+
+const str = (v: unknown) => (typeof v === 'string' ? v : '');
+// What a record holds, in one line: its claim, its first line of text, the
+// dataset or search it names, or its reason.
+export function recordLine(r: StudyRecord) {
+  const b = r.body;
+  const firstLine =
+    str(b.text)
+      .replace(/^#+\s*/, '')
+      .split('\n')[0] ?? '';
+  const text =
+    str(b.claim) ||
+    firstLine ||
+    str(b.accession) ||
+    str(b.query) ||
+    str(b.reason) ||
+    str(b.check) ||
+    r.kind;
+  return { key: r.key || r.kind, text, source: str(b.source_id) };
+}
+
+const steered: Record<string, (p: Record<string, unknown>) => string> = {
+  'send-back': (p) => `Sent back to ${columnName(str(p.column))}`,
+  stop: () => 'Stopped',
+  resume: () => 'Resumed',
+  budget: () => 'Budget changed',
+};
+export function eventText(e: LykEvent): string {
+  const p = e.payload ?? {};
+  switch (e.type) {
+    case 'card.created':
+      return 'Created';
+    case 'card.started':
+      return `Started in ${columnName(str(p.column))}`;
+    case 'card.edited':
+      return 'Edited';
+    case 'card.escalated':
+      return 'Escalated: waiting for a person';
+    case 'card.out_of_budget':
+      return 'Out of budget: waiting for a person';
+    case 'card.steered':
+      return steered[str(p.path).split('/').pop() ?? '']?.(p) ?? '';
+    case 'gate.decided':
+      if (p.verdict === 'pass') return `Gate passed ${columnName(str(p.column))}`;
+      if (p.verdict === 'cannot_proceed') return `Gate stopped the study: ${str(p.reason)}`;
+      return `Gate routed the study back to ${columnName(str(p.to_column))}: ${str(p.reason)}`;
+    default:
+      return '';
+  }
+}
+
+export type TranscriptEntry =
+  | { kind: 'comment'; at: string; comment: Comment }
+  | { kind: 'run'; at: string; run: AgentRun }
+  | { kind: 'event'; at: string; text: string; id: number };
+export function transcript(
+  comments: Comment[],
+  runs: AgentRun[],
+  events: LykEvent[],
+): TranscriptEntry[] {
+  const out: TranscriptEntry[] = [
+    ...comments.map((comment) => ({ kind: 'comment' as const, at: comment.created_at, comment })),
+    ...runs.map((run) => ({ kind: 'run' as const, at: run.started_at ?? run.created_at, run })),
+    ...events
+      .map((e) => ({ kind: 'event' as const, at: e.created_at, text: eventText(e), id: e.id }))
+      .filter((e) => e.text),
+  ];
+  return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
+// The stages shown collapsed above the current one.
+export function earlierColumns(card: Card, gates: Gate[]): Column[] {
+  const index = stages.indexOf(card.board_column);
+  if (index >= 0) return stages.slice(0, index);
+  return stages.filter((s) => gates.some((g) => g.column === s));
+}
+
+export function routeBackLimit(settings?: Record<string, unknown>): number {
+  const limits = settings?.limits as { route_backs?: number } | undefined;
+  return limits?.route_backs ?? 5;
 }

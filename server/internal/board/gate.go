@@ -33,7 +33,7 @@ type Check struct {
 	Evidence []string `json:"evidence,omitempty"`
 	Model    string   `json:"model,omitempty"`
 	Question string   `json:"question,omitempty"`
-	P        float64  `json:"p,omitempty"`
+	P        *float64 `json:"p,omitempty"`
 	Choice   string   `json:"choice,omitempty"`
 	Note     string   `json:"note,omitempty"`
 }

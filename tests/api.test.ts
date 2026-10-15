@@ -194,6 +194,72 @@ describe('run message pagination', () => {
     ]);
   });
 
+  it.each(['completed', 'failed', 'cancelled'] as const)(
+    'fetches final output when the current attempt becomes %s before its next poll',
+    async (status) => {
+      let final = false;
+      const fetch = vi.fn(async () => Response.json(final ? messages(2) : []));
+      vi.stubGlobal('fetch', fetch);
+      const current = ref<AgentRun>({ ...run(), status: 'running' });
+      const query = observe(current);
+      await vi.waitFor(() => expect(query.data.value).toEqual([]));
+      final = true;
+      current.value = { ...current.value, status };
+      await vi.waitFor(() => expect(query.data.value).toEqual(messages(2)));
+      expect(fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('cancels an unfinished live snapshot before fetching the terminal output', async () => {
+    let resolveOld!: (value: Response) => void;
+    const old = new Promise<Response>((resolve) => {
+      resolveOld = resolve;
+    });
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(() => old)
+      .mockImplementation(async () => Response.json(messages(2)));
+    vi.stubGlobal('fetch', fetch);
+    const current = ref<AgentRun>({ ...run(), status: 'running' });
+    const query = observe(current);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    current.value = { ...current.value, status: 'completed' };
+    await vi.waitFor(() => expect(query.data.value).toEqual(messages(2)));
+    resolveOld(Response.json([]));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(query.data.value).toEqual(messages(2));
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['attempt', 'workspace', 'dispose'] as const)(
+    'fences a terminal refresh after %s changes during cancellation',
+    async (change) => {
+      const fetch = respond(200, '[]');
+      const current = ref<AgentRun>({ ...run(1), status: 'running' });
+      observe(current);
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const cancel = client.cancelQueries.bind(client);
+      const cancelling = vi.spyOn(client, 'cancelQueries').mockImplementation(async (...args) => {
+        await cancel(...args);
+        await gate;
+      });
+      current.value = { ...current.value, status: 'completed' };
+      await vi.waitFor(() => expect(cancelling).toHaveBeenCalledTimes(1));
+      if (change === 'attempt') current.value = run(2);
+      else if (change === 'workspace') workspaceId.value = 'w2';
+      else scope.stop();
+      if (change !== 'dispose') await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(fetch).toHaveBeenCalledTimes(change === 'dispose' ? 1 : 2);
+      cancelling.mockRestore();
+    },
+  );
+
   it('reports a later-page error instead of presenting a truncated transcript as complete', async () => {
     const fetch = vi.fn(async (path: string) =>
       path.includes('after=1000')

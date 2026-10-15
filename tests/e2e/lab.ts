@@ -57,3 +57,9 @@ export async function newStudy(
   expect(res.status()).toBe(201);
   return res.json();
 }
+
+// Gives a study n evidence records in its current column and round, each with a
+// long claim ending in an unbroken 300-character token.
+export async function labRecords(request: APIRequestContext, cardId: string, n: number) {
+  expect((await request.post(`${LAB}/lab/records/${cardId}?n=${n}`)).status()).toBe(204);
+}

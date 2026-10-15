@@ -1,5 +1,5 @@
-import { computed, toValue, type MaybeRefOrGetter } from 'vue';
-import { useQuery } from '@tanstack/vue-query';
+import { computed, toValue, watch, type MaybeRefOrGetter } from 'vue';
+import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { api } from './client';
 import { keys } from './keys';
 import { workspaceId as ws } from './session';
@@ -116,8 +116,9 @@ export const useRecords = (id: MaybeRefOrGetter<string>, column: MaybeRefOrGette
 export const useRunMessages = (
   run: MaybeRefOrGetter<AgentRun | undefined>,
   open: MaybeRefOrGetter<boolean>,
-) =>
-  useQuery({
+) => {
+  const client = useQueryClient();
+  const query = useQuery({
     queryKey: computed(() =>
       keys.runMessages(ws.value, toValue(run)?.id ?? '', toValue(run)?.attempt ?? 0),
     ),
@@ -143,3 +144,45 @@ export const useRunMessages = (
       ['dispatched', 'running'].includes(toValue(run)?.status ?? '') ? 2000 : false,
     ),
   });
+  // A terminal transition can arrive before the next message poll. Discard any
+  // unfinished live snapshot and read the final output for this same attempt.
+  watch(
+    () => {
+      const r = toValue(run);
+      return [ws.value, r?.id, r?.attempt, r?.status] as const;
+    },
+    async (current, previous, onCleanup) => {
+      let active = true;
+      onCleanup(() => {
+        active = false;
+      });
+      const [workspace, id, attempt, status] = current;
+      if (
+        !workspace ||
+        !id ||
+        !attempt ||
+        !toValue(open) ||
+        current.slice(0, 3).some((value, i) => value !== previous[i]) ||
+        !['dispatched', 'running'].includes(previous[3] ?? '') ||
+        !['completed', 'failed', 'cancelled'].includes(status ?? '')
+      )
+        return;
+      await client.cancelQueries({
+        queryKey: keys.runMessages(workspace, id, attempt),
+        exact: true,
+      });
+      const r = toValue(run);
+      if (
+        active &&
+        ws.value === workspace &&
+        r?.id === id &&
+        r.attempt === attempt &&
+        r.status === status &&
+        toValue(open)
+      ) {
+        void query.refetch();
+      }
+    },
+  );
+  return query;
+};

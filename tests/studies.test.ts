@@ -161,3 +161,184 @@ describe('backlog positions', () => {
     expect(positionAt([card({ id: 'a', position: 7 })], 'a', 0)).toBe(7);
   });
 });
+
+import {
+  checkLine,
+  earlierColumns,
+  eventText,
+  gateOf,
+  recordLine,
+  routeBackLimit,
+  transcript,
+} from '../apps/dashboard/src/lib/studies';
+import type {
+  AgentRun,
+  Comment,
+  GateCheck,
+  LykEvent,
+  StudyRecord,
+} from '../apps/dashboard/src/api/types';
+
+const rec = (kind: string, body: Record<string, unknown>, key = ''): StudyRecord => ({
+  id: kind,
+  card_id: 'c',
+  board_column: 'grounding',
+  round: 1,
+  kind,
+  role: 'literature-scout',
+  key,
+  body,
+  blob_key: '',
+  agent_run_id: null,
+  superseded_at: null,
+  created_at: '2026-10-15T10:00:00Z',
+});
+const lykEvent = (type: string, payload: Record<string, unknown>, at: string): LykEvent => ({
+  id: 1,
+  workspace_id: 'w',
+  card_id: 'c',
+  type,
+  actor_type: 'system',
+  actor_id: null,
+  payload,
+  created_at: at,
+});
+
+describe('gates', () => {
+  it('draws one line per check', () => {
+    const pass: GateCheck = {
+      id: 'sources',
+      judge: 'code',
+      result: 'pass',
+      note: '7 of 7 cite a recorded source',
+    };
+    const fail: GateCheck = {
+      id: 'E3.claim',
+      judge: 'jev',
+      result: 'fail',
+      note: "doesn't state it",
+      question: 'Does it?',
+      p: 0.2,
+      choice: 'no',
+    };
+    const att: GateCheck = {
+      id: 'E5.origin',
+      judge: 'jev',
+      result: 'attention',
+      note: 'second-hand',
+    };
+    expect(checkLine(pass)).toEqual({
+      mark: '✓',
+      tone: 'ok',
+      name: 'sources',
+      why: '7 of 7 cite a recorded source',
+      jev: false,
+    });
+    expect(checkLine(fail)).toMatchObject({ mark: '✗', tone: 'bad', jev: true });
+    expect(checkLine(att)).toMatchObject({ mark: '!', tone: 'att' });
+  });
+  it('reads a gate record body', () => {
+    const g = gateOf(
+      rec('gate', {
+        column: 'grounding',
+        round: 2,
+        input_digest: 'x',
+        checks: [],
+        verdict: 'fail',
+        reason: 'r',
+      }),
+    );
+    expect(g.round).toBe(2);
+    expect(g.verdict).toBe('fail');
+  });
+  it('lists the stages before the current one, or the gated ones of an ended study', () => {
+    expect(earlierColumns(card({ board_column: 'experimentation' }), [])).toEqual([
+      'grounding',
+      'hypotheses',
+    ]);
+    expect(earlierColumns(card({ board_column: 'grounding' }), [])).toEqual([]);
+    const gates = [
+      gateOf(rec('gate', { column: 'grounding', checks: [] })),
+      gateOf(rec('gate', { column: 'grounding', checks: [] })),
+    ];
+    expect(earlierColumns(card({ board_column: 'done', ending: 'stopped' }), gates)).toEqual([
+      'grounding',
+    ]);
+  });
+  it('reads the route-back limit from the workspace settings', () => {
+    expect(routeBackLimit(undefined)).toBe(5);
+    expect(routeBackLimit({ limits: { route_backs: 3 } })).toBe(3);
+  });
+});
+
+describe('records and transcript', () => {
+  it('summarises a record by what it holds', () => {
+    expect(
+      recordLine(rec('evidence', { claim: 'X raises Y', source_id: 'europepmc:PMC1' }, 'E1')),
+    ).toEqual({ key: 'E1', text: 'X raises Y', source: 'europepmc:PMC1' });
+    expect(recordLine(rec('open_dataset', { accession: 'GSE84133' }))).toMatchObject({
+      key: 'open_dataset',
+      text: 'GSE84133',
+    });
+    expect(
+      recordLine(rec('question', { text: '## Scoped question\nDoes X raise Y?' })),
+    ).toMatchObject({ text: 'Scoped question' });
+  });
+  it('names the events that become transcript lines', () => {
+    expect(eventText(lykEvent('card.started', { column: 'grounding' }, ''))).toBe(
+      'Started in Grounding',
+    );
+    expect(
+      eventText(
+        lykEvent(
+          'gate.decided',
+          { verdict: 'fail', to_column: 'grounding', reason: 'E3 is a review' },
+          '',
+        ),
+      ),
+    ).toBe('Gate routed the study back to Grounding: E3 is a review');
+    expect(
+      eventText(
+        lykEvent(
+          'gate.decided',
+          { verdict: 'pass', column: 'grounding', to_column: 'hypotheses' },
+          '',
+        ),
+      ),
+    ).toBe('Gate passed Grounding');
+    expect(
+      eventText(
+        lykEvent('card.steered', { path: '/api/cards/c/send-back', column: 'grounding' }, ''),
+      ),
+    ).toBe('Sent back to Grounding');
+    expect(eventText(lykEvent('card.steered', { path: '/api/cards/c/resume' }, ''))).toBe(
+      'Resumed',
+    );
+    expect(eventText(lykEvent('card.escalated', {}, ''))).toBe('Escalated: waiting for a person');
+    expect(eventText(lykEvent('record.created', {}, ''))).toBe('');
+  });
+  it('merges comments, runs and events in time order', () => {
+    const comment = {
+      id: 'k',
+      card_id: 'c',
+      author_id: 'u',
+      body: 'hi',
+      created_at: '2026-10-15T10:02:00Z',
+    } as Comment;
+    const run = {
+      id: 'r',
+      status: 'completed',
+      started_at: '2026-10-15T10:01:00Z',
+      created_at: '2026-10-15T10:00:30Z',
+    } as AgentRun;
+    const events = [
+      lykEvent('card.started', { column: 'grounding' }, '2026-10-15T10:00:00Z'),
+      lykEvent('record.created', {}, '2026-10-15T10:01:30Z'),
+    ];
+    expect(transcript([comment], [run], events).map((e) => e.kind)).toEqual([
+      'event',
+      'run',
+      'comment',
+    ]);
+  });
+});

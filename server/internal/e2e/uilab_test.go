@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -141,6 +142,26 @@ func TestUILab(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// Many long records, as a busy round leaves them, written straight into the
+	// card's current column and round; the dashboard's layout tests read them.
+	mux.HandleFunc("POST /lab/records/{card}", func(w http.ResponseWriter, r *http.Request) {
+		n, err := strconv.Atoi(r.URL.Query().Get("n"))
+		if err != nil || n < 1 || n > 200 {
+			http.Error(w, "n between 1 and 200", http.StatusBadRequest)
+			return
+		}
+		claim := strings.Repeat("a long claim about islet amyloid ", 12) + strings.Repeat("y", 300)
+		tag, err := env.Owner.Exec(r.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
+			SELECT c.workspace_id, c.id, c.board_column, c.round, 'evidence', 'literature-scout', 'E' || g,
+			  jsonb_build_object('claim', $2::text, 'source_id', 'europepmc:PMC' || g)
+			FROM card c, generate_series(1, $3::int) g WHERE c.id = $1`, r.PathValue("card"), claim, n)
+		if err != nil || tag.RowsAffected() != int64(n) {
+			http.Error(w, "no such card", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc("POST /lab/fixtures", func(w http.ResponseWriter, r *http.Request) {
 		fixture, err := seedUIFixture(r.Context(), st)
 		if err != nil {
