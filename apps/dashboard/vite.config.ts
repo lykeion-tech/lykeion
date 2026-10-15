@@ -1,10 +1,22 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath } from 'node:url';
+
+// Preserve Host so the session cookie and same-host WebSocket check agree.
+const api = process.env.LYK_API_URL ?? 'http://127.0.0.1:8080';
+
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   base: './',
   plugins: [vue()],
-  server: { port: 1430, strictPort: true },
+  server: {
+    port: 1430,
+    strictPort: true,
+    proxy: {
+      '/api': { target: api },
+      '/auth': { target: api },
+      '/ws': { target: api, ws: true },
+    },
+  },
   build: { outDir: '../../dist/dashboard', emptyOutDir: true },
 });

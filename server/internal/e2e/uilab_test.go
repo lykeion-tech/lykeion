@@ -1,0 +1,384 @@
+//go:build unix
+
+package e2e
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/auth"
+	"lykeion/server/internal/board"
+	"lykeion/server/internal/daemon"
+	"lykeion/server/internal/handler"
+	"lykeion/server/internal/realtime"
+	"lykeion/server/internal/round"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/sources"
+	"lykeion/server/internal/storage"
+	"lykeion/server/internal/store"
+	"lykeion/server/internal/testutil"
+	db "lykeion/server/pkg/db/generated"
+)
+
+// labEmail is the person the dashboard's browser tests sign in as; the lab's
+// daemon runs that person's agent runs.
+const labEmail = "ana@lab.test"
+
+// codeMail keeps the last sign-in code sent to each address, so the browser
+// tests can read it the way a person reads their mail.
+type codeMail struct {
+	mu    sync.Mutex
+	codes map[string]string
+}
+
+var sixDigits = regexp.MustCompile(`\b\d{6}\b`)
+
+func (m *codeMail) Send(_ context.Context, to, subject, body string) error {
+	if subject != "Your Lykeion sign-in code" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.codes[to] = sixDigits.FindString(body)
+	return nil
+}
+
+// TestUILab serves a whole lab for the dashboard's browser tests: the real
+// router, engine and realtime hub, and a daemon whose claude is a script. It
+// runs only when LYK_UI_LAB names the address to listen on, and serves until
+// the process is interrupted.
+func TestUILab(t *testing.T) {
+	addr := os.Getenv("LYK_UI_LAB")
+	if addr == "" {
+		t.Skip("set LYK_UI_LAB=host:port to serve the dashboard's browser-test lab")
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+		t.Fatal("LYK_UI_LAB must name a loopback IP and port")
+	}
+	buildLyk(t)
+	t.Setenv("HOME", t.TempDir()) // continuity runs the CLI on HOME; keep the developer's own config out
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("LYK_TOKEN", "")
+	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "lyk.json"))
+	env := testutil.Setup(t)
+	base := "http://" + addr
+
+	st := &store.Store{Pool: env.App}
+	hub := &realtime.Hub{Store: st, Redis: env.Redis}
+	st.Publish = hub.Publish
+	blobs := storage.Local{Dir: t.TempDir()}
+	runs := &service.AgentRuns{Store: st, MCPURL: base + "/mcp/sources"}
+	engine := &round.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
+	runs.OnSettled = engine.OnSettled
+	hosted := &sources.Hosted{Store: st, Blobs: blobs}
+	mail := &codeMail{codes: map[string]string{}}
+	iss := auth.Issuer{Secret: []byte("ui-lab-signing-secret-0123456789"), TTL: 24 * time.Hour}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", handler.NewRouter(&handler.H{Store: st, JWT: iss, Mail: mail, Limit: auth.Limiter{R: env.Redis},
+		Hub: hub, AgentRuns: runs, Blobs: blobs, Kinds: round.Kinds(), Engine: engine, Sources: hosted.Handler()}))
+	mux.HandleFunc("GET /lab/code", func(w http.ResponseWriter, r *http.Request) {
+		mail.mu.Lock()
+		code := mail.codes[strings.ToLower(r.URL.Query().Get("email"))]
+		mail.mu.Unlock()
+		if code == "" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(code))
+	})
+	mux.HandleFunc("POST /lab/hypotheses/{card}", func(w http.ResponseWriter, r *http.Request) {
+		card, err := uuid.Parse(r.PathValue("card"))
+		if err != nil {
+			http.Error(w, "no such card", 404)
+			return
+		}
+		var ws uuid.UUID
+		if err := env.Owner.QueryRow(r.Context(), "SELECT workspace_id FROM card WHERE id=$1", card).Scan(&ws); err != nil {
+			http.Error(w, "no such card", 404)
+			return
+		}
+		err = st.InWorkspace(r.Context(), ws, uuid.Nil, func(tx *store.Tx) error {
+			if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+				return err
+			}
+			if err := tx.Q.WaitLockCard(r.Context(), card); err != nil {
+				return err
+			}
+			c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: card, WorkspaceID: ws})
+			if err != nil {
+				return err
+			}
+			s := board.FromCard(c)
+			s.Column, s.State, s.Flag, s.Rounds, s.Round = board.Hypotheses, board.Working, "", 0, c.Round+1
+			if err := tx.Q.SaveCardBoard(r.Context(), s.Params(card, ws)); err != nil {
+				return err
+			}
+			return tx.Emit(r.Context(), "card.steered", &card, store.System, map[string]string{"column": "hypotheses"})
+		})
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /lab/fixtures", func(w http.ResponseWriter, r *http.Request) {
+		fixture, err := seedUIFixture(r.Context(), st)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(fixture)
+	})
+
+	ln, err := net.Listen("tcp", addr)
+	must(t, err)
+	srv := &http.Server{Handler: mux}
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- srv.Serve(ln) }()
+	defer func() {
+		hub.Close()
+		srv.Close()
+		if err := <-serverDone; err != nil && err != http.ErrServerClosed {
+			t.Error(err)
+		}
+	}()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	u, err := st.Global().UpsertUserByEmail(ctx, labEmail)
+	must(t, err)
+	jwt, err := iss.Issue(u.ID, u.Email)
+	must(t, err)
+	// The daemon routes take only a personal lyk_ token, never a session.
+	var tok struct{ Token string }
+	must(t, (&apiclient.Client{Server: base, Token: jwt}).Do(ctx, "POST", "/api/tokens", map[string]string{"name": "lab daemon"}, &tok))
+	fake, err := filepath.Abs("testdata/ui-fake-claude.sh")
+	must(t, err)
+	daemonDone := make(chan error, 1)
+	daemonState, daemonHome := t.TempDir(), t.TempDir()
+	go func() {
+		daemonDone <- daemon.Run(ctx, daemon.Config{Server: base, Token: tok.Token, StateDir: daemonState, Home: daemonHome,
+			Device: "lab-mac", Harnesses: map[string]string{"claude": fake}, Slots: 4,
+			Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond})
+	}()
+
+	t.Logf("lab serving on %s", base)
+	tick := time.NewTicker(300 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			select {
+			case err := <-daemonDone:
+				if err != nil {
+					t.Error(err)
+				}
+			case <-time.After(15 * time.Second):
+				t.Error("lab daemon shutdown did not join")
+			}
+			return
+		case err := <-daemonDone:
+			t.Fatalf("lab daemon stopped: %v", err)
+		case <-tick.C:
+			if err := engine.Tick(ctx); err != nil && ctx.Err() == nil {
+				t.Logf("engine tick: %v", err)
+			}
+		}
+	}
+}
+
+// uiFixture names persisted rows, so browser assertions read the real APIs.
+type uiFixture struct {
+	WorkspaceID   uuid.UUID `json:"workspace_id"`
+	CardID        uuid.UUID `json:"card_id"`
+	RunID         uuid.UUID `json:"run_id"`
+	GateID        uuid.UUID `json:"gate_id"`
+	LongReason    string    `json:"long_reason"`
+	PassThreshold float64   `json:"pass_threshold"`
+}
+
+func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
+	f := uiFixture{WorkspaceID: uuid.New(), LongReason: strings.Repeat("The recorded evidence leaves this question unresolved. ", 80) + "END OF LONG JEV REASON", PassThreshold: 0.70}
+	u, err := st.Global().UpsertUserByEmail(ctx, labEmail)
+	if err != nil {
+		return f, err
+	}
+	err = st.InWorkspace(ctx, f.WorkspaceID, u.ID, func(tx *store.Tx) error {
+		ws := f.WorkspaceID
+		if _, err := tx.Q.CreateWorkspace(ctx, db.CreateWorkspaceParams{ID: ws, Slug: "fixture-" + ws.String()[:8], Name: "Browser fixtures"}); err != nil {
+			return err
+		}
+		if err := tx.Q.AddMember(ctx, db.AddMemberParams{WorkspaceID: ws, UserID: u.ID, Role: "owner"}); err != nil {
+			return err
+		}
+		if _, err := tx.Q.LockWorkspaceExecution(ctx, ws); err != nil {
+			return err
+		}
+		n, err := tx.Q.NextCardNumber(ctx, ws)
+		if err != nil {
+			return err
+		}
+		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: n, OwnerID: u.ID, Title: "Gate and transcript fixture", Question: "What remains unresolved in the recorded evidence?", FollowsFrom: []uuid.UUID{}})
+		if err != nil {
+			return err
+		}
+		f.CardID = c.ID
+		run, err := tx.Q.EnqueueAgentRun(ctx, db.EnqueueAgentRunParams{WorkspaceID: ws, CardID: c.ID, ResponsibleUserID: u.ID, BoardColumn: board.Grounding, Round: 1, Role: "scoper", Harness: "claude", Prompt: "Recorded browser transcript fixture", MaxAttempts: 2})
+		if err != nil {
+			return err
+		}
+		f.RunID = run.ID
+		rt, err := tx.Q.UpsertRuntime(ctx, db.UpsertRuntimeParams{WorkspaceID: ws, OwnerID: u.ID, DaemonID: "fixture", Harness: "claude", DeviceName: "Recorded transcript", CliVersion: "fixture"})
+		if err != nil {
+			return err
+		}
+		// Exercise the shipped attempt counter and sequence scope in one commit.
+		for attempt := int32(1); attempt <= 2; attempt++ {
+			claimed, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{WorkspaceID: ws, RuntimeID: &rt.ID})
+			if err != nil {
+				return err
+			}
+			if claimed.ID != run.ID || claimed.Attempt != attempt {
+				return fmt.Errorf("unexpected fixture claim: %s/%d", claimed.ID, claimed.Attempt)
+			}
+			if _, err := tx.Q.StartAgentRun(ctx, db.StartAgentRunParams{WorkspaceID: ws, ID: run.ID, RuntimeID: &rt.ID}); err != nil {
+				return err
+			}
+			count := 2
+			if attempt == 2 {
+				count = 501
+			}
+			for seq := 1; seq <= count; seq++ {
+				text := fmt.Sprintf("Attempt %d message %03d", attempt, seq)
+				body, err := json.Marshal(text)
+				if err != nil {
+					return err
+				}
+				if err := tx.Q.InsertAgentRunMessage(ctx, db.InsertAgentRunMessageParams{WorkspaceID: ws, AgentRunID: run.ID, Attempt: attempt, Seq: int32(seq), Type: "text", Content: body}); err != nil {
+					return err
+				}
+			}
+			if attempt == 1 {
+				failure := "agent_error"
+				if err := tx.Q.RequeueAgentRun(ctx, db.RequeueAgentRunParams{WorkspaceID: ws, ID: run.ID, Error: "recorded retry", FailureReason: &failure}); err != nil {
+					return err
+				}
+			} else {
+				failure := "agent_error"
+				if err := tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{WorkspaceID: ws, ID: run.ID, Status: "failed", Error: "recorded failure", FailureReason: &failure}); err != nil {
+					return err
+				}
+			}
+		}
+		// A flag excludes this fixture from the engine and daemon claim candidates.
+		s := board.FromCard(c)
+		s.Column, s.State, s.Flag, s.Round = board.Grounding, board.Working, board.Escalated, 1
+		if err := tx.Q.SaveCardBoard(ctx, s.Params(c.ID, ws)); err != nil {
+			return err
+		}
+		gate := map[string]any{"column": "grounding", "round": 1, "input_digest": "browser-fixture", "verdict": "fail", "reason": f.LongReason,
+			"checks": []map[string]any{
+				{"id": "evidence.zero", "judge": "jev", "result": "fail", "model": "jev-1.13.0", "question": "Does the recorded evidence support the claim?", "choice": "supports", "p": 0, "note": f.LongReason},
+				{"id": "evidence.unknown", "judge": "jev", "result": "attention", "model": "jev-1.13.0", "question": "Does the historical answer have a recorded probability?", "choice": "unclear", "note": "No probability was recorded."},
+			}}
+		body, err := json.Marshal(gate)
+		if err != nil {
+			return err
+		}
+		rec, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: ws, CardID: c.ID, BoardColumn: board.Grounding, Round: 1, Kind: "gate", Role: "system", Body: body})
+		if err != nil {
+			return err
+		}
+		f.GateID = rec.ID
+		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]string{"column": board.Grounding, "flag": board.Escalated})
+	})
+	return f, err
+}
+
+func TestUIFakeClaudeVersionHasNoRunEffects(t *testing.T) {
+	home, bin := t.TempDir(), t.TempDir()
+	must(t, os.WriteFile(filepath.Join(bin, "lyk"), []byte("#!/bin/sh\n: > \"$HOME/lyk-called\"\n"), 0700))
+	script, err := filepath.Abs("testdata/ui-fake-claude.sh")
+	must(t, err)
+	cmd := exec.Command(script, "--version")
+	cmd.Env = append(os.Environ(), "HOME="+home, "CLAUDE_CONFIG_DIR="+filepath.Join(home, "claude"), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	must(t, err)
+	if strings.TrimSpace(string(out)) != "2.1.0 (Claude Code)" {
+		t.Fatalf("version output %q", out)
+	}
+	entries, err := os.ReadDir(home)
+	must(t, err)
+	if len(entries) != 0 {
+		t.Fatalf("probe wrote run/session files: %v", entries)
+	}
+}
+
+func TestUIFakeClaudeRunRecordsFailure(t *testing.T) {
+	home := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(home, "lyk"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$HOME/result-args\"\n"), 0700))
+	script, err := filepath.Abs("testdata/ui-fake-claude.sh")
+	must(t, err)
+	cmd := exec.Command(script, "--input-format", "stream-json")
+	cmd.Env = append(os.Environ(), "HOME="+home, "CLAUDE_CONFIG_DIR="+filepath.Join(home, "claude"), "PATH="+home+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Stdin = strings.NewReader("{\"type\":\"user\"}\n")
+	out, err := cmd.Output()
+	must(t, err)
+	dec := json.NewDecoder(strings.NewReader(string(out)))
+	tools, text, result := 0, 0, false
+	for {
+		var frame struct {
+			Type      string
+			Message   struct{ Content []struct{ Type string } }
+			SessionID string `json:"session_id"`
+		}
+		err := dec.Decode(&frame)
+		if err == io.EOF {
+			break
+		}
+		must(t, err)
+		for _, c := range frame.Message.Content {
+			if c.Type == "tool_use" {
+				tools++
+			}
+			if c.Type == "text" {
+				text++
+			}
+		}
+		if frame.Type == "result" && frame.SessionID == "s" {
+			result = true
+		}
+	}
+	if tools != 2 || text != 1 || !result {
+		t.Fatalf("frames: tools=%d text=%d result=%v", tools, text, result)
+	}
+	args, err := os.ReadFile(filepath.Join(home, "result-args"))
+	must(t, err)
+	if strings.TrimSpace(string(args)) != "result failed --reason the lab script stops here" {
+		t.Fatalf("result command %q", args)
+	}
+	_, err = os.Stat(filepath.Join(home, "claude/projects/fake/s.jsonl"))
+	must(t, err)
+}

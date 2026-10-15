@@ -1,0 +1,34 @@
+import { expect, type APIRequestContext } from '@playwright/test';
+
+export const LAB = 'http://127.0.0.1:18080';
+export const EMAIL = 'ana@lab.test';
+
+export async function labCode(request: APIRequestContext, email: string): Promise<string> {
+  const res = await request.get(`${LAB}/lab/code?email=${encodeURIComponent(email)}`);
+  expect(res.status()).toBe(200);
+  return res.text();
+}
+
+export interface UILabFixture {
+  workspace_id: string;
+  card_id: string;
+  run_id: string;
+  gate_id: string;
+  long_reason: string;
+  pass_threshold: number;
+}
+
+// Uses the shipped email-code route and cookie, including for a second person.
+export async function labSignIn(request: APIRequestContext, email = EMAIL): Promise<void> {
+  expect((await request.post('/auth/send-code', { data: { email } })).status()).toBe(204);
+  const code = await labCode(request, email);
+  expect((await request.post('/auth/verify-code', { data: { email, code } })).status()).toBe(200);
+}
+
+// Returns a fresh disposable workspace owned by EMAIL. Application reads still
+// go through normal authentication, membership checks and workspace scoping.
+export async function labFixture(request: APIRequestContext): Promise<UILabFixture> {
+  const res = await request.post(`${LAB}/lab/fixtures`);
+  expect(res.status()).toBe(201);
+  return res.json();
+}
