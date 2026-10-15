@@ -502,7 +502,7 @@ func TestUIFakeClaudeRunRecordsFailure(t *testing.T) {
 			result = true
 		}
 	}
-	if tools != 2 || text != 1 || !result {
+	if tools != 2 || text != 3 || !result {
 		t.Fatalf("frames: tools=%d text=%d result=%v", tools, text, result)
 	}
 	args, err := os.ReadFile(filepath.Join(home, "result-args"))
