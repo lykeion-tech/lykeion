@@ -52,9 +52,10 @@ func (q *Queries) ActiveDuplicate(ctx context.Context, arg ActiveDuplicateParams
 
 const backlogCards = `-- name: BacklogCards :many
 SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position FROM card WHERE workspace_id = $1 AND board_column = 'backlog' AND flag = ''
-ORDER BY created_at
+ORDER BY position, number
 `
 
+// WIP pull takes the top of Backlog first: the lowest position, then the lowest number.
 func (q *Queries) BacklogCards(ctx context.Context, workspaceID uuid.UUID) ([]Card, error) {
 	rows, err := q.db.Query(ctx, backlogCards, workspaceID)
 	if err != nil {

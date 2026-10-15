@@ -119,8 +119,8 @@ func (e *Engine) settings(ctx context.Context, tx *store.Tx) (Settings, error) {
 	return ParseSettings(w.Settings), err
 }
 
-// WIPPull starts the oldest Backlog cards while the workspace is under
-// its work-in-progress limit.
+// WIPPull starts Backlog cards from the top (lowest position) while the
+// workspace is under its work-in-progress limit.
 func (e *Engine) WIPPull(ctx context.Context, ws uuid.UUID) error {
 	var started []uuid.UUID
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {

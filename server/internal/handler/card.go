@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -294,4 +296,167 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+var errNotBacklog = errors.New("only a card in Backlog can be edited or deleted")
+
+// nullableTime remembers whether its key was sent, so an explicit null can
+// clear a deadline while a missing key leaves it alone.
+type nullableTime struct {
+	Set bool
+	V   *time.Time
+}
+
+func (n *nullableTime) UnmarshalJSON(b []byte) error {
+	n.Set = true
+	return json.Unmarshal(b, &n.V)
+}
+
+type cardEdit struct {
+	Title       *string      `json:"title"`
+	Question    *string      `json:"question"`
+	BudgetUSD   *float64     `json:"budget_usd"`
+	Deadline    nullableTime `json:"deadline"`
+	FollowsFrom *[]uuid.UUID `json:"follows_from"`
+	Position    *float64     `json:"position"`
+}
+
+// fields names the keys an edit sets, in a fixed order.
+func (e cardEdit) fields() []string {
+	var out []string
+	for _, f := range []struct {
+		name string
+		set  bool
+	}{{"title", e.Title != nil}, {"question", e.Question != nil}, {"budget_usd", e.BudgetUSD != nil},
+		{"deadline", e.Deadline.Set}, {"follows_from", e.FollowsFrom != nil}, {"position", e.Position != nil}} {
+		if f.set {
+			out = append(out, f.name)
+		}
+	}
+	return out
+}
+
+// editCard changes a Backlog card. Scope has locked the workspace row, which
+// WIP pull also locks before it starts a card, so the card cannot leave
+// Backlog while it is being edited.
+func (h *H) editCard(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	var in cardEdit
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, 400, "invalid card: "+err.Error())
+		return
+	}
+	fields := in.fields()
+	switch {
+	case len(fields) == 0:
+		writeErr(w, 400, "nothing to change")
+		return
+	case in.Title != nil && strings.TrimSpace(*in.Title) == "":
+		writeErr(w, 400, "title cannot be empty")
+		return
+	case in.Question != nil && strings.TrimSpace(*in.Question) == "":
+		writeErr(w, 400, "question cannot be empty")
+		return
+	case in.BudgetUSD != nil && *in.BudgetUSD < 0:
+		writeErr(w, 400, "budget cannot be negative")
+		return
+	}
+	var out db.Card
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: id, WorkspaceID: ws})
+		if err != nil {
+			return err
+		}
+		if c.BoardColumn != board.Backlog {
+			return errNotBacklog
+		}
+		p := db.EditBacklogCardParams{Title: c.Title, Question: c.Question, BudgetUsd: c.BudgetUsd, Deadline: c.Deadline,
+			FollowsFrom: c.FollowsFrom, Position: c.Position, ID: id, WorkspaceID: ws}
+		if in.Title != nil {
+			p.Title = strings.TrimSpace(*in.Title)
+		}
+		if in.Question != nil {
+			p.Question = *in.Question
+		}
+		if in.BudgetUSD != nil {
+			p.BudgetUsd = *in.BudgetUSD
+		}
+		if in.Deadline.Set {
+			p.Deadline = in.Deadline.V
+		}
+		if in.Position != nil {
+			p.Position = *in.Position
+		}
+		if in.FollowsFrom != nil {
+			p.FollowsFrom = []uuid.UUID{}
+			for _, parent := range *in.FollowsFrom {
+				if parent == id {
+					return cardInputError("a card cannot follow from itself")
+				}
+				if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: parent}); err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						return cardInputError("follows_from contains an unknown card")
+					}
+					return err
+				}
+				p.FollowsFrom = append(p.FollowsFrom, parent)
+			}
+		}
+		if out, err = tx.Q.EditBacklogCard(r.Context(), p); err != nil {
+			return err
+		}
+		event := "card.edited"
+		if len(fields) == 1 && fields[0] == "position" {
+			event = "card.reordered"
+		}
+		return tx.Emit(r.Context(), event, &id, store.User(user), map[string]any{"fields": fields, "position": out.Position})
+	})
+	cardEditFail(w, r, err, out)
+}
+
+// deleteCard removes a Backlog card and everything recorded on it. Its
+// events stay, with the card's id in the payload; the database clears their
+// card reference.
+func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: id, WorkspaceID: ws})
+		if err != nil {
+			return err
+		}
+		if c.BoardColumn != board.Backlog {
+			return errNotBacklog
+		}
+		if _, err := tx.Q.DeleteBacklogCard(r.Context(), db.DeleteBacklogCardParams{ID: id, WorkspaceID: ws}); err != nil {
+			return err
+		}
+		return tx.Emit(r.Context(), "card.deleted", nil, store.User(user), map[string]any{"card_id": id, "number": c.Number})
+	})
+	if err != nil {
+		cardEditFail(w, r, err, nil)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// cardEditFail answers an edit or delete: 409 off Backlog, 400 for bad input,
+// otherwise the card (or the server error).
+func cardEditFail(w http.ResponseWriter, r *http.Request, err error, out any) {
+	var inputErr cardInputError
+	switch {
+	case errors.Is(err, errNotBacklog):
+		writeErr(w, 409, err.Error())
+	case errors.As(err, &inputErr):
+		writeErr(w, 400, inputErr.Error())
+	case err != nil:
+		fail(w, r, err)
+	default:
+		writeJSON(w, http.StatusOK, out)
+	}
 }

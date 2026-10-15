@@ -108,6 +108,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 
 		case route == "/api/cards":
 			body = map[string]any{"question": "outsider card"}
+		case route == "/api/cards/{id}" && method == http.MethodPatch:
+			body = map[string]string{"title": "outsider edit"}
 		case strings.HasSuffix(route, "/comments") && method == http.MethodPost:
 			body = map[string]string{"body": "outsider comment"}
 		case strings.HasSuffix(route, "/") && method == http.MethodPatch:

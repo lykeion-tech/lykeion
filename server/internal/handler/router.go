@@ -97,6 +97,8 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/cards", h.listCards)
 			r.Post("/api/cards", h.createCard)
 			r.Get("/api/cards/{id}", h.getCard)
+			r.Patch("/api/cards/{id}", h.editCard)
+			r.Delete("/api/cards/{id}", h.deleteCard)
 			r.Get("/api/cards/{id}/comments", h.listComments)
 			r.Post("/api/cards/{id}/comments", h.createComment)
 			r.Get("/api/cards/{id}/events", h.cardEvents)

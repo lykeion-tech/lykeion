@@ -13,8 +13,9 @@ import (
 )
 
 const createCard = `-- name: CreateCard :one
-INSERT INTO card (workspace_id, number, title, question, owner_id, budget_usd, deadline, follows_from)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO card (workspace_id, number, title, question, owner_id, budget_usd, deadline, follows_from, position)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = 'backlog'), 1) - 1)
 RETURNING id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position
 `
 
@@ -29,6 +30,9 @@ type CreateCardParams struct {
 	FollowsFrom []uuid.UUID `json:"follows_from"`
 }
 
+// A new card goes to the top of Backlog, so WIP pull takes it next unless
+// someone reorders. NextCardNumber has already locked the workspace row, so two
+// creates never read the same minimum.
 func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, error) {
 	row := q.db.QueryRow(ctx, createCard,
 		arg.WorkspaceID,
@@ -98,6 +102,85 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 		&i.AuthorID,
 		&i.Body,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const deleteBacklogCard = `-- name: DeleteBacklogCard :execrows
+DELETE FROM card WHERE id = $1 AND workspace_id = $2 AND board_column = 'backlog'
+`
+
+type DeleteBacklogCardParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) DeleteBacklogCard(ctx context.Context, arg DeleteBacklogCardParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBacklogCard, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const editBacklogCard = `-- name: EditBacklogCard :one
+UPDATE card SET title = $1, question = $2, budget_usd = $3, deadline = $4,
+  follows_from = $5, position = $6, version = version + 1
+WHERE id = $7 AND workspace_id = $8 AND board_column = 'backlog'
+RETURNING id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position
+`
+
+type EditBacklogCardParams struct {
+	Title       string      `json:"title"`
+	Question    string      `json:"question"`
+	BudgetUsd   float64     `json:"budget_usd"`
+	Deadline    *time.Time  `json:"deadline"`
+	FollowsFrom []uuid.UUID `json:"follows_from"`
+	Position    float64     `json:"position"`
+	ID          uuid.UUID   `json:"id"`
+	WorkspaceID uuid.UUID   `json:"workspace_id"`
+}
+
+// People edit and delete a card only while it is in Backlog; the column check
+// is repeated here so a card WIP pull has started is never changed.
+func (q *Queries) EditBacklogCard(ctx context.Context, arg EditBacklogCardParams) (Card, error) {
+	row := q.db.QueryRow(ctx, editBacklogCard,
+		arg.Title,
+		arg.Question,
+		arg.BudgetUsd,
+		arg.Deadline,
+		arg.FollowsFrom,
+		arg.Position,
+		arg.ID,
+		arg.WorkspaceID,
+	)
+	var i Card
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Number,
+		&i.Title,
+		&i.Question,
+		&i.OwnerID,
+		&i.BudgetUsd,
+		&i.Deadline,
+		&i.SpentUsd,
+		&i.BoardColumn,
+		&i.State,
+		&i.Flag,
+		&i.Ending,
+		&i.EndReason,
+		&i.Rounds,
+		&i.RouteBacks,
+		&i.Stale,
+		&i.Rerun,
+		&i.FollowsFrom,
+		&i.Version,
+		&i.CreatedAt,
+		&i.Round,
+		&i.HandoffNote,
+		&i.GatingUntil,
+		&i.Position,
 	)
 	return i, err
 }
