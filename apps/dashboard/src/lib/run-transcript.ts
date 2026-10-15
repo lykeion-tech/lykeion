@@ -112,18 +112,5 @@ export function activityStep(message: RunMessage) {
     readable(item.error) ||
     readable(content.content) ||
     readable(message.content);
-  const preview = (
-    output ||
-    (message.type === 'tool_use' ? detail : '') ||
-    (Object.keys(content).length ? 'Structured recorded data' : 'No text preview recorded')
-  )
-    .replace(/\s+/g, ' ')
-    .trim();
-  return {
-    label,
-    detail,
-    state: recordedState,
-    error,
-    preview: preview === detail ? '' : preview.length > 180 ? `${preview.slice(0, 180)}…` : preview,
-  };
+  return { label, detail, state: recordedState, error, output };
 }

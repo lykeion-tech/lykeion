@@ -55,11 +55,14 @@ afterEach(() => {
 });
 describe('reading-first recorded run', () => {
   it('renders all writing in sequence around compact activity and never repeats the final text', async () => {
+    const fullOutput =
+      'Recorded tool refusal ' + 'long output '.repeat(60) + 'END OF UNTRUNCATED OUTPUT';
+    const fullIntent = 'lyk card show ' + 'recorded-long-argument '.repeat(30);
     const html = await render([
       msg(1, 'text', '# Evidence\n\nFirst **recorded** paragraph.'),
-      msg(2, 'tool_use', { command: 'lyk card show' }, 'Bash'),
+      msg(2, 'tool_use', { command: fullIntent }, 'Bash'),
       msg(3, 'thinking', 'Private recorded reasoning'),
-      msg(4, 'tool_result', { tool_use_id: 'dropped-id', content: 'refused', is_error: true }),
+      msg(4, 'tool_result', { tool_use_id: 'dropped-id', content: fullOutput, is_error: true }),
       msg(5, 'text', '## Outcome\n\nLast paragraph.'),
     ]);
     expect(html).toContain('<h1>Evidence</h1>');
@@ -68,7 +71,11 @@ describe('reading-first recorded run', () => {
     expect(html.indexOf('Activity')).toBeLessThan(html.indexOf('<h2>Outcome</h2>'));
     expect(html.match(/Last paragraph\./g)).toHaveLength(1);
     expect(html).toContain('data-activity-group');
-    expect(html).toContain('lyk card show');
+    expect(html).toContain(fullIntent);
+    expect(html).toContain('class="step-output"');
+    const result = html.slice(html.indexOf('data-message-type="tool_result"'));
+    expect(result.slice(0, result.indexOf('class="step-payload"'))).toContain(fullOutput);
+    expect(result.slice(0, result.indexOf('class="step-payload"'))).toContain('Show output');
     expect(html).toContain('Recorded reasoning');
     expect(html).not.toMatch(/<details[^>]*\bopen(?:=|>)/);
     expect(html).toContain('Error');
@@ -140,12 +147,13 @@ describe('reading-first recorded run', () => {
       msg(
         1,
         'text',
-        '<script>alert(1)</script>\n<MyComponent @click="steal" />\n\n[x](javascript:alert(1)) [y](data:text/html,evil) [z](file:///tmp/a) [safe](https://example.com)\n\n![remote](https://example.com/tracker.png)\n\n```mermaid\ngraph TD; A-->B\n```',
+        '<script>alert(1)</script>\n<MyComponent @click="steal" />\n\n[x](javascript:alert(1)) [y](data:text/html,evil) [z](file:///tmp/a) [safe](https://example.com)\n\n![remote](https://example.com/tracker.png)\n\nhttps://example.org/safe\n\n```mermaid\ngraph TD; A-->B\n```',
       ),
     ]);
     expect(html).not.toMatch(/<(?:script|img|iframe|MyComponent)\b/i);
     expect(html).not.toMatch(/href="(?:javascript|data|file):/i);
     expect(html).toContain('href="https://example.com"');
+    expect(html).toContain('href="https://example.org/safe"');
     expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain('remote');
     expect(html).toContain('graph TD; A--&gt;B');

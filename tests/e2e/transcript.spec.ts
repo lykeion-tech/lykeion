@@ -49,10 +49,21 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
     groups
       .first()
       .getByText('Recorded lab reasoning remains collapsed by default.', { exact: true }),
-  ).toHaveCount(0);
+  ).toBeHidden();
+  await expect(groups.first().locator('.step-output[open]')).toHaveCount(0);
+  await expect(groups.first().locator('.step-intent')).toHaveCSS('white-space', 'normal');
+  await expect(groups.first().locator('.step-intent')).toHaveCSS('overflow-x', 'visible');
   await expect(groups.first().locator('.step-payload[open]')).toHaveCount(0);
   await main.locator('.transcript-scroll').evaluate((el) => (el.scrollTop = 0));
   await page.screenshot({ path: `${artifacts}/activity-expanded-light-1920.png` });
+  const output = groups.first().locator('[data-message-type="tool_result"] .step-output');
+  await expect(output.locator('pre')).toBeHidden();
+  await output.locator('summary').click();
+  await expect(output.locator('pre')).toHaveText(
+    'The scripted card read was declined. No evidence was created.',
+  );
+  await expect(output.locator('pre')).toHaveCSS('max-height', 'none');
+  await output.locator('summary').click();
   await turn.getByRole('button', { name: 'Copy code', exact: true }).click();
   await expect(turn.getByRole('status')).toHaveText('Code copied');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
@@ -62,6 +73,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await payload.locator('summary').click();
   await expect(payload.locator('pre')).toContainText('"tool_use_id": "t1"');
   await expect(payload.locator('pre')).toContainText('"is_error": true');
+  await expect(payload.locator('pre')).toHaveCSS('max-height', 'none');
   await payload.locator('summary').click();
   await page.evaluate(() =>
     localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: 'midnight' })),
@@ -118,6 +130,11 @@ test('current attempt pagination retains every message and compact raw payload a
   expect(urls.some((url) => url.includes('attempt=2&after=500'))).toBe(true);
   expect(urls.every((url) => url.includes('attempt=2'))).toBe(true);
   await turn.locator('.run-activity:not(.full-history) > summary').click();
+  await turn
+    .locator(
+      '.run-activity:not(.full-history) [data-message-type="tool_result"] .step-output > summary',
+    )
+    .click();
   await expect(turn.getByText('Recorded tool refusal', { exact: true })).toBeVisible();
   const tool = turn.locator('.run-activity:not(.full-history) .step-payload').first();
   await tool.locator('summary').click();

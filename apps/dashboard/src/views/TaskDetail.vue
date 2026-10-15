@@ -1541,7 +1541,8 @@ function pin() {
   font-size: 12.5px;
 }
 .bubble {
-  max-width: min(680px, calc(100% - 14px));
+  width: fit-content;
+  max-width: calc(100% - 14px);
   line-height: 1.7;
   background: var(--input);
   border-radius: 12px;

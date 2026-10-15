@@ -1,6 +1,6 @@
 import MarkdownIt from 'markdown-it';
 
-const markdown = new MarkdownIt({ html: false, breaks: true, linkify: false, typographer: false });
+const markdown = new MarkdownIt({ html: false, breaks: true, linkify: true, typographer: false });
 const escape = markdown.utils.escapeHtml;
 // Only explicit web/mail destinations and document anchors are interactive.
 markdown.validateLink = (url) =>

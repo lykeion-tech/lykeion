@@ -44,16 +44,28 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
             step.state
           }}</span>
         </div>
-        <p v-if="step.preview && step.message.type !== 'thinking'" class="step-preview">
-          {{ step.preview }}
-        </p>
-        <details class="step-payload">
+        <details v-if="step.output" class="step-output">
           <summary>
-            {{
+            <span class="when-closed">{{
               step.message.type === 'thinking'
                 ? 'Show recorded reasoning'
-                : 'Full recorded message'
-            }}<span class="step-sequence"
+                : step.message.type === 'text'
+                  ? 'Show recorded text'
+                  : 'Show output'
+            }}</span>
+            <span class="when-open">{{
+              step.message.type === 'thinking'
+                ? 'Hide recorded reasoning'
+                : step.message.type === 'text'
+                  ? 'Hide recorded text'
+                  : 'Hide output'
+            }}</span>
+          </summary>
+          <pre tabindex="0">{{ step.output }}</pre>
+        </details>
+        <details class="step-payload">
+          <summary>
+            Full recorded message<span class="step-sequence"
               >Attempt {{ step.message.attempt }} · Sequence {{ step.message.seq }}</span
             >
           </summary>
@@ -114,9 +126,7 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
   flex: none;
 }
 .step-intent {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   min-width: 0;
 }
 .step-state {
@@ -125,30 +135,32 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
   font-size: 11px;
   text-transform: capitalize;
 }
-.step-preview {
-  margin: 3px 0 4px;
-  line-height: 1.6;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
+.step-output,
 .step-payload {
   font-size: 11px;
 }
+.step-output summary,
 .step-payload summary {
   cursor: pointer;
   overflow-wrap: anywhere;
+}
+.step-output .when-open {
+  display: none;
+}
+.step-output[open] > summary .when-closed {
+  display: none;
+}
+.step-output[open] > summary .when-open {
+  display: inline;
 }
 .step-sequence {
   margin-left: 8px;
   font-size: 10.5px;
 }
+.step-output pre,
 .step-payload pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 360px;
   overflow: auto;
   padding: 10px;
   background: var(--input);
