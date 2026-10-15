@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,6 +129,51 @@ func TestScratchReservationOwnerReleaseWaitsForBorrow(t *testing.T) {
 		t.Fatal("accepted borrow after parent release")
 	}
 	release()
+	next, err := ReserveScratch(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next.Release()
+}
+
+func TestScratchReservationFailsClosedOnInvalidProcessProof(t *testing.T) {
+	dir := t.TempDir()
+	held, err := ReserveScratch(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := filepath.Join(dir, ".agent-process")
+	if err := os.WriteFile(proof, []byte("invalid proof"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	credential := filepath.Join(dir, ".cli-home", "auth.json")
+	if err := os.Mkdir(filepath.Dir(credential), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(credential, []byte("synthetic credential"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if next, err := ReserveScratch(dir); !errors.Is(err, ErrScratchBusy) {
+		if next != nil {
+			next.Release()
+		}
+		t.Fatalf("live holder was not authoritative: %v", err)
+	}
+	held.Release()
+	for range 2 {
+		if next, err := ReserveScratch(dir); err == nil || !strings.Contains(err.Error(), "invalid agent process ownership") {
+			if next != nil {
+				next.Release()
+			}
+			t.Fatalf("invalid proof did not fail closed or release failed reservation: %v", err)
+		}
+		if b, err := os.ReadFile(credential); err != nil || string(b) != "synthetic credential" {
+			t.Fatalf("failed reconciliation mutated credentials: %q %v", b, err)
+		}
+	}
+	if err := os.Remove(proof); err != nil {
+		t.Fatal(err)
+	}
 	next, err := ReserveScratch(dir)
 	if err != nil {
 		t.Fatal(err)

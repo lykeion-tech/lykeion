@@ -94,6 +94,12 @@ func TestScopeSharedHomeDaemonHelper(t *testing.T) {
 
 func scopeDaemonProcess(t *testing.T, cfg Config) func() {
 	t.Helper()
+	stop, _ := scopeDaemonProcessControl(t, cfg)
+	return stop
+}
+
+func scopeDaemonProcessControl(t *testing.T, cfg Config) (func(), func()) {
+	t.Helper()
 	raw, err := json.Marshal(map[string]any{"Server": cfg.Server, "Token": cfg.Token, "StateDir": cfg.StateDir, "Home": cfg.Home, "Device": cfg.Device, "Harnesses": cfg.Harnesses, "Slots": cfg.Slots, "Poll": cfg.Poll, "Heartbeat": cfg.Heartbeat, "Flush": cfg.Flush, "ScopeWait": cfg.ScopeWait})
 	must(t, err)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestScopeSharedHomeDaemonHelper$")
@@ -126,8 +132,20 @@ func scopeDaemonProcess(t *testing.T, cfg Config) func() {
 			log.Close()
 		})
 	}
+	kill := func() {
+		once.Do(func() {
+			must(t, cmd.Process.Kill())
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("killed helper did not exit")
+			}
+			input.Close()
+			log.Close()
+		})
+	}
 	t.Cleanup(stop)
-	return stop
+	return stop, kill
 }
 
 func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
@@ -311,5 +329,79 @@ func TestReusedScopeLosesOldFinishedClockAfterParentExit(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".cli-home", "auth.json")); err != nil {
 		t.Fatal("GC collected unfinished crash state", err)
+	}
+}
+
+func TestOrphanScopeReconciledBeforeReuseOrDeletion(t *testing.T) {
+	for _, action := range []string{"reuse", "forget", "gc"} {
+		t.Run(action, func(t *testing.T) {
+			f := fixture(t)
+			control := t.TempDir()
+			ready, again := filepath.Join(control, "ready"), filepath.Join(control, "again")
+			violation := filepath.Join(control, "overlap")
+			bin := filepath.Join(control, "cursor")
+			body := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cursor-test; exit 0; fi\ncat >/dev/null\nif [ -f " + strconv.Quote(ready) + " ]; then if kill -0 \"$(cat " + strconv.Quote(ready) + ")\" 2>/dev/null; then echo overlap > " + strconv.Quote(violation) + "; fi; echo relaunched > " + strconv.Quote(again) + "; echo '{\"type\":\"result\",\"result\":\"done\"}'; exit 0; fi\necho $$ > " + strconv.Quote(ready) + "\nwhile :; do sleep 0.05; done\n"
+			must(t, os.WriteFile(bin, []byte(body), 0700))
+			f.cfg.Harnesses = map[string]string{"cursor": bin}
+			f.cfg.Slots = 1
+			_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='cursor' WHERE id=$1", f.id)
+			must(t, err)
+			c := claimFor(f.ws, f.card, f.user, "scoper")
+			c.AgentRun.Harness = "cursor"
+			dir := filepath.Join(f.cfg.Home, privateScratch(c))
+			_, kill := scopeDaemonProcessControl(t, f.cfg)
+			waitFor(t, func() bool { _, err := os.Stat(ready); return err == nil })
+			var owner struct {
+				PID int `json:"pid"`
+			}
+			b, err := os.ReadFile(filepath.Join(dir, ".agent-process"))
+			must(t, err)
+			must(t, json.Unmarshal(b, &owner))
+			pidBytes, err := os.ReadFile(ready)
+			must(t, err)
+			cli, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+			must(t, err)
+			t.Cleanup(func() { _ = syscall.Kill(-owner.PID, syscall.SIGKILL) })
+			kill()
+			must(t, syscall.Kill(cli, 0))
+			must(t, syscall.Kill(owner.PID, 0))
+			other := &daemon{cfg: Config{StateDir: t.TempDir(), Home: f.cfg.Home}, active: map[string]bool{}}
+			switch action {
+			case "reuse":
+				f.enqueue(t)
+				_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='cursor',skill='next skill' WHERE id=$1", f.id)
+				must(t, err)
+				cfg := f.cfg
+				cfg.StateDir = other.cfg.StateDir
+				stop := scopeDaemonProcess(t, cfg)
+				waitFor(t, func() bool { return f.status(t) == "completed" })
+				stop()
+				if _, err := os.Stat(again); err != nil {
+					t.Fatal("next CLI did not launch", err)
+				}
+				if _, err := os.Stat(violation); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("second CLI launched before orphan CLI exit", err)
+				}
+			case "forget":
+				must(t, other.ForgetScope(f.ws, f.user, "cursor", c.AgentRun.ContinuityScope))
+			case "gc":
+				marker := filepath.Join(dir, ".finished")
+				must(t, os.WriteFile(marker, []byte(`{"retention_days":1}`), 0600))
+				old := time.Now().Add(-48 * time.Hour)
+				must(t, os.Chtimes(marker, old, old))
+				must(t, other.gc(t.Context()))
+			}
+			if err := syscall.Kill(owner.PID, 0); !errors.Is(err, syscall.ESRCH) {
+				t.Errorf("%s proceeded while orphan supervisor survived: %v", action, err)
+			}
+			if err := syscall.Kill(cli, 0); !errors.Is(err, syscall.ESRCH) {
+				t.Errorf("%s proceeded while orphan CLI survived: %v", action, err)
+			}
+			if action != "reuse" {
+				if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("scope not deleted", err)
+				}
+			}
+		})
 	}
 }

@@ -28,8 +28,8 @@ type ScratchReservation struct {
 	closed, borrowed bool
 }
 
-// ReserveScratch reserves an existing real directory without changing its
-// contents or permissions. Contention is nonblocking.
+// ReserveScratch reserves an existing real directory and reconciles any prior
+// supervised process before its contents may change. Contention is nonblocking.
 func ReserveScratch(dir string) (*ScratchReservation, error) {
 	path, err := filepath.Abs(dir)
 	if err != nil {
@@ -67,6 +67,18 @@ func reservePinnedScratch(dir string, root *os.Root) (*ScratchReservation, error
 	}
 	r := &ScratchReservation{dir: dir, root: root, info: info, lock: lock, unlock: unlock}
 	if err := r.validate(dir); err != nil {
+		r.Release()
+		return nil, err
+	}
+	// Parent death releases the lock before its supervised group necessarily
+	// exits. Reconcile that identity before exposing the directory to reuse or
+	// deletion, including callers with no journal for the previous attempt.
+	if _, err := r.root.Lstat(".agent-process"); err == nil {
+		if err := RecoverScratch(dir); err != nil {
+			r.Release()
+			return nil, fmt.Errorf("reconcile scratch process: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		r.Release()
 		return nil, err
 	}
