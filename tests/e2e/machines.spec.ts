@@ -193,8 +193,57 @@ test('another owner gets real rename/remove refusals; offline own machines can b
     );
     await page.getByRole('menuitem', { name: 'Remove' }).click();
     expect((await refusedDelete).status()).toBe(404);
-    await expect(page.getByText('Only the machine’s owner can remove it.')).toBeVisible();
+    await expect(colleague.getByRole('alert')).toHaveText(
+      'Only the machine’s owner can remove it.',
+    );
     await page.screenshot({ path: `${artifacts}/owner-remove-refusal.png`, fullPage: true });
+    let releaseRefusal!: () => void;
+    const refusalGate = new Promise<void>((resolve) => {
+      releaseRefusal = resolve;
+    });
+    let gotRefusal!: (status: number) => void;
+    const heldRefusal = new Promise<number>((resolve) => {
+      gotRefusal = resolve;
+    });
+    let drainedRefusal!: () => void;
+    const refusalDrained = new Promise<void>((resolve) => {
+      drainedRefusal = resolve;
+    });
+    await page.route('**/api/runtimes/*', async (route) => {
+      if (route.request().method() !== 'DELETE') return route.continue();
+      try {
+        const response = await route.fetch();
+        gotRefusal(response.status());
+        await refusalGate;
+        await route.fulfill({ response });
+      } finally {
+        drainedRefusal();
+      }
+    });
+    try {
+      await colleague.getByRole('button', { name: 'Machine actions' }).click();
+      await expect(colleague.getByRole('alert')).toHaveCount(0);
+      page.once('dialog', (dialog) => dialog.accept());
+      await page.getByRole('menuitem', { name: 'Remove' }).click();
+      expect(await heldRefusal).toBe(404);
+      await page.getByRole('button', { name: 'Daemon', exact: true }).click();
+      await expect(page.getByRole('dialog', { name: 'Daemon' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await edit(page, 'lab-mac', 'Draft after an old removal refusal');
+      releaseRefusal();
+      await refusalDrained;
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      await expect(page.locator('.resource-machines').getByRole('alert')).toHaveCount(0);
+      await expect(page.getByRole('textbox', { name: 'Name' })).toHaveValue(
+        'Draft after an old removal refusal',
+      );
+      await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+      await page.keyboard.press('Escape');
+    } finally {
+      releaseRefusal();
+      await refusalDrained;
+      await page.unroute('**/api/runtimes/*');
+    }
     let releaseDelete!: () => void;
     const deleteGate = new Promise<void>((resolve) => {
       releaseDelete = resolve;

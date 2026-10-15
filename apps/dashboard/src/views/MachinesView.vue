@@ -9,7 +9,6 @@ import { workspaceId } from '../api/session';
 import { useMembers, useRuntimes } from '../api/queries';
 import { groupDaemons, type Daemon } from '../lib/machines';
 import { timeAgo } from '../lib/studies';
-import { notify } from '../state/notice';
 
 const client = useQueryClient();
 const runtimes = useRuntimes();
@@ -20,6 +19,7 @@ const dialog = ref<'' | 'add' | 'daemon' | 'rename'>('');
 const renaming = ref<Daemon | null>(null);
 const draft = ref('');
 const error = ref('');
+const removalError = ref<{ id: string; message: string } | null>(null);
 const busy = ref(false);
 let generation = 0;
 watch(
@@ -31,6 +31,7 @@ watch(
     renaming.value = null;
     draft.value = '';
     error.value = '';
+    removalError.value = null;
     busy.value = false;
   },
   { flush: 'sync' },
@@ -40,7 +41,15 @@ watch(
   () => {
     generation++;
     error.value = '';
+    removalError.value = null;
     busy.value = false;
+  },
+  { flush: 'sync' },
+);
+watch(
+  menuFor,
+  () => {
+    removalError.value = null;
   },
   { flush: 'sync' },
 );
@@ -115,7 +124,7 @@ async function remove(d: Daemon) {
     if (own.current()) await refresh(own.workspace);
   } catch (e) {
     if (!own.current()) return;
-    notify(message(e, 'remove'));
+    removalError.value = { id: own.id, message: message(e, 'remove') };
     await refresh(own.workspace);
   } finally {
     if (own.current()) busy.value = false;
@@ -137,14 +146,17 @@ async function remove(d: Daemon) {
       <ul v-if="daemons.length" class="machine-rows">
         <li v-for="d in daemons" :key="d.id" class="machine-row" :class="{ offline: !d.online }">
           <span class="square-icon"><Icon name="monitor" /></span>
-          <span class="name"
-            ><b>{{ d.name }}</b
+          <div class="name">
+            <b>{{ d.name }}</b
             ><small
               >daemon {{ d.id.slice(0, 8) }}…<template v-if="owner(d.ownerId)">
                 · {{ owner(d.ownerId) }}</template
               ></small
-            ></span
-          >
+            >
+            <p v-if="removalError?.id === d.id" class="inline-error" role="alert">
+              {{ removalError.message }}
+            </p>
+          </div>
           <span class="status">{{ d.online ? 'Online' : 'Offline' }}</span>
           <span class="clis"
             ><small>{{ d.runtimes.length }} runtime{{ d.runtimes.length === 1 ? '' : 's' }}</small
