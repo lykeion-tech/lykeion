@@ -1,105 +1,66 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { matchesQuery } from '../lib/search';
-import type { Inquiry } from '../../../../packages/contracts/src/research';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useQueryClient } from '@tanstack/vue-query';
 import Modal from '../components/Modal.vue';
 import ComposerCalendar from '../components/ComposerCalendar.vue';
-import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
-import { state, workspaceName, service, refresh, notify } from '../services/workspace';
-import { usePreferences } from '../state/preferences';
-const props = defineProps<{
-  initialManual?: boolean;
-  initialAssigneeId?: string;
-  initialParentId?: string;
-  initialProjectId?: string;
-}>();
+import { api, ApiError } from '../api/client';
+import { keys } from '../api/keys';
+import { workspaceId } from '../api/session';
+import { useCards, useWorkspace } from '../api/queries';
+import type { Card } from '../api/types';
+import { dateKey } from '../lib/dates';
+import { matchesQuery } from '../lib/search';
+import { studyNumber } from '../lib/studies';
+import { notify } from '../state/notice';
+
+const props = defineProps<{ editId?: string }>();
 const emit = defineEmits<{ close: [] }>();
-const router = useRouter();
+const client = useQueryClient();
+const cards = useCards();
+const workspace = useWorkspace();
 const isMac = navigator.platform.includes('Mac');
-const parentId = ref(props.initialParentId ?? '');
-const manual = ref(Boolean(props.initialParentId || props.initialManual)),
-  expanded = ref(false),
-  title = ref(''),
-  description = ref(''),
-  projectId = ref(props.initialProjectId ?? ''),
-  assigneeId = ref(props.initialAssigneeId ?? ''),
-  another = ref(false),
-  busy = ref(false),
-  error = ref(''),
-  menu = ref(''),
-  query = ref(''),
-  labels = ref<string[]>([]),
-  dueDate = ref(''),
-  startDate = ref('');
-const priority = ref<Inquiry['priority']>('none'),
-  form = ref<HTMLFormElement>();
-const preferences = computed(() => usePreferences().createFields);
-function show(field: string) {
-  return (
-    preferences.value[manual.value ? 'manual' : 'agent'].includes(field) ||
-    extraFields.value.includes(field)
-  );
-}
-const extraFields = ref<string[]>([]),
-  childIds = ref<string[]>([]);
-const taskMatches = computed(() =>
-  query.value.trim()
-    ? (state.data?.inquiries ?? []).filter(
-        (x) =>
-          matchesQuery(`${taskLabel(x.id)} ${x.title}`, query.value) &&
-          !childIds.value.includes(x.id),
-      )
-    : [],
-);
-function taskLabel(id: string) {
-  const index = state.data?.inquiries.findIndex((x) => x.id === id) ?? -1;
-  return `${state.data?.workspace.taskPrefix ?? 'TASK'}-${index + 1}`;
-}
-function revealDate(name: 'due' | 'start') {
-  extraFields.value.push(name === 'due' ? 'Due date' : 'Start date');
-  openMenu(name);
-}
-function customize() {
-  router.push('/settings?tab=preferences');
-  emit('close');
-}
-const agents = computed(() => state.data?.agents ?? []);
-const assignees = computed(() => [
-  ...agents.value.map((x) => ({ id: x.id, name: x.name, kind: 'agent', status: x.status })),
-  ...(state.data?.colleagues ?? []).map((x) => ({
-    id: x.id,
-    name: x.name,
-    kind: 'person',
-    status: '',
-  })),
-]);
-const selectedAssignee = computed(() => assignees.value.find((x) => x.id === assigneeId.value));
-const parentLabel = computed(() => {
-  const index = state.data?.inquiries.findIndex((x) => x.id === parentId.value) ?? -1;
-  return index >= 0 ? `${state.data?.workspace.taskPrefix}-${index + 1}` : parentId.value;
-});
-const selectedProject = computed(() => state.data?.projects.find((x) => x.id === projectId.value));
-const matches = computed(() =>
-  assignees.value.filter(
-    (x) => (manual.value || x.kind === 'agent') && matchesQuery(x.name, query.value),
+const title = ref('');
+const question = ref('');
+const budget = ref(0);
+const deadline = ref('');
+const followsFrom = ref<string[]>([]);
+const another = ref(false);
+const expanded = ref(false);
+const busy = ref(false);
+const error = ref('');
+const duplicate = ref<{ id: string; number: number } | null>(null);
+const menu = ref('');
+const query = ref('');
+const form = ref<HTMLFormElement>();
+
+const editing = computed(() => cards.data.value?.find((c) => c.id === props.editId));
+const heading = computed(() => (props.editId ? 'Edit study' : 'New study'));
+const number = (n: number) => studyNumber(workspace.data.value, { number: n });
+const byId = (id: string) => cards.data.value?.find((c) => c.id === id);
+const candidates = computed(() =>
+  (cards.data.value ?? []).filter(
+    (c) =>
+      c.id !== props.editId &&
+      !followsFrom.value.includes(c.id) &&
+      matchesQuery(`${number(c.number)} ${c.title}`, query.value),
   ),
 );
-const projects = computed(() =>
-  (state.data?.projects ?? []).filter((x) => matchesQuery(x.name, query.value)),
+
+// An edited study starts from what it holds now.
+watch(
+  editing,
+  (c: Card | undefined) => {
+    if (!c || title.value || question.value) return;
+    title.value = c.title;
+    question.value = c.question;
+    budget.value = c.budget_usd;
+    deadline.value = c.deadline ? dateKey(new Date(c.deadline)) : '';
+    followsFrom.value = [...c.follows_from];
+  },
+  { immediate: true },
 );
-const priorityOptions = [
-  { id: 'none', label: 'No priority' },
-  { id: 'urgent', label: 'Urgent' },
-  { id: 'high', label: 'High' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'low', label: 'Low' },
-] as const;
-const knownLabels = computed(() =>
-  [
-    ...new Set([...(state.data?.inquiries.flatMap((x) => x.labels ?? []) ?? []), ...labels.value]),
-  ].filter((x) => matchesQuery(x, query.value)),
-);
+
 async function openMenu(name: string) {
   menu.value = menu.value === name ? '' : name;
   query.value = '';
@@ -110,133 +71,78 @@ function closeMenu() {
   menu.value = '';
   query.value = '';
 }
-function chooseAssignee(id: string) {
-  assigneeId.value = id;
+function follow(id: string) {
+  if (!followsFrom.value.includes(id)) followsFrom.value = [...followsFrom.value, id];
+  duplicate.value = null;
   closeMenu();
 }
-function toggleLabel(label: string) {
-  labels.value = labels.value.includes(label)
-    ? labels.value.filter((x) => x !== label)
-    : [...labels.value, label];
+function outside(event: PointerEvent) {
+  if (!(event.target as HTMLElement).closest('.property-anchor')) closeMenu();
 }
-function addLabel() {
-  const value = query.value.trim();
-  if (value && !labels.value.includes(value)) labels.value.push(value);
-  query.value = '';
-}
-function keys(event: KeyboardEvent) {
-  if (
-    event.key === 'Enter' &&
-    menu.value &&
-    event.target instanceof HTMLInputElement &&
-    menu.value !== 'labels'
-  ) {
-    event.preventDefault();
-    if (!['due', 'start'].includes(menu.value))
-      form.value?.querySelector<HTMLButtonElement>('.composer-menu button')?.click();
-    return;
-  }
+function keysDown(event: KeyboardEvent) {
   if (event.key === 'Escape' && menu.value) {
     event.preventDefault();
     event.stopPropagation();
     closeMenu();
-    return;
-  }
-  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-    const list = [
-      ...(form.value?.querySelectorAll<HTMLButtonElement>('.composer-menu button:not(:disabled)') ??
-        []),
-    ];
-    if (!list.length) return;
-    event.preventDefault();
-    const index = list.indexOf(document.activeElement as HTMLButtonElement);
-    list[(index + (event.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]?.focus();
   }
 }
-function outside(event: PointerEvent) {
-  if (!(event.target as HTMLElement).closest('.property-anchor,.created-by,.task-relation-picker'))
-    closeMenu();
-}
-async function switchMode() {
-  manual.value = !manual.value;
-  error.value = '';
-  closeMenu();
-  await nextTick();
-  form.value
-    ?.querySelector<HTMLInputElement | HTMLTextAreaElement>(
-      manual.value ? '.composer-title' : '.composer-prompt',
-    )
-    ?.focus();
-}
+
 async function submit() {
-  if (busy.value) return;
-  if (!manual.value) {
-    error.value = !assigneeId.value
-      ? 'Choose an agent to continue.'
-      : 'Agent-assisted task creation requires an execution adapter. Your instructions have not been sent.';
-    return;
-  }
-  if (!title.value.trim()) return;
-  if (childIds.value.length) {
-    error.value =
-      'Attaching existing sub-tasks while creating a task requires a connected relationship adapter. No task has been created.';
-    return;
-  }
+  if (busy.value || !question.value.trim()) return;
   busy.value = true;
   error.value = '';
+  duplicate.value = null;
+  const fields = {
+    title: title.value.trim(),
+    question: question.value.trim(),
+    budget_usd: Math.max(0, Number(budget.value) || 0),
+    deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
+    follows_from: followsFrom.value,
+  };
   try {
-    await service.value.createInquiry({
-      title: title.value,
-      description: description.value,
-      priority: priority.value,
-      projectId: projectId.value || null,
-      assigneeId: assigneeId.value || null,
-      labels: labels.value,
-      dueDate: dueDate.value || null,
-      startDate: startDate.value || null,
-      parentId: parentId.value || null,
-    });
-    await refresh();
-    notify(service.value.mode === 'local' ? 'Task saved as a local draft.' : 'Task created.');
+    if (props.editId) await api('PATCH', `/api/cards/${props.editId}`, fields);
+    else await api('POST', '/api/cards', fields);
+    await client.invalidateQueries({ queryKey: keys.cards(workspaceId.value) });
+    if (props.editId) {
+      await client.invalidateQueries({ queryKey: keys.card(workspaceId.value, props.editId) });
+      notify('Study saved.');
+      emit('close');
+      return;
+    }
+    notify('Study created.');
     if (another.value) {
-      title.value = '';
-      description.value = '';
+      title.value = question.value = deadline.value = '';
+      budget.value = 0;
+      followsFrom.value = [];
       await nextTick();
       form.value?.querySelector<HTMLInputElement>('.composer-title')?.focus();
     } else emit('close');
   } catch (e) {
-    error.value = (e as Error).message;
+    if (e instanceof ApiError && e.status === 409 && typeof e.body.card_id === 'string')
+      duplicate.value = { id: e.body.card_id, number: Number(e.body.number) };
+    else error.value = (e as Error).message;
   } finally {
     busy.value = false;
   }
 }
-onMounted(() => {
-  document.addEventListener('pointerdown', outside);
-});
-onUnmounted(() => {
-  document.removeEventListener('pointerdown', outside);
-});
+onMounted(() => document.addEventListener('pointerdown', outside));
+onUnmounted(() => document.removeEventListener('pointerdown', outside));
 </script>
 <template>
-  <Modal
-    :title="manual ? 'Create manually' : 'Create with agent'"
-    :class="['task-composer', { manual, expanded }]"
-    @close="emit('close')"
-  >
-    <!-- keys() must see modified keys too (Shift+Escape, Cmd+Enter in a menu), so no .exact. -->
+  <Modal :title="heading" :class="['task-composer', 'manual', { expanded }]" @close="emit('close')">
     <!-- eslint-disable vue/use-v-on-exact -->
     <form
       ref="form"
       @submit.prevent="submit"
-      @keydown="keys"
+      @keydown="keysDown"
       @keydown.meta.enter.prevent="submit"
       @keydown.ctrl.enter.prevent="submit"
     >
       <!-- eslint-enable vue/use-v-on-exact -->
       <header class="composer-breadcrumb">
-        <span>{{ workspaceName }}</span>
+        <span>{{ workspace.data.value?.name }}</span>
         <Icon name="right" :size="12" />
-        <strong>{{ manual ? 'Create manually' : 'Create with agent' }}</strong>
+        <strong>{{ heading }}</strong>
         <button
           type="button"
           class="icon-button push-right"
@@ -251,369 +157,112 @@ onUnmounted(() => {
         </button>
       </header>
       <div class="composer-body">
-        <template v-if="manual">
-          <input
-            v-model="title"
-            autofocus
-            class="composer-title"
-            placeholder="Task title"
-            aria-label="Task title"
-            required
-          />
-          <textarea
-            v-model="description"
-            class="composer-description"
-            placeholder="Add description..."
-            aria-label="Description"
-          />
-        </template>
-        <template v-else>
-          <div class="created-by">
-            <span>Created by</span>
-            <button type="button" :aria-expanded="menu === 'agent'" @click="openMenu('agent')">
-              <Icon v-if="selectedAssignee" name="bot" :size="14" />{{
-                selectedAssignee?.name ?? 'Pick an agent…'
-              }}<Icon name="down" :size="12" />
-            </button>
-            <div v-if="menu === 'agent'" class="composer-menu" role="menu">
-              <input v-model="query" placeholder="Search agents..." aria-label="Search agents" />
-              <button
-                v-for="agent in matches"
-                :key="agent.id"
-                type="button"
-                @click="chooseAssignee(agent.id)"
-              >
-                <Icon name="bot" :size="14" />
-                <span>{{ agent.name }}</span>
-                <small>{{ agent.status }}</small>
-                <Icon v-if="assigneeId === agent.id" name="check" :size="14" />
-              </button>
-              <p v-if="!matches.length">
-                {{ agents.length ? 'No matching agents' : 'No agents available' }}
-              </p>
-            </div>
-          </div>
-          <textarea
-            v-model="description"
-            autofocus
-            class="composer-prompt"
-            placeholder='Tell the agent what to do, e.g. "review the literature for this research question"'
-            aria-label="Agent instructions"
-          />
-        </template>
+        <input
+          v-model="title"
+          autofocus
+          class="composer-title"
+          placeholder="Study title"
+          aria-label="Study title"
+        />
+        <textarea
+          v-model="question"
+          class="composer-description"
+          placeholder="What is the research question?"
+          aria-label="Research question"
+          required
+        />
       </div>
-      <p v-if="manual && selectedAssignee" class="assignee-note">
-        <Icon :name="selectedAssignee.kind === 'agent' ? 'bot' : 'users'" :size="14" />
-        <span
-          >{{ selectedAssignee.name
-          }}{{
-            selectedAssignee.kind === 'agent'
-              ? ' is assigned. Execution requires a connected control plane.'
-              : ' is assigned to this task.'
-          }}</span
-        >
+      <p v-if="duplicate" class="composer-warning" role="status">
+        An active study already asks this: {{ number(duplicate.number) }}
+        <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>. Set it as
+        “Follows from” to create a follow-up.
+        <button type="button" class="text-button" @click="follow(duplicate.id)">
+          Follows from {{ number(duplicate.number) }}
+        </button>
       </p>
       <div class="composer-properties">
-        <div v-if="manual" class="property-line">
-          <div v-if="show('Status')" class="property-anchor">
-            <button type="button" class="property-pill" @click="openMenu('stage')">
-              <Icon name="circle" :size="14" />Grounding
-            </button>
-            <div v-if="menu === 'stage'" class="composer-menu stage-menu">
-              <button type="button" @click="closeMenu">
-                <Icon name="circle" :size="14" />Grounding<Icon
-                  name="check"
-                  class="push-right"
-                  :size="14"
-                />
-              </button>
-              <p>New inquiries begin in Grounding. Later stages require evidence gates.</p>
-            </div>
-          </div>
-          <div v-if="show('Priority')" class="property-anchor">
-            <button type="button" class="property-pill" @click="openMenu('priority')">
-              <Icon name="flag" :size="14" />{{
-                priorityOptions.find((x) => x.id === priority)?.label
-              }}
-            </button>
-          </div>
-          <div v-if="show('Assignee')" class="property-anchor">
-            <button type="button" class="property-pill assignee-pill" @click="openMenu('assignee')">
-              <Icon :name="selectedAssignee?.kind === 'agent' ? 'bot' : 'users'" :size="14" />
-              <span>{{ selectedAssignee?.name ?? 'Unassigned' }}</span>
-            </button>
-          </div>
-          <div v-if="show('Labels')" class="property-anchor">
-            <button type="button" class="property-pill" @click="openMenu('labels')">
-              <Icon name="tag" :size="14" />{{ labels.length ? labels.join(', ') : 'Add label' }}
-            </button>
-          </div>
-        </div>
         <div class="property-line">
-          <div v-if="!manual && show('Priority')" class="property-anchor">
-            <button type="button" class="property-pill" @click="openMenu('priority')">
-              <Icon name="flag" :size="14" />{{
-                priorityOptions.find((x) => x.id === priority)?.label
-              }}
-            </button>
-          </div>
-          <div v-if="show('Project')" class="property-anchor">
-            <button type="button" class="property-pill" @click="openMenu('project')">
-              <Icon name="folder" :size="14" />{{ selectedProject?.name ?? 'No project' }}
-            </button>
-          </div>
-          <div v-if="parentId" class="property-anchor">
+          <div class="property-anchor">
             <button
               type="button"
-              class="property-pill parent-pill"
-              aria-label="Remove parent task"
-              :title="'Remove parent ' + parentLabel"
-              @click="parentId = ''"
+              class="property-pill"
+              disabled
+              title="New studies start in Backlog"
             >
-              <Icon name="up" :size="12" />Sub-task of {{ parentLabel
-              }}<Icon name="close" :size="12" />
+              <Icon name="circle" :size="14" />Backlog
             </button>
           </div>
-          <div v-if="show('Due date')" class="property-anchor">
-            <button type="button" class="property-pill" @click="openMenu('due')">
-              <Icon name="clock" :size="14" />{{ dueDate || 'Due date' }}</button
+          <div class="property-anchor">
+            <button type="button" class="property-pill" @click="openMenu('budget')">
+              $ {{ budget > 0 ? `$${budget} budget` : 'No budget limit' }}
+            </button>
+            <div v-if="menu === 'budget'" class="composer-menu" role="dialog" aria-label="Budget">
+              <label
+                >Budget limit (USD)<input
+                  v-model.number="budget"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  aria-label="Budget limit in USD"
+              /></label>
+              <p>0 means no budget limit.</p>
+            </div>
+          </div>
+          <div class="property-anchor">
+            <button type="button" class="property-pill" @click="openMenu('deadline')">
+              <Icon name="clock" :size="14" />{{ deadline || 'No deadline' }}</button
             ><ComposerCalendar
-              v-if="menu === 'due'"
-              v-model="dueDate"
+              v-if="menu === 'deadline'"
+              v-model="deadline"
               kind="due"
               @close="closeMenu"
             />
           </div>
-          <div v-if="show('Start date')" class="property-anchor">
-            <button type="button" class="property-pill" @click="openMenu('start')">
-              <Icon name="clock" :size="14" />{{ startDate || 'Start date' }}</button
-            ><ComposerCalendar
-              v-if="menu === 'start'"
-              v-model="startDate"
-              kind="start"
-              @close="closeMenu"
-            />
-          </div>
-          <div v-for="id in childIds" :key="id" class="property-anchor">
+          <div v-for="id in followsFrom" :key="id" class="property-anchor">
             <button
               type="button"
               class="property-pill"
-              @click="childIds = childIds.filter((x) => x !== id)"
+              :aria-label="`Follows from: ${byId(id) ? number(byId(id)!.number) : id}`"
+              @click="followsFrom = followsFrom.filter((x) => x !== id)"
             >
-              <Icon name="down" :size="12" />{{ taskLabel(id) }}<Icon name="close" :size="12" />
+              <Icon name="up" :size="12" />{{ byId(id) ? number(byId(id)!.number) : 'Study'
+              }}<Icon name="close" :size="12" />
             </button>
           </div>
           <div class="property-anchor">
-            <button
-              type="button"
-              class="property-pill more-pill"
-              aria-label="More properties"
-              @click="openMenu('more')"
-            >
-              <Icon name="more" :size="15" />
+            <button type="button" class="property-pill" @click="openMenu('follows')">
+              <Icon name="link" :size="14" />Follows from
             </button>
-            <div v-if="menu === 'more'" class="composer-menu more-menu" role="menu">
-              <button type="button" @click="revealDate('due')">
-                <Icon name="clock" :size="14" />Set due date...
+            <div v-if="menu === 'follows'" class="composer-menu" role="menu">
+              <input v-model="query" placeholder="Search studies…" aria-label="Search studies" />
+              <button
+                v-for="c in candidates.slice(0, 8)"
+                :key="c.id"
+                type="button"
+                @click="follow(c.id)"
+              >
+                <small>{{ number(c.number) }}</small
+                ><span>{{ c.title }}</span>
               </button>
-              <button v-if="manual" type="button" @click="revealDate('start')">
-                <Icon name="clock" :size="14" />Set start date...
-              </button>
-              <button v-if="manual" type="button" @click="openMenu('parent')">
-                <Icon name="up" :size="14" />Set parent task...
-              </button>
-              <button v-if="manual" type="button" @click="openMenu('child')">
-                <Icon name="down" :size="14" />Add sub-task...
-              </button>
-              <hr />
-              <button type="button" @click="customize">
-                <Icon name="filters" :size="14" />Customize fields...
-              </button>
+              <p v-if="!candidates.length">No matching studies</p>
             </div>
           </div>
         </div>
-        <div
-          v-if="['priority', 'assignee', 'labels', 'project'].includes(menu)"
-          class="property-anchor properties-menu-anchor"
-        >
-          <div class="composer-menu" role="menu">
-            <template v-if="menu === 'priority'">
-              <button
-                v-for="p in priorityOptions"
-                :key="p.id"
-                type="button"
-                @click="
-                  priority = p.id;
-                  closeMenu();
-                "
-              >
-                <Icon name="flag" :size="14" />{{ p.label
-                }}<Icon v-if="priority === p.id" name="check" :size="14" class="push-right" />
-              </button>
-            </template>
-            <template v-else-if="menu === 'assignee'">
-              <input
-                v-model="query"
-                placeholder="Search people and agents..."
-                aria-label="Search assignees"
-              />
-              <button type="button" @click="chooseAssignee('')">
-                <Icon name="users" :size="14" />Unassigned<Icon
-                  v-if="!assigneeId"
-                  name="check"
-                  class="push-right"
-                  :size="14"
-                />
-              </button>
-              <button v-for="a in matches" :key="a.id" type="button" @click="chooseAssignee(a.id)">
-                <Icon :name="a.kind === 'agent' ? 'bot' : 'users'" :size="14" />
-                <span>{{ a.name }}</span>
-                <Icon v-if="assigneeId === a.id" name="check" class="push-right" :size="14" />
-              </button>
-              <p v-if="!matches.length">
-                {{ assignees.length ? 'No matching assignees' : 'No people or agents available' }}
-              </p>
-            </template>
-            <template v-else-if="menu === 'project'">
-              <input
-                v-model="query"
-                placeholder="Search projects..."
-                aria-label="Search projects"
-              />
-              <button
-                type="button"
-                @click="
-                  projectId = '';
-                  closeMenu();
-                "
-              >
-                <Icon name="folder" :size="14" />No project
-              </button>
-              <button
-                v-for="project in projects"
-                :key="project.id"
-                type="button"
-                @click="
-                  projectId = project.id;
-                  closeMenu();
-                "
-              >
-                <Icon name="folder" :size="14" />{{ project.name
-                }}<Icon
-                  v-if="projectId === project.id"
-                  name="check"
-                  :size="14"
-                  class="push-right"
-                />
-              </button>
-              <p v-if="!projects.length">
-                {{ state.data?.projects.length ? 'No matching projects' : 'No projects available' }}
-              </p>
-            </template>
-            <template v-else-if="menu === 'labels'">
-              <input
-                v-model="query"
-                placeholder="Search or create label..."
-                aria-label="Search labels"
-                @keydown.enter.prevent="addLabel"
-              />
-              <button
-                v-for="label in knownLabels"
-                :key="label"
-                type="button"
-                @click="toggleLabel(label)"
-              >
-                <Icon name="tag" :size="14" />{{ label
-                }}<Icon v-if="labels.includes(label)" name="check" :size="14" class="push-right" />
-              </button>
-              <button
-                v-if="query.trim() && !knownLabels.includes(query.trim())"
-                type="button"
-                @click="addLabel"
-              >
-                <Icon name="plus" :size="14" />Create “{{ query.trim() }}”
-              </button>
-              <p v-if="!knownLabels.length && !query">Type to create a label.</p>
-            </template>
-          </div>
-        </div>
-      </div>
-      <div
-        v-if="menu === 'parent' || menu === 'child'"
-        class="task-relation-backdrop"
-        @click.self="closeMenu"
-      >
-        <section
-          class="task-relation-picker property-anchor"
-          role="dialog"
-          :aria-label="menu === 'parent' ? 'Set parent task' : 'Add sub-task'"
-        >
-          <div class="composer-menu relation-results">
-            <div class="relation-search">
-              <Icon name="search" :size="16" /><input
-                v-model="query"
-                autofocus
-                role="combobox"
-                aria-expanded="true"
-                aria-controls="composer-task-suggestions"
-                placeholder="Search tasks..."
-                aria-label="Search tasks"
-              />
-            </div>
-            <div id="composer-task-suggestions" role="listbox" aria-label="Suggestions">
-              <button
-                v-for="task in taskMatches"
-                :key="task.id"
-                type="button"
-                @click="
-                  menu === 'parent' ? (parentId = task.id) : childIds.push(task.id);
-                  closeMenu();
-                "
-              >
-                <Icon name="circle" :size="14" /><small>{{ taskLabel(task.id) }}</small
-                ><span>{{ task.title }}</span>
-              </button>
-              <p v-if="!taskMatches.length">
-                {{
-                  !query.trim()
-                    ? 'Type to search tasks'
-                    : state.data?.inquiries.length
-                      ? 'No matching tasks'
-                      : 'No tasks available'
-                }}
-              </p>
-            </div>
-          </div>
-        </section>
       </div>
       <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
       <footer class="composer-footer">
-        <button
-          type="button"
-          class="icon-button attachment-button"
-          aria-label="Attach file"
-          @click="
-            error =
-              'Attachments require a connected file-storage adapter. No file has been uploaded.'
-          "
-        >
-          <Icon name="attachment" :size="14" />
-        </button>
-        <button type="button" class="mode-switch push-right" @click="switchMode">
-          <Icon name="filters" :size="14" />Switch to {{ manual ? 'Agent' : 'Manual' }}
-        </button>
-        <label class="another-switch">
-          <input v-model="another" type="checkbox" role="switch" />
+        <label v-if="!editId" class="another-switch push-right">
+          <input v-model="another" type="checkbox" role="switch" aria-label="Create another" />
           <span class="switch-track" />Create another</label
         >
         <button
           type="submit"
           class="button primary compact"
-          :disabled="busy || (manual ? !title.trim() : !description.trim())"
+          :class="{ 'push-right': editId }"
+          :disabled="busy || !question.trim()"
         >
-          {{ busy ? 'Creating…' : manual ? 'Create Task' : 'Create'
-          }}<kbd>{{ isMac ? '⌘' : 'Ctrl' }}</kbd>
-          <kbd>↵</kbd>
+          {{ busy ? 'Saving…' : editId ? 'Save study' : 'Create study'
+          }}<kbd>{{ isMac ? '⌘' : 'Ctrl' }}</kbd> <kbd>↵</kbd>
         </button>
       </footer>
     </form>
@@ -1065,5 +714,17 @@ onUnmounted(() => {
   .another-switch {
     font-size: 11px;
   }
+}
+.composer-warning {
+  margin: 0 20px 6px;
+  font-size: 12.5px;
+  color: #8a6a1c;
+  background: #fbf3df;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.composer-warning .text-button {
+  font-size: 12.5px;
+  text-decoration: underline;
 }
 </style>

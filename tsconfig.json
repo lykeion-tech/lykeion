@@ -15,5 +15,6 @@
     "apps/dashboard/**/*.vue",
     "packages/**/*.ts",
     "tests/**/*.ts"
-  ]
+  ],
+  "exclude": ["apps/dashboard/src/components/TaskContextMenu.vue"]
 }

@@ -7,7 +7,6 @@ import { service, state, refresh, notify } from '../services/workspace';
 import { readText, writeText } from '../storage';
 import { usePreferences } from '../state/preferences';
 import { useSettingsDrafts } from '../state/settings-drafts';
-import { useTaskComposer } from '../state/task-composer';
 import Icon from '../components/Icon.vue';
 import { shortDate as date } from '../lib/dates';
 import TaskAuxiliary from '../components/TaskAuxiliary.vue';
@@ -150,7 +149,6 @@ function inspectorAdjust(event: KeyboardEvent) {
   writeText('lykeion.task-inspector-width', String(inspectorWidth.value));
 }
 const preferences = usePreferences();
-const { openSubtaskComposer } = useTaskComposer();
 const settingsDrafts = useSettingsDrafts();
 const pinned = computed(() => preferences.pinComments !== false);
 const showPullRequests = computed(
@@ -289,9 +287,6 @@ function key(event: KeyboardEvent) {
     closeInspector();
     event.preventDefault();
   } else if (preview.value) emit('close');
-}
-function createSubtask() {
-  if (detail.value) openSubtaskComposer(detail.value.inquiry.id);
 }
 watch(
   () => props.id,
@@ -555,11 +550,6 @@ onUnmounted(() => {
                 {{ detail.inquiry.description || 'Add description...' }}
               </button></template
             >
-          </div>
-          <div class="subtask-row">
-            <button class="add-subtasks" @click="createSubtask">
-              <Icon name="plus" :size="13" />Add sub-tasks
-            </button>
           </div>
           <header class="transcript-heading">
             <h2>Transcript</h2>

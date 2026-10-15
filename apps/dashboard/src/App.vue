@@ -458,7 +458,7 @@ onUnmounted(() => {
         <RouterView v-if="cardId" name="detail" @close="go('studies')" />
       </template>
     </main>
-    <CreateTask v-if="composer.open" :initial-manual="true" @close="closeComposer()" />
+    <CreateTask v-if="composer.open" :edit-id="composer.editId" @close="closeComposer()" />
     <div
       v-if="help"
       id="help-menu"
