@@ -374,3 +374,112 @@ test('held actual assignment refusal cannot cross study navigation', async ({ pa
     (await (await page.request.get(`/api/cards/${f.card_id}`, { headers })).json()).assignee_id,
   ).toBeNull();
 });
+
+for (const kind of ['researches', 'agents'] as const) {
+  test(`delayed ${kind} create refetch cannot navigate after leaving its visit`, async ({
+    page,
+  }) => {
+    const f = await labFixture(page.request),
+      headers = { 'X-Workspace-ID': f.workspace_id };
+    await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
+    const other =
+      kind === 'agents'
+        ? await (
+            await page.request.post('/api/workspaces', {
+              data: { name: 'Refetch destination', slug: 'refetch-' + Date.now() },
+            })
+          ).json()
+        : null;
+    const path = kind === 'researches' ? '/projects' : '/agents';
+    const collection = page.waitForResponse(
+      (r) => r.request().method() === 'GET' && r.url().endsWith('/api/' + kind),
+    );
+    await page.goto('/#' + path);
+    await collection;
+    let release!: () => void, reached!: () => void;
+    const held = new Promise<void>((r) => (reached = r)),
+      gate = new Promise<void>((r) => (release = r));
+    await page.route('**/api/' + kind, async (route) => {
+      if (route.request().method() !== 'GET') {
+        await route.continue();
+        return;
+      }
+      const response = await route.fetch();
+      reached();
+      await gate;
+      await route.fulfill({ response });
+    });
+    const label = kind === 'researches' ? 'Research' : 'agent';
+    await page.getByRole('button', { name: 'New ' + label, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New ' + label, exact: true });
+    const name = 'Held ' + kind + ' creation';
+    await dialog
+      .getByRole('textbox', { name: kind === 'researches' ? 'Research name' : 'Agent name' })
+      .fill(name);
+    await dialog.getByRole('button', { name: 'Create ' + label, exact: true }).click();
+    await held;
+    const canonical = await (await page.request.get('/api/' + kind, { headers })).json();
+    expect(canonical.some((item: { name: string }) => item.name === name)).toBe(true);
+    if (kind === 'agents') {
+      await page.locator('.workspace-switch').click();
+      await page.getByRole('menuitem', { name: 'Refetch destination', exact: false }).click();
+      await expect(page.locator('.workspace-switch')).toContainText('Refetch destination');
+      expect(other.id).not.toBe(f.workspace_id);
+    } else await page.goto('/#/studies/' + f.card_id);
+    release();
+    await page.waitForTimeout(250);
+    await expect(page).toHaveURL(
+      kind === 'agents' ? /#\/studies$/ : new RegExp('#/studies/' + f.card_id + '$'),
+    );
+  });
+}
+
+test('open Research detail updates embedded linked studies after another client edits and deletes', async ({
+  page,
+}) => {
+  const ws = await (
+      await page.request.post('/api/workspaces', {
+        data: { name: 'Linked refresh lab', slug: 'linked-refresh-' + Date.now() },
+      })
+    ).json(),
+    headers = { 'X-Workspace-ID': ws.id };
+  expect(
+    (
+      await page.request.patch(`/api/workspaces/${ws.id}/settings`, {
+        data: { settings: { wip_limit: 0 } },
+      })
+    ).status(),
+  ).toBe(204);
+  const study = await (
+    await page.request.post('/api/cards', {
+      headers,
+      data: { title: 'Before linked edit', question: 'Linked cache test ' + Date.now() + '?' },
+    })
+  ).json();
+  const research = await (
+    await page.request.post('/api/researches', { headers, data: { name: 'Live linked studies' } })
+  ).json();
+  expect(
+    (
+      await page.request.patch(`/api/cards/${study.id}/properties`, {
+        headers,
+        data: { research_id: research.id },
+      })
+    ).status(),
+  ).toBe(200);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws.id);
+  await page.goto('/#/projects/' + research.id);
+  await expect(page.locator('.research-studies a')).toContainText('Before linked edit');
+  expect(
+    (
+      await page.request.patch(`/api/cards/${study.id}`, {
+        headers,
+        data: { title: 'After linked edit' },
+      })
+    ).status(),
+  ).toBe(200);
+  await expect(page.locator('.research-studies a')).toContainText('After linked edit');
+  expect((await page.request.delete(`/api/cards/${study.id}`, { headers })).status()).toBe(204);
+  await expect(page.locator('.research-studies a')).toHaveCount(0);
+  await expect(page.locator('.research-studies')).toContainText('No studies linked yet.');
+});

@@ -143,3 +143,38 @@ describe('membership changes responsibility access', () => {
     },
   );
 });
+
+describe('embedded Research study cache refresh', () => {
+  it.each(['card.edited', 'card.deleted', 'card.started', 'gate.decided'])(
+    '%s invalidates real workspace detail caches without Research ids',
+    async (type) => {
+      const { QueryClient } = await import('@tanstack/vue-query');
+      const client = new QueryClient();
+      const first = keys.research('w', 'first'),
+        second = keys.research('w', 'second'),
+        foreign = keys.research('other', 'first');
+      client.setQueryData(first, {
+        studies: [{ id: 'c', title: 'Before', board_column: 'backlog' }],
+      });
+      client.setQueryData(second, { studies: [] });
+      client.setQueryData(foreign, { studies: [{ id: 'foreign' }] });
+      const event: LykEvent = {
+        id: 1,
+        workspace_id: 'w',
+        card_id: type === 'card.deleted' ? null : 'c',
+        type,
+        actor_type: 'system',
+        actor_id: null,
+        payload: type === 'card.deleted' ? { card_id: 'c' } : {},
+        created_at: '',
+      };
+      await Promise.all(
+        invalidationsFor('w', event).map((queryKey) => client.invalidateQueries({ queryKey })),
+      );
+      expect(client.getQueryState(first)?.isInvalidated).toBe(true);
+      expect(client.getQueryState(second)?.isInvalidated).toBe(true);
+      expect(client.getQueryState(foreign)?.isInvalidated).toBe(false);
+      client.clear();
+    },
+  );
+});

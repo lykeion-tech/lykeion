@@ -23,6 +23,7 @@ export const keys = {
     ['ws', ws, 'inbox', archived ? 'archived' : 'open'] as const,
   runtimes: (ws: string) => ['ws', ws, 'runtimes'] as const,
   researches: (ws: string) => ['ws', ws, 'researches'] as const,
+  researchDetails: (ws: string) => ['ws', ws, 'research'] as const,
   research: (ws: string, id: string) => ['ws', ws, 'research', id] as const,
   agents: (ws: string) => ['ws', ws, 'agents'] as const,
   agent: (ws: string, id: string) => ['ws', ws, 'agent', id] as const,

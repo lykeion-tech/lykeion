@@ -53,6 +53,7 @@ async function save() {
     if (v !== visit || ws !== workspaceId.value) return;
     editor.value = false;
     await client.invalidateQueries({ queryKey: keys.researches(ws) });
+    if (v !== visit || ws !== workspaceId.value) return;
     if (id) await client.invalidateQueries({ queryKey: keys.research(ws, id) });
     else await router.push('/projects/' + saved.id);
   } catch (e) {

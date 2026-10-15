@@ -11,6 +11,9 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
   const card = e.card_id ?? (typeof e.payload.card_id === 'string' ? e.payload.card_id : null);
   const own = (...make: ((ws: string, id: string) => QueryKey)[]) =>
     card ? make.map((k) => k(ws, card)) : [];
+  const researchIds = [e.payload.previous_research_id, e.payload.research_id].filter(
+    (id): id is string => typeof id === 'string',
+  );
   switch (e.type.split('.')[0]) {
     case 'card':
       return [
@@ -18,9 +21,9 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
         keys.inboxAll(ws),
         ...own(keys.card, keys.events),
         keys.researches(ws),
-        ...[e.payload.previous_research_id, e.payload.research_id]
-          .filter((id): id is string => typeof id === 'string')
-          .map((id) => keys.research(ws, id)),
+        ...(researchIds.length
+          ? researchIds.map((id) => keys.research(ws, id))
+          : [keys.researchDetails(ws)]),
       ];
     case 'research':
       return [
@@ -39,6 +42,7 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
         keys.cards(ws),
         keys.inboxAll(ws),
         ...own(keys.card, keys.gates, keys.recordsAll, keys.events),
+        keys.researchDetails(ws),
       ];
     case 'record':
       return own(keys.recordsAll, keys.gates);

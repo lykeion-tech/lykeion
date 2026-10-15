@@ -95,6 +95,7 @@ async function save() {
     if (v !== visit || ws !== workspaceId.value) return;
     editor.value = false;
     await client.invalidateQueries({ queryKey: keys.agents(ws) });
+    if (v !== visit || ws !== workspaceId.value) return;
     if (id) await client.invalidateQueries({ queryKey: keys.agent(ws, id) });
     else await router.push('/agents/' + saved.id);
   } catch (e) {
