@@ -305,6 +305,27 @@ describe('useRealtimeSync', () => {
     expect(keysInvalidated()).toEqual([keys.comments('w1', 'c1')]);
   });
 
+  it('does not postpone a mapped refresh when repeated unmapped events arrive', async () => {
+    sockets[0]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    sockets[0]!.event(ev('comment.created', 'c1', 41));
+    await vi.advanceTimersByTimeAsync(30);
+    sockets[0]!.event(ev('blob.created', null, 42));
+    await vi.advanceTimersByTimeAsync(30);
+    sockets[0]!.event(ev('something.else', null, 43));
+    await vi.advanceTimersByTimeAsync(30);
+    sockets[0]!.event(ev('blob.created', null, 44));
+    await vi.advanceTimersByTimeAsync(9);
+    expect(invalidate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(keysInvalidated()).toEqual([keys.comments('w1', 'c1')]);
+    sockets[0]!.onclose!({});
+    await vi.advanceTimersByTimeAsync(500);
+    sockets[1]!.onopen!({});
+    expect(JSON.parse(sockets[1]!.sent[0]!).cursor).toBe(44);
+  });
+
   it('ignores obsolete socket callbacks after a workspace switch', async () => {
     sockets[0]!.onopen!({});
     await settle();

@@ -89,8 +89,8 @@ export function useRealtimeSync(
   }
 
   function schedule(list: QueryKey[], current: () => boolean) {
+    if (!list.length) return;
     for (const k of list) pending.set(JSON.stringify(k), k);
-    if (!pending.size) return;
     clearTimeout(flush);
     flush = setTimeout(() => {
       flush = undefined;
