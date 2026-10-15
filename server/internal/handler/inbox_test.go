@@ -115,3 +115,62 @@ func TestReadingAReleasedItemResolvesIt(t *testing.T) {
 		t.Fatalf("inbox.resolved events: %d %v", resolved, err)
 	}
 }
+
+func TestReadingResolvedBlockingItemsDoesNotResolveThemAgain(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	answerer := s.signIn(t, "answerer@lab.org")
+	recipient := s.signIn(t, "recipient@lab.org")
+	w := s.workspace(t, answerer, "lab")
+	invitation := s.invite(t, answerer, w.ID, "recipient@lab.org", "member")
+	if code := s.call(t, "POST", "/api/invitations/"+invitation+"/accept", recipient, "", nil, nil); code != 200 {
+		t.Fatalf("accept invitation: %d", code)
+	}
+	var c card
+	if code := s.call(t, "POST", "/api/cards", answerer, w.ID, map[string]string{"question": "q"}, &c); code != 201 {
+		t.Fatalf("create card: %d", code)
+	}
+	answererID := s.userID(t, answerer)
+	recipientID := s.userID(t, recipient)
+	ids := s.seedInbox(t, w.ID, c.ID, recipientID)
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'grounding', round = 1, flag = 'escalated' WHERE id = $1`, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/resume", answerer, w.ID, nil, nil); code != 200 {
+		t.Fatalf("resume: %d", code)
+	}
+	var before []inboxRow
+	if code := s.call(t, "GET", "/api/inbox?archived=1", recipient, w.ID, nil, &before); code != 200 || len(before) != 2 {
+		t.Fatalf("archive after resume: %d %+v", code, before)
+	}
+	for _, item := range before {
+		if item.ResolvedAt == nil || item.ReadAt != nil {
+			t.Fatalf("resolved item should remain unread: %+v", item)
+		}
+		if code := s.call(t, "POST", "/api/inbox/"+ids[item.Kind]+"/read", recipient, w.ID, nil, nil); code != 204 {
+			t.Fatalf("read %s: %d", item.Kind, code)
+		}
+		var total, byAnswerer, byRecipient int
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*),
+			count(*) FILTER (WHERE actor_type = 'user' AND actor_id = $3),
+			count(*) FILTER (WHERE actor_type = 'user' AND actor_id = $4)
+			FROM event WHERE card_id = $1 AND type = 'inbox.resolved' AND payload->>'inbox_item_id' = $2`,
+			c.ID, item.ID, answererID, recipientID).Scan(&total, &byAnswerer, &byRecipient); err != nil || total != 1 || byAnswerer != 1 || byRecipient != 0 {
+			t.Fatalf("%s resolution events: total=%d answerer=%d recipient=%d err=%v", item.Kind, total, byAnswerer, byRecipient, err)
+		}
+		var reads int
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM event WHERE workspace_id = $1 AND type = 'inbox.read'
+			AND payload->>'inbox_item_id' = $2 AND actor_type = 'user' AND actor_id = $3`, w.ID, item.ID, recipientID).Scan(&reads); err != nil || reads != 1 {
+			t.Fatalf("%s read events: %d %v", item.Kind, reads, err)
+		}
+	}
+	var after []inboxRow
+	if code := s.call(t, "GET", "/api/inbox?archived=1", recipient, w.ID, nil, &after); code != 200 || len(after) != len(before) {
+		t.Fatalf("archive after read: %d %+v", code, after)
+	}
+	for i, item := range after {
+		if item.ID != before[i].ID || item.ReadAt == nil || item.ResolvedAt == nil || *item.ResolvedAt != *before[i].ResolvedAt {
+			t.Fatalf("read changed resolution: before=%+v after=%+v", before[i], item)
+		}
+	}
+}

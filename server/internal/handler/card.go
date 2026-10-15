@@ -320,7 +320,7 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Emit(r.Context(), "inbox.read", nil, store.User(user), map[string]string{"inbox_item_id": id.String()}); err != nil {
 			return err
 		}
-		if item.ResolvedAt == nil {
+		if item.Kind != "released" {
 			return nil
 		}
 		return tx.Emit(r.Context(), "inbox.resolved", &item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})
