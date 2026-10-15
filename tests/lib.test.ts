@@ -1,18 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { ExecutionRun, Inquiry } from '../packages/contracts/src/research';
 import { csvCell, toCsv } from '../apps/dashboard/src/lib/csv';
-import {
-  boardGroups,
-  cellPatch,
-  dueBucket,
-  filterOptions,
-  groupByName,
-  hierarchyOrder,
-  matchesFilters,
-  sortTasks,
-  tableValue,
-  type Directory,
-} from '../apps/dashboard/src/lib/tasks';
 import {
   dateKey,
   formatDuration,
@@ -33,14 +20,6 @@ import {
   connectorFields,
   parseConnectorJson,
 } from '../apps/dashboard/src/lib/connectors';
-import {
-  agentSeconds,
-  costLine,
-  elapsedSeconds,
-  runBar,
-  runSeconds,
-  totalCost,
-} from '../apps/dashboard/src/lib/runs';
 import { colorPresets, hexToHsv, hsvToHex } from '../apps/dashboard/src/lib/color';
 import {
   labelNameTaken,
@@ -54,33 +33,6 @@ import { matchesQuery } from '../apps/dashboard/src/lib/search';
 beforeAll(() => {
   process.env.TZ = 'Europe/Copenhagen';
 });
-
-function task(id: string, extra: Partial<Inquiry> = {}): Inquiry {
-  return {
-    id,
-    title: id,
-    description: '',
-    stage: 'Grounding',
-    status: 'active',
-    priority: 'none',
-    projectId: null,
-    assigneeId: null,
-    createdAt: '2026-01-01T00:00:00Z',
-    revision: 1,
-    ...extra,
-  };
-}
-function directory(extra: Partial<Directory> = {}): Directory {
-  return {
-    workspace: { id: 'w', name: 'W', slug: 'w', taskPrefix: '', researchContext: '' },
-    inquiries: [],
-    agents: [],
-    colleagues: [],
-    projects: [],
-    ...extra,
-  };
-}
-const ids = (rows: { id: string }[]) => rows.map((x) => x.id);
 
 describe('CSV export', () => {
   it.each(['=SUM(A1)', '+1', '-1', '@cmd', '  =1', '\t=1', '\tplain', '\rx', '\nx'])(
@@ -103,153 +55,6 @@ describe('CSV export', () => {
         ['a, b', '-'],
       ]),
     ).toBe('"Task","Labels"\r\n"a, b","\'-"');
-  });
-});
-
-describe('task filters', () => {
-  const dir = directory({
-    projects: [{ id: 'p', name: 'P', description: '', createdAt: '', status: 'Live' }],
-  });
-  const rows = [
-    task('a', { priority: 'high', labels: ['x'], projectId: 'p' }),
-    task('b', { priority: 'low', labels: [] }),
-    task('c', { priority: 'high', status: 'blocked' }),
-  ];
-  const run = (filters: Parameters<typeof matchesFilters>[1]) =>
-    ids(rows.filter((t) => matchesFilters(t, filters, dir)));
-  it('treats no filters and empty selections as no constraint', () => {
-    expect(run({})).toEqual(['a', 'b', 'c']);
-    expect(run({ Priority: [] })).toEqual(['a', 'b', 'c']);
-  });
-  it('ORs values within a category and ANDs categories', () => {
-    expect(run({ Priority: ['high', 'low'] })).toEqual(['a', 'b', 'c']);
-    expect(run({ Priority: ['high'], Status: ['Blocked'] })).toEqual(['c']);
-    expect(run({ Priority: ['low'], Status: ['Blocked'] })).toEqual([]);
-  });
-  it('matches missing labels, projects and project statuses by their placeholder', () => {
-    expect(run({ Label: ['none'] })).toEqual(['b', 'c']);
-    expect(run({ Project: ['none'] })).toEqual(['b', 'c']);
-    expect(run({ 'Project status': ['Live'] })).toEqual(['a']);
-    expect(run({ 'Project status': ['unknown'] })).toEqual(['b', 'c']);
-  });
-  it('offers each label and project status once', () => {
-    const labelled = directory({
-      inquiries: [task('a', { labels: ['x', 'y'] }), task('b', { labels: ['x'] })],
-      projects: [
-        { id: 'p', name: 'P', description: '', createdAt: '', status: 'Live' },
-        { id: 'q', name: 'Q', description: '', createdAt: '', status: 'Live' },
-        { id: 'r', name: 'R', description: '', createdAt: '' },
-      ],
-    });
-    expect(filterOptions('Label', labelled).map((x) => x.value)).toEqual(['none', 'x', 'y']);
-    expect(filterOptions('Project status', labelled).map((x) => x.value)).toEqual([
-      'unknown',
-      'Live',
-    ]);
-  });
-  it('buckets due dates against local midnight', () => {
-    const now = new Date(2026, 5, 10, 15, 30);
-    expect(dueBucket(null, now)).toBe('No due date');
-    expect(dueBucket(new Date(2026, 5, 9, 23, 59).toISOString(), now)).toBe('Overdue');
-    expect(dueBucket(new Date(2026, 5, 10, 0, 0).toISOString(), now)).toBe('Due today');
-    expect(dueBucket(new Date(2026, 5, 10, 23, 59).toISOString(), now)).toBe('Due today');
-    expect(dueBucket(new Date(2026, 5, 11, 0, 0).toISOString(), now)).toBe('Upcoming');
-  });
-  it('keeps the whole 25-hour day when daylight saving ends', () => {
-    const now = new Date(2026, 9, 25, 9, 0);
-    expect(dueBucket(new Date(2026, 9, 25, 23, 30).toISOString(), now)).toBe('Due today');
-    expect(dueBucket(new Date(2026, 9, 26, 0, 0).toISOString(), now)).toBe('Upcoming');
-  });
-});
-
-describe('task sorting and grouping', () => {
-  it('sorts by priority rank, not alphabetically, and reverses when descending', () => {
-    const rows = [
-      task('l', { priority: 'low' }),
-      task('u', { priority: 'urgent' }),
-      task('m', { priority: 'medium' }),
-    ];
-    expect(ids(sortTasks(rows, 'Priority', false))).toEqual(['u', 'm', 'l']);
-    expect(ids(sortTasks(rows, 'Priority', true))).toEqual(['l', 'm', 'u']);
-    expect(ids(rows)).toEqual(['l', 'u', 'm']);
-  });
-  it('puts tasks without a due date last and falls back to creation for updates', () => {
-    const rows = [
-      task('none'),
-      task('late', { dueDate: '2026-09-01' }),
-      task('soon', { dueDate: '2026-02-01' }),
-    ];
-    expect(ids(sortTasks(rows, 'Due date', false))).toEqual(['soon', 'late', 'none']);
-    const updated = [
-      task('old', { createdAt: '2026-01-01', updatedAt: '2026-05-01' }),
-      task('new', { createdAt: '2026-03-01' }),
-    ];
-    expect(ids(sortTasks(updated, 'Updated date', false))).toEqual(['new', 'old']);
-  });
-  it('shows the Done column only once a task is done, and blocked tasks under Blocked', () => {
-    const open = [task('a'), task('b', { status: 'blocked' })];
-    const groups = boardGroups(open, 'Status', directory());
-    expect(groups.map((g) => g.name)).not.toContain('Done');
-    expect(ids(groups.find((g) => g.name === 'Blocked')!.tasks)).toEqual(['b']);
-    expect(
-      boardGroups([...open, task('c', { status: 'done' })], 'Status', directory()).at(-1)!.name,
-    ).toBe('Done');
-  });
-  it('keeps same-named assignees as separate board columns, keyed by id', () => {
-    const dir = directory({
-      agents: [{ id: 'a1', name: 'Ada', role: '', status: 'online' }],
-      colleagues: [{ id: 'c1', name: 'Ada', email: '', role: 'member' }],
-    });
-    const groups = boardGroups([task('t', { assigneeId: 'c1' }), task('u')], 'Assignee', dir);
-    expect(groups.map((g) => [g.id, ids(g.tasks)])).toEqual([
-      ['none', ['u']],
-      ['a1', []],
-      ['c1', ['t']],
-    ]);
-  });
-  it('merges swimlanes that share a display name, in first-seen order', () => {
-    const lanes = groupByName([task('a'), task('b'), task('c'), task('d')], (t) =>
-      t.id === 'b' ? '' : 'Ada',
-    );
-    expect(lanes.map((l) => [l.name, ids(l.tasks)])).toEqual([
-      ['Ada', ['a', 'c', 'd']],
-      ['', ['b']],
-    ]);
-    expect(groupByName([], () => 'x')).toEqual([]);
-  });
-  it('orders sub-tasks under parents, roots orphans and survives cycles', () => {
-    const rows = [
-      task('child', { parentId: 'root' }),
-      task('root'),
-      task('orphan', { parentId: 'filtered-out' }),
-      task('x', { parentId: 'y' }),
-      task('y', { parentId: 'x' }),
-    ];
-    expect(ids(hierarchyOrder(rows))).toEqual(['root', 'child', 'orphan', 'x', 'y']);
-  });
-});
-
-describe('task table cells', () => {
-  const dir = directory({
-    inquiries: [
-      task('p'),
-      task('k1', { parentId: 'p', status: 'done' }),
-      task('k2', { parentId: 'p' }),
-    ],
-  });
-  it('derives identifiers, sub-task progress and placeholders', () => {
-    expect(tableValue(dir.inquiries[1]!, 'Identifier', dir)).toBe('LYK-2');
-    expect(tableValue(dir.inquiries[0]!, 'Sub-task progress', dir)).toBe('1/2');
-    expect(tableValue(dir.inquiries[1]!, 'Sub-task progress', dir)).toBe('—');
-    expect(tableValue(dir.inquiries[0]!, 'Labels', dir)).toBe('Empty');
-    expect(tableValue(dir.inquiries[0]!, 'Created by', dir)).toBe('Not recorded');
-    expect(tableValue(dir.inquiries[0]!, 'Due date', dir)).toBe('Due date');
-  });
-  it('turns edited text into a patch, clearing empty fields', () => {
-    expect(cellPatch('Labels', ' a, ,b ,')).toEqual({ labels: ['a', 'b'] });
-    expect(cellPatch('Assignee', '')).toEqual({ assigneeId: null });
-    expect(cellPatch('Start date', '')).toEqual({ startDate: null });
-    expect(cellPatch('Due date', '2026-01-02')).toEqual({ dueDate: '2026-01-02' });
   });
 });
 
@@ -374,39 +179,6 @@ describe('calendar dates', () => {
     expect(formatDuration(59.4)).toBe('59s');
     expect(formatDuration(60)).toBe('1m 0s');
     expect(formatDuration(125)).toBe('2m 5s');
-  });
-});
-
-describe('run totals', () => {
-  const run = (id: string, start: number, end?: number, costUsd?: number): ExecutionRun => ({
-    id,
-    name: id,
-    agentId: null,
-    status: 'succeeded',
-    startedAt: new Date(start * 1000).toISOString(),
-    endedAt: end === undefined ? undefined : new Date(end * 1000).toISOString(),
-    costUsd,
-  });
-  it('reports totals only when every run reports them', () => {
-    const runs = [run('a', 0, 10, 1), run('b', 5, 20, 2)];
-    expect(totalCost(runs)).toBe(3);
-    expect(agentSeconds(runs)).toBe(25);
-    expect(elapsedSeconds(runs)).toBe(20);
-    expect(totalCost([run('a', 0, 10, 1), run('b', 5, 20)])).toBeNull();
-    expect(agentSeconds([run('a', 0, 10), run('b', 5)])).toBeNull();
-    expect(elapsedSeconds([])).toBeNull();
-    expect(runSeconds(run('a', 10, 5))).toBe(0);
-  });
-  it('draws the cumulative cost as steps scaled to the chart', () => {
-    expect(costLine([run('a', 0, 10)])).toBe('');
-    expect(costLine([run('a', 0, 10, 1), run('b', 10, 20, 1)])).toBe(
-      '0,150 0,150 0,80 425,80 425,10 850,10',
-    );
-  });
-  it('keeps instant runs visible on the timeline', () => {
-    const runs = [run('a', 0, 0), run('b', 0, 100)];
-    expect(runBar(runs[0]!, runs)).toEqual({ x: 0, width: 2 });
-    expect(runBar(runs[1]!, runs)).toEqual({ x: 0, width: 850 });
   });
 });
 

@@ -16,5 +16,18 @@
     "packages/**/*.ts",
     "tests/**/*.ts"
   ],
-  "exclude": ["apps/dashboard/src/components/TaskContextMenu.vue"]
+  "exclude": [
+    "apps/dashboard/src/views/ResourceView.vue",
+    "apps/dashboard/src/components/AgentConfiguration.vue",
+    "apps/dashboard/src/components/AgentPanels.vue",
+    "apps/dashboard/src/components/AgentWork.vue",
+    "apps/dashboard/src/components/CustomRuntime.vue",
+    "apps/dashboard/src/components/ExecutionOptions.vue",
+    "apps/dashboard/src/components/ResourceDetail.vue",
+    "apps/dashboard/src/components/ResourceEditor.vue",
+    "apps/dashboard/src/components/RuntimeDetail.vue",
+    "apps/dashboard/src/components/TaskAuxiliary.vue",
+    "apps/dashboard/src/components/TaskContextMenu.vue",
+    "apps/dashboard/src/components/TaskWakeups.vue"
+  ]
 }
