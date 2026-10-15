@@ -69,6 +69,8 @@ func New(harness, bin string) (Backend, error) {
 	switch harness {
 	case "claude":
 		return Claude{Bin: bin}, nil
+	case "antigravity":
+		return Antigravity{Bin: bin}, nil
 	case "cursor":
 		return Cursor{Bin: bin}, nil
 	case "codex":
@@ -98,10 +100,12 @@ type parser func([]byte, emitMessage, *Result) (terminal bool, err error)
 // errStop lets a terminal parser stop a CLI which remains alive after its result.
 var errStop = errors.New("stop after the terminal event")
 
+var errMissingTerminal = errors.New("agent exited without a terminal result")
+
 // run drains stdout while exec concurrently feeds stdin. Waiting independently
 // of message delivery lets cancellation and credential cleanup survive a slow
 // consumer. Cancellation overflow is retained on disk, never silently dropped.
-func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parser, finish func(*Result), sink func(Message) error) (*Session, error) {
+func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parser, finish func(*Result, emitMessage), sink func(Message) error) (*Session, error) {
 	original := cmd
 	var gateRead, gateWrite *os.File
 	var nonce string
@@ -222,9 +226,6 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 			killProcessTree(cmd)
 		}
 		waitErr := <-waited
-		if err := spill.close(); err != nil {
-			emitErr = errors.Join(emitErr, err)
-		}
 		switch {
 		case emitErr != nil:
 			res.Err, res.Reason = emitErr, ReasonAgentError
@@ -236,10 +237,16 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 		case res.Err == nil && waitErr != nil && !stopped:
 			res.Err = fmt.Errorf("agent exit: %w", waitErr)
 		case res.Err == nil && !terminal:
-			res.Err = errors.New("agent exited without a terminal result")
+			res.Err = errMissingTerminal
 		}
 		if finish != nil {
-			finish(&res)
+			finish(&res, emit)
+		}
+		if err := spill.close(); err != nil {
+			emitErr = errors.Join(emitErr, err)
+		}
+		if emitErr != nil {
+			res.Err, res.Reason = emitErr, ReasonAgentError
 		}
 		cleanup(true)
 		if res.Err != nil {

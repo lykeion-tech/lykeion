@@ -82,7 +82,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	cmd := command(ctx, bin, prompt, o, home, args...)
 	if !o.Inherit {
-		return run(ctx, cmd, cleanup, parseClaude(o.Model, o.Resume, accounting, nil), accounting.finish, o.OnMessage)
+		return run(ctx, cmd, cleanup, parseClaude(o.Model, o.Resume, accounting, nil), func(res *Result, _ emitMessage) { accounting.finish(res) }, o.OnMessage)
 	}
 	stdin, w, err := os.Pipe()
 	if err != nil {
@@ -104,7 +104,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		case <-in.stop:
 		}
 	}()
-	finish := func(res *Result) { in.close(); accounting.finish(res) }
+	finish := func(res *Result, _ emitMessage) { in.close(); accounting.finish(res) }
 	sess, err := run(ctx, cmd, cleanup, parseClaude(o.Model, o.Resume, accounting, in), finish, o.OnMessage)
 	// The child holds its own copy of the read end once started.
 	stdin.Close()

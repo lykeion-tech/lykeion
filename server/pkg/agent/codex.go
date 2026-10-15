@@ -78,7 +78,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		args = append(args, "resume", o.Resume)
 	}
 	args = append(args, "-")
-	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseCodex(model), func(res *Result) { res.Model = model }, o.OnMessage)
+	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseCodex(model), func(res *Result, _ emitMessage) { res.Model = model }, o.OnMessage)
 }
 
 // personalClash names a personal MCP entry that shares a Lykeion entry's name.

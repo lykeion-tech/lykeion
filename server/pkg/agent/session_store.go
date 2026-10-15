@@ -33,6 +33,8 @@ func SessionReachable(harness, session string, inherit bool, dir string) bool {
 	case "cursor":
 		// cursor-agent stores chats by workspace in its data folder.
 		pattern = filepath.Join(home, "chats", "*", session, "store.db")
+	case "antigravity":
+		pattern = filepath.Join(home, ".gemini", "antigravity-cli", "brain", session, ".system_generated", "logs", "transcript.jsonl")
 	default:
 		return false
 	}

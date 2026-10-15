@@ -140,6 +140,9 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 	}
 	if len(data) != 0 {
 		cred = target
+		if err = privateDir(filepath.Dir(target)); err != nil {
+			return "", cleanup, err
+		}
 		if err = privateFile(target, data); err != nil {
 			return "", cleanup, err
 		}
