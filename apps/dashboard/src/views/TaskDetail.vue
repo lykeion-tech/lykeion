@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
 import RunTurn from '../components/RunTurn.vue';
@@ -80,6 +80,38 @@ const comment = ref('');
 const busy = ref(false);
 const error = ref('');
 
+let generation = 0;
+watch(
+  [workspaceId, () => props.id],
+  () => {
+    generation++;
+    editingBudget.value = false;
+    budgetDraft.value = 0;
+    comment.value = '';
+    busy.value = false;
+    error.value = '';
+    expanded.value = '';
+    openChecks.value = [];
+  },
+  { flush: 'sync' },
+);
+onUnmounted(() => {
+  generation++;
+});
+
+// A response belongs to one visit, including when navigation returns to its id.
+function mutationScope() {
+  const workspace = workspaceId.value;
+  const id = props.id;
+  const ownGeneration = generation;
+  return {
+    workspace,
+    id,
+    current: () =>
+      generation === ownGeneration && workspaceId.value === workspace && props.id === id,
+  };
+}
+
 function name(userId: string) {
   const m = members.data.value?.find((x) => x.user_id === userId);
   return m ? m.name || m.email : 'Former member';
@@ -100,38 +132,44 @@ const verdictLabel = { pass: 'Passed', fail: 'Routed back', cannot_proceed: 'Sto
 
 async function sendComment() {
   if (busy.value || !comment.value.trim()) return;
+  const scope = mutationScope();
+  const body = comment.value.trim();
   busy.value = true;
   error.value = '';
   try {
-    await api('POST', `/api/cards/${props.id}/comments`, { body: comment.value.trim() });
+    await api('POST', `/api/cards/${scope.id}/comments`, { body });
+    if (!scope.current()) return;
     comment.value = '';
-    await client.invalidateQueries({ queryKey: keys.comments(workspaceId.value, props.id) });
+    await client.invalidateQueries({ queryKey: keys.comments(scope.workspace, scope.id) });
   } catch (e) {
-    error.value = (e as Error).message;
+    if (scope.current()) error.value = (e as Error).message;
   } finally {
-    busy.value = false;
+    if (scope.current()) busy.value = false;
   }
 }
 async function saveBudget() {
+  const scope = mutationScope();
+  const usd = Math.max(0, Number(budgetDraft.value) || 0);
   try {
-    await api('POST', `/api/cards/${props.id}/budget`, {
-      usd: Math.max(0, Number(budgetDraft.value) || 0),
-    });
+    await api('POST', `/api/cards/${scope.id}/budget`, { usd });
+    if (!scope.current()) return;
     editingBudget.value = false;
-    await client.invalidateQueries({ queryKey: keys.card(workspaceId.value, props.id) });
+    await client.invalidateQueries({ queryKey: keys.card(scope.workspace, scope.id) });
   } catch (e) {
-    error.value = (e as Error).message;
+    if (scope.current()) error.value = (e as Error).message;
   }
 }
 async function remove() {
   if (!c.value || !confirm(`Delete ${number.value} “${c.value.title}”? This cannot be undone.`))
     return;
+  const scope = mutationScope();
   try {
-    await api('DELETE', `/api/cards/${props.id}`);
-    await client.invalidateQueries({ queryKey: keys.cards(workspaceId.value) });
-    emit('close');
+    await api('DELETE', `/api/cards/${scope.id}`);
+    if (!scope.current()) return;
+    await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
+    if (scope.current()) emit('close');
   } catch (e) {
-    notify((e as Error).message);
+    if (scope.current()) notify((e as Error).message);
   }
 }
 function pin() {
