@@ -113,44 +113,75 @@ for (const failedRead of [
   test(`an unavailable initial ${failedRead.name} read shows recovery and retries the real server`, async ({
     page,
   }) => {
-    await page.route(failedRead.pattern, async (route) => {
-      const response = await route.fetch();
-      expect(response.status()).toBe(200);
-      await route.fulfill({
-        status: 503,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: `${failedRead.name} temporarily unavailable` }),
-      });
-    });
-    await page.goto('/#/studies');
-    const alert = page.getByRole('alert');
-    await expect(alert).toContainText(`${failedRead.name} temporarily unavailable`);
-    await expect(page.getByRole('button', { name: 'Board', exact: true })).toHaveCount(0);
-    await page.screenshot({
-      path: `test-results/ui-lab/task11-recovery-${failedRead.name.replaceAll(' ', '-')}.png`,
-      fullPage: true,
-    });
-    await page.unroute(failedRead.pattern);
+    let readURL = '';
     let finishRetry!: () => void;
     const retryGate = new Promise<void>((resolve) => {
       finishRetry = resolve;
     });
+    // Keep one handler through background refreshes and the actual user retry.
     await page.route(failedRead.pattern, async (route) => {
+      readURL = route.request().url();
+      const retryClicked = await page.evaluate(
+        () => document.documentElement.dataset.shellRetryClicked === 'true',
+      );
       const response = await route.fetch();
-      await retryGate;
-      await route.fulfill({ response });
+      expect(response.status()).toBe(200);
+      if (retryClicked) {
+        await retryGate;
+        await route.fulfill({ response });
+      } else {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: `${failedRead.name} temporarily unavailable` }),
+        });
+      }
     });
-    const retryRequest = page.waitForRequest(failedRead.pattern);
-    await alert.getByRole('button', { name: 'Try again' }).click();
-    await retryRequest;
-    await expect(page.getByRole('status')).toContainText('Loading workspace');
-    await expect(page.getByRole('button', { name: 'Try again', disabled: false })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Board', exact: true })).toHaveCount(0);
-    finishRetry();
-    await expect(alert).toHaveCount(0);
-    await page.unroute(failedRead.pattern);
-    await expect(page.getByRole('button', { name: /Beta-cell lab/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Board', exact: true })).toBeVisible();
+    try {
+      await page.goto('/#/studies');
+      const alert = page.getByRole('alert');
+      await expect(alert).toContainText(`${failedRead.name} temporarily unavailable`);
+      await expect(page.getByRole('button', { name: 'Board', exact: true })).toHaveCount(0);
+      await page.screenshot({
+        path: `test-results/ui-lab/task11-recovery-${failedRead.name.replaceAll(' ', '-')}.png`,
+        fullPage: true,
+      });
+      // Capture the browser click before Vue starts its request; merely installing
+      // a route or reading in the background must not enter the success phase.
+      await page.evaluate(() => {
+        document.addEventListener(
+          'click',
+          (event) => {
+            const button = (event.target as HTMLElement).closest('button');
+            if (button?.closest('[role="alert"]') && button.textContent?.trim() === 'Try again')
+              document.documentElement.dataset.shellRetryClicked = 'true';
+          },
+          { capture: true },
+        );
+      });
+      // A background read before the user retries must still see the injected fault.
+      await page.evaluate((url) => {
+        void fetch(url).then((response) => {
+          document.documentElement.dataset.shellBackgroundStatus = String(response.status);
+        });
+      }, readURL);
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.dataset.shellBackgroundStatus))
+        .toBe('503');
+      const retryRequest = page.waitForRequest(failedRead.pattern);
+      await alert.getByRole('button', { name: 'Try again' }).click();
+      await retryRequest;
+      await expect(page.getByRole('status')).toContainText('Loading workspace');
+      await expect(page.getByRole('button', { name: 'Try again', disabled: false })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Board', exact: true })).toHaveCount(0);
+      finishRetry();
+      await expect(alert).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /Beta-cell lab/ })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Board', exact: true })).toBeVisible();
+    } finally {
+      finishRetry();
+      await page.unrouteAll({ behavior: 'wait' });
+    }
   });
 }
 
