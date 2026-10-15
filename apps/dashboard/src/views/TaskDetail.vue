@@ -527,7 +527,9 @@ function pin() {
         }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
           stateLabel(c)
         }}</span
-        ><span v-if="c.ending" class="chip" :class="'chip-' + c.ending">{{ endLabel(c) }}</span>
+        ><span v-if="c.ending" class="chip ending-chip" :class="'chip-' + c.ending">{{
+          endLabel(c)
+        }}</span>
       </div>
       <small>Owner</small>
       <div class="v">
@@ -1487,5 +1489,10 @@ function pin() {
 }
 .action-menu .danger {
   color: var(--error-text);
+}
+.study-meta .ending-chip {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 </style>

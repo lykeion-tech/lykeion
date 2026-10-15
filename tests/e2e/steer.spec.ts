@@ -27,6 +27,46 @@ test('Stop ends the study after confirmation and removes the composer', async ({
   await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveCount(0);
 });
 
+test('a stopped study keeps its full long reason inside the metadata pane', async ({ page }) => {
+  await page.setViewportSize({ width: 1580, height: 1000 });
+  const study = await newStudy(page.request, `Primary liver evidence ${Date.now()}?`);
+  await page.goto(`/#/studies/${study.id}`);
+  await escalated(page);
+  const reason = `No usable primary-source evidence after checking mouse liver cohorts. ${'unbroken'.repeat(40)}`;
+  await choose(page, 'Stop');
+  await page.getByRole('textbox', { name: 'Comment' }).fill(reason);
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Send' }).click();
+  const meta = page.getByRole('complementary', { name: 'Study details' });
+  const ending = meta.getByText(`Stopped · ${reason}`, { exact: true });
+  await expect(ending).toBeVisible();
+  const fits = await ending.evaluate((el) => {
+    const pane = el.closest('[aria-label="Study details"]')!;
+    const chip = el.getBoundingClientRect();
+    const bounds = pane.getBoundingClientRect();
+    const text = document.createRange();
+    text.selectNodeContents(el);
+    return {
+      chipInsidePane: chip.left >= bounds.left && chip.right <= bounds.right + 1,
+      chipInsideViewport: chip.right <= window.innerWidth + 1,
+      textInsideChip: [...text.getClientRects()].every(
+        (line) =>
+          line.left >= chip.left - 1 &&
+          line.right <= chip.right + 1 &&
+          line.top >= chip.top - 1 &&
+          line.bottom <= chip.bottom + 1,
+      ),
+      noHiddenText: el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1,
+    };
+  });
+  expect(fits).toEqual({
+    chipInsidePane: true,
+    chipInsideViewport: true,
+    textInsideChip: true,
+    noHiddenText: true,
+  });
+});
+
 test('Resume reruns an escalated study and posts the typed text as a comment', async ({ page }) => {
   const study = await newStudy(
     page.request,
