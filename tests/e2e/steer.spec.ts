@@ -80,7 +80,7 @@ test('Resume reruns an escalated study and posts the typed text as a comment', a
   await expect(page.getByText(/^Resumed/)).toBeVisible();
   await expect(page.locator('.bubble', { hasText: 'Widen to rodent studies.' })).toBeVisible();
   // The rerun escalates again; its new run turn arrives live.
-  await expect(page.getByRole('button', { name: 'Ran 2 commands' })).toHaveCount(2, {
+  await expect(page.locator('.full-history')).toHaveCount(2, {
     timeout: 30_000,
   });
 });

@@ -588,7 +588,7 @@ function pin() {
               {{ latestGate.route?.reason || latestGate.reason }}
             </p>
             <template v-for="check in latestGate.checks" :key="check.id">
-              <div class="gate-line">
+              <div class="gate-line gate-check">
                 <span :class="checkLine(check).tone">{{ checkLine(check).mark }}</span
                 ><span class="name">{{ checkLine(check).name }}</span
                 ><span class="why">{{ checkLine(check).why }}</span
@@ -1442,7 +1442,14 @@ function pin() {
   padding: 3px 0;
   overflow-wrap: anywhere;
 }
+.record-line > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
 .record-line .key {
+  flex: none;
   color: var(--muted);
   min-width: 20px;
 }
@@ -1460,6 +1467,8 @@ function pin() {
   white-space: nowrap;
 }
 .gate-reason {
+  white-space: pre-wrap;
+  line-height: 1.7;
   background: var(--input);
   border-left: 3px solid var(--control-border);
   padding: 6px 10px;
@@ -1474,8 +1483,13 @@ function pin() {
   border-top: 1px solid var(--border);
   overflow-wrap: anywhere;
 }
+.gate-check {
+  display: grid;
+  grid-template-columns: 14px minmax(120px, 170px) minmax(0, 1fr) auto;
+  line-height: 1.65;
+}
 .gate-line .name {
-  min-width: 170px;
+  min-width: 0;
   font-weight: 500;
 }
 .gate-line .why {
@@ -1527,7 +1541,8 @@ function pin() {
   font-size: 12.5px;
 }
 .bubble {
-  max-width: 460px;
+  max-width: min(680px, calc(100% - 14px));
+  line-height: 1.7;
   background: var(--input);
   border-radius: 12px;
   padding: 10px 13px;

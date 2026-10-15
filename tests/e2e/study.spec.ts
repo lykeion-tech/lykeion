@@ -18,8 +18,8 @@ test('the study page shows the question, the run turn, events, comments and the 
   // The lab's agent arrives live: one run turn, its two commands, its text, the escalation line.
   await expect(main.getByText('Scoper', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(main.getByText('Claude Code on lab-mac')).toBeVisible();
-  await main.getByRole('button', { name: 'Ran 2 commands' }).click();
-  await expect(main.getByText('lyk card show')).toBeVisible();
+  await main.locator('.run-activity:not(.full-history) > summary').first().click();
+  await expect(main.getByText('lyk card show', { exact: true })).toBeVisible();
   await expect(main.getByText('Read the card; the lab script stops here.')).toBeVisible();
   await expect(main.getByText('Escalated: waiting for a person')).toBeVisible();
 
@@ -109,7 +109,7 @@ test('recorded Jev details retain zero, unknown and long reason; current attempt
   });
   await page.goto(`/#/studies/${fixture.card_id}`);
   const main = page.getByRole('region', { name: 'Study' });
-  await expect(main.getByText('Attempt 2 message 501', { exact: true })).toBeVisible();
+  await expect(main.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   await expect(main.getByText(/Attempt 1 message/)).toHaveCount(0);
   expect(messageRequests.some((u) => u.includes('attempt=2&after=500'))).toBe(true);
   expect(messageRequests.every((u) => u.includes('attempt=2'))).toBe(true);
@@ -139,7 +139,7 @@ test('recorded Jev details retain zero, unknown and long reason; current attempt
     path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-16-artifacts/gate-details.png',
     fullPage: true,
   });
-  await main.getByText('Attempt 2 message 501', { exact: true }).scrollIntoViewIfNeeded();
+  await main.locator('.markdown-body').last().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-16-artifacts/current-attempt-501.png',
     fullPage: true,
@@ -206,7 +206,7 @@ test('a real socket reconnect refreshes without replay and workspace switching i
   });
   await page.goto(`/#/studies/${fixture.card_id}`);
   const main = page.getByRole('region', { name: 'Study' });
-  await expect(main.getByText('Attempt 2 message 501', { exact: true })).toBeVisible();
+  await expect(main.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   await expect.poll(() => subscribed).toEqual([fixture.workspace_id]);
   await closeSocket();
   const missed = 'Written while disconnected; recovered by HTTP refresh';
@@ -611,13 +611,14 @@ test('expanded run preserves every ordered recorded message and full tool conten
   const f = await labFixture(page.request);
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
   await page.goto(`/#/studies/${f.card_id}`);
-  await expect(page.getByText('Attempt 2 message 501', { exact: true })).toBeVisible();
-  await expect(page.getByText('Attempt 2 message 001', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Ran 1 command', exact: true }).click();
-  const messages = page.locator('.run-messages > li');
+  await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
+  await expect(page.locator('.markdown-body').first()).toContainText('Attempt 2 message 001');
+  await page.locator('.full-history > summary').click();
+  const messages = page.locator('.full-history .activity-steps > li');
   await expect(messages).toHaveCount(501);
   await expect(messages.nth(0)).toContainText('Attempt 2 message 001');
-  await expect(messages.nth(1)).toContainText('END OF FULL TOOL INPUT');
+  await messages.nth(1).locator('.step-payload > summary').click();
+  await expect(messages.nth(1).locator('pre')).toContainText('END OF FULL TOOL INPUT');
   await expect(messages.nth(2)).toContainText('Recorded tool refusal');
   await expect(messages.nth(3)).toContainText('Recorded continuity status');
   await expect(messages.nth(500)).toContainText('Attempt 2 message 501');
@@ -678,7 +679,7 @@ test('transcript and run message refusals show retries and keep already loaded d
   await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
   await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();
   await expect(page.locator('.bubble', { hasText: comment })).toBeVisible();
-  await expect(page.getByText('Attempt 2 message 501', { exact: true })).toBeVisible();
+  await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   refuse = true;
   await page.evaluate(async () => {
     const app = document.querySelector('#app') as Element & {
@@ -691,7 +692,7 @@ test('transcript and run message refusals show retries and keep already loaded d
   await expect(page.locator('.study-read-error', { hasText: 'Comments' })).toBeVisible();
   await expect(page.locator('.run-read-error')).toBeVisible();
   await expect(page.locator('.bubble', { hasText: comment })).toBeVisible();
-  await expect(page.getByText('Attempt 2 message 501', { exact: true })).toBeVisible();
+  await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   refuse = false;
   await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
   await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();

@@ -1,34 +1,42 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import Icon from './Icon.vue';
+import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
+import RunActivity from './RunActivity.vue';
+import { transcriptBlocks } from '../lib/run-transcript';
 import { useRunMessages } from '../api/queries';
-import type { AgentRun, RunMessage } from '../api/types';
+import type { AgentRun } from '../api/types';
 import { roleLabel } from '../lib/studies';
 
-const props = defineProps<{ run: AgentRun; machine: string }>();
-const open = ref(false);
-const messages = useRunMessages(() => props.run, true);
-const commands = computed(() => (messages.data.value ?? []).filter((m) => m.type === 'tool_use'));
-const said = computed(() => {
-  const text = [...(messages.data.value ?? [])].reverse().find((m) => m.type === 'text');
-  return typeof text?.content === 'string' ? text.content : '';
+const formattingFailed = ref(false);
+const PlainRecordedText = defineComponent({
+  props: { content: { type: String, default: '' } },
+  setup: (text) => () => h('div', { class: 'recorded-text-fallback' }, text.content),
 });
+const RecordedMarkdown = defineAsyncComponent({
+  loader: () => import('./RecordedMarkdown.vue'),
+  loadingComponent: PlainRecordedText,
+  errorComponent: PlainRecordedText,
+  delay: 0,
+  onError: (_error, _retry, fail) => {
+    formattingFailed.value = true;
+    fail();
+  },
+});
+
+const props = defineProps<{ run: AgentRun; machine: string }>();
+const messages = useRunMessages(() => props.run, true);
+const blocks = computed(() => transcriptBlocks(messages.data.value ?? []));
 const harness = computed(
   () => ({ claude: 'Claude Code', codex: 'Codex' })[props.run.harness] ?? props.run.harness,
 );
 const status = computed(() =>
   props.run.status === 'completed'
-    ? ''
+    ? 'Completed'
     : props.run.status === 'queued' && props.run.queue_reason
       ? `Queued: ${props.run.queue_reason.replace(/_/g, ' ')}`
       : props.run.status[0]!.toUpperCase() + props.run.status.slice(1),
 );
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-// Preserve the full recorded content for inspection in sequence order.
-function content(m: RunMessage) {
-  return typeof m.content === 'string' ? m.content : JSON.stringify(m.content, null, 2);
-}
 </script>
 <template>
   <div class="who">
@@ -37,6 +45,7 @@ function content(m: RunMessage) {
     ><span class="tm"
       >{{ harness }}<template v-if="machine"> on {{ machine }}</template> ·
       {{ time(run.started_at ?? run.created_at) }}</span
+    ><span v-if="run.attempt > 1" class="tm">Attempt {{ run.attempt }}</span
     ><span v-if="status" class="chip">{{ status }}</span>
   </div>
   <div class="agent-turn">
@@ -47,31 +56,24 @@ function content(m: RunMessage) {
       </button>
     </p>
     <p v-if="messages.isPending.value && run.attempt > 0" role="status">Loading run messages…</p>
-    <button
-      v-if="messages.data.value?.length"
-      class="ran"
-      :aria-expanded="open"
-      @click="open = !open"
-    >
-      <Icon :name="open ? 'down' : 'right'" :size="12" /><template v-if="commands.length"
-        >Ran {{ commands.length }} {{ commands.length === 1 ? 'command' : 'commands' }}</template
-      ><template v-else>Recorded messages</template>
-    </button>
-    <ol v-if="open" class="commands run-messages" aria-label="Recorded run messages">
-      <li v-for="m in messages.data.value ?? []" :key="m.seq" :data-message-type="m.type">
-        <strong
-          >{{ m.type.replace(/_/g, ' ') }}<template v-if="m.tool"> · {{ m.tool }}</template></strong
-        >
-        <pre>{{ content(m) }}</pre>
-      </li>
-    </ol>
-    <p v-if="said && !open">{{ said }}</p>
+    <p v-if="formattingFailed" class="formatting-notice" role="status">
+      Markdown formatting is unavailable; showing recorded text.
+    </p>
+    <template v-for="block in blocks" :key="block.key">
+      <template v-if="block.kind === 'text'">
+        <div v-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
+        <RecordedMarkdown v-else :content="block.text" />
+      </template>
+      <RunActivity v-else :messages="block.messages" />
+    </template>
+    <RunActivity v-if="messages.data.value?.length" :messages="messages.data.value" history />
     <p v-if="run.error" class="run-error">{{ run.error }}</p>
   </div>
 </template>
 <style scoped>
 .who {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   font-size: 13.5px;
@@ -91,31 +93,19 @@ function content(m: RunMessage) {
   padding-left: 14px;
   font-size: 13.5px;
   overflow-wrap: anywhere;
+  min-width: 0;
+  line-height: 1.7;
 }
-.ran {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 500;
-  margin-bottom: 6px;
+.recorded-text-fallback {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-.commands {
-  margin: 0 0 8px;
-  padding-left: 18px;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-.commands code {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+.formatting-notice {
   font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
 }
 .run-error {
   color: var(--error-text);
-}
-.run-messages pre {
-  margin: 4px 0 10px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: inherit;
 }
 </style>
