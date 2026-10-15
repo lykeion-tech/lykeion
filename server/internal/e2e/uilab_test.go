@@ -208,6 +208,8 @@ func TestUILab(t *testing.T) {
 	t.Logf("lab serving on %s", base)
 	tick := time.NewTicker(300 * time.Millisecond)
 	defer tick.Stop()
+	sweep := time.NewTicker(30 * time.Second)
+	defer sweep.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -222,6 +224,10 @@ func TestUILab(t *testing.T) {
 			return
 		case err := <-daemonDone:
 			t.Fatalf("lab daemon stopped: %v", err)
+		case <-sweep.C:
+			if err := runs.Sweep(ctx); err != nil && ctx.Err() == nil {
+				t.Logf("runtime sweep: %v", err)
+			}
 		case <-tick.C:
 			if err := engine.Tick(ctx); err != nil && ctx.Err() == nil {
 				t.Logf("engine tick: %v", err)

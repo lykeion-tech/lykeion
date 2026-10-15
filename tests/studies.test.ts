@@ -366,3 +366,45 @@ describe('composer actions', () => {
     expect(actionLabel({ kind: 'comment' })).toBe('Comment');
   });
 });
+
+import { groupDaemons } from '../apps/dashboard/src/lib/machines';
+import type { Runtime } from '../apps/dashboard/src/api/types';
+
+describe('machines', () => {
+  const rt = (extra: Partial<Runtime>): Runtime => ({
+    id: 'r',
+    workspace_id: 'w',
+    owner_id: 'u',
+    daemon_id: 'd1',
+    harness: 'claude',
+    device_name: 'Mac',
+    custom_name: null,
+    status: 'online',
+    last_seen_at: '2026-10-15T10:00:00Z',
+    max_concurrent: 1,
+    created_at: '2026-10-15T09:00:00Z',
+    active_runs: 0,
+    cli_version: '',
+    ...extra,
+  });
+  it('groups runtimes by daemon, names them, and lists online machines first', () => {
+    const daemons = groupDaemons([
+      rt({
+        id: 'a',
+        daemon_id: 'd2',
+        device_name: 'ben-laptop',
+        status: 'offline',
+        last_seen_at: '2026-10-12T10:00:00Z',
+      }),
+      rt({ id: 'b', harness: 'codex', custom_name: 'Lab workstation', active_runs: 2 }),
+      rt({ id: 'c', last_seen_at: '2026-10-15T11:00:00Z' }),
+    ]);
+    expect(daemons.map((d) => d.name)).toEqual(['Lab workstation', 'ben-laptop']);
+    expect(daemons[0]!.runtimes.map((r) => r.harness)).toEqual(['claude', 'codex']);
+    expect(daemons[0]!.online).toBe(true);
+    expect(daemons[0]!.lastSeen).toBe('2026-10-15T11:00:00Z');
+    expect(daemons[0]!.activeRuns).toBe(2);
+    expect(daemons[1]!.activeRuns).toBe(0);
+    expect(daemons[1]!.online).toBe(false);
+  });
+});
