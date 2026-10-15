@@ -372,11 +372,12 @@ while :; do echo '{"type":"log","message":"busy"}'; done`)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			b, _ := New(harness, bin)
-			s, err := b.Execute(ctx, "p", ExecOptions{Dir: t.TempDir()})
+			dir := t.TempDir()
+			s, err := b.Execute(ctx, "p", ExecOptions{Dir: dir})
 			if err != nil {
 				t.Fatal(err)
 			}
-			waitFile(t, ready)
+			waitFile(t, ready, func() { logAgentTestFailure(t, dir, s) })
 			time.Sleep(100 * time.Millisecond)
 			cancel()
 			select {
@@ -385,6 +386,7 @@ while :; do echo '{"type":"log","message":"busy"}'; done`)
 					t.Fatalf("%+v", r)
 				}
 			case <-time.After(3 * time.Second):
+				logAgentTestFailure(t, dir, s)
 				t.Fatal("cancellation blocked behind message consumer")
 			}
 			for range s.Messages {
@@ -392,7 +394,7 @@ while :; do echo '{"type":"log","message":"busy"}'; done`)
 		})
 	}
 }
-func waitFile(t *testing.T, p string) {
+func waitFile(t *testing.T, p string, diagnostics ...func()) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -400,6 +402,9 @@ func waitFile(t *testing.T, p string) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	for _, diagnose := range diagnostics {
+		diagnose()
 	}
 	t.Fatalf("file never appeared: %s", p)
 }
@@ -770,11 +775,12 @@ sleep 300`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFile(t, ready)
+	waitFile(t, ready, func() { logAgentTestFailure(t, dir, sess) })
 	cancel()
 	select {
 	case <-sess.Done:
 	case <-time.After(3 * time.Second):
+		logAgentTestFailure(t, dir, sess)
 		t.Fatal("blocked behind consumer")
 	}
 	n := 0
