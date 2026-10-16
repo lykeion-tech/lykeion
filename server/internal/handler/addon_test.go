@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -50,7 +52,9 @@ func TestAddonsAreOwnerOnlyAndEmitAnEvent(t *testing.T) {
 		t.Fatal("no stage_addon.updated event")
 	}
 	var payload string
-	s.Env.Owner.QueryRow(t.Context(), `SELECT payload->>'addon_hash' FROM event WHERE workspace_id = $1 AND type = 'stage_addon.updated'`, w.ID).Scan(&payload)
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT payload->>'addon_hash' FROM event WHERE workspace_id = $1 AND type = 'stage_addon.updated'`, w.ID).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
 	if payload != got.AddonHash {
 		t.Fatalf("event hash %q, row hash %q", payload, got.AddonHash)
 	}
@@ -105,7 +109,9 @@ func TestAddonRulesAtTheRoute(t *testing.T) {
 		}
 	}
 	var rows int
-	s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM stage_addon WHERE workspace_id = $1`, w.ID).Scan(&rows)
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM stage_addon WHERE workspace_id = $1`, w.ID).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
 	if rows != 0 || s.addonEvents(t, w.ID) != 0 {
 		t.Fatalf("refused changes left %d rows and %d events", rows, s.addonEvents(t, w.ID))
 	}
@@ -167,5 +173,40 @@ func TestAddonJSONRetainsBoundsAndStrictFields(t *testing.T) {
 		if err := readAddonJSON(r, &in); err == nil {
 			t.Fatal("invalid body accepted")
 		}
+	}
+}
+
+func TestAddonMemberReadsInvalidStoredRowWithoutMutation(t *testing.T) {
+	s := newServer(t)
+	owner, member := s.signIn(t, "owner@lab.org"), s.signIn(t, "member@lab.org")
+	w := s.workspace(t, owner, "lab")
+	if code := s.call(t, "POST", "/api/invitations/"+s.invite(t, owner, w.ID, "member@lab.org", "member")+"/accept", member, "", nil, nil); code != 200 {
+		t.Fatalf("accept invitation: %d", code)
+	}
+	const text = "  Preserve this text for repair.\n"
+	const mcp = `[{"name":"sources","url":"https://lab.org/mcp"}]`
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO stage_addon (workspace_id, board_column, skill_md, mcp, updated_by) SELECT $1, 'grounding', $2, $3::jsonb, user_id FROM member WHERE workspace_id = $1 AND role = 'owner'`, w.ID, text, mcp); err != nil {
+		t.Fatal(err)
+	}
+	var list []struct {
+		BoardColumn string              `json:"board_column"`
+		SkillMD     string              `json:"skill_md"`
+		MCP         []map[string]string `json:"mcp"`
+		AddonHash   string              `json:"addon_hash"`
+		Invalid     string              `json:"invalid"`
+	}
+	if code := s.call(t, "GET", "/api/workspaces/"+w.ID+"/addons", member, "", nil, &list); code != 200 || len(list) != 1 {
+		t.Fatalf("member read: %d %+v", code, list)
+	}
+	var original []map[string]string
+	if err := json.Unmarshal([]byte(mcp), &original); err != nil {
+		t.Fatal(err)
+	}
+	got := list[0]
+	if got.BoardColumn != "grounding" || got.SkillMD != text || !reflect.DeepEqual(got.MCP, original) || got.AddonHash != "" || !strings.Contains(got.Invalid, "reserved") {
+		t.Fatalf("invalid stored row: %+v", got)
+	}
+	if n := s.addonEvents(t, w.ID); n != 0 {
+		t.Fatalf("GET emitted %d update events", n)
 	}
 }

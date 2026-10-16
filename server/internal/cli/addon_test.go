@@ -2,12 +2,14 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -151,5 +153,43 @@ func TestAddonSetErrors(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Fatalf("requests=%d", requests)
+	}
+}
+
+type addonFailingReader struct{ err error }
+
+func (r addonFailingReader) Read([]byte) (int, error) { return 0, r.err }
+
+func TestAddonSetInputReadErrorsBeforeRequest(t *testing.T) {
+	for _, flag := range []string{"--skill", "--mcp"} {
+		for _, input := range []string{"missing file", "failing stdin"} {
+			t.Run(flag+"/"+input, func(t *testing.T) {
+				var requests atomic.Int32
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1); w.Write([]byte("{}")) }))
+				defer srv.Close()
+				dir := t.TempDir()
+				cfg := filepath.Join(dir, "config.json")
+				t.Setenv("LYK_CONFIG", cfg)
+				if err := SaveConfig(cfg, Config{Server: srv.URL, Token: "lyk_t", Workspace: "ws1"}); err != nil {
+					t.Fatal(err)
+				}
+				source := filepath.Join(dir, "missing-input")
+				var reader io.Reader = strings.NewReader("")
+				want := error(os.ErrNotExist)
+				if input == "failing stdin" {
+					source = "-"
+					want = errors.New("stdin read failed")
+					reader = addonFailingReader{err: want}
+				}
+				cmd := Root(reader, io.Discard)
+				cmd.SetArgs([]string{"addon", "set", "grounding", flag, source})
+				if err := cmd.Execute(); !errors.Is(err, want) {
+					t.Fatalf("error = %v, want %v", err, want)
+				}
+				if n := requests.Load(); n != 0 {
+					t.Fatalf("sent %d requests", n)
+				}
+			})
+		}
 	}
 }
