@@ -59,9 +59,12 @@ type Verdict struct {
 }
 
 type Fetch struct {
-	SourceID  string `json:"source_id"`
-	FullText  bool   `json:"full_text"`
-	Retracted bool   `json:"retracted"`
+	SourceKind string `json:"source_kind,omitempty"`
+	SourceURL  string `json:"source_url,omitempty"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	SourceID   string `json:"source_id"`
+	FullText   bool   `json:"full_text"`
+	Retracted  bool   `json:"retracted"`
 }
 
 type Search struct {

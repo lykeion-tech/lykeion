@@ -233,6 +233,13 @@ func TestCandidateRules(t *testing.T) {
 		c["assumptions"] = []map[string]any{{"text": "Z is stable", "claims": []string{"E9"}}}
 	}))
 	refused(t, err, "E9 is not a live Grounding claim")
+	for _, field := range []string{"assumptions", "mechanism"} {
+		_, _, err = f.write(t, "generator-1", "candidate", bad(func(c map[string]any) {
+			c[field] = []map[string]any{{"text": "Recorded metadata is a source, not an E key", "claims": []string{"geo:GSE1"}}}
+		}))
+		refused(t, err, "geo:GSE1 is not a live Grounding claim")
+	}
+
 	_, _, err = f.write(t, "generator-1", "candidate", bad(func(c map[string]any) {
 		c["mechanism"] = []map[string]any{{"text": "X induces Z", "claims": []string{}}}
 	}))
@@ -375,6 +382,7 @@ func TestDecompositionRequiresLiveCitations(t *testing.T) {
 	}{
 		{name: "nil", want: "missing-premise"},
 		{name: "empty", claims: []string{}, want: "missing-premise"},
+		{name: "metadata source", claims: []string{"geo:GSE1"}, want: "geo:GSE1 is not a live Grounding claim"},
 		{name: "unknown", claims: []string{"E9"}, want: "E9 is not a live Grounding claim"},
 		{name: "superseded", claims: []string{"E1"}, stale: true, want: "E1 is not a live Grounding claim"},
 	} {

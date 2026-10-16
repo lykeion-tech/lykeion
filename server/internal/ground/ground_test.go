@@ -550,3 +550,174 @@ func TestLiteratureNothingFoundFailsEvidenceDespiteContrarianEvidence(t *testing
 		t.Fatalf("contrarian evidence satisfied the literature requirement: %+v", g)
 	}
 }
+
+func (f *fixture) metadata(t *testing.T, text string, truncated bool) {
+	t.Helper()
+	f.record(t, DataScout, "fetch", "geo:GSE1", map[string]any{"source_id": "geo:GSE1", "source_kind": "dataset_metadata", "source_url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE1", "truncated": truncated}, text)
+}
+func (f *fixture) metadataEvidence(t *testing.T, claim, quote string) string {
+	t.Helper()
+	key, err := f.write(t, Literature, "evidence", Evidence{Claim: claim, Quote: quote, SourceID: "geo:GSE1", Stance: "supports"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+func TestMetadataEvidenceRequiresRecordedQuote(t *testing.T) {
+	f := setup(t)
+	body := Evidence{Claim: "The deposit has two observations", SourceID: "geo:GSE1", Quote: "two observations", Stance: "supports"}
+	if _, err := f.write(t, Literature, "evidence", body); err == nil {
+		t.Fatal("unfetched metadata accepted")
+	}
+	f.metadata(t, "!Series_summary = two observations", false)
+	other := *f
+	other.card = uuid.New()
+	if _, err := other.write(t, Literature, "evidence", body); err == nil || !strings.Contains(err.Error(), "never fetched") {
+		t.Fatalf("cross-card source: %v", err)
+	}
+	if _, err := f.write(t, DataScout, "evidence", body); err == nil {
+		t.Fatal("data scout wrote E")
+	}
+	f.complete(t, "X raised Y by 40%")
+	key := f.metadataEvidence(t, "The deposit has two observations", "two observations")
+	if result(f.gate(t, nil), "quote."+key) != board.Pass {
+		t.Fatal("recorded quote rejected")
+	}
+	invented := f.metadataEvidence(t, "Invented", "not in the deposit")
+	if result(f.gate(t, nil), "quote."+invented) != board.Fail {
+		t.Fatal("invented quote passed")
+	}
+	fetch := records.Body[Fetch](func() db.Record { r, _ := f.view(t).ByKey("fetch", "geo:GSE1"); return r }())
+	raw, _ := json.Marshal(fetch)
+	if !strings.Contains(string(raw), `"source_kind":"dataset_metadata"`) || !strings.Contains(string(raw), `"source_url":`) {
+		t.Fatalf("lost provenance: %s", raw)
+	}
+}
+func TestMetadataDoesNotReplaceLiteratureCoverage(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X raised Y by 40%")
+	f.metadata(t, "!Series_summary = two observations", false)
+	f.metadataEvidence(t, "Two observations", "two observations")
+	if result(f.gate(t, nil), "evidence.present") != board.Pass {
+		t.Fatal("mixed evidence rejected")
+	}
+	if _, err := f.env.Owner.Exec(context.Background(), `UPDATE record SET superseded_at=now() WHERE card_id=$1 AND kind='evidence' AND key='E1'`, f.card); err != nil {
+		t.Fatal(err)
+	}
+	if result(f.gate(t, nil), "evidence.present") != board.Fail {
+		t.Fatal("metadata replaced actual literature evidence")
+	}
+	// GEO cannot replace either literature database or the contrarian's work.
+	f.metadataEvidence(t, "Two observations", "two observations")
+	if _, err := f.env.Owner.Exec(context.Background(), `UPDATE record SET superseded_at=now() WHERE card_id=$1 AND kind='search'`, f.card); err != nil {
+		t.Fatal(err)
+	}
+	f.record(t, Literature, "search", "", map[string]any{"database": "geo", "query": "observations"}, "")
+	g := f.gate(t, nil)
+	if result(g, "search.databases") != board.Fail || result(g, "search.contrary") != board.Fail {
+		t.Fatalf("metadata search substituted: %+v", g)
+	}
+}
+func TestMetadataSupportAndOrigin(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X raised Y by 40%")
+	f.metadata(t, "!Series_summary = Smith et al. reported two observations", true)
+	key := f.metadataEvidence(t, "Two observations", "two observations")
+	var metadataOrigin, paperOrigin, support bool
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			State     string
+			Questions map[string]struct {
+				Question string
+				Criteria map[string]string
+			}
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			t.Error(err)
+		}
+		c := b.Questions["q"].Criteria
+		choice := "supports"
+		if c["others_work"] != "" {
+			choice = "own_result"
+			if strings.Contains(b.State, "smith") {
+				metadataOrigin = strings.Contains(c["own_result"], "depositor") && strings.Contains(c["others_work"], "other")
+				choice = "others_work"
+			} else {
+				paperOrigin = c["own_result"] == Origins["own_result"]
+			}
+			if len(c) != 3 {
+				t.Error("origin keys changed")
+			}
+		}
+		if c["supports"] != "" && strings.Contains(b.State, "smith") {
+			support = strings.Contains(b.State, "claim: Two observations") && strings.Contains(b.State, "truncated: true") && strings.Contains(b.State, "cannot establish absence") && strings.Contains(b.State, "source_url: https://www.ncbi.nlm.nih.gov/")
+		}
+		if c["biological_replicates"] != "" {
+			choice = "biological_replicates"
+		}
+		json.NewEncoder(w).Encode(map[string]any{"model": "jev-1.13.0", "answers": map[string]any{"q": map[string]any{"choice": choice, "probabilities": map[string]float64{choice: .9}}}})
+	}))
+	defer s.Close()
+	g := f.gate(t, &jev.Client{BaseURL: s.URL, Key: "k", Model: "jev-1.13.0"})
+	if !metadataOrigin || !paperOrigin || !support || result(g, "origin."+key) != board.Attention {
+		t.Fatalf("origin/support wiring metadata=%v paper=%v support=%v checks=%+v", metadataOrigin, paperOrigin, support, g.Checks)
+	}
+	f.finalize(t, g)
+	if g.Verdict == board.VPass {
+		t.Fatal("missing settlement/verdict passed")
+	}
+	for _, j := range []*jev.Client{nil, fakeJev(t, true)} {
+		g = f.gate(t, j)
+		if result(g, "support."+key) != board.Attention {
+			t.Fatal("missing judgment passed")
+		}
+		f.finalize(t, g)
+		if g.Verdict == board.VPass {
+			t.Fatal("unsettled judgment passed")
+		}
+	}
+}
+func TestTruncatedMetadataCannotEstablishAbsence(t *testing.T) {
+	for _, absence := range []bool{false, true} {
+		t.Run(strconv.FormatBool(absence), func(t *testing.T) {
+			f := setup(t)
+			f.complete(t, "X raised Y by 40%")
+			f.metadata(t, "!Series_summary = two observations", true)
+			claim := "The deposit describes two observations"
+			if absence {
+				claim = "The full deposit contains no calibration field"
+			}
+			key := f.metadataEvidence(t, claim, "two observations")
+			g := f.gate(t, nil)
+			for _, ch := range g.Checks {
+				if ch.Result != board.Attention {
+					continue
+				}
+				choice := ""
+				res := "pass"
+				note := "positive quoted fact checked"
+				if strings.HasPrefix(ch.ID, "unit.") {
+					choice = "biological_replicates"
+				}
+				if ch.ID == "support."+key && absence {
+					res = "fail"
+					note = "a capped projection cannot establish absence from the full deposit"
+				}
+				if _, err := f.write(t, Reviewer, "review_item", ReviewItem{Check: ch.ID, Result: res, Choice: choice, Note: note}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := f.write(t, Reviewer, "verdict", Verdict{Result: "pass", Reason: "reviewed"}); err != nil {
+				t.Fatal(err)
+			}
+			f.finalize(t, g)
+			want := board.VPass
+			if absence {
+				want = board.VFail
+			}
+			if g.Verdict != want {
+				t.Fatalf("fake reviewer settlement: %+v", g)
+			}
+		})
+	}
+}

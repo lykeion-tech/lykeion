@@ -85,14 +85,16 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 	ev := v.Kind("evidence")
 	hasLiteratureEvidence := false
 	for _, r := range ev {
-		if r.Role == Literature {
+		e := records.Body[Evidence](r)
+		f, fetched := v.ByKey("fetch", e.SourceID)
+		if r.Role == Literature && fetched && records.Body[Fetch](f).SourceKind == "" {
 			hasLiteratureEvidence = true
 			break
 		}
 	}
 	g.Checks = []board.Check{
 		CodeCheck("question.present", Scoper, hasQ, "no scoped question"),
-		CodeCheck("evidence.present", Literature, hasLiteratureEvidence, "no evidence from the literature scout"),
+		CodeCheck("evidence.present", Literature, hasLiteratureEvidence, "no actual literature-source evidence from the literature scout"),
 		CodeCheck("notes.present", Methods, hasN, "no methods notes"),
 	}
 	for _, r := range ev {
@@ -149,6 +151,12 @@ var Origins = map[string]string{
 	"others_work": "The passage describes findings from other, earlier studies",
 }
 
+var MetadataOrigins = map[string]string{
+	"own_result":  "The passage is the depositor's direct description of this dataset, not an independently demonstrated mechanism or outcome",
+	"synthesis":   "The passage states the depositor's own synthesis of this dataset's information",
+	"others_work": "The passage attributes findings to other work and requires original-source review",
+}
+
 func jevChecks(ctx context.Context, v *records.View, j *jev.Client, ev, ds []db.Record) ([]board.Check, error) {
 	var out []board.Check
 	for _, r := range ev {
@@ -158,15 +166,24 @@ func jevChecks(ctx context.Context, v *records.View, j *jev.Client, ev, ds []db.
 		if err != nil {
 			return nil, err
 		}
+		fetch := records.Body[Fetch](f)
+		state := "passage: " + passage(txt, e.Quote)
+		origins := Origins
+		originQuestion := "Does the passage report this paper's own result or synthesis, or describe another study's work?"
+		if fetch.SourceKind == "dataset_metadata" {
+			origins = MetadataOrigins
+			originQuestion = "Does the passage directly describe this dataset's depositor information, synthesize it, or attribute findings to other work?"
+			state = fmt.Sprintf("source_kind: dataset_metadata\nsource_url: %s\ntruncated: %t\nThis is a metadata projection, not a complete dataset or paper. A capped projection cannot establish absence or completeness of the full deposit.\n\n%s", fetch.SourceURL, fetch.Truncated, state)
+		}
 		ch := board.Check{ID: "support." + r.Key, Owner: r.Role, Evidence: []string{"evidence#" + r.Key},
 			Question: "Does the passage state the claim?"}
-		out = append(out, Ask(ctx, j, ch, "claim: "+e.Claim+"\n\npassage: "+passage(txt, e.Quote), Relation,
+		out = append(out, Ask(ctx, j, ch, "claim: "+e.Claim+"\n\n"+state, Relation,
 			func(a jev.Answer) (board.Result, float64) {
 				return board.FromP(a.Probabilities["supports"]), a.Probabilities["supports"]
 			}))
 		oc := board.Check{ID: "origin." + r.Key, Owner: r.Role, Evidence: []string{"evidence#" + r.Key},
-			Question: "Does the passage report this paper's own result or synthesis, or describe another study's work?"}
-		out = append(out, Ask(ctx, j, oc, "passage: "+passage(txt, e.Quote), Origins,
+			Question: originQuestion}
+		out = append(out, Ask(ctx, j, oc, state, origins,
 			func(a jev.Answer) (board.Result, float64) {
 				p := a.Probabilities["own_result"] + a.Probabilities["synthesis"]
 				if p >= 0.70 {
