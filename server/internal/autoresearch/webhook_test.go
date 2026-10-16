@@ -99,3 +99,17 @@ func TestHubSignature(t *testing.T) {
 		t.Fatal("a signature under another secret was accepted")
 	}
 }
+
+func TestNormaliseRejectsUnstorableUnicode(t *testing.T) {
+	for _, body := range []string{`{"x":"\ud800"}`, `{"x":{"\udfff":1}}`, `[{"x":["\ud800x"]}]`, "{\"x\":\"\xff\"}", "{\"\xff\":[]}", `["\u0000"]`, `{"\u0000":1}`, `{"x":{"v":"\u0000"}}`, `{"x":"\\u0000"}`} {
+		if _, err := normalise("generic", header(), []byte(body), time.Now()); !errors.Is(err, ErrBadPayload) {
+			t.Errorf("%q: %v", body, err)
+		}
+	}
+	for _, body := range []string{`{"x":"\ud83d\ude00"}`, `{"x":"\\ud800"}`, `{"x":"�"}`} {
+		e, err := normalise("generic", header(), []byte(body), time.Now())
+		if err != nil || string(e.Payload) != body {
+			t.Errorf("valid %q: %s %v", body, e.Payload, err)
+		}
+	}
+}

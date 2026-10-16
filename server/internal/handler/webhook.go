@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -61,6 +62,7 @@ func (h *H) autoresearchWebhook(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, seal.ErrNoKey):
 		writeErr(w, 503, "the signing secret cannot be checked")
 	default:
-		fail(w, r, err)
+		slog.Error("request failed", "method", r.Method, "path", "/api/webhooks/autoresearch/{token}", "err", err)
+		writeErr(w, 500, "internal error")
 	}
 }

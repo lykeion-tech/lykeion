@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -366,5 +367,70 @@ func TestWebhookDeliveryRetriesAfterAdmissionError(t *testing.T) {
 	}
 	if s.count(t, `SELECT count(*) FROM webhook_delivery WHERE state='dispatched' AND attempts=2 AND run_id IS NOT NULL`) != 1 {
 		t.Fatal("retry did not dispatch")
+	}
+}
+
+func TestUnexpectedWebhookFailureDoesNotLogCredential(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "logging@lab.org")
+	w := s.workspace(t, a, "lab")
+	_, token := s.hook(t, a, w.ID, map[string]any{})
+	if _, err := s.Env.Owner.Exec(context.Background(), `ALTER TABLE webhook_delivery ADD CONSTRAINT reject_test_delivery CHECK (false)`); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(old)
+	if code, _ := s.post(t, token, []byte(`{}`)); code != 500 {
+		t.Fatal(code)
+	}
+	if strings.Contains(logs.String(), token) || !strings.Contains(logs.String(), "request failed") {
+		t.Fatalf("unsafe or missing failure log: %s", &logs)
+	}
+}
+
+func TestUnstorableWebhookUnicodeReturnsBadRequest(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "unicode@lab.org")
+	w := s.workspace(t, a, "lab")
+	_, token := s.hook(t, a, w.ID, map[string]any{"provider": "github", "signing_secret": "secret"})
+	before := s.count(t, `SELECT count(*) FROM event`)
+	for _, body := range []string{`{"x":"\ud800"}`, `{"\udfff":[]}`, `[{"v":["\ud800"]}]`, "{\"x\":\"\xff\"}"} {
+		raw := []byte(body)
+		if code, _ := s.post(t, token, raw, "X-Hub-Signature-256", sign("secret", raw)); code != 400 {
+			t.Errorf("%q: %d", body, code)
+		}
+	}
+	if s.count(t, `SELECT count(*) FROM webhook_delivery`) != 0 || s.count(t, `SELECT count(*) FROM event`) != before {
+		t.Fatal("invalid payload persisted")
+	}
+}
+
+func TestAutoresearchNULInputsDoNotMutate(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "nul@lab.org")
+	w := s.workspace(t, a, "lab")
+	ap := s.autoresearch(t, a, w.ID, map[string]any{"title": "safe", "execution_mode": "create_card"})
+	before := s.count(t, `SELECT count(*) FROM event`)
+	for _, field := range []string{"title", "description", "title_template"} {
+		if code := s.call(t, "PATCH", "/api/autoresearch/"+ap.ID, a, w.ID, map[string]any{field: "bad\x00text"}, nil); code != 400 {
+			t.Errorf("%s: %d", field, code)
+		}
+		in := map[string]any{"title": "safe", "execution_mode": "create_card", field: "bad\x00text"}
+		if code := s.call(t, "POST", "/api/autoresearch", a, w.ID, in, nil); code != 400 {
+			t.Errorf("create %s: %d", field, code)
+		}
+	}
+	if code := s.call(t, "POST", "/api/autoresearch/"+ap.ID+"/pause", a, w.ID, map[string]any{"reason": "bad\x00text"}, nil); code != 400 {
+		t.Errorf("pause: %d", code)
+	}
+	for _, filter := range []map[string]any{{"event": "bad\x00text"}, {"event": "good", "actions": []string{"bad\x00text"}}} {
+		if code := s.call(t, "POST", "/api/autoresearch/"+ap.ID+"/triggers", a, w.ID, map[string]any{"kind": "webhook", "filters": []map[string]any{filter}}, nil); code != 400 {
+			t.Errorf("filter: %d", code)
+		}
+	}
+	if s.count(t, `SELECT count(*) FROM event`) != before || s.count(t, `SELECT count(*) FROM autoresearch`) != 1 || s.count(t, `SELECT count(*) FROM autoresearch_trigger`) != 0 || s.count(t, `SELECT count(*) FROM autoresearch WHERE status='active' AND title='safe' AND description='' AND title_template=''`) != 1 {
+		t.Fatal("invalid input mutated state")
 	}
 }

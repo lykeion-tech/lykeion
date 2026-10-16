@@ -12,8 +12,10 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -57,11 +59,11 @@ func ParseFilters(raw json.RawMessage) ([]Filter, error) {
 		return nil, errors.New("at most 20 filters")
 	}
 	for i, f := range fs {
-		if strings.TrimSpace(f.Event) == "" || len(f.Event) > 200 {
+		if strings.TrimSpace(f.Event) == "" || len(f.Event) > 200 || strings.ContainsRune(f.Event, 0) {
 			return nil, fmt.Errorf("filters[%d].event must be 1 to 200 bytes", i)
 		}
 		for j, a := range f.Actions {
-			if strings.TrimSpace(a) == "" || len(a) > 200 {
+			if strings.TrimSpace(a) == "" || len(a) > 200 || strings.ContainsRune(a, 0) {
 				return nil, fmt.Errorf("filters[%d].actions[%d] must be 1 to 200 bytes", i, j)
 			}
 		}
@@ -103,6 +105,9 @@ func normalise(provider string, h http.Header, body []byte, now time.Time) (Enve
 	if bytes.Contains(body, []byte(`\u0000`)) {
 		return Envelope{}, fmt.Errorf(`%w: it contains \u0000`, ErrBadPayload)
 	}
+	if !validJSONUnicode(body) {
+		return Envelope{}, fmt.Errorf("%w: invalid Unicode", ErrBadPayload)
+	}
 	var v any
 	if err := json.Unmarshal(body, &v); err != nil {
 		return Envelope{}, fmt.Errorf("%w: %v", ErrBadPayload, err)
@@ -129,6 +134,46 @@ func normalise(provider string, h http.Header, body []byte, now time.Time) (Enve
 		e.Event = "webhook.received"
 	}
 	return e, nil
+}
+
+// validJSONUnicode checks the escapes that encoding/json otherwise replaces
+// with U+FFFD, while the untouched raw payload would still be rejected by jsonb.
+func validJSONUnicode(body []byte) bool {
+	if !utf8.Valid(body) {
+		return false
+	}
+	for i := 0; i < len(body); i++ {
+		if body[i] != '\\' {
+			continue
+		}
+		i++
+		if i >= len(body) || body[i] != 'u' {
+			continue
+		}
+		if i+4 >= len(body) {
+			return false
+		}
+		n, err := strconv.ParseUint(string(body[i+1:i+5]), 16, 16)
+		if err != nil {
+			return false
+		}
+		i += 4
+		if n >= 0xdc00 && n <= 0xdfff {
+			return false
+		}
+		if n < 0xd800 || n > 0xdbff {
+			continue
+		}
+		if i+6 >= len(body) || body[i+1] != '\\' || body[i+2] != 'u' {
+			return false
+		}
+		low, err := strconv.ParseUint(string(body[i+3:i+7]), 16, 16)
+		if err != nil || low < 0xdc00 || low > 0xdfff {
+			return false
+		}
+		i += 6
+	}
+	return true
 }
 
 // matches reports whether a delivery passes the trigger's filters. No

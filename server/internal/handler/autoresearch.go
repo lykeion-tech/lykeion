@@ -111,11 +111,11 @@ func (in autoresearchIn) apply(ap *db.Autoresearch) error {
 		ap.BudgetUsd = *in.BudgetUSD
 	}
 	switch {
-	case ap.Title == "" || len([]rune(ap.Title)) > 200:
+	case ap.Title == "" || len([]rune(ap.Title)) > 200 || strings.ContainsRune(ap.Title, 0):
 		return cardInputError("title must be 1 to 200 characters")
 	case len([]rune(ap.Description)) > 20000 || strings.ContainsRune(ap.Description, 0):
 		return cardInputError("description must be at most 20000 characters, without NUL")
-	case len([]rune(strings.ReplaceAll(ap.TitleTemplate, "{{date}}", "2006-01-02"))) > 200:
+	case len([]rune(strings.ReplaceAll(ap.TitleTemplate, "{{date}}", "2006-01-02"))) > 200 || strings.ContainsRune(ap.TitleTemplate, 0):
 		return cardInputError("title_template must be at most 200 characters")
 	case ap.BudgetUsd < 0:
 		return cardInputError("budget_usd cannot be negative")
@@ -285,6 +285,9 @@ func (h *H) setAutoresearchStatus(status string) http.HandlerFunc {
 				if err := readJSON(r, &in); err != nil {
 					return cardInputError("invalid body: " + err.Error())
 				}
+			}
+			if strings.ContainsRune(in.Reason, 0) {
+				return cardInputError("reason must not contain NUL")
 			}
 			if status == "active" {
 				in.Reason = ""
