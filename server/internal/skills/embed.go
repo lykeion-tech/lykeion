@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed lyk grounding autoresearch
+//go:embed lyk grounding autoresearch hypotheses
 var FS embed.FS
 
 // Role returns a role's SKILL.md, or "" when the role has none. Parallel

@@ -16,6 +16,7 @@ import (
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/ground"
+	"lykeion/server/internal/hyp"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
@@ -44,6 +45,8 @@ type Roles struct {
 var StageRoles = map[string]Roles{
 	board.Grounding: {Phases: ground.Phases, Reviewer: ground.Reviewer, Kinds: ground.Kinds, Check: ground.Check,
 		Finalize: ground.Finalize, RoleKinds: ground.RoleKinds},
+	board.Hypotheses: {Phases: hyp.Phases, Reviewer: hyp.Reviewer, Kinds: hyp.Kinds, Check: hyp.Check,
+		Finalize: ground.Finalize, RoleKinds: hyp.RoleKinds, Serve: hyp.Serve},
 }
 
 type Engine struct {
