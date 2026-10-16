@@ -30,3 +30,9 @@ or, naming the role that must redo its part (`scoper`, `literature-scout`, `cont
     lyk review verdict --result fail --step contrarian --reason "<what is missing>"
 
 A missing verdict fails the gate.
+
+For `origin.E…` backed by server-stamped `source_kind: dataset_metadata`, a depositor's direct description of this dataset is an own-result origin, limited to what it describes. It is not independently demonstrated mechanism or outcome evidence. Metadata attributing a finding to another work still requires the original source. Check exact support separately from origin; fetching metadata alone passes neither semantic check. Settle attention checks from the recorded passages; an unknown or failed checker is not a pass.
+
+Require actual literature-source E evidence and both literature-database searches even when metadata E records exist. Assess dataset and method fit against the scoped question, including observation/group identity, structure, verified access versus advertised files and necessary interpretation metadata. No universal domain-field checklist applies. Missing grouping or observation identity genuinely needed by the comparison requires repair; an unmeasured future outcome remains a prediction. Unknown values, failed retrieval, not-yet-inspected metadata and established absence differ; a `truncated` projection cannot prove absence or completeness.
+
+Data-scout owns D records. If retrieved dataset facts need E citations, target literature-scout to record the supporting passages after data-scout retrieval. Request repair, narrower scope or the existing honest cannot-proceed path when prerequisites remain unresolved. Do not waive gates, citations or semantic checks, clear missing premises manually or treat repeated identical metadata as progress.

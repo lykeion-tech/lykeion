@@ -33,3 +33,13 @@ When the fix is a fact Grounding must find, send the card there:
     lyk review verdict --result fail --to grounding --step literature-scout --reason "<the missing fact>"
 
 A missing verdict fails the gate.
+
+Future measurement outcomes remain predictions. Do not demand the unobserved effect, p-value or count as a prerequisite, or analyze/materialize target data before Experimentation freezes its plan. Previously published results can still be genuine cited prior facts. Feasibility still requires accessible suitable data, structure, observation/group identity, unit of analysis and genuinely necessary interpretation metadata; do not invent or silently waive them. For example, an observational traffic comparison may predict count differences, but missing sensor-to-road-group mapping can prevent interpreting the comparison.
+
+Every mechanism step and assumption, including decomposed assumptions, requires live Grounding E citations. No new facts enter here: personal tools and novelty searches cannot admit premises. Keep the feasible measurement, real null, falsifier, indeterminate regions, disagreement and fair selection requirements. Route unsupported factual prerequisites back to Grounding with the review verdict command above, naming data-scout for metadata retrieval or literature-scout for a recorded fact/E repair. Explain the consequence, not a guess based on keywords. The following typed missing-premise examples show what authorized generator, decomposer or selector roles submit; reviewers do not own missing-premise records:
+
+    lyk hyp missing-premise --gap "Observation-to-group mapping is not established" --kind dataset_metadata --dataset D1 --why-required "Without the mapping the proposed group comparison cannot be interpreted"
+
+    lyk hyp missing-premise --gap "The prior published finding supporting this assumption is not recorded" --kind literature_fact --why-required "The assumption needs a recorded supporting source before it can be used"
+
+`dataset` is an existing Grounding D key when supplied. Typed requests require `--why-required`; dataset metadata routes to data-scout by default and literature facts to literature-scout. Omitting `--kind` retains the legacy literature-scout default. Dataset retrieval needing E citations then requires a targeted literature-scout repair; D keys, metadata references and notes never replace live E keys.
