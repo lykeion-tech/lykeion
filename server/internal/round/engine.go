@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -529,13 +530,21 @@ func (e *Engine) queue(ctx context.Context, tx *store.Tx, c db.Card, s board.Sta
 		if role == sr.Reviewer {
 			given = addon.Addon{}
 		}
+		x := extra
+		payload, err := triggerPayload(ctx, tx, c, role)
+		if err != nil {
+			return err
+		}
+		if payload != "" {
+			x = strings.TrimSpace(extra + "\n" + payload)
+		}
 		t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-			Role: role, Harness: set.HarnessFor(role), Prompt: prompt(c, role, comments, ws.ResearchContext, note, extra), Skill: addon.Compose(skill[role], given.SkillMD)})
+			Role: role, Harness: set.HarnessFor(role), Prompt: prompt(c, role, comments, ws.ResearchContext, note, x), Skill: addon.Compose(skill[role], given.SkillMD)})
 		if err != nil {
 			return err
 		}
 		if err := tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.Round, role == sr.Reviewer),
-			RunPrivate: false, ID: t.ID, WorkspaceID: tx.WS}); err != nil {
+			RunPrivate: payload != "", ID: t.ID, WorkspaceID: tx.WS}); err != nil {
 			return err
 		}
 		if h := given.Hash(); h != "" {
