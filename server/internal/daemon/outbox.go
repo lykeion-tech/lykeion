@@ -28,6 +28,9 @@ type Report struct {
 	// Scratch is the scope folder a private attempt used; empty means the
 	// attempt's own folder, scratchName(AgentRunID, Attempt).
 	Scratch string `json:"scratch,omitempty"`
+	// RetainedScratch preserves the refused scope while Scratch identifies execution.
+	RetainedScratch       string `json:"retained_scratch,omitempty"`
+	RetainedRetentionDays int    `json:"retained_retention_days,omitempty"`
 	// RetentionDays is how long after its last run gc keeps a scope folder,
 	// from the workspace policy the attempt started under.
 	RetentionDays int `json:"retention_days,omitempty"`

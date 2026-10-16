@@ -78,31 +78,52 @@ func (d *daemon) recoverAttempts(ctx context.Context) error {
 }
 
 func (d *daemon) recoverAttempt(ctx context.Context, r Report, hasFinal bool) error {
-	name := r.Scratch
-	if name == "" {
-		name = scratchName(r.AgentRunID, r.Attempt)
+	names := []struct {
+		name      string
+		retention int
+	}{{r.Scratch, r.RetentionDays}}
+	if r.RetainedScratch != "" {
+		names = append(names, struct {
+			name      string
+			retention int
+		}{r.RetainedScratch, r.RetainedRetentionDays})
 	}
-	if name != filepath.Base(name) || name == "." || name == ".." {
-		return errors.New("journaled scratch is not a folder name")
-	}
-	dir := filepath.Join(d.cfg.Home, name)
-	if info, err := os.Lstat(dir); err == nil {
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return errors.New("journaled scratch is not a directory")
+	for _, entry := range names {
+		name := entry.name
+		if name == "" {
+			name = scratchName(r.AgentRunID, r.Attempt)
 		}
-		reservation, err := agent.ReserveScratch(dir)
-		if err != nil {
+		if name != filepath.Base(name) || name == "." || name == ".." || (name != scratchName(r.AgentRunID, r.Attempt) && !validScopeScratch(name)) {
+			return errors.New("journaled scratch is not an owned folder name")
+		}
+	}
+	for _, entry := range names {
+		name := entry.name
+		if name == "" {
+			name = scratchName(r.AgentRunID, r.Attempt)
+		}
+		if name != filepath.Base(name) || name == "." || name == ".." {
+			return errors.New("journaled scratch is not a folder name")
+		}
+		dir := filepath.Join(d.cfg.Home, name)
+		if info, err := os.Lstat(dir); err == nil {
+			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return errors.New("journaled scratch is not a directory")
+			}
+			reservation, err := agent.ReserveScratch(dir)
+			if err != nil {
+				return err
+			}
+			defer reservation.Release()
+			if err := agent.RecoverScratch(dir); err != nil {
+				return fmt.Errorf("recover attempt %s: %w", r.AgentRunID, err)
+			}
+			if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": entry.retention}); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		defer reservation.Release()
-		if err := agent.RecoverScratch(dir); err != nil {
-			return fmt.Errorf("recover attempt %s: %w", r.AgentRunID, err)
-		}
-		if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": r.RetentionDays}); err != nil {
-			return err
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
 	}
 	if err := d.flush(ctx); err != nil {
 		return err
@@ -120,4 +141,16 @@ func (d *daemon) recoverAttempt(ctx context.Context, r Report, hasFinal bool) er
 		return err
 	}
 	return nil
+}
+
+func validScopeScratch(name string) bool {
+	if !strings.HasPrefix(name, "scope-") || len(name) != 70 {
+		return false
+	}
+	for _, ch := range name[6:] {
+		if !(ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'f') {
+			return false
+		}
+	}
+	return true
 }

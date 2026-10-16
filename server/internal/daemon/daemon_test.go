@@ -1244,13 +1244,13 @@ func TestScopeWaitEndsWithTheRun(t *testing.T) {
 func TestRecoveryReachesAScopeFolder(t *testing.T) {
 	r := reportFixture()
 	r.Kind = "fail"
-	r.Scratch, r.RetentionDays = "scope-test", 7
+	r.Scratch, r.RetentionDays = "scope-"+strings.Repeat("a", 64), 7
 	state, home := t.TempDir(), t.TempDir()
 	d := &daemon{cfg: Config{StateDir: state, Home: home}, active: map[string]bool{}}
 	d.messages = &Outbox{Dir: filepath.Join(state, "messages"), Send: func(context.Context, Report) error { return nil }}
 	d.out = &Outbox{Dir: filepath.Join(state, "outbox"), Send: func(context.Context, Report) error { return errors.New("offline") }}
 	must(t, d.journal().Put(r))
-	dir := filepath.Join(home, "scope-test")
+	dir := filepath.Join(home, r.Scratch)
 	must(t, os.MkdirAll(filepath.Join(dir, ".cli-home"), 0700))
 	must(t, os.WriteFile(filepath.Join(dir, ".cli-home", "auth.json"), []byte("synthetic"), 0600))
 	must(t, d.recoverAttempts(t.Context()))

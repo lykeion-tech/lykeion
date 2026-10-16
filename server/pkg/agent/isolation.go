@@ -16,6 +16,13 @@ import (
 // scratch lock after output accounting has finished.
 type scratchCleanup func(release bool)
 
+// PrelaunchDiscoveryError identifies isolated discovery state refused before launch.
+type PrelaunchDiscoveryError struct{ Path string }
+
+func (e *PrelaunchDiscoveryError) Error() string {
+	return fmt.Sprintf("discovery configuration in isolated CLI state: %s", e.Path)
+}
+
 var discoveryNames = []string{".cursor", ".codex", ".claude", ".agents", ".claude.json", ".mcp.json", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"}
 
 // prepareScratch protects discovery boundaries, not arbitrary filesystem access.
@@ -99,6 +106,7 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 			return "", cleanup, err
 		}
 	}
+	var discovery *PrelaunchDiscoveryError
 	for _, p := range []string{home, userHome} {
 		if readErr != nil {
 			entries, e := os.ReadDir(p)
@@ -119,8 +127,20 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 			}
 		}
 		if err = checkOwnedState(p); err != nil {
-			return "", cleanup, err
+			var refused *PrelaunchDiscoveryError
+			if !errors.As(err, &refused) {
+				return "", cleanup, err
+			}
+			if discovery == nil {
+				discovery = refused
+			}
 		}
+	}
+	if discovery != nil {
+		if readErr != nil || o.Inherit {
+			return "", cleanup, errors.New(discovery.Error())
+		}
+		return "", cleanup, discovery
 	}
 	if readErr != nil {
 		if err = privateFile(marker, []byte("lykeion-agent-v1:"+harness)); err != nil {
@@ -238,7 +258,8 @@ func privateFile(p string, b []byte) error {
 var placedFolders = []string{"skills", ".agents"}
 
 func checkOwnedState(root string) error {
-	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	var discovery *PrelaunchDiscoveryError
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -253,15 +274,28 @@ func checkOwnedState(root string) error {
 		}
 		n := d.Name()
 		if n == "config.toml" || strings.HasSuffix(n, ".config.toml") || n == "settings.json" || n == "settings.local.json" || n == "plugins" || n == "skills" || n == "hooks" || n == "rules" {
-			return fmt.Errorf("discovery configuration in isolated CLI state: %s", p)
+			if discovery == nil {
+				discovery = &PrelaunchDiscoveryError{Path: p}
+			}
+			return nil
 		}
 		for _, name := range discoveryNames {
 			if n == name {
-				return fmt.Errorf("discovery configuration in isolated CLI state: %s", p)
+				if discovery == nil {
+					discovery = &PrelaunchDiscoveryError{Path: p}
+				}
+				return nil
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if discovery != nil {
+		return discovery
+	}
+	return nil
 }
 
 func filteredEnvKey(k string) bool {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"lykeion/server/internal/apiclient"
@@ -22,6 +23,8 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	r := Report{AgentRunID: c.AgentRun.ID, WorkspaceID: c.AgentRun.WorkspaceID, RuntimeID: *c.AgentRun.RuntimeID, Attempt: c.AgentRun.Attempt, Kind: "complete"}
 	dir := filepath.Join(d.cfg.Home, scratchName(r.AgentRunID, r.Attempt))
 	created := false
+	reused := false
+	var retainedDir string
 	var cont *continuity
 	var final agent.Result
 	fail := func(err error) { r.Kind = "fail"; r.Error = err.Error(); r.FailureReason = agent.ReasonAgentError }
@@ -29,8 +32,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// marker: gc never finds the folder unheld with only an older marker.
 	var held string
 	var reservation *agent.ScratchReservation
+	var freshReservation *agent.ScratchReservation
 	defer func() {
 		reservation.Release()
+		freshReservation.Release()
 		if held != "" {
 			d.releaseScratch(held)
 		}
@@ -55,6 +60,12 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		// Only after the final report is durable may a baseline become resumable.
 		localErr = errors.Join(localErr, d.finishContinuity(cont, final))
+		if retainedDir != "" {
+			if err := atomicJSON(retainedDir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": journalRecord.RetainedRetentionDays}); err != nil {
+				localErr = errors.Join(localErr, err)
+				return
+			}
+		}
 		if created {
 			if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": journalRecord.RetentionDays}); err != nil {
 				localErr = errors.Join(localErr, err)
@@ -99,6 +110,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		err = os.Mkdir(dir, 0700)
 	} else {
 		if err = os.Mkdir(dir, 0700); err == nil || errors.Is(err, os.ErrExist) {
+			reused = errors.Is(err, os.ErrExist)
 			reservation, err = agent.ReserveScratch(dir)
 			if err == nil {
 				err = reuseScratch(dir)
@@ -211,6 +223,64 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return res, streamErr, nil
 	}
 	res, streamErr, launchErr := execute()
+	var discovery *agent.PrelaunchDiscoveryError
+	if launchErr != nil && errors.As(launchErr, &discovery) && reused && held != "" && r.Mode == ModePrivate && !opts.Inherit && runCtx.Err() == nil && sinkErr == nil {
+		if err = agent.RecoverScratch(dir); err != nil {
+			fail(err)
+			return nil
+		}
+		freshDir := filepath.Join(d.cfg.Home, scratchName(r.AgentRunID, r.Attempt))
+		// Exclusive creation precedes journaling so a collision never becomes
+		// recovery-owned. No credentials are written until the journal is durable.
+		if err = os.Mkdir(freshDir, 0700); err != nil {
+			fail(err)
+			return nil
+		}
+		freshReservation, err = agent.ReserveScratch(freshDir)
+		if err != nil {
+			fail(err)
+			return nil
+		}
+		if err = atomicJSON(freshDir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt}); err != nil {
+			fail(err)
+			return err
+		}
+		candidate := journalRecord
+		candidate.RetainedScratch, candidate.RetainedRetentionDays = held, journalRecord.RetentionDays
+		candidate.Scratch, candidate.RetentionDays = "", 0
+		if err = atomicJSON(d.journal().Dir, filepath.Base(d.journal().file(candidate)), candidate); err != nil {
+			fail(err)
+			return err
+		}
+		journalRecord = candidate
+		retainedDir, dir = dir, freshDir
+		r.Scratch, r.RetainedScratch, r.RetainedRetentionDays = "", held, journalRecord.RetainedRetentionDays
+		if err = os.Remove(filepath.Join(dir, ".finished")); err != nil {
+			fail(err)
+			return nil
+		}
+		if c.AgentRun.Skill != "" {
+			if err = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(c.AgentRun.Skill), 0600); err != nil {
+				fail(err)
+				return nil
+			}
+		}
+		opts.Dir, opts.ScratchReservation, opts.Resume, opts.ClaudeBaseline = dir, freshReservation, "", nil
+		for i, entry := range opts.Env {
+			if strings.HasPrefix(entry, "LYK_CONFIG=") {
+				opts.Env[i] = "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json")
+			}
+		}
+		if err = note("private discovery configuration was refused; restarting in a fresh folder without prior session or files"); err != nil {
+			fail(err)
+			return err
+		}
+		if err = runCtx.Err(); err != nil {
+			fail(err)
+			return nil
+		}
+		res, streamErr, launchErr = execute()
+	}
 	if launchErr != nil {
 		fail(launchErr)
 		return d.abandonContinuity(cont)
