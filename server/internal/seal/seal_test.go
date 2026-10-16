@@ -14,7 +14,10 @@ func TestSealOpensOnlyWithItsKeyAndRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := Seal(key, plain, []byte("row-1"))
+	b, err := Seal(key, plain, []byte("row-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if bytes.Equal(a, b) || bytes.Contains(a, plain) {
 		t.Fatal("sealing is deterministic or leaks the secret")
 	}
@@ -35,6 +38,15 @@ func TestSealOpensOnlyWithItsKeyAndRow(t *testing.T) {
 	}
 	if _, err := Open(nil, a, nil); !errors.Is(err, ErrNoKey) {
 		t.Fatalf("open without a key: %v", err)
+	}
+	for _, size := range []int{16, 24} {
+		shortKey := bytes.Repeat([]byte{9}, size)
+		if _, err := Seal(shortKey, plain, []byte("row-1")); err == nil {
+			t.Errorf("Seal accepted a %d-byte key", size)
+		}
+		if _, err := Open(shortKey, a, []byte("row-1")); err == nil {
+			t.Errorf("Open accepted a %d-byte key", size)
+		}
 	}
 }
 

@@ -29,6 +29,9 @@ func aead(key []byte) (cipher.AEAD, error) {
 	if len(key) == 0 {
 		return nil, ErrNoKey
 	}
+	if len(key) != 32 {
+		return nil, errors.New("AES-256-GCM requires a 32-byte key")
+	}
 	b, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
