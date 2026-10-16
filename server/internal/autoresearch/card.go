@@ -131,8 +131,3 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 	}
 	return c, s.notify(ctx, tx, ap, &c.ID, run.ID, "autoresearch_card", fmt.Sprintf("%s opened #%d %s", ap.Title, c.Number, c.Title))
 }
-
-func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r db.AutoresearchRun) error {
-	r.Status, r.Reason = "failed", "run_only is not built yet"
-	return s.setRun(ctx, tx, r)
-}

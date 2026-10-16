@@ -7,7 +7,7 @@ import (
 	"path"
 )
 
-//go:embed lyk grounding
+//go:embed lyk grounding autoresearch
 var FS embed.FS
 
 // Role returns a role's SKILL.md, or "" when the role has none.
