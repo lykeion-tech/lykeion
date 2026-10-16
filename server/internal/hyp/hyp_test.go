@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,7 +14,9 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
@@ -414,5 +418,191 @@ func TestComparisonAndServerRanking(t *testing.T) {
 	}
 	if len(got.Judgments) != 3 || len(got.Scores) != 3 || len(got.Order) != 3 || got.Order[0] != "H1" {
 		t.Fatalf("server ranking: %+v", got)
+	}
+}
+
+// serve runs Serve as the engine does: read in one transaction, Serve with
+// none open, then write its batch in another.
+func (f *fixture) serve(t *testing.T, next []string, j *jev.Client) bool {
+	t.Helper()
+	ctx := context.Background()
+	var c db.Card
+	var v *records.View
+	err := f.st.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) (err error) {
+		if c, err = tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: f.ws, ID: f.card}); err != nil {
+			return err
+		}
+		v, err = records.Load(ctx, tx, f.blobs, f.card, "hypotheses")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, now, err := Serve(ctx, c, v, next, j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if now && (len(b.Put) != 0 || len(b.Retire) != 0) {
+		t.Fatalf("immediate gate returned a nonempty batch: %+v", b)
+	}
+	if err := f.st.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) error { return b.Write(ctx, tx, c) }); err != nil {
+		t.Fatal(err)
+	}
+	return now
+}
+
+func (f *fixture) live(t *testing.T, kind string) []db.Record {
+	t.Helper()
+	ctx := context.Background()
+	var out []db.Record
+	err := f.st.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) error {
+		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: f.ws, CardID: f.card, BoardColumn: "hypotheses"})
+		for _, r := range recs {
+			if r.Kind == kind {
+				out = append(out, r)
+			}
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// fakeJev answers every question the column asks: the first-listed candidate
+// wins every pair, every test is relevant, prior work never states the
+// hypothesis, and every quote supports its assumption. With fail it is down.
+func fakeJev(t *testing.T, fail bool) *jev.Client {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail {
+			w.WriteHeader(503)
+			return
+		}
+		var body struct {
+			State     string
+			Questions map[string]struct{ Criteria map[string]string }
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		q := body.Questions["q"].Criteria
+		choice := "supports"
+		switch {
+		case q["first"] != "":
+			choice = "first"
+		case q["relevant"] != "":
+			choice = "relevant"
+		case q["states_it"] != "":
+			choice = "does_not"
+		}
+		json.NewEncoder(w).Encode(map[string]any{"model": "jev-1.13.0", "answers": map[string]any{
+			"q": map[string]any{"choice": choice, "probabilities": map[string]float64{choice: 0.9}, "confidence": 0.9}}})
+	}))
+	t.Cleanup(s.Close)
+	return &jev.Client{BaseURL: s.URL, Key: "k", Model: "jev-1.13.0"}
+}
+
+var third = map[string]any{"statement": "Z suppresses a repressor of Y in hepatocytes", "kind": "mechanism",
+	"mechanism":           []map[string]any{{"text": "Z binds the repressor", "claims": []string{"E1"}}},
+	"assumptions":         []map[string]any{{"text": "the repressor is active in liver", "claims": []string{"E1"}}},
+	"boundary_conditions": []string{}, "uncertainties": []string{}}
+
+func TestSeedsSpreadOverGapsAndClaims(t *testing.T) {
+	f := setup(t)
+	if f.serve(t, Generators, nil) {
+		t.Fatal("seeding never calls the gate")
+	}
+	got := map[Seed]string{}
+	for _, r := range f.live(t, "seed") {
+		got[records.Body[Seed](r)] = r.Key
+	}
+	want := []Seed{{"whether Z mediates", "E1"}, {"dose dependence", "E2"}, {"whether Z mediates", "E2"}}
+	for i, s := range want {
+		if got[s] != Generators[i] {
+			t.Fatalf("seeds %v", got)
+		}
+	}
+	f.serve(t, Generators, nil)
+	if n := len(f.live(t, "seed")); n != 3 {
+		t.Fatalf("seeding again must replace the seeds: %d live", n)
+	}
+}
+
+func TestDedupBeforeTheDecomposer(t *testing.T) {
+	f := setup(t)
+	for _, next := range [][]string{{Decomposer}, {NoveltyScout}, {Selector}} {
+		if !f.serve(t, next, nil) {
+			t.Fatal("with no candidate the gate must judge at once")
+		}
+	}
+	f.mustWrite(t, "generator-1", "candidate", mechanism)
+	f.mustWrite(t, "generator-2", "candidate", artefact)
+	f.mustWrite(t, "generator-3", "candidate", mechanism)
+	if f.serve(t, []string{Decomposer}, nil) {
+		t.Fatal("candidates exist: the decomposer must be queued")
+	}
+	dd := f.live(t, "dedup")
+	if len(dd) != 1 {
+		t.Fatalf("%d dedup records", len(dd))
+	}
+	if d := records.Body[Dedup](dd[0]); !slices.Equal(d.Survivors, []string{"H1", "H2"}) || d.Merged["H3"] != "H1" || d.Method != "tfidf-cosine" {
+		t.Fatalf("%+v", d)
+	}
+	f.mustWrite(t, "generator-2", "missing_premise", map[string]string{"gap": "the dose at which X saturates Y"})
+	for _, next := range [][]string{{Decomposer}, {NoveltyScout}, {Selector}} {
+		if !f.serve(t, next, nil) {
+			t.Fatalf("%v: a missing premise must send the card to the gate", next)
+		}
+	}
+}
+
+func TestJevComparesEverySurvivingPair(t *testing.T) {
+	f := setup(t)
+	f.mustWrite(t, "generator-1", "candidate", mechanism)
+	f.mustWrite(t, "generator-2", "candidate", artefact)
+	f.serve(t, []string{Decomposer}, nil)
+	f.serve(t, []string{Selector}, fakeJev(t, false))
+	pw := f.live(t, "pairwise")
+	if len(pw) != 1 || pw[0].Key != "H1|H2" || pw[0].Role != "server" {
+		t.Fatalf("%+v", pw)
+	}
+	// The single pair is asked in swapped order, and the fake picks the first.
+	if j := records.Body[Judgment](pw[0]); j.A != "H2" || j.B != "H1" || j.PA != 1 || j.Judge != "jev" || j.Model != "jev-1.13.0" {
+		t.Fatalf("%+v", j)
+	}
+	_, _, err := f.write(t, Selector, "comparison", map[string]string{"a": "H1", "b": "H2", "winner": "H1", "reason": "sharper"})
+	refused(t, err, "Jev already judged")
+	_, body, err := f.write(t, Selector, "ranking", map[string]any{})
+	var rk Ranking
+	json.Unmarshal(body, &rk)
+	if err != nil || !slices.Equal(rk.Order, []string{"H2", "H1"}) || len(rk.Judgments) != 1 {
+		t.Fatalf("%+v %v", rk, err)
+	}
+}
+
+func TestUnjudgedPairsFallToTheSelector(t *testing.T) {
+	f := setup(t)
+	f.mustWrite(t, "generator-1", "candidate", mechanism)
+	f.mustWrite(t, "generator-2", "candidate", artefact)
+	f.mustWrite(t, "generator-3", "candidate", third)
+	f.serve(t, []string{Decomposer}, nil)
+	f.serve(t, []string{Selector}, fakeJev(t, true))
+	if n := len(f.live(t, "pairwise")); n != 0 {
+		t.Fatalf("Jev was down, yet %d judgments were recorded", n)
+	}
+	_, _, err := f.write(t, Selector, "ranking", map[string]any{})
+	refused(t, err, "H1|H2, H1|H3, H2|H3")
+	for _, c := range [][3]string{{"H1", "H2", "H1"}, {"H1", "H3", "H1"}, {"H3", "H2", "H2"}} {
+		f.mustWrite(t, Selector, "comparison", map[string]string{"a": c[0], "b": c[1], "winner": c[2], "reason": "discriminates better"})
+	}
+	_, body, err := f.write(t, Selector, "ranking", map[string]any{})
+	var rk Ranking
+	json.Unmarshal(body, &rk)
+	if err != nil || !slices.Equal(rk.Order, []string{"H1", "H2", "H3"}) {
+		t.Fatalf("%+v %v", rk, err)
+	}
+	for _, j := range rk.Judgments {
+		if j.Judge != "selector" {
+			t.Fatalf("%+v", j)
+		}
 	}
 }
