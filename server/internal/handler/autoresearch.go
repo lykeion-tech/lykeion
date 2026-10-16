@@ -62,8 +62,13 @@ func (h *H) autoresearchTx(w http.ResponseWriter, r *http.Request, edit bool, fn
 		return false
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
-			return err
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+				return err
+			}
+			if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+				return err
+			}
 		}
 		ap, err := tx.Q.GetAutoresearch(r.Context(), db.GetAutoresearchParams{WorkspaceID: ws, ID: id})
 		if err != nil {

@@ -17,6 +17,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/daemon"
 	"lykeion/server/internal/ground"
 	"lykeion/server/internal/handler"
@@ -35,6 +36,7 @@ type boardLab struct {
 	env    *testutil.Env
 	st     *store.Store
 	engine *round.Engine
+	ap     *autoresearch.Service
 	hosted *sources.Hosted
 	url    string
 	ws     uuid.UUID
@@ -87,7 +89,8 @@ func newBoardLab(t *testing.T) *boardLab {
 	blobs := storage.Local{Dir: t.TempDir()}
 	runs := &service.AgentRuns{Store: l.st}
 	l.engine = &round.Engine{Store: l.st, AgentRuns: runs, Blobs: blobs, JevKey: "k", JevURL: fakeJev(t)}
-	runs.OnSettled = l.engine.OnSettled
+	l.ap = &autoresearch.Service{Store: l.st, AgentRuns: runs}
+	runs.OnSettled = l.ap.OnSettled(l.engine.OnSettled)
 	geo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/esearch.fcgi" || r.URL.Query().Get("term") != "X Y mice" {
 			t.Errorf("unexpected GEO query: %s", r.URL)
@@ -101,7 +104,7 @@ func newBoardLab(t *testing.T) *boardLab {
 	l.hosted = &sources.Hosted{Store: l.st, Blobs: blobs, GEO: sources.GEO{Base: geo.URL, HTTP: geo.Client()}}
 	iss := auth.Issuer{Secret: []byte("s"), TTL: time.Hour}
 	srv := httptest.NewServer(handler.NewRouter(&handler.H{Store: l.st, JWT: iss, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
-		AgentRuns: runs, Blobs: blobs, Kinds: round.Kinds(), Engine: l.engine, Sources: l.hosted.Handler()}))
+		Autoresearch: l.ap, AgentRuns: runs, Blobs: blobs, Kinds: round.Kinds(), Engine: l.engine, Sources: l.hosted.Handler()}))
 	t.Cleanup(srv.Close)
 	runs.MCPURL = srv.URL + "/mcp/sources"
 	l.url = srv.URL
@@ -206,6 +209,9 @@ func (l *boardLab) runOn(t *testing.T, harness, script string) context.CancelFun
 				return
 			case <-tick.C:
 				l.engine.Tick(ctx)
+				if err := l.ap.Tick(ctx); err != nil && ctx.Err() == nil {
+					t.Errorf("autoresearch tick: %v", err)
+				}
 			}
 		}
 	}()

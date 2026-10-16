@@ -192,7 +192,7 @@ func (s *Service) Receive(ctx context.Context, tokenHash string, h http.Header, 
 	}
 	var out Receipt
 	err = s.Store.InWorkspace(ctx, ref.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
-		if err := tx.Q.LockWorkspaceEvents(ctx, ref.WorkspaceID); err != nil {
+		if err := lockWorkspace(ctx, tx); err != nil {
 			return err
 		}
 		t, err := tx.Q.LockTrigger(ctx, db.LockTriggerParams{WorkspaceID: ref.WorkspaceID, ID: ref.TriggerID})
@@ -268,7 +268,7 @@ func (s *Service) Deliver(ctx context.Context) error {
 			if err := s.deliver(ctx, d.WorkspaceID, d.DeliveryID); err != nil {
 				slog.Error("webhook delivery", "delivery", d.DeliveryID, "err", err)
 				if err := s.Store.InWorkspace(ctx, d.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
-					if err := tx.Q.LockWorkspaceEvents(ctx, d.WorkspaceID); err != nil {
+					if err := lockWorkspace(ctx, tx); err != nil {
 						return err
 					}
 					return tx.Q.ReleaseDelivery(ctx, db.ReleaseDeliveryParams{WorkspaceID: d.WorkspaceID, ID: d.DeliveryID})
@@ -285,7 +285,7 @@ func (s *Service) Deliver(ctx context.Context) error {
 func (s *Service) deliver(ctx context.Context, ws, id uuid.UUID) error {
 	var run *db.AutoresearchRun
 	err := s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
-		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
+		if err := lockWorkspace(ctx, tx); err != nil {
 			return err
 		}
 		d, err := tx.Q.LockDelivery(ctx, db.LockDeliveryParams{WorkspaceID: ws, ID: id})

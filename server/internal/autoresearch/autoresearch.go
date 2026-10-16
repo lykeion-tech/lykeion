@@ -55,10 +55,19 @@ func runEvent(r db.AutoresearchRun) map[string]any {
 		"source": r.Source, "card_id": r.CardID, "agent_run_id": r.AgentRunID}
 }
 
+// lockWorkspace orders the execution row mutex before the event advisory lock,
+// matching daemon claims before either path touches a child row.
+func lockWorkspace(ctx context.Context, tx *store.Tx) error {
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		return err
+	}
+	return tx.Q.LockWorkspaceEvents(ctx, tx.WS)
+}
+
 // Admit records a run once per key, in the caller's transaction. A second
 // admission with the same key returns the first run and false.
 func (s *Service) Admit(ctx context.Context, tx *store.Tx, a Admission) (db.AutoresearchRun, bool, error) {
-	if err := tx.Q.LockWorkspaceEvents(ctx, tx.WS); err != nil {
+	if err := lockWorkspace(ctx, tx); err != nil {
 		return db.AutoresearchRun{}, false, err
 	}
 	status := a.Status
@@ -97,7 +106,7 @@ func (s *Service) setRun(ctx context.Context, tx *store.Tx, r db.AutoresearchRun
 // concurrent dispatch acts once.
 func (s *Service) Dispatch(ctx context.Context, ws, id uuid.UUID) error {
 	return s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
-		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
+		if err := lockWorkspace(ctx, tx); err != nil {
 			return err
 		}
 		r, err := tx.Q.LockRun(ctx, db.LockRunParams{WorkspaceID: ws, ID: id})

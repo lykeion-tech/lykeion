@@ -111,7 +111,7 @@ func (s *Service) Tick(ctx context.Context) error {
 func (s *Service) fire(ctx context.Context, ws, trigger uuid.UUID) error {
 	var run *db.AutoresearchRun
 	err := s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
-		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
+		if err := lockWorkspace(ctx, tx); err != nil {
 			return err
 		}
 		t, err := tx.Q.LockTrigger(ctx, db.LockTriggerParams{WorkspaceID: ws, ID: trigger})

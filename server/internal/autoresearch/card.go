@@ -79,7 +79,7 @@ func (s *Service) title(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r
 // where no gate reads it as evidence.
 func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, run db.AutoresearchRun, title, question string, payload json.RawMessage) (db.Card, error) {
 	// Two runs opening cards at once must see each other's card.
-	if err := tx.Q.LockWorkspaceEvents(ctx, tx.WS); err != nil {
+	if err := lockWorkspace(ctx, tx); err != nil {
 		return db.Card{}, err
 	}
 	origin := Origin(ap.ID)

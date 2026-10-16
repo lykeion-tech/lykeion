@@ -27,6 +27,11 @@ fi
 exec 3>&1
 exec 1>&2
 case "$prompt" in
+  *"You are the autoresearch role"*)
+    dir="${LYK_TEST_CAPTURE:-$(mktemp -d)}"
+    if lyk ground question < /dev/null 2> "$dir/autoresearch.refused"; then echo ALLOWED >> "$dir/autoresearch.refused"; fi
+    lyk open-card --title "Z and W" "Does Z lower W in mouse liver?" || exit 1
+    printf 'Nothing new this week.\n' | lyk report || exit 1 ;;
   *"the scoper role"*)
     printf '## Scoped question\nDoes X raise Y in mice?\n' | lyk ground question ;;
   *"the literature-scout role"*)

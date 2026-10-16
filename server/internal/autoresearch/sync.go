@@ -17,7 +17,7 @@ func (s *Service) Sync(ctx context.Context) error {
 	}
 	for _, d := range drift {
 		err := s.Store.InWorkspace(ctx, d.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
-			if err := tx.Q.LockWorkspaceEvents(ctx, d.WorkspaceID); err != nil {
+			if err := lockWorkspace(ctx, tx); err != nil {
 				return err
 			}
 			r, err := tx.Q.LockRun(ctx, db.LockRunParams{WorkspaceID: d.WorkspaceID, ID: d.RunID})
