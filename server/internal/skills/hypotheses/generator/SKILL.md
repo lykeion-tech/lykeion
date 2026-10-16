@@ -12,14 +12,14 @@ You are one of three generators working in parallel, each from a different seed.
 3. Propose 1 to 3 explanations of the gap that the seed claim suggests. Explanations of different kinds are welcome: a mechanism, or an artefact (measurement, batch, selection, confounding) that would produce the same observations.
 4. Record each as JSON on stdin:
 
-       lyk hyp candidate <<'EOF'
-       {"statement": "<one sentence>",
+       printf '%s' '{"statement": "<one sentence>",
         "kind": "mechanism",
         "mechanism": [{"text": "<one step>", "claims": ["E3"]}],
         "assumptions": [{"text": "<what must hold>", "claims": ["E1"]}],
         "boundary_conditions": ["<where it applies>"],
-        "uncertainties": ["<what could undo it>"]}
-       EOF
+        "uncertainties": ["<what could undo it>"]}' | lyk hyp candidate
+
+   Actual permission policy still applies. If submission is refused, report the refusal; do not repeatedly reformulate it to defeat a safeguard.
 
    `kind` is `mechanism` or `artefact`. Every mechanism step and every assumption cites at least one Grounding evidence key. The server rejects any other key.
 

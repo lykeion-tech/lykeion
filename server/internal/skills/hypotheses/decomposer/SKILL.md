@@ -9,15 +9,15 @@ description: Lykeion Hypotheses role. Splits each surviving candidate into self-
 
 For every survivor, record one decomposition as JSON on stdin:
 
-    lyk hyp decompose <<'EOF'
-    {"candidate": "H1",
+    printf '%s' '{"candidate": "H1",
      "assumptions": [{"id": "A1", "text": "<one condition that must hold, readable alone>", "claims": ["E2"]}],
      "predictions": [{"id": "P1", "text": "<one observable consequence, readable alone>"}],
      "tests": [{"id": "T1", "targets": "P1",
                 "null": "<what the data show if the targeted assumption or prediction is false>",
                 "alternative": "<what they show if it holds>",
-                "procedure": "<an analysis of a Grounding dataset that could reject the null>"}]}
-    EOF
+                "procedure": "<an analysis of a Grounding dataset that could reject the null>"}]}' | lyk hyp decompose
+
+Actual permission policy still applies. If submission is refused, report the refusal; do not repeatedly reformulate it to defeat a safeguard.
 
 The server checks:
 - every assumption and prediction stands on its own: no "this hypothesis", no candidate ids;

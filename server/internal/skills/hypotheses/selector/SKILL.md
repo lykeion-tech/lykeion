@@ -22,8 +22,7 @@ Prefer the candidate that one measurement on the data could separate most sharpl
 Carry the top-ranked candidate, up to two more survivors, and always one null rival (`"kind": "null"`, no candidate). Choose one measurement on one Grounding dataset, name its result keys, and state each rival's prediction as a predicate over those keys.
 
 ```
-lyk hyp matrix <<'EOF'
-{"measurement": {"id": "M1", "dataset": "D1",
+printf '%s' '{"measurement": {"id": "M1", "dataset": "D1",
    "description": "<what is computed, on what, per which unit>",
    "keys": [{"name": "effect", "description": "log2 fold change, treated against control", "unit": "log2FC"},
             {"name": "ci_low", "description": "lower bound of the 95 percent interval", "unit": "log2FC"},
@@ -35,12 +34,13 @@ lyk hyp matrix <<'EOF'
     "equivalence": {"key": "effect", "low": -0.2, "high": 0.2},
     "falsifier": "ci_low > 0.2 or ci_high < -0.2",
     "indeterminate": "(ci_low < -0.2 and ci_high >= -0.2) or (ci_high > 0.2 and ci_low <= 0.2)"},
-   {"id": "R1", "kind": "mechanism", "candidate": "H1", "statement": "<the candidate's statement>", "measurement": "M1",
+   {"id": "R1", "kind": "mechanism", "candidate": "H1", "statement": "<the candidate'"'"'s statement>", "measurement": "M1",
     "prediction": "ci_low > 0.2", "equivalence": {"key": "effect", "low": -0.2, "high": 0.2},
     "falsifier": "ci_high < 0.2", "indeterminate": "ci_low <= 0.2 and ci_high >= 0.2"}],
- "rationale": "<why these rivals and this measurement>"}
-EOF
+ "rationale": "<why these rivals and this measurement>"}' | lyk hyp matrix
 ```
+
+Actual permission policy still applies. If submission is refused, report the refusal; do not repeatedly reformulate it to defeat a safeguard.
 
 Predicates compare one key with one number (`<`, `<=`, `>`, `>=`), joined by `and`, `or`, `not` and parentheses; there is no `==`. Keys are lowercase letters, digits and `_`. `ordered` lists keys that can never decrease in that order. The server sets the dataset's accession and its unit of analysis from Grounding.
 
