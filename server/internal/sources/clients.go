@@ -36,8 +36,11 @@ type Hit struct {
 
 type Doc struct {
 	Hit
-	Text     string
-	FullText bool
+	Text       string
+	FullText   bool
+	SourceKind string
+	SourceURL  string
+	Truncated  bool
 }
 
 const (
@@ -220,8 +223,9 @@ func (e EuropePMC) Get(ctx context.Context, id string) (Doc, error) {
 }
 
 type GEO struct {
-	Base string
-	HTTP *http.Client
+	MetadataBase string
+	Base         string
+	HTTP         *http.Client
 }
 
 type geoSummary struct {
@@ -320,9 +324,14 @@ func (g GEO) Search(ctx context.Context, q string) ([]Hit, error) {
 
 // Open returns the dataset's structure as text: what each sample is.
 func (g GEO) Open(ctx context.Context, accession string) (string, error) {
+	d, err := g.OpenWithMetadata(ctx, accession)
+	return d.Structure, err
+}
+
+func (g GEO) OpenWithMetadata(ctx context.Context, accession string) (DatasetDocument, error) {
 	ss, err := g.summaries(ctx, accession+"[ACCN]")
 	if err != nil {
-		return "", err
+		return DatasetDocument{}, err
 	}
 	for _, s := range ss {
 		if s.Accession != accession {
@@ -338,7 +347,15 @@ func (g GEO) Open(ctx context.Context, accession string) (string, error) {
 		for _, sm := range s.Samples {
 			fmt.Fprintf(&b, "- %s: %s\n", sm.Accession, sm.Title)
 		}
-		return b.String(), nil
+		refs := []MetadataRef{{SourceID: "geo:" + accession, Accession: accession, Relation: "self"}}
+		seen := map[string]bool{accession: true}
+		for _, sm := range s.Samples {
+			if geoAccession.MatchString(sm.Accession) && strings.HasPrefix(sm.Accession, "GSM") && !seen[sm.Accession] {
+				refs = append(refs, MetadataRef{SourceID: "geo:" + sm.Accession, Accession: sm.Accession, Relation: "sample"})
+				seen[sm.Accession] = true
+			}
+		}
+		return DatasetDocument{Structure: b.String(), MetadataSources: refs}, nil
 	}
-	return "", fmt.Errorf("geo: %s not found", accession)
+	return DatasetDocument{}, fmt.Errorf("geo: %s not found", accession)
 }
