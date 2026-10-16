@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/internal/middleware"
@@ -50,6 +51,20 @@ func runToken(req *mcp.CallToolRequest) string {
 // run is re-checked under row locks: it may have settled while the source
 // was called.
 func (h *Hosted) Record(ctx context.Context, role middleware.Role, token, kind, key string, body map[string]any, text string) error {
+	// An agent run with no card, an Autoresearch run's, may search and read, but what it
+	// finds is evidence for no card: the call is logged as an event, and no
+	// record or blob is written. The token was checked when the call arrived; the
+	// run and its token are locked and checked again, since the run may have
+	// settled since.
+	if role.CardID == uuid.Nil {
+		return h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
+			if err := middleware.LockRole(ctx, tx, role, token); err != nil {
+				return err
+			}
+			return tx.Emit(ctx, "sources.called", nil, store.Actor{Type: "role", ID: role.AgentRunID},
+				map[string]any{"agent_run_id": role.AgentRunID, "kind": kind, "key": key, "body": body})
+		})
+	}
 	blobKey, hexsum := "", ""
 	if text != "" {
 		sum := sha256.Sum256([]byte(text))

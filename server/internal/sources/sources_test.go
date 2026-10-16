@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -267,5 +268,77 @@ func TestInvalidGEOSummaryDoesNotRecordSuccessfulSearch(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestACardlessAgentRunIsLoggedButNeverRecorded(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := context.Background()
+	st := &store.Store{Pool: env.App}
+	blobs := storage.Local{Dir: t.TempDir()}
+	h := &Hosted{Store: st, Blobs: blobs}
+	ws, u := uuid.New(), uuid.New()
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace (id, slug, name) VALUES ($1, 'w', 'w')`, ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO "user" (id, email) VALUES ($1, 'u@x')`, u); err != nil {
+		t.Fatal(err)
+	}
+	var ar uuid.UUID
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, status, attempt)
+		VALUES ($1, 'autoresearch', $2, $2, '', 0, 'autoresearch', 'claude', 'p', 'running', 1) RETURNING id`, ws, u).Scan(&ar); err != nil {
+		t.Fatal(err)
+	}
+	token := "ltk_" + ar.String()
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, scopes, expires_at)
+		VALUES ($1, $2, $3, NULL, 'autoresearch', 1, '{report:write,card:create}', now() + interval '1 hour')`, auth.Hash(token), ws, ar); err != nil {
+		t.Fatal(err)
+	}
+	role := middleware.Role{AgentRunID: ar, WorkspaceID: ws, Role: "autoresearch"}
+	if err := h.Record(ctx, role, token, "fetch", "europepmc:PMC1", map[string]any{"source_id": "europepmc:PMC1"}, "the full text"); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []struct{ invalidate, restore string }{
+		{`UPDATE agent_run SET attempt=2 WHERE id=$1`, `UPDATE agent_run SET attempt=1 WHERE id=$1`},
+		{`UPDATE agent_run_token SET expires_at=now()-interval '1 minute' WHERE agent_run_id=$1`, `UPDATE agent_run_token SET expires_at=now()+interval '1 hour' WHERE agent_run_id=$1`},
+	} {
+		if _, err := env.Owner.Exec(ctx, change.invalidate, ar); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.Record(ctx, role, token, "fetch", "europepmc:PMC1", map[string]any{"source_id": "europepmc:PMC1"}, "the full text"); !errors.Is(err, middleware.ErrRoleUnauthorized) {
+			t.Fatalf("stale sources: %v", err)
+		}
+		if _, err := env.Owner.Exec(ctx, change.restore, ar); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wrong := role
+	wrong.Role = "scoper"
+	if err := h.Record(ctx, wrong, token, "fetch", "europepmc:PMC1", map[string]any{}, "text"); !errors.Is(err, middleware.ErrRoleUnauthorized) {
+		t.Fatalf("wrong role: %v", err)
+	}
+	if err := h.Record(ctx, role, "ltk_wrong", "fetch", "europepmc:PMC1", map[string]any{}, "text"); !errors.Is(err, middleware.ErrRoleUnauthorized) {
+		t.Fatalf("wrong token: %v", err)
+	}
+	// a run that settled while its call was in flight logs nothing
+	if _, err := env.Owner.Exec(ctx, `UPDATE agent_run SET status = 'completed' WHERE id = $1`, ar); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Record(ctx, role, token, "fetch", "europepmc:PMC1", map[string]any{"source_id": "europepmc:PMC1"}, "the full text"); !errors.Is(err, middleware.ErrRoleUnauthorized) {
+		t.Fatal("a finished agent run's call was logged")
+	}
+	var records, events int
+	if err := env.Owner.QueryRow(ctx, `SELECT count(*) FROM record`).Scan(&records); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Owner.QueryRow(ctx, `SELECT count(*) FROM event WHERE type = 'sources.called' AND payload->>'key' = 'europepmc:PMC1'`).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(blobs.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if records != 0 || events != 1 || len(entries) != 0 {
+		t.Fatalf("records %d, events %d, blobs %d", records, events, len(entries))
 	}
 }

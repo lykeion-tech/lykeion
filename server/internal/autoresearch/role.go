@@ -1,0 +1,59 @@
+package autoresearch
+
+import (
+	"context"
+	"errors"
+
+	"github.com/google/uuid"
+
+	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
+)
+
+var ErrReported = errors.New("this run already posted its report")
+
+func excerpt(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
+}
+
+// Report posts a run_only agent run's one report on its run, and gives the
+// Autoresearch's owner and subscribers an Inbox item with its opening.
+func (s *Service) Report(ctx context.Context, tx *store.Tx, ar uuid.UUID, text string) error {
+	r, err := tx.Q.RunByAgentRun(ctx, db.RunByAgentRunParams{WorkspaceID: tx.WS, AgentRunID: ar})
+	if err != nil {
+		return err
+	}
+	if r.Report != "" {
+		return ErrReported
+	}
+	ap, err := tx.Q.GetAutoresearch(ctx, db.GetAutoresearchParams{WorkspaceID: tx.WS, ID: r.AutoresearchID})
+	if err != nil {
+		return err
+	}
+	if err := tx.Q.SetRunReport(ctx, db.SetRunReportParams{Report: text, WorkspaceID: tx.WS, ID: r.ID}); err != nil {
+		return err
+	}
+	if err := s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_report", ap.Title+": "+excerpt(text, 2000)); err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "autoresearch_run.reported", nil, store.Actor{Type: "role", ID: ar},
+		map[string]any{"run_id": r.ID, "autoresearch_id": ap.ID})
+}
+
+// OpenCardForAgentRun opens a Backlog card for a run_only agent run, owned by its run's
+// acting user and under the same duplicate guard as create_card.
+func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid.UUID, title, question string) (db.Card, error) {
+	r, err := tx.Q.RunByAgentRun(ctx, db.RunByAgentRunParams{WorkspaceID: tx.WS, AgentRunID: ar})
+	if err != nil {
+		return db.Card{}, err
+	}
+	ap, err := tx.Q.GetAutoresearch(ctx, db.GetAutoresearchParams{WorkspaceID: tx.WS, ID: r.AutoresearchID})
+	if err != nil {
+		return db.Card{}, err
+	}
+	return s.openCard(ctx, tx, ap, r, title, question, nil)
+}

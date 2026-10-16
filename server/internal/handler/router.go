@@ -36,6 +36,9 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/blobs", h.putBlob)
 			r.Get("/blobs/{sha}", h.getBlob)
 		})
+		r.With(middleware.RequireScope(service.ScopeReport)).Post("/report", h.autoresearchReport)
+		r.With(middleware.RequireScope(service.ScopeCardCreate)).Post("/cards", h.autoresearchCard)
+
 	})
 
 	r.Group(func(r chi.Router) {
