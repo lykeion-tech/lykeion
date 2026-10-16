@@ -158,7 +158,7 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 		return db.AgentRun{}, ErrNotYours
 	}
 	t, err := tx.Q.EnqueueAgentRun(ctx, db.EnqueueAgentRunParams{
-		WorkspaceID: tx.WS, CardID: n.Card, ResponsibleUserID: owner, BoardColumn: n.Column, Round: n.Round, Role: n.Role,
+		WorkspaceID: tx.WS, CardID: &n.Card, ResponsibleUserID: owner, BoardColumn: n.Column, Round: n.Round, Role: n.Role,
 		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, MaxAttempts: n.MaxAttempts,
 		ContinuityScope: "card:" + n.Card.String() + "/role:" + n.Role, RunPrivate: n.RunPrivate,
 	})
@@ -167,7 +167,7 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 	}
 	p := agentRunEvent(t)
 	p["owner_id"] = owner
-	return t, tx.Emit(ctx, "agent_run.queued", &t.CardID, store.System, p)
+	return t, tx.Emit(ctx, "agent_run.queued", t.CardID, store.System, p)
 }
 
 // Register brings the daemon's runtimes online. A missing version stores an empty string.
@@ -336,7 +336,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						}
 						refused = append(refused, f)
 						progress = true
-						return tx.Emit(ctx, "agent_run.failed", &f.CardID, store.System, agentRunEvent(f))
+						return tx.Emit(ctx, "agent_run.failed", f.CardID, store.System, agentRunEvent(f))
 					}
 					if mcp == nil {
 						mcp = []agent.MCPServer{}
@@ -347,7 +347,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						return err
 					}
 					c = &Claimed{AgentRun: t, Token: plain, MCPURL: s.MCPURL, MCP: mcp}
-					return tx.Emit(ctx, "agent_run.dispatched", &t.CardID, store.System, agentRunEvent(t))
+					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {
 					return err
@@ -417,7 +417,7 @@ func (s *AgentRuns) Start(ctx context.Context, user uuid.UUID, ref RuntimeRef, r
 		if err != nil {
 			return err
 		}
-		return tx.Emit(ctx, "agent_run.started", &t.CardID, store.System, agentRunEvent(t))
+		return tx.Emit(ctx, "agent_run.started", t.CardID, store.System, agentRunEvent(t))
 	})
 }
 
@@ -505,8 +505,11 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 		if math.IsInf(t.CostUsd+spent, 0) {
 			return ErrBadReport
 		}
-		if err := tx.Q.AddCardSpend(ctx, db.AddCardSpendParams{WorkspaceID: ref.WorkspaceID, ID: t.CardID, Usd: spent}); err != nil {
-			return err
+		// A card-less run has no card budget to charge.
+		if t.CardID != nil {
+			if err := tx.Q.AddCardSpend(ctx, db.AddCardSpendParams{WorkspaceID: ref.WorkspaceID, ID: *t.CardID, Usd: spent}); err != nil {
+				return err
+			}
 		}
 		if t.Status == "cancelled" {
 			if err := tx.Q.RecordLateUsage(ctx, db.RecordLateUsageParams{WorkspaceID: ref.WorkspaceID, ID: run, CostUsd: spent}); err != nil {
@@ -544,7 +547,7 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 		if err = saveReceipt(ctx, tx, out, t.RuntimeID); err != nil {
 			return err
 		}
-		if err = tx.Emit(ctx, "agent_run."+out.Status, &out.CardID, store.System, agentRunEvent(out)); err != nil {
+		if err = tx.Emit(ctx, "agent_run."+out.Status, out.CardID, store.System, agentRunEvent(out)); err != nil {
 			return err
 		}
 		if terminal(out.Status) {
@@ -647,7 +650,7 @@ func (s *AgentRuns) Cancel(ctx context.Context, ws, user, run uuid.UUID) error {
 		if err != nil {
 			return err
 		}
-		if err = tx.Emit(ctx, "agent_run.cancelled", &t.CardID, store.User(user), agentRunEvent(t)); err != nil {
+		if err = tx.Emit(ctx, "agent_run.cancelled", t.CardID, store.User(user), agentRunEvent(t)); err != nil {
 			return err
 		}
 		return saveSettlement(ctx, tx, t)
@@ -741,7 +744,7 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 			if out.Status == "failed" {
 				event = "agent_run.failed"
 			}
-			if err := tx.Emit(ctx, event, &out.CardID, store.System, agentRunEvent(out)); err != nil {
+			if err := tx.Emit(ctx, event, out.CardID, store.System, agentRunEvent(out)); err != nil {
 				return err
 			}
 		}

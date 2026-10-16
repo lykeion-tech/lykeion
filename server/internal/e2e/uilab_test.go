@@ -214,7 +214,10 @@ func TestUILab(t *testing.T) {
 				if err := tx.Q.RequeueAgentRun(r.Context(), db.RequeueAgentRunParams{WorkspaceID: ws, ID: id}); err != nil {
 					return err
 				}
-				c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{WorkspaceID: ws, ID: run.CardID})
+				if run.CardID == nil {
+					return fmt.Errorf("fixture run has no card")
+				}
+				c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{WorkspaceID: ws, ID: *run.CardID})
 				if err != nil {
 					return err
 				}
@@ -234,7 +237,7 @@ func TestUILab(t *testing.T) {
 				if err := tx.Q.SaveCardBoard(r.Context(), state.Params(c.ID, ws)); err != nil {
 					return err
 				}
-				return tx.Emit(r.Context(), "agent_run.started", &run.CardID, store.System, map[string]any{"id": id})
+				return tx.Emit(r.Context(), "agent_run.started", run.CardID, store.System, map[string]any{"id": id})
 			}
 			if r.PathValue("action") != "finish" {
 				return fmt.Errorf("unknown fixture action")
@@ -243,7 +246,7 @@ func TestUILab(t *testing.T) {
 			if err := tx.Q.FinishAgentRun(r.Context(), db.FinishAgentRunParams{WorkspaceID: ws, ID: id, Status: "failed", Error: "fixture lifecycle stopped", FailureReason: &failure}); err != nil {
 				return err
 			}
-			return tx.Emit(r.Context(), "agent_run.failed", &run.CardID, store.System, map[string]any{"id": id})
+			return tx.Emit(r.Context(), "agent_run.failed", run.CardID, store.System, map[string]any{"id": id})
 		})
 		if err != nil {
 			http.Error(w, err.Error(), 500)
@@ -362,7 +365,7 @@ func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
 			return err
 		}
 		f.CardID = c.ID
-		run, err := tx.Q.EnqueueAgentRun(ctx, db.EnqueueAgentRunParams{WorkspaceID: ws, CardID: c.ID, ResponsibleUserID: u.ID, BoardColumn: board.Grounding, Round: 1, Role: "scoper", Harness: "claude", Prompt: "Recorded browser transcript fixture", MaxAttempts: 2})
+		run, err := tx.Q.EnqueueAgentRun(ctx, db.EnqueueAgentRunParams{WorkspaceID: ws, CardID: &c.ID, ResponsibleUserID: u.ID, BoardColumn: board.Grounding, Round: 1, Role: "scoper", Harness: "claude", Prompt: "Recorded browser transcript fixture", MaxAttempts: 2})
 		if err != nil {
 			return err
 		}

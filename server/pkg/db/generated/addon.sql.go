@@ -37,7 +37,7 @@ func (q *Queries) GetStageAddon(ctx context.Context, arg GetStageAddonParams) (S
 
 const judgedAgentRuns = `-- name: JudgedAgentRuns :many
 SELECT t.id, t.role, t.addon_hash, t.profile_mode, t.policy_digest FROM agent_run t
-WHERE t.workspace_id = $1 AND t.card_id = $2 AND t.board_column = $3
+WHERE t.workspace_id = $1 AND t.card_id = $2::uuid AND t.board_column = $3
   AND (t.round = $4 OR EXISTS (
     SELECT 1 FROM record r WHERE r.agent_run_id = t.id AND r.superseded_at IS NULL))
 ORDER BY t.created_at

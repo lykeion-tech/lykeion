@@ -111,7 +111,10 @@ func (l *lab) consume(ctx context.Context, n service.Settlement) error {
 		if run.Status != n.AgentRun.Status {
 			return fmt.Errorf("consumer saw uncommitted status %s, want %s", run.Status, n.AgentRun.Status)
 		}
-		events, err := tx.Q.CardEventsAfter(ctx, db.CardEventsAfterParams{WorkspaceID: l.ws, CardID: run.CardID})
+		if run.CardID == nil {
+			return fmt.Errorf("fixture run has no card")
+		}
+		events, err := tx.Q.CardEventsAfter(ctx, db.CardEventsAfterParams{WorkspaceID: l.ws, CardID: *run.CardID})
 		if err != nil {
 			return err
 		}
@@ -129,7 +132,7 @@ func (l *lab) consume(ctx context.Context, n service.Settlement) error {
 				return nil
 			}
 		}
-		return tx.Emit(ctx, "acceptance.settlement_applied", &run.CardID, store.System, map[string]any{"id": n.ID, "status": run.Status})
+		return tx.Emit(ctx, "acceptance.settlement_applied", run.CardID, store.System, map[string]any{"id": n.ID, "status": run.Status})
 	})
 	if err != nil {
 		return err

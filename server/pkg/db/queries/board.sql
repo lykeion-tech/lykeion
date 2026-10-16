@@ -22,7 +22,7 @@ UPDATE card SET board_column = @board_column, state = @state, flag = @flag, endi
 WHERE id = @id AND workspace_id = @workspace_id;
 
 -- name: RoundAgentRuns :many
-SELECT * FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_id
+SELECT * FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
   AND board_column = @board_column AND round = @round ORDER BY created_at;
 
 -- The live records each agent run of a round wrote itself, so the engine can tell
@@ -44,7 +44,7 @@ UPDATE agent_run SET continuity_scope = @continuity_scope, run_private = @run_pr
 -- runtime_offline, which the next tick restores when it still holds.
 -- name: SetCardQueueReason :exec
 UPDATE agent_run SET queue_reason = sqlc.narg(queue_reason)
-WHERE workspace_id = @workspace_id AND card_id = @card_id AND status = 'queued';
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'queued';
 
 -- name: MarkQueueOffline :exec
 SELECT mark_queue_offline();
@@ -69,7 +69,7 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id AND board_column = @bo
 
 -- name: InsertInboxItem :exec
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
-VALUES (@workspace_id, @card_id, @user_id, @kind, @text);
+VALUES (@workspace_id, @card_id::uuid, @user_id, @kind, @text);
 
 -- name: ActiveCardCount :one
 SELECT count(*) FROM card WHERE workspace_id = @workspace_id AND ending = ''

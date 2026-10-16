@@ -70,8 +70,13 @@ func (e *Engine) jev(s Settings) *jev.Client {
 // card move. Advance judges the run: a failure, a failed result or a completed
 // run with no result escalates the card. Settlements are delivered after
 // commit, at least once and inside the settling request; kicking is safe to
-// repeat and leaves the request at once.
-func (e *Engine) OnSettled(_ context.Context, t db.AgentRun) { e.Kick(t.WorkspaceID, t.CardID) }
+// repeat and leaves the request at once. A card-less run moves no card.
+func (e *Engine) OnSettled(_ context.Context, t db.AgentRun) {
+	if t.CardID == nil {
+		return
+	}
+	e.Kick(t.WorkspaceID, *t.CardID)
+}
 
 // Kick advances a card soon, off the caller's request; Tick catches anything
 // a crash dropped.

@@ -39,8 +39,8 @@ func TestEveryTenantTableHasAPolicy(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if n != 18 {
-		t.Fatalf("found %d tenant tables, want 18", n)
+	if n != 24 {
+		t.Fatalf("found %d tenant tables, want 24", n)
 	}
 }
 

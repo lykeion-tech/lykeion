@@ -60,11 +60,13 @@ func LockRole(ctx context.Context, tx *store.Tx, role Role, token string) error 
 		}
 		return err
 	}
-	if _, err := tx.Q.LockCard(ctx, db.LockCardParams{ID: role.CardID, WorkspaceID: role.WorkspaceID}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrRoleUnauthorized
+	if role.CardID != uuid.Nil {
+		if _, err := tx.Q.LockCard(ctx, db.LockCardParams{ID: role.CardID, WorkspaceID: role.WorkspaceID}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrRoleUnauthorized
+			}
+			return err
 		}
-		return err
 	}
 	run, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{ID: role.AgentRunID, WorkspaceID: role.WorkspaceID})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -73,7 +75,7 @@ func LockRole(ctx context.Context, tx *store.Tx, role Role, token string) error 
 	if err != nil {
 		return err
 	}
-	if run.Status != "running" || run.CardID != role.CardID || run.Role != role.Role || run.BoardColumn != role.Column || run.Round != role.Round {
+	if run.Status != "running" || cardOf(run.CardID) != role.CardID || run.Role != role.Role || run.BoardColumn != role.Column || run.Round != role.Round {
 		return ErrRoleUnauthorized
 	}
 	tok, err := tx.Q.LockAgentRunToken(ctx, db.LockAgentRunTokenParams{TokenHash: auth.Hash(token), WorkspaceID: role.WorkspaceID, AgentRunID: role.AgentRunID})
@@ -83,8 +85,16 @@ func LockRole(ctx context.Context, tx *store.Tx, role Role, token string) error 
 	if err != nil {
 		return err
 	}
-	if tok.Attempt != run.Attempt || tok.CardID != run.CardID || tok.Role != run.Role {
+	if tok.Attempt != run.Attempt || cardOf(tok.CardID) != cardOf(run.CardID) || tok.Role != run.Role {
 		return ErrRoleUnauthorized
 	}
 	return nil
+}
+
+// cardOf is a nullable card id as the role sees it.
+func cardOf(id *uuid.UUID) uuid.UUID {
+	if id == nil {
+		return uuid.Nil
+	}
+	return *id
 }

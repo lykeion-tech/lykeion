@@ -29,7 +29,7 @@ type Agent struct {
 type AgentRun struct {
 	ID                    uuid.UUID       `json:"id"`
 	WorkspaceID           uuid.UUID       `json:"workspace_id"`
-	CardID                uuid.UUID       `json:"card_id"`
+	CardID                *uuid.UUID      `json:"card_id"`
 	ResponsibleUserID     uuid.UUID       `json:"responsible_user_id"`
 	BoardColumn           string          `json:"board_column"`
 	Round                 int32           `json:"round"`
@@ -64,6 +64,8 @@ type AgentRun struct {
 	InputOutcomes         json.RawMessage `json:"input_outcomes"`
 	AddonHash             string          `json:"addon_hash"`
 	AddonMcp              json.RawMessage `json:"addon_mcp"`
+	Kind                  string          `json:"kind"`
+	RequesterID           *uuid.UUID      `json:"requester_id"`
 }
 
 type AgentRunMessage struct {
@@ -96,13 +98,14 @@ type AgentRunSettlement struct {
 }
 
 type AgentRunToken struct {
-	TokenHash   string    `json:"token_hash"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	AgentRunID  uuid.UUID `json:"agent_run_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	Role        string    `json:"role"`
-	Attempt     int32     `json:"attempt"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	TokenHash   string     `json:"token_hash"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	AgentRunID  uuid.UUID  `json:"agent_run_id"`
+	CardID      *uuid.UUID `json:"card_id"`
+	Role        string     `json:"role"`
+	Attempt     int32      `json:"attempt"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	Scopes      []string   `json:"scopes"`
 }
 
 type AgentRunUsage struct {
@@ -118,6 +121,68 @@ type AgentRunUsage struct {
 	CostUsd          float64   `json:"cost_usd"`
 	CostReported     bool      `json:"cost_reported"`
 	CreatedAt        time.Time `json:"created_at"`
+}
+
+type Autoresearch struct {
+	ID            uuid.UUID `json:"id"`
+	WorkspaceID   uuid.UUID `json:"workspace_id"`
+	OwnerID       uuid.UUID `json:"owner_id"`
+	Title         string    `json:"title"`
+	Description   string    `json:"description"`
+	ExecutionMode string    `json:"execution_mode"`
+	TitleTemplate string    `json:"title_template"`
+	BudgetUsd     float64   `json:"budget_usd"`
+	Status        string    `json:"status"`
+	PauseReason   string    `json:"pause_reason"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type AutoresearchCollaborator struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	AutoresearchID uuid.UUID `json:"autoresearch_id"`
+	UserID         uuid.UUID `json:"user_id"`
+}
+
+type AutoresearchRun struct {
+	ID             uuid.UUID       `json:"id"`
+	WorkspaceID    uuid.UUID       `json:"workspace_id"`
+	AutoresearchID uuid.UUID       `json:"autoresearch_id"`
+	TriggerID      *uuid.UUID      `json:"trigger_id"`
+	Source         string          `json:"source"`
+	ActingUserID   uuid.UUID       `json:"acting_user_id"`
+	PlannedAt      time.Time       `json:"planned_at"`
+	Status         string          `json:"status"`
+	Reason         string          `json:"reason"`
+	Payload        json.RawMessage `json:"payload"`
+	CardID         *uuid.UUID      `json:"card_id"`
+	AgentRunID     *uuid.UUID      `json:"agent_run_id"`
+	Report         string          `json:"report"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+type AutoresearchSubscriber struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	AutoresearchID uuid.UUID `json:"autoresearch_id"`
+	UserID         uuid.UUID `json:"user_id"`
+}
+
+type AutoresearchTrigger struct {
+	ID               uuid.UUID       `json:"id"`
+	WorkspaceID      uuid.UUID       `json:"workspace_id"`
+	AutoresearchID   uuid.UUID       `json:"autoresearch_id"`
+	Kind             string          `json:"kind"`
+	Cron             string          `json:"cron"`
+	Tz               string          `json:"tz"`
+	NextRunAt        *time.Time      `json:"next_run_at"`
+	TokenHash        *string         `json:"token_hash"`
+	SigningSecretEnc []byte          `json:"signing_secret_enc"`
+	Provider         string          `json:"provider"`
+	Filters          json.RawMessage `json:"filters"`
+	Enabled          bool            `json:"enabled"`
+	CreatedBy        uuid.UUID       `json:"created_by"`
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 type Card struct {
@@ -149,6 +214,7 @@ type Card struct {
 	ResearchID   *uuid.UUID  `json:"research_id"`
 	AssigneeType *string     `json:"assignee_type"`
 	AssigneeID   *uuid.UUID  `json:"assignee_id"`
+	Origin       string      `json:"origin"`
 }
 
 type Comment struct {
@@ -172,15 +238,16 @@ type Event struct {
 }
 
 type InboxItem struct {
-	ID          uuid.UUID  `json:"id"`
-	WorkspaceID uuid.UUID  `json:"workspace_id"`
-	CardID      uuid.UUID  `json:"card_id"`
-	UserID      uuid.UUID  `json:"user_id"`
-	Kind        string     `json:"kind"`
-	Text        string     `json:"text"`
-	ReadAt      *time.Time `json:"read_at"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ResolvedAt  *time.Time `json:"resolved_at"`
+	ID                uuid.UUID  `json:"id"`
+	WorkspaceID       uuid.UUID  `json:"workspace_id"`
+	CardID            *uuid.UUID `json:"card_id"`
+	UserID            uuid.UUID  `json:"user_id"`
+	Kind              string     `json:"kind"`
+	Text              string     `json:"text"`
+	ReadAt            *time.Time `json:"read_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	ResolvedAt        *time.Time `json:"resolved_at"`
+	AutoresearchRunID *uuid.UUID `json:"autoresearch_run_id"`
 }
 
 type Member struct {
@@ -267,6 +334,19 @@ type VerificationCode struct {
 	CodeHash  string    `json:"code_hash"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Attempts  int32     `json:"attempts"`
+}
+
+type WebhookDelivery struct {
+	ID          uuid.UUID       `json:"id"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	TriggerID   uuid.UUID       `json:"trigger_id"`
+	DeliveryKey string          `json:"delivery_key"`
+	ReceivedAt  time.Time       `json:"received_at"`
+	Envelope    json.RawMessage `json:"envelope"`
+	State       string          `json:"state"`
+	Attempts    int32           `json:"attempts"`
+	LeaseUntil  *time.Time      `json:"lease_until"`
+	RunID       *uuid.UUID      `json:"run_id"`
 }
 
 type Workspace struct {

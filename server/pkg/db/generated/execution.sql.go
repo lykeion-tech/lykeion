@@ -107,7 +107,7 @@ WHERE id = (
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id
 `
 
 type ClaimAgentRunParams struct {
@@ -156,6 +156,8 @@ func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (A
 		&i.InputOutcomes,
 		&i.AddonHash,
 		&i.AddonMcp,
+		&i.Kind,
+		&i.RequesterID,
 	)
 	return i, err
 }
@@ -195,22 +197,22 @@ func (q *Queries) DeleteRuntime(ctx context.Context, arg DeleteRuntimeParams) (i
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
 INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id
 `
 
 type EnqueueAgentRunParams struct {
-	WorkspaceID       uuid.UUID `json:"workspace_id"`
-	CardID            uuid.UUID `json:"card_id"`
-	ResponsibleUserID uuid.UUID `json:"responsible_user_id"`
-	BoardColumn       string    `json:"board_column"`
-	Round             int32     `json:"round"`
-	Role              string    `json:"role"`
-	Harness           string    `json:"harness"`
-	Prompt            string    `json:"prompt"`
-	Skill             string    `json:"skill"`
-	MaxAttempts       int32     `json:"max_attempts"`
-	ContinuityScope   string    `json:"continuity_scope"`
-	RunPrivate        bool      `json:"run_private"`
+	WorkspaceID       uuid.UUID  `json:"workspace_id"`
+	CardID            *uuid.UUID `json:"card_id"`
+	ResponsibleUserID uuid.UUID  `json:"responsible_user_id"`
+	BoardColumn       string     `json:"board_column"`
+	Round             int32      `json:"round"`
+	Role              string     `json:"role"`
+	Harness           string     `json:"harness"`
+	Prompt            string     `json:"prompt"`
+	Skill             string     `json:"skill"`
+	MaxAttempts       int32      `json:"max_attempts"`
+	ContinuityScope   string     `json:"continuity_scope"`
+	RunPrivate        bool       `json:"run_private"`
 }
 
 func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams) (AgentRun, error) {
@@ -267,6 +269,8 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		&i.InputOutcomes,
 		&i.AddonHash,
 		&i.AddonMcp,
+		&i.Kind,
+		&i.RequesterID,
 	)
 	return i, err
 }
@@ -320,7 +324,7 @@ func (q *Queries) FinishAgentRun(ctx context.Context, arg FinishAgentRunParams) 
 }
 
 const getAgentRun = `-- name: GetAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp FROM agent_run WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id FROM agent_run WHERE id = $1 AND workspace_id = $2
 `
 
 type GetAgentRunParams struct {
@@ -369,6 +373,8 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 		&i.InputOutcomes,
 		&i.AddonHash,
 		&i.AddonMcp,
+		&i.Kind,
+		&i.RequesterID,
 	)
 	return i, err
 }
@@ -437,13 +443,13 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type InsertAgentRunTokenParams struct {
-	TokenHash   string    `json:"token_hash"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	AgentRunID  uuid.UUID `json:"agent_run_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	Role        string    `json:"role"`
-	Attempt     int32     `json:"attempt"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	TokenHash   string     `json:"token_hash"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	AgentRunID  uuid.UUID  `json:"agent_run_id"`
+	CardID      *uuid.UUID `json:"card_id"`
+	Role        string     `json:"role"`
+	Attempt     int32      `json:"attempt"`
+	ExpiresAt   time.Time  `json:"expires_at"`
 }
 
 func (q *Queries) InsertAgentRunToken(ctx context.Context, arg InsertAgentRunTokenParams) error {
@@ -647,7 +653,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 }
 
 const lockAgentRun = `-- name: LockAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
 
 type LockAgentRunParams struct {
@@ -696,12 +702,14 @@ func (q *Queries) LockAgentRun(ctx context.Context, arg LockAgentRunParams) (Age
 		&i.InputOutcomes,
 		&i.AddonHash,
 		&i.AddonMcp,
+		&i.Kind,
+		&i.RequesterID,
 	)
 	return i, err
 }
 
 const lockAgentRunToken = `-- name: LockAgentRunToken :one
-SELECT token_hash, workspace_id, agent_run_id, card_id, role, attempt, expires_at FROM agent_run_token
+SELECT token_hash, workspace_id, agent_run_id, card_id, role, attempt, expires_at, scopes FROM agent_run_token
 WHERE token_hash = $1 AND workspace_id = $2 AND agent_run_id = $3
   AND expires_at > clock_timestamp()
 FOR UPDATE
@@ -724,6 +732,7 @@ func (q *Queries) LockAgentRunToken(ctx context.Context, arg LockAgentRunTokenPa
 		&i.Role,
 		&i.Attempt,
 		&i.ExpiresAt,
+		&i.Scopes,
 	)
 	return i, err
 }
@@ -948,14 +957,13 @@ func (q *Queries) SupersedeRoleRecords(ctx context.Context, arg SupersedeRoleRec
 }
 
 const sweepAgentRuns = `-- name: SweepAgentRuns :many
-SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, card_id::uuid AS card_id, status::text AS status
+SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, status::text AS status
 FROM sweep_agent_runs()
 `
 
 type SweepAgentRunsRow struct {
 	AgentRunID  uuid.UUID `json:"agent_run_id"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
 	Status      string    `json:"status"`
 }
 
@@ -968,12 +976,7 @@ func (q *Queries) SweepAgentRuns(ctx context.Context) ([]SweepAgentRunsRow, erro
 	var items []SweepAgentRunsRow
 	for rows.Next() {
 		var i SweepAgentRunsRow
-		if err := rows.Scan(
-			&i.AgentRunID,
-			&i.WorkspaceID,
-			&i.CardID,
-			&i.Status,
-		); err != nil {
+		if err := rows.Scan(&i.AgentRunID, &i.WorkspaceID, &i.Status); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

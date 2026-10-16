@@ -124,7 +124,7 @@ FROM agent_run_token_lookup(@token_hash::text);
 SELECT sweep_runtimes(@stale::interval)::int AS n;
 
 -- name: SweepAgentRuns :many
-SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, card_id::uuid AS card_id, status::text AS status
+SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, status::text AS status
 FROM sweep_agent_runs();
 
 -- name: InsertRecord :one

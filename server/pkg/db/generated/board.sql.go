@@ -51,7 +51,7 @@ func (q *Queries) ActiveDuplicate(ctx context.Context, arg ActiveDuplicateParams
 }
 
 const backlogCards = `-- name: BacklogCards :many
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id FROM card WHERE workspace_id = $1 AND board_column = 'backlog' AND flag = ''
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin FROM card WHERE workspace_id = $1 AND board_column = 'backlog' AND flag = ''
 ORDER BY position, number
 `
 
@@ -94,6 +94,7 @@ func (q *Queries) BacklogCards(ctx context.Context, workspaceID uuid.UUID) ([]Ca
 			&i.ResearchID,
 			&i.AssigneeType,
 			&i.AssigneeID,
+			&i.Origin,
 		); err != nil {
 			return nil, err
 		}
@@ -188,8 +189,8 @@ ORDER BY created_at, id
 `
 
 type CardInflightAgentRunsParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      *uuid.UUID `json:"card_id"`
 }
 
 func (q *Queries) CardInflightAgentRuns(ctx context.Context, arg CardInflightAgentRunsParams) ([]uuid.UUID, error) {
@@ -237,7 +238,7 @@ func (q *Queries) CountKindRecords(ctx context.Context, arg CountKindRecordsPara
 }
 
 const getCardByNumber = `-- name: GetCardByNumber :one
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id FROM card WHERE workspace_id = $1 AND number = $2
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin FROM card WHERE workspace_id = $1 AND number = $2
 `
 
 type GetCardByNumberParams struct {
@@ -277,13 +278,14 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 		&i.ResearchID,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.Origin,
 	)
 	return i, err
 }
 
 const insertInboxItem = `-- name: InsertInboxItem :exec
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
-VALUES ($1, $2, $3, $4, $5)
+VALUES ($1, $2::uuid, $3, $4, $5)
 `
 
 type InsertInboxItemParams struct {
@@ -306,7 +308,7 @@ func (q *Queries) InsertInboxItem(ctx context.Context, arg InsertInboxItemParams
 }
 
 const lockCard = `-- name: LockCard :one
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
 `
 
 type LockCardParams struct {
@@ -346,6 +348,7 @@ func (q *Queries) LockCard(ctx context.Context, arg LockCardParams) (Card, error
 		&i.ResearchID,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.Origin,
 	)
 	return i, err
 }
@@ -406,7 +409,7 @@ func (q *Queries) RoundAgentRunRecords(ctx context.Context, arg RoundAgentRunRec
 }
 
 const roundAgentRuns = `-- name: RoundAgentRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp FROM agent_run WHERE workspace_id = $1 AND card_id = $2
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4 ORDER BY created_at
 `
 
@@ -469,6 +472,8 @@ func (q *Queries) RoundAgentRuns(ctx context.Context, arg RoundAgentRunsParams) 
 			&i.InputOutcomes,
 			&i.AddonHash,
 			&i.AddonMcp,
+			&i.Kind,
+			&i.RequesterID,
 		); err != nil {
 			return nil, err
 		}
@@ -565,7 +570,7 @@ func (q *Queries) SetAgentRunHandoffNote(ctx context.Context, arg SetAgentRunHan
 
 const setCardQueueReason = `-- name: SetCardQueueReason :exec
 UPDATE agent_run SET queue_reason = $1
-WHERE workspace_id = $2 AND card_id = $3 AND status = 'queued'
+WHERE workspace_id = $2 AND card_id = $3::uuid AND status = 'queued'
 `
 
 type SetCardQueueReasonParams struct {

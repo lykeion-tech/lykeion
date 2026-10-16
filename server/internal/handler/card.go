@@ -157,7 +157,7 @@ func (h *H) cardRuns(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		var err error
-		runs, err = tx.Q.CardAgentRuns(r.Context(), db.CardAgentRunsParams{WorkspaceID: ws, CardID: id})
+		runs, err = tx.Q.CardAgentRuns(r.Context(), db.CardAgentRunsParams{WorkspaceID: ws, CardID: &id})
 		return err
 	})
 	if err != nil {
@@ -323,7 +323,7 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 		if item.Kind != "released" {
 			return nil
 		}
-		return tx.Emit(r.Context(), "inbox.resolved", &item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})
+		return tx.Emit(r.Context(), "inbox.resolved", item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})
 	})
 	if err != nil {
 		fail(w, r, err)

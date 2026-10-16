@@ -29,7 +29,7 @@ var errEnded = errors.New("the card has ended; continue with a new card that fol
 // resolveBlocked resolves the card's open escalated and out-of-budget inbox
 // items: a person has answered them by resuming, stopping or changing the budget.
 func resolveBlocked(ctx context.Context, tx *store.Tx, card, who uuid.UUID) error {
-	ids, err := tx.Q.ResolveCardInbox(ctx, db.ResolveCardInboxParams{WorkspaceID: tx.WS, CardID: card})
+	ids, err := tx.Q.ResolveCardInbox(ctx, db.ResolveCardInboxParams{WorkspaceID: tx.WS, CardID: &card})
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, 
 			}
 		}
 		if cancelAgentRuns {
-			ts, err := tx.Q.CardInflightAgentRuns(r.Context(), db.CardInflightAgentRunsParams{WorkspaceID: ws, CardID: id})
+			ts, err := tx.Q.CardInflightAgentRuns(r.Context(), db.CardInflightAgentRunsParams{WorkspaceID: ws, CardID: &id})
 			if err != nil {
 				return err
 			}
