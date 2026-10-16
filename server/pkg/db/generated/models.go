@@ -62,6 +62,8 @@ type AgentRun struct {
 	InputFetchExpiresAt   *time.Time      `json:"input_fetch_expires_at"`
 	InputFetchID          *uuid.UUID      `json:"input_fetch_id"`
 	InputOutcomes         json.RawMessage `json:"input_outcomes"`
+	AddonHash             string          `json:"addon_hash"`
+	AddonMcp              json.RawMessage `json:"addon_mcp"`
 }
 
 type AgentRunMessage struct {
@@ -238,6 +240,15 @@ type Runtime struct {
 	MaxConcurrent int32     `json:"max_concurrent"`
 	CreatedAt     time.Time `json:"created_at"`
 	CliVersion    string    `json:"cli_version"`
+}
+
+type StageAddon struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	BoardColumn string          `json:"board_column"`
+	SkillMd     string          `json:"skill_md"`
+	Mcp         json.RawMessage `json:"mcp"`
+	UpdatedBy   uuid.UUID       `json:"updated_by"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 type User struct {
