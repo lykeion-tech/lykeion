@@ -14,6 +14,8 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/board"
+	"lykeion/server/internal/ground"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
@@ -604,5 +606,291 @@ func TestUnjudgedPairsFallToTheSelector(t *testing.T) {
 		if j.Judge != "selector" {
 			t.Fatalf("%+v", j)
 		}
+	}
+}
+
+func (f *fixture) gate(t *testing.T, j *jev.Client) *board.Gate {
+	t.Helper()
+	ctx := context.Background()
+	var v *records.View
+	err := f.st.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) (err error) {
+		v, err = records.Load(ctx, tx, f.blobs, f.card, "hypotheses")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := Check(ctx, v, j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+func (f *fixture) finalize(t *testing.T, g *board.Gate) {
+	t.Helper()
+	ctx := context.Background()
+	if err := f.st.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) error {
+		v, err := records.Load(ctx, tx, f.blobs, f.card, "hypotheses")
+		if err == nil {
+			ground.Finalize(v, g)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func check(g *board.Gate, id string) board.Check {
+	for _, ch := range g.Checks {
+		if ch.ID == id {
+			return ch
+		}
+	}
+	return board.Check{ID: id, Result: "missing"}
+}
+
+// complete runs the whole column the way its roles and the server would and
+// returns the top-ranked survivor and the other one. With j nil, Jev egress
+// is off and the selector judges the one pair.
+func (f *fixture) complete(t *testing.T, j *jev.Client) (string, string) {
+	t.Helper()
+	f.serve(t, Generators, j)
+	f.mustWrite(t, "generator-1", "candidate", mechanism)
+	f.mustWrite(t, "generator-2", "candidate", artefact)
+	f.mustWrite(t, "generator-3", "candidate", mechanism)
+	f.serve(t, []string{Decomposer}, j)
+	for _, h := range []string{"H1", "H2"} {
+		f.mustWrite(t, Decomposer, "decomposition", decomposition(h))
+	}
+	f.serve(t, []string{NoveltyScout}, j)
+	f.mustWrite(t, NoveltyScout, "novelty", map[string]any{"candidate": "H1", "status": "unknown", "queries": []string{"X Z mediation liver"}})
+	f.mustWrite(t, NoveltyScout, "novelty", map[string]any{"candidate": "H2", "status": "related", "queries": []string{"assay batch artefact Y"},
+		"closest": map[string]string{"source_id": "openalex:W7", "quote": "Batch effects in Y assays can mimic treatment effects"}})
+	f.serve(t, []string{Selector}, j)
+	if j == nil {
+		f.mustWrite(t, Selector, "comparison", map[string]string{"a": "H1", "b": "H2", "winner": "H1", "reason": "a sharper prediction"})
+	}
+	_, body, err := f.write(t, Selector, "ranking", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rk Ranking
+	json.Unmarshal(body, &rk)
+	f.mustWrite(t, Selector, "matrix", matrix(nullOK, rk.Order[0], "ci_low > 0.2", rk.Order[1]))
+	return rk.Order[0], rk.Order[1]
+}
+
+func TestCompleteColumnPassesCodeAndJev(t *testing.T) {
+	f := setup(t)
+	top, other := f.complete(t, fakeJev(t, false))
+	g := f.gate(t, fakeJev(t, false))
+	if g.Verdict != "" {
+		t.Fatalf("decided without the reviewer: %+v", g)
+	}
+	for _, ch := range g.Checks {
+		if ch.Result != board.Pass {
+			t.Fatalf("%+v", ch)
+		}
+	}
+	rid := map[string]string{top: "R1", other: "R2"}["H2"]
+	for _, id := range []string{"candidates.present", "claims.H1", "claims.H2", "claims.H3", "claims.H1.decomposition", "matrix.schema",
+		"rivals.count", "rivals.null", "rivals.survivors", "ranking.complete", "ranking.current", "select.top", "measurement.dataset",
+		"measurement.unit", "stated.R0", "consistent.R0", "consistent.R1", "equivalence.R0", "equivalence.R2", "disagree.R0.R1",
+		"disagree.R0.R2", "disagree.R1.R2", "decomposition.R1", "novelty.R2", "novelty." + rid + ".quote", "prior." + rid,
+		"assumption." + top + ".A1.E1", "test." + other + ".T1"} {
+		if ch := check(g, id); ch.Result != board.Pass {
+			t.Errorf("%s: %+v", id, ch)
+		}
+	}
+	if ch := check(g, "prior."+rid); ch.Judge != board.Jev || ch.Choice != "does_not" {
+		t.Fatalf("%+v", ch)
+	}
+	if check(g, "ranking.judges").Result != "missing" {
+		t.Fatal("Jev judged every pair; the reviewer has nothing to confirm")
+	}
+	f.mustWrite(t, Reviewer, "verdict", map[string]string{"result": "pass", "reason": "honest rivals and a feasible measurement"})
+	f.finalize(t, g)
+	if g.Verdict != board.VPass {
+		t.Fatalf("%+v", g)
+	}
+}
+
+func TestOverlappingPredictionsFailAtTheSelector(t *testing.T) {
+	f := setup(t)
+	top, other := f.complete(t, fakeJev(t, false))
+	f.mustWrite(t, Selector, "matrix", matrix(nullOK, top, "ci_low > -0.5", other))
+	g := f.gate(t, fakeJev(t, false))
+	if ch := check(g, "disagree.R0.R1"); ch.Result != board.Fail || !strings.Contains(ch.Note, "both hold at") {
+		t.Fatalf("%+v", ch)
+	}
+	if g.Verdict != board.VFail || g.Route == nil || g.Route.Step != Selector || g.Route.Column != board.Hypotheses {
+		t.Fatalf("%+v %+v", g.Verdict, g.Route)
+	}
+}
+
+func TestBoundaryTouchIsOverlap(t *testing.T) {
+	f := setup(t)
+	top, other := f.complete(t, fakeJev(t, false))
+	// The null allows ci_low = ci_high = 0.2; this prediction allows it too.
+	f.mustWrite(t, Selector, "matrix", matrix(nullOK, top, "ci_low >= 0.2", other))
+	if ch := check(f.gate(t, nil), "disagree.R0.R1"); ch.Result != board.Fail {
+		t.Fatalf("%+v", ch)
+	}
+}
+
+func TestNullMustBeSupportable(t *testing.T) {
+	f := setup(t)
+	top, other := f.complete(t, fakeJev(t, false))
+	f.mustWrite(t, Selector, "matrix", matrix("ci_high <= 0.2", top, "ci_low > 0.2", other))
+	if ch := check(f.gate(t, nil), "equivalence.R0"); ch.Result != board.Fail {
+		t.Fatalf("a one-sided null can only be un-refuted, never supported: %+v", ch)
+	}
+}
+
+func TestTopRankedCandidateMustBeARival(t *testing.T) {
+	f := setup(t)
+	top, other := f.complete(t, fakeJev(t, false))
+	f.mustWrite(t, Selector, "matrix", matrix(nullOK, other, "ci_low > 0.2", other))
+	if ch := check(f.gate(t, nil), "select.top"); ch.Result != board.Fail || !strings.Contains(ch.Note, top) {
+		t.Fatalf("%+v", ch)
+	}
+}
+
+func TestNoveltyQuoteMustBeInTheFetchedText(t *testing.T) {
+	f := setup(t)
+	top, other := f.complete(t, fakeJev(t, false))
+	f.mustWrite(t, NoveltyScout, "novelty", map[string]any{"candidate": "H2", "status": "related", "queries": []string{"assay batch artefact Y"},
+		"closest": map[string]string{"source_id": "openalex:W7", "quote": "batch effects explain every result"}})
+	rid := map[string]string{top: "R1", other: "R2"}["H2"]
+	if ch := check(f.gate(t, nil), "novelty."+rid+".quote"); ch.Result != board.Fail || ch.Owner != NoveltyScout {
+		t.Fatalf("%+v", ch)
+	}
+}
+
+func TestMissingPremiseRoutesToGrounding(t *testing.T) {
+	f := setup(t)
+	f.mustWrite(t, "generator-1", "candidate", mechanism)
+	f.mustWrite(t, "generator-2", "missing_premise", map[string]string{"gap": "the dose at which X saturates Y"})
+	g := f.gate(t, nil)
+	if g.Verdict != board.VFail || g.Route == nil || g.Route.Column != board.Grounding || g.Route.Step != "literature-scout" ||
+		!strings.Contains(g.Reason, "missing premise: the dose at which X saturates Y") {
+		t.Fatalf("%+v %+v", g, g.Route)
+	}
+}
+
+func TestSelectorCannotProceed(t *testing.T) {
+	f := setup(t)
+	f.mustWrite(t, Selector, "cannot_proceed", map[string]string{"reason": "no candidate can be measured on GSE1"})
+	if g := f.gate(t, nil); g.Verdict != board.CannotProceed || g.Reason != "no viable hypothesis: no candidate can be measured on GSE1" {
+		t.Fatalf("%+v", g)
+	}
+}
+
+func TestGeneratorsFindingNothingStopsTheCard(t *testing.T) {
+	f := setup(t)
+	for _, gen := range Generators {
+		f.insert(t, "hypotheses", "nothing_found", gen, "", `{"reason":"nothing follows from the seed"}`)
+	}
+	if g := f.gate(t, nil); g.Verdict != board.CannotProceed || !strings.HasPrefix(g.Reason, "no viable hypothesis: nothing follows from the seed") {
+		t.Fatalf("%+v", g)
+	}
+}
+
+func TestEgressOffSelectorJudgesAndTheReviewerConfirms(t *testing.T) {
+	f := setup(t)
+	f.complete(t, nil)
+	g := f.gate(t, nil)
+	if ch := check(g, "ranking.judges"); ch.Result != board.Attention || ch.Judge != board.Reviewer {
+		t.Fatalf("%+v", ch)
+	}
+	var open []string
+	for _, ch := range g.Checks {
+		if ch.Result == board.Attention {
+			if ch.Judge != board.Reviewer {
+				t.Fatalf("egress is off, yet %s is not the reviewer's: %+v", ch.ID, ch)
+			}
+			open = append(open, ch.ID)
+		}
+	}
+	if len(open) < 4 {
+		t.Fatalf("want the ranking, assumption, test and prior-work checks open: %v", open)
+	}
+	f.mustWrite(t, Reviewer, "verdict", map[string]string{"result": "pass", "reason": "fair selection"})
+	unsettled := f.gate(t, nil)
+	f.finalize(t, unsettled)
+	if unsettled.Verdict != board.VFail {
+		t.Fatal("open checks passed without the reviewer settling them")
+	}
+	for _, id := range open {
+		f.mustWrite(t, Reviewer, "review_item", map[string]string{"check": id, "result": "pass", "note": "read and confirmed"})
+	}
+	settled := f.gate(t, nil)
+	f.finalize(t, settled)
+	if settled.Verdict != board.VPass {
+		t.Fatalf("%+v", settled)
+	}
+}
+
+func TestGateRejectsDecompositionWithoutLiveCitations(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		claims []string
+		stale  bool
+	}{
+		{name: "nil"}, {name: "empty", claims: []string{}},
+		{name: "unknown", claims: []string{"E9"}}, {name: "superseded", claims: []string{"E1"}, stale: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setup(t)
+			f.complete(t, nil)
+			d := decomposition("H1")
+			d["assumptions"] = []map[string]any{{"id": "A1", "text": "Y is measured once per mouse", "claims": tc.claims}}
+			body, err := json.Marshal(d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Bypass write validation to verify the gate independently protects provenance.
+			if _, err := f.env.Owner.Exec(context.Background(), `UPDATE record SET body = $1::jsonb WHERE card_id = $2 AND kind = 'decomposition' AND body->>'candidate' = 'H1' AND superseded_at IS NULL`, string(body), f.card); err != nil {
+				t.Fatal(err)
+			}
+			if tc.stale {
+				if _, err := f.env.Owner.Exec(context.Background(), `UPDATE record SET superseded_at = now() WHERE card_id = $1 AND board_column = 'grounding' AND key = 'E1'`, f.card); err != nil {
+					t.Fatal(err)
+				}
+			}
+			g := f.gate(t, nil)
+			ch := check(g, "claims.H1.decomposition")
+			if ch.Result != board.Fail || ch.Owner != Decomposer || g.Verdict != board.VFail {
+				t.Fatalf("gate admitted malformed decomposition: check=%+v gate=%+v", ch, g)
+			}
+		})
+	}
+}
+
+func TestGateCodeFailureSkipsJev(t *testing.T) {
+	f := setup(t)
+	top, other := f.complete(t, nil)
+	f.mustWrite(t, Selector, "matrix", matrix(nullOK, top, "ci_low >= 0.2", other))
+	calls := 0
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusServiceUnavailable) }))
+	defer s.Close()
+	g := f.gate(t, &jev.Client{BaseURL: s.URL, Key: "k", Model: "jev-1.13.0"})
+	if g.Verdict != board.VFail || calls != 0 {
+		t.Fatalf("verdict=%s Jev calls=%d", g.Verdict, calls)
+	}
+}
+
+func TestGateJevFailureRequiresReviewerSettlement(t *testing.T) {
+	f := setup(t)
+	top, _ := f.complete(t, nil)
+	g := f.gate(t, fakeJev(t, true))
+	if ch := check(g, "assumption."+top+".A1.E1"); ch.Result != board.Attention || !strings.Contains(ch.Note, "jev unavailable") {
+		t.Fatalf("%+v", ch)
+	}
+	f.mustWrite(t, Reviewer, "verdict", map[string]string{"result": "pass", "reason": "reviewed"})
+	f.finalize(t, g)
+	if g.Verdict != board.VFail {
+		t.Fatalf("unsettled Jev failure passed: %+v", g)
 	}
 }
