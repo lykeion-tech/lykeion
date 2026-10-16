@@ -2,7 +2,10 @@ package sources
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -340,5 +343,288 @@ func TestACardlessAgentRunIsLoggedButNeverRecorded(t *testing.T) {
 	}
 	if records != 0 || events != 1 || len(entries) != 0 {
 		t.Fatalf("records %d, events %d, blobs %d", records, events, len(entries))
+	}
+}
+
+// hostedMetadataFixture exercises the authenticated, stateless MCP route.
+func hostedMetadataFixture(t *testing.T, metadata http.HandlerFunc, cardless bool) (*Hosted, *mcp.ClientSession, *testutil.Env, uuid.UUID, uuid.UUID, uuid.UUID) {
+	t.Helper()
+	env := testutil.Setup(t)
+	ctx := context.Background()
+	st := &store.Store{Pool: env.App}
+	ws, card, run, user := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace (id,slug,name) VALUES ($1,'w','w');`, ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO "user" (id,email) VALUES ($1,'metadata@lab.org')`, user); err != nil {
+		t.Fatal(err)
+	}
+	var cardArg any = card
+	role := "literature-scout"
+	if cardless {
+		card = uuid.Nil
+		cardArg = nil
+		role = "autoresearch"
+	} else {
+		if _, err := env.Owner.Exec(ctx, `INSERT INTO card (id,workspace_id,number,title,question,owner_id,board_column,round) VALUES ($1,$2,1,'t','q',$3,'grounding',1)`, card, ws, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kind := "role"
+	if cardless {
+		kind = "autoresearch"
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO agent_run (id,workspace_id,card_id,responsible_user_id,requester_id,kind,board_column,round,role,harness,prompt,status,attempt) VALUES ($1,$2,$3,$4,$4,$5,'grounding',1,$6,'claude','p','running',1)`, run, ws, cardArg, user, kind, role); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO agent_run_token (token_hash,workspace_id,agent_run_id,card_id,role,attempt,expires_at) VALUES ($1,$2,$3,$4,$5,1,now()+interval '1 hour')`, hashToken("ltk_metadata"), ws, run, cardArg, role); err != nil {
+		t.Fatal(err)
+	}
+	api := fakeAPIs(t)
+	meta := httptest.NewServer(metadata)
+	t.Cleanup(meta.Close)
+	h := &Hosted{GEO: GEO{Base: api.URL + "/geo", MetadataBase: meta.URL}, OA: OpenAlex{Base: api.URL + "/oa"}, Store: st, Blobs: storage.Local{Dir: t.TempDir()}}
+	srv := httptest.NewServer(middleware.AgentRunAuth(st)(h.Handler()))
+	t.Cleanup(srv.Close)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: bearer("ltk_metadata")}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	return h, cs, env, ws, card, run
+}
+func metadataCall(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any) *mcp.CallToolResult {
+	t.Helper()
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+func metadataJSON(t *testing.T, res *mcp.CallToolResult) map[string]any {
+	t.Helper()
+	b, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if err = json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+func TestHostedGEOMetadataIsRecorded(t *testing.T) {
+	for _, truncated := range []bool{false, true} {
+		t.Run(fmt.Sprint(truncated), func(t *testing.T) {
+			h, cs, _, ws, card, _ := hostedMetadataFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, "^SAMPLE = GSM1\n!Sample_title = station observations\n!Sample_characteristics_ch1 = group: A\n")
+				if truncated {
+					fmt.Fprint(w, strings.Repeat("!Sample_description = observed\n", 80000))
+				}
+			}, false)
+			opened := metadataCall(t, cs, "open_dataset", map[string]any{"accession": "GSE1"})
+			if opened.IsError {
+				t.Fatal(opened)
+			}
+			out := metadataJSON(t, opened)
+			if !strings.Contains(out["structure"].(string), "- GSM2: mouse 2") {
+				t.Fatal(out)
+			}
+			refs, ok := out["metadata_sources"].([]any)
+			if !ok {
+				t.Fatalf("missing metadata refs: %v", out)
+			}
+			var source string
+			for _, ref := range refs {
+				r := ref.(map[string]any)
+				if r["relation"] == "sample" && r["accession"] == "GSM1" {
+					source = r["source_id"].(string)
+				}
+			}
+			if source != "geo:GSM1" {
+				t.Fatal(refs)
+			}
+			fetched := metadataCall(t, cs, "fetch_text", map[string]any{"source_id": source})
+			if fetched.IsError {
+				t.Fatal(fetched)
+			}
+			got := metadataJSON(t, fetched)
+			if got["source_kind"] != "dataset_metadata" || got["full_text"] != false {
+				t.Fatal(got)
+			}
+			if (got["truncated"] == true) != truncated {
+				t.Fatalf("truncation: %v", got["truncated"])
+			}
+			text := got["text"].(string)
+			if err := h.Store.InWorkspace(context.Background(), ws, uuid.Nil, func(tx *store.Tx) error {
+				v, err := records.Load(context.Background(), tx, h.Blobs, card, "grounding")
+				if err != nil {
+					return err
+				}
+				f, ok := v.ByKey("fetch", source)
+				if !ok {
+					t.Fatal("no fetch")
+				}
+				stored, err := v.Text(f)
+				if err != nil {
+					return err
+				}
+				body := records.Body[map[string]any](f)
+				if stored != text || body["source_kind"] != got["source_kind"] || body["source_url"] != got["source_url"] || body["sha256"] != fmt.Sprintf("%x", sha256.Sum256([]byte(text))) || (body["truncated"] == true) != truncated {
+					t.Fatal("record differs", body)
+				}
+				var readable bool
+				readable, err = tx.Q.RoleBlobExists(context.Background(), db.RoleBlobExistsParams{WorkspaceID: ws, CardID: &card, BlobKey: f.BlobKey})
+				if err == nil && !readable {
+					t.Fatal("blob unreadable")
+				}
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.Store.InWorkspace(context.Background(), uuid.New(), uuid.Nil, func(tx *store.Tx) error {
+				v, err := records.Load(context.Background(), tx, h.Blobs, card, "grounding")
+				if err != nil {
+					return err
+				}
+				if len(v.Kind("fetch")) != 0 {
+					t.Fatal("another workspace read metadata evidence")
+				}
+				sum := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
+				readable, err := tx.Q.RoleBlobExists(context.Background(), db.RoleBlobExistsParams{WorkspaceID: ws, CardID: &card, BlobKey: ws.String() + "/" + card.String() + "/" + sum})
+				if readable {
+					t.Fatal("another workspace read metadata blob")
+				}
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			paper := metadataJSON(t, metadataCall(t, cs, "fetch_text", map[string]any{"source_id": "openalex:W2"}))
+			for _, key := range []string{"source_kind", "source_url", "truncated"} {
+				if _, ok := paper[key]; ok {
+					t.Fatal("legacy field", paper)
+				}
+			}
+		})
+	}
+}
+
+func TestHostedGEOMetadataCannotOutliveRun(t *testing.T) {
+	for _, revoke := range []bool{false, true} {
+		t.Run(fmt.Sprint(revoke), func(t *testing.T) {
+			started, release := make(chan struct{}), make(chan struct{})
+			_, cs, env, ws, card, run := hostedMetadataFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				close(started)
+				<-release
+				fmt.Fprint(w, "^SAMPLE = GSM1\n!Sample_title = observations\n")
+			}, false)
+			done := make(chan *mcp.CallToolResult, 1)
+			go func() {
+				res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "fetch_text", Arguments: map[string]any{"source_id": "geo:GSM1"}})
+				if err != nil {
+					done <- nil
+					return
+				}
+				done <- res
+			}()
+			select {
+			case <-started:
+			case res := <-done:
+				t.Fatalf("metadata dispatch failed before upstream: %+v", res)
+			}
+			sql := `UPDATE agent_run SET status='completed' WHERE id=$1`
+			if revoke {
+				sql = `DELETE FROM agent_run_token WHERE agent_run_id=$1`
+			}
+			if _, err := env.Owner.Exec(context.Background(), sql, run); err != nil {
+				close(release)
+				t.Fatal(err)
+			}
+			close(release)
+			res := <-done
+			if res == nil || !res.IsError {
+				t.Fatalf("settled fetch: %+v", res)
+			}
+			b, _ := json.Marshal(res)
+			if strings.Contains(string(b), "observations") {
+				t.Fatal("unrecorded text returned", string(b))
+			}
+			var n int
+			if err := env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM record WHERE card_id=$1`, card).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n != 0 {
+				t.Fatal("late record", n)
+			}
+			if err := env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM event WHERE workspace_id=$1 AND type='blob.created'`, ws).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n != 0 {
+				t.Fatal("late readable blob", n)
+			}
+		})
+	}
+}
+func TestFailedMetadataIsNotFetchedEvidence(t *testing.T) {
+	for _, mode := range []string{"malformed", "challenge", "rate"} {
+		t.Run(mode, func(t *testing.T) {
+			h, cs, env, _, card, _ := hostedMetadataFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				switch mode {
+				case "rate":
+					w.Header().Set("Retry-After", "30")
+					w.WriteHeader(429)
+					fmt.Fprint(w, "SECRET")
+				case "challenge":
+					fmt.Fprint(w, "<html>browser check SECRET</html>")
+				default:
+					fmt.Fprint(w, "invalid SECRET")
+				}
+			}, false)
+			res := metadataCall(t, cs, "fetch_text", map[string]any{"source_id": "geo:GSM1"})
+			if !res.IsError {
+				t.Fatal(res)
+			}
+			b, _ := json.Marshal(res)
+			if strings.Contains(string(b), "SECRET") {
+				t.Fatal("response leaked", string(b))
+			}
+			if mode == "rate" && (!strings.Contains(string(b), "429") || !strings.Contains(string(b), "30")) {
+				t.Fatal(string(b))
+			}
+			var n int
+			if err := env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM record WHERE card_id=$1 AND kind='fetch'`, card).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n != 0 {
+				t.Fatal("failed fetch recorded")
+			}
+			entries, err := os.ReadDir(h.Blobs.(storage.Local).Dir)
+			if err != nil || len(entries) != 0 {
+				t.Fatal("failed blobs", entries, err)
+			}
+		})
+	}
+}
+func TestHostedGEOMetadataCardlessLogging(t *testing.T) {
+	h, cs, env, ws, _, _ := hostedMetadataFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "^SAMPLE = GSM1\n!Sample_title = observations\n")
+	}, true)
+	res := metadataCall(t, cs, "fetch_text", map[string]any{"source_id": "geo:GSM1"})
+	if res.IsError {
+		t.Fatal(res)
+	}
+	var n int
+	if err := env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM event WHERE workspace_id=$1 AND type='sources.called' AND payload->>'key'='geo:GSM1'`, ws).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatal("missing log", n)
+	}
+	if err := env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM record WHERE workspace_id=$1`, ws).Scan(&n); err != nil || n != 0 {
+		t.Fatal("cardless evidence", n, err)
+	}
+	entries, err := os.ReadDir(h.Blobs.(storage.Local).Dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatal(entries, err)
 	}
 }

@@ -108,13 +108,16 @@ type HitsOut struct {
 	Results []Hit `json:"results"`
 }
 type FetchIn struct {
-	SourceID string `json:"source_id" jsonschema:"an id returned by search_literature"`
+	SourceID string `json:"source_id" jsonschema:"an id returned by search_literature or open_dataset.metadata_sources"`
 }
 type FetchOut struct {
-	SourceID  string `json:"source_id"`
-	FullText  bool   `json:"full_text"`
-	Retracted bool   `json:"retracted"`
-	Text      string `json:"text"`
+	SourceKind string `json:"source_kind,omitempty"`
+	SourceURL  string `json:"source_url,omitempty"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	SourceID   string `json:"source_id"`
+	FullText   bool   `json:"full_text"`
+	Retracted  bool   `json:"retracted"`
+	Text       string `json:"text"`
 }
 type DatasetsIn struct {
 	Query string `json:"query" jsonschema:"search terms"`
@@ -123,8 +126,9 @@ type OpenIn struct {
 	Accession string `json:"accession" jsonschema:"a GEO accession such as GSE12345"`
 }
 type OpenOut struct {
-	Accession string `json:"accession"`
-	Structure string `json:"structure"`
+	MetadataSources []MetadataRef `json:"metadata_sources,omitempty"`
+	Accession       string        `json:"accession"`
+	Structure       string        `json:"structure"`
 }
 
 func ids(hits []Hit) []string {
@@ -159,7 +163,7 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			}
 			return nil, HitsOut{Results: hits}, h.Record(ctx, role, runToken(req), "search", "", map[string]any{"database": in.Database, "query": in.Query, "results": ids(hits)}, "")
 		})
-	mcp.AddTool(srv, &mcp.Tool{Name: "fetch_text", Description: "Fetch a source's open full text, or its abstract when there is none. Only fetched sources can be cited, and quotes must be copied from this text."},
+	mcp.AddTool(srv, &mcp.Tool{Name: "fetch_text", Description: "Fetch literature full text or its abstract, or one GEO accession's depositor metadata projection. Metadata is not full paper text or verified dataset files; truncated metadata cannot establish absence or completeness. Only fetched sources can be cited, and quotes must be copied from this text."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in FetchIn) (*mcp.CallToolResult, FetchOut, error) {
 			dbName, id, _ := strings.Cut(in.SourceID, ":")
 			var d Doc
@@ -169,8 +173,10 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 				d, err = h.OA.Get(ctx, id)
 			case "europepmc":
 				d, err = h.EPMC.Get(ctx, id)
+			case "geo":
+				d, err = h.GEO.Metadata(ctx, id)
 			default:
-				return nil, FetchOut{}, fmt.Errorf("source id must start with openalex: or europepmc:")
+				return nil, FetchOut{}, fmt.Errorf("source id must start with openalex:, europepmc: or geo:")
 			}
 			if err != nil {
 				return nil, FetchOut{}, err
@@ -179,8 +185,20 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 				return nil, FetchOut{}, fmt.Errorf("%s has no text to read", in.SourceID)
 			}
 			body := map[string]any{"source_id": in.SourceID, "database": dbName, "doi": d.DOI, "full_text": d.FullText, "retracted": d.Retracted}
-			out := FetchOut{SourceID: in.SourceID, FullText: d.FullText, Retracted: d.Retracted, Text: d.Text}
-			return nil, out, h.Record(ctx, role, runToken(req), "fetch", in.SourceID, body, d.Text)
+			if d.SourceKind != "" {
+				body["source_kind"] = d.SourceKind
+			}
+			if d.SourceURL != "" {
+				body["source_url"] = d.SourceURL
+			}
+			if d.Truncated {
+				body["truncated"] = true
+			}
+			out := FetchOut{SourceKind: d.SourceKind, SourceURL: d.SourceURL, Truncated: d.Truncated, SourceID: in.SourceID, FullText: d.FullText, Retracted: d.Retracted, Text: d.Text}
+			if err := h.Record(ctx, role, runToken(req), "fetch", in.SourceID, body, d.Text); err != nil {
+				return nil, FetchOut{}, err
+			}
+			return nil, out, nil
 		})
 	mcp.AddTool(srv, &mcp.Tool{Name: "search_datasets", Description: "Search GEO datasets."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in DatasetsIn) (*mcp.CallToolResult, HitsOut, error) {
@@ -190,13 +208,13 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			}
 			return nil, HitsOut{Results: hits}, h.Record(ctx, role, runToken(req), "search", "", map[string]any{"database": "geo", "query": in.Query, "results": ids(hits)}, "")
 		})
-	mcp.AddTool(srv, &mcp.Tool{Name: "open_dataset", Description: "Open a GEO accession and return its structure: platform and what each sample is."},
+	mcp.AddTool(srv, &mcp.Tool{Name: "open_dataset", Description: "Open a GEO discovery summary with platform and sample titles, plus metadata source references for fetch_text. The summary is not a complete metadata inspection."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in OpenIn) (*mcp.CallToolResult, OpenOut, error) {
-			txt, err := h.GEO.Open(ctx, in.Accession)
+			doc, err := h.GEO.OpenWithMetadata(ctx, in.Accession)
 			if err != nil {
 				return nil, OpenOut{}, err
 			}
-			return nil, OpenOut{Accession: in.Accession, Structure: txt}, h.Record(ctx, role, runToken(req), "open_dataset", in.Accession, map[string]any{"accession": in.Accession}, txt)
+			return nil, OpenOut{Accession: in.Accession, Structure: doc.Structure, MetadataSources: doc.MetadataSources}, h.Record(ctx, role, runToken(req), "open_dataset", in.Accession, map[string]any{"accession": in.Accession}, doc.Structure)
 		})
 	return srv
 }
