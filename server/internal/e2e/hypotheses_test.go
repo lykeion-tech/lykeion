@@ -284,7 +284,7 @@ func TestMetadataRepairReachesAcceptedMatrix(t *testing.T) {
 	for name, q := range map[string]string{
 		"metadata fetch":      `kind='fetch' AND body->>'source_kind'='dataset_metadata' AND body->>'source_id'='geo:GSE1' AND body->>'full_text'='false'`,
 		"metadata E":          `kind='evidence' AND body->>'source_id'='geo:GSE1' AND body->>'quote'='Each mouse was collected at the same time after treatment'`,
-		"dataset measurement": `kind='matrix' AND body->'measurement'->>'accession'='GSE1' AND body->'measurement'->>'unit'='biological_replicates'`,
+		"dataset measurement": `kind='matrix' AND body->'measurement'->>'accession'='GSE1' AND body->'measurement'->>'unit'='paired_samples'`,
 	} {
 		if n := l.count(t, `SELECT count(*) FROM record WHERE card_id=$1 AND superseded_at IS NULL AND `+q, card); n != 1 && !(name == "metadata fetch" && n > 1) {
 			t.Errorf("%s: %d", name, n)

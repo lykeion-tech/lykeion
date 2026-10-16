@@ -129,7 +129,8 @@ func TestGEOOpenMetadataReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Structure != legacy || calls != 4 {
+	const expected = "accession: GSE1\ntitle: test\nplatform: GPL\nsummary: \nsamples:\n- GSM2: \n- GSM1: \n- GSM2: \n"
+	if legacy != expected || d.Structure != expected || calls != 4 {
 		t.Fatalf("structure or extra requests: %+v %d", d, calls)
 	}
 	want := []MetadataRef{{"geo:GSE1", "GSE1", "self"}, {"geo:GSM2", "GSM2", "sample"}, {"geo:GSM1", "GSM1", "sample"}}

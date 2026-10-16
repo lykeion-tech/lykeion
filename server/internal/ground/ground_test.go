@@ -628,7 +628,7 @@ func TestMetadataSupportAndOrigin(t *testing.T) {
 		var b struct {
 			State     string
 			Questions map[string]struct {
-				Question string
+				Question string `json:"instructions"`
 				Criteria map[string]string
 			}
 		}
@@ -640,10 +640,16 @@ func TestMetadataSupportAndOrigin(t *testing.T) {
 		if c["others_work"] != "" {
 			choice = "own_result"
 			if strings.Contains(b.State, "smith") {
-				metadataOrigin = strings.Contains(c["own_result"], "depositor") && strings.Contains(c["others_work"], "other")
+				metadataOrigin = b.Questions["q"].Question == "Does the passage directly describe this dataset's depositor information, synthesize it, or attribute findings to other work?" &&
+					c["own_result"] == "The passage is the depositor's direct description of this dataset, not an independently demonstrated mechanism or outcome" &&
+					c["synthesis"] == "The passage states the depositor's own synthesis of this dataset's information" &&
+					c["others_work"] == "The passage attributes findings to other work and requires original-source review"
 				choice = "others_work"
 			} else {
-				paperOrigin = c["own_result"] == Origins["own_result"]
+				paperOrigin = b.Questions["q"].Question == "Does the passage report this paper's own result or synthesis, or describe another study's work?" &&
+					c["own_result"] == "The passage reports a finding from the study this paper describes" &&
+					c["synthesis"] == "The passage states a review's or meta-analysis's own synthesis" &&
+					c["others_work"] == "The passage describes findings from other, earlier studies"
 			}
 			if len(c) != 3 {
 				t.Error("origin keys changed")
@@ -719,5 +725,70 @@ func TestTruncatedMetadataCannotEstablishAbsence(t *testing.T) {
 				t.Fatalf("fake reviewer settlement: %+v", g)
 			}
 		})
+	}
+}
+
+func TestUnitUsesOnlyReferencedRecordedMetadata(t *testing.T) {
+	f := setup(t)
+	f.complete(t, "X raised Y by 40%")
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/esearch.fcgi" {
+			w.Write([]byte(`{"esearchresult":{"idlist":["1"]}}`))
+			return
+		}
+		w.Write([]byte(`{"result":{"1":{"accession":"GSE1","title":"comparison","samples":[{"accession":"GSM1","title":"observation A"},{"accession":"GSM2","title":"observation B"}]}}}`))
+	}))
+	defer api.Close()
+	doc, err := (sources.GEO{Base: api.URL, HTTP: api.Client()}).OpenWithMetadata(context.Background(), "GSE1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.record(t, DataScout, "open_dataset", "GSE1", map[string]any{"accession": "GSE1", "metadata_sources": doc.MetadataSources}, doc.Structure)
+	decisive := "Observations are matched pairs from the same subject under different conditions"
+	f.record(t, DataScout, "fetch", "geo:GSM1", map[string]any{"source_id": "geo:GSM1", "source_kind": "dataset_metadata", "source_url": "https://example.test/GSM1", "truncated": true}, decisive)
+	f.record(t, DataScout, "fetch", "geo:GSE999", map[string]any{"source_id": "geo:GSE999", "source_kind": "dataset_metadata"}, "UNRELATED_METADATA")
+	f.record(t, Literature, "fetch", "geo:GSM2", map[string]any{"source_id": "geo:GSM2"}, "NON_METADATA_FETCH")
+	var state string
+	apiJ := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			State     string
+			Questions map[string]struct{ Criteria map[string]string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			t.Error(err)
+		}
+		choice := "supports"
+		c := b.Questions["q"].Criteria
+		if c["others_work"] != "" {
+			choice = "own_result"
+		}
+		if c["paired_samples"] != "" {
+			state = b.State
+			choice = "unclear"
+			if strings.Contains(state, decisive) {
+				choice = "paired_samples"
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"model": "jev-1.13.0", "answers": map[string]any{"q": map[string]any{"choice": choice, "probabilities": map[string]float64{choice: .9}}}})
+	}))
+	defer apiJ.Close()
+	g := f.gate(t, &jev.Client{BaseURL: apiJ.URL, Key: "k", Model: "jev-1.13.0"})
+	for _, want := range []string{doc.Structure, decisive, "geo:GSM1", "source_kind: dataset_metadata", "source_url: https://example.test/GSM1", "truncated: true", "cannot establish absence"} {
+		if !strings.Contains(state, want) {
+			t.Errorf("unit state missing %q: %q", want, state)
+		}
+	}
+	for _, forbidden := range []string{"UNRELATED_METADATA", "NON_METADATA_FETCH"} {
+		if strings.Contains(state, forbidden) {
+			t.Errorf("unit state included %s", forbidden)
+		}
+	}
+	for _, ch := range g.Checks {
+		if ch.ID == "unit.D1" && ch.Choice != "paired_samples" {
+			t.Errorf("unit choice: %+v", ch)
+		}
+	}
+	if strings.Contains(state, "source_id: geo:GSE1") {
+		t.Error("unfetched reference included as evidence")
 	}
 }

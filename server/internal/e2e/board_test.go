@@ -74,6 +74,9 @@ func fakeJev(t *testing.T) string {
 			choice = "does_not"
 		case q["biological_replicates"] != "":
 			choice = "biological_replicates"
+			if strings.Contains(body.State, "Observations are matched pairs from the same subject") {
+				choice = "paired_samples"
+			}
 		case strings.Contains(body.State, "no effect") != strings.Contains(body.State, "does not"):
 			choice = "challenges"
 		}
@@ -427,7 +430,7 @@ func metadataLab(t *testing.T, mode string) *boardLab {
 			w.Header().Set("Content-Type", "text/plain")
 			text := "^SERIES = GSE1\n!Series_title = comparison\n!Series_summary = Collection timing is not reported\n"
 			if mode != "unresolved" {
-				text = "^SERIES = GSE1\n!Series_title = comparison\n!Series_summary = Each mouse was collected at the same time after treatment\n"
+				text = "^SERIES = GSE1\n!Series_title = comparison\n!Series_summary = Each mouse was collected at the same time after treatment\n!Series_description = Observations are matched pairs from the same subject under different conditions\n"
 			}
 			w.Write([]byte(text))
 		case "/search":

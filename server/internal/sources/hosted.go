@@ -214,7 +214,7 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			if err != nil {
 				return nil, OpenOut{}, err
 			}
-			return nil, OpenOut{Accession: in.Accession, Structure: doc.Structure, MetadataSources: doc.MetadataSources}, h.Record(ctx, role, runToken(req), "open_dataset", in.Accession, map[string]any{"accession": in.Accession}, doc.Structure)
+			return nil, OpenOut{Accession: in.Accession, Structure: doc.Structure, MetadataSources: doc.MetadataSources}, h.Record(ctx, role, runToken(req), "open_dataset", in.Accession, map[string]any{"accession": in.Accession, "metadata_sources": doc.MetadataSources}, doc.Structure)
 		})
 	return srv
 }

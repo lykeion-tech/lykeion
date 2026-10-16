@@ -193,7 +193,7 @@ func jevChecks(ctx context.Context, v *records.View, j *jev.Client, ev, ds []db.
 			}))
 	}
 	for _, r := range ds {
-		structure, err := Structure(v, r)
+		structure, err := unitState(v, r)
 		if err != nil {
 			return nil, err
 		}
@@ -217,6 +217,45 @@ func Structure(v *records.View, d db.Record) (string, error) {
 		return "", nil
 	}
 	return v.Text(o)
+}
+
+// unitState augments discovery text only with live metadata referenced by the
+// server's matching dataset open record. Legacy opens retain their text alone.
+func unitState(v *records.View, d db.Record) (string, error) {
+	structure, err := Structure(v, d)
+	if err != nil {
+		return "", err
+	}
+	o, ok := v.ByKey("open_dataset", records.Body[Dataset](d).Accession)
+	if !ok {
+		return structure, nil
+	}
+	refs := records.Body[struct {
+		MetadataSources []struct {
+			SourceID string `json:"source_id"`
+		} `json:"metadata_sources"`
+	}](o).MetadataSources
+	var state strings.Builder
+	state.WriteString(structure)
+	for _, ref := range refs {
+		f, ok := v.ByKey("fetch", ref.SourceID)
+		if !ok {
+			continue
+		}
+		source := records.Body[Fetch](f)
+		if source.SourceKind != "dataset_metadata" {
+			continue
+		}
+		text, err := v.Text(f)
+		if err != nil {
+			return "", err
+		}
+		if text == "" {
+			continue
+		}
+		fmt.Fprintf(&state, "\n\nsource_id: %s\nsource_kind: dataset_metadata\nsource_url: %s\ntruncated: %t\nThis is a metadata projection, not a complete dataset or paper. A capped projection cannot establish absence or completeness of the full deposit.\n\n%s", ref.SourceID, source.SourceURL, source.Truncated, text)
+	}
+	return state.String(), nil
 }
 
 // Ask leaves uncertain checks for a reviewer when Jev egress is disabled or

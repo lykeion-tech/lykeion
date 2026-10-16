@@ -461,6 +461,28 @@ func TestHostedGEOMetadataIsRecorded(t *testing.T) {
 				if err != nil {
 					return err
 				}
+				openedRecord, ok := v.ByKey("open_dataset", "GSE1")
+				if !ok {
+					t.Fatal("missing open record")
+				}
+				savedRefs := records.Body[struct {
+					MetadataSources []MetadataRef `json:"metadata_sources"`
+				}](openedRecord).MetadataSources
+				saved, err := json.Marshal(savedRefs)
+				if err != nil {
+					return err
+				}
+				returned, err := json.Marshal(refs)
+				if err != nil {
+					return err
+				}
+				var savedValue any
+				if err := json.Unmarshal(saved, &savedValue); err != nil {
+					return err
+				}
+				if fmt.Sprint(savedValue) != fmt.Sprint(refs) {
+					t.Errorf("persisted metadata references %s, returned %s", saved, returned)
+				}
 				f, ok := v.ByKey("fetch", source)
 				if !ok {
 					t.Fatal("no fetch")
