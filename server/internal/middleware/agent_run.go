@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -18,6 +19,7 @@ type Role struct {
 	AgentRunID, WorkspaceID, CardID uuid.UUID
 	Role, Column                    string
 	Round                           int32
+	Scopes                          []string
 }
 
 const roleKey key = 100
@@ -39,7 +41,7 @@ func AgentRunAuth(st *store.Store) func(http.Handler) http.Handler {
 				deny(w, 401, "invalid or finished agent run")
 				return
 			}
-			role := Role{AgentRunID: row.AgentRunID, WorkspaceID: row.WorkspaceID, CardID: row.CardID, Role: row.Role, Column: row.BoardColumn, Round: row.Round}
+			role := Role{AgentRunID: row.AgentRunID, WorkspaceID: row.WorkspaceID, CardID: row.CardID, Role: row.Role, Column: row.BoardColumn, Round: row.Round, Scopes: row.Scopes}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), roleKey, role)))
 		})
 	}
@@ -97,4 +99,18 @@ func cardOf(id *uuid.UUID) uuid.UUID {
 		return uuid.Nil
 	}
 	return *id
+}
+
+// RequireScope admits only agent run tokens that carry the scope. A card-less
+// agent run's token lacks the role scope, so it cannot reach a card's records.
+func RequireScope(scope string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !slices.Contains(RoleFrom(r.Context()).Scopes, scope) {
+				deny(w, 403, "this agent run's token may not do that")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

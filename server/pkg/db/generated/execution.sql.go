@@ -98,11 +98,15 @@ UPDATE agent_run SET status = 'dispatched', runtime_id = $1, dispatched_at = now
   prepare_lease_expires_at = now() + interval '2 minutes', attempt = attempt + 1
 WHERE id = (
   SELECT t.id FROM agent_run t
-  JOIN card c ON c.id = t.card_id
   JOIN runtime r ON r.id = $1 AND r.workspace_id = t.workspace_id
+  LEFT JOIN card c ON c.id = t.card_id
   WHERE t.workspace_id = $2 AND t.status = 'queued'
-    AND t.harness = r.harness AND c.owner_id = r.owner_id AND r.status = 'online'
-    AND c.flag = '' AND c.ending = ''
+    AND t.harness = r.harness AND r.status = 'online'
+    AND (
+      -- a role run runs on its card owner's runtimes while the card is clear
+      (t.kind = 'role' AND c.owner_id = r.owner_id AND c.flag = '' AND c.ending = '')
+      -- an autoresearch agent run has no card and runs on its requester's runtimes
+      OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id))
   ORDER BY t.created_at
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
@@ -438,8 +442,8 @@ func (q *Queries) InsertAgentRunMessage(ctx context.Context, arg InsertAgentRunM
 }
 
 const insertAgentRunToken = `-- name: InsertAgentRunToken :exec
-INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, scopes, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertAgentRunTokenParams struct {
@@ -449,6 +453,7 @@ type InsertAgentRunTokenParams struct {
 	CardID      *uuid.UUID `json:"card_id"`
 	Role        string     `json:"role"`
 	Attempt     int32      `json:"attempt"`
+	Scopes      []string   `json:"scopes"`
 	ExpiresAt   time.Time  `json:"expires_at"`
 }
 
@@ -460,6 +465,7 @@ func (q *Queries) InsertAgentRunToken(ctx context.Context, arg InsertAgentRunTok
 		arg.CardID,
 		arg.Role,
 		arg.Attempt,
+		arg.Scopes,
 		arg.ExpiresAt,
 	)
 	return err
@@ -750,8 +756,9 @@ func (q *Queries) LockWorkspaceExecution(ctx context.Context, id uuid.UUID) (uui
 }
 
 const lookupAgentRunToken = `-- name: LookupAgentRunToken :one
-SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, card_id::uuid AS card_id,
-  role::text AS role, board_column::text AS board_column, round::int AS round
+SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id,
+  COALESCE(card_id, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS card_id,
+  role::text AS role, board_column::text AS board_column, round::int AS round, scopes::text[] AS scopes
 FROM agent_run_token_lookup($1::text)
 `
 
@@ -762,6 +769,7 @@ type LookupAgentRunTokenRow struct {
 	Role        string    `json:"role"`
 	BoardColumn string    `json:"board_column"`
 	Round       int32     `json:"round"`
+	Scopes      []string  `json:"scopes"`
 }
 
 func (q *Queries) LookupAgentRunToken(ctx context.Context, tokenHash string) (LookupAgentRunTokenRow, error) {
@@ -774,6 +782,7 @@ func (q *Queries) LookupAgentRunToken(ctx context.Context, tokenHash string) (Lo
 		&i.Role,
 		&i.BoardColumn,
 		&i.Round,
+		&i.Scopes,
 	)
 	return i, err
 }

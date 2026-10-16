@@ -7,6 +7,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/service"
 )
 
 func NewRouter(h *H) http.Handler {
@@ -27,10 +28,13 @@ func NewRouter(h *H) http.Handler {
 
 	r.Route("/api/role", func(r chi.Router) {
 		r.Use(middleware.AgentRunAuth(h.Store))
-		r.Post("/records", h.createRecord)
-		r.Get("/records", h.listRecords)
-		r.Post("/blobs", h.putBlob)
-		r.Get("/blobs/{sha}", h.getBlob)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RequireScope(service.ScopeRole))
+			r.Post("/records", h.createRecord)
+			r.Get("/records", h.listRecords)
+			r.Post("/blobs", h.putBlob)
+			r.Get("/blobs/{sha}", h.getBlob)
+		})
 	})
 
 	r.Group(func(r chi.Router) {

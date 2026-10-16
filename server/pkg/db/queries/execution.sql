@@ -44,11 +44,15 @@ UPDATE agent_run SET status = 'dispatched', runtime_id = @runtime_id, dispatched
   prepare_lease_expires_at = now() + interval '2 minutes', attempt = attempt + 1
 WHERE id = (
   SELECT t.id FROM agent_run t
-  JOIN card c ON c.id = t.card_id
   JOIN runtime r ON r.id = @runtime_id AND r.workspace_id = t.workspace_id
+  LEFT JOIN card c ON c.id = t.card_id
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
-    AND t.harness = r.harness AND c.owner_id = r.owner_id AND r.status = 'online'
-    AND c.flag = '' AND c.ending = ''
+    AND t.harness = r.harness AND r.status = 'online'
+    AND (
+      -- a role run runs on its card owner's runtimes while the card is clear
+      (t.kind = 'role' AND c.owner_id = r.owner_id AND c.flag = '' AND c.ending = '')
+      -- an autoresearch agent run has no card and runs on its requester's runtimes
+      OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id))
   ORDER BY t.created_at
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
@@ -56,8 +60,8 @@ WHERE id = (
 RETURNING *;
 
 -- name: InsertAgentRunToken :exec
-INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, expires_at)
-VALUES (@token_hash, @workspace_id, @agent_run_id, @card_id, @role, @attempt, @expires_at);
+INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, scopes, expires_at)
+VALUES (@token_hash, @workspace_id, @agent_run_id, @card_id, @role, @attempt, @scopes, @expires_at);
 
 -- name: ExtendLease :execrows
 UPDATE agent_run SET prepare_lease_expires_at = now() + interval '2 minutes'
@@ -116,8 +120,9 @@ UPDATE card SET spent_usd = spent_usd + @usd, version = version + 1 WHERE id = @
 DELETE FROM agent_run_token WHERE agent_run_id = @agent_run_id AND workspace_id = @workspace_id;
 
 -- name: LookupAgentRunToken :one
-SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, card_id::uuid AS card_id,
-  role::text AS role, board_column::text AS board_column, round::int AS round
+SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id,
+  COALESCE(card_id, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS card_id,
+  role::text AS role, board_column::text AS board_column, round::int AS round, scopes::text[] AS scopes
 FROM agent_run_token_lookup(@token_hash::text);
 
 -- name: SweepRuntimes :one

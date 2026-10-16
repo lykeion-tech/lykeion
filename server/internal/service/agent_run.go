@@ -24,6 +24,49 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
+// Token scopes. A role run's token acts as its role on its card. An
+// autoresearch agent run's token may only post its run's report and open Backlog
+// cards.
+const (
+	ScopeRole       = "card:role"
+	ScopeReport     = "report:write"
+	ScopeCardCreate = "card:create"
+)
+
+// Scopes are the powers an agent run's token carries, by the agent run's kind.
+func Scopes(kind string) []string {
+	if kind == "autoresearch" {
+		return []string{ScopeReport, ScopeCardCreate}
+	}
+	return []string{ScopeRole}
+}
+
+// AutoresearchAgentRun is an Autoresearch's run_only agent run. It has no card, and only its
+// requester's runtimes claim it.
+type AutoresearchAgentRun struct {
+	Harness, Prompt, Skill string
+	// RunPrivate makes the daemon run F2's private isolation whatever the
+	// workspace's mode: set when the prompt carries a webhook payload.
+	RunPrivate bool
+}
+
+// EnqueueAutoresearch adds an autoresearch agent run in the caller's transaction. The
+// requester is responsible for it and pays for it, and their id rides on the
+// event so their daemons wake up.
+func (s *AgentRuns) EnqueueAutoresearch(ctx context.Context, tx *store.Tx, requester uuid.UUID, n AutoresearchAgentRun) (db.AgentRun, error) {
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		return db.AgentRun{}, err
+	}
+	t, err := tx.Q.EnqueueAutoresearchAgentRun(ctx, db.EnqueueAutoresearchAgentRunParams{WorkspaceID: tx.WS, RequesterID: requester,
+		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, RunPrivate: n.RunPrivate})
+	if err != nil {
+		return t, err
+	}
+	p := agentRunEvent(t)
+	p["owner_id"] = requester
+	return t, tx.Emit(ctx, "agent_run.queued", nil, store.System, p)
+}
+
 const (
 	AgentRunPrefix  = "ltk_"
 	tokenTTL        = 24 * time.Hour
@@ -343,7 +386,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}
 					plain, hash, _ := auth.NewToken(AgentRunPrefix)
 					if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: hash, WorkspaceID: ref.WorkspaceID,
-						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
+						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: Scopes(t.Kind), ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
 						return err
 					}
 					c = &Claimed{AgentRun: t, Token: plain, MCPURL: s.MCPURL, MCP: mcp}
