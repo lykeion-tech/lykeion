@@ -62,6 +62,7 @@ func NewRouter(h *H) http.Handler {
 		// Cancel opens its own service transaction; keep it outside Scope's transaction.
 		r.Post("/api/agent-runs/{id}/cancel", h.cancelAgentRun)
 		r.Post("/api/cards/{id}/send-back", h.sendBack)
+		r.Post("/api/autoresearch/{id}/run", h.runAutoresearch)
 		r.Post("/api/cards/{id}/stop", h.stopCard)
 		r.Post("/api/cards/{id}/budget", h.budgetCard)
 		r.Post("/api/cards/{id}/resume", h.resumeCard)
@@ -101,6 +102,22 @@ func NewRouter(h *H) http.Handler {
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Scope(h.Store, middleware.FromHeader))
+			r.Get("/api/autoresearch", h.listAutoresearches)
+			r.Post("/api/autoresearch", h.createAutoresearch)
+			r.Get("/api/autoresearch/{id}", h.getAutoresearch)
+			r.Patch("/api/autoresearch/{id}", h.updateAutoresearch)
+			r.Delete("/api/autoresearch/{id}", h.deleteAutoresearch)
+			r.Post("/api/autoresearch/{id}/pause", h.setAutoresearchStatus("paused"))
+			r.Post("/api/autoresearch/{id}/resume", h.setAutoresearchStatus("active"))
+			r.Get("/api/autoresearch/{id}/runs", h.listAutoresearchRuns)
+			r.Post("/api/autoresearch/{id}/triggers", h.createTrigger)
+			r.Patch("/api/autoresearch/{id}/triggers/{trigger}", h.setTriggerEnabled)
+			r.Delete("/api/autoresearch/{id}/triggers/{trigger}", h.deleteTrigger)
+			r.Put("/api/autoresearch/{id}/collaborators/{user}", h.people(true, true))
+			r.Delete("/api/autoresearch/{id}/collaborators/{user}", h.people(true, false))
+			r.Put("/api/autoresearch/{id}/subscribers/{user}", h.people(false, true))
+			r.Delete("/api/autoresearch/{id}/subscribers/{user}", h.people(false, false))
+
 			r.Get("/api/runtimes", h.listRuntimes)
 			r.Patch("/api/runtimes/{id}", h.patchRuntime)
 			r.Delete("/api/runtimes/{id}", h.deleteRuntime)

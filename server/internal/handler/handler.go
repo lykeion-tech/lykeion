@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/round"
@@ -25,19 +26,20 @@ import (
 )
 
 type H struct {
-	Store     *store.Store
-	JWT       auth.Issuer
-	Mail      auth.Mailer
-	Limit     auth.Limiter
-	Google    auth.Google
-	Secure    bool // cookies only over HTTPS
-	Hub       *realtime.Hub
-	Engine    *round.Engine
-	AgentRuns *service.AgentRuns
-	Blobs     storage.Storage
-	Kinds     map[string]service.Kind
-	Sources   http.Handler
-	PublicURL string // where people reach the dashboard, without a trailing slash
+	Autoresearch *autoresearch.Service
+	Store        *store.Store
+	JWT          auth.Issuer
+	Mail         auth.Mailer
+	Limit        auth.Limiter
+	Google       auth.Google
+	Secure       bool // cookies only over HTTPS
+	Hub          *realtime.Hub
+	Engine       *round.Engine
+	AgentRuns    *service.AgentRuns
+	Blobs        storage.Storage
+	Kinds        map[string]service.Kind
+	Sources      http.Handler
+	PublicURL    string // where people reach the dashboard, without a trailing slash
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
@@ -66,7 +67,8 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 	h.AgentRuns = &service.AgentRuns{Store: st, MCPURL: "http://test/mcp/sources", Stale: time.Second}
 	h.Blobs = storage.Local{Dir: t.TempDir()}
 	h.Engine = &round.Engine{Store: st, AgentRuns: h.AgentRuns, Blobs: h.Blobs}
-	h.AgentRuns.OnSettled = h.Engine.OnSettled
+	h.Autoresearch = &autoresearch.Service{Store: st, AgentRuns: h.AgentRuns, Key: bytes.Repeat([]byte{7}, 32)}
+	h.AgentRuns.OnSettled = h.Autoresearch.OnSettled(h.Engine.OnSettled)
 	h.Kinds = round.Kinds()
 	srv := httptest.NewServer(NewRouter(h))
 	t.Cleanup(func() { srv.Close(); hub.Close() })
