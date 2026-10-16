@@ -1,18 +1,25 @@
 package round
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/auth"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/ground"
 	"lykeion/server/internal/hyp"
+	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/records"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/skills"
+	"lykeion/server/internal/sources"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -179,6 +186,7 @@ func TestLaterMissingPremiseRecoversAfterGrounding(t *testing.T) {
 			ctx := context.Background()
 			card := f.card(t, board.Hypotheses, 2)
 			f.grounded(t, card)
+			f.genericRepairBaseline(t, card)
 			advance := func() {
 				t.Helper()
 				if err := f.e.Advance(ctx, f.ws, card); err != nil {
@@ -191,7 +199,7 @@ func TestLaterMissingPremiseRecoversAfterGrounding(t *testing.T) {
 					if !slices.Contains(hyp.Generators, r.Role) {
 						continue
 					}
-					body, key := mechanismBody, "H1"
+					body, key := strings.ReplaceAll(mechanismBody, "mouse liver", "sensor stations"), "H1"
 					if r.Role == "generator-2" {
 						body, key = artefactBody, "H2"
 					}
@@ -230,11 +238,15 @@ func TestLaterMissingPremiseRecoversAfterGrounding(t *testing.T) {
 			advance()
 			generators()
 			r := finishUntil(owner)
-			f.recordFor(t, r.ID, "missing_premise", "", `{"gap":"dose saturation premise","step":"literature-scout"}`)
+			raw, err := f.prepareHyp(t, card, r, "missing_premise", `{"gap":"observation station identity","kind":"dataset_metadata","dataset":"D1","why_required":"station identity distinguishes independent observations from repeated readings"}`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.recordFor(t, r.ID, "missing_premise", "", string(raw))
 			f.settle(t, r.ID)
 			advance()
 			c := f.cardRow(t, card)
-			if c.BoardColumn != board.Grounding || c.Rerun != ground.Literature {
+			if c.BoardColumn != board.Grounding || c.Rerun != ground.DataScout {
 				t.Fatalf("first premise did not route immediately: %+v", c)
 			}
 			livePremises := func() int {
@@ -246,22 +258,87 @@ func TestLaterMissingPremiseRecoversAfterGrounding(t *testing.T) {
 			if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='candidate' AND superseded_at IS NULL`, card); n != 2 {
 				t.Fatalf("retained candidates: %d", n)
 			}
-			// Supply the repair and apply a passing Grounding gate through the engine.
-			for _, r := range f.agentRuns(t, card) {
-				f.recordFor(t, r.ID, "evidence", "E3", `{"claim":"dose saturation is known","source_id":"repair","quote":"saturation","stance":"supports"}`)
-				f.settle(t, r.ID)
+			runs := f.agentRuns(t, card)
+			if len(runs) != 1 || runs[0].Role != ground.DataScout {
+				t.Fatalf("metadata target: %+v", runs)
 			}
-			err := f.e.Store.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) error {
-				c, err := tx.Q.LockCard(ctx, db.LockCardParams{ID: card, WorkspaceID: f.ws})
-				if err != nil {
-					return err
+			scout := runs[0]
+			for _, field := range []string{"observation station identity", "dataset_metadata", "D1", "station identity distinguishes independent observations from repeated readings"} {
+				if !strings.Contains(scout.HandoffNote, field) || !strings.Contains(scout.Prompt, field) {
+					t.Fatalf("missing handoff field %q: %+v", field, scout)
 				}
-				g := board.Gate{Column: board.Grounding, Round: c.Round, Verdict: board.VPass}
-				return f.e.finish(ctx, tx, c, board.FromCard(c), ParseSettings(json.RawMessage(`{}`)), &g)
-			})
-			if err != nil {
+			}
+			metadata := "Station identity: readings belong to independently installed sensor stations."
+			f.sourceFor(t, scout, "fetch", "geo:GSE1", map[string]any{"source_id": "geo:GSE1", "source_kind": "dataset_metadata", "source_url": "https://example.invalid/deposit/GSE1", "full_text": false}, metadata)
+			f.sourceFor(t, scout, "open_dataset", "GSE1", map[string]any{"accession": "GSE1"}, "Readings from independent sensor stations share a calibration standard.")
+			f.recordFor(t, scout.ID, "dataset", "D1", `{"accession":"GSE1","note":"independent sensor stations; recorded station identity permits interpretation"}`)
+			f.settle(t, scout.ID)
+			advance()
+			// Metadata alone cannot replace the literature evidence requirement.
+			if c := f.cardRow(t, card); c.BoardColumn != board.Grounding || c.Rerun != ground.Literature {
+				t.Fatalf("missing literature escaped actual Grounding checks: %+v", c)
+			}
+			runs = f.agentRuns(t, card)
+			if len(runs) != 1 || runs[0].Role != ground.Literature {
+				t.Fatalf("literature repair: %+v", runs)
+			}
+			literature := runs[0]
+			f.sourceFor(t, literature, "fetch", "europepmc:PMC1", map[string]any{"source_id": "europepmc:PMC1", "full_text": false}, "X raised Y by 40%")
+			for _, database := range []string{"openalex", "europepmc"} {
+				f.sourceFor(t, literature, "search", "", map[string]any{"database": database, "query": "sensor calibration prior work"}, "")
+			}
+			f.recordFor(t, literature.ID, "evidence", "E1", `{"claim":"X raises Y","source_id":"europepmc:PMC1","quote":"X raised Y by 40%","stance":"supports"}`)
+			f.recordFor(t, literature.ID, "evidence", "E3", `{"claim":"readings belong to independent stations","source_id":"geo:GSE1","quote":"readings belong to independently installed sensor stations","stance":"supports"}`)
+			f.settle(t, literature.ID)
+			advance()
+			if c := f.cardRow(t, card); c.BoardColumn != board.Grounding || c.State != board.InReview {
+				t.Fatalf("metadata bypassed reviewer: %+v", c)
+			}
+			reviewer := byRole(f.agentRuns(t, card))[ground.Reviewer]
+			var draft board.Gate
+			var draftRaw []byte
+			if err := f.env.Owner.QueryRow(ctx, `SELECT body FROM record WHERE card_id=$1 AND kind='gate_draft' AND superseded_at IS NULL ORDER BY created_at DESC LIMIT 1`, card).Scan(&draftRaw); err != nil {
 				t.Fatal(err)
 			}
+			if err := json.Unmarshal(draftRaw, &draft); err != nil {
+				t.Fatal(err)
+			}
+			expected := map[string]bool{"quote.E3": false, "support.E3": false, "origin.E3": false, "search.databases": false, "search.contrary": false, "unit.D1": false}
+			for _, check := range draft.Checks {
+				if _, ok := expected[check.ID]; ok {
+					expected[check.ID] = true
+				}
+				if check.Judge == board.Code && check.Result != board.Pass {
+					t.Fatalf("actual code check failed: %+v", check)
+				}
+				if check.Result != board.Attention {
+					continue
+				}
+				choice := ""
+				if strings.HasPrefix(check.ID, "unit.") {
+					choice = "shared_calibration"
+				}
+				body, _ := json.Marshal(ground.ReviewItem{Check: check.ID, Result: "pass", Choice: choice, Note: "synthetic source passage and station structure inspected"})
+				f.recordFor(t, reviewer.ID, "review_item", "", string(body))
+			}
+			for id, present := range expected {
+				if !present {
+					t.Fatalf("actual Grounding check missing: %s", id)
+				}
+			}
+			f.recordFor(t, reviewer.ID, "verdict", "", `{"result":"pass","reason":"source-backed scoped sensor comparison is feasible"}`)
+			f.settle(t, reviewer.ID)
+			advance()
+			if c := f.cardRow(t, card); c.BoardColumn != board.Hypotheses {
+				t.Fatalf("actual Grounding gate did not pass: %+v", c)
+			}
+			if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='evidence' AND key='E3' AND role='literature-scout' AND superseded_at IS NULL`, card); n != 1 {
+				t.Fatal("metadata E repair lost literature ownership")
+			}
+			if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='fetch' AND key='geo:GSE1' AND body->>'source_kind'='dataset_metadata' AND body->>'sha256' <> '' AND blob_key <> ''`, card); n != 1 {
+				t.Fatal("repair fetch was not server recorded")
+			}
+
 			advance()
 			if livePremises() != 1 {
 				t.Fatal("new generators retired later role premise")
@@ -289,4 +366,200 @@ func TestLaterMissingPremiseRecoversAfterGrounding(t *testing.T) {
 
 		})
 	}
+}
+
+// sourceFor uses the server's source writer for an active fixture role.
+func (f *fix) sourceFor(t *testing.T, run db.AgentRun, kind, key string, body map[string]any, text string) {
+	t.Helper()
+	token := "ltk_" + uuid.NewString()
+	run.Attempt = 1
+	if _, err := f.env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='running', attempt=1 WHERE id=$1`, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.env.Owner.Exec(t.Context(), `INSERT INTO agent_run_token(token_hash,workspace_id,agent_run_id,card_id,role,attempt,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '1 hour')`, auth.Hash(token), f.ws, run.ID, run.CardID, run.Role, run.Attempt); err != nil {
+		t.Fatal(err)
+	}
+	role := middleware.Role{AgentRunID: run.ID, WorkspaceID: f.ws, CardID: *run.CardID, Column: run.BoardColumn, Round: run.Round, Role: run.Role}
+	h := sources.Hosted{Store: f.e.Store, Blobs: f.e.Blobs}
+	if err := h.Record(t.Context(), role, token, kind, key, body, text); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *fix) genericRepairBaseline(t *testing.T, card uuid.UUID) {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := f.env.Owner.Exec(ctx, `UPDATE record SET body=replace(replace(body::text,'mouse liver','sensor stations'),'biological_replicates','shared_calibration')::jsonb WHERE card_id=$1`, card); err != nil {
+		t.Fatal(err)
+	}
+	blob := f.ws.String() + "/" + card.String() + "/baseline-contrary"
+	text := "no effect of X on Y"
+	if err := f.e.Blobs.Put(ctx, blob, bytes.NewBufferString(text), int64(len(text))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.env.Owner.Exec(ctx, `INSERT INTO record(workspace_id,card_id,board_column,round,kind,role,key,body,blob_key) VALUES($1,$2,'grounding',1,'fetch','contrarian','openalex:W2','{"source_id":"openalex:W2"}',$3),($1,$2,'grounding',1,'search','contrarian','','{"database":"openalex","query":"sensor calibration counterevidence"}','')`, f.ws, card, blob); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMetadataChangesDiscardPendingGate(t *testing.T) {
+	f := setup(t)
+	card := f.atGate(t)
+	entered, release, checks := f.slowJev(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	var p *pending
+	if err := f.e.Store.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) (err error) { p, err = f.e.read(ctx, tx, card); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if p == nil {
+		t.Fatal("no pending gate")
+	}
+	type judgment struct {
+		gate *board.Gate
+		err  error
+	}
+	done := make(chan judgment, 1)
+	go func() { g, err := f.e.call(ctx, p); done <- judgment{g, err} }()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	// The controlled running writer is separate from the settled stage scouts.
+	// No ordinary settled role is allowed to reopen itself or write during gating.
+	role, token := f.recordRole(t, card)
+	h := sources.Hosted{Store: f.e.Store, Blobs: f.e.Blobs}
+	if err := h.Record(ctx, role, token, "fetch", "geo:GSE1", map[string]any{"source_id": "geo:GSE1", "source_kind": "dataset_metadata", "source_url": "https://example.invalid/deposit/GSE1", "full_text": false}, "Station identity: independent sensor stations."); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	judged := <-done
+	if judged.err != nil {
+		t.Fatal(judged.err)
+	}
+	if judged.gate.InputDigest != p.v.Digest(ground.ReviewKinds...) || checks.Load() != 1 {
+		t.Fatalf("judgment did not retain original snapshot: %+v", judged.gate)
+	}
+	var kick bool
+	if err := f.e.Store.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) (err error) { kick, err = f.e.write(ctx, tx, p, judged.gate); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if !kick {
+		t.Fatal("changed metadata did not discard pending judgment")
+	}
+	if n := f.count(t, card, `SELECT count(*) FROM record WHERE card_id=$1 AND kind IN ('gate','gate_draft')`); n != 0 {
+		t.Fatalf("old digest committed: %d", n)
+	}
+	if n := f.count(t, card, `SELECT count(*) FROM agent_run WHERE card_id=$1 AND role='grounding-reviewer'`); n != 0 {
+		t.Fatal("reviewer queued on old digest")
+	}
+	if c := f.cardRow(t, card); c.BoardColumn != board.Grounding || c.GatingUntil != nil {
+		t.Fatalf("pending metadata gate advanced or retained lease: %+v", c)
+	}
+	// Only after proving metadata alone invalidated the digest, finish the writer
+	// and let the engine judge the new snapshot.
+	f.result(t, role.AgentRunID, "nothing_found", "controlled source writer finished")
+	f.settle(t, role.AgentRunID)
+	if err := f.e.Advance(ctx, f.ws, card); err != nil {
+		t.Fatal(err)
+	}
+	var digest string
+	if err := f.env.Owner.QueryRow(ctx, `SELECT body->>'input_digest' FROM record WHERE card_id=$1 AND kind='gate_draft'`, card).Scan(&digest); err != nil {
+		t.Fatal(err)
+	}
+	if digest == judged.gate.InputDigest || checks.Load() != 2 {
+		t.Fatalf("new metadata was not judged afresh: %s checks %d", digest, checks.Load())
+	}
+}
+
+func (f *fix) prepareHyp(t *testing.T, card uuid.UUID, run db.AgentRun, kind, raw string) (json.RawMessage, error) {
+	t.Helper()
+	var out json.RawMessage
+	err := f.e.Store.InWorkspace(t.Context(), f.ws, uuid.Nil, func(tx *store.Tx) (err error) {
+		out, err = hyp.Kinds()[kind].Prepare(t.Context(), tx, service.Writer{Card: card, AgentRun: run.ID, Column: board.Hypotheses, Role: run.Role, Round: run.Round}, json.RawMessage(raw))
+		return err
+	})
+	return out, err
+}
+
+func TestMetadataRepairPreservesStaleEvidenceRules(t *testing.T) {
+	t.Run("owner supersession retains history but refuses old citations", func(t *testing.T) {
+		f := setup(t)
+		card := f.card(t, board.Hypotheses, 2)
+		f.grounded(t, card)
+		f.genericRepairBaseline(t, card)
+		if err := f.e.Advance(t.Context(), f.ws, card); err != nil {
+			t.Fatal(err)
+		}
+		generators := f.agentRuns(t, card)
+		f.recordFor(t, generators[0].ID, "candidate", "H1", strings.ReplaceAll(mechanismBody, "mouse liver", "sensor stations"))
+		// The engine queues the evidence owner in a real Grounding repair visit.
+		if _, err := f.env.Owner.Exec(t.Context(), `UPDATE card SET board_column='grounding',round=3,rerun='literature-scout' WHERE id=$1`, card); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.e.Advance(t.Context(), f.ws, card); err != nil {
+			t.Fatal(err)
+		}
+		if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='evidence' AND key='E1' AND superseded_at IS NOT NULL`, card); n != 1 {
+			t.Fatalf("owner did not supersede E1: %d", n)
+		}
+		if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='candidate' AND key='H1' AND body->>'statement'<>''`, card); n != 1 {
+			t.Fatal("historical hypothesis became unreadable")
+		}
+		if _, err := f.prepareHyp(t, card, generators[0], "candidate", strings.ReplaceAll(mechanismBody, "mouse liver", "sensor stations")); err == nil || !strings.Contains(err.Error(), "E1 is not a live Grounding claim") {
+			t.Fatalf("stale E citation accepted: %v", err)
+		}
+		var v *records.View
+		if err := f.e.Store.InWorkspace(t.Context(), f.ws, uuid.Nil, func(tx *store.Tx) (err error) {
+			v, err = records.Load(t.Context(), tx, f.e.Blobs, card, board.Hypotheses)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		gate, err := hyp.Check(t.Context(), v, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		refused := false
+		for _, check := range gate.Checks {
+			if check.ID == "claims.H1" && check.Result == board.Fail {
+				refused = true
+			}
+		}
+		if !refused || gate.Verdict == board.VPass {
+			t.Fatalf("retained hypothesis fed new gate: %+v", gate)
+		}
+	})
+	t.Run("same visit unresolved metadata routes before decomposer", func(t *testing.T) {
+		f := setup(t)
+		card := f.card(t, board.Hypotheses, 2)
+		f.grounded(t, card)
+		f.genericRepairBaseline(t, card)
+		if err := f.e.Advance(t.Context(), f.ws, card); err != nil {
+			t.Fatal(err)
+		}
+		runs := f.agentRuns(t, card)
+		raw, err := f.prepareHyp(t, card, runs[0], "missing_premise", `{"gap":"station collection identity","kind":"dataset_metadata","dataset":"D1","why_required":"independence must be interpretable"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.recordFor(t, runs[0].ID, "missing_premise", "", string(raw))
+		for _, run := range runs {
+			f.result(t, run.ID, "nothing_found", "no additional candidate")
+			f.settle(t, run.ID)
+		}
+		if err := f.e.Advance(t.Context(), f.ws, card); err != nil {
+			t.Fatal(err)
+		}
+		if c := f.cardRow(t, card); c.BoardColumn != board.Grounding || c.Rerun != ground.DataScout || c.RouteBacks != 1 {
+			t.Fatalf("unresolved premise suppressed: %+v", c)
+		}
+		if n := f.countWhere(t, `SELECT count(*) FROM agent_run WHERE card_id=$1 AND role IN ('decomposer','novelty-scout','selector','hypotheses-reviewer')`, card); n != 0 {
+			t.Fatalf("later phase queued despite unresolved metadata: %d", n)
+		}
+		if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='missing_premise' AND superseded_at IS NULL`, card); n != 1 {
+			t.Fatal("unresolved premise cleared")
+		}
+	})
 }
