@@ -58,6 +58,6 @@ func rootWithBrowser(in io.Reader, out io.Writer, opener func(string) error) *co
 		},
 	}
 	root.SetOut(out)
-	root.AddCommand(loginCmd(e), logoutCmd(e), whoamiCmd(e), workspaceCmd(e), cardCmd(e), inboxCmd(e), daemonCmd(e), runtimeCmd(e), groundCmd(e), reviewCmd(e), resultCmd(e), recordsCmd(e), blobCmd(e), boardCmd(e), installCmd(e))
+	root.AddCommand(loginCmd(e), logoutCmd(e), whoamiCmd(e), workspaceCmd(e), cardCmd(e), inboxCmd(e), daemonCmd(e), runtimeCmd(e), groundCmd(e), reviewCmd(e), resultCmd(e), recordsCmd(e), blobCmd(e), boardCmd(e), installCmd(e), addonCmd(e))
 	return root
 }
