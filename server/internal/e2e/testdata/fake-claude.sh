@@ -7,6 +7,15 @@ case "$*" in
   *"--input-format stream-json"*) IFS= read -r prompt ;;
   *) prompt="$(cat)" ;;
 esac
+# Tests that set LYK_TEST_CAPTURE see what the daemon gave this role: the
+# skill, the MCP config and the command line, from the scratch folder the CLI
+# runs in.
+if [ -n "$LYK_TEST_CAPTURE" ]; then
+  role=$(printf '%s' "$prompt" | grep -o 'You are the [a-z0-9-]* role' | head -n 1 | sed 's/^You are the //; s/ role$//')
+  cp SKILL.md "$LYK_TEST_CAPTURE/$role.skill" 2>/dev/null
+  cp .lyk-mcp.json "$LYK_TEST_CAPTURE/$role.mcp" 2>/dev/null
+  printf '%s\n' "$@" > "$LYK_TEST_CAPTURE/$role.args"
+fi
 if [ -n "$LYK_TEST_ARGV" ]; then
   case "$prompt" in
     *"the literature-scout role"*) who=literature-scout ;;
