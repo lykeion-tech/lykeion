@@ -137,6 +137,13 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 		}
 	}
 	if discovery != nil {
+		// Adapter-owned root files are outside the isolated-home scan. Their
+		// structural refusals must take precedence over a fresh-folder retry.
+		if harness == "claude" {
+			if _, err = claudeMCPExists(filepath.Join(dir, ".lyk-mcp.json")); err != nil {
+				return "", cleanup, err
+			}
+		}
 		if readErr != nil || o.Inherit {
 			return "", cleanup, errors.New(discovery.Error())
 		}

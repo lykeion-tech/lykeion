@@ -26,7 +26,7 @@ func (b fallbackBackend) Execute(ctx context.Context, p string, o agent.ExecOpti
 	return b.Backend.Execute(ctx, p, o)
 }
 func TestPrivateDiscoveryFallsBackFresh(t *testing.T) {
-	for _, fault := range []string{"", "notice", "journal", "cancel", "collision", "symlink", "unowned", "launch", "second-discovery"} {
+	for _, fault := range []string{"", "notice", "journal", "cancel", "collision", "symlink", "unowned", "launch", "second-discovery", "mcp-symlink"} {
 		t.Run("fault="+fault, func(t *testing.T) { testPrivateFallback(t, fault) })
 	}
 }
@@ -60,6 +60,9 @@ func testPrivateFallback(t *testing.T, fault string) {
 	defer cancel()
 	if fault == "collision" {
 		must(t, os.Mkdir(filepath.Join(home, scratchName(c.AgentRun.ID, c.AgentRun.Attempt)), 0700))
+	}
+	if fault == "mcp-symlink" {
+		must(t, os.Symlink("missing", filepath.Join(scope, ".lyk-mcp.json")))
 	}
 	if fault == "symlink" {
 		must(t, os.Remove(refused))
@@ -135,6 +138,20 @@ func testPrivateFallback(t *testing.T, fault string) {
 	}
 	r, err := readReport(d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}))
 	must(t, err)
+	if fault == "mcp-symlink" {
+		if !strings.Contains(r.Error, "MCP config is not a regular file") {
+			t.Errorf("wrong refusal: %s", r.Error)
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(bin), "launches")); !os.IsNotExist(err) {
+			t.Error("child launched despite root MCP symlink")
+		}
+		if _, err := os.Lstat(filepath.Join(scope, ".lyk-mcp.json")); err != nil {
+			t.Error("refused path removed")
+		}
+		if b, err := os.ReadFile(refused); err != nil || string(b) != "preserved discovery" {
+			t.Error("discovery data changed")
+		}
+	}
 	if fault != "" {
 		wantCalls := 1
 		if fault == "second-discovery" {

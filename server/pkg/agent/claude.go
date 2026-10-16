@@ -51,18 +51,16 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	cfg := filepath.Join(o.Dir, ".lyk-mcp.json")
 	// Replace only the adapter's prior file; never follow a planted link.
-	if st, e := os.Lstat(cfg); e == nil {
-		if !st.Mode().IsRegular() {
-			cleanup(true)
-			return nil, fmt.Errorf("MCP config is not a regular file: %s", cfg)
-		}
+	exists, err := claudeMCPExists(cfg)
+	if err != nil {
+		cleanup(true)
+		return nil, err
+	}
+	if exists {
 		if err = os.Remove(cfg); err != nil {
 			cleanup(true)
 			return nil, err
 		}
-	} else if !errors.Is(e, os.ErrNotExist) {
-		cleanup(true)
-		return nil, e
 	}
 	if err = privateFile(cfg, claudeMCP(o)); err != nil {
 		cleanup(true)
@@ -296,4 +294,19 @@ func parseClaude(fallbackModel, resume string, accounting *claudeAccounting, in 
 		}
 		return false, nil
 	}
+}
+
+// claudeMCPExists checks the replaceable adapter file without following links.
+func claudeMCPExists(path string) (bool, error) {
+	st, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !st.Mode().IsRegular() {
+		return false, fmt.Errorf("MCP config is not a regular file: %s", path)
+	}
+	return true, nil
 }
