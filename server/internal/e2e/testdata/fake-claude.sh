@@ -26,6 +26,37 @@ if [ -n "$LYK_TEST_ARGV" ]; then
 fi
 exec 3>&1
 exec 1>&2
+# Metadata scenarios exercise the actual hosted MCP transport under this run's
+# credential. Only the external upstream and provider are synthetic.
+if [ -n "$LYK_TEST_METADATA" ]; then
+  set -e
+  source_call() {
+    LYK_TEST_MCP_CALL="$1" LYK_TEST_MCP_ARGS="$2" "$LYK_TEST_MCP_HELPER" -test.run '^TestMetadataMCPHelper$' -test.v
+  }
+  case "$prompt" in
+    *"the literature-scout role"*)
+      case "$LYK_TEST_METADATA" in
+        refused-command|quota-failure)
+          printf '{"type":"result","is_error":true,"result":"%s: metadata command unavailable"}\n' "$LYK_TEST_METADATA" >&3
+          exit 1 ;;
+      esac
+      source_call search_literature '{"database":"europepmc","query":"X Y comparison"}'
+      source_call fetch_text '{"source_id":"europepmc:PMC1"}'
+      if [ -f "$LYK_TEST_METADATA_REPAIR" ] || [ "$LYK_TEST_METADATA" = unresolved ]; then
+        source_call fetch_text '{"source_id":"geo:GSE1"}' > metadata-response
+        if grep -q 'Each mouse was collected at the same time after treatment' metadata-response; then
+          lyk ground evidence --claim "Each mouse was collected at the same time after treatment" --source geo:GSE1 --quote "Each mouse was collected at the same time after treatment" --stance supports > "$LYK_TEST_HYP_OUTPUT/metadata-evidence"
+        fi
+      fi ;;
+    *"the contrarian role"*)
+      source_call search_literature '{"database":"openalex","query":"X no effect Y"}'
+      source_call fetch_text '{"source_id":"openalex:W2"}' ;;
+    *"the data-scout role"*)
+      source_call search_datasets '{"query":"X Y mice"}'
+      source_call open_dataset '{"accession":"GSE1"}'
+      source_call fetch_text '{"source_id":"geo:GSE1"}' ;;
+  esac
+fi
 case "$prompt" in
   *"You are the autoresearch role"*)
     dir="${LYK_TEST_CAPTURE:-$(mktemp -d)}"
@@ -49,14 +80,24 @@ case "$prompt" in
   *"the methods-scout role"*)
     printf '## Known approaches\nDESeq2\n' | lyk ground notes ;;
   *"the grounding-reviewer role"*)
-    lyk review verdict --result pass --reason "scope, coverage and fit are adequate" ;;
+    if [ -n "$LYK_TEST_METADATA" ] && ! lyk records | grep '"kind":"evidence"' | grep -q '"source_id":"geo:GSE1"'; then
+      : > "$LYK_TEST_METADATA_REPAIR"
+      lyk review verdict --result fail --step literature-scout --reason "comparison prerequisite: collection timing remains unknown in recorded E; inspect metadata and establish comparable collection times"
+    else
+      lyk review verdict --result pass --reason "scope, coverage and fit are adequate"
+    fi ;;
 esac
 # Hypotheses roles act only in tests that ask for them; other tests leave the
 # card waiting in Hypotheses.
 if [ -n "$LYK_TEST_HYPOTHESES" ]; then
   sup=$(lyk records --column grounding | sed -n 's/.*"key":"\(E[0-9]*\)".*"stance":"supports".*/\1/p' | tail -n 1)
-  survivors=$(lyk records | grep '"kind":"dedup"' | grep -o '"survivors":\[[^]]*\]' | grep -o 'H[0-9]*')
+  survivors=$(lyk records | grep '"kind":"dedup"' | grep -o '"survivors":\[[^]]*\]' | grep -o 'H[0-9]*' || true)
   mech='{"statement":"X raises Y by inducing Z","kind":"mechanism","mechanism":[{"text":"X induces Z","claims":["'$sup'"]}],"assumptions":[{"text":"Z is expressed in mouse liver","claims":["'$sup'"]}],"boundary_conditions":["mouse liver"],"uncertainties":["Z may only mark the effect"]}'
+  if [ -n "$LYK_TEST_METADATA" ]; then
+    meta=$(lyk records --column grounding | grep '"kind":"evidence"' | grep '"source_id":"geo:GSE1"' | sed -n 's/.*"key":"\(E[0-9]*\)".*/\1/p' | tail -n 1)
+    premise="Each mouse was collected at the same time after treatment"
+    mech='{"statement":"X raises Y by inducing Z","kind":"mechanism","mechanism":[{"text":"X induces Z","claims":["'$sup'"]}],"assumptions":[{"text":"'$premise'","claims":["'$meta'"]}],"boundary_conditions":["mouse liver"],"uncertainties":["Z may only mark the effect"]}'
+  fi
   case "$prompt" in
     *"the generator-1 role"*)
       if [ -f "$LYK_TEST_MISSING_PREMISE" ]; then
@@ -75,9 +116,15 @@ if [ -n "$LYK_TEST_HYPOTHESES" ]; then
       printf '%s' "$mech" | lyk hyp candidate ;;
     *"the decomposer role"*)
       for h in $survivors; do
-        printf '{"candidate":"%s","assumptions":[{"id":"A1","text":"Y is measured once per mouse","claims":["%s"]}],"predictions":[{"id":"P1","text":"Y differs between treated and control mice"}],"tests":[{"id":"T1","targets":"P1","null":"Y does not differ between groups","alternative":"Y differs between groups","procedure":"compare Y between groups in GSE1, one mouse per observation"}]}' "$h" "$sup" | lyk hyp decompose
+        assumption="Y is measured once per mouse"
+        assumption_key="$sup"
+        if [ -n "$LYK_TEST_METADATA" ]; then assumption="$premise"; assumption_key="$meta"; fi
+        printf '{"candidate":"%s","assumptions":[{"id":"A1","text":"%s","claims":["%s"]}],"predictions":[{"id":"P1","text":"Y differs between treated and control mice"}],"tests":[{"id":"T1","targets":"P1","null":"Y does not differ between groups","alternative":"Y differs between groups","procedure":"compare Y between groups in GSE1, one mouse per observation"}]}' "$h" "$assumption" "$assumption_key" | lyk hyp decompose
       done ;;
     *"the novelty-scout role"*)
+      if [ -n "$LYK_TEST_METADATA" ]; then
+        source_call search_literature '{"database":"openalex","query":"X raises Y prior work"}'
+      fi
       for h in $survivors; do
         lyk hyp novelty --candidate "$h" --status unknown --query "X raises Y prior work"
       done ;;
@@ -89,7 +136,12 @@ if [ -n "$LYK_TEST_HYPOTHESES" ]; then
       fi
       a=$(printf '%s\n' $survivors | sed -n 1p)
       b=$(printf '%s\n' $survivors | sed -n 2p)
-      lyk hyp matrix <<EOF
+      if [ -n "$LYK_TEST_METADATA" ]; then
+        exec 4> "$LYK_TEST_HYP_OUTPUT/matrix"
+      else
+        exec 4>&1
+      fi
+      lyk hyp matrix >&4 <<EOF
 {"measurement":{"id":"M1","dataset":"D1","description":"log2 fold change of Y, treated against control, one mouse per observation",
  "keys":[{"name":"effect","description":"log2 fold change","unit":"log2FC"},{"name":"ci_low","description":"lower bound of the 95 percent interval","unit":"log2FC"},{"name":"ci_high","description":"upper bound of the 95 percent interval","unit":"log2FC"}],
  "ordered":["ci_low","effect","ci_high"]},

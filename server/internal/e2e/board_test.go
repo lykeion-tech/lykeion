@@ -364,3 +364,88 @@ func (b boardSourceBearer) RoundTrip(r *http.Request) (*http.Response, error) {
 	copy.Header.Set("Authorization", "Bearer "+string(b))
 	return http.DefaultTransport.RoundTrip(copy)
 }
+
+// TestMetadataMCPHelper is invoked only by the fake provider. It uses the
+// daemon's actual role credential and sources endpoint, never an owner token.
+func TestMetadataMCPHelper(t *testing.T) {
+	if os.Getenv("LYK_TEST_MCP_CALL") == "" {
+		return
+	}
+	ctx := context.Background()
+	client, err := mcp.NewClient(&mcp.Implementation{Name: "fake-provider", Version: "1"}, nil).Connect(ctx,
+		&mcp.StreamableClientTransport{Endpoint: os.Getenv("LYK_SERVER") + "/mcp/sources", HTTPClient: &http.Client{Transport: boardSourceBearer(os.Getenv("LYK_TOKEN"))}}, nil)
+	must(t, err)
+	defer client.Close()
+	var args map[string]any
+	must(t, json.Unmarshal([]byte(os.Getenv("LYK_TEST_MCP_ARGS")), &args))
+	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: os.Getenv("LYK_TEST_MCP_CALL"), Arguments: args})
+	must(t, err)
+	if result.IsError {
+		t.Fatalf("MCP tool failed: %+v", result)
+	}
+	for _, c := range result.Content {
+		if text, ok := c.(*mcp.TextContent); ok {
+			t.Log(text.Text)
+		}
+	}
+}
+
+// metadataCard deliberately starts without source records. Every discovery,
+// fetch, E and dataset record is made by the running fake roles over MCP/CLI.
+func (l *boardLab) metadataCard(t *testing.T) uuid.UUID {
+	var card uuid.UUID
+	must(t, l.st.InWorkspace(context.Background(), l.ws, l.owner, func(tx *store.Tx) error {
+		c, err := tx.Q.CreateCard(context.Background(), db.CreateCardParams{WorkspaceID: l.ws, Number: 1, Title: "metadata comparison", Question: "Does X raise Y?", OwnerID: l.owner, FollowsFrom: []uuid.UUID{}})
+		card = c.ID
+		return err
+	}))
+	return card
+}
+
+func metadataLab(t *testing.T, mode string) *boardLab {
+	t.Helper()
+	t.Setenv("LYK_TEST_METADATA", mode)
+	t.Setenv("LYK_TEST_HYPOTHESES", "1")
+	helper, err := os.Executable()
+	must(t, err)
+	t.Setenv("LYK_TEST_MCP_HELPER", helper)
+	t.Setenv("LYK_TEST_METADATA_REPAIR", filepath.Join(t.TempDir(), "repair"))
+	l := newBoardLab(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/esearch.fcgi":
+			w.Write([]byte(`{"esearchresult":{"idlist":["1"]}}`))
+		case "/esummary.fcgi":
+			w.Write([]byte(`{"result":{"1":{"accession":"GSE1","title":"comparison","summary":"Y measurements; collection timing not described","gpl":"1","n_samples":2,"samples":[{"accession":"GSM1","title":"mouse 1"},{"accession":"GSM2","title":"mouse 2"}]}}}`))
+		case "/metadata":
+			if r.URL.Query().Get("acc") != "GSE1" || r.URL.Query().Get("targ") != "self" || r.URL.Query().Get("form") != "text" || r.URL.Query().Get("view") != "full" {
+				t.Errorf("metadata query %s", r.URL)
+				http.Error(w, "query", 400)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			text := "^SERIES = GSE1\n!Series_title = comparison\n!Series_summary = Collection timing is not reported\n"
+			if mode != "unresolved" {
+				text = "^SERIES = GSE1\n!Series_title = comparison\n!Series_summary = Each mouse was collected at the same time after treatment\n"
+			}
+			w.Write([]byte(text))
+		case "/search":
+			w.Write([]byte(`{"resultList":{"result":[{"id":"1","source":"PMC","pmcid":"PMC1","title":"comparison","abstractText":"X raised Y by 40%"}]}}`))
+		case "/PMC1/fullTextXML":
+			w.Write([]byte(`<article>In treated mice, X raised Y by 40% over controls.</article>`))
+		case "/works":
+			w.Write([]byte(`{"results":[]}`))
+		case "/works/W2":
+			w.Write([]byte(`{"id":"https://openalex.org/W2","title":"contrary","abstract_inverted_index":{"no":[0],"effect":[1],"of":[2],"X":[3],"on":[4],"Y":[5]}}`))
+		default:
+			t.Errorf("unexpected fake upstream request %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+	l.hosted.GEO = sources.GEO{Base: upstream.URL, MetadataBase: upstream.URL + "/metadata", HTTP: upstream.Client()}
+	l.hosted.OA = sources.OpenAlex{Base: upstream.URL, HTTP: upstream.Client()}
+	l.hosted.EPMC = sources.EuropePMC{Base: upstream.URL, HTTP: upstream.Client()}
+	return l
+}
