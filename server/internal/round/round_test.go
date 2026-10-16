@@ -226,9 +226,16 @@ func TestFailedResultEscalates(t *testing.T) {
 
 func TestMissingSkillQueuesNothingAndEscalates(t *testing.T) {
 	f := setup(t)
+	prev, had := StageRoles[board.Hypotheses]
 	StageRoles[board.Hypotheses] = Roles{Phases: [][]string{{"no-such-role"}}, Reviewer: "no-such-reviewer",
 		Kinds: ground.Kinds, Check: ground.Check, Finalize: ground.Finalize, RoleKinds: ground.RoleKinds}
-	t.Cleanup(func() { delete(StageRoles, board.Hypotheses) })
+	t.Cleanup(func() {
+		if had {
+			StageRoles[board.Hypotheses] = prev
+		} else {
+			delete(StageRoles, board.Hypotheses)
+		}
+	})
 	card := f.card(t, board.Hypotheses, 1)
 	f.e.Advance(context.Background(), f.ws, card)
 	if n := len(f.agentRuns(t, card)); n != 0 {

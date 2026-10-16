@@ -32,6 +32,13 @@ type Roles struct {
 	Check     func(context.Context, *records.View, *jev.Client) (*board.Gate, error)
 	Finalize  func(*records.View, *board.Gate)
 	RoleKinds func(role string) []string
+	// Serve, when set, runs on the server before a phase is queued, with the
+	// column's records and the roles about to be queued, and no transaction
+	// open: it may ask Jev. The records it returns are written, and the phase
+	// queued, only if the card and its records did not change meanwhile.
+	// True means: queue nothing more; judge the gate on what the earlier
+	// phases left (the batch is then empty).
+	Serve func(ctx context.Context, c db.Card, v *records.View, next []string, j *jev.Client) (records.Batch, bool, error)
 }
 
 var StageRoles = map[string]Roles{
@@ -233,6 +240,8 @@ const gateLease = 10 * time.Minute
 // pending is what the read phase hands the call phase: the card as it was
 // read and the records the gate reads, all in memory.
 type pending struct {
+	next     []string      // the roles a server step precedes; nil when the gate is due
+	served   records.Batch // what the server step asked to write
 	c        db.Card
 	roles    Roles
 	set      Settings
@@ -351,9 +360,18 @@ func (e *Engine) read(ctx context.Context, tx *store.Tx, id uuid.UUID) (*pending
 				missing = append(missing, role)
 			}
 		}
-		if len(missing) > 0 {
+		if len(missing) == 0 {
+			continue
+		}
+		if roles.Serve == nil {
 			return nil, e.queue(ctx, tx, c, s, roles, set, missing, "")
 		}
+		// the stage roles' server step runs first, in the call phase
+		p, err := e.pend(ctx, tx, c, roles, set, false)
+		if p != nil {
+			p.next = missing
+		}
+		return p, err
 	}
 	_, reviewed := done[roles.Reviewer]
 	return e.pend(ctx, tx, c, roles, set, reviewed)
@@ -378,6 +396,17 @@ func (e *Engine) pend(ctx context.Context, tx *store.Tx, c db.Card, roles Roles,
 // reviewer's draft finalised, or judged afresh if the records it reviewed
 // have changed.
 func (e *Engine) call(ctx context.Context, p *pending) (*board.Gate, error) {
+	if p.next != nil {
+		b, now, err := p.roles.Serve(ctx, p.c, p.v, p.next, e.jev(p.set))
+		if err != nil {
+			return nil, err
+		}
+		p.served = b
+		if !now {
+			return nil, nil // write queues p.next
+		}
+		// judge the gate on what the earlier phases left
+	}
 	j := e.jev(p.set)
 	if !p.reviewed {
 		g, err := p.roles.Check(ctx, p.v, j)
@@ -431,6 +460,12 @@ func (e *Engine) write(ctx context.Context, tx *store.Tx, p *pending, g *board.G
 	s := board.FromCard(c)
 	if budget := s; v.Digest() != p.digest || len(board.CheckBudget(&budget, e.now())) > 0 {
 		return true, nil
+	}
+	if err := p.served.Write(ctx, tx, c); err != nil {
+		return false, err
+	}
+	if g == nil {
+		return false, e.queue(ctx, tx, c, s, p.roles, p.set, p.next, "")
 	}
 	if g.Verdict != "" {
 		return true, e.finish(ctx, tx, c, s, p.set, g)

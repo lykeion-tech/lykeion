@@ -69,7 +69,8 @@ type Search struct {
 	Query    string `json:"query"`
 }
 
-func decode[T any](raw json.RawMessage) (T, error) {
+// Decode reads a record body strictly: an unknown field is refused.
+func Decode[T any](raw json.RawMessage) (T, error) {
 	var v T
 	d := json.NewDecoder(strings.NewReader(string(raw)))
 	d.DisallowUnknownFields()
@@ -80,7 +81,7 @@ func decode[T any](raw json.RawMessage) (T, error) {
 }
 
 func needText(raw json.RawMessage) error {
-	b, err := decode[textBody](raw)
+	b, err := Decode[textBody](raw)
 	if err == nil && strings.TrimSpace(b.Text) == "" {
 		return service.Invalid("text required")
 	}
@@ -101,7 +102,7 @@ func liveRecord(ctx context.Context, tx *store.Tx, w service.Writer, kind, key s
 }
 
 func prepareEvidence(ctx context.Context, tx *store.Tx, w service.Writer, raw json.RawMessage) (json.RawMessage, error) {
-	e, err := decode[Evidence](raw)
+	e, err := Decode[Evidence](raw)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +124,7 @@ func prepareEvidence(ctx context.Context, tx *store.Tx, w service.Writer, raw js
 }
 
 func prepareDataset(ctx context.Context, tx *store.Tx, w service.Writer, raw json.RawMessage) (json.RawMessage, error) {
-	d, err := decode[Dataset](raw)
+	d, err := Decode[Dataset](raw)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +143,7 @@ func prepareDataset(ctx context.Context, tx *store.Tx, w service.Writer, raw jso
 }
 
 func validReviewItem(raw json.RawMessage) error {
-	it, err := decode[ReviewItem](raw)
+	it, err := Decode[ReviewItem](raw)
 	if err == nil && (it.Check == "" || (it.Result != "pass" && it.Result != "fail")) {
 		return service.Invalid("check and a pass or fail result are required")
 	}
@@ -150,7 +151,7 @@ func validReviewItem(raw json.RawMessage) error {
 }
 
 func validVerdict(raw json.RawMessage) error {
-	v, err := decode[Verdict](raw)
+	v, err := Decode[Verdict](raw)
 	switch {
 	case err != nil:
 		return err
@@ -163,7 +164,7 @@ func validVerdict(raw json.RawMessage) error {
 }
 
 func needReason(raw json.RawMessage) error {
-	b, err := decode[struct {
+	b, err := Decode[struct {
 		Reason string `json:"reason"`
 	}](raw)
 	if err == nil && strings.TrimSpace(b.Reason) == "" {
@@ -173,7 +174,7 @@ func needReason(raw json.RawMessage) error {
 }
 
 func prepareVerdict(_ context.Context, _ *store.Tx, w service.Writer, raw json.RawMessage) (json.RawMessage, error) {
-	v, err := decode[Verdict](raw)
+	v, err := Decode[Verdict](raw)
 	if err != nil {
 		return nil, err
 	}

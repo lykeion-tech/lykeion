@@ -2,6 +2,7 @@ package round
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"lykeion/server/internal/service"
@@ -31,6 +32,12 @@ func Kinds() map[string]service.Kind {
 	var roles []string
 	for _, t := range StageRoles {
 		for name, k := range t.Kinds() {
+			if prev, ok := out[name]; ok {
+				// A kind two columns share (review_item, verdict, cannot_proceed)
+				// keeps one set of rules, taken from Grounding's; each column adds
+				// its roles.
+				k.Roles = slices.Concat(prev.Roles, k.Roles)
+			}
 			out[name] = k
 		}
 		for _, p := range t.Phases {

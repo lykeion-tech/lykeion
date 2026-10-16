@@ -15,7 +15,8 @@ import (
 // out because they answer the gate rather than feed it.
 var ReviewKinds = []string{"review_item", "verdict", "gate_draft", "gate"}
 
-var relation = map[string]string{
+// Relation is how a passage bears on a claim, as a Jev Choice.
+var Relation = map[string]string{
 	"supports":     "The passage states the claim or directly implies that it is true",
 	"challenges":   "The passage states the opposite of the claim or implies it is false",
 	"says_nothing": "The passage does not address what the claim asserts, either way",
@@ -31,9 +32,11 @@ var Units = map[string]string{
 	"unclear":               "The metadata does not say what one observation represents",
 }
 
-func normalize(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
+// Normalize folds case and runs of whitespace, so quotes match across line breaks.
+func Normalize(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
 
-func codeCheck(id, owner string, ok bool, note string) board.Check {
+// CodeCheck is a check the server decides by code: pass when ok.
+func CodeCheck(id, owner string, ok bool, note string) board.Check {
 	r := board.Pass
 	if !ok {
 		r = board.Fail
@@ -65,7 +68,7 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 					}
 				}
 				if !searched {
-					g.Checks = []board.Check{codeCheck("search.datasets", DataScout, false, "no recorded GEO search with a nonempty query")}
+					g.Checks = []board.Check{CodeCheck("search.datasets", DataScout, false, "no recorded GEO search with a nonempty query")}
 					board.Decide(g)
 					return g, nil
 				}
@@ -88,9 +91,9 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 		}
 	}
 	g.Checks = []board.Check{
-		codeCheck("question.present", Scoper, hasQ, "no scoped question"),
-		codeCheck("evidence.present", Literature, hasLiteratureEvidence, "no evidence from the literature scout"),
-		codeCheck("notes.present", Methods, hasN, "no methods notes"),
+		CodeCheck("question.present", Scoper, hasQ, "no scoped question"),
+		CodeCheck("evidence.present", Literature, hasLiteratureEvidence, "no evidence from the literature scout"),
+		CodeCheck("notes.present", Methods, hasN, "no methods notes"),
 	}
 	for _, r := range ev {
 		e := records.Body[Evidence](r)
@@ -99,10 +102,10 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 		if err != nil {
 			return nil, err
 		}
-		q := codeCheck("quote."+r.Key, r.Role, strings.Contains(normalize(txt), normalize(e.Quote)), "quote not found verbatim in the fetched text")
+		q := CodeCheck("quote."+r.Key, r.Role, strings.Contains(Normalize(txt), Normalize(e.Quote)), "quote not found verbatim in the fetched text")
 		q.Evidence = []string{"evidence#" + r.Key, f.BlobKey}
 		g.Checks = append(g.Checks, q,
-			codeCheck("retracted."+r.Key, r.Role, !records.Body[Fetch](f).Retracted, e.SourceID+" is retracted"))
+			CodeCheck("retracted."+r.Key, r.Role, !records.Body[Fetch](f).Retracted, e.SourceID+" is retracted"))
 	}
 	dbs := map[string]bool{}
 	contrary := false
@@ -114,9 +117,9 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 		contrary = contrary || r.Role == Contrarian
 	}
 	g.Checks = append(g.Checks,
-		codeCheck("search.databases", Literature, len(dbs) >= 2, fmt.Sprintf("searched %d literature database(s), need 2", len(dbs))),
-		codeCheck("search.contrary", Contrarian, contrary, "the contrary search never ran"),
-		codeCheck("datasets.opened", DataScout, len(ds) > 0, "no dataset was opened"),
+		CodeCheck("search.databases", Literature, len(dbs) >= 2, fmt.Sprintf("searched %d literature database(s), need 2", len(dbs))),
+		CodeCheck("search.contrary", Contrarian, contrary, "the contrary search never ran"),
+		CodeCheck("datasets.opened", DataScout, len(ds) > 0, "no dataset was opened"),
 	)
 	for _, ch := range g.Checks {
 		if ch.Result != board.Pass {
@@ -130,7 +133,7 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 }
 
 func passage(text, quote string) string {
-	t, q := normalize(text), normalize(quote)
+	t, q := Normalize(text), Normalize(quote)
 	i := strings.Index(t, q)
 	if i < 0 {
 		return t
@@ -157,13 +160,13 @@ func jevChecks(ctx context.Context, v *records.View, j *jev.Client, ev, ds []db.
 		}
 		ch := board.Check{ID: "support." + r.Key, Owner: r.Role, Evidence: []string{"evidence#" + r.Key},
 			Question: "Does the passage state the claim?"}
-		out = append(out, ask(ctx, j, ch, "claim: "+e.Claim+"\n\npassage: "+passage(txt, e.Quote), relation,
+		out = append(out, Ask(ctx, j, ch, "claim: "+e.Claim+"\n\npassage: "+passage(txt, e.Quote), Relation,
 			func(a jev.Answer) (board.Result, float64) {
 				return board.FromP(a.Probabilities["supports"]), a.Probabilities["supports"]
 			}))
 		oc := board.Check{ID: "origin." + r.Key, Owner: r.Role, Evidence: []string{"evidence#" + r.Key},
 			Question: "Does the passage report this paper's own result or synthesis, or describe another study's work?"}
-		out = append(out, ask(ctx, j, oc, "passage: "+passage(txt, e.Quote), Origins,
+		out = append(out, Ask(ctx, j, oc, "passage: "+passage(txt, e.Quote), Origins,
 			func(a jev.Answer) (board.Result, float64) {
 				p := a.Probabilities["own_result"] + a.Probabilities["synthesis"]
 				if p >= 0.70 {
@@ -179,7 +182,7 @@ func jevChecks(ctx context.Context, v *records.View, j *jev.Client, ev, ds []db.
 		}
 		ch := board.Check{ID: "unit." + r.Key, Owner: DataScout, Evidence: []string{"dataset#" + r.Key},
 			Question: "What does one observation (one sample) in this dataset represent?"}
-		out = append(out, ask(ctx, j, ch, structure, Units, func(a jev.Answer) (board.Result, float64) {
+		out = append(out, Ask(ctx, j, ch, structure, Units, func(a jev.Answer) (board.Result, float64) {
 			if a.Choice == "unclear" {
 				return board.Attention, a.Probabilities[a.Choice]
 			}
@@ -199,9 +202,9 @@ func Structure(v *records.View, d db.Record) (string, error) {
 	return v.Text(o)
 }
 
-// ask leaves uncertain checks for a reviewer when Jev egress is disabled or
+// Ask leaves uncertain checks for a reviewer when Jev egress is disabled or
 // Jev cannot provide an answer.
-func ask(ctx context.Context, j *jev.Client, ch board.Check, state string, opts map[string]string, judge func(jev.Answer) (board.Result, float64)) board.Check {
+func Ask(ctx context.Context, j *jev.Client, ch board.Check, state string, opts map[string]string, judge func(jev.Answer) (board.Result, float64)) board.Check {
 	if j == nil {
 		ch.Judge, ch.Result, ch.Note = board.Reviewer, board.Attention, "jev egress is off: the reviewer answers"
 		return ch

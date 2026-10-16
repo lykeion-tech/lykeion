@@ -7,28 +7,58 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"slices"
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
 
 type View struct {
-	ctx   context.Context
-	recs  []db.Record
-	blobs storage.Storage
+	ctx     context.Context
+	recs    []db.Record
+	blobs   storage.Storage
+	earlier map[string]*View
 }
 
-// Load reads a column's live records into memory. The view keeps no
-// transaction: the engine runs gates on it, and reads blobs through it, after
-// the transaction that loaded it has committed.
+// Load reads a column's live records into memory, with those of every stage
+// column before it. The view keeps no transaction: the engine runs gates and
+// server steps on it, and reads blobs through it, after the transaction that
+// loaded it has committed.
 func Load(ctx context.Context, tx *store.Tx, blobs storage.Storage, card uuid.UUID, column string) (*View, error) {
+	v, err := load(ctx, tx, blobs, card, column)
+	if err != nil {
+		return nil, err
+	}
+	v.earlier = map[string]*View{}
+	for _, col := range board.Stages[:max(board.StageIndex(column), 0)] {
+		if v.earlier[col], err = load(ctx, tx, blobs, card, col); err != nil {
+			return nil, err
+		}
+	}
+	return v, nil
+}
+
+func load(ctx context.Context, tx *store.Tx, blobs storage.Storage, card uuid.UUID, column string) (*View, error) {
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: card, BoardColumn: column})
 	return &View{ctx: ctx, recs: recs, blobs: blobs}, err
+}
+
+// Column is an earlier stage column of the same card, as it was when the view
+// was loaded: a later column checks its inputs against an earlier column's
+// records. While the card stays in its column and round, earlier columns
+// receive no records, so the engine's re-check of this column covers them.
+func (v *View) Column(column string) (*View, error) {
+	ev, ok := v.earlier[column]
+	if !ok {
+		return nil, fmt.Errorf("records: column %s was not loaded with this view", column)
+	}
+	return ev, nil
 }
 
 func (v *View) Kind(kind string) []db.Record {
@@ -93,4 +123,42 @@ func Body[T any](r db.Record) T {
 		return zero
 	}
 	return v
+}
+
+// Put is one record a server step asks for.
+type Put struct {
+	Kind, Key string
+	Body      any
+}
+
+// Batch is what a server step decided with no transaction open; the engine
+// writes it in the transaction that applies the step.
+type Batch struct {
+	Retire []string // server kinds whose live records are superseded first
+	Put    []Put
+}
+
+// Write supersedes the server's live records of each Retire kind, then
+// inserts each Put with role server and no agent run, on the card's column and
+// round. Superseded records stay in the table and the timeline.
+func (b Batch) Write(ctx context.Context, tx *store.Tx, c db.Card) error {
+	if err := tx.Q.SupersedeRoleKinds(ctx, db.SupersedeRoleKindsParams{WorkspaceID: tx.WS, CardID: c.ID,
+		BoardColumn: c.BoardColumn, Role: "server", Kinds: b.Retire}); err != nil {
+		return err
+	}
+	for _, p := range b.Put {
+		body, err := json.Marshal(p.Body)
+		if err != nil {
+			return err
+		}
+		rec, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn,
+			Round: c.Round, Kind: p.Kind, Role: "server", Key: p.Key, Body: body})
+		if err != nil {
+			return err
+		}
+		if err := tx.Emit(ctx, "record.created", &c.ID, store.System, map[string]any{"record_id": rec.ID, "kind": p.Kind, "key": p.Key, "role": "server"}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

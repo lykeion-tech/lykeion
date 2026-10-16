@@ -18,7 +18,7 @@ func TestAnsweredZeroProbabilitySurvivesGateJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 	j := &jev.Client{BaseURL: srv.URL, Model: jev.Model, HTTP: srv.Client()}
-	ch := ask(context.Background(), j, board.Check{ID: "evidence.zero", Question: "Does the evidence support the claim?"}, "", map[string]string{"supports": "supports"}, func(a jev.Answer) (board.Result, float64) {
+	ch := Ask(context.Background(), j, board.Check{ID: "evidence.zero", Question: "Does the evidence support the claim?"}, "", map[string]string{"supports": "supports"}, func(a jev.Answer) (board.Result, float64) {
 		p := a.Probabilities[a.Choice]
 		return board.FromP(p), p
 	})
@@ -66,7 +66,7 @@ func TestUnavailableJevDoesNotInventProbability(t *testing.T) {
 	}))
 	defer srv.Close()
 	for _, j := range []*jev.Client{nil, {BaseURL: srv.URL, Model: jev.Model, HTTP: srv.Client()}} {
-		ch := ask(context.Background(), j, board.Check{ID: "unknown", Question: "Does it?"}, "", relation, func(jev.Answer) (board.Result, float64) {
+		ch := Ask(context.Background(), j, board.Check{ID: "unknown", Question: "Does it?"}, "", Relation, func(jev.Answer) (board.Result, float64) {
 			t.Fatal("judge called without an answer")
 			return board.Fail, 0
 		})
