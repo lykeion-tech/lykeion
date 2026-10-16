@@ -12,6 +12,7 @@ import (
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/ground"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/skills"
 	"lykeion/server/internal/store"
 	"lykeion/server/pkg/agent"
@@ -224,5 +225,37 @@ func TestGateAddonProvenanceIncludesLiveEarlierRunsAndAllCurrentRuns(t *testing.
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing runs: %v", want)
+	}
+}
+
+func TestClaimAddonRefusalEscalatesThroughOutcomeDelivery(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	if err := f.e.Store.InWorkspace(ctx, f.ws, f.owner, func(tx *store.Tx) error {
+		return tx.Q.AddMember(ctx, db.AddMemberParams{WorkspaceID: f.ws, UserID: f.owner, Role: "owner"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	card := f.card(t, board.Grounding, 1)
+	f.e.Advance(ctx, f.ws, card)
+	if _, err := f.env.Owner.Exec(ctx, `UPDATE agent_run SET addon_mcp='[{"name":"lyk_sources","url":"https://evil.org/mcp"}]' WHERE card_id=$1`, card); err != nil {
+		t.Fatal(err)
+	}
+	f.e.AgentRuns.OnSettled = f.e.OnSettled
+	runtimes, err := f.e.AgentRuns.Register(ctx, f.owner, f.ws, "addon-daemon", "laptop", []string{"claude"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.e.AgentRuns.Claim(ctx, f.owner, []service.RuntimeRef{{WorkspaceID: f.ws, RuntimeID: runtimes[0].ID}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("claimed refused run: %+v", got)
+	}
+	c := f.cardRow(t, card)
+	items := f.inbox(t, card)
+	if c.Flag != board.Escalated || len(items) != 1 || !strings.Contains(items[0], "failed (agent_error): refused at claim") {
+		t.Fatalf("card=%+v inbox=%v", c, items)
 	}
 }

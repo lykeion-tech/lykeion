@@ -1016,3 +1016,27 @@ func TestReadOnlyHarnessesMatchTheAdapters(t *testing.T) {
 		}
 	}
 }
+
+// In both modes a role may call the add-on servers' tools, named lyk_<name>,
+// and nothing is denied.
+func TestClaudeAllowsTheAddonServersTools(t *testing.T) {
+	for _, inherit := range []bool{false, true} {
+		args := filepath.Join(t.TempDir(), "args")
+		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
+			ExecOptions{Dir: t.TempDir(), MCPURL: "http://lyk/mcp/sources", MCPToken: "ltk_x", Inherit: inherit,
+				MCP: []MCPServer{{Name: "lab-index", URL: "https://tools.lab.org/mcp"}, {Name: "atlas", URL: "https://atlas.org/mcp"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		a, _ := os.ReadFile(args)
+		if !strings.Contains(string(a), "\n"+claudeTools+",mcp__lyk_lab-index,mcp__lyk_atlas\n") || strings.Contains(string(a), "--disallowedTools") {
+			t.Fatalf("inherit=%v, tools: %s", inherit, a)
+		}
+		s, _ = Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: inherit})
+		collect(t, s)
+		if a, _ := os.ReadFile(args); !strings.Contains(string(a), "\n"+claudeTools+"\n") {
+			t.Fatalf("inherit=%v, without add-ons: %s", inherit, a)
+		}
+	}
+}

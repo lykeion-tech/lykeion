@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"lykeion/server/internal/addon"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/pricing"
 	"lykeion/server/internal/store"
@@ -266,9 +267,13 @@ func owned(ctx context.Context, tx *store.Tx, user uuid.UUID, ref RuntimeRef) er
 }
 
 // Claim fills up to slots agent runs across the caller's runtimes, one run per
-// runtime per pass, until nothing more can be claimed.
+// runtime per pass, until nothing more can be claimed. An agent run's add-on
+// servers were checked when the owner saved them and when it was queued; they
+// are checked once more before they reach a daemon, and an agent run that fails
+// is settled failed instead of handed out.
 func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef, slots int) ([]Claimed, error) {
 	var out []Claimed
+	var refused []db.AgentRun
 	dispatchRefs := refs
 	err := s.runtimeBatch(ctx, user, refs, func(tx *store.Tx, ordered []RuntimeRef) error {
 		// Event locks also span workspaces; acquire them in canonical order,
@@ -310,12 +315,38 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if err != nil {
 						return err
 					}
+					mcp, err := addon.Servers(t.AddonMcp)
+					if err != nil {
+						// No token is issued; the attempt ends here, with its receipt
+						// and the settlement every terminal run gets.
+						reason := "agent_error"
+						if err := tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{Status: "failed", SessionID: t.SessionID,
+							Error: "refused at claim: " + err.Error(), FailureReason: &reason, ID: t.ID, WorkspaceID: ref.WorkspaceID}); err != nil {
+							return err
+						}
+						f, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{ID: t.ID, WorkspaceID: ref.WorkspaceID})
+						if err != nil {
+							return err
+						}
+						if err := saveReceipt(ctx, tx, f, &ref.RuntimeID); err != nil {
+							return err
+						}
+						if err := saveSettlement(ctx, tx, f); err != nil {
+							return err
+						}
+						refused = append(refused, f)
+						progress = true
+						return tx.Emit(ctx, "agent_run.failed", &f.CardID, store.System, agentRunEvent(f))
+					}
+					if mcp == nil {
+						mcp = []agent.MCPServer{}
+					}
 					plain, hash, _ := auth.NewToken(AgentRunPrefix)
 					if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: hash, WorkspaceID: ref.WorkspaceID,
 						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
 						return err
 					}
-					c = &Claimed{AgentRun: t, Token: plain, MCPURL: s.MCPURL, MCP: []agent.MCPServer{}}
+					c = &Claimed{AgentRun: t, Token: plain, MCPURL: s.MCPURL, MCP: mcp}
 					return tx.Emit(ctx, "agent_run.dispatched", &t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {
@@ -335,6 +366,9 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	})
 	if err != nil {
 		return nil, err
+	}
+	for _, f := range refused {
+		s.deliverAfterCommit(ctx, f.WorkspaceID, f.ID)
 	}
 	return out, nil
 }
