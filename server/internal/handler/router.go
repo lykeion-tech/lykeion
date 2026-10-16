@@ -83,6 +83,8 @@ func NewRouter(h *H) http.Handler {
 				r.With(middleware.RequireAdmin).Patch("/", h.updateWorkspace)
 				r.With(middleware.RequireOwner).Delete("/", h.deleteWorkspace)
 				r.With(middleware.RequireOwner).Patch("/settings", h.setSettings)
+				r.Get("/addons", h.listAddons)
+				r.With(middleware.RequireOwner).Patch("/addons/{column}", h.setAddon)
 				r.Get("/members", h.listMembers)
 				r.With(middleware.RequireAdmin).Patch("/members/{user}", h.setMemberRole)
 				r.With(middleware.RequireAdmin).Delete("/members/{user}", h.removeMember)
