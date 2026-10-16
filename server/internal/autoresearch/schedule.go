@@ -99,7 +99,7 @@ func (s *Service) Tick(ctx context.Context) error {
 			slog.Error("autoresearch repair", "run", r.RunID, "err", err)
 		}
 	}
-	return nil
+	return s.Sync(ctx)
 }
 
 // fire evaluates one due schedule under the workspace lock: it advances
