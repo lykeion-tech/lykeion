@@ -170,3 +170,29 @@ func TestGEOMetadataBoundariesReadCeiling(t *testing.T) {
 		t.Fatalf("read %d bytes", body.read)
 	}
 }
+
+func TestGEOOpenMetadataReferencesUnsupportedSelf(t *testing.T) {
+	for _, accession := range []string{"GDS1", "GPL1"} {
+		t.Run(accession, func(t *testing.T) {
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/esearch.fcgi" {
+					fmt.Fprint(w, `{"esearchresult":{"idlist":["1"]}}`)
+					return
+				}
+				fmt.Fprintf(w, `{"result":{"1":{"accession":%q,"title":"legacy entity","summary":"source summary","gpl":"7"}}}`, accession)
+			}))
+			defer api.Close()
+			d, err := (GEO{Base: api.URL, HTTP: api.Client()}).OpenWithMetadata(context.Background(), accession)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "accession: " + accession + "\ntitle: legacy entity\nplatform: GPL7\nsummary: source summary\nsamples:\n"
+			if d.Structure != want {
+				t.Fatalf("legacy structure: %q; want %q", d.Structure, want)
+			}
+			if len(d.MetadataSources) != 0 {
+				t.Fatalf("unsupported metadata references: %+v", d.MetadataSources)
+			}
+		})
+	}
+}

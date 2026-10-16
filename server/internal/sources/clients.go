@@ -347,7 +347,10 @@ func (g GEO) OpenWithMetadata(ctx context.Context, accession string) (DatasetDoc
 		for _, sm := range s.Samples {
 			fmt.Fprintf(&b, "- %s: %s\n", sm.Accession, sm.Title)
 		}
-		refs := []MetadataRef{{SourceID: "geo:" + accession, Accession: accession, Relation: "self"}}
+		var refs []MetadataRef
+		if geoAccession.MatchString(accession) {
+			refs = append(refs, MetadataRef{SourceID: "geo:" + accession, Accession: accession, Relation: "self"})
+		}
 		seen := map[string]bool{accession: true}
 		for _, sm := range s.Samples {
 			if geoAccession.MatchString(sm.Accession) && strings.HasPrefix(sm.Accession, "GSM") && !seen[sm.Accession] {
