@@ -99,6 +99,9 @@ func (s *Service) Tick(ctx context.Context) error {
 			slog.Error("autoresearch repair", "run", r.RunID, "err", err)
 		}
 	}
+	if err := s.Deliver(ctx); err != nil {
+		slog.Error("webhook deliveries", "err", err)
+	}
 	return s.Sync(ctx)
 }
 

@@ -14,6 +14,7 @@ func NewRouter(h *H) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.Recoverer, middleware.RequestBounds)
 
+	r.Post("/api/webhooks/autoresearch/{token}", h.autoresearchWebhook)
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
 	r.Get("/readyz", h.readyz)
 	r.Post("/auth/send-code", h.sendCode)
