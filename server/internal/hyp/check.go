@@ -36,7 +36,11 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 		g.Verdict, g.Reason = board.CannotProceed, "no viable hypothesis: "+records.Body[reason](r).Reason
 		return g, nil
 	}
-	if ms := v.Kind("missing_premise"); len(ms) > 0 {
+	ms, err := activeMissingPremises(v)
+	if err != nil {
+		return nil, err
+	}
+	if len(ms) > 0 {
 		var gaps []string
 		for _, r := range ms {
 			gaps = append(gaps, records.Body[MissingPremise](r).Gap)

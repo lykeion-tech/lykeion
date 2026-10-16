@@ -17,10 +17,15 @@ func TestFitMatchesAHandComputedExample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var sum float64
 	for k, want := range map[string]float64{"A": 4.0 / 7, "B": 2.0 / 7, "C": 1.0 / 7} {
-		if math.Abs(got[k]-want) > 1e-9 {
+		sum += got[k]
+		if math.IsNaN(got[k]) || math.IsInf(got[k], 0) || math.Abs(got[k]-want) > 1e-9 {
 			t.Errorf("%s = %.12f, want %.12f", k, got[k], want)
 		}
+	}
+	if math.Abs(sum-1) > 1e-9 {
+		t.Fatalf("score sum = %g", sum)
 	}
 	if o := Order(got); !slices.Equal(o, []string{"A", "B", "C"}) {
 		t.Fatalf("order %v", o)

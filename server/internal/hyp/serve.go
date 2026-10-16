@@ -41,7 +41,11 @@ func Serve(ctx context.Context, c db.Card, v *records.View, next []string, j *je
 		b, err := seed(v)
 		return b, false, err
 	}
-	if len(v.Kind("missing_premise")) > 0 || len(v.Kind("candidate")) == 0 {
+	ms, err := activeMissingPremises(v)
+	if err != nil {
+		return records.Batch{}, false, err
+	}
+	if len(ms) > 0 || len(v.Kind("candidate")) == 0 {
 		return records.Batch{}, true, nil
 	}
 	switch next[0] {
@@ -169,4 +173,21 @@ func compare(ctx context.Context, c db.Card, v *records.View, j *jev.Client) rec
 		}
 	}
 	return b
+}
+
+// activeMissingPremises excludes retained premises from before Grounding's
+// latest pass. Their owners retire them when queued again; an older round
+// within the same Hypotheses visit can still require an immediate routeback.
+func activeMissingPremises(v *records.View) ([]db.Record, error) {
+	gv, err := v.Column(board.Grounding)
+	if err != nil {
+		return nil, err
+	}
+	var boundary int32
+	for _, r := range gv.Kind("gate") {
+		if records.Body[board.Gate](r).Verdict == board.VPass && r.Round > boundary {
+			boundary = r.Round
+		}
+	}
+	return slices.DeleteFunc(v.Kind("missing_premise"), func(r db.Record) bool { return r.Round < boundary }), nil
 }

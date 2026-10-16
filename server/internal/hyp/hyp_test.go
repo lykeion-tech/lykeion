@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -892,5 +893,74 @@ func TestGateJevFailureRequiresReviewerSettlement(t *testing.T) {
 	f.finalize(t, g)
 	if g.Verdict != board.VFail {
 		t.Fatalf("unsettled Jev failure passed: %+v", g)
+	}
+}
+
+type contextTransport func(*http.Request) (*http.Response, error)
+
+func (f contextTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestServeExpiredComparisonLeavesAllPairsForSelector(t *testing.T) {
+	f := setup(t)
+	f.mustWrite(t, "generator-1", "candidate", mechanism)
+	f.mustWrite(t, "generator-2", "candidate", artefact)
+	f.mustWrite(t, "generator-3", "candidate", third)
+	f.serve(t, []string{Decomposer}, nil)
+	var v *records.View
+	var c db.Card
+	ctx := context.Background()
+	if err := f.st.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) (err error) {
+		c, err = tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: f.ws, ID: f.card})
+		if err != nil {
+			return err
+		}
+		v, err = records.Load(ctx, tx, f.blobs, f.card, board.Hypotheses)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	expired, cancel := context.WithDeadline(ctx, time.Unix(0, 0))
+	defer cancel()
+	calls := 0
+	j := &jev.Client{BaseURL: "https://fake.invalid", Model: jev.Model, HTTP: &http.Client{Transport: contextTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.Context().Err() != context.DeadlineExceeded {
+			t.Fatalf("deadline not propagated: %v", r.Context().Err())
+		}
+		return nil, r.Context().Err()
+	})}}
+	b, now, err := Serve(expired, c, v, []string{Selector}, j)
+	if err != nil || now || len(b.Put) != 0 || calls != 3 {
+		t.Fatalf("batch=%+v immediate=%v calls=%d err=%v", b, now, calls, err)
+	}
+	if err := f.st.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) error { return b.Write(ctx, tx, c) }); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.live(t, "pairwise")); n != 0 {
+		t.Fatalf("fabricated %d judgments", n)
+	}
+	_, _, err = f.write(t, Selector, "ranking", map[string]any{})
+	refused(t, err, "H1|H2, H1|H3, H2|H3")
+	for _, p := range [][3]string{{"H1", "H2", "H1"}, {"H1", "H3", "H1"}, {"H2", "H3", "H2"}} {
+		f.mustWrite(t, Selector, "comparison", map[string]string{"a": p[0], "b": p[1], "winner": p[2], "reason": "discriminates better"})
+	}
+	_, _, err = f.write(t, Selector, "ranking", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMissingPremiseFromEarlierRoundOfSameVisitStillRoutes(t *testing.T) {
+	f := setup(t)
+	f.mustWrite(t, "generator-1", "candidate", mechanism)
+	f.mustWrite(t, Decomposer, "missing_premise", map[string]string{"gap": "dose premise", "step": ground.Literature})
+	if _, err := f.env.Owner.Exec(context.Background(), `UPDATE card SET round=3 WHERE id=$1`, f.card); err != nil {
+		t.Fatal(err)
+	}
+	if !f.serve(t, []string{Selector}, nil) {
+		t.Fatal("same-visit premise was ignored")
+	}
+	if g := f.gate(t, nil); g.Verdict != board.VFail || g.Route == nil || g.Route.Column != board.Grounding {
+		t.Fatalf("%+v", g)
 	}
 }

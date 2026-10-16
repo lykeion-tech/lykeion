@@ -36,3 +36,17 @@ func TestGapsReadsTheNotesHeadings(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+func TestVectorsUseUTF8ByteThreshold(t *testing.T) {
+	got := vectors([]string{"a ab é éa 猫 abc"})[0]
+	for _, w := range []string{"a", "ab", "é"} {
+		if _, ok := got[w]; ok {
+			t.Fatalf("short token %q survived", w)
+		}
+	}
+	for _, w := range []string{"éa", "猫", "abc"} {
+		if got[w] != 1 {
+			t.Fatalf("token %q weight %g", w, got[w])
+		}
+	}
+}

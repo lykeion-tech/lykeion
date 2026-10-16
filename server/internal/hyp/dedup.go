@@ -38,8 +38,8 @@ func Cluster(keys, texts []string, threshold float64) ([]string, map[string]stri
 	return survivors, merged
 }
 
-// vectors weighs each word of three or more letters or digits by its count
-// times a smoothed inverse document frequency, which is never zero.
+// vectors weighs each letter-or-digit token of at least three UTF-8 bytes
+// by its count times a smoothed inverse document frequency, which is never zero.
 func vectors(texts []string) []map[string]float64 {
 	tf := make([]map[string]float64, len(texts))
 	df := map[string]int{}

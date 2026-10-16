@@ -2,6 +2,7 @@ package round
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"lykeion/server/internal/ground"
 	"lykeion/server/internal/hyp"
 	"lykeion/server/internal/skills"
+	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -96,7 +98,9 @@ func TestHypothesesSeedsGeneratorsThenDedupsBeforeTheDecomposer(t *testing.T) {
 	}
 	f.e.Advance(ctx, f.ws, card)
 	var survivors string
-	f.env.Owner.QueryRow(ctx, `SELECT body->>'survivors' FROM record WHERE card_id = $1 AND kind = 'dedup' AND superseded_at IS NULL`, card).Scan(&survivors)
+	if err := f.env.Owner.QueryRow(ctx, `SELECT body->>'survivors' FROM record WHERE card_id = $1 AND kind = 'dedup' AND superseded_at IS NULL`, card).Scan(&survivors); err != nil {
+		t.Fatal(err)
+	}
 	if survivors != `["H1", "H2"]` {
 		t.Fatalf("survivors %s", survivors)
 	}
@@ -165,5 +169,124 @@ func TestHypothesesKindsAreRegistered(t *testing.T) {
 		if !slices.Contains(k["nothing_found"].Roles, role) || !slices.Contains(k["failed"].Roles, role) {
 			t.Fatalf("%s cannot end its agent run with a result", role)
 		}
+	}
+}
+
+func TestLaterMissingPremiseRecoversAfterGrounding(t *testing.T) {
+	for _, owner := range []string{hyp.Decomposer, hyp.Selector} {
+		t.Run(owner, func(t *testing.T) {
+			f := setup(t)
+			ctx := context.Background()
+			card := f.card(t, board.Hypotheses, 2)
+			f.grounded(t, card)
+			advance := func() {
+				t.Helper()
+				if err := f.e.Advance(ctx, f.ws, card); err != nil {
+					t.Fatal(err)
+				}
+			}
+			generators := func() {
+				t.Helper()
+				for _, r := range f.agentRuns(t, card) {
+					if !slices.Contains(hyp.Generators, r.Role) {
+						continue
+					}
+					body, key := mechanismBody, "H1"
+					if r.Role == "generator-2" {
+						body, key = artefactBody, "H2"
+					}
+					if r.Role == "generator-3" {
+						f.result(t, r.ID, "nothing_found", "no more")
+					} else {
+						f.recordFor(t, r.ID, "candidate", key, body)
+					}
+					f.settle(t, r.ID)
+				}
+			}
+			finishUntil := func(role string) db.AgentRun {
+				t.Helper()
+				for i := 0; i < 4; i++ {
+					advance()
+					rs := f.agentRuns(t, card)
+					if len(rs) == 0 {
+						t.Fatalf("no runs in %+v", f.cardRow(t, card))
+					}
+					r := rs[len(rs)-1]
+					if r.Role == role {
+						return r
+					}
+					if r.Role != hyp.Decomposer && r.Role != hyp.NoveltyScout {
+						t.Fatalf("wanted %s, got %s in %+v", role, r.Role, f.cardRow(t, card))
+					}
+					if r.Round > 2 && f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='missing_premise' AND superseded_at IS NULL`, card) != 1 {
+						t.Fatal("another role retired the retained premise before its owner reran")
+					}
+					f.result(t, r.ID, "nothing_found", "no extra result")
+					f.settle(t, r.ID)
+				}
+				t.Fatal("role never queued")
+				return db.AgentRun{}
+			}
+			advance()
+			generators()
+			r := finishUntil(owner)
+			f.recordFor(t, r.ID, "missing_premise", "", `{"gap":"dose saturation premise","step":"literature-scout"}`)
+			f.settle(t, r.ID)
+			advance()
+			c := f.cardRow(t, card)
+			if c.BoardColumn != board.Grounding || c.Rerun != ground.Literature {
+				t.Fatalf("first premise did not route immediately: %+v", c)
+			}
+			livePremises := func() int {
+				return f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='missing_premise' AND superseded_at IS NULL`, card)
+			}
+			if livePremises() != 1 {
+				t.Fatal("premise history retired before its owner reran")
+			}
+			if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='candidate' AND superseded_at IS NULL`, card); n != 2 {
+				t.Fatalf("retained candidates: %d", n)
+			}
+			// Supply the repair and apply a passing Grounding gate through the engine.
+			for _, r := range f.agentRuns(t, card) {
+				f.recordFor(t, r.ID, "evidence", "E3", `{"claim":"dose saturation is known","source_id":"repair","quote":"saturation","stance":"supports"}`)
+				f.settle(t, r.ID)
+			}
+			err := f.e.Store.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) error {
+				c, err := tx.Q.LockCard(ctx, db.LockCardParams{ID: card, WorkspaceID: f.ws})
+				if err != nil {
+					return err
+				}
+				g := board.Gate{Column: board.Grounding, Round: c.Round, Verdict: board.VPass}
+				return f.e.finish(ctx, tx, c, board.FromCard(c), ParseSettings(json.RawMessage(`{}`)), &g)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			advance()
+			if livePremises() != 1 {
+				t.Fatal("new generators retired later role premise")
+			}
+			generators()
+			rerun := finishUntil(owner)
+			if rerun.ID == r.ID || rerun.Round <= r.Round {
+				t.Fatalf("owner did not rerun: %+v", rerun)
+			}
+			if livePremises() != 0 {
+				t.Fatal("owner queue did not supersede its old premise")
+			}
+			if c := f.cardRow(t, card); c.BoardColumn != board.Hypotheses || c.RouteBacks != 1 {
+				t.Fatalf("spurious repeated routeback: %+v", c)
+			}
+			if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='missing_premise' AND superseded_at IS NOT NULL`, card); n != 1 {
+				t.Fatalf("lost history: %d", n)
+			}
+			f.recordFor(t, rerun.ID, "missing_premise", "", `{"gap":"a newly discovered premise","step":"literature-scout"}`)
+			f.settle(t, rerun.ID)
+			advance()
+			if c := f.cardRow(t, card); c.BoardColumn != board.Grounding || c.RouteBacks != 2 {
+				t.Fatalf("new premise was suppressed: %+v", c)
+			}
+
+		})
 	}
 }
