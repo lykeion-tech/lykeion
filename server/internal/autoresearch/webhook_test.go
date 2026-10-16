@@ -4,8 +4,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -111,5 +113,33 @@ func TestNormaliseRejectsUnstorableUnicode(t *testing.T) {
 		if err != nil || string(e.Payload) != body {
 			t.Errorf("valid %q: %s %v", body, e.Payload, err)
 		}
+	}
+}
+
+func TestARealGitHubDelivery(t *testing.T) {
+	raw, err := os.ReadFile("testdata/github-ping.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Headers map[string]string `json:"headers"`
+		Body    string            `json:"body"`
+	}
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	h := http.Header{}
+	for k, v := range d.Headers {
+		h.Set(k, v)
+	}
+	if !validHubSignature([]byte("lyk-live-check-secret"), h.Get("X-Hub-Signature-256"), []byte(d.Body)) {
+		t.Fatal("GitHub's own signature does not verify")
+	}
+	e, err := normalise("github", h, []byte(d.Body), time.Now())
+	if err != nil || e.Event != "ping" || e.Action != "" {
+		t.Fatalf("%+v %v", e, err)
+	}
+	if k, _ := deliveryKey("github", h); k != "key:"+h.Get("X-GitHub-Delivery") {
+		t.Fatalf("delivery key %q", k)
 	}
 }
