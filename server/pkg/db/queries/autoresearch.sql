@@ -180,3 +180,16 @@ RETURNING *;
 -- name: InsertAutoresearchInboxItem :exec
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, autoresearch_run_id)
 VALUES (@workspace_id, sqlc.narg(card_id), @user_id, @kind, @text, @autoresearch_run_id::uuid);
+
+-- name: FailRunsForDeletedCard :many
+UPDATE autoresearch_run SET status = 'failed', reason = 'card_deleted', updated_at = now()
+WHERE workspace_id = @workspace_id AND card_id = @card_id AND status IN ('queued', 'running', 'blocked')
+RETURNING *;
+
+-- name: HasLiveAutoresearchAgents :one
+SELECT EXISTS (
+ SELECT 1 FROM autoresearch_run r
+ JOIN agent_run a ON a.workspace_id = r.workspace_id AND a.id = r.agent_run_id
+ WHERE r.workspace_id = @workspace_id AND r.autoresearch_id = @autoresearch_id
+ AND a.status IN ('queued', 'dispatched', 'running')
+) AS ok;

@@ -42,11 +42,11 @@ ORDER BY created_at DESC LIMIT 200;
 SELECT * FROM inbox_item WHERE workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NOT NULL
 ORDER BY created_at DESC, id DESC LIMIT 200;
 
--- Reading an item marks it read; a released item needs nothing more, so
--- reading it also resolves it.
+-- Reading informational notifications also resolves them.
 -- name: MarkInboxRead :one
-UPDATE inbox_item SET read_at = now(), resolved_at = CASE WHEN kind = 'released' THEN now() ELSE resolved_at END
-WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND read_at IS NULL
+UPDATE inbox_item SET read_at = COALESCE(read_at, now()), resolved_at = CASE WHEN kind IN ('released', 'autoresearch_card', 'autoresearch_report') THEN now() ELSE resolved_at END
+WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id
+  AND (read_at IS NULL OR (kind IN ('autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
 RETURNING *;
 
 -- A person answered a blocked card (resume, stop, budget): its open escalated

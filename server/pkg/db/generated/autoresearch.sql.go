@@ -464,6 +464,54 @@ func (q *Queries) EnqueueAutoresearchAgentRun(ctx context.Context, arg EnqueueAu
 	return i, err
 }
 
+const failRunsForDeletedCard = `-- name: FailRunsForDeletedCard :many
+UPDATE autoresearch_run SET status = 'failed', reason = 'card_deleted', updated_at = now()
+WHERE workspace_id = $1 AND card_id = $2 AND status IN ('queued', 'running', 'blocked')
+RETURNING id, workspace_id, autoresearch_id, trigger_id, source, acting_user_id, planned_at, status, reason, payload, card_id, agent_run_id, report, idempotency_key, created_at, updated_at
+`
+
+type FailRunsForDeletedCardParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      *uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) FailRunsForDeletedCard(ctx context.Context, arg FailRunsForDeletedCardParams) ([]AutoresearchRun, error) {
+	rows, err := q.db.Query(ctx, failRunsForDeletedCard, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AutoresearchRun
+	for rows.Next() {
+		var i AutoresearchRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.AutoresearchID,
+			&i.TriggerID,
+			&i.Source,
+			&i.ActingUserID,
+			&i.PlannedAt,
+			&i.Status,
+			&i.Reason,
+			&i.Payload,
+			&i.CardID,
+			&i.AgentRunID,
+			&i.Report,
+			&i.IdempotencyKey,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const finishDelivery = `-- name: FinishDelivery :exec
 UPDATE webhook_delivery SET state = $1, run_id = $2, lease_until = NULL
 WHERE workspace_id = $3 AND id = $4
@@ -602,6 +650,27 @@ func (q *Queries) GetTrigger(ctx context.Context, arg GetTriggerParams) (Autores
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const hasLiveAutoresearchAgents = `-- name: HasLiveAutoresearchAgents :one
+SELECT EXISTS (
+ SELECT 1 FROM autoresearch_run r
+ JOIN agent_run a ON a.workspace_id = r.workspace_id AND a.id = r.agent_run_id
+ WHERE r.workspace_id = $1 AND r.autoresearch_id = $2
+ AND a.status IN ('queued', 'dispatched', 'running')
+) AS ok
+`
+
+type HasLiveAutoresearchAgentsParams struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	AutoresearchID uuid.UUID `json:"autoresearch_id"`
+}
+
+func (q *Queries) HasLiveAutoresearchAgents(ctx context.Context, arg HasLiveAutoresearchAgentsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasLiveAutoresearchAgents, arg.WorkspaceID, arg.AutoresearchID)
+	var ok bool
+	err := row.Scan(&ok)
+	return ok, err
 }
 
 const hasOnlineRuntime = `-- name: HasOnlineRuntime :one

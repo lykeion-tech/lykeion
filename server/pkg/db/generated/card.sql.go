@@ -576,8 +576,9 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]InboxIt
 }
 
 const markInboxRead = `-- name: MarkInboxRead :one
-UPDATE inbox_item SET read_at = now(), resolved_at = CASE WHEN kind = 'released' THEN now() ELSE resolved_at END
-WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND read_at IS NULL
+UPDATE inbox_item SET read_at = COALESCE(read_at, now()), resolved_at = CASE WHEN kind IN ('released', 'autoresearch_card', 'autoresearch_report') THEN now() ELSE resolved_at END
+WHERE id = $1 AND workspace_id = $2 AND user_id = $3
+  AND (read_at IS NULL OR (kind IN ('autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
 RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id
 `
 
@@ -587,8 +588,7 @@ type MarkInboxReadParams struct {
 	UserID      uuid.UUID `json:"user_id"`
 }
 
-// Reading an item marks it read; a released item needs nothing more, so
-// reading it also resolves it.
+// Reading informational notifications also resolves them.
 func (q *Queries) MarkInboxRead(ctx context.Context, arg MarkInboxReadParams) (InboxItem, error) {
 	row := q.db.QueryRow(ctx, markInboxRead, arg.ID, arg.WorkspaceID, arg.UserID)
 	var i InboxItem

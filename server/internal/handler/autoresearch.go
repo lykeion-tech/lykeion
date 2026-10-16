@@ -242,6 +242,13 @@ func (h *H) updateAutoresearch(w http.ResponseWriter, r *http.Request) {
 
 func (h *H) deleteAutoresearch(w http.ResponseWriter, r *http.Request) {
 	ok := h.autoresearchTx(w, r, true, func(tx *store.Tx, ap db.Autoresearch, user uuid.UUID) error {
+		live, err := tx.Q.HasLiveAutoresearchAgents(r.Context(), db.HasLiveAutoresearchAgentsParams{WorkspaceID: tx.WS, AutoresearchID: ap.ID})
+		if err != nil {
+			return err
+		}
+		if live {
+			return conflict("the autoresearch has live agent runs; wait for settlement or cancel them first")
+		}
 		if err := tx.Q.DeleteAutoresearch(r.Context(), db.DeleteAutoresearchParams{WorkspaceID: tx.WS, ID: ap.ID}); err != nil {
 			return err
 		}

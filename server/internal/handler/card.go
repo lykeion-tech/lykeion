@@ -320,7 +320,7 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Emit(r.Context(), "inbox.read", nil, store.User(user), map[string]string{"inbox_item_id": id.String()}); err != nil {
 			return err
 		}
-		if item.Kind != "released" {
+		if item.Kind != "released" && item.Kind != "autoresearch_card" && item.Kind != "autoresearch_report" {
 			return nil
 		}
 		return tx.Emit(r.Context(), "inbox.resolved", item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})
@@ -460,12 +460,30 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
 		c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: id, WorkspaceID: ws})
 		if err != nil {
 			return err
 		}
 		if c.BoardColumn != board.Backlog {
 			return errNotBacklog
+		}
+		runs, err := tx.Q.FailRunsForDeletedCard(r.Context(), db.FailRunsForDeletedCardParams{WorkspaceID: ws, CardID: &id})
+		if err != nil {
+			return err
+		}
+		for _, run := range runs {
+			if err := tx.Emit(r.Context(), "autoresearch_run.failed", nil, store.User(user), map[string]any{
+				"run_id": run.ID, "autoresearch_id": run.AutoresearchID, "status": run.Status, "reason": run.Reason,
+				"source": run.Source, "card_id": run.CardID, "agent_run_id": run.AgentRunID,
+			}); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Q.DeleteBacklogCard(r.Context(), db.DeleteBacklogCardParams{ID: id, WorkspaceID: ws}); err != nil {
 			return err
