@@ -45,13 +45,25 @@ type Route struct {
 }
 
 type Gate struct {
-	Column      string  `json:"column"`
-	Round       int32   `json:"round"`
-	InputDigest string  `json:"input_digest"` // hash of the records the gate read
-	Checks      []Check `json:"checks"`
-	Verdict     Verdict `json:"verdict"`
-	Route       *Route  `json:"route,omitempty"`
-	Reason      string  `json:"reason,omitempty"`
+	Column      string          `json:"column"`
+	Round       int32           `json:"round"`
+	InputDigest string          `json:"input_digest"` // hash of the records the gate read
+	Checks      []Check         `json:"checks"`
+	Verdict     Verdict         `json:"verdict"`
+	Route       *Route          `json:"route,omitempty"`
+	Reason      string          `json:"reason,omitempty"`
+	Addons      []AgentRunAddon `json:"addons,omitempty"` // the add-on each judged agent run ran with
+}
+
+// AgentRunAddon names an agent run the gate judged, the add-on hash it ran with
+// (empty when none), and the daemon's mode and policy digest for it: in
+// workspace_continuity the account's own setup shaped the run too.
+type AgentRunAddon struct {
+	AgentRun     string `json:"agent_run"`
+	Role         string `json:"role"`
+	Hash         string `json:"addon_hash"`
+	ProfileMode  string `json:"profile_mode"`
+	PolicyDigest string `json:"policy_digest"`
 }
 
 // FromP maps a Jev probability onto a check result.

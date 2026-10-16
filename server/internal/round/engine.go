@@ -3,6 +3,7 @@ package round
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/addon"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/ground"
 	"lykeion/server/internal/jev"
@@ -470,18 +472,34 @@ func ContinuityScope(card uuid.UUID, role string, round int32, judge bool) strin
 	return s
 }
 
-// queue supersedes the roles' earlier records and enqueues one agent run per
-// role. A role whose skill is missing gets no run: nothing of the phase is
-// queued and the card escalates. The card's handoff note goes to each redone
-// role: the rerun role, or every role when all the stage roles redo their work.
+// queue supersedes the roles' earlier records and enqueues one agent run per role.
+// A role whose skill is missing gets no agent run: nothing of the phase is queued
+// and the card escalates. The workspace's add-on reaches every role but the
+// reviewer; one that cannot be assembled queues nothing either. The card's
+// handoff note goes to each redone role: the rerun role, or every role when
+// all the stage roles redo their work.
 func (e *Engine) queue(ctx context.Context, tx *store.Tx, c db.Card, s board.State, sr Roles, set Settings, roles []string, extra string) error {
 	skill := map[string]string{}
 	for _, role := range roles {
 		if skill[role] = skills.Role(c.BoardColumn, role); skill[role] == "" {
-			// Keep the card's rerun: resuming must retry the same roles, not only the one
-			// whose skill was missing.
 			items := board.EscalateAgentRun(&s, c.Rerun, fmt.Sprintf("no skill for the %s role in %s: nothing was queued", role, c.BoardColumn))
 			return e.save(ctx, tx, c, s, items, "card.escalated", nil)
+		}
+	}
+	var lab addon.Addon
+	if slices.ContainsFunc(roles, func(r string) bool { return r != sr.Reviewer }) {
+		var err error
+		lab, err = addon.Load(ctx, tx.Q, tx.WS, c.BoardColumn)
+		if errors.Is(err, addon.ErrInvalid) {
+			// The fault is the add-on's, not a role's: keep the card's rerun so
+			// resuming retries exactly these roles.
+			items := board.EscalateAgentRun(&s, c.Rerun, fmt.Sprintf(
+				"the %s add-on cannot be assembled (%v): nothing was queued; the workspace owner can fix it with `lyk addon set %s`",
+				c.BoardColumn, err, c.BoardColumn))
+			return e.save(ctx, tx, c, s, items, "card.escalated", nil)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	comments, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
@@ -502,14 +520,23 @@ func (e *Engine) queue(ctx context.Context, tx *store.Tx, c db.Card, s board.Sta
 		if c.Rerun == "" || c.Rerun == role {
 			note = c.HandoffNote
 		}
+		given := lab
+		if role == sr.Reviewer {
+			given = addon.Addon{}
+		}
 		t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-			Role: role, Harness: set.HarnessFor(role), Prompt: prompt(c, role, comments, ws.ResearchContext, note, extra), Skill: skill[role]})
+			Role: role, Harness: set.HarnessFor(role), Prompt: prompt(c, role, comments, ws.ResearchContext, note, extra), Skill: addon.Compose(skill[role], given.SkillMD)})
 		if err != nil {
 			return err
 		}
 		if err := tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.Round, role == sr.Reviewer),
 			RunPrivate: false, ID: t.ID, WorkspaceID: tx.WS}); err != nil {
 			return err
+		}
+		if h := given.Hash(); h != "" {
+			if err := tx.Q.SetAgentRunAddon(ctx, db.SetAgentRunAddonParams{AddonHash: h, AddonMcp: addon.Canonical(given.MCP), ID: t.ID, WorkspaceID: tx.WS}); err != nil {
+				return err
+			}
 		}
 		if note != "" {
 			if err := tx.Q.SetAgentRunHandoffNote(ctx, db.SetAgentRunHandoffNoteParams{HandoffNote: note, ID: t.ID, WorkspaceID: tx.WS}); err != nil {
@@ -539,8 +566,18 @@ func (e *Engine) draft(v *records.View, round int32) (*board.Gate, error) {
 	return &g, nil
 }
 
-// finish records the gate and applies the lifecycle.
+// finish records the gate, with the add-on hash, mode and policy digest of every
+// agent run it judged, and applies the lifecycle.
 func (e *Engine) finish(ctx context.Context, tx *store.Tx, c db.Card, s board.State, set Settings, g *board.Gate) error {
+	judged, err := tx.Q.JudgedAgentRuns(ctx, db.JudgedAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+	if err != nil {
+		return err
+	}
+	g.Addons = nil
+	for _, t := range judged {
+		g.Addons = append(g.Addons, board.AgentRunAddon{AgentRun: t.ID.String(), Role: t.Role, Hash: t.AddonHash,
+			ProfileMode: t.ProfileMode, PolicyDigest: t.PolicyDigest})
+	}
 	if err := e.writeGate(ctx, tx, c, "gate", g); err != nil {
 		return err
 	}
