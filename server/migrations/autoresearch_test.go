@@ -14,10 +14,16 @@ func seedWorkspace(t *testing.T, env *testutil.Env) (u, ws, card uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
 	u, ws = uuid.New(), uuid.New()
-	env.Owner.Exec(ctx, `INSERT INTO "user" (id, email) VALUES ($1, 'u@x')`, u)
-	env.Owner.Exec(ctx, `INSERT INTO workspace (id, slug, name) VALUES ($1, 's', 'w')`, ws)
-	env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id)
-		VALUES ($1, 1, 't', 'q', $2) RETURNING id`, ws, u).Scan(&card)
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO "user" (id, email) VALUES ($1, 'u@x')`, u); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace (id, slug, name) VALUES ($1, 's', 'w')`, ws); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id)
+		VALUES ($1, 1, 't', 'q', $2) RETURNING id`, ws, u).Scan(&card); err != nil {
+		t.Fatal(err)
+	}
 	return u, ws, card
 }
 
@@ -95,15 +101,21 @@ func TestAgentRunTokenLookupCarriesScopes(t *testing.T) {
 	}
 	for _, h := range []string{"hs", "hw"} {
 		var n int
-		env.App.QueryRow(ctx, "SELECT count(*) FROM agent_run_token_lookup($1)", h).Scan(&n)
+		if err := env.App.QueryRow(ctx, "SELECT count(*) FROM agent_run_token_lookup($1)", h).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
 		if n != 0 {
 			t.Fatalf("token %s matched a card-less run it does not fit", h)
 		}
 	}
 	// a card-less token goes with its run
-	env.Owner.Exec(ctx, "DELETE FROM agent_run WHERE id = $1", ap)
+	if _, err := env.Owner.Exec(ctx, "DELETE FROM agent_run WHERE id = $1", ap); err != nil {
+		t.Fatal(err)
+	}
 	var left int
-	env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_token WHERE agent_run_id = $1", ap).Scan(&left)
+	if err := env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_token WHERE agent_run_id = $1", ap).Scan(&left); err != nil {
+		t.Fatal(err)
+	}
 	if left != 0 {
 		t.Fatalf("%d card-less tokens outlived their run", left)
 	}
@@ -115,10 +127,14 @@ func TestAutoresearchFunctionsRunAsTheApp(t *testing.T) {
 	u, ws, _ := seedWorkspace(t, env)
 	trigger := func(status string) uuid.UUID {
 		var ap, tr uuid.UUID
-		env.Owner.QueryRow(ctx, `INSERT INTO autoresearch (workspace_id, owner_id, title, execution_mode, status)
-			VALUES ($1, $2, 'a', 'create_card', $3) RETURNING id`, ws, u, status).Scan(&ap)
-		env.Owner.QueryRow(ctx, `INSERT INTO autoresearch_trigger (id, workspace_id, autoresearch_id, kind, cron, next_run_at, created_by)
-			VALUES (gen_random_uuid(), $1, $2, 'schedule', '0 * * * *', now() - interval '1 minute', $3) RETURNING id`, ws, ap, u).Scan(&tr)
+		if err := env.Owner.QueryRow(ctx, `INSERT INTO autoresearch (workspace_id, owner_id, title, execution_mode, status)
+			VALUES ($1, $2, 'a', 'create_card', $3) RETURNING id`, ws, u, status).Scan(&ap); err != nil {
+			t.Fatal(err)
+		}
+		if err := env.Owner.QueryRow(ctx, `INSERT INTO autoresearch_trigger (id, workspace_id, autoresearch_id, kind, cron, next_run_at, created_by)
+			VALUES (gen_random_uuid(), $1, $2, 'schedule', '0 * * * *', now() - interval '1 minute', $3) RETURNING id`, ws, ap, u).Scan(&tr); err != nil {
+			t.Fatal(err)
+		}
 		return tr
 	}
 	active, paused := trigger("active"), trigger("paused")
@@ -126,12 +142,19 @@ func TestAutoresearchFunctionsRunAsTheApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rows.Close()
 	due := map[uuid.UUID]bool{}
 	for rows.Next() {
 		var id uuid.UUID
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
 		due[id] = true
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
 	if !due[active] || due[paused] || len(due) != 1 {
 		t.Fatalf("due triggers: %v", due)
 	}
@@ -152,7 +175,9 @@ func TestRunKeysAndInboxKinds(t *testing.T) {
 	ctx := context.Background()
 	u, ws, _ := seedWorkspace(t, env)
 	var ap uuid.UUID
-	env.Owner.QueryRow(ctx, `INSERT INTO autoresearch (workspace_id, owner_id, title, execution_mode) VALUES ($1, $2, 'a', 'run_only') RETURNING id`, ws, u).Scan(&ap)
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO autoresearch (workspace_id, owner_id, title, execution_mode) VALUES ($1, $2, 'a', 'run_only') RETURNING id`, ws, u).Scan(&ap); err != nil {
+		t.Fatal(err)
+	}
 	ins := `INSERT INTO autoresearch_run (workspace_id, autoresearch_id, source, acting_user_id, planned_at, idempotency_key)
 		VALUES ($1, $2, 'manual', $3, now(), 'k') RETURNING id`
 	var run uuid.UUID
