@@ -21,10 +21,12 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/round"
+	"lykeion/server/internal/seal"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
@@ -144,7 +146,12 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	}
 	runs := &service.AgentRuns{Store: st, MCPURL: strings.TrimRight(getenv("PUBLIC_URL"), "/") + "/mcp/sources"}
 	engine := &round.Engine{Store: st, AgentRuns: runs, Blobs: blobs, JevKey: getenv("TYPESAFE_API_KEY")}
-	runs.OnSettled = engine.OnSettled
+	secretKey, err := seal.ParseKey(getenv("LYK_SECRET_KEY"))
+	if err != nil {
+		return err
+	}
+	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Key: secretKey}
+	runs.OnSettled = ap.OnSettled(engine.OnSettled)
 	hosted := &sources.Hosted{OA: sources.OpenAlex{Base: sources.OpenAlexBase}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},
 		GEO: sources.GEO{Base: sources.EUtilsBase}, Store: st, Blobs: blobs}
 	var mail auth.Mailer = auth.LogMailer{}
@@ -153,7 +160,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	}
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
-		AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Kinds: round.Kinds(),
+		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Kinds: round.Kinds(),
 		Google:    auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
 		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/")}
 	if err := runs.RecoverSettlements(ctx); err != nil {
@@ -172,6 +179,9 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			case <-ticker.C:
 				if err := engine.Tick(engineCtx); err != nil && engineCtx.Err() == nil {
 					slog.Error("engine tick", "err", err)
+				}
+				if err := ap.Tick(engineCtx); err != nil && engineCtx.Err() == nil {
+					slog.Error("autoresearch tick", "err", err)
 				}
 			}
 		}
