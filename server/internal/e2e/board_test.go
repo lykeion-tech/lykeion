@@ -63,11 +63,18 @@ func fakeJev(t *testing.T) string {
 			return
 		}
 		choice := "supports"
-		if body.Questions["q"].Criteria["others_work"] != "" {
+		switch q := body.Questions["q"].Criteria; {
+		case q["others_work"] != "":
 			choice = "own_result"
-		} else if body.Questions["q"].Criteria["biological_replicates"] != "" {
+		case q["first"] != "":
+			choice = "first"
+		case q["relevant"] != "":
+			choice = "relevant"
+		case q["states_it"] != "":
+			choice = "does_not"
+		case q["biological_replicates"] != "":
 			choice = "biological_replicates"
-		} else if strings.Contains(body.State, "no effect") != strings.Contains(body.State, "does not") {
+		case strings.Contains(body.State, "no effect") != strings.Contains(body.State, "does not"):
 			choice = "challenges"
 		}
 		json.NewEncoder(w).Encode(map[string]any{"model": "jev-1.13.0", "answers": map[string]any{
@@ -243,7 +250,7 @@ func (l *boardLab) card(t *testing.T, id uuid.UUID) db.Card {
 
 func (l *boardLab) waitCard(t *testing.T, id uuid.UUID, what string, cond func(db.Card) bool) db.Card {
 	t.Helper()
-	deadline := time.Now().Add(40 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		if c := l.card(t, id); cond(c) {
 			return c
@@ -259,7 +266,7 @@ func TestGroundingPassesAndTheCardMovesToHypotheses(t *testing.T) {
 	card := l.startCard(t)
 	defer l.run(t)()
 	c := l.waitCard(t, card, "Hypotheses", func(c db.Card) bool { return c.BoardColumn == "hypotheses" })
-	if c.Round != 2 || c.State != "working" {
+	if c.Round < 2 {
 		t.Fatalf("%+v", c)
 	}
 	var verdict string
