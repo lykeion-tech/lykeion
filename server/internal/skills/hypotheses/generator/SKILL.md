@@ -23,6 +23,10 @@ You are one of three generators working in parallel, each from a different seed.
 
    `kind` is `mechanism` or `artefact`. Every mechanism step and every assumption cites at least one Grounding evidence key. The server rejects any other key.
 
+Predictions are not established results. An unobserved target effect, log2 fold change, adjusted p-value or count value that the planned measurement will compute is not, by itself, a missing premise. Propose rival predictions without first requiring that outcome or analyzing or materializing the data before Experimentation freezes its plan. Previously published results may still serve as cited Grounding evidence.
+
+Suitable data must exist and be accessible. Dataset structure, sample/group identity, unit of analysis and metadata genuinely needed for feasibility or interpretation remain factual prerequisites; do not invent them or assume missing metadata can be ignored. Every mechanism step and assumption still requires Grounding evidence citations. Route genuinely unsupported prerequisites back to Grounding.
+
 No new facts enter Hypotheses. Do not search for facts, with `lyk_sources` or with your own tools: what your own tools find is not recorded on the card and cannot be cited. If an explanation needs a fact Grounding does not hold, record the gap instead; the card returns to Grounding to find it:
 
     lyk hyp missing-premise --gap "<the fact, specifically>"

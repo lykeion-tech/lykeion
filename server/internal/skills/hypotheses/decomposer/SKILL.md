@@ -27,6 +27,10 @@ The server checks:
 
 A test is an attempt to falsify: its null is what you would see if the target were false, and its procedure must be runnable on a dataset Grounding opened. The gate asks whether each test is relevant to its hypothesis.
 
+Predictions are not established results. An unobserved target effect, log2 fold change, adjusted p-value or count value that the planned measurement will compute is not, by itself, a missing premise. Propose rival predictions without first requiring that outcome or analyzing or materializing the data before Experimentation freezes its plan. Previously published results may still serve as cited Grounding evidence.
+
+Suitable data must exist and be accessible. Dataset structure, sample/group identity, unit of analysis and metadata genuinely needed for feasibility or interpretation remain factual prerequisites; do not invent them or assume missing metadata can be ignored. Every mechanism step and assumption still requires Grounding evidence citations. Route genuinely unsupported prerequisites back to Grounding.
+
 If a candidate cannot be decomposed without a fact Grounding does not hold, record the gap; the card returns to Grounding:
 
     lyk hyp missing-premise --gap "<the fact, specifically>"
