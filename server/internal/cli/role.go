@@ -64,7 +64,7 @@ func groundCmd(e *env) *cobra.Command {
 		return record(cmd, e, "evidence", map[string]string{"claim": claim, "source_id": source, "quote": quote, "stance": stance})
 	}}
 	ev.Flags().StringVar(&claim, "claim", "", "one-sentence finding")
-	ev.Flags().StringVar(&source, "source", "", "source id from search_literature")
+	ev.Flags().StringVar(&source, "source", "", "source id from fetch_text, including fetched dataset metadata")
 	ev.Flags().StringVar(&quote, "quote", "", "exact span from fetch_text")
 	ev.Flags().StringVar(&stance, "stance", "", "supports or challenges")
 	ds := &cobra.Command{Use: "dataset", RunE: func(cmd *cobra.Command, _ []string) error {

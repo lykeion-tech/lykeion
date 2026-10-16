@@ -35,15 +35,29 @@ func hypCmd(e *env) *cobra.Command {
 			return record(cmd, e, kind, body)
 		}}
 	}
-	var gap, step, candidate, status, source, quote, a, b, winner, reason string
+	var gap, step, kind, dataset, whyRequired, candidate, status, source, quote, a, b, winner, reason string
 	var queries []string
 
 	missing := &cobra.Command{Use: "missing-premise", Short: "A fact Grounding does not hold; the card returns to Grounding",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return record(cmd, e, "missing_premise", map[string]string{"gap": gap, "step": step})
+			body := map[string]string{"gap": gap, "step": step}
+			if kind != "" {
+				body["kind"] = kind
+			}
+			if dataset != "" {
+				body["dataset"] = dataset
+			}
+			if whyRequired != "" {
+				body["why_required"] = whyRequired
+			}
+			return record(cmd, e, "missing_premise", body)
 		}}
 	missing.Flags().StringVar(&gap, "gap", "", "the fact Grounding must establish")
-	missing.Flags().StringVar(&step, "step", "", "the Grounding role that must find it (default literature-scout)")
+	missing.Flags().StringVar(&step, "step", "", "the Grounding role that must find it (default data-scout for dataset_metadata, otherwise literature-scout)")
+
+	missing.Flags().StringVar(&kind, "kind", "", "dataset_metadata or literature_fact")
+	missing.Flags().StringVar(&dataset, "dataset", "", "a live Grounding dataset key, D1…")
+	missing.Flags().StringVar(&whyRequired, "why-required", "", "how the missing fact affects feasibility or interpretation (required with kind)")
 
 	novelty := &cobra.Command{Use: "novelty", Short: "Record what the novelty search found for one candidate",
 		RunE: func(cmd *cobra.Command, _ []string) error {

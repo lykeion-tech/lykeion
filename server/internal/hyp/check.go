@@ -43,7 +43,7 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 	if len(ms) > 0 {
 		var gaps []string
 		for _, r := range ms {
-			gaps = append(gaps, records.Body[MissingPremise](r).Gap)
+			gaps = append(gaps, records.Body[MissingPremise](r).Handoff())
 		}
 		ch := ground.CodeCheck("premise.missing", records.Body[MissingPremise](ms[0]).Step, false, "missing premise: "+strings.Join(gaps, "; "))
 		ch.To = board.Grounding

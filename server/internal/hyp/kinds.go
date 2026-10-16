@@ -56,8 +56,18 @@ type Candidate struct {
 }
 
 type MissingPremise struct {
-	Gap  string `json:"gap"`
-	Step string `json:"step"` // the Grounding role that must find it
+	Gap         string `json:"gap"`
+	Step        string `json:"step"` // the Grounding role that must find it
+	Kind        string `json:"kind,omitempty"`
+	Dataset     string `json:"dataset,omitempty"`
+	WhyRequired string `json:"why_required,omitempty"`
+}
+
+// Handoff renders requester text as labelled JSON data within the gate note.
+// JSON escaping keeps embedded line breaks and delimiters inside field values.
+func (m MissingPremise) Handoff() string {
+	b, _ := json.Marshal(m)
+	return string(b)
 }
 
 type Assumption struct {
@@ -283,7 +293,7 @@ func prepareCandidate(ctx context.Context, tx *store.Tx, w service.Writer, raw j
 	return json.Marshal(c)
 }
 
-func prepareMissing(_ context.Context, _ *store.Tx, _ service.Writer, raw json.RawMessage) (json.RawMessage, error) {
+func prepareMissing(ctx context.Context, tx *store.Tx, w service.Writer, raw json.RawMessage) (json.RawMessage, error) {
 	m, err := ground.Decode[MissingPremise](raw)
 	if err != nil {
 		return nil, err
@@ -291,8 +301,31 @@ func prepareMissing(_ context.Context, _ *store.Tx, _ service.Writer, raw json.R
 	if blank(m.Gap) {
 		return nil, service.Invalid("name the gap: the fact Grounding must establish")
 	}
+
+	if m.Kind != "" && m.Kind != "dataset_metadata" && m.Kind != "literature_fact" {
+		return nil, service.Invalid("kind must be dataset_metadata or literature_fact")
+	}
+	if m.Kind != "" && blank(m.WhyRequired) {
+		return nil, service.Invalid("why_required is required for a typed missing premise")
+	}
+	if m.Dataset != "" {
+		v, err := records.Load(ctx, tx, nil, w.Card, w.Column)
+		if err != nil {
+			return nil, err
+		}
+		gv, err := v.Column(board.Grounding)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := gv.ByKey("dataset", m.Dataset); !ok {
+			return nil, service.Invalid(m.Dataset + " is not a live Grounding dataset")
+		}
+	}
 	if m.Step == "" {
 		m.Step = ground.Literature
+		if m.Kind == "dataset_metadata" {
+			m.Step = ground.DataScout
+		}
 	}
 	if !slices.Contains(premiseSteps, m.Step) {
 		return nil, service.Invalid("step must be one of " + strings.Join(premiseSteps, ", "))
