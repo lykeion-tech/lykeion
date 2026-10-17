@@ -146,6 +146,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/teams/{id}/add", h.addTeam)
 			r.Get("/api/cards/{id}", h.getCard)
 			r.Patch("/api/cards/{id}", h.editCard)
+			r.Patch("/api/cards/{id}/teams", h.setCardTeams)
 			r.Delete("/api/cards/{id}", h.deleteCard)
 			r.Get("/api/cards/{id}/comments", h.listComments)
 			r.Post("/api/cards/{id}/comments", h.createComment)

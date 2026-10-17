@@ -24,6 +24,144 @@ type newCard struct {
 	Question    string      `json:"question"`
 	Deadline    *time.Time  `json:"deadline"`
 	FollowsFrom []uuid.UUID `json:"follows_from"`
+	Assignee    *assigneeIn `json:"assignee"`
+	Scope       *scopeIn    `json:"scope"`
+}
+
+// assigneeIn is a member, an agent, or Teams by column (with an agent for the
+// columns no Team covers).
+type assigneeIn struct {
+	Type    string               `json:"type"`
+	ID      *uuid.UUID           `json:"id"`
+	Teams   map[string]uuid.UUID `json:"teams"`
+	AgentID *uuid.UUID           `json:"agent_id"`
+}
+
+type scopeIn struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// resolveScope gives the stages a study covers. A lone Team with no wider
+// scope keeps the study in its column.
+func resolveScope(in newCard) (from, to string, err error) {
+	from, to = board.Stages[0], board.Stages[len(board.Stages)-1]
+	if in.Scope != nil {
+		from, to = in.Scope.From, in.Scope.To
+		if board.StageIndex(from) < 0 || board.StageIndex(to) < 0 {
+			return "", "", cardInputError("scope names a column outside the stages")
+		}
+		if board.StageIndex(from) > board.StageIndex(to) {
+			return "", "", cardInputError("scope must run from an earlier stage to a later one")
+		}
+	}
+	a := in.Assignee
+	if a == nil || a.Type != "team" {
+		return from, to, nil
+	}
+	if len(a.Teams) == 0 {
+		return "", "", cardInputError("a Team assignment names no Team")
+	}
+	for col := range a.Teams {
+		if board.StageIndex(col) < 0 {
+			return "", "", cardInputError("a Team is placed on a column outside the stages")
+		}
+	}
+	if len(a.Teams) == 1 {
+		for col := range a.Teams {
+			switch {
+			case in.Scope == nil || (from == col && to == col):
+				return col, col, nil
+			case a.AgentID == nil:
+				return "", "", cardInputError("one Team covers its own column only; name an agent to cover more")
+			}
+		}
+	}
+	for i := board.StageIndex(from); i <= board.StageIndex(to); i++ {
+		if _, ok := a.Teams[board.Stages[i]]; !ok && a.AgentID == nil {
+			return "", "", cardInputError("name an agent for the columns no Team covers")
+		}
+	}
+	for col := range a.Teams {
+		if i := board.StageIndex(col); i < board.StageIndex(from) || i > board.StageIndex(to) {
+			return "", "", cardInputError("a Team is placed outside the study's scope")
+		}
+	}
+	return from, to, nil
+}
+
+// checkAssignee refuses a member or agent the creator cannot assign.
+func checkAssignee(r *http.Request, tx *store.Tx, ws, creator uuid.UUID, typ string, id uuid.UUID) error {
+	if typ == "member" {
+		if _, err := tx.Q.GetMember(r.Context(), db.GetMemberParams{WorkspaceID: ws, UserID: id}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return cardInputError("assignee is not a workspace member")
+			}
+			return err
+		}
+		return nil
+	}
+	a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return cardInputError("agent is unavailable")
+		}
+		return err
+	}
+	if !agentVisible(r, a, creator) || a.ArchivedAt != nil || (a.Visibility == "private" && a.OwnerID != creator) {
+		return cardInputError("agent is unavailable")
+	}
+	return nil
+}
+
+// checkTeamAdded refuses a Team the person has not added to their workspace.
+func checkTeamAdded(r *http.Request, tx *store.Tx, ws, user, pack uuid.UUID) error {
+	if _, err := tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: pack}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return cardInputError("add this Team to your workspace first")
+		}
+		return err
+	}
+	have, err := tx.Q.TeamAgentsFor(r.Context(), db.TeamAgentsForParams{WorkspaceID: ws, PackID: pack, UserID: user})
+	if err != nil {
+		return err
+	}
+	if len(have) == 0 {
+		return cardInputError("add this Team to your workspace first")
+	}
+	return nil
+}
+
+type cardTeamView struct {
+	PackID  uuid.UUID `json:"pack_id"`
+	Name    string    `json:"name"`
+	Version string    `json:"version"`
+	Stage   string    `json:"stage"`
+}
+
+// studyView is a card with the Team of each column and the columns whose Team
+// is labelled for another stage.
+type studyView struct {
+	db.Card
+	Teams    map[string]cardTeamView `json:"teams"`
+	OffLabel []string                `json:"off_label"`
+}
+
+func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
+	v := studyView{Card: c, Teams: map[string]cardTeamView{}, OffLabel: []string{}}
+	rows, err := tx.Q.CardTeams(r.Context(), db.CardTeamsParams{WorkspaceID: c.WorkspaceID, CardID: c.ID})
+	if err != nil {
+		return v, err
+	}
+	for _, row := range rows {
+		v.Teams[row.BoardColumn] = cardTeamView{PackID: row.PackID, Name: row.Name, Version: row.Version, Stage: row.Stage}
+	}
+	for _, col := range board.Stages {
+		if t, ok := v.Teams[col]; ok && t.Stage != "" && t.Stage != col {
+			v.OffLabel = append(v.OffLabel, col)
+		}
+	}
+	return v, nil
 }
 
 type cardInputError string
@@ -66,15 +204,62 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if in.FollowsFrom == nil {
 		in.FollowsFrom = []uuid.UUID{}
 	}
-	var c db.Card
+	from, to, err := resolveScope(in)
+	if err == nil && len(in.FollowsFrom) > 0 && (from != board.Grounding || to != board.Reporting) {
+		err = cardInputError("only an end-to-end study can follow from another")
+	}
+	if err == nil && in.Assignee != nil {
+		switch in.Assignee.Type {
+		case "member", "agent":
+			if in.Assignee.ID == nil {
+				err = cardInputError("assignee id required")
+			}
+		case "team":
+		default:
+			err = cardInputError("assignee type must be member, agent or team")
+		}
+	}
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	var c studyView
 	var dup db.ActiveDuplicateRow
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		for _, parentID := range in.FollowsFrom {
 			if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: parentID}); err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					return cardInputError("follows_from contains an unknown card")
 				}
 				return err
+			}
+		}
+		params := db.CreateCardParams{
+			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user,
+			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to,
+		}
+		if a := in.Assignee; a != nil {
+			switch a.Type {
+			case "team":
+				for _, pack := range a.Teams {
+					if err := checkTeamAdded(r, tx, ws, user, pack); err != nil {
+						return err
+					}
+				}
+				params.AssigneeType, params.AssigneeID = &a.Type, a.AgentID
+				if a.AgentID != nil {
+					if err := checkAssignee(r, tx, ws, user, "agent", *a.AgentID); err != nil {
+						return err
+					}
+				}
+			default:
+				if err := checkAssignee(r, tx, ws, user, a.Type, *a.ID); err != nil {
+					return err
+				}
+				params.AssigneeType, params.AssigneeID = &a.Type, a.ID
+			}
+			if a.Type != "member" {
+				params.BoardColumn, params.Round = from, 1
 			}
 		}
 		// A follow-up may ask the same question again; any other card may not
@@ -97,18 +282,26 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		c, err = tx.Q.CreateCard(r.Context(), db.CreateCardParams{
-			WorkspaceID: ws, Number: n, Title: in.Title, Question: in.Question, OwnerID: user,
-			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom,
-		})
+		params.Number = n
+		card, err := tx.Q.CreateCard(r.Context(), params)
 		if err != nil {
+			return err
+		}
+		if a := in.Assignee; a != nil && a.Type == "team" {
+			for col, pack := range a.Teams {
+				if err := tx.Q.InsertCardTeam(r.Context(), db.InsertCardTeamParams{WorkspaceID: ws, CardID: card.ID, BoardColumn: col, PackID: pack}); err != nil {
+					return err
+				}
+			}
+		}
+		if c, err = viewOf(r, tx, card); err != nil {
 			return err
 		}
 		return tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title})
 	})
 	if errors.Is(err, errDuplicate) {
 		writeJSON(w, 409, map[string]any{"error": fmt.Sprintf("an active card already asks this: #%d", dup.Number),
-			"card_id": dup.ID, "number": dup.Number})
+			"card_id": dup.ID, "number": dup.Number, "follows_allowed": from == board.Grounding && to == board.Reporting})
 		return
 	}
 	var inputErr cardInputError
@@ -119,7 +312,65 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if !answer(w, r, err) {
 		return
 	}
+	if h.Engine != nil && c.AssigneeType != nil && *c.AssigneeType != "member" {
+		h.Engine.Kick(c.WorkspaceID, c.ID)
+	}
 	writeJSON(w, 201, c)
+}
+
+var errTeamStarted = errors.New("that column has been reached")
+
+// setCardTeams changes the Team of columns the study has not reached.
+func (h *H) setCardTeams(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	var in map[string]uuid.UUID
+	if err := readJSON(r, &in); err != nil || len(in) == 0 {
+		writeErr(w, 400, "send a Team id for each column to change")
+		return
+	}
+	var out studyView
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: id, WorkspaceID: ws})
+		if err != nil {
+			return err
+		}
+		if c.AssigneeType == nil || *c.AssigneeType != "team" {
+			return cardInputError("only a study assigned a Team has Teams to change")
+		}
+		for col, pack := range in {
+			i := board.StageIndex(col)
+			if i < board.StageIndex(c.ScopeFrom) || i > board.StageIndex(c.ScopeTo) {
+				return cardInputError("column " + col + " is outside the study's scope")
+			}
+			if c.Ending != "" || i <= board.StageIndex(c.BoardColumn) {
+				return errTeamStarted
+			}
+			if err := checkTeamAdded(r, tx, ws, user, pack); err != nil {
+				return err
+			}
+			if err := tx.Q.SetCardTeam(r.Context(), db.SetCardTeamParams{WorkspaceID: ws, CardID: id, BoardColumn: col, PackID: pack}); err != nil {
+				return err
+			}
+		}
+		if out, err = viewOf(r, tx, c); err != nil {
+			return err
+		}
+		return tx.Emit(r.Context(), "card.teams_changed", &id, store.User(user), map[string]any{"teams": in})
+	})
+	var inputErr cardInputError
+	switch {
+	case errors.Is(err, errTeamStarted):
+		writeErr(w, 409, err.Error())
+	case errors.As(err, &inputErr):
+		writeErr(w, 400, inputErr.Error())
+	default:
+		if answer(w, r, err) {
+			writeJSON(w, 200, out)
+		}
+	}
 }
 
 func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
@@ -169,27 +420,22 @@ func (h *H) getCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// The card names its Team version, so a colleague who cannot see an
-	// uploaded Team still reads which one the study runs on.
-	var card struct {
-		db.Card
-		PackName    string `json:"pack_name"`
-		PackVersion string `json:"pack_version"`
-	}
+	// The card names its Teams' versions, so a colleague who cannot see an
+	// uploaded Team still reads which ones the study runs on.
+	var v studyView
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
-		var err error
-		if card.Card, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id}); err != nil || card.PackID == nil {
+		c, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id})
+		if err != nil {
 			return err
 		}
-		p, err := tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: *card.PackID})
-		card.PackName, card.PackVersion = p.Name, p.Version
+		v, err = viewOf(r, tx, c)
 		return err
 	})
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, card)
+	writeJSON(w, http.StatusOK, v)
 }
 
 func (h *H) createComment(w http.ResponseWriter, r *http.Request) {

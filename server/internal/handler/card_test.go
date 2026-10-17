@@ -2,6 +2,7 @@ package handler
 
 import (
 	"io"
+	"lykeion/server/internal/testutil"
 	"net/http"
 	"testing"
 
@@ -144,4 +145,188 @@ func TestEmptyCollectionResponsesAreJSONArrays(t *testing.T) {
 		t.Fatalf("read initial events: status %d events %v", code, events)
 	}
 	assertBody("GET", "/api/cards/"+c.ID+"/events?after="+itoa(events[len(events)-1].ID))
+}
+
+type studyJSON struct {
+	ID          string
+	BoardColumn string `json:"board_column"`
+	State       string
+	ScopeFrom   string   `json:"scope_from"`
+	ScopeTo     string   `json:"scope_to"`
+	OffLabel    []string `json:"off_label"`
+	Teams       map[string]struct {
+		PackID  string `json:"pack_id"`
+		Name    string
+		Version string
+		Stage   string
+	}
+}
+
+// addedTeam uploads a Team and adds it for the caller, returning its id.
+func (s *server) addedTeam(t *testing.T, tok, wsID, name, stage string) string {
+	t.Helper()
+	var up struct{ ID string }
+	if c := s.upload(t, tok, wsID, testutil.Pack(t, testutil.PackOpts{Name: name, Stage: stage}), &up); c != 201 {
+		t.Fatalf("upload %s: %d", name, c)
+	}
+	if c := s.call(t, "POST", "/api/teams/"+up.ID+"/add", tok, wsID, nil, nil); c != 200 {
+		t.Fatalf("add %s: %d", name, c)
+	}
+	return up.ID
+}
+
+func teamAssignee(teams map[string]string, extra ...string) map[string]any {
+	a := map[string]any{"type": "team", "teams": teams}
+	if len(extra) > 0 {
+		a["agent_id"] = extra[0]
+	}
+	return a
+}
+
+func TestASingleTeamStudyStaysInItsColumn(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	pack := s.addedTeam(t, a, w.ID, "hyp", "hypotheses")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q",
+		"assignee": teamAssignee(map[string]string{"hypotheses": pack})}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if c.ScopeFrom != "hypotheses" || c.ScopeTo != "hypotheses" || c.BoardColumn != "hypotheses" || c.State != "working" || c.Teams["hypotheses"].PackID != pack {
+		t.Fatalf("%+v", c)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2", "scope": map[string]string{"from": "grounding", "to": "reporting"},
+		"assignee": teamAssignee(map[string]string{"hypotheses": pack})}, nil); code != 400 {
+		t.Fatalf("a wider scope for one Team: %d", code)
+	}
+}
+
+func TestATeamSetNeedsAnAgentForItsGaps(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting")
+	agent := s.newAgent(t, a, w.ID, "filler", "claude")
+	teams := map[string]string{"grounding": g, "reporting": r}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(teams)}, nil); code != 400 {
+		t.Fatalf("gaps without an agent: %d", code)
+	}
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(teams, agent)}, &c); code != 201 {
+		t.Fatalf("with an agent: %d", code)
+	}
+	if c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" || c.BoardColumn != "grounding" || len(c.Teams) != 2 {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestATeamTheCreatorHasNotAddedIsRefused(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var up struct{ ID string }
+	if code := s.upload(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "unadded", Stage: "grounding"}), &up); code != 201 {
+		t.Fatalf("upload: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": up.ID})}, nil); code != 400 {
+		t.Fatalf("unadded Team: %d", code)
+	}
+	if n := s.count(t, "SELECT count(*) FROM card"); n != 0 {
+		t.Fatalf("%d studies", n)
+	}
+}
+
+func TestFollowsFromOnlyEndToEnd(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "solo", "claude")
+	var parent studyJSON
+	single := map[string]any{"question": "parent", "scope": map[string]string{"from": "validation", "to": "validation"}, "assignee": map[string]any{"type": "agent", "id": agent}}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, single, &parent); code != 201 {
+		t.Fatalf("parent: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "child 1", "follows_from": []string{parent.ID},
+		"scope": map[string]string{"from": "grounding", "to": "hypotheses"}, "assignee": map[string]any{"type": "agent", "id": agent}}, nil); code != 400 {
+		t.Fatalf("single-stage follower: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "child 2", "follows_from": []string{parent.ID},
+		"assignee": map[string]any{"type": "agent", "id": agent}}, nil); code != 201 {
+		t.Fatalf("end-to-end follower: %d", code)
+	}
+}
+
+func TestUnassignedStudiesWait(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if c.BoardColumn != "backlog" || c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" {
+		t.Fatalf("%+v", c)
+	}
+	if n := s.count(t, "SELECT count(*) FROM agent_run"); n != 0 {
+		t.Fatalf("%d agent runs", n)
+	}
+}
+
+func TestALaterColumnsTeamCanChangeUntilItStarts(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting"), s.addedTeam(t, a, w.ID, "r2", "reporting")
+	agent := s.newAgent(t, a, w.ID, "filler", "claude")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r}, agent)}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"reporting": r2}, nil); code != 200 {
+		t.Fatalf("later column: %d", code)
+	}
+	if n := s.count(t, "SELECT count(*) FROM card_team WHERE card_id = $1 AND board_column = 'reporting' AND pack_id = $2", c.ID, r2); n != 1 {
+		t.Fatalf("reporting Team not changed: %d", n)
+	}
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"grounding": r2}, nil); code != 409 {
+		t.Fatalf("current column: %d", code)
+	}
+}
+
+func TestOffLabelColumnsAreMarked(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	pack := s.addedTeam(t, a, w.ID, "hyp", "hypotheses")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": pack})}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var got studyJSON
+	s.call(t, "GET", "/api/cards/"+c.ID, a, w.ID, nil, &got)
+	if len(got.OffLabel) != 1 || got.OffLabel[0] != "grounding" || got.Teams["grounding"].Stage != "hypotheses" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestDuplicateSaysWhetherFollowingIsAllowed(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "solo", "claude")
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, nil); code != 201 {
+		t.Fatalf("first: %d", code)
+	}
+	var dup struct {
+		FollowsAllowed bool `json:"follows_allowed"`
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, &dup); code != 409 || !dup.FollowsAllowed {
+		t.Fatalf("end-to-end duplicate: %d %+v", code, dup)
+	}
+	dup.FollowsAllowed = true
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question", "scope": map[string]string{"from": "validation", "to": "validation"},
+		"assignee": map[string]any{"type": "agent", "id": agent}}, &dup); code != 409 || dup.FollowsAllowed {
+		t.Fatalf("single-stage duplicate: %d %+v", code, dup)
+	}
 }

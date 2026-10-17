@@ -82,21 +82,75 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 	return items, nil
 }
 
+const cardTeams = `-- name: CardTeams :many
+SELECT t.board_column, t.pack_id, p.name, p.version, p.stage
+FROM card_team t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id
+WHERE t.workspace_id = $1 AND t.card_id = $2
+`
+
+type CardTeamsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+type CardTeamsRow struct {
+	BoardColumn string    `json:"board_column"`
+	PackID      uuid.UUID `json:"pack_id"`
+	Name        string    `json:"name"`
+	Version     string    `json:"version"`
+	Stage       string    `json:"stage"`
+}
+
+func (q *Queries) CardTeams(ctx context.Context, arg CardTeamsParams) ([]CardTeamsRow, error) {
+	rows, err := q.db.Query(ctx, cardTeams, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CardTeamsRow
+	for rows.Next() {
+		var i CardTeamsRow
+		if err := rows.Scan(
+			&i.BoardColumn,
+			&i.PackID,
+			&i.Name,
+			&i.Version,
+			&i.Stage,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createCard = `-- name: CreateCard :one
-INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position)
+INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
+  scope_from, scope_to, assignee_type, assignee_id, board_column, round)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
-  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = 'backlog'), 1) - 1)
+  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = 'backlog'), 1) - 1,
+  COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'reporting'),
+  $10, $11, COALESCE(NULLIF($12::text, ''), 'backlog'), $13)
 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos
 `
 
 type CreateCardParams struct {
-	WorkspaceID uuid.UUID   `json:"workspace_id"`
-	Number      int32       `json:"number"`
-	Title       string      `json:"title"`
-	Question    string      `json:"question"`
-	OwnerID     uuid.UUID   `json:"owner_id"`
-	Deadline    *time.Time  `json:"deadline"`
-	FollowsFrom []uuid.UUID `json:"follows_from"`
+	WorkspaceID  uuid.UUID   `json:"workspace_id"`
+	Number       int32       `json:"number"`
+	Title        string      `json:"title"`
+	Question     string      `json:"question"`
+	OwnerID      uuid.UUID   `json:"owner_id"`
+	Deadline     *time.Time  `json:"deadline"`
+	FollowsFrom  []uuid.UUID `json:"follows_from"`
+	ScopeFrom    string      `json:"scope_from"`
+	ScopeTo      string      `json:"scope_to"`
+	AssigneeType *string     `json:"assignee_type"`
+	AssigneeID   *uuid.UUID  `json:"assignee_id"`
+	BoardColumn  string      `json:"board_column"`
+	Round        int32       `json:"round"`
 }
 
 // A new card goes to the top of Backlog, so WIP pull takes it next unless
@@ -111,6 +165,12 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		arg.OwnerID,
 		arg.Deadline,
 		arg.FollowsFrom,
+		arg.ScopeFrom,
+		arg.ScopeTo,
+		arg.AssigneeType,
+		arg.AssigneeID,
+		arg.BoardColumn,
+		arg.Round,
 	)
 	var i Card
 	err := row.Scan(
@@ -306,6 +366,28 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.Redos,
 	)
 	return i, err
+}
+
+const insertCardTeam = `-- name: InsertCardTeam :exec
+INSERT INTO card_team (workspace_id, card_id, board_column, pack_id)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertCardTeamParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	BoardColumn string    `json:"board_column"`
+	PackID      uuid.UUID `json:"pack_id"`
+}
+
+func (q *Queries) InsertCardTeam(ctx context.Context, arg InsertCardTeamParams) error {
+	_, err := q.db.Exec(ctx, insertCardTeam,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.BoardColumn,
+		arg.PackID,
+	)
+	return err
 }
 
 const listAllRecords = `-- name: ListAllRecords :many
@@ -651,4 +733,27 @@ func (q *Queries) ResolveCardInbox(ctx context.Context, arg ResolveCardInboxPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const setCardTeam = `-- name: SetCardTeam :exec
+INSERT INTO card_team (workspace_id, card_id, board_column, pack_id)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (card_id, board_column) DO UPDATE SET pack_id = EXCLUDED.pack_id
+`
+
+type SetCardTeamParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	BoardColumn string    `json:"board_column"`
+	PackID      uuid.UUID `json:"pack_id"`
+}
+
+func (q *Queries) SetCardTeam(ctx context.Context, arg SetCardTeamParams) error {
+	_, err := q.db.Exec(ctx, setCardTeam,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.BoardColumn,
+		arg.PackID,
+	)
+	return err
 }

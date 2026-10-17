@@ -5,10 +5,27 @@ UPDATE workspace SET card_counter = card_counter + 1 WHERE id = @id RETURNING ca
 -- someone reorders. NextCardNumber has already locked the workspace row, so two
 -- creates never read the same minimum.
 -- name: CreateCard :one
-INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position)
+INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
+  scope_from, scope_to, assignee_type, assignee_id, board_column, round)
 VALUES (@workspace_id, @number, @title, @question, @owner_id, @deadline, @follows_from,
-  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = @workspace_id AND b.board_column = 'backlog'), 1) - 1)
+  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = @workspace_id AND b.board_column = 'backlog'), 1) - 1,
+  COALESCE(NULLIF(@scope_from::text, ''), 'grounding'), COALESCE(NULLIF(@scope_to::text, ''), 'reporting'),
+  sqlc.narg(assignee_type), sqlc.narg(assignee_id), COALESCE(NULLIF(@board_column::text, ''), 'backlog'), @round)
 RETURNING *;
+
+-- name: InsertCardTeam :exec
+INSERT INTO card_team (workspace_id, card_id, board_column, pack_id)
+VALUES (@workspace_id, @card_id, @board_column, @pack_id);
+
+-- name: CardTeams :many
+SELECT t.board_column, t.pack_id, p.name, p.version, p.stage
+FROM card_team t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id
+WHERE t.workspace_id = @workspace_id AND t.card_id = @card_id;
+
+-- name: SetCardTeam :exec
+INSERT INTO card_team (workspace_id, card_id, board_column, pack_id)
+VALUES (@workspace_id, @card_id, @board_column, @pack_id)
+ON CONFLICT (card_id, board_column) DO UPDATE SET pack_id = EXCLUDED.pack_id;
 
 -- The board's cards. queued: an agent run of the card waits with a reason
 -- (budget or runtime_offline). role: the role of its latest queued,
