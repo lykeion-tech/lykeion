@@ -24,6 +24,7 @@ import (
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/migrate"
+	"lykeion/server/internal/pack/check"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/round"
 	"lykeion/server/internal/seal"
@@ -75,6 +76,7 @@ func newStorage(ctx context.Context, getenv func(string) string) (storage.Storag
 }
 
 func main() {
+	check.MaybeChild()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Getenv, nil); err != nil {

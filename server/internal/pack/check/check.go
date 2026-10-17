@@ -4,17 +4,28 @@
 package check
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
 	"slices"
 	"time"
 
 	starjson "go.starlark.net/lib/json"
-	"go.starlark.net/lib/math"
 	"go.starlark.net/starlark"
-	"go.starlark.net/syntax"
+)
+
+const (
+	childEnv       = "LYKEION_STARLARK_CHILD"
+	maxRecordsJSON = 8 << 20
+	maxOutput      = 1 << 20
+	maxResults     = 1000
+	maxText        = 4 << 10
+	killGrace      = 2 * time.Second
 )
 
 type Record struct {
@@ -36,50 +47,103 @@ type Limits struct {
 
 var Default = Limits{Steps: 5_000_000, Timeout: 5 * time.Second}
 
-// Run executes src's `check(records)` and returns its results. failures is the
-// manifest's declared failure types; any other value is an error.
-func Run(ctx context.Context, filename string, src []byte, recs []Record, failures []string, lim Limits) ([]Result, error) {
-	ctx, cancel := context.WithTimeout(ctx, lim.Timeout)
-	defer cancel()
+// request and response are the one JSON message each way between Run and the
+// child process.
+type request struct {
+	Filename string
+	Src      []byte
+	Records  []Record
+	Failures []string
+	Limits   Limits
+}
 
-	thread := &starlark.Thread{
-		Name:  filename,
-		Print: func(*starlark.Thread, string) {},
-		Load: func(*starlark.Thread, string) (starlark.StringDict, error) {
-			return nil, errors.New("load is not allowed in a check")
-		},
-	}
-	thread.SetMaxExecutionSteps(lim.Steps)
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			thread.Cancel(ctx.Err().Error())
-		case <-done:
-		}
-	}()
+type response struct {
+	Results []Result
+	Error   string
+}
 
-	predeclared := starlark.StringDict{"json": starjson.Module, "math": math.Module}
-	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, filename, src, predeclared)
-	if err != nil {
-		return nil, fmt.Errorf("check %s: %w", filename, err)
-	}
-	fn, ok := globals["check"].(starlark.Callable)
-	if !ok {
-		return nil, fmt.Errorf("check %s: no check function", filename)
-	}
-
-	arg, err := toStarlark(thread, recs)
+// spawn builds the child command; tests wrap it to observe the process.
+var spawn = func(ctx context.Context) (*exec.Cmd, error) {
+	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
-	arg.Freeze()
-	out, err := starlark.Call(thread, fn, starlark.Tuple{arg}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("check %s: %w", filename, err)
+	cmd := exec.CommandContext(ctx, exe)
+	// The child gets no inherited environment, so no secret reaches pack code.
+	cmd.Env = []string{childEnv + "=1"}
+	return cmd, nil
+}
+
+// Run executes src's `check(records)` in a short-lived child process with a
+// memory cap and returns its results. failures is the manifest's declared
+// failure types; any other value is an error.
+func Run(ctx context.Context, filename string, src []byte, recs []Record, failures []string, lim Limits) ([]Result, error) {
+	if slices.Contains(failures, "") {
+		return nil, errors.New("check: an empty failure type is not allowed")
 	}
-	return results(out, failures)
+	if b, err := json.Marshal(recs); err != nil {
+		return nil, fmt.Errorf("check records: %w", err)
+	} else if len(b) > maxRecordsJSON {
+		return nil, fmt.Errorf("check records: %d bytes exceeds the %d byte limit", len(b), maxRecordsJSON)
+	}
+	in, err := json.Marshal(request{filename, src, recs, failures, lim})
+	if err != nil {
+		return nil, fmt.Errorf("check request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, lim.Timeout+killGrace)
+	defer cancel()
+	cmd, err := spawn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("check process: %w", err)
+	}
+	cmd.Stdin = bytes.NewReader(in)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("check process: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("check process: %w", err)
+	}
+	out, readErr := io.ReadAll(io.LimitReader(stdout, maxOutput+1))
+	oversize := len(out) > maxOutput
+	if oversize {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	switch {
+	case oversize:
+		return nil, fmt.Errorf("check process: output exceeds %d bytes", maxOutput)
+	case ctx.Err() != nil:
+		return nil, errors.New("check process killed: memory or time limit")
+	case readErr != nil:
+		return nil, fmt.Errorf("check process: %w", readErr)
+	case waitErr != nil:
+		return nil, fmt.Errorf("check process failed (memory or time limit, or a crash): %w", waitErr)
+	}
+	var resp response
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return nil, fmt.Errorf("check process: undecodable output: %w", err)
+	}
+	if resp.Error != "" {
+		return nil, errors.New(resp.Error)
+	}
+	if err := capResults(resp.Results); err != nil {
+		return nil, err
+	}
+	return resp.Results, nil
+}
+
+func capResults(rs []Result) error {
+	if len(rs) > maxResults {
+		return fmt.Errorf("check returned %d results, more than %d", len(rs), maxResults)
+	}
+	for _, r := range rs {
+		if len(r.ID) > maxText || len(r.Note) > maxText || len(r.Failure) > maxText {
+			return fmt.Errorf("result %q: a text field exceeds %d bytes", r.ID, maxText)
+		}
+	}
+	return nil
 }
 
 // toStarlark round-trips the records through JSON so the script gets plain

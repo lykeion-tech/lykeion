@@ -2,6 +2,8 @@ package check
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -32,8 +34,9 @@ def check(records):
 }
 
 func TestRunRefusesLoad(t *testing.T) {
-	if _, err := run(t, "load(\"x.star\", \"y\")\ndef check(records):\n    return []\n", Default); err == nil {
-		t.Fatal("load accepted")
+	_, err := run(t, "load(\"x.star\", \"y\")\ndef check(records):\n    return []\n", Default)
+	if err == nil || !strings.Contains(err.Error(), "load is not allowed") {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -45,15 +48,16 @@ func TestRunNoOpen(t *testing.T) {
 }
 
 func TestRunStepLimit(t *testing.T) {
-	if _, err := run(t, "def check(records):\n    while True:\n        pass\n", Limits{Steps: 1000, Timeout: 5 * time.Second}); err == nil {
-		t.Fatal("no error")
+	_, err := run(t, "def check(records):\n    while True:\n        pass\n", Limits{Steps: 1000, Timeout: 5 * time.Second})
+	if err == nil || !strings.Contains(err.Error(), "too many steps") {
+		t.Fatalf("got %v", err)
 	}
 }
 
 func TestRunTimeout(t *testing.T) {
 	start := time.Now()
 	_, err := run(t, "def check(records):\n    while True:\n        pass\n", Limits{Steps: 1 << 60, Timeout: 10 * time.Millisecond})
-	if err == nil || time.Since(start) > 2*time.Second {
+	if err == nil || !strings.Contains(err.Error(), "deadline") || time.Since(start) > 2*time.Second {
 		t.Fatalf("err=%v after %v", err, time.Since(start))
 	}
 }
@@ -96,5 +100,51 @@ func TestRunPrintContained(t *testing.T) {
 	res, err := run(t, "def check(records):\n    print(\"hi\")\n    return [{\"id\": \"a\", \"ok\": True}]\n", Default)
 	if err != nil || len(res) != 1 {
 		t.Fatalf("%v %v", res, err)
+	}
+}
+
+func TestRunOversizeInput(t *testing.T) {
+	spawned := 0
+	orig := spawn
+	spawn = func(ctx context.Context) (*exec.Cmd, error) { spawned++; return orig(ctx) }
+	defer func() { spawn = orig }()
+	big := []Record{{Kind: "k", Body: map[string]any{"x": strings.Repeat("a", 9<<20)}}}
+	_, err := Run(context.Background(), "t.star", []byte("def check(records):\n    return []\n"), big, nil, Default)
+	if err == nil || spawned != 0 {
+		t.Fatalf("err=%v spawned=%d", err, spawned)
+	}
+}
+
+func TestRunTooManyResults(t *testing.T) {
+	_, err := run(t, "def check(records):\n    return [{\"id\": str(i), \"ok\": True} for i in range(1001)]\n", Default)
+	if err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("got %v", err)
+	}
+	_, err = run(t, "def check(records):\n    return [{\"id\": \"a\", \"ok\": True, \"note\": \"x\" * 5000}]\n", Default)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestRunEmptyFailureType(t *testing.T) {
+	if _, err := Run(context.Background(), "t.star", []byte("def check(records):\n    return []\n"), recs, []string{""}, Default); err == nil {
+		t.Fatal("empty failure type accepted")
+	}
+}
+
+func TestRunRunsInChildProcess(t *testing.T) {
+	var cmd *exec.Cmd
+	orig := spawn
+	spawn = func(ctx context.Context) (*exec.Cmd, error) {
+		c, err := orig(ctx)
+		cmd = c
+		return c, err
+	}
+	defer func() { spawn = orig }()
+	if _, err := run(t, "def check(records):\n    return []\n", Default); err != nil {
+		t.Fatal(err)
+	}
+	if cmd == nil || cmd.ProcessState == nil || cmd.ProcessState.Pid() == os.Getpid() {
+		t.Fatal("script did not run in another process")
 	}
 }
