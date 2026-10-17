@@ -30,6 +30,7 @@ import (
 	"lykeion/server/internal/gate"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/realtime"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
@@ -270,9 +271,10 @@ func TestUILab(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	// Revises a study's question as a stage would: a result in its current
-	// column, from its latest run, undermines the question, and the engine's
-	// Revise applies the new text with a "narrows" drift answer.
+	// Revises a study's question as a stage would: a result from its latest
+	// run, kept in Experimentation whatever the study's own column, undermines
+	// the question; Jev's "narrows" drift answer is recorded as a choice, and
+	// the engine's Revise applies the new text.
 	mux.HandleFunc("POST /lab/revise/{card}", func(w http.ResponseWriter, r *http.Request) {
 		card, err := uuid.Parse(r.PathValue("card"))
 		var in struct{ Text, Why string }
@@ -283,7 +285,7 @@ func TestUILab(t *testing.T) {
 		var ws uuid.UUID
 		var cited string
 		if err := env.Owner.QueryRow(r.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body, agent_run_id)
-			SELECT c.workspace_id, c.id, c.board_column, c.round, 'result', 'tester', 'R1', jsonb_build_object('text', $2::text),
+			SELECT c.workspace_id, c.id, 'experimentation', c.round, 'result', 'tester', 'R1', jsonb_build_object('text', $2::text),
 			  (SELECT id FROM agent_run WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1)
 			FROM card c WHERE c.id = $1 RETURNING workspace_id, id`, card, in.Why).Scan(&ws, &cited); err != nil {
 			http.Error(w, "no such card", 404)
@@ -300,8 +302,11 @@ func TestUILab(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			_, err = engine.Revise(r.Context(), tx, c, round.Revision{Text: in.Text, Cites: cited, Reason: "question"},
-				gate.Choice{Question: "drift", Judge: "jev", Answer: "narrows"})
+			drift := gate.Choice{Question: "drift", Judge: "jev", Answer: "narrows"}
+			if err := (records.Batch{Put: []records.Put{gate.ChoicePut(drift)}}).Write(r.Context(), tx, c); err != nil {
+				return err
+			}
+			_, err = engine.Revise(r.Context(), tx, c, round.Revision{Text: in.Text, Cites: cited, Reason: "question"}, drift)
 			return err
 		})
 		if err != nil {

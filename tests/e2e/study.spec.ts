@@ -731,11 +731,17 @@ test('a revised study shows its starting point, and Revert restores the original
   await labRevise(page.request, study.id, revised, 'No donor metadata on disease duration');
   await page.reload();
   const block = main.locator('.starting-point');
-  await expect(block).toContainText('Starting point · revised');
+  await expect(block.locator('h4')).toContainText('Starting point · revised once');
+  await expect(block.locator('.drift-chip')).toHaveText('Narrows');
+  await expect(block.locator('h4 .push-right')).toHaveText(
+    new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+  );
   await expect(block.locator('.now')).toHaveText(revised);
   await expect(block.locator('.was')).toHaveText(original);
-  await expect(block.locator('.why')).toContainText('No donor metadata on disease duration');
-  await expect(block.locator('.why')).toContainText(/run [0-9a-f]{8}/);
+  // The cited result sits in Experimentation while the study is in Grounding.
+  await expect(block.locator('.why')).toHaveText(
+    /^Experimentation found: No donor metadata on disease duration \(run [0-9a-f]{8}\)$/,
+  );
   await expect(main.locator('.study-question')).toHaveText(revised);
   await expect(main.getByText('Starting point revised')).toBeVisible();
   await page.screenshot({ path: 'test-results/ui-lab/study-revised.png', fullPage: true });
@@ -765,7 +771,9 @@ test('a reopened study says so in its pane and its transcript', async ({ page })
   await page.reload();
   await expect(meta.locator('.reopened')).toHaveText(/^Once · /);
   await expect(
-    page.getByRole('region', { name: 'Study' }).getByText('Reopened: a 2026 study contradicts E2'),
+    page
+      .getByRole('region', { name: 'Study' })
+      .getByText('Reopened: a 2026 study contradicts E2 (europepmc:PMC9911203)'),
   ).toBeVisible();
 });
 

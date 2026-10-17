@@ -520,35 +520,57 @@ describe('startingPoint', () => {
     expect(startingPoint([])).toBeNull();
     expect(startingPoint([point('0', { text: 'Does X raise Y?' })])).toBeNull();
   });
-  it('shows the newest revision against the original, with the cited result and its run', () => {
+  it('shows the newest revision against the original, how often, its drift answer and why', () => {
+    const at = (r: StudyRecord, board_column: StudyRecord['board_column'], round: number) => ({
+      ...r,
+      board_column,
+      round,
+    });
     const result = {
-      ...rec('result', { text: 'No donor metadata on disease duration' }),
+      ...at(rec('result', { text: 'No donor metadata on disease duration' }), 'experimentation', 2),
       id: 'res',
       agent_run_id: 'run-7',
     };
+    const drift = (answer: string, round: number) =>
+      at(rec('choice', { question: 'drift', answer, judge: 'jev' }, 'drift'), 'validation', round);
     const sp = startingPoint([
-      point('2', { text: 'Does X raise Y in islets?', cites: 'res', reason: 'question' }),
+      {
+        ...at(
+          point('2', { text: 'Does X raise Y in islets?', cites: 'res', reason: 'question' }),
+          'validation',
+          3,
+        ),
+        created_at: '2026-10-19T09:00:00Z',
+      },
       point('0', { text: 'Does X raise Y?' }),
       point('1', { text: 'Does X raise Y in mice?', cites: 'other', reason: 'question' }),
+      drift('reframes', 2),
+      drift('narrows', 3),
       result,
     ]);
     expect(sp).toEqual({
       now: 'Does X raise Y in islets?',
       was: 'Does X raise Y?',
-      why: 'No donor metadata on disease duration',
+      why: 'Experimentation found: No donor metadata on disease duration',
       runId: 'run-7',
+      revisions: 2,
+      drift: 'Narrows',
+      at: '2026-10-19T09:00:00Z',
     });
   });
-  it('leaves why empty when the cited result is not among the records', () => {
+  it('leaves why and the drift answer empty when their records are not among the records', () => {
     const sp = startingPoint([
       point('0', { text: 'Does X raise Y?' }),
       point('1', { text: 'Does X raise Y in mice?', cites: 'gone', reason: 'question' }),
     ]);
-    expect(sp).toEqual({
-      now: 'Does X raise Y in mice?',
-      was: 'Does X raise Y?',
-      why: '',
-      runId: '',
-    });
+    expect(sp).toMatchObject({ why: '', runId: '', revisions: 1, drift: '' });
+  });
+});
+
+import { revisedTimes } from '../apps/dashboard/src/lib/studies';
+
+describe('revisedTimes', () => {
+  it('words the revision count', () => {
+    expect([1, 2, 5].map(revisedTimes)).toEqual(['once', 'twice', '5 times']);
   });
 });

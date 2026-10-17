@@ -223,23 +223,38 @@ export function recordLine(r: StudyRecord) {
   return { key: r.key || r.kind, text, source: str(b.source_id) };
 }
 
-// The study's starting point once revised: the newest revision, the original
-// under key 0, and the result the revision cites, when it is among records.
+// The study's starting point once revised: the newest revision against the
+// original under key 0, how many revisions there were, the drift answer
+// recorded with the newest one (the live "drift" choice of its column and
+// round), and the result it cites, when those records are among records.
 export function startingPoint(records: StudyRecord[]) {
-  const points = records
-    .filter((r) => r.kind === 'starting_point' && !r.superseded_at)
+  const live = records.filter((r) => !r.superseded_at);
+  const points = live
+    .filter((r) => r.kind === 'starting_point')
     .sort((a, b) => Number(a.key) - Number(b.key));
   const original = points.find((r) => r.key === '0');
   const latest = points.at(-1);
   if (!original || !latest || latest === original) return null;
-  const cited = records.find((r) => r.id === latest.body.cites);
+  const cited = live.find((r) => r.id === latest.body.cites);
+  const drift = live.find(
+    (r) =>
+      r.kind === 'choice' &&
+      r.body.question === 'drift' &&
+      r.board_column === latest.board_column &&
+      r.round === latest.round,
+  );
   return {
     now: str(latest.body.text),
     was: str(original.body.text),
-    why: cited ? recordLine(cited).text : '',
+    why: cited ? `${columnName(cited.board_column)} found: ${recordLine(cited).text}` : '',
     runId: cited?.agent_run_id ?? '',
+    revisions: points.length - 1,
+    drift: focusLabel(str(drift?.body.answer)),
+    at: latest.created_at,
   };
 }
+
+export const revisedTimes = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
 
 const steered: Record<string, (p: Record<string, unknown>) => string> = {
   'send-back': (p) => `Sent back to ${columnName(str(p.column))}`,
@@ -247,7 +262,9 @@ const steered: Record<string, (p: Record<string, unknown>) => string> = {
   resume: () => 'Resumed',
   budget: () => 'Budget changed',
 };
-export function eventText(e: LykEvent): string {
+// A reopen's line names the evidence from its reopen_evidence record, keyed by
+// the reopen's number, when that record is among records.
+export function eventText(e: LykEvent, records: StudyRecord[] = []): string {
   const p = e.payload ?? {};
   switch (e.type) {
     case 'card.created':
@@ -262,8 +279,15 @@ export function eventText(e: LykEvent): string {
       return 'Out of budget: waiting for a person';
     case 'card.steered':
       return steered[str(p.path).split('/').pop() ?? '']?.(p) ?? '';
-    case 'card.reopened':
-      return `${e.actor_type === 'role' ? 'Reopened by Autoresearch' : 'Reopened'}: ${str(p.reason)}`;
+    case 'card.reopened': {
+      const evidence = str(
+        records.find(
+          (r) =>
+            r.kind === 'reopen_evidence' && !r.superseded_at && r.key === String(p.reopens ?? ''),
+        )?.body.evidence,
+      );
+      return `${e.actor_type === 'role' ? 'Reopened by Autoresearch' : 'Reopened'}: ${str(p.reason)}${evidence ? ` (${evidence})` : ''}`;
+    }
     case 'card.revised':
       return 'Starting point revised';
     case 'gate.decided':
@@ -283,12 +307,18 @@ export function transcript(
   comments: Comment[],
   runs: AgentRun[],
   events: LykEvent[],
+  reopenEvidence: StudyRecord[] = [],
 ): TranscriptEntry[] {
   const out: TranscriptEntry[] = [
     ...comments.map((comment) => ({ kind: 'comment' as const, at: comment.created_at, comment })),
     ...runs.map((run) => ({ kind: 'run' as const, at: run.started_at ?? run.created_at, run })),
     ...events
-      .map((e) => ({ kind: 'event' as const, at: e.created_at, text: eventText(e), id: e.id }))
+      .map((e) => ({
+        kind: 'event' as const,
+        at: e.created_at,
+        text: eventText(e, reopenEvidence),
+        id: e.id,
+      }))
       .filter((e) => e.text),
   ];
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));

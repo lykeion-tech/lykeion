@@ -446,6 +446,21 @@ func (h *H) cardRecords(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		// id= finds one live record of the study in any column, as a list of
+		// none or one.
+		if raw, ok := r.URL.Query()["id"]; ok {
+			out = []db.Record{}
+			rid, perr := uuid.Parse(raw[0])
+			if perr != nil {
+				return nil
+			}
+			rec, err := tx.Q.LiveCardRecord(r.Context(), db.LiveCardRecordParams{WorkspaceID: ws, CardID: id, ID: rid})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			out = append(out, rec)
+			return err
+		}
 		// kind= lists that kind's live records from every column.
 		if kind := r.URL.Query().Get("kind"); kind != "" {
 			out, err = tx.Q.CardKindRecords(r.Context(), db.CardKindRecordsParams{WorkspaceID: ws, CardID: id, Kind: kind})

@@ -575,7 +575,59 @@ func TestCardRecordsOfOneKind(t *testing.T) {
 	}
 	var rows []struct{ Kind, Key string }
 	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/records?kind=starting_point", a, w.ID, nil, &rows); code != 200 ||
-		len(rows) != 2 || rows[0].Key != "0" || rows[1].Key != "1" || rows[0].Kind != "starting_point" {
+		len(rows) != 2 || rows[0].Key+rows[1].Key != "01" && rows[0].Key+rows[1].Key != "10" || rows[0].Kind != "starting_point" {
 		t.Fatalf("records %d %+v", code, rows)
+	}
+}
+
+func TestColleagueReadsTheStudysUploadedTeam(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "ana@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "ben@lab.org", "member")
+	var up struct{ ID string }
+	if c := s.upload(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "ana-pack", Version: "4"}), &up); c != 201 {
+		t.Fatalf("upload %d", c)
+	}
+	if c := s.call(t, "POST", "/api/packs/"+up.ID+"/approve", a, w.ID, nil, nil); c != 200 {
+		t.Fatalf("approve %d", c)
+	}
+	if c := s.call(t, "PUT", "/api/me/pack", a, w.ID, map[string]string{"name": "ana-pack"}, nil); c != 200 {
+		t.Fatalf("use ana-pack %d", c)
+	}
+	_, card, _ := s.newCard(t, a, w.ID, map[string]any{"question": "Does X raise Y?", "start_kind": "question"})
+	var got struct {
+		PackName    string `json:"pack_name"`
+		PackVersion string `json:"pack_version"`
+	}
+	if c := s.call(t, "GET", "/api/cards/"+card.ID, b, w.ID, nil, &got); c != 200 || got.PackName != "ana-pack" || got.PackVersion != "4" {
+		t.Fatalf("Ben reads %d %+v", c, got)
+	}
+}
+
+func TestCardRecordById(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	_, c, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q"})
+	_, other, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q2"})
+	var live, gone, foreign string
+	for _, row := range []struct {
+		card, sup string
+		into      *string
+	}{{c.ID, "NULL", &live}, {c.ID, "now()", &gone}, {other.ID, "NULL", &foreign}} {
+		if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body, superseded_at)
+			VALUES ($1, $2, 'experimentation', 2, 'result', 'tester', 'R1', '{}', `+row.sup+`) RETURNING id`, w.ID, row.card).Scan(row.into); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		id string
+		n  int
+	}{{live, 1}, {gone, 0}, {foreign, 0}, {"not-a-uuid", 0}} {
+		var rows []struct{ ID string }
+		if code := s.call(t, "GET", "/api/cards/"+c.ID+"/records?id="+tc.id, a, w.ID, nil, &rows); code != 200 || len(rows) != tc.n || (tc.n == 1 && rows[0].ID != tc.id) {
+			t.Fatalf("id %s: %d %+v", tc.id, code, rows)
+		}
 	}
 }

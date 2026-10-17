@@ -18,6 +18,7 @@ import {
   useGates,
   useInbox,
   useMe,
+  useCardRecord,
   useKindRecords,
   useMembers,
   usePackVersions,
@@ -44,11 +45,13 @@ import {
   recordLine,
   routeBackLimit,
   stages,
+  revisedTimes,
   startingPoint,
   stateLabel,
   studyNumber,
   transcript,
 } from '../lib/studies';
+import { shortDate } from '../lib/dates';
 import { notify } from '../state/notice';
 import { usePins } from '../state/pins';
 import { useTaskComposer } from '../state/task-composer';
@@ -154,13 +157,24 @@ const stage = computed(() =>
 );
 const records = useRecords(() => props.id, stage);
 const isOwner = computed(() => Boolean(c.value && c.value.owner_id === me.data.value?.id));
-// The cited result is read from the column the latest revision was made in.
 const points = useKindRecords(() => props.id, 'starting_point');
-const pointColumn = computed(() => points.data.value?.at(-1)?.board_column ?? '');
-const pointRecords = useRecords(() => props.id, pointColumn);
+const choices = useKindRecords(() => props.id, 'choice');
+const reopenEvidence = useKindRecords(() => props.id, 'reopen_evidence');
+// The result the newest revision cites, from whichever column holds it.
+const citedId = computed(() => {
+  const latest = [...(points.data.value ?? [])]
+    .sort((a, b) => Number(a.key) - Number(b.key))
+    .at(-1);
+  return latest?.key !== '0' && typeof latest?.body.cites === 'string' ? latest.body.cites : '';
+});
+const cited = useCardRecord(() => props.id, citedId);
 // Shown while the study runs on a revision; a reverted study is back on the original.
 const revision = computed(() => {
-  const sp = startingPoint([...(points.data.value ?? []), ...(pointRecords.data.value ?? [])]);
+  const sp = startingPoint([
+    ...(points.data.value ?? []),
+    ...(choices.data.value ?? []),
+    ...(cited.data.value ?? []),
+  ]);
   return sp && c.value?.question !== sp.was ? sp : null;
 });
 const packVersions = usePackVersions(() => c.value?.pack_name ?? '');
@@ -207,7 +221,12 @@ const resourceReads = computed(() =>
 const readErrors = computed(() => resourceReads.value.filter((read) => read.error));
 const transcriptPending = computed(() => resourceReads.value.some((read) => read.pending));
 const entries = computed(() =>
-  transcript(comments.data.value ?? [], runs.data.value ?? [], events.data.value ?? []),
+  transcript(
+    comments.data.value ?? [],
+    runs.data.value ?? [],
+    events.data.value ?? [],
+    reopenEvidence.data.value ?? [],
+  ),
 );
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
@@ -677,7 +696,11 @@ function pin() {
           <h1 class="study-title">{{ c.title }}</h1>
           <p class="study-question">{{ c.question }}</p>
           <div v-if="revision" class="stage-box starting-point">
-            <h4>Starting point · revised</h4>
+            <h4>
+              Starting point · revised {{ revisedTimes(revision.revisions)
+              }}<span v-if="revision.drift" class="chip drift-chip">{{ revision.drift }}</span
+              ><span class="push-right muted">{{ shortDate(revision.at) }}</span>
+            </h4>
             <div class="record-line">
               <span class="key">now</span><span class="now">{{ revision.now }}</span>
             </div>

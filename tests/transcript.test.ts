@@ -187,7 +187,7 @@ describe('reading-first recorded run', () => {
 });
 
 import { eventText, transcript } from '../apps/dashboard/src/lib/studies';
-import type { LykEvent } from '../apps/dashboard/src/api/types';
+import type { LykEvent, StudyRecord } from '../apps/dashboard/src/api/types';
 
 describe('reopen and revision lines', () => {
   const event = (
@@ -205,16 +205,24 @@ describe('reopen and revision lines', () => {
       payload,
       created_at: '2026-10-20T10:00:00Z',
     }) as LykEvent;
-  it('says who reopened the study and why', () => {
+  it('says who reopened the study, why, and on what evidence', () => {
+    const evidence = (key: string, text: string) =>
+      ({
+        kind: 'reopen_evidence',
+        key,
+        body: { evidence: text },
+        superseded_at: null,
+      }) as unknown as StudyRecord;
     const lines = transcript(
       [],
       [],
-      [event('card.reopened', 'role', { reopens: 1, reason: 'a 2026 study contradicts E2' })],
+      [event('card.reopened', 'role', { reopens: 2, reason: 'a 2026 study contradicts E2' })],
+      [evidence('1', 'PMC1'), evidence('2', 'PMC9911203')],
     );
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({
       kind: 'event',
-      text: 'Reopened by Autoresearch: a 2026 study contradicts E2',
+      text: 'Reopened by Autoresearch: a 2026 study contradicts E2 (PMC9911203)',
     });
     expect(eventText(event('card.reopened', 'user', { reason: 'new data' }))).toBe(
       'Reopened: new data',
