@@ -1,0 +1,527 @@
+package flow
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"lykeion/server/internal/board"
+	"lykeion/server/internal/fence"
+	"lykeion/server/internal/jev"
+	"lykeion/server/internal/pack"
+	"lykeion/server/internal/records"
+	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
+)
+
+// coreCriteria are asked of every column, word for word and in this order.
+var coreCriteria = []string{
+	"Does the work cite where its facts came from?",
+	"Does it answer what the researcher asked?",
+	"Does it say what it couldn't do?",
+}
+
+// scoreLevels are the five levels of each criterion, low to high; Jev's
+// score s is level s+1.
+var scoreLevels = []string{"Not at all", "Barely", "Partly", "Mostly", "Fully"}
+
+// maxJevInput is Jev's limit for the state and the questions together: 32k
+// tokens, estimated at 4 bytes a token.
+const maxJevInput = 32 << 10 * 4
+
+// scoringLease keeps other passes from scoring a column while one asks Jev:
+// longer than the retry's waits plus three timed-out requests. A crashed pass
+// lets go when it runs out.
+const scoringLease = 10 * time.Minute
+
+var errNoJev = errors.New("the lab has no TypeSafe key")
+
+// Verdict reads a column's criterion levels: high when every level is 4 or
+// more, low when any is 2 or less, middle otherwise.
+func Verdict(levels []float64) string {
+	high := true
+	for _, l := range levels {
+		if l <= 2 {
+			return "low"
+		}
+		if l < 4 {
+			high = false
+		}
+	}
+	if high {
+		return "high"
+	}
+	return "middle"
+}
+
+type criterion struct{ ID, Text, Source string }
+
+func criteria(m *pack.Manifest) []criterion {
+	var out []criterion
+	for i, c := range coreCriteria {
+		out = append(out, criterion{fmt.Sprintf("core%d", i+1), c, "core"})
+	}
+	if m != nil {
+		for i, c := range m.Criteria {
+			out = append(out, criterion{fmt.Sprintf("team%02d", i+1), c, "team"})
+		}
+	}
+	return out
+}
+
+// afterDone runs once a column holds runs: on a Team column declared done it
+// enqueues the auditor, once, and it says whether the column is ready to
+// score, which is when the auditor has settled or no Team works the column.
+func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []db.AgentRun) (bool, error) {
+	summary, ok, err := roundSummary(ctx, tx, c)
+	if err != nil || !ok {
+		return false, err
+	}
+	packID, m, err := columnTeam(ctx, tx, c.ID, c.BoardColumn)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, r := range runs {
+		if r.Role == "auditor" {
+			return !inFlight(r.Status), nil
+		}
+	}
+	a, err := teamAgent(ctx, tx, packID, c.OwnerID, m.Auditor.Name)
+	if err != nil {
+		return false, err
+	}
+	cited, err := citedRecords(ctx, tx, c, summary)
+	if err != nil {
+		return false, err
+	}
+	note := "The leader declared the column done. Audit its summary and the records it cites:\n\n" +
+		evidence(records.Body[struct{ Text string }](summary).Text, cited, maxJevInput)
+	_, err = e.enqueue(ctx, tx, c, "auditor", m, a, note, true)
+	return false, err
+}
+
+// Audit hands a column declared done to its auditor, or, on a column no Team
+// works, straight to scoring. It goes through Advance, which Tick repeats, so
+// a crash between declaring done and auditing loses nothing.
+func (e *Engine) Audit(_ context.Context, ws, card uuid.UUID) error {
+	e.Kick(ws, card)
+	return nil
+}
+
+// roundSummary is the summary that declared the study's current column and
+// attempt done.
+func roundSummary(ctx context.Context, tx *store.Tx, c db.Card) (db.Record, bool, error) {
+	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
+	if err != nil {
+		return db.Record{}, false, err
+	}
+	for _, r := range slices.Backward(recs) {
+		if r.Round == c.Round && r.Kind == "summary" {
+			return r, true, nil
+		}
+	}
+	return db.Record{}, false, nil
+}
+
+func citedRecords(ctx context.Context, tx *store.Tx, c db.Card, summary db.Record) ([]db.Record, error) {
+	keys := records.Body[struct{ Cites []string }](summary).Cites
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	return tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: keys})
+}
+
+// scoring is what one pass read to score a column, with no transaction open.
+type scoring struct {
+	card      db.Card
+	criteria  []criterion
+	summary   string
+	cited     []db.Record
+	work      []db.Record // the records whose quotes are checked
+	calls     []db.Record // the call records they cite
+	audit     string
+	auditNote string // why there is no audit
+	attempt   int
+}
+
+var callCite = regexp.MustCompile(`"call:([a-z0-9]+)"`)
+
+// Score asks Jev to score the study's current column once it is declared
+// done and its auditor settled, then moves the study on, redoes the column or
+// blocks it. Jev is asked with no transaction open. When Jev cannot be reached
+// the study stays where it is, its owner hears once, and the next pass retries.
+func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
+	in, ok, err := e.readScoring(ctx, ws, card)
+	if err != nil || !ok {
+		return err
+	}
+	calls, err := LoadCalls(ctx, e.Blobs, in.calls)
+	var answers map[string]jev.ScoreAnswer
+	if err == nil {
+		answers, err = e.askJev(ctx, in, MatchQuotes(in.work, calls))
+	}
+	moved, werr := e.applyScore(ctx, ws, in, answers, err)
+	if werr != nil {
+		return werr
+	}
+	if moved {
+		e.Kick(ws, card)
+	}
+	return nil
+}
+
+func (e *Engine) now() time.Time {
+	if e.Now != nil {
+		return e.Now()
+	}
+	return time.Now()
+}
+
+func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bool, error) {
+	var in scoring
+	ok := false
+	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		c, err := lockCard(ctx, tx, id)
+		if err != nil || !working(c) || (c.GatingUntil != nil && c.GatingUntil.After(e.now())) {
+			return err
+		}
+		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
+		if err != nil {
+			return err
+		}
+		var summary *db.Record
+		in = scoring{card: c, attempt: 1}
+		for _, r := range recs {
+			switch {
+			case r.Kind == "outcome" && r.Round == c.Round:
+				return nil // already scored
+			case r.Kind == "outcome":
+				in.attempt++
+			case r.Round != c.Round:
+			case r.Kind == "summary":
+				summary = &r
+			case r.Kind == "audit":
+				in.audit = string(r.Body)
+			case r.Kind != "call":
+				in.work = append(in.work, r)
+			}
+		}
+		if summary == nil {
+			return nil
+		}
+		_, m, err := columnTeam(ctx, tx, c.ID, c.BoardColumn)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			in.auditNote = "No auditor checked this column: no Team works it."
+		case err != nil:
+			return err
+		default:
+			runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+			if err != nil {
+				return err
+			}
+			i := slices.IndexFunc(runs, func(r db.AgentRun) bool { return r.Role == "auditor" })
+			if i < 0 || inFlight(runs[i].Status) {
+				return nil
+			}
+			if in.audit == "" {
+				in.auditNote = fmt.Sprintf("The auditor's run ended %s without writing findings; this column is scored without an audit.", runs[i].Status)
+			}
+		}
+		in.criteria = criteria(m)
+		in.summary = records.Body[struct{ Text string }](*summary).Text
+		if in.cited, err = citedRecords(ctx, tx, c, *summary); err != nil {
+			return err
+		}
+		callKeys := []string{}
+		for _, r := range in.cited {
+			if r.Kind == "call" {
+				callKeys = append(callKeys, r.Key)
+			} else if !slices.ContainsFunc(in.work, func(w db.Record) bool { return w.ID == r.ID }) {
+				in.work = append(in.work, r)
+			}
+		}
+		for _, r := range in.work {
+			for _, m := range callCite.FindAllStringSubmatch(string(r.Body), -1) {
+				callKeys = append(callKeys, m[1])
+			}
+		}
+		if len(callKeys) > 0 {
+			if in.calls, err = tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: callKeys}); err != nil {
+				return err
+			}
+			in.calls = slices.DeleteFunc(in.calls, func(r db.Record) bool { return r.Kind != "call" })
+		}
+		until := e.now().Add(scoringLease)
+		ok = true
+		return tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{GatingUntil: &until, ID: c.ID, WorkspaceID: tx.WS})
+	})
+	return in, ok, err
+}
+
+func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch) (map[string]jev.ScoreAnswer, error) {
+	if e.Jev == nil {
+		return nil, errNoJev
+	}
+	qs := map[string]jev.ScoreQuestion{}
+	for _, c := range in.criteria {
+		qs[c.ID] = jev.ScoreQuestion{Instructions: c.Text, Levels: scoreLevels}
+	}
+	asked, err := json.Marshal(qs)
+	if err != nil {
+		return nil, err
+	}
+	state := scoringState(in, quotes, maxJevInput-len(asked)-256)
+	retry := jev.NewRetry()
+	if e.Retry != nil {
+		retry = e.Retry()
+	}
+	var out map[string]jev.ScoreAnswer
+	err = retry.Do(ctx, func() (err error) {
+		out, err = e.Jev.Score(ctx, state, qs)
+		return err
+	})
+	return out, err
+}
+
+const cutMark = "\n[cut: the rest is left out to stay within Jev's limit]"
+
+// scoringState is what Jev reads: the study, the leader's summary and the
+// records it cites, the code's quote check and the audit, at most budget
+// bytes. Every agent's text is fenced as data.
+func scoringState(in scoring, quotes []QuoteMatch, budget int) string {
+	var head, tail strings.Builder
+	fmt.Fprintf(&head, "Lykeion study #%d, its %s column. What the researcher asked:\n%s\n\n", in.card.Number, title(in.card.BoardColumn), in.card.Question)
+
+	tail.WriteString("\nQuote check, done by Lykeion's code: each quoted passage looked up word for word, ignoring whitespace, in the answers of the database calls its record cites.\n")
+	if len(quotes) == 0 {
+		tail.WriteString("No record quotes a passage.\n")
+	}
+	var qb strings.Builder
+	for _, q := range quotes {
+		text, cut := Excerpt(q.Quote, 300)
+		if cut {
+			text += "…"
+		}
+		if q.Matched {
+			fmt.Fprintf(&qb, "- %s: found in call %s: %s\n", q.Record, q.Call, strconv.Quote(text))
+		} else {
+			fmt.Fprintf(&qb, "- %s: not found in any call it cites: %s\n", q.Record, strconv.Quote(text))
+		}
+	}
+	if qb.Len() > 0 {
+		list, cut := Excerpt(qb.String(), budget/8)
+		if cut {
+			list += cutMark + "\n"
+		}
+		tail.WriteString(fence.Untrusted("The quotes, as the agents wrote them", list))
+	}
+	tail.WriteString("\nThe auditor's findings:\n")
+	if in.audit != "" {
+		audit, cut := Excerpt(in.audit, budget/8)
+		if cut {
+			audit += cutMark
+		}
+		tail.WriteString(fence.Untrusted("The auditor's findings", audit))
+	} else {
+		tail.WriteString(in.auditNote + "\n")
+	}
+	return head.String() + evidence(in.summary, in.cited, budget-head.Len()-tail.Len()) + tail.String()
+}
+
+// evidence is the leader's summary and the records it cites, each fenced, in
+// at most budget bytes: the longest records are cut first, to a common
+// length, and each cut is marked.
+func evidence(summary string, cited []db.Record, budget int) string {
+	build := func(limit int) string {
+		var b strings.Builder
+		b.WriteString(fence.Untrusted("The summary declaring the column done", summary))
+		if len(cited) == 0 {
+			b.WriteString("The summary cites no records.\n")
+		} else {
+			b.WriteString("\nThe records it cites:\n")
+		}
+		for _, r := range cited {
+			body := string(r.Body)
+			if cut, more := Excerpt(body, limit); more {
+				body = cut + fmt.Sprintf("\n[cut: %d of %d bytes left out to stay within Jev's limit]", len(body)-len(cut), len(body))
+			}
+			b.WriteString(fence.Untrusted(fmt.Sprintf("Record %s (%s, written by the %s)", r.Key, r.Kind, r.Role), body))
+		}
+		return b.String()
+	}
+	longest := 0
+	for _, r := range cited {
+		longest = max(longest, len(r.Body))
+	}
+	s := build(longest)
+	if len(s) <= budget {
+		return s
+	}
+	lo, hi := 0, longest
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if len(build(mid)) <= budget {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	if s = build(lo); len(s) > budget { // the summary alone is over
+		s, _ = Excerpt(s, max(budget-len(cutMark), 0))
+		s += cutMark
+	}
+	return s
+}
+
+// applyScore writes the scores and the verdict, and moves the study on,
+// restarts its column or blocks it. It re-reads the study first: a study that
+// left the column, or a column scored meanwhile, is left alone. It says
+// whether a column now waits to start.
+func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answers map[string]jev.ScoreAnswer, jerr error) (bool, error) {
+	moved := false
+	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		c, err := lockCard(ctx, tx, in.card.ID)
+		if err != nil || c.ID == uuid.Nil {
+			return err
+		}
+		if err := tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: c.ID, WorkspaceID: tx.WS}); err != nil {
+			return err
+		}
+		if !current(c, in.card.BoardColumn, in.card.Round) {
+			return nil
+		}
+		if n, err := tx.Q.CountRoundKindRecords(ctx, db.CountRoundKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID,
+			BoardColumn: c.BoardColumn, Round: c.Round, Kind: "outcome"}); err != nil || n > 0 {
+			return err
+		}
+		if jerr != nil {
+			slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", jerr)
+			open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
+			if err != nil || open > 0 {
+				return err
+			}
+			return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "scoring_unavailable",
+				Text: fmt.Sprintf("Scoring is unavailable for study #%d's %s column. It stays there, and Lykeion keeps retrying.", c.Number, title(c.BoardColumn))})
+		}
+		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
+			return err
+		}
+		var levels []float64
+		lowest := in.criteria[0]
+		lowestLevel := 6.0
+		for _, cr := range in.criteria {
+			a := answers[cr.ID]
+			level := a.Score + 1
+			levels = append(levels, level)
+			if level < lowestLevel {
+				lowest, lowestLevel = cr, level
+			}
+			if err := writeServer(ctx, tx, c, "score", map[string]any{"criterion": cr.Text, "source": cr.Source,
+				"level": level, "probabilities": a.Probabilities}); err != nil {
+				return err
+			}
+		}
+		verdict := Verdict(levels)
+		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": verdict, "attempt": in.attempt}); err != nil {
+			return err
+		}
+		weak := fmt.Sprintf("“%s” (level %s of 5)", lowest.Text, strconv.FormatFloat(lowestLevel, 'g', 3, 64))
+		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
+			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
+		var items []board.Item
+		switch {
+		case verdict == "low" && c.Redos == 0:
+			next.Redos, next.Round = 1, c.Round+1
+			next.HandoffNote = fmt.Sprintf("Jev scored the last attempt at this column low on %s. Redo the column, and fix that first.", weak)
+		case verdict == "low":
+			next.State, next.BlockKind = "blocked", "low_score"
+			items = append(items, board.Item{Kind: "blocked", Text: fmt.Sprintf(
+				"Study #%d scored low twice in its %s column, lowest on %s. Comment on the study to tell the Team what to fix.", c.Number, title(c.BoardColumn), weak)})
+		default:
+			if verdict == "middle" {
+				items = append(items, board.Item{Kind: "middle_score", Text: fmt.Sprintf(
+					"Study #%d's %s column scored in the middle; its weakest criterion was %s.", c.Number, title(c.BoardColumn), weak)})
+			}
+			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
+				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
+			} else {
+				next.State = "done"
+				items = append(items, board.Item{Kind: "done", Text: fmt.Sprintf("Study #%d is done, in its %s column.", c.Number, title(c.BoardColumn))})
+			}
+		}
+		if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
+			return err
+		}
+		for _, it := range items {
+			if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: it.Kind, Text: it.Text}); err != nil {
+				return err
+			}
+		}
+		moved = next.State == board.Working
+		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State, "verdict": verdict})
+	})
+	return moved, err
+}
+
+// writeServer stores a record the server writes itself, under the study's
+// next key, on its current column and round.
+func writeServer(ctx context.Context, tx *store.Tx, c db.Card, kind string, body any) error {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	key, err := records.NextRecordKey(ctx, tx, c.ID)
+	if err != nil {
+		return err
+	}
+	rec, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn,
+		Round: c.Round, Kind: kind, Role: "server", Key: key, Body: b})
+	if err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "record.created", &c.ID, store.System, map[string]any{"record_id": rec.ID, "kind": kind, "key": key, "role": "server"})
+}
+
+func resolveInbox(ctx context.Context, tx *store.Tx, card uuid.UUID, kind string) error {
+	ids, err := tx.Q.ResolveCardInboxKind(ctx, db.ResolveCardInboxKindParams{WorkspaceID: tx.WS, CardID: card, Kind: kind})
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := tx.Emit(ctx, "inbox.resolved", &card, store.System, map[string]string{"inbox_item_id": id.String()}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// unblock restarts the column of a study blocked by a second low score when
+// its owner comments: the comment becomes the leader's (or agent's) note, and
+// the redo count stays.
+func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, comment string) (bool, error) {
+	if c.State != "blocked" || c.BlockKind != "low_score" || c.Ending != "" || author != c.OwnerID {
+		return false, nil
+	}
+	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: board.Working,
+		Round: c.Round + 1, Redos: c.Redos, HandoffNote: "The researcher asked for this column to be redone:\n" + comment}); err != nil {
+		return false, err
+	}
+	if err := resolveInbox(ctx, tx, c.ID, "blocked"); err != nil {
+		return false, err
+	}
+	return true, tx.Emit(ctx, "card.steered", &c.ID, store.User(author), map[string]any{"column": c.BoardColumn, "state": board.Working})
+}

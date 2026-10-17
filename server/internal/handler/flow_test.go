@@ -333,7 +333,7 @@ func TestADeclaredDoneColumnTakesNoMoreSteps(t *testing.T) {
 	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Done."}, nil); c != 201 {
 		t.Fatalf("done %d", c)
 	}
-	if n := l.queued(t); n != 0 {
+	if n := l.s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND role = 'leader' AND status = 'queued'", l.card.ID); n != 0 {
 		t.Fatalf("the wake queued before done is still queued: %d", n)
 	}
 	for _, in := range []map[string]any{{"member": "member-2", "content": "two"}, {"self": true, "content": "two"}} {
@@ -436,5 +436,27 @@ func TestALargeAnswerIsKeptWhole(t *testing.T) {
 	}
 	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", map[string]any{"server": "s", "tool": "t", "answer": strings.Repeat("a", 32<<20+1)}, nil); c != 400 {
 		t.Fatalf("over 32 MiB: %d", c)
+	}
+}
+
+func TestACommentUnblocksIntoARedo(t *testing.T) {
+	l := newTeamLab(t, 0)
+	l.claim(t) // the first attempt's leader
+	if _, err := l.s.Env.Owner.Exec(context.Background(), "UPDATE card SET state = 'blocked', block_kind = 'low_score', redos = 1 WHERE id = $1", l.card.ID); err != nil {
+		t.Fatal(err)
+	}
+	const fix = "Cite the GEO accession for every claim."
+	if c := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": fix}, nil); c != 201 {
+		t.Fatalf("comment %d", c)
+	}
+	redo := l.claim(t)
+	if redo.role != "leader" || !strings.Contains(redo.prompt, fix) || redo.scope != flow.ContinuityScope(uuid.MustParse(l.card.ID), "leader", "hypotheses", 1) {
+		t.Fatalf("redo run: %s %s\n%s", redo.role, redo.scope, redo.prompt)
+	}
+	var state, kind string
+	var round, redos int
+	l.s.Env.Owner.QueryRow(context.Background(), "SELECT state, block_kind, round, redos FROM card WHERE id = $1", l.card.ID).Scan(&state, &kind, &round, &redos)
+	if state != "working" || kind != "" || round != 2 || redos != 1 {
+		t.Fatalf("after the comment: %s %q round %d redos %d", state, kind, round, redos)
 	}
 }

@@ -66,6 +66,9 @@ func Protocol(role, column string, m *pack.Manifest) string {
 		fmt.Fprintf(&b, "You lead this Team on the study's %s column. You coordinate; the members do the work.\n\n", title(column))
 	case "agent":
 		fmt.Fprintf(&b, "You work the study's %s column on your own.\n\n", title(column))
+	case "auditor":
+		fmt.Fprintf(&b, "You audit this Team's work on the study's %s column, once, after its leader declared the column done and before Jev scores it. "+
+			"Your findings go to Jev with the leader's summary.\n\n", title(column))
 	default:
 		fmt.Fprintf(&b, "You are the %s member of this Team, on the study's %s column. The leader named you for one step; your prompt says what it is.\n\n", role, title(column))
 	}
@@ -87,6 +90,12 @@ func Protocol(role, column string, m *pack.Manifest) string {
 			"5. " + finish)
 	case "agent":
 		b.WriteString(writeWork + finish)
+	case "auditor":
+		b.WriteString("Your prompt holds the leader's summary and the records it cites; read more with `lyk records` and `lyk calls`. " +
+			"Check that each claim cites where its facts came from, that quoted passages appear in the calls they cite, " +
+			"that the work answers what the researcher asked, and that it says what it couldn't do.\n" +
+			"Write your findings once with `lyk record put audit --content-file audit.json`, a body of the form " +
+			"`{\"text\": \"…\", \"findings\": [\"…\"]}`. You write no other records, name no members and declare nothing done.\n")
 	default:
 		b.WriteString(writeWork + "If you cannot do the step, end with `lyk result failed --content \"why\"`.\n")
 	}

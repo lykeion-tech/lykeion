@@ -29,6 +29,7 @@ type Engine struct {
 	AgentRuns *service.AgentRuns
 	Blobs     storage.Storage
 	Jev       *jev.Client // nil when the lab has no TypeSafe key
+	Retry     func() *jev.Retry
 	Now       func() time.Time
 	Inline    bool // run kicks in the caller's goroutine; tests use it to stay deterministic
 }
@@ -91,10 +92,12 @@ func (e *Engine) Tick(ctx context.Context) error {
 }
 
 // Advance starts the study's current column when it is working there and no
-// run of this attempt at the column exists yet. A study another pass holds is
-// left to that pass.
+// run of this attempt at the column exists yet. Once the column is declared
+// done it starts the auditor, and once that settles it scores the column, with
+// no transaction open. A study another pass holds is left to that pass.
 func (e *Engine) Advance(ctx context.Context, ws, id uuid.UUID) error {
-	return e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+	score := false
+	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		if _, err := tx.Q.LockWorkspaceExecution(ctx, ws); err != nil {
 			return err
 		}
@@ -113,11 +116,19 @@ func (e *Engine) Advance(ctx context.Context, ws, id uuid.UUID) error {
 			return nil
 		}
 		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: id, BoardColumn: c.BoardColumn, Round: c.Round})
-		if err != nil || len(runs) > 0 {
+		if err != nil {
 			return err
 		}
-		return e.Start(ctx, tx, c)
+		if len(runs) == 0 {
+			return e.Start(ctx, tx, c)
+		}
+		score, err = e.afterDone(ctx, tx, c, runs)
+		return err
 	})
+	if err != nil || !score {
+		return err
+	}
+	return e.Score(ctx, ws, id)
 }
 
 // columnTeam reads the Team working a study's column from its row, so no blob is
@@ -167,21 +178,22 @@ func (e *Engine) worker(ctx context.Context, tx *store.Tx, c db.Card) (string, *
 
 // Start enqueues the first run of the study's current column, in the
 // caller's transaction: the leader's on a Team column, the study's agent's
-// otherwise.
+// otherwise. A redone column's first run carries the reason for the redo.
 func (e *Engine) Start(ctx context.Context, tx *store.Tx, c db.Card) error {
 	role, m, a, err := e.worker(ctx, tx, c)
 	if err != nil {
 		return err
 	}
-	_, err = e.enqueue(ctx, tx, c, role, m, a, "")
+	_, err = e.enqueue(ctx, tx, c, role, m, a, c.HandoffNote, false)
 	return err
 }
 
 // enqueue queues one run of role on the study's current column. The run
 // takes its harness, model and instructions from the owner's agent row, and
 // the protocol for its role is appended to them; note, when set, follows the
-// study in the prompt.
-func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role string, m *pack.Manifest, a db.Agent, note string) (db.AgentRun, error) {
+// study in the prompt. A private run is isolated from its owner's own setup
+// whatever the workspace policy.
+func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role string, m *pack.Manifest, a db.Agent, note string, private bool) (db.AgentRun, error) {
 	comments, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
 	if err != nil {
 		return db.AgentRun{}, err
@@ -196,12 +208,12 @@ func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role stri
 		p += "\n" + note + "\n"
 	}
 	t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p,
+		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p, RunPrivate: private,
 		Skill: strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, m))})
 	if err != nil {
 		return t, err
 	}
-	return t, tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Redos),
+	return t, tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Redos), RunPrivate: private,
 		ID: t.ID, WorkspaceID: tx.WS})
 }
 

@@ -55,6 +55,24 @@ func (q *Queries) AgentRunRecords(ctx context.Context, arg AgentRunRecordsParams
 	return items, nil
 }
 
+const countOpenCardInbox = `-- name: CountOpenCardInbox :one
+SELECT count(*) FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid
+  AND kind = $3 AND resolved_at IS NULL
+`
+
+type CountOpenCardInboxParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Kind        string    `json:"kind"`
+}
+
+func (q *Queries) CountOpenCardInbox(ctx context.Context, arg CountOpenCardInboxParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countOpenCardInbox, arg.WorkspaceID, arg.CardID, arg.Kind)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countRoundKindRecords = `-- name: CountRoundKindRecords :one
 SELECT count(*) FROM record WHERE workspace_id = $1 AND card_id = $2
   AND board_column = $3 AND round = $4 AND kind = $5
@@ -168,4 +186,114 @@ func (q *Queries) LiveRecordKeys(ctx context.Context, arg LiveRecordKeysParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const liveRecordsByKeys = `-- name: LiveRecordsByKeys :many
+SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2
+  AND key = ANY($3::text[]) AND superseded_at IS NULL ORDER BY created_at, id
+`
+
+type LiveRecordsByKeysParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Keys        []string  `json:"keys"`
+}
+
+func (q *Queries) LiveRecordsByKeys(ctx context.Context, arg LiveRecordsByKeysParams) ([]Record, error) {
+	rows, err := q.db.Query(ctx, liveRecordsByKeys, arg.WorkspaceID, arg.CardID, arg.Keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Record
+	for rows.Next() {
+		var i Record
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Kind,
+			&i.Role,
+			&i.Key,
+			&i.Body,
+			&i.BlobKey,
+			&i.AgentRunID,
+			&i.SupersededAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resolveCardInboxKind = `-- name: ResolveCardInboxKind :many
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = $3 AND resolved_at IS NULL
+RETURNING id
+`
+
+type ResolveCardInboxKindParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Kind        string    `json:"kind"`
+}
+
+func (q *Queries) ResolveCardInboxKind(ctx context.Context, arg ResolveCardInboxKindParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, resolveCardInboxKind, arg.WorkspaceID, arg.CardID, arg.Kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const saveCardFlow = `-- name: SaveCardFlow :exec
+UPDATE card SET board_column = $1, state = $2, block_kind = $3, round = $4,
+  redos = $5, handoff_note = $6, gating_until = NULL, version = version + 1
+WHERE id = $7 AND workspace_id = $8
+`
+
+type SaveCardFlowParams struct {
+	BoardColumn string    `json:"board_column"`
+	State       string    `json:"state"`
+	BlockKind   string    `json:"block_kind"`
+	Round       int32     `json:"round"`
+	Redos       int32     `json:"redos"`
+	HandoffNote string    `json:"handoff_note"`
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+// Moves a study on, restarts its column or blocks it once the column is
+// scored, and releases the scoring lease.
+func (q *Queries) SaveCardFlow(ctx context.Context, arg SaveCardFlowParams) error {
+	_, err := q.db.Exec(ctx, saveCardFlow,
+		arg.BoardColumn,
+		arg.State,
+		arg.BlockKind,
+		arg.Round,
+		arg.Redos,
+		arg.HandoffNote,
+		arg.ID,
+		arg.WorkspaceID,
+	)
+	return err
 }

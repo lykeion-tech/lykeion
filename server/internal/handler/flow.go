@@ -100,7 +100,7 @@ func (h *H) postDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := middleware.RoleFrom(r.Context())
-	if err := h.Engine.DropWakes(r.Context(), role.WorkspaceID, role.CardID); err != nil {
+	if err := h.Engine.DropWakes(r.Context(), role.WorkspaceID, role.CardID, role.Column, role.Round); err != nil {
 		slog.Error("drop leader wakes", "card", role.CardID, "err", err)
 	}
 	if err := h.Engine.Audit(r.Context(), role.WorkspaceID, role.CardID); err != nil {

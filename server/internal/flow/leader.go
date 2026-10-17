@@ -132,7 +132,7 @@ func (e *Engine) Delegate(ctx context.Context, tx *store.Tx, w service.Writer, m
 	if err != nil {
 		return db.Record{}, err
 	}
-	run, err := e.enqueue(ctx, tx, c, member, m, a, "Your step, from the leader:\n"+step)
+	run, err := e.enqueue(ctx, tx, c, member, m, a, "Your step, from the leader:\n"+step, false)
 	if err != nil {
 		return db.Record{}, err
 	}
@@ -171,10 +171,11 @@ func (e *Engine) Finish(ctx context.Context, tx *store.Tx, w service.Writer, sum
 	return records.WriteAs(ctx, tx, w, "summary", map[string]any{"text": summary, "cites": cites})
 }
 
-// DropWakes cancels the leader runs still waiting to start on a study's
-// column once it is declared done: work that landed during the leader's last
-// turn queued them, and the column takes no more steps.
-func (e *Engine) DropWakes(ctx context.Context, ws, card uuid.UUID) error {
+// DropWakes cancels the leader runs still waiting to start on the column and
+// attempt a study declared done: work that landed during the leader's last
+// turn queued them, and the column takes no more steps. column and round are
+// the declaring run's, since scoring may already have moved the study.
+func (e *Engine) DropWakes(ctx context.Context, ws, card uuid.UUID, column string, round int32) error {
 	var owner uuid.UUID
 	var waiting []uuid.UUID
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
@@ -183,7 +184,7 @@ func (e *Engine) DropWakes(ctx context.Context, ws, card uuid.UUID) error {
 			return err
 		}
 		owner = c.OwnerID
-		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: card, BoardColumn: c.BoardColumn, Round: c.Round})
+		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: card, BoardColumn: column, Round: round})
 		for _, r := range runs {
 			if r.Role == "leader" && waitingToStart(r.Status) {
 				waiting = append(waiting, r.ID)
@@ -201,10 +202,6 @@ func (e *Engine) DropWakes(ctx context.Context, ws, card uuid.UUID) error {
 	}
 	return nil
 }
-
-// Audit is the step after a column is declared done. The auditor is not
-// started yet, so a done column waits where it is.
-func (e *Engine) Audit(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
 // lockCard takes the locks Advance takes, waiting for the card's, and reads
 // the card; a deleted card reads as not working.
@@ -267,11 +264,12 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 }
 
 // OnComment wakes the leader of a Team column that has started when someone
-// comments on the study, as a squad leader is woken by a comment. Like Kick
-// it runs off the caller's request, after the comment commits.
-func (e *Engine) OnComment(ws, card uuid.UUID) {
+// comments on the study, as a squad leader is woken by a comment. The owner's
+// comment on a study blocked by low scores restarts its column instead. Like
+// Kick it runs off the caller's request, after the comment commits.
+func (e *Engine) OnComment(ws, card, author uuid.UUID, body string) {
 	run := func() {
-		if err := e.wakeOnComment(context.Background(), ws, card); err != nil {
+		if err := e.wakeOnComment(context.Background(), ws, card, author, body); err != nil {
 			slog.Error("wake on comment", "card", card, "err", err)
 		}
 	}
@@ -282,10 +280,14 @@ func (e *Engine) OnComment(ws, card uuid.UUID) {
 	go run()
 }
 
-func (e *Engine) wakeOnComment(ctx context.Context, ws, card uuid.UUID) error {
-	return e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+func (e *Engine) wakeOnComment(ctx context.Context, ws, card, author uuid.UUID, body string) error {
+	restart := false
+	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, card)
-		if err != nil || !working(c) {
+		if err != nil {
+			return err
+		}
+		if restart, err = unblock(ctx, tx, c, author, body); err != nil || restart || !working(c) {
 			return err
 		}
 		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
@@ -294,6 +296,10 @@ func (e *Engine) wakeOnComment(ctx context.Context, ws, card uuid.UUID) error {
 		}
 		return e.wake(ctx, tx, c, commentNote)
 	})
+	if err == nil && restart {
+		e.Kick(ws, card)
+	}
+	return err
 }
 
 // wake queues the column leader's next run, which resumes its session, with
@@ -323,7 +329,7 @@ func (e *Engine) wake(ctx context.Context, tx *store.Tx, c db.Card, note string)
 	if err != nil {
 		return err
 	}
-	_, err = e.enqueue(ctx, tx, c, role, m, a, note)
+	_, err = e.enqueue(ctx, tx, c, role, m, a, note, false)
 	return err
 }
 

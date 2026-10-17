@@ -21,3 +21,23 @@ SELECT DISTINCT key FROM record WHERE workspace_id = @workspace_id AND card_id =
 -- name: AgentRunRecords :many
 SELECT * FROM record WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id
 ORDER BY created_at, id;
+
+-- name: LiveRecordsByKeys :many
+SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id
+  AND key = ANY(@keys::text[]) AND superseded_at IS NULL ORDER BY created_at, id;
+
+-- name: CountOpenCardInbox :one
+SELECT count(*) FROM inbox_item WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
+  AND kind = @kind AND resolved_at IS NULL;
+
+-- name: ResolveCardInboxKind :many
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = @kind AND resolved_at IS NULL
+RETURNING id;
+
+-- Moves a study on, restarts its column or blocks it once the column is
+-- scored, and releases the scoring lease.
+-- name: SaveCardFlow :exec
+UPDATE card SET board_column = @board_column, state = @state, block_kind = @block_kind, round = @round,
+  redos = @redos, handoff_note = @handoff_note, gating_until = NULL, version = version + 1
+WHERE id = @id AND workspace_id = @workspace_id;
