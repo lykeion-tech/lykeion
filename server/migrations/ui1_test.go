@@ -133,7 +133,21 @@ func TestBacklogPositionsAreBackfilledInNumberOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := migrate.Up(ctx, conn, migrations.FS); err != nil {
+	// Later migrations delete studies, so stop at the one under test.
+	upToUI1 := fstest.MapFS{}
+	for name, f := range before {
+		upToUI1[name] = f
+	}
+	for _, f := range files {
+		if f < "0007" {
+			b, err := fs.ReadFile(migrations.FS, f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			upToUI1[f] = &fstest.MapFile{Data: b}
+		}
+	}
+	if err := migrate.Up(ctx, conn, upToUI1); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := conn.Query(ctx, `SELECT w.slug, c.number, c.position FROM card c JOIN workspace w ON w.id = c.workspace_id ORDER BY w.slug, c.number`)
