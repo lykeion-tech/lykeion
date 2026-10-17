@@ -41,6 +41,10 @@ func NewRouter(h *H) http.Handler {
 
 	})
 
+	// A person or an agent run may reopen a card; the handler picks the check.
+	// Like the steer routes it opens its own transaction, outside Scope's.
+	r.Post("/api/cards/{id}/reopen", h.reopenCard)
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(h.Store, h.JWT))
 		if h.Hub != nil {
@@ -70,6 +74,9 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/cards/{id}/stop", h.stopCard)
 		r.Post("/api/cards/{id}/budget", h.budgetCard)
 		r.Post("/api/cards/{id}/resume", h.resumeCard)
+		r.Post("/api/cards/{id}/unblock", h.unblockCard)
+		r.Post("/api/cards/{id}/close", h.closeCard)
+		r.Post("/api/cards/{id}/revert-revision", h.revertRevision)
 
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)

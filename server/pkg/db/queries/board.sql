@@ -97,3 +97,15 @@ SELECT id FROM agent_run
 WHERE workspace_id = @workspace_id AND card_id = @card_id
   AND status IN ('queued', 'dispatched', 'running')
 ORDER BY created_at, id;
+
+-- The live records of one kind on a card, in every column, oldest first.
+-- name: CardKindRecords :many
+SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = @kind
+  AND superseded_at IS NULL ORDER BY created_at, id;
+
+-- name: LiveCardRecord :one
+SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND id = @id
+  AND superseded_at IS NULL;
+
+-- name: SupersedeRecord :exec
+UPDATE record SET superseded_at = now() WHERE workspace_id = @workspace_id AND id = @id AND superseded_at IS NULL;

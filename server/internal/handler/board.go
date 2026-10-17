@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ import (
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -51,6 +53,11 @@ func resolveBlocked(ctx context.Context, tx *store.Tx, card, who uuid.UUID) erro
 // Scope, like agent-run cancel: Scope's transaction holds the workspace row,
 // which the cancellations' own transactions need after this one commits.
 func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, act func(tx *store.Tx, c db.Card, s *board.State, set round.Settings) ([]board.Item, error)) {
+	h.steerCard(w, r, cancelAgentRuns, false, act)
+}
+
+// steerCard is steer; ended lets act reach a card that has ended.
+func (h *H) steerCard(w http.ResponseWriter, r *http.Request, cancelAgentRuns, ended bool, act func(tx *store.Tx, c db.Card, s *board.State, set round.Settings) ([]board.Item, error)) {
 	id, ok := cardID(w, r)
 	if !ok {
 		return
@@ -80,7 +87,7 @@ func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, 
 		if err != nil {
 			return err
 		}
-		if c.Ending != "" {
+		if c.Ending != "" && !ended {
 			return errEnded
 		}
 		wsRow, err := tx.Q.GetWorkspace(r.Context(), ws)
@@ -107,13 +114,8 @@ func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, 
 				cancel = append(cancel, t)
 			}
 		}
-		if err := tx.Q.SaveCardBoard(r.Context(), s.Params(id, ws)); err != nil {
+		if err := saveBoard(r.Context(), tx, c, &s, items); err != nil {
 			return err
-		}
-		for _, it := range items {
-			if err := tx.Q.InsertInboxItem(r.Context(), db.InsertInboxItemParams{WorkspaceID: ws, CardID: id, UserID: c.OwnerID, Kind: it.Kind, Text: it.Text}); err != nil {
-				return err
-			}
 		}
 		if err := tx.Emit(r.Context(), "card.steered", &id, store.User(who), map[string]any{"path": r.URL.Path, "column": s.Column, "flag": s.Flag, "ending": s.Ending}); err != nil {
 			return err
@@ -127,11 +129,15 @@ func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, 
 		return
 	case err != nil:
 		var inputErr cardInputError
-		if errors.As(err, &inputErr) {
+		var cf conflict
+		switch {
+		case errors.As(err, &inputErr):
 			writeErr(w, 400, inputErr.Error())
-			return
+		case errors.As(err, &cf):
+			writeErr(w, 409, cf.Error())
+		default:
+			fail(w, r, err)
 		}
-		fail(w, r, err)
 		return
 	}
 	incomplete := false
@@ -222,6 +228,178 @@ func (h *H) resumeCard(w http.ResponseWriter, r *http.Request) {
 		board.Resume(s)
 		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
 	})
+}
+
+// saveBoard saves the card's board state and delivers its inbox items to the owner.
+func saveBoard(ctx context.Context, tx *store.Tx, c db.Card, s *board.State, items []board.Item) error {
+	if err := tx.Q.SaveCardBoard(ctx, s.Params(c.ID, tx.WS)); err != nil {
+		return err
+	}
+	for _, it := range items {
+		if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: it.Kind, Text: it.Text}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// serverRecord writes one server record on the card, in column and round.
+func serverRecord(ctx context.Context, tx *store.Tx, c db.Card, column string, round int32, kind, key string, body any) error {
+	c.BoardColumn, c.Round = column, round
+	return records.Batch{Put: []records.Put{{Kind: kind, Key: key, Body: body}}}.Write(ctx, tx, c)
+}
+
+func (h *H) unblockCard(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Action string `json:"action"`
+		Cap    int32  `json:"cap"`
+	}
+	if err := readJSON(r, &in); err != nil || in.Action == "" {
+		writeErr(w, 400, "action required")
+		return
+	}
+	h.steer(w, r, false, func(tx *store.Tx, c db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+		if err := board.Unblock(s, in.Action, in.Cap); err != nil {
+			return nil, conflict(err.Error())
+		}
+		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
+	})
+}
+
+// closeCard stops a Blocked study and writes its stop record in the column it
+// was blocked in: why, the block, every failed gate's reason in order, and
+// the last gate.
+func (h *H) closeCard(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Reason string `json:"reason"`
+	}
+	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Reason) == "" {
+		writeErr(w, 400, "reason required")
+		return
+	}
+	h.steer(w, r, true, func(tx *store.Tx, c db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+		gates, err := tx.Q.CardGates(r.Context(), db.CardGatesParams{WorkspaceID: tx.WS, CardID: c.ID})
+		if err != nil {
+			return nil, err
+		}
+		failures := []string{}
+		var last json.RawMessage
+		for _, g := range gates {
+			if b := records.Body[board.Gate](g); b.Verdict == board.VFail {
+				failures = append(failures, b.Reason)
+			}
+			last = g.Body
+		}
+		stop := map[string]any{"reason": in.Reason, "block_kind": s.BlockKind, "failures": failures, "last_gate": last}
+		if err := serverRecord(r.Context(), tx, c, c.BoardColumn, c.Round, "stop", "", stop); err != nil {
+			return nil, err
+		}
+		board.Close(s, in.Reason)
+		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
+	})
+}
+
+// revertRevision puts the study back on its original starting point.
+func (h *H) revertRevision(w http.ResponseWriter, r *http.Request) {
+	h.steer(w, r, true, func(tx *store.Tx, c db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+		items, err := round.RevertQuestion(r.Context(), tx, c, s)
+		if errors.Is(err, round.ErrNoRevision) {
+			return nil, conflict(err.Error())
+		}
+		return items, err
+	})
+}
+
+type reopenInput struct {
+	Reason   string `json:"reason"`
+	Evidence string `json:"evidence"`
+}
+
+// reopenCard takes a person, or an agent run whose token may reopen cards.
+func (h *H) reopenCard(w http.ResponseWriter, r *http.Request) {
+	if tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); strings.HasPrefix(tok, service.AgentRunPrefix) {
+		middleware.AgentRunAuth(h.Store)(middleware.RequireScope(service.ScopeCardReopen)(http.HandlerFunc(h.reopenByRun))).ServeHTTP(w, r)
+		return
+	}
+	middleware.Auth(h.Store, h.JWT)(http.HandlerFunc(h.reopenByPerson)).ServeHTTP(w, r)
+}
+
+func readReopen(w http.ResponseWriter, r *http.Request) (reopenInput, bool) {
+	var in reopenInput
+	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Reason) == "" || strings.TrimSpace(in.Evidence) == "" {
+		writeErr(w, 400, "reason and evidence required")
+		return in, false
+	}
+	return in, true
+}
+
+func (h *H) reopenByPerson(w http.ResponseWriter, r *http.Request) {
+	in, ok := readReopen(w, r)
+	if !ok {
+		return
+	}
+	h.steerCard(w, r, false, true, func(tx *store.Tx, c db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+		return reopen(r.Context(), tx, c, s, in, store.User(user(r)))
+	})
+}
+
+func (h *H) reopenByRun(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	in, ok := readReopen(w, r)
+	if !ok {
+		return
+	}
+	var out db.Card
+	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+		c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: id, WorkspaceID: tx.WS})
+		if err != nil {
+			return err
+		}
+		s := board.FromCard(c)
+		items, err := reopen(r.Context(), tx, c, &s, in, store.Actor{Type: "role", ID: role.AgentRunID})
+		if err != nil {
+			return err
+		}
+		if err := saveBoard(r.Context(), tx, c, &s, items); err != nil {
+			return err
+		}
+		out, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: tx.WS, ID: id})
+		return err
+	})
+	if errors.Is(err, middleware.ErrRoleUnauthorized) {
+		roleError(w, r, err)
+		return
+	}
+	if !answer(w, r, err) {
+		return
+	}
+	if h.Engine != nil {
+		h.Engine.Kick(out.WorkspaceID, id)
+	}
+	writeJSON(w, 200, out)
+}
+
+// reopen sends a released study back to Grounding on new evidence, with a
+// fresh cap. The release it reopens is marked under review in Reporting,
+// keyed by its version, and the evidence goes to Grounding for that stage.
+func reopen(ctx context.Context, tx *store.Tx, c db.Card, s *board.State, in reopenInput, actor store.Actor) ([]board.Item, error) {
+	release := s.Reopens
+	items, err := board.Reopen(s, in.Reason)
+	if err != nil {
+		return nil, conflict(err.Error())
+	}
+	if err := serverRecord(ctx, tx, c, board.Reporting, c.Round, "report_status", strconv.Itoa(int(release)),
+		map[string]any{"state": "under_review", "release": release}); err != nil {
+		return nil, err
+	}
+	if err := serverRecord(ctx, tx, c, board.Grounding, s.Round, "reopen_evidence", strconv.Itoa(int(s.Reopens)),
+		map[string]any{"reopen": s.Reopens, "reason": in.Reason, "evidence": in.Evidence}); err != nil {
+		return nil, err
+	}
+	return items, tx.Emit(ctx, "card.reopened", &c.ID, actor, map[string]any{"reopens": s.Reopens, "reason": in.Reason})
 }
 
 func (h *H) cardRecords(w http.ResponseWriter, r *http.Request) {

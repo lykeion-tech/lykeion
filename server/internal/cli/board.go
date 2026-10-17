@@ -13,7 +13,52 @@ import (
 
 var columns = []string{"backlog", "grounding", "hypotheses", "experimentation", "validation", "reporting", "done"}
 
+// steerPost sends one steering action for the card numbered n and prints where it left the card.
+func steerPost(cmd *cobra.Command, e *env, n, action string, body any) error {
+	if err := e.inWorkspace(); err != nil {
+		return err
+	}
+	c, err := byNumber(cmd, e, n)
+	if err != nil {
+		return err
+	}
+	var out cardView
+	if err := e.client().Do(cmd.Context(), "POST", "/api/cards/"+c.ID+"/"+action, body, &out); err != nil {
+		return err
+	}
+	fmt.Fprintf(e.out, "#%d %s %s %s\n", out.Number, out.BoardColumn, out.State, out.Flag)
+	return nil
+}
+
 func boardCmd(e *env) *cobra.Command {
+	board := boardView(e)
+	var action, reason, evidence string
+	var capN int32
+	unblock := &cobra.Command{Use: "unblock N", Short: "Take a Blocked study out: raise_cap, add_data, resume or human_run_arrived", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, a []string) error {
+			return steerPost(cmd, e, a[0], "unblock", map[string]any{"action": action, "cap": capN})
+		}}
+	unblock.Flags().StringVar(&action, "action", "", "raise_cap, add_data, resume or human_run_arrived")
+	unblock.Flags().Int32Var(&capN, "cap", 0, "the new cap, for raise_cap")
+	closeC := &cobra.Command{Use: "close N", Short: "Stop a Blocked study", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
+		return steerPost(cmd, e, a[0], "close", map[string]string{"reason": reason})
+	}}
+	closeC.Flags().StringVar(&reason, "reason", "", "why")
+	reopen := &cobra.Command{Use: "reopen N", Short: "Send a released study back to Grounding on new evidence", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, a []string) error {
+			return steerPost(cmd, e, a[0], "reopen", map[string]string{"reason": reason, "evidence": evidence})
+		}}
+	reopen.Flags().StringVar(&reason, "reason", "", "why")
+	reopen.Flags().StringVar(&evidence, "evidence", "", "the new evidence")
+	revert := &cobra.Command{Use: "revert N", Short: "Put a study back on its original starting point", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, a []string) error {
+			return steerPost(cmd, e, a[0], "revert-revision", nil)
+		}}
+	board.AddCommand(unblock, closeC, reopen, revert)
+	return board
+}
+
+func boardView(e *env) *cobra.Command {
 	return &cobra.Command{Use: "board", Short: "The board, with a Blocked row for cards that need a person", RunE: func(cmd *cobra.Command, _ []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
@@ -50,21 +95,7 @@ func boardCmd(e *env) *cobra.Command {
 
 // steerCmds adds send-back, stop, budget, resume and gates under `lyk card`.
 func steerCmds(e *env, card *cobra.Command) {
-	post := func(cmd *cobra.Command, n, action string, body any) error {
-		if err := e.inWorkspace(); err != nil {
-			return err
-		}
-		c, err := byNumber(cmd, e, n)
-		if err != nil {
-			return err
-		}
-		var out cardView
-		if err := e.client().Do(cmd.Context(), "POST", "/api/cards/"+c.ID+"/"+action, body, &out); err != nil {
-			return err
-		}
-		fmt.Fprintf(e.out, "#%d %s %s %s\n", out.Number, out.BoardColumn, out.State, out.Flag)
-		return nil
-	}
+	post := func(cmd *cobra.Command, n, action string, body any) error { return steerPost(cmd, e, n, action, body) }
 	var to, step, reason string
 	var usd float64
 	var dupOf int

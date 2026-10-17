@@ -201,7 +201,7 @@ func TestGateAddonProvenanceIncludesLiveEarlierRunsAndAllCurrentRuns(t *testing.
 			return err
 		}
 		g = board.Gate{Column: board.Grounding, Round: 2, Verdict: board.CannotProceed, Reason: "fixture"}
-		return f.e.finish(ctx, tx, c, board.FromCard(c), ParseSettings(json.RawMessage(`{}`)), &g)
+		return f.e.finish(ctx, tx, c, board.FromCard(c), StageRoles[board.Grounding], ParseSettings(json.RawMessage(`{}`)), &g)
 	})
 	if err != nil {
 		t.Fatal(err)

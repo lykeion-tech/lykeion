@@ -111,8 +111,12 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		switch {
 		case strings.HasSuffix(route, "/send-back"):
 			body = map[string]string{"to": "grounding", "reason": "outsider"}
-		case strings.HasSuffix(route, "/stop"):
+		case strings.HasSuffix(route, "/stop"), strings.HasSuffix(route, "/close"):
 			body = map[string]string{"reason": "outsider"}
+		case strings.HasSuffix(route, "/unblock"):
+			body = map[string]string{"action": "resume"}
+		case strings.HasSuffix(route, "/reopen"):
+			body = map[string]string{"reason": "outsider", "evidence": "outsider"}
 		case strings.HasSuffix(route, "/budget"):
 			body = map[string]float64{"usd": 1}
 		case strings.HasSuffix(route, "/settings"):

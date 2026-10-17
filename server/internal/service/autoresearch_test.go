@@ -69,7 +69,7 @@ func TestAutoresearchAgentRunIsClaimedOnlyByItsRequester(t *testing.T) {
 		t.Fatal(err)
 	}
 	row, err := f.T.Store.Global().LookupAgentRunToken(ctx, auth.Hash(got[0].Token))
-	if err != nil || row.CardID != uuid.Nil || strings.Join(row.Scopes, ",") != "report:write,card:create" {
+	if err != nil || row.CardID != uuid.Nil || strings.Join(row.Scopes, ",") != "report:write,card:create,card:reopen" {
 		t.Fatalf("token: %+v %v", row, err)
 	}
 

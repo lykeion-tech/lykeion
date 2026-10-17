@@ -17,7 +17,7 @@ UPDATE agent_run SET addon_hash = @addon_hash, addon_mcp = @addon_mcp WHERE id =
 -- The agent runs a gate judged: every run of its round, and every run whose
 -- records are still live in the column (earlier rounds' work it read).
 -- name: JudgedAgentRuns :many
-SELECT t.id, t.role, t.addon_hash, t.profile_mode, t.policy_digest FROM agent_run t
+SELECT t.id, t.role, t.addon_hash, t.profile_mode, t.policy_digest, t.harness, t.model FROM agent_run t
 WHERE t.workspace_id = @workspace_id AND t.card_id = @card_id::uuid AND t.board_column = @board_column
   AND (t.round = @round OR EXISTS (
     SELECT 1 FROM record r WHERE r.agent_run_id = t.id AND r.superseded_at IS NULL))

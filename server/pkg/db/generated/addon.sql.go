@@ -36,7 +36,7 @@ func (q *Queries) GetStageAddon(ctx context.Context, arg GetStageAddonParams) (S
 }
 
 const judgedAgentRuns = `-- name: JudgedAgentRuns :many
-SELECT t.id, t.role, t.addon_hash, t.profile_mode, t.policy_digest FROM agent_run t
+SELECT t.id, t.role, t.addon_hash, t.profile_mode, t.policy_digest, t.harness, t.model FROM agent_run t
 WHERE t.workspace_id = $1 AND t.card_id = $2::uuid AND t.board_column = $3
   AND (t.round = $4 OR EXISTS (
     SELECT 1 FROM record r WHERE r.agent_run_id = t.id AND r.superseded_at IS NULL))
@@ -56,6 +56,8 @@ type JudgedAgentRunsRow struct {
 	AddonHash    string    `json:"addon_hash"`
 	ProfileMode  string    `json:"profile_mode"`
 	PolicyDigest string    `json:"policy_digest"`
+	Harness      string    `json:"harness"`
+	Model        string    `json:"model"`
 }
 
 // The agent runs a gate judged: every run of its round, and every run whose
@@ -80,6 +82,8 @@ func (q *Queries) JudgedAgentRuns(ctx context.Context, arg JudgedAgentRunsParams
 			&i.AddonHash,
 			&i.ProfileMode,
 			&i.PolicyDigest,
+			&i.Harness,
+			&i.Model,
 		); err != nil {
 			return nil, err
 		}

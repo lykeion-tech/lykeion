@@ -489,7 +489,7 @@ func (e *Engine) write(ctx context.Context, tx *store.Tx, p *pending, g *board.G
 		return false, e.queue(ctx, tx, c, s, p.roles, p.set, p.next, "")
 	}
 	if g.Verdict != "" {
-		return true, e.finish(ctx, tx, c, s, p.set, g)
+		return true, e.finish(ctx, tx, c, s, p.roles, p.set, g)
 	}
 	if err := e.writeGate(ctx, tx, c, "gate_draft", g); err != nil {
 		return false, err
@@ -598,8 +598,14 @@ func (e *Engine) queue(ctx context.Context, tx *store.Tx, c db.Card, s board.Sta
 		if payload != "" {
 			x = strings.TrimSpace(extra + "\n" + payload)
 		}
+		harness := set.HarnessFor(role)
+		if role == sr.Reviewer {
+			if harness, err = e.reviewHarness(ctx, tx, c, sr.Reviewer, harness); err != nil {
+				return err
+			}
+		}
 		t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-			Role: role, Harness: set.HarnessFor(role), Prompt: prompt(c, role, comments, ws.ResearchContext, note, x), Skill: addon.Compose(skill[role], given.SkillMD)})
+			Role: role, Harness: harness, Prompt: prompt(c, role, comments, ws.ResearchContext, note, x), Skill: addon.Compose(skill[role], given.SkillMD)})
 		if err != nil {
 			return err
 		}
@@ -641,10 +647,13 @@ func (e *Engine) draft(v *records.View, round int32) (*board.Gate, error) {
 }
 
 // finish records the gate, with the add-on hash, mode and policy digest of every
-// agent run it judged, and applies the lifecycle.
-func (e *Engine) finish(ctx context.Context, tx *store.Tx, c db.Card, s board.State, set Settings, g *board.Gate) error {
+// agent run it judged and the reviewer's independence, and applies the lifecycle.
+func (e *Engine) finish(ctx context.Context, tx *store.Tx, c db.Card, s board.State, roles Roles, set Settings, g *board.Gate) error {
 	judged, err := tx.Q.JudgedAgentRuns(ctx, db.JudgedAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
 	if err != nil {
+		return err
+	}
+	if err := e.recordIndependence(ctx, tx, c, judged, roles.Reviewer, g.Checks); err != nil {
 		return err
 	}
 	g.Addons = nil

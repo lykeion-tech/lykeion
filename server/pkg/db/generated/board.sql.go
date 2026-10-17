@@ -218,6 +218,52 @@ func (q *Queries) CardInflightAgentRuns(ctx context.Context, arg CardInflightAge
 	return items, nil
 }
 
+const cardKindRecords = `-- name: CardKindRecords :many
+SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2 AND kind = $3
+  AND superseded_at IS NULL ORDER BY created_at, id
+`
+
+type CardKindRecordsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Kind        string    `json:"kind"`
+}
+
+// The live records of one kind on a card, in every column, oldest first.
+func (q *Queries) CardKindRecords(ctx context.Context, arg CardKindRecordsParams) ([]Record, error) {
+	rows, err := q.db.Query(ctx, cardKindRecords, arg.WorkspaceID, arg.CardID, arg.Kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Record
+	for rows.Next() {
+		var i Record
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Kind,
+			&i.Role,
+			&i.Key,
+			&i.Body,
+			&i.BlobKey,
+			&i.AgentRunID,
+			&i.SupersededAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countKindRecords = `-- name: CountKindRecords :one
 SELECT count(*) FROM record WHERE workspace_id = $1 AND card_id = $2
   AND board_column = $3 AND kind = $4
@@ -315,6 +361,38 @@ func (q *Queries) InsertInboxItem(ctx context.Context, arg InsertInboxItemParams
 		arg.Text,
 	)
 	return err
+}
+
+const liveCardRecord = `-- name: LiveCardRecord :one
+SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2 AND id = $3
+  AND superseded_at IS NULL
+`
+
+type LiveCardRecordParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) LiveCardRecord(ctx context.Context, arg LiveCardRecordParams) (Record, error) {
+	row := q.db.QueryRow(ctx, liveCardRecord, arg.WorkspaceID, arg.CardID, arg.ID)
+	var i Record
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.BoardColumn,
+		&i.Round,
+		&i.Kind,
+		&i.Role,
+		&i.Key,
+		&i.Body,
+		&i.BlobKey,
+		&i.AgentRunID,
+		&i.SupersededAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const lockCard = `-- name: LockCard :one
@@ -638,6 +716,20 @@ type SetWorkspaceSettingsParams struct {
 
 func (q *Queries) SetWorkspaceSettings(ctx context.Context, arg SetWorkspaceSettingsParams) error {
 	_, err := q.db.Exec(ctx, setWorkspaceSettings, arg.Settings, arg.ID)
+	return err
+}
+
+const supersedeRecord = `-- name: SupersedeRecord :exec
+UPDATE record SET superseded_at = now() WHERE workspace_id = $1 AND id = $2 AND superseded_at IS NULL
+`
+
+type SupersedeRecordParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SupersedeRecord(ctx context.Context, arg SupersedeRecordParams) error {
+	_, err := q.db.Exec(ctx, supersedeRecord, arg.WorkspaceID, arg.ID)
 	return err
 }
 

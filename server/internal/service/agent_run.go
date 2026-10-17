@@ -25,18 +25,19 @@ import (
 )
 
 // Token scopes. A role run's token acts as its role on its card. An
-// autoresearch agent run's token may only post its run's report and open Backlog
-// cards.
+// autoresearch agent run's token may only post its run's report, open Backlog
+// cards and reopen released ones.
 const (
 	ScopeRole       = "card:role"
 	ScopeReport     = "report:write"
 	ScopeCardCreate = "card:create"
+	ScopeCardReopen = "card:reopen"
 )
 
 // Scopes are the powers an agent run's token carries, by the agent run's kind.
 func Scopes(kind string) []string {
 	if kind == "autoresearch" {
-		return []string{ScopeReport, ScopeCardCreate}
+		return []string{ScopeReport, ScopeCardCreate, ScopeCardReopen}
 	}
 	return []string{ScopeRole}
 }
