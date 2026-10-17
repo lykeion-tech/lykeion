@@ -31,9 +31,11 @@ SELECT count(*) FROM inbox_item WHERE workspace_id = @workspace_id AND card_id =
   AND kind = @kind AND resolved_at IS NULL;
 
 -- name: CountOpenNoTool :one
--- An open no_tool item's text ends with the need it names.
+-- An open no_tool item's text is a fixed lead, then the need it names, whole;
+-- the lead's first "what it needed: " comes before anything a need can say.
 SELECT count(*) FROM inbox_item WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
-  AND kind = 'no_tool' AND resolved_at IS NULL AND right(text, length(@need::text)) = @need::text;
+  AND kind = 'no_tool' AND resolved_at IS NULL
+  AND substr(text, strpos(text, 'what it needed: ') + length('what it needed: ')) = @need::text;
 
 -- name: ResolveCardInboxKind :many
 UPDATE inbox_item SET resolved_at = now()

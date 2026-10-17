@@ -26,8 +26,15 @@ import (
 // Threshold is the Jev probability at which an item qualifies.
 const Threshold = 0.5
 
-// maxQuestions keeps one Jev request under its token limit.
-const maxQuestions = 200
+// maxQuestions keeps one Jev request under its 64k-token limit. A question
+// is at most about 1.1 KB: two names of nameMax, an excerpt of excerptMax and
+// its fence. 100 of them with the fenced need come to about 112 KB, some 28k
+// tokens at 4 bytes a token, which leaves room for JSON escapes and text that
+// tokenizes worse than English.
+const maxQuestions = 100
+
+// nameMax bounds a name a question quotes: a skill, connector, tool or field.
+const nameMax = 128
 
 // excerptMax bounds the text one question quotes from a description or section.
 const excerptMax = 600
@@ -181,7 +188,7 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 	}
 	var qs []string
 	for _, d := range order {
-		qs = append(qs, "Is this field relevant to the need?\n"+fence.Untrusted("The field", d))
+		qs = append(qs, "Is this field relevant to the need?\n"+fence.Untrusted("The field", cut(d, nameMax)))
 	}
 	keep, err := ask(ctx, j, state, qs)
 	if err != nil {
@@ -197,13 +204,13 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 	for _, s := range c.Skills {
 		if domains[s.Domain] {
 			skills = append(skills, s)
-			qs = append(qs, fmt.Sprintf("Could the skill %q help with this need?\n", s.Name)+fence.Untrusted("What the skill says of itself", excerpt(s.Description)))
+			qs = append(qs, fmt.Sprintf("Could the skill %q help with this need?\n", cut(s.Name, nameMax))+fence.Untrusted("What the skill says of itself", excerpt(s.Description)))
 		}
 	}
 	for _, k := range c.Connectors {
 		if domains[k.Domain] {
 			conns = append(conns, k)
-			qs = append(qs, fmt.Sprintf("Could the connector %q help with this need?\n", k.Name)+fence.Untrusted("What the connector offers", excerpt(k.Description)))
+			qs = append(qs, fmt.Sprintf("Could the connector %q help with this need?\n", cut(k.Name, nameMax))+fence.Untrusted("What the connector offers", excerpt(k.Description)))
 		}
 	}
 	if keep, err = ask(ctx, j, state, qs); err != nil {
@@ -229,13 +236,13 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 		}
 		for _, sec := range all {
 			secs = append(secs, sectionOf{i, sec})
-			qs = append(qs, fmt.Sprintf("Does this section of the skill %q help with this need?\n", s.Name)+fence.Untrusted("The section", "## "+sec.Heading+"\n"+excerpt(sec.Text)))
+			qs = append(qs, fmt.Sprintf("Does this section of the skill %q help with this need?\n", cut(s.Name, nameMax))+fence.Untrusted("The section", excerpt("## "+sec.Heading+"\n"+sec.Text)))
 		}
 	}
 	for _, k := range conns {
 		for _, t := range k.Tools {
 			tools = append(tools, toolOf{k.Name, t})
-			qs = append(qs, fmt.Sprintf("Does the tool %q of the connector %q help with this need?\n", t.Name, k.Name)+fence.Untrusted("What the tool does", excerpt(t.Description)))
+			qs = append(qs, fmt.Sprintf("Does the tool %q of the connector %q help with this need?\n", cut(t.Name, nameMax), cut(k.Name, nameMax))+fence.Untrusted("What the tool does", excerpt(t.Description)))
 		}
 	}
 	if keep, err = ask(ctx, j, state, qs); err != nil {
@@ -336,10 +343,12 @@ func kept[T any](items []T, keep []bool) []T {
 	return out
 }
 
-func excerpt(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= excerptMax {
+func excerpt(s string) string { return cut(strings.TrimSpace(s), excerptMax) }
+
+// cut keeps at most n bytes of s, at a UTF-8 boundary, and marks a cut.
+func cut(s string, n int) string {
+	if len(s) <= n {
 		return s
 	}
-	return strings.ToValidUTF8(s[:excerptMax], "") + " …"
+	return strings.ToValidUTF8(s[:n], "") + " …"
 }

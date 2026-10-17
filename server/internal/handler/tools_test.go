@@ -115,12 +115,19 @@ func TestNothingQualifyingTellsTheResearcher(t *testing.T) {
 	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'no_tool'", l.card.ID); n != 2 {
 		t.Fatalf("%d no_tool items after a repeated need and a new one, want two", n)
 	}
+	// A need that is only the end of an open one is a need of its own.
+	if c := l.s.call(t, "POST", "/api/role/tools", leader.token, "", map[string]any{"need": "genome"}, &out); c != 200 {
+		t.Fatalf("tools genome: %d %s", c, out.Error)
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'no_tool'", l.card.ID); n != 3 {
+		t.Fatalf("%d no_tool items after a need that ends an open one, want three", n)
+	}
 	// Jev being unreachable is not the same as nothing fitting.
 	l.s.H.Engine.Jev = nil
 	if c := l.s.call(t, "POST", "/api/role/tools", leader.token, "", map[string]any{"need": "run a cryo-EM reconstruction"}, &out); c != 503 {
 		t.Fatalf("without Jev: %d", c)
 	}
-	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'no_tool'", l.card.ID); n != 2 {
-		t.Fatalf("%d no_tool items after an outage, want still two", n)
+	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'no_tool'", l.card.ID); n != 3 {
+		t.Fatalf("%d no_tool items after an outage, want still three", n)
 	}
 }

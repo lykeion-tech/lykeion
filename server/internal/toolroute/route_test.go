@@ -144,7 +144,7 @@ func TestRouteReturnsOnlyQualifyingSections(t *testing.T) {
 	}
 }
 
-func TestRouteSplitsALevelAt200Questions(t *testing.T) {
+func TestRouteSplitsALevelAt100Questions(t *testing.T) {
 	j, s := jevStub(t, []answer{{"\nChemistry\n", 0.9}})
 	var c Candidates
 	for i := range 450 {
@@ -155,12 +155,12 @@ func TestRouteSplitsALevelAt200Questions(t *testing.T) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// one domain question, then 450 item questions in three requests
-	if len(s.requests) != 4 {
-		t.Fatalf("%d requests, want 4", len(s.requests))
+	// one domain question, then 450 item questions in five requests
+	if len(s.requests) != 6 {
+		t.Fatalf("%d requests, want 6", len(s.requests))
 	}
 	for _, r := range s.requests {
-		if len(r) > 200 {
+		if len(r) > 100 {
 			t.Fatalf("a request asked %d questions", len(r))
 		}
 	}
@@ -202,6 +202,40 @@ func TestRouteFencesWhatItQuotes(t *testing.T) {
 	for _, state := range st.states {
 		if i := strings.Index(state, "dock a ligand"); i < 0 || !strings.Contains(state[:i], "-BEGIN") {
 			t.Fatalf("the need is not fenced: %s", state)
+		}
+	}
+}
+
+// Jev takes at most 64k tokens a request; at 4 bytes a token, a request's
+// questions and state must stay under this many bytes whatever they quote.
+const requestBudget = 64_000 * 4
+
+func TestRouteBoundsEachRequest(t *testing.T) {
+	j, st := jevStub(t, []answer{{"UNTRUSTED", 0.9}})
+	long := func(c string, n int) string { return strings.Repeat(c, n) }
+	k := Connector{Name: long("n", 5000), Domain: long("d", 5000), Description: long("x", 50_000)}
+	var c Candidates
+	for i := range 250 {
+		k.Tools = append(k.Tools, Tool{Name: long("t", 5000) + string(rune('a'+i%26)), Description: long("y", 50_000)})
+		c.Skills = append(c.Skills, Skill{Name: long("s", 5000), Domain: k.Domain, Description: long("z", 50_000),
+			Sections: []science.Section{{Heading: long("h", 5000), Text: long("w", 50_000)}}})
+	}
+	c.Connectors = []Connector{k}
+	if _, err := Route(context.Background(), j, long("need ", 400), c); err != nil {
+		t.Fatal(err)
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	most := 0
+	defer func() { t.Logf("largest request: %d bytes", most) }()
+	for i, r := range st.requests {
+		n := len(st.states[i])
+		for _, q := range r {
+			n += len(q)
+		}
+		most = max(most, n)
+		if n > requestBudget/2 {
+			t.Fatalf("request %d holds %d bytes, over half of %d", i, n, requestBudget)
 		}
 	}
 }

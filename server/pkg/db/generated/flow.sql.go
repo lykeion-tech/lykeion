@@ -75,7 +75,8 @@ func (q *Queries) CountOpenCardInbox(ctx context.Context, arg CountOpenCardInbox
 
 const countOpenNoTool = `-- name: CountOpenNoTool :one
 SELECT count(*) FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid
-  AND kind = 'no_tool' AND resolved_at IS NULL AND right(text, length($3::text)) = $3::text
+  AND kind = 'no_tool' AND resolved_at IS NULL
+  AND substr(text, strpos(text, 'what it needed: ') + length('what it needed: ')) = $3::text
 `
 
 type CountOpenNoToolParams struct {
@@ -84,7 +85,8 @@ type CountOpenNoToolParams struct {
 	Need        string    `json:"need"`
 }
 
-// An open no_tool item's text ends with the need it names.
+// An open no_tool item's text is a fixed lead, then the need it names, whole;
+// the lead's first "what it needed: " comes before anything a need can say.
 func (q *Queries) CountOpenNoTool(ctx context.Context, arg CountOpenNoToolParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countOpenNoTool, arg.WorkspaceID, arg.CardID, arg.Need)
 	var count int64
