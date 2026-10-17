@@ -330,3 +330,41 @@ func TestDuplicateSaysWhetherFollowingIsAllowed(t *testing.T) {
 		t.Fatalf("single-stage duplicate: %d %+v", code, dup)
 	}
 }
+
+func TestOnlyTheOwnerChangesAStudysTeams(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting"), s.addedTeam(t, a, w.ID, "r2", "reporting")
+	agent := s.newAgent(t, a, w.ID, "filler", "claude")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r}, agent)}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", b, w.ID, map[string]string{"reporting": r2}, nil); code != 403 {
+		t.Fatalf("non-owner: %d", code)
+	}
+	var up struct{ ID string }
+	s.upload(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "r3", Stage: "reporting"}), &up)
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"reporting": up.ID}, nil); code != 400 {
+		t.Fatalf("Team the owner has not added: %d", code)
+	}
+}
+
+func TestMixedAssigneeShapesAreRefused(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "solo", "claude")
+	pack := s.addedTeam(t, a, w.ID, "g", "grounding")
+	for name, assignee := range map[string]map[string]any{
+		"agent with teams":     {"type": "agent", "id": agent, "teams": map[string]string{"grounding": pack}},
+		"member with agent_id": {"type": "member", "id": s.userID(t, a), "agent_id": agent},
+		"team with id":         {"type": "team", "id": agent, "teams": map[string]string{"grounding": pack}},
+	} {
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": name, "assignee": assignee}, nil); code != 400 {
+			t.Errorf("%s: %d", name, code)
+		}
+	}
+}

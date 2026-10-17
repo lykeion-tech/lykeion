@@ -213,8 +213,13 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		case "member", "agent":
 			if in.Assignee.ID == nil {
 				err = cardInputError("assignee id required")
+			} else if in.Assignee.Teams != nil || in.Assignee.AgentID != nil {
+				err = cardInputError("a member or agent assignee takes only an id")
 			}
 		case "team":
+			if in.Assignee.ID != nil {
+				err = cardInputError("a Team assignee takes teams and agent_id, not id")
+			}
 		default:
 			err = cardInputError("assignee type must be member, agent or team")
 		}
@@ -337,6 +342,9 @@ func (h *H) setCardTeams(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		if c.OwnerID != user {
+			return forbidden("only the study's owner changes its Teams")
+		}
 		if c.AssigneeType == nil || *c.AssigneeType != "team" {
 			return cardInputError("only a study assigned a Team has Teams to change")
 		}
@@ -348,7 +356,7 @@ func (h *H) setCardTeams(w http.ResponseWriter, r *http.Request) {
 			if c.Ending != "" || i <= board.StageIndex(c.BoardColumn) {
 				return errTeamStarted
 			}
-			if err := checkTeamAdded(r, tx, ws, user, pack); err != nil {
+			if err := checkTeamAdded(r, tx, ws, c.OwnerID, pack); err != nil {
 				return err
 			}
 			if err := tx.Q.SetCardTeam(r.Context(), db.SetCardTeamParams{WorkspaceID: ws, CardID: id, BoardColumn: col, PackID: pack}); err != nil {
