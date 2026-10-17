@@ -13,7 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path"
+	"io/fs"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -24,6 +25,7 @@ import (
 const (
 	MaxArchive = 5 << 20
 	MaxFiles   = 200
+	MaxFile    = 1 << 20
 	// maxExpanded bounds the bytes all entries inflate to; the headers'
 	// declared sizes are not trusted, the reads are counted.
 	maxExpanded = MaxArchive * 4
@@ -97,12 +99,15 @@ func Parse(zipBytes []byte) (*Pack, error) {
 		Skills: map[string]map[string][]byte{},
 		Checks: map[string][]byte{},
 	}
+	if err := checkKeys(raw); err != nil {
+		return nil, err
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p.Manifest); err != nil {
 		return nil, fmt.Errorf("pack: pack.json: %w", err)
 	}
-	if dec.More() {
+	if _, err := dec.Token(); err != io.EOF {
 		return nil, errors.New("pack: pack.json: trailing data")
 	}
 	for name, body := range files {
@@ -132,6 +137,7 @@ func Parse(zipBytes []byte) (*Pack, error) {
 // duplicates and archives that inflate past maxExpanded.
 func readFiles(zr *zip.Reader) (map[string][]byte, error) {
 	files := map[string][]byte{}
+	lower := map[string]bool{}
 	budget := int64(maxExpanded)
 	for _, f := range zr.File {
 		name := f.Name
@@ -141,20 +147,27 @@ func readFiles(zr *zip.Reader) (map[string][]byte, error) {
 		if !f.Mode().IsRegular() {
 			return nil, fmt.Errorf("pack: %q is not a regular file", name)
 		}
-		if strings.ContainsAny(name, "\\\x00") || strings.HasPrefix(name, "/") || path.Clean(name) != name {
+		if strings.ContainsAny(name, "\\\x00") || !fs.ValidPath(name) {
 			return nil, fmt.Errorf("pack: unsafe path %q", name)
 		}
-		if _, dup := files[name]; dup {
+		// Names that differ only in case collide on a case-insensitive
+		// file system, so they count as duplicates.
+		if l := strings.ToLower(name); lower[l] {
 			return nil, fmt.Errorf("pack: duplicate entry %q", name)
+		} else {
+			lower[l] = true
 		}
 		rc, err := f.Open()
 		if err != nil {
 			return nil, fmt.Errorf("pack: %q: %w", name, err)
 		}
-		body, err := io.ReadAll(io.LimitReader(rc, budget+1))
+		body, err := io.ReadAll(io.LimitReader(rc, min(budget, MaxFile)+1))
 		rc.Close()
 		if err != nil {
 			return nil, fmt.Errorf("pack: %q: %w", name, err)
+		}
+		if len(body) > MaxFile {
+			return nil, fmt.Errorf("pack: %q exceeds %d bytes", name, MaxFile)
 		}
 		if int64(len(body)) > budget {
 			return nil, fmt.Errorf("pack: contents exceed %d bytes", maxExpanded)
@@ -167,6 +180,19 @@ func readFiles(zr *zip.Reader) (map[string][]byte, error) {
 
 func (p *Pack) validate(files map[string][]byte) error {
 	m := &p.Manifest
+	if m.Name == "" || m.Version == "" {
+		return errors.New("pack: name and version are required")
+	}
+	for key := range p.Skills {
+		if _, ok := m.Columns[strings.SplitN(key, "/", 2)[0]]; !ok {
+			return fmt.Errorf("pack: skills for undeclared column in %q", key)
+		}
+	}
+	for col := range p.Checks {
+		if _, ok := m.Columns[col]; !ok {
+			return fmt.Errorf("pack: check script for undeclared column %q", col)
+		}
+	}
 	if len(m.StartKinds) == 0 {
 		return errors.New("pack: start_kinds is empty")
 	}
@@ -255,3 +281,66 @@ func (p *Pack) Check(ctx context.Context, column string, recs []check.Record) ([
 
 // Target is the column a failure type routes to, or "" if undeclared.
 func (p *Pack) Target(failure string) string { return p.Manifest.Failures[failure] }
+
+// checkKeys refuses duplicate keys and keys that are not spelled exactly as a
+// field, in pack.json and in each column; encoding/json alone would fold case
+// and let the last duplicate win.
+func checkKeys(raw []byte) error {
+	if err := exactKeys(raw, reflect.TypeFor[Manifest]()); err != nil {
+		return fmt.Errorf("pack: pack.json: %w", err)
+	}
+	var top struct {
+		Columns json.RawMessage `json:"columns"`
+	}
+	if err := json.Unmarshal(raw, &top); err != nil || top.Columns == nil {
+		return nil // the strict decode reports the real problem
+	}
+	if err := exactKeys(top.Columns, nil); err != nil {
+		return fmt.Errorf("pack: columns: %w", err)
+	}
+	var cols map[string]json.RawMessage
+	if json.Unmarshal(top.Columns, &cols) != nil {
+		return nil
+	}
+	for name, c := range cols {
+		if err := exactKeys(c, reflect.TypeFor[Column]()); err != nil {
+			return fmt.Errorf("pack: column %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// exactKeys walks one JSON object's keys. With a struct type each key must
+// match a json tag exactly; with nil only duplicates are refused.
+func exactKeys(raw []byte, t reflect.Type) error {
+	allowed := map[string]bool{}
+	if t != nil {
+		for f := range t.Fields() {
+			allowed[strings.Split(f.Tag.Get("json"), ",")[0]] = true
+		}
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil // not an object; the strict decode reports it
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		key := tok.(string)
+		if seen[key] {
+			return fmt.Errorf("duplicate key %q", key)
+		}
+		seen[key] = true
+		if t != nil && !allowed[key] {
+			return fmt.Errorf("key %q is not a field name", key)
+		}
+		var skip json.RawMessage
+		if dec.Decode(&skip) != nil {
+			return nil
+		}
+	}
+	return nil
+}

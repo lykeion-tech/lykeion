@@ -50,7 +50,9 @@ func build(t *testing.T, entries ...entry) []byte {
 		if err != nil {
 			t.Fatal(err)
 		}
-		w.Write(e.body)
+		if _, err := w.Write(e.body); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
@@ -110,6 +112,20 @@ func TestCheckRunsPackScript(t *testing.T) {
 	}
 }
 
+func bomb(good []entry) []entry {
+	out := append([]entry{}, good...)
+	for i := 0; i < maxExpanded/MaxFile+1; i++ {
+		out = append(out, entry{name: fmt.Sprintf("skills/grounding/scout/b%d.bin", i), body: make([]byte, MaxFile)})
+	}
+	return out
+}
+
+func rawManifest(good []entry, f func([]byte) []byte) []entry {
+	out := append([]entry{}, good...)
+	out[0].body = f(append([]byte{}, out[0].body...))
+	return out
+}
+
 func TestParseRefuses(t *testing.T) {
 	mut := func(f func(m map[string]any)) []entry {
 		m := goodManifest()
@@ -136,7 +152,7 @@ func TestParseRefuses(t *testing.T) {
 		"zip bomb": build(t, ext(entry{name: "skills/grounding/scout/big.bin", body: make([]byte, MaxArchive*4+1)})...),
 		"stray":    build(t, ext(entry{name: "evil.sh", body: []byte("x")})...),
 		"unknown column": build(t, mut(func(m map[string]any) {
-			m["columns"].(map[string]any)["lunch"] = col(m)
+			m["columns"].(map[string]any)["lunch"] = map[string]any{}
 		})...),
 		"failure outside stages": build(t, mut(func(m map[string]any) { m["failures"] = map[string]string{"bad": "lunch"} })...),
 		"empty failure type":     build(t, mut(func(m map[string]any) { m["failures"] = map[string]string{"": "grounding"} })...),
