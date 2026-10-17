@@ -331,7 +331,7 @@ func owned(ctx context.Context, tx *store.Tx, user uuid.UUID, ref RuntimeRef) er
 func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef, slots int) ([]Claimed, error) {
 	var out []Claimed
 	var refused []db.AgentRun
-	teams := map[uuid.UUID]teamClaim{}
+	teams := map[uuid.UUID]TeamClaim{}
 	dispatchRefs := refs
 	err := s.runtimeBatch(ctx, user, refs, func(tx *store.Tx, ordered []RuntimeRef) error {
 		// Event locks also span workspaces; acquire them in canonical order,
@@ -409,7 +409,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: []string{ScopeCall}, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
 						return err
 					}
-					conns, team, err := claimConnectors(ctx, tx, t)
+					conns, team, err := ClaimConnectors(ctx, tx, t)
 					if err != nil {
 						return err
 					}
@@ -449,18 +449,19 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	return out, nil
 }
 
-// teamClaim is what a Team run's connectors are worked out from: the pack of
-// the Team on its column, its role, and whether the run's researcher has
-// added that Team version, without which no local command is handed out.
-type teamClaim struct {
-	pack  db.FieldPack
-	role  string
-	added bool
+// TeamClaim is what a Team run's connectors and skills are worked out from:
+// the pack of the Team on its column, its role, and whether the run's
+// researcher has added that Team version, without which no local command is
+// handed out.
+type TeamClaim struct {
+	Pack  db.FieldPack
+	Role  string
+	Added bool
 }
 
-// claimConnectors answers a single agent's run with every catalogue connector
-// the workspace has not disabled, or a Team run's teamClaim.
-func claimConnectors(ctx context.Context, tx *store.Tx, t db.AgentRun) ([]pack.Connector, *teamClaim, error) {
+// ClaimConnectors answers a single agent's run with every catalogue connector
+// the workspace has not disabled, or a Team run's TeamClaim.
+func ClaimConnectors(ctx context.Context, tx *store.Tx, t db.AgentRun) ([]pack.Connector, *TeamClaim, error) {
 	if t.CardID != nil && t.Role != "agent" {
 		packID, err := tx.Q.GetCardTeamPack(ctx, db.GetCardTeamPackParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: t.BoardColumn})
 		switch {
@@ -473,7 +474,7 @@ func claimConnectors(ctx context.Context, tx *store.Tx, t db.AgentRun) ([]pack.C
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, &teamClaim{pack: row, role: t.Role, added: len(added) > 0}, nil
+			return nil, &TeamClaim{Pack: row, Role: t.Role, Added: len(added) > 0}, nil
 		case !errors.Is(err, pgx.ErrNoRows):
 			return nil, nil, err
 		}
@@ -495,27 +496,38 @@ func claimConnectors(ctx context.Context, tx *store.Tx, t db.AgentRun) ([]pack.C
 	return out, nil, nil
 }
 
+// TeamMember loads the Team's pack, a blob read to do with no transaction
+// open, and answers the run's member with only the connectors it may call.
+func TeamMember(ctx context.Context, blobs storage.Storage, team TeamClaim) (*pack.Pack, pack.Member, error) {
+	p, err := pack.Load(ctx, blobs, team.Pack)
+	if err != nil {
+		return nil, pack.Member{}, err
+	}
+	member, _ := p.Manifest.MemberFor(team.Role)
+	conns := []pack.Connector{}
+	for _, c := range member.Connectors {
+		if len(c.Command) > 0 && !team.Added {
+			continue
+		}
+		conns = append(conns, c)
+	}
+	member.Connectors = conns
+	return p, member, nil
+}
+
 // teamConnectors is the run's Team member's declared connectors. A pack that
 // cannot be read hands out none: the run is already claimed, and calling
 // nothing is safer than calling what was never checked.
-func (s *AgentRuns) teamConnectors(ctx context.Context, team teamClaim) []pack.Connector {
-	out := []pack.Connector{}
+func (s *AgentRuns) teamConnectors(ctx context.Context, team TeamClaim) []pack.Connector {
 	if s.Blobs == nil {
-		return out
+		return []pack.Connector{}
 	}
-	p, err := pack.Load(ctx, s.Blobs, team.pack)
+	_, member, err := TeamMember(ctx, s.Blobs, team)
 	if err != nil {
-		slog.Warn("team pack unreadable at claim; the run gets no connectors", "pack", team.pack.ID, "err", err)
-		return out
+		slog.Warn("team pack unreadable at claim; the run gets no connectors", "pack", team.Pack.ID, "err", err)
+		return []pack.Connector{}
 	}
-	member, _ := p.Manifest.MemberFor(team.role)
-	for _, c := range member.Connectors {
-		if len(c.Command) > 0 && !team.added {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
+	return member.Connectors
 }
 
 func (s *AgentRuns) onAgentRun(ctx context.Context, user uuid.UUID, ref RuntimeRef, fn func(tx *store.Tx) error) error {

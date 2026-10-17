@@ -3,15 +3,21 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/pack"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/toolroute"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -179,4 +185,94 @@ func (h *H) postCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]string{"key": key})
+}
+
+// maxNeed bounds the need Jev reads.
+const maxNeed = 2000
+
+// postTools asks Jev which of the run's skills and connector tools fit a
+// need: a Team run's member's declared ones, or else the workspace's library.
+// Jev is asked with no transaction open. A study run leaves a tools record,
+// and when nothing fits, tells the study's owner; a run with no study only
+// gets the answer.
+func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Need           string                      `json:"need"`
+		ConnectorTools map[string][]toolroute.Tool `json:"connector_tools"`
+	}
+	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Need) == "" {
+		writeErr(w, 400, "need required")
+		return
+	}
+	if len(in.Need) > maxNeed {
+		writeErr(w, 400, fmt.Sprintf("a need is at most %d bytes", maxNeed))
+		return
+	}
+	var conns []pack.Connector
+	var team *service.TeamClaim
+	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+		run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{ID: role.AgentRunID, WorkspaceID: role.WorkspaceID})
+		if err != nil {
+			return err
+		}
+		conns, team, err = service.ClaimConnectors(r.Context(), tx, run)
+		return err
+	})
+	if err != nil {
+		roleError(w, r, err)
+		return
+	}
+	var c toolroute.Candidates
+	if team != nil {
+		p, member, err := service.TeamMember(r.Context(), h.Blobs, *team)
+		if err != nil {
+			slog.Error("load Team for tools", "pack", team.Pack.ID, "err", err)
+			writeErr(w, 503, "this study's Team can't be loaded")
+			return
+		}
+		c = toolroute.ForTeam(p, member, member.Connectors, in.ConnectorTools)
+	} else {
+		c = toolroute.ForLibrary(conns, in.ConnectorTools)
+	}
+	res, err := toolroute.Route(r.Context(), h.Engine.Jev, in.Need, c)
+	if err != nil {
+		slog.Warn("route tools", "agent_run", middleware.RoleFrom(r.Context()).AgentRunID, "err", err)
+		writeErr(w, 503, err.Error())
+		return
+	}
+	if err := c.AttachFolders(&res); err != nil {
+		fail(w, r, err)
+		return
+	}
+	if middleware.RoleFrom(r.Context()).CardID != uuid.Nil {
+		err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+			skills := []string{}
+			for _, s := range res.Skills {
+				skills = append(skills, s.Name)
+			}
+			tools := []map[string]string{}
+			for _, t := range res.Tools {
+				tools = append(tools, map[string]string{"server": t.Server, "tool": t.Tool})
+			}
+			wr := writer(role)
+			wr.Role = "server"
+			if _, err := records.WriteAs(r.Context(), tx, wr, "tools", map[string]any{"need": in.Need, "skills": skills, "tools": tools}); err != nil {
+				return err
+			}
+			if !res.Empty() {
+				return nil
+			}
+			card, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: tx.WS, ID: role.CardID})
+			if err != nil {
+				return err
+			}
+			return tx.Q.InsertInboxItem(r.Context(), db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: card.ID, UserID: card.OwnerID, Kind: "no_tool",
+				Text: fmt.Sprintf("An agent on study #%d's %s column found no skill or connector that fits what it needed: %s", card.Number, role.Column, in.Need)})
+		})
+		if err != nil {
+			roleError(w, r, err)
+			return
+		}
+	}
+	writeJSON(w, 200, res)
 }

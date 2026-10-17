@@ -266,10 +266,24 @@ func (p *Pack) validate() error {
 				return fmt.Errorf("pack: %s %q: skill %q is neither a folder in the archive nor a bundled skill", where, mem.Name, s)
 			}
 		}
+		names := map[string]bool{}
 		for _, c := range mem.Connectors {
 			if err := c.validate(); err != nil {
 				return fmt.Errorf("pack: %s %q: connector %q: %w", where, mem.Name, c.Name, err)
 			}
+			// call_tool names a connector by its name, or a bare catalogue
+			// entry by its catalogue name; the door keeps "sources" for itself.
+			name := c.Name
+			if name == "" {
+				name = c.Catalogue
+			}
+			if name == "sources" {
+				return fmt.Errorf("pack: %s %q: the connector name %q is reserved", where, mem.Name, name)
+			}
+			if names[name] {
+				return fmt.Errorf("pack: %s %q: the connector name %q is repeated", where, mem.Name, name)
+			}
+			names[name] = true
 		}
 	}
 	if err := AuditorDiffers(*m); err != nil {

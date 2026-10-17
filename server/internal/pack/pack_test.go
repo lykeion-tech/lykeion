@@ -184,6 +184,9 @@ func TestParseRefuses(t *testing.T) {
 		{"auditor shares harness and model", mut(func(m *Manifest) { m.Auditor.Agent = m.Members[1].Agent }), "auditor"},
 		{"unknown skill", mut(func(m *Manifest) { m.Members[0].Skills = []string{"ghost"} }), "skill"},
 		{"unknown catalogue", mut(func(m *Manifest) { m.Members[0].Connectors = []Connector{{Name: "x", Catalogue: "nope"}} }), "catalogue"},
+		{"connector named sources", mut(func(m *Manifest) { m.Members[0].Connectors[1].Name = "sources" }), "reserved"},
+		{"repeated catalogue entry", mut(func(m *Manifest) { m.Members[0].Connectors = []Connector{{Catalogue: "ensembl"}, {Catalogue: "ensembl"}} }), "repeated"},
+		{"repeated connector name", mut(func(m *Manifest) { m.Members[0].Connectors[1].Name = "ncbi" }), "repeated"},
 		{"not a zip", []byte("hello"), "zip"},
 	}
 	for _, c := range cases {

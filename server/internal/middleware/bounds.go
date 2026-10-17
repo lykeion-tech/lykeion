@@ -26,6 +26,9 @@ const (
 	RequestTimeout      = 10 * time.Second
 	BlobBodyReadTimeout = 30 * time.Second
 	BlobRequestTimeout  = 60 * time.Second
+	// ToolsRequestTimeout bounds lyk tools' routing: three levels of Jev
+	// requests of up to 60 s each, a level split when it is long.
+	ToolsRequestTimeout = 4 * time.Minute
 	// SourcesRequestTimeout bounds a sources-server call, which may wait on
 	// two upstream calls of up to 30 s each before recording what it got.
 	SourcesRequestTimeout = 60 * time.Second
@@ -52,6 +55,9 @@ func RequestBounds(next http.Handler) http.Handler {
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
 			requestTimeout = SourcesRequestTimeout
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/api/role/tools" {
+			requestTimeout = ToolsRequestTimeout
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()

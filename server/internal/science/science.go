@@ -158,3 +158,14 @@ func splitSections(body string) []Section {
 	}
 	return append(out, cur)
 }
+
+// ReadSkill reads a SKILL.md that need not be a bundled one: its frontmatter
+// description, when it has frontmatter, and its body's sections. A file with
+// no frontmatter is all body.
+func ReadSkill(b []byte) (string, []Section) {
+	fm, body, err := ParseFrontmatter(b)
+	if err != nil {
+		return "", splitSections(string(b))
+	}
+	return fm.Description, splitSections(string(body))
+}

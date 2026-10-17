@@ -41,6 +41,7 @@ func NewRouter(h *H) http.Handler {
 		})
 		// Only the daemon's tool door holds a call token; the agent's cannot record.
 		r.With(middleware.RequireScope(service.ScopeCall)).Post("/calls", h.postCall)
+		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Post("/tools", h.postTools)
 		r.With(middleware.RequireScope(service.ScopeReport)).Post("/report", h.autoresearchReport)
 		r.With(middleware.RequireScope(service.ScopeCardCreate)).Post("/cards", h.autoresearchCard)
 

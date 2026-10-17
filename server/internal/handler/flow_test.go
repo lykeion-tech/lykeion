@@ -33,11 +33,17 @@ type teamRun struct {
 
 func newTeamLab(t *testing.T, steps int) *teamLab {
 	t.Helper()
+	return newTeamLabWith(t, testutil.PackOpts{Name: "hyp", Stage: "hypotheses", Members: 2, Steps: steps})
+}
+
+// newTeamLabWith is newTeamLab on a Team built from o, working Hypotheses.
+func newTeamLabWith(t *testing.T, o testutil.PackOpts) *teamLab {
+	t.Helper()
 	s := newServer(t)
 	l := &teamLab{s: s, jwt: s.signIn(t, "pi@lab.org")}
 	l.ws = s.workspace(t, l.jwt, "lab").ID
 	var up struct{ ID string }
-	if c := s.upload(t, l.jwt, l.ws, testutil.Pack(t, testutil.PackOpts{Name: "hyp", Stage: "hypotheses", Members: 2, Steps: steps}), &up); c != 201 {
+	if c := s.upload(t, l.jwt, l.ws, testutil.Pack(t, o), &up); c != 201 {
 		t.Fatalf("upload: %d", c)
 	}
 	if c := s.call(t, "POST", "/api/teams/"+up.ID+"/add", l.jwt, l.ws, nil, nil); c != 200 {
