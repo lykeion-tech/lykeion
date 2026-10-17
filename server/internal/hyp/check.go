@@ -292,7 +292,7 @@ func rivalInputs(v *records.View, m Matrix, dec map[string]Decomposition, nov ma
 
 func want(option string) func(jev.Answer) (board.Result, float64) {
 	return func(a jev.Answer) (board.Result, float64) {
-		return board.FromP(a.Probabilities[option]), a.Probabilities[option]
+		return board.DefaultBands.Result(a.Probabilities[option]), a.Probabilities[option]
 	}
 }
 

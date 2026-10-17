@@ -351,7 +351,9 @@ func TestLaterMissingPremiseRecoversAfterGrounding(t *testing.T) {
 			if livePremises() != 0 {
 				t.Fatal("owner queue did not supersede its old premise")
 			}
-			if c := f.cardRow(t, card); c.BoardColumn != board.Hypotheses || c.RouteBacks != 1 {
+			// The cap counts the route-back and the Grounding redo for the
+			// missing literature; a repeated route-back would make it 3.
+			if c := f.cardRow(t, card); c.BoardColumn != board.Hypotheses || c.RouteBacks != 2 || c.Flag != "" {
 				t.Fatalf("spurious repeated routeback: %+v", c)
 			}
 			if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='missing_premise' AND superseded_at IS NOT NULL`, card); n != 1 {
@@ -360,7 +362,7 @@ func TestLaterMissingPremiseRecoversAfterGrounding(t *testing.T) {
 			f.recordFor(t, rerun.ID, "missing_premise", "", `{"gap":"a newly discovered premise","step":"literature-scout"}`)
 			f.settle(t, rerun.ID)
 			advance()
-			if c := f.cardRow(t, card); c.BoardColumn != board.Grounding || c.RouteBacks != 2 {
+			if c := f.cardRow(t, card); c.BoardColumn != board.Grounding || c.RouteBacks != 3 || c.Flag != "" {
 				t.Fatalf("new premise was suppressed: %+v", c)
 			}
 

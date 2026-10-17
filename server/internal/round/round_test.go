@@ -171,8 +171,8 @@ func TestPhasesQueueOnceEvenWhenAgentRunsFinishTogether(t *testing.T) {
 	var gates int
 	f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'gate'", card).Scan(&gates)
 	c := f.cardRow(t, card)
-	if gates != 1 || c.Ending != "stopped" || c.EndReason != "no usable data: nothing" {
-		t.Fatalf("gates %d, %+v", gates, c)
+	if items := f.inbox(t, card); gates != 1 || c.Ending != "" || c.Flag != board.Escalated || len(items) != 1 || items[0] != "no usable data: nothing" {
+		t.Fatalf("gates %d, %+v, inbox %v", gates, c, items)
 	}
 }
 
@@ -327,9 +327,18 @@ func TestResultKindsAreOpenToEveryRole(t *testing.T) {
 	}
 }
 
+// The cap a card gets is the column default, and it must agree with the
+// board's: settings no longer carry escalation limits.
+func TestANewCardTakesTheDefaultCap(t *testing.T) {
+	f := setup(t)
+	if c := f.cardRow(t, f.card(t, board.Grounding, 1)); c.Cap != board.DefaultCap || c.RouteBacks != 0 {
+		t.Fatalf("cap %d, route-backs %d", c.Cap, c.RouteBacks)
+	}
+}
+
 func TestSettingsDefaults(t *testing.T) {
 	s := ParseSettings(json.RawMessage(`{"harness":{"roles":{"grounding-reviewer":"codex"}}}`))
-	if s.WIPLimit != 2 || s.Limits.ConsecutiveFails != 3 || s.HarnessFor("grounding-reviewer") != "codex" || s.HarnessFor("scoper") != "claude" || s.Jev.Enabled {
+	if s.WIPLimit != 2 || s.HarnessFor("grounding-reviewer") != "codex" || s.HarnessFor("scoper") != "claude" || s.Jev.Enabled {
 		t.Fatalf("%+v", s)
 	}
 	// A model stored in the settings by any route is ignored: the pin holds.
@@ -476,7 +485,7 @@ func TestAnExpiredGatingLeaseIsTakenOver(t *testing.T) {
 	// a node died mid-call an hour ago
 	f.env.Owner.Exec(context.Background(), `UPDATE card SET gating_until = now() - interval '1 hour' WHERE id = $1`, card)
 	f.e.Advance(context.Background(), f.ws, card)
-	if c := f.cardRow(t, card); c.Ending != "stopped" || c.GatingUntil != nil {
+	if c := f.cardRow(t, card); c.Flag != board.Escalated || c.Ending != "" || c.GatingUntil != nil {
 		t.Fatalf("%+v", c)
 	}
 }

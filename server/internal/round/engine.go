@@ -633,7 +633,7 @@ func (e *Engine) finish(ctx context.Context, tx *store.Tx, c db.Card, s board.St
 	if err := e.writeGate(ctx, tx, c, "gate", g); err != nil {
 		return err
 	}
-	items := board.Apply(&s, g, set.Limits)
+	items := board.Apply(&s, g)
 	return e.save(ctx, tx, c, s, items, "gate.decided", map[string]any{"column": g.Column, "round": g.Round, "verdict": g.Verdict, "reason": g.Reason})
 }
 

@@ -52,6 +52,7 @@ type Gate struct {
 	Verdict     Verdict         `json:"verdict"`
 	Route       *Route          `json:"route,omitempty"`
 	Reason      string          `json:"reason,omitempty"`
+	Block       string          `json:"block,omitempty"`  // the Blocked kind, set with CannotProceed
 	Addons      []AgentRunAddon `json:"addons,omitempty"` // the add-on each judged agent run ran with
 }
 
@@ -66,12 +67,21 @@ type AgentRunAddon struct {
 	PolicyDigest string `json:"policy_digest"`
 }
 
-// FromP maps a Jev probability onto a check result.
-func FromP(p float64) Result {
+// Bands are the Jev probabilities at or above which a check passes (Yes) and
+// below which it fails (No); between them the reviewer settles it.
+type Bands struct {
+	Yes float64 `json:"yes"`
+	No  float64 `json:"no"`
+}
+
+var DefaultBands = Bands{Yes: 0.70, No: 0.35}
+
+// Result maps a Jev probability onto a check result.
+func (b Bands) Result(p float64) Result {
 	switch {
-	case p >= 0.70:
+	case p >= b.Yes:
 		return Pass
-	case p < 0.35:
+	case p < b.No:
 		return Fail
 	}
 	return Attention
@@ -79,6 +89,8 @@ func FromP(p float64) Result {
 
 // Decide passes only when at least one check ran and every check passed.
 // Unsettled attention counts as failure: a missing answer is never approval.
+// Among the failing checks, the one whose fix belongs to the earliest column
+// sets the route; a tie keeps the first in check order.
 func Decide(g *Gate) {
 	if g.Verdict == CannotProceed {
 		return
@@ -88,18 +100,19 @@ func Decide(g *Gate) {
 		g.Route = &Route{Column: g.Column, Reason: g.Reason}
 		return
 	}
+	g.Verdict, g.Route = VPass, nil
 	for _, ch := range g.Checks {
 		if ch.Result == Pass {
 			continue
 		}
-		g.Verdict = VFail
-		g.Reason = ch.ID + ": " + ch.Note
 		col := g.Column
 		if ch.To != "" {
 			col = ch.To
 		}
+		if g.Route != nil && StageIndex(col) >= StageIndex(g.Route.Column) {
+			continue
+		}
+		g.Verdict, g.Reason = VFail, ch.ID+": "+ch.Note
 		g.Route = &Route{Column: col, Step: ch.Owner, Reason: g.Reason}
-		return
 	}
-	g.Verdict, g.Route = VPass, nil
 }

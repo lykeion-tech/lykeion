@@ -20,7 +20,7 @@ func TestAnsweredZeroProbabilitySurvivesGateJSON(t *testing.T) {
 	j := &jev.Client{BaseURL: srv.URL, Model: jev.Model, HTTP: srv.Client()}
 	ch := Ask(context.Background(), j, board.Check{ID: "evidence.zero", Question: "Does the evidence support the claim?"}, "", map[string]string{"supports": "supports"}, func(a jev.Answer) (board.Result, float64) {
 		p := a.Probabilities[a.Choice]
-		return board.FromP(p), p
+		return board.DefaultBands.Result(p), p
 	})
 	b, err := json.Marshal(board.Gate{Checks: []board.Check{ch}})
 	if err != nil {

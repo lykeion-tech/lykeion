@@ -179,7 +179,7 @@ func jevChecks(ctx context.Context, v *records.View, j *jev.Client, ev, ds []db.
 			Question: "Does the passage state the claim?"}
 		out = append(out, Ask(ctx, j, ch, "claim: "+e.Claim+"\n\n"+state, Relation,
 			func(a jev.Answer) (board.Result, float64) {
-				return board.FromP(a.Probabilities["supports"]), a.Probabilities["supports"]
+				return board.DefaultBands.Result(a.Probabilities["supports"]), a.Probabilities["supports"]
 			}))
 		oc := board.Check{ID: "origin." + r.Key, Owner: r.Role, Evidence: []string{"evidence#" + r.Key},
 			Question: originQuestion}
@@ -203,7 +203,7 @@ func jevChecks(ctx context.Context, v *records.View, j *jev.Client, ev, ds []db.
 			if a.Choice == "unclear" {
 				return board.Attention, a.Probabilities[a.Choice]
 			}
-			return board.FromP(a.Probabilities[a.Choice]), a.Probabilities[a.Choice]
+			return board.DefaultBands.Result(a.Probabilities[a.Choice]), a.Probabilities[a.Choice]
 		}))
 	}
 	return out, nil

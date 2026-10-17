@@ -157,8 +157,8 @@ func (h *H) sendBack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "to and reason required")
 		return
 	}
-	h.steer(w, r, true, func(_ *store.Tx, _ db.Card, s *board.State, set round.Settings) ([]board.Item, error) {
-		items, err := board.SendBack(s, in.To, in.Step, in.Reason, set.Limits)
+	h.steer(w, r, true, func(_ *store.Tx, _ db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+		items, err := board.SendBack(s, in.To, in.Step, in.Reason)
 		if err != nil {
 			return nil, cardInputError(err.Error())
 		}
