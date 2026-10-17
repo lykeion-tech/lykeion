@@ -10,6 +10,7 @@ import (
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/sources"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -138,4 +139,44 @@ func (h *H) listCalls(w http.ResponseWriter, r *http.Request) {
 		out = append(out, body)
 	}
 	writeJSON(w, 200, out)
+}
+
+// maxCallAnswer is the longest answer a posted call may carry.
+const maxCallAnswer = 32 << 20
+
+// postCall records a database call the daemon made on the run's behalf. The
+// record is built and stored as a catalogue fetch's is.
+func (h *H) postCall(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Server string          `json:"server"`
+		Tool   string          `json:"tool"`
+		Args   json.RawMessage `json:"args"`
+		Answer string          `json:"answer"`
+	}
+	if err := readJSON(r, &in); err != nil || in.Server == "" || in.Tool == "" {
+		writeErr(w, 400, "server, tool and answer required")
+		return
+	}
+	if len(in.Answer) > maxCallAnswer {
+		writeErr(w, 400, "an answer is at most 32 MiB")
+		return
+	}
+	var args any
+	if len(in.Args) > 0 {
+		args = in.Args
+	}
+	role := middleware.RoleFrom(r.Context())
+	body, rest := sources.NewCall(role, in.Server, in.Tool, args, in.Answer)
+	hosted := &sources.Hosted{Store: h.Store, Blobs: h.Blobs}
+	key, err := hosted.RecordCall(r.Context(), role, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body, rest)
+	if err != nil {
+		roleError(w, r, err)
+		return
+	}
+	if key == "" {
+		// a run with no card keeps no call record
+		writeJSON(w, 201, map[string]string{})
+		return
+	}
+	writeJSON(w, 201, map[string]string{"key": key})
 }

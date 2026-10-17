@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +13,7 @@ import (
 
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/testutil"
+	db "lykeion/server/pkg/db/generated"
 )
 
 // teamLab is a study on a two-member Team in Hypotheses, with its owner's
@@ -368,5 +373,68 @@ func TestNoEscalationWhileTheLeaderIsQueued(t *testing.T) {
 	l.complete(t, nudged)
 	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'escalated'", l.card.ID); n != 0 {
 		t.Fatalf("escalated with the leader queued: %d", n)
+	}
+}
+
+func TestCallKeysAreSequential(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	for i, want := range []string{"c1", "c2", "c3"} {
+		var out struct{ Key string }
+		in := map[string]any{"server": "pubmed", "tool": "search", "args": map[string]any{"q": i}, "answer": "hit " + want}
+		if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", in, &out); c != 201 || out.Key != want {
+			t.Fatalf("call %d: %d %+v", i, c, out)
+		}
+	}
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", map[string]any{"server": "pubmed", "tool": "search"}, nil); c != 201 {
+		t.Fatalf("empty answer: %d", c)
+	}
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", map[string]any{"tool": "search", "answer": "x"}, nil); c != 400 {
+		t.Fatalf("no server: %d", c)
+	}
+	var recs []db.Record
+	if c := l.s.call(t, "GET", "/api/role/records?kind=call", leader.token, "", nil, &recs); c != 200 || len(recs) != 4 {
+		t.Fatalf("records %d %d", c, len(recs))
+	}
+}
+
+func TestALargeAnswerIsKeptWhole(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	// the last line sits far past the 256 KiB a body keeps
+	answer := strings.Repeat("filler line of text\n", (1<<20)/20) + "the decisive sentence, 42 patients."
+	var out struct{ Key string }
+	in := map[string]any{"server": "pubmed", "tool": "fetch", "answer": answer}
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", in, &out); c != 201 || out.Key != "c1" {
+		t.Fatalf("call %d %+v", c, out)
+	}
+	var recs []db.Record
+	if c := l.s.call(t, "GET", "/api/role/records?kind=call", leader.token, "", nil, &recs); c != 200 || len(recs) != 1 {
+		t.Fatalf("records %d", c)
+	}
+	var body struct {
+		Answer       string
+		AnswerSHA256 string `json:"answer_sha256"`
+	}
+	json.Unmarshal(recs[0].Body, &body)
+	if len(body.Answer) > 256<<10 || len(body.Answer) < 256<<10-4 || recs[0].BlobKey == "" {
+		t.Fatalf("body keeps %d bytes, blob %q", len(body.Answer), recs[0].BlobKey)
+	}
+	calls, err := flow.LoadCalls(context.Background(), l.s.H.Blobs, recs)
+	if err != nil || calls["c1"].Answer != answer {
+		t.Fatalf("load: %v, %d bytes", err, len(calls["c1"].Answer))
+	}
+	if sum := sha256.Sum256([]byte(answer)); hex.EncodeToString(sum[:]) != body.AnswerSHA256 {
+		t.Fatalf("answer_sha256 %s", body.AnswerSHA256)
+	}
+	quote := func(q string) bool {
+		b, _ := json.Marshal(map[string]any{"cites": []string{"call:c1"}, "quote": q})
+		return flow.MatchQuotes([]db.Record{{Key: "k", Body: b}}, calls)[0].Matched
+	}
+	if !quote("the decisive sentence,\n42 patients.") || quote("the decisive sentence, 43 patients.") {
+		t.Fatal("matching must read the whole answer, word for word")
+	}
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", map[string]any{"server": "s", "tool": "t", "answer": strings.Repeat("a", 32<<20+1)}, nil); c != 400 {
+		t.Fatalf("over 32 MiB: %d", c)
 	}
 }

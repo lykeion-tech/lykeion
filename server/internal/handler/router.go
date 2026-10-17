@@ -36,6 +36,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/steps", h.postStep)
 			r.Post("/done", h.postDone)
 			r.Get("/calls", h.listCalls)
+			r.Post("/calls", h.postCall)
 			r.Post("/blobs", h.putBlob)
 			r.Get("/blobs/{sha}", h.getBlob)
 		})

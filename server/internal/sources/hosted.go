@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -54,13 +56,40 @@ func runToken(req *mcp.CallToolRequest) string {
 // run is re-checked under row locks: it may have settled while the source
 // was called.
 func (h *Hosted) Record(ctx context.Context, role middleware.Role, token, kind, key string, body map[string]any, text string) error {
+	_, err := h.record(ctx, role, token, kind, key, body, text)
+	return err
+}
+
+// RecordCall stores a call record built by NewCall and answers its key.
+func (h *Hosted) RecordCall(ctx context.Context, role middleware.Role, token string, call map[string]any, rest string) (string, error) {
+	return h.record(ctx, role, token, "call", "", call, rest)
+}
+
+// NewCall builds a call record's body: the answer cut to what a body keeps,
+// and the whole answer as rest when it was cut, for the record's blob.
+func NewCall(role middleware.Role, server, tool string, args any, answer string) (map[string]any, string) {
+	sum := sha256.Sum256([]byte(answer))
+	rest := ""
+	if len(answer) > MaxCallAnswer {
+		cut := MaxCallAnswer
+		for cut > 0 && !utf8.RuneStart(answer[cut]) {
+			cut--
+		}
+		answer, rest = answer[:cut], answer
+	}
+	return map[string]any{"server": server, "tool": tool, "args": args, "answer_sha256": hex.EncodeToString(sum[:]),
+		"answer": answer, "truncated": false, "at": time.Now().UTC().Format(time.RFC3339), "agent_run_id": role.AgentRunID}, rest
+}
+
+// record is Record answering with the key the record was stored under.
+func (h *Hosted) record(ctx context.Context, role middleware.Role, token, kind, key string, body map[string]any, text string) (string, error) {
 	// An agent run with no card, an Autoresearch run's, may search and read, but what it
 	// finds is evidence for no card: the call is logged as an event, and no
 	// record or blob is written. The token was checked when the call arrived; the
 	// run and its token are locked and checked again, since the run may have
 	// settled since.
 	if role.CardID == uuid.Nil {
-		return h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
+		return "", h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
 			if err := middleware.LockRole(ctx, tx, role, token); err != nil {
 				return err
 			}
@@ -74,7 +103,7 @@ func (h *Hosted) Record(ctx context.Context, role middleware.Role, token, kind, 
 		hexsum = hex.EncodeToString(sum[:])
 		blobKey = role.WorkspaceID.String() + "/" + role.CardID.String() + "/" + hexsum
 		if err := h.Blobs.Put(ctx, blobKey, bytes.NewReader([]byte(text)), int64(len(text))); err != nil {
-			return err
+			return "", err
 		}
 		if kind != "call" {
 			body["sha256"] = hexsum
@@ -82,9 +111,9 @@ func (h *Hosted) Record(ctx context.Context, role middleware.Role, token, kind, 
 	}
 	b, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
+	err = h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
 		if err := middleware.LockRole(ctx, tx, role, token); err != nil {
 			return err
 		}
@@ -110,6 +139,7 @@ func (h *Hosted) Record(ctx context.Context, role middleware.Role, token, kind, 
 		return tx.Emit(ctx, "record.created", &role.CardID, store.Actor{Type: "role", ID: role.AgentRunID},
 			map[string]any{"record_id": rec.ID, "kind": kind, "key": key, "role": role.Role})
 	})
+	return key, err
 }
 
 type SearchIn struct {

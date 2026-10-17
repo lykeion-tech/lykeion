@@ -20,10 +20,12 @@ import (
 const (
 	MaxBodyBytes          = 1 << 20
 	MaxDaemonMessageBytes = 32 << 20
-	BodyReadTimeout       = 2 * time.Second
-	RequestTimeout        = 10 * time.Second
-	BlobBodyReadTimeout   = 30 * time.Second
-	BlobRequestTimeout    = 60 * time.Second
+	// MaxCallBodyBytes holds a 32 MiB answer and its JSON escapes.
+	MaxCallBodyBytes    = 64 << 20
+	BodyReadTimeout     = 2 * time.Second
+	RequestTimeout      = 10 * time.Second
+	BlobBodyReadTimeout = 30 * time.Second
+	BlobRequestTimeout  = 60 * time.Second
 	// SourcesRequestTimeout bounds a sources-server call, which may wait on
 	// two upstream calls of up to 30 s each before recording what it got.
 	SourcesRequestTimeout = 60 * time.Second
@@ -42,9 +44,10 @@ func RequestBounds(next http.Handler) http.Handler {
 			return
 		}
 		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs"
+		callPost := r.Method == http.MethodPost && r.URL.Path == "/api/role/calls"
 		packUpload := r.Method == http.MethodPost && r.URL.Path == "/api/packs"
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
-		if rawBlob || packUpload {
+		if rawBlob || packUpload || callPost {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
@@ -114,6 +117,9 @@ func daemonMessagePost(r *http.Request) bool {
 func JSONBodyLimit(r *http.Request) int64 {
 	if daemonMessagePost(r) {
 		return MaxDaemonMessageBytes
+	}
+	if r.Method == http.MethodPost && r.URL.Path == "/api/role/calls" {
+		return MaxCallBodyBytes
 	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/packs" {
 		return pack.MaxArchive

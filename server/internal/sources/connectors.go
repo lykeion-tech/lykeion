@@ -10,8 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -250,20 +248,10 @@ func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, 
 		rec := map[string]any{"source_id": out.SourceID, "connector": e.Name, "request": r, "truncated": out.Truncated}
 		return out, h.Record(ctx, role, token, "fetch", out.SourceID, rec, "")
 	}
-	sum := sha256.Sum256(body)
-	answer, rest := out.Body, ""
-	if len(answer) > MaxCallAnswer {
-		cut := MaxCallAnswer
-		for cut > 0 && !utf8.RuneStart(answer[cut]) {
-			cut--
-		}
-		answer, rest = answer[:cut], out.Body
-	}
 	// source_id is the connector request's id; it stays in the body so a
 	// repeated request is recognisable, while the record's key is the call's.
-	call := map[string]any{"server": "catalogue:" + e.Name, "tool": "fetch", "args": r, "answer_sha256": hex.EncodeToString(sum[:]),
-		"answer": answer, "truncated": out.Truncated, "at": time.Now().UTC().Format(time.RFC3339), "agent_run_id": role.AgentRunID,
-		"source_id": out.SourceID}
+	call, rest := NewCall(role, "catalogue:"+e.Name, "fetch", r, out.Body)
+	call["truncated"], call["source_id"] = out.Truncated, out.SourceID
 	return out, h.Record(ctx, role, token, "call", "", call, rest)
 }
 
