@@ -17,9 +17,6 @@ export interface UILabFixture {
   workspace_id: string;
   card_id: string;
   run_id: string;
-  gate_id: string;
-  long_reason: string;
-  pass_threshold: number;
 }
 
 // Uses the shipped email-code route and cookie, including for a second person.
@@ -48,15 +45,33 @@ export async function labWorkspace(request: APIRequestContext): Promise<string> 
   return ws!.id;
 }
 
-// Creates a study through the API, as another person's browser would.
+// Adds the demo Team for the lab person in a workspace and returns its id.
+export async function labTeam(request: APIRequestContext, workspaceId: string): Promise<string> {
+  const pack = await labPack(request, 'ui-demo', workspaceId);
+  const headers = { 'X-Workspace-ID': workspaceId };
+  expect((await request.post(`/api/teams/${pack.id}/add`, { headers })).status()).toBe(200);
+  return pack.id;
+}
+
+// Creates a study through the API, as another person's browser would. It is
+// assigned the demo Team for Grounding, so the lab's scripted agent works it;
+// pass assignee: null to leave it unassigned in Backlog.
 export async function newStudy(
   request: APIRequestContext,
   question: string,
   extra: Record<string, unknown> = {},
 ): Promise<{ id: string; number: number; title: string }> {
+  const workspaceId = await labWorkspace(request);
+  const data: Record<string, unknown> = { question, ...extra };
+  if (data.assignee === null) delete data.assignee;
+  else if (!data.assignee)
+    data.assignee = {
+      type: 'team',
+      teams: { grounding: await labTeam(request, workspaceId) },
+    };
   const res = await request.post('/api/cards', {
-    headers: { 'X-Workspace-ID': await labWorkspace(request) },
-    data: { question, ...extra },
+    headers: { 'X-Workspace-ID': workspaceId },
+    data,
   });
   expect(res.status()).toBe(201);
   return res.json();

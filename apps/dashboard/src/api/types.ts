@@ -78,7 +78,7 @@ export interface Card {
   // The Team working each column of the scope, keyed by column.
   teams: Record<string, { pack_id: string; name: string; version: string; stage: string }>;
   redos: number;
-  off_label: boolean;
+  off_label: string[];
 }
 
 export type BlockKind = '' | 'low_score';

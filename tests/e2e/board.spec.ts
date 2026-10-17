@@ -3,7 +3,7 @@ import { LAB, labFixture, newStudy } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-13-artifacts';
 
-test('the board shows eight columns and a new study moving live to Blocked', async ({ page }) => {
+test('the board shows eight columns and a new study arriving live in its column', async ({ page }) => {
   await page.goto('/#/studies');
   const headers = page.locator('.board-column > header strong');
   await expect(headers).toHaveText([
@@ -24,13 +24,11 @@ test('the board shows eight columns and a new study moving live to Blocked', asy
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const question = `Does islet amyloid track IL-1β in human donors? ${Date.now()}`;
   const study = await newStudy(page.request, question);
-  // No reload: the study arrives over /ws, starts, and the lab's agent escalates it.
-  const blocked = page.getByRole('region', { name: 'Blocked' });
-  const shown = blocked.locator('.task-card', { hasText: question.slice(0, 40) });
+  // No reload: the study arrives over /ws and starts in Grounding.
+  const grounding = page.getByRole('region', { name: 'Grounding' });
+  const shown = grounding.locator('.task-card', { hasText: question.slice(0, 40) });
   await expect(shown).toBeVisible({ timeout: 30_000 });
   await expect(shown).toContainText(`BETA-${study.number}`);
-  await expect(shown.locator('.chip-escalated')).toHaveText('escalated');
-  await expect(shown.locator('.chip')).toContainText(['Grounding']);
   await expect(shown).toContainText(/Updated (just now|\d+m ago)/);
   await expect(page.getByRole('button', { name: /agents working/ })).toBeVisible();
 
@@ -40,7 +38,7 @@ test('the board shows eight columns and a new study moving live to Blocked', asy
   await expect(shown).toBeVisible();
 
   await page.getByRole('button', { name: 'Board' }).click();
-  await expect(page.locator('.list-group', { hasText: 'Blocked' })).toBeVisible();
+  await expect(page.locator('.list-group', { hasText: 'Grounding' })).toBeVisible();
   await expect(page.locator('.list-row', { hasText: question.slice(0, 40) })).toBeVisible();
   await page.screenshot({ path: `${artifacts}/populated-list.png`, fullPage: true });
   await page.getByRole('button', { name: 'List' }).click();

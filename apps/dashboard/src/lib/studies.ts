@@ -250,16 +250,15 @@ export const blockLabel = (kind: BlockKind): string => blockLabels[kind];
 export type ComposerAction =
   | { kind: 'comment' }
   | { kind: 'stop' }
-  | { kind: 'resume' }
-  | { kind: 'close' };
+  | { kind: 'resume' };
 
 // A Blocked study's picker: Comment, which gives a low-scored study one more
-// redo, and Close. An unblocked study gets [] and keeps the ordinary picker.
+// redo. An unblocked study gets [] and keeps the ordinary picker.
 export function blockedActions(card: Card): ComposerAction['kind'][] {
-  return card.ending || !card.block_kind ? [] : ['comment', 'close'];
+  return card.ending || !card.block_kind ? [] : ['comment'];
 }
 
 export const canResume = (card: Card) => !card.ending && card.flag !== '';
 export function actionLabel(a: ComposerAction): string {
-  return { comment: 'Comment', stop: 'Stop', resume: 'Resume', close: 'Close' }[a.kind];
+  return { comment: 'Comment', stop: 'Stop', resume: 'Resume' }[a.kind];
 }

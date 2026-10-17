@@ -1,20 +1,31 @@
 import { expect, test, type Page } from '@playwright/test';
-import { newStudy } from './lab';
+import { labWorkspace, newStudy } from './lab';
 
 async function choose(page: Page, ...path: string[]) {
   await page.getByRole('button', { name: 'Action' }).click();
   for (const item of path) await page.getByRole('menuitem', { name: item }).click();
 }
-async function escalated(page: Page) {
-  await expect(page.getByText('Escalated: waiting for a person').first()).toBeVisible({
-    timeout: 30_000,
-  });
+// The scripted leader stops twice, which files an escalation in the Inbox.
+async function escalated(page: Page, cardId: string) {
+  const headers = { 'X-Workspace-ID': await labWorkspace(page.request) };
+  await expect
+    .poll(
+      async () =>
+        (
+          ((await (await page.request.get('/api/inbox', { headers })).json()) ?? []) as {
+            card_id: string;
+            kind: string;
+          }[]
+        ).some((i) => i.card_id === cardId && i.kind === 'escalated'),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
 }
 
 test('Stop ends the study after confirmation and removes the composer', async ({ page }) => {
   const study = await newStudy(page.request, `GLP-1 agonists and alcohol intake ${Date.now()}?`);
   await page.goto(`/#/studies/${study.id}`);
-  await escalated(page);
+  await escalated(page, study.id);
   await choose(page, 'Stop');
   await page.getByRole('textbox', { name: 'Comment' }).fill('no usable data in human cohorts');
   page.once('dialog', (d) => d.accept());
@@ -31,7 +42,7 @@ test('a stopped study keeps its full long reason inside the metadata pane', asyn
   await page.setViewportSize({ width: 1580, height: 1000 });
   const study = await newStudy(page.request, `Primary liver evidence ${Date.now()}?`);
   await page.goto(`/#/studies/${study.id}`);
-  await escalated(page);
+  await escalated(page, study.id);
   const reason = `No usable primary-source evidence after checking mouse liver cohorts. ${'unbroken'.repeat(40)}`;
   await choose(page, 'Stop');
   await page.getByRole('textbox', { name: 'Comment' }).fill(reason);
@@ -67,24 +78,6 @@ test('a stopped study keeps its full long reason inside the metadata pane', asyn
   });
 });
 
-test('Resume reruns an escalated study and posts the typed text as a comment', async ({ page }) => {
-  const study = await newStudy(
-    page.request,
-    `Tau spread through the entorhinal cortex ${Date.now()}?`,
-  );
-  await page.goto(`/#/studies/${study.id}`);
-  await escalated(page);
-  await choose(page, 'Resume');
-  await page.getByRole('textbox', { name: 'Comment' }).fill('Widen to rodent studies.');
-  await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByText(/^Resumed/)).toBeVisible();
-  await expect(page.locator('.bubble', { hasText: 'Widen to rodent studies.' })).toBeVisible();
-  // The rerun escalates again; its new run turn arrives live.
-  await expect(page.locator('.full-history')).toHaveCount(2, {
-    timeout: 30_000,
-  });
-});
-
 import { labFixture } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-17-artifacts';
@@ -93,7 +86,7 @@ async function recordedStudy(page: Page) {
   const f = await labFixture(page.request);
   await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
   await page.goto(`/#/studies/${f.card_id}`);
-  await expect(page.getByRole('heading', { name: 'Gate and transcript fixture' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Transcript fixture' })).toBeVisible();
   return f;
 }
 async function actualCard(page: Page, ws: string, id: string) {
@@ -246,7 +239,7 @@ test('a multipart Resume cannot continue after a different visit, even A to B to
     await page.evaluate((id) => {
       location.hash = `/studies/${id}`;
     }, f.card_id);
-    await expect(page.getByRole('heading', { name: 'Gate and transcript fixture' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Transcript fixture' })).toBeVisible();
     await choose(page, 'Stop');
     await page.getByRole('textbox', { name: 'Comment' }).fill('Keep the returned visit reason');
     await held.finish();

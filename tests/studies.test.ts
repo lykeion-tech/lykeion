@@ -84,7 +84,7 @@ function card(extra: Partial<Card> = {}): Card {
     scope_to: 'reporting',
     teams: {},
     redos: 0,
-    off_label: false,
+    off_label: [],
     ...extra,
   };
 }
@@ -291,13 +291,10 @@ describe('composer actions', () => {
   });
   it('labels the chosen action', () => {
     expect(actionLabel({ kind: 'comment' })).toBe('Comment');
-    expect(actionLabel({ kind: 'close' })).toBe('Close');
+    expect(actionLabel({ kind: 'stop' })).toBe('Stop');
   });
-  it('offers Comment and Close to a blocked study', () => {
-    expect(blockedActions(card({ flag: 'escalated', block_kind: 'low_score' }))).toEqual([
-      'comment',
-      'close',
-    ]);
+  it('offers only Comment to a blocked study', () => {
+    expect(blockedActions(card({ flag: 'escalated', block_kind: 'low_score' }))).toEqual(['comment']);
     expect(blockedActions(card())).toEqual([]);
   });
 });

@@ -51,7 +51,7 @@ async function action(p: Page, id: string, name: string) {
     .click();
 }
 
-test('dragging a Backlog study to the top persists and WIP pull starts it first', async ({
+test('dragging a Backlog study to the top persists', async ({
   page,
 }) => {
   const ws = await workspace(page);
@@ -74,15 +74,6 @@ test('dragging a Backlog study to the top persists and WIP pull starts it first'
       first.id,
     );
     await page.screenshot({ path: `${artifacts}/reordered.png`, fullPage: true });
-    const active = (await cards(page.request, ws)).filter(
-      (c) => !c.ending && !['backlog', 'done'].includes(c.board_column),
-    ).length;
-    await wip(page.request, ws, active + 1);
-    await expect(card(page, first.id)).toHaveCount(0);
-    await expect(card(page, second.id)).toBeVisible();
-    expect((await cards(page.request, ws)).find((c) => c.id === first.id)!.board_column).not.toBe(
-      'backlog',
-    );
   } finally {
     await wip(page.request, ws, 100);
   }

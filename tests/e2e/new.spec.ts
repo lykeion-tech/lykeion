@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LAB, labWorkspace } from './lab';
+import { LAB, labTeam, labWorkspace } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-14-artifacts';
 
@@ -103,7 +103,10 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   ).toBe(204);
   const parentResponse = await page.request.post('/api/cards', {
     headers,
-    data: { question: 'An active parent for the edit fixture?' },
+    data: {
+      question: 'An active parent for the edit fixture?',
+      assignee: { type: 'team', teams: { grounding: await labTeam(page.request, ws.id) } },
+    },
   });
   expect(parentResponse.status()).toBe(201);
   const parent = (await parentResponse.json()) as { id: string };

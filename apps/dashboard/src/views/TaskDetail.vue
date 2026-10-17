@@ -180,7 +180,6 @@ const placeholders: Record<ComposerAction['kind'], string> = {
   comment: 'Leave a comment… the stage roles read it next round.',
   stop: 'Why the study stops.',
   resume: 'Optional: a comment for the next round.',
-  close: 'Why the study closes.',
 };
 // Actions that send without text; any text goes first as a comment.
 const textOptional: ComposerAction['kind'][] = ['resume'];
@@ -260,7 +259,6 @@ async function send() {
   if (busy.value || (!text && !optional) || !c.value) return;
   if (a.kind === 'stop' && !confirm(`Stop ${number.value}? Ended studies are never reopened.`))
     return;
-  if (a.kind === 'close' && !confirm(`Close ${number.value}? It ends as Stopped.`)) return;
   const scope = mutationScope();
   const ownDraftRevision = draftRevision;
   const base = `/api/cards/${scope.id}`;
@@ -276,7 +274,6 @@ async function send() {
     if (!scope.current()) return;
     if (a.kind === 'stop') await api('POST', `${base}/stop`, { reason: text });
     if (a.kind === 'resume') await api('POST', `${base}/resume`);
-    if (a.kind === 'close') await api('POST', `${base}/close`, { reason: text });
     if (!scope.current()) return;
     if (ownDraftRevision === draftRevision) {
       comment.value = '';
@@ -625,15 +622,6 @@ function pin() {
               <div v-if="picker === 'main'" class="action-menu" role="menu" aria-label="Actions">
                 <button type="button" role="menuitem" @click="pick({ kind: 'comment' })">
                   Comment<small>next round</small>
-                </button>
-                <button
-                  v-if="blocked.includes('close')"
-                  type="button"
-                  role="menuitem"
-                  class="danger"
-                  @click="pick({ kind: 'close' })"
-                >
-                  Close<small>ends as Stopped</small>
                 </button>
                 <button
                   v-if="!blocked.length"

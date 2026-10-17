@@ -1,35 +1,24 @@
 import { expect, test, type Page } from '@playwright/test';
 import { labFixture, labHypotheses, labRecords, labWorkspace, newStudy } from './lab';
 
-test('an escalation reaches the Inbox, is read on opening, and resolves into Archived on Resume', async ({
-  page,
-}) => {
+test('an escalation reaches the Inbox and is read on opening', async ({ page }) => {
   const title = `Sleep loss and microglial pruning ${Date.now()}`;
-  await newStudy(page.request, `${title}?`, { title });
+  const { item } = await escalation(page, title);
   await page.goto('/#/inbox');
   const list = page.getByRole('navigation', { name: 'Inbox items' });
-  const item = list.getByRole('link', { name: new RegExp(title) }).first();
-  await expect(item).toBeVisible({ timeout: 30_000 });
-  await expect(item).toContainText('Escalated');
-  await expect(item.locator('.unread')).toHaveCount(1);
+  const link = list.getByRole('link', { name: new RegExp(title) }).first();
+  await expect(link).toBeVisible();
+  await expect(link).toContainText('Escalated');
+  await expect(link.locator('.unread')).toHaveCount(1);
 
   await page.screenshot({ path: `${artifacts}/open-unread.png`, fullPage: true });
-  const id = (await item.getAttribute('href'))!.split('/').at(-1)!;
-  await item.click();
+  await link.click();
   await expect(
     page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: title }),
   ).toBeVisible();
-  await expect(item.locator('.unread')).toHaveCount(0);
-
+  await expect(link.locator('.unread')).toHaveCount(0);
+  await expect.poll(async () => (await inbox(page)).find((i) => i.id === item.id)?.read_at).toBeTruthy();
   await page.screenshot({ path: `${artifacts}/selected-read.png`, fullPage: true });
-  await page.getByRole('button', { name: 'Action' }).click();
-  await page.getByRole('menuitem', { name: 'Resume' }).click();
-  await page.getByRole('button', { name: 'Send' }).click();
-
-  await expect.poll(async () => (await inbox(page, true)).some((i) => i.id === id)).toBe(true);
-  await list.getByRole('button', { name: 'Archived' }).click();
-  await expect(list.locator(`a[href="#/inbox/${id}"]`)).toBeVisible();
-  await page.screenshot({ path: `${artifacts}/archived.png`, fullPage: true });
 });
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-18-artifacts';

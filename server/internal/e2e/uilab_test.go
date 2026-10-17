@@ -345,16 +345,13 @@ func TestUILab(t *testing.T) {
 
 // uiFixture names persisted rows, so browser assertions read the real APIs.
 type uiFixture struct {
-	WorkspaceID   uuid.UUID `json:"workspace_id"`
-	CardID        uuid.UUID `json:"card_id"`
-	RunID         uuid.UUID `json:"run_id"`
-	GateID        uuid.UUID `json:"gate_id"`
-	LongReason    string    `json:"long_reason"`
-	PassThreshold float64   `json:"pass_threshold"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	RunID       uuid.UUID `json:"run_id"`
 }
 
 func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
-	f := uiFixture{WorkspaceID: uuid.New(), LongReason: strings.Repeat("The recorded evidence leaves this question unresolved. ", 80) + "END OF LONG JEV REASON", PassThreshold: 0.70}
+	f := uiFixture{WorkspaceID: uuid.New()}
 	u, err := st.Global().UpsertUserByEmail(ctx, labEmail)
 	if err != nil {
 		return f, err
@@ -374,7 +371,7 @@ func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
 		if err != nil {
 			return err
 		}
-		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: n, OwnerID: u.ID, Title: "Gate and transcript fixture", Question: "What remains unresolved in the recorded evidence?", FollowsFrom: []uuid.UUID{}})
+		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: n, OwnerID: u.ID, Title: "Transcript fixture", Question: "What remains unresolved in the recorded evidence?", FollowsFrom: []uuid.UUID{}})
 		if err != nil {
 			return err
 		}
@@ -446,20 +443,6 @@ func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
 		if err := tx.Q.SaveCardBoard(ctx, s.Params(c.ID, ws)); err != nil {
 			return err
 		}
-		gate := map[string]any{"column": "grounding", "round": 1, "input_digest": "browser-fixture", "verdict": "fail", "reason": f.LongReason,
-			"checks": []map[string]any{
-				{"id": "evidence.zero", "judge": "jev", "result": "fail", "model": "jev-1.13.0", "question": "Does the recorded evidence support the claim?", "choice": "supports", "p": 0, "note": f.LongReason},
-				{"id": "evidence.unknown", "judge": "jev", "result": "attention", "model": "jev-1.13.0", "question": "Does the historical answer have a recorded probability?", "choice": "unclear", "note": "No probability was recorded."},
-			}}
-		body, err := json.Marshal(gate)
-		if err != nil {
-			return err
-		}
-		rec, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: ws, CardID: c.ID, BoardColumn: board.Grounding, Round: 1, Kind: "gate", Role: "system", Body: body})
-		if err != nil {
-			return err
-		}
-		f.GateID = rec.ID
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]string{"column": board.Grounding, "flag": board.Escalated})
 	})
 	return f, err

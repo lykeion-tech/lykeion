@@ -4,7 +4,13 @@ import { labFixture } from './lab';
 async function inFixture(page: Page) {
   const f = await labFixture(page.request);
   await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
-  return { 'X-Workspace-ID': f.workspace_id };
+  const headers = { 'X-Workspace-ID': f.workspace_id };
+  const agent = await page.request.post('/api/agents', {
+    headers,
+    data: { name: 'Watcher', harness: 'claude' },
+  });
+  expect(agent.status()).toBe(201);
+  return headers;
 }
 
 type Detail = {
@@ -32,6 +38,7 @@ test('a template opens the editor, and the schedule reaches the server as cron',
     'Literature watch',
   );
   await dialog.getByRole('textbox', { name: 'Runbook' }).fill('Find new papers on ALDH1A3.');
+  await dialog.getByRole('combobox', { name: 'Agent' }).selectOption({ label: 'Watcher' });
   await dialog.getByRole('button', { name: /Run only/ }).click();
   await dialog.getByLabel('Scheduled time').fill('07:30');
   await dialog.getByRole('combobox', { name: 'Schedule days' }).selectOption('week');
@@ -78,6 +85,7 @@ test('a webhook trigger shows its URL once, and Delete removes the autoresearch'
   const dialog = page.getByRole('dialog', { name: 'New autoresearch' });
   await dialog.getByRole('textbox', { name: 'Autoresearch name' }).fill('On new results');
   await dialog.getByRole('textbox', { name: 'Runbook' }).fill('Open a study for each result.');
+  await dialog.getByRole('combobox', { name: 'Agent' }).selectOption({ label: 'Watcher' });
   await dialog.getByRole('button', { name: 'Webhook' }).click();
   await dialog.getByRole('button', { name: 'Create autoresearch' }).click();
   await expect(dialog).toHaveCount(0);

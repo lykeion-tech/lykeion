@@ -10,7 +10,13 @@ import { useRouter } from 'vue-router';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { useAutoresearch, useAutoresearches, useAutoresearchRuns, useMe } from '../api/queries';
+import {
+  useAgents,
+  useAutoresearch,
+  useAutoresearches,
+  useAutoresearchRuns,
+  useMe,
+} from '../api/queries';
 import type { Autoresearch } from '../api/types';
 import Modal from '../components/Modal.vue';
 import Icon from '../components/Icon.vue';
@@ -65,6 +71,12 @@ const templates = [
     text: 'Verify claims, citations, and figures against the evidence',
   },
 ];
+const agents = useAgents();
+const assignable = computed(() =>
+  (agents.data.value ?? []).filter(
+    (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
+  ),
+);
 const modes = [
   { id: 'create_card', name: 'Create a study', text: 'Each run puts a new study on the board' },
   { id: 'run_only', name: 'Run only', text: 'Each run reports back, no study created' },
@@ -73,6 +85,7 @@ const modes = [
 const editor = ref(false),
   name = ref(''),
   runbook = ref(''),
+  agentId = ref(''),
   mode = ref<Autoresearch['execution_mode']>('create_card'),
   trigger = ref<'schedule' | 'webhook'>('schedule'),
   editingCron = ref(false),
@@ -98,6 +111,7 @@ function blankSchedule(): Schedule {
 function open(preset = '') {
   name.value = preset;
   runbook.value = '';
+  agentId.value = '';
   mode.value = 'create_card';
   trigger.value = 'schedule';
   editingCron.value = false;
@@ -112,6 +126,7 @@ const invalid = computed(
     busy.value ||
     !name.value.trim() ||
     !runbook.value.trim() ||
+    !agentId.value ||
     (trigger.value === 'schedule' && !!scheduleError(schedule)),
 );
 
@@ -125,6 +140,7 @@ async function create() {
       title: name.value.trim(),
       description: runbook.value,
       execution_mode: mode.value,
+      assignee: { type: 'agent', id: agentId.value },
     });
     // ponytail: two requests; a refused trigger leaves the autoresearch without one, said in a notice.
     try {
@@ -307,6 +323,13 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
             aria-label="Runbook"
             placeholder="# Goal&#10;What should the agent accomplish?&#10;&#10;# Steps&#10;1. ..."
           />
+        </label>
+        <label
+          >Agent <small>Works every run</small
+          ><select v-model="agentId" required aria-label="Agent">
+            <option value="" disabled>Choose an agent</option>
+            <option v-for="a in assignable" :key="a.id" :value="a.id">{{ a.name }}</option>
+          </select>
         </label>
         <span class="field-label">Output</span>
         <div class="choice-row">

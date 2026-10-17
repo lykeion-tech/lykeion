@@ -15,13 +15,12 @@ test('the study page shows the question, the run turn, events, comments and the 
   ).toBeVisible();
   await expect(main.getByText(question)).toBeVisible();
 
-  // The lab's agent arrives live: one run turn, its two commands, its text, the escalation line.
-  await expect(main.getByText('Scoper', { exact: true })).toBeVisible({ timeout: 30_000 });
+  // The lab's leader arrives live: one run turn, its two commands and its text.
+  await expect(main.getByText('Leader', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   await expect(main.getByText('Claude Code on lab-mac')).toBeVisible();
   await main.locator('.run-activity:not(.full-history) > summary').first().click();
-  await expect(main.getByText('lyk card show', { exact: true })).toBeVisible();
+  await expect(main.getByText('lyk card show', { exact: true }).first()).toBeVisible();
   await expect(main.getByText('Read the card; the lab script stops here.')).toBeVisible();
-  await expect(main.getByText('Escalated: waiting for a person')).toBeVisible();
 
   await main
     .getByRole('textbox', { name: 'Comment' })
@@ -67,11 +66,12 @@ test('long text and many records never scroll the study page sideways', async ({
   const title = `${'A very long study title about beta-cell dedifferentiation '.repeat(4)}${Date.now()}`;
   const study = await newStudy(page.request, question, { title });
   await page.goto(`/#/studies/${study.id}`);
-  await expect(page.getByText('Escalated: waiting for a person')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Leader', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   await labRecords(page.request, study.id, 40);
   await page.reload();
   await expect(page.locator('.record-line .key').filter({ hasText: /^E\d+$/ })).toHaveCount(40);
-  await expect(page.locator('.record-line')).toHaveCount(41);
+  // Each of the leader's two stopped runs left a failure record beside the 40.
+  await expect(page.locator('.record-line')).toHaveCount(42);
   const overflow = await page.evaluate(() => ({
     page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     transcript: (() => {

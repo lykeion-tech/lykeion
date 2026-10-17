@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LAB, labCode, labFixture, labSignIn } from './lab';
+import { LAB, labCode, labFixture, labSignIn, labTeam } from './lab';
 import type { AgentRun, RunMessage } from '../../apps/dashboard/src/api/types';
 
 test('the dashboard origin reaches the lab server through its proxy', async ({ request }) => {
@@ -80,20 +80,25 @@ test('the lab daemon records a failed result and the engine files an Inbox item'
   const headers = { 'X-Workspace-ID': workspace.id };
   const cardResponse = await request.post('/api/cards', {
     headers,
-    data: { question: 'Can the lab record a real failed execution?' },
+    data: {
+      question: 'Can the lab record a real failed execution?',
+      assignee: { type: 'team', teams: { grounding: await labTeam(request, workspace.id) } },
+    },
   });
   expect(cardResponse.status()).toBe(201);
   const card = await cardResponse.json();
   await expect
     .poll(
       async () => {
-        const res = await request.get(`/api/cards/${card.id}`, { headers });
+        const res = await request.get('/api/inbox', { headers });
         expect(res.status()).toBe(200);
-        return (await res.json()).flag;
+        return ((await res.json()) ?? []).some(
+          (i: { card_id: string; kind: string }) => i.card_id === card.id && i.kind === 'escalated',
+        );
       },
       { timeout: 30_000 },
     )
-    .toBe('escalated');
+    .toBe(true);
   const inbox = await request.get('/api/inbox', { headers });
   expect(inbox.status()).toBe(200);
   expect(await inbox.json()).toEqual(
