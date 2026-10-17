@@ -15,7 +15,7 @@ import (
 
 type Claude struct{ Bin string }
 
-const claudeTools = "Read,Glob,Grep,Bash(lyk:*),mcp__lyk_sources"
+const claudeTools = "Read,Glob,Grep,Bash(lyk:*),mcp__lyk_door"
 
 // claudeAllowed lets a role call the add-on servers' tools beside its own,
 // under the names the daemon writes them with.

@@ -28,6 +28,11 @@ type ExecOptions struct {
 	// Inherit runs the CLI as the account's own: its sign-in, history, personal
 	// settings, skills, instructions, hooks and MCP all apply. Nothing is copied.
 	Inherit bool
+	// SkillsFrom is a folder of skill folders Lykeion staged for this run.
+	// Each time the scratch is prepared they are copied afresh into the run
+	// folder's skills folder, but only for a run that inherits the account's
+	// setup; the account's own skills folder is never written.
+	SkillsFrom string
 	// ReadOnly lets the CLI's own tools read, but not write files or run
 	// commands that change anything.
 	ReadOnly bool

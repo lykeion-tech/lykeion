@@ -160,6 +160,9 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 		}
 	}
 	if o.Inherit {
+		if err = placeSkills(o, harness); err != nil {
+			return "", cleanup, err
+		}
 		// The account's own config home stays authoritative; no sign-in copy.
 		success = true
 		return home, cleanup, nil
