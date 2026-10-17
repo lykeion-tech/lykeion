@@ -123,10 +123,7 @@ export interface StudyRecord {
 // The body of a record of kind "gate" (server/internal/board/gate.go).
 export interface GateCheck {
   id: string;
-  judge: 'code' | 'jev' | 'reviewer' | 'fallback';
-  independence?: 'different_family' | 'same_family';
-  judge_harness?: string;
-  judge_model?: string;
+  judge: 'code' | 'jev' | 'reviewer';
   owner?: string;
   to?: string;
   result: 'pass' | 'fail' | 'attention';
@@ -136,6 +133,19 @@ export interface GateCheck {
   p?: number;
   choice?: string;
   note?: string;
+}
+// The body of a record of kind "choice": who answered one gate question.
+export interface Choice {
+  question: string;
+  candidates: Record<string, string>;
+  answer?: string;
+  p?: Record<string, number>;
+  model?: string;
+  input_hash: string;
+  judge: 'jev' | 'reviewer' | 'fallback';
+  independence?: 'different_family' | 'same_family';
+  judge_harness?: string;
+  judge_model?: string;
 }
 export interface Gate {
   column: Column;

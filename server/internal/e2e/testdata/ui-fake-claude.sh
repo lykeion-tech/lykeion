@@ -16,8 +16,9 @@ esac
 # demo-<column>-reviewer. Each author writes its column's note and each
 # reviewer passes it, so a study on that Team moves on until one of the Team's
 # own checks fails it.
-demo=$(printf '%s' "$prompt" | grep -o 'You are the demo-[a-z]*-[a-z]* role' | head -n 1 | sed 's/^You are the //; s/ role$//')
-if [ -n "$demo" ]; then
+case "$prompt" in *"You are the demo-"*)
+  demo=$(printf '%s' "$prompt" | grep -o 'You are the demo-[a-z]*-[a-z]* role' | head -n 1 | sed 's/^You are the //; s/ role$//')
+  [ -n "$demo" ] || exit 1
   case "$demo" in
     *-author)
       col=${demo#demo-}; col=${col%-author}
@@ -28,8 +29,8 @@ if [ -n "$demo" ]; then
   d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/fake"
   mkdir -p "$d" && : > "$d/s.jsonl"
   echo '{"type":"result","is_error":false,"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.01}}}'
-  exit 0
-fi
+  exit 0 ;;
+esac
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"## Recorded observations\n\nThe lab reads **recorded evidence** before deciding what follows.\n\n- Inspect the current study\n- Keep source identity intact\n\nSee [the documentation](https://example.com/research) and literal citation [1]."}]}}'
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"lyk card show"}}]}}'
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Recorded lab reasoning remains collapsed by default."}]}}'

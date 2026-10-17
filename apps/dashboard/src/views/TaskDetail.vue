@@ -622,7 +622,7 @@ function pin() {
               <div class="gate-line gate-check">
                 <span :class="checkLine(check).tone">{{ checkLine(check).mark }}</span
                 ><span class="name">{{ checkLine(check).name }}</span
-                ><span class="why">{{ checkLine(check).why }}</span
+                ><span class="why">{{ checkLine(check, records.data.value).why }}</span
                 ><button
                   v-if="checkLine(check).jev"
                   class="text-button more"

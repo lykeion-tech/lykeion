@@ -183,6 +183,7 @@ import {
 import type {
   AgentRun,
   BlockKind,
+  Choice,
   Comment,
   GateCheck,
   LykEvent,
@@ -306,13 +307,29 @@ describe('gates', () => {
       result: 'attention',
       note: 'second-hand',
     };
+    const choice = (question: string, extra: Partial<Choice>) =>
+      rec(
+        'choice',
+        { question, candidates: {}, input_hash: 'h', judge: 'jev', ...extra },
+        question,
+      );
+    const sameFamily = choice('E5', { judge: 'reviewer', independence: 'same_family' });
+    const fallback = choice('E5', { judge: 'fallback', independence: 'different_family' });
     expect(checkLine(base).why).toBe('second-hand');
-    expect(checkLine({ ...base, independence: 'different_family' }).why).toBe('second-hand');
-    expect(checkLine({ ...base, independence: 'same_family' }).why).toBe(
+    expect(checkLine(base, [choice('E5', { judge: 'jev' })]).why).toBe('second-hand');
+    expect(checkLine(base, [choice('E6', { judge: 'fallback' })]).why).toBe('second-hand');
+    expect(checkLine(base, [sameFamily]).why).toBe(
       'second-hand · judged by the reviewer (stand-in, same model family)',
     );
-    expect(checkLine({ ...base, judge: 'fallback' }).why).toBe(
+    expect(checkLine(base, [fallback]).why).toBe('second-hand · judged by the reviewer (stand-in)');
+    expect(checkLine(base, [{ ...fallback, superseded_at: '2026-10-15T11:00:00Z' }]).why).toBe(
+      'second-hand',
+    );
+    expect(checkLine({ ...base, id: 'E7', question: 'E5' }, [fallback]).why).toBe(
       'second-hand · judged by the reviewer (stand-in)',
+    );
+    expect(checkLine({ ...base, note: undefined }, [fallback]).why).toBe(
+      'judged by the reviewer (stand-in)',
     );
   });
 });

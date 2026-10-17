@@ -34,7 +34,7 @@ describe('event to query map', () => {
     }
   });
   it('an uploaded or approved Team refreshes the Teams list', () => {
-    for (const type of ['pack.uploaded', 'pack.approved']) has(type, keys.packs('w1'), null);
+    for (const type of ['pack.uploaded', 'pack.approved']) has(type, ['ws', 'w1', 'packs'], null);
   });
   it('a deleted card, named only in the payload, still refreshes its own queries', () => {
     const deleted = { ...ev('card.deleted', null), payload: { card_id: 'c9' } };

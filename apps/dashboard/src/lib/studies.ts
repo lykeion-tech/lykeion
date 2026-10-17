@@ -2,6 +2,7 @@ import type {
   BlockKind,
   Card,
   CareerStage,
+  Choice,
   Column,
   AgentRun,
   Comment,
@@ -177,22 +178,27 @@ export const gateOf = (r: StudyRecord) => r.body as unknown as Gate;
 // Jev's verdict bands.
 export const jevThresholds = { pass: 0.7, fail: 0.35 };
 
-// A check the reviewer settled in Jev's place, or on the authors' own model
-// family, says so on its line.
-function standIn(c: GateCheck): string {
-  if (c.independence === 'same_family')
-    return ' · judged by the reviewer (stand-in, same model family)';
-  return c.judge === 'fallback' ? ' · judged by the reviewer (stand-in)' : '';
+// A check whose question was answered in Jev's place, or by a reviewer on the
+// authors' own model family, says so: the live choice record for that
+// question, in the gate's column, holds who judged it.
+function standIn(c: GateCheck, records: StudyRecord[]): string {
+  const choice = records
+    .filter((r) => r.kind === 'choice' && !r.superseded_at)
+    .map((r) => r.body as unknown as Choice)
+    .find((ch) => ch.question === c.id || (c.question && ch.question === c.question));
+  if (choice?.independence === 'same_family')
+    return 'judged by the reviewer (stand-in, same model family)';
+  return choice?.judge === 'fallback' ? 'judged by the reviewer (stand-in)' : '';
 }
 
-export function checkLine(c: GateCheck) {
+export function checkLine(c: GateCheck, records: StudyRecord[] = []) {
   const tone: 'ok' | 'bad' | 'att' =
     c.result === 'pass' ? 'ok' : c.result === 'fail' ? 'bad' : 'att';
   return {
     mark: { ok: '✓', bad: '✗', att: '!' }[tone],
     tone,
     name: c.id,
-    why: (c.note ?? '') + standIn(c),
+    why: [c.note, standIn(c, records)].filter(Boolean).join(' · '),
     jev: c.judge === 'jev' && Boolean(c.question),
   };
 }
