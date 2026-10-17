@@ -103,7 +103,8 @@ func autoresearchCmd(e *env) *cobra.Command {
 		}
 	}
 
-	var mode, description, template string
+	var mode, description, template, agent, from, to string
+	var teams []string
 	create := &cobra.Command{Use: "create TITLE", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
@@ -114,6 +115,27 @@ func autoresearchCmd(e *env) *cobra.Command {
 		var out apView
 		in := map[string]any{"title": strings.Join(a, " "), "execution_mode": mode, "description": description,
 			"title_template": template}
+		assignee := map[string]any{"type": "agent", "id": agent}
+		if len(teams) > 0 {
+			byColumn := map[string]string{}
+			for _, t := range teams {
+				col, id, ok := strings.Cut(t, "=")
+				if !ok {
+					return errors.New("--team takes COLUMN=TEAM_ID")
+				}
+				byColumn[col] = id
+			}
+			assignee = map[string]any{"type": "team", "teams": byColumn}
+			if agent != "" {
+				assignee["agent_id"] = agent
+			}
+		} else if agent == "" {
+			return errors.New("--agent or --team is required")
+		}
+		in["assignee"] = assignee
+		if from != "" || to != "" {
+			in["scope"] = map[string]string{"from": from, "to": to}
+		}
 		if err := e.client().Do(cmd.Context(), "POST", "/api/autoresearch", in, &out); err != nil {
 			return err
 		}
@@ -122,6 +144,10 @@ func autoresearchCmd(e *env) *cobra.Command {
 	}}
 	create.Flags().StringVar(&mode, "mode", "", "create_card (open a Backlog card) or run_only (run one agent that reports)")
 	create.Flags().StringVar(&description, "description", "", "what the Autoresearch asks for; a create_card card's question")
+	create.Flags().StringVar(&agent, "agent", "", "the assigned agent's id; with --team, the agent for the columns no Team covers")
+	create.Flags().StringArrayVar(&teams, "team", nil, "COLUMN=TEAM_ID; repeat for a Team set")
+	create.Flags().StringVar(&from, "from", "", "first column of the studies it opens")
+	create.Flags().StringVar(&to, "to", "", "last column of the studies it opens")
 	create.Flags().StringVar(&template, "template", "", "card title template; {{date}} is the run's day")
 
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, _ []string) error {

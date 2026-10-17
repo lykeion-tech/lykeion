@@ -16,8 +16,8 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-// createCard opens the run's Backlog card. WIP pull pulls it under the
-// WIP limit and gates move it from there; nothing here places it in a stage.
+// createCard opens the run's study. One assigned an agent or a Team starts in
+// its first column at once; one with no assignee waits in Backlog.
 func (s *Service) createCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r db.AutoresearchRun) error {
 	title, err := s.title(ctx, tx, ap, r)
 	if err != nil {
@@ -31,7 +31,11 @@ func (s *Service) createCard(ctx context.Context, tx *store.Tx, ap db.Autoresear
 	if r.Source == "webhook" {
 		payload = r.Payload
 	}
-	c, err := s.openCard(ctx, tx, ap, r, title, question, payload)
+	if ap.AssigneeType != nil && !s.assigneeReady(ctx, tx, ap, r.ActingUserID) {
+		r.Status, r.Reason = "failed", "assignee_unavailable"
+		return s.setRun(ctx, tx, r)
+	}
+	c, err := s.openCard(ctx, tx, ap, r, title, question, payload, true)
 	if errors.Is(err, ErrAlreadyActive) {
 		r.Status, r.Reason = "skipped", "already_active"
 		return s.setRun(ctx, tx, r)
@@ -75,9 +79,12 @@ func (s *Service) title(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r
 // refused while an active card this Autoresearch opened has the same title, and
 // the Autoresearch's first card is also refused when it duplicates any active
 // card, as a person's card would be. Each later card follows the one this
-// Autoresearch opened last. A webhook payload is kept as a record in Backlog,
-// where no gate reads it as evidence.
-func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, run db.AutoresearchRun, title, question string, payload json.RawMessage) (db.Card, error) {
+// Autoresearch opened last, when the study is end-to-end (no other study may
+// follow). A webhook payload is kept as a record in Backlog, where no gate reads
+// it as evidence. With assign set, the study takes the Autoresearch's assignee
+// and scope and its first column's run is queued in this transaction.
+func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, run db.AutoresearchRun, title, question string, payload json.RawMessage, assign bool) (db.Card, error) {
+	assign = assign && ap.AssigneeType != nil
 	// Two runs opening cards at once must see each other's card.
 	if err := lockWorkspace(ctx, tx); err != nil {
 		return db.Card{}, err
@@ -94,7 +101,9 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 	prev, err := tx.Q.LastOriginCard(ctx, db.LastOriginCardParams{WorkspaceID: tx.WS, Origin: origin})
 	switch {
 	case err == nil:
-		follows = append(follows, prev)
+		if !assign || (ap.ScopeFrom == board.Grounding && ap.ScopeTo == board.Reporting) {
+			follows = append(follows, prev)
+		}
 	case !errors.Is(err, pgx.ErrNoRows):
 		return db.Card{}, err
 	default:
@@ -110,10 +119,26 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 	if err != nil {
 		return db.Card{}, err
 	}
-	c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: tx.WS, Number: n, Title: title, Question: question,
-		OwnerID: run.ActingUserID, FollowsFrom: follows})
+	p := db.CreateCardParams{WorkspaceID: tx.WS, Number: n, Title: title, Question: question,
+		OwnerID: run.ActingUserID, FollowsFrom: follows}
+	if assign {
+		p.AssigneeType, p.AssigneeID, p.ScopeFrom, p.ScopeTo = ap.AssigneeType, ap.AssigneeID, ap.ScopeFrom, ap.ScopeTo
+		p.BoardColumn, p.Round = ap.ScopeFrom, 1
+	}
+	c, err := tx.Q.CreateCard(ctx, p)
 	if err != nil {
 		return db.Card{}, err
+	}
+	if assign {
+		teams, err := tx.Q.AutoresearchTeams(ctx, db.AutoresearchTeamsParams{WorkspaceID: tx.WS, AutoresearchID: ap.ID})
+		if err != nil {
+			return db.Card{}, err
+		}
+		for _, t := range teams {
+			if err := tx.Q.InsertCardTeam(ctx, db.InsertCardTeamParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: t.BoardColumn, PackID: t.PackID}); err != nil {
+				return db.Card{}, err
+			}
+		}
 	}
 	if err := tx.Q.SetCardOrigin(ctx, db.SetCardOriginParams{Origin: origin, ID: c.ID, WorkspaceID: tx.WS}); err != nil {
 		return db.Card{}, err
@@ -129,5 +154,29 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 			return db.Card{}, err
 		}
 	}
+	if assign && s.Engine != nil {
+		if err := s.Engine.Start(ctx, tx, c); err != nil {
+			return db.Card{}, err
+		}
+	}
 	return c, s.notify(ctx, tx, ap, &c.ID, run.ID, "autoresearch_card", fmt.Sprintf("%s opened #%d %s", ap.Title, c.Number, c.Title))
+}
+
+// assigneeReady is whether the person a run acts as can still work with the
+// Autoresearch's assignee: an agent they may use, or each Team added for them.
+func (s *Service) assigneeReady(ctx context.Context, tx *store.Tx, ap db.Autoresearch, actor uuid.UUID) bool {
+	if _, err := s.assignedAgent(ctx, tx, ap, actor); err != nil {
+		return false
+	}
+	teams, err := tx.Q.AutoresearchTeams(ctx, db.AutoresearchTeamsParams{WorkspaceID: tx.WS, AutoresearchID: ap.ID})
+	if err != nil {
+		return false
+	}
+	for _, t := range teams {
+		have, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: t.PackID, UserID: actor})
+		if err != nil || len(have) == 0 {
+			return false
+		}
+	}
+	return true
 }

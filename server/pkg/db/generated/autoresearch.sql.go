@@ -198,6 +198,41 @@ func (q *Queries) AutoresearchStaleRuns(ctx context.Context, at time.Time) ([]Au
 	return items, nil
 }
 
+const autoresearchTeams = `-- name: AutoresearchTeams :many
+SELECT board_column, pack_id FROM autoresearch_team
+WHERE workspace_id = $1 AND autoresearch_id = $2
+`
+
+type AutoresearchTeamsParams struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	AutoresearchID uuid.UUID `json:"autoresearch_id"`
+}
+
+type AutoresearchTeamsRow struct {
+	BoardColumn string    `json:"board_column"`
+	PackID      uuid.UUID `json:"pack_id"`
+}
+
+func (q *Queries) AutoresearchTeams(ctx context.Context, arg AutoresearchTeamsParams) ([]AutoresearchTeamsRow, error) {
+	rows, err := q.db.Query(ctx, autoresearchTeams, arg.WorkspaceID, arg.AutoresearchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AutoresearchTeamsRow
+	for rows.Next() {
+		var i AutoresearchTeamsRow
+		if err := rows.Scan(&i.BoardColumn, &i.PackID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const autoresearchWebhookLookup = `-- name: AutoresearchWebhookLookup :one
 SELECT trigger_id::uuid AS trigger_id, workspace_id::uuid AS workspace_id FROM autoresearch_webhook_lookup($1::text)
 `
@@ -261,18 +296,24 @@ func (q *Queries) ClaimWebhookDeliveries(ctx context.Context, n int32) ([]ClaimW
 }
 
 const createAutoresearch = `-- name: CreateAutoresearch :one
-INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template,
+  assignee_type, assignee_id, scope_from, scope_to)
+VALUES ($1, $2, $3, $4, $5, $6,
+  $7, $8, $9, $10)
 RETURNING id, workspace_id, owner_id, title, description, execution_mode, title_template, status, pause_reason, created_at, assignee_type, assignee_id, scope_from, scope_to
 `
 
 type CreateAutoresearchParams struct {
-	WorkspaceID   uuid.UUID `json:"workspace_id"`
-	OwnerID       uuid.UUID `json:"owner_id"`
-	Title         string    `json:"title"`
-	Description   string    `json:"description"`
-	ExecutionMode string    `json:"execution_mode"`
-	TitleTemplate string    `json:"title_template"`
+	WorkspaceID   uuid.UUID  `json:"workspace_id"`
+	OwnerID       uuid.UUID  `json:"owner_id"`
+	Title         string     `json:"title"`
+	Description   string     `json:"description"`
+	ExecutionMode string     `json:"execution_mode"`
+	TitleTemplate string     `json:"title_template"`
+	AssigneeType  *string    `json:"assignee_type"`
+	AssigneeID    *uuid.UUID `json:"assignee_id"`
+	ScopeFrom     string     `json:"scope_from"`
+	ScopeTo       string     `json:"scope_to"`
 }
 
 func (q *Queries) CreateAutoresearch(ctx context.Context, arg CreateAutoresearchParams) (Autoresearch, error) {
@@ -283,6 +324,10 @@ func (q *Queries) CreateAutoresearch(ctx context.Context, arg CreateAutoresearch
 		arg.Description,
 		arg.ExecutionMode,
 		arg.TitleTemplate,
+		arg.AssigneeType,
+		arg.AssigneeID,
+		arg.ScopeFrom,
+		arg.ScopeTo,
 	)
 	var i Autoresearch
 	err := row.Scan(
@@ -395,18 +440,19 @@ func (q *Queries) DeleteTrigger(ctx context.Context, arg DeleteTriggerParams) (i
 }
 
 const enqueueAutoresearchAgentRun = `-- name: EnqueueAutoresearchAgentRun :one
-INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, run_private)
-VALUES ($1, 'autoresearch', $2::uuid, $2::uuid, '', 0, 'autoresearch', $3, $4, $5, 2, $6)
+INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, run_private, requested_model)
+VALUES ($1, 'autoresearch', $2::uuid, $2::uuid, '', 0, 'autoresearch', $3, $4, $5, 2, $6, $7)
 RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model
 `
 
 type EnqueueAutoresearchAgentRunParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	RequesterID uuid.UUID `json:"requester_id"`
-	Harness     string    `json:"harness"`
-	Prompt      string    `json:"prompt"`
-	Skill       string    `json:"skill"`
-	RunPrivate  bool      `json:"run_private"`
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	RequesterID    uuid.UUID `json:"requester_id"`
+	Harness        string    `json:"harness"`
+	Prompt         string    `json:"prompt"`
+	Skill          string    `json:"skill"`
+	RunPrivate     bool      `json:"run_private"`
+	RequestedModel string    `json:"requested_model"`
 }
 
 // An autoresearch agent run: no card, claimed by its requester's runtimes, paid by them.
@@ -419,6 +465,7 @@ func (q *Queries) EnqueueAutoresearchAgentRun(ctx context.Context, arg EnqueueAu
 		arg.Prompt,
 		arg.Skill,
 		arg.RunPrivate,
+		arg.RequestedModel,
 	)
 	var i AgentRun
 	err := row.Scan(
@@ -718,6 +765,28 @@ func (q *Queries) InsertAutoresearchInboxItem(ctx context.Context, arg InsertAut
 		arg.Kind,
 		arg.Text,
 		arg.AutoresearchRunID,
+	)
+	return err
+}
+
+const insertAutoresearchTeam = `-- name: InsertAutoresearchTeam :exec
+INSERT INTO autoresearch_team (workspace_id, autoresearch_id, board_column, pack_id)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertAutoresearchTeamParams struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	AutoresearchID uuid.UUID `json:"autoresearch_id"`
+	BoardColumn    string    `json:"board_column"`
+	PackID         uuid.UUID `json:"pack_id"`
+}
+
+func (q *Queries) InsertAutoresearchTeam(ctx context.Context, arg InsertAutoresearchTeamParams) error {
+	_, err := q.db.Exec(ctx, insertAutoresearchTeam,
+		arg.WorkspaceID,
+		arg.AutoresearchID,
+		arg.BoardColumn,
+		arg.PackID,
 	)
 	return err
 }

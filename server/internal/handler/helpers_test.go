@@ -70,7 +70,7 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 	h.AgentRuns = &service.AgentRuns{Store: st, MCPURL: "http://test/mcp/sources", Stale: time.Second}
 	h.Blobs = storage.Local{Dir: t.TempDir()}
 	h.Engine = &flow.Engine{Store: st, AgentRuns: h.AgentRuns, Blobs: h.Blobs}
-	h.Autoresearch = &autoresearch.Service{Store: st, AgentRuns: h.AgentRuns, Key: bytes.Repeat([]byte{7}, 32)}
+	h.Autoresearch = &autoresearch.Service{Store: st, AgentRuns: h.AgentRuns, Key: bytes.Repeat([]byte{7}, 32), Engine: h.Engine}
 	h.AgentRuns.OnSettled = h.Autoresearch.OnSettled(h.Engine.OnSettled)
 	h.KindsFor = flow.KindsFor
 	srv := httptest.NewServer(NewRouter(h))

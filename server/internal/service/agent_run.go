@@ -50,7 +50,7 @@ func Scopes(kind string) []string {
 // AutoresearchAgentRun is an Autoresearch's run_only agent run. It has no card, and only its
 // requester's runtimes claim it.
 type AutoresearchAgentRun struct {
-	Harness, Prompt, Skill string
+	Harness, Model, Prompt, Skill string
 	// RunPrivate makes the daemon run F2's private isolation whatever the
 	// workspace's mode: set when the prompt carries a webhook payload.
 	RunPrivate bool
@@ -64,7 +64,7 @@ func (s *AgentRuns) EnqueueAutoresearch(ctx context.Context, tx *store.Tx, reque
 		return db.AgentRun{}, err
 	}
 	t, err := tx.Q.EnqueueAutoresearchAgentRun(ctx, db.EnqueueAutoresearchAgentRunParams{WorkspaceID: tx.WS, RequesterID: requester,
-		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, RunPrivate: n.RunPrivate})
+		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, RunPrivate: n.RunPrivate, RequestedModel: n.Model})
 	if err != nil {
 		return t, err
 	}

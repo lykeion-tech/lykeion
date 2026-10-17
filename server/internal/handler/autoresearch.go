@@ -96,10 +96,12 @@ func (h *H) autoresearchTx(w http.ResponseWriter, r *http.Request, edit bool, fn
 }
 
 type autoresearchIn struct {
-	Title         *string `json:"title"`
-	Description   *string `json:"description"`
-	ExecutionMode string  `json:"execution_mode"`
-	TitleTemplate *string `json:"title_template"`
+	Title         *string     `json:"title"`
+	Description   *string     `json:"description"`
+	ExecutionMode string      `json:"execution_mode"`
+	TitleTemplate *string     `json:"title_template"`
+	Assignee      *assigneeIn `json:"assignee"`
+	Scope         *scopeIn    `json:"scope"`
 }
 
 // apply checks the fields given and writes them onto ap.
@@ -150,16 +152,40 @@ func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ap db.Autoresearch
-	if err := in.apply(&ap); err != nil {
+	err := in.apply(&ap)
+	if err == nil && (in.Assignee == nil || in.Assignee.Type == "member") {
+		err = cardInputError("assignee must be an agent or a Team")
+	}
+	if err == nil {
+		err = checkAssigneeShape(in.Assignee)
+	}
+	var from, to string
+	if err == nil {
+		from, to, err = resolveScope(newCard{Assignee: in.Assignee, Scope: in.Scope})
+	}
+	if err != nil {
 		answer(w, r, err)
 		return
 	}
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		var err error
-		ap, err = tx.Q.CreateAutoresearch(r.Context(), db.CreateAutoresearchParams{WorkspaceID: ws, OwnerID: user, Title: ap.Title,
-			Description: ap.Description, ExecutionMode: in.ExecutionMode, TitleTemplate: ap.TitleTemplate})
-		if err != nil {
+	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if err := checkAssigneeRefs(r, tx, ws, user, in.Assignee); err != nil {
 			return err
+		}
+		p := db.CreateAutoresearchParams{WorkspaceID: ws, OwnerID: user, Title: ap.Title, Description: ap.Description,
+			ExecutionMode: in.ExecutionMode, TitleTemplate: ap.TitleTemplate, AssigneeType: &in.Assignee.Type, AssigneeID: in.Assignee.AgentID,
+			ScopeFrom: from, ScopeTo: to}
+		if in.Assignee.Type == "agent" {
+			p.AssigneeID = in.Assignee.ID
+		}
+		var err error
+		if ap, err = tx.Q.CreateAutoresearch(r.Context(), p); err != nil {
+			return err
+		}
+		for col, pack := range in.Assignee.Teams {
+			if err := tx.Q.InsertAutoresearchTeam(r.Context(), db.InsertAutoresearchTeamParams{WorkspaceID: ws, AutoresearchID: ap.ID,
+				BoardColumn: col, PackID: pack}); err != nil {
+				return err
+			}
 		}
 		return tx.Emit(r.Context(), "autoresearch.created", nil, store.User(user), map[string]any{"autoresearch_id": ap.ID, "title": ap.Title})
 	})
@@ -224,6 +250,9 @@ func (h *H) updateAutoresearch(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.ExecutionMode != "" {
 			return cardInputError("execution_mode cannot change; create another autoresearch")
+		}
+		if in.Assignee != nil || in.Scope != nil {
+			return cardInputError("the assignee and scope cannot change; create another autoresearch")
 		}
 		if err := in.apply(&ap); err != nil {
 			return err

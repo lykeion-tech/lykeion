@@ -54,6 +54,9 @@ func (s *server) member(t *testing.T, owner, wsID, email, role string) string {
 
 func (s *server) autoresearch(t *testing.T, tok, wsID string, in map[string]any) apView {
 	t.Helper()
+	if in["assignee"] == nil {
+		in["assignee"] = map[string]any{"type": "agent", "id": s.newAgent(t, tok, wsID, "ap-"+uuid.NewString()[:8], "claude")}
+	}
 	var ap apView
 	if code := s.call(t, "POST", "/api/autoresearch", tok, wsID, in, &ap); code != 201 {
 		t.Fatalf("create autoresearch: %d", code)
@@ -105,7 +108,7 @@ func TestAutoresearchEditRights(t *testing.T) {
 	}
 	var c card
 	s.call(t, "GET", "/api/cards/"+*run.CardID, a, w.ID, nil, &c)
-	if c.OwnerID != s.userID(t, m) || c.BoardColumn != "backlog" {
+	if c.OwnerID != s.userID(t, m) || c.BoardColumn != "grounding" {
 		t.Fatalf("the card belongs to the clicker: %+v", c)
 	}
 	if code := s.call(t, "POST", path+"/pause", d, w.ID, map[string]any{"reason": "holiday"}, nil); code != 200 {
@@ -261,6 +264,7 @@ func TestAutoresearchRenderedTemplateBoundary(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "templater", "claude")
 	for _, tc := range []struct {
 		template string
 		code     int
@@ -270,7 +274,8 @@ func TestAutoresearchRenderedTemplateBoundary(t *testing.T) {
 		{strings.Repeat("x", 180) + "{{date}}{{date}}", 201},
 		{strings.Repeat("x", 181) + "{{date}}{{date}}", 400},
 	} {
-		if code := s.call(t, "POST", "/api/autoresearch", a, w.ID, map[string]any{"title": "Digest", "execution_mode": "create_card", "title_template": tc.template}, nil); code != tc.code {
+		if code := s.call(t, "POST", "/api/autoresearch", a, w.ID, map[string]any{"title": "Digest", "execution_mode": "create_card", "title_template": tc.template,
+			"assignee": map[string]any{"type": "agent", "id": agent}}, nil); code != tc.code {
 			t.Fatalf("template %q: %d want %d", tc.template, code, tc.code)
 		}
 	}

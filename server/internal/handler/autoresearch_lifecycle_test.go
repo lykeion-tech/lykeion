@@ -7,6 +7,10 @@ func TestDeletingGeneratedBacklogCardSettlesRunAtomically(t *testing.T) {
 	a := s.signIn(t, "deletecard@lab.org")
 	w := s.workspace(t, a, "lab")
 	ap := s.autoresearch(t, a, w.ID, map[string]any{"title": "Delete me", "execution_mode": "create_card"})
+	// Only an unassigned study waits in Backlog, where a card can be deleted.
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE autoresearch SET assignee_type = NULL, assignee_id = NULL`); err != nil {
+		t.Fatal(err)
+	}
 	var run runView
 	if code := s.call(t, "POST", "/api/autoresearch/"+ap.ID+"/run", a, w.ID, nil, &run); code != 201 || run.CardID == nil {
 		t.Fatalf("run: %d %+v", code, run)
@@ -76,6 +80,7 @@ func TestReadingAutoresearchInboxResolvesAndArchives(t *testing.T) {
 	if code := s.call(t, "POST", "/api/autoresearch/"+ap.ID+"/run", a, w.ID, nil, &run); code != 201 {
 		t.Fatal(code)
 	}
+	s.dropStudyRuns(t)
 	_, _, token, _ := s.runOnly(t, a, w.ID)
 	if code := s.call(t, "POST", "/api/role/report", token, "", map[string]string{"text": "Read this"}, nil); code != 201 {
 		t.Fatal(code)
@@ -127,5 +132,14 @@ func TestRuleDeletionAfterCancellationPreservesLateSettlement(t *testing.T) {
 	complete()
 	if s.count(t, `SELECT count(*) FROM agent_run WHERE id=$1 AND status='cancelled'`, *run.AgentRunID) != 1 {
 		t.Fatal("cancelled run receipt lost")
+	}
+}
+
+// dropStudyRuns removes the agent runs an assigned study started, so a test of
+// what happens to its card is not about a study with work in flight.
+func (s *server) dropStudyRuns(t *testing.T) {
+	t.Helper()
+	if _, err := s.Env.Owner.Exec(t.Context(), `DELETE FROM agent_run WHERE card_id IS NOT NULL`); err != nil {
+		t.Fatal(err)
 	}
 }

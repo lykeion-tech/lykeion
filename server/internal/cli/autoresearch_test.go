@@ -54,9 +54,10 @@ func TestAutoresearchCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := lyk(t, "", "autoresearch", "create", "--mode", "create_card", "--description", "What changed?", "Weekly", "digest")
+	out := lyk(t, "", "autoresearch", "create", "--mode", "create_card", "--description", "What changed?", "--team", "grounding=p1", "--team", "reporting=p2", "--agent", "a1", "Weekly", "digest")
 	if b := last().Body; last().Path != "/api/autoresearch" || b["title"] != "Weekly digest" || b["execution_mode"] != "create_card" ||
-		b["description"] != "What changed?" || !strings.Contains(out, id) {
+		b["description"] != "What changed?" || !strings.Contains(out, id) ||
+		fmt.Sprint(b["assignee"]) != "map[agent_id:a1 teams:map[grounding:p1 reporting:p2] type:team]" {
 		t.Fatalf("create: %+v %q", last(), out)
 	}
 	out = lyk(t, "whsec\n", "autoresearch", "webhook", id[:8], "--provider", "github", "--secret-stdin", "--filter", "pull_request:opened,closed", "--filter", "push")

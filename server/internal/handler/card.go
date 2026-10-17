@@ -90,6 +90,46 @@ func resolveScope(in newCard) (from, to string, err error) {
 	return from, to, nil
 }
 
+// checkAssigneeShape refuses an assignee whose fields don't fit its type.
+func checkAssigneeShape(a *assigneeIn) error {
+	if a == nil {
+		return nil
+	}
+	switch a.Type {
+	case "member", "agent":
+		if a.ID == nil {
+			return cardInputError("assignee id required")
+		}
+		if a.Teams != nil || a.AgentID != nil {
+			return cardInputError("a member or agent assignee takes only an id")
+		}
+	case "team":
+		if a.ID != nil {
+			return cardInputError("a Team assignee takes teams and agent_id, not id")
+		}
+	default:
+		return cardInputError("assignee type must be member, agent or team")
+	}
+	return nil
+}
+
+// checkAssigneeRefs refuses an assignee the person cannot assign: a member or
+// agent they cannot see, or a Team they have not added.
+func checkAssigneeRefs(r *http.Request, tx *store.Tx, ws, user uuid.UUID, a *assigneeIn) error {
+	if a.Type != "team" {
+		return checkAssignee(r, tx, ws, user, a.Type, *a.ID)
+	}
+	for _, pack := range a.Teams {
+		if err := checkTeamAdded(r, tx, ws, user, pack); err != nil {
+			return err
+		}
+	}
+	if a.AgentID != nil {
+		return checkAssignee(r, tx, ws, user, "agent", *a.AgentID)
+	}
+	return nil
+}
+
 // checkAssignee refuses a member or agent the creator cannot assign.
 func checkAssignee(r *http.Request, tx *store.Tx, ws, creator uuid.UUID, typ string, id uuid.UUID) error {
 	if typ == "member" {
@@ -208,21 +248,8 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if err == nil && len(in.FollowsFrom) > 0 && (from != board.Grounding || to != board.Reporting) {
 		err = cardInputError("only an end-to-end study can follow from another")
 	}
-	if err == nil && in.Assignee != nil {
-		switch in.Assignee.Type {
-		case "member", "agent":
-			if in.Assignee.ID == nil {
-				err = cardInputError("assignee id required")
-			} else if in.Assignee.Teams != nil || in.Assignee.AgentID != nil {
-				err = cardInputError("a member or agent assignee takes only an id")
-			}
-		case "team":
-			if in.Assignee.ID != nil {
-				err = cardInputError("a Team assignee takes teams and agent_id, not id")
-			}
-		default:
-			err = cardInputError("assignee type must be member, agent or team")
-		}
+	if err == nil {
+		err = checkAssigneeShape(in.Assignee)
 	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
@@ -244,23 +271,12 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to,
 		}
 		if a := in.Assignee; a != nil {
-			switch a.Type {
-			case "team":
-				for _, pack := range a.Teams {
-					if err := checkTeamAdded(r, tx, ws, user, pack); err != nil {
-						return err
-					}
-				}
+			if err := checkAssigneeRefs(r, tx, ws, user, a); err != nil {
+				return err
+			}
+			if a.Type == "team" {
 				params.AssigneeType, params.AssigneeID = &a.Type, a.AgentID
-				if a.AgentID != nil {
-					if err := checkAssignee(r, tx, ws, user, "agent", *a.AgentID); err != nil {
-						return err
-					}
-				}
-			default:
-				if err := checkAssignee(r, tx, ws, user, a.Type, *a.ID); err != nil {
-					return err
-				}
+			} else {
 				params.AssigneeType, params.AssigneeID = &a.Type, a.ID
 			}
 			if a.Type != "member" {

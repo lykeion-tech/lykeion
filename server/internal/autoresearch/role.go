@@ -55,5 +55,5 @@ func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid
 	if err != nil {
 		return db.Card{}, err
 	}
-	return s.openCard(ctx, tx, ap, r, title, question, nil)
+	return s.openCard(ctx, tx, ap, r, title, question, nil, false)
 }

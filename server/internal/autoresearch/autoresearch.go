@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -21,7 +22,8 @@ import (
 type Service struct {
 	Store     *store.Store
 	AgentRuns *service.AgentRuns
-	Key       []byte // opens webhook signing secrets; nil when LYK_SECRET_KEY is unset
+	Engine    *flow.Engine // starts the studies a run opens; nil leaves them unstarted
+	Key       []byte       // opens webhook signing secrets; nil when LYK_SECRET_KEY is unset
 	Now       func() time.Time
 }
 

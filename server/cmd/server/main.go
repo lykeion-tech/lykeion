@@ -156,7 +156,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	if err != nil {
 		return err
 	}
-	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Key: secretKey}
+	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Engine: engine, Key: secretKey}
 	runs.OnSettled = ap.OnSettled(engine.OnSettled)
 	conn := &connectors.Client{HTTP: connectors.Guarded(), Secret: secretKey, Contact: getenv("CONTACT_EMAIL")}
 	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},

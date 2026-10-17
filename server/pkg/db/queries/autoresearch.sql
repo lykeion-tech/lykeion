@@ -1,7 +1,17 @@
 -- name: CreateAutoresearch :one
-INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template)
-VALUES (@workspace_id, @owner_id, @title, @description, @execution_mode, @title_template)
+INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template,
+  assignee_type, assignee_id, scope_from, scope_to)
+VALUES (@workspace_id, @owner_id, @title, @description, @execution_mode, @title_template,
+  sqlc.narg(assignee_type), sqlc.narg(assignee_id), @scope_from, @scope_to)
 RETURNING *;
+
+-- name: InsertAutoresearchTeam :exec
+INSERT INTO autoresearch_team (workspace_id, autoresearch_id, board_column, pack_id)
+VALUES (@workspace_id, @autoresearch_id, @board_column, @pack_id);
+
+-- name: AutoresearchTeams :many
+SELECT board_column, pack_id FROM autoresearch_team
+WHERE workspace_id = @workspace_id AND autoresearch_id = @autoresearch_id;
 
 -- name: GetAutoresearch :one
 SELECT * FROM autoresearch WHERE workspace_id = @workspace_id AND id = @id;
@@ -173,8 +183,8 @@ SELECT EXISTS (SELECT 1 FROM runtime WHERE workspace_id = @workspace_id AND owne
 -- An autoresearch agent run: no card, claimed by its requester's runtimes, paid by them.
 -- Its continuity scope stays empty: one-shot, never resumed.
 -- name: EnqueueAutoresearchAgentRun :one
-INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, run_private)
-VALUES (@workspace_id, 'autoresearch', @requester_id::uuid, @requester_id::uuid, '', 0, 'autoresearch', @harness, @prompt, @skill, 2, @run_private)
+INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, run_private, requested_model)
+VALUES (@workspace_id, 'autoresearch', @requester_id::uuid, @requester_id::uuid, '', 0, 'autoresearch', @harness, @prompt, @skill, 2, @run_private, @requested_model)
 RETURNING *;
 
 -- name: InsertAutoresearchInboxItem :exec

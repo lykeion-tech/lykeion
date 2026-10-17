@@ -2,14 +2,18 @@ package autoresearch
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/fence"
 	"lykeion/server/internal/flow"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/skills"
 	"lykeion/server/internal/store"
@@ -36,7 +40,14 @@ func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch,
 	if err != nil {
 		return err
 	}
-	harness := flow.ParseSettings(w.Settings).HarnessFor(Role)
+	harness, model, instructions := flow.ParseSettings(w.Settings).HarnessFor(Role), "", ""
+	if ap.AssigneeType != nil {
+		a, err := s.assignedAgent(ctx, tx, ap, r.ActingUserID)
+		if err != nil {
+			return end("failed", "assignee_unavailable")
+		}
+		harness, model, instructions = a.Harness, a.Model, a.Instructions
+	}
 	// The agent run always carries the sources server, which the Antigravity adapter
 	// refuses before it starts.
 	if harness == "antigravity" {
@@ -64,9 +75,14 @@ func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch,
 	if err != nil {
 		return err
 	}
+	skill := skills.Role(Role, "run-only")
+	if strings.TrimSpace(instructions) != "" {
+		skill = strings.TrimSpace(instructions) + "\n\n" + skill
+	}
 	// Only a webhook run's prompt carries outside data; that run is isolated.
-	t, err := s.AgentRuns.EnqueueAutoresearch(ctx, tx, r.ActingUserID, service.AutoresearchAgentRun{Harness: harness,
-		Prompt: prompt(ap, r, u.Email, cards), Skill: skills.Role(Role, "run-only"), RunPrivate: r.Source == "webhook"})
+	t, err := s.AgentRuns.EnqueueAutoresearch(ctx, tx, r.ActingUserID, service.AutoresearchAgentRun{Harness: harness, Model: model,
+		Prompt: prompt(ap, r, u.Email, cards), Skill: skill,
+		RunPrivate: r.Source == "webhook"})
 	if err != nil {
 		return err
 	}
@@ -79,6 +95,44 @@ func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch,
 	r.Status, r.Reason, r.AgentRunID = "running", "", &t.ID
 	return s.setRun(ctx, tx, r)
 }
+
+// assignedAgent is the agent a run of the Autoresearch works as: its assigned
+// agent, or the leader of its Team on the first column (the Team set's agent
+// where no Team covers that column). A Team's leader is the acting user's own
+// copy of that Team's leader agent.
+func (s *Service) assignedAgent(ctx context.Context, tx *store.Tx, ap db.Autoresearch, actor uuid.UUID) (db.Agent, error) {
+	teams, err := tx.Q.AutoresearchTeams(ctx, db.AutoresearchTeamsParams{WorkspaceID: tx.WS, AutoresearchID: ap.ID})
+	if err != nil {
+		return db.Agent{}, err
+	}
+	packID := uuid.Nil
+	for _, t := range teams {
+		if t.BoardColumn == ap.ScopeFrom {
+			packID = t.PackID
+		}
+	}
+	if packID == uuid.Nil {
+		if ap.AssigneeID == nil {
+			return db.Agent{}, errNoAssignee
+		}
+		a, err := tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: tx.WS, ID: *ap.AssigneeID})
+		if err == nil && a.ArchivedAt != nil {
+			err = errNoAssignee
+		}
+		return a, err
+	}
+	row, err := tx.Q.GetFieldPack(ctx, db.GetFieldPackParams{WorkspaceID: tx.WS, ID: packID})
+	if err != nil {
+		return db.Agent{}, err
+	}
+	var m pack.Manifest
+	if err := json.Unmarshal(row.Manifest, &m); err != nil {
+		return db.Agent{}, err
+	}
+	return tx.Q.GetTeamAgent(ctx, db.GetTeamAgentParams{WorkspaceID: tx.WS, PackID: packID, UserID: actor, Member: m.Leader.Name})
+}
+
+var errNoAssignee = errors.New("the assigned agent is unavailable")
 
 // prompt is a run_only agent run's per-run context. Every member sees every card,
 // so the board snapshot is the workspace's active cards.
