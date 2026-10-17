@@ -172,10 +172,10 @@ func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		p := db.CreateAutoresearchParams{WorkspaceID: ws, OwnerID: user, Title: ap.Title, Description: ap.Description,
-			ExecutionMode: in.ExecutionMode, TitleTemplate: ap.TitleTemplate, AssigneeType: &in.Assignee.Type, AssigneeID: in.Assignee.AgentID,
+			ExecutionMode: in.ExecutionMode, TitleTemplate: ap.TitleTemplate, AssigneeType: &in.Assignee.Type, AssigneeID: in.Assignee.ID,
 			ScopeFrom: from, ScopeTo: to}
-		if in.Assignee.Type == "agent" {
-			p.AssigneeID = in.Assignee.ID
+		if in.Assignee.Type == "team" {
+			p.AssigneeID = in.Assignee.AgentID
 		}
 		var err error
 		if ap, err = tx.Q.CreateAutoresearch(r.Context(), p); err != nil {

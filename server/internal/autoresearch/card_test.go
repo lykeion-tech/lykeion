@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/store"
 )
 
@@ -156,5 +157,24 @@ func TestRunNowActsAsTheClicker(t *testing.T) {
 	r, err := f.s.RunNow(context.Background(), f.ws, ap, clicker)
 	if err != nil || r.Source != "manual" || r.ActingUserID != clicker || r.Status != "running" || r.CardID == nil || r.TriggerID != nil || f.card(t, *r.CardID).OwnerID != clicker {
 		t.Fatalf("%+v %v", r, err)
+	}
+}
+
+func TestAStudyThatCannotStartFailsTheRunAndLeavesNoCard(t *testing.T) {
+	f := setup(t)
+	f.s.Engine = &flow.Engine{Store: f.s.Store, AgentRuns: f.s.AgentRuns}
+	var agent uuid.UUID
+	if err := f.env.Owner.QueryRow(context.Background(), `INSERT INTO agent (workspace_id, name, harness, owner_id) VALUES ($1, 'a', 'claude', $2) RETURNING id`,
+		f.ws, f.owner).Scan(&agent); err != nil {
+		t.Fatal(err)
+	}
+	ap := f.autoresearch(t, "create_card", "Weekly", "What is new?", "")
+	f.exec(t, `UPDATE autoresearch SET assignee_type = 'agent', assignee_id = $1 WHERE id = $2`, agent, ap)
+	// Starting the study queues an agent run; make that insert fail.
+	f.exec(t, `CREATE FUNCTION refuse_run() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'no runs'; END $$`)
+	f.exec(t, `CREATE TRIGGER refuse_run BEFORE INSERT ON agent_run FOR EACH ROW EXECUTE FUNCTION refuse_run()`)
+	r := f.fire(t, ap, Admission{})
+	if reason(r) != "failed/assignee_unavailable" || r.CardID != nil || f.count(t, `SELECT count(*) FROM card`) != 0 {
+		t.Fatalf("%s card=%v", reason(r), r.CardID)
 	}
 }

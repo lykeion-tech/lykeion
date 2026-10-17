@@ -107,6 +107,26 @@ func (s *Service) setRun(ctx context.Context, tx *store.Tx, r db.AutoresearchRun
 // queued, or already has its card or agent run, is left alone, so a repeated or
 // concurrent dispatch acts once.
 func (s *Service) Dispatch(ctx context.Context, ws, id uuid.UUID) error {
+	err := s.dispatch(ctx, ws, id)
+	if !errors.Is(err, errStartFailed) {
+		return err
+	}
+	// The failed attempt left nothing behind; record why, so a retry does not
+	// fail the same way again.
+	return s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		if err := lockWorkspace(ctx, tx); err != nil {
+			return err
+		}
+		r, err := tx.Q.LockRun(ctx, db.LockRunParams{WorkspaceID: ws, ID: id})
+		if err != nil || r.Status != "queued" {
+			return err
+		}
+		r.Status, r.Reason = "failed", "assignee_unavailable"
+		return s.setRun(ctx, tx, r)
+	})
+}
+
+func (s *Service) dispatch(ctx context.Context, ws, id uuid.UUID) error {
 	return s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		if err := lockWorkspace(ctx, tx); err != nil {
 			return err

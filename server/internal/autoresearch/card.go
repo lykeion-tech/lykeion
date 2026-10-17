@@ -16,6 +16,10 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
+// errStartFailed marks a study whose first column could not be started. The
+// dispatch rolls back, card included, and ends the run failed.
+var errStartFailed = errors.New("the study cannot start")
+
 // createCard opens the run's study. One assigned an agent or a Team starts in
 // its first column at once; one with no assignee waits in Backlog.
 func (s *Service) createCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r db.AutoresearchRun) error {
@@ -156,7 +160,7 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 	}
 	if assign && s.Engine != nil {
 		if err := s.Engine.Start(ctx, tx, c); err != nil {
-			return db.Card{}, err
+			return db.Card{}, fmt.Errorf("%w: %v", errStartFailed, err)
 		}
 	}
 	return c, s.notify(ctx, tx, ap, &c.ID, run.ID, "autoresearch_card", fmt.Sprintf("%s opened #%d %s", ap.Title, c.Number, c.Title))
