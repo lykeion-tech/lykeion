@@ -38,6 +38,7 @@ type boardLab struct {
 	engine *round.Engine
 	ap     *autoresearch.Service
 	hosted *sources.Hosted
+	h      *handler.H
 	url    string
 	ws     uuid.UUID
 	owner  uuid.UUID
@@ -113,8 +114,9 @@ func newBoardLab(t *testing.T) *boardLab {
 	t.Cleanup(geo.Close)
 	l.hosted = &sources.Hosted{Store: l.st, Blobs: blobs, GEO: sources.GEO{Base: geo.URL, HTTP: geo.Client()}}
 	iss := auth.Issuer{Secret: []byte("s"), TTL: time.Hour}
-	srv := httptest.NewServer(handler.NewRouter(&handler.H{Store: l.st, JWT: iss, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
-		Autoresearch: l.ap, AgentRuns: runs, Blobs: blobs, KindsFor: round.KindsFor, Engine: l.engine, Sources: l.hosted.Handler()}))
+	l.h = &handler.H{Store: l.st, JWT: iss, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
+		Autoresearch: l.ap, AgentRuns: runs, Blobs: blobs, KindsFor: round.KindsFor, Engine: l.engine, Sources: l.hosted.Handler()}
+	srv := httptest.NewServer(handler.NewRouter(l.h))
 	t.Cleanup(srv.Close)
 	runs.MCPURL = srv.URL + "/mcp/sources"
 	l.url = srv.URL

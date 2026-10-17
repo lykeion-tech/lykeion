@@ -87,6 +87,22 @@ case "$prompt" in
       lyk review verdict --result pass --reason "scope, coverage and fit are adequate"
     fi ;;
 esac
+# The demo pack's roles are demo-<column>-author and demo-<column>-reviewer.
+# Each author writes its column's note; where LYK_TEST_SKIP_NOTE names the
+# column it reports nothing found instead, which the column's check fails.
+# Each reviewer passes.
+demo=$(printf '%s' "$prompt" | grep -o 'You are the demo-[a-z]*-[a-z]* role' | head -n 1 | sed 's/^You are the //; s/ role$//')
+case "$demo" in
+  demo-*-author)
+    col=${demo#demo-}; col=${col%-author}
+    if [ "$LYK_TEST_SKIP_NOTE" = "$col" ]; then
+      lyk result nothing-found --reason "no $col note this time" || exit 1
+    else
+      printf 'The %s note.\n' "$col" | lyk ground notes || exit 1
+    fi ;;
+  demo-*-reviewer)
+    lyk review verdict --result pass --reason "the note is there" || exit 1 ;;
+esac
 # Hypotheses roles act only in tests that ask for them; other tests leave the
 # card waiting in Hypotheses.
 if [ -n "$LYK_TEST_HYPOTHESES" ]; then
