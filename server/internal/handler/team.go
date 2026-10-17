@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -24,16 +25,6 @@ type storeTeam struct {
 func (h *H) listTeams(w http.ResponseWriter, r *http.Request) {
 	out := []storeTeam{}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		// Shipped Teams reach the workspace's table the first time its store
-		// is read; the lock keeps two readers from inserting the same version.
-		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
-			return err
-		}
-		for _, name := range pack.ShippedNames(h.Shipped) {
-			if _, err := pack.EnsureShipped(r.Context(), tx, h.Blobs, h.Shipped, name); err != nil {
-				return err
-			}
-		}
 		rows, err := tx.Q.StoreTeams(r.Context(), db.StoreTeamsParams{WorkspaceID: ws, UserID: user,
 			Domain: r.URL.Query().Get("domain"), Stage: r.URL.Query().Get("stage")})
 		if err != nil {
@@ -127,35 +118,45 @@ func (h *H) createTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Admin = agentAdmin(r)
+	var m pack.Manifest
+	err := h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) (err error) {
+		in.User = user
+		m, err = team.FromForm(r.Context(), tx, in)
+		return teamInput(err)
+	})
+	if !answer(w, r, err) {
+		return
+	}
+	z, err := pack.Zip(m, nil)
+	var p *pack.Pack
+	if err == nil {
+		if p, err = pack.Parse(z); err != nil {
+			err = cardInputError(err.Error())
+		}
+	}
+	var key string
+	if err == nil {
+		key, err = pack.PutBlob(r.Context(), h.Blobs, middleware.WorkspaceFrom(r.Context()).ID, z, p.SHA256)
+	}
 	var row db.FieldPack
 	var agents []db.Agent
-	err := h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) error {
-		in.User = user
-		m, err := team.FromForm(r.Context(), tx, in)
-		if err != nil {
-			return teamInput(err)
-		}
-		z, err := pack.Zip(m, nil)
-		if err != nil {
+	if err == nil {
+		err = h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) error {
+			var err error
+			if row, err = h.insertUpload(r, tx, user, key, p); err != nil {
+				return err
+			}
+			if err := tx.Emit(r.Context(), "team.created", nil, store.User(user), map[string]any{"pack_id": row.ID}); err != nil {
+				return err
+			}
+			rows, err := team.Add(r.Context(), tx, row, p.Manifest, user)
+			if err != nil {
+				return teamInput(err)
+			}
+			agents, err = teamAgents(r, tx, rows)
 			return err
-		}
-		p, err := pack.Parse(z)
-		if err != nil {
-			return cardInputError(err.Error())
-		}
-		if row, err = h.insertUpload(r, tx, user, z, p); err != nil {
-			return err
-		}
-		if err := tx.Emit(r.Context(), "team.created", nil, store.User(user), map[string]any{"pack_id": row.ID}); err != nil {
-			return err
-		}
-		rows, err := team.Add(r.Context(), tx, row, p.Manifest, user)
-		if err != nil {
-			return teamInput(err)
-		}
-		agents, err = teamAgents(r, tx, rows)
-		return err
-	})
+		})
+	}
 	if answer(w, r, err) {
 		writeJSON(w, 201, map[string]any{"id": row.ID, "name": row.Name, "version": row.Version, "sha256": row.Sha256, "agents": agents})
 	}

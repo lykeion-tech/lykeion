@@ -106,6 +106,19 @@ func (s *server) newCard(t *testing.T, tok, wsID string, in map[string]any) (int
 	return code, c, e.Error
 }
 
+// shipOne files a shipped pack the way a deployment that ships Teams would.
+func shipOne(ctx context.Context, tx *store.Tx, blobs storage.Storage, shipped fs.FS, name string) (db.FieldPack, error) {
+	z, p, err := pack.ReadShipped(shipped, name)
+	if err != nil {
+		return db.FieldPack{}, err
+	}
+	key, err := pack.PutBlob(ctx, blobs, tx.WS, z, p.SHA256)
+	if err != nil {
+		return db.FieldPack{}, err
+	}
+	return pack.Insert(ctx, tx, key, p, nil)
+}
+
 func TestApprovingAShippedPackIsRecordedOnce(t *testing.T) {
 	s := newServer(t)
 	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1", Description: "Demo field"}))
@@ -115,7 +128,7 @@ func TestApprovingAShippedPackIsRecordedOnce(t *testing.T) {
 	var row db.FieldPack
 	err := s.H.Store.InWorkspace(context.Background(), wsID, ana, func(tx *store.Tx) error {
 		var err error
-		row, err = pack.EnsureShipped(context.Background(), tx, s.H.Blobs, s.H.Shipped, "demo")
+		row, err = shipOne(context.Background(), tx, s.H.Blobs, s.H.Shipped, "demo")
 		return err
 	})
 	if err != nil {

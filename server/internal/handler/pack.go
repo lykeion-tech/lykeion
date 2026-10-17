@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -50,10 +51,15 @@ func (h *H) uploadPack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	key, err := pack.PutBlob(r.Context(), h.Blobs, middleware.WorkspaceFrom(r.Context()).ID, z, p.SHA256)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
 	var row db.FieldPack
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
-		if row, err = h.insertUpload(r, tx, user, z, p); err != nil {
+		if row, err = h.insertUpload(r, tx, user, key, p); err != nil {
 			return err
 		}
 		// Only the id: every member sees workspace events, and the upload is its uploader's alone.
@@ -67,7 +73,7 @@ func (h *H) uploadPack(w http.ResponseWriter, r *http.Request) {
 
 // insertUpload stores a parsed archive as user's private upload, refusing a
 // name another Team holds.
-func (h *H) insertUpload(r *http.Request, tx *store.Tx, user uuid.UUID, z []byte, p *pack.Pack) (db.FieldPack, error) {
+func (h *H) insertUpload(r *http.Request, tx *store.Tx, user uuid.UUID, key string, p *pack.Pack) (db.FieldPack, error) {
 	if slices.Contains(pack.ShippedNames(h.Shipped), p.Manifest.Name) {
 		return db.FieldPack{}, conflict("a Team Lykeion ships already has this name")
 	}
@@ -83,7 +89,7 @@ func (h *H) insertUpload(r *http.Request, tx *store.Tx, user uuid.UUID, z []byte
 	if taken {
 		return db.FieldPack{}, conflict("another Team already has this name")
 	}
-	row, err := pack.Insert(r.Context(), tx, h.Blobs, z, p, &user)
+	row, err := pack.Insert(r.Context(), tx, key, p, &user)
 	if isUnique(err) {
 		return row, conflict("this version of the Team is already uploaded")
 	}

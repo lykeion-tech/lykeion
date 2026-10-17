@@ -65,6 +65,13 @@ func FromForm(ctx context.Context, tx *store.Tx, in Form) (pack.Manifest, error)
 	}
 	m := pack.Manifest{Name: in.Name, Version: "1", Description: in.Description, Domain: in.Domain,
 		Stage: in.Stage, Criteria: in.Criteria, Steps: in.Steps}
+	names := map[string]bool{}
+	for _, s := range append([]Slot{in.Leader, in.Auditor}, in.Members...) {
+		if names[s.Name] {
+			return m, fmt.Errorf("%w: the name %q is used by more than one slot", ErrInvalid, s.Name)
+		}
+		names[s.Name] = true
+	}
 	var err error
 	if m.Leader, err = slot(in.Leader); err != nil {
 		return m, err

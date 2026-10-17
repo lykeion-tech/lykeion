@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/google/uuid"
+	"lykeion/server/internal/store"
+	"strings"
 	"testing"
 
 	"lykeion/server/internal/testutil"
@@ -41,11 +45,23 @@ func formFor(leader, auditor, member string) map[string]any {
 
 func TestTheStoreFiltersByDomainAndStage(t *testing.T) {
 	s := newServer(t)
-	s.H.Shipped = shippedFS(t,
+	shipped := shippedFS(t,
 		testutil.Pack(t, testutil.PackOpts{Name: "bio", Domain: "compbio", Stage: "grounding"}),
 		testutil.Pack(t, testutil.PackOpts{Name: "chem", Domain: "compchem", Stage: "hypotheses"}))
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	wsID, ana := uuid.MustParse(w.ID), uuid.MustParse(s.userID(t, a))
+	err := s.H.Store.InWorkspace(context.Background(), wsID, ana, func(tx *store.Tx) error {
+		for _, n := range []string{"bio", "chem"} {
+			if _, err := shipOne(context.Background(), tx, s.H.Blobs, shipped, n); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := s.storeList(t, a, w.ID, ""); len(got) != 2 {
 		t.Fatalf("no filter: %+v", got)
 	}
@@ -163,5 +179,31 @@ func TestAFormTeamWithTheAuditorOnTheLeadersModelIsRefused(t *testing.T) {
 	var e json.RawMessage
 	if c := s.call(t, "POST", "/api/teams", a, w.ID, formFor(lead, aud, mem), &e); c != 400 {
 		t.Fatalf("create: %d %s", c, e)
+	}
+}
+
+func TestReadingTheStoreWritesNothing(t *testing.T) {
+	s := newServer(t)
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "bio"}))
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	if got := s.storeList(t, a, w.ID, ""); len(got) != 0 {
+		t.Fatalf("store %+v", got)
+	}
+	if n := s.count(t, "SELECT count(*) FROM field_pack"); n != 0 {
+		t.Fatalf("a read stored %d packs", n)
+	}
+}
+
+func TestAFormWithARepeatedSlotNameIsRefused(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	lead, aud, mem := s.newAgent(t, a, w.ID, "lead", "claude"), s.newAgent(t, a, w.ID, "aud", "codex"), s.newAgent(t, a, w.ID, "mem", "claude")
+	f := formFor(lead, aud, mem)
+	f["members"].([]any)[0].(map[string]any)["name"] = "pi"
+	var e struct{ Error string }
+	if c := s.call(t, "POST", "/api/teams", a, w.ID, f, &e); c != 400 || !strings.Contains(e.Error, `"pi"`) {
+		t.Fatalf("create: %d %q", c, e.Error)
 	}
 }

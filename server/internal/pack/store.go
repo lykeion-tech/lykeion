@@ -4,14 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -20,15 +17,19 @@ import (
 
 func blobKey(ws uuid.UUID, sha string) string { return ws.String() + "/packs/" + sha }
 
-// Insert stores a parsed archive's blob and its row in tx's workspace. A nil
-// uploadedBy marks a shipped pack.
-func Insert(ctx context.Context, tx *store.Tx, blobs storage.Storage, zipBytes []byte, p *Pack, uploadedBy *uuid.UUID) (db.FieldPack, error) {
+// PutBlob stores the archive under its content address in ws. Call it before
+// the transaction that inserts the row: the key depends only on ws and the
+// archive, and a blob without a row is harmless.
+func PutBlob(ctx context.Context, blobs storage.Storage, ws uuid.UUID, zipBytes []byte, sha string) (string, error) {
+	key := blobKey(ws, sha)
+	return key, blobs.Put(ctx, key, bytes.NewReader(zipBytes), int64(len(zipBytes)))
+}
+
+// Insert writes the row for a parsed archive whose blob PutBlob stored at key.
+// A nil uploadedBy marks a shipped pack.
+func Insert(ctx context.Context, tx *store.Tx, key string, p *Pack, uploadedBy *uuid.UUID) (db.FieldPack, error) {
 	manifest, err := json.Marshal(p.Manifest)
 	if err != nil {
-		return db.FieldPack{}, err
-	}
-	key := blobKey(tx.WS, p.SHA256)
-	if err := blobs.Put(ctx, key, bytes.NewReader(zipBytes), int64(len(zipBytes))); err != nil {
 		return db.FieldPack{}, err
 	}
 	source := "shipped"
@@ -38,20 +39,6 @@ func Insert(ctx context.Context, tx *store.Tx, blobs storage.Storage, zipBytes [
 	return tx.Q.InsertFieldPack(ctx, db.InsertFieldPackParams{WorkspaceID: tx.WS, Name: p.Manifest.Name,
 		Version: p.Manifest.Version, Sha256: p.SHA256, Manifest: manifest, BlobKey: key, Source: source, UploadedBy: uploadedBy,
 		Domain: p.Manifest.Domain, Stage: p.Manifest.Stage})
-}
-
-// EnsureShipped inserts the shipped pack's current version into tx's
-// workspace unless that version is already there, and returns its row.
-func EnsureShipped(ctx context.Context, tx *store.Tx, blobs storage.Storage, shipped fs.FS, name string) (db.FieldPack, error) {
-	z, p, err := ReadShipped(shipped, name)
-	if err != nil {
-		return db.FieldPack{}, err
-	}
-	row, err := tx.Q.GetFieldPackVersion(ctx, db.GetFieldPackVersionParams{WorkspaceID: tx.WS, Name: name, Version: p.Manifest.Version})
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return row, err
-	}
-	return Insert(ctx, tx, blobs, z, p, nil)
 }
 
 // loaded holds parsed packs by archive sha256; the same bytes always parse
