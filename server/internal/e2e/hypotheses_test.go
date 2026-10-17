@@ -310,13 +310,15 @@ func TestUnresolvedMetadataDoesNotAdvance(t *testing.T) {
 	card := l.metadataCard(t)
 	defer l.run(t)()
 	c := l.waitCard(t, card, "unresolved metadata escalation", func(c db.Card) bool { return c.Flag == "escalated" })
-	if c.BoardColumn != "grounding" || c.Rounds != 3 {
+	// The cap of 3 absorbs three failed Grounding gates; the fourth blocks the
+	// card where it stands, without opening another round.
+	if c.BoardColumn != "grounding" || c.Rounds != 4 || c.Cap != 3 || c.RouteBacks != c.Cap+1 || c.BlockKind != "cap" {
 		t.Fatalf("unresolved metadata: %+v", c)
 	}
 	if n := l.count(t, `SELECT count(*) FROM record WHERE card_id=$1 AND (kind IN ('matrix','nothing_found') OR (kind='evidence' AND body->>'source_id'='geo:GSE1') OR (kind='gate' AND body->>'verdict'='pass'))`, card); n != 0 {
 		t.Fatalf("fabricated evidence or advancement: %d", n)
 	}
-	if n := l.count(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='verdict' AND body->>'result'='fail' AND body->>'reason' LIKE '%collection timing remains unknown%'`, card); n != 3 {
+	if n := l.count(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='verdict' AND body->>'result'='fail' AND body->>'reason' LIKE '%collection timing remains unknown%'`, card); n != 4 {
 		t.Fatalf("concrete reviewer failures: %d", n)
 	}
 	if n := l.count(t, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='fetch' AND body->>'source_kind'='dataset_metadata'`, card); n < 1 {
