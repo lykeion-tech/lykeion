@@ -84,6 +84,8 @@ func TestMigrationDeletesStudiesAndPacks(t *testing.T) {
 		{`INSERT INTO inbox_item (workspace_id, user_id, card_id, kind, text) VALUES ($1, $2, $3, 'escalated', 't')`, []any{ws, u, card}},
 		{`INSERT INTO inbox_item (workspace_id, user_id, kind, text) VALUES ($1, $2, 'out_of_budget', 't')`, []any{ws, u}},
 		{`INSERT INTO field_pack (workspace_id, name, version, sha256, manifest, blob_key, source) VALUES ($1, 'p', '1', 'h', '{}', 'k', 'shipped')`, []any{ws}},
+		{`INSERT INTO autoresearch (workspace_id, owner_id, title, execution_mode) VALUES ($1, $2, 't', 'watch_released')`, []any{ws, u}},
+		{`INSERT INTO autoresearch (workspace_id, owner_id, title, execution_mode) VALUES ($1, $2, 'keep', 'run_only')`, []any{ws, u}},
 	} {
 		if _, err := conn.Exec(ctx, q.sql, q.args...); err != nil {
 			t.Fatalf("seed %s: %v", q.sql, err)
@@ -101,26 +103,51 @@ func TestMigrationDeletesStudiesAndPacks(t *testing.T) {
 			t.Errorf("%s kept %d rows", table, n)
 		}
 	}
+	var titles string
+	if err := conn.QueryRow(ctx, `SELECT string_agg(title, ',') FROM autoresearch`).Scan(&titles); err != nil {
+		t.Fatal(err)
+	}
+	if titles != "keep" {
+		t.Errorf("autoresearch rows after migrating: %q, want only the run_only one", titles)
+	}
+}
+
+func TestAutoresearchAssigneeAndScope(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := context.Background()
+	u, ws, _ := seedWorkspace(t, env)
+	var id uuid.UUID
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO autoresearch (workspace_id, owner_id, title, execution_mode)
+		VALUES ($1, $2, 't', 'create_card') RETURNING id`, ws, u).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	_, err := env.Owner.Exec(ctx, `UPDATE autoresearch SET assignee_type = 'agent', assignee_id = NULL WHERE id = $1`, id)
+	wantCode(t, err, "23514", "an agent assignee with no id")
+	_, err = env.Owner.Exec(ctx, `UPDATE autoresearch SET assignee_id = $2 WHERE id = $1`, id, uuid.New())
+	wantCode(t, err, "23514", "an id with no assignee type")
+	_, err = env.Owner.Exec(ctx, `UPDATE autoresearch SET scope_from = 'validation', scope_to = 'hypotheses' WHERE id = $1`, id)
+	wantCode(t, err, "23514", "scope_from after scope_to")
+	if _, err := env.Owner.Exec(ctx, `UPDATE autoresearch SET assignee_type = 'team', assignee_id = NULL, scope_from = 'hypotheses', scope_to = 'validation' WHERE id = $1`, id); err != nil {
+		t.Errorf("a team assignee over hypotheses to validation: %v", err)
+	}
 }
 
 func TestSingleTeamStudyHasOneColumnScope(t *testing.T) {
 	env := testutil.Setup(t)
-	_, ws, card := seedWorkspace(t, env)
+	_, _, card := seedWorkspace(t, env)
 	_, err := env.Owner.Exec(context.Background(), `UPDATE card SET scope_from = 'hypotheses', scope_to = 'grounding' WHERE id = $1`, card)
 	wantCode(t, err, "23514", "scope_from after scope_to")
-	_ = ws
 }
 
 func TestFollowsFromOnlyOnEndToEnd(t *testing.T) {
 	env := testutil.Setup(t)
-	_, ws, card := seedWorkspace(t, env)
+	_, _, card := seedWorkspace(t, env)
 	ctx := context.Background()
 	_, err := env.Owner.Exec(ctx, `UPDATE card SET scope_to = 'grounding', follows_from = ARRAY[$2::uuid] WHERE id = $1`, card, uuid.New())
 	wantCode(t, err, "23514", "follows_from on a one-column study")
 	if _, err := env.Owner.Exec(ctx, `UPDATE card SET scope_to = 'reporting', follows_from = ARRAY[$2::uuid] WHERE id = $1`, card, uuid.New()); err != nil {
 		t.Errorf("follows_from on an end-to-end study: %v", err)
 	}
-	_ = ws
 }
 
 func TestBlockKindIsOnlyLowScore(t *testing.T) {
@@ -136,7 +163,7 @@ func TestBlockKindIsOnlyLowScore(t *testing.T) {
 
 func TestTeamAssigneeIsCheckedAsAnAgent(t *testing.T) {
 	env := testutil.Setup(t)
-	_, ws, card := seedWorkspace(t, env)
+	_, _, card := seedWorkspace(t, env)
 	ctx := context.Background()
 	if _, err := env.Owner.Exec(ctx, `UPDATE card SET assignee_type = 'team', assignee_id = NULL WHERE id = $1`, card); err != nil {
 		t.Errorf("a team assignee with no agent: %v", err)
@@ -145,7 +172,6 @@ func TestTeamAssigneeIsCheckedAsAnAgent(t *testing.T) {
 	wantCode(t, err, "23503", "a team assignee that is not an agent")
 	_, err = env.Owner.Exec(ctx, `UPDATE card SET assignee_type = 'agent', assignee_id = NULL WHERE id = $1`, card)
 	wantCode(t, err, "23514", "an agent assignee with no id")
-	_ = ws
 }
 
 func TestCardTeamIsTenantScoped(t *testing.T) {

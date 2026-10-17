@@ -3,6 +3,7 @@
 DELETE FROM inbox_item WHERE kind IN ('out_of_budget', 'revised', 'reopened', 'publish_request');
 DELETE FROM card;
 DELETE FROM field_pack;
+DELETE FROM autoresearch WHERE execution_mode = 'watch_released';
 
 ALTER TABLE card
   DROP COLUMN budget_usd,
@@ -78,6 +79,7 @@ CREATE TABLE team_agent (
 ALTER TABLE "user" DROP COLUMN pack_name;
 
 ALTER TABLE autoresearch
+  ADD CONSTRAINT autoresearch_workspace_id_key UNIQUE (workspace_id, id),
   DROP COLUMN budget_usd,
   DROP CONSTRAINT autoresearch_execution_mode_check,
   ADD CONSTRAINT autoresearch_execution_mode_check CHECK (execution_mode IN ('create_card', 'run_only')),
@@ -89,14 +91,19 @@ ALTER TABLE autoresearch
     CHECK (scope_to IN ('grounding', 'hypotheses', 'experimentation', 'validation', 'reporting')),
   ADD CONSTRAINT autoresearch_scope_order CHECK (
     array_position(ARRAY['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'], scope_from)
-    <= array_position(ARRAY['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'], scope_to));
+    <= array_position(ARRAY['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'], scope_to)),
+  ADD CONSTRAINT autoresearch_assignee_tuple CHECK (
+    (assignee_type IS NULL AND assignee_id IS NULL) OR
+    (assignee_type IS NOT NULL AND assignee_type = 'agent' AND assignee_id IS NOT NULL) OR
+    (assignee_type IS NOT NULL AND assignee_type = 'team'));
 
 CREATE TABLE autoresearch_team (
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
-  autoresearch_id uuid NOT NULL REFERENCES autoresearch ON DELETE CASCADE,
+  autoresearch_id uuid NOT NULL,
   board_column text NOT NULL CHECK (board_column IN ('grounding', 'hypotheses', 'experimentation', 'validation', 'reporting')),
   pack_id uuid NOT NULL,
   PRIMARY KEY (autoresearch_id, board_column),
+  FOREIGN KEY (workspace_id, autoresearch_id) REFERENCES autoresearch (workspace_id, id) ON DELETE CASCADE,
   FOREIGN KEY (workspace_id, pack_id) REFERENCES field_pack (workspace_id, id)
 );
 
