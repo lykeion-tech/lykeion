@@ -91,7 +91,7 @@ func TestScoreSendsOrderedLevels(t *testing.T) {
 		if q.Type != "score" || len(q.Criteria) != 3 || q.Criteria[0] != "low" || q.Criteria[2] != "high" || len(body.Questions) != 2 {
 			t.Errorf("bad body %+v", body)
 		}
-		w.Write([]byte(`{"model":"jev-1.13.0","answers":{"a":{"type":"score","score":3.4,"confidence":0.5,"probabilities":{"3":0.6,"4":0.4}},"b":{"type":"score","score":0.1,"confidence":0.9,"probabilities":{"0":1}}}}`))
+		w.Write([]byte(`{"model":"jev-1.13.0","answers":{"a":{"type":"score","score":1.4,"confidence":0.5,"probabilities":{"1":0.6,"2":0.4}},"b":{"type":"score","score":0.1,"confidence":0.9,"probabilities":{"0":1}}}}`))
 	}))
 	defer s.Close()
 	c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
@@ -99,7 +99,7 @@ func TestScoreSendsOrderedLevels(t *testing.T) {
 		"a": {Instructions: "rate", Levels: []string{"low", "mid", "high"}},
 		"b": {Instructions: "rate", Levels: []string{"no", "yes"}},
 	})
-	if err != nil || out["a"].Score != 3.4 || out["a"].Probabilities["3"] != 0.6 || out["b"].Confidence != 0.9 {
+	if err != nil || out["a"].Score != 1.4 || out["a"].Probabilities["1"] != 0.6 || out["b"].Confidence != 0.9 {
 		t.Fatalf("%+v %v", out, err)
 	}
 }
@@ -149,5 +149,45 @@ func TestRetryDoStopsAtTheSharedBudget(t *testing.T) {
 	}
 	if err := r.Do(context.Background(), func() error { n++; return errors.New("down") }); err == nil || n != 4 {
 		t.Fatalf("budget spent: want one attempt, got n=%d %v", n, err)
+	}
+}
+
+func TestMalformedScoreAndNoulAnswersAreRefused(t *testing.T) {
+	for name, body := range map[string]string{
+		"no score":    `{"model":"jev-1.13.0","answers":{"q":{"type":"score","confidence":0.5}}}`,
+		"other type":  `{"model":"jev-1.13.0","answers":{"q":{"type":"noul","noul":0.5}}}`,
+		"too high":    `{"model":"jev-1.13.0","answers":{"q":{"type":"score","score":2.1}}}`,
+		"negative":    `{"model":"jev-1.13.0","answers":{"q":{"type":"score","score":-0.1}}}`,
+		"null answer": `{"model":"jev-1.13.0","answers":{"q":null}}`,
+	} {
+		s := replying(body)
+		c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
+		if out, err := c.Score(context.Background(), "s", map[string]ScoreQuestion{"q": {Levels: []string{"a", "b"}}}); err == nil {
+			t.Errorf("%s: want error, got %+v", name, out)
+		}
+		s.Close()
+	}
+	for _, body := range []string{
+		`{"model":"jev-1.13.0","answers":{"q":{"type":"noul","noul":1.2}}}`,
+		`{"model":"jev-1.13.0","answers":{"q":{"type":"noul","noul":-0.2}}}`,
+	} {
+		s := replying(body)
+		c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
+		if out, err := c.Noul(context.Background(), "s", map[string]string{"q": "?"}); err == nil {
+			t.Errorf("want error, got %v", out)
+		}
+		s.Close()
+	}
+}
+
+func TestNoQuestionsSendsNothing(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("request sent") }))
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
+	if _, err := c.Noul(context.Background(), "s", nil); err == nil {
+		t.Error("want error")
+	}
+	if _, err := c.Score(context.Background(), "s", nil); err == nil {
+		t.Error("want error")
 	}
 }

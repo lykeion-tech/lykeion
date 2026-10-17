@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -74,11 +76,20 @@ func (c *Client) Score(ctx context.Context, state string, questions map[string]S
 	}
 	out := map[string]ScoreAnswer{}
 	for id := range questions {
-		var a ScoreAnswer
+		var a struct {
+			Type          string             `json:"type"`
+			Score         *float64           `json:"score"`
+			Confidence    float64            `json:"confidence"`
+			Probabilities map[string]float64 `json:"probabilities"`
+		}
 		if err := json.Unmarshal(raw[id], &a); err != nil {
 			return nil, err
 		}
-		out[id] = a
+		top := float64(len(questions[id].Levels) - 1)
+		if a.Type != "score" || a.Score == nil || math.IsNaN(*a.Score) || *a.Score < 0 || *a.Score > top {
+			return nil, fmt.Errorf("jev: no valid score for %q", id)
+		}
+		out[id] = ScoreAnswer{Score: *a.Score, Confidence: a.Confidence, Probabilities: a.Probabilities}
 	}
 	return out, nil
 }
@@ -101,8 +112,8 @@ func (c *Client) Noul(ctx context.Context, state string, questions map[string]st
 		if err := json.Unmarshal(raw[id], &a); err != nil {
 			return nil, err
 		}
-		if a.Noul == nil {
-			return nil, fmt.Errorf("jev: no yes/no answer for %q", id)
+		if a.Noul == nil || math.IsNaN(*a.Noul) || *a.Noul < 0 || *a.Noul > 1 {
+			return nil, fmt.Errorf("jev: no valid yes/no answer for %q", id)
 		}
 		out[id] = *a.Noul
 	}
@@ -112,6 +123,9 @@ func (c *Client) Noul(ctx context.Context, state string, questions map[string]st
 // post sends the questions and returns each id's raw answer; it refuses an
 // answer from another model and any id the reply leaves out.
 func (c *Client) post(ctx context.Context, state string, questions map[string]any) (map[string]json.RawMessage, error) {
+	if len(questions) == 0 {
+		return nil, errors.New("jev: no questions to ask")
+	}
 	body, err := json.Marshal(map[string]any{"model": c.Model, "state": state, "questions": questions})
 	if err != nil {
 		return nil, err
