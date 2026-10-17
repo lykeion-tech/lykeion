@@ -25,6 +25,7 @@ import (
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/handler"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/realtime"
@@ -147,8 +148,10 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		return err
 	}
 	runs := &service.AgentRuns{Store: st, MCPURL: strings.TrimRight(getenv("PUBLIC_URL"), "/") + "/mcp/sources"}
-	// replaced in the flow task
-	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs, JevKey: getenv("TYPESAFE_API_KEY")}
+	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
+	if key := getenv("TYPESAFE_API_KEY"); key != "" {
+		engine.Jev = &jev.Client{BaseURL: "https://api.typesafe.ai", Key: key, Model: jev.Model}
+	}
 	secretKey, err := seal.ParseKey(getenv("LYK_SECRET_KEY"))
 	if err != nil {
 		return err

@@ -85,6 +85,8 @@ type claimed struct {
 		// ContinuityScope keys session continuity; empty never resumes.
 		ContinuityScope string `json:"continuity_scope"`
 		RunPrivate      bool   `json:"run_private"`
+		// RequestedModel is the agent's model; empty runs the CLI's default.
+		RequestedModel string `json:"requested_model"`
 	} `json:"agent_run"`
 	Token  string            `json:"token"`
 	MCPURL string            `json:"mcp_url"`

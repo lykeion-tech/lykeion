@@ -1294,3 +1294,33 @@ func TestScopeGCInvalidRetentionFallsBackToOneDay(t *testing.T) {
 		})
 	}
 }
+
+func TestTheRequestedModelReachesTheCLI(t *testing.T) {
+	f := fixture(t)
+	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET requested_model = 'claude-opus-5-5' WHERE id = $1", f.id)
+	must(t, err)
+	models := make(chan string, 1)
+	f.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+		return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
+			models <- o.Model
+			msgs := make(chan agent.Message)
+			done := make(chan agent.Result, 1)
+			close(msgs)
+			done <- agent.Result{}
+			close(done)
+			return &agent.Session{Messages: msgs, Done: done}, nil
+		}), nil
+	}
+	cancel, done := startDaemon(t, f.cfg)
+	var got string
+	select {
+	case got = <-models:
+	case <-time.After(8 * time.Second):
+		t.Fatal("backend not started")
+	}
+	waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" })
+	stopDaemon(t, cancel, done)
+	if got != "claude-opus-5-5" {
+		t.Fatalf("ExecOptions.Model = %q", got)
+	}
+}

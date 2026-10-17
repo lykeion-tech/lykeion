@@ -200,8 +200,8 @@ func (q *Queries) DeleteRuntime(ctx context.Context, arg DeleteRuntimeParams) (i
 }
 
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
-INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private, requested_model)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model
 `
 
@@ -218,6 +218,7 @@ type EnqueueAgentRunParams struct {
 	MaxAttempts       int32      `json:"max_attempts"`
 	ContinuityScope   string     `json:"continuity_scope"`
 	RunPrivate        bool       `json:"run_private"`
+	RequestedModel    string     `json:"requested_model"`
 }
 
 func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams) (AgentRun, error) {
@@ -234,6 +235,7 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		arg.MaxAttempts,
 		arg.ContinuityScope,
 		arg.RunPrivate,
+		arg.RequestedModel,
 	)
 	var i AgentRun
 	err := row.Scan(

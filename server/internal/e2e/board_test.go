@@ -21,6 +21,7 @@ import (
 	"lykeion/server/internal/daemon"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/handler"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
@@ -97,7 +98,7 @@ func newBoardLab(t *testing.T) *boardLab {
 	l.st.Publish = hub.Publish
 	blobs := storage.Local{Dir: t.TempDir()}
 	runs := &service.AgentRuns{Store: l.st}
-	l.engine = &flow.Engine{Store: l.st, AgentRuns: runs, Blobs: blobs, JevKey: "k", JevURL: fakeJev(t)}
+	l.engine = &flow.Engine{Store: l.st, AgentRuns: runs, Blobs: blobs, Jev: &jev.Client{BaseURL: fakeJev(t), Key: "k", Model: jev.Model}}
 	l.ap = &autoresearch.Service{Store: l.st, AgentRuns: runs}
 	runs.OnSettled = l.ap.OnSettled(l.engine.OnSettled)
 	geo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -172,7 +172,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		sinkErr = d.persistMessage(r, sequence, m)
 		return sinkErr
 	}
-	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPURL: c.MCPURL, MCPToken: c.Token, MCP: c.MCP, Resume: c.AgentRun.SessionID, Env: []string{
+	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPURL: c.MCPURL, MCPToken: c.Token, MCP: c.MCP, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + filepath.Dir(self) + string(os.PathListSeparator) + os.Getenv("PATH"),
 	}}
 	if cont, err = d.beginContinuity(c, pol); err != nil {

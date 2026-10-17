@@ -5,6 +5,7 @@ import (
 	"lykeion/server/internal/testutil"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -268,7 +269,22 @@ func TestUnassignedStudiesWait(t *testing.T) {
 	if c.BoardColumn != "backlog" || c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" {
 		t.Fatalf("%+v", c)
 	}
-	if n := s.count(t, "SELECT count(*) FROM agent_run"); n != 0 {
+	// An assigned study starts at once, so the unassigned one's empty queue
+	// is the engine's choice, not its absence.
+	agent := s.newAgent(t, a, w.ID, "solo", "claude")
+	var assigned studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2", "assignee": map[string]any{"type": "agent", "id": agent}}, &assigned); code != 201 {
+		t.Fatalf("create assigned: %d", code)
+	}
+	// The engine starts a study after the request's transaction commits.
+	n := 0
+	for deadline := time.Now().Add(5 * time.Second); n == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		n = s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND status = 'queued' AND role = 'agent'", assigned.ID)
+	}
+	if n != 1 {
+		t.Fatalf("assigned study: %d queued agent runs", n)
+	}
+	if n := s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1", c.ID); n != 0 {
 		t.Fatalf("%d agent runs", n)
 	}
 }
