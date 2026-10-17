@@ -193,8 +193,8 @@ const maxNeed = 2000
 // postTools asks Jev which of the run's skills and connector tools fit a
 // need: a Team run's member's declared ones, or else the workspace's library.
 // Jev is asked with no transaction open. A study run leaves a tools record,
-// and when nothing fits, tells the study's owner; a run with no study only
-// gets the answer.
+// and when nothing fits, tells the study's owner, once while that need's item
+// is open; a run with no study only gets the answer.
 func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Need           string                      `json:"need"`
@@ -261,6 +261,10 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 			}
 			if !res.Empty() {
 				return nil
+			}
+			open, err := tx.Q.CountOpenNoTool(r.Context(), db.CountOpenNoToolParams{WorkspaceID: tx.WS, CardID: role.CardID, Need: in.Need})
+			if err != nil || open > 0 {
+				return err
 			}
 			card, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: tx.WS, ID: role.CardID})
 			if err != nil {

@@ -58,6 +58,10 @@ const (
 // Protocol is the skill text appended to an agent's instructions for its role
 // in a column: "leader", "agent" (a study's single agent), or a member's name.
 // It is Lykeion's counterpart of the operating protocol a squad leader reads.
+// askTools tells every role how to find the skills and database tools its
+// work may use.
+const askTools = "To find a skill or database tool for what you need, run `lyk tools \"what you need\"`; call the tools it names through `call_tool`.\n"
+
 func Protocol(role, column string, m *pack.Manifest) string {
 	var b strings.Builder
 	b.WriteString("## How you work in Lykeion\n\n")
@@ -99,5 +103,6 @@ func Protocol(role, column string, m *pack.Manifest) string {
 	default:
 		b.WriteString(writeWork + "If you cannot do the step, end with `lyk result failed --content \"why\"`.\n")
 	}
+	b.WriteString("\n" + askTools)
 	return b.String()
 }

@@ -73,6 +73,25 @@ func (q *Queries) CountOpenCardInbox(ctx context.Context, arg CountOpenCardInbox
 	return count, err
 }
 
+const countOpenNoTool = `-- name: CountOpenNoTool :one
+SELECT count(*) FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid
+  AND kind = 'no_tool' AND resolved_at IS NULL AND right(text, length($3::text)) = $3::text
+`
+
+type CountOpenNoToolParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Need        string    `json:"need"`
+}
+
+// An open no_tool item's text ends with the need it names.
+func (q *Queries) CountOpenNoTool(ctx context.Context, arg CountOpenNoToolParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countOpenNoTool, arg.WorkspaceID, arg.CardID, arg.Need)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countRoundKindRecords = `-- name: CountRoundKindRecords :one
 SELECT count(*) FROM record WHERE workspace_id = $1 AND card_id = $2
   AND board_column = $3 AND round = $4 AND kind = $5

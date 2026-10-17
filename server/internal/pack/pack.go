@@ -260,7 +260,10 @@ func (p *Pack) validate() error {
 		if _, ok := agent.Harnesses[mem.Agent.Harness]; !ok {
 			return fmt.Errorf("pack: %s %q: harness %q is unknown", where, mem.Name, mem.Agent.Harness)
 		}
-		for _, s := range mem.Skills {
+		for i, s := range mem.Skills {
+			if slices.Contains(mem.Skills[:i], s) {
+				return fmt.Errorf("pack: %s %q: skill %q is declared twice", where, mem.Name, s)
+			}
 			_, folder := p.Skills[mem.Name+"/"+s]["SKILL.md"]
 			if !folder && !science.Has(s) {
 				return fmt.Errorf("pack: %s %q: skill %q is neither a folder in the archive nor a bundled skill", where, mem.Name, s)

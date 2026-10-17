@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"lykeion/server/internal/connectors"
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/science"
@@ -162,7 +163,7 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 	if j == nil {
 		return res, ErrNoJev
 	}
-	state := "An agent working on a researcher's study needs this:\n" + need
+	state := fence.Untrusted("What an agent working on a researcher's study needs", need)
 
 	domains := map[string]bool{}
 	var order []string
@@ -180,7 +181,7 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 	}
 	var qs []string
 	for _, d := range order {
-		qs = append(qs, fmt.Sprintf("Is the field %q relevant to this need?", d))
+		qs = append(qs, "Is this field relevant to the need?\n"+fence.Untrusted("The field", d))
 	}
 	keep, err := ask(ctx, j, state, qs)
 	if err != nil {
@@ -196,13 +197,13 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 	for _, s := range c.Skills {
 		if domains[s.Domain] {
 			skills = append(skills, s)
-			qs = append(qs, fmt.Sprintf("Could the skill %q help with this need? It says of itself: %s", s.Name, excerpt(s.Description)))
+			qs = append(qs, fmt.Sprintf("Could the skill %q help with this need?\n", s.Name)+fence.Untrusted("What the skill says of itself", excerpt(s.Description)))
 		}
 	}
 	for _, k := range c.Connectors {
 		if domains[k.Domain] {
 			conns = append(conns, k)
-			qs = append(qs, fmt.Sprintf("Could the connector %q help with this need? It offers: %s", k.Name, excerpt(k.Description)))
+			qs = append(qs, fmt.Sprintf("Could the connector %q help with this need?\n", k.Name)+fence.Untrusted("What the connector offers", excerpt(k.Description)))
 		}
 	}
 	if keep, err = ask(ctx, j, state, qs); err != nil {
@@ -228,13 +229,13 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 		}
 		for _, sec := range all {
 			secs = append(secs, sectionOf{i, sec})
-			qs = append(qs, fmt.Sprintf("Does the section %q of the skill %q help with this need? It reads: %s", sec.Heading, s.Name, excerpt(sec.Text)))
+			qs = append(qs, fmt.Sprintf("Does this section of the skill %q help with this need?\n", s.Name)+fence.Untrusted("The section", "## "+sec.Heading+"\n"+excerpt(sec.Text)))
 		}
 	}
 	for _, k := range conns {
 		for _, t := range k.Tools {
 			tools = append(tools, toolOf{k.Name, t})
-			qs = append(qs, fmt.Sprintf("Does the tool %q of the connector %q help with this need? It does: %s", t.Name, k.Name, excerpt(t.Description)))
+			qs = append(qs, fmt.Sprintf("Does the tool %q of the connector %q help with this need?\n", t.Name, k.Name)+fence.Untrusted("What the tool does", excerpt(t.Description)))
 		}
 	}
 	if keep, err = ask(ctx, j, state, qs); err != nil {

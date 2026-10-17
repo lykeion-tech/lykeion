@@ -185,8 +185,11 @@ func TestParseRefuses(t *testing.T) {
 		{"unknown skill", mut(func(m *Manifest) { m.Members[0].Skills = []string{"ghost"} }), "skill"},
 		{"unknown catalogue", mut(func(m *Manifest) { m.Members[0].Connectors = []Connector{{Name: "x", Catalogue: "nope"}} }), "catalogue"},
 		{"connector named sources", mut(func(m *Manifest) { m.Members[0].Connectors[1].Name = "sources" }), "reserved"},
-		{"repeated catalogue entry", mut(func(m *Manifest) { m.Members[0].Connectors = []Connector{{Catalogue: "ensembl"}, {Catalogue: "ensembl"}} }), "repeated"},
+		{"repeated catalogue entry", mut(func(m *Manifest) {
+			m.Members[0].Connectors = []Connector{{Catalogue: "ensembl"}, {Catalogue: "ensembl"}}
+		}), "repeated"},
 		{"repeated connector name", mut(func(m *Manifest) { m.Members[0].Connectors[1].Name = "ncbi" }), "repeated"},
+		{"skill declared twice", mut(func(m *Manifest) { m.Members[0].Skills = []string{"search", "search"} }), "twice"},
 		{"not a zip", []byte("hello"), "zip"},
 	}
 	for _, c := range cases {

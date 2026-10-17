@@ -106,12 +106,21 @@ func TestNothingQualifyingTellsTheResearcher(t *testing.T) {
 	if n := l.s.count(t, owner, l.card.ID); n != 1 {
 		t.Fatalf("%d no_tool items naming the need, want one", n)
 	}
+	// The same need again adds no second item while the first is open; a new need does.
+	for _, need := range []string{"run a cryo-EM reconstruction", "sequence a genome"} {
+		if c := l.s.call(t, "POST", "/api/role/tools", leader.token, "", map[string]any{"need": need}, &out); c != 200 {
+			t.Fatalf("tools again: %d %s", c, out.Error)
+		}
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'no_tool'", l.card.ID); n != 2 {
+		t.Fatalf("%d no_tool items after a repeated need and a new one, want two", n)
+	}
 	// Jev being unreachable is not the same as nothing fitting.
 	l.s.H.Engine.Jev = nil
 	if c := l.s.call(t, "POST", "/api/role/tools", leader.token, "", map[string]any{"need": "run a cryo-EM reconstruction"}, &out); c != 503 {
 		t.Fatalf("without Jev: %d", c)
 	}
-	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'no_tool'", l.card.ID); n != 1 {
-		t.Fatalf("%d no_tool items after an outage, want still one", n)
+	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'no_tool'", l.card.ID); n != 2 {
+		t.Fatalf("%d no_tool items after an outage, want still two", n)
 	}
 }

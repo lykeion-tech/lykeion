@@ -72,6 +72,9 @@ func TestRunOnlyQueuesOneCardlessAgentRunWithTheGroundingServers(t *testing.T) {
 	if strings.Contains(tk.Prompt, "lyk_sources") || !strings.Contains(tk.Prompt, "call_tool") {
 		t.Fatal("the prompt names a server the agent no longer has")
 	}
+	if !strings.Contains(tk.Prompt, "lyk tools \"what you need\"") {
+		t.Fatal("the prompt does not tell the agent about lyk tools")
+	}
 	if tk.Kind != "autoresearch" || tk.CardID != nil || tk.RequesterID == nil || *tk.RequesterID != actor ||
 		tk.ResponsibleUserID != actor || tk.Role != Role || tk.BoardColumn != "" || tk.Round != 0 || tk.Harness != "claude" || !tk.RunPrivate || tk.ContinuityScope != "" {
 		t.Fatalf("agent run: %+v", tk)

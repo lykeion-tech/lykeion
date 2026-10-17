@@ -221,3 +221,12 @@ func TestTheProtocolNamesTheColumnsDeliverable(t *testing.T) {
 		t.Errorf("Grounding names the Hypotheses deliverable:\n%s", s)
 	}
 }
+
+func TestEveryRoleIsToldAboutLykTools(t *testing.T) {
+	m := &pack.Manifest{Leader: pack.Member{Name: "pi"}, Members: []pack.Member{{Name: "x", Role: "Does x."}}}
+	for _, role := range []string{"leader", "x", "agent", "auditor"} {
+		if s := Protocol(role, "grounding", m); !strings.Contains(s, "lyk tools \"what you need\"") || !strings.Contains(s, "call_tool") {
+			t.Errorf("%s is not told about lyk tools:\n%s", role, s)
+		}
+	}
+}

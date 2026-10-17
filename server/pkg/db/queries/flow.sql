@@ -30,6 +30,11 @@ SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id
 SELECT count(*) FROM inbox_item WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
   AND kind = @kind AND resolved_at IS NULL;
 
+-- name: CountOpenNoTool :one
+-- An open no_tool item's text ends with the need it names.
+SELECT count(*) FROM inbox_item WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
+  AND kind = 'no_tool' AND resolved_at IS NULL AND right(text, length(@need::text)) = @need::text;
+
 -- name: ResolveCardInboxKind :many
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = @kind AND resolved_at IS NULL
