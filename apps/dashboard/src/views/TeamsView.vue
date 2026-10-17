@@ -5,51 +5,36 @@ import Icon from '../components/Icon.vue';
 import { ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import {
-  approvePack,
-  uploadPack,
-  usePackCatalog,
-  usePackVersions,
-} from '../api/queries';
-import type { Field } from '../api/types';
+import { addTeam, uploadPack, useTeam, useTeams } from '../api/queries';
+import type { TeamMember } from '../api/types';
 
-const props = defineProps<{ name?: string }>();
+const props = defineProps<{ id?: string }>();
 const client = useQueryClient();
-const catalog = usePackCatalog();
-const opened = computed(() => catalog.data.value?.find((t) => t.name === props.name));
-const versions = usePackVersions(() => props.name ?? '');
-const sections = computed(() => [
-  {
-    title: "Lykeion's Teams",
-    teams: catalog.data.value?.filter((t) => t.source === 'shipped') ?? [],
-  },
-  {
-    title: 'Your Teams',
-    teams: catalog.data.value?.filter((t) => t.source === 'uploaded') ?? [],
-  },
-]);
+const domain = ref('');
+const stage = ref('');
+const stages = ['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'];
+const everything = useTeams('', '');
+const teams = useTeams(domain, stage);
+const detail = useTeam(() => props.id ?? '');
+const domains = computed(() =>
+  [...new Set((everything.data.value ?? []).map((t) => t.domain).filter(Boolean))].sort(),
+);
 const busy = ref(false);
 const error = ref('');
+const created = ref<string[] | null>(null);
 const file = ref<HTMLInputElement>();
-watch([workspaceId, () => props.name], () => {
+watch([workspaceId, () => props.id], () => {
   error.value = '';
+  created.value = null;
 });
 
-const agents = (t: Field) =>
-  t.agents
-    .filter((a) => a.roles.length)
-    .map((a) => `${a.column[0]!.toUpperCase()}${a.column.slice(1)}: ${a.roles.join(', ')}`)
-    .join(' · ');
-const summary = (t: Field) =>
-  [
-    t.description || (t.source === 'uploaded' ? 'Uploaded by you' : ''),
-    `v${t.version}`,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
+const builtFor = (s: string) => (s ? `Built for ${label(s)}` : 'Built for a set of stages');
 const day = (at: string) =>
   new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const studies = (n: number) => `${n} ${n === 1 ? 'study' : 'studies'}`;
+const connectors = (m: TeamMember) =>
+  (m.connectors ?? []).map((c) => c.catalogue || c.url || c.name).join(', ');
 
 async function act(work: () => Promise<unknown>) {
   if (busy.value) return;
@@ -69,9 +54,15 @@ async function act(work: () => Promise<unknown>) {
     await Promise.all([
       client.invalidateQueries({ queryKey: keys.me }),
       client.invalidateQueries({ queryKey: keys.packs(workspace) }),
+      client.invalidateQueries({ queryKey: keys.agents(workspace) }),
     ]);
   }
 }
+
+const add = (id: string) =>
+  act(async () => {
+    created.value = (await addTeam(id)).map((a) => a.name);
+  });
 
 function upload(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -90,35 +81,74 @@ function upload(event: Event) {
       aria-hidden="true"
       @change="upload"
     />
-    <Teleport v-if="!name" to="#page-header-actions">
-      <button class="button primary" :disabled="busy" @click="file?.click()">
+    <Teleport to="#page-header-actions">
+      <button v-if="!id" class="button" :disabled="busy" @click="file?.click()">
         <Icon name="upload" :size="14" />Upload a Team
       </button>
+      <RouterLink to="/teams/new" class="button primary"
+        ><Icon name="plus" :size="14" />New Team</RouterLink
+      >
     </Teleport>
-    <p v-if="catalog.error.value" class="inline-error" role="alert">
-      {{ catalog.error.value.message }}
+    <p v-if="teams.error.value" class="inline-error" role="alert">
+      {{ teams.error.value.message }}
     </p>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-    <template v-if="name">
+    <template v-if="id">
       <RouterLink to="/teams" class="text-button">← Teams</RouterLink>
-      <div v-if="opened" class="research-detail">
+      <div v-if="detail.data.value" class="research-detail">
         <header>
-          <h1>{{ opened.name }}</h1>
+          <h1>{{ detail.data.value.manifest.name }}</h1>
+          <button
+            v-if="!everything.data.value?.find((t) => t.id === id)?.added"
+            class="button primary"
+            :disabled="busy"
+            @click="add(id)"
+          >
+            Add Team
+          </button>
+          <span v-else class="muted">Added</span>
         </header>
-        <p class="description">
-          {{ opened.description || (opened.source === 'uploaded' ? 'Uploaded by you.' : '') }}
+        <p v-if="created" class="description" role="status">
+          Created {{ created.length }} {{ created.length === 1 ? 'agent' : 'agents' }} in your
+          <RouterLink to="/agents">Agents</RouterLink> page
         </p>
+        <p class="description">{{ detail.data.value.manifest.description }}</p>
         <p class="description">
-          {{ agents(opened) }}
+          {{ detail.data.value.manifest.domain }} ·
+          {{ builtFor(detail.data.value.manifest.stage) }} ·
+          {{ detail.data.value.manifest.steps || 12 }} steps per column
         </p>
+        <h2>Leader</h2>
+        <p class="description">
+          <b>{{ detail.data.value.manifest.leader.name }}</b> ·
+          {{ detail.data.value.manifest.leader.agent.harness }} ·
+          {{ detail.data.value.manifest.leader.role }}
+        </p>
+        <h2>Members</h2>
+        <ul class="team-members">
+          <li v-for="m in detail.data.value.manifest.members" :key="m.name">
+            <b>{{ m.name }}</b> · {{ m.agent.harness }} · {{ m.role }}
+            <small v-if="m.skills?.length">Skills: {{ m.skills.join(', ') }}</small>
+            <small v-if="m.connectors?.length">Connectors: {{ connectors(m) }}</small>
+          </li>
+        </ul>
+        <h2>Auditor</h2>
+        <p class="description">
+          <b>{{ detail.data.value.manifest.auditor.name }}</b> ·
+          {{ detail.data.value.manifest.auditor.agent.harness }} ·
+          {{ detail.data.value.manifest.auditor.role }}
+        </p>
+        <h2>Criteria</h2>
+        <ul class="team-members">
+          <li>Does the work cite where its facts came from?</li>
+          <li>Does it answer what the researcher asked?</li>
+          <li>Does it say what it couldn't do?</li>
+          <li v-for="c in detail.data.value.manifest.criteria" :key="c">{{ c }}</li>
+        </ul>
         <h2>Versions</h2>
-        <table
-          v-if="versions.data.value"
-          class="team-versions"
-          :aria-label="opened.name + ' versions'"
-        >
+        <table class="team-versions" :aria-label="detail.data.value.manifest.name + ' versions'">
           <tbody>
-            <tr v-for="v in [...versions.data.value].reverse()" :key="v.id">
+            <tr v-for="v in [...detail.data.value.versions].reverse()" :key="v.id">
               <td>
                 <b>v{{ v.version }}</b>
                 <code :title="v.sha256">{{ v.sha256.slice(0, 4) }}…{{ v.sha256.slice(-4) }}</code>
@@ -127,47 +157,40 @@ function upload(event: Event) {
                 {{ v.source === 'shipped' ? 'Shipped with Lykeion' : 'Uploaded by you' }} ·
                 {{ day(v.created_at) }}
               </td>
-              <td>
-                <template v-if="v.approvals_by_me"
-                  >✓ Approved by you<template v-if="v.approved_at">
-                    · {{ day(v.approved_at) }}</template
-                  ></template
-                >
-                <template v-else
-                  >Not approved
-                  <button class="button" :disabled="busy" @click="act(() => approvePack(v.id))">
-                    Approve v{{ v.version }}
-                  </button></template
-                >
-              </td>
               <td>{{ studies(v.pinned_studies) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p v-else-if="catalog.isSuccess.value" class="muted">No Team called {{ name }}.</p>
+      <p v-else-if="detail.isError.value" class="muted">No such Team.</p>
     </template>
     <template v-else>
-      <section
-        v-for="(s, i) in sections"
-        v-show="s.teams.length"
-        :key="s.title"
-        class="team-section"
-        :aria-labelledby="'teams-section-' + i"
-      >
-        <h2 :id="'teams-section-' + i">{{ s.title }}</h2>
-        <div class="directory-list">
-          <RouterLink
-            v-for="t in s.teams"
-            :key="t.name"
-            :to="'/teams/' + encodeURIComponent(t.name)"
-            ><Icon name="network" /><span
-              >{{ t.name }}<small>{{ summary(t) }}</small></span
-            ><Icon name="right"
-          /></RouterLink>
-        </div>
-      </section>
-      <div v-if="catalog.isSuccess.value && !catalog.data.value?.length" class="directory-empty">
+      <div class="store-filters">
+        <label
+          >Domain<select v-model="domain">
+            <option value="">All domains</option>
+            <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
+          </select></label
+        >
+        <label
+          >Stage<select v-model="stage">
+            <option value="">All stages</option>
+            <option v-for="s in stages" :key="s" :value="s">{{ label(s) }}</option>
+          </select></label
+        >
+      </div>
+      <div class="directory-list">
+        <RouterLink v-for="t in teams.data.value" :key="t.id" :to="'/teams/' + t.id"
+          ><Icon name="network" /><span
+            >{{ t.name
+            }}<small
+              >{{ t.manifest.description }} · {{ t.domain }} · {{ builtFor(t.stage)
+              }}<template v-if="t.added"> · Added</template></small
+            ></span
+          ><Icon name="right"
+        /></RouterLink>
+      </div>
+      <div v-if="teams.isSuccess.value && !teams.data.value?.length" class="directory-empty">
         <Icon name="network" :size="30" />
         <h2>No Teams yet</h2>
         <p>A Team is the agents that work each stage of your studies.</p>
@@ -178,7 +201,27 @@ function upload(event: Event) {
 </template>
 <style src="./directory.css" />
 <style scoped>
-.team-section h2 {
+.store-filters {
+  display: flex;
+  gap: 16px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.store-filters label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.team-members {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.team-members small {
+  display: block;
+  color: var(--muted);
+}
+h2 {
   margin: 20px 0 0;
   font-size: 13px;
   font-weight: 500;

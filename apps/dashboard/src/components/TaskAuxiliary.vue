@@ -515,7 +515,7 @@ onUnmounted(() => {
           "
         >
           <Icon name="settings" :size="14" />PR merge settings</button
-        ><small>Scientific stage changes require an accepted gate.</small>
+        >
       </div>
       <form v-else @submit.prevent="linkPullRequest">
         <label

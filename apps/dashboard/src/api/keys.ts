@@ -28,6 +28,8 @@ export const keys = {
   agent: (ws: string, id: string) => ['ws', ws, 'agent', id] as const,
   members: (ws: string) => ['ws', ws, 'members'] as const,
   invitations: (ws: string) => ['ws', ws, 'invitations'] as const,
+  teams: (ws: string, domain = '', stage = '') => ['ws', ws, 'packs', 'store', domain, stage] as const,
+  team: (ws: string, id: string) => ['ws', ws, 'packs', 'team', id] as const,
   packs: (ws: string) => ['ws', ws, 'packs'] as const,
   packVersions: (ws: string, name: string) => ['ws', ws, 'packs', 'versions', name] as const,
   autoresearches: (ws: string) => ['ws', ws, 'autoresearch'] as const,

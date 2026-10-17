@@ -249,14 +249,44 @@ export interface AgentDefinition {
   updated_at: string;
 }
 
-// A Team (code: pack) in the catalog.
-export interface Field {
+// What a Team's manifest holds.
+export interface TeamMember {
   name: string;
+  role: string;
+  agent: { harness: string; model: string; instructions: string };
+  skills?: string[];
+  connectors?: { name: string; catalogue?: string; url?: string; command?: string[] }[];
+}
+export interface TeamManifest {
+  name: string;
+  version: string;
   description: string;
-  version: number | string;
+  domain: string;
+  stage: string;
+  leader: TeamMember;
+  auditor: TeamMember;
+  members: TeamMember[];
+  criteria: string[];
+  steps: number;
+}
+
+// A Team in the store; added is whether the caller has added it.
+export interface StoreTeam {
+  id: string;
+  name: string;
+  version: string;
   source: 'shipped' | 'uploaded';
-  // Each column's agents, in board order.
-  agents: { column: string; roles: string[] }[];
+  domain: string;
+  stage: string;
+  manifest: TeamManifest;
+  added: boolean;
+}
+
+// One Team with every version the caller may see, oldest first.
+export interface TeamDetail {
+  id: string;
+  manifest: TeamManifest;
+  versions: PackVersion[];
 }
 
 // One version of a Team the caller may see.

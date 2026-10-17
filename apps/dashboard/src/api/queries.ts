@@ -13,13 +13,13 @@ import type {
   AgentRun,
   Card,
   Comment,
-  Field,
   InboxItem,
   Invitation,
   LykEvent,
   Me,
   Member,
-  PackVersion,
+  StoreTeam,
+  TeamDetail,
   RunMessage,
   Runtime,
   StudyRecord,
@@ -267,22 +267,27 @@ export function useAgent(id: MaybeRefOrGetter<string>) {
   });
 }
 
-export const usePackCatalog = () =>
+// The store: shipped Teams and the caller's own, newest version of each name.
+export const useTeams = (domain: MaybeRefOrGetter<string>, stage: MaybeRefOrGetter<string>) =>
   useQuery({
-    queryKey: computed(() => keys.packs(ws.value)),
-    queryFn: async () => (await api<Field[] | null>('GET', '/api/packs/catalog')) ?? [],
+    queryKey: computed(() => keys.teams(ws.value, toValue(domain), toValue(stage))),
+    queryFn: async () => {
+      const q = new URLSearchParams({ domain: toValue(domain), stage: toValue(stage) });
+      return (await api<StoreTeam[] | null>('GET', `/api/teams?${q}`)) ?? [];
+    },
     enabled: inWorkspace,
   });
-// The versions of one Team the caller may see, oldest first; a name of ''
-// disables the read.
-export const usePackVersions = (name: MaybeRefOrGetter<string>) =>
+
+export const useTeam = (id: MaybeRefOrGetter<string>) =>
   useQuery({
-    queryKey: computed(() => keys.packVersions(ws.value, toValue(name))),
-    queryFn: () =>
-      api<PackVersion[]>('GET', `/api/packs?name=${encodeURIComponent(toValue(name))}`),
-    enabled: computed(() => inWorkspace.value && Boolean(toValue(name))),
+    queryKey: computed(() => keys.team(ws.value, toValue(id))),
+    queryFn: () => api<TeamDetail>('GET', `/api/teams/${toValue(id)}`),
+    enabled: computed(() => inWorkspace.value && !!toValue(id)),
   });
-export const approvePack = (id: string) => api('POST', `/api/packs/${id}/approve`);
+
+// Adds a Team for the caller and answers the agents it created.
+export const addTeam = (id: string) => api<AgentDefinition[]>('POST', `/api/teams/${id}/add`);
+
 export const uploadPack = (file: Blob) =>
   api<{ id: string; name: string; version: string }>('POST', '/api/packs', undefined, {
     data: file,

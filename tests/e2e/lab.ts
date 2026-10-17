@@ -93,20 +93,26 @@ export const SHIPPED = resolve('test-results/ui-lab/shipped');
 
 // Copies the demo Team in fixtures/demo-pack to dir under another name and
 // version.
-function demoPackAt(dir: string, name: string, version: string) {
+function demoPackAt(
+  dir: string,
+  name: string,
+  version: string,
+  extra: Record<string, string> = {},
+) {
   cpSync('tests/e2e/fixtures/demo-pack', dir, { recursive: true });
   const manifest = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8'));
-  writeFileSync(
-    join(dir, 'pack.json'),
-    JSON.stringify({ ...manifest, name, version }),
-  );
+  writeFileSync(join(dir, 'pack.json'), JSON.stringify({ ...manifest, name, version, ...extra }));
 }
 
 // The demo Team zipped with the system zip command, named name.
-export function labPackArchive(name = 'ui-demo', version = '1'): Buffer {
+export function labPackArchive(
+  name = 'ui-demo',
+  version = '1',
+  extra: Record<string, string> = {},
+): Buffer {
   const dir = mkdtempSync(join(tmpdir(), 'lyk-pack-'));
   try {
-    demoPackAt(join(dir, 'pack'), name, version);
+    demoPackAt(join(dir, 'pack'), name, version, extra);
     const archive = join(dir, 'pack.zip');
     execFileSync('zip', ['-qr', archive, '.', '-x', '.*', '*/.*'], { cwd: join(dir, 'pack') });
     return readFileSync(archive);
@@ -131,11 +137,12 @@ export async function labPack(
   request: APIRequestContext,
   name = 'ui-demo',
   workspaceId?: string,
+  extra: { domain?: string; stage?: string } = {},
 ): Promise<{ id: string; name: string }> {
   const headers = { 'X-Workspace-ID': workspaceId ?? (await labWorkspace(request)) };
   const upload = await request.post('/api/packs', {
     headers: { ...headers, 'Content-Type': 'application/zip' },
-    data: labPackArchive(name, '1'),
+    data: labPackArchive(name, '1', extra),
   });
   if (upload.status() === 409) {
     // An earlier spec in this run already uploaded and approved this version.

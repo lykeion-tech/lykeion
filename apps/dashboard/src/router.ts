@@ -94,7 +94,7 @@ const routes: RouteRecordRaw[] = [
     props: (route) => ({ itemId: param(route, 'itemId') }),
   },
   {
-    path: '/teams/:name?',
+    path: '/teams/:id?',
     component: TeamsView,
     props: true,
     meta: { page: 'teams', title: 'Teams' },
