@@ -10,6 +10,7 @@ import type {
   AgentRun,
   Card,
   Comment,
+  Field,
   InboxItem,
   Invitation,
   LykEvent,
@@ -236,3 +237,10 @@ export function useAgent(id: MaybeRefOrGetter<string>) {
     retry: false,
   });
 }
+
+export const useFields = () =>
+  useQuery({
+    queryKey: computed(() => keys.packs(ws.value)),
+    queryFn: async () => (await api<Field[] | null>('GET', '/api/packs/catalog')) ?? [],
+    enabled: inWorkspace,
+  });

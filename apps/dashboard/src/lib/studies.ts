@@ -307,3 +307,17 @@ export function actionLabel(a: ComposerAction): string {
   if (a.kind === 'send-back') return `Send back to ${columnName(a.to)}`;
   return { comment: 'Comment', stop: 'Stop', resume: 'Resume' }[a.kind];
 }
+
+export type StartKind = 'question' | 'dataset' | 'claim';
+
+const focusHints: Record<StartKind, string> = {
+  question: 'What is the research question?',
+  dataset: 'Which dataset, and what do you want to know about it?',
+  claim: 'Which claim should be checked, and where is it from?',
+};
+
+export function focusPlaceholder(kind: StartKind): string {
+  return focusHints[kind];
+}
+
+export const focusLabel = (kind: string) => kind.charAt(0).toUpperCase() + kind.slice(1);

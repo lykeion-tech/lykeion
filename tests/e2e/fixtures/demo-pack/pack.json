@@ -2,7 +2,7 @@
   "name": "ui-demo",
   "version": "1",
   "description": "Demo Team for the dashboard's browser tests",
-  "start_kinds": ["question"],
+  "start_kinds": ["question", "claim"],
   "columns": {
     "grounding": {
       "phases": [["demo-grounding-author"]],

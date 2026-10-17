@@ -23,6 +23,7 @@ export interface Me {
   created_at: string;
   career_stage: CareerStage;
   onboarded_at: string | null;
+  pack_name: string;
 }
 
 export interface Workspace {
@@ -277,4 +278,13 @@ export interface AgentDefinition {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// A Team (code: pack) in the catalog.
+export interface Field {
+  name: string;
+  description: string;
+  start_kinds: string[];
+  version: number | string;
+  source: string;
 }

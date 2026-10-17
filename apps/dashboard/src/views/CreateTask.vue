@@ -7,11 +7,11 @@ import Icon from '../components/Icon.vue';
 import { api, ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { useAgents, useCards, useMe, useMembers, useWorkspace } from '../api/queries';
+import { useAgents, useCards, useFields, useMe, useMembers, useWorkspace } from '../api/queries';
 import type { Card } from '../api/types';
 import { dateKey } from '../lib/dates';
 import { matchesQuery } from '../lib/search';
-import { studyNumber } from '../lib/studies';
+import { focusLabel, focusPlaceholder, studyNumber, type StartKind } from '../lib/studies';
 import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
 
@@ -38,6 +38,18 @@ const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
 const query = ref('');
 const form = ref<HTMLFormElement>();
+const teams = useFields();
+const picked = ref('');
+// Only a new study has a Focus, and only when the person has a Team; without
+// one the study is created packless.
+const startKinds = computed(() =>
+  props.editId || !me.data.value?.pack_name
+    ? []
+    : (teams.data.value?.find((f) => f.name === me.data.value?.pack_name)?.start_kinds ?? []),
+);
+const focus = computed(() =>
+  startKinds.value.includes(picked.value) ? picked.value : (startKinds.value[0] ?? ''),
+);
 const assignee = ref<Assignee | null>(props.assignee ? { ...props.assignee } : null);
 
 // The creator owns the study, so a private agent is offered only to its owner.
@@ -106,6 +118,10 @@ function closeMenu() {
   menu.value = '';
   query.value = '';
 }
+function chooseFocus(kind: string) {
+  picked.value = kind;
+  closeMenu();
+}
 function follow(id: string) {
   if (!followsFrom.value.includes(id)) followsFrom.value = [...followsFrom.value, id];
   duplicate.value = null;
@@ -140,7 +156,10 @@ async function submit() {
   try {
     if (props.editId) await api('PATCH', `/api/cards/${props.editId}`, fields);
     else {
-      const created = await api<Card>('POST', '/api/cards', fields);
+      const created = await api<Card>('POST', '/api/cards', {
+        ...fields,
+        ...(focus.value ? { start_kind: focus.value } : {}),
+      });
       // ponytail: two requests, so a refused assignment leaves the study created unassigned; fold into POST /api/cards if that matters.
       if (assignee.value)
         await api('PATCH', `/api/cards/${created.id}/properties`, {
@@ -214,7 +233,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <textarea
           v-model="question"
           class="composer-description"
-          placeholder="What is the research question?"
+          :placeholder="focusPlaceholder((focus || 'question') as StartKind)"
           aria-label="Research question"
           required
         />
@@ -238,6 +257,27 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             >
               <Icon name="circle" :size="14" />Backlog
             </button>
+          </div>
+          <div v-if="focus" class="property-anchor">
+            <button
+              type="button"
+              class="property-pill"
+              :aria-label="`Focus: ${focusLabel(focus)}`"
+              @click="openMenu('focus')"
+            >
+              Focus: {{ focusLabel(focus) }}<Icon name="down" :size="12" />
+            </button>
+            <div v-if="menu === 'focus'" class="composer-menu" role="menu">
+              <button
+                v-for="kind in startKinds"
+                :key="kind"
+                type="button"
+                role="menuitem"
+                @click="chooseFocus(kind)"
+              >
+                {{ focusLabel(kind) }}
+              </button>
+            </div>
           </div>
           <div class="property-anchor">
             <button type="button" class="property-pill" @click="openMenu('budget')">

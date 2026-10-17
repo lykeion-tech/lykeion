@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LAB, labWorkspace } from './lab';
+import { LAB, labNoTeam, labPack, labWorkspace } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-14-artifacts';
 
@@ -184,4 +184,53 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   expect((await (await page.request.get(`/api/cards/${card.id}`, { headers })).json()).title).toBe(
     'Edited study title',
   );
+});
+
+test('with a Team, the Focus pill lists its start kinds and the study carries the chosen one', async ({
+  page,
+}) => {
+  await labPack(page.request);
+  try {
+    await page.goto('/#/studies');
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New study' });
+    const question = `Does the claim hold? ${Date.now()}`;
+    await dialog.getByRole('button', { name: 'Focus: Question' }).click();
+    await expect(dialog.getByRole('menuitem', { name: 'Question' })).toBeVisible();
+    await expect(dialog.getByRole('menuitem', { name: 'Claim' })).toBeVisible();
+    await expect(dialog.getByRole('menuitem', { name: 'Dataset' })).toHaveCount(0);
+    await dialog.getByRole('menuitem', { name: 'Claim' }).click();
+    await expect(dialog.getByRole('button', { name: 'Focus: Claim' })).toBeVisible();
+    const description = dialog.getByRole('textbox', { name: 'Research question' });
+    await expect(description).toHaveAttribute(
+      'placeholder',
+      'Which claim should be checked, and where is it from?',
+    );
+    await description.fill(question);
+    await dialog.getByRole('button', { name: /Create study/ }).click();
+    await expect(dialog).toHaveCount(0);
+    const found = await cardsNamed(page, question);
+    expect(found).toHaveLength(1);
+    expect((found[0] as { start_kind?: string }).start_kind).toBe('claim');
+  } finally {
+    await labNoTeam(page.request);
+  }
+});
+
+test('with no Team, the modal shows no Focus pill and the study is created packless', async ({
+  page,
+}) => {
+  await labNoTeam(page.request);
+  await page.goto('/#/studies');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New study' });
+  await expect(dialog.getByRole('button', { name: 'No budget limit' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /^Focus:/ })).toHaveCount(0);
+  const question = `Packless study ${Date.now()}`;
+  await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+  await dialog.getByRole('button', { name: /Create study/ }).click();
+  await expect(dialog).toHaveCount(0);
+  const found = await cardsNamed(page, question);
+  expect(found).toHaveLength(1);
+  expect((found[0] as { start_kind?: string }).start_kind ?? '').toBe('');
 });

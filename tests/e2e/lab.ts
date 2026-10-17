@@ -88,9 +88,16 @@ export async function labPack(request: APIRequestContext): Promise<{ id: string;
       headers: { ...headers, 'Content-Type': 'application/zip' },
       data: readFileSync(archive),
     });
-    expect(upload.status()).toBe(201);
-    const pack = (await upload.json()) as { id: string; name: string };
-    expect((await request.post(`/api/packs/${pack.id}/approve`, { headers })).status()).toBe(200);
+    let pack: { id: string; name: string };
+    if (upload.status() === 409) {
+      // An earlier spec in this run already uploaded and approved this version.
+      const versions = await request.get('/api/packs?name=ui-demo', { headers });
+      pack = ((await versions.json()) as { id: string; name: string }[])[0]!;
+    } else {
+      expect(upload.status()).toBe(201);
+      pack = (await upload.json()) as { id: string; name: string };
+      expect((await request.post(`/api/packs/${pack.id}/approve`, { headers })).status()).toBe(200);
+    }
     const team = await request.put('/api/me/pack', { headers, data: { name: pack.name } });
     expect(team.status()).toBe(200);
     return pack;

@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { prefixFromSlug, randomWorkspaceName, slugFrom } from '../apps/dashboard/src/lib/studies';
+import {
+  focusPlaceholder,
+  prefixFromSlug,
+  randomWorkspaceName,
+  slugFrom,
+} from '../apps/dashboard/src/lib/studies';
+
+describe('focusPlaceholder', () => {
+  it('words the description for each start kind', () => {
+    expect(focusPlaceholder('question')).toBe('What is the research question?');
+    expect(focusPlaceholder('dataset')).toBe(
+      'Which dataset, and what do you want to know about it?',
+    );
+    expect(focusPlaceholder('claim')).toBe('Which claim should be checked, and where is it from?');
+  });
+});
 
 describe('workspace naming', () => {
   it('makes a slug the server accepts', () => {
