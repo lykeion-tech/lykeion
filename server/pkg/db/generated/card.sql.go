@@ -631,8 +631,8 @@ type ResolveCardInboxParams struct {
 	CardID      *uuid.UUID `json:"card_id"`
 }
 
-// A person answered a blocked card (resume, stop, budget): its open escalated
-// and out-of-budget items are resolved, whoever they were addressed to.
+// A person answered a blocked card: its open escalated items are resolved,
+// whoever they were addressed to.
 func (q *Queries) ResolveCardInbox(ctx context.Context, arg ResolveCardInboxParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, resolveCardInbox, arg.WorkspaceID, arg.CardID)
 	if err != nil {

@@ -18,7 +18,6 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/minio v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.44.0
-	go.starlark.net v0.0.0-20260908191801-89a6a09411d5
 	golang.org/x/sys v0.48.0
 )
 

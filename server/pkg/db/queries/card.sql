@@ -49,8 +49,8 @@ WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id
   AND (read_at IS NULL OR (kind IN ('autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
 RETURNING *;
 
--- A person answered a blocked card (resume, stop, budget): its open escalated
--- and out-of-budget items are resolved, whoever they were addressed to.
+-- A person answered a blocked card: its open escalated items are resolved,
+-- whoever they were addressed to.
 -- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'escalated' AND resolved_at IS NULL
