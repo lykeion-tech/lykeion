@@ -35,14 +35,16 @@ var ServerKinds = []string{"delegation", "self_step", "summary", "audit", "score
 var kindName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
 // MayWrite says whether a run in role may store a record of kind through
-// the records route: any well-formed kind but the server's, and for the
-// auditor its audit too.
+// the records route: the auditor writes only its audit, every other role any
+// well-formed kind but the server's.
 func MayWrite(role, kind string) error {
 	switch {
 	case !kindName.MatchString(kind):
 		return Invalid("a record kind is a lowercase name of at most 32 letters, digits and underscores")
-	case role == "auditor" && kind == "audit":
-		return nil
+	case role == "auditor":
+		if kind != "audit" {
+			return Invalid("the auditor writes only audit records")
+		}
 	case slices.Contains(ServerKinds, kind):
 		return Invalid(kind + " records are written by the server")
 	}

@@ -9,7 +9,6 @@ import (
 
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
-	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -25,7 +24,7 @@ func flowError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.As(err, &inv), errors.Is(err, flow.ErrUndeclaredMember):
 		writeErr(w, 400, err.Error())
-	case errors.Is(err, flow.ErrStepCap), errors.Is(err, flow.ErrInFlight), errors.Is(err, flow.ErrMovedOn):
+	case errors.Is(err, flow.ErrStepCap), errors.Is(err, flow.ErrInFlight), errors.Is(err, flow.ErrMovedOn), errors.Is(err, flow.ErrDeclaredDone):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, flow.ErrPackUnavailable):
 		slog.Error("load Team for a step", "card", middleware.RoleFrom(r.Context()).CardID, "err", err)
@@ -54,7 +53,7 @@ func (h *H) postStep(w http.ResponseWriter, r *http.Request) {
 	var rec db.Record
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) (err error) {
 		if in.Self {
-			rec, err = records.WriteAs(r.Context(), tx, writer(role), "self_step", map[string]string{"step": in.Content})
+			rec, err = h.Engine.SelfStep(r.Context(), tx, writer(role), in.Content)
 		} else {
 			rec, err = h.Engine.Delegate(r.Context(), tx, writer(role), in.Member, in.Content)
 		}
@@ -100,6 +99,9 @@ func (h *H) postDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := middleware.RoleFrom(r.Context())
+	if err := h.Engine.DropWakes(r.Context(), role.WorkspaceID, role.CardID); err != nil {
+		slog.Error("drop leader wakes", "card", role.CardID, "err", err)
+	}
 	if err := h.Engine.Audit(r.Context(), role.WorkspaceID, role.CardID); err != nil {
 		slog.Error("audit", "card", role.CardID, "err", err)
 	}

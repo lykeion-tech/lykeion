@@ -302,3 +302,71 @@ func TestOnlyTheLeaderNamesMembers(t *testing.T) {
 		t.Fatalf("member done: %d", c)
 	}
 }
+
+func TestACancelledMemberWakesTheLeader(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	_, out := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
+	l.complete(t, leader)
+	if c := l.s.call(t, "POST", "/api/agent-runs/"+out.AgentRunID+"/cancel", l.jwt, l.ws, nil, nil); c != 204 {
+		t.Fatalf("cancel %d", c)
+	}
+	again := l.claim(t)
+	if again.role != "leader" || !strings.Contains(again.prompt, "member-1's run was cancelled") {
+		t.Fatalf("leader resume %+v", again)
+	}
+}
+
+func TestADeclaredDoneColumnTakesNoMoreSteps(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
+	l.complete(t, l.claim(t)) // the member lands while the leader still runs, which queues a wake
+	if n := l.queued(t); n != 1 {
+		t.Fatalf("%d leader wakes queued", n)
+	}
+	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Done."}, nil); c != 201 {
+		t.Fatalf("done %d", c)
+	}
+	if n := l.queued(t); n != 0 {
+		t.Fatalf("the wake queued before done is still queued: %d", n)
+	}
+	for _, in := range []map[string]any{{"member": "member-2", "content": "two"}, {"self": true, "content": "two"}} {
+		if c, out := l.step(t, leader.token, in); c != 409 || out.Error != "this column was already declared done" {
+			t.Fatalf("%v after done: %d %+v", in, c, out)
+		}
+	}
+	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Again."}, nil); c != 409 {
+		t.Fatalf("second done: %d", c)
+	}
+}
+
+func TestAnIdleLeaderWaitsForItsMember(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
+	m := l.claim(t)
+	l.complete(t, leader)
+	l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": "How is it going?"}, nil)
+	l.complete(t, l.claim(t)) // woken by the comment, it stops idle while the member works
+	if n := l.queued(t); n != 0 {
+		t.Fatalf("an idle leader was nudged with its member at work: %d queued", n)
+	}
+	l.complete(t, m)
+	if again := l.claim(t); again.role != "leader" || !strings.Contains(again.prompt, "member-1 finished") {
+		t.Fatalf("leader resume %+v", again)
+	}
+}
+
+func TestNoEscalationWhileTheLeaderIsQueued(t *testing.T) {
+	l := newTeamLab(t, 0)
+	l.complete(t, l.claim(t))
+	nudged := l.claim(t)
+	l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": "Try GTEx."}, nil)
+	for deadline := time.Now().Add(5 * time.Second); l.queued(t) == 0 && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	}
+	l.complete(t, nudged)
+	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'escalated'", l.card.ID); n != 0 {
+		t.Fatalf("escalated with the leader queued: %d", n)
+	}
+}

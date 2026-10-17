@@ -25,6 +25,7 @@ var (
 	ErrStepCap          = errors.New("step cap reached: finish with lyk team done or do the step yourself")
 	ErrInFlight         = errors.New("a member's run is still in flight: wait until its work lands")
 	ErrMovedOn          = errors.New("the study is no longer working this run's column")
+	ErrDeclaredDone     = errors.New("this column was already declared done")
 )
 
 // idleNote wakes a leader that stopped without naming a member or finishing.
@@ -64,20 +65,46 @@ func isMember(role string) bool {
 	return role != "" && role != "leader" && role != "auditor" && role != "agent"
 }
 
+func waitingToStart(status string) bool { return status == "queued" || status == "dispatched" }
+
 func inFlight(status string) bool {
 	return status == "queued" || status == "dispatched" || status == "running"
+}
+
+// openColumn reads the study a run's role command acts on and refuses it
+// when the study has left the run's column and attempt, or when that column
+// was already declared done.
+func openColumn(ctx context.Context, tx *store.Tx, w service.Writer) (db.Card, error) {
+	c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: w.Card})
+	if err != nil {
+		return c, err
+	}
+	if !current(c, w.Column, w.Round) {
+		return c, ErrMovedOn
+	}
+	done, err := tx.Q.CountRoundKindRecords(ctx, db.CountRoundKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID,
+		BoardColumn: c.BoardColumn, Round: c.Round, Kind: "summary"})
+	if err == nil && done > 0 {
+		err = ErrDeclaredDone
+	}
+	return c, err
+}
+
+// SelfStep records that the leader does a step itself.
+func (e *Engine) SelfStep(ctx context.Context, tx *store.Tx, w service.Writer, step string) (db.Record, error) {
+	if _, err := openColumn(ctx, tx, w); err != nil {
+		return db.Record{}, err
+	}
+	return records.WriteAs(ctx, tx, w, "self_step", map[string]string{"step": step})
 }
 
 // Delegate starts the run of the column Team's member for one step the
 // leader names and records the delegation. w is the leader's run, whose card
 // lock the caller holds.
 func (e *Engine) Delegate(ctx context.Context, tx *store.Tx, w service.Writer, member, step string) (db.Record, error) {
-	c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: w.Card})
+	c, err := openColumn(ctx, tx, w)
 	if err != nil {
 		return db.Record{}, err
-	}
-	if !current(c, w.Column, w.Round) {
-		return db.Record{}, ErrMovedOn
 	}
 	packID, m, err := columnTeam(ctx, tx, c.ID, c.BoardColumn)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -116,12 +143,9 @@ func (e *Engine) Delegate(ctx context.Context, tx *store.Tx, w service.Writer, m
 // agent, declares its column done. Every cited key must name a live record
 // of the study, and no member's run may still be in flight.
 func (e *Engine) Finish(ctx context.Context, tx *store.Tx, w service.Writer, summary string, cites []string) (db.Record, error) {
-	c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: w.Card})
+	c, err := openColumn(ctx, tx, w)
 	if err != nil {
 		return db.Record{}, err
-	}
-	if !current(c, w.Column, w.Round) {
-		return db.Record{}, ErrMovedOn
 	}
 	runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
 	if err != nil {
@@ -145,6 +169,37 @@ func (e *Engine) Finish(ctx context.Context, tx *store.Tx, w service.Writer, sum
 		}
 	}
 	return records.WriteAs(ctx, tx, w, "summary", map[string]any{"text": summary, "cites": cites})
+}
+
+// DropWakes cancels the leader runs still waiting to start on a study's
+// column once it is declared done: work that landed during the leader's last
+// turn queued them, and the column takes no more steps.
+func (e *Engine) DropWakes(ctx context.Context, ws, card uuid.UUID) error {
+	var owner uuid.UUID
+	var waiting []uuid.UUID
+	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: ws, ID: card})
+		if err != nil {
+			return err
+		}
+		owner = c.OwnerID
+		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: card, BoardColumn: c.BoardColumn, Round: c.Round})
+		for _, r := range runs {
+			if r.Role == "leader" && waitingToStart(r.Status) {
+				waiting = append(waiting, r.ID)
+			}
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, id := range waiting {
+		if err := e.AgentRuns.Cancel(ctx, ws, owner, id); err != nil && !errors.Is(err, service.ErrConflict) {
+			return err
+		}
+	}
+	return nil
 }
 
 // Audit is the step after a column is declared done. The auditor is not
@@ -172,7 +227,7 @@ func lockCard(ctx context.Context, tx *store.Tx, id uuid.UUID) (db.Card, error) 
 // the column done is woken once with idleNote; ending that way again leaves
 // the study working and escalates it to its owner.
 func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
-	if t.Status == "cancelled" || (t.Role != "leader" && !isMember(t.Role)) {
+	if (t.Role == "leader" && t.Status == "cancelled") || (t.Role != "leader" && !isMember(t.Role)) {
 		return nil
 	}
 	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
@@ -189,6 +244,17 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 		}
 		for _, r := range recs {
 			if r.Kind == "delegation" || r.Kind == "summary" {
+				return nil
+			}
+		}
+		// A member still at work, or a leader run already waiting, wakes the
+		// leader in its own time.
+		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+		if err != nil {
+			return err
+		}
+		for _, r := range runs {
+			if (isMember(r.Role) && inFlight(r.Status)) || (r.Role == "leader" && waitingToStart(r.Status)) {
 				return nil
 			}
 		}
@@ -241,7 +307,7 @@ func (e *Engine) wake(ctx context.Context, tx *store.Tx, c db.Card, note string)
 		return err
 	}
 	for _, r := range runs {
-		if r.Role == "leader" && (r.Status == "queued" || r.Status == "dispatched") {
+		if r.Role == "leader" && waitingToStart(r.Status) {
 			return nil
 		}
 	}
@@ -265,9 +331,12 @@ func (e *Engine) wake(ctx context.Context, tx *store.Tx, c db.Card, note string)
 // outcome and the records it wrote.
 func memberReport(t db.AgentRun, recs []db.Record) string {
 	var b strings.Builder
-	if t.Status == "completed" {
+	switch t.Status {
+	case "completed":
 		fmt.Fprintf(&b, "%s finished the step you named.\n", t.Role)
-	} else {
+	case "cancelled":
+		fmt.Fprintf(&b, "%s's run was cancelled before it finished the step.\n", t.Role)
+	default:
 		fmt.Fprintf(&b, "%s's run failed: %s\n", t.Role, strings.TrimSpace(t.Error+" "+ptrOr(t.FailureReason)))
 	}
 	for _, r := range recs {
