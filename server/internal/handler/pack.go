@@ -50,28 +50,10 @@ func (h *H) uploadPack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if slices.Contains(pack.ShippedNames(h.Shipped), p.Manifest.Name) {
-		writeErr(w, 409, "a Team Lykeion ships already has this name")
-		return
-	}
 	var row db.FieldPack
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		// Serialises uploads in the workspace so two people cannot both
-		// claim a new name between the check and the insert.
-		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
-			return err
-		}
-		taken, err := tx.Q.PackNameTaken(r.Context(), db.PackNameTakenParams{WorkspaceID: ws, Name: p.Manifest.Name, UserID: user})
-		if err != nil {
-			return err
-		}
-		if taken {
-			return conflict("another Team already has this name")
-		}
-		if row, err = pack.Insert(r.Context(), tx, h.Blobs, z, p, &user); err != nil {
-			if isUnique(err) {
-				return conflict("this version of the Team is already uploaded")
-			}
+		var err error
+		if row, err = h.insertUpload(r, tx, user, z, p); err != nil {
 			return err
 		}
 		// Only the id: every member sees workspace events, and the upload is its uploader's alone.
@@ -81,6 +63,31 @@ func (h *H) uploadPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]any{"id": row.ID, "name": row.Name, "version": row.Version, "sha256": row.Sha256})
+}
+
+// insertUpload stores a parsed archive as user's private upload, refusing a
+// name another Team holds.
+func (h *H) insertUpload(r *http.Request, tx *store.Tx, user uuid.UUID, z []byte, p *pack.Pack) (db.FieldPack, error) {
+	if slices.Contains(pack.ShippedNames(h.Shipped), p.Manifest.Name) {
+		return db.FieldPack{}, conflict("a Team Lykeion ships already has this name")
+	}
+	// Serialises uploads in the workspace so two people cannot both
+	// claim a new name between the check and the insert.
+	if err := tx.Q.LockWorkspaceEvents(r.Context(), tx.WS); err != nil {
+		return db.FieldPack{}, err
+	}
+	taken, err := tx.Q.PackNameTaken(r.Context(), db.PackNameTakenParams{WorkspaceID: tx.WS, Name: p.Manifest.Name, UserID: user})
+	if err != nil {
+		return db.FieldPack{}, err
+	}
+	if taken {
+		return db.FieldPack{}, conflict("another Team already has this name")
+	}
+	row, err := pack.Insert(r.Context(), tx, h.Blobs, z, p, &user)
+	if isUnique(err) {
+		return row, conflict("this version of the Team is already uploaded")
+	}
+	return row, err
 }
 
 // packVersions lists the versions of one pack the caller may see.

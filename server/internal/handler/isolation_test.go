@@ -87,7 +87,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			path = strings.Replace(path, "{id}", wa.ID, 1)
 			header = ""
 		} else if route == "/api/autoresearch" || route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
-			route == "/api/packs" || route == "/api/packs/catalog" || route == "/api/me/pack" {
+			route == "/api/packs" || route == "/api/teams" || route == "/api/packs/catalog" || route == "/api/me/pack" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID
 		}

@@ -6,6 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -245,5 +248,37 @@ func TestTestutilPackIsValid(t *testing.T) {
 	m := p.Manifest
 	if m.Name != "x" || m.Version != "3" || m.Leader.Name != "pi" || len(m.Members) != 3 || m.Auditor.Agent.Harness != "codex" || m.Steps != 12 {
 		t.Fatalf("%+v", m)
+	}
+}
+
+func TestTheDemoFixtureParses(t *testing.T) {
+	root := "../../../tests/e2e/fixtures/demo-pack"
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		rel, _ := filepath.Rel(root, path)
+		files[filepath.ToSlash(rel)] = string(body)
+		return err
+	})
+	if err != nil || len(files) == 0 {
+		t.Fatalf("reading the fixture: %v (%d files)", err, len(files))
+	}
+	p, err := Parse(testutil.Zip(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Manifest.Name != "ui-demo" || len(p.Manifest.Members) != 2 {
+		t.Fatalf("manifest %+v", p.Manifest)
+	}
+}
+
+func TestAuditorDiffersIsExported(t *testing.T) {
+	m := goodManifest()
+	m.Auditor.Agent = m.Leader.Agent
+	if err := AuditorDiffers(m); err == nil {
+		t.Fatal("an auditor equal to the leader was accepted")
 	}
 }

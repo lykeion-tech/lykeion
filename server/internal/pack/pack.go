@@ -249,11 +249,6 @@ func (p *Pack) validate() error {
 		if _, ok := agent.Harnesses[mem.Agent.Harness]; !ok {
 			return fmt.Errorf("pack: %s %q: harness %q is unknown", where, mem.Name, mem.Agent.Harness)
 		}
-		if i != 1 {
-			if a := m.Auditor.Agent; a.Harness == mem.Agent.Harness && a.Model == mem.Agent.Model {
-				return fmt.Errorf("pack: auditor shares harness and model with %q", mem.Name)
-			}
-		}
 		for _, s := range mem.Skills {
 			_, folder := p.Skills[mem.Name+"/"+s]["SKILL.md"]
 			if !folder && (BundleHas == nil || !BundleHas(s)) {
@@ -266,9 +261,25 @@ func (p *Pack) validate() error {
 			}
 		}
 	}
+	if err := AuditorDiffers(*m); err != nil {
+		return err
+	}
 	for key := range p.Skills {
 		if !seen[strings.SplitN(key, "/", 2)[0]] {
 			return fmt.Errorf("pack: skills for unknown member in %q", key)
+		}
+	}
+	return nil
+}
+
+// AuditorDiffers refuses a Team whose auditor runs the same harness and model
+// as the leader or any member. An empty model is the harness default, so it
+// equals another empty model on the same harness.
+func AuditorDiffers(m Manifest) error {
+	a := m.Auditor.Agent
+	for _, mem := range slices.Concat([]Member{m.Leader}, m.Members) {
+		if a.Harness == mem.Agent.Harness && a.Model == mem.Agent.Model {
+			return fmt.Errorf("pack: auditor shares harness and model with %q", mem.Name)
 		}
 	}
 	return nil
