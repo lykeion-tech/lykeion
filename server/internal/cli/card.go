@@ -40,7 +40,7 @@ func byNumber(cmd *cobra.Command, e *env, arg string) (cardView, error) {
 
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
-	var title, followsFrom string
+	var title, followsFrom, startKind string
 	var usd float64
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
@@ -50,6 +50,9 @@ func cardCmd(e *env) *cobra.Command {
 		in := map[string]any{"question": strings.Join(a, " "), "budget_usd": usd}
 		if title != "" {
 			in["title"] = title
+		}
+		if startKind != "" {
+			in["start_kind"] = startKind
 		}
 		if followsFrom != "" {
 			previous, err := byNumber(cmd, e, followsFrom)
@@ -67,6 +70,7 @@ func cardCmd(e *env) *cobra.Command {
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().Float64Var(&usd, "usd", 0, "model budget in USD")
 	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
+	newCmd.Flags().StringVar(&startKind, "start-kind", "", "what the study starts from: question, dataset or claim, as your Team allows")
 	c.AddCommand(newCmd,
 		&cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := e.inWorkspace(); err != nil {

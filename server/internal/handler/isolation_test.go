@@ -86,7 +86,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		if strings.HasPrefix(route, "/api/workspaces/{id}") {
 			path = strings.Replace(path, "{id}", wa.ID, 1)
 			header = ""
-		} else if route == "/api/autoresearch" || route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" {
+		} else if route == "/api/autoresearch" || route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
+			route == "/api/packs" || route == "/api/packs/catalog" || route == "/api/me/pack" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID
 		}
@@ -121,6 +122,10 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			body = map[string]string{"name": "outsider research"}
 		case route == "/api/agents" || route == "/api/agents/{id}":
 			body = map[string]string{"name": "outsider agent", "harness": "codex"}
+		case route == "/api/cards/{id}/pack":
+			body = map[string]string{"pack_id": c.ID}
+		case route == "/api/me/pack":
+			body = map[string]string{"name": "demo"}
 		case route == "/api/cards/{id}/properties":
 			body = map[string]any{"research_id": nil}
 		case route == "/api/cards":

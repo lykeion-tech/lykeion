@@ -26,10 +26,15 @@ type conflict string
 
 func (e conflict) Error() string { return string(e) }
 
+type forbidden string
+
+func (e forbidden) Error() string { return string(e) }
+
 // answer writes the error a route ended with, or reports success.
 func answer(w http.ResponseWriter, r *http.Request, err error) bool {
 	var br cardInputError
 	var cf conflict
+	var fb forbidden
 	switch {
 	case err == nil:
 		return true
@@ -37,6 +42,8 @@ func answer(w http.ResponseWriter, r *http.Request, err error) bool {
 		writeErr(w, 400, string(br))
 	case errors.Is(err, errForbidden):
 		writeErr(w, 403, err.Error())
+	case errors.As(err, &fb):
+		writeErr(w, 403, string(fb))
 	case errors.As(err, &cf):
 		writeErr(w, 409, string(cf))
 	default:

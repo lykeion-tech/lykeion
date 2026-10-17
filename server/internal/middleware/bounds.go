@@ -13,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+
+	"lykeion/server/internal/pack"
 )
 
 const (
@@ -111,6 +113,9 @@ func daemonMessagePost(r *http.Request) bool {
 func JSONBodyLimit(r *http.Request) int64 {
 	if daemonMessagePost(r) {
 		return MaxDaemonMessageBytes
+	}
+	if r.Method == http.MethodPost && r.URL.Path == "/api/packs" {
+		return pack.MaxArchive
 	}
 	return MaxBodyBytes
 }

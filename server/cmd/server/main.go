@@ -24,6 +24,7 @@ import (
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/migrate"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/pack/check"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/round"
@@ -164,7 +165,11 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
 		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Kinds: round.Kinds(),
 		Google:    auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
-		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/")}
+		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped()}
+	if dir := getenv("LYK_TEST_SHIPPED_DIR"); dir != "" {
+		// Tests swap shipped pack versions on disk while the server runs.
+		h.Shipped = os.DirFS(dir)
+	}
 	if err := runs.RecoverSettlements(ctx); err != nil {
 		return fmt.Errorf("recover settlements: %w", err)
 	}

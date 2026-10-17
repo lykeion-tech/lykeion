@@ -56,6 +56,34 @@ func (q *Queries) GetFieldPack(ctx context.Context, arg GetFieldPackParams) (Fie
 	return i, err
 }
 
+const getFieldPackVersion = `-- name: GetFieldPackVersion :one
+SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at FROM field_pack WHERE workspace_id = $1 AND name = $2 AND version = $3
+`
+
+type GetFieldPackVersionParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+	Version     string    `json:"version"`
+}
+
+func (q *Queries) GetFieldPackVersion(ctx context.Context, arg GetFieldPackVersionParams) (FieldPack, error) {
+	row := q.db.QueryRow(ctx, getFieldPackVersion, arg.WorkspaceID, arg.Name, arg.Version)
+	var i FieldPack
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Version,
+		&i.Sha256,
+		&i.Manifest,
+		&i.BlobKey,
+		&i.Source,
+		&i.UploadedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertFieldPack = `-- name: InsertFieldPack :one
 INSERT INTO field_pack (workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -170,6 +198,112 @@ func (q *Queries) ListFieldPacks(ctx context.Context, workspaceID uuid.UUID) ([]
 	return items, nil
 }
 
+const listOwnPacks = `-- name: ListOwnPacks :many
+SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at FROM field_pack WHERE workspace_id = $1 AND uploaded_by = $2 ORDER BY name, created_at
+`
+
+type ListOwnPacksParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	UserID      *uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) ListOwnPacks(ctx context.Context, arg ListOwnPacksParams) ([]FieldPack, error) {
+	rows, err := q.db.Query(ctx, listOwnPacks, arg.WorkspaceID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FieldPack
+	for rows.Next() {
+		var i FieldPack
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Version,
+			&i.Sha256,
+			&i.Manifest,
+			&i.BlobKey,
+			&i.Source,
+			&i.UploadedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPackVersions = `-- name: ListPackVersions :many
+SELECT p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, (a.approved_by IS NOT NULL)::bool AS approvals_by_me, a.approved_at,
+  (SELECT count(*) FROM card c WHERE c.workspace_id = p.workspace_id AND c.pack_id = p.id)::int AS pinned_studies
+FROM field_pack p LEFT JOIN field_pack_approval a
+  ON a.workspace_id = p.workspace_id AND a.pack_id = p.id AND a.approved_by = $1
+WHERE p.workspace_id = $2 AND p.name = $3 AND (p.source = 'shipped' OR p.uploaded_by = $1)
+ORDER BY p.created_at
+`
+
+type ListPackVersionsParams struct {
+	UserID      uuid.UUID `json:"user_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+}
+
+type ListPackVersionsRow struct {
+	ID            uuid.UUID       `json:"id"`
+	WorkspaceID   uuid.UUID       `json:"workspace_id"`
+	Name          string          `json:"name"`
+	Version       string          `json:"version"`
+	Sha256        string          `json:"sha256"`
+	Manifest      json.RawMessage `json:"manifest"`
+	BlobKey       string          `json:"blob_key"`
+	Source        string          `json:"source"`
+	UploadedBy    *uuid.UUID      `json:"uploaded_by"`
+	CreatedAt     time.Time       `json:"created_at"`
+	ApprovalsByMe bool            `json:"approvals_by_me"`
+	ApprovedAt    *time.Time      `json:"approved_at"`
+	PinnedStudies int32           `json:"pinned_studies"`
+}
+
+// The versions of one pack the user may see: shipped ones and their own uploads.
+func (q *Queries) ListPackVersions(ctx context.Context, arg ListPackVersionsParams) ([]ListPackVersionsRow, error) {
+	rows, err := q.db.Query(ctx, listPackVersions, arg.UserID, arg.WorkspaceID, arg.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPackVersionsRow
+	for rows.Next() {
+		var i ListPackVersionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Version,
+			&i.Sha256,
+			&i.Manifest,
+			&i.BlobKey,
+			&i.Source,
+			&i.UploadedBy,
+			&i.CreatedAt,
+			&i.ApprovalsByMe,
+			&i.ApprovedAt,
+			&i.PinnedStudies,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const newestApprovedVersion = `-- name: NewestApprovedVersion :one
 SELECT p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at FROM field_pack p JOIN field_pack_approval a ON a.workspace_id = p.workspace_id AND a.pack_id = p.id
 WHERE p.workspace_id = $1 AND p.name = $2 AND a.approved_by = $3
@@ -230,6 +364,86 @@ func (q *Queries) OnlineHarnesses(ctx context.Context, arg OnlineHarnessesParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const packNameTaken = `-- name: PackNameTaken :one
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = $1 AND name = $2
+  AND uploaded_by IS DISTINCT FROM $3::uuid) AS taken
+`
+
+type PackNameTakenParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+// Whether the name belongs to a shipped pack or to someone other than the user.
+func (q *Queries) PackNameTaken(ctx context.Context, arg PackNameTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, packNameTaken, arg.WorkspaceID, arg.Name, arg.UserID)
+	var taken bool
+	err := row.Scan(&taken)
+	return taken, err
+}
+
+const pinNewCard = `-- name: PinNewCard :one
+UPDATE card SET pack_id = $1, start_kind = $2, cap = $3
+WHERE workspace_id = $4 AND id = $5 RETURNING id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, start_kind, cap, block_kind, reopens
+`
+
+type PinNewCardParams struct {
+	PackID      *uuid.UUID `json:"pack_id"`
+	StartKind   string     `json:"start_kind"`
+	Cap         int32      `json:"cap"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+}
+
+func (q *Queries) PinNewCard(ctx context.Context, arg PinNewCardParams) (Card, error) {
+	row := q.db.QueryRow(ctx, pinNewCard,
+		arg.PackID,
+		arg.StartKind,
+		arg.Cap,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	var i Card
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Number,
+		&i.Title,
+		&i.Question,
+		&i.OwnerID,
+		&i.BudgetUsd,
+		&i.Deadline,
+		&i.SpentUsd,
+		&i.BoardColumn,
+		&i.State,
+		&i.Flag,
+		&i.Ending,
+		&i.EndReason,
+		&i.Rounds,
+		&i.RouteBacks,
+		&i.Stale,
+		&i.Rerun,
+		&i.FollowsFrom,
+		&i.Version,
+		&i.CreatedAt,
+		&i.Round,
+		&i.HandoffNote,
+		&i.GatingUntil,
+		&i.Position,
+		&i.ResearchID,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.Origin,
+		&i.PackID,
+		&i.StartKind,
+		&i.Cap,
+		&i.BlockKind,
+		&i.Reopens,
+	)
+	return i, err
 }
 
 const setCardPack = `-- name: SetCardPack :exec

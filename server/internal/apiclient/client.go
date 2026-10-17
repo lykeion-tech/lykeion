@@ -17,6 +17,9 @@ type Client struct {
 	HTTP                     *http.Client
 }
 
+// Zip is a request body sent as a raw zip archive instead of JSON.
+type Zip []byte
+
 func (c *Client) Do(ctx context.Context, method, path string, in, out any) error {
 	base, err := url.Parse(c.Server)
 	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
@@ -26,7 +29,10 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 		return fmt.Errorf("invalid API path %q", path)
 	}
 	var body io.Reader
-	if in != nil {
+	contentType := "application/json"
+	if z, ok := in.(Zip); ok {
+		body, contentType = bytes.NewReader(z), "application/zip"
+	} else if in != nil {
 		b, err := json.Marshal(in)
 		if err != nil {
 			return err
@@ -37,7 +43,7 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}

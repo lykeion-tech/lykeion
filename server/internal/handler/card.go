@@ -25,6 +25,7 @@ type newCard struct {
 	BudgetUSD   float64     `json:"budget_usd"`
 	Deadline    *time.Time  `json:"deadline"`
 	FollowsFrom []uuid.UUID `json:"follows_from"`
+	StartKind   string      `json:"start_kind"`
 }
 
 type cardInputError string
@@ -82,6 +83,10 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		pk, capacity, err := cardPack(r, tx, user, in.StartKind)
+		if err != nil {
+			return err
+		}
 		// A follow-up may ask the same question again; any other card may not
 		// while an active card asks it. The workspace lock makes two identical
 		// cards created at once see each other.
@@ -109,6 +114,12 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		if pk != nil {
+			if c, err = tx.Q.PinNewCard(r.Context(), db.PinNewCardParams{PackID: &pk.ID, StartKind: in.StartKind,
+				Cap: capacity, WorkspaceID: ws, ID: c.ID}); err != nil {
+				return err
+			}
+		}
 		return tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title})
 	})
 	if errors.Is(err, errDuplicate) {
@@ -121,8 +132,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, inputErr.Error())
 		return
 	}
-	if err != nil {
-		fail(w, r, err)
+	if !answer(w, r, err) {
 		return
 	}
 	writeJSON(w, 201, c)

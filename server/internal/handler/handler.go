@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -40,6 +41,7 @@ type H struct {
 	Kinds        map[string]service.Kind
 	Sources      http.Handler
 	PublicURL    string // where people reach the dashboard, without a trailing slash
+	Shipped      fs.FS  // the packs Lykeion ships, one folder per name; nil ships none
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

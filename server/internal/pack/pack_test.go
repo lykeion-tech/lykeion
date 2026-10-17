@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"lykeion/server/internal/testutil"
 )
 
 const goodStar = `def check(records):
@@ -220,5 +222,27 @@ func TestTargetUndeclared(t *testing.T) {
 	}
 	if got := p.Target("nope"); got != "" {
 		t.Fatalf("%q", got)
+	}
+}
+
+func TestTestutilPackIsValid(t *testing.T) {
+	z := testutil.Pack(t, testutil.PackOpts{Name: "x", Version: "3", Columns: []string{"grounding", "validation"},
+		StartKinds: []string{"claim"}, Cap: 2, Sources: []string{"openalex"}, ScienceIndex: true})
+	p, err := Parse(z)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := p.Manifest
+	if m.Name != "x" || m.Version != "3" || m.Cap != 2 || m.StartKinds[0] != "claim" || m.Sources[0] != "openalex" || !m.ScienceIndex ||
+		p.Skill("validation", "reviewer") == "" {
+		t.Fatalf("%+v", m)
+	}
+	rs, err := p.Check(t.Context(), "validation", []checkRecord{{Kind: "note", Key: "n"}})
+	if err != nil || len(rs) != 1 || !rs[0].OK {
+		t.Fatalf("with a note: %v %v", rs, err)
+	}
+	rs, err = p.Check(t.Context(), "validation", []checkRecord{{Kind: "claim", Key: "c"}})
+	if err != nil || len(rs) != 1 || rs[0].OK || rs[0].Failure != "missing_note" {
+		t.Fatalf("without a note: %v %v", rs, err)
 	}
 }
