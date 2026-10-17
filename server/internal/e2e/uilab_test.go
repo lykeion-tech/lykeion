@@ -94,9 +94,14 @@ func TestUILab(t *testing.T) {
 	mail := &codeMail{codes: map[string]string{}}
 	iss := auth.Issuer{Secret: []byte("ui-lab-signing-secret-0123456789"), TTL: 24 * time.Hour}
 
+	h := &handler.H{Store: st, JWT: iss, Mail: mail, Limit: auth.Limiter{R: env.Redis},
+		Hub: hub, AgentRuns: runs, Blobs: blobs, KindsFor: round.KindsFor, Engine: engine, Sources: hosted.Handler()}
+	if dir := os.Getenv("LYK_TEST_SHIPPED_DIR"); dir != "" {
+		// Browser tests ship and replace Team versions on disk while the lab runs.
+		h.Shipped = os.DirFS(dir)
+	}
 	mux := http.NewServeMux()
-	mux.Handle("/", handler.NewRouter(&handler.H{Store: st, JWT: iss, Mail: mail, Limit: auth.Limiter{R: env.Redis},
-		Hub: hub, AgentRuns: runs, Blobs: blobs, KindsFor: round.KindsFor, Engine: engine, Sources: hosted.Handler()}))
+	mux.Handle("/", handler.NewRouter(h))
 	mux.HandleFunc("GET /lab/code", func(w http.ResponseWriter, r *http.Request) {
 		mail.mu.Lock()
 		code := mail.codes[strings.ToLower(r.URL.Query().Get("email"))]

@@ -286,5 +286,21 @@ export interface Field {
   description: string;
   start_kinds: string[];
   version: number | string;
-  source: string;
+  source: 'shipped' | 'uploaded';
+  // Each column's agents, in board order.
+  agents: { column: string; roles: string[] }[];
+}
+
+// One version of a Team the caller may see.
+export interface PackVersion {
+  id: string;
+  name: string;
+  version: string;
+  sha256: string;
+  source: 'shipped' | 'uploaded';
+  uploaded_by: string | null;
+  created_at: string;
+  approvals_by_me: boolean;
+  approved_at: string | null;
+  pinned_studies: number;
 }

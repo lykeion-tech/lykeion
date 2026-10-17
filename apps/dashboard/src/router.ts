@@ -14,6 +14,7 @@ import TaskDetail from './views/TaskDetail.vue';
 import MachinesView from './views/MachinesView.vue';
 import InboxView from './views/InboxView.vue';
 import ColleaguesView from './views/ColleaguesView.vue';
+import TeamsView from './views/TeamsView.vue';
 import SettingsView from './views/SettingsView.vue';
 import SignInView from './views/SignInView.vue';
 import AcceptInvite from './views/AcceptInvite.vue';
@@ -41,7 +42,7 @@ function param(route: RouteLocationNormalized, name: string) {
   return (Array.isArray(value) ? value[0] : value) || undefined;
 }
 
-// Later slices' destinations (teams, skills, connectors, Autoresearch,
+// Later slices' destinations (skills, connectors, Autoresearch,
 // Coresearch, updates) are not routed until their slice; their
 // views stay in the tree.
 const routes: RouteRecordRaw[] = [
@@ -85,6 +86,7 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'inbox', title: 'Inbox' },
     props: (route) => ({ itemId: param(route, 'itemId') }),
   },
+  { path: '/teams', component: TeamsView, meta: { page: 'teams', title: 'Teams' } },
   {
     path: '/colleagues',
     component: ColleaguesView,

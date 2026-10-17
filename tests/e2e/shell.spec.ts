@@ -9,6 +9,7 @@ test('the sidebar shows the implemented workspace destinations only', async ({ p
     'New',
     'Inbox',
     'Studies',
+    'Teams',
     'Researches',
     'Agents',
     'Colleagues',
@@ -23,7 +24,6 @@ test('the sidebar shows the implemented workspace destinations only', async ({ p
   for (const name of [
     'Coresearch',
     'Autoresearch',
-    'Teams',
     'Skills',
     'Connectors',
     'Updates',
@@ -54,7 +54,7 @@ test('the approved Researches and Agents directory routes are reachable', async 
 });
 
 test("a later slice's route and an unknown route land on Studies", async ({ page }) => {
-  for (const path of ['/#/autoresearch', '/#/teams', '/#/no-such-page']) {
+  for (const path of ['/#/autoresearch', '/#/skills', '/#/no-such-page']) {
     await page.goto(path);
     await expect(page).toHaveURL(/#\/studies$/);
   }

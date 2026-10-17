@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -111,15 +112,22 @@ func (s *server) newCard(t *testing.T, tok, wsID string, in map[string]any) (int
 
 func TestTeamShippedApproves(t *testing.T) {
 	s := newServer(t)
-	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1", Cap: 5, Description: "Demo field"}))
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1", Cap: 5, Description: "Demo field",
+		Columns: []string{"grounding", "experimentation"}}))
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var catalog []struct {
 		Name, Description, Version, Source string
 		StartKinds                         []string `json:"start_kinds"`
+		Agents                             []struct {
+			Column string
+			Roles  []string
+		}
 	}
 	if c := s.call(t, "GET", "/api/packs/catalog", a, w.ID, nil, &catalog); c != 200 || len(catalog) != 1 ||
-		catalog[0].Name != "demo" || catalog[0].Version != "1" || catalog[0].Description != "Demo field" || catalog[0].StartKinds[0] != "question" {
+		catalog[0].Name != "demo" || catalog[0].Version != "1" || catalog[0].Description != "Demo field" || catalog[0].StartKinds[0] != "question" ||
+		len(catalog[0].Agents) != 2 || catalog[0].Agents[0].Column != "grounding" || catalog[0].Agents[1].Column != "experimentation" ||
+		!slices.Equal(catalog[0].Agents[0].Roles, []string{"author"}) {
 		t.Fatalf("catalog %d %+v", c, catalog)
 	}
 	if c := s.call(t, "PUT", "/api/me/pack", a, w.ID, map[string]string{"name": "demo"}, nil); c != 200 {

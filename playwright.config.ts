@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { SHIPPED } from './tests/e2e/lab';
 
 const lab = '127.0.0.1:18080';
 
@@ -42,7 +43,7 @@ export default defineConfig({
       command:
         'mkdir -p ../../../test-results/ui-lab && go test -p 1 -c -o ../../../test-results/ui-lab/e2e.test . && exec ../../../test-results/ui-lab/e2e.test -test.run "^TestUILab$" -test.timeout 0 -test.v',
       cwd: 'server/internal/e2e',
-      env: { LYK_UI_LAB: lab, GOMAXPROCS: '2', GOFLAGS: '-p=1' },
+      env: { LYK_UI_LAB: lab, LYK_TEST_SHIPPED_DIR: SHIPPED, GOMAXPROCS: '2', GOFLAGS: '-p=1' },
       url: `http://${lab}/health`,
       timeout: 300_000,
       reuseExistingServer: false,

@@ -16,6 +16,7 @@ import type {
   LykEvent,
   Me,
   Member,
+  PackVersion,
   RunMessage,
   Runtime,
   StudyRecord,
@@ -238,9 +239,27 @@ export function useAgent(id: MaybeRefOrGetter<string>) {
   });
 }
 
-export const useFields = () =>
+export const usePackCatalog = () =>
   useQuery({
     queryKey: computed(() => keys.packs(ws.value)),
     queryFn: async () => (await api<Field[] | null>('GET', '/api/packs/catalog')) ?? [],
     enabled: inWorkspace,
   });
+// The versions of one Team the caller may see, oldest first; a name of ''
+// disables the read.
+export const usePackVersions = (name: MaybeRefOrGetter<string>) =>
+  useQuery({
+    queryKey: computed(() => keys.packVersions(ws.value, toValue(name))),
+    queryFn: () =>
+      api<PackVersion[]>('GET', `/api/packs?name=${encodeURIComponent(toValue(name))}`),
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(name))),
+  });
+export const approvePack = (id: string) => api('POST', `/api/packs/${id}/approve`);
+export const uploadPack = (file: Blob) =>
+  api<{ id: string; name: string; version: string }>('POST', '/api/packs', undefined, {
+    data: file,
+    type: 'application/zip',
+  });
+// Makes name the caller's Team; a shipped Team's current version is approved
+// with it.
+export const useTeam = (name: string) => api('PUT', '/api/me/pack', { name });

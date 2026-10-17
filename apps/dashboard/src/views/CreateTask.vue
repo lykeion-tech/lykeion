@@ -7,7 +7,14 @@ import Icon from '../components/Icon.vue';
 import { api, ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { useAgents, useCards, useFields, useMe, useMembers, useWorkspace } from '../api/queries';
+import {
+  useAgents,
+  useCards,
+  useMe,
+  useMembers,
+  usePackCatalog,
+  useWorkspace,
+} from '../api/queries';
 import type { Card } from '../api/types';
 import { dateKey } from '../lib/dates';
 import { matchesQuery } from '../lib/search';
@@ -38,7 +45,7 @@ const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
 const query = ref('');
 const form = ref<HTMLFormElement>();
-const teams = useFields();
+const teams = usePackCatalog();
 const picked = ref('');
 // Only a new study has a Focus, and only when the person has a Team; without
 // one the study is created packless.

@@ -30,4 +30,5 @@ export const keys = {
   members: (ws: string) => ['ws', ws, 'members'] as const,
   invitations: (ws: string) => ['ws', ws, 'invitations'] as const,
   packs: (ws: string) => ['ws', ws, 'packs'] as const,
+  packVersions: (ws: string, name: string) => ['ws', ws, 'packs', 'versions', name] as const,
 };

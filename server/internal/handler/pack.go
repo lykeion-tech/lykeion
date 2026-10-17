@@ -32,6 +32,37 @@ type catalogEntry struct {
 	StartKinds  []string `json:"start_kinds"`
 	Version     string   `json:"version"`
 	Source      string   `json:"source"`
+	Agents      []agents `json:"agents"`
+}
+
+type agents struct {
+	Column string   `json:"column"`
+	Roles  []string `json:"roles"`
+}
+
+func newEntry(m pack.Manifest, source string) catalogEntry {
+	return catalogEntry{m.Name, m.Description, m.StartKinds, m.Version, source, agentsOf(m)}
+}
+
+// agentsOf lists each column's roles from its phases, in board order.
+func agentsOf(m pack.Manifest) []agents {
+	out := []agents{}
+	for _, col := range board.Stages {
+		c, ok := m.Columns[col]
+		if !ok {
+			continue
+		}
+		roles := []string{}
+		for _, phase := range c.Phases {
+			for _, r := range phase {
+				if !slices.Contains(roles, r) {
+					roles = append(roles, r)
+				}
+			}
+		}
+		out = append(out, agents{col, roles})
+	}
+	return out
 }
 
 // packCatalog lists the shipped packs at their current version and the
@@ -44,8 +75,7 @@ func (h *H) packCatalog(w http.ResponseWriter, r *http.Request) {
 			fail(w, r, err)
 			return
 		}
-		m := p.Manifest
-		out = append(out, catalogEntry{m.Name, m.Description, m.StartKinds, m.Version, "shipped"})
+		out = append(out, newEntry(p.Manifest, "shipped"))
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		own, err := tx.Q.ListOwnPacks(r.Context(), db.ListOwnPacksParams{WorkspaceID: ws, UserID: &user})
@@ -60,7 +90,7 @@ func (h *H) packCatalog(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(p.Manifest, &m); err != nil {
 				return err
 			}
-			out = append(out, catalogEntry{m.Name, m.Description, m.StartKinds, m.Version, "uploaded"})
+			out = append(out, newEntry(m, "uploaded"))
 		}
 		return nil
 	})

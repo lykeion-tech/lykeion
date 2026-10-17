@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { expect, type APIRequestContext } from '@playwright/test';
 
 export const LAB = 'http://127.0.0.1:18080';
@@ -73,37 +73,62 @@ export async function labHypotheses(request: APIRequestContext, cardId: string) 
   expect((await request.post(`${LAB}/lab/hypotheses/${cardId}`)).status()).toBe(204);
 }
 
-// Zips the demo Team in fixtures/demo-pack with the system zip command, uploads
-// it as the lab person's own Team, approves it and makes it their Team. Its
-// Validation check never passes. labNoTeam undoes the choice.
-export async function labPack(request: APIRequestContext): Promise<{ id: string; name: string }> {
+// The folder the lab reads its shipped Teams from, live, one folder per name.
+export const SHIPPED = resolve('test-results/ui-lab/shipped');
+
+// Copies the demo Team in fixtures/demo-pack to dir under another name and
+// version.
+function demoPackAt(dir: string, name: string, version: string) {
+  cpSync('tests/e2e/fixtures/demo-pack', dir, { recursive: true });
+  const manifest = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8'));
+  writeFileSync(join(dir, 'pack.json'), JSON.stringify({ ...manifest, name, version }));
+}
+
+// The demo Team zipped with the system zip command, named name.
+export function labPackArchive(name = 'ui-demo', version = '1'): Buffer {
   const dir = mkdtempSync(join(tmpdir(), 'lyk-pack-'));
   try {
-    const archive = join(dir, 'demo.zip');
-    execFileSync('zip', ['-qr', archive, '.', '-x', '.*', '*/.*'], {
-      cwd: 'tests/e2e/fixtures/demo-pack',
-    });
-    const headers = { 'X-Workspace-ID': await labWorkspace(request) };
-    const upload = await request.post('/api/packs', {
-      headers: { ...headers, 'Content-Type': 'application/zip' },
-      data: readFileSync(archive),
-    });
-    let pack: { id: string; name: string };
-    if (upload.status() === 409) {
-      // An earlier spec in this run already uploaded and approved this version.
-      const versions = await request.get('/api/packs?name=ui-demo', { headers });
-      pack = ((await versions.json()) as { id: string; name: string }[])[0]!;
-    } else {
-      expect(upload.status()).toBe(201);
-      pack = (await upload.json()) as { id: string; name: string };
-      expect((await request.post(`/api/packs/${pack.id}/approve`, { headers })).status()).toBe(200);
-    }
-    const team = await request.put('/api/me/pack', { headers, data: { name: pack.name } });
-    expect(team.status()).toBe(200);
-    return pack;
+    demoPackAt(join(dir, 'pack'), name, version);
+    const archive = join(dir, 'pack.zip');
+    execFileSync('zip', ['-qr', archive, '.', '-x', '.*', '*/.*'], { cwd: join(dir, 'pack') });
+    return readFileSync(archive);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// Makes the lab ship the demo Team as name at version, replacing any version
+// it shipped before. labUnship stops shipping it.
+export function labShip(name: string, version: string) {
+  labUnship(name);
+  demoPackAt(join(SHIPPED, name), name, version);
+}
+
+export function labUnship(name: string) {
+  rmSync(join(SHIPPED, name), { recursive: true, force: true });
+}
+
+// Uploads the demo Team as the lab person's own Team, approves it and makes it
+// their Team. Its Validation check never passes. labNoTeam undoes the choice.
+export async function labPack(request: APIRequestContext): Promise<{ id: string; name: string }> {
+  const headers = { 'X-Workspace-ID': await labWorkspace(request) };
+  const upload = await request.post('/api/packs', {
+    headers: { ...headers, 'Content-Type': 'application/zip' },
+    data: labPackArchive(),
+  });
+  let pack: { id: string; name: string };
+  if (upload.status() === 409) {
+    // An earlier spec in this run already uploaded and approved this version.
+    const versions = await request.get('/api/packs?name=ui-demo', { headers });
+    pack = ((await versions.json()) as { id: string; name: string }[])[0]!;
+  } else {
+    expect(upload.status()).toBe(201);
+    pack = (await upload.json()) as { id: string; name: string };
+    expect((await request.post(`/api/packs/${pack.id}/approve`, { headers })).status()).toBe(200);
+  }
+  const team = await request.put('/api/me/pack', { headers, data: { name: pack.name } });
+  expect(team.status()).toBe(200);
+  return pack;
 }
 
 export async function labNoTeam(request: APIRequestContext) {
