@@ -267,8 +267,8 @@ func (h *H) unblockCard(w http.ResponseWriter, r *http.Request) {
 }
 
 // closeCard stops a Blocked study and writes its stop record in the column it
-// was blocked in: why, the block, every failed gate's reason in order, and
-// the last gate.
+// was blocked in: why, the block, the reasons of the gates failed since the
+// last reopen in order, and the last gate.
 func (h *H) closeCard(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Reason string `json:"reason"`
@@ -282,10 +282,14 @@ func (h *H) closeCard(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
+		since, err := reopenedRound(r.Context(), tx, c)
+		if err != nil {
+			return nil, err
+		}
 		failures := []string{}
 		var last json.RawMessage
 		for _, g := range gates {
-			if b := records.Body[board.Gate](g); b.Verdict == board.VFail {
+			if b := records.Body[board.Gate](g); b.Verdict == board.VFail && g.Round >= since {
 				failures = append(failures, b.Reason)
 			}
 			last = g.Body
@@ -299,9 +303,31 @@ func (h *H) closeCard(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// reopenedRound is the round the study's last reopen began, or 0 for a study
+// never reopened (or whose reopen left no evidence record). Rounds only grow, so later gates have rounds at or above it.
+func reopenedRound(ctx context.Context, tx *store.Tx, c db.Card) (int32, error) {
+	if c.Reopens == 0 {
+		return 0, nil
+	}
+	evidence, err := tx.Q.CardKindRecords(ctx, db.CardKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "reopen_evidence"})
+	if err != nil {
+		return 0, err
+	}
+	for _, e := range evidence {
+		if e.Key == strconv.Itoa(int(c.Reopens)) {
+			return e.Round, nil
+		}
+	}
+	// Without its evidence record the reopen's round is unknown; list every failure.
+	return 0, nil
+}
+
 // revertRevision puts the study back on its original starting point.
 func (h *H) revertRevision(w http.ResponseWriter, r *http.Request) {
 	h.steer(w, r, true, func(tx *store.Tx, c db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+		if s.BlockKind != "" {
+			return nil, conflict("unblock or close this study first")
+		}
 		items, err := round.RevertQuestion(r.Context(), tx, c, s)
 		if errors.Is(err, round.ErrNoRevision) {
 			return nil, conflict(err.Error())
@@ -357,6 +383,13 @@ func (h *H) reopenByRun(w http.ResponseWriter, r *http.Request) {
 		c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: id, WorkspaceID: tx.WS})
 		if err != nil {
 			return err
+		}
+		run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{ID: role.AgentRunID, WorkspaceID: tx.WS})
+		if err != nil {
+			return err
+		}
+		if run.RequesterID == nil || *run.RequesterID != c.OwnerID {
+			return forbidden("this Autoresearch can only reopen its owner's studies")
 		}
 		s := board.FromCard(c)
 		items, err := reopen(r.Context(), tx, c, &s, in, store.Actor{Type: "role", ID: role.AgentRunID})

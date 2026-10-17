@@ -21,10 +21,11 @@ const (
 )
 
 // Independence says whether the judge's harness is of a known family that
-// differs from every author's. An author of unknown family may share it.
+// differs from every author's. An author of unknown family may share it, and
+// with no authors on record nothing shows the judge to be independent.
 func Independence(authors []string, judge string) string {
 	f := Family[judge]
-	if f == "" {
+	if f == "" || len(authors) == 0 {
 		return SameFamily
 	}
 	for _, a := range authors {
@@ -75,9 +76,10 @@ func (e *Engine) reviewHarness(ctx context.Context, tx *store.Tx, c db.Card, rev
 	return h, nil
 }
 
-// recordIndependence notes how independent the reviewer was on every check it
-// settled through a review_item, and on every choice it answered, standing in
-// for Jev or as the reviewer. A choice already annotated keeps its record.
+// recordIndependence notes how independent the reviewer was on every
+// reviewer-judged check it settled through a review_item this round, and on
+// every choice it answered this round, standing in for Jev or as the reviewer.
+// A choice already annotated keeps its record.
 func (e *Engine) recordIndependence(ctx context.Context, tx *store.Tx, c db.Card, judged []db.JudgedAgentRunsRow, reviewer string, checks []board.Check) error {
 	authors, rev := split(judged, reviewer)
 	if rev == nil {
@@ -90,6 +92,9 @@ func (e *Engine) recordIndependence(ctx context.Context, tx *store.Tx, c db.Card
 	}
 	settled := map[string]bool{}
 	for _, r := range recs {
+		if r.Round != c.Round {
+			continue
+		}
 		switch r.Kind {
 		case "review_item":
 			var it gate.ReviewItem
@@ -116,7 +121,7 @@ func (e *Engine) recordIndependence(ctx context.Context, tx *store.Tx, c db.Card
 		}
 	}
 	for i := range checks {
-		if ch := &checks[i]; settled[ch.ID] {
+		if ch := &checks[i]; ch.Judge == board.Reviewer && settled[ch.ID] {
 			ch.Note = strings.TrimPrefix(ch.Note+"; independence: "+ind, "; ")
 		}
 	}

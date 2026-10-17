@@ -279,6 +279,21 @@ func TestRevertRevision(t *testing.T) {
 	}
 }
 
+func TestUseCap(t *testing.T) {
+	s := at(Hypotheses)
+	if items := UseCap(s, "a revision", false); items != nil || s.RouteBacks != 1 || s.Round != 4 || s.State != InReview {
+		t.Fatalf("a use without a new round: %+v %+v", s, items)
+	}
+	if items := UseCap(s, "redo", true); items != nil || s.RouteBacks != 2 || s.Round != 5 || s.State != Working {
+		t.Fatalf("a use with a new round: %+v %+v", s, items)
+	}
+	s.RouteBacks = s.Cap
+	items := UseCap(s, "a revision", true)
+	if s.BlockKind != BlockCap || s.Round != 5 || len(items) != 1 || items[0].Text != "failure 4 with a cap of 3, in hypotheses: a revision" {
+		t.Fatalf("past the cap: %+v %+v", s, items)
+	}
+}
+
 func TestAnInvalidRouteEscalatesWithoutMoving(t *testing.T) {
 	for _, to := range []string{Validation, Reporting, Done, Backlog, "nowhere"} {
 		s := at(Hypotheses)

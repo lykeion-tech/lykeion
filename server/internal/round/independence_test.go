@@ -25,6 +25,7 @@ func TestReviewHarness(t *testing.T) {
 		{[]string{"claude"}, []string{"cursor"}, "antigravity", "antigravity", "same_family"},
 		{[]string{"claude", "codex"}, []string{"codex", "antigravity"}, "claude", "antigravity", "different_family"},
 		{[]string{"cursor"}, []string{"codex"}, "claude", "claude", "same_family"},
+		{nil, []string{"codex"}, "claude", "claude", "same_family"},
 	} {
 		h, ind := ReviewHarness(tc.authors, tc.online, tc.fallback)
 		if h != tc.harness || ind != tc.indep {
@@ -115,5 +116,46 @@ func TestReviewerRunsOnAnotherFamilyAndTheGateSaysSo(t *testing.T) {
 	}
 	if c := got["other"]; c.Independence != "" || c.JudgeHarness != "" {
 		t.Fatalf("a Jev choice was annotated: %+v", c)
+	}
+}
+
+// Independence is this round's: a review item or choice left from an earlier
+// round, and a check the reviewer did not judge, stay as they were.
+func TestIndependenceStaysInItsRound(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	card := f.card(t, board.Grounding, 2)
+	for role, h := range map[string]string{"scoper": "claude", ground.Reviewer: "codex"} {
+		if _, err := f.env.Owner.Exec(ctx, `INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status)
+			VALUES ($1, $2, $3, 'grounding', 2, $4, $5, 'p', 'completed')`, f.ws, card, f.owner, role, h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	choice, _ := json.Marshal(gate.Choice{Question: "gap", Judge: "reviewer"})
+	for kind, body := range map[string]string{"review_item": `{"check":"gap","result":"pass","note":"fine"}`, "choice": string(choice)} {
+		if _, err := f.env.Owner.Exec(ctx, `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
+			VALUES ($1, $2, 'grounding', 1, $3, 'server', 'gap', $4)`, f.ws, card, kind, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roles := StageRoles[board.Grounding]
+	f.inWS(t, func(tx *store.Tx) error {
+		c, err := tx.Q.LockCard(ctx, db.LockCardParams{ID: card, WorkspaceID: f.ws})
+		if err != nil {
+			return err
+		}
+		g := board.Gate{Column: board.Grounding, Round: 2, Verdict: board.VPass, Checks: []board.Check{{ID: "gap", Judge: board.Code, Result: board.Pass, Note: "ok"}}}
+		return f.e.finish(ctx, tx, c, board.FromCard(c), roles, ParseSettings(nil), &g)
+	})
+	if g := f.gateBody(t, card, 2); len(g.Checks) != 1 || g.Checks[0].Note != "ok" {
+		t.Fatalf("a code check was annotated from an earlier round's review item: %+v", g.Checks)
+	}
+	var body []byte
+	if err := f.env.Owner.QueryRow(ctx, `SELECT body FROM record WHERE card_id = $1 AND kind = 'choice' AND superseded_at IS NULL`, card).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	var ch gate.Choice
+	if json.Unmarshal(body, &ch) != nil || ch.Independence != "" || ch.JudgeHarness != "" {
+		t.Fatalf("an earlier round's choice was annotated: %s", body)
 	}
 }

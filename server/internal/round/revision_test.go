@@ -75,12 +75,13 @@ func TestReviseCitesALiveRecord(t *testing.T) {
 			t.Fatalf("cites %q: %v", cites, err)
 		}
 	}
-	other, otherRec := f.revisable(t, "question")
-	_ = other
+	_, otherRec := f.revisable(t, "question")
 	if err := f.revise(t, card, Revision{Text: "new", Cites: otherRec, Reason: "question"}, same); !errors.Is(err, ErrRevisionRefused) {
 		t.Fatalf("cited another card's record: %v", err)
 	}
-	f.env.Owner.Exec(t.Context(), `UPDATE record SET superseded_at = now() WHERE id = $1`, rec)
+	if _, err := f.env.Owner.Exec(t.Context(), `UPDATE record SET superseded_at = now() WHERE id = $1`, rec); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.revise(t, card, Revision{Text: "new", Cites: rec, Reason: "question"}, same); !errors.Is(err, ErrRevisionRefused) {
 		t.Fatalf("cited a superseded record: %v", err)
 	}
@@ -143,11 +144,13 @@ func TestReviseAppliesAndReverts(t *testing.T) {
 func TestReviseUsesTheCap(t *testing.T) {
 	f := setup(t)
 	card, rec := f.revisable(t, "question")
-	f.env.Owner.Exec(t.Context(), `UPDATE card SET cap = 1, route_backs = 1 WHERE id = $1`, card)
+	if _, err := f.env.Owner.Exec(t.Context(), `UPDATE card SET cap = 1, route_backs = 1 WHERE id = $1`, card); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.revise(t, card, Revision{Text: "new", Cites: rec, Reason: "question"}, same); err != nil {
 		t.Fatal(err)
 	}
-	if c := f.cardRow(t, card); c.Question != "Does X raise Y?" || c.BlockKind != board.BlockCap || c.RouteBacks != 2 {
+	if c := f.cardRow(t, card); c.Question != "Does X raise Y?" || c.BlockKind != board.BlockCap || c.RouteBacks != 2 || c.Round != 2 {
 		t.Fatalf("a revision past the cap: %+v", c)
 	}
 }

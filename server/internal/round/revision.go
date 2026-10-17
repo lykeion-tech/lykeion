@@ -62,9 +62,7 @@ func (e *Engine) Revise(ctx context.Context, tx *store.Tx, c db.Card, r Revision
 	case "":
 		return nil, nil
 	}
-	s.RouteBacks++
-	if s.RouteBacks > s.Cap {
-		items := board.Block(&s, board.BlockCap, fmt.Sprintf("failure %d with a cap of %d, in %s: a revision of the starting point", s.RouteBacks, s.Cap, s.Column))
+	if items := board.UseCap(&s, "a revision of the starting point", false); items != nil {
 		return items, e.save(ctx, tx, c, s, items, "card.escalated", map[string]any{"block": board.BlockCap})
 	}
 	points, err := tx.Q.CardKindRecords(ctx, db.CardKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "starting_point"})

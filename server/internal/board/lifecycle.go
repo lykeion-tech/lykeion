@@ -100,17 +100,19 @@ func Apply(s *State, g *Gate) []Item {
 	if g.Route != nil {
 		s.Rerun = g.Route.Step
 	}
-	return useCap(s, g.Reason)
+	return UseCap(s, g.Reason, true)
 }
 
-// useCap counts one use of the cap and opens the next round, or blocks the
-// card once the uses exceed it.
-func useCap(s *State, reason string) []Item {
+// UseCap counts one use of the cap, opening the next round when asked, or
+// blocks the card once the uses exceed it.
+func UseCap(s *State, reason string, openRound bool) []Item {
 	s.RouteBacks++
 	if s.RouteBacks > s.Cap {
 		return Block(s, BlockCap, fmt.Sprintf("failure %d with a cap of %d, in %s: %s", s.RouteBacks, s.Cap, s.Column, reason))
 	}
-	newRound(s)
+	if openRound {
+		newRound(s)
+	}
 	return nil
 }
 
@@ -120,7 +122,7 @@ func routeBack(s *State, to, step, reason string) []Item {
 	markStale(s, to, s.Column)
 	s.Column, s.Rounds, s.Rerun, s.HandoffNote = to, 0, step, reason
 	s.Stale = without(s.Stale, to)
-	return useCap(s, reason)
+	return UseCap(s, reason, true)
 }
 
 func SendBack(s *State, to, step, reason string) ([]Item, error) {

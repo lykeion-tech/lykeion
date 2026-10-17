@@ -25,6 +25,14 @@ func (s *server) blockedCard(t *testing.T, tok, ws, column, kind string, used in
 	return c
 }
 
+// exec runs a statement as the owner, failing the test on an error.
+func (s *server) exec(t *testing.T, q string, args ...any) {
+	t.Helper()
+	if _, err := s.Env.Owner.Exec(t.Context(), q, args...); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type boardOut struct {
 	BoardColumn string `json:"board_column"`
 	Flag        string `json:"flag"`
@@ -70,7 +78,9 @@ func TestUnblockRoutes(t *testing.T) {
 	}
 	var flag, kind string
 	var round int
-	s.Env.Owner.QueryRow(t.Context(), `SELECT flag, block_kind, round FROM card WHERE id = $1`, c.ID).Scan(&flag, &kind, &round)
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT flag, block_kind, round FROM card WHERE id = $1`, c.ID).Scan(&flag, &kind, &round); err != nil {
+		t.Fatal(err)
+	}
 	if flag != "escalated" || kind != "cap" || round != 3 {
 		t.Fatalf("a refused unblock changed the card: %s %s %d", flag, kind, round)
 	}
@@ -109,7 +119,9 @@ func TestCloseWritesStop(t *testing.T) {
 			Round int `json:"round"`
 		} `json:"last_gate"`
 	}
-	json.Unmarshal(body, &stop)
+	if err := json.Unmarshal(body, &stop); err != nil {
+		t.Fatal(err)
+	}
 	if stop.Reason != "not worth more" || stop.BlockKind != "cap" || !slices.Equal(stop.Failures, []string{"n too small", "confound left"}) || stop.LastGate.Round != 2 {
 		t.Fatalf("stop: %s", body)
 	}
@@ -118,6 +130,32 @@ func TestCloseWritesStop(t *testing.T) {
 	}
 	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/close", a, w.ID, map[string]string{"reason": " "}, nil); code != 400 {
 		t.Fatalf("close without a reason: %d", code)
+	}
+}
+
+// A reopened study's stop record lists only the failures since its last reopen.
+func TestCloseListsFailuresSinceTheLastReopen(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.blockedCard(t, a, w.ID, "validation", "cap", 4)
+	s.exec(t, `UPDATE card SET reopens = 1 WHERE id = $1`, c.ID)
+	for i, r := range []string{"before the release", "after the reopen"} {
+		s.exec(t, `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
+			VALUES ($1, $2, 'validation', $3, 'gate', 'server', $4, jsonb_build_object('verdict', 'fail', 'reason', $5::text))`, w.ID, c.ID, i*2+1, fmt.Sprint(i), r)
+	}
+	s.exec(t, `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
+		VALUES ($1, $2, 'grounding', 2, 'reopen_evidence', 'server', '1', '{"reopen":1}')`, w.ID, c.ID)
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/close", a, w.ID, map[string]string{"reason": "enough"}, nil); code != 200 {
+		t.Fatalf("close: %d", code)
+	}
+	var stop struct{ Failures []string }
+	var body []byte
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT body FROM record WHERE card_id = $1 AND kind = 'stop'`, c.ID).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(body, &stop); err != nil || !slices.Equal(stop.Failures, []string{"after the reopen"}) {
+		t.Fatalf("stop: %s", body)
 	}
 }
 
@@ -134,7 +172,7 @@ func TestReopenRoute(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	var c card
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'validation', round = 3 WHERE id = $1`, c.ID)
+	s.exec(t, `UPDATE card SET board_column = 'validation', round = 3 WHERE id = $1`, c.ID)
 	in := map[string]string{"reason": "a retraction", "evidence": "doi:10.1/x"}
 	for _, prep := range []string{
 		``, // active
@@ -142,7 +180,7 @@ func TestReopenRoute(t *testing.T) {
 		`UPDATE card SET board_column = 'done', ending = 'stopped', flag = '', block_kind = '' WHERE id = $1`,
 	} {
 		if prep != "" {
-			s.Env.Owner.Exec(t.Context(), prep, c.ID)
+			s.exec(t, prep, c.ID)
 		}
 		if code := s.call(t, "POST", "/api/cards/"+c.ID+"/reopen", a, w.ID, in, nil); code != 409 {
 			t.Fatalf("reopened an unreleased card (%s): %d", prep, code)
@@ -207,21 +245,61 @@ func TestAutoresearchScopesIncludeReopen(t *testing.T) {
 	}
 }
 
+// An Autoresearch run reopens only studies its requester owns.
+func TestAutoresearchReopensOnlyItsOwnersStudies(t *testing.T) {
+	s := newServer(t)
+	owner := s.signIn(t, "owner@lab.org")
+	w := s.workspace(t, owner, "lab")
+	b := s.member(t, owner, w.ID, "b@lab.org", "member")
+	var mine, theirs card
+	if code := s.call(t, "POST", "/api/cards", owner, w.ID, map[string]any{"question": "mine"}, &mine); code != 201 {
+		t.Fatalf("card: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/cards", b, w.ID, map[string]any{"question": "theirs"}, &theirs); code != 201 {
+		t.Fatalf("card: %d", code)
+	}
+	s.release(t, mine.ID)
+	s.release(t, theirs.ID)
+	_, _, ltk, _ := s.runOnly(t, owner, w.ID)
+	in := map[string]string{"reason": "contradicted", "evidence": "pmid:1"}
+	var refused struct{ Error string }
+	if code := s.call(t, "POST", "/api/cards/"+theirs.ID+"/reopen", ltk, "", in, &refused); code != 403 || refused.Error != "this Autoresearch can only reopen its owner's studies" {
+		t.Fatalf("reopened another member's study: %d %+v", code, refused)
+	}
+	if s.count(t, `SELECT count(*) FROM card WHERE id = $1 AND ending = 'released' AND reopens = 0`, theirs.ID) != 1 ||
+		s.count(t, `SELECT count(*) FROM record WHERE card_id = $1`, theirs.ID) != 0 {
+		t.Fatal("a refused reopen changed the study")
+	}
+	var out boardOut
+	if code := s.call(t, "POST", "/api/cards/"+mine.ID+"/reopen", ltk, "", in, &out); code != 200 || out.BoardColumn != "grounding" || out.Reopens != 1 {
+		t.Fatalf("the requester's own study: %d %+v", code, out)
+	}
+}
+
 func TestRevertRevisionRoute(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c card
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does X raise Y now?"}, &c)
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'hypotheses', round = 3 WHERE id = $1`, c.ID)
+	s.exec(t, `UPDATE card SET board_column = 'hypotheses', round = 3 WHERE id = $1`, c.ID)
 	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/revert-revision", a, w.ID, nil, nil); code != 409 {
 		t.Fatalf("reverted a card never revised: %d", code)
 	}
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET question = 'revised', route_backs = 1 WHERE id = $1`, c.ID)
+	s.exec(t, `UPDATE card SET question = 'revised', route_backs = 1 WHERE id = $1`, c.ID)
 	for key, text := range map[string]string{"0": "Does X raise Y now?", "1": "revised"} {
-		s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
+		s.exec(t, `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
 			VALUES ($1, $2, 'hypotheses', 3, 'starting_point', 'server', $3, jsonb_build_object('text', $4::text))`, w.ID, c.ID, key, text)
 	}
+	s.exec(t, `UPDATE card SET flag = 'escalated', block_kind = 'drift' WHERE id = $1`, c.ID)
+	var refused struct{ Error string }
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/revert-revision", a, w.ID, nil, &refused); code != 409 || refused.Error != "unblock or close this study first" {
+		t.Fatalf("reverted a Blocked study: %d %+v", code, refused)
+	}
+	if s.count(t, `SELECT count(*) FROM card WHERE id = $1 AND question = 'revised' AND board_column = 'hypotheses' AND block_kind = 'drift'`, c.ID) != 1 {
+		t.Fatal("a refused revert changed the study")
+	}
+	s.exec(t, `UPDATE card SET flag = '', block_kind = '' WHERE id = $1`, c.ID)
 	var out boardOut
 	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/revert-revision", a, w.ID, nil, &out); code != 200 {
 		t.Fatalf("revert: %d", code)
