@@ -58,7 +58,6 @@ func (l *lab) user(t *testing.T, email string) uuid.UUID {
 
 func newLab(t *testing.T) (*lab, uuid.UUID) {
 	t.Helper()
-	pack.BundleHas = func(string) bool { return false }
 	env := testutil.Setup(t)
 	l := &lab{store: &store.Store{Pool: env.App}, ws: uuid.New()}
 	ctx := context.Background()

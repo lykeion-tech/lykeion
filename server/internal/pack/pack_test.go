@@ -16,10 +16,6 @@ import (
 	"lykeion/server/internal/testutil"
 )
 
-func init() {
-	BundleHas = func(n string) bool { return n == "stats" }
-}
-
 func member(name string) Member {
 	return Member{Name: name, Role: "role of " + name, Agent: AgentDef{Harness: "claude", Instructions: "i"}}
 }
@@ -27,7 +23,7 @@ func member(name string) Member {
 func goodManifest() Manifest {
 	lead, scout := member("pi"), member("scout")
 	lead.Skills = []string{"lead"}
-	scout.Skills = []string{"search", "stats"}
+	scout.Skills = []string{"search", "statistical-analysis"}
 	scout.Connectors = []Connector{{Name: "ncbi", Catalogue: "ensembl"}, {Name: "docs", URL: "https://x.org/mcp"},
 		{Name: "local", Command: []string{"npx", "-y", "pkg"}, Env: map[string]string{"MODE": "fast"}}}
 	return Manifest{Name: "bio", Version: "1", Description: "d", Domain: "biology", Stage: "grounding",
@@ -197,15 +193,6 @@ func TestParseRefuses(t *testing.T) {
 				t.Fatalf("want an error naming %q, got %v", c.want, err)
 			}
 		})
-	}
-}
-
-func TestTheHooksDefaultToRefusing(t *testing.T) {
-	b := BundleHas
-	BundleHas = nil
-	defer func() { BundleHas = b }()
-	if _, err := Parse(goodZip(t, nil)); err == nil {
-		t.Fatal("expected a refusal")
 	}
 }
 

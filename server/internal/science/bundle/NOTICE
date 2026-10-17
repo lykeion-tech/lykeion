@@ -1,0 +1,211 @@
+Lykeion bundles skills from K-Dense-AI scientific-agent-skills
+https://github.com/K-Dense-AI/scientific-agent-skills
+commit a1043ef544e3a100c28e70a736b6cf32554d0677
+
+The repository's licence:
+
+MIT License
+
+Copyright (c) 2025 K-Dense Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Lykeion placed a section of its own first in the SKILL.md of database-lookup and paper-lookup, and kept their
+reference files only for the databases Lykeion connects to. No other file was changed.
+
+Bundled skills (126), each under the licence its SKILL.md states:
+  13c-metabolic-flux  MIT  (stated: "MIT")
+  aeon  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  alphagenome  MIT  (stated: "MIT")
+  analytical-method-validation  MIT  (stated: "MIT")
+  anndata  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  arbor  MIT  (stated: "MIT license")
+  arboreto  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  astropy  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  bids  CC-BY-4.0  (stated: "https://creativecommons.org/licenses/by/4.0/")
+  biopython  Biopython  (stated: "Biopython License Agreement")
+  bulk-rnaseq  MIT  (stated: "MIT")
+  cantera  MIT  (stated: "MIT")
+  cellprofiler  MIT  (stated: "MIT")
+  cellxgene-census  MIT  (stated: "MIT")
+  cirq  Apache-2.0  (stated: "Apache-2.0 license")
+  citation-management  MIT  (stated: "MIT License")
+  dask  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  database-lookup  MIT  (stated: "MIT")
+  datalad  MIT  (stated: "MIT")
+  datamol  Apache-2.0  (stated: "Apache-2.0 license")
+  deepchem  MIT  (stated: "MIT license")
+  depmap  CC-BY-4.0  (stated: "CC-BY-4.0")
+  diffdock  MIT  (stated: "MIT license")
+  esm  MIT  (stated: "MIT license")
+  experimental-design  MIT  (stated: "MIT license")
+  exploratory-data-analysis  MIT  (stated: "MIT")
+  flowio  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  flowkit  MIT  (stated: "MIT")
+  fluidsim  MIT  (stated: "MIT")
+  folklore-variant-evidence  MIT  (stated: "MIT")
+  geniml  MIT  (stated: "MIT")
+  genomic-coordinates  MIT  (stated: "MIT")
+  geomaster  MIT  (stated: "MIT License")
+  geopandas  MIT  (stated: "MIT")
+  get-available-resources  MIT  (stated: "MIT")
+  gget  BSD-2-Clause  (stated: "BSD-2-Clause license")
+  gtars  MIT  (stated: "MIT")
+  histolab  Apache-2.0  (stated: "Apache-2.0 license")
+  hypogenic  MIT  (stated: "MIT")
+  hypothesis-generation  MIT  (stated: "MIT")
+  imaging-data-commons  MIT  (stated: "This skill is provided under the MIT License. IDC data itself has individual licensing (mostly CC-BY, some CC-NC) that must be respected when using the data.")
+  lamindb  Apache-2.0  (stated: "Apache-2.0 license")
+  liteparse  Apache-2.0  (stated: "Apache-2.0")
+  literature-review  MIT  (stated: "MIT license")
+  mageck  MIT  (stated: "MIT")
+  marine-carbonate-chemistry  MIT  (stated: "MIT")
+  markdown-mermaid-writing  Apache-2.0  (stated: "Apache-2.0")
+  markitdown  MIT  (stated: "MIT")
+  matchms  Apache-2.0  (stated: "Apache-2.0")
+  matlab  MIT  (stated: "MIT")
+  medchem  Apache-2.0  (stated: "Apache-2.0 license")
+  molecular-dynamics  MIT  (stated: "MIT")
+  molfeat  Apache-2.0  (stated: "Apache-2.0 license")
+  ncats-arax  MIT  (stated: "MIT")
+  networkx  BSD-3-Clause  (stated: "3-clause BSD license")
+  neurokit2  MIT  (stated: "MIT")
+  neuropixels-analysis  MIT  (stated: "MIT license")
+  nextflow  Apache-2.0  (stated: "Apache-2.0")
+  nmrglue  MIT  (stated: "MIT")
+  nwb-conversion  MIT  (stated: "MIT")
+  onekgpd  MIT  (stated: "MIT")
+  ontology-term-resolution  MIT  (stated: "MIT")
+  openpiv  BSD-3-Clause  (stated: "BSD-3-Clause")
+  optimize-for-gpu  MIT  (stated: "MIT")
+  pacsomatic  MIT  (stated: "MIT")
+  paper-lookup  MIT  (stated: "MIT")
+  pathml  MIT  (stated: "MIT")
+  pathogen-variant-surveillance  MIT  (stated: "MIT")
+  pathway-enrichment  MIT  (stated: "MIT")
+  peer-review  MIT  (stated: "MIT")
+  pennylane  Apache-2.0  (stated: "Apache-2.0 license")
+  pkpd-modeling  MIT  (stated: "MIT")
+  polars-bio  Apache-2.0  (stated: "Apache-2.0")
+  pptx-posters  MIT  (stated: "MIT")
+  primer-design  MIT  (stated: "MIT")
+  pufferlib  MIT  (stated: "MIT")
+  pybamm  MIT  (stated: "MIT")
+  pycalphad  MIT  (stated: "MIT")
+  pydeseq2  MIT  (stated: "MIT license")
+  pydicom  MIT  (stated: "MIT")
+  pymatgen  MIT  (stated: "MIT")
+  pymc  Apache-2.0  (stated: "Apache License, Version 2.0")
+  pymoo  Apache-2.0  (stated: "Apache-2.0 license")
+  pyopenms  BSD-3-Clause  (stated: "3 clause BSD license")
+  pysam  MIT  (stated: "MIT")
+  pytdc  MIT  (stated: "MIT")
+  pytorch-lightning  Apache-2.0  (stated: "Apache-2.0 license")
+  pyzotero  MIT  (stated: "MIT License")
+  qiime2-amplicon  MIT  (stated: "MIT")
+  qiskit  Apache-2.0  (stated: "Apache-2.0")
+  qutip  MIT  (stated: "MIT")
+  rdkit  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  relion  MIT  (stated: "MIT")
+  relsa-severity-assessment  MIT  (stated: "MIT")
+  research-grants  MIT  (stated: "MIT license")
+  scanpy  BSD-3-Clause  (stated: "BSD-3-Clause")
+  scholar-evaluation  MIT  (stated: "MIT")
+  scientific-brainstorming  MIT  (stated: "MIT")
+  scientific-critical-thinking  MIT  (stated: "MIT license")
+  scientific-slides  MIT  (stated: "MIT license")
+  scientific-visualization  MIT  (stated: "MIT")
+  scientific-writing  MIT  (stated: "MIT")
+  scikit-bio  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  scikit-learn  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  scikit-survival  MIT  (stated: "MIT")
+  scvelo  BSD-3-Clause  (stated: "BSD-3-Clause")
+  scvi-tools  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  seaborn  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  shap  MIT  (stated: "MIT")
+  simpy  MIT  (stated: "MIT")
+  stable-baselines3  MIT  (stated: "MIT license")
+  statistical-analysis  MIT  (stated: "MIT license")
+  statistical-power  MIT  (stated: "MIT license")
+  statsmodels  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  tellurium  MIT  (stated: "MIT")
+  tiledbvcf  MIT  (stated: "MIT license")
+  timesfm-forecasting  Apache-2.0  (stated: "Apache-2.0 license")
+  torch-geometric  MIT  (stated: "MIT license")
+  torchdrug  Apache-2.0  (stated: "Apache-2.0 license")
+  transformers  Apache-2.0  (stated: "Apache-2.0 license")
+  umap-learn  BSD-3-Clause  (stated: "BSD-3-Clause license")
+  uncertainty-and-units  MIT  (stated: "MIT")
+  vaex  MIT  (stated: "MIT license")
+  venue-templates  MIT  (stated: "MIT license")
+  waypoint-bio  MIT  (stated: "MIT")
+  zarr-python  MIT  (stated: "MIT license")
+
+Not bundled (51):
+  adaptyv  physical lab and lab systems
+  autoskill  off-topic or clinical paperwork
+  benchling-integration  physical lab and lab systems
+  bgpt-paper-search  paid outside platform needing the user's account key
+  bioservices  GPL text: excluded by Lykeion's licence rule
+  clinical-decision-support  off-topic or clinical paperwork
+  clinical-reports  off-topic or clinical paperwork
+  cobrapy  GPL text: excluded by Lykeion's licence rule
+  consciousness-council  off-topic or clinical paperwork
+  deepspot-m  licence: non-commercial, proprietary or none stated
+  deeptools  licence not established: none stated, or only the library's; bundled once confirmed by hand
+  dhdna-profiler  off-topic or clinical paperwork
+  dnanexus-integration  paid outside platform needing the user's account key
+  etetoolkit  GPL text: excluded by Lykeion's licence rule
+  exa-search  paid outside platform needing the user's account key
+  fictiv  physical lab and lab systems
+  generate-image  paid outside platform needing the user's account key
+  genomic-intelligence  paid outside platform needing the user's account key
+  ginkgo-cloud-lab  physical lab and lab systems
+  glycoengineering  licence: non-commercial, proprietary or none stated
+  hugging-science  licence not established: none stated, or only the library's; bundled once confirmed by hand
+  infographics  paid outside platform needing the user's account key
+  iso-standards-readiness  off-topic or clinical paperwork
+  lab-hardware-cad  physical lab and lab systems
+  labarchive-integration  physical lab and lab systems
+  latchbio-integration  paid outside platform needing the user's account key
+  latex-posters  licence not established: none stated, or only the library's; bundled once confirmed by hand
+  market-research-reports  off-topic or clinical paperwork
+  matplotlib  licence not established: none stated, or only the library's; bundled once confirmed by hand
+  modal  paid outside platform needing the user's account key
+  omero-integration  physical lab and lab systems
+  open-notebook  off-topic or clinical paperwork
+  opentrons-integration  physical lab and lab systems
+  paperclip  paid outside platform needing the user's account key
+  paperzilla  paid outside platform needing the user's account key
+  parallel-web  paid outside platform needing the user's account key
+  phylogenetics  licence: non-commercial, proprietary or none stated
+  pi-agent  off-topic or clinical paperwork
+  polars  licence not established: none stated, or only the library's; bundled once confirmed by hand
+  primekg  licence: non-commercial, proprietary or none stated
+  protocolsio-integration  physical lab and lab systems
+  pyhealth  licence not established: none stated, or only the library's; bundled once confirmed by hand
+  pylabrobot  physical lab and lab systems
+  research-lookup  paid outside platform needing the user's account key
+  rowan  licence: non-commercial, proprietary or none stated
+  scientific-schematics  paid outside platform needing the user's account key
+  sympy  licence not established: none stated, or only the library's; bundled once confirmed by hand
+  tamarind  paid outside platform needing the user's account key
+  treatment-plans  off-topic or clinical paperwork
+  usfiscaldata  off-topic or clinical paperwork
+  what-if-oracle  licence: non-commercial, proprietary or none stated

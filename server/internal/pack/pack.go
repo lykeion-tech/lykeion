@@ -22,6 +22,7 @@ import (
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/connectors"
+	"lykeion/server/internal/science"
 	"lykeion/server/pkg/agent"
 )
 
@@ -42,10 +43,6 @@ const (
 	MaxSteps        = 50
 	DefaultSteps    = 12
 )
-
-// BundleHas says whether a name is a bundled skill. It is wired by the
-// package that owns the bundle; unset, every name is refused.
-var BundleHas func(name string) bool
 
 var (
 	memberName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
@@ -248,7 +245,7 @@ func (p *Pack) validate() error {
 		}
 		for _, s := range mem.Skills {
 			_, folder := p.Skills[mem.Name+"/"+s]["SKILL.md"]
-			if !folder && (BundleHas == nil || !BundleHas(s)) {
+			if !folder && !science.Has(s) {
 				return fmt.Errorf("pack: %s %q: skill %q is neither a folder in the archive nor a bundled skill", where, mem.Name, s)
 			}
 		}
