@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"lykeion/server/internal/board"
@@ -16,38 +15,6 @@ import (
 	"lykeion/server/internal/testutil"
 	db "lykeion/server/pkg/db/generated"
 )
-
-func TestUntrustedFencesWithAFreshNonceAndCutsLongData(t *testing.T) {
-	if Untrusted("p", "x") == Untrusted("p", "x") {
-		t.Fatal("two blocks share a nonce")
-	}
-	for _, tc := range []struct {
-		name, data, want string
-		cut              bool
-	}{
-		{"exact", strings.Repeat("a", 64<<10), strings.Repeat("a", 64<<10), false},
-		{"ascii over", strings.Repeat("a", 64<<10) + "b", strings.Repeat("a", 64<<10), true},
-		{"split rune", strings.Repeat("a", (64<<10)-1) + "é", strings.Repeat("a", (64<<10)-1), true},
-		{"many runes", strings.Repeat("é", 1<<20), strings.Repeat("é", 32<<10), true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			out := Untrusted("The payload", tc.data)
-			m := regexp.MustCompile(`UNTRUSTED-([0-9a-f]{12})-BEGIN\n`).FindStringSubmatchIndex(out)
-			if m == nil {
-				t.Fatal("missing begin fence")
-			}
-			nonce := out[m[2]:m[3]]
-			suffix := "\nUNTRUSTED-" + nonce + "-END\n"
-			want := tc.want
-			if tc.cut {
-				want += "\n[truncated]"
-			}
-			if !utf8.ValidString(out) || !strings.HasSuffix(out, suffix) || out[m[1]:len(out)-len(suffix)] != want {
-				t.Fatalf("incorrect boundary or fence (%d bytes)", len(out))
-			}
-		})
-	}
-}
 
 func TestTheTriggerPayloadReachesOnlyTheScoper(t *testing.T) {
 	ctx := context.Background()

@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/ground"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -23,5 +24,5 @@ func triggerPayload(ctx context.Context, tx *store.Tx, c db.Card, role string) (
 	if err != nil {
 		return "", err
 	}
-	return Untrusted("The webhook payload that opened this card", string(body)), nil
+	return fence.Untrusted("The webhook payload that opened this card", string(body)), nil
 }

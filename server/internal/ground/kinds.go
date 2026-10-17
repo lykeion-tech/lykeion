@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/gate"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -44,19 +45,9 @@ type Dataset struct {
 	BlobKey   string `json:"blob_key,omitempty"`
 }
 
-type ReviewItem struct {
-	Check  string `json:"check"`
-	Result string `json:"result"`
-	Choice string `json:"choice,omitempty"`
-	Note   string `json:"note"`
-}
+type ReviewItem = gate.ReviewItem
 
-type Verdict struct {
-	Result string `json:"result"`
-	Step   string `json:"step,omitempty"`
-	To     string `json:"to,omitempty"`
-	Reason string `json:"reason"`
-}
+type Verdict = gate.Verdict
 
 type Fetch struct {
 	SourceKind string `json:"source_kind,omitempty"`

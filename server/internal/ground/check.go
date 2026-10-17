@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/gate"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	db "lykeion/server/pkg/db/generated"
@@ -22,15 +23,8 @@ var Relation = map[string]string{
 	"says_nothing": "The passage does not address what the claim asserts, either way",
 }
 
-// Units are what one observation in a dataset can represent. The choice sets
-// what later columns may count as n.
-var Units = map[string]string{
-	"biological_replicates": "Each observation is an independently grown or collected biological unit: organism, culture, donor or patient",
-	"technical_repeats":     "Observations are repeated measurements of the same biological sample",
-	"paired_samples":        "Observations come in matched pairs or repeated measures of the same subject under different conditions",
-	"shared_calibration":    "Observations are linked by a shared calibration standard or reference sample",
-	"unclear":               "The metadata does not say what one observation represents",
-}
+// Units are what one observation in a dataset can represent.
+var Units = gate.Units
 
 // Normalize folds case and runs of whitespace, so quotes match across line breaks.
 func Normalize(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
@@ -258,52 +252,18 @@ func unitState(v *records.View, d db.Record) (string, error) {
 	return state.String(), nil
 }
 
-// Ask leaves uncertain checks for a reviewer when Jev egress is disabled or
-// Jev cannot provide an answer.
+// Ask puts one check's question to Jev through gate.Ask, with the default
+// bands and no retries, then lets judge read the answer.
 func Ask(ctx context.Context, j *jev.Client, ch board.Check, state string, opts map[string]string, judge func(jev.Answer) (board.Result, float64)) board.Check {
-	if j == nil {
-		ch.Judge, ch.Result, ch.Note = board.Reviewer, board.Attention, "jev egress is off: the reviewer answers"
+	got, c := gate.Ask(ctx, j, gate.Question{ID: ch.ID, State: state, Instructions: ch.Question, Options: opts}, board.DefaultBands, &gate.Retry{})
+	ch.Judge, ch.Model, ch.Result, ch.Note = got.Judge, got.Model, got.Result, got.Note
+	if c.Judge != "jev" {
 		return ch
 	}
-	ch.Judge, ch.Model = board.Jev, j.Model
-	a, err := j.Choice(ctx, state, ch.Question, opts)
-	if err != nil {
-		ch.Result, ch.Note = board.Attention, "jev unavailable: "+err.Error()
-		return ch
-	}
-	result, probability := judge(a)
-	ch.Result, ch.P = result, &probability
-	ch.Choice = a.Choice
+	result, probability := judge(jev.Answer{Choice: c.Answer, Probabilities: c.P})
+	ch.Result, ch.P, ch.Choice = result, &probability, c.Answer
 	return ch
 }
 
 // Finalize folds reviewer answers and verdict into the checks, then decides.
-func Finalize(v *records.View, g *board.Gate) {
-	items := map[string]ReviewItem{}
-	for _, r := range v.Kind("review_item") {
-		it := records.Body[ReviewItem](r)
-		items[it.Check] = it
-	}
-	for i := range g.Checks {
-		ch := &g.Checks[i]
-		it, ok := items[ch.ID]
-		if !ok || ch.Result != board.Attention {
-			continue
-		}
-		ch.Result = board.Result(it.Result)
-		ch.Note = strings.TrimPrefix(ch.Note+"; reviewer: "+it.Note, "; ")
-		if it.Choice != "" {
-			ch.Choice = it.Choice
-		}
-		if ch.Choice == "unclear" || (strings.HasPrefix(ch.ID, "unit.") && Units[ch.Choice] == "") {
-			ch.Result = board.Fail
-		}
-	}
-	vc := board.Check{ID: "review.verdict", Judge: board.Reviewer, Result: board.Fail, Note: "the reviewer gave no verdict"}
-	if r, ok := v.Latest("verdict"); ok {
-		vd := records.Body[Verdict](r)
-		vc.Result, vc.Owner, vc.To, vc.Note = board.Result(vd.Result), vd.Step, vd.To, vd.Reason
-	}
-	g.Checks = append(g.Checks, vc)
-	board.Decide(g)
-}
+func Finalize(v *records.View, g *board.Gate) { gate.Finalize(v, g) }

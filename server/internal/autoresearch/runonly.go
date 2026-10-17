@@ -8,6 +8,7 @@ import (
 
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/skills"
@@ -111,7 +112,7 @@ func prompt(ap db.Autoresearch, r db.AutoresearchRun, actor string, cards []db.L
 		b.WriteString("(no active cards)\n")
 	}
 	if r.Source == "webhook" {
-		b.WriteString("\n" + round.Untrusted("The webhook payload that started this run", string(r.Payload)))
+		b.WriteString("\n" + fence.Untrusted("The webhook payload that started this run", string(r.Payload)))
 	}
 	b.WriteString("\nPost your result with `lyk report` (the text on stdin), and open Backlog cards with `lyk open-card`. " +
 		"You cannot write records, comment or move cards. Searches through lyk_sources are logged but are evidence for no card; other tools you have are not logged.\n")
