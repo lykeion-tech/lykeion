@@ -46,12 +46,9 @@ func Insert(ctx context.Context, tx *store.Tx, key string, p *Pack, uploadedBy *
 // ponytail: unbounded, keyed by content hash; bound it if packs churn.
 var loaded sync.Map
 
-// LoadPack returns the parsed pack a field_pack row points at.
-func LoadPack(ctx context.Context, tx *store.Tx, blobs storage.Storage, ws, id uuid.UUID) (*Pack, error) {
-	row, err := tx.Q.GetFieldPack(ctx, db.GetFieldPackParams{WorkspaceID: ws, ID: id})
-	if err != nil {
-		return nil, err
-	}
+// Load returns the parsed pack a field_pack row points at. It reads the blob,
+// so call it outside any transaction, with a row read inside one.
+func Load(ctx context.Context, blobs storage.Storage, row db.FieldPack) (*Pack, error) {
 	if p, ok := loaded.Load(row.Sha256); ok {
 		return p.(*Pack), nil
 	}

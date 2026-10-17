@@ -173,7 +173,7 @@ func TestATeamMemberSeesOnlyItsDeclaredConnectors(t *testing.T) {
 		t.Fatalf("member-1 sees %v", got)
 	}
 	_, err := f.h.Fetch(context.Background(), member, runTok(member), uniprot)
-	if err == nil || !strings.Contains(err.Error(), "does not declare `uniprot`") || f.hits.Load() != 0 {
+	if err == nil || !strings.Contains(err.Error(), "this study's Team does not declare `uniprot`") || f.hits.Load() != 0 {
 		t.Fatalf("%v, %d upstream calls", err, f.hits.Load())
 	}
 	if got := f.names(f.role(f.card, "leader")); !slices.Equal(got, []string{"uniprot"}) {
