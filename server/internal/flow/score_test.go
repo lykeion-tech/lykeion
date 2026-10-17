@@ -331,9 +331,19 @@ func TestTheAuditorRunsPrivateOnTeamColumnsOnly(t *testing.T) {
 	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND role = 'auditor'", c.ID); n != 1 {
 		t.Fatalf("%d auditor runs", n)
 	}
+	const finding = "Claim 2 quotes a passage no call holds."
+	var run uuid.UUID
+	if err := l.env.Owner.QueryRow(context.Background(), "SELECT id FROM agent_run WHERE card_id = $1 AND role = 'auditor'", c.ID).Scan(&run); err != nil {
+		t.Fatal(err)
+	}
+	l.in(t, func(tx *store.Tx) error {
+		_, err := records.WriteAs(context.Background(), tx, service.Writer{Card: c.ID, AgentRun: run, Column: "hypotheses", Role: "auditor", Round: c.Round},
+			"audit", map[string]any{"text": "One problem.", "findings": []string{finding}})
+		return err
+	})
 	l.settleAuditor(t, c.ID)
-	if calls := stub.calls(); len(calls) != 1 || !strings.Contains(calls[0].State, "auditor") {
-		t.Fatalf("Jev after the auditor: %d calls", len(calls))
+	if calls := stub.calls(); len(calls) != 1 || !strings.Contains(calls[0].State, finding) {
+		t.Fatalf("Jev after the auditor: %d calls, or the audit's findings missing from the state", len(calls))
 	}
 
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
@@ -440,5 +450,34 @@ func TestTheStateFitsJevsLimit(t *testing.T) {
 	}
 	if !strings.Contains(calls[0].State, "Record r200") {
 		t.Fatal("the cut dropped a record instead of shortening it")
+	}
+}
+
+func TestALongQuestionStillFitsJevsLimit(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "grounding", "grounding", a)
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE card SET question = $1 WHERE id = $2", strings.Repeat("Why? ", 40<<10), c.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.done(t, c.ID)
+	calls := stub.calls()
+	if len(calls) != 1 {
+		t.Fatalf("%d Jev calls", len(calls))
+	}
+	q, _ := json.Marshal(calls[0].Questions)
+	if n := len(calls[0].State) + len(q); n > 128<<10 {
+		t.Fatalf("state plus questions is %d bytes", n)
+	}
+	if !strings.Contains(calls[0].State, cutMark) {
+		t.Fatal("no cut mark in the state")
+	}
+}
+
+func TestALongSummaryIsCutInsideItsFence(t *testing.T) {
+	s := evidence(strings.Repeat("s", 200<<10), nil, 32<<10)
+	if len(s) > 32<<10 || !strings.Contains(s, cutMark) || !strings.Contains(s, "-END\n") {
+		t.Fatalf("%d bytes, cut mark %v, fence closed %v", len(s), strings.Contains(s, cutMark), strings.Contains(s, "-END\n"))
 	}
 }

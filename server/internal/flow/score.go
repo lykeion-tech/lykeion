@@ -304,7 +304,11 @@ const cutMark = "\n[cut: the rest is left out to stay within Jev's limit]"
 // bytes. Every agent's text is fenced as data.
 func scoringState(in scoring, quotes []QuoteMatch, budget int) string {
 	var head, tail strings.Builder
-	fmt.Fprintf(&head, "Lykeion study #%d, its %s column. What the researcher asked:\n%s\n\n", in.card.Number, title(in.card.BoardColumn), in.card.Question)
+	question, cut := Excerpt(in.card.Question, budget/8)
+	if cut {
+		question += cutMark
+	}
+	fmt.Fprintf(&head, "Lykeion study #%d, its %s column.\n%s\n", in.card.Number, title(in.card.BoardColumn), fence.Untrusted("What the researcher asked", question))
 
 	tail.WriteString("\nQuote check, done by Lykeion's code: each quoted passage looked up word for word, ignoring whitespace, in the answers of the database calls its record cites.\n")
 	if len(quotes) == 0 {
@@ -344,12 +348,15 @@ func scoringState(in scoring, quotes []QuoteMatch, budget int) string {
 
 // evidence is the leader's summary and the records it cites, each fenced, in
 // at most budget bytes: the longest records are cut first, to a common
-// length, and each cut is marked.
+// length, and each cut is marked. A summary too long to leave the records
+// room is cut inside its fence, and when even empty fences overflow, the
+// last cited records are left out, saying how many.
 func evidence(summary string, cited []db.Record, budget int) string {
-	build := func(limit int) string {
+	dropped := 0
+	build := func(summary string, limit int) string {
 		var b strings.Builder
 		b.WriteString(fence.Untrusted("The summary declaring the column done", summary))
-		if len(cited) == 0 {
+		if len(cited) == 0 && dropped == 0 {
 			b.WriteString("The summary cites no records.\n")
 		} else {
 			b.WriteString("\nThe records it cites:\n")
@@ -361,30 +368,36 @@ func evidence(summary string, cited []db.Record, budget int) string {
 			}
 			b.WriteString(fence.Untrusted(fmt.Sprintf("Record %s (%s, written by the %s)", r.Key, r.Kind, r.Role), body))
 		}
+		if dropped > 0 {
+			fmt.Fprintf(&b, "[%d more cited records left out to stay within Jev's limit]\n", dropped)
+		}
 		return b.String()
+	}
+	for len(cited) > 0 && len(build("", 0)) > budget/2 {
+		cited = cited[:len(cited)-1]
+		dropped++
+	}
+	if room := (budget - len(build("", 0)) - len(cutMark)) / 2; len(summary) > room {
+		summary, _ = Excerpt(summary, max(room, 0))
+		summary += cutMark
 	}
 	longest := 0
 	for _, r := range cited {
 		longest = max(longest, len(r.Body))
 	}
-	s := build(longest)
-	if len(s) <= budget {
+	if s := build(summary, longest); len(s) <= budget {
 		return s
 	}
 	lo, hi := 0, longest
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
-		if len(build(mid)) <= budget {
+		if len(build(summary, mid)) <= budget {
 			lo = mid
 		} else {
 			hi = mid - 1
 		}
 	}
-	if s = build(lo); len(s) > budget { // the summary alone is over
-		s, _ = Excerpt(s, max(budget-len(cutMark), 0))
-		s += cutMark
-	}
-	return s
+	return build(summary, lo)
 }
 
 // applyScore writes the scores and the verdict, and moves the study on,
