@@ -78,6 +78,9 @@ var spawn = func(ctx context.Context) (*exec.Cmd, error) {
 // memory cap and returns its results. failures is the manifest's declared
 // failure types; any other value is an error.
 func Run(ctx context.Context, filename string, src []byte, recs []Record, failures []string, lim Limits) ([]Result, error) {
+	if os.Getenv(childEnv) != "" {
+		return nil, errors.New("check: refusing to spawn from inside a check child")
+	}
 	if slices.Contains(failures, "") {
 		return nil, errors.New("check: an empty failure type is not allowed")
 	}

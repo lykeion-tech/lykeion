@@ -148,3 +148,10 @@ func TestRunRunsInChildProcess(t *testing.T) {
 		t.Fatal("script did not run in another process")
 	}
 }
+
+func TestRunRefusesInsideChild(t *testing.T) {
+	t.Setenv(childEnv, "1")
+	if _, err := Run(context.Background(), "a.star", []byte("def check(r): return []"), nil, nil, Default); err == nil {
+		t.Fatal("Run spawned from inside a child")
+	}
+}
