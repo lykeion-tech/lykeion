@@ -537,3 +537,45 @@ func TestRoleRecordWithoutKinds(t *testing.T) {
 		t.Fatalf("%d", got)
 	}
 }
+
+func TestCardShowsItsTeam(t *testing.T) {
+	s := newServer(t)
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1"}))
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	_, bare, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q"})
+	if c := s.call(t, "PUT", "/api/me/pack", a, w.ID, map[string]string{"name": "demo"}, nil); c != 200 {
+		t.Fatalf("use demo: %d", c)
+	}
+	_, pinned, _ := s.newCard(t, a, w.ID, map[string]any{"question": "Does X raise Y?", "start_kind": "question"})
+	for _, tc := range []struct{ id, name, version string }{{bare.ID, "", ""}, {pinned.ID, "demo", "1"}} {
+		var got struct {
+			ID          string
+			PackName    *string `json:"pack_name"`
+			PackVersion *string `json:"pack_version"`
+		}
+		if c := s.call(t, "GET", "/api/cards/"+tc.id, a, w.ID, nil, &got); c != 200 || got.ID != tc.id ||
+			got.PackName == nil || *got.PackName != tc.name || got.PackVersion == nil || *got.PackVersion != tc.version {
+			t.Fatalf("card %s: %d %+v", tc.id, c, got)
+		}
+	}
+}
+
+func TestCardRecordsOfOneKind(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	_, c, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q"})
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body, superseded_at) VALUES
+		($1, $2, 'grounding', 1, 'starting_point', 'server', '0', '{}', NULL),
+		($1, $2, 'experimentation', 2, 'starting_point', 'server', '1', '{}', NULL),
+		($1, $2, 'experimentation', 2, 'starting_point', 'server', '2', '{}', now()),
+		($1, $2, 'experimentation', 2, 'result', 'tester', 'R1', '{}', NULL)`, w.ID, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct{ Kind, Key string }
+	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/records?kind=starting_point", a, w.ID, nil, &rows); code != 200 ||
+		len(rows) != 2 || rows[0].Key != "0" || rows[1].Key != "1" || rows[0].Kind != "starting_point" {
+		t.Fatalf("records %d %+v", code, rows)
+	}
+}

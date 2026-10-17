@@ -77,6 +77,8 @@ export interface Card {
   queued: boolean; // GET /api/cards only
   role: string; // GET /api/cards only; '' when no run is queued, dispatched or running
   pack_id: string | null;
+  pack_name?: string; // GET /api/cards/{id} only
+  pack_version?: string; // GET /api/cards/{id} only
   start_kind: '' | 'question' | 'dataset' | 'claim';
   cap: number; // route_backs counts uses of this cap
   block_kind: BlockKind;

@@ -446,6 +446,11 @@ func (h *H) cardRecords(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		// kind= lists that kind's live records from every column.
+		if kind := r.URL.Query().Get("kind"); kind != "" {
+			out, err = tx.Q.CardKindRecords(r.Context(), db.CardKindRecordsParams{WorkspaceID: ws, CardID: id, Kind: kind})
+			return err
+		}
 		col := r.URL.Query().Get("column")
 		if col == "" {
 			col = c.BoardColumn

@@ -715,3 +715,100 @@ test('a real study deletion refusal remains inline on the study', async ({ page 
     'Backlog',
   );
 });
+
+import { labNoTeam, labRelease, labRevise, labShip, labUnship, labWorkspace } from './lab';
+
+test('a revised study shows its starting point, and Revert restores the original question', async ({
+  page,
+}) => {
+  const original = `Do beta cells re-express ALDH1A3, and does it track duration? ${Date.now()}`;
+  const study = await newStudy(page.request, original);
+  await page.goto(`/#/studies/${study.id}`);
+  const main = page.getByRole('region', { name: 'Study' });
+  await expect(main.getByText('Escalated: waiting for a person')).toBeVisible({ timeout: 30_000 });
+  await expect(main.locator('.starting-point')).toHaveCount(0);
+  const revised = `Do beta cells re-express ALDH1A3? ${Date.now()}`;
+  await labRevise(page.request, study.id, revised, 'No donor metadata on disease duration');
+  await page.reload();
+  const block = main.locator('.starting-point');
+  await expect(block).toContainText('Starting point · revised');
+  await expect(block.locator('.now')).toHaveText(revised);
+  await expect(block.locator('.was')).toHaveText(original);
+  await expect(block.locator('.why')).toContainText('No donor metadata on disease duration');
+  await expect(block.locator('.why')).toContainText(/run [0-9a-f]{8}/);
+  await expect(main.locator('.study-question')).toHaveText(revised);
+  await expect(main.getByText('Starting point revised')).toBeVisible();
+  await page.screenshot({ path: 'test-results/ui-lab/study-revised.png', fullPage: true });
+
+  let asked = '';
+  page.once('dialog', (d) => {
+    asked = d.message();
+    void d.accept();
+  });
+  await block.getByRole('button', { name: 'Revert' }).click();
+  await expect(main.locator('.study-question')).toHaveText(original);
+  expect(asked).toContain('original');
+  await expect(main.locator('.starting-point')).toHaveCount(0);
+});
+
+test('a reopened study says so in its pane and its transcript', async ({ page }) => {
+  const study = await newStudy(page.request, `Does IL-1β track amyloid? ${Date.now()}`);
+  await page.goto(`/#/studies/${study.id}`);
+  const meta = page.getByRole('complementary', { name: 'Study details' });
+  await expect(meta.getByText('Reopened', { exact: true })).toHaveCount(0);
+  await labRelease(page.request, study.id);
+  const reopen = await page.request.post(`/api/cards/${study.id}/reopen`, {
+    headers: { 'X-Workspace-ID': await labWorkspace(page.request) },
+    data: { reason: 'a 2026 study contradicts E2', evidence: 'europepmc:PMC9911203' },
+  });
+  expect(reopen.status()).toBe(200);
+  await page.reload();
+  await expect(meta.locator('.reopened')).toHaveText(/^Once · /);
+  await expect(
+    page.getByRole('region', { name: 'Study' }).getByText('Reopened: a 2026 study contradicts E2'),
+  ).toBeVisible();
+});
+
+test('a study on demo v1 offers Move to v2 once v2 is approved, and moving updates the pane', async ({
+  page,
+}) => {
+  const f = await labFixture(page.request);
+  const headers = { 'X-Workspace-ID': f.workspace_id };
+  labShip('demo', '1');
+  try {
+    expect(
+      (await page.request.put('/api/me/pack', { headers, data: { name: 'demo' } })).status(),
+    ).toBe(200);
+    const created = await page.request.post('/api/cards', {
+      headers,
+      data: { question: `Does X raise Y? ${Date.now()}`, start_kind: 'question' },
+    });
+    expect(created.status()).toBe(201);
+    const study = (await created.json()) as { id: string };
+    await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
+    await page.goto(`/#/studies/${study.id}`);
+    const meta = page.getByRole('complementary', { name: 'Study details' });
+    const team = meta.locator('.team');
+    await expect(team).toContainText('demo Team v1');
+    await expect(meta.getByText('Question', { exact: true })).toBeVisible();
+    await expect(team.getByRole('button', { name: /Move to/ })).toHaveCount(0);
+
+    labShip('demo', '2');
+    expect(
+      (await page.request.put('/api/me/pack', { headers, data: { name: 'demo' } })).status(),
+    ).toBe(200);
+    await page.reload();
+    let asked = '';
+    page.once('dialog', (d) => {
+      asked = d.message();
+      void d.accept();
+    });
+    await team.getByRole('button', { name: 'Move to v2' }).click();
+    await expect(team).toContainText('demo Team v2');
+    await expect(team.getByRole('button', { name: /Move to/ })).toHaveCount(0);
+    expect(asked).toContain('v2');
+  } finally {
+    await labNoTeam(page.request);
+    labUnship('demo');
+  }
+});

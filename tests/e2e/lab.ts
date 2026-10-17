@@ -134,3 +134,20 @@ export async function labPack(request: APIRequestContext): Promise<{ id: string;
 export async function labNoTeam(request: APIRequestContext) {
   expect((await request.post(`${LAB}/lab/no-team`)).status()).toBe(204);
 }
+
+// Revises a study's question as a stage would, citing a new result that says why.
+export async function labRevise(
+  request: APIRequestContext,
+  cardId: string,
+  text: string,
+  why: string,
+) {
+  expect(
+    (await request.post(`${LAB}/lab/revise/${cardId}`, { data: { text, why } })).status(),
+  ).toBe(204);
+}
+
+// Releases a study, as a sealed report would.
+export async function labRelease(request: APIRequestContext, cardId: string) {
+  expect((await request.post(`${LAB}/lab/release/${cardId}`)).status()).toBe(204);
+}

@@ -27,6 +27,7 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/daemon"
+	"lykeion/server/internal/gate"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/round"
@@ -265,6 +266,55 @@ func TestUILab(t *testing.T) {
 	mux.HandleFunc("POST /lab/no-team", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := env.Owner.Exec(r.Context(), `UPDATE "user" SET pack_name = '' WHERE email = $1`, labEmail); err != nil {
 			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	// Revises a study's question as a stage would: a result in its current
+	// column, from its latest run, undermines the question, and the engine's
+	// Revise applies the new text with a "narrows" drift answer.
+	mux.HandleFunc("POST /lab/revise/{card}", func(w http.ResponseWriter, r *http.Request) {
+		card, err := uuid.Parse(r.PathValue("card"))
+		var in struct{ Text, Why string }
+		if err != nil || json.NewDecoder(r.Body).Decode(&in) != nil {
+			http.Error(w, "card id and {text, why}", 400)
+			return
+		}
+		var ws uuid.UUID
+		var cited string
+		if err := env.Owner.QueryRow(r.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body, agent_run_id)
+			SELECT c.workspace_id, c.id, c.board_column, c.round, 'result', 'tester', 'R1', jsonb_build_object('text', $2::text),
+			  (SELECT id FROM agent_run WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1)
+			FROM card c WHERE c.id = $1 RETURNING workspace_id, id`, card, in.Why).Scan(&ws, &cited); err != nil {
+			http.Error(w, "no such card", 404)
+			return
+		}
+		err = st.InWorkspace(r.Context(), ws, uuid.Nil, func(tx *store.Tx) error {
+			if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+				return err
+			}
+			if err := tx.Q.WaitLockCard(r.Context(), card); err != nil {
+				return err
+			}
+			c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: card, WorkspaceID: ws})
+			if err != nil {
+				return err
+			}
+			_, err = engine.Revise(r.Context(), tx, c, round.Revision{Text: in.Text, Cites: cited, Reason: "question"},
+				gate.Choice{Question: "drift", Judge: "jev", Answer: "narrows"})
+			return err
+		})
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	// Releases a study, as a sealed report would, so it can be reopened.
+	mux.HandleFunc("POST /lab/release/{card}", func(w http.ResponseWriter, r *http.Request) {
+		tag, err := env.Owner.Exec(r.Context(), `UPDATE card SET board_column = 'done', ending = 'released', state = 'ready', flag = '', block_kind = '' WHERE id = $1`, r.PathValue("card"))
+		if err != nil || tag.RowsAffected() != 1 {
+			http.Error(w, "no such card", 404)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

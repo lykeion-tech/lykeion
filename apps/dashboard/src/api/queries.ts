@@ -135,6 +135,18 @@ export const useRecords = (id: MaybeRefOrGetter<string>, column: MaybeRefOrGette
     enabled: computed(() => inWorkspace.value && Boolean(toValue(id)) && Boolean(toValue(column))),
   });
 
+// One kind's live records from every column of the study.
+export const useKindRecords = (id: MaybeRefOrGetter<string>, kind: string) =>
+  useQuery({
+    queryKey: computed(() => [...keys.recordsAll(ws.value, toValue(id)), 'kind', kind]),
+    queryFn: async () =>
+      (await api<StudyRecord[] | null>(
+        'GET',
+        `/api/cards/${toValue(id)}/records?kind=${encodeURIComponent(kind)}`,
+      )) ?? [],
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+  });
+
 // A run's messages for one attempt. No event announces a message, so while the
 // run is live the query polls; a settled run's messages never change.
 export const useRunMessages = (

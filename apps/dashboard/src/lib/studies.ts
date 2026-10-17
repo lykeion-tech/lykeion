@@ -223,6 +223,24 @@ export function recordLine(r: StudyRecord) {
   return { key: r.key || r.kind, text, source: str(b.source_id) };
 }
 
+// The study's starting point once revised: the newest revision, the original
+// under key 0, and the result the revision cites, when it is among records.
+export function startingPoint(records: StudyRecord[]) {
+  const points = records
+    .filter((r) => r.kind === 'starting_point' && !r.superseded_at)
+    .sort((a, b) => Number(a.key) - Number(b.key));
+  const original = points.find((r) => r.key === '0');
+  const latest = points.at(-1);
+  if (!original || !latest || latest === original) return null;
+  const cited = records.find((r) => r.id === latest.body.cites);
+  return {
+    now: str(latest.body.text),
+    was: str(original.body.text),
+    why: cited ? recordLine(cited).text : '',
+    runId: cited?.agent_run_id ?? '',
+  };
+}
+
 const steered: Record<string, (p: Record<string, unknown>) => string> = {
   'send-back': (p) => `Sent back to ${columnName(str(p.column))}`,
   stop: () => 'Stopped',
@@ -244,6 +262,10 @@ export function eventText(e: LykEvent): string {
       return 'Out of budget: waiting for a person';
     case 'card.steered':
       return steered[str(p.path).split('/').pop() ?? '']?.(p) ?? '';
+    case 'card.reopened':
+      return `${e.actor_type === 'role' ? 'Reopened by Autoresearch' : 'Reopened'}: ${str(p.reason)}`;
+    case 'card.revised':
+      return 'Starting point revised';
     case 'gate.decided':
       if (p.verdict === 'pass') return `Gate passed ${columnName(str(p.column))}`;
       if (p.verdict === 'cannot_proceed') return `Gate blocked the study: ${str(p.reason)}`;

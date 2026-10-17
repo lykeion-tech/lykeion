@@ -18,13 +18,15 @@ import {
   useGates,
   useInbox,
   useMe,
+  useKindRecords,
   useMembers,
+  usePackVersions,
   useRecords,
   useRuns,
   useRuntimes,
   useWorkspace,
 } from '../api/queries';
-import type { Card, Column } from '../api/types';
+import type { Card, Column, PackVersion } from '../api/types';
 import {
   actionLabel,
   blockedActions,
@@ -36,11 +38,13 @@ import {
   columnName,
   earlierColumns,
   endLabel,
+  focusLabel,
   gateOf,
   jevThresholds,
   recordLine,
   routeBackLimit,
   stages,
+  startingPoint,
   stateLabel,
   studyNumber,
   transcript,
@@ -110,7 +114,11 @@ async function saveProperty(body: Record<string, unknown>) {
   try {
     const saved = await api<Card>('PATCH', `/api/cards/${scope.id}/properties`, body);
     if (!scope.current()) return;
-    client.setQueryData(keys.card(scope.workspace, scope.id), saved);
+    // The PATCH answer lacks the Team's name and version, so keep them.
+    client.setQueryData<Card>(keys.card(scope.workspace, scope.id), (old) => ({
+      ...old,
+      ...saved,
+    }));
     await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
     await client.invalidateQueries({ queryKey: keys.researches(scope.workspace) });
   } catch (e) {
@@ -145,6 +153,33 @@ const stage = computed(() =>
   c.value && stages.includes(c.value.board_column) ? c.value.board_column : '',
 );
 const records = useRecords(() => props.id, stage);
+const isOwner = computed(() => Boolean(c.value && c.value.owner_id === me.data.value?.id));
+// The cited result is read from the column the latest revision was made in.
+const points = useKindRecords(() => props.id, 'starting_point');
+const pointColumn = computed(() => points.data.value?.at(-1)?.board_column ?? '');
+const pointRecords = useRecords(() => props.id, pointColumn);
+// Shown while the study runs on a revision; a reverted study is back on the original.
+const revision = computed(() => {
+  const sp = startingPoint([...(points.data.value ?? []), ...(pointRecords.data.value ?? [])]);
+  return sp && c.value?.question !== sp.was ? sp : null;
+});
+const packVersions = usePackVersions(() => c.value?.pack_name ?? '');
+// The newest version of the study's Team its owner approved, when newer than its own.
+const newerVersion = computed(() => {
+  const rows = packVersions.data.value ?? [];
+  const at = rows.findIndex((v) => v.id === c.value?.pack_id);
+  return isOwner.value && at >= 0
+    ? rows
+        .slice(at + 1)
+        .filter((v) => v.approvals_by_me)
+        .at(-1)
+    : undefined;
+});
+const lastReopen = computed(
+  () =>
+    [...(events.data.value ?? [])].reverse().find((e) => e.type === 'card.reopened')?.created_at,
+);
+const timesLabel = (n: number) => (n === 1 ? 'Once' : n === 2 ? 'Twice' : `${n} times`);
 const allGates = computed(() => (gates.data.value ?? []).map(gateOf));
 const latestGate = computed(() =>
   [...allGates.value].reverse().find((g) => g.column === stage.value),
@@ -360,6 +395,35 @@ async function remove() {
     if (scope.current()) error.value = (e as Error).message;
   }
 }
+// Moves the study to another version of its Team, or puts it back on its
+// original starting point; both ask first, and the study rereads itself after.
+async function cardAction(question: string, path: string, body?: unknown) {
+  if (!confirm(question)) return;
+  const scope = mutationScope();
+  propertyBusy.value = true;
+  error.value = '';
+  try {
+    await api('POST', `/api/cards/${scope.id}/${path}`, body);
+    if (!scope.current()) return;
+    await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
+    if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
+  } catch (e) {
+    if (scope.current()) error.value = (e as Error).message;
+  } finally {
+    if (scope.current()) propertyBusy.value = false;
+  }
+}
+const moveTeam = (v: PackVersion) =>
+  cardAction(
+    `Move ${number.value} to ${v.name} Team v${v.version}? Its next rounds run that version's checks and skills.`,
+    'pack',
+    { pack_id: v.id },
+  );
+const revert = () =>
+  cardAction(
+    `Revert ${number.value} to its original starting point? It returns to Grounding, and the stages after it are redone.`,
+    'revert-revision',
+  );
 function pin() {
   if (!togglePin(props.id)) notify('The pin could not be saved on this device.');
 }
@@ -510,10 +574,33 @@ function pin() {
         </div>
         <small>Deadline</small>
         <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
-        <small>Round</small>
-        <div class="v">
-          {{ c.round }} · Route-backs {{ c.route_backs }} of {{ routeBackLimit(c) }}
-        </div>
+        <template v-if="c.pack_name">
+          <small>Team</small>
+          <div class="v team">
+            {{ c.pack_name }} Team v{{ c.pack_version
+            }}<button
+              v-if="newerVersion"
+              class="text-button push-right"
+              :disabled="propertyBusy"
+              @click="moveTeam(newerVersion)"
+            >
+              Move to v{{ newerVersion.version }}
+            </button>
+          </div>
+        </template>
+        <template v-if="c.start_kind">
+          <small>Starts as</small>
+          <div class="v">{{ focusLabel(c.start_kind) }}</div>
+        </template>
+        <small>Route-backs</small>
+        <div class="v">{{ c.route_backs }} of {{ routeBackLimit(c) }}</div>
+        <template v-if="c.reopens">
+          <small>Reopened</small>
+          <div class="v reopened">
+            {{ timesLabel(c.reopens)
+            }}{{ lastReopen ? ' · ' + new Date(lastReopen).toLocaleDateString() : '' }}
+          </div>
+        </template>
         <template v-if="c.follows_from.length">
           <small>Follows from</small>
           <div class="v">
@@ -589,6 +676,29 @@ function pin() {
         <div class="transcript-content study-content">
           <h1 class="study-title">{{ c.title }}</h1>
           <p class="study-question">{{ c.question }}</p>
+          <div v-if="revision" class="stage-box starting-point">
+            <h4>Starting point · revised</h4>
+            <div class="record-line">
+              <span class="key">now</span><span class="now">{{ revision.now }}</span>
+            </div>
+            <div class="record-line">
+              <span class="key">was</span><span class="was">{{ revision.was }}</span>
+            </div>
+            <div class="record-line">
+              <span class="key">Why</span
+              ><span class="why"
+                >{{ revision.why
+                }}{{ revision.runId ? ` (run ${revision.runId.slice(0, 8)})` : '' }}</span
+              ><button
+                v-if="isOwner && !c.ending"
+                class="text-button"
+                :disabled="propertyBusy"
+                @click="revert"
+              >
+                Revert ↺
+              </button>
+            </div>
+          </div>
           <div v-for="col in earlier" :key="col" class="stage-box collapsed-stage">
             <button
               :aria-expanded="expanded === col"

@@ -508,3 +508,47 @@ describe('machines', () => {
     expect(daemons[1]!.online).toBe(false);
   });
 });
+
+import { startingPoint } from '../apps/dashboard/src/lib/studies';
+
+describe('startingPoint', () => {
+  const point = (key: string, body: Record<string, unknown>) => ({
+    ...rec('starting_point', body, key),
+    id: 'sp' + key,
+  });
+  it('is null when no record exists or only the original does', () => {
+    expect(startingPoint([])).toBeNull();
+    expect(startingPoint([point('0', { text: 'Does X raise Y?' })])).toBeNull();
+  });
+  it('shows the newest revision against the original, with the cited result and its run', () => {
+    const result = {
+      ...rec('result', { text: 'No donor metadata on disease duration' }),
+      id: 'res',
+      agent_run_id: 'run-7',
+    };
+    const sp = startingPoint([
+      point('2', { text: 'Does X raise Y in islets?', cites: 'res', reason: 'question' }),
+      point('0', { text: 'Does X raise Y?' }),
+      point('1', { text: 'Does X raise Y in mice?', cites: 'other', reason: 'question' }),
+      result,
+    ]);
+    expect(sp).toEqual({
+      now: 'Does X raise Y in islets?',
+      was: 'Does X raise Y?',
+      why: 'No donor metadata on disease duration',
+      runId: 'run-7',
+    });
+  });
+  it('leaves why empty when the cited result is not among the records', () => {
+    const sp = startingPoint([
+      point('0', { text: 'Does X raise Y?' }),
+      point('1', { text: 'Does X raise Y in mice?', cites: 'gone', reason: 'question' }),
+    ]);
+    expect(sp).toEqual({
+      now: 'Does X raise Y in mice?',
+      was: 'Does X raise Y?',
+      why: '',
+      runId: '',
+    });
+  });
+});

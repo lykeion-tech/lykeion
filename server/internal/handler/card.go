@@ -185,10 +185,20 @@ func (h *H) getCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var card db.Card
+	// The card names its Team version, so a colleague who cannot see an
+	// uploaded Team still reads which one the study runs on.
+	var card struct {
+		db.Card
+		PackName    string `json:"pack_name"`
+		PackVersion string `json:"pack_version"`
+	}
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		var err error
-		card, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id})
+		if card.Card, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id}); err != nil || card.PackID == nil {
+			return err
+		}
+		p, err := tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: *card.PackID})
+		card.PackName, card.PackVersion = p.Name, p.Version
 		return err
 	})
 	if err != nil {

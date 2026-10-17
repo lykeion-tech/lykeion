@@ -185,3 +185,44 @@ describe('reading-first recorded run', () => {
     expect(later).not.toContain('data-source');
   });
 });
+
+import { eventText, transcript } from '../apps/dashboard/src/lib/studies';
+import type { LykEvent } from '../apps/dashboard/src/api/types';
+
+describe('reopen and revision lines', () => {
+  const event = (
+    type: string,
+    actor_type: LykEvent['actor_type'],
+    payload: Record<string, unknown>,
+  ) =>
+    ({
+      id: 1,
+      workspace_id: 'w',
+      card_id: 'c',
+      type,
+      actor_type,
+      actor_id: 'x',
+      payload,
+      created_at: '2026-10-20T10:00:00Z',
+    }) as LykEvent;
+  it('says who reopened the study and why', () => {
+    const lines = transcript(
+      [],
+      [],
+      [event('card.reopened', 'role', { reopens: 1, reason: 'a 2026 study contradicts E2' })],
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      kind: 'event',
+      text: 'Reopened by Autoresearch: a 2026 study contradicts E2',
+    });
+    expect(eventText(event('card.reopened', 'user', { reason: 'new data' }))).toBe(
+      'Reopened: new data',
+    );
+  });
+  it('notes a revised starting point', () => {
+    expect(eventText(event('card.revised', 'system', { reason: 'question' }))).toBe(
+      'Starting point revised',
+    );
+  });
+});
