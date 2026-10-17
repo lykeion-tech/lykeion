@@ -3,9 +3,11 @@ package jev
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func server(t *testing.T, status int, model string) *httptest.Server {
@@ -73,5 +75,79 @@ func TestAMissingVerdictIsAnError(t *testing.T) {
 			t.Errorf("%s: want an error and no answer, got %+v %v", name, a, err)
 		}
 		s.Close()
+	}
+}
+
+func TestScoreSendsOrderedLevels(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Questions map[string]struct {
+				Type     string
+				Criteria []string
+			}
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		q := body.Questions["a"]
+		if q.Type != "score" || len(q.Criteria) != 3 || q.Criteria[0] != "low" || q.Criteria[2] != "high" || len(body.Questions) != 2 {
+			t.Errorf("bad body %+v", body)
+		}
+		w.Write([]byte(`{"model":"jev-1.13.0","answers":{"a":{"type":"score","score":3.4,"confidence":0.5,"probabilities":{"3":0.6,"4":0.4}},"b":{"type":"score","score":0.1,"confidence":0.9,"probabilities":{"0":1}}}}`))
+	}))
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
+	out, err := c.Score(context.Background(), "s", map[string]ScoreQuestion{
+		"a": {Instructions: "rate", Levels: []string{"low", "mid", "high"}},
+		"b": {Instructions: "rate", Levels: []string{"no", "yes"}},
+	})
+	if err != nil || out["a"].Score != 3.4 || out["a"].Probabilities["3"] != 0.6 || out["b"].Confidence != 0.9 {
+		t.Fatalf("%+v %v", out, err)
+	}
+}
+
+func TestNoulReturnsTheYesProbability(t *testing.T) {
+	s := replying(`{"model":"jev-1.13.0","answers":{"q":{"type":"noul","noul":0.71}}}`)
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
+	out, err := c.Noul(context.Background(), "s", map[string]string{"q": "is it so?"})
+	if err != nil || out["q"] != 0.71 {
+		t.Fatalf("%v %v", out, err)
+	}
+}
+
+func TestAnAnswerFromAnotherModelIsRefused(t *testing.T) {
+	s := replying(`{"model":"jev-1.14.0","answers":{"q":{"type":"noul","noul":0.71}}}`)
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
+	if _, err := c.Noul(context.Background(), "s", map[string]string{"q": "?"}); err == nil {
+		t.Error("noul: want error")
+	}
+	if _, err := c.Score(context.Background(), "s", map[string]ScoreQuestion{"q": {Levels: []string{"a", "b"}}}); err == nil {
+		t.Error("score: want error")
+	}
+}
+
+func TestAMissingQuestionIsRefused(t *testing.T) {
+	s := replying(`{"model":"jev-1.13.0","answers":{"x":{"type":"noul","noul":0.7}}}`)
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
+	if _, err := c.Noul(context.Background(), "s", map[string]string{"q": "?"}); err == nil {
+		t.Error("noul: want error")
+	}
+	if _, err := c.Score(context.Background(), "s", map[string]ScoreQuestion{"q": {Levels: []string{"a", "b"}}}); err == nil {
+		t.Error("score: want error")
+	}
+}
+
+func TestRetryDoStopsAtTheSharedBudget(t *testing.T) {
+	var slept []time.Duration
+	r := NewRetry()
+	r.Sleep = func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
+	n := 0
+	err := r.Do(context.Background(), func() error { n++; return errors.New("down") })
+	if err == nil || n != 3 || len(slept) != 2 {
+		t.Fatalf("%v %d %v", err, n, slept)
+	}
+	if err := r.Do(context.Background(), func() error { n++; return errors.New("down") }); err == nil || n != 4 {
+		t.Fatalf("budget spent: want one attempt, got n=%d %v", n, err)
 	}
 }
