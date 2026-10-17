@@ -52,7 +52,8 @@ const assignee = ref<Picked | null>(props.assignee ? { ...props.assignee } : nul
 const range = ref<{ from: string; to: string }>({ from: 'grounding', to: 'reporting' });
 const store = useTeams('', '');
 const addedTeams = computed(() => (store.data.value ?? []).filter((t) => t.added));
-const stageName = (s: string) => s[0]!.toUpperCase() + s.slice(1);
+const stageName = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : '');
+const usedLastSet = ref(false);
 const setSlots = ref<Record<string, string>>(Object.fromEntries(stages.map((s) => [s, ''])));
 const setAgent = ref('');
 
@@ -122,6 +123,7 @@ const matchingAgents = computed(() =>
   assignableAgents.value.filter((a) => matchesQuery(a.name, query.value)),
 );
 function assign(value: typeof assignee.value) {
+  usedLastSet.value = false;
   assignee.value = value;
   // One Team keeps its own stage; a set and any other assignee start end to end.
   const cols = value?.type === 'team' ? Object.keys(value.teams) : [];
@@ -204,7 +206,16 @@ function keysDown(event: KeyboardEvent) {
   }
 }
 
-const blocked = computed(() => busy.value || !question.value.trim());
+// A Team with no stage label has no column until the researcher picks one.
+const unstaged = computed(() => teamColumns.value.includes(''));
+const blocked = computed(() => busy.value || !question.value.trim() || unstaged.value);
+function pickColumn(col: string) {
+  const a = assignee.value;
+  if (a?.type !== 'team' || !('teams' in a)) return;
+  assignee.value = { ...a, teams: { [col]: a.teams[''] as string } };
+  range.value = { from: col, to: col };
+  closeMenu();
+}
 
 async function submit() {
   if (blocked.value) return;
@@ -256,6 +267,8 @@ async function submit() {
   } catch (e) {
     if (e instanceof ApiError && e.status === 409 && typeof e.body.card_id === 'string')
       duplicate.value = { id: e.body.card_id, number: Number(e.body.number) };
+    else if (usedLastSet.value && /add this Team/.test((e as Error).message))
+      error.value = "A Team in your last set isn't in your workspace any more";
     else error.value = (e as Error).message;
   } finally {
     busy.value = false;
@@ -304,7 +317,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           v-model="question"
           class="composer-description"
           placeholder="Describe what you want to do, in your own words"
-          aria-label="Research question"
+          aria-label="Describe your study"
           required
         />
       </div>
@@ -379,17 +392,21 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
                 :key="t.id"
                 type="button"
                 role="menuitem"
-                @click="assign({ type: 'team', teams: { [t.stage || 'grounding']: t.id } })"
+                @click="assign({ type: 'team', teams: { [t.stage]: t.id } })"
               >
                 <Icon name="bot" :size="14" /><span>{{ t.name }}</span
-                ><small>Built for {{ stageName(t.stage || 'grounding') }}</small>
+                ><small v-if="t.stage">Built for {{ stageName(t.stage) }}</small
+                ><small v-else>No stage label</small>
               </button>
               <p v-if="showSets" class="menu-group">Team sets</p>
               <button
                 v-if="showSets && lastSet"
                 type="button"
                 role="menuitem"
-                @click="assign(lastSet)"
+                @click="
+                  assign(lastSet);
+                  usedLastSet = true;
+                "
               >
                 <Icon name="bot" :size="14" /><span>Your last set</span
                 ><small>{{ Object.keys(lastSet.teams).length }} Teams</small>
@@ -437,14 +454,43 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             <button
               type="button"
               class="property-pill"
-              :aria-label="`Stages: ${stageName(range.from)}${range.from === range.to ? '' : ' → ' + stageName(range.to)}`"
-              :disabled="assignee.type === 'team'"
+              :aria-label="
+                unstaged
+                  ? 'Stages: choose a stage'
+                  : `Stages: ${stageName(range.from)}${range.from === range.to ? '' : ' → ' + stageName(range.to)}`
+              "
+              :disabled="assignee.type === 'team' && !unstaged"
               @click="openMenu('stages')"
             >
-              <Icon name="circle" :size="14" />{{ stageName(range.from)
-              }}{{ range.from === range.to ? '' : ' → ' + stageName(range.to) }}
+              <Icon name="circle" :size="14" />{{
+                unstaged
+                  ? 'Choose a stage'
+                  : stageName(range.from) +
+                    (range.from === range.to ? '' : ' → ' + stageName(range.to))
+              }}
             </button>
-            <div v-if="menu === 'stages'" class="composer-menu stage-menu set-menu" role="menu">
+            <div
+              v-if="menu === 'stages' && unstaged"
+              class="composer-menu stage-menu set-menu"
+              role="menu"
+            >
+              <label
+                >Stage
+                <select
+                  aria-label="Stage"
+                  value=""
+                  @change="pickColumn(($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="" disabled>Choose a stage</option>
+                  <option v-for="s in stages" :key="s" :value="s">{{ stageName(s) }}</option>
+                </select>
+              </label>
+            </div>
+            <div
+              v-else-if="menu === 'stages'"
+              class="composer-menu stage-menu set-menu"
+              role="menu"
+            >
               <label
                 >From
                 <select

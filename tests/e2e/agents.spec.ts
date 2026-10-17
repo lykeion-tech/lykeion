@@ -93,7 +93,7 @@ test.describe('new study', () => {
     const create = async (question: string, pick: string | RegExp) => {
       await page.getByRole('button', { name: 'New', exact: true }).click();
       const dialog = page.getByRole('dialog', { name: 'New study' });
-      await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+      await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
       await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
       await dialog.getByRole('menuitem', { name: pick }).click();
       return dialog;

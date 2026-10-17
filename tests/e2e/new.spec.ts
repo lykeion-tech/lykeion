@@ -30,13 +30,13 @@ test.describe('new study', () => {
     await dialog
       .getByRole('textbox', { name: 'Study title' })
       .fill('Beta-cell ALDH1A3 in type 2 diabetes');
-    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: 'No deadline' }).click();
     const chosen = page.locator('.composer-calendar [aria-current="date"]');
     const day = await chosen.getAttribute('data-date');
     await chosen.click();
     await page.screenshot({ path: `${artifacts}/new-study.png`, fullPage: true });
-    await dialog.getByRole('textbox', { name: 'Research question' }).press('ControlOrMeta+Enter');
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).press('ControlOrMeta+Enter');
     await expect(dialog).toHaveCount(0);
     let found = await cardsNamed(page, question);
     expect(found).toHaveLength(1);
@@ -48,10 +48,12 @@ test.describe('new study', () => {
     expect(Date.parse(found[0]!.deadline!)).toBe(Date.parse(endOfDay));
 
     await page.getByRole('button', { name: 'New', exact: true }).click();
-    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog.getByRole('status')).toContainText('An active study already asks this');
-    await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue(question);
+    await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue(
+      question,
+    );
     await page.screenshot({ path: `${artifacts}/duplicate-warning.png`, fullPage: true });
     await dialog.getByRole('button', { name: /^Follows from BETA-/ }).click();
     await expect(dialog.getByRole('button', { name: /Follows from: BETA-/ })).toBeVisible();
@@ -71,9 +73,9 @@ test.describe('new study', () => {
     const dialog = page.getByRole('dialog', { name: 'New study' });
     await dialog.getByRole('switch', { name: 'Create another' }).check();
     const question = `Lithium and telomere length ${Date.now()}?`;
-    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: /Create study/ }).click();
-    await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue('');
+    await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue('');
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue('');
     const found = await cardsNamed(page, question);
@@ -115,7 +117,7 @@ test.describe('new study', () => {
     const hyp = await stageTeam(page, 'ui-hyp', 'hypotheses');
     const question = `One Team, one stage ${Date.now()}`;
     const dialog = await composer(page);
-    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /^ui-hyp Built for/ }).click();
     await expect(
@@ -156,7 +158,7 @@ test.describe('new study', () => {
     expect(earlier.status()).toBe(201);
     const question = `The set again ${Date.now()}`;
     const dialog = await composer(page);
-    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /Your last set/ }).click();
     await expect(
@@ -182,7 +184,7 @@ test.describe('new study', () => {
     ).json();
     const question = `An agent, two stages ${Date.now()}`;
     const dialog = await composer(page);
-    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
     await dialog.getByRole('menuitem', { name }).click();
     await expect(
@@ -201,10 +203,77 @@ test.describe('new study', () => {
     expect(study.assignee_id).toBe(agent.id);
   });
 
+  test('a Team without a stage label asks for its column', async ({ page }) => {
+    const headers = { 'X-Workspace-ID': await labWorkspace(page.request) };
+    const id = await stageTeam(page, 'ui-nostage', '');
+    const question = `A Team with no label ${Date.now()}`;
+    const dialog = await composer(page);
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
+    await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
+    const item = dialog.getByRole('menuitem', { name: /^ui-nostage/ });
+    await expect(item).not.toContainText('Built for');
+    await item.click();
+    await expect(dialog.getByRole('button', { name: /Create study/ })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Stages: choose a stage' }).click();
+    await dialog.getByRole('combobox', { name: 'Stage' }).selectOption('validation');
+    await expect(dialog.getByRole('button', { name: 'Stages: Validation' })).toBeDisabled();
+    await dialog.getByRole('button', { name: /Create study/ }).click();
+    await expect(dialog).toHaveCount(0);
+    const study = await studyOf(page, question);
+    expect([study.scope_from, study.scope_to]).toEqual(['validation', 'validation']);
+    expect(study.teams.validation!.pack_id).toBe(id);
+    void headers;
+  });
+
+  test('a last set with a Team no longer added says so', async ({ page }) => {
+    const ws = await labWorkspace(page.request);
+    const headers = { 'X-Workspace-ID': ws };
+    const ground = await labTeam(page.request, ws);
+    const hyp = await stageTeam(page, 'ui-hyp', 'hypotheses');
+    const agent = await (
+      await page.request.post('/api/agents', {
+        headers,
+        data: { name: `Gap filler ${Date.now()}`, harness: 'claude' },
+      })
+    ).json();
+    const made = await page.request.post('/api/cards', {
+      headers,
+      data: {
+        question: `A set study ${Date.now()}`,
+        assignee: {
+          type: 'team',
+          teams: { grounding: ground, hypotheses: hyp },
+          agent_id: agent.id,
+        },
+        scope: { from: 'grounding', to: 'reporting' },
+      },
+    });
+    expect(made.status()).toBe(201);
+    const dialog = await composer(page);
+    await dialog
+      .getByRole('textbox', { name: 'Describe your study' })
+      .fill(`Refused set ${Date.now()}`);
+    await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
+    await dialog.getByRole('menuitem', { name: /Your last set/ }).click();
+    await page.route('**/api/cards', (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({
+            status: 400,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'add this Team to your workspace first' }),
+          })
+        : route.fallback(),
+    );
+    await dialog.getByRole('button', { name: /Create study/ }).click();
+    await expect(dialog.getByRole('alert')).toHaveText(
+      "A Team in your last set isn't in your workspace any more",
+    );
+  });
+
   test('an unassigned study says nobody will work on it', async ({ page }) => {
     const dialog = await composer(page);
     await expect(dialog.getByText("Nobody will work on this until it's assigned")).toBeVisible();
-    await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveAttribute(
+    await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveAttribute(
       'placeholder',
       'Describe what you want to do, in your own words',
     );
@@ -302,7 +371,7 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue(
     'Original edit title',
   );
-  await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue(
+  await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue(
     'Original edit question?',
   );
   await expect(dialog.getByRole('button', { name: '2026-11-12', exact: true })).toBeVisible();
@@ -310,7 +379,7 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   await expect(dialog.getByRole('switch', { name: 'Create another' })).toHaveCount(0);
   await dialog.getByRole('textbox', { name: 'Study title' }).fill('Edited study title');
   await dialog
-    .getByRole('textbox', { name: 'Research question' })
+    .getByRole('textbox', { name: 'Describe your study' })
     .fill('Edited research question?');
   await dialog.getByRole('button', { name: '2026-11-12', exact: true }).click();
   await dialog.getByRole('button', { name: 'No due date', exact: true }).click();
@@ -336,7 +405,7 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue(
     'Retain this draft',
   );
-  await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue(
+  await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue(
     'Edited research question?',
   );
   await page.screenshot({ path: `${artifacts}/edit-refused.png`, fullPage: true });

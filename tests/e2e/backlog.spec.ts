@@ -104,7 +104,7 @@ test('the Backlog menu edits, moves to top and deletes with real confirmation', 
     );
     await action(page, lower.id, 'Edit…');
     const dialog = page.getByRole('dialog', { name: 'Edit study' });
-    await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue(
+    await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue(
       /Caffeine and AF recurrence/,
     );
     await dialog
