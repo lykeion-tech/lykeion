@@ -159,3 +159,29 @@ export async function labPack(
 export async function labRelease(request: APIRequestContext, cardId: string) {
   expect((await request.post(`${LAB}/lab/release/${cardId}`)).status()).toBe(204);
 }
+
+export interface FlowRecord {
+  kind: string;
+  key?: string;
+  body: Record<string, unknown>;
+}
+
+// Puts a study in a column and state and writes the flow's records into it:
+// scores, steps, an audit, calls. Seed an unassigned study so no Team works it.
+export async function labFlow(
+  request: APIRequestContext,
+  cardId: string,
+  flow: {
+    column: string;
+    state: string;
+    block_kind?: string;
+    redos?: number;
+    round?: number;
+    records?: FlowRecord[];
+  },
+) {
+  const res = await request.post(`${LAB}/lab/flow-records/${cardId}`, {
+    data: { round: 1, ...flow },
+  });
+  expect(res.status()).toBe(204);
+}

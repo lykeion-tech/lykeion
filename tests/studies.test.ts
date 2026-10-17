@@ -105,6 +105,8 @@ describe('board columns', () => {
   it('shows a flagged active study in Blocked, and back in its column once the flag clears', () => {
     expect(boardColumnOf(card({ flag: 'escalated' }))).toBe('blocked');
     expect(boardColumnOf(card({ flag: '' }))).toBe('grounding');
+    expect(boardColumnOf(card({ state: 'blocked', block_kind: 'low_score' }))).toBe('blocked');
+    expect(boardColumnOf(card({ state: 'done' }))).toBe('grounding');
     expect(
       boardColumnOf(card({ flag: 'escalated', ending: 'stopped', board_column: 'done' })),
     ).toBe('done');
@@ -128,7 +130,7 @@ describe('study labels', () => {
     expect(studyNumber(undefined, { number: 2 })).toBe('LYK-2');
   });
   it('names the state, the ending and the role', () => {
-    expect(stateLabel(card({ state: 'in_review' }))).toBe('In review');
+    expect(stateLabel(card({ state: 'done' }))).toBe('Done');
     expect(stateLabel(card({ board_column: 'backlog' }))).toBe('');
     expect(stateLabel(card({ ending: 'released' }))).toBe('');
     expect(endLabel(card({ ending: 'stopped', end_reason: 'no usable data' }))).toBe(
@@ -294,7 +296,7 @@ describe('composer actions', () => {
     expect(actionLabel({ kind: 'stop' })).toBe('Stop');
   });
   it('offers only Comment to a blocked study', () => {
-    expect(blockedActions(card({ flag: 'escalated', block_kind: 'low_score' }))).toEqual(['comment']);
+    expect(blockedActions(card({ state: 'blocked', block_kind: 'low_score' }))).toEqual(['comment']);
     expect(blockedActions(card())).toEqual([]);
   });
 });

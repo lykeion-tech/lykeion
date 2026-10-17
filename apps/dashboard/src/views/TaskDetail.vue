@@ -15,7 +15,6 @@ import {
   useCardEvents,
   useCards,
   useComments,
-  useInbox,
   useMe,
   useMembers,
   useRecords,
@@ -27,13 +26,15 @@ import type { Card, Column } from '../api/types';
 import {
   actionLabel,
   blockedActions,
-  blockLabel,
   canResume,
   type ComposerAction,
   columnName,
   earlierColumns,
   endLabel,
+  flowKinds,
+  flowView,
   recordLine,
+  verdictLabels,
   stages,
   stateLabel,
   studyNumber,
@@ -142,6 +143,14 @@ const stage = computed(() =>
   c.value && stages.includes(c.value.board_column) ? c.value.board_column : '',
 );
 const records = useRecords(() => props.id, stage);
+const flow = computed(() => flowView(records.data.value ?? []));
+const lineRecords = computed(() =>
+  (records.data.value ?? []).filter((r) => !flowKinds.includes(r.kind)),
+);
+const team = computed(() => (c.value && stage.value ? c.value.teams?.[stage.value] : undefined));
+const offLabel = computed(() =>
+  Boolean(team.value && stage.value && c.value?.off_label?.includes(stage.value)),
+);
 const earlier = computed(() => (c.value ? earlierColumns(c.value) : []));
 const expanded = ref<Column | ''>('');
 const earlierRecords = useRecords(() => props.id, expanded);
@@ -163,11 +172,7 @@ const resourceReads = computed(() =>
 const readErrors = computed(() => resourceReads.value.filter((read) => read.error));
 const transcriptPending = computed(() => resourceReads.value.some((read) => read.pending));
 const entries = computed(() =>
-  transcript(
-    comments.data.value ?? [],
-    runs.data.value ?? [],
-    events.data.value ?? [],
-  ),
+  transcript(comments.data.value ?? [], runs.data.value ?? [], events.data.value ?? []),
 );
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
@@ -184,14 +189,6 @@ const placeholders: Record<ComposerAction['kind'], string> = {
 // Actions that send without text; any text goes first as a comment.
 const textOptional: ComposerAction['kind'][] = ['resume'];
 const blocked = computed(() => (c.value ? blockedActions(c.value) : []));
-const inbox = useInbox(false);
-// The block's reason, as the newest escalated inbox item for this study says it.
-const blockReason = computed(
-  () =>
-    (inbox.data.value ?? [])
-      .filter((i) => i.card_id === props.id && (i.kind === 'escalated' || i.kind === 'blocked'))
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.text ?? '',
-);
 let draftRevision = 0;
 let acknowledgedResumeComment: string | null = null;
 watch(
@@ -533,10 +530,51 @@ function pin() {
               }}</span
               ><span v-if="c.flag" class="chip" :class="'chip-' + c.flag">{{
                 c.flag.replace(/_/g, ' ')
-              }}</span>
+              }}</span
+              ><span v-if="team" class="chip chip-team">{{ team.name }}</span
+              ><span v-if="offLabel" class="chip chip-off-label"
+                >Built for {{ columnName(team!.stage) }}</span
+              >
             </h4>
+            <section v-if="flow.scores.length" class="flow-block" aria-label="Scores">
+              <h5>
+                Scores<span class="chip" :class="'chip-verdict-' + flow.verdict">{{
+                  verdictLabels[flow.verdict] ?? flow.verdict
+                }}</span>
+              </h5>
+              <div v-for="s in flow.scores" :key="s.criterion" class="score-row">
+                <span>{{ s.criterion }}</span
+                ><span class="level">{{ s.level }} of 5</span
+                ><span v-if="s.level <= 2 && c.redos >= 1" class="chip">Redone once</span>
+              </div>
+            </section>
+            <section v-if="flow.steps.length" class="flow-block" aria-label="Steps">
+              <h5>Steps</h5>
+              <div
+                v-for="st in flow.steps"
+                :key="st.key"
+                class="step-row"
+                :class="{ 'self-step': st.self }"
+              >
+                {{ st.text }}<small v-if="st.detail">{{ st.detail }}</small>
+              </div>
+            </section>
+            <section v-if="flow.audit" class="flow-block" aria-label="Audit">
+              <h5>Audit</h5>
+              <p>{{ flow.audit.text }}</p>
+              <ul v-if="flow.audit.findings.length">
+                <li v-for="f in flow.audit.findings" :key="f">{{ f }}</li>
+              </ul>
+            </section>
+            <section v-if="flow.calls.length" class="flow-block" aria-label="Calls">
+              <h5>Calls</h5>
+              <details v-for="k in flow.calls" :key="k.key" class="call-row">
+                <summary>{{ k.server }} · {{ k.tool }} · {{ time(k.at) }}</summary>
+                <pre>{{ k.answer }}</pre>
+              </details>
+            </section>
             <div
-              v-for="r in records.data.value ?? []"
+              v-for="r in lineRecords"
               :key="r.id"
               class="record-line"
               :class="{ superseded: r.superseded_at }"
@@ -546,7 +584,10 @@ function pin() {
               ><span v-if="recordLine(r).source" class="source">{{ recordLine(r).source }}</span
               ><span v-if="r.superseded_at" class="superseded-mark">superseded</span>
             </div>
-            <p v-if="records.isSuccess.value && !records.data.value?.length" class="muted">
+            <p
+              v-if="records.isSuccess.value && !lineRecords.length && !flow.steps.length"
+              class="muted"
+            >
               No records yet.
             </p>
           </div>
@@ -595,9 +636,8 @@ function pin() {
         </div>
       </div>
       <div v-if="c && !c.ending" class="pinned-composer" @keydown.esc="picker = ''">
-        <p v-if="c.block_kind" class="block-bar">
-          <strong>Blocked: {{ blockLabel(c.block_kind) }}.</strong>
-          {{ blockReason }}
+        <p v-if="blocked.length" class="block-bar">
+          Scored low twice. Tell the Team what to fix to redo this column.
         </p>
         <form class="task-comment" @submit.prevent="send">
           <textarea
@@ -1353,6 +1393,44 @@ function pin() {
   padding: 12px 14px;
   margin-bottom: 10px;
   font-size: 13px;
+}
+.flow-block {
+  margin: 8px 0;
+}
+.flow-block h5 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.score-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 3px 0;
+}
+.score-row > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.step-row {
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+.step-row small {
+  display: block;
+  color: var(--muted);
+}
+.self-step {
+  font-style: italic;
+}
+.call-row pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 .stage-box h4 {
   display: flex;

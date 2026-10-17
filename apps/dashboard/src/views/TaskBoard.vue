@@ -489,7 +489,7 @@ onUnmounted(() => {
       >
         <small class="card-id"
           >{{ number(card) }}<span v-if="card.queued" class="chip chip-queued">queued</span
-          ><span v-if="card.flag === 'escalated'" class="chip chip-escalated">{{
+          ><span v-if="card.flag === 'escalated' || card.state === 'blocked'" class="chip chip-escalated">{{
             blockLabel(card.block_kind) || 'escalated'
           }}</span
           ><span v-if="column.id === 'blocked'" class="chip">{{

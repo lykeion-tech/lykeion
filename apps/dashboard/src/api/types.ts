@@ -56,7 +56,7 @@ export interface Card {
   deadline: string | null;
   spent_usd: number;
   board_column: Column;
-  state: 'working' | 'in_review' | 'ready';
+  state: 'working' | 'done' | 'blocked' | 'stopped';
   flag: '' | 'escalated';
   ending: '' | 'released' | 'stopped';
   end_reason: string;

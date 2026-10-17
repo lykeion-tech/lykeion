@@ -1521,10 +1521,16 @@ kbd {
   background: #e3edf6;
   color: #2b6599;
 }
+.chip-blocked {
+  background: #fbe3e5;
+  color: #a33a44;
+}
 .chip-in_review {
   background: #f1e6fb;
   color: #7d4fa8;
 }
+.chip-done,
+.chip-verdict-high,
 .chip-ready,
 .chip-released {
   background: #e6f1e8;
@@ -1534,6 +1540,7 @@ kbd {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--control-border);
 }
+.chip-verdict-low,
 .chip-escalated {
   background: #fbe3e5;
   color: #a33a44;

@@ -90,9 +90,7 @@ test('long text and many records never scroll the study page sideways', async ({
 
 import { LAB, labFixture } from './lab';
 
-test('the current attempt loads beyond 500 messages', async ({
-  page,
-}) => {
+test('the current attempt loads beyond 500 messages', async ({ page }) => {
   const fixture = await labFixture(page.request);
   await page.addInitScript(
     (ws) => localStorage.setItem('lykeion.workspace', ws),
@@ -510,7 +508,9 @@ test('study events page beyond 500 and refresh later steering live', async ({ pa
   await expect.poll(() => pages.some((url) => /after=[1-9]/.test(url))).toBe(true);
   const origin = await page.evaluate(() => performance.timeOrigin);
   expect(
-    (await page.request.post(`/api/cards/${f.card_id}/stop`, { headers, data: { reason: 'done' } })).status(),
+    (
+      await page.request.post(`/api/cards/${f.card_id}/stop`, { headers, data: { reason: 'done' } })
+    ).status(),
   ).toBe(200);
   await expect(page.locator('.event-line', { hasText: 'Stopped' })).toHaveCount(1);
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
@@ -625,4 +625,152 @@ test('a real study deletion refusal remains inline on the study', async ({ page 
   await expect(page.getByRole('region', { name: 'Study' }).getByRole('alert')).toContainText(
     'Backlog',
   );
+});
+
+import { labFlow, labTeam, labWorkspace } from './lab';
+
+const shots = 'test-results/teams-scoring';
+const core = [
+  'Does the work cite where its facts came from?',
+  'Does it answer what the researcher asked?',
+  "Does it say what it couldn't do?",
+];
+const score = (i: number, level: number) => ({
+  kind: 'score',
+  key: `s${i}`,
+  body: { criterion: core[i], source: 'core', level, probabilities: [0, 0, 0, 0, 1] },
+});
+
+async function unassigned(page: import('@playwright/test').Page) {
+  return newStudy(page.request, `Does sleep loss prune microglia? ${Date.now()}`, {
+    assignee: null,
+  });
+}
+
+test('scores show per criterion with the verdict', async ({ page }) => {
+  const study = await unassigned(page);
+  await labFlow(page.request, study.id, {
+    column: 'grounding',
+    state: 'working',
+    redos: 1,
+    records: [
+      score(0, 5),
+      score(1, 2),
+      score(2, 4),
+      { kind: 'outcome', key: 'o1', body: { verdict: 'low', attempt: 2 } },
+    ],
+  });
+  await page.goto(`/#/studies/${study.id}`);
+  const scores = page.getByRole('region', { name: 'Scores' });
+  await expect(scores.getByText('Low', { exact: true })).toBeVisible();
+  const rows = scores.locator('.score-row');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText(core[0]!);
+  await expect(rows.nth(0)).toContainText('5 of 5');
+  await expect(rows.nth(1)).toContainText('2 of 5');
+  await expect(rows.nth(1)).toContainText('Redone once');
+  await expect(rows.nth(2)).not.toContainText('Redone once');
+  await page.screenshot({ path: `${shots}/scores-block.png`, fullPage: true });
+});
+
+test("the leader's self-step is marked", async ({ page }) => {
+  const study = await unassigned(page);
+  await labFlow(page.request, study.id, {
+    column: 'grounding',
+    state: 'working',
+    records: [
+      { kind: 'delegation', key: 'd1', body: { member: 'scout', step: 'Find islet papers' } },
+      { kind: 'self_step', key: 'd2', body: { step: 'Merged the two reading lists' } },
+      {
+        kind: 'audit',
+        key: 'a1',
+        body: { text: 'Sources check out.', findings: ['One claim lacks a citation'] },
+      },
+      {
+        kind: 'call',
+        key: 'c1',
+        body: {
+          server: 'europepmc',
+          tool: 'search',
+          args: {},
+          answer: 'ANSWER-BODY-TEXT',
+          truncated: false,
+          at: new Date().toISOString(),
+        },
+      },
+    ],
+  });
+  await page.goto(`/#/studies/${study.id}`);
+  const steps = page.getByRole('region', { name: 'Steps' });
+  await expect(steps).toContainText('Leader → scout: Find islet papers');
+  await expect(steps).toContainText('The leader did this itself — no member fit');
+  await expect(steps).toContainText('Merged the two reading lists');
+  await expect(page.getByRole('region', { name: 'Audit' })).toContainText(
+    'One claim lacks a citation',
+  );
+  const call = page.getByRole('region', { name: 'Calls' }).locator('details');
+  await expect(call.locator('summary')).toContainText('europepmc · search');
+  await expect(call.getByText('ANSWER-BODY-TEXT')).toBeHidden();
+  await call.locator('summary').click();
+  await expect(call.getByText('ANSWER-BODY-TEXT')).toBeVisible();
+  await page.screenshot({ path: `${shots}/steps-timeline.png`, fullPage: true });
+});
+
+test('a blocked study is redone from the composer', async ({ page }) => {
+  const study = await unassigned(page);
+  await labFlow(page.request, study.id, {
+    column: 'grounding',
+    state: 'blocked',
+    block_kind: 'low_score',
+    redos: 1,
+    records: [
+      score(0, 1),
+      score(1, 2),
+      score(2, 2),
+      { kind: 'outcome', key: 'o1', body: { verdict: 'low', attempt: 2 } },
+    ],
+  });
+  await page.goto(`/#/studies/${study.id}`);
+  const note = 'Scored low twice. Tell the Team what to fix to redo this column.';
+  await expect(page.getByText(note)).toBeVisible();
+  await page.getByRole('button', { name: 'Action' }).click();
+  await expect(page.getByRole('menuitem')).toHaveText([/Comment/]);
+  await page.keyboard.press('Escape');
+  await page.screenshot({ path: `${shots}/blocked-composer.png`, fullPage: true });
+  await page.getByRole('textbox', { name: 'Comment' }).fill('Cite the primary papers.');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByText(note)).toHaveCount(0);
+});
+
+test('an off-label Team is marked', async ({ page }) => {
+  const workspaceId = await labWorkspace(page.request);
+  const team = await labTeam(page.request, workspaceId);
+  const study = await newStudy(page.request, `Which hypotheses survive? ${Date.now()}`, {
+    assignee: { type: 'team', teams: { hypotheses: team } },
+  });
+  await page.goto(`/#/studies/${study.id}`);
+  await expect(page.getByText('Built for Grounding')).toBeVisible();
+  await page.screenshot({ path: `${shots}/off-label.png`, fullPage: true });
+});
+
+test('a finished single-stage study stays in its column, done', async ({ page }) => {
+  const study = await unassigned(page);
+  await labFlow(page.request, study.id, {
+    column: 'grounding',
+    state: 'done',
+    records: [
+      score(0, 5),
+      score(1, 5),
+      score(2, 4),
+      { kind: 'outcome', key: 'o1', body: { verdict: 'high', attempt: 1 } },
+    ],
+  });
+  await page.goto('/#/studies');
+  const card = page.getByRole('region', { name: 'Grounding' }).locator(`[data-card="${study.id}"]`);
+  await expect(card).toBeVisible();
+  await expect(card.locator('.chip-done')).toHaveText('Done');
+  await expect(
+    page.getByRole('region', { name: 'Done' }).locator(`[data-card="${study.id}"]`),
+  ).toHaveCount(0);
+  await page.screenshot({ path: `${shots}/done-on-board.png`, fullPage: true });
 });

@@ -262,6 +262,44 @@ func TestUILab(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// Puts a study in a column and state and writes the flow's records into it,
+	// so the study page can show scores, steps and calls without running a Team.
+	mux.HandleFunc("POST /lab/flow-records/{card}", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Column    string `json:"column"`
+			State     string `json:"state"`
+			BlockKind string `json:"block_kind"`
+			Redos     int    `json:"redos"`
+			Round     int    `json:"round"`
+			Records   []struct {
+				Kind string         `json:"kind"`
+				Key  string         `json:"key"`
+				Body map[string]any `json:"body"`
+			} `json:"records"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Column == "" || in.Round < 1 {
+			http.Error(w, "column, state and round are required", http.StatusBadRequest)
+			return
+		}
+		tag, err := env.Owner.Exec(r.Context(), `UPDATE card SET board_column = $2, scope_from = $2, scope_to = $2,
+			state = $3, block_kind = $4, redos = $5, round = $6, flag = '' WHERE id = $1`,
+			r.PathValue("card"), in.Column, in.State, in.BlockKind, in.Redos, in.Round)
+		if err != nil || tag.RowsAffected() != 1 {
+			http.Error(w, "no such card", http.StatusNotFound)
+			return
+		}
+		for _, rec := range in.Records {
+			body, _ := json.Marshal(rec.Body)
+			if _, err := env.Owner.Exec(r.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
+				SELECT workspace_id, id, board_column, round, $2, 'server', $3, $4::jsonb FROM card WHERE id = $1`,
+				r.PathValue("card"), rec.Kind, rec.Key, string(body)); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// Releases a study, as a sealed report would, so it can be reopened.
 	mux.HandleFunc("POST /lab/release/{card}", func(w http.ResponseWriter, r *http.Request) {
 		tag, err := env.Owner.Exec(r.Context(), `UPDATE card SET board_column = 'done', ending = 'released', state = 'ready', flag = '', block_kind = '' WHERE id = $1`, r.PathValue("card"))

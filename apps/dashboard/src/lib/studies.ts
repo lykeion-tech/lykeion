@@ -80,10 +80,11 @@ export const stages: Column[] = [
 ];
 export const columnName = (id: string) => boardColumns.find((c) => c.id === id)?.name ?? id;
 
-// An active study waiting on a person sits in Blocked; its board_column still
-// names the column it is stuck in, and it returns there when the flag clears.
+// A study scored low twice, or flagged for a person, sits in Blocked; its
+// board_column still names the column it is stuck in, and it returns there
+// when the block clears.
 export function boardColumnOf(card: Card): BoardColumn {
-  return !card.ending && (card.flag === 'escalated')
+  return !card.ending && (card.state === 'blocked' || card.flag === 'escalated')
     ? 'blocked'
     : card.board_column;
 }
@@ -93,7 +94,9 @@ export const studyNumber = (ws: { display_prefix: string } | undefined, card: { 
 
 export function stateLabel(card: Card): string {
   if (card.ending || card.board_column === 'backlog') return '';
-  return { working: 'Working', in_review: 'In review', ready: 'Ready' }[card.state] ?? '';
+  return (
+    { working: 'Working', done: 'Done', blocked: 'Blocked', stopped: 'Stopped' }[card.state] ?? ''
+  );
 }
 export function endLabel(card: Card): string {
   if (card.ending === 'released')
@@ -136,8 +139,8 @@ export const filterOptions: Record<
   Column: boardColumns.map((c) => ({ value: c.id, label: c.name })),
   State: [
     { value: 'working', label: 'Working' },
-    { value: 'in_review', label: 'In review' },
-    { value: 'ready', label: 'Ready' },
+    { value: 'done', label: 'Done' },
+    { value: 'blocked', label: 'Blocked' },
   ],
   Flag: [
     { value: 'queued', label: 'Queued' },
@@ -247,18 +250,74 @@ const blockLabels: Record<BlockKind, string> = {
 };
 export const blockLabel = (kind: BlockKind): string => blockLabels[kind];
 
-export type ComposerAction =
-  | { kind: 'comment' }
-  | { kind: 'stop' }
-  | { kind: 'resume' };
+export type ComposerAction = { kind: 'comment' } | { kind: 'stop' } | { kind: 'resume' };
 
 // A Blocked study's picker: Comment, which gives a low-scored study one more
 // redo. An unblocked study gets [] and keeps the ordinary picker.
 export function blockedActions(card: Card): ComposerAction['kind'][] {
-  return card.ending || !card.block_kind ? [] : ['comment'];
+  return card.ending || card.state !== 'blocked' ? [] : ['comment'];
 }
 
 export const canResume = (card: Card) => !card.ending && card.flag !== '';
 export function actionLabel(a: ComposerAction): string {
   return { comment: 'Comment', stop: 'Stop', resume: 'Resume' }[a.kind];
 }
+
+export const verdictLabels: Record<string, string> = { high: 'High', middle: 'Middle', low: 'Low' };
+
+export interface FlowView {
+  scores: { criterion: string; level: number }[];
+  verdict: string;
+  steps: { key: string; text: string; self: boolean; detail: string }[];
+  audit: { text: string; findings: string[] } | null;
+  calls: { key: string; server: string; tool: string; at: string; answer: string }[];
+}
+
+const strings = (v: unknown): string[] =>
+  Array.isArray(v)
+    ? v.map((x) => (typeof x === 'string' ? x : str((x as Record<string, unknown>)?.text)))
+    : [];
+
+// The flow's own records of a column, in the order they were written: the
+// steps and calls so far, the auditor's note, and the latest scored attempt.
+export function flowView(recs: StudyRecord[]): FlowView {
+  const out: FlowView = { scores: [], verdict: '', steps: [], audit: null, calls: [] };
+  let pending: FlowView['scores'] = [];
+  for (const r of recs) {
+    const b = r.body;
+    if (r.kind === 'delegation')
+      out.steps.push({
+        key: r.key,
+        text: `Leader → ${str(b.member)}: ${str(b.step)}`,
+        self: false,
+        detail: '',
+      });
+    else if (r.kind === 'self_step')
+      out.steps.push({
+        key: r.key,
+        text: 'The leader did this itself — no member fit',
+        self: true,
+        detail: str(b.step),
+      });
+    else if (r.kind === 'audit') out.audit = { text: str(b.text), findings: strings(b.findings) };
+    else if (r.kind === 'call')
+      out.calls.push({
+        key: r.key,
+        server: str(b.server),
+        tool: str(b.tool),
+        at: str(b.at),
+        answer: str(b.answer),
+      });
+    else if (r.kind === 'score')
+      pending.push({ criterion: str(b.criterion), level: Number(b.level) });
+    else if (r.kind === 'outcome') {
+      out.scores = pending;
+      out.verdict = str(b.verdict);
+      pending = [];
+    }
+  }
+  return out;
+}
+
+// Kinds the study page shows in their own blocks, not as record lines.
+export const flowKinds = ['delegation', 'self_step', 'audit', 'score', 'outcome', 'call', 'tools'];
