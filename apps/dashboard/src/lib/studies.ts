@@ -2,12 +2,9 @@ import type {
   BlockKind,
   Card,
   CareerStage,
-  Choice,
   Column,
   AgentRun,
   Comment,
-  Gate,
-  GateCheck,
   LykEvent,
   StudyRecord,
 } from '../api/types';
@@ -86,7 +83,7 @@ export const columnName = (id: string) => boardColumns.find((c) => c.id === id)?
 // An active study waiting on a person sits in Blocked; its board_column still
 // names the column it is stuck in, and it returns there when the flag clears.
 export function boardColumnOf(card: Card): BoardColumn {
-  return !card.ending && (card.flag === 'escalated' || card.flag === 'out_of_budget')
+  return !card.ending && (card.flag === 'escalated')
     ? 'blocked'
     : card.board_column;
 }
@@ -145,7 +142,6 @@ export const filterOptions: Record<
   Flag: [
     { value: 'queued', label: 'Queued' },
     { value: 'escalated', label: 'Escalated' },
-    { value: 'out_of_budget', label: 'Out of budget' },
   ],
 };
 function valuesOf(card: Card, category: FilterCategory): string[] {
@@ -173,36 +169,6 @@ export function positionAt(list: Card[], movedId: string, index: number): number
   return list.find((c) => c.id === movedId)?.position ?? 0;
 }
 
-export const gateOf = (r: StudyRecord) => r.body as unknown as Gate;
-
-// Jev's verdict bands.
-export const jevThresholds = { pass: 0.7, fail: 0.35 };
-
-// A check whose question was answered in Jev's place, or by a reviewer on the
-// authors' own model family, says so: the live choice record for that
-// question, in the gate's column, holds who judged it.
-function standIn(c: GateCheck, records: StudyRecord[]): string {
-  const choice = records
-    .filter((r) => r.kind === 'choice' && !r.superseded_at)
-    .map((r) => r.body as unknown as Choice)
-    .find((ch) => ch.question === c.id || (c.question && ch.question === c.question));
-  if (choice?.independence === 'same_family')
-    return 'judged by the reviewer (stand-in, same model family)';
-  return choice?.judge === 'fallback' ? 'judged by the reviewer (stand-in)' : '';
-}
-
-export function checkLine(c: GateCheck, records: StudyRecord[] = []) {
-  const tone: 'ok' | 'bad' | 'att' =
-    c.result === 'pass' ? 'ok' : c.result === 'fail' ? 'bad' : 'att';
-  return {
-    mark: { ok: '✓', bad: '✗', att: '!' }[tone],
-    tone,
-    name: c.id,
-    why: [c.note, standIn(c, records)].filter(Boolean).join(' · '),
-    jev: c.judge === 'jev' && Boolean(c.question),
-  };
-}
-
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 // What a record holds, in one line: its claim, its first line of text, the
 // dataset or search it names, or its reason.
@@ -223,48 +189,11 @@ export function recordLine(r: StudyRecord) {
   return { key: r.key || r.kind, text, source: str(b.source_id) };
 }
 
-// The study's starting point once revised: the newest revision against the
-// original under key 0, how many revisions there were, the drift answer
-// recorded with the newest one (the live "drift" choice of its column and
-// round), and the result it cites, when those records are among records.
-export function startingPoint(records: StudyRecord[]) {
-  const live = records.filter((r) => !r.superseded_at);
-  const points = live
-    .filter((r) => r.kind === 'starting_point')
-    .sort((a, b) => Number(a.key) - Number(b.key));
-  const original = points.find((r) => r.key === '0');
-  const latest = points.at(-1);
-  if (!original || !latest || latest === original) return null;
-  const cited = live.find((r) => r.id === latest.body.cites);
-  const drift = live.find(
-    (r) =>
-      r.kind === 'choice' &&
-      r.body.question === 'drift' &&
-      r.board_column === latest.board_column &&
-      r.round === latest.round,
-  );
-  return {
-    now: str(latest.body.text),
-    was: str(original.body.text),
-    why: cited ? `${columnName(cited.board_column)} found: ${recordLine(cited).text}` : '',
-    runId: cited?.agent_run_id ?? '',
-    revisions: points.length - 1,
-    drift: focusLabel(str(drift?.body.answer)),
-    at: latest.created_at,
-  };
-}
-
-export const revisedTimes = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
-
-const steered: Record<string, (p: Record<string, unknown>) => string> = {
-  'send-back': (p) => `Sent back to ${columnName(str(p.column))}`,
+const steered: Record<string, () => string> = {
   stop: () => 'Stopped',
   resume: () => 'Resumed',
-  budget: () => 'Budget changed',
 };
-// A reopen's line names the evidence from its reopen_evidence record, keyed by
-// the reopen's number, when that record is among records.
-export function eventText(e: LykEvent, records: StudyRecord[] = []): string {
+export function eventText(e: LykEvent): string {
   const p = e.payload ?? {};
   switch (e.type) {
     case 'card.created':
@@ -275,25 +204,8 @@ export function eventText(e: LykEvent, records: StudyRecord[] = []): string {
       return 'Edited';
     case 'card.escalated':
       return 'Escalated: waiting for a person';
-    case 'card.out_of_budget':
-      return 'Out of budget: waiting for a person';
     case 'card.steered':
-      return steered[str(p.path).split('/').pop() ?? '']?.(p) ?? '';
-    case 'card.reopened': {
-      const evidence = str(
-        records.find(
-          (r) =>
-            r.kind === 'reopen_evidence' && !r.superseded_at && r.key === String(p.reopens ?? ''),
-        )?.body.evidence,
-      );
-      return `${e.actor_type === 'role' ? 'Reopened by Autoresearch' : 'Reopened'}: ${str(p.reason)}${evidence ? ` (${evidence})` : ''}`;
-    }
-    case 'card.revised':
-      return 'Starting point revised';
-    case 'gate.decided':
-      if (p.verdict === 'pass') return `Gate passed ${columnName(str(p.column))}`;
-      if (p.verdict === 'cannot_proceed') return `Gate blocked the study: ${str(p.reason)}`;
-      return `Gate routed the study back to ${columnName(str(p.to_column))}: ${str(p.reason)}`;
+      return steered[str(p.path).split('/').pop() ?? '']?.() ?? '';
     default:
       return '';
   }
@@ -307,7 +219,6 @@ export function transcript(
   comments: Comment[],
   runs: AgentRun[],
   events: LykEvent[],
-  reopenEvidence: StudyRecord[] = [],
 ): TranscriptEntry[] {
   const out: TranscriptEntry[] = [
     ...comments.map((comment) => ({ kind: 'comment' as const, at: comment.created_at, comment })),
@@ -316,7 +227,7 @@ export function transcript(
       .map((e) => ({
         kind: 'event' as const,
         at: e.created_at,
-        text: eventText(e, reopenEvidence),
+        text: eventText(e),
         id: e.id,
       }))
       .filter((e) => e.text),
@@ -325,84 +236,30 @@ export function transcript(
 }
 
 // The stages shown collapsed above the current one.
-export function earlierColumns(card: Card, gates: Gate[]): Column[] {
+export function earlierColumns(card: Card): Column[] {
   const index = stages.indexOf(card.board_column);
-  if (index >= 0) return stages.slice(0, index);
-  return stages.filter((s) => gates.some((g) => g.column === s));
+  return index >= 0 ? stages.slice(0, index) : [];
 }
-
-// The failed gates a study may use before it is blocked: route-backs, redos
-// and revisions together.
-export const routeBackLimit = (card: Card): number => card.cap;
 
 const blockLabels: Record<BlockKind, string> = {
   '': '',
-  cap: 'cap reached',
-  infra: 'infrastructure',
-  no_feasible_test: 'no feasible test',
-  human_run: 'needs human-run test',
-  too_small_to_split: 'too small to split',
-  drift: 'drift',
+  low_score: 'low score',
 };
 export const blockLabel = (kind: BlockKind): string => blockLabels[kind];
 
 export type ComposerAction =
   | { kind: 'comment' }
-  | { kind: 'send-back'; to: Column }
   | { kind: 'stop' }
   | { kind: 'resume' }
-  | { kind: 'raise-cap'; cap: number }
-  | { kind: 'add-data' }
-  | { kind: 'unblock-resume' }
   | { kind: 'close' };
 
-// The way out each block allows; a study waiting on a human-run test has none,
-// as it resumes once the results arrive.
-const unblockBy: Record<BlockKind, ComposerAction['kind'][]> = {
-  '': [],
-  cap: ['raise-cap'],
-  no_feasible_test: ['add-data'],
-  infra: ['unblock-resume'],
-  drift: ['unblock-resume'],
-  human_run: [],
-  too_small_to_split: [],
-};
-// A Blocked study's picker: Comment, its own way out and Close.
-// An unblocked study gets [] and keeps the ordinary picker, Send back and Stop included.
+// A Blocked study's picker: Comment, which gives a low-scored study one more
+// redo, and Close. An unblocked study gets [] and keeps the ordinary picker.
 export function blockedActions(card: Card): ComposerAction['kind'][] {
-  if (card.ending || !card.block_kind) return [];
-  return ['comment', ...unblockBy[card.block_kind], 'close'];
+  return card.ending || !card.block_kind ? [] : ['comment', 'close'];
 }
 
-// Send back offers the stages before the study's own; Grounding has none.
-export function sendBackTargets(card: Card): Column[] {
-  const index = stages.indexOf(card.board_column);
-  return card.ending || index < 0 ? [] : stages.slice(0, index);
-}
 export const canResume = (card: Card) => !card.ending && card.flag !== '';
 export function actionLabel(a: ComposerAction): string {
-  if (a.kind === 'send-back') return `Send back to ${columnName(a.to)}`;
-  if (a.kind === 'raise-cap') return `Raise cap to ${a.cap}`;
-  return {
-    comment: 'Comment',
-    stop: 'Stop',
-    resume: 'Resume',
-    'add-data': 'Add data or budget',
-    'unblock-resume': 'Resume',
-    close: 'Close',
-  }[a.kind];
+  return { comment: 'Comment', stop: 'Stop', resume: 'Resume', close: 'Close' }[a.kind];
 }
-
-export type StartKind = 'question' | 'dataset' | 'claim';
-
-const focusHints: Record<StartKind, string> = {
-  question: 'What is the research question?',
-  dataset: 'Which dataset, and what do you want to know about it?',
-  claim: 'Which claim should be checked, and where is it from?',
-};
-
-export function focusPlaceholder(kind: StartKind): string {
-  return focusHints[kind];
-}
-
-export const focusLabel = (kind: string) => kind.charAt(0).toUpperCase() + kind.slice(1);

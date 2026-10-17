@@ -78,25 +78,20 @@ export const SHIPPED = resolve('test-results/ui-lab/shipped');
 
 // Copies the demo Team in fixtures/demo-pack to dir under another name and
 // version.
-function demoPackAt(dir: string, name: string, version: string, startKinds?: string[]) {
+function demoPackAt(dir: string, name: string, version: string) {
   cpSync('tests/e2e/fixtures/demo-pack', dir, { recursive: true });
   const manifest = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8'));
   writeFileSync(
     join(dir, 'pack.json'),
-    JSON.stringify({
-      ...manifest,
-      name,
-      version,
-      ...(startKinds ? { start_kinds: startKinds } : {}),
-    }),
+    JSON.stringify({ ...manifest, name, version }),
   );
 }
 
 // The demo Team zipped with the system zip command, named name.
-export function labPackArchive(name = 'ui-demo', version = '1', startKinds?: string[]): Buffer {
+export function labPackArchive(name = 'ui-demo', version = '1'): Buffer {
   const dir = mkdtempSync(join(tmpdir(), 'lyk-pack-'));
   try {
-    demoPackAt(join(dir, 'pack'), name, version, startKinds);
+    demoPackAt(join(dir, 'pack'), name, version);
     const archive = join(dir, 'pack.zip');
     execFileSync('zip', ['-qr', archive, '.', '-x', '.*', '*/.*'], { cwd: join(dir, 'pack') });
     return readFileSync(archive);
@@ -116,48 +111,26 @@ export function labUnship(name: string) {
   rmSync(join(SHIPPED, name), { recursive: true, force: true });
 }
 
-// Uploads the demo Team as the lab person's own Team, approves it and makes it
-// their Team. Its Validation check never passes. labNoTeam undoes the choice.
+// Uploads the demo Team and approves its version for the lab person.
 export async function labPack(
   request: APIRequestContext,
   name = 'ui-demo',
-  startKinds?: string[],
   workspaceId?: string,
 ): Promise<{ id: string; name: string }> {
   const headers = { 'X-Workspace-ID': workspaceId ?? (await labWorkspace(request)) };
   const upload = await request.post('/api/packs', {
     headers: { ...headers, 'Content-Type': 'application/zip' },
-    data: labPackArchive(name, '1', startKinds),
+    data: labPackArchive(name, '1'),
   });
-  let pack: { id: string; name: string };
   if (upload.status() === 409) {
     // An earlier spec in this run already uploaded and approved this version.
     const versions = await request.get(`/api/packs?name=${name}`, { headers });
-    pack = ((await versions.json()) as { id: string; name: string }[])[0]!;
-  } else {
-    expect(upload.status()).toBe(201);
-    pack = (await upload.json()) as { id: string; name: string };
-    expect((await request.post(`/api/packs/${pack.id}/approve`, { headers })).status()).toBe(200);
+    return ((await versions.json()) as { id: string; name: string }[])[0]!;
   }
-  const team = await request.put('/api/me/pack', { headers, data: { name: pack.name } });
-  expect(team.status()).toBe(200);
+  expect(upload.status()).toBe(201);
+  const pack = (await upload.json()) as { id: string; name: string };
+  expect((await request.post(`/api/packs/${pack.id}/approve`, { headers })).status()).toBe(200);
   return pack;
-}
-
-export async function labNoTeam(request: APIRequestContext) {
-  expect((await request.post(`${LAB}/lab/no-team`)).status()).toBe(204);
-}
-
-// Revises a study's question as a stage would, citing a new result that says why.
-export async function labRevise(
-  request: APIRequestContext,
-  cardId: string,
-  text: string,
-  why: string,
-) {
-  expect(
-    (await request.post(`${LAB}/lab/revise/${cardId}`, { data: { text, why } })).status(),
-  ).toBe(204);
 }
 
 // Releases a study, as a sealed report would.

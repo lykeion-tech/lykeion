@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labHypotheses, newStudy } from './lab';
+import { newStudy } from './lab';
 
 async function choose(page: Page, ...path: string[]) {
   await page.getByRole('button', { name: 'Action' }).click();
@@ -85,50 +85,7 @@ test('Resume reruns an escalated study and posts the typed text as a comment', a
   });
 });
 
-test('Send back moves a Hypotheses study to Grounding with the reason', async ({ page }) => {
-  const study = await newStudy(page.request, `Islet amyloid in human donors ${Date.now()}?`);
-  await page.goto(`/#/studies/${study.id}`);
-  await escalated(page);
-  await labHypotheses(page.request, study.id);
-  const ws = await labWorkspace(page.request);
-  const before = await actualCard(page, ws, study.id);
-  const meta = page.getByRole('complementary', { name: 'Study details' });
-  await expect(meta.getByText('Hypotheses')).toBeVisible({ timeout: 10_000 });
-  await choose(page, 'Send back to', 'Grounding');
-  await expect(page.getByRole('button', { name: 'Action' })).toHaveText(/Send back to Grounding/);
-  await page
-    .getByRole('textbox', { name: 'Comment' })
-    .fill('Two passages come from reviews; use primary studies.');
-  await page.screenshot({ path: `${artifacts}/send-back-typed.png`, fullPage: true });
-  await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByText(/^Sent back to Grounding/)).toBeVisible();
-  await expect(meta.getByText('Grounding')).toBeVisible();
-  const after = await actualCard(page, ws, study.id);
-  expect(after.round).toBeGreaterThan(before.round);
-  expect(after.handoff_note).toBe('Two passages come from reviews; use primary studies.');
-  expect(after.board_column).toBe('grounding');
-});
-
-test('Send back offers only earlier columns, and nothing in Grounding', async ({ page }) => {
-  const study = await newStudy(page.request, `Lithium in bipolar telomeres ${Date.now()}?`);
-  await page.goto(`/#/studies/${study.id}`);
-  await escalated(page);
-  await page.getByRole('button', { name: 'Action' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Stop' })).toBeVisible();
-  await page.screenshot({ path: `${artifacts}/grounding-actions.png`, fullPage: true });
-  await expect(page.getByRole('menuitem', { name: 'Send back to' })).toHaveCount(0);
-  await page.keyboard.press('Escape');
-  await labHypotheses(page.request, study.id);
-  await expect(
-    page.getByRole('complementary', { name: 'Study details' }).getByText('Hypotheses'),
-  ).toBeVisible({ timeout: 10_000 });
-  await choose(page, 'Send back to');
-  const targets = page.getByRole('menu', { name: 'Send back to' }).getByRole('menuitem');
-  await expect(targets).toHaveText(['Grounding']);
-  await page.screenshot({ path: `${artifacts}/send-back-targets.png`, fullPage: true });
-});
-
-import { labFixture, labNoTeam, labPack, labWorkspace } from './lab';
+import { labFixture } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-17-artifacts';
 
@@ -255,39 +212,6 @@ test('a failed Resume retry does not duplicate its acknowledged comment', async 
   expect((await actualComments(page, f.workspace_id, f.card_id)).map((c) => c.body)).toEqual([
     text,
   ]);
-});
-
-test('a server Send back refusal retains its reason and selected action', async ({ page }) => {
-  const f = await recordedStudy(page);
-  await labHypotheses(page.request, f.card_id);
-  await expect(
-    page.getByRole('complementary', { name: 'Study details' }).getByText('Hypotheses'),
-  ).toBeVisible();
-  await choose(page, 'Send back to', 'Grounding');
-  const reason = 'Use the primary source before returning.';
-  await page.getByRole('textbox', { name: 'Comment' }).fill(reason);
-  // A concurrent person's actual send-back makes this target no longer earlier.
-  expect(
-    (
-      await page.request.post(`/api/cards/${f.card_id}/send-back`, {
-        headers: { 'X-Workspace-ID': f.workspace_id },
-        data: { to: 'grounding', reason: 'Concurrent route back' },
-      })
-    ).status(),
-  ).toBe(200);
-  const response = page.waitForResponse(
-    (r) => r.url().endsWith(`/api/cards/${f.card_id}/send-back`) && r.request().method() === 'POST',
-  );
-  await page.getByRole('button', { name: 'Send' }).click();
-  const refused = await response;
-  expect(refused.status()).toBe(400);
-  await expect(page.getByRole('alert')).toHaveText((await refused.json()).error);
-  await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveValue(reason);
-  await expect(page.getByRole('button', { name: 'Action' })).toHaveText(/Send back to Grounding/);
-  await expect(
-    page.getByRole('complementary', { name: 'Study details' }).getByText('Grounding'),
-  ).toBeVisible();
-  await page.screenshot({ path: `${artifacts}/send-back-error-retention.png`, fullPage: true });
 });
 
 test('a multipart Resume cannot continue after a different visit, even A to B to A', async ({
@@ -488,81 +412,3 @@ for (const reset of ['text', 'action'] as const) {
   });
 }
 
-test('an active study still offers Stop and no way out of Blocked', async ({ page }) => {
-  const study = await newStudy(page.request, `Ketamine and synaptic density ${Date.now()}?`);
-  await page.goto(`/#/studies/${study.id}`);
-  await escalated(page);
-  await expect(page.locator('.block-bar')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Action' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Stop' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Close' })).toHaveCount(0);
-  await expect(page.getByRole('menuitem', { name: 'Raise cap' })).toHaveCount(0);
-});
-
-test('a capped study shows why, a raised cap returns it to Working, and Close ends another as Stopped', async ({
-  page,
-}) => {
-  test.setTimeout(330_000);
-  await labPack(page.request);
-  try {
-    const ws = await labWorkspace(page.request);
-    const raised = await newStudy(page.request, `Demo Team raise ${Date.now()}?`, {
-      start_kind: 'question',
-    });
-    const closed = await newStudy(page.request, `Demo Team close ${Date.now()}?`, {
-      start_kind: 'question',
-    });
-    await page.goto(`/#/studies/${raised.id}`);
-    const bar = page.locator('.block-bar');
-    await expect(bar).toContainText('Blocked: cap reached.', { timeout: 280_000 });
-    await expect(bar).toContainText('failure 4 with a cap of 3');
-    await page.getByRole('button', { name: 'Action' }).click();
-    await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText([
-      /^\s*Comment/,
-      /^\s*Raise cap/,
-      /^\s*Close/,
-    ]);
-    await page.keyboard.press('Escape');
-
-    // A cap no greater than the uses already made is refused before sending.
-    page.once('dialog', (d) => d.accept('4'));
-    await choose(page, 'Raise cap');
-    await expect(page.getByRole('alert')).toContainText('more than 4');
-    await expect(page.getByRole('button', { name: 'Action' })).toHaveText(/Comment/);
-
-    page.once('dialog', (d) => d.accept('5'));
-    await choose(page, 'Raise cap');
-    await expect(page.getByRole('button', { name: 'Action' })).toHaveText(/Raise cap to 5/);
-    const unblock = page.waitForRequest(
-      (r) => r.method() === 'POST' && r.url().endsWith(`/api/cards/${raised.id}/unblock`),
-    );
-    await page.getByRole('button', { name: 'Send' }).click();
-    expect((await unblock).postDataJSON()).toEqual({ action: 'raise_cap', cap: 5 });
-    await expect(bar).toHaveCount(0);
-    await expect(page.locator('.stage-box .chip-working')).toHaveText('Working');
-    expect(await actualCard(page, ws, raised.id)).toMatchObject({
-      cap: 5,
-      flag: '',
-      block_kind: '',
-    });
-
-    await page.goto(`/#/studies/${closed.id}`);
-    await expect(bar).toContainText('Blocked: cap reached.', { timeout: 60_000 });
-    await choose(page, 'Close');
-    await page.getByRole('textbox', { name: 'Comment' }).fill('the replication never holds');
-    page.once('dialog', (d) => d.accept());
-    await page.getByRole('button', { name: 'Send' }).click();
-    await expect(
-      page
-        .getByRole('complementary', { name: 'Study details' })
-        .getByText('Stopped · the replication never holds'),
-    ).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveCount(0);
-    expect(await actualCard(page, ws, closed.id)).toMatchObject({
-      ending: 'stopped',
-      end_reason: 'the replication never holds',
-    });
-  } finally {
-    await labNoTeam(page.request);
-  }
-});

@@ -149,7 +149,7 @@ for (const destination of [
   });
 }
 
-test('the embedded study fits long evidence and resets drafts on selection; Send back stays open and budget archives', async ({
+test('the embedded study fits long evidence and resets drafts on selection', async ({
   page,
 }) => {
   const a = await escalation(page, 'Embedded long evidence');
@@ -163,9 +163,6 @@ test('the embedded study fits long evidence and resets drafts on selection; Send
   const meta = page.getByRole('complementary', { name: 'Study details' });
   expect((await meta.boundingBox())!.width).toBe(260);
   await page.getByRole('textbox', { name: 'Comment' }).fill('Embedded draft must reset');
-  await page.getByRole('button', { name: 'Action' }).click();
-  await page.getByRole('menuitem', { name: 'Send back to' }).click();
-  await page.getByRole('menuitem', { name: 'Grounding' }).click();
   await page.screenshot({ path: `${artifacts}/embedded-long-content.png`, fullPage: true });
   const bounds = await study.evaluate((element) => ({
     width: element.clientWidth,
@@ -175,26 +172,10 @@ test('the embedded study fits long evidence and resets drafts on selection; Send
   }));
   expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width);
   expect(bounds.body).toBeLessThanOrEqual(bounds.viewport);
-  await page.getByRole('button', { name: 'Send' }).click();
-  await expect(study.getByText(/^Sent back to Grounding/)).toBeVisible();
-  expect((await inbox(page)).some((i) => i.id === a.item.id && !i.resolved_at)).toBe(true);
   await page.getByRole('textbox', { name: 'Comment' }).fill('Unsaved previous study draft');
-  await meta.getByRole('button', { name: 'Change', exact: true }).click();
   await row(page, b.item.id).click();
   await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
   await expect(page.getByRole('button', { name: 'Action' })).toHaveText('Comment');
-  await expect(page.getByRole('spinbutton', { name: 'Budget in USD' })).toHaveCount(0);
-  await meta.getByRole('button', { name: 'Change', exact: true }).click();
-  await page.getByRole('spinbutton', { name: 'Budget in USD' }).fill('42');
-  await meta.getByRole('button', { name: 'Save budget' }).click();
-  await expect
-    .poll(async () => (await inbox(page, true)).some((i) => i.id === b.item.id))
-    .toBe(true);
-  await page
-    .getByRole('navigation', { name: 'Inbox items' })
-    .getByRole('button', { name: 'Archived' })
-    .click();
-  await expect(row(page, b.item.id)).toBeVisible();
 });
 
 test('Stop in the embedded study archives the original item and keeps the ended study selected', async ({

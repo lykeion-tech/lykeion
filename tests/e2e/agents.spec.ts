@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labFixture, labNoTeam, labPack } from './lab';
+import { labFixture } from './lab';
 
 const artifacts = 'test-results/ui-lab/agents';
 
@@ -78,17 +78,11 @@ test('New agent opens the starting-point page, and Start blank opens the form', 
   await expect(page).toHaveURL(/#\/agents$/);
 });
 
-test.describe('with a Team', () => {
-  test.afterEach(async ({ page }) => {
-    await labNoTeam(page.request);
-  });
-
+test.describe('new study', () => {
   test('a new study can be assigned to an agent or a colleague when it is created', async ({
     page,
   }) => {
     const { headers } = await inFixture(page);
-    // Teams live in a workspace, so the fixture workspace gets its own copy.
-    await labPack(page.request, 'ui-demo', undefined, headers['X-Workspace-ID']);
     const agent = await (
       await page.request.post('/api/agents', {
         headers,
@@ -158,7 +152,7 @@ test('the agent page shows its studies and edits instructions, profile and acces
   await page.screenshot({ path: `${artifacts}/agent-overview.png` });
 
   await page.getByRole('tab', { name: 'Work' }).click();
-  const column = card.flag === 'escalated' || card.flag === 'out_of_budget' ? 'Blocked' : null;
+  const column = card.flag === 'escalated' ? 'Blocked' : null;
   const group = page
     .locator('.agent-group')
     .filter({ has: page.locator('.agent-study', { hasText: card.title || card.question }) });

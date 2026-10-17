@@ -145,7 +145,7 @@ describe('membership changes responsibility access', () => {
 });
 
 describe('embedded Research study cache refresh', () => {
-  it.each(['card.edited', 'card.deleted', 'card.started', 'gate.decided'])(
+  it.each(['card.edited', 'card.deleted', 'card.started'])(
     '%s invalidates real workspace detail caches without Research ids',
     async (type) => {
       const { QueryClient } = await import('@tanstack/vue-query');

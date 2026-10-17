@@ -12,13 +12,12 @@ import {
   useCards,
   useMe,
   useMembers,
-  usePackCatalog,
   useWorkspace,
 } from '../api/queries';
 import type { Card } from '../api/types';
 import { dateKey } from '../lib/dates';
 import { matchesQuery } from '../lib/search';
-import { focusLabel, focusPlaceholder, studyNumber, type StartKind } from '../lib/studies';
+import { studyNumber } from '../lib/studies';
 import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
 
@@ -33,7 +32,6 @@ const me = useMe();
 const isMac = navigator.platform.includes('Mac');
 const title = ref('');
 const question = ref('');
-const budget = ref(0);
 const deadline = ref('');
 const followsFrom = ref<string[]>([]);
 const originalFollowsFrom = ref<string[]>([]);
@@ -45,28 +43,6 @@ const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
 const query = ref('');
 const form = ref<HTMLFormElement>();
-const teams = usePackCatalog();
-const picked = ref('');
-const dataset = ref('');
-const allKinds: StartKind[] = ['question', 'dataset', 'claim'];
-// Every new study has a Focus. With a Team it offers the kinds the Team accepts;
-// without one it shows all three and asks the person to choose a Team first.
-const noTeam = computed(() => !props.editId && !!me.data.value && !me.data.value.pack_name);
-const startKinds = computed(() =>
-  props.editId
-    ? []
-    : noTeam.value
-      ? allKinds
-      : (teams.data.value?.find((f) => f.name === me.data.value?.pack_name)?.start_kinds ?? []),
-);
-// A study made with a Team must carry a start kind, which the catalog names:
-// a new one waits for the person and, when they have a Team, for the catalog.
-const loading = computed(
-  () => !props.editId && (!me.data.value || (!!me.data.value.pack_name && !teams.data.value)),
-);
-const focus = computed(() =>
-  startKinds.value.includes(picked.value) ? picked.value : (startKinds.value[0] ?? ''),
-);
 const assignee = ref<Assignee | null>(props.assignee ? { ...props.assignee } : null);
 
 // The creator owns the study, so a private agent is offered only to its owner.
@@ -117,7 +93,6 @@ watch(
     if (!c || title.value || question.value) return;
     title.value = c.title;
     question.value = c.question;
-    budget.value = c.budget_usd;
     deadline.value = c.deadline ? dateKey(new Date(c.deadline)) : '';
     followsFrom.value = [...c.follows_from];
     originalFollowsFrom.value = [...c.follows_from];
@@ -134,10 +109,6 @@ async function openMenu(name: string) {
 function closeMenu() {
   menu.value = '';
   query.value = '';
-}
-function chooseFocus(kind: string) {
-  picked.value = kind;
-  closeMenu();
 }
 function follow(id: string) {
   if (!followsFrom.value.includes(id)) followsFrom.value = [...followsFrom.value, id];
@@ -158,10 +129,7 @@ function keysDown(event: KeyboardEvent) {
 const blocked = computed(
   () =>
     busy.value ||
-    loading.value ||
-    noTeam.value ||
-    !question.value.trim() ||
-    (focus.value === 'dataset' && !dataset.value.trim()),
+    !question.value.trim(),
 );
 
 async function submit() {
@@ -172,7 +140,6 @@ async function submit() {
   const fields = {
     title: title.value.trim(),
     question: question.value.trim(),
-    budget_usd: Math.max(0, Number(budget.value) || 0),
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
     ...(!props.editId ||
     JSON.stringify(followsFrom.value) !== JSON.stringify(originalFollowsFrom.value)
@@ -182,11 +149,7 @@ async function submit() {
   try {
     if (props.editId) await api('PATCH', `/api/cards/${props.editId}`, fields);
     else {
-      const created = await api<Card>('POST', '/api/cards', {
-        ...fields,
-        ...(focus.value ? { start_kind: focus.value } : {}),
-        ...(focus.value === 'dataset' ? { dataset: dataset.value.trim() } : {}),
-      });
+      const created = await api<Card>('POST', '/api/cards', fields);
       // ponytail: two requests, so a refused assignment leaves the study created unassigned; fold into POST /api/cards if that matters.
       if (assignee.value)
         await api('PATCH', `/api/cards/${created.id}/properties`, {
@@ -203,8 +166,7 @@ async function submit() {
     }
     notify('Study created.');
     if (another.value) {
-      title.value = question.value = deadline.value = dataset.value = '';
-      budget.value = 0;
+      title.value = question.value = deadline.value = '';
       assignee.value = props.assignee ? { ...props.assignee } : null;
       followsFrom.value = [];
       await nextTick();
@@ -260,23 +222,11 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <textarea
           v-model="question"
           class="composer-description"
-          :placeholder="focusPlaceholder((focus || 'question') as StartKind)"
+          placeholder="What is the research question?"
           aria-label="Research question"
           required
         />
-        <input
-          v-if="focus === 'dataset'"
-          v-model="dataset"
-          class="composer-dataset"
-          placeholder="Dataset: an accession or a link, e.g. GSE84133, a DOI, https://zenodo.org/…"
-          aria-label="Dataset"
-          required
-        />
       </div>
-      <p v-if="noTeam" class="composer-warning" role="status">
-        Your Team works your studies: its agents, skills and checks. Choose a Team first.
-        <RouterLink to="/teams" class="text-button" @click="emit('close')">Go to Teams</RouterLink>
-      </p>
       <p v-if="duplicate" class="composer-warning" role="status">
         An active study already asks this: {{ number(duplicate.number) }}
         <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>. Set it as
@@ -296,43 +246,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             >
               <Icon name="circle" :size="14" />Backlog
             </button>
-          </div>
-          <div v-if="focus" class="property-anchor">
-            <button
-              type="button"
-              class="property-pill"
-              :aria-label="`Focus: ${focusLabel(focus)}`"
-              @click="openMenu('focus')"
-            >
-              Focus: {{ focusLabel(focus) }}<Icon name="down" :size="12" />
-            </button>
-            <div v-if="menu === 'focus'" class="composer-menu" role="menu">
-              <button
-                v-for="kind in startKinds"
-                :key="kind"
-                type="button"
-                role="menuitem"
-                @click="chooseFocus(kind)"
-              >
-                {{ focusLabel(kind) }}
-              </button>
-            </div>
-          </div>
-          <div class="property-anchor">
-            <button type="button" class="property-pill" @click="openMenu('budget')">
-              {{ budget > 0 ? `$${budget} budget` : 'No budget limit' }}
-            </button>
-            <div v-if="menu === 'budget'" class="composer-menu" role="dialog" aria-label="Budget">
-              <label
-                >Budget limit (USD)<input
-                  v-model.number="budget"
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  aria-label="Budget limit in USD"
-              /></label>
-              <p>0 means no budget limit.</p>
-            </div>
           </div>
           <div class="property-anchor">
             <button type="button" class="property-pill" @click="openMenu('deadline')">
@@ -515,18 +428,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .composer-prompt {
   margin-top: 7px;
 }
-.composer-dataset {
-  padding: 8px 0 0;
-  border: 0;
-  border-top: 1px solid var(--border);
-  background: none;
-  font: inherit;
-  font-size: 14px;
-  line-height: 23px;
-  outline: 0;
-  width: 100%;
-}
-.composer-dataset::placeholder,
 .composer-title::placeholder,
 .composer-description::placeholder,
 .composer-prompt::placeholder {

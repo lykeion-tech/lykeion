@@ -41,17 +41,8 @@ describe('event to query map', () => {
     expect(invalidationsFor('w1', deleted)).toContainEqual(keys.card('w1', 'c9'));
     expect(invalidationsFor('w1', deleted)).toContainEqual(keys.cards('w1'));
   });
-  it('a decided gate refreshes the card, its gates, records and event lines', () => {
-    has('gate.decided', keys.cards('w1'));
-    has('gate.decided', keys.card('w1', 'c1'));
-    has('gate.decided', keys.gates('w1', 'c1'));
-    has('gate.decided', keys.recordsAll('w1', 'c1'));
-    has('gate.decided', keys.events('w1', 'c1'));
-    has('gate.decided', keys.inboxAll('w1'));
-  });
-  it("a new record refreshes that card's records and gates", () => {
+  it("a new record refreshes that card's records", () => {
     has('record.created', keys.recordsAll('w1', 'c1'));
-    has('record.created', keys.gates('w1', 'c1'));
   });
   it("a new comment refreshes that card's comments", () => {
     has('comment.created', keys.comments('w1', 'c1'));
@@ -276,7 +267,6 @@ describe('useRealtimeSync', () => {
       keys.cards('w1'),
       keys.card('w1', 'c1'),
       keys.records('w1', 'c1', 'grounding'),
-      keys.gates('w1', 'c1'),
       keys.comments('w1', 'c1'),
       keys.events('w1', 'c1'),
       keys.runs('w1', 'c1'),

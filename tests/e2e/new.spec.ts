@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LAB, labNoTeam, labPack, labWorkspace } from './lab';
+import { LAB, labWorkspace } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-14-artifacts';
 
@@ -13,20 +13,12 @@ async function cardsNamed(page: import('@playwright/test').Page, question: strin
       question: string;
       title: string;
       deadline: string | null;
-      budget_usd: number;
       follows_from: string[];
     }[]
   ).filter((c) => c.question === question);
 }
 
-test.describe('with a Team', () => {
-  test.beforeEach(async ({ page }) => {
-    await labPack(page.request);
-  });
-  test.afterEach(async ({ page }) => {
-    await labNoTeam(page.request);
-  });
-
+test.describe('new study', () => {
   test('creating a study, then a follow-up the duplicate check suggests', async ({ page }) => {
     const question = `Do dedifferentiated beta cells re-express ALDH1A3 in T2D? ${Date.now()}`;
     await page.goto('/#/studies');
@@ -38,8 +30,6 @@ test.describe('with a Team', () => {
       .getByRole('textbox', { name: 'Study title' })
       .fill('Beta-cell ALDH1A3 in type 2 diabetes');
     await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
-    await dialog.getByRole('button', { name: 'No budget limit' }).click();
-    await dialog.getByRole('spinbutton', { name: 'Budget limit in USD' }).fill('5');
     await dialog.getByRole('button', { name: 'No deadline' }).click();
     const chosen = page.locator('.composer-calendar [aria-current="date"]');
     const day = await chosen.getAttribute('data-date');
@@ -49,7 +39,6 @@ test.describe('with a Team', () => {
     await expect(dialog).toHaveCount(0);
     let found = await cardsNamed(page, question);
     expect(found).toHaveLength(1);
-    expect(found[0]!.budget_usd).toBe(5);
     expect(found[0]!.title).toBe('Beta-cell ALDH1A3 in type 2 diabetes');
     const endOfDay = await page.evaluate(
       (value) => new Date(`${value}T23:59:59`).toISOString(),
@@ -130,7 +119,6 @@ test('editing a held Backlog study persists fields and a later refusal retains t
     data: {
       title: 'Original edit title',
       question: 'Original edit question?',
-      budget_usd: 8,
       deadline: '2026-11-12T23:59:59+01:00',
       follows_from: [parent.id],
     },
@@ -155,7 +143,6 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue(
     'Original edit question?',
   );
-  await expect(dialog.getByRole('button', { name: '$8 budget', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: '2026-11-12', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: /Follows from: / })).toHaveCount(1);
   await expect(dialog.getByRole('switch', { name: 'Create another' })).toHaveCount(0);
@@ -163,8 +150,6 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   await dialog
     .getByRole('textbox', { name: 'Research question' })
     .fill('Edited research question?');
-  await dialog.getByRole('button', { name: '$8 budget', exact: true }).click();
-  await dialog.getByRole('spinbutton', { name: 'Budget limit in USD' }).fill('12.5');
   await dialog.getByRole('button', { name: '2026-11-12', exact: true }).click();
   await dialog.getByRole('button', { name: 'No due date', exact: true }).click();
   await dialog.getByRole('button', { name: /Follows from: / }).click();
@@ -175,7 +160,6 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   expect(saved).toMatchObject({
     title: 'Edited study title',
     question: 'Edited research question?',
-    budget_usd: 12.5,
     deadline: null,
     follows_from: [],
   });
@@ -199,111 +183,3 @@ test('editing a held Backlog study persists fields and a later refusal retains t
   );
 });
 
-test('with a Team, the Focus pill lists its start kinds and the study carries the chosen one', async ({
-  page,
-}) => {
-  await labPack(page.request);
-  try {
-    await page.goto('/#/studies');
-    await page.getByRole('button', { name: 'New', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'New study' });
-    const question = `Does the claim hold? ${Date.now()}`;
-    await dialog.getByRole('button', { name: 'Focus: Question' }).click();
-    await expect(dialog.getByRole('menuitem', { name: 'Question' })).toBeVisible();
-    await expect(dialog.getByRole('menuitem', { name: 'Claim' })).toBeVisible();
-    await expect(dialog.getByRole('menuitem', { name: 'Dataset' })).toHaveCount(0);
-    await dialog.getByRole('menuitem', { name: 'Claim' }).click();
-    await expect(dialog.getByRole('button', { name: 'Focus: Claim' })).toBeVisible();
-    const description = dialog.getByRole('textbox', { name: 'Research question' });
-    await expect(description).toHaveAttribute(
-      'placeholder',
-      'Which claim should be checked, and where is it from?',
-    );
-    await description.fill(question);
-    await dialog.getByRole('button', { name: /Create study/ }).click();
-    await expect(dialog).toHaveCount(0);
-    const found = await cardsNamed(page, question);
-    expect(found).toHaveLength(1);
-    expect((found[0] as { start_kind?: string }).start_kind).toBe('claim');
-  } finally {
-    await labNoTeam(page.request);
-  }
-});
-
-test('with a Team, Create waits for the Team catalog so the study carries its start kind', async ({
-  page,
-}) => {
-  await labPack(page.request);
-  try {
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => (release = resolve));
-    await page.route('**/api/packs/catalog', async (route) => {
-      await held;
-      await route.continue();
-    });
-    await page.goto('/#/studies');
-    await page.getByRole('button', { name: 'New', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'New study' });
-    const question = `Held catalog ${Date.now()}?`;
-    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
-    const create = dialog.getByRole('button', { name: /Create study/ });
-    await expect(create).toBeDisabled();
-    release();
-    await expect(dialog.getByRole('button', { name: 'Focus: Question' })).toBeVisible();
-    await create.click();
-    await expect(dialog).toHaveCount(0);
-    const found = await cardsNamed(page, question);
-    expect(found).toHaveLength(1);
-    expect((found[0] as { start_kind?: string }).start_kind).toBe('question');
-  } finally {
-    await labNoTeam(page.request);
-  }
-});
-
-test('with no Team, Focus offers all three kinds and the modal asks for a Team first', async ({
-  page,
-}) => {
-  await labNoTeam(page.request);
-  const me = page.waitForResponse(
-    (r) => new URL(r.url()).pathname === '/api/me' && r.request().method() === 'GET' && r.ok(),
-  );
-  await page.goto('/#/studies');
-  expect(((await (await me).json()) as { pack_name?: string }).pack_name ?? '').toBe('');
-  await page.getByRole('button', { name: 'New', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'New study' });
-  await dialog.getByRole('button', { name: 'Focus: Question' }).click();
-  const menu = dialog.getByRole('menu');
-  for (const kind of ['Question', 'Dataset', 'Claim'])
-    await expect(menu.getByRole('menuitem', { name: kind })).toBeVisible();
-  await menu.getByRole('menuitem', { name: 'Dataset' }).click();
-  await expect(dialog.getByRole('textbox', { name: 'Dataset' })).toBeVisible();
-  await expect(dialog.getByRole('status')).toContainText('Choose a Team first');
-  await dialog.getByRole('textbox', { name: 'Research question' }).fill('A question');
-  await dialog.getByRole('textbox', { name: 'Dataset' }).fill('GSE84133');
-  await expect(dialog.getByRole('button', { name: /Create study/ })).toBeDisabled();
-  await dialog.getByRole('link', { name: 'Go to Teams' }).click();
-  await expect(page).toHaveURL(/#\/teams/);
-});
-
-test('a dataset study sends its dataset', async ({ page }) => {
-  await labPack(page.request, 'ui-demo-dataset', ['question', 'dataset']);
-  try {
-    await page.goto('/#/studies');
-    await page.getByRole('button', { name: 'New', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'New study' });
-    await dialog.getByRole('button', { name: 'Focus: Question' }).click();
-    await dialog.getByRole('menuitem', { name: 'Dataset' }).click();
-    const question = `Dataset study ${Date.now()}`;
-    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
-    const create = dialog.getByRole('button', { name: /Create study/ });
-    await expect(create).toBeDisabled();
-    await dialog.getByRole('textbox', { name: 'Dataset' }).fill('GSE84133');
-    await create.click();
-    await expect(dialog).toHaveCount(0);
-    const found = await cardsNamed(page, question);
-    expect(found).toHaveLength(1);
-    expect((found[0] as { start_kind?: string }).start_kind).toBe('dataset');
-  } finally {
-    await labNoTeam(page.request);
-  }
-});

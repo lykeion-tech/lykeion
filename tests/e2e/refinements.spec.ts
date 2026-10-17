@@ -111,9 +111,9 @@ test('Execution log and Details independently disclose; Runs keeps recorded cost
   await expect(meta.getByRole('button', { name: 'Execution log', exact: true })).toBeVisible();
   await meta.getByRole('button', { name: 'Execution log', exact: true }).click();
   await expect(meta.locator('.execution-body')).toHaveCount(0);
-  await expect(meta.getByRole('button', { name: 'Change', exact: true })).toBeVisible();
+  await expect(meta.locator('.details-body')).toBeVisible();
   await meta.getByRole('button', { name: 'Details', exact: true }).click();
-  await expect(meta.getByRole('button', { name: 'Change', exact: true })).toHaveCount(0);
+  await expect(meta.locator('.details-body')).toHaveCount(0);
   await meta.getByRole('button', { name: 'Open Runs', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Runs', exact: true });
   await expect(dialog.getByText('Latest-attempt time', { exact: true })).toBeVisible();
@@ -222,7 +222,6 @@ test('Research creation/edit and member/agent responsibility use canonical write
     'board_column',
     'state',
     'round',
-    'budget_usd',
     'spent_usd',
     'ending',
   ])

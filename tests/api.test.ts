@@ -8,7 +8,7 @@ import {
   type MaybeRefOrGetter,
 } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import { useGates, useRunMessages } from '../apps/dashboard/src/api/queries';
+import { useRunMessages } from '../apps/dashboard/src/api/queries';
 import { keys } from '../apps/dashboard/src/api/keys';
 import type { AgentRun, RunMessage } from '../apps/dashboard/src/api/types';
 import { api, ApiError } from '../apps/dashboard/src/api/client';
@@ -271,51 +271,5 @@ describe('run message pagination', () => {
     await vi.waitFor(() => expect(query.isFetching.value).toBe(false));
     expect(query.error.value).toMatchObject({ status: 503, message: 'temporarily unavailable' });
     expect(query.data.value).toBeUndefined();
-  });
-});
-
-describe('gate queries', () => {
-  let scope: EffectScope;
-  let client: QueryClient;
-  let app: App;
-
-  beforeEach(() => {
-    workspaceId.value = 'w1';
-    ({ scope, client, app } = queryHarness());
-  });
-  afterEach(() => {
-    scope.stop();
-    client.clear();
-  });
-
-  it('returns an empty collection when the server has no gate records', async () => {
-    const fetch = respond(200, 'null');
-    const query = app.runWithContext(() => scope.run(() => useGates('c1'))!);
-    await vi.waitFor(() => expect(query.isSuccess.value).toBe(true));
-    expect(query.data.value).toEqual([]);
-    expect(fetch.mock.calls[0]![0]).toBe('/api/cards/c1/gates');
-    expect(headers(fetch)['X-Workspace-ID']).toBe('w1');
-  });
-
-  it('preserves nonempty gate records', async () => {
-    const record = {
-      id: 'g1',
-      workspace_id: 'w1',
-      card_id: 'c1',
-      board_column: 'grounding',
-      round: 1,
-      kind: 'gate',
-      role: 'system',
-      key: 'gate',
-      body: { column: 'grounding', round: 1, input_digest: 'digest', checks: [], verdict: 'pass' },
-      blob_key: '',
-      agent_run_id: null,
-      superseded_at: null,
-      created_at: '2026-10-15T00:00:00Z',
-    };
-    respond(200, JSON.stringify([record]));
-    const query = app.runWithContext(() => scope.run(() => useGates('c1'))!);
-    await vi.waitFor(() => expect(query.isSuccess.value).toBe(true));
-    expect(query.data.value).toEqual([record]);
   });
 });

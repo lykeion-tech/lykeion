@@ -33,10 +33,6 @@ test('the study page shows the question, the run turn, events, comments and the 
   const meta = page.getByRole('complementary', { name: 'Study details' });
   await expect(meta.locator('.metadata-owner')).toContainText('Ana Ruiz');
   await expect(meta.getByText('Grounding')).toBeVisible();
-  await meta.getByRole('button', { name: 'Change' }).click();
-  await meta.getByRole('spinbutton', { name: 'Budget in USD' }).fill('3');
-  await meta.getByRole('button', { name: 'Save budget' }).click();
-  await expect(meta.getByText(/of \$3\.00/)).toBeVisible();
 
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-16-artifacts/study-comments-commands-metadata.png',
@@ -94,7 +90,7 @@ test('long text and many records never scroll the study page sideways', async ({
 
 import { LAB, labFixture } from './lab';
 
-test('recorded Jev details retain zero, unknown and long reason; current attempt loads beyond 500', async ({
+test('the current attempt loads beyond 500 messages', async ({
   page,
 }) => {
   const fixture = await labFixture(page.request);
@@ -113,32 +109,8 @@ test('recorded Jev details retain zero, unknown and long reason; current attempt
   await expect(main.getByText(/Attempt 1 message/)).toHaveCount(0);
   expect(messageRequests.some((u) => u.includes('attempt=2&after=500'))).toBe(true);
   expect(messageRequests.every((u) => u.includes('attempt=2'))).toBe(true);
-  const zero = main.locator('.gate-line', { hasText: 'evidence.zero' });
-  await zero.getByRole('button', { name: /Details/ }).click();
-  const details = main.locator('.gate-details').first();
-  await expect(
-    details.getByText('Jev asked: Does the recorded evidence support the claim?'),
-  ).toBeVisible();
-  await expect(
-    details.getByText('It chose: supports, with probability 0.00', { exact: true }),
-  ).toBeVisible();
-  await expect(details).toContainText('Threshold: passes at p ≥ 0.7, fails below 0.35');
-  expect(fixture.pass_threshold).toBe(0.7);
-  await expect(main.locator('.gate-reason')).toHaveText(fixture.long_reason);
-  await expect(zero.locator('.why')).toHaveText(fixture.long_reason);
-  await main
-    .locator('.gate-line', { hasText: 'evidence.unknown' })
-    .getByRole('button', { name: /Details/ })
-    .click();
-  await expect(main.locator('.gate-details').last()).toContainText(
-    'It chose: unclear, with probability —',
-  );
   const overflow = await main.evaluate((e) => e.scrollWidth - e.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  await page.screenshot({
-    path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-16-artifacts/gate-details.png',
-    fullPage: true,
-  });
   await main.locator('.markdown-body').last().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-16-artifacts/current-attempt-501.png',
@@ -284,21 +256,20 @@ async function linkedStudies(page: import('@playwright/test').Page) {
       })
     ).status(),
   ).toBe(204);
-  async function create(title: string, budget: number, follows: string[] = []) {
+  async function create(title: string, follows: string[] = []) {
     const response = await page.request.post('/api/cards', {
       headers: { 'X-Workspace-ID': ws },
       data: {
         title,
         question: `${title} ${Date.now()}?`,
-        budget_usd: budget,
         follows_from: follows,
       },
     });
     expect(response.status()).toBe(201);
     return (await response.json()).id as string;
   }
-  const b = await create('Lifecycle B', 9);
-  const a = await create('Lifecycle A', 5, [b]);
+  const b = await create('Lifecycle B');
+  const a = await create('Lifecycle A', [b]);
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
   await page.goto(`/#/studies/${a}`);
   await expect(
@@ -375,23 +346,15 @@ async function holdStudyResponse(
   };
 }
 
-test('study navigation resets the budget editor and comment draft', async ({ page }) => {
+test('study navigation resets the comment draft', async ({ page }) => {
   const { a } = await linkedStudies(page);
   const main = page.getByRole('region', { name: 'Study' });
   const meta = page.getByRole('complementary', { name: 'Study details' });
   await main.getByRole('textbox', { name: 'Comment' }).fill('Draft for A');
-  await meta.getByRole('button', { name: 'Change' }).click();
-  await meta.getByRole('spinbutton', { name: 'Budget in USD' }).fill('77');
   await meta.getByRole('link', { name: 'Lifecycle B' }).click();
   await expect(main.getByRole('heading', { name: 'Lifecycle B' })).toBeVisible();
-  await expect(meta.getByRole('spinbutton', { name: 'Budget in USD' })).toHaveCount(0, {
-    timeout: 2000,
-  });
   await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
-  await meta.getByRole('button', { name: 'Change' }).click();
-  await expect(meta.getByRole('spinbutton', { name: 'Budget in USD' })).toHaveValue('9');
   await studyHash(page, a, 'Lifecycle A');
-  await expect(meta.getByRole('spinbutton', { name: 'Budget in USD' })).toHaveCount(0);
   await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
 });
 
@@ -445,43 +408,6 @@ test('a delayed deletion cannot close another study', async ({ page }) => {
   }
 });
 
-test('a delayed budget save retains its original intent and cannot close another editor', async ({
-  page,
-}) => {
-  const { a, ws } = await linkedStudies(page);
-  const held = await holdStudyResponse(page, `/api/cards/${a}/budget`, 'POST');
-  try {
-    const meta = page.getByRole('complementary', { name: 'Study details' });
-    await meta.getByRole('button', { name: 'Change' }).click();
-    await meta.getByRole('spinbutton', { name: 'Budget in USD' }).fill('17');
-    await meta.getByRole('button', { name: 'Save budget' }).click();
-    expect(await held.accepted).toBe(200);
-    expect(held.intent).toEqual({ workspace: ws, body: { usd: 17 } });
-    expect(
-      (
-        await (
-          await page.request.get(`/api/cards/${a}`, { headers: { 'X-Workspace-ID': ws } })
-        ).json()
-      ).budget_usd,
-    ).toBe(17);
-    await meta.getByRole('link', { name: 'Lifecycle B' }).click();
-    await expect(
-      page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: 'Lifecycle B' }),
-    ).toBeVisible();
-    await meta.getByRole('button', { name: 'Change' }).click();
-    await meta.getByRole('spinbutton', { name: 'Budget in USD' }).fill('31');
-    await held.finish();
-    await expect(meta.getByRole('spinbutton', { name: 'Budget in USD' })).toHaveValue('31');
-    await page.screenshot({
-      path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-16-artifacts/fix1-budget-scope.png',
-      fullPage: true,
-    });
-  } finally {
-    held.release();
-    await page.unrouteAll({ behavior: 'wait' });
-  }
-});
-
 test('an old comment finally cannot re-enable a newer pending submission', async ({ page }) => {
   const { a, b, ws } = await linkedStudies(page);
   const old = await holdStudyResponse(page, `/api/cards/${a}/comments`, 'POST');
@@ -513,10 +439,10 @@ test('an old comment finally cannot re-enable a newer pending submission', async
   }
 });
 
-for (const operation of ['comment', 'budget', 'delete'] as const) {
+for (const operation of ['comment', 'delete'] as const) {
   test(`late real ${operation} refusals cannot affect a new study scope`, async ({ page }) => {
     const { a, b, ws } = await linkedStudies(page);
-    const path = `/api/cards/${a}${operation === 'delete' ? '' : operation === 'budget' ? '/budget' : '/comments'}`;
+    const path = `/api/cards/${a}${operation === 'delete' ? '' : '/comments'}`;
     const held = await holdStudyResponse(
       page,
       path,
@@ -534,16 +460,11 @@ for (const operation of ['comment', 'budget', 'delete'] as const) {
     );
     try {
       const main = page.getByRole('region', { name: 'Study' });
-      const meta = page.getByRole('complementary', { name: 'Study details' });
       if (operation === 'comment') {
         await main
           .getByRole('textbox', { name: 'Comment' })
           .fill('Comment refused after concurrent deletion');
         await main.getByRole('button', { name: 'Send' }).click();
-      } else if (operation === 'budget') {
-        await meta.getByRole('button', { name: 'Change' }).click();
-        await meta.getByRole('spinbutton', { name: 'Budget in USD' }).fill('21');
-        await meta.getByRole('button', { name: 'Save budget' }).click();
       } else {
         page.once('dialog', (dialog) => dialog.accept());
         await page.getByRole('button', { name: 'Delete study' }).click();
@@ -561,13 +482,10 @@ for (const operation of ['comment', 'budget', 'delete'] as const) {
       } else await studyHash(page, b, 'Lifecycle B');
       await expect(main.getByRole('heading', { name: 'Lifecycle B' })).toBeVisible();
       await main.getByRole('textbox', { name: 'Comment' }).fill('Keep the new scope draft');
-      await meta.getByRole('button', { name: 'Change' }).click();
-      await meta.getByRole('spinbutton', { name: 'Budget in USD' }).fill('41');
       await held.finish();
       await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue(
         'Keep the new scope draft',
       );
-      await expect(meta.getByRole('spinbutton', { name: 'Budget in USD' })).toHaveValue('41');
       await expect(main.getByRole('alert')).toHaveCount(0);
       await expect(page.locator('.toast', { hasText: held.error })).toHaveCount(0);
       await expect(page).toHaveURL(new RegExp(`#/studies/${b}$`));
@@ -582,26 +500,19 @@ test('study events page beyond 500 and refresh later steering live', async ({ pa
   const f = await labFixture(page.request);
   expect((await page.request.post(`${LAB}/lab/events/${f.card_id}?n=501`)).status()).toBe(204);
   const headers = { 'X-Workspace-ID': f.workspace_id };
-  expect(
-    (
-      await page.request.post(`/api/cards/${f.card_id}/budget`, { headers, data: { usd: 13 } })
-    ).status(),
-  ).toBe(200);
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
   const pages: string[] = [];
   page.on('request', (r) => {
     if (r.url().includes(`/api/cards/${f.card_id}/events`)) pages.push(r.url());
   });
   await page.goto(`/#/studies/${f.card_id}`);
-  await expect(page.locator('.event-line', { hasText: 'Budget changed' })).toHaveCount(1);
-  expect(pages.some((url) => /after=[1-9]/.test(url))).toBe(true);
+  await expect(page.getByRole('region', { name: 'Study' })).toBeVisible();
+  await expect.poll(() => pages.some((url) => /after=[1-9]/.test(url))).toBe(true);
   const origin = await page.evaluate(() => performance.timeOrigin);
   expect(
-    (
-      await page.request.post(`/api/cards/${f.card_id}/budget`, { headers, data: { usd: 14 } })
-    ).status(),
+    (await page.request.post(`/api/cards/${f.card_id}/stop`, { headers, data: { reason: 'done' } })).status(),
   ).toBe(200);
-  await expect(page.locator('.event-line', { hasText: 'Budget changed' })).toHaveCount(2);
+  await expect(page.locator('.event-line', { hasText: 'Stopped' })).toHaveCount(1);
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
 });
 
@@ -714,109 +625,4 @@ test('a real study deletion refusal remains inline on the study', async ({ page 
   await expect(page.getByRole('region', { name: 'Study' }).getByRole('alert')).toContainText(
     'Backlog',
   );
-});
-
-import { labNoTeam, labRelease, labRevise, labShip, labUnship, labWorkspace } from './lab';
-
-test('a revised study shows its starting point, and Revert restores the original question', async ({
-  page,
-}) => {
-  const original = `Do beta cells re-express ALDH1A3, and does it track duration? ${Date.now()}`;
-  const study = await newStudy(page.request, original);
-  await page.goto(`/#/studies/${study.id}`);
-  const main = page.getByRole('region', { name: 'Study' });
-  await expect(main.getByText('Escalated: waiting for a person')).toBeVisible({ timeout: 30_000 });
-  await expect(main.locator('.starting-point')).toHaveCount(0);
-  const revised = `Do beta cells re-express ALDH1A3? ${Date.now()}`;
-  await labRevise(page.request, study.id, revised, 'No donor metadata on disease duration');
-  await page.reload();
-  const block = main.locator('.starting-point');
-  await expect(block.locator('h4')).toContainText('Starting point · revised once');
-  await expect(block.locator('.drift-chip')).toHaveText('Narrows');
-  await expect(block.locator('h4 .push-right')).toHaveText(
-    new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-  );
-  await expect(block.locator('.now')).toHaveText(revised);
-  await expect(block.locator('.was')).toHaveText(original);
-  // The cited result sits in Experimentation while the study is in Grounding.
-  await expect(block.locator('.why')).toHaveText(
-    /^Experimentation found: No donor metadata on disease duration \(run [0-9a-f]{8}\)$/,
-  );
-  await expect(main.locator('.study-question')).toHaveText(revised);
-  await expect(main.getByText('Starting point revised')).toBeVisible();
-  await page.screenshot({ path: 'test-results/ui-lab/study-revised.png', fullPage: true });
-
-  let asked = '';
-  page.once('dialog', (d) => {
-    asked = d.message();
-    void d.accept();
-  });
-  await block.getByRole('button', { name: 'Revert' }).click();
-  await expect(main.locator('.study-question')).toHaveText(original);
-  expect(asked).toContain('original');
-  await expect(main.locator('.starting-point')).toHaveCount(0);
-});
-
-test('a reopened study says so in its pane and its transcript', async ({ page }) => {
-  const study = await newStudy(page.request, `Does IL-1β track amyloid? ${Date.now()}`);
-  await page.goto(`/#/studies/${study.id}`);
-  const meta = page.getByRole('complementary', { name: 'Study details' });
-  await expect(meta.getByText('Reopened', { exact: true })).toHaveCount(0);
-  await labRelease(page.request, study.id);
-  const reopen = await page.request.post(`/api/cards/${study.id}/reopen`, {
-    headers: { 'X-Workspace-ID': await labWorkspace(page.request) },
-    data: { reason: 'a 2026 study contradicts E2', evidence: 'europepmc:PMC9911203' },
-  });
-  expect(reopen.status()).toBe(200);
-  await page.reload();
-  await expect(meta.locator('.reopened')).toHaveText(/^Once · /);
-  await expect(
-    page
-      .getByRole('region', { name: 'Study' })
-      .getByText('Reopened: a 2026 study contradicts E2 (europepmc:PMC9911203)'),
-  ).toBeVisible();
-});
-
-test('a study on demo v1 offers Move to v2 once v2 is approved, and moving updates the pane', async ({
-  page,
-}) => {
-  const f = await labFixture(page.request);
-  const headers = { 'X-Workspace-ID': f.workspace_id };
-  labShip('demo', '1');
-  try {
-    expect(
-      (await page.request.put('/api/me/pack', { headers, data: { name: 'demo' } })).status(),
-    ).toBe(200);
-    const created = await page.request.post('/api/cards', {
-      headers,
-      data: { question: `Does X raise Y? ${Date.now()}`, start_kind: 'question' },
-    });
-    expect(created.status()).toBe(201);
-    const study = (await created.json()) as { id: string };
-    await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
-    await page.goto(`/#/studies/${study.id}`);
-    const meta = page.getByRole('complementary', { name: 'Study details' });
-    const team = meta.locator('.team');
-    await expect(team).toContainText('demo Team v1');
-    await expect(meta.getByText('Question', { exact: true })).toBeVisible();
-    await expect(team.getByRole('button', { name: /Move to/ })).toHaveCount(0);
-
-    labShip('demo', '2');
-    expect(
-      (await page.request.put('/api/me/pack', { headers, data: { name: 'demo' } })).status(),
-    ).toBe(200);
-    await page.reload();
-    let asked = '';
-    page.once('dialog', (d) => {
-      asked = d.message();
-      void d.accept();
-    });
-    await team.getByRole('button', { name: 'Move to v2' }).click();
-    await expect(team).toContainText('demo Team v2');
-    await expect(team.getByRole('button', { name: /Move to/ })).toHaveCount(0);
-    expect(asked).toContain('v2');
-  } finally {
-    await labNoTeam(page.request);
-    labUnship('demo');
-  }
 });

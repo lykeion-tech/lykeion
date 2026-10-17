@@ -37,15 +37,8 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
         keys.agents(ws),
         ...(typeof e.payload.agent_id === 'string' ? [keys.agent(ws, e.payload.agent_id)] : []),
       ];
-    case 'gate':
-      return [
-        keys.cards(ws),
-        keys.inboxAll(ws),
-        ...own(keys.card, keys.gates, keys.recordsAll, keys.events),
-        keys.researchDetails(ws),
-      ];
     case 'record':
-      return own(keys.recordsAll, keys.gates);
+      return own(keys.recordsAll);
     case 'comment':
       return own(keys.comments);
     case 'agent_run':

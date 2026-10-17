@@ -23,7 +23,6 @@ export interface Me {
   created_at: string;
   career_stage: CareerStage;
   onboarded_at: string | null;
-  pack_name: string;
 }
 
 export interface Workspace {
@@ -54,18 +53,14 @@ export interface Card {
   assignee_type: 'member' | 'agent' | null;
   assignee_id: string | null;
   owner_id: string;
-  budget_usd: number;
   deadline: string | null;
   spent_usd: number;
   board_column: Column;
   state: 'working' | 'in_review' | 'ready';
-  flag: '' | 'escalated' | 'out_of_budget';
+  flag: '' | 'escalated';
   ending: '' | 'released' | 'stopped';
   end_reason: string;
   rounds: number;
-  route_backs: number;
-  stale: string[];
-  rerun: string;
   follows_from: string[];
   version: number;
   created_at: string;
@@ -77,16 +72,16 @@ export interface Card {
   queued: boolean; // GET /api/cards only
   role: string; // GET /api/cards only; '' when no run is queued, dispatched or running
   pack_id: string | null;
-  pack_name?: string; // GET /api/cards/{id} only
-  pack_version?: string; // GET /api/cards/{id} only
-  start_kind: '' | 'question' | 'dataset' | 'claim';
-  cap: number; // route_backs counts uses of this cap
   block_kind: BlockKind;
-  reopens: number;
+  scope_from: Exclude<Column, 'backlog' | 'done'>;
+  scope_to: Exclude<Column, 'backlog' | 'done'>;
+  // The Team working each column of the scope, keyed by column.
+  teams: Record<string, { pack_id: string; name: string; version: string; stage: string }>;
+  redos: number;
+  off_label: boolean;
 }
 
-export type BlockKind =
-  '' | 'cap' | 'infra' | 'no_feasible_test' | 'human_run' | 'too_small_to_split' | 'drift';
+export type BlockKind = '' | 'low_score';
 
 export interface Comment {
   id: string;
@@ -121,43 +116,6 @@ export interface StudyRecord {
   agent_run_id: string | null;
   superseded_at: string | null;
   created_at: string;
-}
-
-// The body of a record of kind "gate" (server/internal/board/gate.go).
-export interface GateCheck {
-  id: string;
-  judge: 'code' | 'jev' | 'reviewer';
-  owner?: string;
-  to?: string;
-  result: 'pass' | 'fail' | 'attention';
-  evidence?: string[];
-  model?: string;
-  question?: string;
-  p?: number;
-  choice?: string;
-  note?: string;
-}
-// The body of a record of kind "choice": who answered one gate question.
-export interface Choice {
-  question: string;
-  candidates: Record<string, string>;
-  answer?: string;
-  p?: Record<string, number>;
-  model?: string;
-  input_hash: string;
-  judge: 'jev' | 'reviewer' | 'fallback';
-  independence?: 'different_family' | 'same_family';
-  judge_harness?: string;
-  judge_model?: string;
-}
-export interface Gate {
-  column: Column;
-  round: number;
-  input_digest: string;
-  checks: GateCheck[];
-  verdict: 'pass' | 'fail' | 'cannot_proceed';
-  route?: { column: Column; step?: string; reason: string };
-  reason?: string;
 }
 
 export interface AgentRun {
@@ -200,7 +158,16 @@ export interface InboxItem {
   workspace_id: string;
   card_id: string;
   user_id: string;
-  kind: 'escalated' | 'out_of_budget' | 'released' | 'publish_request' | 'revised' | 'reopened';
+  kind:
+    | 'escalated'
+    | 'released'
+    | 'autoresearch_card'
+    | 'autoresearch_report'
+    | 'middle_score'
+    | 'blocked'
+    | 'no_tool'
+    | 'scoring_unavailable'
+    | 'done';
   text: string;
   read_at: string | null;
   resolved_at: string | null;
@@ -286,7 +253,6 @@ export interface AgentDefinition {
 export interface Field {
   name: string;
   description: string;
-  start_kinds: string[];
   version: number | string;
   source: 'shipped' | 'uploaded';
   // Each column's agents, in board order.
@@ -314,7 +280,6 @@ export type Autoresearch = {
   description: string;
   execution_mode: 'create_card' | 'run_only';
   title_template: string;
-  budget_usd: number;
   status: 'active' | 'paused';
   pause_reason: string;
   created_at: string;

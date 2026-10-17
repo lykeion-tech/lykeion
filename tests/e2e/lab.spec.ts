@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LAB, labCode, labFixture, labSignIn } from './lab';
-import type { AgentRun, Gate, RunMessage } from '../../apps/dashboard/src/api/types';
-
-type RecordRow = { id: string; body: Gate };
+import type { AgentRun, RunMessage } from '../../apps/dashboard/src/api/types';
 
 test('the dashboard origin reaches the lab server through its proxy', async ({ request }) => {
   const me = await request.get('/api/me');
@@ -11,43 +9,6 @@ test('the dashboard origin reaches the lab server through its proxy', async ({ r
   const sent = await request.post('/auth/send-code', { data: { email: 'probe@lab.test' } });
   expect(sent.status()).toBe(204);
   expect(await labCode(request, 'probe@lab.test')).toMatch(/^\d{6}$/);
-});
-
-// These checks prove the fixture's real HTTP contract. Rendering belongs to the
-// study-page acceptance tests, which consume the same fixture helper.
-test('recorded gates keep long reasons and distinguish zero from unknown probability', async ({
-  request,
-}) => {
-  await labSignIn(request);
-  const fixture = await labFixture(request);
-  const headers = { 'X-Workspace-ID': fixture.workspace_id };
-  const res = await request.get(`/api/cards/${fixture.card_id}/gates`, { headers });
-  expect(res.status()).toBe(200);
-  const gates: RecordRow[] = await res.json();
-  expect(gates).toHaveLength(1);
-  expect(gates[0]!.id).toBe(fixture.gate_id);
-  const gate = gates[0]!.body;
-  expect(gate.verdict).toBe('fail');
-  expect(gate.reason).toBe(fixture.long_reason);
-  expect(gate.reason!.length).toBeGreaterThan(4000);
-  expect(gate.reason).toMatch(/END OF LONG JEV REASON$/);
-  expect(gate.checks).toHaveLength(2);
-  expect(gate.checks[0]).toMatchObject({
-    id: 'evidence.zero',
-    judge: 'jev',
-    result: 'fail',
-    p: 0,
-    choice: 'supports',
-    question: 'Does the recorded evidence support the claim?',
-    note: fixture.long_reason,
-  });
-  expect(gate.checks[1]).toMatchObject({
-    id: 'evidence.unknown',
-    result: 'attention',
-    choice: 'unclear',
-  });
-  expect(gate.checks[1]).not.toHaveProperty('p');
-  expect(fixture.pass_threshold).toBe(0.7);
 });
 
 test('the real message API paginates beyond 500 and scopes overlapping sequences by attempt', async ({

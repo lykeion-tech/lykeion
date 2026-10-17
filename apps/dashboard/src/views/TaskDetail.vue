@@ -15,43 +15,30 @@ import {
   useCardEvents,
   useCards,
   useComments,
-  useGates,
   useInbox,
   useMe,
-  useCardRecord,
-  useKindRecords,
   useMembers,
-  usePackVersions,
   useRecords,
   useRuns,
   useRuntimes,
   useWorkspace,
 } from '../api/queries';
-import type { Card, Column, PackVersion } from '../api/types';
+import type { Card, Column } from '../api/types';
 import {
   actionLabel,
   blockedActions,
   blockLabel,
   canResume,
-  sendBackTargets,
   type ComposerAction,
-  checkLine,
   columnName,
   earlierColumns,
   endLabel,
-  focusLabel,
-  gateOf,
-  jevThresholds,
   recordLine,
-  routeBackLimit,
   stages,
-  revisedTimes,
-  startingPoint,
   stateLabel,
   studyNumber,
   transcript,
 } from '../lib/studies';
-import { shortDate } from '../lib/dates';
 import { notify } from '../state/notice';
 import { usePins } from '../state/pins';
 import { useTaskComposer } from '../state/task-composer';
@@ -62,7 +49,6 @@ const emit = defineEmits<{ close: [] }>();
 const client = useQueryClient();
 const card = useCard(() => props.id);
 const cards = useCards();
-const gates = useGates(() => props.id);
 const comments = useComments(() => props.id);
 const events = useCardEvents(() => props.id);
 const runs = useRuns(() => props.id);
@@ -156,55 +142,11 @@ const stage = computed(() =>
   c.value && stages.includes(c.value.board_column) ? c.value.board_column : '',
 );
 const records = useRecords(() => props.id, stage);
-const isOwner = computed(() => Boolean(c.value && c.value.owner_id === me.data.value?.id));
-const points = useKindRecords(() => props.id, 'starting_point');
-const choices = useKindRecords(() => props.id, 'choice');
-const reopenEvidence = useKindRecords(() => props.id, 'reopen_evidence');
-// The result the newest revision cites, from whichever column holds it.
-const citedId = computed(() => {
-  const latest = [...(points.data.value ?? [])]
-    .sort((a, b) => Number(a.key) - Number(b.key))
-    .at(-1);
-  return latest?.key !== '0' && typeof latest?.body.cites === 'string' ? latest.body.cites : '';
-});
-const cited = useCardRecord(() => props.id, citedId);
-// Shown while the study runs on a revision; a reverted study is back on the original.
-const revision = computed(() => {
-  const sp = startingPoint([
-    ...(points.data.value ?? []),
-    ...(choices.data.value ?? []),
-    ...(cited.data.value ?? []),
-  ]);
-  return sp && c.value?.question !== sp.was ? sp : null;
-});
-const packVersions = usePackVersions(() => c.value?.pack_name ?? '');
-// The newest version of the study's Team its owner approved, when newer than its own.
-const newerVersion = computed(() => {
-  const rows = packVersions.data.value ?? [];
-  const at = rows.findIndex((v) => v.id === c.value?.pack_id);
-  return isOwner.value && at >= 0
-    ? rows
-        .slice(at + 1)
-        .filter((v) => v.approvals_by_me)
-        .at(-1)
-    : undefined;
-});
-const lastReopen = computed(
-  () =>
-    [...(events.data.value ?? [])].reverse().find((e) => e.type === 'card.reopened')?.created_at,
-);
-const timesLabel = (n: number) => (n === 1 ? 'Once' : n === 2 ? 'Twice' : `${n} times`);
-const allGates = computed(() => (gates.data.value ?? []).map(gateOf));
-const latestGate = computed(() =>
-  [...allGates.value].reverse().find((g) => g.column === stage.value),
-);
-const earlier = computed(() => (c.value ? earlierColumns(c.value, allGates.value) : []));
+const earlier = computed(() => (c.value ? earlierColumns(c.value) : []));
 const expanded = ref<Column | ''>('');
 const earlierRecords = useRecords(() => props.id, expanded);
-const openChecks = ref<string[]>([]);
 const resourceReads = computed(() =>
   [
-    { label: 'Gates', query: gates },
     { label: 'Comments', query: comments },
     { label: 'Events', query: events },
     { label: 'Runs', query: runs },
@@ -225,57 +167,32 @@ const entries = computed(() =>
     comments.data.value ?? [],
     runs.data.value ?? [],
     events.data.value ?? [],
-    reopenEvidence.data.value ?? [],
   ),
 );
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
-const editingBudget = ref(false);
-const budgetDraft = ref(0);
 const comment = ref('');
 const busy = ref(false);
 const error = ref('');
 const action = ref<ComposerAction>({ kind: 'comment' });
-const picker = ref<'' | 'main' | 'send-back'>('');
+const picker = ref<'' | 'main'>('');
 const placeholders: Record<ComposerAction['kind'], string> = {
   comment: 'Leave a comment… the stage roles read it next round.',
-  'send-back': 'Why it goes back; the redone roles read this.',
   stop: 'Why the study stops.',
   resume: 'Optional: a comment for the next round.',
-  'raise-cap': 'Optional: why it gets more attempts; the next round reads it.',
-  'add-data': 'Optional: what you added; Hypotheses reads it next.',
-  'unblock-resume': 'Optional: a comment for the next round.',
   close: 'Why the study closes.',
 };
 // Actions that send without text; any text goes first as a comment.
-const textOptional: ComposerAction['kind'][] = [
-  'resume',
-  'raise-cap',
-  'add-data',
-  'unblock-resume',
-];
+const textOptional: ComposerAction['kind'][] = ['resume'];
 const blocked = computed(() => (c.value ? blockedActions(c.value) : []));
 const inbox = useInbox(false);
 // The block's reason, as the newest escalated inbox item for this study says it.
 const blockReason = computed(
   () =>
     (inbox.data.value ?? [])
-      .filter((i) => i.card_id === props.id && i.kind === 'escalated')
+      .filter((i) => i.card_id === props.id && (i.kind === 'escalated' || i.kind === 'blocked'))
       .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.text ?? '',
 );
-function askCap() {
-  picker.value = '';
-  const used = c.value?.route_backs ?? 0;
-  const answer = prompt(`New cap, more than the ${used} already used:`, String(used + 1));
-  if (answer === null) return;
-  const cap = Number(answer);
-  if (!Number.isInteger(cap) || cap <= used) {
-    error.value = `The cap must be a whole number more than ${used}.`;
-    return;
-  }
-  error.value = '';
-  pick({ kind: 'raise-cap', cap });
-}
 let draftRevision = 0;
 let acknowledgedResumeComment: string | null = null;
 watch(
@@ -298,13 +215,10 @@ watch(
     generation++;
     detailsOpen.value = true;
     propertyBusy.value = false;
-    editingBudget.value = false;
-    budgetDraft.value = 0;
     comment.value = '';
     busy.value = false;
     error.value = '';
     expanded.value = '';
-    openChecks.value = [];
     action.value = { kind: 'comment' };
     picker.value = '';
     acknowledgedResumeComment = null;
@@ -336,15 +250,8 @@ function machine(runtimeId: string | null) {
   const r = runtimes.data.value?.find((x) => x.id === runtimeId);
   return r ? r.custom_name || r.device_name : '';
 }
-const usd = (n: number) => `$${n.toFixed(2)}`;
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-const toggleCheck = (id: string) =>
-  (openChecks.value = openChecks.value.includes(id)
-    ? openChecks.value.filter((x) => x !== id)
-    : [...openChecks.value, id]);
-const verdictLabel = { pass: 'Passed', fail: 'Routed back', cannot_proceed: 'Blocked' };
-
 // Each continuation, including the second Resume write, belongs to its captured visit.
 async function send() {
   const text = comment.value.trim();
@@ -367,14 +274,9 @@ async function send() {
       if (optional && ownDraftRevision === draftRevision) acknowledgedResumeComment = text;
     }
     if (!scope.current()) return;
-    if (a.kind === 'send-back') await api('POST', `${base}/send-back`, { to: a.to, reason: text });
     if (a.kind === 'stop') await api('POST', `${base}/stop`, { reason: text });
     if (a.kind === 'resume') await api('POST', `${base}/resume`);
     if (a.kind === 'close') await api('POST', `${base}/close`, { reason: text });
-    if (a.kind === 'raise-cap')
-      await api('POST', `${base}/unblock`, { action: 'raise_cap', cap: a.cap });
-    if (a.kind === 'add-data') await api('POST', `${base}/unblock`, { action: 'add_data' });
-    if (a.kind === 'unblock-resume') await api('POST', `${base}/unblock`, { action: 'resume' });
     if (!scope.current()) return;
     if (ownDraftRevision === draftRevision) {
       comment.value = '';
@@ -387,18 +289,6 @@ async function send() {
     if (scope.current()) error.value = (e as Error).message;
   } finally {
     if (scope.current()) busy.value = false;
-  }
-}
-async function saveBudget() {
-  const scope = mutationScope();
-  const usd = Math.max(0, Number(budgetDraft.value) || 0);
-  try {
-    await api('POST', `/api/cards/${scope.id}/budget`, { usd });
-    if (!scope.current()) return;
-    editingBudget.value = false;
-    await client.invalidateQueries({ queryKey: keys.card(scope.workspace, scope.id) });
-  } catch (e) {
-    if (scope.current()) error.value = (e as Error).message;
   }
 }
 async function remove() {
@@ -414,35 +304,6 @@ async function remove() {
     if (scope.current()) error.value = (e as Error).message;
   }
 }
-// Moves the study to another version of its Team, or puts it back on its
-// original starting point; both ask first, and the study rereads itself after.
-async function cardAction(question: string, path: string, body?: unknown) {
-  if (!confirm(question)) return;
-  const scope = mutationScope();
-  propertyBusy.value = true;
-  error.value = '';
-  try {
-    await api('POST', `/api/cards/${scope.id}/${path}`, body);
-    if (!scope.current()) return;
-    await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
-    if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
-  } catch (e) {
-    if (scope.current()) error.value = (e as Error).message;
-  } finally {
-    if (scope.current()) propertyBusy.value = false;
-  }
-}
-const moveTeam = (v: PackVersion) =>
-  cardAction(
-    `Move ${number.value} to ${v.name} Team v${v.version}? Its next rounds run that version's checks and skills.`,
-    'pack',
-    { pack_id: v.id },
-  );
-const revert = () =>
-  cardAction(
-    `Revert ${number.value} to its original starting point? It returns to Grounding, and the stages after it are redone.`,
-    'revert-revision',
-  );
 function pin() {
   if (!togglePin(props.id)) notify('The pin could not be saved on this device.');
 }
@@ -565,61 +426,8 @@ function pin() {
           <span class="avatar">{{ name(c.owner_id)[0] }}</span
           >{{ name(c.owner_id) }}
         </div>
-        <small>Budget</small>
-        <div v-if="!editingBudget" class="v">
-          {{ usd(c.spent_usd) }} {{ c.budget_usd > 0 ? `of ${usd(c.budget_usd)}` : '· no limit'
-          }}<button
-            v-if="!c.ending"
-            class="text-button push-right"
-            @click="
-              budgetDraft = c.budget_usd;
-              editingBudget = true;
-            "
-          >
-            Change
-          </button>
-        </div>
-        <form v-else class="v" @submit.prevent="saveBudget">
-          <input
-            v-model.number="budgetDraft"
-            type="number"
-            min="0"
-            step="0.5"
-            aria-label="Budget in USD"
-          /><button class="button compact">Save budget</button>
-        </form>
-        <div v-if="c.budget_usd > 0" class="budget-bar">
-          <i :style="{ width: Math.min(100, (100 * c.spent_usd) / c.budget_usd) + '%' }" />
-        </div>
         <small>Deadline</small>
         <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
-        <template v-if="c.pack_name">
-          <small>Team</small>
-          <div class="v team">
-            {{ c.pack_name }} Team v{{ c.pack_version
-            }}<button
-              v-if="newerVersion"
-              class="text-button push-right"
-              :disabled="propertyBusy"
-              @click="moveTeam(newerVersion)"
-            >
-              Move to v{{ newerVersion.version }}
-            </button>
-          </div>
-        </template>
-        <template v-if="c.start_kind">
-          <small>Starts as</small>
-          <div class="v">{{ focusLabel(c.start_kind) }}</div>
-        </template>
-        <small>Route-backs</small>
-        <div class="v">{{ c.route_backs }} of {{ routeBackLimit(c) }}</div>
-        <template v-if="c.reopens">
-          <small>Reopened</small>
-          <div class="v reopened">
-            {{ timesLabel(c.reopens)
-            }}{{ lastReopen ? ' · ' + new Date(lastReopen).toLocaleDateString() : '' }}
-          </div>
-        </template>
         <template v-if="c.follows_from.length">
           <small>Follows from</small>
           <div class="v">
@@ -695,33 +503,6 @@ function pin() {
         <div class="transcript-content study-content">
           <h1 class="study-title">{{ c.title }}</h1>
           <p class="study-question">{{ c.question }}</p>
-          <div v-if="revision" class="stage-box starting-point">
-            <h4>
-              Starting point · revised {{ revisedTimes(revision.revisions)
-              }}<span v-if="revision.drift" class="chip drift-chip">{{ revision.drift }}</span
-              ><span class="push-right muted">{{ shortDate(revision.at) }}</span>
-            </h4>
-            <div class="record-line">
-              <span class="key">now</span><span class="now">{{ revision.now }}</span>
-            </div>
-            <div class="record-line">
-              <span class="key">was</span><span class="was">{{ revision.was }}</span>
-            </div>
-            <div class="record-line">
-              <span class="key">Why</span
-              ><span class="why"
-                >{{ revision.why
-                }}{{ revision.runId ? ` (run ${revision.runId.slice(0, 8)})` : '' }}</span
-              ><button
-                v-if="isOwner && !c.ending"
-                class="text-button"
-                :disabled="propertyBusy"
-                @click="revert"
-              >
-                Revert ↺
-              </button>
-            </div>
-          </div>
           <div v-for="col in earlier" :key="col" class="stage-box collapsed-stage">
             <button
               :aria-expanded="expanded === col"
@@ -730,7 +511,7 @@ function pin() {
               <Icon :name="expanded === col ? 'down' : 'right'" :size="12" /><span
                 class="stage-dot"
                 :class="'status-' + col"
-              />{{ columnName(col) }}<span v-if="c.stale.includes(col)" class="chip">stale</span>
+              />{{ columnName(col) }}
             </button>
             <template v-if="expanded === col">
               <div
@@ -743,14 +524,6 @@ function pin() {
                 ><span>{{ recordLine(r).text }}</span
                 ><span v-if="recordLine(r).source" class="source">{{ recordLine(r).source }}</span
                 ><span v-if="r.superseded_at" class="superseded-mark">superseded</span>
-              </div>
-              <div
-                v-for="(g, i) in allGates.filter((x) => x.column === col)"
-                :key="i"
-                class="gate-line"
-              >
-                Gate · round {{ g.round }} · {{ verdictLabel[g.verdict]
-                }}<span v-if="g.reason" class="why"> · {{ g.reason }}</span>
               </div>
             </template>
           </div>
@@ -779,42 +552,6 @@ function pin() {
             <p v-if="records.isSuccess.value && !records.data.value?.length" class="muted">
               No records yet.
             </p>
-          </div>
-          <div v-if="latestGate" class="stage-box">
-            <h4>
-              Gate · round {{ latestGate.round
-              }}<span class="chip" :class="'gate-' + latestGate.verdict">{{
-                verdictLabel[latestGate.verdict]
-              }}</span>
-            </h4>
-            <p v-if="latestGate.route?.reason || latestGate.reason" class="gate-reason">
-              {{ latestGate.route?.reason || latestGate.reason }}
-            </p>
-            <template v-for="check in latestGate.checks" :key="check.id">
-              <div class="gate-line gate-check">
-                <span :class="checkLine(check).tone">{{ checkLine(check).mark }}</span
-                ><span class="name">{{ checkLine(check).name }}</span
-                ><span class="why">{{ checkLine(check, records.data.value).why }}</span
-                ><button
-                  v-if="checkLine(check).jev"
-                  class="text-button more"
-                  @click="toggleCheck(check.id)"
-                >
-                  Details {{ openChecks.includes(check.id) ? '▾' : '▸' }}
-                </button>
-              </div>
-              <div v-if="openChecks.includes(check.id)" class="gate-details">
-                <p>Jev asked: {{ check.question }}</p>
-                <p>
-                  It chose: {{ check.choice ?? 'no answer' }}, with probability
-                  {{ check.p?.toFixed(2) ?? '—' }}
-                </p>
-                <p>
-                  Threshold: passes at p ≥ {{ jevThresholds.pass }}, fails below
-                  {{ jevThresholds.fail }}; between, the reviewer decides.
-                </p>
-              </div>
-            </template>
           </div>
           <div
             v-for="read in readErrors"
@@ -890,39 +627,6 @@ function pin() {
                   Comment<small>next round</small>
                 </button>
                 <button
-                  v-if="blocked.includes('raise-cap')"
-                  type="button"
-                  role="menuitem"
-                  @click="askCap"
-                >
-                  Raise cap<small>asks for the new number</small>
-                </button>
-                <button
-                  v-if="blocked.includes('add-data')"
-                  type="button"
-                  role="menuitem"
-                  @click="pick({ kind: 'add-data' })"
-                >
-                  Add data or budget<small>returns to Hypotheses</small>
-                </button>
-                <button
-                  v-if="blocked.includes('unblock-resume')"
-                  type="button"
-                  role="menuitem"
-                  @click="pick({ kind: 'unblock-resume' })"
-                >
-                  Resume<small>clears the block</small>
-                </button>
-                <button
-                  v-if="!blocked.length && sendBackTargets(c).length"
-                  type="button"
-                  role="menuitem"
-                  aria-haspopup="menu"
-                  @click="picker = 'send-back'"
-                >
-                  Send back to<small>▸</small>
-                </button>
-                <button
                   v-if="blocked.includes('close')"
                   type="button"
                   role="menuitem"
@@ -947,22 +651,6 @@ function pin() {
                   @click="pick({ kind: 'resume' })"
                 >
                   Resume<small>clears the block</small>
-                </button>
-              </div>
-              <div
-                v-if="picker === 'send-back'"
-                class="action-menu"
-                role="menu"
-                aria-label="Send back to"
-              >
-                <button
-                  v-for="to in sendBackTargets(c)"
-                  :key="to"
-                  type="button"
-                  role="menuitem"
-                  @click="pick({ kind: 'send-back', to })"
-                >
-                  {{ columnName(to) }}
                 </button>
               </div>
             </div>
@@ -1722,66 +1410,6 @@ function pin() {
   margin-left: auto;
   white-space: nowrap;
 }
-.gate-reason {
-  white-space: pre-wrap;
-  line-height: 1.7;
-  background: var(--input);
-  border-left: 3px solid var(--control-border);
-  padding: 6px 10px;
-  margin: 6px 0 8px;
-  overflow-wrap: anywhere;
-}
-.gate-line {
-  display: flex;
-  gap: 9px;
-  align-items: baseline;
-  padding: 4px 0;
-  border-top: 1px solid var(--border);
-  overflow-wrap: anywhere;
-}
-.gate-check {
-  display: grid;
-  grid-template-columns: 14px minmax(120px, 170px) minmax(0, 1fr) auto;
-  line-height: 1.65;
-}
-.gate-line .name {
-  min-width: 0;
-  font-weight: 500;
-}
-.gate-line .why {
-  color: var(--muted);
-  min-width: 0;
-}
-.gate-line .more {
-  margin-left: auto;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.gate-details {
-  margin: 2px 0 6px 22px;
-  padding: 8px 10px;
-  background: var(--input);
-  border-radius: 6px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.ok {
-  color: #3c7a4a;
-}
-.bad {
-  color: #a33a44;
-}
-.att {
-  color: #8a6a1c;
-}
-.gate-pass {
-  background: #e6f1e8;
-  color: #3c7a4a;
-}
-.gate-fail {
-  background: #fbf0d9;
-  color: #8a6a1c;
-}
 .who {
   display: flex;
   align-items: center;
@@ -1854,19 +1482,6 @@ function pin() {
 .study-meta .link {
   color: var(--primary);
 }
-.budget-bar {
-  height: 5px;
-  background: var(--border);
-  border-radius: 3px;
-  margin-top: 5px;
-}
-.budget-bar i {
-  display: block;
-  height: 5px;
-  background: var(--primary);
-  border-radius: 3px;
-}
-
 .status-hypotheses {
   color: #ab54f4;
 }
@@ -2009,9 +1624,6 @@ function pin() {
 .details-body .v {
   font-size: 12px;
   margin: 0;
-}
-.details-body .budget-bar {
-  grid-column: 2;
 }
 .details-body .v input {
   width: 70px;

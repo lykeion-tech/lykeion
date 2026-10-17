@@ -1,18 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import * as studies from '../apps/dashboard/src/lib/studies';
 import {
-  focusPlaceholder,
   prefixFromSlug,
   randomWorkspaceName,
   slugFrom,
 } from '../apps/dashboard/src/lib/studies';
 
-describe('focusPlaceholder', () => {
-  it('words the description for each start kind', () => {
-    expect(focusPlaceholder('question')).toBe('What is the research question?');
-    expect(focusPlaceholder('dataset')).toBe(
-      'Which dataset, and what do you want to know about it?',
-    );
-    expect(focusPlaceholder('claim')).toBe('Which claim should be checked, and where is it from?');
+describe('removed features', () => {
+  it('removed features are gone', () => {
+    for (const name of ['focusLabel', 'focusPlaceholder', 'gateLabel', 'unblockActions'])
+      expect(Object.keys(studies)).not.toContain(name);
   });
 });
 
@@ -63,7 +60,6 @@ function card(extra: Partial<Card> = {}): Card {
     assignee_type: null,
     assignee_id: null,
     owner_id: 'u1',
-    budget_usd: 0,
     deadline: null,
     spent_usd: 0,
     board_column: 'grounding',
@@ -72,9 +68,6 @@ function card(extra: Partial<Card> = {}): Card {
     ending: '',
     end_reason: '',
     rounds: 0,
-    route_backs: 0,
-    stale: [],
-    rerun: '',
     follows_from: [],
     version: 1,
     created_at: '2026-10-15T10:00:00Z',
@@ -86,10 +79,12 @@ function card(extra: Partial<Card> = {}): Card {
     queued: false,
     role: '',
     pack_id: null,
-    start_kind: '',
-    cap: 3,
     block_kind: '',
-    reopens: 0,
+    scope_from: 'grounding',
+    scope_to: 'reporting',
+    teams: {},
+    redos: 0,
+    off_label: false,
     ...extra,
   };
 }
@@ -109,9 +104,6 @@ describe('board columns', () => {
   });
   it('shows a flagged active study in Blocked, and back in its column once the flag clears', () => {
     expect(boardColumnOf(card({ flag: 'escalated' }))).toBe('blocked');
-    expect(boardColumnOf(card({ flag: 'out_of_budget', board_column: 'validation' }))).toBe(
-      'blocked',
-    );
     expect(boardColumnOf(card({ flag: '' }))).toBe('grounding');
     expect(
       boardColumnOf(card({ flag: 'escalated', ending: 'stopped', board_column: 'done' })),
@@ -187,20 +179,15 @@ describe('backlog positions', () => {
 
 import {
   blockLabel,
-  checkLine,
   earlierColumns,
   eventText,
-  gateOf,
   recordLine,
-  routeBackLimit,
   transcript,
 } from '../apps/dashboard/src/lib/studies';
 import type {
   AgentRun,
   BlockKind,
-  Choice,
   Comment,
-  GateCheck,
   LykEvent,
   StudyRecord,
 } from '../apps/dashboard/src/api/types';
@@ -230,122 +217,18 @@ const lykEvent = (type: string, payload: Record<string, unknown>, at: string): L
   created_at: at,
 });
 
-describe('gates', () => {
-  it('draws one line per check', () => {
-    const pass: GateCheck = {
-      id: 'sources',
-      judge: 'code',
-      result: 'pass',
-      note: '7 of 7 cite a recorded source',
-    };
-    const fail: GateCheck = {
-      id: 'E3.claim',
-      judge: 'jev',
-      result: 'fail',
-      note: "doesn't state it",
-      question: 'Does it?',
-      p: 0.2,
-      choice: 'no',
-    };
-    const att: GateCheck = {
-      id: 'E5.origin',
-      judge: 'jev',
-      result: 'attention',
-      note: 'second-hand',
-    };
-    expect(checkLine(pass)).toEqual({
-      mark: '✓',
-      tone: 'ok',
-      name: 'sources',
-      why: '7 of 7 cite a recorded source',
-      jev: false,
-    });
-    expect(checkLine(fail)).toMatchObject({ mark: '✗', tone: 'bad', jev: true });
-    expect(checkLine(att)).toMatchObject({ mark: '!', tone: 'att' });
-  });
-  it('reads a gate record body', () => {
-    const g = gateOf(
-      rec('gate', {
-        column: 'grounding',
-        round: 2,
-        input_digest: 'x',
-        checks: [],
-        verdict: 'fail',
-        reason: 'r',
-      }),
-    );
-    expect(g.round).toBe(2);
-    expect(g.verdict).toBe('fail');
-  });
-  it('lists the stages before the current one, or the gated ones of an ended study', () => {
-    expect(earlierColumns(card({ board_column: 'experimentation' }), [])).toEqual([
+describe('stages and blocks', () => {
+  it('lists the stages before the current one', () => {
+    expect(earlierColumns(card({ board_column: 'experimentation' }))).toEqual([
       'grounding',
       'hypotheses',
     ]);
-    expect(earlierColumns(card({ board_column: 'grounding' }), [])).toEqual([]);
-    const gates = [
-      gateOf(rec('gate', { column: 'grounding', checks: [] })),
-      gateOf(rec('gate', { column: 'grounding', checks: [] })),
-    ];
-    expect(earlierColumns(card({ board_column: 'done', ending: 'stopped' }), gates)).toEqual([
-      'grounding',
-    ]);
+    expect(earlierColumns(card({ board_column: 'grounding' }))).toEqual([]);
+    expect(earlierColumns(card({ board_column: 'done', ending: 'stopped' }))).toEqual([]);
   });
-  it('reads the route-back limit from the card', () => {
-    expect(routeBackLimit({ ...card(), cap: 3 })).toBe(3);
-    expect(routeBackLimit({ ...card(), cap: 7 })).toBe(7);
-  });
-  it('names each block reason', () => {
-    const kinds: BlockKind[] = [
-      '',
-      'cap',
-      'infra',
-      'no_feasible_test',
-      'human_run',
-      'too_small_to_split',
-      'drift',
-    ];
-    expect(kinds.map(blockLabel)).toEqual([
-      '',
-      'cap reached',
-      'infrastructure',
-      'no feasible test',
-      'needs human-run test',
-      'too small to split',
-      'drift',
-    ]);
-  });
-  it('says when a stand-in or a same-family reviewer judged a check', () => {
-    const base: GateCheck = {
-      id: 'E5',
-      judge: 'reviewer',
-      result: 'attention',
-      note: 'second-hand',
-    };
-    const choice = (question: string, extra: Partial<Choice>) =>
-      rec(
-        'choice',
-        { question, candidates: {}, input_hash: 'h', judge: 'jev', ...extra },
-        question,
-      );
-    const sameFamily = choice('E5', { judge: 'reviewer', independence: 'same_family' });
-    const fallback = choice('E5', { judge: 'fallback', independence: 'different_family' });
-    expect(checkLine(base).why).toBe('second-hand');
-    expect(checkLine(base, [choice('E5', { judge: 'jev' })]).why).toBe('second-hand');
-    expect(checkLine(base, [choice('E6', { judge: 'fallback' })]).why).toBe('second-hand');
-    expect(checkLine(base, [sameFamily]).why).toBe(
-      'second-hand · judged by the reviewer (stand-in, same model family)',
-    );
-    expect(checkLine(base, [fallback]).why).toBe('second-hand · judged by the reviewer (stand-in)');
-    expect(checkLine(base, [{ ...fallback, superseded_at: '2026-10-15T11:00:00Z' }]).why).toBe(
-      'second-hand',
-    );
-    expect(checkLine({ ...base, id: 'E7', question: 'E5' }, [fallback]).why).toBe(
-      'second-hand · judged by the reviewer (stand-in)',
-    );
-    expect(checkLine({ ...base, note: undefined }, [fallback]).why).toBe(
-      'judged by the reviewer (stand-in)',
-    );
+  it('names the block reason', () => {
+    const kinds: BlockKind[] = ['', 'low_score'];
+    expect(kinds.map(blockLabel)).toEqual(['', 'low score']);
   });
 });
 
@@ -366,32 +249,6 @@ describe('records and transcript', () => {
     expect(eventText(lykEvent('card.started', { column: 'grounding' }, ''))).toBe(
       'Started in Grounding',
     );
-    expect(
-      eventText(
-        lykEvent(
-          'gate.decided',
-          { verdict: 'fail', to_column: 'grounding', reason: 'E3 is a review' },
-          '',
-        ),
-      ),
-    ).toBe('Gate routed the study back to Grounding: E3 is a review');
-    expect(
-      eventText(
-        lykEvent(
-          'gate.decided',
-          { verdict: 'pass', column: 'grounding', to_column: 'hypotheses' },
-          '',
-        ),
-      ),
-    ).toBe('Gate passed Grounding');
-    expect(
-      eventText(lykEvent('gate.decided', { verdict: 'cannot_proceed', reason: 'cap reached' }, '')),
-    ).toBe('Gate blocked the study: cap reached');
-    expect(
-      eventText(
-        lykEvent('card.steered', { path: '/api/cards/c/send-back', column: 'grounding' }, ''),
-      ),
-    ).toBe('Sent back to Grounding');
     expect(eventText(lykEvent('card.steered', { path: '/api/cards/c/resume' }, ''))).toBe(
       'Resumed',
     );
@@ -424,45 +281,23 @@ describe('records and transcript', () => {
   });
 });
 
-import {
-  actionLabel,
-  blockedActions,
-  canResume,
-  sendBackTargets,
-} from '../apps/dashboard/src/lib/studies';
+import { actionLabel, blockedActions, canResume } from '../apps/dashboard/src/lib/studies';
 
 describe('composer actions', () => {
-  it('offers only the earlier stages for Send back', () => {
-    expect(sendBackTargets(card({ board_column: 'validation' }))).toEqual([
-      'grounding',
-      'hypotheses',
-      'experimentation',
-    ]);
-    expect(sendBackTargets(card({ board_column: 'grounding' }))).toEqual([]);
-    expect(sendBackTargets(card({ board_column: 'backlog' }))).toEqual([]);
-    expect(sendBackTargets(card({ board_column: 'done', ending: 'stopped' }))).toEqual([]);
-  });
   it('offers Resume to a blocked active study only', () => {
     expect(canResume(card({ flag: 'escalated' }))).toBe(true);
     expect(canResume(card({ flag: '' }))).toBe(false);
     expect(canResume(card({ flag: 'escalated', ending: 'stopped' }))).toBe(false);
   });
   it('labels the chosen action', () => {
-    expect(actionLabel({ kind: 'send-back', to: 'grounding' })).toBe('Send back to Grounding');
     expect(actionLabel({ kind: 'comment' })).toBe('Comment');
-    expect(actionLabel({ kind: 'raise-cap', cap: 5 })).toBe('Raise cap to 5');
     expect(actionLabel({ kind: 'close' })).toBe('Close');
   });
-  it('offers only the ways out of the study’s block', () => {
-    const blocked = (block_kind: Card['block_kind']) =>
-      blockedActions(card({ flag: 'escalated', block_kind }));
-    expect(blocked('cap')).toEqual(['comment', 'raise-cap', 'close']);
-    expect(blocked('no_feasible_test')).toEqual(['comment', 'add-data', 'close']);
-    expect(blocked('infra')).toEqual(['comment', 'unblock-resume', 'close']);
-    expect(blocked('drift')).toEqual(['comment', 'unblock-resume', 'close']);
-    expect(blocked('human_run')).toEqual(['comment', 'close']);
-    expect(blocked('too_small_to_split')).toEqual(['comment', 'close']);
-    expect(blocked('')).toEqual([]);
+  it('offers Comment and Close to a blocked study', () => {
+    expect(blockedActions(card({ flag: 'escalated', block_kind: 'low_score' }))).toEqual([
+      'comment',
+      'close',
+    ]);
     expect(blockedActions(card())).toEqual([]);
   });
 });
@@ -506,71 +341,5 @@ describe('machines', () => {
     expect(daemons[0]!.activeRuns).toBe(2);
     expect(daemons[1]!.activeRuns).toBe(0);
     expect(daemons[1]!.online).toBe(false);
-  });
-});
-
-import { startingPoint } from '../apps/dashboard/src/lib/studies';
-
-describe('startingPoint', () => {
-  const point = (key: string, body: Record<string, unknown>) => ({
-    ...rec('starting_point', body, key),
-    id: 'sp' + key,
-  });
-  it('is null when no record exists or only the original does', () => {
-    expect(startingPoint([])).toBeNull();
-    expect(startingPoint([point('0', { text: 'Does X raise Y?' })])).toBeNull();
-  });
-  it('shows the newest revision against the original, how often, its drift answer and why', () => {
-    const at = (r: StudyRecord, board_column: StudyRecord['board_column'], round: number) => ({
-      ...r,
-      board_column,
-      round,
-    });
-    const result = {
-      ...at(rec('result', { text: 'No donor metadata on disease duration' }), 'experimentation', 2),
-      id: 'res',
-      agent_run_id: 'run-7',
-    };
-    const drift = (answer: string, round: number) =>
-      at(rec('choice', { question: 'drift', answer, judge: 'jev' }, 'drift'), 'validation', round);
-    const sp = startingPoint([
-      {
-        ...at(
-          point('2', { text: 'Does X raise Y in islets?', cites: 'res', reason: 'question' }),
-          'validation',
-          3,
-        ),
-        created_at: '2026-10-19T09:00:00Z',
-      },
-      point('0', { text: 'Does X raise Y?' }),
-      point('1', { text: 'Does X raise Y in mice?', cites: 'other', reason: 'question' }),
-      drift('reframes', 2),
-      drift('narrows', 3),
-      result,
-    ]);
-    expect(sp).toEqual({
-      now: 'Does X raise Y in islets?',
-      was: 'Does X raise Y?',
-      why: 'Experimentation found: No donor metadata on disease duration',
-      runId: 'run-7',
-      revisions: 2,
-      drift: 'Narrows',
-      at: '2026-10-19T09:00:00Z',
-    });
-  });
-  it('leaves why and the drift answer empty when their records are not among the records', () => {
-    const sp = startingPoint([
-      point('0', { text: 'Does X raise Y?' }),
-      point('1', { text: 'Does X raise Y in mice?', cites: 'gone', reason: 'question' }),
-    ]);
-    expect(sp).toMatchObject({ why: '', runId: '', revisions: 1, drift: '' });
-  });
-});
-
-import { revisedTimes } from '../apps/dashboard/src/lib/studies';
-
-describe('revisedTimes', () => {
-  it('words the revision count', () => {
-    expect([1, 2, 5].map(revisedTimes)).toEqual(['once', 'twice', '5 times']);
   });
 });
