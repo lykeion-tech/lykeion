@@ -142,15 +142,34 @@ func TestParseRefuses(t *testing.T) {
 	good := baseEntries(t, goodManifest())
 	ext := func(e entry) []entry { return append(append([]entry{}, good...), e) }
 	cases := map[string][]byte{
-		"dotdot":   build(t, ext(entry{name: "skills/../x", body: []byte("x")})...),
-		"dotdot2":  build(t, ext(entry{name: "../x", body: []byte("x")})...),
-		"absolute": build(t, ext(entry{name: "/abs", body: []byte("x")})...),
-		"symlink":  build(t, ext(entry{name: "skills/grounding/scout/l", body: []byte("SKILL.md"), mode: modeSymlink})...),
-		"too big":  append(bytes.Repeat([]byte{0}, MaxArchive), build(t, good...)...),
-		"too many": build(t, many...),
-		"dup pack": build(t, ext(entry{name: "pack.json", body: good[0].body})...),
-		"zip bomb": build(t, ext(entry{name: "skills/grounding/scout/big.bin", body: make([]byte, MaxArchive*4+1)})...),
-		"stray":    build(t, ext(entry{name: "evil.sh", body: []byte("x")})...),
+		"dotdot":                  build(t, ext(entry{name: "skills/../x", body: []byte("x")})...),
+		"dotdot2":                 build(t, ext(entry{name: "../x", body: []byte("x")})...),
+		"absolute":                build(t, ext(entry{name: "/abs", body: []byte("x")})...),
+		"symlink":                 build(t, ext(entry{name: "skills/grounding/scout/l", body: []byte("SKILL.md"), mode: modeSymlink})...),
+		"too big":                 append(bytes.Repeat([]byte{0}, MaxArchive), build(t, good...)...),
+		"too many":                build(t, many...),
+		"dup pack":                build(t, ext(entry{name: "pack.json", body: good[0].body})...),
+		"zip bomb":                build(t, bomb(good)...),
+		"oversize file":           build(t, ext(entry{name: "skills/grounding/scout/big.bin", body: make([]byte, MaxFile+1)})...),
+		"case dup file":           build(t, ext(entry{name: "skills/grounding/scout/skill.md", body: []byte("x")})...),
+		"case dup dir":            build(t, ext(entry{name: "skills/grounding/Scout/SKILL.md", body: []byte("x")})...),
+		"undeclared column skill": build(t, ext(entry{name: "skills/reporting/r/SKILL.md", body: []byte("x")})...),
+		"undeclared column check": build(t, ext(entry{name: "checks/reporting.star", body: []byte(goodStar)})...),
+		"empty name":              build(t, mut(func(m map[string]any) { m["name"] = "" })...),
+		"empty version":           build(t, mut(func(m map[string]any) { m["version"] = "" })...),
+		"trailing brace":          build(t, rawManifest(good, func(b []byte) []byte { return append(b, " }"...) })...),
+		"trailing bracket":        build(t, rawManifest(good, func(b []byte) []byte { return append(b, " ]"...) })...),
+		"trailing object":         build(t, rawManifest(good, func(b []byte) []byte { return append(b, " {}"...) })...),
+		"duplicate key": build(t, rawManifest(good, func(b []byte) []byte {
+			return append([]byte(`{"name":"a",`), b[1:]...)
+		})...),
+		"case-variant key": build(t, rawManifest(good, func(b []byte) []byte {
+			return append([]byte(`{"NAME":"a",`), b[1:]...)
+		})...),
+		"column case-variant key": build(t, rawManifest(good, func(b []byte) []byte {
+			return bytes.Replace(b, []byte(`"reviewer"`), []byte(`"Reviewer"`), 1)
+		})...),
+		"stray": build(t, ext(entry{name: "evil.sh", body: []byte("x")})...),
 		"unknown column": build(t, mut(func(m map[string]any) {
 			m["columns"].(map[string]any)["lunch"] = map[string]any{}
 		})...),
