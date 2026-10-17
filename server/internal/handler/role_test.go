@@ -107,7 +107,7 @@ func TestRoleRecords(t *testing.T) {
 		kind string
 		body any
 		want int
-	}{{"evidence", map[string]any{}, 403}, {"question", map[string]any{}, 400}, {"nonsense", map[string]any{}, 400}, {"free", nil, 400}, {"free", []string{}, 400}, {"free", "x", 400}, {"free", map[string]any{}, 201}} {
+	}{{"evidence", map[string]any{}, 403}, {"question", map[string]any{}, 400}, {"Nonsense", map[string]any{}, 400}, {"free", nil, 400}, {"free", []string{}, 400}, {"free", "x", 400}, {"free", map[string]any{}, 201}} {
 		if got := s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": tc.kind, "body": tc.body}, nil); got != tc.want {
 			t.Fatalf("%+v: %d", tc, got)
 		}

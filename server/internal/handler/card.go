@@ -478,6 +478,9 @@ func (h *H) createComment(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	if h.Engine != nil {
+		h.Engine.OnComment(comment.WorkspaceID, id)
+	}
 	writeJSON(w, http.StatusCreated, comment)
 }
 

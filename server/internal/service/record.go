@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"regexp"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -24,6 +26,27 @@ type Kind struct {
 	Validate  func(json.RawMessage) error
 	KeyPrefix string
 	Prepare   func(ctx context.Context, tx *store.Tx, w Writer, body json.RawMessage) (json.RawMessage, error)
+}
+
+// ServerKinds are the record kinds only the server writes: no role command
+// stores one, except the auditor's own `audit`.
+var ServerKinds = []string{"delegation", "self_step", "summary", "audit", "score", "outcome", "call", "tools"}
+
+var kindName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+
+// MayWrite says whether a run in role may store a record of kind through
+// the records route: any well-formed kind but the server's, and for the
+// auditor its audit too.
+func MayWrite(role, kind string) error {
+	switch {
+	case !kindName.MatchString(kind):
+		return Invalid("a record kind is a lowercase name of at most 32 letters, digits and underscores")
+	case role == "auditor" && kind == "audit":
+		return nil
+	case slices.Contains(ServerKinds, kind):
+		return Invalid(kind + " records are written by the server")
+	}
+	return nil
 }
 
 // Invalid is a record rejected for its content; the API answers 400.

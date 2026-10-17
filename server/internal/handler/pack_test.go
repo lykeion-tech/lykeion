@@ -320,14 +320,18 @@ func TestPackUploadOversize(t *testing.T) {
 	}
 }
 
-// TestRoleRecordWithoutKinds checks a server with no kinds wired refuses
-// every kind as unknown.
+// TestRoleRecordWithoutKinds checks a server with no kinds wired stores any
+// well-formed kind as the run's work, keyed by the server.
 func TestRoleRecordWithoutKinds(t *testing.T) {
 	s := newServer(t)
 	s.H.KindsFor = nil
 	_, _, _, run := s.roleFixture(t)
-	if got := s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": "question", "body": map[string]string{"text": "Scoped?"}}, nil); got != 400 {
-		t.Fatalf("%d", got)
+	var rec struct{ Key string }
+	if got := s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": "question", "body": map[string]string{"text": "Scoped?"}}, &rec); got != 201 || rec.Key != "r1" {
+		t.Fatalf("%d %+v", got, rec)
+	}
+	if got := s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": "question", "key": "q1", "body": map[string]string{}}, nil); got != 400 {
+		t.Fatalf("a key from the run: %d", got)
 	}
 }
 

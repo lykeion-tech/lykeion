@@ -45,10 +45,14 @@ func KindsFor(context.Context, *store.Tx, storage.Storage, db.Card) (map[string]
 }
 
 // OnSettled is wired to service.AgentRuns: a settled run may let its study
-// move on. A card-less run moves nothing.
-func (e *Engine) OnSettled(_ context.Context, t db.AgentRun) {
+// move on. A member's run wakes its leader, and a leader that stopped without
+// naming a member or finishing is nudged once. A card-less run moves nothing.
+func (e *Engine) OnSettled(ctx context.Context, t db.AgentRun) {
 	if t.CardID == nil {
 		return
+	}
+	if err := e.afterRun(ctx, t); err != nil {
+		slog.Error("after run", "agent_run", t.ID, "err", err)
 	}
 	e.Kick(t.WorkspaceID, *t.CardID)
 }
@@ -105,7 +109,7 @@ func (e *Engine) Advance(ctx context.Context, ws, id uuid.UUID) error {
 		if err != nil {
 			return err
 		}
-		if c.Ending != "" || c.Flag != "" || c.State != board.Working || board.StageIndex(c.BoardColumn) < 0 {
+		if !working(c) {
 			return nil
 		}
 		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: id, BoardColumn: c.BoardColumn, Round: c.Round})
@@ -116,11 +120,37 @@ func (e *Engine) Advance(ctx context.Context, ws, id uuid.UUID) error {
 	})
 }
 
+// columnTeam reads the Team working a study's column from its row, so no blob is
+// read inside the transaction. A column with no Team gives pgx.ErrNoRows.
+func columnTeam(ctx context.Context, tx *store.Tx, card uuid.UUID, column string) (uuid.UUID, *pack.Manifest, error) {
+	packID, err := tx.Q.GetCardTeamPack(ctx, db.GetCardTeamPackParams{WorkspaceID: tx.WS, CardID: card, BoardColumn: column})
+	if err != nil {
+		return uuid.Nil, nil, err
+	}
+	row, err := tx.Q.GetFieldPack(ctx, db.GetFieldPackParams{WorkspaceID: tx.WS, ID: packID})
+	if err != nil {
+		return uuid.Nil, nil, err
+	}
+	var m pack.Manifest
+	if err := json.Unmarshal(row.Manifest, &m); err != nil {
+		return uuid.Nil, nil, fmt.Errorf("%w: %v", ErrPackUnavailable, err)
+	}
+	return packID, &m, nil
+}
+
+// teamAgent is the study owner's own agent for one member of a Team.
+func teamAgent(ctx context.Context, tx *store.Tx, packID, owner uuid.UUID, member string) (db.Agent, error) {
+	a, err := tx.Q.GetTeamAgent(ctx, db.GetTeamAgentParams{WorkspaceID: tx.WS, PackID: packID, UserID: owner, Member: member})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return a, fmt.Errorf("%w: the study's owner has no agent for %s", ErrPackUnavailable, member)
+	}
+	return a, err
+}
+
 // worker is who starts the study's current column: the leader of its Team,
-// or, with no Team there, the study's agent. The Team's manifest is read from
-// its row, so no blob is read inside the transaction.
+// or, with no Team there, the study's agent.
 func (e *Engine) worker(ctx context.Context, tx *store.Tx, c db.Card) (string, *pack.Manifest, db.Agent, error) {
-	packID, err := tx.Q.GetCardTeamPack(ctx, db.GetCardTeamPackParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
+	packID, m, err := columnTeam(ctx, tx, c.ID, c.BoardColumn)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if c.AssigneeID == nil || c.AssigneeType == nil || *c.AssigneeType == "member" {
 			return "", nil, db.Agent{}, errNoAgent
@@ -131,46 +161,47 @@ func (e *Engine) worker(ctx context.Context, tx *store.Tx, c db.Card) (string, *
 	if err != nil {
 		return "", nil, db.Agent{}, err
 	}
-	row, err := tx.Q.GetFieldPack(ctx, db.GetFieldPackParams{WorkspaceID: tx.WS, ID: packID})
-	if err != nil {
-		return "", nil, db.Agent{}, err
-	}
-	var m pack.Manifest
-	if err := json.Unmarshal(row.Manifest, &m); err != nil {
-		return "", nil, db.Agent{}, fmt.Errorf("%w: %v", ErrPackUnavailable, err)
-	}
-	a, err := tx.Q.GetTeamAgent(ctx, db.GetTeamAgentParams{WorkspaceID: tx.WS, PackID: packID, UserID: c.OwnerID, Member: m.Leader.Name})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil, db.Agent{}, fmt.Errorf("%w: the study's owner has no agent for its leader", ErrPackUnavailable)
-	}
-	return "leader", &m, a, err
+	a, err := teamAgent(ctx, tx, packID, c.OwnerID, m.Leader.Name)
+	return "leader", m, a, err
 }
 
 // Start enqueues the first run of the study's current column, in the
 // caller's transaction: the leader's on a Team column, the study's agent's
-// otherwise. The run takes its harness, model and instructions from the
-// owner's agent row, and the protocol for its role is appended to them.
+// otherwise.
 func (e *Engine) Start(ctx context.Context, tx *store.Tx, c db.Card) error {
 	role, m, a, err := e.worker(ctx, tx, c)
 	if err != nil {
 		return err
 	}
+	_, err = e.enqueue(ctx, tx, c, role, m, a, "")
+	return err
+}
+
+// enqueue queues one run of role on the study's current column. The run
+// takes its harness, model and instructions from the owner's agent row, and
+// the protocol for its role is appended to them; note, when set, follows the
+// study in the prompt.
+func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role string, m *pack.Manifest, a db.Agent, note string) (db.AgentRun, error) {
 	comments, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
 	if err != nil {
-		return err
+		return db.AgentRun{}, err
 	}
 	// Read at start, so a change to the research context reaches the next run.
 	ws, err := tx.Q.GetWorkspace(ctx, tx.WS)
 	if err != nil {
-		return err
+		return db.AgentRun{}, err
+	}
+	p := prompt(c, role, comments, ws.ResearchContext)
+	if note != "" {
+		p += "\n" + note + "\n"
 	}
 	t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-		Role: role, Harness: a.Harness, Model: a.Model, Prompt: prompt(c, role, comments, ws.ResearchContext),
+		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p,
 		Skill: strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, m))})
 	if err != nil {
-		return err
+		return t, err
 	}
-	return tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Redos),
+	return t, tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Redos),
 		ID: t.ID, WorkspaceID: tx.WS})
 }
 

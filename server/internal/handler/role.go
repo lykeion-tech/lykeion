@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -110,18 +112,29 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 		roleError(w, r, err)
 		return
 	}
-	kind, ok := kinds[in.Kind]
-	if !ok {
-		writeErr(w, 400, "unknown record kind")
+	if err := service.MayWrite(role.Role, in.Kind); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
-	if !slices.Contains(kind.Roles, role.Role) {
+	// A kind the board registers keeps its own rules; any other kind is the
+	// run's work, keyed by the server.
+	kind, registered := kinds[in.Kind]
+	if registered && !slices.Contains(kind.Roles, role.Role) {
 		writeErr(w, 403, "role may not write this kind")
+		return
+	}
+	if !registered && in.Key != "" {
+		writeErr(w, 400, "the server gives a record its key")
 		return
 	}
 	in.Body = bytes.TrimSpace(in.Body)
 	if len(in.Body) == 0 || in.Body[0] != '{' || !json.Valid(in.Body) {
 		writeErr(w, 400, "body must be a JSON object")
+		return
+	}
+	cites, err := callCites(in.Body)
+	if err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	if kind.Validate != nil {
@@ -162,7 +175,23 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 				return errBlobReference
 			}
 		}
-		if kind.KeyPrefix != "" {
+		if len(cites) > 0 {
+			found, err := tx.Q.LiveRecordKeys(r.Context(), db.LiveRecordKeysParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, Keys: cites})
+			if err != nil {
+				return err
+			}
+			for _, k := range cites {
+				if !slices.Contains(found, k) {
+					return service.Invalid("no recorded call has the key " + k)
+				}
+			}
+		}
+		if !registered {
+			var err error
+			if in.Key, err = records.NextRecordKey(r.Context(), tx, role.CardID); err != nil {
+				return err
+			}
+		} else if kind.KeyPrefix != "" {
 			n, err := tx.Q.CountKindRecords(r.Context(), db.CountKindRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: role.Column, Kind: in.Kind})
 			if err != nil {
 				return err
@@ -194,6 +223,34 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 201, rec)
 }
+
+var callKey = regexp.MustCompile(`^c[0-9]+$`)
+
+// callCites reads the calls a record body cites, `call:<key>` each, and
+// returns their keys.
+func callCites(body json.RawMessage) ([]string, error) {
+	var v struct {
+		Cites json.RawMessage `json:"cites"`
+	}
+	json.Unmarshal(body, &v)
+	if v.Cites == nil {
+		return nil, nil
+	}
+	var refs []string
+	if err := json.Unmarshal(v.Cites, &refs); err != nil {
+		return nil, errors.New("cites must be a list of call:KEY references")
+	}
+	keys := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		k, ok := strings.CutPrefix(ref, "call:")
+		if !ok || !callKey.MatchString(k) {
+			return nil, fmt.Errorf("cite %q is not a call:KEY reference", ref)
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
 func (h *H) listRecords(w http.ResponseWriter, r *http.Request) {
 	var records []db.Record
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
@@ -205,6 +262,9 @@ func (h *H) listRecords(w http.ResponseWriter, r *http.Request) {
 		records, err = tx.Q.ListRecords(r.Context(), db.ListRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: col})
 		return err
 	})
+	if kind := r.URL.Query().Get("kind"); kind != "" {
+		records = slices.DeleteFunc(records, func(rec db.Record) bool { return rec.Kind != kind })
+	}
 	if err != nil {
 		roleError(w, r, err)
 		return

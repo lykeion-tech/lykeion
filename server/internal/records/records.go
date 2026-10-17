@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -172,4 +173,31 @@ func (b Batch) Write(ctx context.Context, tx *store.Tx, c db.Card) error {
 func NextCallKey(ctx context.Context, tx *store.Tx, card uuid.UUID) (string, error) {
 	n, err := tx.Q.LastCallNumber(ctx, db.LastCallNumberParams{WorkspaceID: tx.WS, CardID: card})
 	return fmt.Sprintf("c%d", n+1), err
+}
+
+// NextRecordKey is the key of a study's next record written through a role
+// command: r1, r2, … across all its columns. The caller holds the card's lock.
+func NextRecordKey(ctx context.Context, tx *store.Tx, card uuid.UUID) (string, error) {
+	n, err := tx.Q.LastRecordNumber(ctx, db.LastRecordNumberParams{WorkspaceID: tx.WS, CardID: card})
+	return fmt.Sprintf("r%d", n+1), err
+}
+
+// WriteAs inserts a record a run's role command caused, under the study's next
+// key, on the run's column and round.
+func WriteAs(ctx context.Context, tx *store.Tx, w service.Writer, kind string, body any) (db.Record, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return db.Record{}, err
+	}
+	key, err := NextRecordKey(ctx, tx, w.Card)
+	if err != nil {
+		return db.Record{}, err
+	}
+	rec, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: tx.WS, CardID: w.Card, BoardColumn: w.Column, Round: w.Round,
+		Kind: kind, Role: w.Role, Key: key, Body: b, AgentRunID: &w.AgentRun})
+	if err != nil {
+		return db.Record{}, err
+	}
+	return rec, tx.Emit(ctx, "record.created", &w.Card, store.Actor{Type: "role", ID: w.AgentRun},
+		map[string]any{"record_id": rec.ID, "kind": kind, "key": key, "role": w.Role})
 }

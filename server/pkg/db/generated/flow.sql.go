@@ -11,6 +11,76 @@ import (
 	"github.com/google/uuid"
 )
 
+const agentRunRecords = `-- name: AgentRunRecords :many
+SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND agent_run_id = $2
+ORDER BY created_at, id
+`
+
+type AgentRunRecordsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	AgentRunID  *uuid.UUID `json:"agent_run_id"`
+}
+
+func (q *Queries) AgentRunRecords(ctx context.Context, arg AgentRunRecordsParams) ([]Record, error) {
+	rows, err := q.db.Query(ctx, agentRunRecords, arg.WorkspaceID, arg.AgentRunID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Record
+	for rows.Next() {
+		var i Record
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Kind,
+			&i.Role,
+			&i.Key,
+			&i.Body,
+			&i.BlobKey,
+			&i.AgentRunID,
+			&i.SupersededAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const countRoundKindRecords = `-- name: CountRoundKindRecords :one
+SELECT count(*) FROM record WHERE workspace_id = $1 AND card_id = $2
+  AND board_column = $3 AND round = $4 AND kind = $5
+`
+
+type CountRoundKindRecordsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	BoardColumn string    `json:"board_column"`
+	Round       int32     `json:"round"`
+	Kind        string    `json:"kind"`
+}
+
+func (q *Queries) CountRoundKindRecords(ctx context.Context, arg CountRoundKindRecordsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRoundKindRecords,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.BoardColumn,
+		arg.Round,
+		arg.Kind,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getTeamAgent = `-- name: GetTeamAgent :one
 SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at FROM team_agent t JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
 WHERE t.workspace_id = $1 AND t.pack_id = $2 AND t.user_id = $3 AND t.member = $4
@@ -47,4 +117,55 @@ func (q *Queries) GetTeamAgent(ctx context.Context, arg GetTeamAgentParams) (Age
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const lastRecordNumber = `-- name: LastRecordNumber :one
+SELECT COALESCE(max(substr(key, 2)::int), 0)::int AS n FROM record
+WHERE workspace_id = $1 AND card_id = $2 AND key ~ '^r[0-9]+$'
+`
+
+type LastRecordNumberParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+// The last record number of a study: r1, r2, … across its columns and rounds,
+// superseded ones included. Callers hold the card lock.
+func (q *Queries) LastRecordNumber(ctx context.Context, arg LastRecordNumberParams) (int32, error) {
+	row := q.db.QueryRow(ctx, lastRecordNumber, arg.WorkspaceID, arg.CardID)
+	var n int32
+	err := row.Scan(&n)
+	return n, err
+}
+
+const liveRecordKeys = `-- name: LiveRecordKeys :many
+SELECT DISTINCT key FROM record WHERE workspace_id = $1 AND card_id = $2
+  AND key = ANY($3::text[]) AND superseded_at IS NULL
+`
+
+type LiveRecordKeysParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Keys        []string  `json:"keys"`
+}
+
+// Which of keys name a live record of the study.
+func (q *Queries) LiveRecordKeys(ctx context.Context, arg LiveRecordKeysParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, liveRecordKeys, arg.WorkspaceID, arg.CardID, arg.Keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		items = append(items, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

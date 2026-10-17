@@ -12,19 +12,23 @@ case "$*" in
   *"--input-format stream-json"*) IFS= read -r prompt ;;
   *) prompt="$(cat)" ;;
 esac
-# The browser tests' demo Team names its roles demo-<column>-author and
-# demo-<column>-reviewer. Each author writes its column's note and each
-# reviewer passes it, so a study on that Team moves on until one of the Team's
-# own checks fails it.
-case "$prompt" in *"You are the demo-"*)
-  demo=$(printf '%s' "$prompt" | grep -o 'You are the demo-[a-z]*-[a-z]* role' | head -n 1 | sed 's/^You are the //; s/ role$//')
-  [ -n "$demo" ] || exit 1
-  case "$demo" in
-    *-author)
-      col=${demo#demo-}; col=${col%-author}
-      printf 'The %s note.\n' "$col" | lyk ground notes >/dev/null || exit 1 ;;
-    *-reviewer)
-      lyk review verdict --result pass --reason "the note is there" >/dev/null || exit 1 ;;
+# The browser tests' demo Team names its members demo-*. Its leader names its
+# first member, the member writes a note, and the leader, woken with the
+# member's work, declares the column done citing it.
+role=$(printf '%s' "$prompt" | grep -oE 'You are the [a-z0-9_-]+ on Lykeion study' | head -n 1 | sed 's/^You are the //; s/ on Lykeion study$//')
+member=$(sed -n '/^Your members:/{n;s/^- \([^:]*\):.*/\1/p;}' SKILL.md 2>/dev/null)
+case "$role:$member" in leader:demo-*|demo-*:)
+  case "$role" in
+    leader)
+      case "$prompt" in
+        *"finished the step you named."*)
+          key=$(printf '%s' "$prompt" | grep -o -- '- r[0-9][0-9]* (' | head -n 1 | sed 's/^- //; s/ ($//')
+          printf 'The note is there.\n' | lyk team done --content-stdin ${key:+--cites "$key"} >/dev/null || exit 1 ;;
+        *)
+          lyk team step "$member" --content "Write the column's note." >/dev/null || exit 1 ;;
+      esac ;;
+    *)
+      printf '{"text":"The %s note."}' "$role" | lyk record put note --content-stdin >/dev/null || exit 1 ;;
   esac
   d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/fake"
   mkdir -p "$d" && : > "$d/s.jsonl"

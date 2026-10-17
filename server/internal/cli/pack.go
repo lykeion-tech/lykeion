@@ -12,7 +12,7 @@ import (
 
 // teamCmd manages the caller's Team archives.
 func teamCmd(e *env) *cobra.Command {
-	c := &cobra.Command{Use: "team", Short: "Team archives: upload, list versions, approve"}
+	c := &cobra.Command{Use: "team", Short: "Team archives: upload, list versions, approve; inside a run: step, done"}
 	upload := &cobra.Command{Use: "upload FILE", Args: cobra.ExactArgs(1), Short: "Upload a Team archive (.zip) of your own", RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
@@ -61,6 +61,6 @@ func teamCmd(e *env) *cobra.Command {
 		fmt.Fprintf(e.out, "approved %s\n", a[0])
 		return nil
 	}}
-	c.AddCommand(upload, versions, approve)
+	c.AddCommand(upload, versions, approve, teamStepCmd(e), teamDoneCmd(e))
 	return c
 }

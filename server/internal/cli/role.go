@@ -31,16 +31,12 @@ func record(cmd *cobra.Command, e *env, kind string, body any) error {
 	if err != nil {
 		return err
 	}
-	var out struct {
-		Key string `json:"key"`
-	}
+	var out map[string]any
 	if err := c.Do(cmd.Context(), "POST", "/api/role/records", map[string]any{"kind": kind, "body": body}, &out); err != nil {
 		return err
 	}
-	if out.Key != "" {
-		fmt.Fprintln(e.out, out.Key)
-	}
-	return nil
+	key, _ := out["key"].(string)
+	return emit(cmd, e, out, key)
 }
 
 func stdinText(e *env) (string, error) {
@@ -48,34 +44,52 @@ func stdinText(e *env) (string, error) {
 	return string(b), err
 }
 
-// resultCmd ends an agent run as failed, which escalates the card.
+// resultCmd ends a member's run without work; its leader is woken with the
+// reason.
 func resultCmd(e *env) *cobra.Command {
 	r := &cobra.Command{Use: "result", Short: "End your run as failed"}
 	var reason string
-	failed := &cobra.Command{Use: "failed", Short: "You cannot do the job; a person will look", RunE: func(cmd *cobra.Command, _ []string) error {
-		return record(cmd, e, "failed", map[string]string{"reason": reason})
+	failed := &cobra.Command{Use: "failed", Short: "You cannot do the step; your leader is told why", RunE: func(cmd *cobra.Command, _ []string) error {
+		text, err := content(cmd, e)
+		if err != nil {
+			return err
+		}
+		if text == "" {
+			text = reason
+		}
+		return record(cmd, e, "failed", map[string]string{"reason": text})
 	}}
-	for _, c := range []*cobra.Command{failed} {
-		c.Flags().StringVar(&reason, "reason", "", "what happened, specifically")
-	}
+	contentFlags(failed, "what happened, specifically")
+	failed.Flags().StringVar(&reason, "reason", "", "the same as --content")
+	outputFlag(failed)
 	r.AddCommand(failed)
 	return r
 }
 
 func recordsCmd(e *env) *cobra.Command {
-	var column string
+	var column, kind string
 	cmd := &cobra.Command{Use: "records", Short: "Print the column's live records", RunE: func(cmd *cobra.Command, _ []string) error {
 		c, err := roleClient()
 		if err != nil {
 			return err
 		}
 		var recs []json.RawMessage
-		path := "/api/role/records"
+		q := url.Values{}
 		if column != "" {
-			path += "?column=" + url.QueryEscape(column)
+			q.Set("column", column)
+		}
+		if kind != "" {
+			q.Set("kind", kind)
+		}
+		path := "/api/role/records"
+		if len(q) > 0 {
+			path += "?" + q.Encode()
 		}
 		if err := c.Do(cmd.Context(), "GET", path, nil, &recs); err != nil {
 			return err
+		}
+		if o, _ := cmd.Flags().GetString("output"); o == "json" {
+			return emit(cmd, e, recs, "")
 		}
 		for _, r := range recs {
 			fmt.Fprintln(e.out, string(r))
@@ -83,6 +97,8 @@ func recordsCmd(e *env) *cobra.Command {
 		return nil
 	}}
 	cmd.Flags().StringVar(&column, "column", "", "default: your run's column")
+	cmd.Flags().StringVar(&kind, "kind", "", "only records of this kind")
+	outputFlag(cmd)
 	return cmd
 }
 

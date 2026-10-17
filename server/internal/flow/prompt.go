@@ -82,7 +82,8 @@ func Protocol(role, column string, m *pack.Manifest) string {
 			"1. Read the study's records (`lyk records`) and decide the next step.\n" +
 			"2. Name the member for it: `lyk team step MEMBER --content \"…\"`. Say only what the member cannot read in the study for themselves.\n" +
 			"3. Stop after naming one member. You are woken when their work lands.\n" +
-			"4. When no member fits a step, do it yourself, and say so first with `lyk team step --self --content \"…\"`.\n" +
+			"4. When no member fits a step, do it yourself: say so first with `lyk team step --self --content \"…\"`, " +
+			"then write the work with `lyk record put KIND --content-file body.json`.\n" +
 			"5. " + finish)
 	case "agent":
 		b.WriteString(writeWork + finish)
