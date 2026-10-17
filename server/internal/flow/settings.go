@@ -1,6 +1,4 @@
-// Package round advances cards: it queues each phase's role runs, runs the
-// column's gate on the server, queues the reviewer, and applies the result.
-package round
+package flow
 
 import "encoding/json"
 

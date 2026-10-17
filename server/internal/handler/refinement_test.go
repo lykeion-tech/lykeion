@@ -23,7 +23,7 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 		t.Fatalf("update: %d %+v", code, res)
 	}
 	var card map[string]any
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "How?", "budget_usd": 7}, &card)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "How?"}, &card)
 	id, owner := card["id"].(string), card["owner_id"].(string)
 	path := "/api/cards/" + id + "/properties"
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column='grounding',rounds=2,spent_usd=1 WHERE id=$1`, id); err != nil {
@@ -50,7 +50,7 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 		} else {
 			s.call(t, "GET", route, a, w.ID, nil, &card)
 		}
-		if card["research_id"] != rid || card["assignee_type"] != "member" || card["assignee_id"] != owner || card["owner_id"] != owner || card["board_column"] != "grounding" || card["budget_usd"] != float64(7) || card["rounds"] != float64(2) || card["spent_usd"] != float64(1) {
+		if card["research_id"] != rid || card["assignee_type"] != "member" || card["assignee_id"] != owner || card["owner_id"] != owner || card["board_column"] != "grounding" || card["rounds"] != float64(2) || card["spent_usd"] != float64(1) {
 			t.Fatalf("canonical/science fields: %+v", card)
 		}
 	}
@@ -61,7 +61,7 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	if code := s.call(t, "GET", "/api/researches/"+rid, a, w.ID, nil, &detail); code != 200 || detail.Name != "Sharper methods" || len(detail.Studies) != 1 || detail.Studies[0]["id"] != id {
 		t.Fatalf("detail: %d %+v", code, detail)
 	}
-	for _, bad := range []map[string]any{{"assignee_type": "member"}, {"assignee_id": owner}, {"assignee_type": "member", "assignee_id": nil}, {"assignee_type": "team", "assignee_id": owner}, {"assignee_type": "member", "assignee_id": uuid.NewString()}, {"research_id": uuid.NewString(), "assignee_type": nil, "assignee_id": nil}, {"research_id": nil, "budget_usd": 99}, {}} {
+	for _, bad := range []map[string]any{{"assignee_type": "member"}, {"assignee_id": owner}, {"assignee_type": "member", "assignee_id": nil}, {"assignee_type": "team", "assignee_id": owner}, {"assignee_type": "member", "assignee_id": uuid.NewString()}, {"research_id": uuid.NewString(), "assignee_type": nil, "assignee_id": nil}, {}} {
 		if code := s.call(t, "PATCH", path, a, w.ID, bad, nil); code != 400 {
 			t.Fatalf("bad properties %v: %d", bad, code)
 		}
@@ -206,7 +206,7 @@ func TestRegistryValidationAndOwnerDeparture(t *testing.T) {
 		t.Fatalf("admin private edit: %d", code)
 	}
 	var study map[string]any
-	if code := s.call(t, "POST", "/api/cards", owner, w.ID, map[string]any{"question": "Preserve on departure", "budget_usd": 7}, &study); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", owner, w.ID, map[string]any{"question": "Preserve on departure"}, &study); code != 201 {
 		t.Fatalf("study: %d", code)
 	}
 	studyID := study["id"].(string)
@@ -219,7 +219,7 @@ func TestRegistryValidationAndOwnerDeparture(t *testing.T) {
 	if code := s.call(t, "POST", "/api/workspaces/"+w.ID+"/leave", member, "", nil, nil); code != 204 {
 		t.Fatalf("leave: %d", code)
 	}
-	if code := s.call(t, "GET", "/api/cards/"+studyID, owner, w.ID, nil, &study); code != 200 || study["assignee_type"] != nil || study["assignee_id"] != nil || study["board_column"] != "grounding" || study["rounds"] != float64(3) || study["spent_usd"] != float64(2) || study["budget_usd"] != float64(7) {
+	if code := s.call(t, "GET", "/api/cards/"+studyID, owner, w.ID, nil, &study); code != 200 || study["assignee_type"] != nil || study["assignee_id"] != nil || study["board_column"] != "grounding" || study["rounds"] != float64(3) || study["spent_usd"] != float64(2) {
 		t.Fatalf("departure must clear responsibility and preserve study: %d %+v", code, study)
 	}
 	if code := s.call(t, "GET", "/api/agents/"+id, owner, w.ID, nil, &a); code != 200 || a["archived_at"] == nil {

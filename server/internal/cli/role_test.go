@@ -13,7 +13,7 @@ import (
 func TestRoleCommandsNeedAnAgentRunToken(t *testing.T) {
 	t.Setenv("LYK_TOKEN", "")
 	cmd := Root(strings.NewReader("q"), &strings.Builder{})
-	cmd.SetArgs([]string{"ground", "question"})
+	cmd.SetArgs([]string{"records"})
 	cmd.SetErr(&strings.Builder{})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "LYK_TOKEN") {
 		t.Fatalf("%v", err)
@@ -23,21 +23,10 @@ func TestRoleCommandsNeedAnAgentRunToken(t *testing.T) {
 func TestResultCommandsNeedAnAgentRunToken(t *testing.T) {
 	t.Setenv("LYK_TOKEN", "")
 	cmd := Root(strings.NewReader(""), &strings.Builder{})
-	cmd.SetArgs([]string{"result", "nothing-found", "--reason", "x"})
+	cmd.SetArgs([]string{"result", "failed", "--reason", "x"})
 	cmd.SetErr(&strings.Builder{})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "LYK_TOKEN") {
 		t.Fatalf("%v", err)
-	}
-}
-
-func TestInstall(t *testing.T) {
-	proj := t.TempDir()
-	lyk(t, "", "install", "claude", "--project", proj)
-	lyk(t, "", "install", "codex", "--project", proj)
-	for _, p := range []string{".claude/skills/lyk/SKILL.md", ".agents/skills/lyk/SKILL.md"} {
-		if _, err := os.Stat(filepath.Join(proj, p)); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 
@@ -57,7 +46,7 @@ func TestRoleCommandsUseOnlyRunCredentials(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if r.URL.Path != "/api/role/records" || body.Kind != "question" || body.Body["text"] != "Research?" {
+		if r.URL.Path != "/api/role/records" || body.Kind != "failed" || body.Body["reason"] != "stuck" {
 			t.Errorf("unexpected request: %s %+v", r.URL.Path, body)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -66,7 +55,7 @@ func TestRoleCommandsUseOnlyRunCredentials(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("LYK_TOKEN", "ltk_run")
 	t.Setenv("LYK_SERVER", srv.URL)
-	if got := lyk(t, "Research?", "ground", "question"); got != "record-key\n" {
+	if got := lyk(t, "", "result", "failed", "--reason", "stuck"); got != "record-key\n" {
 		t.Fatal(got)
 	}
 }

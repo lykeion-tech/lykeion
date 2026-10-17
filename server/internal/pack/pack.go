@@ -6,7 +6,6 @@ package pack
 import (
 	"archive/zip"
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -19,7 +18,6 @@ import (
 	"strings"
 
 	"lykeion/server/internal/board"
-	"lykeion/server/internal/pack/check"
 )
 
 const (
@@ -53,8 +51,6 @@ type Manifest struct {
 	Version            string            `json:"version"`
 	Description        string            `json:"description"` // shown when a researcher picks their field
 	StartKinds         []string          `json:"start_kinds"`
-	Cap                int32             `json:"cap,omitempty"` // 0 means the core default
-	Bands              *board.Bands      `json:"bands,omitempty"`
 	Columns            map[string]Column `json:"columns"`
 	Failures           map[string]string `json:"failures"`                // failure type → target column
 	Sources            []string          `json:"sources,omitempty"`       // connector ids a study may use; narrows the workspace's enabled set
@@ -69,7 +65,6 @@ type Pack struct {
 	Manifest Manifest
 	SHA256   string
 	Skills   map[string]map[string][]byte // "<column>/<role>" → files under skills/<column>/<role>/, keyed by relative path
-	Checks   map[string][]byte            // column → checks/<column>.star
 }
 
 // Parse reads and validates an archive. Any problem is an error and nothing
@@ -97,7 +92,6 @@ func Parse(zipBytes []byte) (*Pack, error) {
 	p := &Pack{
 		SHA256: hex.EncodeToString(sum[:]),
 		Skills: map[string]map[string][]byte{},
-		Checks: map[string][]byte{},
 	}
 	if err := checkKeys(raw); err != nil {
 		return nil, err
@@ -120,9 +114,6 @@ func Parse(zipBytes []byte) (*Pack, error) {
 				p.Skills[key] = map[string][]byte{}
 			}
 			p.Skills[key][strings.Join(parts[3:], "/")] = body
-		case parts[0] == "checks" && len(parts) == 2 && strings.HasSuffix(parts[1], ".star") &&
-			slices.Contains(board.Stages, strings.TrimSuffix(parts[1], ".star")):
-			p.Checks[strings.TrimSuffix(parts[1], ".star")] = body
 		default:
 			return nil, fmt.Errorf("pack: unexpected file %q", name)
 		}
@@ -188,11 +179,6 @@ func (p *Pack) validate(files map[string][]byte) error {
 			return fmt.Errorf("pack: skills for undeclared column in %q", key)
 		}
 	}
-	for col := range p.Checks {
-		if _, ok := m.Columns[col]; !ok {
-			return fmt.Errorf("pack: check script for undeclared column %q", col)
-		}
-	}
 	if len(m.StartKinds) == 0 {
 		return errors.New("pack: start_kinds is empty")
 	}
@@ -200,12 +186,6 @@ func (p *Pack) validate(files map[string][]byte) error {
 		if !slices.Contains([]string{"question", "dataset", "claim"}, k) {
 			return fmt.Errorf("pack: start kind %q is not question, dataset or claim", k)
 		}
-	}
-	if m.Cap < 0 {
-		return errors.New("pack: cap is negative")
-	}
-	if b := m.Bands; b != nil && !(0 < b.No && b.No < b.Yes && b.Yes < 1) {
-		return errors.New("pack: bands must satisfy 0 < no < yes < 1")
 	}
 	if s := m.Split; s != nil && (s.Unit == "" || !(0 < s.Ratio && s.Ratio < 1)) {
 		return errors.New("pack: split needs a unit and 0 < ratio < 1")
@@ -221,9 +201,6 @@ func (p *Pack) validate(files map[string][]byte) error {
 	for name, c := range m.Columns {
 		if !slices.Contains(board.Stages, name) {
 			return fmt.Errorf("pack: column %q is not a stage", name)
-		}
-		if _, ok := p.Checks[name]; !ok {
-			return fmt.Errorf("pack: column %q has no checks/%s.star", name, name)
 		}
 		inColumn := map[string]bool{}
 		roles := slices.Concat(slices.Concat(c.Phases...), []string{c.Reviewer})
@@ -265,21 +242,6 @@ func (p *Pack) Skill(column, role string) string {
 // SkillFiles is the role's whole folder, keyed by path relative to it.
 func (p *Pack) SkillFiles(column, role string) map[string][]byte {
 	return p.Skills[column+"/"+role]
-}
-
-// Check runs the column's script over recs; its failure types are the
-// manifest's declared ones.
-func (p *Pack) Check(ctx context.Context, column string, recs []check.Record) ([]check.Result, error) {
-	src, ok := p.Checks[column]
-	if !ok {
-		return nil, fmt.Errorf("pack: no check script for %q", column)
-	}
-	failures := make([]string, 0, len(p.Manifest.Failures))
-	for f := range p.Manifest.Failures {
-		failures = append(failures, f)
-	}
-	slices.Sort(failures)
-	return check.Run(ctx, column+".star", src, recs, failures, check.Default)
 }
 
 // Target is the column a failure type routes to, or "" if undeclared.

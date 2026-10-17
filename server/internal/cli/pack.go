@@ -10,38 +10,9 @@ import (
 	"lykeion/server/internal/apiclient"
 )
 
-// teamCmd manages the caller's Team: the field pack their new studies use.
+// teamCmd manages the caller's Team archives.
 func teamCmd(e *env) *cobra.Command {
-	c := &cobra.Command{Use: "team", Short: "Your Team: the field pack your new studies use"}
-	list := &cobra.Command{Use: "list", Short: "Teams Lykeion ships and the ones you uploaded", RunE: func(cmd *cobra.Command, _ []string) error {
-		if err := e.inWorkspace(); err != nil {
-			return err
-		}
-		var rows []struct {
-			Name        string   `json:"name"`
-			Version     string   `json:"version"`
-			Source      string   `json:"source"`
-			Description string   `json:"description"`
-			StartKinds  []string `json:"start_kinds"`
-		}
-		if err := e.client().Do(cmd.Context(), "GET", "/api/packs/catalog", nil, &rows); err != nil {
-			return err
-		}
-		for _, r := range rows {
-			fmt.Fprintf(e.out, "%-20s v%-8s %-9s %v %s\n", r.Name, r.Version, r.Source, r.StartKinds, r.Description)
-		}
-		return nil
-	}}
-	use := &cobra.Command{Use: "use NAME", Args: cobra.ExactArgs(1), Short: "Make NAME your Team", RunE: func(cmd *cobra.Command, a []string) error {
-		if err := e.inWorkspace(); err != nil {
-			return err
-		}
-		if err := e.client().Do(cmd.Context(), "PUT", "/api/me/pack", map[string]string{"name": a[0]}, nil); err != nil {
-			return err
-		}
-		fmt.Fprintf(e.out, "Team: %s\n", a[0])
-		return nil
-	}}
+	c := &cobra.Command{Use: "team", Short: "Team archives: upload, list versions, approve"}
 	upload := &cobra.Command{Use: "upload FILE", Args: cobra.ExactArgs(1), Short: "Upload a Team archive (.zip) of your own", RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
@@ -90,6 +61,6 @@ func teamCmd(e *env) *cobra.Command {
 		fmt.Fprintf(e.out, "approved %s\n", a[0])
 		return nil
 	}}
-	c.AddCommand(list, use, upload, versions, approve)
+	c.AddCommand(upload, versions, approve)
 	return c
 }

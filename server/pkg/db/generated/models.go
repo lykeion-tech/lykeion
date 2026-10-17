@@ -66,6 +66,7 @@ type AgentRun struct {
 	AddonMcp              json.RawMessage `json:"addon_mcp"`
 	Kind                  string          `json:"kind"`
 	RequesterID           *uuid.UUID      `json:"requester_id"`
+	RequestedModel        string          `json:"requested_model"`
 }
 
 type AgentRunMessage struct {
@@ -124,17 +125,20 @@ type AgentRunUsage struct {
 }
 
 type Autoresearch struct {
-	ID            uuid.UUID `json:"id"`
-	WorkspaceID   uuid.UUID `json:"workspace_id"`
-	OwnerID       uuid.UUID `json:"owner_id"`
-	Title         string    `json:"title"`
-	Description   string    `json:"description"`
-	ExecutionMode string    `json:"execution_mode"`
-	TitleTemplate string    `json:"title_template"`
-	BudgetUsd     float64   `json:"budget_usd"`
-	Status        string    `json:"status"`
-	PauseReason   string    `json:"pause_reason"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID            uuid.UUID  `json:"id"`
+	WorkspaceID   uuid.UUID  `json:"workspace_id"`
+	OwnerID       uuid.UUID  `json:"owner_id"`
+	Title         string     `json:"title"`
+	Description   string     `json:"description"`
+	ExecutionMode string     `json:"execution_mode"`
+	TitleTemplate string     `json:"title_template"`
+	Status        string     `json:"status"`
+	PauseReason   string     `json:"pause_reason"`
+	CreatedAt     time.Time  `json:"created_at"`
+	AssigneeType  *string    `json:"assignee_type"`
+	AssigneeID    *uuid.UUID `json:"assignee_id"`
+	ScopeFrom     string     `json:"scope_from"`
+	ScopeTo       string     `json:"scope_to"`
 }
 
 type AutoresearchCollaborator struct {
@@ -168,6 +172,13 @@ type AutoresearchSubscriber struct {
 	UserID         uuid.UUID `json:"user_id"`
 }
 
+type AutoresearchTeam struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	AutoresearchID uuid.UUID `json:"autoresearch_id"`
+	BoardColumn    string    `json:"board_column"`
+	PackID         uuid.UUID `json:"pack_id"`
+}
+
 type AutoresearchTrigger struct {
 	ID               uuid.UUID       `json:"id"`
 	WorkspaceID      uuid.UUID       `json:"workspace_id"`
@@ -192,7 +203,6 @@ type Card struct {
 	Title        string      `json:"title"`
 	Question     string      `json:"question"`
 	OwnerID      uuid.UUID   `json:"owner_id"`
-	BudgetUsd    float64     `json:"budget_usd"`
 	Deadline     *time.Time  `json:"deadline"`
 	SpentUsd     float64     `json:"spent_usd"`
 	BoardColumn  string      `json:"board_column"`
@@ -201,9 +211,6 @@ type Card struct {
 	Ending       string      `json:"ending"`
 	EndReason    string      `json:"end_reason"`
 	Rounds       int32       `json:"rounds"`
-	RouteBacks   int32       `json:"route_backs"`
-	Stale        []string    `json:"stale"`
-	Rerun        string      `json:"rerun"`
 	FollowsFrom  []uuid.UUID `json:"follows_from"`
 	Version      int64       `json:"version"`
 	CreatedAt    time.Time   `json:"created_at"`
@@ -216,10 +223,17 @@ type Card struct {
 	AssigneeID   *uuid.UUID  `json:"assignee_id"`
 	Origin       string      `json:"origin"`
 	PackID       *uuid.UUID  `json:"pack_id"`
-	StartKind    string      `json:"start_kind"`
-	Cap          int32       `json:"cap"`
 	BlockKind    string      `json:"block_kind"`
-	Reopens      int32       `json:"reopens"`
+	ScopeFrom    string      `json:"scope_from"`
+	ScopeTo      string      `json:"scope_to"`
+	Redos        int32       `json:"redos"`
+}
+
+type CardTeam struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	BoardColumn string    `json:"board_column"`
+	PackID      uuid.UUID `json:"pack_id"`
 }
 
 type Comment struct {
@@ -229,6 +243,16 @@ type Comment struct {
 	AuthorID    uuid.UUID `json:"author_id"`
 	Body        string    `json:"body"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+type ConnectorFetch struct {
+	WorkspaceID   uuid.UUID `json:"workspace_id"`
+	RequestSha256 string    `json:"request_sha256"`
+	Connector     string    `json:"connector"`
+	BlobKey       string    `json:"blob_key"`
+	ContentType   string    `json:"content_type"`
+	Truncated     bool      `json:"truncated"`
+	FetchedAt     time.Time `json:"fetched_at"`
 }
 
 type Event struct {
@@ -253,6 +277,8 @@ type FieldPack struct {
 	Source      string          `json:"source"`
 	UploadedBy  *uuid.UUID      `json:"uploaded_by"`
 	CreatedAt   time.Time       `json:"created_at"`
+	Domain      string          `json:"domain"`
+	Stage       string          `json:"stage"`
 }
 
 type FieldPackApproval struct {
@@ -343,6 +369,14 @@ type StageAddon struct {
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
+type TeamAgent struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	PackID      uuid.UUID `json:"pack_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Member      string    `json:"member"`
+	AgentID     uuid.UUID `json:"agent_id"`
+}
+
 type User struct {
 	ID          uuid.UUID  `json:"id"`
 	Email       string     `json:"email"`
@@ -352,7 +386,6 @@ type User struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	CareerStage string     `json:"career_stage"`
 	OnboardedAt *time.Time `json:"onboarded_at"`
-	PackName    string     `json:"pack_name"`
 }
 
 type VerificationCode struct {
@@ -386,6 +419,17 @@ type Workspace struct {
 	ResearchContext string          `json:"research_context"`
 	CardPrefix      string          `json:"card_prefix"`
 	LogoBlob        string          `json:"logo_blob"`
+}
+
+type WorkspaceConnector struct {
+	WorkspaceID        uuid.UUID  `json:"workspace_id"`
+	Name               string     `json:"name"`
+	Enabled            bool       `json:"enabled"`
+	KeyCiphertext      []byte     `json:"key_ciphertext"`
+	LicenceConfirmedBy *uuid.UUID `json:"licence_confirmed_by"`
+	LicenceConfirmedAt *time.Time `json:"licence_confirmed_at"`
+	UpdatedBy          uuid.UUID  `json:"updated_by"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 type WorkspaceInvitation struct {

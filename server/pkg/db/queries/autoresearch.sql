@@ -1,6 +1,6 @@
 -- name: CreateAutoresearch :one
-INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template, budget_usd)
-VALUES (@workspace_id, @owner_id, @title, @description, @execution_mode, @title_template, @budget_usd)
+INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template)
+VALUES (@workspace_id, @owner_id, @title, @description, @execution_mode, @title_template)
 RETURNING *;
 
 -- name: GetAutoresearch :one
@@ -10,7 +10,7 @@ SELECT * FROM autoresearch WHERE workspace_id = @workspace_id AND id = @id;
 SELECT * FROM autoresearch WHERE workspace_id = @workspace_id ORDER BY created_at;
 
 -- name: UpdateAutoresearch :one
-UPDATE autoresearch SET title = @title, description = @description, title_template = @title_template, budget_usd = @budget_usd
+UPDATE autoresearch SET title = @title, description = @description, title_template = @title_template
 WHERE workspace_id = @workspace_id AND id = @id RETURNING *;
 
 -- name: SetAutoresearchStatus :one

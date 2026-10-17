@@ -25,9 +25,6 @@ SELECT p.* FROM field_pack p JOIN field_pack_approval a ON a.workspace_id = p.wo
 WHERE p.workspace_id = @workspace_id AND p.name = @name AND a.approved_by = @user_id
 ORDER BY p.created_at DESC LIMIT 1;
 
--- name: SetUserPack :exec
-UPDATE "user" SET pack_name = @pack_name WHERE id = @id;
-
 -- name: SetCardPack :exec
 UPDATE card SET pack_id = @pack_id WHERE workspace_id = @workspace_id AND id = @card_id;
 
@@ -55,7 +52,3 @@ ORDER BY p.created_at;
 
 -- name: ListOwnPacks :many
 SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND uploaded_by = @user_id ORDER BY name, created_at;
-
--- name: PinNewCard :one
-UPDATE card SET pack_id = @pack_id, start_kind = @start_kind, cap = @cap
-WHERE workspace_id = @workspace_id AND id = @id RETURNING *;

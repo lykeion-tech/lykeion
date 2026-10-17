@@ -16,7 +16,6 @@ type cardView struct {
 	BoardColumn string  `json:"board_column"`
 	State       string  `json:"state"`
 	Flag        string  `json:"flag"`
-	BudgetUsd   float64 `json:"budget_usd"`
 	SpentUsd    float64 `json:"spent_usd"`
 }
 
@@ -40,19 +39,15 @@ func byNumber(cmd *cobra.Command, e *env, arg string) (cardView, error) {
 
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
-	var title, followsFrom, startKind string
-	var usd float64
+	var title, followsFrom string
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
 		}
 		var out cardView
-		in := map[string]any{"question": strings.Join(a, " "), "budget_usd": usd}
+		in := map[string]any{"question": strings.Join(a, " ")}
 		if title != "" {
 			in["title"] = title
-		}
-		if startKind != "" {
-			in["start_kind"] = startKind
 		}
 		if followsFrom != "" {
 			previous, err := byNumber(cmd, e, followsFrom)
@@ -68,9 +63,7 @@ func cardCmd(e *env) *cobra.Command {
 		return nil
 	}}
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
-	newCmd.Flags().Float64Var(&usd, "usd", 0, "model budget in USD")
 	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
-	newCmd.Flags().StringVar(&startKind, "start-kind", "", "what the study starts from: question, dataset or claim; required once you have a Team")
 	c.AddCommand(newCmd,
 		&cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := e.inWorkspace(); err != nil {
@@ -93,8 +86,8 @@ func cardCmd(e *env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(e.out, "#%d %s\ncolumn: %s  state: %s  flag: %s\nbudget: $%.2f spent: $%.2f\n\n%s\n",
-				x.Number, x.Title, x.BoardColumn, x.State, x.Flag, x.BudgetUsd, x.SpentUsd, x.Question)
+			fmt.Fprintf(e.out, "#%d %s\ncolumn: %s  state: %s  flag: %s\nspent: $%.2f\n\n%s\n",
+				x.Number, x.Title, x.BoardColumn, x.State, x.Flag, x.SpentUsd, x.Question)
 			var comments []struct {
 				Body      string `json:"body"`
 				CreatedAt string `json:"created_at"`
@@ -123,7 +116,7 @@ func cardCmd(e *env) *cobra.Command {
 }
 
 func inboxCmd(e *env) *cobra.Command {
-	return &cobra.Command{Use: "inbox", Short: "Escalations, budgets and releases", RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "inbox", Short: "Escalations and releases", RunE: func(cmd *cobra.Command, _ []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
 		}

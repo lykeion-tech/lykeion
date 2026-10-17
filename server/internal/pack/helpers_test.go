@@ -1,12 +1,6 @@
 package pack
 
-import (
-	"io/fs"
-
-	"lykeion/server/internal/pack/check"
-)
-
-type checkRecord = check.Record
+import "io/fs"
 
 const modeSymlink = uint32(fs.ModeSymlink)
 

@@ -41,10 +41,6 @@ func NewRouter(h *H) http.Handler {
 
 	})
 
-	// A person or an agent run may reopen a card; the handler picks the check.
-	// Like the steer routes it opens its own transaction, outside Scope's.
-	r.Post("/api/cards/{id}/reopen", h.reopenCard)
-
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(h.Store, h.JWT))
 		if h.Hub != nil {
@@ -69,14 +65,9 @@ func NewRouter(h *H) http.Handler {
 		})
 		// Cancel opens its own service transaction; keep it outside Scope's transaction.
 		r.Post("/api/agent-runs/{id}/cancel", h.cancelAgentRun)
-		r.Post("/api/cards/{id}/send-back", h.sendBack)
 		r.Post("/api/autoresearch/{id}/run", h.runAutoresearch)
 		r.Post("/api/cards/{id}/stop", h.stopCard)
-		r.Post("/api/cards/{id}/budget", h.budgetCard)
 		r.Post("/api/cards/{id}/resume", h.resumeCard)
-		r.Post("/api/cards/{id}/unblock", h.unblockCard)
-		r.Post("/api/cards/{id}/close", h.closeCard)
-		r.Post("/api/cards/{id}/revert-revision", h.revertRevision)
 
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
@@ -146,9 +137,6 @@ func NewRouter(h *H) http.Handler {
 			r.Patch("/api/cards/{id}/properties", h.updateCardProperties)
 			r.Get("/api/cards", h.listCards)
 			r.Post("/api/cards", h.createCard)
-			r.Post("/api/cards/{id}/pack", h.moveCardPack)
-			r.Put("/api/me/pack", h.setMyPack)
-			r.Get("/api/packs/catalog", h.packCatalog)
 			r.Get("/api/packs", h.packVersions)
 			r.Post("/api/packs", h.uploadPack)
 			r.Post("/api/packs/{id}/approve", h.approvePack)
@@ -160,7 +148,6 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/cards/{id}/events", h.cardEvents)
 			r.Get("/api/cards/{id}/runs", h.cardRuns)
 			r.Get("/api/cards/{id}/records", h.cardRecords)
-			r.Get("/api/cards/{id}/gates", h.cardGates)
 
 			r.Get("/api/inbox", h.listInbox)
 			r.Post("/api/inbox/{id}/read", h.readInbox)

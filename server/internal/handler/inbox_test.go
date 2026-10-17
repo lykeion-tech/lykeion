@@ -34,7 +34,7 @@ func (s *server) inboxKinds(t *testing.T, tok, ws, query string) string {
 func (s *server) seedInbox(t *testing.T, ws, cardID, owner string) map[string]string {
 	t.Helper()
 	ids := map[string]string{}
-	for _, kind := range []string{"escalated", "out_of_budget", "released", "publish_request"} {
+	for _, kind := range []string{"escalated", "released", "middle_score"} {
 		var id string
 		if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
 			VALUES ($1, $2, $3, $4, 'x') RETURNING id`, ws, cardID, owner, kind).Scan(&id); err != nil {
@@ -46,7 +46,7 @@ func (s *server) seedInbox(t *testing.T, ws, cardID, owner string) map[string]st
 }
 
 func TestAnsweringABlockedCardResolvesItsInboxItems(t *testing.T) {
-	for _, action := range []string{"resume", "stop", "budget"} {
+	for _, action := range []string{"resume", "stop"} {
 		t.Run(action, func(t *testing.T) {
 			s := newServer(t)
 			s.H.Engine = nil
@@ -68,21 +68,19 @@ func TestAnsweringABlockedCardResolvesItsInboxItems(t *testing.T) {
 			switch action {
 			case "stop":
 				body = map[string]string{"reason": "not worth it"}
-			case "budget":
-				body = map[string]float64{"usd": 30}
 			}
 			if code := s.call(t, "POST", "/api/cards/"+c.ID+"/"+action, a, w.ID, body, nil); code != 200 {
 				t.Fatalf("%s: %d", action, code)
 			}
-			// The other card's items are untouched; released and publish_request stay open.
-			if got := s.inboxKinds(t, a, w.ID, ""); got != "escalated,out_of_budget,publish_request,publish_request,released,released" {
+			// The other card's items are untouched; released and middle_score stay open.
+			if got := s.inboxKinds(t, a, w.ID, ""); got != "escalated,middle_score,middle_score,released,released" {
 				t.Fatalf("open: %s", got)
 			}
-			if got := s.inboxKinds(t, a, w.ID, "?archived=1"); got != "escalated,out_of_budget" {
+			if got := s.inboxKinds(t, a, w.ID, "?archived=1"); got != "escalated" {
 				t.Fatalf("archived: %s", got)
 			}
 			var resolved int
-			if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM event WHERE card_id = $1 AND type = 'inbox.resolved'`, c.ID).Scan(&resolved); err != nil || resolved != 2 {
+			if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM event WHERE card_id = $1 AND type = 'inbox.resolved'`, c.ID).Scan(&resolved); err != nil || resolved != 1 {
 				t.Fatalf("inbox.resolved events: %d %v", resolved, err)
 			}
 		})
@@ -97,12 +95,12 @@ func TestReadingAReleasedItemResolvesIt(t *testing.T) {
 	var c card
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
 	ids := s.seedInbox(t, w.ID, c.ID, s.userID(t, a))
-	for _, kind := range []string{"released", "escalated", "publish_request"} {
+	for _, kind := range []string{"released", "escalated", "middle_score"} {
 		if code := s.call(t, "POST", "/api/inbox/"+ids[kind]+"/read", a, w.ID, nil, nil); code != 204 {
 			t.Fatalf("read %s: %d", kind, code)
 		}
 	}
-	if got := s.inboxKinds(t, a, w.ID, ""); got != "escalated,out_of_budget,publish_request" {
+	if got := s.inboxKinds(t, a, w.ID, ""); got != "escalated,middle_score" {
 		t.Fatalf("open: %s", got)
 	}
 	var archived []inboxRow
@@ -140,7 +138,7 @@ func TestReadingResolvedBlockingItemsDoesNotResolveThemAgain(t *testing.T) {
 		t.Fatalf("resume: %d", code)
 	}
 	var before []inboxRow
-	if code := s.call(t, "GET", "/api/inbox?archived=1", recipient, w.ID, nil, &before); code != 200 || len(before) != 2 {
+	if code := s.call(t, "GET", "/api/inbox?archived=1", recipient, w.ID, nil, &before); code != 200 || len(before) != 1 {
 		t.Fatalf("archive after resume: %d %+v", code, before)
 	}
 	for _, item := range before {

@@ -13,7 +13,7 @@ import (
 )
 
 const cardAgentRuns = `-- name: CardAgentRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id FROM agent_run WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model FROM agent_run WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
 `
 
 type CardAgentRunsParams struct {
@@ -70,6 +70,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.AddonMcp,
 			&i.Kind,
 			&i.RequesterID,
+			&i.RequestedModel,
 		); err != nil {
 			return nil, err
 		}
@@ -82,10 +83,10 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 }
 
 const createCard = `-- name: CreateCard :one
-INSERT INTO card (workspace_id, number, title, question, owner_id, budget_usd, deadline, follows_from, position)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position)
+VALUES ($1, $2, $3, $4, $5, $6, $7,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = 'backlog'), 1) - 1)
-RETURNING id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, start_kind, cap, block_kind, reopens
+RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos
 `
 
 type CreateCardParams struct {
@@ -94,7 +95,6 @@ type CreateCardParams struct {
 	Title       string      `json:"title"`
 	Question    string      `json:"question"`
 	OwnerID     uuid.UUID   `json:"owner_id"`
-	BudgetUsd   float64     `json:"budget_usd"`
 	Deadline    *time.Time  `json:"deadline"`
 	FollowsFrom []uuid.UUID `json:"follows_from"`
 }
@@ -109,7 +109,6 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		arg.Title,
 		arg.Question,
 		arg.OwnerID,
-		arg.BudgetUsd,
 		arg.Deadline,
 		arg.FollowsFrom,
 	)
@@ -121,7 +120,6 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		&i.Title,
 		&i.Question,
 		&i.OwnerID,
-		&i.BudgetUsd,
 		&i.Deadline,
 		&i.SpentUsd,
 		&i.BoardColumn,
@@ -130,9 +128,6 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		&i.Ending,
 		&i.EndReason,
 		&i.Rounds,
-		&i.RouteBacks,
-		&i.Stale,
-		&i.Rerun,
 		&i.FollowsFrom,
 		&i.Version,
 		&i.CreatedAt,
@@ -145,10 +140,10 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		&i.AssigneeID,
 		&i.Origin,
 		&i.PackID,
-		&i.StartKind,
-		&i.Cap,
 		&i.BlockKind,
-		&i.Reopens,
+		&i.ScopeFrom,
+		&i.ScopeTo,
+		&i.Redos,
 	)
 	return i, err
 }
@@ -202,16 +197,15 @@ func (q *Queries) DeleteBacklogCard(ctx context.Context, arg DeleteBacklogCardPa
 }
 
 const editBacklogCard = `-- name: EditBacklogCard :one
-UPDATE card SET title = $1, question = $2, budget_usd = $3, deadline = $4,
-  follows_from = $5, position = $6, version = version + 1
-WHERE id = $7 AND workspace_id = $8 AND board_column = 'backlog'
-RETURNING id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, start_kind, cap, block_kind, reopens
+UPDATE card SET title = $1, question = $2, deadline = $3,
+  follows_from = $4, position = $5, version = version + 1
+WHERE id = $6 AND workspace_id = $7 AND board_column = 'backlog'
+RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos
 `
 
 type EditBacklogCardParams struct {
 	Title       string      `json:"title"`
 	Question    string      `json:"question"`
-	BudgetUsd   float64     `json:"budget_usd"`
 	Deadline    *time.Time  `json:"deadline"`
 	FollowsFrom []uuid.UUID `json:"follows_from"`
 	Position    float64     `json:"position"`
@@ -225,7 +219,6 @@ func (q *Queries) EditBacklogCard(ctx context.Context, arg EditBacklogCardParams
 	row := q.db.QueryRow(ctx, editBacklogCard,
 		arg.Title,
 		arg.Question,
-		arg.BudgetUsd,
 		arg.Deadline,
 		arg.FollowsFrom,
 		arg.Position,
@@ -240,7 +233,6 @@ func (q *Queries) EditBacklogCard(ctx context.Context, arg EditBacklogCardParams
 		&i.Title,
 		&i.Question,
 		&i.OwnerID,
-		&i.BudgetUsd,
 		&i.Deadline,
 		&i.SpentUsd,
 		&i.BoardColumn,
@@ -249,9 +241,6 @@ func (q *Queries) EditBacklogCard(ctx context.Context, arg EditBacklogCardParams
 		&i.Ending,
 		&i.EndReason,
 		&i.Rounds,
-		&i.RouteBacks,
-		&i.Stale,
-		&i.Rerun,
 		&i.FollowsFrom,
 		&i.Version,
 		&i.CreatedAt,
@@ -264,16 +253,16 @@ func (q *Queries) EditBacklogCard(ctx context.Context, arg EditBacklogCardParams
 		&i.AssigneeID,
 		&i.Origin,
 		&i.PackID,
-		&i.StartKind,
-		&i.Cap,
 		&i.BlockKind,
-		&i.Reopens,
+		&i.ScopeFrom,
+		&i.ScopeTo,
+		&i.Redos,
 	)
 	return i, err
 }
 
 const getCard = `-- name: GetCard :one
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, start_kind, cap, block_kind, reopens FROM card WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos FROM card WHERE workspace_id = $1 AND id = $2
 `
 
 type GetCardParams struct {
@@ -291,7 +280,6 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.Title,
 		&i.Question,
 		&i.OwnerID,
-		&i.BudgetUsd,
 		&i.Deadline,
 		&i.SpentUsd,
 		&i.BoardColumn,
@@ -300,9 +288,6 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.Ending,
 		&i.EndReason,
 		&i.Rounds,
-		&i.RouteBacks,
-		&i.Stale,
-		&i.Rerun,
 		&i.FollowsFrom,
 		&i.Version,
 		&i.CreatedAt,
@@ -315,10 +300,10 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.AssigneeID,
 		&i.Origin,
 		&i.PackID,
-		&i.StartKind,
-		&i.Cap,
 		&i.BlockKind,
-		&i.Reopens,
+		&i.ScopeFrom,
+		&i.ScopeTo,
+		&i.Redos,
 	)
 	return i, err
 }
@@ -411,7 +396,7 @@ func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxPa
 }
 
 const listCards = `-- name: ListCards :many
-SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.budget_usd, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.route_backs, c.stale, c.rerun, c.follows_from, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.start_kind, c.cap, c.block_kind, c.reopens,
+SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.follows_from, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
     AND t.status = 'queued' AND t.queue_reason IS NOT NULL)::boolean AS queued,
   COALESCE((SELECT t.role FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
@@ -428,7 +413,6 @@ type ListCardsRow struct {
 	Title        string      `json:"title"`
 	Question     string      `json:"question"`
 	OwnerID      uuid.UUID   `json:"owner_id"`
-	BudgetUsd    float64     `json:"budget_usd"`
 	Deadline     *time.Time  `json:"deadline"`
 	SpentUsd     float64     `json:"spent_usd"`
 	BoardColumn  string      `json:"board_column"`
@@ -437,9 +421,6 @@ type ListCardsRow struct {
 	Ending       string      `json:"ending"`
 	EndReason    string      `json:"end_reason"`
 	Rounds       int32       `json:"rounds"`
-	RouteBacks   int32       `json:"route_backs"`
-	Stale        []string    `json:"stale"`
-	Rerun        string      `json:"rerun"`
 	FollowsFrom  []uuid.UUID `json:"follows_from"`
 	Version      int64       `json:"version"`
 	CreatedAt    time.Time   `json:"created_at"`
@@ -452,10 +433,10 @@ type ListCardsRow struct {
 	AssigneeID   *uuid.UUID  `json:"assignee_id"`
 	Origin       string      `json:"origin"`
 	PackID       *uuid.UUID  `json:"pack_id"`
-	StartKind    string      `json:"start_kind"`
-	Cap          int32       `json:"cap"`
 	BlockKind    string      `json:"block_kind"`
-	Reopens      int32       `json:"reopens"`
+	ScopeFrom    string      `json:"scope_from"`
+	ScopeTo      string      `json:"scope_to"`
+	Redos        int32       `json:"redos"`
 	Queued       bool        `json:"queued"`
 	Role         string      `json:"role"`
 	UpdatedAt    time.Time   `json:"updated_at"`
@@ -481,7 +462,6 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.Title,
 			&i.Question,
 			&i.OwnerID,
-			&i.BudgetUsd,
 			&i.Deadline,
 			&i.SpentUsd,
 			&i.BoardColumn,
@@ -490,9 +470,6 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.Ending,
 			&i.EndReason,
 			&i.Rounds,
-			&i.RouteBacks,
-			&i.Stale,
-			&i.Rerun,
 			&i.FollowsFrom,
 			&i.Version,
 			&i.CreatedAt,
@@ -505,10 +482,10 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.AssigneeID,
 			&i.Origin,
 			&i.PackID,
-			&i.StartKind,
-			&i.Cap,
 			&i.BlockKind,
-			&i.Reopens,
+			&i.ScopeFrom,
+			&i.ScopeTo,
+			&i.Redos,
 			&i.Queued,
 			&i.Role,
 			&i.UpdatedAt,
@@ -645,7 +622,7 @@ func (q *Queries) NextCardNumber(ctx context.Context, id uuid.UUID) (int32, erro
 
 const resolveCardInbox = `-- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now()
-WHERE workspace_id = $1 AND card_id = $2 AND kind IN ('escalated', 'out_of_budget') AND resolved_at IS NULL
+WHERE workspace_id = $1 AND card_id = $2 AND kind = 'escalated' AND resolved_at IS NULL
 RETURNING id
 `
 

@@ -19,11 +19,9 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/daemon"
-	"lykeion/server/internal/ground"
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/handler"
-	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
-	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
@@ -35,7 +33,7 @@ import (
 type boardLab struct {
 	env    *testutil.Env
 	st     *store.Store
-	engine *round.Engine
+	engine *flow.Engine
 	ap     *autoresearch.Service
 	hosted *sources.Hosted
 	h      *handler.H
@@ -99,7 +97,7 @@ func newBoardLab(t *testing.T) *boardLab {
 	l.st.Publish = hub.Publish
 	blobs := storage.Local{Dir: t.TempDir()}
 	runs := &service.AgentRuns{Store: l.st}
-	l.engine = &round.Engine{Store: l.st, AgentRuns: runs, Blobs: blobs, JevKey: "k", JevURL: fakeJev(t)}
+	l.engine = &flow.Engine{Store: l.st, AgentRuns: runs, Blobs: blobs, JevKey: "k", JevURL: fakeJev(t)}
 	l.ap = &autoresearch.Service{Store: l.st, AgentRuns: runs}
 	runs.OnSettled = l.ap.OnSettled(l.engine.OnSettled)
 	geo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +113,7 @@ func newBoardLab(t *testing.T) *boardLab {
 	l.hosted = &sources.Hosted{Store: l.st, Blobs: blobs, GEO: sources.GEO{Base: geo.URL, HTTP: geo.Client()}}
 	iss := auth.Issuer{Secret: []byte("s"), TTL: time.Hour}
 	l.h = &handler.H{Store: l.st, JWT: iss, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
-		Autoresearch: l.ap, AgentRuns: runs, Blobs: blobs, KindsFor: round.KindsFor, Engine: l.engine, Sources: l.hosted.Handler()}
+		Autoresearch: l.ap, AgentRuns: runs, Blobs: blobs, KindsFor: flow.KindsFor, Engine: l.engine, Sources: l.hosted.Handler()}
 	srv := httptest.NewServer(handler.NewRouter(l.h))
 	t.Cleanup(srv.Close)
 	runs.MCPURL = srv.URL + "/mcp/sources"
@@ -144,56 +142,6 @@ func newBoardLab(t *testing.T) *boardLab {
 	}
 	l.token = tok.Token
 	return l
-}
-
-// startCard creates a card, lets WIP pull start it, and records the sources
-// its roles would have fetched in round 1.
-func (l *boardLab) startCard(t *testing.T) uuid.UUID {
-	ctx := context.Background()
-	var card uuid.UUID
-	must(t, l.st.InWorkspace(ctx, l.ws, l.owner, func(tx *store.Tx) error {
-		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: l.ws, Number: 1, Title: "t", Question: "Does X raise Y?", OwnerID: l.owner, FollowsFrom: []uuid.UUID{}})
-		card = c.ID
-		return err
-	}))
-	// Each source was fetched by an earlier run. Those runs sit in round 0, so
-	// the engine's view of round 1 neither counts them nor skips a role for them.
-	// Each runs, with its token, only while the sources server records its call.
-	rec := func(name, kind, key string, body map[string]any, text string) {
-		run, token := uuid.New(), "ltk_"+uuid.NewString()
-		if _, err := l.env.Owner.Exec(ctx, `INSERT INTO agent_run (id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status, attempt)
-			VALUES ($1, $2, $3, $4, 'grounding', 0, $5, 'claude', 'p', 'running', 1)`, run, l.ws, card, l.owner, name); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := l.env.Owner.Exec(ctx, `INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, expires_at)
-			VALUES ($1, $2, $3, $4, $5, 1, now() + interval '1 hour')`, auth.Hash(token), l.ws, run, card, name); err != nil {
-			t.Fatal(err)
-		}
-		role := middleware.Role{AgentRunID: run, WorkspaceID: l.ws, CardID: card, Role: name, Column: "grounding", Round: 0}
-		if name == ground.DataScout && kind == "search" {
-			client, err := mcp.NewClient(&mcp.Implementation{Name: "board-test", Version: "1"}, nil).Connect(ctx,
-				&mcp.StreamableClientTransport{Endpoint: l.url + "/mcp/sources", HTTPClient: &http.Client{Transport: boardSourceBearer(token)}}, nil)
-			must(t, err)
-			result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "search_datasets", Arguments: map[string]any{"query": body["query"]}})
-			must(t, err)
-			must(t, client.Close())
-			if result.IsError {
-				t.Fatalf("dataset search failed: %+v", result)
-			}
-		} else if err := l.hosted.Record(ctx, role, token, kind, key, body, text); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := l.env.Owner.Exec(ctx, `UPDATE agent_run SET status = 'completed', completed_at = now() WHERE id = $1`, run); err != nil {
-			t.Fatal(err)
-		}
-	}
-	rec(ground.Literature, "search", "", map[string]any{"database": "europepmc", "query": "x y"}, "")
-	rec(ground.Contrarian, "search", "", map[string]any{"database": "openalex", "query": "x no effect"}, "")
-	rec(ground.Literature, "fetch", "europepmc:PMC1", map[string]any{"source_id": "europepmc:PMC1", "full_text": true}, "In treated mice, X raised Y by 40% over controls.")
-	rec(ground.Contrarian, "fetch", "openalex:W2", map[string]any{"source_id": "openalex:W2"}, "We found no effect of X on Y in rats.")
-	rec(ground.DataScout, "search", "", map[string]any{"database": "geo", "query": "X Y mice"}, "")
-	rec(ground.DataScout, "open_dataset", "GSE1", map[string]any{"accession": "GSE1"}, "accession: GSE1\n- GSM1: mouse 1\n- GSM2: mouse 2\n")
-	return card
 }
 
 func (l *boardLab) run(t *testing.T) context.CancelFunc {
@@ -266,102 +214,6 @@ func (l *boardLab) waitCard(t *testing.T, id uuid.UUID, what string, cond func(d
 	return db.Card{}
 }
 
-func TestGroundingPassesAndTheCardMovesToHypotheses(t *testing.T) {
-	l := newBoardLab(t)
-	card := l.startCard(t)
-	defer l.run(t)()
-	c := l.waitCard(t, card, "Hypotheses", func(c db.Card) bool { return c.BoardColumn == "hypotheses" })
-	if c.Round < 2 {
-		t.Fatalf("%+v", c)
-	}
-	var verdict string
-	must(t, l.env.Owner.QueryRow(context.Background(), `SELECT body->>'verdict' FROM record WHERE card_id = $1 AND kind = 'gate'`, card).Scan(&verdict))
-	if verdict != "pass" {
-		t.Fatalf("gate verdict %q", verdict)
-	}
-}
-
-func TestParaphraseRerunsOnlyTheLiteratureScout(t *testing.T) {
-	// the fake literature scout paraphrases in round 1 and quotes exactly after
-	t.Setenv("LYK_TEST_PARAPHRASE_ROUND1", "1")
-	argv := filepath.Join(t.TempDir(), "argv")
-	t.Setenv("LYK_TEST_ARGV", argv)
-	l := newBoardLab(t)
-	card := l.startCard(t)
-	defer l.run(t)()
-	l.waitCard(t, card, "Hypotheses", func(c db.Card) bool { return c.BoardColumn == "hypotheses" })
-	var roles []string
-	rows, err := l.env.Owner.Query(context.Background(), `SELECT role FROM agent_run WHERE card_id = $1 AND board_column = 'grounding' AND round = 2 ORDER BY created_at`, card)
-	must(t, err)
-	defer rows.Close()
-	for rows.Next() {
-		var r string
-		must(t, rows.Scan(&r))
-		roles = append(roles, r)
-	}
-	must(t, rows.Err())
-	if strings.Join(roles, ",") != "literature-scout,grounding-reviewer" {
-		t.Fatalf("round 2 ran %v", roles)
-	}
-	var note, prompt string
-	must(t, l.env.Owner.QueryRow(context.Background(), `SELECT handoff_note, prompt FROM agent_run WHERE card_id = $1 AND round = 2 AND role = 'literature-scout'`, card).Scan(&note, &prompt))
-	if !strings.Contains(note, "quote not found verbatim") || !strings.Contains(prompt, note) {
-		t.Fatalf("the gate's reason did not reach the redone scout: %q", note)
-	}
-	var stale int
-	must(t, l.env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'evidence' AND role = 'literature-scout' AND superseded_at IS NOT NULL`, card).Scan(&stale))
-	if stale != 1 {
-		t.Fatalf("the paraphrased evidence was not superseded: %d", stale)
-	}
-	// the redone scout continues its round-1 session; the reviewer never resumes
-	b, err := os.ReadFile(argv)
-	must(t, err)
-	var scout, reviewer []string
-	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		switch {
-		case strings.HasPrefix(line, "literature-scout "):
-			scout = append(scout, line)
-		case strings.HasPrefix(line, "grounding-reviewer "):
-			reviewer = append(reviewer, line)
-		}
-	}
-	if len(scout) != 2 || strings.Contains(scout[0], "--resume") || !strings.HasSuffix(scout[1], "--resume s") {
-		t.Fatalf("the literature scout's launches: %q", scout)
-	}
-	if len(reviewer) == 0 {
-		t.Fatalf("reviewer launches: %q", reviewer)
-	}
-	for _, line := range reviewer {
-		if strings.Contains(line, "--resume") {
-			t.Fatalf("a reviewer resumed: %q", line)
-		}
-	}
-	var turns int
-	var cost float64
-	must(t, l.env.Owner.QueryRow(context.Background(), `SELECT count(*), sum(u.cost_usd) FROM agent_run_usage u JOIN agent_run r ON r.id = u.agent_run_id WHERE r.card_id = $1 AND r.role = 'literature-scout'`, card).Scan(&turns, &cost))
-	if turns != 2 || cost < 0.019999 || cost > 0.020001 {
-		t.Fatalf("resumed scout usage: turns=%d cost=%g", turns, cost)
-	}
-	var scopes int
-	must(t, l.env.Owner.QueryRow(context.Background(), `SELECT count(DISTINCT continuity_scope) FROM agent_run WHERE card_id = $1 AND role = 'literature-scout' AND round > 0`, card).Scan(&scopes))
-	if scopes != 1 {
-		t.Fatalf("the literature scout ran under %d scopes", scopes)
-	}
-}
-
-func TestNoDataStopsTheCard(t *testing.T) {
-	l := newBoardLab(t)
-	nodata := filepath.Join(t.TempDir(), "nodata")
-	must(t, os.WriteFile(nodata, nil, 0o644))
-	t.Setenv("LYK_TEST_NODATA", nodata)
-	card := l.startCard(t)
-	defer l.run(t)()
-	c := l.waitCard(t, card, "stopped", func(c db.Card) bool { return c.Ending == "stopped" })
-	if c.BoardColumn != "done" || !strings.Contains(c.EndReason, "no usable data") {
-		t.Fatalf("%+v", c)
-	}
-}
-
 type boardSourceBearer string
 
 func (b boardSourceBearer) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -393,64 +245,4 @@ func TestMetadataMCPHelper(t *testing.T) {
 			t.Log(text.Text)
 		}
 	}
-}
-
-// metadataCard deliberately starts without source records. Every discovery,
-// fetch, E and dataset record is made by the running fake roles over MCP/CLI.
-func (l *boardLab) metadataCard(t *testing.T) uuid.UUID {
-	var card uuid.UUID
-	must(t, l.st.InWorkspace(context.Background(), l.ws, l.owner, func(tx *store.Tx) error {
-		c, err := tx.Q.CreateCard(context.Background(), db.CreateCardParams{WorkspaceID: l.ws, Number: 1, Title: "metadata comparison", Question: "Does X raise Y?", OwnerID: l.owner, FollowsFrom: []uuid.UUID{}})
-		card = c.ID
-		return err
-	}))
-	return card
-}
-
-func metadataLab(t *testing.T, mode string) *boardLab {
-	t.Helper()
-	t.Setenv("LYK_TEST_METADATA", mode)
-	t.Setenv("LYK_TEST_HYPOTHESES", "1")
-	helper, err := os.Executable()
-	must(t, err)
-	t.Setenv("LYK_TEST_MCP_HELPER", helper)
-	t.Setenv("LYK_TEST_METADATA_REPAIR", filepath.Join(t.TempDir(), "repair"))
-	l := newBoardLab(t)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/esearch.fcgi":
-			w.Write([]byte(`{"esearchresult":{"idlist":["1"]}}`))
-		case "/esummary.fcgi":
-			w.Write([]byte(`{"result":{"1":{"accession":"GSE1","title":"comparison","summary":"Y measurements; collection timing not described","gpl":"1","n_samples":2,"samples":[{"accession":"GSM1","title":"mouse 1"},{"accession":"GSM2","title":"mouse 2"}]}}}`))
-		case "/metadata":
-			if r.URL.Query().Get("acc") != "GSE1" || r.URL.Query().Get("targ") != "self" || r.URL.Query().Get("form") != "text" || r.URL.Query().Get("view") != "full" {
-				t.Errorf("metadata query %s", r.URL)
-				http.Error(w, "query", 400)
-				return
-			}
-			w.Header().Set("Content-Type", "text/plain")
-			text := "^SERIES = GSE1\n!Series_title = comparison\n!Series_summary = Collection timing is not reported\n"
-			if mode != "unresolved" {
-				text = "^SERIES = GSE1\n!Series_title = comparison\n!Series_summary = Each mouse was collected at the same time after treatment\n!Series_description = Observations are matched pairs from the same subject under different conditions\n"
-			}
-			w.Write([]byte(text))
-		case "/search":
-			w.Write([]byte(`{"resultList":{"result":[{"id":"1","source":"PMC","pmcid":"PMC1","title":"comparison","abstractText":"X raised Y by 40%"}]}}`))
-		case "/PMC1/fullTextXML":
-			w.Write([]byte(`<article>In treated mice, X raised Y by 40% over controls.</article>`))
-		case "/works":
-			w.Write([]byte(`{"results":[]}`))
-		case "/works/W2":
-			w.Write([]byte(`{"id":"https://openalex.org/W2","title":"contrary","abstract_inverted_index":{"no":[0],"effect":[1],"of":[2],"X":[3],"on":[4],"Y":[5]}}`))
-		default:
-			t.Errorf("unexpected fake upstream request %s", r.URL)
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(upstream.Close)
-	l.hosted.GEO = sources.GEO{Base: upstream.URL, MetadataBase: upstream.URL + "/metadata", HTTP: upstream.Client()}
-	l.hosted.OA = sources.OpenAlex{Base: upstream.URL, HTTP: upstream.Client()}
-	l.hosted.EPMC = sources.EuropePMC{Base: upstream.URL, HTTP: upstream.Client()}
-	return l
 }

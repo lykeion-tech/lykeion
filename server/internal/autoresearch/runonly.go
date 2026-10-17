@@ -9,7 +9,7 @@ import (
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/fence"
-	"lykeion/server/internal/round"
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/skills"
 	"lykeion/server/internal/store"
@@ -36,7 +36,7 @@ func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch,
 	if err != nil {
 		return err
 	}
-	harness := round.ParseSettings(w.Settings).HarnessFor(Role)
+	harness := flow.ParseSettings(w.Settings).HarnessFor(Role)
 	// The agent run always carries the sources server, which the Antigravity adapter
 	// refuses before it starts.
 	if harness == "antigravity" {

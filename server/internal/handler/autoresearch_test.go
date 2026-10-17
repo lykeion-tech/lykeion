@@ -132,7 +132,6 @@ func TestAutoresearchInputIsChecked(t *testing.T) {
 	for _, bad := range []map[string]any{
 		{"title": "x", "execution_mode": "assign_agent"},
 		{"title": " ", "execution_mode": "run_only"},
-		{"title": "x", "execution_mode": "run_only", "budget_usd": -1},
 		{"title": "x", "execution_mode": "run_only", "assignee": "someone"},
 		{"title": strings.Repeat("x", 201), "execution_mode": "run_only"},
 	} {
@@ -381,12 +380,12 @@ func TestAutoresearchRunCompletesWithoutScopedTransactionDeadlock(t *testing.T) 
 	}
 }
 
-func TestWatchReleasedRefusalIsNamed(t *testing.T) {
+func TestRetiredExecutionModesAreRefused(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	for mode, want := range map[string]string{
-		"watch_released": "watch_released arrives with the Validation stage",
+		"watch_released": "execution_mode must be create_card or run_only",
 		"assign_agent":   "execution_mode must be create_card or run_only",
 	} {
 		var out map[string]string

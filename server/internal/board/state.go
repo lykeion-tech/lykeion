@@ -3,8 +3,6 @@
 package board
 
 import (
-	"time"
-
 	"github.com/google/uuid"
 
 	db "lykeion/server/pkg/db/generated"
@@ -23,8 +21,7 @@ const (
 	InReview = "in_review"
 	Ready    = "ready"
 
-	Escalated   = "escalated"
-	OutOfBudget = "out_of_budget"
+	Escalated = "escalated"
 )
 
 // Stages are the five scientific columns, in board order.
@@ -40,28 +37,19 @@ func StageIndex(c string) int {
 }
 
 type State struct {
-	Column, State, Flag, Ending, EndReason, Rerun string
-	HandoffNote                                   string // why the next round redoes work
-	BlockKind, Question                           string
-	Cap, Reopens                                  int32
-	Rounds, RouteBacks, Round                     int32
-	Stale                                         []string
-	BudgetUSD, SpentUSD                           float64 // SpentUSD is read, never saved
-	Deadline                                      *time.Time
+	Column, State, Flag, Ending, EndReason string
+	HandoffNote                            string // why the next round redoes work
+	BlockKind, Question                    string
+	Rounds, Round                          int32
 }
 
 func FromCard(c db.Card) State {
 	return State{Column: c.BoardColumn, State: c.State, Flag: c.Flag, Ending: c.Ending, EndReason: c.EndReason,
-		Rerun: c.Rerun, HandoffNote: c.HandoffNote, Rounds: c.Rounds, RouteBacks: c.RouteBacks, Round: c.Round,
-		Stale: c.Stale, BlockKind: c.BlockKind, Question: c.Question, Cap: c.Cap, Reopens: c.Reopens, BudgetUSD: c.BudgetUsd, SpentUSD: c.SpentUsd, Deadline: c.Deadline}
+		HandoffNote: c.HandoffNote, Rounds: c.Rounds, Round: c.Round, BlockKind: c.BlockKind, Question: c.Question}
 }
 
 func (s State) Params(id, ws uuid.UUID) db.SaveCardBoardParams {
-	stale := s.Stale
-	if stale == nil {
-		stale = []string{}
-	}
 	return db.SaveCardBoardParams{BoardColumn: s.Column, State: s.State, Flag: s.Flag, Ending: s.Ending,
-		EndReason: s.EndReason, Rounds: s.Rounds, RouteBacks: s.RouteBacks, Stale: stale, Rerun: s.Rerun,
-		Round: s.Round, BudgetUsd: s.BudgetUSD, HandoffNote: s.HandoffNote, Cap: s.Cap, BlockKind: s.BlockKind, Reopens: s.Reopens, Question: s.Question, ID: id, WorkspaceID: ws}
+		EndReason: s.EndReason, Rounds: s.Rounds, Round: s.Round, HandoffNote: s.HandoffNote,
+		BlockKind: s.BlockKind, Question: s.Question, ID: id, WorkspaceID: ws}
 }

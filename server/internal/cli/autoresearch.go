@@ -104,7 +104,6 @@ func autoresearchCmd(e *env) *cobra.Command {
 	}
 
 	var mode, description, template string
-	var usd float64
 	create := &cobra.Command{Use: "create TITLE", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
@@ -114,17 +113,16 @@ func autoresearchCmd(e *env) *cobra.Command {
 		}
 		var out apView
 		in := map[string]any{"title": strings.Join(a, " "), "execution_mode": mode, "description": description,
-			"title_template": template, "budget_usd": usd}
+			"title_template": template}
 		if err := e.client().Do(cmd.Context(), "POST", "/api/autoresearch", in, &out); err != nil {
 			return err
 		}
 		fmt.Fprintf(e.out, "%s %s %s\n", out.ID, out.ExecutionMode, out.Title)
 		return nil
 	}}
-	create.Flags().StringVar(&mode, "mode", "", "create_card (open a gated Backlog card) or run_only (run one agent that reports)")
+	create.Flags().StringVar(&mode, "mode", "", "create_card (open a Backlog card) or run_only (run one agent that reports)")
 	create.Flags().StringVar(&description, "description", "", "what the Autoresearch asks for; a create_card card's question")
 	create.Flags().StringVar(&template, "template", "", "card title template; {{date}} is the run's day")
-	create.Flags().Float64Var(&usd, "usd", 0, "budget of each card it opens")
 
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, _ []string) error {
 		if err := e.inWorkspace(); err != nil {

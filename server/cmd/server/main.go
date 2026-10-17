@@ -22,12 +22,11 @@ import (
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/autoresearch"
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/pack"
-	"lykeion/server/internal/pack/check"
 	"lykeion/server/internal/realtime"
-	"lykeion/server/internal/round"
 	"lykeion/server/internal/seal"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
@@ -77,7 +76,6 @@ func newStorage(ctx context.Context, getenv func(string) string) (storage.Storag
 }
 
 func main() {
-	check.MaybeChild()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Getenv, nil); err != nil {
@@ -148,7 +146,8 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		return err
 	}
 	runs := &service.AgentRuns{Store: st, MCPURL: strings.TrimRight(getenv("PUBLIC_URL"), "/") + "/mcp/sources"}
-	engine := &round.Engine{Store: st, AgentRuns: runs, Blobs: blobs, JevKey: getenv("TYPESAFE_API_KEY")}
+	// replaced in the flow task
+	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs, JevKey: getenv("TYPESAFE_API_KEY")}
 	secretKey, err := seal.ParseKey(getenv("LYK_SECRET_KEY"))
 	if err != nil {
 		return err
@@ -163,7 +162,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	}
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
-		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), KindsFor: round.KindsFor,
+		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), KindsFor: flow.KindsFor,
 		Google:    auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
 		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped()}
 	if err := runs.RecoverSettlements(ctx); err != nil {

@@ -21,7 +21,7 @@ func TestCardLifecycleBasics(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c1, c2 card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does X raise Y in mouse liver?", "budget_usd": 20}, &c1); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does X raise Y in mouse liver?"}, &c1); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"title": "Second", "question": "q2", "follows_from": []string{c1.ID}}, &c2)

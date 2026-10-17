@@ -17,9 +17,8 @@ UPDATE card SET gating_until = sqlc.narg(gating_until) WHERE id = @id AND worksp
 -- spent_usd is never written here: F2's settle is its only writer.
 -- name: SaveCardBoard :exec
 UPDATE card SET board_column = @board_column, state = @state, flag = @flag, ending = @ending,
-  end_reason = @end_reason, rounds = @rounds, route_backs = @route_backs, stale = @stale,
-  rerun = @rerun, round = @round, budget_usd = @budget_usd, handoff_note = @handoff_note,
-  cap = @cap, block_kind = @block_kind, reopens = @reopens, question = @question, version = version + 1
+  end_reason = @end_reason, rounds = @rounds,
+  round = @round, handoff_note = @handoff_note, block_kind = @block_kind, question = @question, version = version + 1
 WHERE id = @id AND workspace_id = @workspace_id;
 
 -- name: RoundAgentRuns :many

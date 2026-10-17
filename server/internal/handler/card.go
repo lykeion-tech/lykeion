@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
-	"lykeion/server/internal/records"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -25,35 +22,8 @@ import (
 type newCard struct {
 	Title       string      `json:"title"`
 	Question    string      `json:"question"`
-	BudgetUSD   float64     `json:"budget_usd"`
 	Deadline    *time.Time  `json:"deadline"`
 	FollowsFrom []uuid.UUID `json:"follows_from"`
-	StartKind   string      `json:"start_kind"`
-	Dataset     string      `json:"dataset"`
-}
-
-// datasetAccession matches an accession (GSE84133, PRJNA123, a DOI) or an http(s) link; the
-// sources server fetches and records it once Grounding runs.
-var datasetAccession = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{2,255}$`)
-
-func datasetRef(raw, startKind string) (string, error) {
-	ref := strings.TrimSpace(raw)
-	if startKind != "dataset" {
-		if ref != "" {
-			return "", cardInputError("a dataset goes only with a study that starts from a dataset")
-		}
-		return "", nil
-	}
-	if ref == "" {
-		return "", cardInputError("a dataset study needs its dataset: an accession or a link")
-	}
-	if u, err := url.Parse(ref); err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https") && len(ref) <= 512 {
-		return ref, nil
-	}
-	if !strings.Contains(ref, "://") && datasetAccession.MatchString(ref) {
-		return ref, nil
-	}
-	return "", cardInputError("the dataset must be an accession (like GSE84133 or a DOI) or an http(s) link")
 }
 
 type cardInputError string
@@ -90,24 +60,15 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "question required")
 		return
 	}
-	if in.BudgetUSD < 0 {
-		writeErr(w, 400, "budget cannot be negative")
-		return
-	}
 	if strings.TrimSpace(in.Title) == "" {
 		in.Title = titleFrom(in.Question)
 	}
 	if in.FollowsFrom == nil {
 		in.FollowsFrom = []uuid.UUID{}
 	}
-	dataset, err := datasetRef(in.Dataset, in.StartKind)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
 	var c db.Card
 	var dup db.ActiveDuplicateRow
-	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		for _, parentID := range in.FollowsFrom {
 			if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: parentID}); err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -115,10 +76,6 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 				}
 				return err
 			}
-		}
-		pk, capacity, err := cardPack(r, tx, user, in.StartKind)
-		if err != nil {
-			return err
 		}
 		// A follow-up may ask the same question again; any other card may not
 		// while an active card asks it. The workspace lock makes two identical
@@ -142,21 +99,10 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		}
 		c, err = tx.Q.CreateCard(r.Context(), db.CreateCardParams{
 			WorkspaceID: ws, Number: n, Title: in.Title, Question: in.Question, OwnerID: user,
-			BudgetUsd: in.BudgetUSD, Deadline: in.Deadline, FollowsFrom: in.FollowsFrom,
+			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom,
 		})
 		if err != nil {
 			return err
-		}
-		if pk != nil {
-			if c, err = tx.Q.PinNewCard(r.Context(), db.PinNewCardParams{PackID: &pk.ID, StartKind: in.StartKind,
-				Cap: capacity, WorkspaceID: ws, ID: c.ID}); err != nil {
-				return err
-			}
-		}
-		if dataset != "" {
-			if err := (records.Batch{Put: []records.Put{{Kind: "dataset_ref", Key: "0", Body: map[string]string{"ref": dataset}}}}).Write(r.Context(), tx, c); err != nil {
-				return err
-			}
 		}
 		return tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title})
 	})
@@ -407,7 +353,6 @@ func (n *nullableTime) UnmarshalJSON(b []byte) error {
 type cardEdit struct {
 	Title       *string      `json:"title"`
 	Question    *string      `json:"question"`
-	BudgetUSD   *float64     `json:"budget_usd"`
 	Deadline    nullableTime `json:"deadline"`
 	FollowsFrom *[]uuid.UUID `json:"follows_from"`
 	Position    *float64     `json:"position"`
@@ -419,7 +364,7 @@ func (e cardEdit) fields() []string {
 	for _, f := range []struct {
 		name string
 		set  bool
-	}{{"title", e.Title != nil}, {"question", e.Question != nil}, {"budget_usd", e.BudgetUSD != nil},
+	}{{"title", e.Title != nil}, {"question", e.Question != nil},
 		{"deadline", e.Deadline.Set}, {"follows_from", e.FollowsFrom != nil}, {"position", e.Position != nil}} {
 		if f.set {
 			out = append(out, f.name)
@@ -452,9 +397,6 @@ func (h *H) editCard(w http.ResponseWriter, r *http.Request) {
 	case in.Question != nil && strings.TrimSpace(*in.Question) == "":
 		writeErr(w, 400, "question cannot be empty")
 		return
-	case in.BudgetUSD != nil && *in.BudgetUSD < 0:
-		writeErr(w, 400, "budget cannot be negative")
-		return
 	}
 	var out db.Card
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
@@ -465,16 +407,13 @@ func (h *H) editCard(w http.ResponseWriter, r *http.Request) {
 		if c.BoardColumn != board.Backlog {
 			return errNotBacklog
 		}
-		p := db.EditBacklogCardParams{Title: c.Title, Question: c.Question, BudgetUsd: c.BudgetUsd, Deadline: c.Deadline,
+		p := db.EditBacklogCardParams{Title: c.Title, Question: c.Question, Deadline: c.Deadline,
 			FollowsFrom: c.FollowsFrom, Position: c.Position, ID: id, WorkspaceID: ws}
 		if in.Title != nil {
 			p.Title = strings.TrimSpace(*in.Title)
 		}
 		if in.Question != nil {
 			p.Question = *in.Question
-		}
-		if in.BudgetUSD != nil {
-			p.BudgetUsd = *in.BudgetUSD
 		}
 		if in.Deadline.Set {
 			p.Deadline = in.Deadline.V

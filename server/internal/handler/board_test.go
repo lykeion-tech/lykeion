@@ -11,37 +11,20 @@ import (
 	"testing"
 )
 
-func TestPeopleSteerButNeverMoveForward(t *testing.T) {
+func TestStopEndsAStudyAndResumeIsRefused(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "budget_usd": 1}, &c)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
 	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'validation', round = 3 WHERE id = $1`, c.ID)
-
-	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/send-back", a, w.ID, map[string]string{"to": "reporting", "reason": "x"}, nil); code != 400 {
-		t.Fatalf("sent forward: %d", code)
-	}
 	var out struct {
-		BoardColumn string   `json:"board_column"`
-		Stale       []string `json:"stale"`
-		Round       int      `json:"round"`
-		Flag        string   `json:"flag"`
-		Ending      string   `json:"ending"`
-		BudgetUsd   float64  `json:"budget_usd"`
+		BoardColumn string `json:"board_column"`
+		Ending      string `json:"ending"`
 	}
-	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/send-back", a, w.ID, map[string]string{"to": "hypotheses", "reason": "wrong rivals"}, &out); code != 200 {
-		t.Fatalf("send-back: %d", code)
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/stop", a, w.ID, map[string]string{"reason": "superseded by #2"}, &out); code != 200 {
+		t.Fatalf("stop: %d", code)
 	}
-	if out.BoardColumn != "hypotheses" || out.Round != 4 || len(out.Stale) != 2 {
-		t.Fatalf("%+v", out)
-	}
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET flag = 'out_of_budget' WHERE id = $1`, c.ID)
-	s.call(t, "POST", "/api/cards/"+c.ID+"/budget", a, w.ID, map[string]float64{"usd": 40}, &out)
-	if out.Flag != "" || out.BudgetUsd != 40 {
-		t.Fatalf("budget: %+v", out)
-	}
-	s.call(t, "POST", "/api/cards/"+c.ID+"/stop", a, w.ID, map[string]string{"reason": "superseded by #2"}, &out)
 	if out.BoardColumn != "done" || out.Ending != "stopped" {
 		t.Fatalf("stop: %+v", out)
 	}
@@ -56,7 +39,7 @@ func TestResumeRefusesABlockedCard(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	var c card
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'validation', round = 3, flag = 'escalated', block_kind = 'cap', route_backs = 4 WHERE id = $1`, c.ID)
+	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'validation', round = 3, flag = 'escalated', block_kind = 'low_score' WHERE id = $1`, c.ID)
 	var refused struct {
 		Error string `json:"error"`
 	}
@@ -64,52 +47,14 @@ func TestResumeRefusesABlockedCard(t *testing.T) {
 		t.Fatalf("resumed a blocked card: %d %+v", code, refused)
 	}
 	var flag, kind string
-	var round, routeBacks int
-	s.Env.Owner.QueryRow(t.Context(), `SELECT flag, block_kind, round, route_backs FROM card WHERE id = $1`, c.ID).Scan(&flag, &kind, &round, &routeBacks)
-	if flag != "escalated" || kind != "cap" || round != 3 || routeBacks != 4 {
-		t.Fatalf("a refused resume changed the card: %s %s %d %d", flag, kind, round, routeBacks)
+	var round int
+	s.Env.Owner.QueryRow(t.Context(), `SELECT flag, block_kind, round FROM card WHERE id = $1`, c.ID).Scan(&flag, &kind, &round)
+	if flag != "escalated" || kind != "low_score" || round != 3 {
+		t.Fatalf("a refused resume changed the card: %s %s %d", flag, kind, round)
 	}
 	s.Env.Owner.Exec(t.Context(), `UPDATE card SET block_kind = '' WHERE id = $1`, c.ID)
 	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/resume", a, w.ID, nil, nil); code != 200 {
 		t.Fatalf("an escalated card without a block kind did not resume: %d", code)
-	}
-}
-
-func TestSendBackRefusesABlockedCard(t *testing.T) {
-	s := newServer(t)
-	a := s.signIn(t, "a@lab.org")
-	w := s.workspace(t, a, "lab")
-	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'validation', round = 3, flag = 'escalated', block_kind = 'cap', route_backs = 4 WHERE id = $1`, c.ID)
-	var refused struct {
-		Error string `json:"error"`
-	}
-	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/send-back", a, w.ID, map[string]string{"to": "grounding", "reason": "redo"}, &refused); code != 409 || refused.Error != "this study is blocked: unblock or close it first" {
-		t.Fatalf("sent back a blocked card: %d %+v", code, refused)
-	}
-	var column, flag, kind string
-	var round, routeBacks int
-	s.Env.Owner.QueryRow(t.Context(), `SELECT board_column, flag, block_kind, round, route_backs FROM card WHERE id = $1`, c.ID).Scan(&column, &flag, &kind, &round, &routeBacks)
-	if column != "validation" || flag != "escalated" || kind != "cap" || round != 3 || routeBacks != 4 {
-		t.Fatalf("a refused send-back changed the card: %s %s %s %d %d", column, flag, kind, round, routeBacks)
-	}
-}
-
-func TestSendBackReasonIsTheHandoffNote(t *testing.T) {
-	s := newServer(t)
-	a := s.signIn(t, "a@lab.org")
-	w := s.workspace(t, a, "lab")
-	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'hypotheses', round = 2 WHERE id = $1`, c.ID)
-	var out struct {
-		HandoffNote string `json:"handoff_note"`
-		Rerun       string `json:"rerun"`
-	}
-	s.call(t, "POST", "/api/cards/"+c.ID+"/send-back", a, w.ID, map[string]string{"to": "grounding", "step": "contrarian", "reason": "missed the null result"}, &out)
-	if out.HandoffNote != "missed the null result" || out.Rerun != "contrarian" {
-		t.Fatalf("%+v", out)
 	}
 }
 
@@ -198,7 +143,7 @@ func TestSettingsAcceptPinnedModel(t *testing.T) {
 }
 
 func TestSteeringCancellationFailureRemainsVisible(t *testing.T) {
-	for _, action := range []string{"stop", "send-back"} {
+	for _, action := range []string{"stop"} {
 		t.Run(action, func(t *testing.T) {
 			s := newServer(t)
 			s.H.Engine = nil
@@ -221,14 +166,6 @@ func TestSteeringCancellationFailureRemainsVisible(t *testing.T) {
 			if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column='grounding', round=1 WHERE id=$1`, c.ID); err != nil {
 				t.Fatal(err)
 			}
-			if action == "send-back" {
-				if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column='hypotheses' WHERE id=$1`, c.ID); err != nil {
-					t.Fatal(err)
-				}
-				if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET board_column='hypotheses' WHERE card_id=$1`, c.ID); err != nil {
-					t.Fatal(err)
-				}
-			}
 			// Fail the first cancellation inside its real transaction; the later run
 			// must still be cancelled after this transaction rolls back.
 			if _, err := s.Env.Owner.Exec(t.Context(), fmt.Sprintf(`CREATE FUNCTION reject_cancel() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
@@ -242,9 +179,6 @@ func TestSteeringCancellationFailureRemainsVisible(t *testing.T) {
 			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 			defer slog.SetDefault(previous)
 			body := map[string]string{"reason": "reconsider"}
-			if action == "send-back" {
-				body["to"] = "grounding"
-			}
 			var response struct {
 				Error string `json:"error"`
 			}
@@ -262,11 +196,8 @@ func TestSteeringCancellationFailureRemainsVisible(t *testing.T) {
 			if code != 500 || !strings.Contains(response.Error, "steering was applied") || !strings.Contains(response.Error, "cancellation incomplete") {
 				t.Errorf("partial failure: code=%d response=%+v", code, response)
 			}
-			if action == "stop" && (column != "done" || ending != "stopped") {
+			if column != "done" || ending != "stopped" {
 				t.Errorf("steering rolled back: %s %s", column, ending)
-			}
-			if action == "send-back" && column != "grounding" {
-				t.Errorf("send-back rolled back: %s", column)
 			}
 			if firstStatus != "queued" || lastStatus != "cancelled" {
 				t.Errorf("cancellation attempts: first=%s later=%s", firstStatus, lastStatus)
@@ -352,7 +283,7 @@ func TestDuplicateLookupInfrastructureFailureIsServerError(t *testing.T) {
 }
 
 func TestExplicitSteeringCancelsInflightRunsAcrossRounds(t *testing.T) {
-	for _, action := range []string{"stop", "send-back"} {
+	for _, action := range []string{"stop"} {
 		t.Run(action, func(t *testing.T) {
 			s := newServer(t)
 			s.H.Engine = nil
@@ -389,9 +320,6 @@ func TestExplicitSteeringCancelsInflightRunsAcrossRounds(t *testing.T) {
 				}
 			}
 			body := map[string]string{"reason": "reconsider"}
-			if action == "send-back" {
-				body["to"] = "grounding"
-			}
 			if code := s.call(t, "POST", "/api/cards/"+c.ID+"/"+action, a, w.ID, body, nil); code != 200 {
 				t.Fatalf("steering: %d", code)
 			}

@@ -19,9 +19,9 @@ import (
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/autoresearch"
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
-	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -37,7 +37,7 @@ type H struct {
 	Google       auth.Google
 	Secure       bool // cookies only over HTTPS
 	Hub          *realtime.Hub
-	Engine       *round.Engine
+	Engine       *flow.Engine
 	AgentRuns    *service.AgentRuns
 	Blobs        storage.Storage
 	KindsFor     func(context.Context, *store.Tx, storage.Storage, db.Card) (map[string]service.Kind, error) // what a card's roles may write

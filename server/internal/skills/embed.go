@@ -1,5 +1,4 @@
-// Package skills holds the role skills the server hands to daemons and the
-// entry skill `lyk install` copies into a project.
+// Package skills holds the role skills the server hands to daemons.
 package skills
 
 import (
@@ -8,7 +7,7 @@ import (
 	"strings"
 )
 
-//go:embed lyk grounding autoresearch hypotheses
+//go:embed autoresearch
 var FS embed.FS
 
 // Role returns a role's SKILL.md, or "" when the role has none. Parallel

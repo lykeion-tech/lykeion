@@ -7,16 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
 	"lykeion/server/internal/testutil"
 )
-
-const goodStar = `def check(records):
-    return [{"id": r["key"], "ok": False, "failure": "bad"} for r in records]
-`
 
 func goodManifest() map[string]any {
 	return map[string]any{
@@ -73,7 +68,6 @@ func baseEntries(t *testing.T, m map[string]any) []entry {
 		{name: "skills/grounding/scout/SKILL.md", body: []byte("scout skill")},
 		{name: "skills/grounding/scout/ref.md", body: []byte("ref")},
 		{name: "skills/grounding/critic/SKILL.md", body: []byte("critic skill")},
-		{name: "checks/grounding.star", body: []byte(goodStar)},
 	}
 }
 
@@ -98,20 +92,6 @@ func TestParseValid(t *testing.T) {
 	}
 	if p.Target("bad") != "grounding" {
 		t.Fatal("target")
-	}
-}
-
-func TestCheckRunsPackScript(t *testing.T) {
-	p, err := Parse(build(t, baseEntries(t, goodManifest())...))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rs, err := p.Check(t.Context(), "grounding", []checkRecord{{Key: "k1"}})
-	if err != nil || len(rs) != 1 || rs[0].OK || rs[0].Failure != "bad" {
-		t.Fatalf("%v %v", rs, err)
-	}
-	if _, err := p.Check(t.Context(), "validation", nil); err == nil {
-		t.Fatal("a column without a check script must error")
 	}
 }
 
@@ -157,7 +137,7 @@ func TestParseRefuses(t *testing.T) {
 		"case dup file":           build(t, ext(entry{name: "skills/grounding/scout/skill.md", body: []byte("x")})...),
 		"case dup dir":            build(t, ext(entry{name: "skills/grounding/Scout/SKILL.md", body: []byte("x")})...),
 		"undeclared column skill": build(t, ext(entry{name: "skills/reporting/r/SKILL.md", body: []byte("x")})...),
-		"undeclared column check": build(t, ext(entry{name: "checks/reporting.star", body: []byte(goodStar)})...),
+		"check script":            build(t, ext(entry{name: "checks/grounding.star", body: []byte("x")})...),
 		"empty name":              build(t, mut(func(m map[string]any) { m["name"] = "" })...),
 		"empty version":           build(t, mut(func(m map[string]any) { m["version"] = "" })...),
 		"trailing brace":          build(t, rawManifest(good, func(b []byte) []byte { return append(b, " }"...) })...),
@@ -186,18 +166,15 @@ func TestParseRefuses(t *testing.T) {
 		"kind role outside column": build(t, mut(func(m map[string]any) {
 			col(m)["kinds"] = map[string]any{"question": map[string]any{"roles": []string{"ghost"}}}
 		})...),
-		"bands inverted": build(t, mut(func(m map[string]any) { m["bands"] = map[string]float64{"yes": .3, "no": .5} })...),
-		"negative cap":   build(t, mut(func(m map[string]any) { m["cap"] = -1 })...),
-		"bad split":      build(t, mut(func(m map[string]any) { m["split"] = map[string]any{"unit": "paper", "ratio": 1.0} })...),
-		"unknown field":  build(t, mut(func(m map[string]any) { m["surprise"] = 1 })...),
+		"bad split":     build(t, mut(func(m map[string]any) { m["split"] = map[string]any{"unit": "paper", "ratio": 1.0} })...),
+		"unknown field": build(t, mut(func(m map[string]any) { m["surprise"] = 1 })...),
 		"vendored wrong hash": build(t, mut(func(m map[string]any) {
 			m["vendored"] = map[string]string{"skills/grounding/scout/ref.md": strings.Repeat("0", 64)}
 		})...),
 		"vendored missing": build(t, mut(func(m map[string]any) {
 			m["vendored"] = map[string]string{"skills/grounding/scout/nope.md": strings.Repeat("0", 64)}
 		})...),
-		"not a zip":            []byte("hello"),
-		"column without check": build(t, slices.DeleteFunc(slices.Clone(good), func(e entry) bool { return e.name == "checks/grounding.star" })...),
+		"not a zip": []byte("hello"),
 	}
 	for name, z := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -229,22 +206,14 @@ func TestTargetUndeclared(t *testing.T) {
 
 func TestTestutilPackIsValid(t *testing.T) {
 	z := testutil.Pack(t, testutil.PackOpts{Name: "x", Version: "3", Columns: []string{"grounding", "validation"},
-		StartKinds: []string{"claim"}, Cap: 2, Sources: []string{"openalex"}, ScienceIndex: true})
+		StartKinds: []string{"claim"}, Sources: []string{"openalex"}, ScienceIndex: true})
 	p, err := Parse(z)
 	if err != nil {
 		t.Fatal(err)
 	}
 	m := p.Manifest
-	if m.Name != "x" || m.Version != "3" || m.Cap != 2 || m.StartKinds[0] != "claim" || m.Sources[0] != "openalex" || !m.ScienceIndex ||
+	if m.Name != "x" || m.Version != "3" || m.StartKinds[0] != "claim" || m.Sources[0] != "openalex" || !m.ScienceIndex ||
 		p.Skill("validation", "reviewer") == "" {
 		t.Fatalf("%+v", m)
-	}
-	rs, err := p.Check(t.Context(), "validation", []checkRecord{{Kind: "note", Key: "n"}})
-	if err != nil || len(rs) != 1 || !rs[0].OK {
-		t.Fatalf("with a note: %v %v", rs, err)
-	}
-	rs, err = p.Check(t.Context(), "validation", []checkRecord{{Kind: "claim", Key: "c"}})
-	if err != nil || len(rs) != 1 || rs[0].OK || rs[0].Failure != "missing_note" {
-		t.Fatalf("without a note: %v %v", rs, err)
 	}
 }

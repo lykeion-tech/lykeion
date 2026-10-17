@@ -13,21 +13,12 @@ type PackOpts struct {
 	Name, Version, Description string
 	Columns                    []string // default grounding
 	StartKinds                 []string // default question
-	Cap                        int32
 	Sources                    []string
 	ScienceIndex               bool
 }
 
-// PackCheck passes when the card has a note record and fails with
-// missing_note otherwise.
-const PackCheck = `def check(records):
-    if [r for r in records if r["kind"] == "note"]:
-        return [{"id": "note", "ok": True}]
-    return [{"id": "note", "ok": False, "failure": "missing_note"}]
-`
-
 // Pack builds a valid pack archive: an author role and a reviewer in each
-// column, and PackCheck as each column's check.
+// column.
 func Pack(t *testing.T, o PackOpts) []byte {
 	t.Helper()
 	if o.Name == "" {
@@ -48,9 +39,6 @@ func Pack(t *testing.T, o PackOpts) []byte {
 	}
 	m := map[string]any{"name": o.Name, "version": o.Version, "description": o.Description,
 		"start_kinds": o.StartKinds, "columns": cols, "failures": map[string]string{"missing_note": o.Columns[0]}}
-	if o.Cap != 0 {
-		m["cap"] = o.Cap
-	}
 	if len(o.Sources) > 0 {
 		m["sources"] = o.Sources
 	}
@@ -76,7 +64,6 @@ func Pack(t *testing.T, o PackOpts) []byte {
 	for _, c := range o.Columns {
 		add("skills/"+c+"/author/SKILL.md", []byte("Do the "+c+" work."))
 		add("skills/"+c+"/reviewer/SKILL.md", []byte("Review the "+c+" work."))
-		add("checks/"+c+".star", []byte(PackCheck))
 	}
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)

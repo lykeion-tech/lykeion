@@ -12,7 +12,6 @@ type backlogCard struct {
 	Number      int        `json:"number"`
 	Title       string     `json:"title"`
 	Question    string     `json:"question"`
-	BudgetUsd   float64    `json:"budget_usd"`
 	Deadline    *time.Time `json:"deadline"`
 	FollowsFrom []string   `json:"follows_from"`
 	Position    float64    `json:"position"`
@@ -43,7 +42,7 @@ func TestBacklogCardsCanBeEditedReorderedAndDeleted(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c1, c2 backlogCard
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q1", "budget_usd": 5}, &c1)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q1"}, &c1)
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2"}, &c2)
 	path := "/api/cards/" + c1.ID
 
@@ -52,18 +51,18 @@ func TestBacklogCardsCanBeEditedReorderedAndDeleted(t *testing.T) {
 		t.Fatalf("reorder: %d %+v", code, out)
 	}
 	deadline := "2026-12-01T00:00:00Z"
-	body := map[string]any{"title": " New title ", "question": "q1, sharper", "budget_usd": 7, "deadline": deadline, "follows_from": []string{c2.ID}}
+	body := map[string]any{"title": " New title ", "question": "q1, sharper", "deadline": deadline, "follows_from": []string{c2.ID}}
 	if code := s.call(t, "PATCH", path, a, w.ID, body, &out); code != 200 {
 		t.Fatalf("edit: %d", code)
 	}
-	if out.Title != "New title" || out.Question != "q1, sharper" || out.BudgetUsd != 7 || out.Deadline == nil ||
+	if out.Title != "New title" || out.Question != "q1, sharper" || out.Deadline == nil ||
 		len(out.FollowsFrom) != 1 || out.FollowsFrom[0] != c2.ID || out.Position != 0 {
 		t.Fatalf("edited: %+v", out)
 	}
-	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"deadline": nil}, &out); code != 200 || out.Deadline != nil || out.BudgetUsd != 7 {
+	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"deadline": nil}, &out); code != 200 || out.Deadline != nil {
 		t.Fatalf("clear deadline: %d %+v", code, out)
 	}
-	for _, bad := range []map[string]any{{}, {"title": " "}, {"question": ""}, {"budget_usd": -1}, {"follows_from": []string{c1.ID}}, {"follows_from": []string{uuid.NewString()}}, {"board_column": "done"}} {
+	for _, bad := range []map[string]any{{}, {"title": " "}, {"question": ""}, {"follows_from": []string{c1.ID}}, {"follows_from": []string{uuid.NewString()}}, {"board_column": "done"}} {
 		if code := s.call(t, "PATCH", path, a, w.ID, bad, nil); code != 400 {
 			t.Fatalf("%v: %d", bad, code)
 		}

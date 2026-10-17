@@ -261,9 +261,9 @@ func (q *Queries) ClaimWebhookDeliveries(ctx context.Context, n int32) ([]ClaimW
 }
 
 const createAutoresearch = `-- name: CreateAutoresearch :one
-INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template, budget_usd)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, workspace_id, owner_id, title, description, execution_mode, title_template, budget_usd, status, pause_reason, created_at
+INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, workspace_id, owner_id, title, description, execution_mode, title_template, status, pause_reason, created_at, assignee_type, assignee_id, scope_from, scope_to
 `
 
 type CreateAutoresearchParams struct {
@@ -273,7 +273,6 @@ type CreateAutoresearchParams struct {
 	Description   string    `json:"description"`
 	ExecutionMode string    `json:"execution_mode"`
 	TitleTemplate string    `json:"title_template"`
-	BudgetUsd     float64   `json:"budget_usd"`
 }
 
 func (q *Queries) CreateAutoresearch(ctx context.Context, arg CreateAutoresearchParams) (Autoresearch, error) {
@@ -284,7 +283,6 @@ func (q *Queries) CreateAutoresearch(ctx context.Context, arg CreateAutoresearch
 		arg.Description,
 		arg.ExecutionMode,
 		arg.TitleTemplate,
-		arg.BudgetUsd,
 	)
 	var i Autoresearch
 	err := row.Scan(
@@ -295,10 +293,13 @@ func (q *Queries) CreateAutoresearch(ctx context.Context, arg CreateAutoresearch
 		&i.Description,
 		&i.ExecutionMode,
 		&i.TitleTemplate,
-		&i.BudgetUsd,
 		&i.Status,
 		&i.PauseReason,
 		&i.CreatedAt,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.ScopeFrom,
+		&i.ScopeTo,
 	)
 	return i, err
 }
@@ -396,7 +397,7 @@ func (q *Queries) DeleteTrigger(ctx context.Context, arg DeleteTriggerParams) (i
 const enqueueAutoresearchAgentRun = `-- name: EnqueueAutoresearchAgentRun :one
 INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, run_private)
 VALUES ($1, 'autoresearch', $2::uuid, $2::uuid, '', 0, 'autoresearch', $3, $4, $5, 2, $6)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model
 `
 
 type EnqueueAutoresearchAgentRunParams struct {
@@ -460,6 +461,7 @@ func (q *Queries) EnqueueAutoresearchAgentRun(ctx context.Context, arg EnqueueAu
 		&i.AddonMcp,
 		&i.Kind,
 		&i.RequesterID,
+		&i.RequestedModel,
 	)
 	return i, err
 }
@@ -561,7 +563,7 @@ func (q *Queries) FollowRun(ctx context.Context, arg FollowRunParams) (int64, er
 }
 
 const getAutoresearch = `-- name: GetAutoresearch :one
-SELECT id, workspace_id, owner_id, title, description, execution_mode, title_template, budget_usd, status, pause_reason, created_at FROM autoresearch WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, owner_id, title, description, execution_mode, title_template, status, pause_reason, created_at, assignee_type, assignee_id, scope_from, scope_to FROM autoresearch WHERE workspace_id = $1 AND id = $2
 `
 
 type GetAutoresearchParams struct {
@@ -580,10 +582,13 @@ func (q *Queries) GetAutoresearch(ctx context.Context, arg GetAutoresearchParams
 		&i.Description,
 		&i.ExecutionMode,
 		&i.TitleTemplate,
-		&i.BudgetUsd,
 		&i.Status,
 		&i.PauseReason,
 		&i.CreatedAt,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.ScopeFrom,
+		&i.ScopeTo,
 	)
 	return i, err
 }
@@ -846,7 +851,7 @@ func (q *Queries) LastOriginCard(ctx context.Context, arg LastOriginCardParams) 
 }
 
 const listAutoresearches = `-- name: ListAutoresearches :many
-SELECT id, workspace_id, owner_id, title, description, execution_mode, title_template, budget_usd, status, pause_reason, created_at FROM autoresearch WHERE workspace_id = $1 ORDER BY created_at
+SELECT id, workspace_id, owner_id, title, description, execution_mode, title_template, status, pause_reason, created_at, assignee_type, assignee_id, scope_from, scope_to FROM autoresearch WHERE workspace_id = $1 ORDER BY created_at
 `
 
 func (q *Queries) ListAutoresearches(ctx context.Context, workspaceID uuid.UUID) ([]Autoresearch, error) {
@@ -866,10 +871,13 @@ func (q *Queries) ListAutoresearches(ctx context.Context, workspaceID uuid.UUID)
 			&i.Description,
 			&i.ExecutionMode,
 			&i.TitleTemplate,
-			&i.BudgetUsd,
 			&i.Status,
 			&i.PauseReason,
 			&i.CreatedAt,
+			&i.AssigneeType,
+			&i.AssigneeID,
+			&i.ScopeFrom,
+			&i.ScopeTo,
 		); err != nil {
 			return nil, err
 		}
@@ -1281,7 +1289,7 @@ func (q *Queries) RunByKey(ctx context.Context, arg RunByKeyParams) (Autoresearc
 
 const setAutoresearchStatus = `-- name: SetAutoresearchStatus :one
 UPDATE autoresearch SET status = $1, pause_reason = $2
-WHERE workspace_id = $3 AND id = $4 RETURNING id, workspace_id, owner_id, title, description, execution_mode, title_template, budget_usd, status, pause_reason, created_at
+WHERE workspace_id = $3 AND id = $4 RETURNING id, workspace_id, owner_id, title, description, execution_mode, title_template, status, pause_reason, created_at, assignee_type, assignee_id, scope_from, scope_to
 `
 
 type SetAutoresearchStatusParams struct {
@@ -1307,10 +1315,13 @@ func (q *Queries) SetAutoresearchStatus(ctx context.Context, arg SetAutoresearch
 		&i.Description,
 		&i.ExecutionMode,
 		&i.TitleTemplate,
-		&i.BudgetUsd,
 		&i.Status,
 		&i.PauseReason,
 		&i.CreatedAt,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.ScopeFrom,
+		&i.ScopeTo,
 	)
 	return i, err
 }
@@ -1420,15 +1431,14 @@ func (q *Queries) SetTriggerNextRun(ctx context.Context, arg SetTriggerNextRunPa
 }
 
 const updateAutoresearch = `-- name: UpdateAutoresearch :one
-UPDATE autoresearch SET title = $1, description = $2, title_template = $3, budget_usd = $4
-WHERE workspace_id = $5 AND id = $6 RETURNING id, workspace_id, owner_id, title, description, execution_mode, title_template, budget_usd, status, pause_reason, created_at
+UPDATE autoresearch SET title = $1, description = $2, title_template = $3
+WHERE workspace_id = $4 AND id = $5 RETURNING id, workspace_id, owner_id, title, description, execution_mode, title_template, status, pause_reason, created_at, assignee_type, assignee_id, scope_from, scope_to
 `
 
 type UpdateAutoresearchParams struct {
 	Title         string    `json:"title"`
 	Description   string    `json:"description"`
 	TitleTemplate string    `json:"title_template"`
-	BudgetUsd     float64   `json:"budget_usd"`
 	WorkspaceID   uuid.UUID `json:"workspace_id"`
 	ID            uuid.UUID `json:"id"`
 }
@@ -1438,7 +1448,6 @@ func (q *Queries) UpdateAutoresearch(ctx context.Context, arg UpdateAutoresearch
 		arg.Title,
 		arg.Description,
 		arg.TitleTemplate,
-		arg.BudgetUsd,
 		arg.WorkspaceID,
 		arg.ID,
 	)
@@ -1451,10 +1460,13 @@ func (q *Queries) UpdateAutoresearch(ctx context.Context, arg UpdateAutoresearch
 		&i.Description,
 		&i.ExecutionMode,
 		&i.TitleTemplate,
-		&i.BudgetUsd,
 		&i.Status,
 		&i.PauseReason,
 		&i.CreatedAt,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.ScopeFrom,
+		&i.ScopeTo,
 	)
 	return i, err
 }

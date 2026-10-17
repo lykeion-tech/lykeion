@@ -111,7 +111,7 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 		return db.Card{}, err
 	}
 	c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: tx.WS, Number: n, Title: title, Question: question,
-		OwnerID: run.ActingUserID, BudgetUsd: ap.BudgetUsd, FollowsFrom: follows})
+		OwnerID: run.ActingUserID, FollowsFrom: follows})
 	if err != nil {
 		return db.Card{}, err
 	}

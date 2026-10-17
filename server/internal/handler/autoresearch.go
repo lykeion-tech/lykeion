@@ -96,11 +96,10 @@ func (h *H) autoresearchTx(w http.ResponseWriter, r *http.Request, edit bool, fn
 }
 
 type autoresearchIn struct {
-	Title         *string  `json:"title"`
-	Description   *string  `json:"description"`
-	ExecutionMode string   `json:"execution_mode"`
-	TitleTemplate *string  `json:"title_template"`
-	BudgetUSD     *float64 `json:"budget_usd"`
+	Title         *string `json:"title"`
+	Description   *string `json:"description"`
+	ExecutionMode string  `json:"execution_mode"`
+	TitleTemplate *string `json:"title_template"`
 }
 
 // apply checks the fields given and writes them onto ap.
@@ -114,9 +113,6 @@ func (in autoresearchIn) apply(ap *db.Autoresearch) error {
 	if in.TitleTemplate != nil {
 		ap.TitleTemplate = strings.TrimSpace(*in.TitleTemplate)
 	}
-	if in.BudgetUSD != nil {
-		ap.BudgetUsd = *in.BudgetUSD
-	}
 	switch {
 	case ap.Title == "" || len([]rune(ap.Title)) > 200 || strings.ContainsRune(ap.Title, 0):
 		return cardInputError("title must be 1 to 200 characters")
@@ -124,8 +120,6 @@ func (in autoresearchIn) apply(ap *db.Autoresearch) error {
 		return cardInputError("description must be at most 20000 characters, without NUL")
 	case len([]rune(strings.ReplaceAll(ap.TitleTemplate, "{{date}}", "2006-01-02"))) > 200 || strings.ContainsRune(ap.TitleTemplate, 0):
 		return cardInputError("title_template must be at most 200 characters")
-	case ap.BudgetUsd < 0:
-		return cardInputError("budget_usd cannot be negative")
 	}
 	return nil
 }
@@ -151,10 +145,6 @@ func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid autoresearch: "+err.Error())
 		return
 	}
-	if in.ExecutionMode == "watch_released" {
-		writeErr(w, 400, "watch_released arrives with the Validation stage")
-		return
-	}
 	if in.ExecutionMode != "create_card" && in.ExecutionMode != "run_only" {
 		writeErr(w, 400, "execution_mode must be create_card or run_only")
 		return
@@ -167,7 +157,7 @@ func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
 		ap, err = tx.Q.CreateAutoresearch(r.Context(), db.CreateAutoresearchParams{WorkspaceID: ws, OwnerID: user, Title: ap.Title,
-			Description: ap.Description, ExecutionMode: in.ExecutionMode, TitleTemplate: ap.TitleTemplate, BudgetUsd: ap.BudgetUsd})
+			Description: ap.Description, ExecutionMode: in.ExecutionMode, TitleTemplate: ap.TitleTemplate})
 		if err != nil {
 			return err
 		}
@@ -240,7 +230,7 @@ func (h *H) updateAutoresearch(w http.ResponseWriter, r *http.Request) {
 		}
 		var err error
 		out, err = tx.Q.UpdateAutoresearch(r.Context(), db.UpdateAutoresearchParams{Title: ap.Title, Description: ap.Description,
-			TitleTemplate: ap.TitleTemplate, BudgetUsd: ap.BudgetUsd, WorkspaceID: tx.WS, ID: ap.ID})
+			TitleTemplate: ap.TitleTemplate, WorkspaceID: tx.WS, ID: ap.ID})
 		if err != nil {
 			return err
 		}

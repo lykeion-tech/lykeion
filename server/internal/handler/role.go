@@ -20,8 +20,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
-	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -101,7 +101,7 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 			return err
 		})
 	}
-	if errors.Is(err, round.ErrPackUnavailable) {
+	if errors.Is(err, flow.ErrPackUnavailable) {
 		slog.Error("load pack for record kinds", "card", role.CardID, "err", err)
 		writeErr(w, 503, "this study's Team can't be loaded")
 		return
