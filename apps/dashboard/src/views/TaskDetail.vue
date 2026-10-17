@@ -16,6 +16,7 @@ import {
   useCards,
   useComments,
   useGates,
+  useInbox,
   useMe,
   useMembers,
   useRecords,
@@ -26,6 +27,8 @@ import {
 import type { Card, Column } from '../api/types';
 import {
   actionLabel,
+  blockedActions,
+  blockLabel,
   canResume,
   sendBackTargets,
   type ComposerAction,
@@ -185,7 +188,40 @@ const placeholders: Record<ComposerAction['kind'], string> = {
   'send-back': 'Why it goes back; the redone roles read this.',
   stop: 'Why the study stops.',
   resume: 'Optional: a comment for the next round.',
+  'raise-cap': 'Optional: why it gets more attempts; the next round reads it.',
+  'add-data': 'Optional: what you added; Hypotheses reads it next.',
+  'unblock-resume': 'Optional: a comment for the next round.',
+  close: 'Why the study closes.',
 };
+// Actions that send without text; any text goes first as a comment.
+const textOptional: ComposerAction['kind'][] = [
+  'resume',
+  'raise-cap',
+  'add-data',
+  'unblock-resume',
+];
+const blocked = computed(() => (c.value ? blockedActions(c.value) : []));
+const inbox = useInbox(false);
+// The block's reason, as the newest escalated inbox item for this study says it.
+const blockReason = computed(
+  () =>
+    (inbox.data.value ?? [])
+      .filter((i) => i.card_id === props.id && i.kind === 'escalated')
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.text ?? '',
+);
+function askCap() {
+  picker.value = '';
+  const used = c.value?.route_backs ?? 0;
+  const answer = prompt(`New cap, more than the ${used} already used:`, String(used + 1));
+  if (answer === null) return;
+  const cap = Number(answer);
+  if (!Number.isInteger(cap) || cap <= used) {
+    error.value = `The cap must be a whole number more than ${used}.`;
+    return;
+  }
+  error.value = '';
+  pick({ kind: 'raise-cap', cap });
+}
 let draftRevision = 0;
 let acknowledgedResumeComment: string | null = null;
 watch(
@@ -259,29 +295,32 @@ const verdictLabel = { pass: 'Passed', fail: 'Routed back', cannot_proceed: 'Blo
 async function send() {
   const text = comment.value.trim();
   const a = action.value;
-  if (busy.value || (!text && a.kind !== 'resume') || !c.value) return;
+  const optional = textOptional.includes(a.kind);
+  if (busy.value || (!text && !optional) || !c.value) return;
   if (a.kind === 'stop' && !confirm(`Stop ${number.value}? Ended studies are never reopened.`))
     return;
+  if (a.kind === 'close' && !confirm(`Close ${number.value}? It ends as Stopped.`)) return;
   const scope = mutationScope();
   const ownDraftRevision = draftRevision;
   const base = `/api/cards/${scope.id}`;
   busy.value = true;
   error.value = '';
   try {
-    if (
-      a.kind === 'comment' ||
-      (a.kind === 'resume' && text && acknowledgedResumeComment !== text)
-    ) {
+    if (a.kind === 'comment' || (optional && text && acknowledgedResumeComment !== text)) {
       await api('POST', `${base}/comments`, { body: text });
       if (!scope.current()) return;
-      // Retry only the remaining Resume after this comment was acknowledged.
-      if (a.kind === 'resume' && ownDraftRevision === draftRevision)
-        acknowledgedResumeComment = text;
+      // Retry only the remaining step after this comment was acknowledged.
+      if (optional && ownDraftRevision === draftRevision) acknowledgedResumeComment = text;
     }
     if (!scope.current()) return;
     if (a.kind === 'send-back') await api('POST', `${base}/send-back`, { to: a.to, reason: text });
     if (a.kind === 'stop') await api('POST', `${base}/stop`, { reason: text });
     if (a.kind === 'resume') await api('POST', `${base}/resume`);
+    if (a.kind === 'close') await api('POST', `${base}/close`, { reason: text });
+    if (a.kind === 'raise-cap')
+      await api('POST', `${base}/unblock`, { action: 'raise_cap', cap: a.cap });
+    if (a.kind === 'add-data') await api('POST', `${base}/unblock`, { action: 'add_data' });
+    if (a.kind === 'unblock-resume') await api('POST', `${base}/unblock`, { action: 'resume' });
     if (!scope.current()) return;
     if (ownDraftRevision === draftRevision) {
       comment.value = '';
@@ -689,6 +728,10 @@ function pin() {
         </div>
       </div>
       <div v-if="c && !c.ending" class="pinned-composer" @keydown.esc="picker = ''">
+        <p v-if="c.block_kind" class="block-bar">
+          <strong>Blocked: {{ blockLabel(c.block_kind) }}.</strong>
+          {{ blockReason }}
+        </p>
         <form class="task-comment" @submit.prevent="send">
           <textarea
             v-model="comment"
@@ -714,6 +757,30 @@ function pin() {
                   Comment<small>next round</small>
                 </button>
                 <button
+                  v-if="blocked.includes('raise-cap')"
+                  type="button"
+                  role="menuitem"
+                  @click="askCap"
+                >
+                  Raise cap<small>asks for the new number</small>
+                </button>
+                <button
+                  v-if="blocked.includes('add-data')"
+                  type="button"
+                  role="menuitem"
+                  @click="pick({ kind: 'add-data' })"
+                >
+                  Add data or budget<small>returns to Hypotheses</small>
+                </button>
+                <button
+                  v-if="blocked.includes('unblock-resume')"
+                  type="button"
+                  role="menuitem"
+                  @click="pick({ kind: 'unblock-resume' })"
+                >
+                  Resume<small>clears the block</small>
+                </button>
+                <button
                   v-if="sendBackTargets(c).length"
                   type="button"
                   role="menuitem"
@@ -723,6 +790,16 @@ function pin() {
                   Send back to<small>▸</small>
                 </button>
                 <button
+                  v-if="blocked.includes('close')"
+                  type="button"
+                  role="menuitem"
+                  class="danger"
+                  @click="pick({ kind: 'close' })"
+                >
+                  Close<small>ends as Stopped</small>
+                </button>
+                <button
+                  v-if="!blocked.length"
                   type="button"
                   role="menuitem"
                   class="danger"
@@ -731,7 +808,7 @@ function pin() {
                   Stop<small>ends the study</small>
                 </button>
                 <button
-                  v-if="canResume(c)"
+                  v-if="!blocked.length && canResume(c)"
                   type="button"
                   role="menuitem"
                   @click="pick({ kind: 'resume' })"
@@ -759,7 +836,7 @@ function pin() {
             <button
               class="round-send"
               type="submit"
-              :disabled="busy || (!comment.trim() && action.kind !== 'resume')"
+              :disabled="busy || (!comment.trim() && !textOptional.includes(action.kind))"
               aria-label="Send"
             >
               <Icon name="up" :size="18" />
@@ -1134,6 +1211,16 @@ function pin() {
 }
 .pinned-composer .task-comment {
   margin-top: 8px;
+}
+.block-bar {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--error-text);
 }
 .task-claims {
   margin-top: 30px;

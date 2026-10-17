@@ -295,7 +295,32 @@ const blockLabels: Record<BlockKind, string> = {
 export const blockLabel = (kind: BlockKind): string => blockLabels[kind];
 
 export type ComposerAction =
-  { kind: 'comment' } | { kind: 'send-back'; to: Column } | { kind: 'stop' } | { kind: 'resume' };
+  | { kind: 'comment' }
+  | { kind: 'send-back'; to: Column }
+  | { kind: 'stop' }
+  | { kind: 'resume' }
+  | { kind: 'raise-cap'; cap: number }
+  | { kind: 'add-data' }
+  | { kind: 'unblock-resume' }
+  | { kind: 'close' };
+
+// The way out each block allows; a study waiting on a human-run test has none,
+// as it resumes once the results arrive.
+const unblockBy: Record<BlockKind, ComposerAction['kind'][]> = {
+  '': [],
+  cap: ['raise-cap'],
+  no_feasible_test: ['add-data'],
+  infra: ['unblock-resume'],
+  drift: ['unblock-resume'],
+  human_run: [],
+  too_small_to_split: [],
+};
+// A Blocked study's picker: Comment, its own way out, Send back and Close.
+// An unblocked study gets [] and keeps the ordinary picker, Stop included.
+export function blockedActions(card: Card): ComposerAction['kind'][] {
+  if (card.ending || !card.block_kind) return [];
+  return ['comment', ...unblockBy[card.block_kind], 'send-back', 'close'];
+}
 
 // Send back offers the stages before the study's own; Grounding has none.
 export function sendBackTargets(card: Card): Column[] {
@@ -305,7 +330,15 @@ export function sendBackTargets(card: Card): Column[] {
 export const canResume = (card: Card) => !card.ending && card.flag !== '';
 export function actionLabel(a: ComposerAction): string {
   if (a.kind === 'send-back') return `Send back to ${columnName(a.to)}`;
-  return { comment: 'Comment', stop: 'Stop', resume: 'Resume' }[a.kind];
+  if (a.kind === 'raise-cap') return `Raise cap to ${a.cap}`;
+  return {
+    comment: 'Comment',
+    stop: 'Stop',
+    resume: 'Resume',
+    'add-data': 'Add data or budget',
+    'unblock-resume': 'Resume',
+    close: 'Close',
+  }[a.kind];
 }
 
 export type StartKind = 'question' | 'dataset' | 'claim';

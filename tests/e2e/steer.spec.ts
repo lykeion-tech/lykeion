@@ -128,7 +128,7 @@ test('Send back offers only earlier columns, and nothing in Grounding', async ({
   await page.screenshot({ path: `${artifacts}/send-back-targets.png`, fullPage: true });
 });
 
-import { labFixture, labWorkspace } from './lab';
+import { labFixture, labNoTeam, labPack, labWorkspace } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-17-artifacts';
 
@@ -487,3 +487,83 @@ for (const reset of ['text', 'action'] as const) {
     ]);
   });
 }
+
+test('an active study still offers Stop and no way out of Blocked', async ({ page }) => {
+  const study = await newStudy(page.request, `Ketamine and synaptic density ${Date.now()}?`);
+  await page.goto(`/#/studies/${study.id}`);
+  await escalated(page);
+  await expect(page.locator('.block-bar')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Action' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Stop' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Close' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Raise cap' })).toHaveCount(0);
+});
+
+test('a capped study shows why, a raised cap returns it to Working, and Close ends another as Stopped', async ({
+  page,
+}) => {
+  test.setTimeout(330_000);
+  await labPack(page.request);
+  try {
+    const ws = await labWorkspace(page.request);
+    const raised = await newStudy(page.request, `Demo Team raise ${Date.now()}?`, {
+      start_kind: 'question',
+    });
+    const closed = await newStudy(page.request, `Demo Team close ${Date.now()}?`, {
+      start_kind: 'question',
+    });
+    await page.goto(`/#/studies/${raised.id}`);
+    const bar = page.locator('.block-bar');
+    await expect(bar).toContainText('Blocked: cap reached.', { timeout: 280_000 });
+    await expect(bar).toContainText('failure 4 with a cap of 3');
+    await page.getByRole('button', { name: 'Action' }).click();
+    await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText([
+      /^\s*Comment/,
+      /^\s*Raise cap/,
+      /^\s*Send back to/,
+      /^\s*Close/,
+    ]);
+    await page.keyboard.press('Escape');
+
+    // A cap no greater than the uses already made is refused before sending.
+    page.once('dialog', (d) => d.accept('4'));
+    await choose(page, 'Raise cap');
+    await expect(page.getByRole('alert')).toContainText('more than 4');
+    await expect(page.getByRole('button', { name: 'Action' })).toHaveText(/Comment/);
+
+    page.once('dialog', (d) => d.accept('5'));
+    await choose(page, 'Raise cap');
+    await expect(page.getByRole('button', { name: 'Action' })).toHaveText(/Raise cap to 5/);
+    const unblock = page.waitForRequest(
+      (r) => r.method() === 'POST' && r.url().endsWith(`/api/cards/${raised.id}/unblock`),
+    );
+    await page.getByRole('button', { name: 'Send' }).click();
+    expect((await unblock).postDataJSON()).toEqual({ action: 'raise_cap', cap: 5 });
+    await expect(bar).toHaveCount(0);
+    await expect(page.locator('.stage-box .chip-working')).toHaveText('Working');
+    expect(await actualCard(page, ws, raised.id)).toMatchObject({
+      cap: 5,
+      flag: '',
+      block_kind: '',
+    });
+
+    await page.goto(`/#/studies/${closed.id}`);
+    await expect(bar).toContainText('Blocked: cap reached.', { timeout: 60_000 });
+    await choose(page, 'Close');
+    await page.getByRole('textbox', { name: 'Comment' }).fill('the replication never holds');
+    page.once('dialog', (d) => d.accept());
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(
+      page
+        .getByRole('complementary', { name: 'Study details' })
+        .getByText('Stopped · the replication never holds'),
+    ).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveCount(0);
+    expect(await actualCard(page, ws, closed.id)).toMatchObject({
+      ending: 'stopped',
+      end_reason: 'the replication never holds',
+    });
+  } finally {
+    await labNoTeam(page.request);
+  }
+});

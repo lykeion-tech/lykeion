@@ -424,7 +424,12 @@ describe('records and transcript', () => {
   });
 });
 
-import { actionLabel, canResume, sendBackTargets } from '../apps/dashboard/src/lib/studies';
+import {
+  actionLabel,
+  blockedActions,
+  canResume,
+  sendBackTargets,
+} from '../apps/dashboard/src/lib/studies';
 
 describe('composer actions', () => {
   it('offers only the earlier stages for Send back', () => {
@@ -445,6 +450,20 @@ describe('composer actions', () => {
   it('labels the chosen action', () => {
     expect(actionLabel({ kind: 'send-back', to: 'grounding' })).toBe('Send back to Grounding');
     expect(actionLabel({ kind: 'comment' })).toBe('Comment');
+    expect(actionLabel({ kind: 'raise-cap', cap: 5 })).toBe('Raise cap to 5');
+    expect(actionLabel({ kind: 'close' })).toBe('Close');
+  });
+  it('offers only the ways out of the study’s block', () => {
+    const blocked = (block_kind: Card['block_kind']) =>
+      blockedActions(card({ flag: 'escalated', block_kind }));
+    expect(blocked('cap')).toEqual(['comment', 'raise-cap', 'send-back', 'close']);
+    expect(blocked('no_feasible_test')).toEqual(['comment', 'add-data', 'send-back', 'close']);
+    expect(blocked('infra')).toEqual(['comment', 'unblock-resume', 'send-back', 'close']);
+    expect(blocked('drift')).toEqual(['comment', 'unblock-resume', 'send-back', 'close']);
+    expect(blocked('human_run')).toEqual(['comment', 'send-back', 'close']);
+    expect(blocked('too_small_to_split')).toEqual(['comment', 'send-back', 'close']);
+    expect(blocked('')).toEqual([]);
+    expect(blockedActions(card())).toEqual([]);
   });
 });
 
