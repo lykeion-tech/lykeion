@@ -184,7 +184,7 @@ func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, 
 	if err := connectors.Ready(e, row, h.Conn.Contact); err != nil {
 		return ConnectorOut{}, err
 	}
-	out := ConnectorOut{SourceID: r.SourceID(), Connector: e.Name, Notice: notice + " Cite it by " + r.SourceID() + "."}
+	out := ConnectorOut{SourceID: r.SourceID(), Connector: e.Name, Notice: notice}
 	var body []byte
 	if hit != nil {
 		if body, err = h.read(ctx, hit.BlobKey); err != nil {
@@ -241,6 +241,7 @@ func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, 
 	call, rest := NewCall(role, "catalogue:"+e.Name, "fetch", r, out.Body)
 	call["truncated"], call["source_id"] = out.Truncated, out.SourceID
 	out.Call, err = h.RecordCall(ctx, role, token, call, rest)
+	out.Notice += " Cite it as call:" + out.Call + "."
 	return out, err
 }
 

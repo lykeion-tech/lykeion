@@ -34,6 +34,9 @@ const (
 	ScopeRole       = "card:role"
 	ScopeReport     = "report:write"
 	ScopeCardCreate = "card:create"
+	// ScopeCall records a connector call. Only the daemon's tool door holds a
+	// token with it; the agent's own token never does.
+	ScopeCall = "call:record"
 )
 
 // Scopes are the powers an agent run's token carries, by the agent run's kind.
@@ -111,10 +114,13 @@ type NewAgentRun struct {
 }
 
 type Claimed struct {
-	AgentRun db.AgentRun       `json:"agent_run"`
-	Token    string            `json:"token"`
-	MCPURL   string            `json:"mcp_url"`
-	MCP      []agent.MCPServer `json:"mcp,omitempty"` // tool servers besides sources
+	AgentRun db.AgentRun `json:"agent_run"`
+	Token    string      `json:"token"`
+	// CallToken records the run's connector calls. The daemon keeps it from
+	// the agent, so only the door can write a call record.
+	CallToken string            `json:"call_token"`
+	MCPURL    string            `json:"mcp_url"`
+	MCP       []agent.MCPServer `json:"mcp,omitempty"` // tool servers besides sources
 	// Connectors are what the run may call through the daemon's tool door.
 	Connectors []pack.Connector `json:"connectors"`
 }
@@ -398,6 +404,11 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: Scopes(t.Kind), ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
 						return err
 					}
+					callPlain, callHash, _ := auth.NewToken(AgentRunPrefix)
+					if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: callHash, WorkspaceID: ref.WorkspaceID,
+						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: []string{ScopeCall}, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
+						return err
+					}
 					conns, team, err := claimConnectors(ctx, tx, t)
 					if err != nil {
 						return err
@@ -405,7 +416,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if team != nil {
 						teams[t.ID] = *team
 					}
-					c = &Claimed{AgentRun: t, Token: plain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns}
+					c = &Claimed{AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {

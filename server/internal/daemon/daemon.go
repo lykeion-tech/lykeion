@@ -89,9 +89,11 @@ type claimed struct {
 		// RequestedModel is the agent's model; empty runs the CLI's default.
 		RequestedModel string `json:"requested_model"`
 	} `json:"agent_run"`
-	Token  string            `json:"token"`
-	MCPURL string            `json:"mcp_url"`
-	MCP    []agent.MCPServer `json:"mcp"`
+	Token string `json:"token"`
+	// CallToken records the run's calls; only the door holds it.
+	CallToken string            `json:"call_token"`
+	MCPURL    string            `json:"mcp_url"`
+	MCP       []agent.MCPServer `json:"mcp"`
 	// Connectors are what the run may call through its tool door.
 	Connectors []pack.Connector `json:"connectors"`
 }

@@ -216,6 +216,10 @@ func TestAFetchWritesACallRecord(t *testing.T) {
 	if err != nil || out.Cached || out.Status != 200 || !strings.Contains(out.Body, "TP53") || !strings.HasPrefix(out.SourceID, "ensembl:") || out.Notice == "" {
 		t.Fatalf("%v %+v", err, out)
 	}
+	// the agent is told to cite the call, not the request
+	if out.Call != "c1" || !strings.HasSuffix(out.Notice, "Cite it as call:c1.") {
+		t.Fatalf("call %q notice %q", out.Call, out.Notice)
+	}
 	type callBody struct {
 		Server, Tool, Answer, At string
 		AnswerSHA256             string `json:"answer_sha256"`

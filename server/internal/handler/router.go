@@ -39,8 +39,8 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/blobs", h.putBlob)
 			r.Get("/blobs/{sha}", h.getBlob)
 		})
-		// The door records an Autoresearch run's calls too, as the sources server does.
-		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Post("/calls", h.postCall)
+		// Only the daemon's tool door holds a call token; the agent's cannot record.
+		r.With(middleware.RequireScope(service.ScopeCall)).Post("/calls", h.postCall)
 		r.With(middleware.RequireScope(service.ScopeReport)).Post("/report", h.autoresearchReport)
 		r.With(middleware.RequireScope(service.ScopeCardCreate)).Post("/cards", h.autoresearchCard)
 

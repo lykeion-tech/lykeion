@@ -69,6 +69,9 @@ func TestRunOnlyQueuesOneCardlessAgentRunWithTheGroundingServers(t *testing.T) {
 		t.Fatal("incorrect first prompt line")
 	}
 	tk := f.agentRun(t, *r.AgentRunID)
+	if strings.Contains(tk.Prompt, "lyk_sources") || !strings.Contains(tk.Prompt, "call_tool") {
+		t.Fatal("the prompt names a server the agent no longer has")
+	}
 	if tk.Kind != "autoresearch" || tk.CardID != nil || tk.RequesterID == nil || *tk.RequesterID != actor ||
 		tk.ResponsibleUserID != actor || tk.Role != Role || tk.BoardColumn != "" || tk.Round != 0 || tk.Harness != "claude" || !tk.RunPrivate || tk.ContinuityScope != "" {
 		t.Fatalf("agent run: %+v", tk)

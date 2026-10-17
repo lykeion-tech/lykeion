@@ -259,12 +259,12 @@ func TestRoleWriteRevalidatesAfterSettlement(t *testing.T) {
 					t.Fatal(got)
 				}
 			} else {
-				query := "DELETE FROM agent_run_token WHERE agent_run_id=$1"
+				query := "DELETE FROM agent_run_token WHERE agent_run_id=$1 AND NOT ('call:record' = ANY(scopes))"
 				if action == "attempt" {
 					query = "UPDATE agent_run SET attempt=attempt+1 WHERE id=$1"
 				}
 				if action == "expire" {
-					query = "UPDATE agent_run_token SET expires_at=now()-interval '1 minute' WHERE agent_run_id=$1"
+					query = "UPDATE agent_run_token SET expires_at=now()-interval '1 minute' WHERE agent_run_id=$1 AND NOT ('call:record' = ANY(scopes))"
 				}
 				tag, err := s.Env.Owner.Exec(context.Background(), query, run.id)
 				if err != nil || tag.RowsAffected() != 1 {

@@ -28,6 +28,7 @@ type teamLab struct {
 type teamRun struct {
 	token, id, role, prompt, skill, scope string
 	ref                                   map[string]any
+	callToken                             string // the door's, which alone records calls
 }
 
 func newTeamLab(t *testing.T, steps int) *teamLab {
@@ -66,7 +67,8 @@ func (l *teamLab) claim(t *testing.T) teamRun {
 				Attempt                 int32
 				ContinuityScope         string `json:"continuity_scope"`
 			} `json:"agent_run"`
-			Token string
+			Token     string
+			CallToken string `json:"call_token"`
 		}
 		if c := l.s.call(t, "POST", "/api/daemon/agent-runs/claim", l.personal, "", map[string]any{"runtimes": []any{ref}, "slots": 1}, &claims); c != 200 {
 			t.Fatalf("claim %d", c)
@@ -79,7 +81,7 @@ func (l *teamLab) claim(t *testing.T) teamRun {
 		if c := l.s.call(t, "POST", "/api/daemon/agent-runs/"+a.ID+"/start", l.personal, "", ref, nil); c != 204 {
 			t.Fatalf("start %d", c)
 		}
-		return teamRun{claims[0].Token, a.ID, a.Role, a.Prompt, a.Skill, a.ContinuityScope, ref}
+		return teamRun{claims[0].Token, a.ID, a.Role, a.Prompt, a.Skill, a.ContinuityScope, ref, claims[0].CallToken}
 	}
 	t.Fatal("no run was queued")
 	return teamRun{}
@@ -376,20 +378,40 @@ func TestNoEscalationWhileTheLeaderIsQueued(t *testing.T) {
 	}
 }
 
+func TestOnlyTheDaemonRecordsCalls(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	in := map[string]any{"server": "pubmed", "tool": "search", "answer": "hit"}
+	if leader.callToken == "" || leader.callToken == leader.token {
+		t.Fatalf("call token %q", leader.callToken)
+	}
+	// the agent's own token cannot record a call it made up
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", in, nil); c != 403 {
+		t.Fatalf("run token: %d", c)
+	}
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", in, nil); c != 201 {
+		t.Fatalf("call token: %d", c)
+	}
+	// and the door's token does nothing else
+	if c := l.s.call(t, "GET", "/api/role/records", leader.callToken, "", nil, nil); c != 403 {
+		t.Fatalf("call token reading records: %d", c)
+	}
+}
+
 func TestCallKeysAreSequential(t *testing.T) {
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)
 	for i, want := range []string{"c1", "c2", "c3"} {
 		var out struct{ Key string }
 		in := map[string]any{"server": "pubmed", "tool": "search", "args": map[string]any{"q": i}, "answer": "hit " + want}
-		if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", in, &out); c != 201 || out.Key != want {
+		if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", in, &out); c != 201 || out.Key != want {
 			t.Fatalf("call %d: %d %+v", i, c, out)
 		}
 	}
-	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", map[string]any{"server": "pubmed", "tool": "search"}, nil); c != 201 {
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", map[string]any{"server": "pubmed", "tool": "search"}, nil); c != 201 {
 		t.Fatalf("empty answer: %d", c)
 	}
-	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", map[string]any{"tool": "search", "answer": "x"}, nil); c != 400 {
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", map[string]any{"tool": "search", "answer": "x"}, nil); c != 400 {
 		t.Fatalf("no server: %d", c)
 	}
 	var recs []db.Record
@@ -405,7 +427,7 @@ func TestALargeAnswerIsKeptWhole(t *testing.T) {
 	answer := strings.Repeat("filler line of text\n", (1<<20)/20) + "the decisive sentence, 42 patients."
 	var out struct{ Key string }
 	in := map[string]any{"server": "pubmed", "tool": "fetch", "answer": answer}
-	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", in, &out); c != 201 || out.Key != "c1" {
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", in, &out); c != 201 || out.Key != "c1" {
 		t.Fatalf("call %d %+v", c, out)
 	}
 	var recs []db.Record
@@ -434,7 +456,7 @@ func TestALargeAnswerIsKeptWhole(t *testing.T) {
 	if !quote("the decisive sentence,\n42 patients.") || quote("the decisive sentence, 43 patients.") {
 		t.Fatal("matching must read the whole answer, word for word")
 	}
-	if c := l.s.call(t, "POST", "/api/role/calls", leader.token, "", map[string]any{"server": "s", "tool": "t", "answer": strings.Repeat("a", 32<<20+1)}, nil); c != 400 {
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", map[string]any{"server": "s", "tool": "t", "answer": strings.Repeat("a", 32<<20+1)}, nil); c != 400 {
 		t.Fatalf("over 32 MiB: %d", c)
 	}
 }

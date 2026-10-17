@@ -4,15 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -20,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"lykeion/server/internal/auth"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
@@ -57,13 +61,15 @@ func stubCommand() {
 }
 
 // lykeion stands in for the server: it answers /api/role/calls with c1, c2, …
-// and serves a catalogue fetch on /mcp/sources whose call key is c7.
+// and serves a catalogue fetch on /mcp/sources whose call key is c7, beside
+// the sources tools.
 type lykeion struct {
 	*httptest.Server
-	mu      sync.Mutex
-	posts   []map[string]any
-	fetches []map[string]any
-	auth    []string
+	mu         sync.Mutex
+	posts      []map[string]any
+	fetches    []map[string]any
+	postAuth   []string // on /api/role/calls
+	sourceAuth []string // on /mcp/sources
 }
 
 func newLykeion(t *testing.T) *lykeion {
@@ -72,10 +78,18 @@ func newLykeion(t *testing.T) *lykeion {
 	mcp.AddTool(src, &mcp.Tool{Name: "fetch"}, func(_ context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
 		l.mu.Lock()
 		l.fetches = append(l.fetches, in)
-		l.auth = append(l.auth, req.Extra.Header.Get("Authorization"))
+		l.sourceAuth = append(l.sourceAuth, req.Extra.Header.Get("Authorization"))
 		l.mu.Unlock()
 		return nil, map[string]any{"call": "c7", "connector": in["connector"], "status": 200, "body": "P01308 insulin"}, nil
 	})
+	for _, name := range []string{"search_literature", "list_connectors"} {
+		mcp.AddTool(src, &mcp.Tool{Name: name}, func(_ context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			l.mu.Lock()
+			l.sourceAuth = append(l.sourceAuth, req.Extra.Header.Get("Authorization"))
+			l.mu.Unlock()
+			return nil, map[string]any{"results": []any{map[string]any{"id": "openalex:W1", "title": name + " " + fmt.Sprint(in["query"])}}}, nil
+		})
+	}
 	sources := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return src }, &mcp.StreamableHTTPOptions{Stateless: true})
 	l.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -86,7 +100,7 @@ func newLykeion(t *testing.T) *lykeion {
 			json.NewDecoder(r.Body).Decode(&body)
 			l.mu.Lock()
 			l.posts = append(l.posts, body)
-			l.auth = append(l.auth, r.Header.Get("Authorization"))
+			l.postAuth = append(l.postAuth, r.Header.Get("Authorization"))
 			n := len(l.posts)
 			l.mu.Unlock()
 			w.WriteHeader(201)
@@ -99,22 +113,46 @@ func newLykeion(t *testing.T) *lykeion {
 	return l
 }
 
-// labServer is a Team's HTTPS MCP server: one tool, lookup.
-func labServer(t *testing.T) string {
+// labMCP is a lab's MCP server: lookup answers, slow sleeps two seconds,
+// big answers N bytes.
+func labMCP(hits *atomic.Int32) http.Handler {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "lab", Version: "0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{Name: "lookup"}, func(_ context.Context, _ *mcp.CallToolRequest, in struct {
 		Q string `json:"q"`
 	}) (*mcp.CallToolResult, any, error) {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "gene " + in.Q}}}, nil, nil
 	})
-	s := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{Stateless: true}))
+	mcp.AddTool(srv, &mcp.Tool{Name: "slow"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "late"}}}, nil, nil
+	})
+	mcp.AddTool(srv, &mcp.Tool{Name: "big"}, func(_ context.Context, _ *mcp.CallToolRequest, in struct {
+		N int `json:"n"`
+	}) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Repeat("a", in.N)}}}, nil, nil
+	})
+	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{Stateless: true})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hits != nil {
+			hits.Add(1)
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// labServer is an add-on server on plain http and loopback, as add-ons may be.
+func labServer(t *testing.T) string {
+	s := httptest.NewServer(labMCP(nil))
 	t.Cleanup(s.Close)
 	return s.URL
 }
 
-func openDoor(t *testing.T, l *lykeion, dir string, conns []pack.Connector) *Door {
+func openDoor(t *testing.T, l *lykeion, dir string, conns []pack.Connector, addons ...agent.MCPServer) *Door {
 	t.Helper()
-	d := &Door{Server: l.URL, Sources: l.URL + "/mcp/sources", RunToken: "ltk_run", Connectors: conns,
+	d := &Door{Server: l.URL, Sources: l.URL + "/mcp/sources", RunToken: "ltk_run", CallToken: "ltk_call", Connectors: conns, Addons: addons,
 		Child: func() agent.ExecOptions {
 			return agent.ExecOptions{Dir: dir, MCPToken: "ltk_run", Env: []string{"LYK_TOKEN=ltk_run", "LYK_DOOR_TOKEN=secret"}}
 		}}
@@ -134,7 +172,11 @@ func callTool(t *testing.T, d *Door, server, tool string, args map[string]any) (
 		return "", err
 	}
 	defer s.Close()
-	res, err := s.CallTool(ctx, &mcp.CallToolParams{Name: "call_tool", Arguments: map[string]any{"server": server, "tool": tool, "args": args}})
+	call := map[string]any{"server": server, "tool": tool}
+	if args != nil {
+		call["args"] = args
+	}
+	res, err := s.CallTool(ctx, &mcp.CallToolParams{Name: "call_tool", Arguments: call})
 	if err != nil {
 		return "", err
 	}
@@ -152,7 +194,7 @@ func callTool(t *testing.T, d *Door, server, tool string, args map[string]any) (
 
 func TestCallToolRecordsEveryAnswer(t *testing.T) {
 	l := newLykeion(t)
-	d := openDoor(t, l, t.TempDir(), []pack.Connector{{Name: "lab", URL: labServer(t)}})
+	d := openDoor(t, l, t.TempDir(), nil, agent.MCPServer{Name: "lab", URL: labServer(t)})
 	for i, q := range []string{"TP53", "BRCA1"} {
 		got, err := callTool(t, d, "lab", "lookup", map[string]any{"q": q})
 		if err != nil {
@@ -170,9 +212,10 @@ func TestCallToolRecordsEveryAnswer(t *testing.T) {
 	if p["server"] != "lab" || p["tool"] != "lookup" || p["answer"] != "gene TP53" || p["args"].(map[string]any)["q"] != "TP53" {
 		t.Fatalf("posted %v", p)
 	}
-	for _, a := range l.auth {
-		if a != "Bearer ltk_run" {
-			t.Fatalf("posted with %q, not the run's token", a)
+	// calls are recorded with the door's own token, which the agent never holds
+	for _, a := range l.postAuth {
+		if a != "Bearer ltk_call" {
+			t.Fatalf("posted with %q, not the door's call token", a)
 		}
 	}
 }
@@ -188,8 +231,8 @@ func TestCatalogueCallsGoThroughTheServer(t *testing.T) {
 		t.Fatalf("answer %q", got)
 	}
 	// the server's fetch writes the record; the door posts none of its own
-	if len(l.fetches) != 1 || len(l.posts) != 0 || l.auth[0] != "Bearer ltk_run" {
-		t.Fatalf("%d fetches, %d posts, auth %v", len(l.fetches), len(l.posts), l.auth)
+	if len(l.fetches) != 1 || len(l.posts) != 0 || l.sourceAuth[0] != "Bearer ltk_run" {
+		t.Fatalf("%d fetches, %d posts, auth %v", len(l.fetches), len(l.posts), l.sourceAuth)
 	}
 	// the connector is the one the claim names, whatever the args say
 	if f := l.fetches[0]; f["connector"] != "uniprot" || f["path"] != "/uniprotkb/P01308.txt" {
@@ -334,5 +377,123 @@ func TestALocalConnectorStopsWithTheRun(t *testing.T) {
 	}
 	if _, err := callTool(t, d, "stub", "echo", nil); err == nil {
 		t.Fatal("a closed door answered")
+	}
+}
+
+func TestTheDoorReachesTheSourcesServer(t *testing.T) {
+	l := newLykeion(t)
+	d := openDoor(t, l, t.TempDir(), nil)
+	got, err := callTool(t, d, "sources", "search_literature", map[string]any{"database": "openalex", "query": "insulin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// recorded as a call, so the agent can cite it and its quotes can be matched
+	if !strings.HasPrefix(got, "call:c1\n") || !strings.Contains(got, "search_literature insulin") {
+		t.Fatalf("answer %q", got)
+	}
+	if len(l.posts) != 1 || l.posts[0]["server"] != "sources" || l.posts[0]["tool"] != "search_literature" || l.sourceAuth[0] != "Bearer ltk_run" {
+		t.Fatalf("posts %v, sources auth %v", l.posts, l.sourceAuth)
+	}
+	// only the literature and dataset tools; a catalogue fetch names its connector
+	for _, tool := range []string{"list_connectors", "fetch"} {
+		if _, err := callTool(t, d, "sources", tool, nil); err == nil || !strings.Contains(err.Error(), "sources has no tool") {
+			t.Fatalf("%s: %v", tool, err)
+		}
+	}
+	if len(l.sourceAuth) != 1 {
+		t.Fatalf("the sources server was called %d times", len(l.sourceAuth))
+	}
+}
+
+func TestATeamURLConnectorReachesOnlyPublicHTTPS(t *testing.T) {
+	var hits atomic.Int32
+	plain := httptest.NewServer(labMCP(&hits))
+	t.Cleanup(plain.Close)
+	tls := httptest.NewTLSServer(labMCP(&hits))
+	t.Cleanup(tls.Close)
+	l := newLykeion(t)
+	d := openDoor(t, l, t.TempDir(), []pack.Connector{{Name: "plain", URL: plain.URL}, {Name: "local", URL: tls.URL}}, agent.MCPServer{Name: "addon", URL: plain.URL})
+	if _, err := callTool(t, d, "plain", "lookup", nil); err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("http Team server: %v", err)
+	}
+	if _, err := callTool(t, d, "local", "lookup", nil); err == nil || !strings.Contains(err.Error(), "not a public address") {
+		t.Fatalf("loopback Team server: %v", err)
+	}
+	if hits.Load() != 0 || len(l.posts) != 0 {
+		t.Fatalf("%d requests reached a refused server, %d posts", hits.Load(), len(l.posts))
+	}
+	// an add-on server keeps the plain client
+	if got, err := callTool(t, d, "addon", "lookup", map[string]any{"q": "TP53"}); err != nil || got != "call:c1\ngene TP53" {
+		t.Fatalf("add-on: %q %v", got, err)
+	}
+}
+
+func TestACallIsBoundedInTimeAndSize(t *testing.T) {
+	defer func(t0 time.Duration, m int) { callTimeout, maxAnswer = t0, m }(callTimeout, maxAnswer)
+	callTimeout, maxAnswer = 300*time.Millisecond, 1000
+	l := newLykeion(t)
+	d := openDoor(t, l, t.TempDir(), nil, agent.MCPServer{Name: "lab", URL: labServer(t)})
+	start := time.Now()
+	if _, err := callTool(t, d, "lab", "slow", nil); err == nil || time.Since(start) > 1500*time.Millisecond {
+		t.Fatalf("a slow call: %v after %v", err, time.Since(start))
+	}
+	if _, err := callTool(t, d, "lab", "big", map[string]any{"n": 1001}); err == nil || !strings.Contains(err.Error(), "ask for less") {
+		t.Fatalf("a big answer: %v", err)
+	}
+	if got, err := callTool(t, d, "lab", "big", map[string]any{"n": 1000}); err != nil || len(got) != len("call:c1\n")+1000 {
+		t.Fatalf("an answer at the cap: %d %v", len(got), err)
+	}
+	if len(l.posts) != 1 {
+		t.Fatalf("%d posts", len(l.posts))
+	}
+}
+
+func TestTheRunEndsWhileAConnectorHangs(t *testing.T) {
+	// sleep never answers MCP's initialize
+	d := openDoor(t, newLykeion(t), t.TempDir(), []pack.Connector{{Name: "hung", Command: []string{"sleep", "60"}}})
+	go callTool(t, d, "hung", "x", nil)
+	time.Sleep(500 * time.Millisecond)
+	start := time.Now()
+	d.Close()
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("closing took %v", time.Since(start))
+	}
+}
+
+func TestTheCallTokenNeverReachesTheCLI(t *testing.T) {
+	f := fixture(t)
+	seen := t.TempDir()
+	wrapper := filepath.Join(t.TempDir(), "claude")
+	// the CLI waits while its run's tokens are checked: they go when it ends
+	must(t, os.WriteFile(wrapper, []byte("#!/bin/sh\ncase \"$*\" in *--mcp-config*) ;; *) exec "+f.cfg.Harnesses["claude"]+" \"$@\";; esac\nprev=\nfor a in \"$@\"; do [ \"$prev\" = --mcp-config ] && cat \"$a\" > "+seen+"/mcp; prev=$a; done\nenv > "+seen+"/env.tmp && mv "+seen+"/env.tmp "+seen+"/env\n"+
+		"while [ ! -f "+seen+"/go ]; do sleep 0.05; done\nexec "+f.cfg.Harnesses["claude"]+" \"$@\"\n"), 0700))
+	f.cfg.Harnesses["claude"] = wrapper
+	cancel, done := startDaemon(t, f.cfg)
+	defer stopDaemon(t, cancel, done)
+	defer os.WriteFile(filepath.Join(seen, "go"), nil, 0600)
+	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(seen, "env")); return err == nil })
+	env, err := os.ReadFile(filepath.Join(seen, "env"))
+	must(t, err)
+	cfg, err := os.ReadFile(filepath.Join(seen, "mcp"))
+	must(t, err)
+	if !strings.Contains(string(env), "LYK_DOOR_TOKEN=") || !strings.Contains(string(cfg), `"lyk_door"`) {
+		t.Fatalf("the CLI was not given the door: %s", cfg)
+	}
+	var calls int
+	must(t, f.env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM agent_run_token WHERE agent_run_id = $1 AND scopes = '{call:record}'`, f.id).Scan(&calls))
+	if calls != 1 {
+		t.Fatalf("%d call tokens minted", calls)
+	}
+	// every run token the CLI can see is checked against what it may do
+	tokens := regexp.MustCompile(`ltk_[A-Za-z0-9_-]+`).FindAllString(string(env)+string(cfg), -1)
+	if len(tokens) == 0 {
+		t.Fatal("no run token reached the CLI")
+	}
+	for _, tok := range tokens {
+		var scopes []string
+		err := f.env.Owner.QueryRow(context.Background(), `SELECT scopes FROM agent_run_token WHERE token_hash = $1`, auth.Hash(tok)).Scan(&scopes)
+		if err == nil && slices.Contains(scopes, service.ScopeCall) {
+			t.Fatalf("the CLI holds the call token")
+		}
 	}
 }
