@@ -24,7 +24,7 @@ func NewRouter(h *H) http.Handler {
 	r.Get("/auth/google/callback", h.googleCallback)
 
 	if h.Sources != nil {
-		r.With(middleware.AgentRunAuth(h.Store)).Handle("/mcp/sources", h.Sources)
+		r.With(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Handle("/mcp/sources", h.Sources)
 	}
 
 	r.Route("/api/role", func(r chi.Router) {

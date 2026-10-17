@@ -165,3 +165,11 @@ func (b Batch) Write(ctx context.Context, tx *store.Tx, c db.Card) error {
 	}
 	return nil
 }
+
+// NextCallKey is the key of a study's next `call` record: c1, c2, … across all
+// its columns. The caller holds the card's lock (middleware.LockRole), so two
+// writers never take the same number.
+func NextCallKey(ctx context.Context, tx *store.Tx, card uuid.UUID) (string, error) {
+	n, err := tx.Q.LastCallNumber(ctx, db.LastCallNumberParams{WorkspaceID: tx.WS, CardID: card})
+	return fmt.Sprintf("c%d", n+1), err
+}

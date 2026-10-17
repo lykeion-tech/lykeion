@@ -22,6 +22,7 @@ import (
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/autoresearch"
+	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/migrate"
@@ -154,7 +155,8 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	}
 	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Key: secretKey}
 	runs.OnSettled = ap.OnSettled(engine.OnSettled)
-	hosted := &sources.Hosted{OA: sources.OpenAlex{Base: sources.OpenAlexBase}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},
+	conn := &connectors.Client{HTTP: connectors.Guarded(), Secret: secretKey, Contact: getenv("CONTACT_EMAIL")}
+	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},
 		GEO: sources.GEO{Base: sources.EUtilsBase, MetadataBase: sources.GeoMetadataBase}, Store: st, Blobs: blobs}
 	var mail auth.Mailer = auth.LogMailer{}
 	if addr := getenv("SMTP_ADDR"); addr != "" {

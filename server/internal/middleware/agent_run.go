@@ -101,12 +101,12 @@ func cardOf(id *uuid.UUID) uuid.UUID {
 	return *id
 }
 
-// RequireScope admits only agent run tokens that carry the scope. A card-less
+// RequireScope admits only agent run tokens that carry one of the scopes. A card-less
 // agent run's token lacks the role scope, so it cannot reach a card's records.
-func RequireScope(scope string) func(http.Handler) http.Handler {
+func RequireScope(scopes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !slices.Contains(RoleFrom(r.Context()).Scopes, scope) {
+			if !slices.ContainsFunc(scopes, func(s string) bool { return slices.Contains(RoleFrom(r.Context()).Scopes, s) }) {
 				deny(w, 403, "this agent run's token may not do that")
 				return
 			}

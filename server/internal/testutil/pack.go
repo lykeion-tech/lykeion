@@ -16,6 +16,7 @@ type PackOpts struct {
 	Members                    int // default 1
 	Criteria                   []string
 	Steps                      int
+	Catalogue                  map[string][]string // member name → catalogue connectors it declares
 }
 
 // Pack builds a valid Team archive: every agent uses harness claude except the
@@ -31,11 +32,18 @@ func Pack(t *testing.T, o PackOpts) []byte {
 	if o.Members == 0 {
 		o.Members = 1
 	}
+	conns := func(name string) []map[string]any {
+		out := []map[string]any{}
+		for _, c := range o.Catalogue[name] {
+			out = append(out, map[string]any{"name": c, "catalogue": c})
+		}
+		return out
+	}
 	member := func(name string) map[string]any {
-		return map[string]any{"name": name, "role": "Does the " + name + " work.", "skills": []string{"work"},
+		return map[string]any{"name": name, "role": "Does the " + name + " work.", "skills": []string{"work"}, "connectors": conns(name),
 			"agent": map[string]any{"harness": "claude", "model": "", "instructions": "You are " + name + "."}}
 	}
-	auditor := map[string]any{"name": "auditor", "role": "Audits the work.",
+	auditor := map[string]any{"name": "auditor", "role": "Audits the work.", "connectors": conns("auditor"),
 		"agent": map[string]any{"harness": "codex", "model": "", "instructions": "You audit."}}
 	files := map[string]string{"skills/pi/work/SKILL.md": "Lead the work."}
 	members := []any{}
