@@ -2,6 +2,8 @@ package round
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 
 	"lykeion/server/internal/board"
@@ -26,12 +28,22 @@ var ServerKinds = []string{"fetch", "search", "open_dataset", "choice", "startin
 // before the card is blocked on infrastructure.
 const checkAttempts = 3
 
+// packAttempts is how many times one pass reads a card's pinned pack before
+// the card is blocked on infrastructure.
+const packAttempts = 3
+
 // checkSlots bounds the check child processes running at once in this server;
 // each may use 512 MiB.
 var checkSlots = make(chan struct{}, 2)
 
 // runPackCheck runs a pack's column check; tests wrap it to count the runs.
 var runPackCheck = (*pack.Pack).Check
+
+// loadPack reads a card's pinned pack; tests wrap it to count the reads.
+var loadPack = pack.LoadPack
+
+// ErrPackUnavailable wraps a failure to load a card's pinned pack.
+var ErrPackUnavailable = errors.New("the card's pack cannot be loaded")
 
 // rolesFor returns the card's column roles: from its pinned pack when PackID is set, else StageRoles.
 func (e *Engine) rolesFor(ctx context.Context, tx *store.Tx, c db.Card) (Roles, *pack.Pack, bool, error) {
@@ -43,9 +55,9 @@ func loadRoles(ctx context.Context, tx *store.Tx, blobs storage.Storage, c db.Ca
 		r, ok := StageRoles[c.BoardColumn]
 		return r, nil, ok, nil
 	}
-	p, err := pack.LoadPack(ctx, tx, blobs, tx.WS, *c.PackID)
+	p, err := loadPack(ctx, tx, blobs, tx.WS, *c.PackID)
 	if err != nil {
-		return Roles{}, nil, false, err
+		return Roles{}, nil, false, fmt.Errorf("%w: %w", ErrPackUnavailable, err)
 	}
 	r, ok := packRoles(p, c.BoardColumn)
 	return r, p, ok, nil
@@ -121,7 +133,8 @@ func packGate(ctx context.Context, p *pack.Pack, column string, v *records.View)
 	}
 	var res []check.Result
 	for range checkAttempts {
-		if res, err = runCheck(ctx, p, column, recs); err == nil {
+		// A spent or cancelled context fails every attempt alike.
+		if res, err = runCheck(ctx, p, column, recs); err == nil || ctx.Err() != nil {
 			break
 		}
 	}
@@ -145,6 +158,9 @@ func packGate(ctx context.Context, p *pack.Pack, column string, v *records.View)
 }
 
 func runCheck(ctx context.Context, p *pack.Pack, column string, recs []check.Record) ([]check.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	select {
 	case checkSlots <- struct{}{}:
 	case <-ctx.Done():

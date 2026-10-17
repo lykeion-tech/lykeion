@@ -222,6 +222,9 @@ func (p *Pack) validate(files map[string][]byte) error {
 		if !slices.Contains(board.Stages, name) {
 			return fmt.Errorf("pack: column %q is not a stage", name)
 		}
+		if _, ok := p.Checks[name]; !ok {
+			return fmt.Errorf("pack: column %q has no checks/%s.star", name, name)
+		}
 		inColumn := map[string]bool{}
 		roles := slices.Concat(slices.Concat(c.Phases...), []string{c.Reviewer})
 		for _, r := range roles {

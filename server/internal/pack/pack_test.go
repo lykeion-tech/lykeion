@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -195,7 +196,8 @@ func TestParseRefuses(t *testing.T) {
 		"vendored missing": build(t, mut(func(m map[string]any) {
 			m["vendored"] = map[string]string{"skills/grounding/scout/nope.md": strings.Repeat("0", 64)}
 		})...),
-		"not a zip": []byte("hello"),
+		"not a zip":            []byte("hello"),
+		"column without check": build(t, slices.DeleteFunc(slices.Clone(good), func(e entry) bool { return e.name == "checks/grounding.star" })...),
 	}
 	for name, z := range cases {
 		t.Run(name, func(t *testing.T) {

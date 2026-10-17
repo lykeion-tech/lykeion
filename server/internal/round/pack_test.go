@@ -2,10 +2,14 @@ package round
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -13,6 +17,7 @@ import (
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/pack/check"
 	"lykeion/server/internal/records"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
 	db "lykeion/server/pkg/db/generated"
@@ -79,10 +84,24 @@ func countChecks(t *testing.T) *atomic.Int32 {
 	return &n
 }
 
+func (f *fix) advance(t *testing.T, card uuid.UUID) {
+	t.Helper()
+	if err := f.e.Advance(t.Context(), f.ws, card); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *fix) inWS(t *testing.T, fn func(*store.Tx) error) {
+	t.Helper()
+	if err := f.e.Store.InWorkspace(t.Context(), f.ws, uuid.Nil, fn); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (f *fix) gateBody(t *testing.T, card uuid.UUID, round int32) board.Gate {
 	t.Helper()
 	var g board.Gate
-	f.e.Store.InWorkspace(t.Context(), f.ws, uuid.Nil, func(tx *store.Tx) error {
+	f.inWS(t, func(tx *store.Tx) error {
 		v, err := records.Load(t.Context(), tx, f.e.Blobs, card, board.Grounding)
 		if err != nil {
 			t.Fatal(err)
@@ -112,7 +131,7 @@ func TestPackCardQueuesPackRoles(t *testing.T) {
 func TestPackCheckFailRoutes(t *testing.T) {
 	f := setup(t)
 	card := f.packCard(t, fieldPack(t, noteCheck))
-	f.e.Advance(t.Context(), f.ws, card)
+	f.advance(t, card)
 	scout := f.agentRuns(t, card)[0]
 	f.result(t, scout.ID, "nothing_found", "no support found")
 	f.settle(t, scout.ID)
@@ -136,11 +155,11 @@ func TestPackCheckFailRoutes(t *testing.T) {
 func TestPackCheckPasses(t *testing.T) {
 	f := setup(t)
 	card := f.packCard(t, fieldPack(t, noteCheck))
-	f.e.Advance(t.Context(), f.ws, card)
+	f.advance(t, card)
 	scout := f.agentRuns(t, card)[0]
 	f.recordFor(t, scout.ID, "note", "", `{"text":"the premise holds"}`)
 	f.settle(t, scout.ID)
-	f.e.Advance(t.Context(), f.ws, card)
+	f.advance(t, card)
 	rev := byRole(f.agentRuns(t, card))["rev"]
 	if rev.Skill != revSkill || f.cardRow(t, card).State != board.InReview {
 		t.Fatalf("reviewer %+v", rev)
@@ -159,7 +178,7 @@ func TestPackCheckCrashBlocksInfra(t *testing.T) {
 	f := setup(t)
 	n := countChecks(t)
 	card := f.packCard(t, fieldPack(t, "def check(records):\n    fail(\"boom\")\n"))
-	f.e.Advance(t.Context(), f.ws, card)
+	f.advance(t, card)
 	scout := f.agentRuns(t, card)[0]
 	f.result(t, scout.ID, "nothing_found", "nothing")
 	f.settle(t, scout.ID)
@@ -180,7 +199,7 @@ func TestRecordKindsPerCard(t *testing.T) {
 	packed := f.cardRow(t, f.packCard(t, fieldPack(t, noteCheck, "fetch")))
 	legacy := f.cardRow(t, f.card(t, board.Grounding, 1))
 	var pk, lk map[string][]string
-	f.e.Store.InWorkspace(t.Context(), f.ws, uuid.Nil, func(tx *store.Tx) error {
+	f.inWS(t, func(tx *store.Tx) error {
 		for _, x := range []struct {
 			c   db.Card
 			out *map[string][]string
@@ -228,7 +247,7 @@ const fetchCheck = `def check(records):
 func TestServerKindsOnPackCard(t *testing.T) {
 	f := setup(t)
 	card := f.packCard(t, fieldPack(t, fetchCheck, "fetch"))
-	f.e.Advance(t.Context(), f.ws, card)
+	f.advance(t, card)
 	scout := f.agentRuns(t, card)[0]
 	f.sourceFor(t, scout, "fetch", "openalex:W1", map[string]any{"source_id": "openalex:W1"}, "the full text")
 	if n := f.countWhere(t, `SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'fetch' AND role = 'scout'`, card); n != 1 {
@@ -236,14 +255,14 @@ func TestServerKindsOnPackCard(t *testing.T) {
 	}
 	f.result(t, scout.ID, "nothing_found", "nothing")
 	f.settle(t, scout.ID)
-	f.e.Advance(t.Context(), f.ws, card)
+	f.advance(t, card)
 	if c := f.cardRow(t, card); c.State != board.InReview || c.RouteBacks != 0 {
 		t.Fatalf("the check did not see the fetch: %+v", c)
 	}
 	// The pack declares fetch for its scout, but a role may never write a server kind.
 	var kinds map[string]bool
 	c := f.cardRow(t, card)
-	f.e.Store.InWorkspace(t.Context(), f.ws, uuid.Nil, func(tx *store.Tx) error {
+	f.inWS(t, func(tx *store.Tx) error {
 		ks, err := KindsFor(t.Context(), tx, f.e.Blobs, c)
 		if err != nil {
 			t.Fatal(err)
@@ -258,5 +277,104 @@ func TestServerKindsOnPackCard(t *testing.T) {
 		if kinds[k] {
 			t.Fatalf("roles may write server kind %s", k)
 		}
+	}
+}
+
+func TestPackUnloadableBlocksInfra(t *testing.T) {
+	f := setup(t)
+	// A pack no other test parsed, so no cached copy stands in for the blob.
+	card := f.packCard(t, fieldPack(t, noteCheck+"# "+uuid.NewString()+"\n"))
+	var key string
+	if err := f.env.Owner.QueryRow(t.Context(), `SELECT p.blob_key FROM field_pack p JOIN card c ON c.pack_id = p.id WHERE c.id = $1`, card).Scan(&key); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(f.e.Blobs.(storage.Local).Dir, key)); err != nil {
+		t.Fatal(err)
+	}
+	var n atomic.Int32
+	prev := loadPack
+	loadPack = func(ctx context.Context, tx *store.Tx, blobs storage.Storage, ws, id uuid.UUID) (*pack.Pack, error) {
+		n.Add(1)
+		return prev(ctx, tx, blobs, ws, id)
+	}
+	t.Cleanup(func() { loadPack = prev })
+	f.advance(t, card)
+	c := f.cardRow(t, card)
+	if n.Load() != 3 || c.BlockKind != board.BlockInfra || c.Flag != board.Escalated || len(f.agentRuns(t, card)) != 0 {
+		t.Fatalf("loads %d, %+v", n.Load(), c)
+	}
+	if items := f.inbox(t, card); len(items) != 1 || !strings.Contains(items[0], "pack cannot be loaded") {
+		t.Fatalf("inbox %v", items)
+	}
+	// Blocked, the card is left alone until a person resumes it.
+	f.advance(t, card)
+	if n.Load() != 3 {
+		t.Fatalf("loads after block %d", n.Load())
+	}
+}
+
+func TestPackNoChecksRanFails(t *testing.T) {
+	f := setup(t)
+	card := f.packCard(t, fieldPack(t, "def check(records):\n    return []\n"))
+	f.advance(t, card)
+	scout := f.agentRuns(t, card)[0]
+	f.recordFor(t, scout.ID, "note", "", `{"text":"a note"}`)
+	f.settle(t, scout.ID)
+	f.advance(t, card)
+	if g := f.gateBody(t, card, 1); g.Verdict != board.VFail || g.Reason != "no checks ran" {
+		t.Fatalf("gate %+v", g)
+	}
+	if c := f.cardRow(t, card); c.RouteBacks != 1 || c.Round != 2 || c.State == board.InReview {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestPackChecksWaitForASlot(t *testing.T) {
+	p, err := pack.Parse(fieldPack(t, noteCheck))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := countChecks(t)
+	for range cap(checkSlots) {
+		checkSlots <- struct{}{}
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	if _, err := runCheck(ctx, p, board.Grounding, nil); !errors.Is(err, context.DeadlineExceeded) || n.Load() != 0 {
+		t.Fatalf("a third check ran with both slots held: %v, runs %d", err, n.Load())
+	}
+	<-checkSlots
+	res, err := runCheck(t.Context(), p, board.Grounding, nil)
+	<-checkSlots
+	if err != nil || n.Load() != 1 || len(res) != 1 || res[0].OK {
+		t.Fatalf("with a free slot: %v %+v, runs %d", err, res, n.Load())
+	}
+}
+
+func TestPackCheckContextNotRetried(t *testing.T) {
+	f := setup(t)
+	z := fieldPack(t, noteCheck)
+	p, err := pack.Parse(z)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := f.packCard(t, z)
+	var v *records.View
+	f.inWS(t, func(tx *store.Tx) (err error) {
+		v, err = records.Load(t.Context(), tx, f.e.Blobs, card, board.Grounding)
+		return err
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	var n atomic.Int32
+	prev := runPackCheck
+	runPackCheck = func(*pack.Pack, context.Context, string, []check.Record) ([]check.Result, error) {
+		n.Add(1)
+		cancel()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() { runPackCheck = prev })
+	g, err := packGate(ctx, p, board.Grounding, v)
+	if err != nil || n.Load() != 1 || g.Verdict != board.CannotProceed || g.Block != board.BlockInfra {
+		t.Fatalf("runs %d, %v, %+v", n.Load(), err, g)
 	}
 }

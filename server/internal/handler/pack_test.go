@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
@@ -452,29 +453,7 @@ func TestRoleRecordKindsPerCard(t *testing.T) {
 	if got := post(run.token, "question", map[string]string{"text": "Scoped?"}); got != 201 {
 		t.Fatalf("legacy question: %d", got)
 	}
-	z := testutil.Zip(t, map[string]string{
-		"pack.json": `{"name": "field", "version": "1", "start_kinds": ["question"],
-			"columns": {"grounding": {"phases": [["scoper"]], "reviewer": "rev", "kinds": {"note": {"roles": ["scoper"]}, "fetch": {"roles": ["scoper"]}}}},
-			"failures": {"premise_unsupported": "grounding"}}`,
-		"skills/grounding/scoper/SKILL.md": "Scope.",
-		"skills/grounding/rev/SKILL.md":    "Review.",
-		"checks/grounding.star":            "def check(records):\n    return []\n",
-	})
-	p, err := pack.Parse(z)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ws := uuid.MustParse(wsID)
-	var row db.FieldPack
-	if err := s.H.Store.InWorkspace(t.Context(), ws, uuid.Nil, func(tx *store.Tx) (err error) {
-		row, err = pack.Insert(t.Context(), tx, s.H.Blobs, z, p, nil)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET pack_id = $1 WHERE id = $2`, row.ID, c.ID); err != nil {
-		t.Fatal(err)
-	}
+	s.pinPack(t, wsID, c.ID)
 	for _, tc := range []struct {
 		kind string
 		body any
@@ -489,5 +468,64 @@ func TestRoleRecordKindsPerCard(t *testing.T) {
 		if got := post(run.token, tc.kind, tc.body); got != tc.want {
 			t.Fatalf("%s: %d, want %d", tc.kind, got, tc.want)
 		}
+	}
+}
+
+// pinPack stores a pack, unique to the call, whose grounding scoper writes
+// note (and declares fetch), and pins the card to it.
+func (s *server) pinPack(t *testing.T, wsID, cardID string) db.FieldPack {
+	t.Helper()
+	z := testutil.Zip(t, map[string]string{
+		"pack.json": `{"name": "field", "version": "1", "start_kinds": ["question"],
+			"columns": {"grounding": {"phases": [["scoper"]], "reviewer": "rev", "kinds": {"note": {"roles": ["scoper"]}, "fetch": {"roles": ["scoper"]}}}},
+			"failures": {"premise_unsupported": "grounding"}}`,
+		"skills/grounding/scoper/SKILL.md": "Scope. " + uuid.NewString(),
+		"skills/grounding/rev/SKILL.md":    "Review.",
+		"checks/grounding.star":            "def check(records):\n    return []\n",
+	})
+	p, err := pack.Parse(z)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row db.FieldPack
+	if err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(wsID), uuid.Nil, func(tx *store.Tx) (err error) {
+		row, err = pack.Insert(t.Context(), tx, s.H.Blobs, z, p, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET pack_id = $1 WHERE id = $2`, row.ID, cardID); err != nil {
+		t.Fatal(err)
+	}
+	return row
+}
+
+// TestRoleRecordPackUnloadable checks a role write on a card whose pack blob
+// is gone answers 503 and stores nothing.
+func TestRoleRecordPackUnloadable(t *testing.T) {
+	s := newServer(t)
+	_, wsID, c, run := s.roleFixture(t)
+	row := s.pinPack(t, wsID, c.ID)
+	if err := os.Remove(filepath.Join(s.H.Blobs.(storage.Local).Dir, row.BlobKey)); err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]string
+	if got := s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": "note", "body": map[string]string{"text": "a note"}}, &out); got != 503 || out["error"] != "this study's Team can't be loaded" {
+		t.Fatalf("%d %v", got, out)
+	}
+	var n int
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM record WHERE card_id = $1`, c.ID).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("records %d %v", n, err)
+	}
+}
+
+// TestRoleRecordWithoutKinds checks a server with no kinds wired refuses
+// every kind as unknown.
+func TestRoleRecordWithoutKinds(t *testing.T) {
+	s := newServer(t)
+	s.H.KindsFor = nil
+	_, _, _, run := s.roleFixture(t)
+	if got := s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": "question", "body": map[string]string{"text": "Scoped?"}}, nil); got != 400 {
+		t.Fatalf("%d", got)
 	}
 }

@@ -314,7 +314,18 @@ func (e *Engine) read(ctx context.Context, tx *store.Tx, id uuid.UUID) (*pending
 	if c.GatingUntil != nil && c.GatingUntil.After(e.now()) {
 		return nil, nil // another pass is judging the card; its write phase moves it on
 	}
-	roles, _, ok, err := e.rolesFor(ctx, tx, c)
+	var roles Roles
+	for range packAttempts {
+		if roles, _, ok, err = e.rolesFor(ctx, tx, c); !errors.Is(err, ErrPackUnavailable) || ctx.Err() != nil {
+			break
+		}
+	}
+	if errors.Is(err, ErrPackUnavailable) && ctx.Err() == nil {
+		// The pinned pack is unreadable: block the card instead of failing every tick.
+		s := board.FromCard(c)
+		items := board.Block(&s, board.BlockInfra, err.Error())
+		return nil, e.save(ctx, tx, c, s, items, "card.escalated", map[string]any{"block": board.BlockInfra, "reason": err.Error()})
+	}
 	if err != nil || !ok {
 		return nil, err
 	}

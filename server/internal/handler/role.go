@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/round"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -83,20 +84,28 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 	// What a role may write depends on its card's pack; the card is read
 	// before the body is validated, and the write is re-authorized under locks.
 	var kinds map[string]service.Kind
-	err := h.Store.InWorkspace(r.Context(), role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
-		var c db.Card
-		if role.CardID != uuid.Nil {
-			var err error
-			if c, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: role.WorkspaceID, ID: role.CardID}); err != nil {
-				return err
+	var err error
+	if h.KindsFor != nil {
+		err = h.Store.InWorkspace(r.Context(), role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
+			var c db.Card
+			if role.CardID != uuid.Nil {
+				var err error
+				if c, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: role.WorkspaceID, ID: role.CardID}); err != nil {
+					return err
+				}
 			}
-		}
-		// The record lands in the run's column, so that column's kinds apply.
-		c.BoardColumn = role.Column
-		var err error
-		kinds, err = h.KindsFor(r.Context(), tx, h.Blobs, c)
-		return err
-	})
+			// The record lands in the run's column, so that column's kinds apply.
+			c.BoardColumn = role.Column
+			var err error
+			kinds, err = h.KindsFor(r.Context(), tx, h.Blobs, c)
+			return err
+		})
+	}
+	if errors.Is(err, round.ErrPackUnavailable) {
+		slog.Error("load pack for record kinds", "card", role.CardID, "err", err)
+		writeErr(w, 503, "this study's Team can't be loaded")
+		return
+	}
 	if err != nil {
 		roleError(w, r, err)
 		return
