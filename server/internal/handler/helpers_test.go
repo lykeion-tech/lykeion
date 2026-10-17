@@ -16,6 +16,7 @@ import (
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/autoresearch"
+	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/service"
@@ -64,7 +65,8 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 	hub := &realtime.Hub{Store: st, Redis: env.Redis, Poll: 2 * time.Second}
 	st.Publish = hub.Publish
 	mail := &fakeMail{}
-	h := &H{Store: st, JWT: auth.Issuer{Secret: []byte("test-secret"), TTL: time.Hour}, Mail: mail, Limit: auth.Limiter{R: env.Redis}, Hub: hub}
+	h := &H{Store: st, JWT: auth.Issuer{Secret: []byte("test-secret"), TTL: time.Hour}, Mail: mail, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
+		Connectors: &connectors.Client{Secret: bytes.Repeat([]byte{7}, 32)}}
 	h.AgentRuns = &service.AgentRuns{Store: st, MCPURL: "http://test/mcp/sources", Stale: time.Second}
 	h.Blobs = storage.Local{Dir: t.TempDir()}
 	h.Engine = &flow.Engine{Store: st, AgentRuns: h.AgentRuns, Blobs: h.Blobs}

@@ -24,3 +24,18 @@ SELECT pack_id FROM card_team WHERE workspace_id = @workspace_id AND card_id = @
 -- name: LastCallNumber :one
 SELECT COALESCE(max(substr(key, 2)::int), 0)::int AS n FROM record
 WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'call' AND key ~ '^c[0-9]+$';
+
+-- name: EnsureWorkspaceConnector :exec
+INSERT INTO workspace_connector (workspace_id, name, updated_by)
+VALUES (@workspace_id, @name, @updated_by)
+ON CONFLICT (workspace_id, name) DO NOTHING;
+
+-- name: LockWorkspaceConnector :one
+SELECT * FROM workspace_connector WHERE workspace_id = @workspace_id AND name = @name FOR UPDATE;
+
+-- name: UpdateWorkspaceConnector :one
+UPDATE workspace_connector
+SET enabled = @enabled, key_ciphertext = @key_ciphertext, licence_confirmed_by = @licence_confirmed_by,
+    licence_confirmed_at = @licence_confirmed_at, updated_by = @updated_by, updated_at = now()
+WHERE workspace_id = @workspace_id AND name = @name
+RETURNING *;

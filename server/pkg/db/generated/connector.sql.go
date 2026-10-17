@@ -7,9 +7,27 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+const ensureWorkspaceConnector = `-- name: EnsureWorkspaceConnector :exec
+INSERT INTO workspace_connector (workspace_id, name, updated_by)
+VALUES ($1, $2, $3)
+ON CONFLICT (workspace_id, name) DO NOTHING
+`
+
+type EnsureWorkspaceConnectorParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+	UpdatedBy   uuid.UUID `json:"updated_by"`
+}
+
+func (q *Queries) EnsureWorkspaceConnector(ctx context.Context, arg EnsureWorkspaceConnectorParams) error {
+	_, err := q.db.Exec(ctx, ensureWorkspaceConnector, arg.WorkspaceID, arg.Name, arg.UpdatedBy)
+	return err
+}
 
 const freshConnectorFetch = `-- name: FreshConnectorFetch :one
 SELECT workspace_id, request_sha256, connector, blob_key, content_type, truncated, fetched_at FROM connector_fetch
@@ -131,6 +149,31 @@ func (q *Queries) ListWorkspaceConnectors(ctx context.Context, workspaceID uuid.
 	return items, nil
 }
 
+const lockWorkspaceConnector = `-- name: LockWorkspaceConnector :one
+SELECT workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at FROM workspace_connector WHERE workspace_id = $1 AND name = $2 FOR UPDATE
+`
+
+type LockWorkspaceConnectorParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+}
+
+func (q *Queries) LockWorkspaceConnector(ctx context.Context, arg LockWorkspaceConnectorParams) (WorkspaceConnector, error) {
+	row := q.db.QueryRow(ctx, lockWorkspaceConnector, arg.WorkspaceID, arg.Name)
+	var i WorkspaceConnector
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Enabled,
+		&i.KeyCiphertext,
+		&i.LicenceConfirmedBy,
+		&i.LicenceConfirmedAt,
+		&i.UpdatedBy,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const putConnectorFetch = `-- name: PutConnectorFetch :exec
 INSERT INTO connector_fetch (workspace_id, request_sha256, connector, blob_key, content_type, truncated)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -158,4 +201,46 @@ func (q *Queries) PutConnectorFetch(ctx context.Context, arg PutConnectorFetchPa
 		arg.Truncated,
 	)
 	return err
+}
+
+const updateWorkspaceConnector = `-- name: UpdateWorkspaceConnector :one
+UPDATE workspace_connector
+SET enabled = $1, key_ciphertext = $2, licence_confirmed_by = $3,
+    licence_confirmed_at = $4, updated_by = $5, updated_at = now()
+WHERE workspace_id = $6 AND name = $7
+RETURNING workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at
+`
+
+type UpdateWorkspaceConnectorParams struct {
+	Enabled            bool       `json:"enabled"`
+	KeyCiphertext      []byte     `json:"key_ciphertext"`
+	LicenceConfirmedBy *uuid.UUID `json:"licence_confirmed_by"`
+	LicenceConfirmedAt *time.Time `json:"licence_confirmed_at"`
+	UpdatedBy          uuid.UUID  `json:"updated_by"`
+	WorkspaceID        uuid.UUID  `json:"workspace_id"`
+	Name               string     `json:"name"`
+}
+
+func (q *Queries) UpdateWorkspaceConnector(ctx context.Context, arg UpdateWorkspaceConnectorParams) (WorkspaceConnector, error) {
+	row := q.db.QueryRow(ctx, updateWorkspaceConnector,
+		arg.Enabled,
+		arg.KeyCiphertext,
+		arg.LicenceConfirmedBy,
+		arg.LicenceConfirmedAt,
+		arg.UpdatedBy,
+		arg.WorkspaceID,
+		arg.Name,
+	)
+	var i WorkspaceConnector
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Enabled,
+		&i.KeyCiphertext,
+		&i.LicenceConfirmedBy,
+		&i.LicenceConfirmedAt,
+		&i.UpdatedBy,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

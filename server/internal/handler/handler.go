@@ -19,6 +19,7 @@ import (
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/autoresearch"
+	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
@@ -37,6 +38,7 @@ type H struct {
 	Google       auth.Google
 	Secure       bool // cookies only over HTTPS
 	Hub          *realtime.Hub
+	Connectors   *connectors.Client // seals connector keys; Contact decides whether contact-bound connectors are ready
 	Engine       *flow.Engine
 	AgentRuns    *service.AgentRuns
 	Blobs        storage.Storage
