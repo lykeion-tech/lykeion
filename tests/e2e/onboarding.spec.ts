@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { labCode, labSignIn } from './lab';
+import { labCode, labNoTeam, labShip, labSignIn, labUnship } from './lab';
 
 // A newcomer, not the lab's own person, so onboarding has not been done.
 const NEWCOMER = 'newcomer@lab.test';
@@ -35,6 +35,8 @@ test('a newcomer goes through the six steps to an onboarded workspace', async ({
   await page.screenshot({ path: 'test-results/ui-lab/task12-workspace.png', fullPage: true });
   await page.getByRole('button', { name: 'Create workspace' }).click();
 
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('heading', { name: 'Connect a research runtime' })).toBeVisible();
   await expect(page.getByText('lyk daemon start')).toBeVisible();
   await page.screenshot({ path: 'test-results/ui-lab/task12-runtime.png', fullPage: true });
@@ -91,6 +93,7 @@ test('a failed context save retries the created workspace without creating it ag
   ]);
   await page.getByRole('radio', { name: 'Retry lab', exact: true }).check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('heading', { name: 'Connect a research runtime' })).toBeVisible();
   expect(creates).toBe(1);
   expect(await (await page.request.get('/api/workspaces')).json()).toEqual([
@@ -161,9 +164,60 @@ test('a member sees the real research-context refusal and can continue without o
   await page.getByRole('textbox', { name: 'Research context' }).fill('');
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('heading', { name: 'Connect a research runtime' })).toBeVisible();
   await page.getByRole('button', { name: 'Log out' }).click();
   await expect(page).toHaveURL(/#\/signin$/);
   expect((await page.request.get('/api/me')).status()).toBe(401);
   await owner.close();
+});
+
+test('the Team step follows Workspace, can be skipped, and is not asked twice', async ({
+  page,
+}) => {
+  const email = 'onboarding-team@lab.test';
+  labShip('demo', '1');
+  try {
+    await labSignIn(page.request, email);
+    await page.goto('/#/onboarding?step=workspace');
+    await page.getByRole('textbox', { name: 'Workspace name' }).fill('Team lab');
+    await page.getByRole('button', { name: 'Create workspace' }).click();
+
+    await expect(
+      page.getByRole('heading', { name: 'Which Team should work your studies?' }),
+    ).toBeVisible();
+    await expect(page.getByRole('listitem').filter({ hasText: 'Your Team' })).toHaveAttribute(
+      'aria-current',
+      'step',
+    );
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    await expect(page.getByText('Studies start from: question, claim')).toBeVisible();
+    await expect(page.getByText('Choosing a Team approves its current version (v1)')).toBeVisible();
+    await expect(page.getByText('You can change your Team later on the Teams page.')).toBeVisible();
+    await expect(page.getByText('Bring your own Team')).toBeVisible();
+
+    // Skipping leaves the person without a Team.
+    await page.getByRole('button', { name: 'Skip for now' }).click();
+    await expect(page.getByRole('heading', { name: 'Connect a research runtime' })).toBeVisible();
+    expect((await (await page.request.get('/api/me')).json()).pack_name).toBe('');
+
+    await page.goto('/#/onboarding?step=workspace');
+    await page.reload();
+    await page.getByRole('radio', { name: 'Team lab', exact: true }).check();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('radio', { name: 'demo Team' }).check();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByRole('heading', { name: 'Connect a research runtime' })).toBeVisible();
+    expect((await (await page.request.get('/api/me')).json()).pack_name).toBe('demo');
+
+    // With a Team already chosen, the wizard goes from Workspace to Runtime.
+    await page.goto('/#/onboarding?step=workspace');
+    await page.reload();
+    await page.getByRole('radio', { name: 'Team lab', exact: true }).check();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByRole('heading', { name: 'Connect a research runtime' })).toBeVisible();
+  } finally {
+    labUnship('demo');
+    await labNoTeam(page.request);
+  }
 });

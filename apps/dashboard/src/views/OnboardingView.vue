@@ -7,8 +7,16 @@ import Icon from '../components/Icon.vue';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { useMe, useRuntimes, useWorkspaces } from '../api/queries';
-import { careerStages, type CareerStage, type Workspace } from '../api/types';
+import {
+  approvePack,
+  uploadPack,
+  useMe,
+  usePackCatalog,
+  useRuntimes,
+  useTeam,
+  useWorkspaces,
+} from '../api/queries';
+import { careerStages, type CareerStage, type PackVersion, type Workspace } from '../api/types';
 import {
   careerStageLabels,
   prefixFromSlug,
@@ -23,7 +31,15 @@ const client = useQueryClient();
 const me = useMe();
 const workspaces = useWorkspaces();
 const runtimes = useRuntimes();
-const steps = ['Welcome', 'Research profile', 'Workspace', 'Runtime', 'Capabilities', 'Ready'];
+const steps = [
+  'Welcome',
+  'Research profile',
+  'Workspace',
+  'Your Team',
+  'Runtime',
+  'Capabilities',
+  'Ready',
+];
 const step = ref(route.query.step === 'workspace' ? 2 : 0);
 const busy = ref(false);
 const error = ref('');
@@ -108,8 +124,48 @@ const saveWorkspace = () =>
     if (pendingPrefix.value?.id === id) pendingPrefix.value = undefined;
     workspaceId.value = id;
     await client.invalidateQueries({ queryKey: keys.workspaces });
-    step.value = 3;
+    // Someone who already has a Team is not asked again.
+    step.value = me.data.value?.pack_name ? 4 : 3;
   });
+
+// Team step: one of the catalog's Teams, chosen by name.
+const teams = usePackCatalog();
+const team = ref('');
+const teamFile = ref<HTMLInputElement>();
+const chosenTeam = computed(() => teams.data.value?.find((t) => t.name === team.value));
+const teamVersion = computed(() => chosenTeam.value?.version ?? teams.data.value?.[0]?.version);
+
+const uploadTeam = (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  void run(async () => {
+    const up = await uploadPack(file);
+    await client.invalidateQueries({ queryKey: keys.packs(workspaceId.value) });
+    team.value = up.name;
+  });
+};
+
+const saveTeam = () =>
+  run(async () => {
+    // An uploaded Team needs its newest version approved before it can be used.
+    if (chosenTeam.value?.source === 'uploaded') {
+      const rows = await api<PackVersion[]>(
+        'GET',
+        `/api/packs?name=${encodeURIComponent(team.value)}`,
+      );
+      const newest = rows.at(-1);
+      if (newest && !newest.approvals_by_me) await approvePack(newest.id);
+    }
+    await useTeam(team.value);
+    await client.invalidateQueries({ queryKey: keys.me });
+    step.value = 4;
+  });
+
+const back = () => {
+  step.value = step.value === 4 && me.data.value?.pack_name ? 2 : step.value - 1;
+};
 
 const finish = () =>
   run(async () => {
@@ -140,7 +196,7 @@ async function logOut() {
           v-if="step > 0"
           class="icon-button push-right"
           aria-label="Back"
-          @click="step--"
+          @click="back"
         >
           <Icon name="back" />
         </button>
@@ -272,6 +328,50 @@ async function logOut() {
           </div>
         </template>
         <template v-else-if="step === 3">
+          <h2 class="centered">Which Team should work your studies?</h2>
+          <p class="sub centered">
+            Each Team is a set of agents built for one field: their roles in every stage, their
+            skills, and the checks their results must pass.
+          </p>
+          <label
+            v-for="t in teams.data.value ?? []"
+            :key="t.name"
+            class="choice"
+            :class="{ selected: team === t.name }"
+          >
+            <span class="team-text">
+              <b>⚑ {{ t.name }} Team</b>
+              <small>{{ t.description }}</small>
+              <small class="faint">Studies start from: {{ t.start_kinds.join(', ') }}</small>
+            </span>
+            <input
+              v-model="team"
+              type="radio"
+              name="team"
+              :value="t.name"
+              :aria-label="`${t.name} Team`"
+            />
+          </label>
+          <button type="button" class="choice upload" @click="teamFile?.click()">
+            <span class="team-text">
+              <b>⇪ Bring your own Team</b>
+              <small>Upload a Team (.zip) with your own roles, skills and checks.</small>
+            </span>
+          </button>
+          <input
+            ref="teamFile"
+            type="file"
+            accept=".zip,application/zip"
+            hidden
+            aria-label="Team archive"
+            @change="uploadTeam"
+          />
+          <small class="muted"
+            >Choosing a Team approves its current version (v{{ teamVersion ?? 1 }}) for your
+            studies. Its checks run in a sandbox with no network or files.</small
+          >
+        </template>
+        <template v-else-if="step === 4">
           <h2>Connect a research runtime</h2>
           <p class="sub">Connect a computer so agents can run research.</p>
           <p class="muted">
@@ -296,7 +396,7 @@ async function logOut() {
             <span class="push-right" :class="r.status">●</span>
           </div>
         </template>
-        <template v-else-if="step === 4">
+        <template v-else-if="step === 5">
           <h2>Discover your lab's capabilities</h2>
           <p class="sub">Sources are where agents find evidence. Every claim cites one of them.</p>
           <div class="choice block">
@@ -345,15 +445,24 @@ async function logOut() {
           </button>
         </template>
         <template v-else-if="step === 3">
-          <button class="button primary" @click="step = 4">Continue</button>
+          <small class="muted"
+            >You can change your Team later on the Teams page. That affects new studies only.</small
+          >
+          <button class="button primary" :disabled="busy || !team" @click="saveTeam">
+            Continue
+          </button>
           <button class="text-button" @click="step = 4">Skip for now</button>
         </template>
         <template v-else-if="step === 4">
+          <button class="button primary" @click="step = 5">Continue</button>
+          <button class="text-button" @click="step = 5">Skip for now</button>
+        </template>
+        <template v-else-if="step === 5">
           <small class="muted"
             >This is a short introduction. You can configure capabilities later.</small
           >
-          <button class="button primary" @click="step = 5">Continue</button>
-          <button class="text-button" @click="step = 5">Skip</button>
+          <button class="button primary" @click="step = 6">Continue</button>
+          <button class="text-button" @click="step = 6">Skip</button>
         </template>
         <button v-else class="button primary" :disabled="busy" @click="finish">
           Enter workspace
@@ -556,6 +665,22 @@ async function logOut() {
 .choice small {
   display: block;
   color: var(--muted);
+}
+.team-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  text-align: left;
+}
+.team-text .faint {
+  font-size: 12px;
+}
+.choice.upload {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
 }
 .mono {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
