@@ -86,7 +86,12 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'inbox', title: 'Inbox' },
     props: (route) => ({ itemId: param(route, 'itemId') }),
   },
-  { path: '/teams', component: TeamsView, meta: { page: 'teams', title: 'Teams' } },
+  {
+    path: '/teams/:name?',
+    component: TeamsView,
+    props: true,
+    meta: { page: 'teams', title: 'Teams' },
+  },
   {
     path: '/colleagues',
     component: ColleaguesView,

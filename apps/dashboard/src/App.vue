@@ -70,7 +70,7 @@ const groups = [
     name: 'Laboratory',
     items: [
       { id: 'studies', name: 'Studies', icon: 'tasks' },
-      { id: 'teams', name: 'Teams', icon: 'flag' },
+      { id: 'teams', name: 'Teams', icon: 'network' },
       { id: 'projects', name: 'Researches', icon: 'folder' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
