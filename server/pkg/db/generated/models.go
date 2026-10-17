@@ -215,6 +215,11 @@ type Card struct {
 	AssigneeType *string     `json:"assignee_type"`
 	AssigneeID   *uuid.UUID  `json:"assignee_id"`
 	Origin       string      `json:"origin"`
+	PackID       *uuid.UUID  `json:"pack_id"`
+	StartKind    string      `json:"start_kind"`
+	Cap          int32       `json:"cap"`
+	BlockKind    string      `json:"block_kind"`
+	Reopens      int32       `json:"reopens"`
 }
 
 type Comment struct {
@@ -235,6 +240,26 @@ type Event struct {
 	ActorID     *uuid.UUID      `json:"actor_id"`
 	Payload     json.RawMessage `json:"payload"`
 	CreatedAt   time.Time       `json:"created_at"`
+}
+
+type FieldPack struct {
+	ID          uuid.UUID       `json:"id"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	Name        string          `json:"name"`
+	Version     string          `json:"version"`
+	Sha256      string          `json:"sha256"`
+	Manifest    json.RawMessage `json:"manifest"`
+	BlobKey     string          `json:"blob_key"`
+	Source      string          `json:"source"`
+	UploadedBy  *uuid.UUID      `json:"uploaded_by"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
+type FieldPackApproval struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	PackID      uuid.UUID `json:"pack_id"`
+	ApprovedBy  uuid.UUID `json:"approved_by"`
+	ApprovedAt  time.Time `json:"approved_at"`
 }
 
 type InboxItem struct {
@@ -327,6 +352,7 @@ type User struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	CareerStage string     `json:"career_stage"`
 	OnboardedAt *time.Time `json:"onboarded_at"`
+	PackName    string     `json:"pack_name"`
 }
 
 type VerificationCode struct {

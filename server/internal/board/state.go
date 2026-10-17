@@ -42,6 +42,8 @@ func StageIndex(c string) int {
 type State struct {
 	Column, State, Flag, Ending, EndReason, Rerun string
 	HandoffNote                                   string // why the next round redoes work
+	BlockKind, Question                           string
+	Cap, Reopens                                  int32
 	Rounds, RouteBacks, Round                     int32
 	Stale                                         []string
 	BudgetUSD, SpentUSD                           float64 // SpentUSD is read, never saved
@@ -51,7 +53,7 @@ type State struct {
 func FromCard(c db.Card) State {
 	return State{Column: c.BoardColumn, State: c.State, Flag: c.Flag, Ending: c.Ending, EndReason: c.EndReason,
 		Rerun: c.Rerun, HandoffNote: c.HandoffNote, Rounds: c.Rounds, RouteBacks: c.RouteBacks, Round: c.Round,
-		Stale: c.Stale, BudgetUSD: c.BudgetUsd, SpentUSD: c.SpentUsd, Deadline: c.Deadline}
+		Stale: c.Stale, BlockKind: c.BlockKind, Question: c.Question, Cap: c.Cap, Reopens: c.Reopens, BudgetUSD: c.BudgetUsd, SpentUSD: c.SpentUsd, Deadline: c.Deadline}
 }
 
 func (s State) Params(id, ws uuid.UUID) db.SaveCardBoardParams {
@@ -61,5 +63,5 @@ func (s State) Params(id, ws uuid.UUID) db.SaveCardBoardParams {
 	}
 	return db.SaveCardBoardParams{BoardColumn: s.Column, State: s.State, Flag: s.Flag, Ending: s.Ending,
 		EndReason: s.EndReason, Rounds: s.Rounds, RouteBacks: s.RouteBacks, Stale: stale, Rerun: s.Rerun,
-		Round: s.Round, BudgetUsd: s.BudgetUSD, HandoffNote: s.HandoffNote, ID: id, WorkspaceID: ws}
+		Round: s.Round, BudgetUsd: s.BudgetUSD, HandoffNote: s.HandoffNote, Cap: s.Cap, BlockKind: s.BlockKind, Reopens: s.Reopens, Question: s.Question, ID: id, WorkspaceID: ws}
 }

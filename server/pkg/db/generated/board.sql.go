@@ -51,7 +51,7 @@ func (q *Queries) ActiveDuplicate(ctx context.Context, arg ActiveDuplicateParams
 }
 
 const backlogCards = `-- name: BacklogCards :many
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin FROM card WHERE workspace_id = $1 AND board_column = 'backlog' AND flag = ''
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, start_kind, cap, block_kind, reopens FROM card WHERE workspace_id = $1 AND board_column = 'backlog' AND flag = ''
 ORDER BY position, number
 `
 
@@ -95,6 +95,11 @@ func (q *Queries) BacklogCards(ctx context.Context, workspaceID uuid.UUID) ([]Ca
 			&i.AssigneeType,
 			&i.AssigneeID,
 			&i.Origin,
+			&i.PackID,
+			&i.StartKind,
+			&i.Cap,
+			&i.BlockKind,
+			&i.Reopens,
 		); err != nil {
 			return nil, err
 		}
@@ -238,7 +243,7 @@ func (q *Queries) CountKindRecords(ctx context.Context, arg CountKindRecordsPara
 }
 
 const getCardByNumber = `-- name: GetCardByNumber :one
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin FROM card WHERE workspace_id = $1 AND number = $2
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, start_kind, cap, block_kind, reopens FROM card WHERE workspace_id = $1 AND number = $2
 `
 
 type GetCardByNumberParams struct {
@@ -279,6 +284,11 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 		&i.AssigneeType,
 		&i.AssigneeID,
 		&i.Origin,
+		&i.PackID,
+		&i.StartKind,
+		&i.Cap,
+		&i.BlockKind,
+		&i.Reopens,
 	)
 	return i, err
 }
@@ -308,7 +318,7 @@ func (q *Queries) InsertInboxItem(ctx context.Context, arg InsertInboxItemParams
 }
 
 const lockCard = `-- name: LockCard :one
-SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
+SELECT id, workspace_id, number, title, question, owner_id, budget_usd, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, route_backs, stale, rerun, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, start_kind, cap, block_kind, reopens FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
 `
 
 type LockCardParams struct {
@@ -349,6 +359,11 @@ func (q *Queries) LockCard(ctx context.Context, arg LockCardParams) (Card, error
 		&i.AssigneeType,
 		&i.AssigneeID,
 		&i.Origin,
+		&i.PackID,
+		&i.StartKind,
+		&i.Cap,
+		&i.BlockKind,
+		&i.Reopens,
 	)
 	return i, err
 }
@@ -488,8 +503,9 @@ func (q *Queries) RoundAgentRuns(ctx context.Context, arg RoundAgentRunsParams) 
 const saveCardBoard = `-- name: SaveCardBoard :exec
 UPDATE card SET board_column = $1, state = $2, flag = $3, ending = $4,
   end_reason = $5, rounds = $6, route_backs = $7, stale = $8,
-  rerun = $9, round = $10, budget_usd = $11, handoff_note = $12, version = version + 1
-WHERE id = $13 AND workspace_id = $14
+  rerun = $9, round = $10, budget_usd = $11, handoff_note = $12,
+  cap = $13, block_kind = $14, reopens = $15, question = $16, version = version + 1
+WHERE id = $17 AND workspace_id = $18
 `
 
 type SaveCardBoardParams struct {
@@ -505,6 +521,10 @@ type SaveCardBoardParams struct {
 	Round       int32     `json:"round"`
 	BudgetUsd   float64   `json:"budget_usd"`
 	HandoffNote string    `json:"handoff_note"`
+	Cap         int32     `json:"cap"`
+	BlockKind   string    `json:"block_kind"`
+	Reopens     int32     `json:"reopens"`
+	Question    string    `json:"question"`
 	ID          uuid.UUID `json:"id"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 }
@@ -524,6 +544,10 @@ func (q *Queries) SaveCardBoard(ctx context.Context, arg SaveCardBoardParams) er
 		arg.Round,
 		arg.BudgetUsd,
 		arg.HandoffNote,
+		arg.Cap,
+		arg.BlockKind,
+		arg.Reopens,
+		arg.Question,
 		arg.ID,
 		arg.WorkspaceID,
 	)

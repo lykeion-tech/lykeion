@@ -72,7 +72,7 @@ func (q *Queries) DeleteVerificationCode(ctx context.Context, email string) erro
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at FROM "user" WHERE id = $1
+SELECT id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at, pack_name FROM "user" WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
@@ -87,6 +87,7 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.CreatedAt,
 		&i.CareerStage,
 		&i.OnboardedAt,
+		&i.PackName,
 	)
 	return i, err
 }
@@ -204,7 +205,7 @@ UPDATE "user" SET name = COALESCE($1, name), timezone = COALESCE($2, timezone),
   career_stage = COALESCE($3, career_stage),
   onboarded_at = CASE WHEN $4::boolean THEN COALESCE(onboarded_at, now()) ELSE onboarded_at END
 WHERE id = $5
-RETURNING id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at
+RETURNING id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at, pack_name
 `
 
 type UpdateMeParams struct {
@@ -234,6 +235,7 @@ func (q *Queries) UpdateMe(ctx context.Context, arg UpdateMeParams) (User, error
 		&i.CreatedAt,
 		&i.CareerStage,
 		&i.OnboardedAt,
+		&i.PackName,
 	)
 	return i, err
 }
@@ -241,7 +243,7 @@ func (q *Queries) UpdateMe(ctx context.Context, arg UpdateMeParams) (User, error
 const upsertUserByEmail = `-- name: UpsertUserByEmail :one
 INSERT INTO "user" (email) VALUES ($1)
 ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-RETURNING id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at
+RETURNING id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at, pack_name
 `
 
 func (q *Queries) UpsertUserByEmail(ctx context.Context, email string) (User, error) {
@@ -256,6 +258,7 @@ func (q *Queries) UpsertUserByEmail(ctx context.Context, email string) (User, er
 		&i.CreatedAt,
 		&i.CareerStage,
 		&i.OnboardedAt,
+		&i.PackName,
 	)
 	return i, err
 }
@@ -264,7 +267,7 @@ const upsertUserByGoogle = `-- name: UpsertUserByGoogle :one
 INSERT INTO "user" (email, name, google_sub) VALUES ($1, $2, $3)
 ON CONFLICT (email) DO UPDATE SET google_sub = EXCLUDED.google_sub,
   name = CASE WHEN "user".name = '' THEN EXCLUDED.name ELSE "user".name END
-RETURNING id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at
+RETURNING id, email, name, google_sub, timezone, created_at, career_stage, onboarded_at, pack_name
 `
 
 type UpsertUserByGoogleParams struct {
@@ -285,6 +288,7 @@ func (q *Queries) UpsertUserByGoogle(ctx context.Context, arg UpsertUserByGoogle
 		&i.CreatedAt,
 		&i.CareerStage,
 		&i.OnboardedAt,
+		&i.PackName,
 	)
 	return i, err
 }
