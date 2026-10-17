@@ -36,10 +36,11 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/steps", h.postStep)
 			r.Post("/done", h.postDone)
 			r.Get("/calls", h.listCalls)
-			r.Post("/calls", h.postCall)
 			r.Post("/blobs", h.putBlob)
 			r.Get("/blobs/{sha}", h.getBlob)
 		})
+		// The door records an Autoresearch run's calls too, as the sources server does.
+		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Post("/calls", h.postCall)
 		r.With(middleware.RequireScope(service.ScopeReport)).Post("/report", h.autoresearchReport)
 		r.With(middleware.RequireScope(service.ScopeCardCreate)).Post("/cards", h.autoresearchCard)
 

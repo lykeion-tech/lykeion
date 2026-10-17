@@ -316,6 +316,11 @@ func filteredEnvKey(k string) bool {
 	}
 	return strings.HasPrefix(u, "CLAUDECODE_") || strings.HasPrefix(u, "LYKEION_")
 }
+
+// ChildEnv is the environment a run's own child processes get: the one the
+// CLI gets, with the run's config home.
+func ChildEnv(o ExecOptions) []string { return childEnv(o, filepath.Join(o.Dir, ".cli-home")) }
+
 func childEnv(o ExecOptions, home string) []string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {

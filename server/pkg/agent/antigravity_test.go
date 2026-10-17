@@ -148,17 +148,11 @@ func TestCursorAndAntigravityRefuseContinuity(t *testing.T) {
 
 // Antigravity has no known read-only mode and no known MCP configuration, so
 // an agent run that needs either is refused before agy starts.
-func TestAntigravityRefusesReadOnlyAndMCP(t *testing.T) {
+func TestAntigravityRefusesReadOnly(t *testing.T) {
 	ran := filepath.Join(t.TempDir(), "ran")
 	bin := script(t, "touch "+shellQuote(ran))
 	if _, err := (Antigravity{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), ReadOnly: true}); !errors.Is(err, ErrNoReadOnly) {
 		t.Fatalf("read-only: %v", err)
-	}
-	for _, o := range []ExecOptions{{MCPURL: "http://x/mcp/sources"}, {MCP: []MCPServer{{Name: "tools", URL: "http://tools"}}}} {
-		o.Dir = t.TempDir()
-		if _, err := (Antigravity{Bin: bin}).Execute(context.Background(), "p", o); err == nil || !strings.Contains(err.Error(), "MCP") {
-			t.Fatalf("MCP: %v", err)
-		}
 	}
 	if _, err := os.Stat(ran); err == nil {
 		t.Fatal("agy ran for a run it cannot honour")

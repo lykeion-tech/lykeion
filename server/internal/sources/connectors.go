@@ -34,6 +34,7 @@ type ConnectorIn struct {
 
 type ConnectorOut struct {
 	SourceID    string `json:"source_id"`
+	Call        string `json:"call,omitempty"` // the call record's key, c1, c2, …; empty for a run with no study
 	Connector   string `json:"connector"`
 	Status      int    `json:"status"`
 	ContentType string `json:"content_type"`
@@ -87,22 +88,9 @@ func (h *Hosted) declared(ctx context.Context, role middleware.Role, row *db.Fie
 	if err != nil {
 		return nil, err
 	}
-	member, ok := p.Manifest.Leader, true
-	switch role.Role {
-	case "leader":
-	case "auditor":
-		member = p.Manifest.Auditor
-	default:
-		member, ok = pack.Member{}, false
-		for _, m := range p.Manifest.Members {
-			if m.Name == role.Role {
-				member, ok = m, true
-			}
-		}
-	}
 	// a role the Team does not have declares nothing
 	set := map[string]bool{}
-	if ok {
+	if member, ok := p.Manifest.MemberFor(role.Role); ok {
 		for _, c := range member.Connectors {
 			if c.Catalogue != "" {
 				set[c.Catalogue] = true
@@ -252,7 +240,8 @@ func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, 
 	// repeated request is recognisable, while the record's key is the call's.
 	call, rest := NewCall(role, "catalogue:"+e.Name, "fetch", r, out.Body)
 	call["truncated"], call["source_id"] = out.Truncated, out.SourceID
-	return out, h.Record(ctx, role, token, "call", "", call, rest)
+	out.Call, err = h.RecordCall(ctx, role, token, call, rest)
+	return out, err
 }
 
 // refused logs a request Lykeion would not send and hands back why.

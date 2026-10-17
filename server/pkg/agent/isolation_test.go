@@ -118,7 +118,7 @@ func TestCursorCompetingProcessPreservesActiveConfig(t *testing.T) {
 	if os.Getenv("TASK5A_CURSOR_HOLDER") == "1" {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		s, err := (Cursor{Bin: os.Getenv("TASK5A_BIN")}).Execute(ctx, "p", ExecOptions{Dir: os.Getenv("TASK5A_DIR"), MCPURL: "http://active/mcp", MCPToken: "ltk_active"})
+		s, err := (Cursor{Bin: os.Getenv("TASK5A_BIN")}).Execute(ctx, "p", ExecOptions{Dir: os.Getenv("TASK5A_DIR"), DoorURL: "http://active/mcp", MCPToken: "ltk_active"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -177,7 +177,7 @@ func TestCursorCompetingProcessPreservesActiveConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (Cursor{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Dir: dir, MCPURL: "http://competing/mcp", MCPToken: "ltk_competing"}); err == nil || !strings.Contains(err.Error(), "scratch is already in use") {
+	if _, err := (Cursor{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Dir: dir, DoorURL: "http://competing/mcp", MCPToken: "ltk_competing"}); err == nil || !strings.Contains(err.Error(), "scratch is already in use") {
 		t.Fatalf("competing run: %v", err)
 	}
 	after, err := os.ReadFile(config)
@@ -190,7 +190,7 @@ func TestCursorCompetingProcessPreservesActiveConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined = true
-	s, err := (Cursor{Bin: script(t, `cat >/dev/null`)}).Execute(t.Context(), "p", ExecOptions{Dir: dir, MCPURL: "http://next/mcp", MCPToken: "ltk_next"})
+	s, err := (Cursor{Bin: script(t, `cat >/dev/null`)}).Execute(t.Context(), "p", ExecOptions{Dir: dir, DoorURL: "http://next/mcp", MCPToken: "ltk_next"})
 	if err != nil {
 		t.Fatal(err)
 	}

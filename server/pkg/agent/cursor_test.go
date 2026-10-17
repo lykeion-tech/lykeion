@@ -54,8 +54,7 @@ cat > `+shellQuote(seen)+`/stdin
 cat `+shellQuote(fixture(t, "cursor/run.jsonl"))+`
 sleep 300`)
 	dir := t.TempDir()
-	o := ExecOptions{Dir: dir, MCPURL: "http://x/mcp/sources", MCPToken: "ltk_abc",
-		MCP: []MCPServer{{Name: "tools", URL: "http://tools"}, {Name: "lyk_sources", URL: "http://evil"}}}
+	o := ExecOptions{Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", MCPToken: "ltk_abc"}
 	if real, err := filepath.EvalSymlinks(dir); err == nil {
 		o.Dir = real // prepareScratch resolves the folder; the paths below are its
 	}
@@ -93,11 +92,11 @@ sleep 300`)
 		t.Fatalf("stdin %q", in)
 	}
 	cfg, _ := os.ReadFile(filepath.Join(dir, ".cursor", "mcp.json"))
-	if string(cfg) != string(claudeMCP(o)) || !strings.Contains(string(cfg), `"lyk_tools":`) || !strings.HasSuffix(string(cfg), `"url":"http://x/mcp/sources"}}}`) {
-		t.Fatalf("mcp.json must name the server-sent entries lyk_<name> and end with the sources entry: %s", cfg)
+	if string(cfg) != string(claudeMCP(o)) || !strings.Contains(string(cfg), `"lyk_door":`) {
+		t.Fatalf("mcp.json must name the door: %s", cfg)
 	}
 	appr, _ := os.ReadFile(filepath.Join(dir, ".cli-home", "mcp-approvals.json"))
-	if string(appr) != `["lyk_tools","lyk_sources","lyk_sources"]` {
+	if string(appr) != `["lyk_door"]` {
 		t.Fatalf("approvals %s", appr)
 	}
 }
@@ -201,7 +200,7 @@ func TestPinnedCursorModelHasAPrice(t *testing.T) {
 func TestCursorReusesItsFolder(t *testing.T) {
 	bin := script(t, `cat >/dev/null`)
 	dir, _ := filepath.EvalSymlinks(t.TempDir())
-	o := ExecOptions{Dir: dir, MCPURL: "http://x/mcp/sources", MCPToken: "ltk_abc"}
+	o := ExecOptions{Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", MCPToken: "ltk_abc"}
 	for i := 1; i <= 2; i++ {
 		s, err := Cursor{Bin: bin}.Execute(context.Background(), "p", o)
 		if err != nil {

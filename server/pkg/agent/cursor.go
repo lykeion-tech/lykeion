@@ -82,11 +82,8 @@ func (c Cursor) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 // cursorApprovals names every server in mcp.json, so none waits for a person.
 func cursorApprovals(o ExecOptions) []byte {
 	names := []string{}
-	for _, s := range o.MCP {
-		names = append(names, ServerName(s.Name))
-	}
-	if o.MCPURL != "" {
-		names = append(names, "lyk_sources")
+	if o.DoorURL != "" {
+		names = append(names, "lyk_door")
 	}
 	b, _ := json.Marshal(names)
 	return b

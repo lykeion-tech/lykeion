@@ -63,7 +63,7 @@ cat <<'EOF'
 {"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.42,"session_id":"s1","result":"done","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":300,"cache_creation_input_tokens":50},"modelUsage":{"model-b":{"inputTokens":10,"outputTokens":5,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.02},"model-a":{"inputTokens":90,"outputTokens":15,"cacheReadInputTokens":300,"cacheCreationInputTokens":50,"costUSD":0.4}}}
 EOF`)
 	dir := t.TempDir()
-	s, err := Claude{Bin: bin}.Execute(context.Background(), "scope it", ExecOptions{Dir: dir, MCPURL: "http://x/mcp/sources", MCPToken: "ltk_abc"})
+	s, err := Claude{Bin: bin}.Execute(context.Background(), "scope it", ExecOptions{Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "door-abc", MCPToken: "ltk_abc"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ EOF`)
 		}
 	}
 	cfg, _ := os.ReadFile(filepath.Join(dir, ".lyk-mcp.json"))
-	if !strings.Contains(string(cfg), "Bearer ltk_abc") || !strings.Contains(string(cfg), `"type":"http"`) {
+	if !strings.Contains(string(cfg), "Bearer door-abc") || strings.Contains(string(cfg), "ltk_abc") || !strings.Contains(string(cfg), `"type":"http"`) {
 		t.Fatalf("mcp config: %s", cfg)
 	}
 }
@@ -155,7 +155,7 @@ cat <<'EOF'
 {"type":"item.completed","item":{"type":"agent_message","text":"Done."}}
 {"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50}}
 EOF`)
-	s, err := Codex{Bin: bin}.Execute(context.Background(), "scope it", ExecOptions{Dir: t.TempDir(), MCPURL: "http://x/mcp/sources"})
+	s, err := Codex{Bin: bin}.Execute(context.Background(), "scope it", ExecOptions{Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ EOF`)
 		t.Fatalf("usage %+v", u)
 	}
 	a, _ := os.ReadFile(args)
-	for _, want := range []string{"exec", "--json", "-m\ngpt-5.6-sol", "--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_sources.url=", "bearer_token_env_var", "-"} {
+	for _, want := range []string{"exec", "--json", "-m\ngpt-5.6-sol", "--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_door.url=", "bearer_token_env_var", "-"} {
 		if !strings.Contains(string(a), want) {
 			t.Errorf("codex args missing %q", want)
 		}
@@ -234,35 +234,32 @@ cat "$`+c.env+`/`+c.cred+`" >> `+seen)
 	}
 }
 
-func TestSourcesEntryIsWrittenLast(t *testing.T) {
-	o := func(dir string) ExecOptions {
-		return ExecOptions{Dir: dir, MCPURL: "http://lyk/mcp/sources", MCPToken: "ltk_x",
-			MCP: []MCPServer{{Name: "tools", URL: "http://tools"}, {Name: "lyk_sources", URL: "http://evil"}}}
-	}
-	dir := t.TempDir()
-	s, _ := Claude{Bin: script(t, "exit 0")}.Execute(context.Background(), "p", o(dir))
-	collect(t, s)
-	cfg, _ := os.ReadFile(filepath.Join(dir, ".lyk-mcp.json"))
+func TestTheCLIGetsOnlyTheDoor(t *testing.T) {
+	o := ExecOptions{Dir: t.TempDir(), MCPToken: "ltk_x", DoorURL: "http://127.0.0.1:4100/mcp", DoorToken: "door-secret"}
 	var parsed struct {
-		Servers map[string]struct{ URL string } `json:"mcpServers"`
+		Servers map[string]struct {
+			Type, URL string
+			Headers   map[string]string
+		} `json:"mcpServers"`
 	}
-	// encoding/json, like JSON.parse, keeps the last of two equal keys.
-	if err := json.Unmarshal(cfg, &parsed); err != nil || parsed.Servers["lyk_sources"].URL != "http://lyk/mcp/sources" ||
-		parsed.Servers["lyk_tools"].URL != "http://tools" || !strings.HasSuffix(strings.TrimSpace(string(cfg)), `"Bearer ltk_x"},"type":"http","url":"http://lyk/mcp/sources"}}}`) {
-		t.Fatalf("claude mcp config: %s", cfg)
+	if err := json.Unmarshal(claudeMCP(o), &parsed); err != nil || len(parsed.Servers) != 1 {
+		t.Fatalf("claude mcp config: %s %v", claudeMCP(o), err)
+	}
+	door := parsed.Servers["lyk_door"]
+	if door.Type != "http" || door.URL != o.DoorURL || door.Headers["Authorization"] != "Bearer door-secret" {
+		t.Fatalf("claude mcp config: %s", claudeMCP(o))
+	}
+	if string(cursorApprovals(o)) != `["lyk_door"]` {
+		t.Fatalf("cursor approvals: %s", cursorApprovals(o))
 	}
 
 	args := filepath.Join(t.TempDir(), "args")
-	s, _ = Codex{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p", o(t.TempDir()))
+	s, _ := Codex{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Model: "gpt-5", DoorURL: o.DoorURL, DoorToken: o.DoorToken})
 	collect(t, s)
 	a, _ := os.ReadFile(args)
-	evil, real := strings.Index(string(a), `"http://evil"`), strings.Index(string(a), `mcp_servers.lyk_sources.url="http://lyk/mcp/sources"`)
-	if evil < 0 || real < evil {
+	if !strings.Contains(string(a), `mcp_servers.lyk_door.url="http://127.0.0.1:4100/mcp"`) || !strings.Contains(string(a), `mcp_servers.lyk_door.bearer_token_env_var="LYK_DOOR_TOKEN"`) ||
+		strings.Count(string(a), "mcp_servers.") != 2 || strings.Contains(string(a), "door-secret") {
 		t.Fatalf("codex args: %s", a)
-	}
-	bad := ExecOptions{Dir: t.TempDir(), MCP: []MCPServer{{Name: "x.y", URL: "http://x"}}}
-	if _, err := (Codex{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", bad); err == nil {
-		t.Fatal("a server name that is not a plain key reached codex -c")
 	}
 }
 
@@ -912,7 +909,7 @@ func TestCodexFeatureIsolationFlags(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "args")
 	bin := script(t, `printf '%s\n' "$@" > `+path+`
 echo '{"type":"turn.completed","usage":{}}'`)
-	s, err := (Codex{Bin: bin}).Execute(t.Context(), "ready", ExecOptions{Dir: t.TempDir(), MCPURL: "http://localhost/sources"})
+	s, err := (Codex{Bin: bin}).Execute(t.Context(), "ready", ExecOptions{Dir: t.TempDir(), DoorURL: "http://localhost/sources"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -921,7 +918,7 @@ echo '{"type":"turn.completed","usage":{}}'`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_sources.url=\"http://localhost/sources\""} {
+	for _, want := range []string{"--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_door.url=\"http://localhost/sources\""} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("missing %q in %s", want, b)
 		}
@@ -1017,26 +1014,20 @@ func TestReadOnlyHarnessesMatchTheAdapters(t *testing.T) {
 	}
 }
 
-// In both modes a role may call the add-on servers' tools, named lyk_<name>,
-// and nothing is denied.
-func TestClaudeAllowsTheAddonServersTools(t *testing.T) {
+// In both modes a role is pre-approved for Lykeion's own tools, the door
+// among them, and nothing is denied.
+func TestClaudeAllowsTheDoor(t *testing.T) {
 	for _, inherit := range []bool{false, true} {
 		args := filepath.Join(t.TempDir(), "args")
 		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
-			ExecOptions{Dir: t.TempDir(), MCPURL: "http://lyk/mcp/sources", MCPToken: "ltk_x", Inherit: inherit,
-				MCP: []MCPServer{{Name: "lab-index", URL: "https://tools.lab.org/mcp"}, {Name: "atlas", URL: "https://atlas.org/mcp"}}})
+			ExecOptions{Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", MCPToken: "ltk_x", Inherit: inherit})
 		if err != nil {
 			t.Fatal(err)
 		}
 		collect(t, s)
 		a, _ := os.ReadFile(args)
-		if !strings.Contains(string(a), "\n"+claudeTools+",mcp__lyk_lab-index,mcp__lyk_atlas\n") || strings.Contains(string(a), "--disallowedTools") {
+		if !strings.Contains(string(a), "\n"+claudeTools+"\n") || strings.Contains(string(a), "--disallowedTools") {
 			t.Fatalf("inherit=%v, tools: %s", inherit, a)
-		}
-		s, _ = Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: inherit})
-		collect(t, s)
-		if a, _ := os.ReadFile(args); !strings.Contains(string(a), "\n"+claudeTools+"\n") {
-			t.Fatalf("inherit=%v, without add-ons: %s", inherit, a)
 		}
 	}
 }

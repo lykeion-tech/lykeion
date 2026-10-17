@@ -18,7 +18,10 @@ import (
 
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/connectors"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/pricing"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
@@ -112,6 +115,8 @@ type Claimed struct {
 	Token    string            `json:"token"`
 	MCPURL   string            `json:"mcp_url"`
 	MCP      []agent.MCPServer `json:"mcp,omitempty"` // tool servers besides sources
+	// Connectors are what the run may call through the daemon's tool door.
+	Connectors []pack.Connector `json:"connectors"`
 }
 
 type Report struct {
@@ -173,6 +178,7 @@ type Message struct {
 
 type AgentRuns struct {
 	Store     *store.Store
+	Blobs     storage.Storage // holds the Team packs a claimed run's connectors come from
 	MCPURL    string
 	OnSettled func(ctx context.Context, t db.AgentRun)
 	// OnSettlement takes precedence over OnSettled. Consumers must deduplicate by
@@ -319,6 +325,7 @@ func owned(ctx context.Context, tx *store.Tx, user uuid.UUID, ref RuntimeRef) er
 func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef, slots int) ([]Claimed, error) {
 	var out []Claimed
 	var refused []db.AgentRun
+	teams := map[uuid.UUID]teamClaim{}
 	dispatchRefs := refs
 	err := s.runtimeBatch(ctx, user, refs, func(tx *store.Tx, ordered []RuntimeRef) error {
 		// Event locks also span workspaces; acquire them in canonical order,
@@ -391,7 +398,14 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: Scopes(t.Kind), ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
 						return err
 					}
-					c = &Claimed{AgentRun: t, Token: plain, MCPURL: s.MCPURL, MCP: mcp}
+					conns, team, err := claimConnectors(ctx, tx, t)
+					if err != nil {
+						return err
+					}
+					if team != nil {
+						teams[t.ID] = *team
+					}
+					c = &Claimed{AgentRun: t, Token: plain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {
@@ -415,7 +429,82 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	for _, f := range refused {
 		s.deliverAfterCommit(ctx, f.WorkspaceID, f.ID)
 	}
+	// A Team pack is a blob, read only once the transaction is closed.
+	for i := range out {
+		if team, ok := teams[out[i].AgentRun.ID]; ok {
+			out[i].Connectors = s.teamConnectors(ctx, team)
+		}
+	}
 	return out, nil
+}
+
+// teamClaim is what a Team run's connectors are worked out from: the pack of
+// the Team on its column, its role, and whether the run's researcher has
+// added that Team version, without which no local command is handed out.
+type teamClaim struct {
+	pack  db.FieldPack
+	role  string
+	added bool
+}
+
+// claimConnectors answers a single agent's run with every catalogue connector
+// the workspace has not disabled, or a Team run's teamClaim.
+func claimConnectors(ctx context.Context, tx *store.Tx, t db.AgentRun) ([]pack.Connector, *teamClaim, error) {
+	if t.CardID != nil && t.Role != "agent" {
+		packID, err := tx.Q.GetCardTeamPack(ctx, db.GetCardTeamPackParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: t.BoardColumn})
+		switch {
+		case err == nil:
+			row, err := tx.Q.GetFieldPack(ctx, db.GetFieldPackParams{WorkspaceID: tx.WS, ID: packID})
+			if err != nil {
+				return nil, nil, err
+			}
+			added, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: packID, UserID: t.ResponsibleUserID})
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, &teamClaim{pack: row, role: t.Role, added: len(added) > 0}, nil
+		case !errors.Is(err, pgx.ErrNoRows):
+			return nil, nil, err
+		}
+	}
+	rows, err := tx.Q.ListWorkspaceConnectors(ctx, tx.WS)
+	if err != nil {
+		return nil, nil, err
+	}
+	disabled := map[string]bool{}
+	for _, r := range rows {
+		disabled[r.Name] = !r.Enabled
+	}
+	out := []pack.Connector{}
+	for _, e := range connectors.Catalogue {
+		if !disabled[e.Name] {
+			out = append(out, pack.Connector{Catalogue: e.Name})
+		}
+	}
+	return out, nil, nil
+}
+
+// teamConnectors is the run's Team member's declared connectors. A pack that
+// cannot be read hands out none: the run is already claimed, and calling
+// nothing is safer than calling what was never checked.
+func (s *AgentRuns) teamConnectors(ctx context.Context, team teamClaim) []pack.Connector {
+	out := []pack.Connector{}
+	if s.Blobs == nil {
+		return out
+	}
+	p, err := pack.Load(ctx, s.Blobs, team.pack)
+	if err != nil {
+		slog.Warn("team pack unreadable at claim; the run gets no connectors", "pack", team.pack.ID, "err", err)
+		return out
+	}
+	member, _ := p.Manifest.MemberFor(team.role)
+	for _, c := range member.Connectors {
+		if len(c.Command) > 0 && !team.added {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 func (s *AgentRuns) onAgentRun(ctx context.Context, user uuid.UUID, ref RuntimeRef, fn func(tx *store.Tx) error) error {

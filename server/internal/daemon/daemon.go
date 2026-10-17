@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/pack"
 	"lykeion/server/pkg/agent"
 )
 
@@ -91,6 +92,8 @@ type claimed struct {
 	Token  string            `json:"token"`
 	MCPURL string            `json:"mcp_url"`
 	MCP    []agent.MCPServer `json:"mcp"`
+	// Connectors are what the run may call through its tool door.
+	Connectors []pack.Connector `json:"connectors"`
 }
 type daemon struct {
 	cfg             Config

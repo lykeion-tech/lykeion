@@ -88,6 +88,23 @@ type Manifest struct {
 	Steps       int      `json:"steps"` // per column; 0 means DefaultSteps
 }
 
+// MemberFor is the Team agent a run's role names: "leader", "auditor" or a
+// member's name. A role the Team does not have names none.
+func (m Manifest) MemberFor(role string) (Member, bool) {
+	switch role {
+	case "leader":
+		return m.Leader, true
+	case "auditor":
+		return m.Auditor, true
+	}
+	for _, mem := range m.Members {
+		if mem.Name == role {
+			return mem, true
+		}
+	}
+	return Member{}, false
+}
+
 type Pack struct {
 	Manifest Manifest
 	SHA256   string

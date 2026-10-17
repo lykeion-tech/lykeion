@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"regexp"
 	"runtime"
 
 	"lykeion/server/internal/pricing"
@@ -16,14 +15,7 @@ type Codex struct{ Bin string }
 
 const codexCredFile = "auth.json"
 
-var plainKey = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-
 func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
-	for _, s := range o.MCP {
-		if !plainKey.MatchString(s.Name) {
-			return nil, fmt.Errorf("MCP server name %q is not a plain key", s.Name)
-		}
-	}
 	bin := c.Bin
 	if bin == "" {
 		bin = "codex"
@@ -67,11 +59,9 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 			}
 		}
 	}
-	for _, s := range o.MCP {
-		args = append(args, "-c", fmt.Sprintf("mcp_servers.%s.url=%s", ServerName(s.Name), raw(s.URL)))
-	}
-	if o.MCPURL != "" {
-		args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_sources.url=%s", raw(o.MCPURL)), "-c", `mcp_servers.lyk_sources.bearer_token_env_var="LYK_TOKEN"`)
+	if o.DoorURL != "" {
+		// The door's token stays out of argv: Codex reads it from the env.
+		args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_door.url=%s", raw(o.DoorURL)), "-c", `mcp_servers.lyk_door.bearer_token_env_var="LYK_DOOR_TOKEN"`)
 	}
 	args = append(args, "--cd", o.Dir)
 	if o.Resume != "" {
@@ -83,17 +73,8 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 
 // personalClash names a personal MCP entry that shares a Lykeion entry's name.
 func personalClash(personal codexConfig, o ExecOptions) string {
-	names := make([]string, 0, len(o.MCP)+1)
-	for _, s := range o.MCP {
-		names = append(names, ServerName(s.Name))
-	}
-	if o.MCPURL != "" {
-		names = append(names, "lyk_sources")
-	}
-	for _, n := range names {
-		if _, ok := personal.MCPServers[n]; ok {
-			return n
-		}
+	if _, ok := personal.MCPServers["lyk_door"]; ok && o.DoorURL != "" {
+		return "lyk_door"
 	}
 	return ""
 }

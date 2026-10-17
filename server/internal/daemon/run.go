@@ -16,6 +16,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/pack"
 	"lykeion/server/pkg/agent"
 )
 
@@ -172,9 +173,23 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		sinkErr = d.persistMessage(r, sequence, m)
 		return sinkErr
 	}
-	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPURL: c.MCPURL, MCPToken: c.Token, MCP: c.MCP, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
+	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + filepath.Dir(self) + string(os.PathListSeparator) + os.Getenv("PATH"),
 	}}
+	// The CLI's one MCP server. Its add-on servers are reached through it too.
+	// Child reads opts when a local command starts, after any change below.
+	conns := append([]pack.Connector(nil), c.Connectors...)
+	for _, s := range c.MCP {
+		conns = append(conns, pack.Connector{Name: s.Name, URL: s.URL})
+	}
+	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, Connectors: conns, Child: func() agent.ExecOptions { return opts }}
+	if err = door.Start(); err != nil {
+		fail(err)
+		return nil
+	}
+	defer door.Close()
+	opts.DoorURL, opts.DoorToken = door.URL, door.Token
+	opts.Env = append(opts.Env, "LYK_DOOR="+door.URL, "LYK_DOOR_TOKEN="+door.Token)
 	if cont, err = d.beginContinuity(c, pol); err != nil {
 		fail(err)
 		return nil

@@ -147,7 +147,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	if err != nil {
 		return err
 	}
-	runs := &service.AgentRuns{Store: st, MCPURL: strings.TrimRight(getenv("PUBLIC_URL"), "/") + "/mcp/sources"}
+	runs := &service.AgentRuns{Store: st, Blobs: blobs, MCPURL: strings.TrimRight(getenv("PUBLIC_URL"), "/") + "/mcp/sources"}
 	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
 	if key := getenv("TYPESAFE_API_KEY"); key != "" {
 		engine.Jev = &jev.Client{BaseURL: "https://api.typesafe.ai", Key: key, Model: jev.Model}

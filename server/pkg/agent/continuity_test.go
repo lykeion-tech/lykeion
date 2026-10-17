@@ -264,39 +264,6 @@ func TestClaudeBaselineRoundTripsThroughResult(t *testing.T) {
 	}
 }
 
-func TestServerSentMCPNamesArePrefixedInBothCLIs(t *testing.T) {
-	if ServerName("lab") != "lyk_lab" || ServerName("lyk_lab") != "lyk_lab" {
-		t.Fatal(ServerName("lab"))
-	}
-	for _, inherit := range []bool{false, true} {
-		dir := t.TempDir()
-		args := filepath.Join(t.TempDir(), "args")
-		o := ExecOptions{Dir: dir, Inherit: inherit, MCP: []MCPServer{{Name: "lab", URL: "http://lab/mcp"}, {Name: "lyk_notes", URL: "http://notes/mcp"}}}
-		claude := script(t, `printf '%s\n' "$@" > `+args+`; IFS= read -r first; echo '{"type":"result","is_error":false}'`)
-		s, err := (Claude{Bin: claude}).Execute(context.Background(), "p", o)
-		if err != nil {
-			t.Fatal(err)
-		}
-		collect(t, s)
-		resolved, _ := filepath.EvalSymlinks(dir)
-		cfg, _ := os.ReadFile(filepath.Join(resolved, ".lyk-mcp.json"))
-		if !strings.Contains(string(cfg), `"lyk_lab":`) || !strings.Contains(string(cfg), `"lyk_notes":`) || strings.Contains(string(cfg), `"lab":`) || strings.Contains(string(cfg), "lyk_lyk_") {
-			t.Fatalf("inherit=%v claude MCP config %s", inherit, cfg)
-		}
-		o.Dir = t.TempDir()
-		codex := script(t, `printf '%s\n' "$@" > `+args+`; echo '{"type":"turn.completed","usage":{}}'`)
-		s, err = (Codex{Bin: codex}).Execute(context.Background(), "p", o)
-		if err != nil {
-			t.Fatal(err)
-		}
-		collect(t, s)
-		argv, _ := os.ReadFile(args)
-		if !strings.Contains(string(argv), "mcp_servers.lyk_lab.url=") || !strings.Contains(string(argv), "mcp_servers.lyk_notes.url=") || strings.Contains(string(argv), "mcp_servers.lab.") {
-			t.Fatalf("inherit=%v codex args %s", inherit, argv)
-		}
-	}
-}
-
 // catalogScript fakes a Codex whose `debug models` prints live (or fails with
 // "fail"), whose `--bundled` prints bundled, and which records its exec args.
 func catalogScript(t *testing.T, live, bundled, args string) string {
@@ -505,13 +472,13 @@ func TestPersonalLykeionNamedCodexServerCannotMerge(t *testing.T) {
 		t.Setenv("CODEX_HOME", home)
 		name := "personal_tool"
 		if clash {
-			name = "lyk_sources"
+			name = "lyk_door"
 		}
 		os.WriteFile(filepath.Join(home, "config.toml"), []byte("model = \"gpt-5.6-sol\"\n[mcp_servers."+name+"]\nurl = \"http://personal\"\nhttp_headers = { \"X-Personal\" = \"1\" }\n"), 0o600)
 		args := filepath.Join(t.TempDir(), "args")
 		bin := script(t, `printf '%s\n' "$@" > `+args+`; echo '{"type":"turn.completed","usage":{}}'`)
 		var notes []string
-		o := ExecOptions{Dir: t.TempDir(), Inherit: true, MCPURL: "http://lyk/mcp/sources", MCPToken: "ltk_x", OnMessage: func(m Message) error {
+		o := ExecOptions{Dir: t.TempDir(), Inherit: true, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", MCPToken: "ltk_x", OnMessage: func(m Message) error {
 			if m.Type == "status" && strings.Contains(string(m.Content), "continuity") {
 				notes = append(notes, string(m.Content))
 			}
@@ -527,7 +494,7 @@ func TestPersonalLykeionNamedCodexServerCannotMerge(t *testing.T) {
 		if strict != clash || (len(notes) == 1) != clash || r.Model != "gpt-5.6-sol" {
 			t.Fatalf("clash=%v strict=%v notes=%v model=%q args=%s", clash, strict, notes, r.Model, argv)
 		}
-		if clash && (strings.Contains(string(argv), "personal") || !strings.Contains(notes[0], "lyk_sources")) {
+		if clash && (strings.Contains(string(argv), "personal") || !strings.Contains(notes[0], "lyk_door")) {
 			t.Fatalf("personal values reached argv or the note is unclear: %s %v", argv, notes)
 		}
 	}

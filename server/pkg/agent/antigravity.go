@@ -51,11 +51,8 @@ func (a Antigravity) Execute(ctx context.Context, prompt string, o ExecOptions) 
 	if o.ReadOnly {
 		return nil, ErrNoReadOnly
 	}
-	if o.MCPURL != "" || len(o.MCP) > 0 {
-		// Without the sources server a role cannot gather evidence; refusing is
-		// better than a run that cannot do its job.
-		return nil, errors.New("antigravity cannot be given MCP servers, so it cannot reach sources")
-	}
+	// agy takes no MCP servers, so it is not given the tool door; its agent
+	// still reaches the server through lyk.
 	home, cleanup, err := prepareScratch(&o, "antigravity", "GEMINI_CLI_HOME", "", antigravityCredFile)
 	if err != nil {
 		return nil, err

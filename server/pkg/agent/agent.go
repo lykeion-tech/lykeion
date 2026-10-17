@@ -20,11 +20,14 @@ type Message struct {
 type ExecOptions struct {
 	// ScratchReservation is a parent-owned lock borrowed for this execution.
 	// With nil, the adapter acquires and releases its own reservation.
-	ScratchReservation              *ScratchReservation
-	Dir                             string
-	Env                             []string
-	Model, MCPURL, MCPToken, Resume string
-	MCP                             []MCPServer
+	ScratchReservation *ScratchReservation
+	Dir                string
+	Env                []string
+	// MCPToken is the run's own ltk_ token, the agent's LYK_TOKEN.
+	Model, MCPToken, Resume string
+	// DoorURL and DoorToken reach the daemon's tool door, the one MCP server
+	// the CLI is given; every connector call goes through it.
+	DoorURL, DoorToken string
 	// Inherit runs the CLI as the account's own: its sign-in, history, personal
 	// settings, skills, instructions, hooks and MCP all apply. Nothing is copied.
 	Inherit bool

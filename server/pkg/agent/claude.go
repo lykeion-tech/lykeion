@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,16 +15,6 @@ import (
 type Claude struct{ Bin string }
 
 const claudeTools = "Read,Glob,Grep,Skill,Bash(lyk:*),mcp__lyk_door"
-
-// claudeAllowed lets a role call the add-on servers' tools beside its own,
-// under the names the daemon writes them with.
-func claudeAllowed(o ExecOptions) string {
-	tools := claudeTools
-	for _, s := range o.MCP {
-		tools += ",mcp__" + ServerName(s.Name)
-	}
-	return tools
-}
 
 const claudeCredFile = ".credentials.json"
 
@@ -73,11 +62,11 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if o.ReadOnly {
 		mode = "plan" // reads and answers; no edits, no commands
 	}
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools", claudeAllowed(o), "--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"}
+	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools", claudeTools, "--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"}
 	if o.Inherit {
 		// The account's settings, permission rules and MCP apply; the role's
 		// servers are added and Lykeion's own tools are pre-approved.
-		args = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools", claudeAllowed(o), "--mcp-config", cfg}
+		args = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools", claudeTools, "--mcp-config", cfg}
 	}
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
@@ -123,29 +112,13 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	return sess, err
 }
 
-// Later duplicate JSON keys win. Sources is last so server-sent add-ons cannot
-// replace its endpoint or authorization header.
+// claudeMCP names the daemon's tool door and nothing else.
 func claudeMCP(o ExecOptions) []byte {
-	var b bytes.Buffer
-	b.WriteString(`{"mcpServers":{`)
-	first := true
-	add := func(name string, v any) {
-		if !first {
-			b.WriteByte(',')
-		}
-		first = false
-		b.Write(raw(name))
-		b.WriteByte(':')
-		b.Write(raw(v))
+	servers := map[string]any{}
+	if o.DoorURL != "" {
+		servers["lyk_door"] = map[string]any{"type": "http", "url": o.DoorURL, "headers": map[string]string{"Authorization": "Bearer " + o.DoorToken}}
 	}
-	for _, s := range o.MCP {
-		add(ServerName(s.Name), map[string]string{"type": "http", "url": s.URL})
-	}
-	if o.MCPURL != "" {
-		add("lyk_sources", map[string]any{"type": "http", "url": o.MCPURL, "headers": map[string]string{"Authorization": "Bearer " + o.MCPToken}})
-	}
-	b.WriteString("}}")
-	return b.Bytes()
+	return raw(map[string]any{"mcpServers": servers})
 }
 
 type claudeTokens struct {
