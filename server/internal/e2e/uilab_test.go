@@ -26,6 +26,7 @@ import (
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/daemon"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/handler"
@@ -95,7 +96,8 @@ func TestUILab(t *testing.T) {
 	iss := auth.Issuer{Secret: []byte("ui-lab-signing-secret-0123456789"), TTL: 24 * time.Hour}
 
 	h := &handler.H{Store: st, JWT: iss, Mail: mail, Limit: auth.Limiter{R: env.Redis},
-		Hub: hub, AgentRuns: runs, Blobs: blobs, KindsFor: flow.KindsFor, Engine: engine, Sources: hosted.Handler()}
+		Hub: hub, AgentRuns: runs, Blobs: blobs, KindsFor: flow.KindsFor, Engine: engine, Sources: hosted.Handler(),
+		Connectors: &connectors.Client{}}
 	if dir := os.Getenv("LYK_TEST_SHIPPED_DIR"); dir != "" {
 		// Browser tests ship and replace Team versions on disk while the lab runs.
 		h.Shipped = os.DirFS(dir)

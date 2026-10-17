@@ -16,6 +16,7 @@ import MachinesView from './views/MachinesView.vue';
 import InboxView from './views/InboxView.vue';
 import ColleaguesView from './views/ColleaguesView.vue';
 import TeamsView from './views/TeamsView.vue';
+import TeamForm from './views/TeamForm.vue';
 import SettingsView from './views/SettingsView.vue';
 import SignInView from './views/SignInView.vue';
 import AcceptInvite from './views/AcceptInvite.vue';
@@ -92,6 +93,11 @@ const routes: RouteRecordRaw[] = [
     component: InboxView,
     meta: { page: 'inbox', title: 'Inbox' },
     props: (route) => ({ itemId: param(route, 'itemId') }),
+  },
+  {
+    path: '/teams/new',
+    component: TeamForm,
+    meta: { page: 'teams', title: 'New Team' },
   },
   {
     path: '/teams/:id?',

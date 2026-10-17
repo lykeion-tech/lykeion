@@ -285,6 +285,24 @@ export const useTeam = (id: MaybeRefOrGetter<string>) =>
     enabled: computed(() => inWorkspace.value && !!toValue(id)),
   });
 
+export const useSkills = () =>
+  useQuery({
+    queryKey: computed(() => ['ws', ws.value, 'skills'] as const),
+    queryFn: async () =>
+      (await api<{ name: string; domain: string }[] | null>('GET', '/api/skills')) ?? [],
+    enabled: inWorkspace,
+  });
+export const useConnectors = () =>
+  useQuery({
+    queryKey: computed(() => ['ws', ws.value, 'connectors'] as const),
+    queryFn: async () =>
+      (await api<{ name: string; domain: string; purpose: string }[] | null>(
+        'GET',
+        '/api/connectors',
+      )) ?? [],
+    enabled: inWorkspace,
+  });
+
 // Adds a Team for the caller and answers the agents it created.
 export const addTeam = (id: string) => api<AgentDefinition[]>('POST', `/api/teams/${id}/add`);
 
