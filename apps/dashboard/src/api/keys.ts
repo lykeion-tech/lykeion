@@ -31,4 +31,7 @@ export const keys = {
   invitations: (ws: string) => ['ws', ws, 'invitations'] as const,
   packs: (ws: string) => ['ws', ws, 'packs'] as const,
   packVersions: (ws: string, name: string) => ['ws', ws, 'packs', 'versions', name] as const,
+  autoresearches: (ws: string) => ['ws', ws, 'autoresearch'] as const,
+  autoresearch: (ws: string, id: string) => ['ws', ws, 'autoresearch', id] as const,
+  autoresearchRuns: (ws: string, id: string) => ['ws', ws, 'autoresearch', id, 'runs'] as const,
 };

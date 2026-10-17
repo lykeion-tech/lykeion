@@ -72,6 +72,7 @@ const groups = [
       { id: 'studies', name: 'Studies', icon: 'tasks' },
       { id: 'teams', name: 'Teams', icon: 'network' },
       { id: 'projects', name: 'Researches', icon: 'folder' },
+      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
   },

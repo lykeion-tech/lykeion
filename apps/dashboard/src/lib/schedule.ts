@@ -57,6 +57,25 @@ export function scheduleLabel(s: Schedule) {
   return `${timing} · ${dayText(s, `Day ${s.monthDay}`)}${window}`;
 }
 
+const hour = (t: string) => Number(t.split(':')[0]);
+
+// The five-field cron the server runs, in the schedule's timezone. An interval's daily window
+// becomes an hour range; a cron typed by hand is passed through.
+export function scheduleCron(s: Schedule) {
+  if (s.cron.trim()) return s.cron.trim();
+  const dom = s.dayMode === 'month' ? String(s.monthDay) : '*';
+  const dow = s.dayMode === 'week' ? s.weekdays.join(',') : '*';
+  const tail = `${dom} * ${dow}`;
+  if (s.timeMode === 'time') {
+    const [h, m] = s.time.split(':').map(Number);
+    return `${m} ${h} ${tail}`;
+  }
+  const allDay = s.windowStart === '00:00' && s.windowEnd === '23:00';
+  const hours = allDay ? '*' : `${hour(s.windowStart)}-${hour(s.windowEnd)}`;
+  if (s.unit === 'minutes') return `*/${s.interval} ${hours} ${tail}`;
+  return `0 ${hours}/${s.interval} ${tail}`;
+}
+
 export function scheduleError(s: Schedule) {
   return s.dayMode === 'week' && !s.weekdays.length ? 'Choose at least one day of the week.' : '';
 }

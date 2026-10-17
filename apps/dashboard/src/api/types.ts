@@ -306,3 +306,43 @@ export interface PackVersion {
   approved_at: string | null;
   pinned_studies: number;
 }
+
+export type Autoresearch = {
+  id: string;
+  owner_id: string;
+  title: string;
+  description: string;
+  execution_mode: 'create_card' | 'run_only';
+  title_template: string;
+  budget_usd: number;
+  status: 'active' | 'paused';
+  pause_reason: string;
+  created_at: string;
+};
+export type AutoresearchTrigger = {
+  id: string;
+  kind: 'schedule' | 'webhook';
+  cron: string;
+  tz: string;
+  next_run_at: string | null;
+  provider: 'generic' | 'github';
+  enabled: boolean;
+  signed: boolean;
+  created_at: string;
+};
+export type AutoresearchDetail = Autoresearch & {
+  triggers: AutoresearchTrigger[];
+  collaborators: string[];
+  subscribers: string[];
+};
+export type AutoresearchRun = {
+  id: string;
+  trigger_id: string | null;
+  source: string;
+  planned_at: string;
+  status: string;
+  reason: string;
+  card_id: string | null;
+  report: string;
+  created_at: string;
+};

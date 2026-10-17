@@ -9,6 +9,7 @@ import {
   parseDateKey,
 } from '../apps/dashboard/src/lib/dates';
 import {
+  scheduleCron,
   scheduleError,
   scheduleLabel,
   scheduleSummary,
@@ -101,6 +102,29 @@ describe('autoresearch schedules', () => {
     expect(scheduleSummary({ ...base, cron: '0 9 * * 1' })).toBe(
       'Cron 0 9 * * 1 (Europe/Copenhagen)',
     );
+  });
+  it('turns a schedule into the five-field cron the server runs', () => {
+    expect(scheduleCron(base)).toBe('0 9 * * *');
+    expect(scheduleCron({ ...base, time: '18:30', dayMode: 'week', weekdays: [1, 3, 5] })).toBe(
+      '30 18 * * 1,3,5',
+    );
+    expect(scheduleCron({ ...base, dayMode: 'month', monthDay: 15 })).toBe('0 9 15 * *');
+    const interval = { ...base, timeMode: 'interval' as const };
+    expect(scheduleCron({ ...interval, interval: 15, unit: 'minutes' })).toBe('*/15 * * * *');
+    expect(
+      scheduleCron({
+        ...interval,
+        interval: 20,
+        unit: 'minutes',
+        windowStart: '08:00',
+        windowEnd: '18:00',
+      }),
+    ).toBe('*/20 8-18 * * *');
+    expect(scheduleCron({ ...interval, interval: 3 })).toBe('0 */3 * * *');
+    expect(
+      scheduleCron({ ...interval, interval: 2, windowStart: '09:00', windowEnd: '17:00' }),
+    ).toBe('0 9-17/2 * * *');
+    expect(scheduleCron({ ...base, cron: ' 5 4 * * 0 ' })).toBe('5 4 * * 0');
   });
   it('labels hourly intervals and shows the window only when narrowed', () => {
     const hourly = { ...base, timeMode: 'interval' as const };

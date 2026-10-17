@@ -8,6 +8,7 @@ import {
 // The board is the landing route and loads eagerly.
 import TaskBoard from './views/TaskBoard.vue';
 import ResearchesView from './views/ResearchesView.vue';
+import AutoresearchView from './views/AutoresearchView.vue';
 import AgentsView from './views/AgentsView.vue';
 import AgentDetail from './views/AgentDetail.vue';
 import TaskDetail from './views/TaskDetail.vue';
@@ -42,15 +43,21 @@ function param(route: RouteLocationNormalized, name: string) {
   return (Array.isArray(value) ? value[0] : value) || undefined;
 }
 
-// Later slices' destinations (skills, connectors, Autoresearch,
-// Coresearch, updates) are not routed until their slice; their
-// views stay in the tree.
+// Later slices' destinations (skills, connectors, Coresearch,
+// updates) are not routed until their slice; their views stay in
+// the tree.
 const routes: RouteRecordRaw[] = [
   {
     path: '/projects/:id?',
     component: ResearchesView,
     props: true,
     meta: { page: 'projects', title: 'Researches' },
+  },
+  {
+    path: '/autoresearch/:id?',
+    component: AutoresearchView,
+    props: true,
+    meta: { page: 'autoresearch', title: 'Autoresearch' },
   },
   {
     path: '/agents/new',

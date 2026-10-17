@@ -5,6 +5,9 @@ import { keys } from './keys';
 import { workspaceId as ws } from './session';
 import type {
   AgentDefinition,
+  Autoresearch,
+  AutoresearchDetail,
+  AutoresearchRun,
   Research,
   ResearchDetail,
   AgentRun,
@@ -241,6 +244,11 @@ export const useRunMessages = (
 export const useResearches = () => list<Research>(keys.researches, '/api/researches');
 export const useResearch = (id: MaybeRefOrGetter<string>) =>
   ofCard<ResearchDetail>(id, keys.research, (r) => `/api/researches/${r}`);
+export const useAutoresearches = () => list<Autoresearch>(keys.autoresearches, '/api/autoresearch');
+export const useAutoresearch = (id: MaybeRefOrGetter<string>) =>
+  ofCard<AutoresearchDetail>(id, keys.autoresearch, (a) => `/api/autoresearch/${a}`);
+export const useAutoresearchRuns = (id: MaybeRefOrGetter<string>) =>
+  ofCard<AutoresearchRun[]>(id, keys.autoresearchRuns, (a) => `/api/autoresearch/${a}/runs`);
 export const useAgents = () => list<AgentDefinition>(keys.agents, '/api/agents');
 export function useAgent(id: MaybeRefOrGetter<string>) {
   const client = useQueryClient();

@@ -11,6 +11,7 @@ test('the sidebar shows the implemented workspace destinations only', async ({ p
     'Studies',
     'Teams',
     'Researches',
+    'Autoresearch',
     'Agents',
     'Colleagues',
     'Machines',
@@ -21,14 +22,7 @@ test('the sidebar shows the implemented workspace destinations only', async ({ p
         .getByRole('link', { name, exact: true })
         .or(nav.getByRole('button', { name, exact: true })),
     ).toBeVisible();
-  for (const name of [
-    'Coresearch',
-    'Autoresearch',
-    'Skills',
-    'Connectors',
-    'Updates',
-    'Search...',
-  ])
+  for (const name of ['Coresearch', 'Skills', 'Connectors', 'Updates', 'Search...'])
     await expect(nav.getByText(name, { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open Aristotle' })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/ui-lab/task11-shell.png', fullPage: true });
@@ -43,18 +37,16 @@ test('the approved Researches and Agents directory routes are reachable', async 
     await expect(page).toHaveURL(new RegExp(`#/${path}$`));
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
     await expect(
-      page
-        .locator('.page-header')
-        .getByRole('button', {
-          name: heading === 'Agents' ? 'New agent' : 'New Research',
-          exact: true,
-        }),
+      page.locator('.page-header').getByRole('button', {
+        name: heading === 'Agents' ? 'New agent' : 'New Research',
+        exact: true,
+      }),
     ).toBeVisible();
   }
 });
 
 test("a later slice's route and an unknown route land on Studies", async ({ page }) => {
-  for (const path of ['/#/autoresearch', '/#/skills', '/#/no-such-page']) {
+  for (const path of ['/#/skills', '/#/no-such-page']) {
     await page.goto(path);
     await expect(page).toHaveURL(/#\/studies$/);
   }
