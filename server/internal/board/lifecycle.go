@@ -67,7 +67,8 @@ func applicable(s *State, g *Gate) error {
 
 // Apply moves a card by its gate. Every failure uses the cap, whether it
 // routes back or redoes the column; the one past the cap blocks the card
-// where the route left it, without opening a round.
+// where the route left it, without opening a round. A gate that cannot
+// proceed blocks the card when it names a block kind and stops it otherwise.
 func Apply(s *State, g *Gate) []Item {
 	if err := applicable(s, g); err != nil {
 		s.Flag = Escalated
@@ -85,6 +86,10 @@ func Apply(s *State, g *Gate) []Item {
 		newRound(s)
 		return nil
 	case CannotProceed:
+		if g.Block == "" {
+			Stop(s, g.Reason)
+			return nil
+		}
 		return Block(s, g.Block, g.Reason)
 	}
 	if r := g.Route; r != nil && r.Column != "" && r.Column != s.Column {

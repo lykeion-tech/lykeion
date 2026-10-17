@@ -50,6 +50,31 @@ func TestPeopleSteerButNeverMoveForward(t *testing.T) {
 	}
 }
 
+func TestResumeRefusesABlockedCard(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var c card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'validation', round = 3, flag = 'escalated', block_kind = 'cap', route_backs = 4 WHERE id = $1`, c.ID)
+	var refused struct {
+		Error string `json:"error"`
+	}
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/resume", a, w.ID, nil, &refused); code != 409 || refused.Error != "this study is blocked: use unblock" {
+		t.Fatalf("resumed a blocked card: %d %+v", code, refused)
+	}
+	var flag, kind string
+	var round, routeBacks int
+	s.Env.Owner.QueryRow(t.Context(), `SELECT flag, block_kind, round, route_backs FROM card WHERE id = $1`, c.ID).Scan(&flag, &kind, &round, &routeBacks)
+	if flag != "escalated" || kind != "cap" || round != 3 || routeBacks != 4 {
+		t.Fatalf("a refused resume changed the card: %s %s %d %d", flag, kind, round, routeBacks)
+	}
+	s.Env.Owner.Exec(t.Context(), `UPDATE card SET block_kind = '' WHERE id = $1`, c.ID)
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/resume", a, w.ID, nil, nil); code != 200 {
+		t.Fatalf("an escalated card without a block kind did not resume: %d", code)
+	}
+}
+
 func TestSendBackReasonIsTheHandoffNote(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")

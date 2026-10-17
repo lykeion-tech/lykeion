@@ -76,6 +76,24 @@ func TestCannotProceedBlocks(t *testing.T) {
 	}
 }
 
+func TestCannotProceedUntypedStops(t *testing.T) {
+	s := at(Grounding)
+	items := Apply(s, &Gate{Column: Grounding, Verdict: CannotProceed, Reason: "no usable data"})
+	if s.Column != Done || s.Ending != "stopped" || s.EndReason != "no usable data" || s.Flag != "" || s.BlockKind != "" || len(items) != 0 {
+		t.Fatalf("%+v %+v", s, items)
+	}
+}
+
+func TestResumeClearsAnEscalation(t *testing.T) {
+	s := at(Grounding)
+	EscalateAgentRun(s, "contrarian", "agent crashed")
+	s.Rounds = 2
+	Resume(s)
+	if s.Flag != "" || s.Rounds != 0 {
+		t.Fatalf("resume: %+v", s)
+	}
+}
+
 func TestTheFourthSameColumnFailBlocks(t *testing.T) {
 	s := at(Grounding)
 	for i := 0; i < 3; i++ {
@@ -87,12 +105,8 @@ func TestTheFourthSameColumnFailBlocks(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 	items := Apply(s, fail(Grounding, Grounding, "contrarian"))
-	if s.Flag != Escalated || s.BlockKind != BlockCap || s.Round != 7 || len(items) != 1 || items[0].Kind != "escalated" {
+	if s.Flag != Escalated || s.BlockKind != BlockCap || s.Round != 7 || s.State != Working || len(items) != 1 || items[0].Kind != "escalated" {
 		t.Fatalf("%+v %+v", s, items)
-	}
-	Resume(s)
-	if s.Flag != "" || s.Rounds != 0 {
-		t.Fatalf("resume: %+v", s)
 	}
 }
 
@@ -154,6 +168,16 @@ func TestDecideEarliestColumnWins(t *testing.T) {
 	Decide(g)
 	if g.Route.Column != Grounding || g.Route.Step != "scoper" || !strings.HasPrefix(g.Reason, "b:") {
 		t.Fatalf("%+v %q", g.Route, g.Reason)
+	}
+	g = &Gate{Column: Validation, Checks: []Check{{ID: "a", Result: Fail, To: "nowhere"}, {ID: "b", Result: Fail, To: Experimentation}}}
+	Decide(g)
+	if g.Route.Column != Experimentation {
+		t.Fatalf("an unknown target counted as the earliest column: %+v", g.Route)
+	}
+	g = &Gate{Column: Validation, Checks: []Check{{ID: "a", Result: Fail, To: "nowhere"}, {ID: "b", Result: Attention}}}
+	Decide(g)
+	if g.Route.Column != Validation || !strings.HasPrefix(g.Reason, "a:") {
+		t.Fatalf("an unknown target must count as the gate's own column: %+v %q", g.Route, g.Reason)
 	}
 	g = &Gate{Column: Validation, Checks: []Check{{ID: "a", Result: Fail, To: Hypotheses}, {ID: "b", Result: Attention}}}
 	Decide(g)

@@ -33,7 +33,7 @@ type reason struct {
 func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, error) {
 	g := &board.Gate{Column: board.Hypotheses, InputDigest: v.Digest(ground.ReviewKinds...)}
 	if r, ok := v.Latest("cannot_proceed"); ok {
-		g.Verdict, g.Reason = board.CannotProceed, "no viable hypothesis: "+records.Body[reason](r).Reason
+		g.Verdict, g.Reason, g.Block = board.CannotProceed, "no viable hypothesis: "+records.Body[reason](r).Reason, board.BlockNoTest
 		return g, nil
 	}
 	ms, err := activeMissingPremises(v)
@@ -60,7 +60,7 @@ func Check(ctx context.Context, v *records.View, j *jev.Client) (*board.Gate, er
 			}
 		}
 		if len(why) > 0 {
-			g.Verdict, g.Reason = board.CannotProceed, "no viable hypothesis: "+strings.Join(why, "; ")
+			g.Verdict, g.Reason, g.Block = board.CannotProceed, "no viable hypothesis: "+strings.Join(why, "; "), board.BlockNoTest
 			return g, nil
 		}
 	}

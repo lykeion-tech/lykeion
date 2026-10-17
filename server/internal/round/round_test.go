@@ -171,8 +171,8 @@ func TestPhasesQueueOnceEvenWhenAgentRunsFinishTogether(t *testing.T) {
 	var gates int
 	f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'gate'", card).Scan(&gates)
 	c := f.cardRow(t, card)
-	if items := f.inbox(t, card); gates != 1 || c.Ending != "" || c.Flag != board.Escalated || len(items) != 1 || items[0] != "no usable data: nothing" {
-		t.Fatalf("gates %d, %+v, inbox %v", gates, c, items)
+	if gates != 1 || c.Ending != "stopped" || c.EndReason != "no usable data: nothing" {
+		t.Fatalf("gates %d, %+v", gates, c)
 	}
 }
 
@@ -485,7 +485,7 @@ func TestAnExpiredGatingLeaseIsTakenOver(t *testing.T) {
 	// a node died mid-call an hour ago
 	f.env.Owner.Exec(context.Background(), `UPDATE card SET gating_until = now() - interval '1 hour' WHERE id = $1`, card)
 	f.e.Advance(context.Background(), f.ws, card)
-	if c := f.cardRow(t, card); c.Flag != board.Escalated || c.Ending != "" || c.GatingUntil != nil {
+	if c := f.cardRow(t, card); c.Ending != "stopped" || c.GatingUntil != nil {
 		t.Fatalf("%+v", c)
 	}
 }

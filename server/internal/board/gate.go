@@ -90,7 +90,8 @@ func (b Bands) Result(p float64) Result {
 // Decide passes only when at least one check ran and every check passed.
 // Unsettled attention counts as failure: a missing answer is never approval.
 // Among the failing checks, the one whose fix belongs to the earliest column
-// sets the route; a tie keeps the first in check order.
+// sets the route; a tie keeps the first in check order. A target that is not
+// a stage counts as the gate's own column.
 func Decide(g *Gate) {
 	if g.Verdict == CannotProceed {
 		return
@@ -106,7 +107,7 @@ func Decide(g *Gate) {
 			continue
 		}
 		col := g.Column
-		if ch.To != "" {
+		if StageIndex(ch.To) >= 0 {
 			col = ch.To
 		}
 		if g.Route != nil && StageIndex(col) >= StageIndex(g.Route.Column) {

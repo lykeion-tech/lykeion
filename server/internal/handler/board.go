@@ -26,6 +26,10 @@ import (
 
 var errEnded = errors.New("the card has ended; continue with a new card that follows from it")
 
+// errBlocked refuses a plain resume of a Blocked card: its failed gate opened
+// no round, so only an unblock action can move it on.
+var errBlocked = errors.New("this study is blocked: use unblock")
+
 // resolveBlocked resolves the card's open escalated and out-of-budget inbox
 // items: a person has answered them by resuming, stopping or changing the budget.
 func resolveBlocked(ctx context.Context, tx *store.Tx, card, who uuid.UUID) error {
@@ -118,7 +122,7 @@ func (h *H) steer(w http.ResponseWriter, r *http.Request, cancelAgentRuns bool, 
 		return err
 	})
 	switch {
-	case errors.Is(err, errEnded):
+	case errors.Is(err, errEnded), errors.Is(err, errBlocked):
 		writeErr(w, 409, err.Error())
 		return
 	case err != nil:
@@ -212,6 +216,9 @@ func (h *H) budgetCard(w http.ResponseWriter, r *http.Request) {
 
 func (h *H) resumeCard(w http.ResponseWriter, r *http.Request) {
 	h.steer(w, r, false, func(tx *store.Tx, c db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+		if s.BlockKind != "" {
+			return nil, errBlocked
+		}
 		board.Resume(s)
 		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
 	})

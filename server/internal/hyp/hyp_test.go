@@ -791,7 +791,7 @@ func TestMissingPremiseRoutesToGrounding(t *testing.T) {
 func TestSelectorCannotProceed(t *testing.T) {
 	f := setup(t)
 	f.mustWrite(t, Selector, "cannot_proceed", map[string]string{"reason": "no candidate can be measured on GSE1"})
-	if g := f.gate(t, nil); g.Verdict != board.CannotProceed || g.Reason != "no viable hypothesis: no candidate can be measured on GSE1" {
+	if g := f.gate(t, nil); g.Verdict != board.CannotProceed || g.Block != board.BlockNoTest || g.Reason != "no viable hypothesis: no candidate can be measured on GSE1" {
 		t.Fatalf("%+v", g)
 	}
 }
@@ -801,7 +801,7 @@ func TestGeneratorsFindingNothingStopsTheCard(t *testing.T) {
 	for _, gen := range Generators {
 		f.insert(t, "hypotheses", "nothing_found", gen, "", `{"reason":"nothing follows from the seed"}`)
 	}
-	if g := f.gate(t, nil); g.Verdict != board.CannotProceed || !strings.HasPrefix(g.Reason, "no viable hypothesis: nothing follows from the seed") {
+	if g := f.gate(t, nil); g.Verdict != board.CannotProceed || g.Block != board.BlockNoTest || !strings.HasPrefix(g.Reason, "no viable hypothesis: nothing follows from the seed") {
 		t.Fatalf("%+v", g)
 	}
 }
