@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const approveFieldPack = `-- name: ApproveFieldPack :exec
+const approveFieldPack = `-- name: ApproveFieldPack :execrows
 INSERT INTO field_pack_approval (workspace_id, pack_id, approved_by)
 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
 `
@@ -24,9 +24,12 @@ type ApproveFieldPackParams struct {
 	ApprovedBy  uuid.UUID `json:"approved_by"`
 }
 
-func (q *Queries) ApproveFieldPack(ctx context.Context, arg ApproveFieldPackParams) error {
-	_, err := q.db.Exec(ctx, approveFieldPack, arg.WorkspaceID, arg.PackID, arg.ApprovedBy)
-	return err
+func (q *Queries) ApproveFieldPack(ctx context.Context, arg ApproveFieldPackParams) (int64, error) {
+	result, err := q.db.Exec(ctx, approveFieldPack, arg.WorkspaceID, arg.PackID, arg.ApprovedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getFieldPack = `-- name: GetFieldPack :one

@@ -11,7 +11,7 @@ SELECT p.*, COALESCE((SELECT array_agg(a.approved_by ORDER BY a.approved_at) FRO
   WHERE a.workspace_id = p.workspace_id AND a.pack_id = p.id), '{}')::uuid[] AS approvals
 FROM field_pack p WHERE p.workspace_id = @workspace_id ORDER BY p.name, p.created_at;
 
--- name: ApproveFieldPack :exec
+-- name: ApproveFieldPack :execrows
 INSERT INTO field_pack_approval (workspace_id, pack_id, approved_by)
 VALUES (@workspace_id, @pack_id, @approved_by) ON CONFLICT DO NOTHING;
 

@@ -42,8 +42,9 @@ func RequestBounds(next http.Handler) http.Handler {
 			return
 		}
 		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs"
+		packUpload := r.Method == http.MethodPost && r.URL.Path == "/api/packs"
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
-		if rawBlob {
+		if rawBlob || packUpload {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {

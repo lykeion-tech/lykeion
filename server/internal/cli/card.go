@@ -70,7 +70,7 @@ func cardCmd(e *env) *cobra.Command {
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().Float64Var(&usd, "usd", 0, "model budget in USD")
 	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
-	newCmd.Flags().StringVar(&startKind, "start-kind", "", "what the study starts from: question, dataset or claim, as your Team allows")
+	newCmd.Flags().StringVar(&startKind, "start-kind", "", "what the study starts from: question, dataset or claim; required once you have a Team")
 	c.AddCommand(newCmd,
 		&cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := e.inWorkspace(); err != nil {

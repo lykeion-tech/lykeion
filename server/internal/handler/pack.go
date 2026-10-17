@@ -71,9 +71,11 @@ func (h *H) packCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// approve records user's approval of p and emits pack.approved.
+// approve records user's approval of p and emits pack.approved, only when
+// the approval is new.
 func approve(r *http.Request, tx *store.Tx, user uuid.UUID, p db.FieldPack) error {
-	if err := tx.Q.ApproveFieldPack(r.Context(), db.ApproveFieldPackParams{WorkspaceID: tx.WS, PackID: p.ID, ApprovedBy: user}); err != nil {
+	n, err := tx.Q.ApproveFieldPack(r.Context(), db.ApproveFieldPackParams{WorkspaceID: tx.WS, PackID: p.ID, ApprovedBy: user})
+	if err != nil || n == 0 {
 		return err
 	}
 	return tx.Emit(r.Context(), "pack.approved", nil, store.User(user),
@@ -125,9 +127,11 @@ func (h *H) setMyPack(w http.ResponseWriter, r *http.Request) {
 
 // uploadPack stores the caller's own pack archive, sent as the raw body.
 func (h *H) uploadPack(w http.ResponseWriter, r *http.Request) {
+	// The bounds middleware has already buffered the body and refused one
+	// over pack.MaxArchive with 413.
 	z, err := io.ReadAll(http.MaxBytesReader(w, r.Body, pack.MaxArchive))
 	if err != nil {
-		writeErr(w, 413, "Team archive exceeds the size limit")
+		writeErr(w, 413, "request body exceeds endpoint limit")
 		return
 	}
 	p, err := pack.Parse(z)
@@ -141,6 +145,11 @@ func (h *H) uploadPack(w http.ResponseWriter, r *http.Request) {
 	}
 	var row db.FieldPack
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		// Serialises uploads in the workspace so two people cannot both
+		// claim a new name between the check and the insert.
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
 		taken, err := tx.Q.PackNameTaken(r.Context(), db.PackNameTakenParams{WorkspaceID: ws, Name: p.Manifest.Name, UserID: user})
 		if err != nil {
 			return err
