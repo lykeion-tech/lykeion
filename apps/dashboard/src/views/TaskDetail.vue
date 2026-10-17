@@ -253,7 +253,7 @@ const toggleCheck = (id: string) =>
   (openChecks.value = openChecks.value.includes(id)
     ? openChecks.value.filter((x) => x !== id)
     : [...openChecks.value, id]);
-const verdictLabel = { pass: 'Passed', fail: 'Routed back', cannot_proceed: 'Stopped' };
+const verdictLabel = { pass: 'Passed', fail: 'Routed back', cannot_proceed: 'Blocked' };
 
 // Each continuation, including the second Resume write, belongs to its captured visit.
 async function send() {
@@ -473,8 +473,7 @@ function pin() {
         <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
         <small>Round</small>
         <div class="v">
-          {{ c.round }} · {{ c.route_backs }} route-back{{ c.route_backs === 1 ? '' : 's' }} of
-          {{ routeBackLimit(workspace.data.value?.settings) }}
+          {{ c.round }} · Route-backs {{ c.route_backs }} of {{ routeBackLimit(c) }}
         </div>
         <template v-if="c.follows_from.length">
           <small>Follows from</small>

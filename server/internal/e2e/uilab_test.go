@@ -255,6 +255,15 @@ func TestUILab(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// The lab person's Team applies in every workspace; a test that chose one
+	// clears it so later tests create studies without a Team again.
+	mux.HandleFunc("POST /lab/no-team", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := env.Owner.Exec(r.Context(), `UPDATE "user" SET pack_name = '' WHERE email = $1`, labEmail); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /lab/fixtures", func(w http.ResponseWriter, r *http.Request) {
 		fixture, err := seedUIFixture(r.Context(), st)
 		if err != nil {

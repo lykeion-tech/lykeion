@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LAB, labFixture, newStudy } from './lab';
+import { LAB, labFixture, labNoTeam, labPack, newStudy } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-13-artifacts';
 
@@ -196,4 +196,24 @@ test('initial cards refusal shows a local retry and cached studies survive a ref
   refuse = false;
   await failure.getByRole('button', { name: 'Retry studies' }).click();
   await expect(failure).toHaveCount(0);
+});
+
+test('a study on a Team whose check never passes reaches Blocked and its chip names the cap', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await labPack(page.request);
+  try {
+    await page.goto('/#/studies');
+    const question = `Does the demo Team replicate? ${Date.now()}`;
+    const study = await newStudy(page.request, question, { start_kind: 'question' });
+    const shown = page
+      .getByRole('region', { name: 'Blocked' })
+      .locator(`[data-card="${study.id}"]`);
+    await expect(shown).toBeVisible({ timeout: 200_000 });
+    await expect(shown.locator('.chip-escalated')).toHaveText('cap reached');
+    await expect(shown.locator('.chip')).toContainText(['Validation']);
+  } finally {
+    await labNoTeam(page.request);
+  }
 });

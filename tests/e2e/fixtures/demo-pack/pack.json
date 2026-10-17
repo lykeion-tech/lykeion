@@ -1,0 +1,40 @@
+{
+  "name": "ui-demo",
+  "version": "1",
+  "description": "Demo Team for the dashboard's browser tests",
+  "start_kinds": ["question"],
+  "columns": {
+    "grounding": {
+      "phases": [["demo-grounding-author"]],
+      "reviewer": "demo-grounding-reviewer",
+      "kinds": { "notes": { "roles": ["demo-grounding-author"] } }
+    },
+    "hypotheses": {
+      "phases": [["demo-hypotheses-author"]],
+      "reviewer": "demo-hypotheses-reviewer",
+      "kinds": { "notes": { "roles": ["demo-hypotheses-author"] } }
+    },
+    "experimentation": {
+      "phases": [["demo-experimentation-author"]],
+      "reviewer": "demo-experimentation-reviewer",
+      "kinds": { "notes": { "roles": ["demo-experimentation-author"] } }
+    },
+    "validation": {
+      "phases": [["demo-validation-author"]],
+      "reviewer": "demo-validation-reviewer",
+      "kinds": { "notes": { "roles": ["demo-validation-author"] } }
+    },
+    "reporting": {
+      "phases": [["demo-reporting-author"]],
+      "reviewer": "demo-reporting-reviewer",
+      "kinds": { "notes": { "roles": ["demo-reporting-author"] } }
+    }
+  },
+  "failures": {
+    "missing_grounding_note": "grounding",
+    "missing_hypotheses_note": "hypotheses",
+    "missing_experimentation_note": "experimentation",
+    "does_not_replicate": "validation",
+    "missing_reporting_note": "reporting"
+  }
+}

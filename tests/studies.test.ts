@@ -70,6 +70,11 @@ function card(extra: Partial<Card> = {}): Card {
     position: 1,
     queued: false,
     role: '',
+    pack_id: null,
+    start_kind: '',
+    cap: 3,
+    block_kind: '',
+    reopens: 0,
     ...extra,
   };
 }
@@ -166,6 +171,7 @@ describe('backlog positions', () => {
 });
 
 import {
+  blockLabel,
   checkLine,
   earlierColumns,
   eventText,
@@ -176,6 +182,7 @@ import {
 } from '../apps/dashboard/src/lib/studies';
 import type {
   AgentRun,
+  BlockKind,
   Comment,
   GateCheck,
   LykEvent,
@@ -268,9 +275,45 @@ describe('gates', () => {
       'grounding',
     ]);
   });
-  it('reads the route-back limit from the workspace settings', () => {
-    expect(routeBackLimit(undefined)).toBe(5);
-    expect(routeBackLimit({ limits: { route_backs: 3 } })).toBe(3);
+  it('reads the route-back limit from the card', () => {
+    expect(routeBackLimit({ ...card(), cap: 3 })).toBe(3);
+    expect(routeBackLimit({ ...card(), cap: 7 })).toBe(7);
+  });
+  it('names each block reason', () => {
+    const kinds: BlockKind[] = [
+      '',
+      'cap',
+      'infra',
+      'no_feasible_test',
+      'human_run',
+      'too_small_to_split',
+      'drift',
+    ];
+    expect(kinds.map(blockLabel)).toEqual([
+      '',
+      'cap reached',
+      'infrastructure',
+      'no feasible test',
+      'needs human-run test',
+      'too small to split',
+      'drift',
+    ]);
+  });
+  it('says when a stand-in or a same-family reviewer judged a check', () => {
+    const base: GateCheck = {
+      id: 'E5',
+      judge: 'reviewer',
+      result: 'attention',
+      note: 'second-hand',
+    };
+    expect(checkLine(base).why).toBe('second-hand');
+    expect(checkLine({ ...base, independence: 'different_family' }).why).toBe('second-hand');
+    expect(checkLine({ ...base, independence: 'same_family' }).why).toBe(
+      'second-hand · judged by the reviewer (stand-in, same model family)',
+    );
+    expect(checkLine({ ...base, judge: 'fallback' }).why).toBe(
+      'second-hand · judged by the reviewer (stand-in)',
+    );
   });
 });
 
@@ -309,6 +352,9 @@ describe('records and transcript', () => {
         ),
       ),
     ).toBe('Gate passed Grounding');
+    expect(
+      eventText(lykEvent('gate.decided', { verdict: 'cannot_proceed', reason: 'cap reached' }, '')),
+    ).toBe('Gate blocked the study: cap reached');
     expect(
       eventText(
         lykEvent('card.steered', { path: '/api/cards/c/send-back', column: 'grounding' }, ''),

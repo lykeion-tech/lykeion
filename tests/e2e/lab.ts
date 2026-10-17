@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, type APIRequestContext } from '@playwright/test';
 
 export const LAB = 'http://127.0.0.1:18080';
@@ -67,4 +71,34 @@ export async function labRecords(request: APIRequestContext, cardId: string, n: 
 // Puts a study in Hypotheses, which has no roles yet, so it can be sent back.
 export async function labHypotheses(request: APIRequestContext, cardId: string) {
   expect((await request.post(`${LAB}/lab/hypotheses/${cardId}`)).status()).toBe(204);
+}
+
+// Zips the demo Team in fixtures/demo-pack with the system zip command, uploads
+// it as the lab person's own Team, approves it and makes it their Team. Its
+// Validation check never passes. labNoTeam undoes the choice.
+export async function labPack(request: APIRequestContext): Promise<{ id: string; name: string }> {
+  const dir = mkdtempSync(join(tmpdir(), 'lyk-pack-'));
+  try {
+    const archive = join(dir, 'demo.zip');
+    execFileSync('zip', ['-qr', archive, '.', '-x', '.*', '*/.*'], {
+      cwd: 'tests/e2e/fixtures/demo-pack',
+    });
+    const headers = { 'X-Workspace-ID': await labWorkspace(request) };
+    const upload = await request.post('/api/packs', {
+      headers: { ...headers, 'Content-Type': 'application/zip' },
+      data: readFileSync(archive),
+    });
+    expect(upload.status()).toBe(201);
+    const pack = (await upload.json()) as { id: string; name: string };
+    expect((await request.post(`/api/packs/${pack.id}/approve`, { headers })).status()).toBe(200);
+    const team = await request.put('/api/me/pack', { headers, data: { name: pack.name } });
+    expect(team.status()).toBe(200);
+    return pack;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export async function labNoTeam(request: APIRequestContext) {
+  expect((await request.post(`${LAB}/lab/no-team`)).status()).toBe(204);
 }

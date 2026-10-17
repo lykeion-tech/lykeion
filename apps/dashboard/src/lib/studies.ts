@@ -1,4 +1,5 @@
 import type {
+  BlockKind,
   Card,
   CareerStage,
   Column,
@@ -176,6 +177,14 @@ export const gateOf = (r: StudyRecord) => r.body as unknown as Gate;
 // Jev's verdict bands.
 export const jevThresholds = { pass: 0.7, fail: 0.35 };
 
+// A check the reviewer settled in Jev's place, or on the authors' own model
+// family, says so on its line.
+function standIn(c: GateCheck): string {
+  if (c.independence === 'same_family')
+    return ' · judged by the reviewer (stand-in, same model family)';
+  return c.judge === 'fallback' ? ' · judged by the reviewer (stand-in)' : '';
+}
+
 export function checkLine(c: GateCheck) {
   const tone: 'ok' | 'bad' | 'att' =
     c.result === 'pass' ? 'ok' : c.result === 'fail' ? 'bad' : 'att';
@@ -183,7 +192,7 @@ export function checkLine(c: GateCheck) {
     mark: { ok: '✓', bad: '✗', att: '!' }[tone],
     tone,
     name: c.id,
-    why: c.note ?? '',
+    why: (c.note ?? '') + standIn(c),
     jev: c.judge === 'jev' && Boolean(c.question),
   };
 }
@@ -231,7 +240,7 @@ export function eventText(e: LykEvent): string {
       return steered[str(p.path).split('/').pop() ?? '']?.(p) ?? '';
     case 'gate.decided':
       if (p.verdict === 'pass') return `Gate passed ${columnName(str(p.column))}`;
-      if (p.verdict === 'cannot_proceed') return `Gate stopped the study: ${str(p.reason)}`;
+      if (p.verdict === 'cannot_proceed') return `Gate blocked the study: ${str(p.reason)}`;
       return `Gate routed the study back to ${columnName(str(p.to_column))}: ${str(p.reason)}`;
     default:
       return '';
@@ -264,10 +273,20 @@ export function earlierColumns(card: Card, gates: Gate[]): Column[] {
   return stages.filter((s) => gates.some((g) => g.column === s));
 }
 
-export function routeBackLimit(settings?: Record<string, unknown>): number {
-  const limits = settings?.limits as { route_backs?: number } | undefined;
-  return limits?.route_backs ?? 5;
-}
+// The failed gates a study may use before it is blocked: route-backs, redos
+// and revisions together.
+export const routeBackLimit = (card: Card): number => card.cap;
+
+const blockLabels: Record<BlockKind, string> = {
+  '': '',
+  cap: 'cap reached',
+  infra: 'infrastructure',
+  no_feasible_test: 'no feasible test',
+  human_run: 'needs human-run test',
+  too_small_to_split: 'too small to split',
+  drift: 'drift',
+};
+export const blockLabel = (kind: BlockKind): string => blockLabels[kind];
 
 export type ComposerAction =
   { kind: 'comment' } | { kind: 'send-back'; to: Column } | { kind: 'stop' } | { kind: 'resume' };

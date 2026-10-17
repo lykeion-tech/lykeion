@@ -75,7 +75,15 @@ export interface Card {
   position: number;
   queued: boolean; // GET /api/cards only
   role: string; // GET /api/cards only; '' when no run is queued, dispatched or running
+  pack_id: string | null;
+  start_kind: '' | 'question' | 'dataset' | 'claim';
+  cap: number; // route_backs counts uses of this cap
+  block_kind: BlockKind;
+  reopens: number;
 }
+
+export type BlockKind =
+  '' | 'cap' | 'infra' | 'no_feasible_test' | 'human_run' | 'too_small_to_split' | 'drift';
 
 export interface Comment {
   id: string;
@@ -115,7 +123,10 @@ export interface StudyRecord {
 // The body of a record of kind "gate" (server/internal/board/gate.go).
 export interface GateCheck {
   id: string;
-  judge: 'code' | 'jev' | 'reviewer';
+  judge: 'code' | 'jev' | 'reviewer' | 'fallback';
+  independence?: 'different_family' | 'same_family';
+  judge_harness?: string;
+  judge_model?: string;
   owner?: string;
   to?: string;
   result: 'pass' | 'fail' | 'attention';
@@ -176,7 +187,7 @@ export interface InboxItem {
   workspace_id: string;
   card_id: string;
   user_id: string;
-  kind: 'escalated' | 'out_of_budget' | 'released' | 'publish_request';
+  kind: 'escalated' | 'out_of_budget' | 'released' | 'publish_request' | 'revised' | 'reopened';
   text: string;
   read_at: string | null;
   resolved_at: string | null;

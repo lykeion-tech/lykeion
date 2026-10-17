@@ -29,4 +29,5 @@ export const keys = {
   agent: (ws: string, id: string) => ['ws', ws, 'agent', id] as const,
   members: (ws: string) => ['ws', ws, 'members'] as const,
   invitations: (ws: string) => ['ws', ws, 'invitations'] as const,
+  packs: (ws: string) => ['packs', ws] as const,
 };

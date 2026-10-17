@@ -60,6 +60,8 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
       return [keys.invitations(ws), keys.members(ws)];
     case 'workspace':
       return [keys.workspace(ws), keys.workspaces];
+    case 'pack':
+      return [keys.packs(ws)];
     default:
       return [];
   }

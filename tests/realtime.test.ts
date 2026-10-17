@@ -27,6 +27,15 @@ describe('event to query map', () => {
       has(type, keys.inboxAll('w1'));
     }
   });
+  it('reopening, revising or moving a study to another Team version refreshes it', () => {
+    for (const type of ['card.reopened', 'card.revised', 'card.pack_moved']) {
+      has(type, keys.card('w1', 'c1'));
+      has(type, keys.cards('w1'));
+    }
+  });
+  it('an uploaded or approved Team refreshes the Teams list', () => {
+    for (const type of ['pack.uploaded', 'pack.approved']) has(type, keys.packs('w1'), null);
+  });
   it('a deleted card, named only in the payload, still refreshes its own queries', () => {
     const deleted = { ...ev('card.deleted', null), payload: { card_id: 'c9' } };
     expect(invalidationsFor('w1', deleted)).toContainEqual(keys.card('w1', 'c9'));

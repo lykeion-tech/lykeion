@@ -25,6 +25,8 @@ const kinds: Record<InboxItem['kind'], { label: string; mark: string }> = {
   out_of_budget: { label: 'Out of budget', mark: '$' },
   released: { label: 'Released', mark: '✓' },
   publish_request: { label: 'Publication request', mark: '↗' },
+  revised: { label: 'Starting point revised', mark: '✎' },
+  reopened: { label: 'Reopened', mark: '↺' },
 };
 const titleOf = (i: InboxItem) =>
   cards.data.value?.find((c) => c.id === i.card_id)?.title ?? 'Study';

@@ -10,6 +10,7 @@ import Icon from '../components/Icon.vue';
 import { useCards, useMe, useMembers, useWorkspace } from '../api/queries';
 import type { Card } from '../api/types';
 import {
+  blockLabel,
   boardColumns,
   columnName,
   endLabel,
@@ -488,7 +489,9 @@ onUnmounted(() => {
       >
         <small class="card-id"
           >{{ number(card) }}<span v-if="card.queued" class="chip chip-queued">queued</span
-          ><span v-if="card.flag === 'escalated'" class="chip chip-escalated">escalated</span
+          ><span v-if="card.flag === 'escalated'" class="chip chip-escalated">{{
+            blockLabel(card.block_kind) || 'escalated'
+          }}</span
           ><span v-if="card.flag === 'out_of_budget'" class="chip chip-out_of_budget"
             >out of budget</span
           ><span v-if="column.id === 'blocked'" class="chip">{{
