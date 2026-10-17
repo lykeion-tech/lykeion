@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/connectors"
 	"lykeion/server/pkg/agent"
 )
 
@@ -42,13 +43,9 @@ const (
 	DefaultSteps    = 12
 )
 
-// CatalogueHas and BundleHas say whether a name is a catalogue connector or a
-// bundled skill. They are wired by the packages that own those lists; unset,
-// every name is refused.
-var (
-	CatalogueHas func(name string) bool
-	BundleHas    func(name string) bool
-)
+// BundleHas says whether a name is a bundled skill. It is wired by the
+// package that owns the bundle; unset, every name is refused.
+var BundleHas func(name string) bool
 
 var (
 	memberName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
@@ -289,7 +286,7 @@ func (c Connector) validate() error {
 	kinds := 0
 	if c.Catalogue != "" {
 		kinds++
-		if CatalogueHas == nil || !CatalogueHas(c.Catalogue) {
+		if _, ok := connectors.Get(c.Catalogue); !ok {
 			return fmt.Errorf("catalogue %q is unknown", c.Catalogue)
 		}
 	}

@@ -17,7 +17,6 @@ import (
 )
 
 func init() {
-	CatalogueHas = func(n string) bool { return n == "ncbi" }
 	BundleHas = func(n string) bool { return n == "stats" }
 }
 
@@ -29,7 +28,7 @@ func goodManifest() Manifest {
 	lead, scout := member("pi"), member("scout")
 	lead.Skills = []string{"lead"}
 	scout.Skills = []string{"search", "stats"}
-	scout.Connectors = []Connector{{Name: "ncbi", Catalogue: "ncbi"}, {Name: "docs", URL: "https://x.org/mcp"},
+	scout.Connectors = []Connector{{Name: "ncbi", Catalogue: "ensembl"}, {Name: "docs", URL: "https://x.org/mcp"},
 		{Name: "local", Command: []string{"npx", "-y", "pkg"}, Env: map[string]string{"MODE": "fast"}}}
 	return Manifest{Name: "bio", Version: "1", Description: "d", Domain: "biology", Stage: "grounding",
 		Leader: lead, Auditor: Member{Name: "auditor", Role: "audits", Agent: AgentDef{Harness: "codex", Model: "m"}},
@@ -202,9 +201,9 @@ func TestParseRefuses(t *testing.T) {
 }
 
 func TestTheHooksDefaultToRefusing(t *testing.T) {
-	c, b := CatalogueHas, BundleHas
-	CatalogueHas, BundleHas = nil, nil
-	defer func() { CatalogueHas, BundleHas = c, b }()
+	b := BundleHas
+	BundleHas = nil
+	defer func() { BundleHas = b }()
 	if _, err := Parse(goodZip(t, nil)); err == nil {
 		t.Fatal("expected a refusal")
 	}
@@ -215,14 +214,15 @@ func TestAConnectorIsExactlyOneKind(t *testing.T) {
 		c  Connector
 		ok bool
 	}{
-		"two kinds":      {Connector{Catalogue: "ncbi", URL: "https://x"}, false},
-		"none":           {Connector{}, false},
-		"path command":   {Connector{Command: []string{"/bin/sh"}}, false},
-		"dotdot command": {Connector{Command: []string{"..x"}}, false},
-		"http url":       {Connector{URL: "http://x.org"}, false},
-		"npx":            {Connector{Command: []string{"npx", "-y", "pkg"}}, true},
-		"https url":      {Connector{URL: "https://x.org/mcp"}, true},
-		"catalogue":      {Connector{Catalogue: "ncbi"}, true},
+		"two kinds":         {Connector{Catalogue: "ensembl", URL: "https://x"}, false},
+		"none":              {Connector{}, false},
+		"path command":      {Connector{Command: []string{"/bin/sh"}}, false},
+		"dotdot command":    {Connector{Command: []string{"..x"}}, false},
+		"http url":          {Connector{URL: "http://x.org"}, false},
+		"npx":               {Connector{Command: []string{"npx", "-y", "pkg"}}, true},
+		"https url":         {Connector{URL: "https://x.org/mcp"}, true},
+		"catalogue":         {Connector{Catalogue: "ensembl"}, true},
+		"unknown catalogue": {Connector{Catalogue: "openalex"}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := c.c.validate(); (err == nil) != c.ok {
