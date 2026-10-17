@@ -9,17 +9,22 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import {
   useAgents,
+  useCard,
   useCards,
   useMe,
   useMembers,
+  useTeams,
   useWorkspace,
 } from '../api/queries';
 import type { Card } from '../api/types';
 import { dateKey } from '../lib/dates';
 import { matchesQuery } from '../lib/search';
-import { studyNumber } from '../lib/studies';
+import { stages, studyNumber } from '../lib/studies';
 import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
+
+// A Team assignee names a Team per stage; agent_id works the stages no Team covers.
+type Picked = Assignee | { type: 'team'; teams: Record<string, string>; agent_id?: string };
 
 const props = defineProps<{ editId?: string; assignee?: Assignee }>();
 const emit = defineEmits<{ close: [] }>();
@@ -43,7 +48,13 @@ const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
 const query = ref('');
 const form = ref<HTMLFormElement>();
-const assignee = ref<Assignee | null>(props.assignee ? { ...props.assignee } : null);
+const assignee = ref<Picked | null>(props.assignee ? { ...props.assignee } : null);
+const range = ref<{ from: string; to: string }>({ from: 'grounding', to: 'reporting' });
+const store = useTeams('', '');
+const addedTeams = computed(() => (store.data.value ?? []).filter((t) => t.added));
+const stageName = (s: string) => s[0]!.toUpperCase() + s.slice(1);
+const setSlots = ref<Record<string, string>>(Object.fromEntries(stages.map((s) => [s, ''])));
+const setAgent = ref('');
 
 // The creator owns the study, so a private agent is offered only to its owner.
 const assignableAgents = computed(() =>
@@ -55,24 +66,91 @@ const memberName = (id: string) => {
   const m = members.data.value?.find((x) => x.user_id === id);
   return m ? m.name || m.email : 'Member';
 };
-const assigneeName = computed(() =>
-  !assignee.value
-    ? ''
-    : assignee.value.type === 'agent'
-      ? (agents.data.value?.find((a) => a.id === assignee.value!.id)?.name ?? 'Agent')
-      : memberName(assignee.value.id),
+const teamColumns = computed(() =>
+  assignee.value?.type === 'team' ? Object.keys(assignee.value.teams) : [],
 );
+const isSet = computed(
+  () => assignee.value?.type === 'team' && range.value.from !== range.value.to,
+);
+const assigneeName = computed(() => {
+  const a = assignee.value;
+  if (!a) return '';
+  if (!('teams' in a))
+    return a.type === 'agent'
+      ? (agents.data.value?.find((x) => x.id === a.id)?.name ?? 'Agent')
+      : memberName(a.id);
+  if (isSet.value) return 'Your Team set';
+  return addedTeams.value.find((t) => t.id === a.teams[teamColumns.value[0]!])?.name ?? 'Team';
+});
+// Nobody starts on a study that is unassigned or held by a colleague.
+const hint = computed(() =>
+  !assignee.value || assignee.value.type === 'member'
+    ? "Nobody will work on this until it's assigned"
+    : `${assigneeName.value} will start working right after you create the study`,
+);
+
+// The last set is the Teams of the creator's newest end-to-end study that had Teams.
+const lastSetId = computed(
+  () =>
+    [...(cards.data.value ?? [])]
+      .filter(
+        (c) =>
+          c.owner_id === me.data.value?.id &&
+          c.assignee_type === ('team' as string) &&
+          c.scope_from === 'grounding' &&
+          c.scope_to === 'reporting',
+      )
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.id ?? '',
+);
+const lastSetStudy = useCard(lastSetId);
+const lastSet = computed(() => {
+  const c = lastSetStudy.data.value;
+  if (!c || !lastSetId.value) return null;
+  const teams = Object.fromEntries(Object.entries(c.teams).map(([col, t]) => [col, t.pack_id]));
+  return Object.keys(teams).length
+    ? { type: 'team' as const, teams, ...(c.assignee_id ? { agent_id: c.assignee_id } : {}) }
+    : null;
+});
 const matchingMembers = computed(() =>
   (members.data.value ?? []).filter((m) => matchesQuery(`${m.name} ${m.email}`, query.value)),
 );
+const matchingTeams = computed(() =>
+  addedTeams.value.filter((t) => matchesQuery(t.name, query.value)),
+);
+const showSets = computed(() => matchesQuery('team sets new set your last set', query.value));
 const matchingAgents = computed(() =>
   assignableAgents.value.filter((a) => matchesQuery(a.name, query.value)),
 );
 function assign(value: typeof assignee.value) {
   assignee.value = value;
+  // One Team keeps its own stage; a set and any other assignee start end to end.
+  const cols = value?.type === 'team' ? Object.keys(value.teams) : [];
+  range.value =
+    cols.length === 1 && !(value as { agent_id?: string }).agent_id
+      ? { from: cols[0]!, to: cols[0]! }
+      : { from: 'grounding', to: 'reporting' };
   closeMenu();
 }
+const gaps = computed(() => stages.some((s) => !setSlots.value[s]));
+const setReady = computed(
+  () => stages.some((s) => setSlots.value[s]) && (!gaps.value || !!setAgent.value),
+);
+function pickStage(side: 'from' | 'to', value: string) {
+  range.value = { ...range.value, [side]: value };
+  const { from, to } = range.value;
+  if (stages.indexOf(from as never) > stages.indexOf(to as never))
+    range.value = side === 'from' ? { from, to: from } : { from: to, to };
+  if (side === 'to') closeMenu();
+}
+function useSet() {
+  const teams = Object.fromEntries(
+    stages.flatMap((s) => (setSlots.value[s] ? [[s, setSlots.value[s]]] : [])),
+  );
+  assign({ type: 'team', teams, ...(gaps.value ? { agent_id: setAgent.value } : {}) });
+  range.value = { from: 'grounding', to: 'reporting' };
+}
 
+const slotTeams = computed(() => addedTeams.value);
 const editing = computed(() => cards.data.value?.find((c) => c.id === props.editId));
 const heading = computed(() => (props.editId ? 'Edit study' : 'New study'));
 const number = (n: number) => studyNumber(workspace.data.value, { number: n });
@@ -126,11 +204,7 @@ function keysDown(event: KeyboardEvent) {
   }
 }
 
-const blocked = computed(
-  () =>
-    busy.value ||
-    !question.value.trim(),
-);
+const blocked = computed(() => busy.value || !question.value.trim());
 
 async function submit() {
   if (blocked.value) return;
@@ -145,17 +219,23 @@ async function submit() {
     JSON.stringify(followsFrom.value) !== JSON.stringify(originalFollowsFrom.value)
       ? { follows_from: followsFrom.value }
       : {}),
+    ...(!props.editId && assignee.value
+      ? {
+          assignee: assignee.value,
+          ...(assignee.value.type === 'team' &&
+          teamColumns.value.length === 1 &&
+          !assignee.value.agent_id
+            ? {}
+            : assignee.value.type === 'member'
+              ? {}
+              : { scope: range.value }),
+        }
+      : {}),
   };
   try {
     if (props.editId) await api('PATCH', `/api/cards/${props.editId}`, fields);
     else {
-      const created = await api<Card>('POST', '/api/cards', fields);
-      // ponytail: two requests, so a refused assignment leaves the study created unassigned; fold into POST /api/cards if that matters.
-      if (assignee.value)
-        await api('PATCH', `/api/cards/${created.id}/properties`, {
-          assignee_type: assignee.value.type,
-          assignee_id: assignee.value.id,
-        }).catch((e: Error) => notify(`Study created, but not assigned: ${e.message}`));
+      await api<Card>('POST', '/api/cards', fields);
     }
     await client.invalidateQueries({ queryKey: keys.cards(workspaceId.value) });
     if (props.editId) {
@@ -168,6 +248,7 @@ async function submit() {
     if (another.value) {
       title.value = question.value = deadline.value = '';
       assignee.value = props.assignee ? { ...props.assignee } : null;
+      range.value = { from: 'grounding', to: 'reporting' };
       followsFrom.value = [];
       await nextTick();
       form.value?.querySelector<HTMLInputElement>('.composer-title')?.focus();
@@ -222,11 +303,12 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <textarea
           v-model="question"
           class="composer-description"
-          placeholder="What is the research question?"
+          placeholder="Describe what you want to do, in your own words"
           aria-label="Research question"
           required
         />
       </div>
+      <p v-if="!editId" class="composer-hint">{{ hint }}</p>
       <p v-if="duplicate" class="composer-warning" role="status">
         An active study already asks this: {{ number(duplicate.number) }}
         <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>. Set it as
@@ -267,7 +349,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               <span v-if="assignee" class="avatar">{{ assigneeName[0] }}</span
               ><span>{{ assignee ? assigneeName : 'Unassigned' }}</span>
             </button>
-            <div v-if="menu === 'assignee'" class="composer-menu" role="menu">
+            <div v-if="menu === 'assignee'" class="composer-menu stage-menu" role="menu">
               <input v-model="query" placeholder="Assign to…" aria-label="Search assignees" />
               <button type="button" role="menuitem" @click="assign(null)">Unassigned</button>
               <p v-if="matchingMembers.length" class="menu-group">Members</p>
@@ -291,7 +373,98 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               >
                 <Icon name="bot" :size="14" /><span>{{ a.name }}</span>
               </button>
-              <p v-if="!matchingMembers.length && !matchingAgents.length">No matches</p>
+              <p v-if="matchingTeams.length" class="menu-group">Teams</p>
+              <button
+                v-for="t in matchingTeams"
+                :key="t.id"
+                type="button"
+                role="menuitem"
+                @click="assign({ type: 'team', teams: { [t.stage || 'grounding']: t.id } })"
+              >
+                <Icon name="bot" :size="14" /><span>{{ t.name }}</span
+                ><small>Built for {{ stageName(t.stage || 'grounding') }}</small>
+              </button>
+              <p v-if="showSets" class="menu-group">Team sets</p>
+              <button
+                v-if="showSets && lastSet"
+                type="button"
+                role="menuitem"
+                @click="assign(lastSet)"
+              >
+                <Icon name="bot" :size="14" /><span>Your last set</span
+                ><small>{{ Object.keys(lastSet.teams).length }} Teams</small>
+              </button>
+              <button v-if="showSets" type="button" role="menuitem" @click="menu = 'set'">
+                <Icon name="plus" :size="14" /><span>New set…</span>
+              </button>
+              <p v-if="!matchingMembers.length && !matchingAgents.length && !matchingTeams.length">
+                No matches
+              </p>
+            </div>
+            <div
+              v-if="menu === 'set'"
+              class="composer-menu stage-menu set-menu"
+              role="dialog"
+              aria-label="New Team set"
+            >
+              <label v-for="s in stages" :key="s"
+                >{{ stageName(s) }}
+                <select v-model="setSlots[s]" :aria-label="`${stageName(s)} Team`">
+                  <option value="">No Team</option>
+                  <option v-for="t in slotTeams" :key="t.id" :value="t.id">{{ t.name }}</option>
+                </select>
+              </label>
+              <label v-if="gaps"
+                >Agent for the other stages
+                <select v-model="setAgent" aria-label="Agent for the other stages">
+                  <option value="">Choose an agent</option>
+                  <option v-for="a in assignableAgents" :key="a.id" :value="a.id">
+                    {{ a.name }}
+                  </option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="button primary compact"
+                :disabled="!setReady"
+                @click="useSet"
+              >
+                Use this set
+              </button>
+            </div>
+          </div>
+          <div v-if="assignee && assignee.type !== 'member'" class="property-anchor">
+            <button
+              type="button"
+              class="property-pill"
+              :aria-label="`Stages: ${stageName(range.from)}${range.from === range.to ? '' : ' → ' + stageName(range.to)}`"
+              :disabled="assignee.type === 'team'"
+              @click="openMenu('stages')"
+            >
+              <Icon name="circle" :size="14" />{{ stageName(range.from)
+              }}{{ range.from === range.to ? '' : ' → ' + stageName(range.to) }}
+            </button>
+            <div v-if="menu === 'stages'" class="composer-menu stage-menu set-menu" role="menu">
+              <label
+                >From
+                <select
+                  :value="range.from"
+                  aria-label="From stage"
+                  @change="pickStage('from', ($event.target as HTMLSelectElement).value)"
+                >
+                  <option v-for="s in stages" :key="s" :value="s">{{ stageName(s) }}</option>
+                </select>
+              </label>
+              <label
+                >To
+                <select
+                  :value="range.to"
+                  aria-label="To stage"
+                  @change="pickStage('to', ($event.target as HTMLSelectElement).value)"
+                >
+                  <option v-for="s in stages" :key="s" :value="s">{{ stageName(s) }}</option>
+                </select>
+              </label>
             </div>
           </div>
           <div v-for="id in followsFrom" :key="id" class="property-anchor">
@@ -603,7 +776,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   z-index: 70;
   min-width: 250px;
   max-width: 340px;
-  max-height: 290px;
+  max-height: min(460px, 60vh);
   overflow: auto;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -794,6 +967,23 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   .another-switch {
     font-size: 11px;
   }
+}
+.composer-hint {
+  margin: 0;
+  padding: 0 20px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.set-menu select {
+  background: var(--input);
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 13px;
+}
+.set-menu > button {
+  margin: 4px 8px 8px;
+  justify-content: center;
 }
 .composer-warning {
   margin: 0 20px 6px;
