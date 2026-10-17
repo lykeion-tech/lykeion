@@ -217,11 +217,46 @@ test('with a Team, the Focus pill lists its start kinds and the study carries th
   }
 });
 
+test('with a Team, Create waits for the Team catalog so the study carries its start kind', async ({
+  page,
+}) => {
+  await labPack(page.request);
+  try {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/api/packs/catalog', async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto('/#/studies');
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New study' });
+    const question = `Held catalog ${Date.now()}?`;
+    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    const create = dialog.getByRole('button', { name: /Create study/ });
+    await expect(create).toBeDisabled();
+    release();
+    await expect(dialog.getByRole('button', { name: 'Focus: Question' })).toBeVisible();
+    await create.click();
+    await expect(dialog).toHaveCount(0);
+    const found = await cardsNamed(page, question);
+    expect(found).toHaveLength(1);
+    expect((found[0] as { start_kind?: string }).start_kind).toBe('question');
+  } finally {
+    await labNoTeam(page.request);
+  }
+});
+
 test('with no Team, the modal shows no Focus pill and the study is created packless', async ({
   page,
 }) => {
   await labNoTeam(page.request);
+  // The pill hangs on the person's Team, so assert its absence only once /api/me has answered.
+  const me = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/me' && r.request().method() === 'GET' && r.ok(),
+  );
   await page.goto('/#/studies');
+  expect(((await (await me).json()) as { pack_name?: string }).pack_name ?? '').toBe('');
   await page.getByRole('button', { name: 'New', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New study' });
   await expect(dialog.getByRole('button', { name: 'No budget limit' })).toBeVisible();

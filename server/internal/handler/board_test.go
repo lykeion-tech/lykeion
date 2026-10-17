@@ -75,6 +75,27 @@ func TestResumeRefusesABlockedCard(t *testing.T) {
 	}
 }
 
+func TestSendBackRefusesABlockedCard(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var c card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'validation', round = 3, flag = 'escalated', block_kind = 'cap', route_backs = 4 WHERE id = $1`, c.ID)
+	var refused struct {
+		Error string `json:"error"`
+	}
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/send-back", a, w.ID, map[string]string{"to": "grounding", "reason": "redo"}, &refused); code != 409 || refused.Error != "this study is blocked: unblock or close it first" {
+		t.Fatalf("sent back a blocked card: %d %+v", code, refused)
+	}
+	var column, flag, kind string
+	var round, routeBacks int
+	s.Env.Owner.QueryRow(t.Context(), `SELECT board_column, flag, block_kind, round, route_backs FROM card WHERE id = $1`, c.ID).Scan(&column, &flag, &kind, &round, &routeBacks)
+	if column != "validation" || flag != "escalated" || kind != "cap" || round != 3 || routeBacks != 4 {
+		t.Fatalf("a refused send-back changed the card: %s %s %s %d %d", column, flag, kind, round, routeBacks)
+	}
+}
+
 func TestSendBackReasonIsTheHandoffNote(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")

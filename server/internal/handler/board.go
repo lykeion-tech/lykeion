@@ -168,6 +168,10 @@ func (h *H) sendBack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.steer(w, r, true, func(_ *store.Tx, _ db.Card, s *board.State, _ round.Settings) ([]board.Item, error) {
+		// A Blocked card leaves only through its own unblock action or Close.
+		if s.BlockKind != "" {
+			return nil, conflict("this study is blocked: unblock or close it first")
+		}
 		items, err := board.SendBack(s, in.To, in.Step, in.Reason)
 		if err != nil {
 			return nil, cardInputError(err.Error())

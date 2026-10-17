@@ -184,6 +184,11 @@ func TestDecideEarliestColumnWins(t *testing.T) {
 	if g.Route.Column != Hypotheses {
 		t.Fatalf("the gate's own column outranked an earlier one: %+v", g.Route)
 	}
+	g = &Gate{Column: Hypotheses, Checks: []Check{{ID: "a", Result: Fail, To: Reporting}}}
+	Decide(g)
+	if g.Route.Column != Hypotheses || !strings.HasPrefix(g.Reason, "a:") {
+		t.Fatalf("a failure routed forward: %+v %q", g.Route, g.Reason)
+	}
 }
 
 func blocked(kind string) *State {

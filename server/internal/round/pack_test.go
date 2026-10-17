@@ -160,17 +160,51 @@ func TestPackCheckPasses(t *testing.T) {
 	f.recordFor(t, scout.ID, "note", "", `{"text":"the premise holds"}`)
 	f.settle(t, scout.ID)
 	f.advance(t, card)
+	if c := f.cardRow(t, card); c.BoardColumn != board.Hypotheses || c.RouteBacks != 0 {
+		t.Fatalf("%+v", c)
+	}
+	if n := f.countWhere(t, `SELECT count(*) FROM agent_run WHERE card_id = $1 AND role = 'rev'`, card); n != 0 {
+		t.Fatalf("the reviewer ran on a gate with nothing uncertain: %d", n)
+	}
+	g := f.gateBody(t, card, 1)
+	if g.Verdict != board.VPass || len(g.Checks) != 1 || g.Checks[0].ID != "premise" {
+		t.Fatalf("gate %+v", g)
+	}
+}
+
+// A pack check left in the middle band waits for the reviewer, whose
+// review_item settles it; the reviewer gives no verdict of its own.
+func TestPackAttentionWaitsForTheReviewer(t *testing.T) {
+	f := setup(t)
+	prev := judgePack
+	judgePack = func(ctx context.Context, p *pack.Pack, column string, v *records.View) (*board.Gate, error) {
+		g, err := prev(ctx, p, column, v)
+		if err == nil && g.Verdict == board.VPass {
+			g.Verdict, g.Route, g.Reason = "", nil, ""
+			g.Checks[0].Judge, g.Checks[0].Result = board.Jev, board.Attention
+		}
+		return g, err
+	}
+	t.Cleanup(func() { judgePack = prev })
+	card := f.packCard(t, fieldPack(t, noteCheck))
+	f.advance(t, card)
+	scout := f.agentRuns(t, card)[0]
+	f.recordFor(t, scout.ID, "note", "", `{"text":"the premise holds"}`)
+	f.settle(t, scout.ID)
+	f.advance(t, card)
 	rev := byRole(f.agentRuns(t, card))["rev"]
 	if rev.Skill != revSkill || f.cardRow(t, card).State != board.InReview {
 		t.Fatalf("reviewer %+v", rev)
 	}
-	f.recordFor(t, rev.ID, "verdict", "", `{"result":"pass","reason":"the note supports the premise"}`)
+	f.recordFor(t, rev.ID, "review_item", "premise", `{"check":"premise","result":"pass","note":"the note supports the premise"}`)
 	f.settle(t, rev.ID)
-	if err := f.e.Advance(t.Context(), f.ws, card); err != nil {
-		t.Fatal(err)
-	}
+	f.advance(t, card)
 	if c := f.cardRow(t, card); c.BoardColumn != board.Hypotheses || c.RouteBacks != 0 {
 		t.Fatalf("%+v", c)
+	}
+	g := f.gateBody(t, card, 1)
+	if g.Verdict != board.VPass || len(g.Checks) != 1 || g.Checks[0].Result != board.Pass || !strings.Contains(g.Checks[0].Note, "reviewer:") {
+		t.Fatalf("gate %+v", g)
 	}
 }
 
@@ -256,12 +290,13 @@ func TestServerKindsOnPackCard(t *testing.T) {
 	f.result(t, scout.ID, "nothing_found", "nothing")
 	f.settle(t, scout.ID)
 	f.advance(t, card)
-	if c := f.cardRow(t, card); c.State != board.InReview || c.RouteBacks != 0 {
+	c := f.cardRow(t, card)
+	if c.BoardColumn != board.Hypotheses || c.RouteBacks != 0 {
 		t.Fatalf("the check did not see the fetch: %+v", c)
 	}
 	// The pack declares fetch for its scout, but a role may never write a server kind.
 	var kinds map[string]bool
-	c := f.cardRow(t, card)
+	c.BoardColumn = board.Grounding
 	f.inWS(t, func(tx *store.Tx) error {
 		ks, err := KindsFor(t.Context(), tx, f.e.Blobs, c)
 		if err != nil {
@@ -273,6 +308,9 @@ func TestServerKindsOnPackCard(t *testing.T) {
 		}
 		return nil
 	})
+	if !kinds["note"] {
+		t.Fatalf("the grounding kinds were not read: %v", kinds)
+	}
 	for _, k := range ServerKinds {
 		if kinds[k] {
 			t.Fatalf("roles may write server kind %s", k)

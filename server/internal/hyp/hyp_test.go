@@ -796,7 +796,7 @@ func TestSelectorCannotProceed(t *testing.T) {
 	}
 }
 
-func TestGeneratorsFindingNothingStopsTheCard(t *testing.T) {
+func TestGeneratorsFindingNothingBlocksTheCard(t *testing.T) {
 	f := setup(t)
 	for _, gen := range Generators {
 		f.insert(t, "hypotheses", "nothing_found", gen, "", `{"reason":"nothing follows from the seed"}`)

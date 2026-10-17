@@ -367,11 +367,11 @@ const unblockBy: Record<BlockKind, ComposerAction['kind'][]> = {
   human_run: [],
   too_small_to_split: [],
 };
-// A Blocked study's picker: Comment, its own way out, Send back and Close.
-// An unblocked study gets [] and keeps the ordinary picker, Stop included.
+// A Blocked study's picker: Comment, its own way out and Close.
+// An unblocked study gets [] and keeps the ordinary picker, Send back and Stop included.
 export function blockedActions(card: Card): ComposerAction['kind'][] {
   if (card.ending || !card.block_kind) return [];
-  return ['comment', ...unblockBy[card.block_kind], 'send-back', 'close'];
+  return ['comment', ...unblockBy[card.block_kind], 'close'];
 }
 
 // Send back offers the stages before the study's own; Grounding has none.

@@ -238,6 +238,13 @@ func TestOwnPackUpload(t *testing.T) {
 	if code != 201 || c.PackID == nil || *c.PackID != up.ID {
 		t.Fatalf("card %d %+v %s", code, c, msg)
 	}
+	// Workspace events reach every member, so an upload's events name only its id.
+	if n := s.count(t, "SELECT count(*) FROM event WHERE type IN ('pack.uploaded', 'pack.approved') AND payload->>'pack_id' = $1", up.ID); n != 2 {
+		t.Fatalf("upload events: %d", n)
+	}
+	if n := s.count(t, "SELECT count(*) FROM event WHERE type IN ('pack.uploaded', 'pack.approved') AND payload - 'pack_id' <> '{}'::jsonb"); n != 0 {
+		t.Fatalf("%d upload events carry more than the pack id", n)
+	}
 }
 
 func TestUploadShippedNameRefused(t *testing.T) {
@@ -350,6 +357,18 @@ func TestPinnedVersion(t *testing.T) {
 	}
 	if c := s.call(t, "POST", "/api/cards/"+old.ID+"/pack", a, w.ID, map[string]string{"pack_id": v1Row.ID}, nil); c != 409 {
 		t.Fatalf("move to the same version: %d", c)
+	}
+	// The pinned version's roles are mid-run: the move waits for them.
+	s.queue(t, w.ID, old.ID, s.userID(t, a), "claude")
+	var e struct{ Error string }
+	if c := s.call(t, "POST", "/api/cards/"+old.ID+"/pack", a, w.ID, map[string]string{"pack_id": v2ID}, &e); c != 409 || e.Error != "wait for this study's running work to finish" {
+		t.Fatalf("moved while running: %d %q", c, e.Error)
+	}
+	if n := s.count(t, "SELECT count(*) FROM card WHERE id = $1 AND pack_id = $2", old.ID, v1Row.ID); n != 1 {
+		t.Fatalf("a refused move changed the card's pack")
+	}
+	if _, err := s.Env.Owner.Exec(context.Background(), `UPDATE agent_run SET status = 'cancelled' WHERE card_id = $1`, old.ID); err != nil {
+		t.Fatal(err)
 	}
 	var moved packCard
 	if c := s.call(t, "POST", "/api/cards/"+old.ID+"/pack", a, w.ID, map[string]string{"pack_id": v2ID}, &moved); c != 200 || moved.PackID == nil || *moved.PackID != v2ID {

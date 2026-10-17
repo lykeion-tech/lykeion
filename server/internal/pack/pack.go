@@ -35,7 +35,7 @@ type Column struct {
 	Phases   [][]string         `json:"phases"`
 	Reviewer string             `json:"reviewer"`
 	Kinds    map[string]KindDef `json:"kinds"`
-	Config   json.RawMessage    `json:"config,omitempty"` // the column's own settings, decoded by its stage plan; core never reads it
+	Config   json.RawMessage    `json:"config,omitempty"` // the column's own settings, kept as written; core never reads them
 }
 
 type KindDef struct {

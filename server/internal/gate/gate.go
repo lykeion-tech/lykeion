@@ -137,6 +137,25 @@ var Units = map[string]string{
 
 // Finalize folds reviewer answers and verdict into the checks, then decides.
 func Finalize(v *records.View, g *board.Gate) {
+	settle(v, g)
+	vc := board.Check{ID: "review.verdict", Judge: board.Reviewer, Result: board.Fail, Note: "the reviewer gave no verdict"}
+	if r, ok := v.Latest("verdict"); ok {
+		vd := records.Body[Verdict](r)
+		vc.Result, vc.Owner, vc.To, vc.Note = board.Result(vd.Result), vd.Step, vd.To, vd.Reason
+	}
+	g.Checks = append(g.Checks, vc)
+	board.Decide(g)
+}
+
+// Settle folds reviewer answers into the checks left in the middle band, then
+// decides. The reviewer gives no verdict of its own, so it can fail the gate
+// only through a check it was asked to settle.
+func Settle(v *records.View, g *board.Gate) {
+	settle(v, g)
+	board.Decide(g)
+}
+
+func settle(v *records.View, g *board.Gate) {
 	items := map[string]ReviewItem{}
 	for _, r := range v.Kind("review_item") {
 		it := records.Body[ReviewItem](r)
@@ -157,11 +176,4 @@ func Finalize(v *records.View, g *board.Gate) {
 			ch.Result = board.Fail
 		}
 	}
-	vc := board.Check{ID: "review.verdict", Judge: board.Reviewer, Result: board.Fail, Note: "the reviewer gave no verdict"}
-	if r, ok := v.Latest("verdict"); ok {
-		vd := records.Body[Verdict](r)
-		vc.Result, vc.Owner, vc.To, vc.Note = board.Result(vd.Result), vd.Step, vd.To, vd.Reason
-	}
-	g.Checks = append(g.Checks, vc)
-	board.Decide(g)
 }

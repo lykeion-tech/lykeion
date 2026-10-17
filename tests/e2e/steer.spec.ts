@@ -520,7 +520,6 @@ test('a capped study shows why, a raised cap returns it to Working, and Close en
     await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText([
       /^\s*Comment/,
       /^\s*Raise cap/,
-      /^\s*Send back to/,
       /^\s*Close/,
     ]);
     await page.keyboard.press('Escape');

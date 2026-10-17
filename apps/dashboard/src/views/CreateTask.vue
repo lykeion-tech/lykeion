@@ -54,6 +54,11 @@ const startKinds = computed(() =>
     ? []
     : (teams.data.value?.find((f) => f.name === me.data.value?.pack_name)?.start_kinds ?? []),
 );
+// A study made with a Team must carry a start kind, which the catalog names:
+// a new one waits for the person and, when they have a Team, for the catalog.
+const loading = computed(
+  () => !props.editId && (!me.data.value || (!!me.data.value.pack_name && !teams.data.value)),
+);
 const focus = computed(() =>
   startKinds.value.includes(picked.value) ? picked.value : (startKinds.value[0] ?? ''),
 );
@@ -146,7 +151,7 @@ function keysDown(event: KeyboardEvent) {
 }
 
 async function submit() {
-  if (busy.value || !question.value.trim()) return;
+  if (busy.value || loading.value || !question.value.trim()) return;
   busy.value = true;
   error.value = '';
   duplicate.value = null;
@@ -390,7 +395,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           type="submit"
           class="button primary compact"
           :class="{ 'push-right': editId }"
-          :disabled="busy || !question.trim()"
+          :disabled="busy || loading || !question.trim()"
         >
           {{ busy ? 'Saving…' : editId ? 'Save study' : 'Create study'
           }}<kbd>{{ isMac ? '⌘' : 'Ctrl' }}</kbd> <kbd>↵</kbd>

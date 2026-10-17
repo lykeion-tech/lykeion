@@ -42,6 +42,9 @@ var runPackCheck = (*pack.Pack).Check
 // loadPack reads a card's pinned pack; tests wrap it to count the reads.
 var loadPack = pack.LoadPack
 
+// judgePack is a pack card's gate; tests wrap it to leave a check uncertain.
+var judgePack = packGate
+
 // ErrPackUnavailable wraps a failure to load a card's pinned pack.
 var ErrPackUnavailable = errors.New("the card's pack cannot be loaded")
 
@@ -114,17 +117,18 @@ func packRoles(p *pack.Pack, column string) (Roles, bool) {
 		return out
 	}
 	return Roles{
-		Phases: col.Phases, Reviewer: col.Reviewer, Kinds: kinds, RoleKinds: roleKinds, Finalize: gate.Finalize,
+		Phases: col.Phases, Reviewer: col.Reviewer, Kinds: kinds, RoleKinds: roleKinds, Finalize: gate.Settle,
 		Check: func(ctx context.Context, v *records.View, _ *jev.Client) (*board.Gate, error) {
-			return packGate(ctx, p, column, v)
+			return judgePack(ctx, p, column, v)
 		},
 		Skill: func(role string) string { return p.Skill(column, role) },
 	}, true
 }
 
-// packGate runs the column's check script over the card's records. A failing
-// check decides the gate at once; when every check passes the reviewer
-// settles it. A script that keeps erroring blocks the card on infrastructure.
+// packGate runs the column's check script over the card's records. The gate
+// decides at once unless a check is left in the middle band: only then does
+// the reviewer settle it. A script that keeps erroring blocks the card on
+// infrastructure.
 func packGate(ctx context.Context, p *pack.Pack, column string, v *records.View) (*board.Gate, error) {
 	g := &board.Gate{Column: column, InputDigest: v.Digest(ground.ReviewKinds...)}
 	recs, err := checkRecords(v, column)
@@ -142,19 +146,26 @@ func packGate(ctx context.Context, p *pack.Pack, column string, v *records.View)
 		g.Verdict, g.Block, g.Reason = board.CannotProceed, board.BlockInfra, err.Error()
 		return g, nil
 	}
-	decided := len(res) == 0
 	for _, r := range res {
 		ch := board.Check{ID: r.ID, Judge: board.Code, Result: board.Pass, Note: r.Note}
 		if !r.OK {
 			ch.Result, ch.To = board.Fail, p.Target(r.Failure)
-			decided = true
 		}
 		g.Checks = append(g.Checks, ch)
 	}
-	if decided {
+	if !needsReviewer(g) {
 		board.Decide(g)
 	}
 	return g, nil
+}
+
+// needsReviewer reports whether only the reviewer can decide g: a check sits
+// in the middle band and none has failed, since a failure decides at once.
+func needsReviewer(g *board.Gate) bool {
+	has := func(r board.Result) bool {
+		return slices.ContainsFunc(g.Checks, func(ch board.Check) bool { return ch.Result == r })
+	}
+	return has(board.Attention) && !has(board.Fail)
 }
 
 func runCheck(ctx context.Context, p *pack.Pack, column string, recs []check.Record) ([]check.Result, error) {

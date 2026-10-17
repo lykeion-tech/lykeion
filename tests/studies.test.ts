@@ -456,12 +456,12 @@ describe('composer actions', () => {
   it('offers only the ways out of the study’s block', () => {
     const blocked = (block_kind: Card['block_kind']) =>
       blockedActions(card({ flag: 'escalated', block_kind }));
-    expect(blocked('cap')).toEqual(['comment', 'raise-cap', 'send-back', 'close']);
-    expect(blocked('no_feasible_test')).toEqual(['comment', 'add-data', 'send-back', 'close']);
-    expect(blocked('infra')).toEqual(['comment', 'unblock-resume', 'send-back', 'close']);
-    expect(blocked('drift')).toEqual(['comment', 'unblock-resume', 'send-back', 'close']);
-    expect(blocked('human_run')).toEqual(['comment', 'send-back', 'close']);
-    expect(blocked('too_small_to_split')).toEqual(['comment', 'send-back', 'close']);
+    expect(blocked('cap')).toEqual(['comment', 'raise-cap', 'close']);
+    expect(blocked('no_feasible_test')).toEqual(['comment', 'add-data', 'close']);
+    expect(blocked('infra')).toEqual(['comment', 'unblock-resume', 'close']);
+    expect(blocked('drift')).toEqual(['comment', 'unblock-resume', 'close']);
+    expect(blocked('human_run')).toEqual(['comment', 'close']);
+    expect(blocked('too_small_to_split')).toEqual(['comment', 'close']);
     expect(blocked('')).toEqual([]);
     expect(blockedActions(card())).toEqual([]);
   });

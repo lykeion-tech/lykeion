@@ -46,6 +46,16 @@ const error = ref('');
 
 const context = ref('');
 const career = ref<CareerStage>('');
+// Whether the person had a Team when the wizard opened: only then is the Team
+// step skipped, both going on from Workspace and coming Back from Runtime.
+const hadTeam = ref<boolean>();
+watch(
+  () => me.data.value,
+  (m) => {
+    if (m && hadTeam.value === undefined) hadTeam.value = !!m.pack_name;
+  },
+  { immediate: true },
+);
 watch(
   () => me.data.value,
   (m) => {
@@ -125,7 +135,7 @@ const saveWorkspace = () =>
     workspaceId.value = id;
     await client.invalidateQueries({ queryKey: keys.workspaces });
     // Someone who already has a Team is not asked again.
-    step.value = me.data.value?.pack_name ? 4 : 3;
+    step.value = hadTeam.value ? 4 : 3;
   });
 
 // Team step: one of the catalog's Teams, chosen by name.
@@ -164,7 +174,7 @@ const saveTeam = () =>
   });
 
 const back = () => {
-  step.value = step.value === 4 && me.data.value?.pack_name ? 2 : step.value - 1;
+  step.value = step.value === 4 && hadTeam.value ? 2 : step.value - 1;
 };
 
 const finish = () =>
@@ -678,7 +688,8 @@ async function logOut() {
 }
 .choice.upload {
   border: 0;
-  font: inherit;
+  font-family: inherit;
+  line-height: inherit;
   cursor: pointer;
   color: inherit;
 }

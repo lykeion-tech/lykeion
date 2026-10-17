@@ -99,12 +99,25 @@ func TestAskPartialOutage(t *testing.T) {
 	j := fakeJev(t, 0.9, func(_ int32, instructions string) bool { return strings.Contains(instructions, "q2") })
 	r := fakeRetry(&slept)
 	var judges []string
+	var results []board.Result
+	g := &board.Gate{Column: board.Grounding}
 	for _, id := range []string{"q1", "q2", "q3"} {
-		_, c := Ask(context.Background(), j, question(id), board.DefaultBands, r)
+		ch, c := Ask(context.Background(), j, question(id), board.DefaultBands, r)
 		judges = append(judges, c.Judge)
+		results = append(results, ch.Result)
+		g.Checks = append(g.Checks, ch)
 	}
 	if !reflect.DeepEqual(judges, []string{"jev", "fallback", "jev"}) {
 		t.Fatalf("judges %v", judges)
+	}
+	// The stand-in's check waits for the reviewer: until it is settled the
+	// gate cannot pass.
+	if !reflect.DeepEqual(results, []board.Result{board.Pass, board.Attention, board.Pass}) {
+		t.Fatalf("results %v", results)
+	}
+	board.Decide(g)
+	if g.Verdict != board.VFail || !strings.HasPrefix(g.Reason, "q2:") {
+		t.Fatalf("an unsettled fallback decided the gate: %s %q", g.Verdict, g.Reason)
 	}
 }
 

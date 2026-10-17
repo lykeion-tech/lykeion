@@ -195,6 +195,25 @@ test('the Team step follows Workspace, can be skipped, and is not asked twice', 
     await expect(page.getByText('Choosing a Team approves its current version (v1)')).toBeVisible();
     await expect(page.getByText('You can change your Team later on the Teams page.')).toBeVisible();
     await expect(page.getByText('Bring your own Team')).toBeVisible();
+    await page.screenshot({ path: 'test-results/ui-lab/onboarding-team.png', fullPage: true });
+    // The upload row is drawn like the Team rows above it.
+    const look = (selector: string) =>
+      page
+        .locator(selector)
+        .first()
+        .evaluate((el) => {
+          const s = getComputedStyle(el);
+          return [
+            s.borderTopStyle,
+            s.borderTopWidth,
+            s.fontSize,
+            s.fontFamily,
+            s.lineHeight,
+            s.background,
+            s.borderRadius,
+          ];
+        });
+    expect(await look('.choice.upload')).toEqual(await look('label.choice'));
 
     // Skipping leaves the person without a Team.
     await page.getByRole('button', { name: 'Skip for now' }).click();
@@ -209,13 +228,20 @@ test('the Team step follows Workspace, can be skipped, and is not asked twice', 
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('heading', { name: 'Connect a research runtime' })).toBeVisible();
     expect((await (await page.request.get('/api/me')).json()).pack_name).toBe('demo');
+    // A Team chosen in this run is still a step Back can return to.
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Which Team should work your studies?' }),
+    ).toBeVisible();
 
-    // With a Team already chosen, the wizard goes from Workspace to Runtime.
+    // With a Team already chosen, the wizard goes from Workspace to Runtime and back.
     await page.goto('/#/onboarding?step=workspace');
     await page.reload();
     await page.getByRole('radio', { name: 'Team lab', exact: true }).check();
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('heading', { name: 'Connect a research runtime' })).toBeVisible();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page.getByRole('radio', { name: 'Team lab', exact: true })).toBeVisible();
   } finally {
     labUnship('demo');
     await labNoTeam(page.request);

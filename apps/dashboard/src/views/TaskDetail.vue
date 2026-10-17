@@ -914,7 +914,7 @@ function pin() {
                   Resume<small>clears the block</small>
                 </button>
                 <button
-                  v-if="sendBackTargets(c).length"
+                  v-if="!blocked.length && sendBackTargets(c).length"
                   type="button"
                   role="menuitem"
                   aria-haspopup="menu"

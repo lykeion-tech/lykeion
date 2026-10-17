@@ -108,8 +108,13 @@ func approve(r *http.Request, tx *store.Tx, user uuid.UUID, p db.FieldPack) erro
 	if err != nil || n == 0 {
 		return err
 	}
-	return tx.Emit(r.Context(), "pack.approved", nil, store.User(user),
-		map[string]any{"pack_id": p.ID, "sha256": p.Sha256, "version": p.Version})
+	payload := map[string]any{"pack_id": p.ID}
+	// Every member sees workspace events, and an uploaded pack is its
+	// uploader's alone, so only a shipped pack's event says which one.
+	if p.Source == "shipped" {
+		payload["sha256"], payload["version"] = p.Sha256, p.Version
+	}
+	return tx.Emit(r.Context(), "pack.approved", nil, store.User(user), payload)
 }
 
 // setMyPack makes name the caller's Team. A shipped name also approves its
@@ -193,8 +198,8 @@ func (h *H) uploadPack(w http.ResponseWriter, r *http.Request) {
 			}
 			return err
 		}
-		return tx.Emit(r.Context(), "pack.uploaded", nil, store.User(user),
-			map[string]any{"pack_id": row.ID, "name": row.Name, "version": row.Version, "sha256": row.Sha256})
+		// Only the id: every member sees workspace events, and the upload is its uploader's alone.
+		return tx.Emit(r.Context(), "pack.uploaded", nil, store.User(user), map[string]any{"pack_id": row.ID})
 	})
 	if !answer(w, r, err) {
 		return
@@ -300,7 +305,8 @@ func (h *H) moveCardPack(w http.ResponseWriter, r *http.Request) {
 	var c db.Card
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
-		if c, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id}); err != nil {
+		// Locked, so the engine queues no run between the check below and the move.
+		if c, err = tx.Q.LockCard(r.Context(), db.LockCardParams{ID: id, WorkspaceID: ws}); err != nil {
 			return err
 		}
 		if c.OwnerID != user {
@@ -308,6 +314,14 @@ func (h *H) moveCardPack(w http.ResponseWriter, r *http.Request) {
 		}
 		if c.PackID == nil {
 			return conflict("this study has no Team")
+		}
+		// A run in flight works from the pinned version's skills and kinds.
+		inflight, err := tx.Q.CardInflightAgentRuns(r.Context(), db.CardInflightAgentRunsParams{WorkspaceID: ws, CardID: &id})
+		if err != nil {
+			return err
+		}
+		if len(inflight) > 0 {
+			return conflict("wait for this study's running work to finish")
 		}
 		from, err := tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: *c.PackID})
 		if err != nil {
