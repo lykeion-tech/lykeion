@@ -61,6 +61,9 @@ func (v *View) Column(column string) (*View, error) {
 	return ev, nil
 }
 
+// All is every live record of the view's column, oldest first.
+func (v *View) All() []db.Record { return v.recs }
+
 func (v *View) Kind(kind string) []db.Record {
 	var out []db.Record
 	for _, r := range v.recs {

@@ -96,7 +96,7 @@ func TestUILab(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", handler.NewRouter(&handler.H{Store: st, JWT: iss, Mail: mail, Limit: auth.Limiter{R: env.Redis},
-		Hub: hub, AgentRuns: runs, Blobs: blobs, Kinds: round.Kinds(), Engine: engine, Sources: hosted.Handler()}))
+		Hub: hub, AgentRuns: runs, Blobs: blobs, KindsFor: round.KindsFor, Engine: engine, Sources: hosted.Handler()}))
 	mux.HandleFunc("GET /lab/code", func(w http.ResponseWriter, r *http.Request) {
 		mail.mu.Lock()
 		code := mail.codes[strings.ToLower(r.URL.Query().Get("email"))]

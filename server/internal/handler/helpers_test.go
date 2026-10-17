@@ -22,6 +22,7 @@ import (
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type fakeMail struct {
@@ -69,7 +70,7 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 	h.Engine = &round.Engine{Store: st, AgentRuns: h.AgentRuns, Blobs: h.Blobs}
 	h.Autoresearch = &autoresearch.Service{Store: st, AgentRuns: h.AgentRuns, Key: bytes.Repeat([]byte{7}, 32)}
 	h.AgentRuns.OnSettled = h.Autoresearch.OnSettled(h.Engine.OnSettled)
-	h.Kinds = round.Kinds()
+	h.KindsFor = round.KindsFor
 	srv := httptest.NewServer(NewRouter(h))
 	t.Cleanup(func() { srv.Close(); hub.Close() })
 	return &server{Server: srv, H: h, Mail: mail, Env: env}
@@ -116,6 +117,13 @@ func (s *server) signIn(t *testing.T, email string) string {
 		t.Fatalf("verify-code: %d", c)
 	}
 	return out.Token
+}
+
+// fixedKinds lets every card's roles write the same kinds.
+func fixedKinds(k map[string]service.Kind) func(context.Context, *store.Tx, storage.Storage, db.Card) (map[string]service.Kind, error) {
+	return func(context.Context, *store.Tx, storage.Storage, db.Card) (map[string]service.Kind, error) {
+		return k, nil
+	}
 }
 
 func jsonBody(v any) io.Reader { b, _ := json.Marshal(v); return bytes.NewReader(b) }

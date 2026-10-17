@@ -83,3 +83,23 @@ func Pack(t *testing.T, o PackOpts) []byte {
 	}
 	return buf.Bytes()
 }
+
+// Zip builds an archive holding files, keyed by path.
+func Zip(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err == nil {
+			_, err = w.Write([]byte(body))
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}

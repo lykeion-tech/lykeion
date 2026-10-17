@@ -15,9 +15,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/pack/check"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/testutil"
 )
+
+// TestMain serves pack checks when the test binary is started as a check child.
+func TestMain(m *testing.M) {
+	check.MaybeChild()
+	os.Exit(m.Run())
+}
 
 func config(t *testing.T, env *testutil.Env) map[string]string {
 	t.Helper()

@@ -19,6 +19,7 @@ import (
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type packCard struct {
@@ -436,5 +437,57 @@ func TestPackUploadOversize(t *testing.T) {
 	}
 	if n := s.count(t, "SELECT count(*) FROM field_pack"); n != 0 || s.storedBlobs(t) != 0 {
 		t.Fatalf("stored %d packs, %d blobs", n, s.storedBlobs(t))
+	}
+}
+
+// TestRoleRecordKindsPerCard checks a role on a pack card writes only its
+// pack's kinds, never the legacy stages' kinds nor a server kind the pack
+// declares, while a legacy card keeps the legacy kinds.
+func TestRoleRecordKindsPerCard(t *testing.T) {
+	s := newServer(t)
+	_, wsID, c, run := s.roleFixture(t)
+	post := func(token, kind string, body any) int {
+		return s.call(t, "POST", "/api/role/records", token, "", map[string]any{"kind": kind, "body": body}, nil)
+	}
+	if got := post(run.token, "question", map[string]string{"text": "Scoped?"}); got != 201 {
+		t.Fatalf("legacy question: %d", got)
+	}
+	z := testutil.Zip(t, map[string]string{
+		"pack.json": `{"name": "field", "version": "1", "start_kinds": ["question"],
+			"columns": {"grounding": {"phases": [["scoper"]], "reviewer": "rev", "kinds": {"note": {"roles": ["scoper"]}, "fetch": {"roles": ["scoper"]}}}},
+			"failures": {"premise_unsupported": "grounding"}}`,
+		"skills/grounding/scoper/SKILL.md": "Scope.",
+		"skills/grounding/rev/SKILL.md":    "Review.",
+		"checks/grounding.star":            "def check(records):\n    return []\n",
+	})
+	p, err := pack.Parse(z)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := uuid.MustParse(wsID)
+	var row db.FieldPack
+	if err := s.H.Store.InWorkspace(t.Context(), ws, uuid.Nil, func(tx *store.Tx) (err error) {
+		row, err = pack.Insert(t.Context(), tx, s.H.Blobs, z, p, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET pack_id = $1 WHERE id = $2`, row.ID, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		kind string
+		body any
+		want int
+	}{
+		{"note", map[string]string{"text": "a note"}, 201},
+		{"question", map[string]string{"text": "Scoped?"}, 400},
+		{"fetch", map[string]string{"source_id": "openalex:W1"}, 400},
+		{"verdict", map[string]string{"result": "pass", "reason": "ok"}, 403},
+		{"nothing_found", map[string]string{"reason": "none"}, 201},
+	} {
+		if got := post(run.token, tc.kind, tc.body); got != tc.want {
+			t.Fatalf("%s: %d, want %d", tc.kind, got, tc.want)
+		}
 	}
 }

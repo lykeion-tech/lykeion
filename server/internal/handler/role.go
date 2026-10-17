@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
@@ -79,7 +80,28 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := middleware.RoleFrom(r.Context())
-	kind, ok := h.Kinds[in.Kind]
+	// What a role may write depends on its card's pack; the card is read
+	// before the body is validated, and the write is re-authorized under locks.
+	var kinds map[string]service.Kind
+	err := h.Store.InWorkspace(r.Context(), role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
+		var c db.Card
+		if role.CardID != uuid.Nil {
+			var err error
+			if c, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: role.WorkspaceID, ID: role.CardID}); err != nil {
+				return err
+			}
+		}
+		// The record lands in the run's column, so that column's kinds apply.
+		c.BoardColumn = role.Column
+		var err error
+		kinds, err = h.KindsFor(r.Context(), tx, h.Blobs, c)
+		return err
+	})
+	if err != nil {
+		roleError(w, r, err)
+		return
+	}
+	kind, ok := kinds[in.Kind]
 	if !ok {
 		writeErr(w, 400, "unknown record kind")
 		return
@@ -121,7 +143,7 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var rec db.Record
-	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
 		if in.BlobKey != "" {
 			exists, err := tx.Q.RoleBlobExists(r.Context(), db.RoleBlobExistsParams{WorkspaceID: role.WorkspaceID, CardID: &role.CardID, BlobKey: in.BlobKey})
 			if err != nil {

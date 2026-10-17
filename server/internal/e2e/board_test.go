@@ -114,7 +114,7 @@ func newBoardLab(t *testing.T) *boardLab {
 	l.hosted = &sources.Hosted{Store: l.st, Blobs: blobs, GEO: sources.GEO{Base: geo.URL, HTTP: geo.Client()}}
 	iss := auth.Issuer{Secret: []byte("s"), TTL: time.Hour}
 	srv := httptest.NewServer(handler.NewRouter(&handler.H{Store: l.st, JWT: iss, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
-		Autoresearch: l.ap, AgentRuns: runs, Blobs: blobs, Kinds: round.Kinds(), Engine: l.engine, Sources: l.hosted.Handler()}))
+		Autoresearch: l.ap, AgentRuns: runs, Blobs: blobs, KindsFor: round.KindsFor, Engine: l.engine, Sources: l.hosted.Handler()}))
 	t.Cleanup(srv.Close)
 	runs.MCPURL = srv.URL + "/mcp/sources"
 	l.url = srv.URL

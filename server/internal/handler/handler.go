@@ -4,6 +4,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type H struct {
@@ -38,7 +40,7 @@ type H struct {
 	Engine       *round.Engine
 	AgentRuns    *service.AgentRuns
 	Blobs        storage.Storage
-	Kinds        map[string]service.Kind
+	KindsFor     func(context.Context, *store.Tx, storage.Storage, db.Card) (map[string]service.Kind, error) // what a card's roles may write
 	Sources      http.Handler
 	PublicURL    string // where people reach the dashboard, without a trailing slash
 	Shipped      fs.FS  // the packs Lykeion ships, one folder per name; nil ships none

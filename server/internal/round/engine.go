@@ -40,6 +40,9 @@ type Roles struct {
 	// True means: queue nothing more; judge the gate on what the earlier
 	// phases left (the batch is then empty).
 	Serve func(ctx context.Context, c db.Card, v *records.View, next []string, j *jev.Client) (records.Batch, bool, error)
+	// Skill, when set, is the role's SKILL.md; otherwise the role loads the
+	// skill Lykeion ships for its column.
+	Skill func(role string) string
 }
 
 var StageRoles = map[string]Roles{
@@ -311,9 +314,9 @@ func (e *Engine) read(ctx context.Context, tx *store.Tx, id uuid.UUID) (*pending
 	if c.GatingUntil != nil && c.GatingUntil.After(e.now()) {
 		return nil, nil // another pass is judging the card; its write phase moves it on
 	}
-	roles, ok := StageRoles[c.BoardColumn]
-	if !ok {
-		return nil, nil
+	roles, _, ok, err := e.rolesFor(ctx, tx, c)
+	if err != nil || !ok {
+		return nil, err
 	}
 	s := board.FromCard(c)
 	if items := board.CheckBudget(&s, e.now()); len(items) > 0 {
@@ -399,6 +402,10 @@ func (e *Engine) pend(ctx context.Context, tx *store.Tx, c db.Card, roles Roles,
 // reviewer's draft finalised, or judged afresh if the records it reviewed
 // have changed.
 func (e *Engine) call(ctx context.Context, p *pending) (*board.Gate, error) {
+	// Jev questions, their retry waits and pack checks all end before the
+	// lease does, so no other pass judges the card while this one still runs.
+	ctx, cancel := context.WithTimeout(ctx, gateLease-time.Minute)
+	defer cancel()
 	if p.next != nil {
 		b, now, err := p.roles.Serve(ctx, p.c, p.v, p.next, e.jev(p.set))
 		if err != nil {
@@ -523,9 +530,13 @@ func ContinuityScope(card uuid.UUID, role string, round int32, judge bool) strin
 // handoff note goes to each redone role: the rerun role, or every role when
 // all the stage roles redo their work.
 func (e *Engine) queue(ctx context.Context, tx *store.Tx, c db.Card, s board.State, sr Roles, set Settings, roles []string, extra string) error {
+	skillFor := func(role string) string { return skills.Role(c.BoardColumn, role) }
+	if sr.Skill != nil {
+		skillFor = sr.Skill
+	}
 	skill := map[string]string{}
 	for _, role := range roles {
-		if skill[role] = skills.Role(c.BoardColumn, role); skill[role] == "" {
+		if skill[role] = skillFor(role); skill[role] == "" {
 			items := board.EscalateAgentRun(&s, c.Rerun, fmt.Sprintf("no skill for the %s role in %s: nothing was queued", role, c.BoardColumn))
 			return e.save(ctx, tx, c, s, items, "card.escalated", nil)
 		}
