@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -26,6 +29,31 @@ type newCard struct {
 	Deadline    *time.Time  `json:"deadline"`
 	FollowsFrom []uuid.UUID `json:"follows_from"`
 	StartKind   string      `json:"start_kind"`
+	Dataset     string      `json:"dataset"`
+}
+
+// datasetAccession matches an accession (GSE84133, PRJNA123, a DOI) or an http(s) link; the
+// sources server fetches and records it once Grounding runs.
+var datasetAccession = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{2,255}$`)
+
+func datasetRef(raw, startKind string) (string, error) {
+	ref := strings.TrimSpace(raw)
+	if startKind != "dataset" {
+		if ref != "" {
+			return "", cardInputError("a dataset goes only with a study that starts from a dataset")
+		}
+		return "", nil
+	}
+	if ref == "" {
+		return "", cardInputError("a dataset study needs its dataset: an accession or a link")
+	}
+	if u, err := url.Parse(ref); err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https") && len(ref) <= 512 {
+		return ref, nil
+	}
+	if !strings.Contains(ref, "://") && datasetAccession.MatchString(ref) {
+		return ref, nil
+	}
+	return "", cardInputError("the dataset must be an accession (like GSE84133 or a DOI) or an http(s) link")
 }
 
 type cardInputError string
@@ -72,9 +100,14 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if in.FollowsFrom == nil {
 		in.FollowsFrom = []uuid.UUID{}
 	}
+	dataset, err := datasetRef(in.Dataset, in.StartKind)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	var c db.Card
 	var dup db.ActiveDuplicateRow
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		for _, parentID := range in.FollowsFrom {
 			if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: parentID}); err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -117,6 +150,11 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		if pk != nil {
 			if c, err = tx.Q.PinNewCard(r.Context(), db.PinNewCardParams{PackID: &pk.ID, StartKind: in.StartKind,
 				Cap: capacity, WorkspaceID: ws, ID: c.ID}); err != nil {
+				return err
+			}
+		}
+		if dataset != "" {
+			if err := (records.Batch{Put: []records.Put{{Kind: "dataset_ref", Key: "0", Body: map[string]string{"ref": dataset}}}}).Write(r.Context(), tx, c); err != nil {
 				return err
 			}
 		}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 	"testing/fstest"
 
@@ -310,6 +311,42 @@ func TestStartKindRefused(t *testing.T) {
 	}
 	if n := s.count(t, "SELECT count(*) FROM card"); n != 0 {
 		t.Fatalf("%d cards created", n)
+	}
+}
+
+func TestDatasetStudyTakesItsDataset(t *testing.T) {
+	s := newServer(t)
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", StartKinds: []string{"question", "dataset"}}))
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	s.call(t, "PUT", "/api/me/pack", a, w.ID, map[string]string{"name": "demo"}, nil)
+	for _, body := range []map[string]any{
+		{"question": "q", "start_kind": "dataset"},
+		{"question": "q", "start_kind": "dataset", "dataset": "   "},
+		{"question": "q", "start_kind": "dataset", "dataset": "two words"},
+		{"question": "q", "start_kind": "dataset", "dataset": "ftp://example.org/x"},
+		{"question": "q", "start_kind": "question", "dataset": "GSE84133"},
+	} {
+		if code, _, msg := s.newCard(t, a, w.ID, body); code != 400 {
+			t.Fatalf("%v: %d %s", body, code, msg)
+		}
+	}
+	if n := s.count(t, "SELECT count(*) FROM card"); n != 0 {
+		t.Fatalf("%d cards created by refused requests", n)
+	}
+	for i, ref := range []string{"GSE84133", "https://zenodo.org/records/123", "10.5281/zenodo.123"} {
+		code, c, msg := s.newCard(t, a, w.ID, map[string]any{"question": "q" + strconv.Itoa(i), "start_kind": "dataset", "dataset": " " + ref + " "})
+		if code != 201 {
+			t.Fatalf("%s: %d %s", ref, code, msg)
+		}
+		var got string
+		if err := s.Env.Owner.QueryRow(context.Background(),
+			`SELECT body->>'ref' FROM record WHERE card_id = $1 AND kind = 'dataset_ref' AND superseded_at IS NULL`, c.ID).Scan(&got); err != nil {
+			t.Fatalf("%s: no dataset_ref record: %v", ref, err)
+		}
+		if got != ref {
+			t.Fatalf("recorded %q, want %q", got, ref)
+		}
 	}
 }
 

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labFixture } from './lab';
+import { labFixture, labNoTeam, labPack } from './lab';
 
 const artifacts = 'test-results/ui-lab/agents';
 
@@ -78,46 +78,57 @@ test('New agent opens the starting-point page, and Start blank opens the form', 
   await expect(page).toHaveURL(/#\/agents$/);
 });
 
-test('a new study can be assigned to an agent or a colleague when it is created', async ({
-  page,
-}) => {
-  const { headers } = await inFixture(page);
-  const agent = await (
-    await page.request.post('/api/agents', {
-      headers,
-      data: { name: 'Gap analyst', harness: 'claude' },
-    })
-  ).json();
-  const me = await (await page.request.get('/api/me')).json();
-  const create = async (question: string, pick: string | RegExp) => {
-    await page.getByRole('button', { name: 'New', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'New study' });
-    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
-    await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
-    await dialog.getByRole('menuitem', { name: pick }).click();
-    return dialog;
-  };
-  const cardFor = async (question: string) =>
-    (
-      (await (await page.request.get('/api/cards', { headers })).json()) as Record<string, string>[]
-    ).find((c) => c.question === question);
+test.describe('with a Team', () => {
+  test.afterEach(async ({ page }) => {
+    await labNoTeam(page.request);
+  });
 
-  await page.goto('/#/studies');
-  const q1 = `Does the analyst own this? ${Date.now()}`;
-  let dialog = await create(q1, 'Gap analyst');
-  await expect(dialog.getByRole('button', { name: 'Assignee: Gap analyst' })).toBeVisible();
-  await page.screenshot({ path: `${artifacts}/new-study-assignee.png` });
-  await dialog.getByRole('button', { name: /Create study/ }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect.poll(async () => (await cardFor(q1))?.assignee_id).toBe(agent.id);
-  expect((await cardFor(q1))!.assignee_type).toBe('agent');
+  test('a new study can be assigned to an agent or a colleague when it is created', async ({
+    page,
+  }) => {
+    const { headers } = await inFixture(page);
+    // Teams live in a workspace, so the fixture workspace gets its own copy.
+    await labPack(page.request, 'ui-demo', undefined, headers['X-Workspace-ID']);
+    const agent = await (
+      await page.request.post('/api/agents', {
+        headers,
+        data: { name: 'Gap analyst', harness: 'claude' },
+      })
+    ).json();
+    const me = await (await page.request.get('/api/me')).json();
+    const create = async (question: string, pick: string | RegExp) => {
+      await page.getByRole('button', { name: 'New', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'New study' });
+      await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+      await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
+      await dialog.getByRole('menuitem', { name: pick }).click();
+      return dialog;
+    };
+    const cardFor = async (question: string) =>
+      (
+        (await (await page.request.get('/api/cards', { headers })).json()) as Record<
+          string,
+          string
+        >[]
+      ).find((c) => c.question === question);
 
-  const q2 = `Does a colleague own this? ${Date.now()}`;
-  dialog = await create(q2, me.name || me.email);
-  await dialog.getByRole('button', { name: /Create study/ }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect.poll(async () => (await cardFor(q2))?.assignee_id).toBe(me.id);
-  expect((await cardFor(q2))!.assignee_type).toBe('member');
+    await page.goto('/#/studies');
+    const q1 = `Does the analyst own this? ${Date.now()}`;
+    let dialog = await create(q1, 'Gap analyst');
+    await expect(dialog.getByRole('button', { name: 'Assignee: Gap analyst' })).toBeVisible();
+    await page.screenshot({ path: `${artifacts}/new-study-assignee.png` });
+    await dialog.getByRole('button', { name: /Create study/ }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(async () => (await cardFor(q1))?.assignee_id).toBe(agent.id);
+    expect((await cardFor(q1))!.assignee_type).toBe('agent');
+
+    const q2 = `Does a colleague own this? ${Date.now()}`;
+    dialog = await create(q2, me.name || me.email);
+    await dialog.getByRole('button', { name: /Create study/ }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(async () => (await cardFor(q2))?.assignee_id).toBe(me.id);
+    expect((await cardFor(q2))!.assignee_type).toBe('member');
+  });
 });
 
 test('the agent page shows its studies and edits instructions, profile and access', async ({

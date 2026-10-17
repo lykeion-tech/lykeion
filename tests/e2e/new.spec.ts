@@ -19,70 +19,83 @@ async function cardsNamed(page: import('@playwright/test').Page, question: strin
   ).filter((c) => c.question === question);
 }
 
-test('creating a study, then a follow-up the duplicate check suggests', async ({ page }) => {
-  const question = `Do dedifferentiated beta cells re-express ALDH1A3 in T2D? ${Date.now()}`;
-  await page.goto('/#/studies');
-  await page.getByRole('button', { name: 'New', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'New study' });
-  await expect(dialog.getByText('Beta-cell lab')).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Backlog' })).toBeDisabled();
-  await dialog
-    .getByRole('textbox', { name: 'Study title' })
-    .fill('Beta-cell ALDH1A3 in type 2 diabetes');
-  await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
-  await dialog.getByRole('button', { name: 'No budget limit' }).click();
-  await dialog.getByRole('spinbutton', { name: 'Budget limit in USD' }).fill('5');
-  await dialog.getByRole('button', { name: 'No deadline' }).click();
-  const chosen = page.locator('.composer-calendar [aria-current="date"]');
-  const day = await chosen.getAttribute('data-date');
-  await chosen.click();
-  await page.screenshot({ path: `${artifacts}/new-study.png`, fullPage: true });
-  await dialog.getByRole('textbox', { name: 'Research question' }).press('ControlOrMeta+Enter');
-  await expect(dialog).toHaveCount(0);
-  let found = await cardsNamed(page, question);
-  expect(found).toHaveLength(1);
-  expect(found[0]!.budget_usd).toBe(5);
-  expect(found[0]!.title).toBe('Beta-cell ALDH1A3 in type 2 diabetes');
-  const endOfDay = await page.evaluate((value) => new Date(`${value}T23:59:59`).toISOString(), day);
-  expect(Date.parse(found[0]!.deadline!)).toBe(Date.parse(endOfDay));
+test.describe('with a Team', () => {
+  test.beforeEach(async ({ page }) => {
+    await labPack(page.request);
+  });
+  test.afterEach(async ({ page }) => {
+    await labNoTeam(page.request);
+  });
 
-  await page.getByRole('button', { name: 'New', exact: true }).click();
-  await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
-  await dialog.getByRole('button', { name: /Create study/ }).click();
-  await expect(dialog.getByRole('status')).toContainText('An active study already asks this');
-  await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue(question);
-  await page.screenshot({ path: `${artifacts}/duplicate-warning.png`, fullPage: true });
-  await dialog.getByRole('button', { name: /^Follows from BETA-/ }).click();
-  await expect(dialog.getByRole('button', { name: /Follows from: BETA-/ })).toBeVisible();
-  await page.screenshot({ path: `${artifacts}/follow-up.png`, fullPage: true });
-  await dialog.getByRole('button', { name: /Create study/ }).click();
-  await expect(dialog).toHaveCount(0);
-  found = await cardsNamed(page, question);
-  expect(found).toHaveLength(2);
-  expect(found.find((c) => c.follows_from.length)?.follows_from).toEqual([
-    found.find((c) => !c.follows_from.length)!.id,
-  ]);
+  test('creating a study, then a follow-up the duplicate check suggests', async ({ page }) => {
+    const question = `Do dedifferentiated beta cells re-express ALDH1A3 in T2D? ${Date.now()}`;
+    await page.goto('/#/studies');
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New study' });
+    await expect(dialog.getByText('Beta-cell lab')).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Backlog' })).toBeDisabled();
+    await dialog
+      .getByRole('textbox', { name: 'Study title' })
+      .fill('Beta-cell ALDH1A3 in type 2 diabetes');
+    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    await dialog.getByRole('button', { name: 'No budget limit' }).click();
+    await dialog.getByRole('spinbutton', { name: 'Budget limit in USD' }).fill('5');
+    await dialog.getByRole('button', { name: 'No deadline' }).click();
+    const chosen = page.locator('.composer-calendar [aria-current="date"]');
+    const day = await chosen.getAttribute('data-date');
+    await chosen.click();
+    await page.screenshot({ path: `${artifacts}/new-study.png`, fullPage: true });
+    await dialog.getByRole('textbox', { name: 'Research question' }).press('ControlOrMeta+Enter');
+    await expect(dialog).toHaveCount(0);
+    let found = await cardsNamed(page, question);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.budget_usd).toBe(5);
+    expect(found[0]!.title).toBe('Beta-cell ALDH1A3 in type 2 diabetes');
+    const endOfDay = await page.evaluate(
+      (value) => new Date(`${value}T23:59:59`).toISOString(),
+      day,
+    );
+    expect(Date.parse(found[0]!.deadline!)).toBe(Date.parse(endOfDay));
+
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    await dialog.getByRole('button', { name: /Create study/ }).click();
+    await expect(dialog.getByRole('status')).toContainText('An active study already asks this');
+    await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue(question);
+    await page.screenshot({ path: `${artifacts}/duplicate-warning.png`, fullPage: true });
+    await dialog.getByRole('button', { name: /^Follows from BETA-/ }).click();
+    await expect(dialog.getByRole('button', { name: /Follows from: BETA-/ })).toBeVisible();
+    await page.screenshot({ path: `${artifacts}/follow-up.png`, fullPage: true });
+    await dialog.getByRole('button', { name: /Create study/ }).click();
+    await expect(dialog).toHaveCount(0);
+    found = await cardsNamed(page, question);
+    expect(found).toHaveLength(2);
+    expect(found.find((c) => c.follows_from.length)?.follows_from).toEqual([
+      found.find((c) => !c.follows_from.length)!.id,
+    ]);
+  });
+
+  test('"Create another" keeps the modal open and empties it', async ({ page }) => {
+    await page.goto('/#/studies');
+    await page.keyboard.press('c');
+    const dialog = page.getByRole('dialog', { name: 'New study' });
+    await dialog.getByRole('switch', { name: 'Create another' }).check();
+    const question = `Lithium and telomere length ${Date.now()}?`;
+    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    await dialog.getByRole('button', { name: /Create study/ }).click();
+    await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue('');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue('');
+    const found = await cardsNamed(page, question);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.title).toBe(question);
+    await page.screenshot({ path: `${artifacts}/create-another.png`, fullPage: true });
+  });
+
+  // The Backlog menu supplies the visible edit action. Exercise the exported
+  // composer interface directly while that menu is unavailable.
 });
 
-test('"Create another" keeps the modal open and empties it', async ({ page }) => {
-  await page.goto('/#/studies');
-  await page.keyboard.press('c');
-  const dialog = page.getByRole('dialog', { name: 'New study' });
-  await dialog.getByRole('switch', { name: 'Create another' }).check();
-  const question = `Lithium and telomere length ${Date.now()}?`;
-  await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
-  await dialog.getByRole('button', { name: /Create study/ }).click();
-  await expect(dialog.getByRole('textbox', { name: 'Research question' })).toHaveValue('');
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue('');
-  const found = await cardsNamed(page, question);
-  expect(found).toHaveLength(1);
-  expect(found[0]!.title).toBe(question);
-  await page.screenshot({ path: `${artifacts}/create-another.png`, fullPage: true });
-});
-
-// The Backlog menu supplies the visible edit action. Exercise the exported
-// composer interface directly while that menu is unavailable.
 test('editing a held Backlog study persists fields and a later refusal retains the draft', async ({
   page,
 }) => {
@@ -247,11 +260,10 @@ test('with a Team, Create waits for the Team catalog so the study carries its st
   }
 });
 
-test('with no Team, the modal shows no Focus pill and the study is created packless', async ({
+test('with no Team, Focus offers all three kinds and the modal asks for a Team first', async ({
   page,
 }) => {
   await labNoTeam(page.request);
-  // The pill hangs on the person's Team, so assert its absence only once /api/me has answered.
   const me = page.waitForResponse(
     (r) => new URL(r.url()).pathname === '/api/me' && r.request().method() === 'GET' && r.ok(),
   );
@@ -259,13 +271,39 @@ test('with no Team, the modal shows no Focus pill and the study is created packl
   expect(((await (await me).json()) as { pack_name?: string }).pack_name ?? '').toBe('');
   await page.getByRole('button', { name: 'New', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New study' });
-  await expect(dialog.getByRole('button', { name: 'No budget limit' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: /^Focus:/ })).toHaveCount(0);
-  const question = `Packless study ${Date.now()}`;
-  await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
-  await dialog.getByRole('button', { name: /Create study/ }).click();
-  await expect(dialog).toHaveCount(0);
-  const found = await cardsNamed(page, question);
-  expect(found).toHaveLength(1);
-  expect((found[0] as { start_kind?: string }).start_kind ?? '').toBe('');
+  await dialog.getByRole('button', { name: 'Focus: Question' }).click();
+  const menu = dialog.getByRole('menu');
+  for (const kind of ['Question', 'Dataset', 'Claim'])
+    await expect(menu.getByRole('menuitem', { name: kind })).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Dataset' }).click();
+  await expect(dialog.getByRole('textbox', { name: 'Dataset' })).toBeVisible();
+  await expect(dialog.getByRole('status')).toContainText('Choose a Team first');
+  await dialog.getByRole('textbox', { name: 'Research question' }).fill('A question');
+  await dialog.getByRole('textbox', { name: 'Dataset' }).fill('GSE84133');
+  await expect(dialog.getByRole('button', { name: /Create study/ })).toBeDisabled();
+  await dialog.getByRole('link', { name: 'Go to Teams' }).click();
+  await expect(page).toHaveURL(/#\/teams/);
+});
+
+test('a dataset study sends its dataset', async ({ page }) => {
+  await labPack(page.request, 'ui-demo-dataset', ['question', 'dataset']);
+  try {
+    await page.goto('/#/studies');
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New study' });
+    await dialog.getByRole('button', { name: 'Focus: Question' }).click();
+    await dialog.getByRole('menuitem', { name: 'Dataset' }).click();
+    const question = `Dataset study ${Date.now()}`;
+    await dialog.getByRole('textbox', { name: 'Research question' }).fill(question);
+    const create = dialog.getByRole('button', { name: /Create study/ });
+    await expect(create).toBeDisabled();
+    await dialog.getByRole('textbox', { name: 'Dataset' }).fill('GSE84133');
+    await create.click();
+    await expect(dialog).toHaveCount(0);
+    const found = await cardsNamed(page, question);
+    expect(found).toHaveLength(1);
+    expect((found[0] as { start_kind?: string }).start_kind).toBe('dataset');
+  } finally {
+    await labNoTeam(page.request);
+  }
 });

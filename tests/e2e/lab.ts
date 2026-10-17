@@ -78,17 +78,25 @@ export const SHIPPED = resolve('test-results/ui-lab/shipped');
 
 // Copies the demo Team in fixtures/demo-pack to dir under another name and
 // version.
-function demoPackAt(dir: string, name: string, version: string) {
+function demoPackAt(dir: string, name: string, version: string, startKinds?: string[]) {
   cpSync('tests/e2e/fixtures/demo-pack', dir, { recursive: true });
   const manifest = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8'));
-  writeFileSync(join(dir, 'pack.json'), JSON.stringify({ ...manifest, name, version }));
+  writeFileSync(
+    join(dir, 'pack.json'),
+    JSON.stringify({
+      ...manifest,
+      name,
+      version,
+      ...(startKinds ? { start_kinds: startKinds } : {}),
+    }),
+  );
 }
 
 // The demo Team zipped with the system zip command, named name.
-export function labPackArchive(name = 'ui-demo', version = '1'): Buffer {
+export function labPackArchive(name = 'ui-demo', version = '1', startKinds?: string[]): Buffer {
   const dir = mkdtempSync(join(tmpdir(), 'lyk-pack-'));
   try {
-    demoPackAt(join(dir, 'pack'), name, version);
+    demoPackAt(join(dir, 'pack'), name, version, startKinds);
     const archive = join(dir, 'pack.zip');
     execFileSync('zip', ['-qr', archive, '.', '-x', '.*', '*/.*'], { cwd: join(dir, 'pack') });
     return readFileSync(archive);
@@ -110,16 +118,21 @@ export function labUnship(name: string) {
 
 // Uploads the demo Team as the lab person's own Team, approves it and makes it
 // their Team. Its Validation check never passes. labNoTeam undoes the choice.
-export async function labPack(request: APIRequestContext): Promise<{ id: string; name: string }> {
-  const headers = { 'X-Workspace-ID': await labWorkspace(request) };
+export async function labPack(
+  request: APIRequestContext,
+  name = 'ui-demo',
+  startKinds?: string[],
+  workspaceId?: string,
+): Promise<{ id: string; name: string }> {
+  const headers = { 'X-Workspace-ID': workspaceId ?? (await labWorkspace(request)) };
   const upload = await request.post('/api/packs', {
     headers: { ...headers, 'Content-Type': 'application/zip' },
-    data: labPackArchive(),
+    data: labPackArchive(name, '1', startKinds),
   });
   let pack: { id: string; name: string };
   if (upload.status() === 409) {
     // An earlier spec in this run already uploaded and approved this version.
-    const versions = await request.get('/api/packs?name=ui-demo', { headers });
+    const versions = await request.get(`/api/packs?name=${name}`, { headers });
     pack = ((await versions.json()) as { id: string; name: string }[])[0]!;
   } else {
     expect(upload.status()).toBe(201);

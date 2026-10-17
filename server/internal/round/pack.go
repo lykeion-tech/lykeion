@@ -22,7 +22,7 @@ import (
 // ServerKinds are the record kinds only the server writes: the sources a role
 // called, the gate and its choices, the card's lifecycle. They are accepted on
 // every card whatever its pack, and no pack can let a role write one.
-var ServerKinds = []string{"fetch", "search", "open_dataset", "choice", "starting_point", "stop", "report_status", "reopen_evidence", "gate", "gate_draft"}
+var ServerKinds = []string{"fetch", "search", "open_dataset", "dataset_ref", "choice", "starting_point", "stop", "report_status", "reopen_evidence", "gate", "gate_draft"}
 
 // checkAttempts is how many times a pack check that errors is run in one gate
 // before the card is blocked on infrastructure.

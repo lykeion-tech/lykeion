@@ -47,12 +47,17 @@ const query = ref('');
 const form = ref<HTMLFormElement>();
 const teams = usePackCatalog();
 const picked = ref('');
-// Only a new study has a Focus, and only when the person has a Team; without
-// one the study is created packless.
+const dataset = ref('');
+const allKinds: StartKind[] = ['question', 'dataset', 'claim'];
+// Every new study has a Focus. With a Team it offers the kinds the Team accepts;
+// without one it shows all three and asks the person to choose a Team first.
+const noTeam = computed(() => !props.editId && !!me.data.value && !me.data.value.pack_name);
 const startKinds = computed(() =>
-  props.editId || !me.data.value?.pack_name
+  props.editId
     ? []
-    : (teams.data.value?.find((f) => f.name === me.data.value?.pack_name)?.start_kinds ?? []),
+    : noTeam.value
+      ? allKinds
+      : (teams.data.value?.find((f) => f.name === me.data.value?.pack_name)?.start_kinds ?? []),
 );
 // A study made with a Team must carry a start kind, which the catalog names:
 // a new one waits for the person and, when they have a Team, for the catalog.
@@ -150,8 +155,17 @@ function keysDown(event: KeyboardEvent) {
   }
 }
 
+const blocked = computed(
+  () =>
+    busy.value ||
+    loading.value ||
+    noTeam.value ||
+    !question.value.trim() ||
+    (focus.value === 'dataset' && !dataset.value.trim()),
+);
+
 async function submit() {
-  if (busy.value || loading.value || !question.value.trim()) return;
+  if (blocked.value) return;
   busy.value = true;
   error.value = '';
   duplicate.value = null;
@@ -171,6 +185,7 @@ async function submit() {
       const created = await api<Card>('POST', '/api/cards', {
         ...fields,
         ...(focus.value ? { start_kind: focus.value } : {}),
+        ...(focus.value === 'dataset' ? { dataset: dataset.value.trim() } : {}),
       });
       // ponytail: two requests, so a refused assignment leaves the study created unassigned; fold into POST /api/cards if that matters.
       if (assignee.value)
@@ -188,7 +203,7 @@ async function submit() {
     }
     notify('Study created.');
     if (another.value) {
-      title.value = question.value = deadline.value = '';
+      title.value = question.value = deadline.value = dataset.value = '';
       budget.value = 0;
       assignee.value = props.assignee ? { ...props.assignee } : null;
       followsFrom.value = [];
@@ -249,7 +264,19 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           aria-label="Research question"
           required
         />
+        <input
+          v-if="focus === 'dataset'"
+          v-model="dataset"
+          class="composer-dataset"
+          placeholder="Dataset: an accession or a link, e.g. GSE84133, a DOI, https://zenodo.org/…"
+          aria-label="Dataset"
+          required
+        />
       </div>
+      <p v-if="noTeam" class="composer-warning" role="status">
+        Your Team works your studies: its agents, skills and checks. Choose a Team first.
+        <RouterLink to="/teams" class="text-button" @click="emit('close')">Go to Teams</RouterLink>
+      </p>
       <p v-if="duplicate" class="composer-warning" role="status">
         An active study already asks this: {{ number(duplicate.number) }}
         <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>. Set it as
@@ -395,7 +422,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           type="submit"
           class="button primary compact"
           :class="{ 'push-right': editId }"
-          :disabled="busy || loading || !question.trim()"
+          :disabled="blocked"
         >
           {{ busy ? 'Saving…' : editId ? 'Save study' : 'Create study'
           }}<kbd>{{ isMac ? '⌘' : 'Ctrl' }}</kbd> <kbd>↵</kbd>
@@ -488,6 +515,18 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .composer-prompt {
   margin-top: 7px;
 }
+.composer-dataset {
+  padding: 8px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  line-height: 23px;
+  outline: 0;
+  width: 100%;
+}
+.composer-dataset::placeholder,
 .composer-title::placeholder,
 .composer-description::placeholder,
 .composer-prompt::placeholder {
