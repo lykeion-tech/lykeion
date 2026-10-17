@@ -144,6 +144,10 @@ func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid autoresearch: "+err.Error())
 		return
 	}
+	if in.ExecutionMode == "watch_released" {
+		writeErr(w, 400, "watch_released arrives with the Validation stage")
+		return
+	}
 	if in.ExecutionMode != "create_card" && in.ExecutionMode != "run_only" {
 		writeErr(w, 400, "execution_mode must be create_card or run_only")
 		return

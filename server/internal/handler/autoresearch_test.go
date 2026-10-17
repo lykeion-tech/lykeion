@@ -380,3 +380,19 @@ func TestAutoresearchRunCompletesWithoutScopedTransactionDeadlock(t *testing.T) 
 		t.Fatalf("manual defaults: trigger null=%v question=%q", nullTrigger, question)
 	}
 }
+
+func TestWatchReleasedRefusalIsNamed(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	for mode, want := range map[string]string{
+		"watch_released": "watch_released arrives with the Validation stage",
+		"assign_agent":   "execution_mode must be create_card or run_only",
+	} {
+		var out map[string]string
+		code := s.call(t, "POST", "/api/autoresearch", a, w.ID, map[string]any{"title": "x", "execution_mode": mode}, &out)
+		if code != 400 || out["error"] != want {
+			t.Errorf("%s: %d %q, want 400 %q", mode, code, out["error"], want)
+		}
+	}
+}
