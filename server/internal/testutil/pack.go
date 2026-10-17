@@ -4,21 +4,22 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
-// PackOpts describes a field pack for tests. Zero values give a valid pack
-// named "demo", version "1", with one Grounding column.
+// PackOpts describes a Team for tests. Zero values give a valid Team named
+// "demo", version "1", with a leader "pi" and one member.
 type PackOpts struct {
 	Name, Version, Description string
-	Columns                    []string // default grounding
-	StartKinds                 []string // default question
-	Sources                    []string
-	ScienceIndex               bool
+	Domain, Stage              string
+	Members                    int // default 1
+	Criteria                   []string
+	Steps                      int
 }
 
-// Pack builds a valid pack archive: an author role and a reviewer in each
-// column.
+// Pack builds a valid Team archive: every agent uses harness claude except the
+// auditor, which uses codex. The leader and each member carry one skill folder.
 func Pack(t *testing.T, o PackOpts) []byte {
 	t.Helper()
 	if o.Name == "" {
@@ -27,48 +28,33 @@ func Pack(t *testing.T, o PackOpts) []byte {
 	if o.Version == "" {
 		o.Version = "1"
 	}
-	if len(o.Columns) == 0 {
-		o.Columns = []string{"grounding"}
+	if o.Members == 0 {
+		o.Members = 1
 	}
-	if len(o.StartKinds) == 0 {
-		o.StartKinds = []string{"question"}
+	member := func(name string) map[string]any {
+		return map[string]any{"name": name, "role": "Does the " + name + " work.", "skills": []string{"work"},
+			"agent": map[string]any{"harness": "claude", "model": "", "instructions": "You are " + name + "."}}
 	}
-	cols := map[string]any{}
-	for _, c := range o.Columns {
-		cols[c] = map[string]any{"phases": [][]string{{"author"}}, "reviewer": "reviewer"}
+	auditor := map[string]any{"name": "auditor", "role": "Audits the work.",
+		"agent": map[string]any{"harness": "codex", "model": "", "instructions": "You audit."}}
+	files := map[string]string{"skills/pi/work/SKILL.md": "Lead the work."}
+	members := []any{}
+	for i := 1; i <= o.Members; i++ {
+		name := fmt.Sprintf("member-%d", i)
+		members = append(members, member(name))
+		files["skills/"+name+"/work/SKILL.md"] = "Do the work."
 	}
-	m := map[string]any{"name": o.Name, "version": o.Version, "description": o.Description,
-		"start_kinds": o.StartKinds, "columns": cols, "failures": map[string]string{"missing_note": o.Columns[0]}}
-	if len(o.Sources) > 0 {
-		m["sources"] = o.Sources
+	if o.Criteria == nil {
+		o.Criteria = []string{}
 	}
-	if o.ScienceIndex {
-		m["science_index"] = true
-	}
-	manifest, err := json.Marshal(m)
+	manifest, err := json.Marshal(map[string]any{"name": o.Name, "version": o.Version, "description": o.Description,
+		"domain": o.Domain, "stage": o.Stage, "leader": member("pi"), "auditor": auditor, "members": members,
+		"criteria": o.Criteria, "steps": o.Steps})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	add := func(name string, body []byte) {
-		w, err := zw.Create(name)
-		if err == nil {
-			_, err = w.Write(body)
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	add("pack.json", manifest)
-	for _, c := range o.Columns {
-		add("skills/"+c+"/author/SKILL.md", []byte("Do the "+c+" work."))
-		add("skills/"+c+"/reviewer/SKILL.md", []byte("Review the "+c+" work."))
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
+	files["pack.json"] = string(manifest)
+	return Zip(t, files)
 }
 
 // Zip builds an archive holding files, keyed by path.

@@ -1,6 +1,5 @@
-// Package pack parses and validates field-pack archives: a manifest, the
-// skills each role loads and the Starlark checks for each column. An archive
-// is untrusted input, so every limit is enforced while reading it.
+// Package pack parses and validates Team archives: a manifest and the skills
+// each member loads. An archive is untrusted input, so every limit is enforced while reading it.
 package pack
 
 import (
@@ -13,11 +12,16 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
+	"net/url"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/pkg/agent"
 )
 
 const (
@@ -29,42 +33,71 @@ const (
 	maxExpanded = MaxArchive * 4
 )
 
-type Column struct {
-	Phases   [][]string         `json:"phases"`
-	Reviewer string             `json:"reviewer"`
-	Kinds    map[string]KindDef `json:"kinds"`
-	Config   json.RawMessage    `json:"config,omitempty"` // the column's own settings, kept as written; core never reads them
+// Team limits.
+const (
+	MaxMembers      = 12
+	MaxCriteria     = 10
+	MaxCriterionLen = 200
+	MaxSteps        = 50
+	DefaultSteps    = 12
+)
+
+// CatalogueHas and BundleHas say whether a name is a catalogue connector or a
+// bundled skill. They are wired by the packages that own those lists; unset,
+// every name is refused.
+var (
+	CatalogueHas func(name string) bool
+	BundleHas    func(name string) bool
+)
+
+var (
+	memberName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+	secretEnv  = regexp.MustCompile(`(?i)(key|token|secret|password)`)
+)
+
+type AgentDef struct {
+	Harness      string `json:"harness"`
+	Model        string `json:"model"`
+	Instructions string `json:"instructions"`
 }
 
-type KindDef struct {
-	Roles     []string `json:"roles"`
-	KeyPrefix string   `json:"key_prefix,omitempty"`
+// Connector is exactly one of a catalogue name, an HTTPS MCP URL or a local
+// command.
+type Connector struct {
+	Name      string            `json:"name"`
+	Catalogue string            `json:"catalogue,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Command   []string          `json:"command,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
-type Split struct {
-	Unit  string  `json:"unit"`
-	Ratio float64 `json:"ratio"`
+// Member is a Team agent. Role is the description the leader reads. Each
+// entry in Skills is a folder in the archive or a bundled skill.
+type Member struct {
+	Name       string      `json:"name"`
+	Role       string      `json:"role"`
+	Agent      AgentDef    `json:"agent"`
+	Skills     []string    `json:"skills,omitempty"`
+	Connectors []Connector `json:"connectors,omitempty"`
 }
 
 type Manifest struct {
-	Name               string            `json:"name"`
-	Version            string            `json:"version"`
-	Description        string            `json:"description"` // shown when a researcher picks their field
-	StartKinds         []string          `json:"start_kinds"`
-	Columns            map[string]Column `json:"columns"`
-	Failures           map[string]string `json:"failures"`                // failure type → target column
-	Sources            []string          `json:"sources,omitempty"`       // connector ids a study may use; narrows the workspace's enabled set
-	ScienceIndex       bool              `json:"science_index,omitempty"` // the pack's roles get the Lykeion science skills index
-	Vendored           map[string]string `json:"vendored,omitempty"`      // skills/<column>/<role>/<path> → sha256 of a vendored third-party file
-	Split              *Split            `json:"split,omitempty"`
-	ReportingGuideline string            `json:"reporting_guideline,omitempty"`
-	Benchmark          string            `json:"benchmark,omitempty"`
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Description string   `json:"description"` // shown when a researcher picks their field
+	Domain      string   `json:"domain"`
+	Stage       string   `json:"stage"` // the column the Team works, or "" for a set
+	Leader      Member   `json:"leader"`
+	Auditor     Member   `json:"auditor"`
+	Members     []Member `json:"members"`
+	Criteria    []string `json:"criteria"`
+	Steps       int      `json:"steps"` // per column; 0 means DefaultSteps
 }
 
 type Pack struct {
 	Manifest Manifest
 	SHA256   string
-	Skills   map[string]map[string][]byte // "<column>/<role>" → files under skills/<column>/<role>/, keyed by relative path
+	Skills   map[string]map[string][]byte // "<member>/<skill>" → files under skills/<member>/<skill>/, keyed by relative path
 }
 
 // Parse reads and validates an archive. Any problem is an error and nothing
@@ -93,8 +126,8 @@ func Parse(zipBytes []byte) (*Pack, error) {
 		SHA256: hex.EncodeToString(sum[:]),
 		Skills: map[string]map[string][]byte{},
 	}
-	if err := checkKeys(raw); err != nil {
-		return nil, err
+	if err := exactKeys(raw, reflect.TypeFor[Manifest]()); err != nil {
+		return nil, fmt.Errorf("pack: pack.json: %w", err)
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -108,7 +141,7 @@ func Parse(zipBytes []byte) (*Pack, error) {
 		parts := strings.Split(name, "/")
 		switch {
 		case name == "pack.json":
-		case parts[0] == "skills" && len(parts) >= 4 && slices.Contains(board.Stages, parts[1]):
+		case parts[0] == "skills" && len(parts) >= 4 && len(parts[1]) > 0:
 			key := parts[1] + "/" + parts[2]
 			if p.Skills[key] == nil {
 				p.Skills[key] = map[string][]byte{}
@@ -118,7 +151,7 @@ func Parse(zipBytes []byte) (*Pack, error) {
 			return nil, fmt.Errorf("pack: unexpected file %q", name)
 		}
 	}
-	if err := p.validate(files); err != nil {
+	if err := p.validate(); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -169,142 +202,201 @@ func readFiles(zr *zip.Reader) (map[string][]byte, error) {
 	return files, nil
 }
 
-func (p *Pack) validate(files map[string][]byte) error {
+func (p *Pack) validate() error {
 	m := &p.Manifest
 	if m.Name == "" || m.Version == "" {
 		return errors.New("pack: name and version are required")
 	}
-	for key := range p.Skills {
-		if _, ok := m.Columns[strings.SplitN(key, "/", 2)[0]]; !ok {
-			return fmt.Errorf("pack: skills for undeclared column in %q", key)
+	if m.Stage != "" && !slices.Contains(board.Stages, m.Stage) {
+		return fmt.Errorf("pack: stage %q is not a stage", m.Stage)
+	}
+	if len(m.Members) < 1 || len(m.Members) > MaxMembers {
+		return fmt.Errorf("pack: members needs 1 to %d entries", MaxMembers)
+	}
+	if len(m.Criteria) > MaxCriteria {
+		return fmt.Errorf("pack: criteria has more than %d entries", MaxCriteria)
+	}
+	for _, c := range m.Criteria {
+		if utf8.RuneCountInString(c) > MaxCriterionLen {
+			return fmt.Errorf("pack: a criterion is over %d characters", MaxCriterionLen)
 		}
 	}
-	if len(m.StartKinds) == 0 {
-		return errors.New("pack: start_kinds is empty")
+	if m.Steps < 0 || m.Steps > MaxSteps {
+		return fmt.Errorf("pack: steps must be 1 to %d", MaxSteps)
 	}
-	for _, k := range m.StartKinds {
-		if !slices.Contains([]string{"question", "dataset", "claim"}, k) {
-			return fmt.Errorf("pack: start kind %q is not question, dataset or claim", k)
-		}
-	}
-	if s := m.Split; s != nil && (s.Unit == "" || !(0 < s.Ratio && s.Ratio < 1)) {
-		return errors.New("pack: split needs a unit and 0 < ratio < 1")
-	}
-	for failure, target := range m.Failures {
-		if failure == "" {
-			return errors.New("pack: a failure type is empty")
-		}
-		if !slices.Contains(board.Stages, target) {
-			return fmt.Errorf("pack: failure %q targets %q, not a stage", failure, target)
-		}
-	}
-	for name, c := range m.Columns {
-		if !slices.Contains(board.Stages, name) {
-			return fmt.Errorf("pack: column %q is not a stage", name)
-		}
-		inColumn := map[string]bool{}
-		roles := slices.Concat(slices.Concat(c.Phases...), []string{c.Reviewer})
-		for _, r := range roles {
-			if r == "" {
-				continue
-			}
-			inColumn[r] = true
-			if _, ok := p.Skills[name+"/"+r]["SKILL.md"]; !ok {
-				return fmt.Errorf("pack: role %q in %q has no SKILL.md", r, name)
-			}
-		}
-		for kind, def := range c.Kinds {
-			for _, r := range def.Roles {
-				if !inColumn[r] {
-					return fmt.Errorf("pack: kind %q in %q names role %q outside its phases and reviewer", kind, name, r)
-				}
-			}
-		}
-	}
-	for file, want := range m.Vendored {
-		body, ok := files[file]
-		if !ok {
-			return fmt.Errorf("pack: vendored file %q is not in the archive", file)
-		}
-		sum := sha256.Sum256(body)
-		if hex.EncodeToString(sum[:]) != strings.ToLower(want) {
-			return fmt.Errorf("pack: vendored file %q does not match its sha256", file)
-		}
-	}
-	return nil
-}
-
-// Skill is the role's SKILL.md, or "" when the pack has none.
-func (p *Pack) Skill(column, role string) string {
-	return string(p.Skills[column+"/"+role]["SKILL.md"])
-}
-
-// SkillFiles is the role's whole folder, keyed by path relative to it.
-func (p *Pack) SkillFiles(column, role string) map[string][]byte {
-	return p.Skills[column+"/"+role]
-}
-
-// Target is the column a failure type routes to, or "" if undeclared.
-func (p *Pack) Target(failure string) string { return p.Manifest.Failures[failure] }
-
-// checkKeys refuses duplicate keys and keys that are not spelled exactly as a
-// field, in pack.json and in each column; encoding/json alone would fold case
-// and let the last duplicate win.
-func checkKeys(raw []byte) error {
-	if err := exactKeys(raw, reflect.TypeFor[Manifest]()); err != nil {
-		return fmt.Errorf("pack: pack.json: %w", err)
-	}
-	var top struct {
-		Columns json.RawMessage `json:"columns"`
-	}
-	if err := json.Unmarshal(raw, &top); err != nil || top.Columns == nil {
-		return nil // the strict decode reports the real problem
-	}
-	if err := exactKeys(top.Columns, nil); err != nil {
-		return fmt.Errorf("pack: columns: %w", err)
-	}
-	var cols map[string]json.RawMessage
-	if json.Unmarshal(top.Columns, &cols) != nil {
-		return nil
-	}
-	for name, c := range cols {
-		if err := exactKeys(c, reflect.TypeFor[Column]()); err != nil {
-			return fmt.Errorf("pack: column %q: %w", name, err)
-		}
-	}
-	return nil
-}
-
-// exactKeys walks one JSON object's keys. With a struct type each key must
-// match a json tag exactly; with nil only duplicates are refused.
-func exactKeys(raw []byte, t reflect.Type) error {
-	allowed := map[string]bool{}
-	if t != nil {
-		for f := range t.Fields() {
-			allowed[strings.Split(f.Tag.Get("json"), ",")[0]] = true
-		}
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return nil // not an object; the strict decode reports it
+	if m.Steps == 0 {
+		m.Steps = DefaultSteps
 	}
 	seen := map[string]bool{}
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
+	all := slices.Concat([]Member{m.Leader, m.Auditor}, m.Members)
+	for _, mem := range all {
+		if !memberName.MatchString(mem.Name) {
+			return fmt.Errorf("pack: member name %q is not a valid name", mem.Name)
+		}
+		if seen[mem.Name] {
+			return fmt.Errorf("pack: member name %q is repeated", mem.Name)
+		}
+		seen[mem.Name] = true
+	}
+	for i, mem := range all {
+		where := "members"
+		switch i {
+		case 0:
+			where = "leader"
+		case 1:
+			where = "auditor"
+		}
+		if _, ok := agent.Harnesses[mem.Agent.Harness]; !ok {
+			return fmt.Errorf("pack: %s %q: harness %q is unknown", where, mem.Name, mem.Agent.Harness)
+		}
+		if i != 1 {
+			if a := m.Auditor.Agent; a.Harness == mem.Agent.Harness && a.Model == mem.Agent.Model {
+				return fmt.Errorf("pack: auditor shares harness and model with %q", mem.Name)
+			}
+		}
+		for _, s := range mem.Skills {
+			_, folder := p.Skills[mem.Name+"/"+s]["SKILL.md"]
+			if !folder && (BundleHas == nil || !BundleHas(s)) {
+				return fmt.Errorf("pack: %s %q: skill %q is neither a folder in the archive nor a bundled skill", where, mem.Name, s)
+			}
+		}
+		for _, c := range mem.Connectors {
+			if err := c.validate(); err != nil {
+				return fmt.Errorf("pack: %s %q: connector %q: %w", where, mem.Name, c.Name, err)
+			}
+		}
+	}
+	for key := range p.Skills {
+		if !seen[strings.SplitN(key, "/", 2)[0]] {
+			return fmt.Errorf("pack: skills for unknown member in %q", key)
+		}
+	}
+	return nil
+}
+
+func (c Connector) validate() error {
+	kinds := 0
+	if c.Catalogue != "" {
+		kinds++
+		if CatalogueHas == nil || !CatalogueHas(c.Catalogue) {
+			return fmt.Errorf("catalogue %q is unknown", c.Catalogue)
+		}
+	}
+	if c.URL != "" {
+		kinds++
+		if u, err := url.Parse(c.URL); err != nil || u.Scheme != "https" || u.Host == "" {
+			return errors.New("url must be https")
+		}
+	}
+	if len(c.Command) > 0 {
+		kinds++
+		if bin := c.Command[0]; bin == "" || strings.Contains(bin, "/") || strings.Contains(bin, "..") {
+			return errors.New("command must name a program, not a path")
+		}
+	}
+	if kinds != 1 {
+		return errors.New("exactly one of catalogue, url and command is required")
+	}
+	for k := range c.Env {
+		if secretEnv.MatchString(k) {
+			return fmt.Errorf("env %q looks like a secret", k)
+		}
+	}
+	return nil
+}
+
+// SkillFiles is the skill's whole folder, keyed by path relative to it.
+func (p *Pack) SkillFiles(member, skill string) map[string][]byte {
+	return p.Skills[member+"/"+skill]
+}
+
+// ManifestJSON is the manifest as pack.json holds it.
+func ManifestJSON(m Manifest) ([]byte, error) { return json.MarshalIndent(m, "", "  ") }
+
+// Zip builds the archive Parse reads; skills are keyed "<member>/<skill>".
+func Zip(m Manifest, skills map[string]map[string][]byte) ([]byte, error) {
+	raw, err := ManifestJSON(m)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	add := func(name string, body []byte) error {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate})
+		if err == nil {
+			_, err = w.Write(body)
+		}
+		return err
+	}
+	if err := add("pack.json", raw); err != nil {
+		return nil, err
+	}
+	for _, key := range slices.Sorted(maps.Keys(skills)) {
+		for _, path := range slices.Sorted(maps.Keys(skills[key])) {
+			if err := add("skills/"+key+"/"+path, skills[key][path]); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// exactKeys refuses duplicate keys and keys not spelled exactly as a field,
+// at every level of t; encoding/json alone would fold case and let the last
+// duplicate win. Shape errors are left to the strict decode.
+func exactKeys(raw []byte, t reflect.Type) error {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Slice:
+		var items []json.RawMessage
+		if json.Unmarshal(raw, &items) != nil {
 			return nil
 		}
-		key := tok.(string)
-		if seen[key] {
-			return fmt.Errorf("duplicate key %q", key)
+		for _, it := range items {
+			if err := exactKeys(it, t.Elem()); err != nil {
+				return err
+			}
 		}
-		seen[key] = true
-		if t != nil && !allowed[key] {
-			return fmt.Errorf("key %q is not a field name", key)
-		}
-		var skip json.RawMessage
-		if dec.Decode(&skip) != nil {
+	case reflect.Struct, reflect.Map:
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
 			return nil
+		}
+		fields := map[string]reflect.Type{}
+		if t.Kind() == reflect.Struct {
+			for f := range t.Fields() {
+				fields[strings.Split(f.Tag.Get("json"), ",")[0]] = f.Type
+			}
+		}
+		seen := map[string]bool{}
+		for dec.More() {
+			tok, err := dec.Token()
+			if err != nil {
+				return nil
+			}
+			key := tok.(string)
+			if seen[key] {
+				return fmt.Errorf("duplicate key %q", key)
+			}
+			seen[key] = true
+			var ft reflect.Type
+			if t.Kind() == reflect.Map {
+				ft = t.Elem()
+			} else if ft = fields[key]; ft == nil {
+				return fmt.Errorf("key %q is not a field name", key)
+			}
+			var val json.RawMessage
+			if dec.Decode(&val) != nil {
+				return nil
+			}
+			if err := exactKeys(val, ft); err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
 		}
 	}
 	return nil

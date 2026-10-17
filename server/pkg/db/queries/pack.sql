@@ -1,6 +1,6 @@
 -- name: InsertFieldPack :one
-INSERT INTO field_pack (workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by)
-VALUES (@workspace_id, @name, @version, @sha256, @manifest, @blob_key, @source, sqlc.narg(uploaded_by))
+INSERT INTO field_pack (workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, domain, stage)
+VALUES (@workspace_id, @name, @version, @sha256, @manifest, @blob_key, @source, sqlc.narg(uploaded_by), @domain, @stage)
 RETURNING *;
 
 -- name: GetFieldPack :one

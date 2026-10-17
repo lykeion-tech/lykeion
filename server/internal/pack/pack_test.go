@@ -5,28 +5,52 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	"lykeion/server/internal/testutil"
 )
 
-func goodManifest() map[string]any {
-	return map[string]any{
-		"name": "bio", "version": "1", "description": "d",
-		"start_kinds": []string{"question"},
-		"columns": map[string]any{
-			"grounding": map[string]any{
-				"phases":   [][]string{{"scout"}},
-				"reviewer": "critic",
-				"kinds":    map[string]any{"question": map[string]any{"roles": []string{"scout"}}},
-				"config":   map[string]any{"anything": []int{1, 2}},
-			},
-		},
-		"failures": map[string]string{"bad": "grounding"},
+func init() {
+	CatalogueHas = func(n string) bool { return n == "ncbi" }
+	BundleHas = func(n string) bool { return n == "stats" }
+}
+
+func member(name string) Member {
+	return Member{Name: name, Role: "role of " + name, Agent: AgentDef{Harness: "claude", Instructions: "i"}}
+}
+
+func goodManifest() Manifest {
+	lead, scout := member("pi"), member("scout")
+	lead.Skills = []string{"lead"}
+	scout.Skills = []string{"search", "stats"}
+	scout.Connectors = []Connector{{Name: "ncbi", Catalogue: "ncbi"}, {Name: "docs", URL: "https://x.org/mcp"},
+		{Name: "local", Command: []string{"npx", "-y", "pkg"}, Env: map[string]string{"MODE": "fast"}}}
+	return Manifest{Name: "bio", Version: "1", Description: "d", Domain: "biology", Stage: "grounding",
+		Leader: lead, Auditor: Member{Name: "auditor", Role: "audits", Agent: AgentDef{Harness: "codex", Model: "m"}},
+		Members: []Member{scout, member("analyst")}, Criteria: []string{"Is it clear?"}, Steps: 20}
+}
+
+func goodSkills() map[string]map[string][]byte {
+	return map[string]map[string][]byte{
+		"pi/lead":      {"SKILL.md": []byte("lead skill")},
+		"scout/search": {"SKILL.md": []byte("search skill"), "ref.md": []byte("ref")},
 	}
+}
+
+func goodZip(t *testing.T, edit func(m *Manifest)) []byte {
+	t.Helper()
+	m := goodManifest()
+	if edit != nil {
+		edit(&m)
+	}
+	z, err := Zip(m, goodSkills())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return z
 }
 
 type entry struct {
@@ -58,43 +82,6 @@ func build(t *testing.T, entries ...entry) []byte {
 	return buf.Bytes()
 }
 
-func baseEntries(t *testing.T, m map[string]any) []entry {
-	b, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return []entry{
-		{name: "pack.json", body: b},
-		{name: "skills/grounding/scout/SKILL.md", body: []byte("scout skill")},
-		{name: "skills/grounding/scout/ref.md", body: []byte("ref")},
-		{name: "skills/grounding/critic/SKILL.md", body: []byte("critic skill")},
-	}
-}
-
-func TestParseValid(t *testing.T) {
-	z := build(t, baseEntries(t, goodManifest())...)
-	p, err := Parse(z)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(z)
-	if p.SHA256 != hex.EncodeToString(sum[:]) {
-		t.Fatalf("sha %s", p.SHA256)
-	}
-	if p.Manifest.Name != "bio" || p.Skill("grounding", "scout") != "scout skill" {
-		t.Fatalf("%+v", p.Manifest)
-	}
-	if f := p.SkillFiles("grounding", "scout"); len(f) != 2 || string(f["ref.md"]) != "ref" {
-		t.Fatalf("files %v", f)
-	}
-	if string(p.Manifest.Columns["grounding"].Config) != `{"anything":[1,2]}` {
-		t.Fatalf("config %s", p.Manifest.Columns["grounding"].Config)
-	}
-	if p.Target("bad") != "grounding" {
-		t.Fatal("target")
-	}
-}
-
 func bomb(good []entry) []entry {
 	out := append([]entry{}, good...)
 	for i := 0; i < maxExpanded/MaxFile+1; i++ {
@@ -109,111 +96,154 @@ func rawManifest(good []entry, f func([]byte) []byte) []entry {
 	return out
 }
 
+func baseEntries(t *testing.T) []entry {
+	b, err := ManifestJSON(goodManifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []entry{
+		{name: "pack.json", body: b},
+		{name: "skills/pi/lead/SKILL.md", body: []byte("lead skill")},
+		{name: "skills/scout/search/SKILL.md", body: []byte("search skill")},
+		{name: "skills/scout/search/ref.md", body: []byte("ref")},
+	}
+}
+
+func TestParseReadsTheTemplate(t *testing.T) {
+	z := goodZip(t, nil)
+	p, err := Parse(z)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(p.Manifest, goodManifest()) {
+		t.Fatalf("%+v", p.Manifest)
+	}
+	if !reflect.DeepEqual(p.Skills, goodSkills()) || string(p.SkillFiles("scout", "search")["ref.md"]) != "ref" {
+		t.Fatalf("%+v", p.Skills)
+	}
+	if sum := sha256.Sum256(z); p.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatal("sha256")
+	}
+}
+
+func TestStepsDefaultToTwelve(t *testing.T) {
+	p, err := Parse(goodZip(t, func(m *Manifest) { m.Steps = 0 }))
+	if err != nil || p.Manifest.Steps != 12 {
+		t.Fatalf("%v %+v", err, p)
+	}
+}
+
 func TestParseRefuses(t *testing.T) {
-	mut := func(f func(m map[string]any)) []entry {
-		m := goodManifest()
-		f(m)
-		return baseEntries(t, m)
-	}
-	col := func(m map[string]any) map[string]any {
-		return m["columns"].(map[string]any)["grounding"].(map[string]any)
-	}
-	many := baseEntries(t, goodManifest())
-	for i := 0; i < MaxFiles; i++ {
-		many = append(many, entry{name: fmt.Sprintf("skills/grounding/scout/f%d.md", i), body: []byte("x")})
-	}
-	good := baseEntries(t, goodManifest())
+	good := baseEntries(t)
 	ext := func(e entry) []entry { return append(append([]entry{}, good...), e) }
-	cases := map[string][]byte{
-		"dotdot":                  build(t, ext(entry{name: "skills/../x", body: []byte("x")})...),
-		"dotdot2":                 build(t, ext(entry{name: "../x", body: []byte("x")})...),
-		"absolute":                build(t, ext(entry{name: "/abs", body: []byte("x")})...),
-		"symlink":                 build(t, ext(entry{name: "skills/grounding/scout/l", body: []byte("SKILL.md"), mode: modeSymlink})...),
-		"too big":                 append(bytes.Repeat([]byte{0}, MaxArchive), build(t, good...)...),
-		"too many":                build(t, many...),
-		"dup pack":                build(t, ext(entry{name: "pack.json", body: good[0].body})...),
-		"zip bomb":                build(t, bomb(good)...),
-		"oversize file":           build(t, ext(entry{name: "skills/grounding/scout/big.bin", body: make([]byte, MaxFile+1)})...),
-		"case dup file":           build(t, ext(entry{name: "skills/grounding/scout/skill.md", body: []byte("x")})...),
-		"case dup dir":            build(t, ext(entry{name: "skills/grounding/Scout/SKILL.md", body: []byte("x")})...),
-		"undeclared column skill": build(t, ext(entry{name: "skills/reporting/r/SKILL.md", body: []byte("x")})...),
-		"check script":            build(t, ext(entry{name: "checks/grounding.star", body: []byte("x")})...),
-		"empty name":              build(t, mut(func(m map[string]any) { m["name"] = "" })...),
-		"empty version":           build(t, mut(func(m map[string]any) { m["version"] = "" })...),
-		"trailing brace":          build(t, rawManifest(good, func(b []byte) []byte { return append(b, " }"...) })...),
-		"trailing bracket":        build(t, rawManifest(good, func(b []byte) []byte { return append(b, " ]"...) })...),
-		"trailing object":         build(t, rawManifest(good, func(b []byte) []byte { return append(b, " {}"...) })...),
-		"duplicate key": build(t, rawManifest(good, func(b []byte) []byte {
-			return append([]byte(`{"name":"a",`), b[1:]...)
-		})...),
-		"case-variant key": build(t, rawManifest(good, func(b []byte) []byte {
-			return append([]byte(`{"NAME":"a",`), b[1:]...)
-		})...),
-		"column case-variant key": build(t, rawManifest(good, func(b []byte) []byte {
-			return bytes.Replace(b, []byte(`"reviewer"`), []byte(`"Reviewer"`), 1)
-		})...),
-		"stray": build(t, ext(entry{name: "evil.sh", body: []byte("x")})...),
-		"unknown column": build(t, mut(func(m map[string]any) {
-			m["columns"].(map[string]any)["lunch"] = map[string]any{}
-		})...),
-		"failure outside stages": build(t, mut(func(m map[string]any) { m["failures"] = map[string]string{"bad": "lunch"} })...),
-		"empty failure type":     build(t, mut(func(m map[string]any) { m["failures"] = map[string]string{"": "grounding"} })...),
-		"empty start_kinds":      build(t, mut(func(m map[string]any) { m["start_kinds"] = []string{} })...),
-		"bad start kind":         build(t, mut(func(m map[string]any) { m["start_kinds"] = []string{"idea"} })...),
-		"role without skill": build(t, mut(func(m map[string]any) {
-			col(m)["phases"] = [][]string{{"scout", "ghost"}}
-		})...),
-		"kind role outside column": build(t, mut(func(m map[string]any) {
-			col(m)["kinds"] = map[string]any{"question": map[string]any{"roles": []string{"ghost"}}}
-		})...),
-		"bad split":     build(t, mut(func(m map[string]any) { m["split"] = map[string]any{"unit": "paper", "ratio": 1.0} })...),
-		"unknown field": build(t, mut(func(m map[string]any) { m["surprise"] = 1 })...),
-		"vendored wrong hash": build(t, mut(func(m map[string]any) {
-			m["vendored"] = map[string]string{"skills/grounding/scout/ref.md": strings.Repeat("0", 64)}
-		})...),
-		"vendored missing": build(t, mut(func(m map[string]any) {
-			m["vendored"] = map[string]string{"skills/grounding/scout/nope.md": strings.Repeat("0", 64)}
-		})...),
-		"not a zip": []byte("hello"),
+	many := append([]entry{}, good...)
+	for i := 0; i < MaxFiles; i++ {
+		many = append(many, entry{name: fmt.Sprintf("skills/scout/search/f%d.md", i), body: []byte("x")})
 	}
-	for name, z := range cases {
-		t.Run(name, func(t *testing.T) {
-			if _, err := Parse(z); err == nil {
-				t.Fatal("expected an error")
+	mut := func(f func(m *Manifest)) []byte { return goodZip(t, f) }
+	rawJSON := func(f func(b []byte) []byte) []byte { return build(t, rawManifest(good, f)...) }
+	tooMany := func() (out []Member) {
+		for i := 0; i < MaxMembers+1; i++ {
+			out = append(out, member(fmt.Sprintf("m%d", i)))
+		}
+		return
+	}
+	cases := []struct {
+		name string
+		z    []byte
+		want string // a fragment the error names
+	}{
+		{"dotdot", build(t, ext(entry{name: "skills/../x", body: []byte("x")})...), "unsafe path"},
+		{"absolute", build(t, ext(entry{name: "/abs", body: []byte("x")})...), "unsafe path"},
+		{"symlink", build(t, ext(entry{name: "skills/scout/search/l", body: []byte("SKILL.md"), mode: modeSymlink})...), "regular file"},
+		{"too big", append(bytes.Repeat([]byte{0}, MaxArchive), build(t, good...)...), "exceeds"},
+		{"too many", build(t, many...), "entries"},
+		{"zip bomb", build(t, bomb(good)...), "exceed"},
+		{"oversize file", build(t, ext(entry{name: "skills/scout/search/big.bin", body: make([]byte, MaxFile+1)})...), "exceeds"},
+		{"case dup file", build(t, ext(entry{name: "skills/scout/search/skill.md", body: []byte("x")})...), "duplicate"},
+		{"stray", build(t, ext(entry{name: "evil.sh", body: []byte("x")})...), "unexpected file"},
+		{"skills for unknown member", build(t, ext(entry{name: "skills/ghost/s/SKILL.md", body: []byte("x")})...), "unknown member"},
+		{"trailing object", rawJSON(func(b []byte) []byte { return append(b, " {}"...) }), "trailing"},
+		{"duplicate key", rawJSON(func(b []byte) []byte { return append([]byte(`{"name":"a",`), b[1:]...) }), "duplicate key"},
+		{"case-variant key", rawJSON(func(b []byte) []byte { return append([]byte(`{"NAME":"a",`), b[1:]...) }), "NAME"},
+		{"nested case-variant key", rawJSON(func(b []byte) []byte { return bytes.Replace(b, []byte(`"harness"`), []byte(`"Harness"`), 1) }), "Harness"},
+		{"unknown nested field", rawJSON(func(b []byte) []byte {
+			return bytes.Replace(b, []byte(`"harness"`), []byte(`"surprise": 1, "harness"`), 1)
+		}), "surprise"},
+		{"unknown field", rawJSON(func(b []byte) []byte { return append([]byte(`{"surprise":1,`), b[1:]...) }), "surprise"},
+		{"empty name", mut(func(m *Manifest) { m.Name = "" }), "name"},
+		{"stage not a stage", mut(func(m *Manifest) { m.Stage = "lunch" }), "stage"},
+		{"no members", mut(func(m *Manifest) { m.Members = nil }), "members"},
+		{"too many members", mut(func(m *Manifest) { m.Members = tooMany() }), "members"},
+		{"bad member name", mut(func(m *Manifest) { m.Members[0].Name = "Scout" }), "name"},
+		{"repeated member name", mut(func(m *Manifest) { m.Members[1].Name = "scout" }), "repeated"},
+		{"leader shares a member's name", mut(func(m *Manifest) { m.Leader.Name = "scout" }), "repeated"},
+		{"too many criteria", mut(func(m *Manifest) { m.Criteria = make([]string, MaxCriteria+1) }), "criteria"},
+		{"long criterion", mut(func(m *Manifest) { m.Criteria = []string{strings.Repeat("x", MaxCriterionLen+1)} }), "criterion"},
+		{"steps too high", mut(func(m *Manifest) { m.Steps = MaxSteps + 1 }), "steps"},
+		{"steps negative", mut(func(m *Manifest) { m.Steps = -1 }), "steps"},
+		{"unknown harness", mut(func(m *Manifest) { m.Members[0].Agent.Harness = "gpt" }), "harness"},
+		{"auditor shares harness and model", mut(func(m *Manifest) { m.Auditor.Agent = m.Members[1].Agent }), "auditor"},
+		{"unknown skill", mut(func(m *Manifest) { m.Members[0].Skills = []string{"ghost"} }), "skill"},
+		{"unknown catalogue", mut(func(m *Manifest) { m.Members[0].Connectors = []Connector{{Name: "x", Catalogue: "nope"}} }), "catalogue"},
+		{"not a zip", []byte("hello"), "zip"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Parse(c.z)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("want an error naming %q, got %v", c.want, err)
 			}
 		})
 	}
 }
 
-func TestVendoredMatchingHashParses(t *testing.T) {
-	sum := sha256.Sum256([]byte("ref"))
-	m := goodManifest()
-	m["vendored"] = map[string]string{"skills/grounding/scout/ref.md": hex.EncodeToString(sum[:])}
-	if _, err := Parse(build(t, baseEntries(t, m)...)); err != nil {
-		t.Fatal(err)
+func TestTheHooksDefaultToRefusing(t *testing.T) {
+	c, b := CatalogueHas, BundleHas
+	CatalogueHas, BundleHas = nil, nil
+	defer func() { CatalogueHas, BundleHas = c, b }()
+	if _, err := Parse(goodZip(t, nil)); err == nil {
+		t.Fatal("expected a refusal")
 	}
 }
 
-func TestTargetUndeclared(t *testing.T) {
-	p, err := Parse(build(t, baseEntries(t, goodManifest())...))
-	if err != nil {
-		t.Fatal(err)
+func TestAConnectorIsExactlyOneKind(t *testing.T) {
+	for name, c := range map[string]struct {
+		c  Connector
+		ok bool
+	}{
+		"two kinds":      {Connector{Catalogue: "ncbi", URL: "https://x"}, false},
+		"none":           {Connector{}, false},
+		"path command":   {Connector{Command: []string{"/bin/sh"}}, false},
+		"dotdot command": {Connector{Command: []string{"..x"}}, false},
+		"http url":       {Connector{URL: "http://x.org"}, false},
+		"npx":            {Connector{Command: []string{"npx", "-y", "pkg"}}, true},
+		"https url":      {Connector{URL: "https://x.org/mcp"}, true},
+		"catalogue":      {Connector{Catalogue: "ncbi"}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := c.c.validate(); (err == nil) != c.ok {
+				t.Fatalf("ok=%v err=%v", c.ok, err)
+			}
+		})
 	}
-	if got := p.Target("nope"); got != "" {
-		t.Fatalf("%q", got)
+}
+
+func TestSecretsAreNotEnv(t *testing.T) {
+	for _, k := range []string{"API_KEY", "token", "MY_Secret", "PASSWORD"} {
+		if err := (Connector{Command: []string{"x"}, Env: map[string]string{k: "v"}}).validate(); err == nil {
+			t.Fatalf("%s accepted", k)
+		}
 	}
 }
 
 func TestTestutilPackIsValid(t *testing.T) {
-	z := testutil.Pack(t, testutil.PackOpts{Name: "x", Version: "3", Columns: []string{"grounding", "validation"},
-		StartKinds: []string{"claim"}, Sources: []string{"openalex"}, ScienceIndex: true})
-	p, err := Parse(z)
+	p, err := Parse(testutil.Pack(t, testutil.PackOpts{Name: "x", Version: "3", Stage: "grounding", Members: 3, Criteria: []string{"c"}}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	m := p.Manifest
-	if m.Name != "x" || m.Version != "3" || m.StartKinds[0] != "claim" || m.Sources[0] != "openalex" || !m.ScienceIndex ||
-		p.Skill("validation", "reviewer") == "" {
+	if m.Name != "x" || m.Version != "3" || m.Leader.Name != "pi" || len(m.Members) != 3 || m.Auditor.Agent.Harness != "codex" || m.Steps != 12 {
 		t.Fatalf("%+v", m)
 	}
 }

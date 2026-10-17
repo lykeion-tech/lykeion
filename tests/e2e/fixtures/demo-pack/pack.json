@@ -2,39 +2,33 @@
   "name": "ui-demo",
   "version": "1",
   "description": "Demo Team for the dashboard's browser tests",
-  "start_kinds": ["question", "claim"],
-  "columns": {
-    "grounding": {
-      "phases": [["demo-grounding-author"]],
-      "reviewer": "demo-grounding-reviewer",
-      "kinds": { "notes": { "roles": ["demo-grounding-author"] } }
-    },
-    "hypotheses": {
-      "phases": [["demo-hypotheses-author"]],
-      "reviewer": "demo-hypotheses-reviewer",
-      "kinds": { "notes": { "roles": ["demo-hypotheses-author"] } }
-    },
-    "experimentation": {
-      "phases": [["demo-experimentation-author"]],
-      "reviewer": "demo-experimentation-reviewer",
-      "kinds": { "notes": { "roles": ["demo-experimentation-author"] } }
-    },
-    "validation": {
-      "phases": [["demo-validation-author"]],
-      "reviewer": "demo-validation-reviewer",
-      "kinds": { "notes": { "roles": ["demo-validation-author"] } }
-    },
-    "reporting": {
-      "phases": [["demo-reporting-author"]],
-      "reviewer": "demo-reporting-reviewer",
-      "kinds": { "notes": { "roles": ["demo-reporting-author"] } }
-    }
+  "domain": "demo",
+  "stage": "grounding",
+  "leader": {
+    "name": "pi",
+    "role": "Leads the study and names who works next.",
+    "agent": { "harness": "claude", "model": "", "instructions": "You lead the demo Team." },
+    "skills": ["lead"]
   },
-  "failures": {
-    "missing_grounding_note": "grounding",
-    "missing_hypotheses_note": "hypotheses",
-    "missing_experimentation_note": "experimentation",
-    "does_not_replicate": "validation",
-    "missing_reporting_note": "reporting"
-  }
+  "auditor": {
+    "name": "auditor",
+    "role": "Audits the finished work.",
+    "agent": { "harness": "codex", "model": "", "instructions": "You audit the demo Team's work." }
+  },
+  "members": [
+    {
+      "name": "scout",
+      "role": "Finds sources and writes the grounding note.",
+      "agent": { "harness": "claude", "model": "", "instructions": "You search the literature." },
+      "skills": ["search"]
+    },
+    {
+      "name": "analyst",
+      "role": "Checks what the scout found.",
+      "agent": { "harness": "claude", "model": "", "instructions": "You analyse the findings." },
+      "skills": ["analyse"]
+    }
+  ],
+  "criteria": [],
+  "steps": 12
 }

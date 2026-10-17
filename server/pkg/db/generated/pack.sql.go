@@ -92,8 +92,8 @@ func (q *Queries) GetFieldPackVersion(ctx context.Context, arg GetFieldPackVersi
 }
 
 const insertFieldPack = `-- name: InsertFieldPack :one
-INSERT INTO field_pack (workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO field_pack (workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, domain, stage)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage
 `
 
@@ -106,6 +106,8 @@ type InsertFieldPackParams struct {
 	BlobKey     string          `json:"blob_key"`
 	Source      string          `json:"source"`
 	UploadedBy  *uuid.UUID      `json:"uploaded_by"`
+	Domain      string          `json:"domain"`
+	Stage       string          `json:"stage"`
 }
 
 func (q *Queries) InsertFieldPack(ctx context.Context, arg InsertFieldPackParams) (FieldPack, error) {
@@ -118,6 +120,8 @@ func (q *Queries) InsertFieldPack(ctx context.Context, arg InsertFieldPackParams
 		arg.BlobKey,
 		arg.Source,
 		arg.UploadedBy,
+		arg.Domain,
+		arg.Stage,
 	)
 	var i FieldPack
 	err := row.Scan(

@@ -1,1 +1,0 @@
-Write the hypotheses note.

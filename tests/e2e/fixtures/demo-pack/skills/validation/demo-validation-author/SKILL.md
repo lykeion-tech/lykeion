@@ -1,1 +1,0 @@
-Write the validation note.

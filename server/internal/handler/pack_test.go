@@ -108,8 +108,7 @@ func (s *server) newCard(t *testing.T, tok, wsID string, in map[string]any) (int
 
 func TestApprovingAShippedPackIsRecordedOnce(t *testing.T) {
 	s := newServer(t)
-	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1", Description: "Demo field",
-		Columns: []string{"grounding", "experimentation"}}))
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1", Description: "Demo field"}))
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	wsID, ana := uuid.MustParse(w.ID), uuid.MustParse(s.userID(t, a))
@@ -283,7 +282,7 @@ func TestPackUploadLarge(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	noise := func() []byte { b := make([]byte, 900<<10); rand.Read(b); return b }
 	z := withFiles(t, testutil.Pack(t, testutil.PackOpts{Name: "big"}), map[string][]byte{
-		"skills/grounding/author/a.bin": noise(), "skills/grounding/author/b.bin": noise()})
+		"skills/pi/work/a.bin": noise(), "skills/pi/work/b.bin": noise()})
 	if len(z) <= 1<<20 || len(z) > pack.MaxArchive {
 		t.Fatalf("archive is %d bytes", len(z))
 	}

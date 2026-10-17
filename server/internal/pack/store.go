@@ -36,7 +36,8 @@ func Insert(ctx context.Context, tx *store.Tx, blobs storage.Storage, zipBytes [
 		source = "uploaded"
 	}
 	return tx.Q.InsertFieldPack(ctx, db.InsertFieldPackParams{WorkspaceID: tx.WS, Name: p.Manifest.Name,
-		Version: p.Manifest.Version, Sha256: p.SHA256, Manifest: manifest, BlobKey: key, Source: source, UploadedBy: uploadedBy})
+		Version: p.Manifest.Version, Sha256: p.SHA256, Manifest: manifest, BlobKey: key, Source: source, UploadedBy: uploadedBy,
+		Domain: p.Manifest.Domain, Stage: p.Manifest.Stage})
 }
 
 // EnsureShipped inserts the shipped pack's current version into tx's
