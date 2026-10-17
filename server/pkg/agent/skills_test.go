@@ -84,25 +84,33 @@ func TestAPrivateRunGetsNoSkillFolders(t *testing.T) {
 	real := t.TempDir()
 	t.Setenv("HOME", real)
 	os.Unsetenv("CLAUDE_CONFIG_DIR")
-	os.MkdirAll(filepath.Join(real, ".claude"), 0o700)
-	os.WriteFile(filepath.Join(real, ".claude", claudeCredFile), []byte("secret"), 0o600)
-	dir := t.TempDir()
-	s, err := (Claude{Bin: script(t, `echo '{"type":"result","is_error":false}'`)}).Execute(context.Background(), "p", ExecOptions{Dir: dir, SkillsFrom: stage(t)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, r := collect(t, s); r.Err != nil {
-		t.Fatal(r.Err)
-	}
-	var found []string
-	filepath.WalkDir(dir, func(p string, d os.DirEntry, _ error) error {
-		if d.IsDir() && d.Name() == "skills" || strings.HasPrefix(d.Name(), "lyk-") {
-			found = append(found, p)
-		}
-		return nil
-	})
-	if len(found) != 0 {
-		t.Fatalf("a private run was given skills: %v", found)
+	for _, c := range []struct{ harness, home, cred, terminal string }{
+		{"claude", ".claude", claudeCredFile, `{"type":"result","is_error":false}`},
+		{"codex", ".codex", codexCredFile, `{"type":"turn.completed","usage":{}}`},
+	} {
+		t.Run(c.harness, func(t *testing.T) {
+			os.MkdirAll(filepath.Join(real, c.home), 0o700)
+			os.WriteFile(filepath.Join(real, c.home, c.cred), []byte("secret"), 0o600)
+			dir := t.TempDir()
+			b, _ := New(c.harness, script(t, "echo '"+c.terminal+"'"))
+			s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir, SkillsFrom: stage(t)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, r := collect(t, s); r.Err != nil {
+				t.Fatal(r.Err)
+			}
+			var found []string
+			filepath.WalkDir(dir, func(p string, d os.DirEntry, _ error) error {
+				if d.IsDir() && d.Name() == "skills" || strings.HasPrefix(d.Name(), "lyk-") {
+					found = append(found, p)
+				}
+				return nil
+			})
+			if len(found) != 0 {
+				t.Fatalf("a private run was given skills: %v", found)
+			}
+		})
 	}
 }
 
@@ -170,7 +178,7 @@ func TestUntarRefusesAnythingButFilesInsideTheFolder(t *testing.T) {
 
 func TestRoleRunsMayCallTheDoorAndNotSources(t *testing.T) {
 	role := strings.Split(claudeTools, ",")
-	if !slices.Contains(role, "mcp__lyk_door") || slices.Contains(role, "mcp__lyk_sources") {
+	if !slices.Contains(role, "Skill") || !slices.Contains(role, "mcp__lyk_door") || slices.Contains(role, "mcp__lyk_sources") {
 		t.Fatal(claudeTools)
 	}
 }
