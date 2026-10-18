@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -321,7 +322,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		return tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title})
 	})
 	if errors.Is(err, errDuplicate) {
-		writeJSON(w, 409, map[string]any{"error": fmt.Sprintf("an active card already asks this: #%d", dup.Number),
+		writeJSON(w, 409, map[string]any{"error": fmt.Sprintf("an active study already asks this: #%d", dup.Number),
 			"card_id": dup.ID, "number": dup.Number, "follows_allowed": from == board.Grounding && to == board.Reporting})
 		return
 	}
@@ -584,6 +585,9 @@ func (h *H) listInbox(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
+// readResolves are the Inbox kinds that only inform: reading one resolves it.
+var readResolves = []string{"done", "middle_score", "no_tool", "autoresearch_card", "autoresearch_report"}
+
 func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
 	if !ok {
@@ -597,7 +601,7 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Emit(r.Context(), "inbox.read", nil, store.User(user), map[string]string{"inbox_item_id": id.String()}); err != nil {
 			return err
 		}
-		if item.Kind != "released" && item.Kind != "autoresearch_card" && item.Kind != "autoresearch_report" {
+		if !slices.Contains(readResolves, item.Kind) {
 			return nil
 		}
 		return tx.Emit(r.Context(), "inbox.resolved", item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})

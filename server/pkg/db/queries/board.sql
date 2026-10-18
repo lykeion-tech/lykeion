@@ -49,9 +49,10 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'qu
 -- name: MarkQueueOffline :exec
 SELECT mark_queue_offline();
 
+-- A study still open asks the question: not stopped, and not done.
 -- name: ActiveDuplicate :one
 SELECT id, number FROM card
-WHERE workspace_id = @workspace_id AND ending = ''
+WHERE workspace_id = @workspace_id AND ending = '' AND state <> 'done'
   AND (norm_text(title) = norm_text(@title::text) OR norm_text(question) = norm_text(@question::text))
 ORDER BY number LIMIT 1;
 

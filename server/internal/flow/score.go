@@ -221,6 +221,14 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 		if err != nil || !working(c) || (c.GatingUntil != nil && c.GatingUntil.After(e.now())) {
 			return err
 		}
+		// With no key nothing can change until the lab adds one; its owner
+		// has already heard.
+		if e.Jev == nil {
+			open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
+			if err != nil || open > 0 {
+				return err
+			}
+		}
 		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
 		if err != nil {
 			return err

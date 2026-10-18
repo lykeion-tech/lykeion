@@ -28,8 +28,12 @@ var (
 	ErrDeclaredDone     = errors.New("this column was already declared done")
 )
 
-// idleNote wakes a leader that stopped without naming a member or finishing.
-const idleNote = "You ended without naming a member (`lyk team step`) or declaring the column done (`lyk team done`)."
+// idleNote wakes a leader that stopped without naming a member or finishing,
+// and agentIdleNote a study's single agent that stopped without finishing.
+const (
+	idleNote      = "You ended without naming a member (`lyk team step`) or declaring the column done (`lyk team done`)."
+	agentIdleNote = "You ended without declaring the column done (`lyk team done`)."
+)
 
 const commentNote = "A researcher commented on the study (see the comments above). Read what they said and carry on."
 
@@ -58,6 +62,10 @@ func working(c db.Card) bool {
 func current(c db.Card, column string, round int32) bool {
 	return working(c) && c.BoardColumn == column && c.Round == round
 }
+
+// leads says whether a run's role works a column through to done: a Team's
+// leader, or a study's single agent on a column no Team works.
+func leads(role string) bool { return role == "leader" || role == "agent" }
 
 // isMember says whether a run's role is a Team member's name rather than the
 // leader, the auditor or a study's single agent.
@@ -171,7 +179,7 @@ func (e *Engine) Finish(ctx context.Context, tx *store.Tx, w service.Writer, sum
 	return records.WriteAs(ctx, tx, w, "summary", map[string]any{"text": summary, "cites": cites})
 }
 
-// DropWakes cancels the leader runs still waiting to start on the column and
+// DropWakes cancels the leader (or single agent) runs still waiting to start on the column and
 // attempt a study declared done: work that landed during the leader's last
 // turn queued them, and the column takes no more steps. column and round are
 // the declaring run's, since scoring may already have moved the study.
@@ -186,7 +194,7 @@ func (e *Engine) DropWakes(ctx context.Context, ws, card uuid.UUID, column strin
 		owner = c.OwnerID
 		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: card, BoardColumn: column, Round: round})
 		for _, r := range runs {
-			if r.Role == "leader" && waitingToStart(r.Status) {
+			if leads(r.Role) && waitingToStart(r.Status) {
 				waiting = append(waiting, r.ID)
 			}
 		}
@@ -220,11 +228,12 @@ func lockCard(ctx context.Context, tx *store.Tx, id uuid.UUID) (db.Card, error) 
 }
 
 // afterRun wakes the leader when a member's run settles, with what the
-// member wrote. A leader run that ends without naming a member or declaring
-// the column done is woken once with idleNote; ending that way again leaves
-// the study working and escalates it to its owner.
+// member wrote. A leader or single-agent run that ends without naming a
+// member or declaring the column done is woken once with its idle note;
+// ending that way again leaves the study working and escalates it to its
+// owner.
 func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
-	if (t.Role == "leader" && t.Status == "cancelled") || (t.Role != "leader" && !isMember(t.Role)) {
+	if (leads(t.Role) && t.Status == "cancelled") || (!leads(t.Role) && !isMember(t.Role)) {
 		return nil
 	}
 	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
@@ -244,27 +253,32 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 				return nil
 			}
 		}
-		// A member still at work, or a leader run already waiting, wakes the
-		// leader in its own time.
+		// A member still at work, or a run of this role already waiting,
+		// wakes it in its own time.
 		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
 		if err != nil {
 			return err
 		}
 		for _, r := range runs {
-			if (isMember(r.Role) && inFlight(r.Status)) || (r.Role == "leader" && waitingToStart(r.Status)) {
+			if (isMember(r.Role) && inFlight(r.Status)) || (r.Role == t.Role && waitingToStart(r.Status)) {
 				return nil
 			}
 		}
-		if !strings.Contains(t.Prompt, idleNote) {
-			return e.wake(ctx, tx, c, idleNote)
+		note, who := idleNote, "The leader stopped twice without naming a member or declaring"
+		if t.Role == "agent" {
+			note, who = agentIdleNote, "The study's agent stopped twice without declaring"
+		}
+		if !strings.Contains(t.Prompt, note) {
+			return e.wake(ctx, tx, c, note)
 		}
 		return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "escalated",
-			Text: fmt.Sprintf("The leader stopped twice without naming a member or declaring the %s column done. Comment on the study to wake it.", title(c.BoardColumn))})
+			Text: fmt.Sprintf("%s the %s column done. Comment on the study to wake it.", who, title(c.BoardColumn))})
 	})
 }
 
-// OnComment wakes the leader of a Team column that has started when someone
-// comments on the study, as a squad leader is woken by a comment. The owner's
+// OnComment wakes the leader of a column that has started, or the study's
+// single agent, when someone comments on the study, as a squad leader is
+// woken by a comment, and the comment answers any escalation. The owner's
 // comment on a study blocked by low scores restarts its column instead. Like
 // Kick it runs off the caller's request, after the comment commits.
 func (e *Engine) OnComment(ws, card, author uuid.UUID, body string) {
@@ -294,7 +308,10 @@ func (e *Engine) wakeOnComment(ctx context.Context, ws, card, author uuid.UUID, 
 		if err != nil || len(runs) == 0 {
 			return err // Advance starts the column, and the first prompt carries the comment
 		}
-		return e.wake(ctx, tx, c, commentNote)
+		if err := e.wake(ctx, tx, c, commentNote); err != nil {
+			return err
+		}
+		return resolveInbox(ctx, tx, c.ID, "escalated")
 	})
 	if err == nil && restart {
 		e.Kick(ws, card)
@@ -302,32 +319,33 @@ func (e *Engine) wakeOnComment(ctx context.Context, ws, card, author uuid.UUID, 
 	return err
 }
 
-// wake queues the column leader's next run, which resumes its session, with
-// note after the study. Like a squad leader's trigger it is dropped while the
-// leader already has a run waiting to start; a running leader does not drop
-// it, so work landing during the leader's last turn is never lost. A column
-// already declared done, or worked without a Team, wakes no one.
+// wake queues the next run of the column's leader, or of the study's single
+// agent where no Team works it, which resumes its session, with note after
+// the study. Like a squad leader's trigger it is dropped while that role
+// already has a run waiting to start; a running one does not drop it, so work
+// landing during its last turn is never lost. A column already declared done
+// wakes no one.
 func (e *Engine) wake(ctx context.Context, tx *store.Tx, c db.Card, note string) error {
-	runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
-	if err != nil {
-		return err
-	}
-	for _, r := range runs {
-		if r.Role == "leader" && waitingToStart(r.Status) {
-			return nil
-		}
-	}
 	done, err := tx.Q.CountRoundKindRecords(ctx, db.CountRoundKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID,
 		BoardColumn: c.BoardColumn, Round: c.Round, Kind: "summary"})
 	if err != nil || done > 0 {
 		return err
 	}
 	role, m, a, err := e.worker(ctx, tx, c)
-	if errors.Is(err, errNoAgent) || (err == nil && role != "leader") {
+	if errors.Is(err, errNoAgent) {
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+	if err != nil {
+		return err
+	}
+	for _, r := range runs {
+		if r.Role == role && waitingToStart(r.Status) {
+			return nil
+		}
 	}
 	_, err = e.enqueue(ctx, tx, c, role, m, a, note, false)
 	return err

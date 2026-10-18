@@ -100,7 +100,7 @@ func newBoardLab(t *testing.T) *boardLab {
 	runs := &service.AgentRuns{Store: l.st}
 	l.engine = &flow.Engine{Store: l.st, AgentRuns: runs, Blobs: blobs, Jev: &jev.Client{BaseURL: fakeJev(t), Key: "k", Model: jev.Model}}
 	l.ap = &autoresearch.Service{Store: l.st, AgentRuns: runs}
-	runs.OnSettled = l.ap.OnSettled(l.engine.OnSettled)
+	runs.OnSettlement = l.ap.OnSettlement(l.engine.OnSettlement)
 	geo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/esearch.fcgi" || r.URL.Query().Get("term") != "X Y mice" {
 			t.Errorf("unexpected GEO query: %s", r.URL)

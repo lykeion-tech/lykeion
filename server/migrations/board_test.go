@@ -78,7 +78,8 @@ func TestBoardCandidates(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if !got[backlog] || !got[idle] || got[busy] || got[flagged] || len(got) != 5 {
+	// Backlog runs nothing, so it is no candidate.
+	if got[backlog] || !got[idle] || got[busy] || got[flagged] || len(got) != 4 {
 		t.Fatalf("%v", got)
 	}
 	for card, want := range settled {

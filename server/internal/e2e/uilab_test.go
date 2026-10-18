@@ -90,7 +90,7 @@ func TestUILab(t *testing.T) {
 	blobs := storage.Local{Dir: t.TempDir()}
 	runs := &service.AgentRuns{Store: st, MCPURL: base + "/mcp/sources"}
 	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
-	runs.OnSettled = engine.OnSettled
+	runs.OnSettlement = engine.OnSettlement
 	hosted := &sources.Hosted{Store: st, Blobs: blobs}
 	mail := &codeMail{codes: map[string]string{}}
 	iss := auth.Issuer{Secret: []byte("ui-lab-signing-secret-0123456789"), TTL: 24 * time.Hour}

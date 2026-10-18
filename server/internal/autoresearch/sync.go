@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -35,10 +36,12 @@ func (s *Service) Sync(ctx context.Context) error {
 					return err
 				}
 				switch {
-				case card.Ending == "released":
-					status, reason = "completed", ""
 				case card.Ending != "":
 					status, reason = "failed", "card_"+card.Ending
+				case card.State == "done":
+					status, reason = "completed", ""
+				case card.State == "blocked":
+					status, reason = "blocked", card.BlockKind
 				case card.Flag != "":
 					status, reason = "blocked", card.Flag
 				default:
@@ -78,16 +81,14 @@ func (s *Service) Sync(ctx context.Context) error {
 	return nil
 }
 
-// OnSettled wraps the engine hook after settlement commits. Repeated delivery
-// is safe for autoresearch runs; other runs retain the next hook's behavior.
-func (s *Service) OnSettled(next func(context.Context, db.AgentRun)) func(context.Context, db.AgentRun) {
-	return func(ctx context.Context, r db.AgentRun) {
-		if r.Kind == Role {
-			if err := s.Sync(ctx); err != nil {
-				slog.Error("autoresearch sync", "agent_run", r.ID, "err", err)
-			}
-			return
+// OnSettlement wraps the engine hook after settlement commits. Repeated
+// delivery is safe for autoresearch runs; other runs retain the next hook's
+// behavior. An error leaves the settlement to be delivered again.
+func (s *Service) OnSettlement(next func(context.Context, service.Settlement) error) func(context.Context, service.Settlement) error {
+	return func(ctx context.Context, n service.Settlement) error {
+		if n.AgentRun.Kind == Role {
+			return s.Sync(ctx)
 		}
-		next(ctx, r)
+		return next(ctx, n)
 	}
 }

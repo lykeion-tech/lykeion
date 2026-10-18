@@ -166,7 +166,7 @@ UPDATE card SET origin = @origin WHERE workspace_id = @workspace_id AND id = @id
 
 -- name: ActiveOriginDuplicate :one
 SELECT id, number FROM card
-WHERE workspace_id = @workspace_id AND origin = @origin AND ending = '' AND norm_text(title) = norm_text(@title::text)
+WHERE workspace_id = @workspace_id AND origin = @origin AND ending = '' AND state <> 'done' AND norm_text(title) = norm_text(@title::text)
 ORDER BY number LIMIT 1;
 
 -- name: LastOriginCard :one

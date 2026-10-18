@@ -27,7 +27,7 @@ func (q *Queries) ActiveCardCount(ctx context.Context, workspaceID uuid.UUID) (i
 
 const activeDuplicate = `-- name: ActiveDuplicate :one
 SELECT id, number FROM card
-WHERE workspace_id = $1 AND ending = ''
+WHERE workspace_id = $1 AND ending = '' AND state <> 'done'
   AND (norm_text(title) = norm_text($2::text) OR norm_text(question) = norm_text($3::text))
 ORDER BY number LIMIT 1
 `
@@ -43,6 +43,7 @@ type ActiveDuplicateRow struct {
 	Number int32     `json:"number"`
 }
 
+// A study still open asks the question: not stopped, and not done.
 func (q *Queries) ActiveDuplicate(ctx context.Context, arg ActiveDuplicateParams) (ActiveDuplicateRow, error) {
 	row := q.db.QueryRow(ctx, activeDuplicate, arg.WorkspaceID, arg.Title, arg.Question)
 	var i ActiveDuplicateRow

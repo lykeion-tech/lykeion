@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -289,6 +291,10 @@ func TestScoringWithoutJevNeverMovesTheStudy(t *testing.T) {
 			if tc == "no key" {
 				l.e.Jev = nil
 			}
+			var warned atomic.Int32
+			prev := slog.Default()
+			slog.SetDefault(slog.New(countHandler{msg: "scoring unavailable", n: &warned}))
+			t.Cleanup(func() { slog.SetDefault(prev) })
 			a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 			c := l.scoped(t, "grounding", "hypotheses", a)
 			l.done(t, c.ID)
@@ -306,9 +312,28 @@ func TestScoringWithoutJevNeverMovesTheStudy(t *testing.T) {
 			if tc == "503" && len(stub.calls()) != 6 {
 				t.Fatalf("Jev asked %d times over two passes, want 3 attempts each", len(stub.calls()))
 			}
+			if tc == "no key" && warned.Load() != 1 {
+				t.Fatalf("with no key, %d passes tried to score after the owner heard", warned.Load())
+			}
 		})
 	}
 }
+
+// countHandler counts the log lines with one message.
+type countHandler struct {
+	msg string
+	n   *atomic.Int32
+}
+
+func (h countHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h countHandler) Handle(_ context.Context, r slog.Record) error {
+	if r.Message == h.msg {
+		h.n.Add(1)
+	}
+	return nil
+}
+func (h countHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h countHandler) WithGroup(string) slog.Handler      { return h }
 
 func TestTheAuditorRunsPrivateOnTeamColumnsOnly(t *testing.T) {
 	l := newLab(t)

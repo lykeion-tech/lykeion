@@ -335,15 +335,30 @@ func TestDuplicateSaysWhetherFollowingIsAllowed(t *testing.T) {
 		t.Fatalf("first: %d", code)
 	}
 	var dup struct {
+		Error          string
 		FollowsAllowed bool `json:"follows_allowed"`
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, &dup); code != 409 || !dup.FollowsAllowed {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, &dup); code != 409 || !dup.FollowsAllowed || dup.Error != "an active study already asks this: #1" {
 		t.Fatalf("end-to-end duplicate: %d %+v", code, dup)
 	}
 	dup.FollowsAllowed = true
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question", "scope": map[string]string{"from": "validation", "to": "validation"},
 		"assignee": map[string]any{"type": "agent", "id": agent}}, &dup); code != 409 || dup.FollowsAllowed {
 		t.Fatalf("single-stage duplicate: %d %+v", code, dup)
+	}
+}
+
+func TestADoneStudyNoLongerHoldsItsQuestion(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var first card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, &first)
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'grounding', round = 1, state = 'done' WHERE id = $1`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, nil); code != 201 {
+		t.Fatalf("a done study still holds its question: %d", code)
 	}
 }
 

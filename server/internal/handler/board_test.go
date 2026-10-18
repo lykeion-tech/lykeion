@@ -147,7 +147,7 @@ func TestSteeringCancellationFailureRemainsVisible(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			s := newServer(t)
 			s.H.Engine = nil
-			s.H.AgentRuns.OnSettled = nil
+			s.H.AgentRuns.OnSettlement = nil
 			a := s.signIn(t, "a@lab.org")
 			w := s.workspace(t, a, "lab")
 			var c card
@@ -212,7 +212,7 @@ func TestSteeringCancellationFailureRemainsVisible(t *testing.T) {
 func TestSteeringAlreadyTerminalCancellationIsBenign(t *testing.T) {
 	s := newServer(t)
 	s.H.Engine = nil
-	s.H.AgentRuns.OnSettled = nil
+	s.H.AgentRuns.OnSettlement = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c card
@@ -287,7 +287,7 @@ func TestExplicitSteeringCancelsInflightRunsAcrossRounds(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			s := newServer(t)
 			s.H.Engine = nil
-			s.H.AgentRuns.OnSettled = nil
+			s.H.AgentRuns.OnSettlement = nil
 			a := s.signIn(t, "steer@lab.org")
 			w := s.workspace(t, a, "lab")
 			var c card

@@ -81,6 +81,16 @@ func TestAnActiveCardOfTheSameTitleSkipsAndTheNextFollowsTheLast(t *testing.T) {
 	}
 }
 
+func TestADoneStudyLetsTheNextFiringOpenOne(t *testing.T) {
+	f := setup(t)
+	ap := f.autoresearch(t, "create_card", "Weekly digest", "", "")
+	first := f.fire(t, ap, Admission{})
+	f.exec(t, `UPDATE card SET board_column = 'grounding', round = 1, state = 'done' WHERE id = $1`, *first.CardID)
+	if next := f.fire(t, ap, Admission{}); next.Status != "running" || next.CardID == nil {
+		t.Fatalf("a done study kept the next firing from opening one: %s", reason(next))
+	}
+}
+
 func TestTheFirstCardHonoursTheBoardsDuplicateCheck(t *testing.T) {
 	f := setup(t)
 	f.exec(t, `INSERT INTO card (workspace_id, number, title, question, owner_id)

@@ -15,7 +15,7 @@ import (
 
 const activeOriginDuplicate = `-- name: ActiveOriginDuplicate :one
 SELECT id, number FROM card
-WHERE workspace_id = $1 AND origin = $2 AND ending = '' AND norm_text(title) = norm_text($3::text)
+WHERE workspace_id = $1 AND origin = $2 AND ending = '' AND state <> 'done' AND norm_text(title) = norm_text($3::text)
 ORDER BY number LIMIT 1
 `
 

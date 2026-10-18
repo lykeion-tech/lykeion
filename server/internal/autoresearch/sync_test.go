@@ -2,6 +2,7 @@ package autoresearch
 
 import (
 	"context"
+	"lykeion/server/internal/service"
 	db "lykeion/server/pkg/db/generated"
 	"sync"
 	"testing"
@@ -16,7 +17,9 @@ func TestARunFollowsItsCard(t *testing.T) {
 		{"flag = 'escalated'", "blocked/escalated"},
 		{"flag = 'out_of_budget'", "blocked/out_of_budget"},
 		{"flag = ''", "running/"},
-		{"board_column = 'done', ending = 'released'", "completed/"},
+		{"state = 'blocked', block_kind = 'low_score'", "blocked/low_score"},
+		{"state = 'working', block_kind = ''", "running/"},
+		{"state = 'done'", "completed/"},
 		{"flag = 'out_of_budget'", "completed/"},
 	} {
 		f.exec(t, "UPDATE card SET "+step.sql+" WHERE id = $1", *r.CardID)
@@ -27,7 +30,7 @@ func TestARunFollowsItsCard(t *testing.T) {
 			t.Fatalf("%s: %s", step.sql, got)
 		}
 	}
-	if got := f.count(t, `SELECT count(*) FROM event WHERE type IN ('autoresearch_run.blocked', 'autoresearch_run.completed')`); got != 3 {
+	if got := f.count(t, `SELECT count(*) FROM event WHERE type IN ('autoresearch_run.blocked', 'autoresearch_run.completed')`); got != 4 {
 		t.Fatalf("events: %d", got)
 	}
 	other := f.autoresearch(t, "create_card", "Other", "", "")
@@ -45,7 +48,12 @@ func TestARunFollowsItsAgentRunAndSettlementSyncsIt(t *testing.T) {
 	f.online(t, f.owner, "claude")
 	ap := f.autoresearch(t, "run_only", "Digest", "", "")
 	var passed []db.AgentRun
-	hook := f.s.OnSettled(func(_ context.Context, r db.AgentRun) { passed = append(passed, r) })
+	next := f.s.OnSettlement(func(_ context.Context, n service.Settlement) error { passed = append(passed, n.AgentRun); return nil })
+	hook := func(ctx context.Context, r db.AgentRun) {
+		if err := next(ctx, service.Settlement{ID: r.ID, AgentRun: r}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, step := range []struct{ status, failure, want string }{
 		{"completed", "", "completed/"}, {"failed", "timeout", "failed/timeout"}, {"cancelled", "", "failed/cancelled"},
 	} {

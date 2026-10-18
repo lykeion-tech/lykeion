@@ -660,9 +660,10 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]InboxIt
 }
 
 const markInboxRead = `-- name: MarkInboxRead :one
-UPDATE inbox_item SET read_at = COALESCE(read_at, now()), resolved_at = CASE WHEN kind IN ('released', 'autoresearch_card', 'autoresearch_report') THEN now() ELSE resolved_at END
+UPDATE inbox_item SET read_at = COALESCE(read_at, now()),
+  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') THEN COALESCE(resolved_at, now()) ELSE resolved_at END
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3
-  AND (read_at IS NULL OR (kind IN ('autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
+  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
 RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id
 `
 
@@ -704,7 +705,7 @@ func (q *Queries) NextCardNumber(ctx context.Context, id uuid.UUID) (int32, erro
 
 const resolveCardInbox = `-- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now()
-WHERE workspace_id = $1 AND card_id = $2 AND kind = 'escalated' AND resolved_at IS NULL
+WHERE workspace_id = $1 AND card_id = $2 AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id
 `
 
@@ -713,8 +714,8 @@ type ResolveCardInboxParams struct {
 	CardID      *uuid.UUID `json:"card_id"`
 }
 
-// A person answered a blocked card: its open escalated items are resolved,
-// whoever they were addressed to.
+// A stopped study needs nothing more from anyone: its open items asking for
+// a person are resolved, whoever they were addressed to.
 func (q *Queries) ResolveCardInbox(ctx context.Context, arg ResolveCardInboxParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, resolveCardInbox, arg.WorkspaceID, arg.CardID)
 	if err != nil {

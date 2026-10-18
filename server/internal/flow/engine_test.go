@@ -230,3 +230,30 @@ func TestEveryRoleIsToldAboutLykTools(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyWorkingStudiesAreCandidates(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	working := l.study(t, "grounding", false, &a)
+	want := map[uuid.UUID]bool{working.ID: true}
+	for _, set := range []string{"state = 'done'", "state = 'blocked', block_kind = 'low_score'", "board_column = 'backlog', round = 0"} {
+		c := l.study(t, "grounding", false, &a)
+		if _, err := l.env.Owner.Exec(context.Background(), "UPDATE card SET "+set+" WHERE id = $1", c.ID); err != nil {
+			t.Fatal(err)
+		}
+		want[c.ID] = false
+	}
+	cands, err := l.st.Global().BoardCandidates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[uuid.UUID]bool{}
+	for _, c := range cands {
+		got[c.CardID] = true
+	}
+	for id, w := range want {
+		if got[id] != w {
+			t.Errorf("card %s a candidate: %v, want %v", id, got[id], w)
+		}
+	}
+}

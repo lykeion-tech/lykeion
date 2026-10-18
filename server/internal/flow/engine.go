@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"lykeion/server/internal/board"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
@@ -45,17 +44,22 @@ func KindsFor(context.Context, *store.Tx, storage.Storage, db.Card) (map[string]
 	return map[string]service.Kind{}, nil
 }
 
-// OnSettled is wired to service.AgentRuns: a settled run may let its study
-// move on. A member's run wakes its leader, and a leader that stopped without
-// naming a member or finishing is nudged once. A card-less run moves nothing.
-func (e *Engine) OnSettled(ctx context.Context, t db.AgentRun) {
+// OnSettlement is wired to service.AgentRuns' durable settlement: a settled
+// run may let its study move on. A member's run wakes its leader, and a
+// leader or single agent that stopped without finishing is nudged once. An
+// error leaves the settlement pending, so it is delivered again; a repeat
+// wake is dropped while the woken run waits to start. A card-less run moves
+// nothing.
+func (e *Engine) OnSettlement(ctx context.Context, n service.Settlement) error {
+	t := n.AgentRun
 	if t.CardID == nil {
-		return
+		return nil
 	}
 	if err := e.afterRun(ctx, t); err != nil {
-		slog.Error("after run", "agent_run", t.ID, "err", err)
+		return err
 	}
 	e.Kick(t.WorkspaceID, *t.CardID)
+	return nil
 }
 
 // Kick advances a study soon, off the caller's request; Tick catches anything
@@ -73,8 +77,8 @@ func (e *Engine) Kick(ws, card uuid.UUID) {
 	go run()
 }
 
-// Tick marks queued runs whose owner is offline and kicks every study in a
-// column with nothing in flight. Backlog studies run nothing.
+// Tick marks queued runs whose owner is offline and kicks every working
+// study in a column with nothing in flight or a settled run to act on.
 func (e *Engine) Tick(ctx context.Context) error {
 	if err := e.Store.Global().MarkQueueOffline(ctx); err != nil {
 		slog.Error("mark queue offline", "err", err)
@@ -84,9 +88,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 		return err
 	}
 	for _, c := range cands {
-		if c.BoardColumn != board.Backlog {
-			e.Kick(c.WorkspaceID, c.CardID)
-		}
+		e.Kick(c.WorkspaceID, c.CardID)
 	}
 	return nil
 }

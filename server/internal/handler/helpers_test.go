@@ -71,7 +71,7 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 	h.Blobs = storage.Local{Dir: t.TempDir()}
 	h.Engine = &flow.Engine{Store: st, AgentRuns: h.AgentRuns, Blobs: h.Blobs}
 	h.Autoresearch = &autoresearch.Service{Store: st, AgentRuns: h.AgentRuns, Key: bytes.Repeat([]byte{7}, 32), Engine: h.Engine}
-	h.AgentRuns.OnSettled = h.Autoresearch.OnSettled(h.Engine.OnSettled)
+	h.AgentRuns.OnSettlement = h.Autoresearch.OnSettlement(h.Engine.OnSettlement)
 	h.KindsFor = flow.KindsFor
 	srv := httptest.NewServer(NewRouter(h))
 	t.Cleanup(func() { srv.Close(); hub.Close() })

@@ -496,3 +496,86 @@ func TestNoToolText(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// newAgentLab is a study worked by one agent in Grounding, with no Team, and
+// its owner's daemon registered to claim the study's runs.
+func newAgentLab(t *testing.T) *teamLab {
+	t.Helper()
+	s := newServer(t)
+	l := &teamLab{s: s, jwt: s.signIn(t, "pi@lab.org")}
+	l.ws = s.workspace(t, l.jwt, "lab").ID
+	var a struct{ ID string }
+	if c := s.call(t, "POST", "/api/agents", l.jwt, l.ws, map[string]any{"name": "Curie", "harness": "claude", "visibility": "private"}, &a); c != 201 {
+		t.Fatalf("agent: %d", c)
+	}
+	l.personal = s.personalToken(t, l.jwt)
+	var rts []struct{ ID string }
+	if c := s.call(t, "POST", "/api/daemon/register", l.personal, "", map[string]any{"workspace_id": l.ws, "daemon_id": "d1", "harnesses": []string{"claude"}}, &rts); c != 200 || len(rts) != 1 {
+		t.Fatalf("register %d %+v", c, rts)
+	}
+	l.rts = rts[0].ID
+	if c := s.call(t, "POST", "/api/cards", l.jwt, l.ws, map[string]any{"question": "Why do cells age?",
+		"scope": map[string]string{"from": "grounding", "to": "grounding"}, "assignee": map[string]any{"type": "agent", "id": a.ID}}, &l.card); c != 201 {
+		t.Fatalf("card: %d", c)
+	}
+	return l
+}
+
+func TestASingleAgentIdleTwiceEscalatesAndACommentWakesIt(t *testing.T) {
+	l := newAgentLab(t)
+	first := l.claim(t)
+	if first.role != "agent" {
+		t.Fatalf("first run %+v", first)
+	}
+	l.complete(t, first) // stops without declaring the column done
+	nudged := l.claim(t)
+	if nudged.role != "agent" || !strings.Contains(nudged.prompt, "You ended without declaring the column done (`lyk team done`).") {
+		t.Fatalf("nudge %+v", nudged)
+	}
+	if nudged.scope != first.scope {
+		t.Fatalf("the nudge started a new session %q, not %q", nudged.scope, first.scope)
+	}
+	l.complete(t, nudged)
+	if n := l.queued(t); n != 0 {
+		t.Fatalf("woken a third time: %d queued", n)
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'escalated' AND resolved_at IS NULL", l.card.ID); n != 1 {
+		t.Fatalf("%d open escalated items", n)
+	}
+	if c := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": "Try the GTEx data."}, nil); c != 201 {
+		t.Fatalf("comment %d", c)
+	}
+	if woken := l.claim(t); woken.role != "agent" || !strings.Contains(woken.prompt, "Try the GTEx data.") {
+		t.Fatalf("comment wake %+v", woken)
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'escalated' AND resolved_at IS NULL", l.card.ID); n != 0 {
+		t.Fatalf("the comment that woke the agent left %d escalated items open", n)
+	}
+}
+
+func TestAWakeThatFailsIsDeliveredAgain(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
+	l.complete(t, leader)
+	m := l.claim(t)
+	// The leader's agent cannot be read while the member settles, so waking
+	// the leader fails.
+	var pack, user, agent string
+	if err := l.s.Env.Owner.QueryRow(context.Background(), "DELETE FROM team_agent WHERE member = 'pi' RETURNING pack_id::text, user_id::text, agent_id::text").Scan(&pack, &user, &agent); err != nil {
+		t.Fatal(err)
+	}
+	l.complete(t, m)
+	if n := l.queued(t); n != 0 {
+		t.Fatalf("%d runs queued without the leader's agent", n)
+	}
+	if _, err := l.s.Env.Owner.Exec(context.Background(), "INSERT INTO team_agent (workspace_id, pack_id, user_id, member, agent_id) VALUES ($1, $2, $3, 'pi', $4)", l.ws, pack, user, agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.s.H.AgentRuns.RecoverSettlements(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if again := l.claim(t); again.role != "leader" || !strings.Contains(again.prompt, "member-1 finished") {
+		t.Fatalf("leader resume %+v", again)
+	}
+}

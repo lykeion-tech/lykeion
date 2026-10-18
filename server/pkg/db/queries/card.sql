@@ -61,16 +61,17 @@ ORDER BY created_at DESC, id DESC LIMIT 200;
 
 -- Reading informational notifications also resolves them.
 -- name: MarkInboxRead :one
-UPDATE inbox_item SET read_at = COALESCE(read_at, now()), resolved_at = CASE WHEN kind IN ('released', 'autoresearch_card', 'autoresearch_report') THEN now() ELSE resolved_at END
+UPDATE inbox_item SET read_at = COALESCE(read_at, now()),
+  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') THEN COALESCE(resolved_at, now()) ELSE resolved_at END
 WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id
-  AND (read_at IS NULL OR (kind IN ('autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
+  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
 RETURNING *;
 
--- A person answered a blocked card: its open escalated items are resolved,
--- whoever they were addressed to.
+-- A stopped study needs nothing more from anyone: its open items asking for
+-- a person are resolved, whoever they were addressed to.
 -- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now()
-WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'escalated' AND resolved_at IS NULL
+WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id;
 
 -- People edit and delete a card only while it is in Backlog; the column check
