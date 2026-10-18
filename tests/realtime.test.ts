@@ -28,7 +28,8 @@ describe('event to query map', () => {
     }
   });
   it('an uploaded or approved Team refreshes the Teams list', () => {
-    for (const type of ['pack.uploaded', 'pack.approved', 'team.created']) has(type, ['ws', 'w1', 'packs'], null);
+    for (const type of ['pack.uploaded', 'pack.approved', 'team.created'])
+      has(type, ['ws', 'w1', 'packs'], null);
   });
   it('a deleted card, named only in the payload, still refreshes its own queries', () => {
     const deleted = { ...ev('card.deleted', null), payload: { card_id: 'c9' } };
@@ -68,6 +69,17 @@ describe('event to query map', () => {
     has('member.role_changed', keys.members('w1'), null);
     has('member.removed', keys.workspaces, null);
   });
+  it('membership changes refresh capability permissions on both summaries and open details', () => {
+    const client = new QueryClient();
+    const resources = [keys.skills('w1'), keys.skill('w1', 's1'), keys.workspaceMCP('w1')];
+    resources.forEach((key) => client.setQueryData(key, ['old permissions']));
+    client.setQueryData(keys.skill('w2', 's1'), ['other']);
+    for (const queryKey of invalidationsFor('w1', ev('member.role_changed', null)))
+      void client.invalidateQueries({ queryKey });
+    resources.forEach((key) => expect(client.getQueryState(key)?.isInvalidated).toBe(true));
+    expect(client.getQueryState(keys.skill('w2', 's1'))?.isInvalidated).toBe(false);
+    client.clear();
+  });
   it('invitation events refresh the invitations and the members', () => {
     has('invitation.created', keys.invitations('w1'), null);
     has('invitation.accepted', keys.members('w1'), null);
@@ -75,6 +87,83 @@ describe('event to query map', () => {
   it('workspace events refresh the workspace and the list', () => {
     has('workspace.updated', keys.workspace('w1'), null);
     has('workspace.renamed', keys.workspaces, null);
+  });
+  it('refreshes skill lists and revision-scoped files for only the affected skill', () => {
+    for (const type of ['skill.created', 'skill.updated', 'skill.deleted']) {
+      expect(
+        invalidationsFor('w1', {
+          ...ev(type, null),
+          payload: { skill_id: 's1', name: 'method', revision: 2 },
+        }),
+      ).toEqual([keys.skills('w1'), keys.skill('w1', 's1')]);
+    }
+    expect(keys.skillFile('w1', 's1', 2, 'data/a.bin').slice(0, 4)).toEqual(keys.skill('w1', 's1'));
+  });
+  it('distinguishes catalogue changes from custom MCP changes', () => {
+    expect(
+      invalidationsFor('w1', {
+        ...ev('connector.updated', null),
+        payload: { connector: 'geo', revision: 3 },
+      }),
+    ).toEqual([keys.connectors('w1')]);
+    for (const type of ['connector.created', 'connector.updated', 'connector.deleted']) {
+      const mapped = invalidationsFor('w1', {
+        ...ev(type, null),
+        payload: { connector_id: 'm1', origin: 'custom', name: 'lab', revision: 2 },
+      });
+      expect(mapped).toEqual([keys.workspaceMCP('w1'), keys.workspaceMCPItem('w1', 'm1')]);
+      expect(mapped).not.toContainEqual(keys.workspaceMCP('w2'));
+    }
+  });
+  it('refreshes the exact runtime discovery or import operation without exposing result bodies', () => {
+    expect(
+      invalidationsFor('w1', {
+        ...ev('runtime_skill_request.updated', null),
+        payload: { runtime_id: 'rt1', request_id: 'j1', operation: 'import', status: 'running' },
+      }),
+    ).toEqual([keys.runtimeSkillRequest('w1', 'rt1', 'j1')]);
+  });
+  it('refreshes Autoresearch parents, trigger information and direct report reads', () => {
+    for (const type of [
+      'autoresearch.created',
+      'autoresearch.updated',
+      'autoresearch.deleted',
+      'autoresearch.paused',
+      'autoresearch_trigger.updated',
+    ]) {
+      expect(
+        invalidationsFor('w1', {
+          ...ev(type, null),
+          payload: { autoresearch_id: 'a1', trigger_id: 't1' },
+        }),
+      ).toEqual([keys.autoresearches('w1'), keys.autoresearch('w1', 'a1')]);
+    }
+    for (const type of [
+      'autoresearch_run.reported',
+      'autoresearch_run.completed',
+      'autoresearch_run.failed',
+    ]) {
+      expect(
+        invalidationsFor('w1', {
+          ...ev(type, null),
+          payload: { autoresearch_id: 'a1', run_id: 'r1' },
+        }),
+      ).toEqual([
+        keys.autoresearches('w1'),
+        keys.autoresearch('w1', 'a1'),
+        keys.autoresearchRuns('w1', 'a1'),
+        keys.autoresearchRun('w1', 'r1'),
+      ]);
+    }
+  });
+  it('does not map a foreign-workspace event into the current workspace', () => {
+    expect(
+      invalidationsFor('w1', {
+        ...ev('skill.updated', null),
+        workspace_id: 'w2',
+        payload: { skill_id: 's1' },
+      }),
+    ).toEqual([]);
   });
   it('blob events and unknown events refresh nothing', () => {
     expect(invalidationsFor('w1', ev('blob.created'))).toEqual([]);
@@ -258,6 +347,12 @@ describe('useRealtimeSync', () => {
   it('refreshes every workspace resource and the list after reconnect without replay', async () => {
     const scoped = [
       keys.workspace('w1'),
+      keys.skills('w1'),
+      keys.skillFile('w1', 's1', 2, 'data/a.bin'),
+      keys.connectors('w1'),
+      keys.workspaceMCPItem('w1', 'm1'),
+      keys.runtimeSkillRequest('w1', 'rt1', 'j1'),
+      keys.autoresearchRun('w1', 'r1'),
       keys.cards('w1'),
       keys.card('w1', 'c1'),
       keys.records('w1', 'c1', 'grounding'),
@@ -392,6 +487,22 @@ describe('useRealtimeSync', () => {
     expect(invalidate).not.toHaveBeenCalled();
   });
 
+  it('ignores a foreign workspace envelope without advancing the reconnect cursor', async () => {
+    sockets[0]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    sockets[0]!.event({
+      ...ev('skill.updated', null, 900),
+      workspace_id: 'w2',
+      payload: { skill_id: 's1' },
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(invalidate).not.toHaveBeenCalled();
+    sockets[0]!.onclose!({});
+    await vi.advanceTimersByTimeAsync(500);
+    sockets[1]!.onopen!({});
+    expect(JSON.parse(sockets[1]!.sent[0]!).cursor).toBe(40);
+  });
   it('ignores malformed and non-event envelopes', async () => {
     sockets[0]!.onopen!({});
     await settle();

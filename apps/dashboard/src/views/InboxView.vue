@@ -115,7 +115,12 @@ watch(
         </button>
       </nav>
       <div class="conversation-content">
-        <TaskDetail v-if="selected" :id="selected.card_id" :key="selected.card_id" embedded />
+        <TaskDetail
+          v-if="selected?.card_id"
+          :id="selected.card_id"
+          :key="selected.card_id"
+          embedded
+        />
         <div v-else class="conversation-empty">
           <Icon name="inbox" :size="38" />
           <p>Select an item to open its study</p>

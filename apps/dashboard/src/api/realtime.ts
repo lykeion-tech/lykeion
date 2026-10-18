@@ -8,13 +8,44 @@ import type { LykEvent, Workspace } from './types';
 // A deleted card's event has no card column (the row is gone); its id rides
 // in the payload.
 export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
+  if (e.workspace_id !== ws) return [];
   const card = e.card_id ?? (typeof e.payload.card_id === 'string' ? e.payload.card_id : null);
   const own = (...make: ((ws: string, id: string) => QueryKey)[]) =>
     card ? make.map((k) => k(ws, card)) : [];
   const researchIds = [e.payload.previous_research_id, e.payload.research_id].filter(
     (id): id is string => typeof id === 'string',
   );
+  const parent = typeof e.payload.autoresearch_id === 'string' ? e.payload.autoresearch_id : '';
   switch (e.type.split('.')[0]) {
+    case 'skill':
+      return [
+        keys.skills(ws),
+        ...(typeof e.payload.skill_id === 'string' ? [keys.skill(ws, e.payload.skill_id)] : []),
+      ];
+    case 'connector':
+      return e.payload.origin === 'custom'
+        ? [
+            keys.workspaceMCP(ws),
+            ...(typeof e.payload.connector_id === 'string'
+              ? [keys.workspaceMCPItem(ws, e.payload.connector_id)]
+              : []),
+          ]
+        : [keys.connectors(ws)];
+    case 'runtime_skill_request':
+      return typeof e.payload.runtime_id === 'string' && typeof e.payload.request_id === 'string'
+        ? [keys.runtimeSkillRequest(ws, e.payload.runtime_id, e.payload.request_id)]
+        : [];
+    case 'autoresearch':
+    case 'autoresearch_trigger':
+      return [keys.autoresearches(ws), ...(parent ? [keys.autoresearch(ws, parent)] : [])];
+    case 'autoresearch_run':
+      return [
+        keys.autoresearches(ws),
+        ...(parent ? [keys.autoresearch(ws, parent), keys.autoresearchRuns(ws, parent)] : []),
+        ...(typeof e.payload.run_id === 'string'
+          ? [keys.autoresearchRun(ws, e.payload.run_id)]
+          : []),
+      ];
     case 'card':
       return [
         keys.cards(ws),
@@ -48,7 +79,16 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'runtime':
       return [keys.runtimes(ws)];
     case 'member':
-      return [keys.members(ws), keys.workspaces, keys.agents(ws), ['ws', ws, 'agent']];
+      return [
+        keys.members(ws),
+        keys.workspaces,
+        keys.agents(ws),
+        ['ws', ws, 'agent'],
+        keys.skills(ws),
+        ['ws', ws, 'skill'],
+        keys.workspaceMCP(ws),
+        ['ws', ws, 'mcp-server'],
+      ];
     case 'invitation':
       return [keys.invitations(ws), keys.members(ws)];
     case 'workspace':
@@ -143,7 +183,7 @@ export function useRealtimeSync(
         return;
       }
       if (!msg || typeof msg !== 'object') return;
-      if (msg.type === 'event' && msg.event) {
+      if (msg.type === 'event' && msg.event && msg.event.workspace_id === ws) {
         cursor = Math.max(cursor, msg.event.id);
         schedule(invalidationsFor(ws, msg.event), current);
       } else if (msg.type === 'error') {

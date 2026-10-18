@@ -13,25 +13,36 @@ export class ApiError extends Error {
 }
 
 // One request to the Go server on the dashboard's own origin, so the session
-// cookie rides along. JSON in, JSON out; 204 gives undefined.
+// cookie rides along. JSON or form data in, JSON or bytes out; 204 gives undefined.
 export async function api<T = void>(
   method: string,
   path: string,
   body?: unknown,
   raw?: { data: Blob; type: string },
+  options: { workspace?: string; signal?: AbortSignal; response?: 'blob' } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
-  if (workspaceId.value && path.startsWith('/api/')) headers['X-Workspace-ID'] = workspaceId.value;
+  const workspace = options.workspace ?? workspaceId.value;
+  if (workspace && path.startsWith('/api/')) headers['X-Workspace-ID'] = workspace;
   let payload: BodyInit | undefined;
   if (raw) {
     payload = raw.data;
     headers['Content-Type'] = raw.type;
+  } else if (body instanceof FormData) {
+    payload = body;
   } else if (body !== undefined) {
     payload = JSON.stringify(body);
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(path, { method, headers, body: payload, credentials: 'same-origin' });
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: payload,
+    credentials: 'same-origin',
+    signal: options.signal,
+  });
   if (res.status === 204) return undefined as T;
+  if (res.ok && options.response === 'blob') return (await res.blob()) as T;
   const text = await res.text();
   let data: unknown;
   try {

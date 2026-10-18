@@ -156,7 +156,8 @@ export interface RunMessage {
 export interface InboxItem {
   id: string;
   workspace_id: string;
-  card_id: string;
+  card_id: string | null;
+  autoresearch_run_id: string | null;
   user_id: string;
   kind:
     | 'escalated'
@@ -336,6 +337,13 @@ export type AutoresearchDetail = Autoresearch & {
 };
 export type AutoresearchRun = {
   id: string;
+  workspace_id: string;
+  autoresearch_id: string;
+  acting_user_id: string;
+  agent_run_id: string | null;
+  payload: unknown;
+  idempotency_key: string;
+  updated_at: string;
   trigger_id: string | null;
   source: string;
   planned_at: string;
@@ -345,3 +353,83 @@ export type AutoresearchRun = {
   report: string;
   created_at: string;
 };
+
+export type AutoresearchRunDetail = {
+  autoresearch_id: string;
+  autoresearch_title: string;
+  execution_mode: 'create_card' | 'run_only';
+  run: AutoresearchRun;
+};
+
+export type SkillSource = { kind: string; location: string; runtime_id?: string };
+export interface SkillSummary {
+  id: string;
+  name: string;
+  domain: string;
+  description: string;
+  origin: 'bundled' | 'imported';
+  revision: number;
+  created_by: string | null;
+  source: SkillSource;
+  contains_scripts: boolean;
+  editable: boolean;
+  licence?: string;
+}
+export type SkillFileMeta = { path: string; size: number; sha256: string; binary: boolean };
+export interface SkillDetail extends SkillSummary {
+  content: string;
+  files: SkillFileMeta[];
+}
+export interface ConnectorSummary {
+  name: string;
+  domain: string;
+  purpose: string;
+  tier: string;
+  terms: string;
+  enabled: boolean;
+  reason?: string;
+  key_set: boolean;
+  takes_key: boolean;
+  licence_confirmed: boolean;
+  revision: number;
+}
+export interface WorkspaceMcpSummary {
+  id: string;
+  name: string;
+  transport: 'url' | 'command';
+  revision: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+export type RuntimeSkillInventory = {
+  key: string;
+  name: string;
+  description: string;
+  source_path: string;
+  provider: 'claude' | 'codex' | 'cursor' | 'antigravity';
+  root: 'provider' | 'universal';
+  file_count: number;
+};
+export type RuntimeSkillOutcome =
+  | { key: string; status: 'imported'; skill_id: string }
+  | { key: string; status: 'conflict' | 'failed'; error: string };
+export type RuntimeSkillOperation = 'list' | 'import';
+export interface RuntimeSkillRequest {
+  workspace_id: string;
+  id: string;
+  runtime_id: string;
+  owner_id: string;
+  daemon_id: string;
+  operation: RuntimeSkillOperation;
+  keys: string[];
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
+  acquisition_id: string | null;
+  expires_at: string;
+  acquired_at: string | null;
+  completed_at: string | null;
+  result: { skills?: RuntimeSkillInventory[]; items?: RuntimeSkillOutcome[] };
+  result_blob_key: string;
+  error: string;
+  created_at: string;
+}

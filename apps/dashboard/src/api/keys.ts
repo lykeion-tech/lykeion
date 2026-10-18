@@ -28,10 +28,21 @@ export const keys = {
   agent: (ws: string, id: string) => ['ws', ws, 'agent', id] as const,
   members: (ws: string) => ['ws', ws, 'members'] as const,
   invitations: (ws: string) => ['ws', ws, 'invitations'] as const,
-  teams: (ws: string, domain = '', stage = '') => ['ws', ws, 'packs', 'store', domain, stage] as const,
+  teams: (ws: string, domain = '', stage = '') =>
+    ['ws', ws, 'packs', 'store', domain, stage] as const,
   team: (ws: string, id: string) => ['ws', ws, 'packs', 'team', id] as const,
   packs: (ws: string) => ['ws', ws, 'packs'] as const,
   packVersions: (ws: string, name: string) => ['ws', ws, 'packs', 'versions', name] as const,
+  skills: (ws: string) => ['ws', ws, 'skills'] as const,
+  skill: (ws: string, id: string) => ['ws', ws, 'skill', id] as const,
+  skillFile: (ws: string, id: string, revision: number, path: string) =>
+    ['ws', ws, 'skill', id, 'files', revision, path] as const,
+  connectors: (ws: string) => ['ws', ws, 'connectors'] as const,
+  workspaceMCP: (ws: string) => ['ws', ws, 'mcp-servers'] as const,
+  workspaceMCPItem: (ws: string, id: string) => ['ws', ws, 'mcp-server', id] as const,
+  runtimeSkillRequest: (ws: string, runtime: string, id: string) =>
+    ['ws', ws, 'runtime', runtime, 'skill-request', id] as const,
+  autoresearchRun: (ws: string, id: string) => ['ws', ws, 'autoresearch-run', id] as const,
   autoresearches: (ws: string) => ['ws', ws, 'autoresearch'] as const,
   autoresearch: (ws: string, id: string) => ['ws', ws, 'autoresearch', id] as const,
   autoresearchRuns: (ws: string, id: string) => ['ws', ws, 'autoresearch', id, 'runs'] as const,

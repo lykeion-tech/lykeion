@@ -6,7 +6,7 @@ import Icon from '../components/Icon.vue';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { useAgents, useConnectors, useMe, useSkills } from '../api/queries';
+import { useAgents, useConnectorLibrary, useMe, useSkillLibrary } from '../api/queries';
 
 type Conn = { kind: 'catalogue' | 'url' | 'command'; name: string; value: string; env: string };
 type Slot = { name: string; agent: string; role: string; skills: string[]; connectors: Conn[] };
@@ -26,8 +26,8 @@ const router = useRouter();
 const client = useQueryClient();
 const me = useMe();
 const agents = useAgents();
-const skills = useSkills();
-const catalogue = useConnectors();
+const skills = useSkillLibrary();
+const catalogue = useConnectorLibrary();
 
 const name = ref('');
 const description = ref('');
@@ -57,7 +57,8 @@ const auditorClash = computed(() => {
 });
 
 function connectorProblem(c: Conn): string {
-  if (c.kind === 'catalogue') return '';
+  if (c.kind === 'catalogue')
+    return catalogue.data.value?.some((item) => item.name === c.name) ? '' : 'unavailable';
   if (!c.name.trim()) return 'name';
   if (c.kind === 'url') {
     try {
@@ -94,6 +95,8 @@ const problem = computed(() => {
     )
       return `The member name ${m.name} is used twice.`;
     if (!m.agent || !m.role.trim()) return `${m.name} needs an agent and a role.`;
+    if (m.skills.some((name) => !skills.data.value?.some((item) => item.name === name)))
+      return `Check ${m.name}'s unavailable skills.`;
     if (m.connectors.some((c) => connectorProblem(c))) return `Check ${m.name}'s connectors.`;
   }
   if (criteria.value.some((c) => !c.trim() || c.length > 200))
