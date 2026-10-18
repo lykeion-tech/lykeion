@@ -1,5 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labFixture, labHypotheses, labInbox, labRecords, labWorkspace, newStudy } from './lab';
+import {
+  labAutoresearchRun,
+  labReportAutoresearch,
+  fullAutoresearchReport,
+  labFixture,
+  labHypotheses,
+  labInbox,
+  labRecords,
+  labWorkspace,
+  newStudy,
+} from './lab';
 
 test('an escalation reaches the Inbox and is read on opening', async ({ page }) => {
   const title = `Sleep loss and microglial pruning ${Date.now()}`;
@@ -325,5 +335,108 @@ test('each new Inbox kind reads and opens its study', async ({ page }) => {
       page.getByRole('region', { name: 'Study' }).getByRole('heading', { name }),
     ).toBeVisible();
     await expect(page).toHaveURL(/#\/inbox\/[0-9a-f-]{36}$/);
+  }
+});
+
+test('Inbox report without card opens the run', async ({ page }) => {
+  const f = await labReportAutoresearch(page.request);
+  await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
+  const runId = await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
+    status: 'running',
+    report: fullAutoresearchReport,
+    inbox: true,
+  });
+  const headers = { 'X-Workspace-ID': f.workspace_id };
+  const items = await (await page.request.get('/api/inbox', { headers })).json();
+  const item = items.find((i: { autoresearch_run_id: string }) => i.autoresearch_run_id === runId);
+  expect(item.card_id).toBeNull();
+  await page.goto('/#/inbox');
+  await row(page, item.id).click();
+  const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
+  await expect(dialog.getByRole('heading', { name: 'Report literature watch' })).toBeVisible();
+  await expect(dialog.getByText('Running', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('end-of-full-report', { exact: false })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Study' })).toHaveCount(0);
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get('/api/inbox?archived=1', { headers })).json()).find(
+          (i: { id: string }) => i.id === item.id,
+        )?.read_at,
+    )
+    .toBeTruthy();
+  await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
+  expect(await dialog.locator('pre.run-raw').textContent()).toBe(fullAutoresearchReport);
+  await page.screenshot({ path: 'test-results/ui2/task15-inbox.png', fullPage: true });
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`#/inbox/${item.id}$`));
+  await page.getByRole('button', { name: 'Open report', exact: true }).click();
+  await expect(dialog).toBeVisible();
+});
+
+test('Inbox report context survives archive refresh and a closed run stays closed', async ({
+  page,
+}) => {
+  const f = await labReportAutoresearch(page.request);
+  await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
+  const runId = await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
+    status: 'running',
+    report: fullAutoresearchReport,
+    inbox: true,
+  });
+  const headers = { 'X-Workspace-ID': f.workspace_id };
+  const items = await (await page.request.get('/api/inbox', { headers })).json();
+  const item = items.find((i: { autoresearch_run_id: string }) => i.autoresearch_run_id === runId);
+  let holding = false;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let ready!: () => void;
+  const initial = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  let drained!: () => void;
+  const late = new Promise<void>((resolve) => {
+    drained = resolve;
+  });
+  await page.route('**/api/inbox?archived=1', async (route) => {
+    const response = await route.fetch();
+    if (holding) {
+      await gate;
+      await route.fulfill({ response });
+      drained();
+    } else {
+      await route.fulfill({ response });
+      ready();
+    }
+  });
+  try {
+    await page.goto('/#/inbox');
+    await initial;
+    holding = true;
+    await row(page, item.id).click();
+    await expect(page.locator('.conversation-list')).toContainText('Nothing needs you right now');
+    const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('end-of-full-report', { exact: false })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    release();
+    await late;
+    await expect(dialog).toHaveCount(0);
+    await page.getByRole('button', { name: 'Open report', exact: true }).click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.getByRole('button', { name: 'Archived', exact: true }).click();
+    await expect(row(page, item.id)).toBeVisible();
+    await expect(row(page, item.id).locator('.unread')).toHaveCount(0);
+    const receipt = (
+      await (await page.request.get('/api/inbox?archived=1', { headers })).json()
+    ).find((i: { id: string }) => i.id === item.id);
+    expect(receipt.read_at).toBeTruthy();
+    expect(receipt.resolved_at).toBeTruthy();
+  } finally {
+    release();
   }
 });

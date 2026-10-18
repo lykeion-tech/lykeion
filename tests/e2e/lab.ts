@@ -229,3 +229,48 @@ export function labSkillFolder(name: string): string {
   writeFileSync(join(dir, '.hidden'), 'hidden supporting file');
   return dir;
 }
+
+export const fullAutoresearchReport = `# Full research report\n\n${'Recorded evidence beyond the Inbox excerpt.\n\n'.repeat(80)}<script>window.reportExecuted = true</script>\n<img src=x onerror="window.reportExecuted = true">\n\n[unsafe](javascript:alert(1)) [local](file:///etc/passwd) [app](codex://settings)\n\nend-of-full-report`;
+
+export async function labAutoresearchRun(
+  request: APIRequestContext,
+  workspaceId: string,
+  autoresearchId: string,
+  data: {
+    run_id?: string;
+    status: string;
+    report?: string;
+    reason?: string;
+    card_id?: string;
+    inbox?: boolean;
+  },
+): Promise<string> {
+  const response = await request.post(`${LAB}/lab/autoresearch/${autoresearchId}`, {
+    data: { workspace_id: workspaceId, ...data },
+  });
+  expect(response.status(), await response.text()).toBe(200);
+  return ((await response.json()) as { run_id: string }).run_id;
+}
+
+export async function labReportAutoresearch(request: APIRequestContext, mode = 'run_only') {
+  const fixture = await labFixture(request);
+  const headers = { 'X-Workspace-ID': fixture.workspace_id };
+  const agentResponse = await request.post('/api/agents', {
+    headers,
+    data: { name: 'Report watcher', harness: 'claude' },
+  });
+  expect(agentResponse.status()).toBe(201);
+  const agent = await agentResponse.json();
+  const response = await request.post('/api/autoresearch', {
+    headers,
+    data: {
+      title: 'Report literature watch',
+      description: 'Read sources and report.',
+      execution_mode: mode,
+      assignee: { type: 'agent', id: agent.id },
+      scope: { from: 'grounding', to: 'reporting' },
+    },
+  });
+  expect(response.status()).toBe(201);
+  return { ...fixture, autoresearch_id: ((await response.json()) as { id: string }).id };
+}

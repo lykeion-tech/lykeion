@@ -1,5 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labFixture, labTeam } from './lab';
+import {
+  labFixture,
+  labTeam,
+  labAutoresearchRun,
+  labReportAutoresearch,
+  fullAutoresearchReport,
+} from './lab';
 
 async function inFixture(page: Page) {
   const f = await labFixture(page.request);
@@ -191,4 +197,132 @@ test('a single-Team Autoresearch sends no scope and shows the Team’s column', 
   await expect(page.getByText('Assigned to a Team · Grounding')).toBeVisible();
   expect(sent).not.toHaveProperty('scope');
   expect(sent).toHaveProperty('assignee.type', 'team');
+});
+
+test('run-only history opens full report and raw text', async ({ page }) => {
+  const f = await reportFixture(page, 'completed', fullAutoresearchReport);
+  await page.goto(`/#/autoresearch/${f.autoresearch_id}`);
+  await page.getByRole('button', { name: /Completed.*Open report/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
+  await expect(dialog.getByRole('heading', { name: 'Report literature watch' })).toBeVisible();
+  await expect(dialog.getByText('end-of-full-report', { exact: false })).toBeVisible();
+  await expect(dialog.getByText('Report available', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/Planned/)).toBeVisible();
+  await expect(dialog.locator('script, img')).toHaveCount(0);
+  await expect(
+    dialog.locator('a[href^="javascript:"], a[href^="file:"], a[href^="codex:"]'),
+  ).toHaveCount(0);
+  expect(await page.evaluate(() => 'reportExecuted' in window)).toBe(false);
+  await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
+  expect(await dialog.locator('pre.run-raw').textContent()).toBe(fullAutoresearchReport);
+  await page.screenshot({ path: 'test-results/ui2/task15-raw.png', fullPage: true });
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(f.autoresearch_id));
+});
+
+test('report arrival does not complete a running run', async ({ page }) => {
+  const f = await reportFixture(page, 'running');
+  await page.goto(`/#/autoresearch/${f.autoresearch_id}`);
+  await page.getByRole('button', { name: /Running.*View run/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
+  await expect(dialog.getByText('Waiting for a report', { exact: true })).toBeVisible();
+  await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
+    run_id: f.report_run_id,
+    status: 'running',
+    report: fullAutoresearchReport,
+  });
+  await expect(dialog.getByText('end-of-full-report', { exact: false })).toBeVisible();
+  await expect(dialog.getByText('Running', { exact: true })).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
+  await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
+    run_id: f.report_run_id,
+    status: 'running',
+    report: fullAutoresearchReport + '\nrefresh-tail',
+  });
+  await expect(dialog.getByRole('tab', { name: 'Raw', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(dialog.locator('pre.run-raw')).toContainText('refresh-tail');
+  await page.screenshot({ path: 'test-results/ui2/task15-running.png', fullPage: true });
+});
+
+test('failed run can keep a report', async ({ page }) => {
+  const f = await reportFixture(page, 'failed', fullAutoresearchReport, 'provider_network');
+  await page.goto(`/#/autoresearch/${f.autoresearch_id}`);
+  await page.getByRole('button', { name: /Failed.*Open report/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
+  await expect(dialog.getByText('Failed', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('provider_network', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('end-of-full-report', { exact: false })).toBeVisible();
+  await page.screenshot({ path: 'test-results/ui2/task15-failed-report.png', fullPage: true });
+});
+
+test('completed run without a report says so', async ({ page }) => {
+  const f = await reportFixture(page, 'completed');
+  await page.goto(`/#/autoresearch/${f.autoresearch_id}`);
+  await page.getByRole('button', { name: /Completed.*View run/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
+  await expect(dialog.getByText('Completed', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('No report was submitted', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('tab')).toHaveCount(0);
+});
+
+test('create-card history opens the linked study', async ({ page }) => {
+  const f = await labReportAutoresearch(page.request, 'create_card');
+  await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
+  await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
+    status: 'completed',
+    card_id: f.card_id,
+  });
+  await page.goto(`/#/autoresearch/${f.autoresearch_id}`);
+  await page.getByRole('link', { name: /Completed.*Open study/ }).click();
+  await expect(page).toHaveURL(new RegExp(`#/studies/${f.card_id}$`));
+  await expect(page.getByRole('region', { name: 'Study' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Autoresearch run' })).toHaveCount(0);
+});
+
+async function reportFixture(page: Page, status: string, report = '', reason = '') {
+  const f = await labReportAutoresearch(page.request);
+  await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
+  const runId = await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
+    status,
+    report,
+    reason,
+  });
+  return { ...f, report_run_id: runId };
+}
+
+test('failed report reads retry and refresh failures retain the selected raw report', async ({
+  page,
+}) => {
+  const f = await reportFixture(page, 'running', fullAutoresearchReport);
+  let refuse = true;
+  await page.route(`**/api/autoresearch-runs/${f.report_run_id}`, (route) =>
+    refuse ? route.abort('failed') : route.continue(),
+  );
+  await page.goto(`/#/autoresearch/${f.autoresearch_id}`);
+  await page.getByRole('button', { name: /Running.*Open report/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  refuse = false;
+  await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(dialog.getByText('end-of-full-report', { exact: false })).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
+  refuse = true;
+  await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
+    run_id: f.report_run_id,
+    status: 'running',
+    report: fullAutoresearchReport + '\nafter-retry',
+  });
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  expect(await dialog.locator('pre.run-raw').textContent()).toBe(fullAutoresearchReport);
+  refuse = false;
+  await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(dialog.locator('pre.run-raw')).toContainText('after-retry');
+  await expect(dialog.getByRole('tab', { name: 'Raw', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
 });
