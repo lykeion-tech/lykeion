@@ -128,3 +128,18 @@ func TestEachTierIsReadyOnlyWhenTheWorkspaceAllowsIt(t *testing.T) {
 		}
 	}
 }
+
+// TestBasesTheLiveCheckObserved pins bases whose old address stopped
+// answering: the legacy GWAS Catalog API answers 410, and RegulomeDB's
+// search moved from its site to its API host.
+func TestBasesTheLiveCheckObserved(t *testing.T) {
+	for name, base := range map[string]string{
+		"gwas-catalog": "https://www.ebi.ac.uk/gwas/rest/api/v2",
+		"regulomedb":   "https://api.regulomedb.org",
+	} {
+		e, _ := Get(name)
+		if e.Base != base {
+			t.Errorf("%s: base %q, want %q", name, e.Base, base)
+		}
+	}
+}
