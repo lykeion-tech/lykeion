@@ -482,7 +482,6 @@ exec sleep 30`)
 
 func TestOwnedShutdownDoesNotSignalReusedDescendant(t *testing.T) {
 	owner := processOwner{PID: 101, Started: "birth", Nonce: "attempt"}
-	scans := 0
 	checked := false
 	ops := groupOperations{
 		same: func(p processOwner) (bool, error) {
@@ -494,9 +493,8 @@ func TestOwnedShutdownDoesNotSignalReusedDescendant(t *testing.T) {
 		},
 		group: func(int) (int, error) { return owner.PID, nil },
 		members: func(int) ([]groupMember, error) {
-			scans++
 			members := []groupMember{{owner: owner, stopped: true}}
-			if scans == 1 {
+			if !checked {
 				members = append(members, groupMember{owner: processOwner{PID: 102, Started: "old-child"}, stopped: true})
 			}
 			return members, nil
@@ -540,5 +538,176 @@ exec sleep 30`)}).Execute(ctx, "p", ExecOptions{Dir: dir})
 	group, groupErr := syscall.Getpgid(owner.PID)
 	if err != nil || !alive || groupErr != nil || group != owner.PID {
 		t.Fatalf("stale marker retired current supervisor: %v %v %v", alive, err, groupErr)
+	}
+}
+
+// Membership enumeration and state observation need not be one atomic snapshot.
+// A parent can finish forking after its PID was collected but before its stop
+// acknowledgment is read, leaving the new child absent from that scan.
+func TestOwnedShutdownReconcilesMembershipAfterStopAcknowledgments(t *testing.T) {
+	for _, forkAgain := range []bool{false, true} {
+		t.Run(map[bool]string{false: "late child", true: "late child forks during rescan"}[forkAgain], func(t *testing.T) {
+			const leader, child, grandchild, survivor = 101, 102, 103, 104
+			members := map[int]bool{leader: false}
+			scans := 0
+			ops := groupOperations{
+				same:  func(owner processOwner) (bool, error) { _, alive := members[owner.PID]; return alive, nil },
+				group: func(int) (int, error) { return leader, nil },
+				members: func(int) ([]groupMember, error) {
+					scans++
+					var pids []int
+					for pid := range members {
+						pids = append(pids, pid)
+					}
+					if scans == 1 {
+						members[child] = false
+						members[leader] = true
+					}
+					if scans == 2 && forkAgain {
+						members[grandchild] = false
+						members[child] = true
+					}
+					var snapshot []groupMember
+					for _, pid := range pids {
+						snapshot = append(snapshot, groupMember{owner: processOwner{PID: pid, Started: "birth"}, stopped: members[pid]})
+					}
+					return snapshot, nil
+				},
+				signal: func(target int, signal syscall.Signal) error {
+					var pids []int
+					if target < 0 {
+						for pid := range members {
+							pids = append(pids, pid)
+						}
+					} else {
+						pids = []int{target}
+					}
+					if signal == syscall.SIGKILL && target == -leader {
+						for _, stopped := range members {
+							if !stopped {
+								members[survivor] = false
+								break
+							}
+						}
+					}
+					for _, pid := range pids {
+						switch signal {
+						case syscall.SIGSTOP:
+							// The first stop remains pending until the first state observation.
+							if scans > 0 {
+								members[pid] = true
+							}
+						case syscall.SIGKILL:
+							delete(members, pid)
+						default:
+							t.Fatalf("unexpected signal: %v", signal)
+						}
+					}
+					return nil
+				},
+			}
+			killed, err := signalOwnedWith(processOwner{PID: leader, Started: "birth", Nonce: "attempt"}, ops)
+			if !killed || err != nil {
+				t.Fatalf("shutdown: %v %v", killed, err)
+			}
+			if len(members) != 0 {
+				t.Fatalf("unobserved descendants survived witness retirement: %v", members)
+			}
+		})
+	}
+}
+
+func TestOwnedShutdownRetriesVanishedParentObservation(t *testing.T) {
+	const leader, grandchild = 101, 103
+	owner := processOwner{PID: leader, Started: "birth", Nonce: "attempt"}
+	members := map[int]bool{leader: true}
+	scans := 0
+	ops := groupOperations{
+		same:  func(p processOwner) (bool, error) { _, alive := members[p.PID]; return alive, nil },
+		group: func(int) (int, error) { return leader, nil },
+		members: func(int) ([]groupMember, error) {
+			scans++
+			if scans == 2 {
+				// This capture included an unacknowledged parent. It forked after PID
+				// capture, then vanished before its state could be read.
+				members[grandchild] = false
+				return nil, errProcessObservationIncomplete
+			}
+			var snapshot []groupMember
+			for pid, stopped := range members {
+				snapshot = append(snapshot, groupMember{owner: processOwner{PID: pid, Started: "birth"}, stopped: stopped})
+			}
+			return snapshot, nil
+		},
+		signal: func(target int, signal syscall.Signal) error {
+			if signal == syscall.SIGSTOP {
+				for pid := range members {
+					members[pid] = true
+				}
+				return nil
+			}
+			if target == -leader {
+				if len(members) > 1 {
+					t.Fatal("retired witness after an incomplete observation")
+				}
+				delete(members, leader)
+			} else {
+				delete(members, target)
+			}
+			return nil
+		},
+	}
+	killed, err := signalOwnedWith(owner, ops)
+	if !killed || err != nil {
+		t.Fatalf("incomplete observation prevented verified retry: %v %v", killed, err)
+	}
+	if len(members) != 0 {
+		t.Fatalf("late grandchild survived: %v", members)
+	}
+}
+
+func TestOwnedShutdownReconcilesNewZombieIdentity(t *testing.T) {
+	const leader, zombie, grandchild = 101, 102, 103
+	owner := processOwner{PID: leader, Started: "birth", Nonce: "attempt"}
+	live := map[int]bool{leader: true}
+	scans := 0
+	ops := groupOperations{
+		same:  func(p processOwner) (bool, error) { _, alive := live[p.PID]; return alive, nil },
+		group: func(int) (int, error) { return leader, nil },
+		members: func(int) ([]groupMember, error) {
+			scans++
+			if scans == 2 {
+				live[grandchild] = false
+				return []groupMember{{owner: owner, stopped: true}, {owner: processOwner{PID: zombie, Started: "parent-birth"}, exited: true}}, nil
+			}
+			var members []groupMember
+			for pid, stopped := range live {
+				members = append(members, groupMember{owner: processOwner{PID: pid, Started: "birth"}, stopped: stopped})
+			}
+			return members, nil
+		},
+		signal: func(target int, signal syscall.Signal) error {
+			if signal == syscall.SIGSTOP {
+				for pid := range live {
+					live[pid] = true
+				}
+				return nil
+			}
+			if target == -leader {
+				if len(live) > 1 {
+					t.Fatal("new zombie hid a live grandchild before witness retirement")
+				}
+				delete(live, leader)
+			} else {
+				delete(live, target)
+			}
+			return nil
+		},
+	}
+	if killed, err := signalOwnedWith(owner, ops); !killed || err != nil {
+		t.Fatalf("shutdown: %v %v", killed, err)
+	}
+	if len(live) != 0 {
+		t.Fatalf("grandchild survived: %v", live)
 	}
 }

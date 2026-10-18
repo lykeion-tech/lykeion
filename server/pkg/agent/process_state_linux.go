@@ -13,7 +13,11 @@ import (
 )
 
 func processGroupMembers(group int) ([]groupMember, error) {
-	entries, err := os.ReadDir("/proc")
+	return observeLinuxGroup(group, "/proc")
+}
+
+func observeLinuxGroup(group int, root string) ([]groupMember, error) {
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
@@ -23,9 +27,9 @@ func processGroupMembers(group int) ([]groupMember, error) {
 		if err != nil {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "stat"))
+		b, err := os.ReadFile(filepath.Join(root, entry.Name(), "stat"))
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
-			continue
+			return nil, errProcessObservationIncomplete
 		}
 		if err != nil {
 			return nil, err

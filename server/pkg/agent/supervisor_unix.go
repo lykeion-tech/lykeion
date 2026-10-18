@@ -150,6 +150,8 @@ func sameProcess(owner processOwner) (bool, error) {
 	return true, nil
 }
 
+var errProcessObservationIncomplete = errors.New("process group observation incomplete")
+
 const processExitTimeout = 3 * time.Second
 const processPollInterval = 10 * time.Millisecond
 
@@ -204,16 +206,38 @@ func signalOwnedWith(owner processOwner, ops groupOperations) (bool, error) {
 			return false, err
 		}
 		members, err := ops.members(owner.PID)
+		if errors.Is(err, errProcessObservationIncomplete) {
+			members, err = nil, nil
+		}
 		if err != nil {
 			return false, err
 		}
 		stopped, descendants := true, false
+		acknowledged := make(map[int]string, len(members))
 		for _, member := range members {
-			if member.exited {
-				continue
+			stopped = stopped && (member.stopped || member.exited)
+			acknowledged[member.owner.PID] = member.owner.Started
+		}
+		stopped = stopped && acknowledged[owner.PID] == owner.Started
+		if stopped {
+			// Enumeration can collect PIDs before reading their stopped states.
+			// Reconcile after acknowledgments: every live identity in this later
+			// scan must already have been stopped in the earlier scan. A new
+			// identity restarts the protocol even if it now appears stopped.
+			members, err = ops.members(owner.PID)
+			if errors.Is(err, errProcessObservationIncomplete) {
+				members, err = nil, nil
 			}
-			stopped = stopped && member.stopped
-			descendants = descendants || member.owner.PID != owner.PID
+			if err != nil {
+				return false, err
+			}
+			witness := false
+			for _, member := range members {
+				stopped = stopped && (member.stopped || member.exited) && acknowledged[member.owner.PID] == member.owner.Started
+				witness = witness || (member.owner.PID == owner.PID && member.owner.Started == owner.Started && member.stopped && !member.exited)
+				descendants = descendants || (member.owner.PID != owner.PID && !member.exited)
+			}
+			stopped = stopped && witness
 		}
 		if stopped {
 			// Keep the supervisor alive while retiring descendants. Losing the group
