@@ -172,7 +172,7 @@ func (h *H) postCall(w http.ResponseWriter, r *http.Request) {
 		args = in.Args
 	}
 	role := middleware.RoleFrom(r.Context())
-	body, rest := sources.NewCall(role, in.Server, in.Tool, args, in.Answer)
+	body, rest := sources.NewCall(role, in.Server, in.Tool, args, in.Answer, false)
 	hosted := &sources.Hosted{Store: h.Store, Blobs: h.Blobs}
 	key, err := hosted.RecordCall(r.Context(), role, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body, rest)
 	if err != nil {

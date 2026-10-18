@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 
@@ -14,13 +15,20 @@ import (
 
 // Call is a recorded database call as quote matching needs it: its whole
 // answer, read from the blob when the record's body kept only a cut of it.
-type Call struct{ Answer string }
+// Unreadable is set when that blob is gone, and Answer then holds only the
+// cut the body kept.
+type Call struct {
+	Answer     string
+	Unreadable bool
+}
 
 // QuoteMatch is one quote found in a record. Call is the cited call it was
-// found in; it is empty when the quote matched none.
+// found in; it is empty when the quote matched none. Unchecked names a cited
+// call whose full answer could not be read, for a quote that matched none.
 type QuoteMatch struct {
 	Record, Quote, Call string
 	Matched             bool
+	Unchecked           string
 }
 
 // normalize puts text in Unicode NFC and every run of whitespace to one
@@ -30,8 +38,8 @@ func normalize(s string) string {
 }
 
 // LoadCalls reads the whole answer of each call record in recs, from the blob
-// when the body was cut. It does blob I/O, so the caller runs it outside a
-// transaction.
+// when the body was cut; a blob that is gone marks its call unreadable. It
+// does blob I/O, so the caller runs it outside a transaction.
 func LoadCalls(ctx context.Context, blobs storage.Storage, recs []db.Record) (map[string]Call, error) {
 	calls := map[string]Call{}
 	for _, rec := range recs {
@@ -46,6 +54,10 @@ func LoadCalls(ctx context.Context, blobs storage.Storage, recs []db.Record) (ma
 		}
 		if rec.BlobKey != "" {
 			rc, err := blobs.Get(ctx, rec.BlobKey)
+			if errors.Is(err, storage.ErrNotFound) {
+				calls[rec.Key] = Call{Answer: body.Answer, Unreadable: true}
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -77,9 +89,13 @@ func MatchQuotes(recs []db.Record, calls map[string]Call) []QuoteMatch {
 			m := QuoteMatch{Record: rec.Key, Quote: q}
 			if nq := normalize(q); nq != "" {
 				for _, k := range cites {
-					if c, ok := calls[k]; ok && strings.Contains(normalize(c.Answer), nq) {
-						m.Matched, m.Call = true, k
+					c, ok := calls[k]
+					if ok && strings.Contains(normalize(c.Answer), nq) {
+						m.Matched, m.Call, m.Unchecked = true, k, ""
 						break
+					}
+					if ok && c.Unreadable && m.Unchecked == "" {
+						m.Unchecked = k
 					}
 				}
 			}

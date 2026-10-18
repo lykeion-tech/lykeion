@@ -146,7 +146,7 @@ func TestALeaderNamesADeclaredMember(t *testing.T) {
 	if !strings.HasPrefix(m.skill, "You are member-1.") || !strings.Contains(m.skill, "lyk record put") {
 		t.Fatalf("member skill:\n%s", m.skill)
 	}
-	if want := flow.ContinuityScope(uuid.MustParse(l.card.ID), "member-1", "hypotheses", 0); m.scope != want {
+	if want := flow.ContinuityScope(uuid.MustParse(l.card.ID), "member-1", "hypotheses", 1); m.scope != want {
 		t.Fatalf("scope %q, want %q", m.scope, want)
 	}
 }
@@ -443,8 +443,12 @@ func TestALargeAnswerIsKeptWhole(t *testing.T) {
 	var body struct {
 		Answer       string
 		AnswerSHA256 string `json:"answer_sha256"`
+		Truncated    bool
 	}
 	json.Unmarshal(recs[0].Body, &body)
+	if !body.Truncated {
+		t.Fatal("a body that keeps part of the answer says it is not truncated")
+	}
 	if len(body.Answer) > 256<<10 || len(body.Answer) < 256<<10-4 || recs[0].BlobKey == "" {
 		t.Fatalf("body keeps %d bytes, blob %q", len(body.Answer), recs[0].BlobKey)
 	}
@@ -478,7 +482,7 @@ func TestACommentUnblocksIntoARedo(t *testing.T) {
 		t.Fatalf("comment %d", c)
 	}
 	redo := l.claim(t)
-	if redo.role != "leader" || !strings.Contains(redo.prompt, fix) || redo.scope != flow.ContinuityScope(uuid.MustParse(l.card.ID), "leader", "hypotheses", 1) {
+	if redo.role != "leader" || !strings.Contains(redo.prompt, fix) || redo.scope != flow.ContinuityScope(uuid.MustParse(l.card.ID), "leader", "hypotheses", 2) {
 		t.Fatalf("redo run: %s %s\n%s", redo.role, redo.scope, redo.prompt)
 	}
 	var state, kind string

@@ -259,7 +259,7 @@ func (q *Queries) ListOwnPacks(ctx context.Context, arg ListOwnPacksParams) ([]F
 
 const listPackVersions = `-- name: ListPackVersions :many
 SELECT p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, (a.approved_by IS NOT NULL)::bool AS approvals_by_me, a.approved_at,
-  (SELECT count(*) FROM card c WHERE c.workspace_id = p.workspace_id AND c.pack_id = p.id)::int AS pinned_studies
+  (SELECT count(DISTINCT t.card_id) FROM card_team t WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id)::int AS pinned_studies
 FROM field_pack p LEFT JOIN field_pack_approval a
   ON a.workspace_id = p.workspace_id AND a.pack_id = p.id AND a.approved_by = $1
 WHERE p.workspace_id = $2 AND p.name = $3 AND (p.source = 'shipped' OR p.uploaded_by = $1)
@@ -290,7 +290,8 @@ type ListPackVersionsRow struct {
 	PinnedStudies int32           `json:"pinned_studies"`
 }
 
-// The versions of one pack the user may see: shipped ones and their own uploads.
+// The versions of one pack the user may see: shipped ones and their own uploads,
+// each with the number of studies one of whose columns it works.
 func (q *Queries) ListPackVersions(ctx context.Context, arg ListPackVersionsParams) ([]ListPackVersionsRow, error) {
 	rows, err := q.db.Query(ctx, listPackVersions, arg.UserID, arg.WorkspaceID, arg.Name)
 	if err != nil {

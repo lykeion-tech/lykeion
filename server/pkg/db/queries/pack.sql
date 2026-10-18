@@ -41,10 +41,11 @@ SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND
 SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name
   AND uploaded_by IS DISTINCT FROM @user_id::uuid) AS taken;
 
--- The versions of one pack the user may see: shipped ones and their own uploads.
+-- The versions of one pack the user may see: shipped ones and their own uploads,
+-- each with the number of studies one of whose columns it works.
 -- name: ListPackVersions :many
 SELECT p.*, (a.approved_by IS NOT NULL)::bool AS approvals_by_me, a.approved_at,
-  (SELECT count(*) FROM card c WHERE c.workspace_id = p.workspace_id AND c.pack_id = p.id)::int AS pinned_studies
+  (SELECT count(DISTINCT t.card_id) FROM card_team t WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id)::int AS pinned_studies
 FROM field_pack p LEFT JOIN field_pack_approval a
   ON a.workspace_id = p.workspace_id AND a.pack_id = p.id AND a.approved_by = @user_id
 WHERE p.workspace_id = @workspace_id AND p.name = @name AND (p.source = 'shipped' OR p.uploaded_by = @user_id)

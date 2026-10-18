@@ -238,8 +238,8 @@ func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, 
 	}
 	// source_id is the connector request's id; it stays in the body so a
 	// repeated request is recognisable, while the record's key is the call's.
-	call, rest := NewCall(role, "catalogue:"+e.Name, "fetch", r, out.Body)
-	call["truncated"], call["source_id"] = out.Truncated, out.SourceID
+	call, rest := NewCall(role, "catalogue:"+e.Name, "fetch", r, out.Body, out.Truncated)
+	call["source_id"] = out.SourceID
 	out.Call, err = h.RecordCall(ctx, role, token, call, rest)
 	out.Notice += " Cite it as call:" + out.Call + "."
 	return out, err

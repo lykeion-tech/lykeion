@@ -288,9 +288,13 @@ func TestAnAnswerOverTheBodyLimitKeepsItsRestAsABlob(t *testing.T) {
 		b := records.Body[struct {
 			Answer       string
 			AnswerSHA256 string `json:"answer_sha256"`
+			Truncated    bool
 		}](r)
 		full, err := v.Text(r)
 		sum := sha256.Sum256([]byte(out.Body))
+		if !b.Truncated {
+			t.Error("a body that keeps part of the answer says it is not truncated")
+		}
 		if len(b.Answer) != MaxCallAnswer || !strings.HasPrefix(out.Body, b.Answer) || full != out.Body || err != nil || b.AnswerSHA256 != hex.EncodeToString(sum[:]) {
 			t.Errorf("body %d bytes, blob %d bytes, err %v", len(b.Answer), len(full), err)
 		}

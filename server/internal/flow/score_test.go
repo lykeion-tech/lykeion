@@ -19,6 +19,7 @@ import (
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -261,7 +262,7 @@ func TestLowRedoesOnceThenBlocks(t *testing.T) {
 	}
 	var redo *queued
 	for _, r := range l.runs(t, c.ID) {
-		if r.Role == "leader" && r.Scope == ContinuityScope(c.ID, "leader", "hypotheses", 1) {
+		if r.Role == "leader" && r.Scope == ContinuityScope(c.ID, "leader", "hypotheses", c.Round+1) {
 			redo = &r
 		}
 	}
@@ -280,6 +281,18 @@ func TestLowRedoesOnceThenBlocks(t *testing.T) {
 	l.e.Kick(l.ws, c.ID)
 	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND round > $2", c.ID, got.Round); n != 0 {
 		t.Fatalf("a blocked study started %d runs", n)
+	}
+	// The owner's comment redoes the column afresh: its leader resumes no
+	// earlier attempt's session.
+	l.e.OnComment(l.ws, c.ID, l.owner, "Say what the data could not show.")
+	scopes := map[string]int{}
+	for _, r := range l.runs(t, c.ID) {
+		if r.Role == "leader" {
+			scopes[r.Scope]++
+		}
+	}
+	if len(scopes) != 3 {
+		t.Fatalf("three attempts' leaders share sessions: %v", scopes)
 	}
 }
 
@@ -522,5 +535,55 @@ func TestInboxSentences(t *testing.T) {
 		if got != want {
 			t.Errorf("got  %q\nwant %q", got, want)
 		}
+	}
+}
+
+func TestACallWhoseBlobIsGoneIsScoredAsUnreadable(t *testing.T) {
+	l := newLab(t)
+	l.e.Blobs = storage.Local{Dir: t.TempDir()}
+	stub := l.jev(t, 200, levels(nil))
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "grounding", "grounding", a)
+	l.e.Kick(l.ws, c.ID)
+	l.in(t, func(tx *store.Tx) error {
+		ctx := context.Background()
+		if _, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "grounding", Round: c.Round,
+			Kind: "call", Role: "agent", Key: "c1", Body: []byte(`{"answer":"the kept start"}`), BlobKey: l.ws.String() + "/" + c.ID.String() + "/gone"}); err != nil {
+			return err
+		}
+		_, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "grounding", Round: c.Round,
+			Kind: "claim", Role: "agent", Key: "r1", Body: []byte(`{"cites":["call:c1"],"quote":"a passage past the cut"}`)})
+		return err
+	})
+	l.done(t, c.ID, "r1")
+	if got := l.card(t, c.ID); got.State != "done" {
+		t.Fatalf("a missing blob kept the column from being scored: %s", got.State)
+	}
+	if items := l.inbox(t, c.ID, "scoring_unavailable"); len(items) != 0 {
+		t.Fatalf("a missing blob was reported as a Jev outage: %v", items)
+	}
+	if calls := stub.calls(); len(calls) != 1 || !strings.Contains(calls[0].State, "r1: could not be checked: call c1's full answer is unreadable") {
+		t.Fatalf("Jev was not told the call is unreadable: %d calls", len(calls))
+	}
+}
+
+func TestAnAuditorCopyEditedToMatchAMemberIsNotRun(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	if _, err := l.env.Owner.Exec(context.Background(), `UPDATE agent SET harness = m.harness, model = m.model
+		FROM agent m WHERE m.id = $2 AND agent.id = $1`, l.team["auditor"], l.team["member-1"]); err != nil {
+		t.Fatal(err)
+	}
+	c := l.study(t, "hypotheses", true, nil)
+	l.done(t, c.ID)
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND role = 'auditor'", c.ID); n != 0 {
+		t.Fatalf("an auditor sharing a member's harness and model ran: %d runs", n)
+	}
+	calls := stub.calls()
+	if len(calls) != 1 || !strings.Contains(calls[0].State, "the researcher's copy of the auditor runs the same harness and model as ") {
+		t.Fatalf("Jev was not told why there is no audit: %d calls", len(calls))
+	}
+	if got := l.card(t, c.ID); got.State != "done" {
+		t.Fatalf("the column was not scored: %s", got.State)
 	}
 }

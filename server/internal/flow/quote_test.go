@@ -56,7 +56,7 @@ func TestQuotesInNestedRowsUseTheirOwnCites(t *testing.T) {
 	}
 	// the first row inherits the record's cite; the second cites c2 itself;
 	// the third inherits c1, which does not hold its quote
-	for i, want := range []QuoteMatch{{"k", "alpha  beta", "c1", true}, {"k", "gamma delta", "c2", true}, {"k", "gamma delta", "", false}} {
+	for i, want := range []QuoteMatch{{"k", "alpha  beta", "c1", true, ""}, {"k", "gamma delta", "c2", true, ""}, {"k", "gamma delta", "", false, ""}} {
 		found := false
 		for _, m := range got {
 			found = found || m == want

@@ -215,13 +215,15 @@ func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role stri
 	if err != nil {
 		return t, err
 	}
-	return t, tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Redos), RunPrivate: private,
+	return t, tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Round), RunPrivate: private,
 		ID: t.ID, WorkspaceID: tx.WS})
 }
 
 // ContinuityScope names the CLI session a run continues on its owner's
-// daemon: one per role within one attempt at a column, so a resumed leader
-// keeps its session and a redo starts afresh.
-func ContinuityScope(card uuid.UUID, role, column string, redos int32) string {
-	return fmt.Sprintf("card:%s/column:%s/attempt:%d/role:%s", card, column, redos, role)
+// daemon: one per role within one attempt at a column. Every attempt (a
+// study's first at a column, a redo after a low score, a redo the owner asks
+// for) is a new round, so its runs start afresh, while a woken leader resumes
+// its session within the attempt.
+func ContinuityScope(card uuid.UUID, role, column string, round int32) string {
+	return fmt.Sprintf("card:%s/column:%s/round:%d/role:%s", card, column, round, role)
 }

@@ -66,8 +66,10 @@ func (h *Hosted) RecordCall(ctx context.Context, role middleware.Role, token str
 }
 
 // NewCall builds a call record's body: the answer cut to what a body keeps,
-// and the whole answer as rest when it was cut, for the record's blob.
-func NewCall(role middleware.Role, server, tool string, args any, answer string) (map[string]any, string) {
+// and the whole answer as rest when it was cut, for the record's blob. The
+// body is truncated when it was cut here or upstream had already cut the
+// answer (upstreamCut).
+func NewCall(role middleware.Role, server, tool string, args any, answer string, upstreamCut bool) (map[string]any, string) {
 	sum := sha256.Sum256([]byte(answer))
 	rest := ""
 	if len(answer) > MaxCallAnswer {
@@ -78,7 +80,7 @@ func NewCall(role middleware.Role, server, tool string, args any, answer string)
 		answer, rest = answer[:cut], answer
 	}
 	return map[string]any{"server": server, "tool": tool, "args": args, "answer_sha256": hex.EncodeToString(sum[:]),
-		"answer": answer, "truncated": false, "at": time.Now().UTC().Format(time.RFC3339), "agent_run_id": role.AgentRunID}, rest
+		"answer": answer, "truncated": upstreamCut || rest != "", "at": time.Now().UTC().Format(time.RFC3339), "agent_run_id": role.AgentRunID}, rest
 }
 
 // record is Record answering with the key the record was stored under.

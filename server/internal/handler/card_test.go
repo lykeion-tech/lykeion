@@ -348,6 +348,26 @@ func TestDuplicateSaysWhetherFollowingIsAllowed(t *testing.T) {
 	}
 }
 
+func TestATeamCountsTheStudiesItWorks(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting")
+	agent := s.newAgent(t, a, w.ID, "filler", "claude")
+	for _, q := range []string{"one?", "two?"} {
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": q, "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": g}, agent)}, nil); code != 201 {
+			t.Fatalf("create: %d", code)
+		}
+	}
+	for team, want := range map[string]int{g: 2, r: 0} {
+		var rows []packRow
+		s.call(t, "GET", "/api/packs?name="+map[string]string{g: "g", r: "r"}[team], a, w.ID, nil, &rows)
+		if len(rows) != 1 || rows[0].PinnedStudies != want {
+			t.Fatalf("team %s: %+v, want %d studies", team, rows, want)
+		}
+	}
+}
+
 func TestADoneStudyNoLongerHoldsItsQuestion(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")

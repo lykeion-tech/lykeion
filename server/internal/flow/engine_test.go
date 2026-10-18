@@ -151,7 +151,7 @@ func TestATeamColumnWakesOnlyTheLeader(t *testing.T) {
 	if r.Role != "leader" || r.Harness != "codex" || r.Model != "gpt-5.5" || r.Column != "hypotheses" {
 		t.Fatalf("%+v", r)
 	}
-	if r.Scope != ContinuityScope(c.ID, "leader", "hypotheses", 0) {
+	if r.Scope != ContinuityScope(c.ID, "leader", "hypotheses", c.Round) {
 		t.Fatalf("continuity scope %q", r.Scope)
 	}
 	if !strings.Contains(r.Prompt, "Why do cells age?") {

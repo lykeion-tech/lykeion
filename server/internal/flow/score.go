@@ -126,6 +126,9 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 	if err != nil {
 		return false, err
 	}
+	if clash, err := auditorClash(ctx, tx, packID, c.OwnerID, m, a); err != nil || clash != "" {
+		return clash != "", err
+	}
 	cited, err := citedRecords(ctx, tx, c, summary)
 	if err != nil {
 		return false, err
@@ -134,6 +137,23 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 		evidence(records.Body[struct{ Text string }](summary).Text, cited, maxJevInput)
 	_, err = e.enqueue(ctx, tx, c, "auditor", m, a, note, true)
 	return false, err
+}
+
+// auditorClash names the leader or member whose copy runs the same harness
+// and model as the owner's copy of the auditor, a, or is empty when the
+// auditor's copy differs from all of them. Copies are editable, so a Team
+// that was valid when added can come to break the auditor rule.
+func auditorClash(ctx context.Context, tx *store.Tx, packID, owner uuid.UUID, m *pack.Manifest, a db.Agent) (string, error) {
+	for _, mem := range slices.Concat([]pack.Member{m.Leader}, m.Members) {
+		x, err := teamAgent(ctx, tx, packID, owner, mem.Name)
+		if err != nil {
+			return "", err
+		}
+		if x.Harness == a.Harness && x.Model == a.Model {
+			return mem.Name, nil
+		}
+	}
+	return "", nil
 }
 
 // Audit hands a column declared done to its auditor, or, on a column no Team
@@ -253,7 +273,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 		if summary == nil {
 			return nil
 		}
-		_, m, err := columnTeam(ctx, tx, c.ID, c.BoardColumn)
+		packID, m, err := columnTeam(ctx, tx, c.ID, c.BoardColumn)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			in.auditNote = "No auditor checked this column: no Team works it."
@@ -265,10 +285,19 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 				return err
 			}
 			i := slices.IndexFunc(runs, func(r db.AgentRun) bool { return r.Role == "auditor" })
-			if i < 0 || inFlight(runs[i].Status) {
+			if i < 0 {
+				a, err := teamAgent(ctx, tx, packID, c.OwnerID, m.Auditor.Name)
+				if err != nil {
+					return err
+				}
+				clash, err := auditorClash(ctx, tx, packID, c.OwnerID, m, a)
+				if err != nil || clash == "" {
+					return err
+				}
+				in.auditNote = fmt.Sprintf("No auditor checked this column: the researcher's copy of the auditor runs the same harness and model as %s's, so it would not be an independent check.", clash)
+			} else if inFlight(runs[i].Status) {
 				return nil
-			}
-			if in.audit == "" {
+			} else if in.audit == "" {
 				in.auditNote = fmt.Sprintf("The auditor's run ended %s without writing findings; this column is scored without an audit.", runs[i].Status)
 			}
 		}
@@ -353,6 +382,8 @@ func scoringState(in scoring, quotes []QuoteMatch, budget int) string {
 		}
 		if q.Matched {
 			fmt.Fprintf(&qb, "- %s: found in call %s: %s\n", q.Record, q.Call, strconv.Quote(text))
+		} else if q.Unchecked != "" {
+			fmt.Fprintf(&qb, "- %s: could not be checked: call %s's full answer is unreadable: %s\n", q.Record, q.Unchecked, strconv.Quote(text))
 		} else {
 			fmt.Fprintf(&qb, "- %s: not found in any call it cites: %s\n", q.Record, strconv.Quote(text))
 		}
