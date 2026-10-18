@@ -64,6 +64,7 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e struct {
 			Error string `json:"error"`
+			Code  string `json:"code"`
 		}
 		b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if err != nil {
@@ -76,7 +77,7 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 				e.Error += ": " + text
 			}
 		}
-		return &HTTPError{Status: resp.StatusCode, Msg: fmt.Sprintf("%s %s: %s", method, path, e.Error)}
+		return &HTTPError{Status: resp.StatusCode, Code: e.Code, Msg: fmt.Sprintf("%s %s: %s", method, path, e.Error)}
 	}
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		return json.NewDecoder(resp.Body).Decode(out)
@@ -86,6 +87,7 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 
 type HTTPError struct {
 	Status int
+	Code   string
 	Msg    string
 }
 

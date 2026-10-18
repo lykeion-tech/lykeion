@@ -72,12 +72,12 @@ const groups = [
     name: 'Laboratory',
     items: [
       { id: 'studies', name: 'Studies', icon: 'tasks' },
-      { id: 'projects', name: 'Researches', icon: 'folder' },
+      { id: 'projects', name: 'Projects', icon: 'folder' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
   },
   {
-    name: 'IT department',
+    name: 'IT Department',
     items: [
       { id: 'teams', name: 'Teams', icon: 'network' },
       { id: 'agents', name: 'Agents', icon: 'bot' },

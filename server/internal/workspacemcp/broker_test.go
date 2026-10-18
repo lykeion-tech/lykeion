@@ -4,8 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"io"
+	"lykeion/server/internal/availability"
+	"lykeion/server/internal/toolroute"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -319,5 +324,121 @@ func TestWorkspaceMCPCleanupPreventsStaleRecreation(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestCommandInventoryDisableFencePreservesStartedCall(t *testing.T) {
+	for _, operation := range []string{"list", "publish"} {
+		t.Run(operation, func(t *testing.T) {
+			env := testutil.Setup(t)
+			ctx := t.Context()
+			st := &store.Store{Pool: env.App}
+			ws, user, card := uuid.New(), uuid.New(), uuid.New()
+			for _, seed := range []struct {
+				sql  string
+				args []any
+			}{
+				{`INSERT INTO "user"(id,email) VALUES($1,'fence@lab.org')`, []any{user}},
+				{`INSERT INTO workspace(id,slug,name) VALUES($1,'fence','fence')`, []any{ws}},
+				{`INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'owner')`, []any{ws, user}},
+				{`INSERT INTO card(workspace_id,id,number,title,question,owner_id) VALUES($1,$2,1,'q','q',$3)`, []any{ws, card, user}},
+			} {
+				if _, err := env.Owner.Exec(ctx, seed.sql, seed.args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			keys := &connectors.Client{Secret: bytes.Repeat([]byte{7}, 32)}
+			svc := Service{Store: st, Secrets: keys}
+			saved, err := svc.Create(ctx, ws, user, "command", Config{Command: "fixture"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runs := &service.AgentRuns{Store: st, Keys: keys}
+			rts, err := runs.Register(ctx, user, ws, "fence", "laptop", []string{"claude"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = st.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
+				_, e := runs.Enqueue(ctx, tx, user, service.NewAgentRun{Card: card, Column: "grounding", Round: 1, Role: "agent", Harness: "claude", Prompt: "q"})
+				return e
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := service.RuntimeRef{WorkspaceID: ws, RuntimeID: rts[0].ID}
+			claims, err := runs.Claim(ctx, user, []service.RuntimeRef{ref}, 1)
+			if err != nil || len(claims) != 1 {
+				t.Fatalf("claim: %v", err)
+			}
+			claim := claims[0]
+			ref.Attempt = claim.AgentRun.Attempt
+			if err := runs.Start(ctx, user, ref, claim.AgentRun.ID); err != nil {
+				t.Fatal(err)
+			}
+			role := middleware.Role{WorkspaceID: ws, AgentRunID: claim.AgentRun.ID, CardID: card, Column: "grounding", Round: 1, Role: "agent", Scopes: []string{service.ScopeCall}}
+			type fenceKey struct{}
+			entered, release := make(chan struct{}), make(chan struct{})
+			var visits atomic.Int32
+			cfg := env.App.Config()
+			cfg.BeforeAcquire = func(ctx context.Context, _ *pgx.Conn) bool {
+				if ctx.Value(fenceKey{}) == true && visits.Add(1) == 2 {
+					close(entered)
+					select {
+					case <-release:
+					case <-ctx.Done():
+					}
+				}
+				return true
+			}
+			pool, err := pgxpool.NewWithConfig(ctx, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer pool.Close()
+			b := &Broker{Store: &store.Store{Pool: pool}, Keys: keys}
+			defer b.Close()
+			callctx := WithRunAuthority(ctx, claim.CallToken)
+			fingerprint := service.CommandFingerprint([]string{"fixture"}, nil)
+			tools := []toolroute.Tool{{Name: "actual"}}
+			if err := b.PublishTools(callctx, role, saved.ID, tools, fingerprint); err != nil {
+				t.Fatal(err)
+			}
+			record := CommandRecord{Tool: "actual", Args: map[string]any{}, AnswerSHA256: AnswerHash("completed")}
+			start, err := b.BeginCommand(callctx, role, saved.ID, fingerprint, record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				fenced := context.WithValue(callctx, fenceKey{}, true)
+				if operation == "publish" {
+					done <- b.PublishTools(fenced, role, saved.ID, tools, fingerprint)
+				} else {
+					_, e := b.Tools(fenced, role, saved.ID)
+					done <- e
+				}
+			}()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("final inventory fence not reached")
+			}
+			_, err = availability.Set(ctx, st, ws, user, "mcp", saved.ID.String(), 0, false)
+			close(release)
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, ErrDisabled) {
+					t.Fatalf("inventory policy refusal: %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("inventory request hung")
+			}
+			if _, err := b.CommandReceipt(callctx, role, saved.ID, fingerprint, record, start); err != nil {
+				t.Fatalf("started call lost inventory: %v", err)
+			}
+		})
 	}
 }

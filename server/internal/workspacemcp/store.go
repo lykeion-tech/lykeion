@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"lykeion/server/internal/availability"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
@@ -25,6 +26,7 @@ type Config struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 type Summary struct {
+	availability.Policy
 	ID        uuid.UUID `json:"id"`
 	Name      string    `json:"name"`
 	Transport string    `json:"transport"`
@@ -119,7 +121,11 @@ func (s *Service) List(ctx context.Context, ws, user uuid.UUID) ([]Summary, erro
 			return err
 		}
 		for _, r := range rows {
-			out = append(out, Summary{r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt})
+			policy, err := availability.Get(ctx, tx, "mcp", r.ID.String())
+			if err != nil {
+				return err
+			}
+			out = append(out, Summary{policy, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt})
 		}
 		return nil
 	})
@@ -145,7 +151,7 @@ func (s *Service) Create(ctx context.Context, ws, user uuid.UUID, name string, c
 		if err != nil {
 			return err
 		}
-		out = Summary{r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt}
+		out = Summary{availability.Policy{Enabled: true}, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt}
 		return emit(ctx, tx, "connector.created", user, out)
 	})
 	return out, safeError(err)
@@ -179,7 +185,11 @@ func (s *Service) Update(ctx context.Context, ws, user, id uuid.UUID, expected i
 		if err != nil {
 			return err
 		}
-		out = Summary{r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt}
+		out = Summary{availability.Policy{Enabled: true}, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt}
+		out.Policy, err = availability.Get(ctx, tx, "mcp", id.String())
+		if err != nil {
+			return err
+		}
 		return emit(ctx, tx, "connector.updated", user, out)
 	})
 	var stale *StaleRevision
@@ -207,7 +217,7 @@ func (s *Service) Delete(ctx context.Context, ws, user, id uuid.UUID, expected i
 		if err != nil {
 			return err
 		}
-		return emit(ctx, tx, "connector.deleted", user, Summary{r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt})
+		return emit(ctx, tx, "connector.deleted", user, Summary{availability.Policy{Enabled: true}, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt})
 	})
 	var stale *StaleRevision
 	if errors.As(err, &stale) {

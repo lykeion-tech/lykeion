@@ -3,7 +3,7 @@ import { labPack, labSignIn, labWorkspace } from './lab';
 
 const shots = 'test-results/teams-scoring';
 
-test('the sidebar shows the final IT department order', async ({ page }) => {
+test('the sidebar shows the final IT Department order', async ({ page }) => {
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
   const names = await nav.getByRole('link').allInnerTexts();
@@ -15,7 +15,7 @@ test('the sidebar shows the final IT department order', async ({ page }) => {
       .map((name) => name.trim())
       .filter((name) => ['Teams', 'Agents', 'Autoresearch', 'Machines'].includes(name)),
   ).toEqual(['Teams', 'Agents', 'Autoresearch', 'Machines']);
-  await expect(nav.getByText('IT department', { exact: true })).toBeVisible();
+  await expect(nav.getByText('IT Department', { exact: true })).toBeVisible();
   await nav.getByRole('link', { name: 'Teams', exact: true }).click();
   await expect(page).toHaveURL(/#\/teams$/);
   await expect(page.getByRole('heading', { name: 'Teams', level: 1 })).toBeVisible();

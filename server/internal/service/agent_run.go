@@ -20,6 +20,7 @@ import (
 
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/availability"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/pricing"
@@ -1108,8 +1109,9 @@ func (s *AgentRuns) RecoverSettlements(ctx context.Context) error {
 // Its sealed configuration is only opened on the server.
 type WorkspaceConnectorRow struct {
 	db.WorkspaceMcpServer
-	DoorName string
-	Attempt  int32
+	DoorName      string
+	Attempt       int32
+	PolicyEnabled bool
 }
 
 // WorkspaceConnectorRows resolves the run's current Team declarations, or the
@@ -1155,7 +1157,11 @@ func WorkspaceConnectorRows(ctx context.Context, tx *store.Tx, run db.AgentRun) 
 		if row.Transport == "command" && team != nil && !team.Added {
 			continue
 		}
-		out = append(out, WorkspaceConnectorRow{row, ref.Name, run.Attempt})
+		policy, err := availability.Get(ctx, tx, "mcp", row.ID.String())
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, WorkspaceConnectorRow{row, ref.Name, run.Attempt, policy.Enabled})
 	}
 	return out, nil
 }
@@ -1166,6 +1172,9 @@ func (s *AgentRuns) workspaceConnectorClaims(ctx context.Context, tx *store.Tx, 
 	}
 	out := make([]WorkspaceConnectorClaim, 0, len(rows))
 	for _, row := range rows {
+		if !row.PolicyEnabled {
+			continue
+		}
 		claim := WorkspaceConnectorClaim{ID: row.ID, Name: row.DoorName, Transport: row.Transport}
 		if row.Transport == "command" {
 			if s.Keys == nil {

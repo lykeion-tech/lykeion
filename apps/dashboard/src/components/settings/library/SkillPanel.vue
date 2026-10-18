@@ -5,6 +5,9 @@ import { useSkillLibrary } from '../../../api/library';
 import { useMe, useMembers } from '../../../api/queries';
 import { matchesQuery } from '../../../lib/search';
 import Icon from '../../Icon.vue';
+import AvailabilitySwitch from './AvailabilitySwitch.vue';
+import { useAvailabilityChanges } from '../../../state/availability';
+const policy = useAvailabilityChanges();
 import CapabilityList from './CapabilityList.vue';
 import SkillDialog from './SkillDialog.vue';
 import AddSkillDialog from './AddSkillDialog.vue';
@@ -52,6 +55,7 @@ function author(id: string | null) {
         <Icon name="plus" :size="14" />Add skill
       </button>
     </div>
+    <p v-if="policy.error.value" class="inline-error" role="alert">{{ policy.error.value }}</p>
     <CapabilityList
       v-model:query="query"
       :loading="library.isPending.value"
@@ -59,25 +63,33 @@ function author(id: string | null) {
       :count="rows.length"
       @retry="library.refetch()"
     >
-      <button
-        v-for="s in rows"
-        :key="s.id"
-        class="skill-row"
-        :class="{ chosen: selected === s.id }"
-        :aria-label="s.name"
-        @click="
-          selected = s.id;
-          showDetail = true;
-          editing = false;
-        "
-      >
-        <strong>{{ s.name }}</strong
-        ><span>{{ s.description }}</span
-        ><small
-          >{{ s.origin === 'bundled' ? 'K-Dense · Read-only' : author(s.created_by)
-          }}<template v-if="s.contains_scripts"> · Contains scripts</template></small
+      <div v-for="s in rows" :key="s.id" class="skill-entry">
+        <button
+          class="skill-row"
+          :class="{ chosen: selected === s.id }"
+          :aria-label="s.name"
+          @click="
+            selected = s.id;
+            showDetail = true;
+            editing = false;
+          "
         >
-      </button>
+          <strong>{{ s.name }}</strong
+          ><span>{{ s.description }}</span
+          ><small
+            >{{ s.origin === 'bundled' ? 'K-Dense · Read-only' : author(s.created_by)
+            }}<template v-if="s.contains_scripts"> · Contains scripts</template></small
+          >
+        </button>
+        <AvailabilitySwitch
+          :name="s.name"
+          :checked="s.policy_enabled ?? true"
+          :disabled="!policy.allowed.value || !!policy.pending.value"
+          @toggle="
+            policy.toggle('skill', s.id, s.policy_revision ?? 0, !(s.policy_enabled ?? true))
+          "
+        />
+      </div>
     </CapabilityList>
     <SkillDialog
       v-if="selected && showDetail"
@@ -108,14 +120,20 @@ function author(id: string | null) {
   align-items: center;
   gap: 6px;
 }
+.skill-entry {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
 .skill-row {
+  flex: 1;
+  min-width: 0;
   display: block;
   width: 100%;
   text-align: left;
   background: transparent;
   color: var(--text);
   border: 0;
-  border-bottom: 1px solid var(--border);
   padding: 14px 7px;
   cursor: pointer;
 }

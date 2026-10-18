@@ -114,6 +114,7 @@ func NewRouter(h *H) http.Handler {
 		r.Get("/api/runtimes/{id}/local-skills/{requestId}", h.getRuntimeSkills("list"))
 		r.Get("/api/runtimes/{id}/local-skills/import/{requestId}", h.getRuntimeSkills("import"))
 		// Skill services own their transactions so blob I/O stays outside database locks.
+		r.Put("/api/availability/{kind}/{id}", h.setAvailability)
 		r.Get("/api/skills", h.listSkills)
 		r.Get("/api/skills/{id}", h.getSkill)
 		r.Get("/api/skills/{id}/files", h.getSkillFile)

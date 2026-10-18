@@ -213,6 +213,7 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 	}
 	var res *mcp.CallToolResult
 	var receipt string
+	var commandStart string
 	var err error
 	if t.kind == "workspace" {
 		res = &mcp.CallToolResult{}
@@ -229,6 +230,12 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 			if err == nil {
 				err = d.publishWorkspaceTools(ctx, t, tools)
 			}
+			if err == nil {
+				commandStart, err = d.brokerRequest(ctx, "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env), "begin": workspacemcp.CommandRecord{Tool: in.Tool, Args: in.Args}}, nil)
+				if err == nil && commandStart == "" {
+					err = errors.New("workspace command authorization missing")
+				}
+			}
 		}
 		if err == nil {
 			res, err = s.CallTool(ctx, &mcp.CallToolParams{Name: in.Tool, Arguments: in.Args})
@@ -238,11 +245,7 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 		return nil, nil, err
 	}
 	if t.c.Workspace != "" && t.kind == "command" {
-		tools, err := d.list(ctx, t)
-		if err != nil {
-			return nil, nil, err
-		}
-		receipt, err = d.brokerRequest(ctx, "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"tools": tools, "fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env), "record": workspacemcp.CommandRecord{Tool: in.Tool, Args: in.Args, AnswerSHA256: workspacemcp.AnswerHash(text(res))}}, nil)
+		receipt, err = d.brokerRequest(ctx, "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"start": commandStart, "fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env), "record": workspacemcp.CommandRecord{Tool: in.Tool, Args: in.Args, AnswerSHA256: workspacemcp.AnswerHash(text(res))}}, nil)
 		if err != nil {
 			d.dropCommand(t)
 			return nil, nil, errors.New("workspace command authority changed; answer withheld")
@@ -452,6 +455,9 @@ func (d *Door) tools(w http.ResponseWriter, r *http.Request) {
 			err = d.publishWorkspaceTools(ctx, t, tools)
 		}
 		if err != nil {
+			if disabledWorkspaceConnector(err) {
+				continue
+			}
 			http.Error(w, "workspace connector tools unavailable", http.StatusBadGateway)
 			return
 		}
@@ -533,10 +539,15 @@ func (d *Door) publishWorkspaceTools(ctx context.Context, t target, tools []tool
 	}
 	api := &apiclient.Client{Server: d.Server, Token: d.CallToken, HTTP: &http.Client{Timeout: callTimeout}}
 	err := api.Do(ctx, "POST", "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"tools": tools, "fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env)}, nil)
-	if err != nil {
+	if err != nil && !disabledWorkspaceConnector(err) {
 		d.dropCommand(t)
 	}
 	return err
+}
+
+func disabledWorkspaceConnector(err error) bool {
+	var response *apiclient.HTTPError
+	return errors.As(err, &response) && response.Status == http.StatusConflict && response.Code == "connector_disabled"
 }
 
 func (d *Door) dropCommand(t target) {

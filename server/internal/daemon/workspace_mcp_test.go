@@ -19,11 +19,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"lykeion/server/internal/availability"
 	"lykeion/server/internal/connectors"
+	"lykeion/server/internal/flow"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
+	"lykeion/server/internal/toolroute"
 	"lykeion/server/internal/workspacemcp"
 	"lykeion/server/pkg/agent"
 )
@@ -430,5 +434,142 @@ func TestWorkspaceMCPRecordRejectsChangedAuthority(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestWorkspaceCommandDisableKeepsStartedAnswer(t *testing.T) {
+	f := fixture(t)
+	ctx := t.Context()
+	id := workspaceTestCommand(t, f, f.runs.Keys)
+	rts, err := f.runs.Register(ctx, f.user, f.ws, "policy-command", "laptop", []string{"claude"}, nil)
+	must(t, err)
+	ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rts[0].ID}
+	claims, err := f.runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1)
+	must(t, err)
+	if len(claims) != 1 {
+		t.Fatal("no claim")
+	}
+	ref.Attempt = claims[0].AgentRun.Attempt
+	must(t, f.runs.Start(ctx, f.user, ref, claims[0].AgentRun.ID))
+	dir := t.TempDir()
+	d := &Door{Server: f.cfg.Server, CallToken: claims[0].CallToken, WorkspaceConnectors: claims[0].WorkspaceConnectors, Child: func() agent.ExecOptions { return agent.ExecOptions{Dir: dir} }}
+	must(t, d.Start())
+	defer d.Close()
+	type result struct {
+		answer string
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		a, e := callTool(t, d, "workspace-command", "echo", map[string]any{"q": "workspace-wait"})
+		done <- result{a, e}
+	}()
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		if _, err := os.Stat(filepath.Join(dir, "stub.started")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("command did not enter execution")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_, err = availability.Set(ctx, f.runs.Store, f.ws, f.user, "mcp", id.String(), 0, false)
+	must(t, err)
+	answer, denied := callTool(t, d, "workspace-command", "echo", map[string]any{"q": "concurrent-after-disable"})
+	if denied == nil || answer != "" {
+		t.Fatalf("disabled concurrent call: %q %v", answer, denied)
+	}
+	must(t, os.WriteFile(filepath.Join(dir, "stub.release"), []byte("release"), 0600))
+	select {
+	case res := <-done:
+		if res.err != nil || !strings.Contains(res.answer, "echo workspace-wait") {
+			t.Fatalf("in-flight completion: %q %v", res.answer, res.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("in-flight completion hung")
+	}
+	var records int
+	must(t, f.env.Owner.QueryRow(ctx, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='call'`, f.card).Scan(&records))
+	if records != 1 {
+		t.Fatalf("completed records: %d", records)
+	}
+	answer, err = callTool(t, d, "workspace-command", "echo", map[string]any{"q": "after"})
+	if err == nil || answer != "" {
+		t.Fatalf("disabled new call: %q %v", answer, err)
+	}
+	must(t, f.env.Owner.QueryRow(ctx, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='call'`, f.card).Scan(&records))
+	if records != 1 {
+		t.Fatalf("new disabled record: %d", records)
+	}
+}
+
+func TestDoorRoutingSkipsDisabledWorkspaceClaims(t *testing.T) {
+	for _, transport := range []string{"command", "url"} {
+		t.Run(transport, func(t *testing.T) {
+			f := fixture(t)
+			ctx := t.Context()
+			j := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var in struct{ Questions map[string]json.RawMessage }
+				json.NewDecoder(r.Body).Decode(&in)
+				answers := map[string]any{}
+				for id := range in.Questions {
+					answers[id] = map[string]any{"type": "noul", "noul": .9}
+				}
+				json.NewEncoder(w).Encode(map[string]any{"model": jev.Model, "answers": answers})
+			}))
+			defer j.Close()
+			f.h.Engine = &flow.Engine{Store: f.runs.Store, Blobs: f.h.Blobs, Jev: &jev.Client{BaseURL: j.URL, Key: "fixture", Model: jev.Model}}
+			upstream := httptest.NewTLSServer(labMCP(nil))
+			defer upstream.Close()
+			f.runs.Keys.HTTP = upstream.Client()
+			svc := workspacemcp.Service{Store: f.runs.Store, Secrets: f.runs.Keys}
+			kept, err := svc.Create(ctx, f.ws, f.user, "kept", workspacemcp.Config{URL: upstream.URL})
+			must(t, err)
+			var disabled uuid.UUID
+			if transport == "command" {
+				disabled = workspaceTestCommand(t, f, f.runs.Keys)
+			} else {
+				c, e := svc.Create(ctx, f.ws, f.user, "disabled", workspacemcp.Config{URL: upstream.URL})
+				must(t, e)
+				disabled = c.ID
+			}
+			rts, err := f.runs.Register(ctx, f.user, f.ws, "discovery-policy", "laptop", []string{"claude"}, nil)
+			must(t, err)
+			ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rts[0].ID}
+			claims, err := f.runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1)
+			must(t, err)
+			if len(claims) != 1 || len(claims[0].WorkspaceConnectors) != 2 {
+				t.Fatalf("claim: %+v", claims)
+			}
+			ref.Attempt = claims[0].AgentRun.Attempt
+			must(t, f.runs.Start(ctx, f.user, ref, claims[0].AgentRun.ID))
+			_, err = availability.Set(ctx, f.runs.Store, f.ws, f.user, "mcp", disabled.String(), 0, false)
+			must(t, err)
+			d := &Door{Server: f.cfg.Server, RunToken: claims[0].Token, CallToken: claims[0].CallToken, WorkspaceConnectors: claims[0].WorkspaceConnectors, Child: func() agent.ExecOptions { return agent.ExecOptions{Dir: t.TempDir()} }}
+			must(t, d.Start())
+			req := httptest.NewRequest("POST", "/tools", strings.NewReader(`{"need":"look up a gene"}`))
+			response := httptest.NewRecorder()
+			d.tools(response, req)
+			defer d.Close()
+			if response.Code != 200 {
+				t.Fatalf("disabled claim blocked routing: %d %s", response.Code, response.Body.String())
+			}
+			var result toolroute.Result
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, tool := range result.Tools {
+				if tool.Server == kept.Name {
+					found = true
+				}
+				if tool.Server == "disabled" || tool.Server == "workspace-command" {
+					t.Fatal("disabled tool routed")
+				}
+			}
+			if !found {
+				t.Fatalf("enabled connector omitted: %+v", result.Tools)
+			}
+		})
 	}
 }

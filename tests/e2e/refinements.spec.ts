@@ -12,14 +12,14 @@ async function backlogStudy(request: APIRequestContext, headers: Record<string, 
   return (await res.json()) as { id: string };
 }
 
-test('inspector resize, real Research and assignment persist; disclosures and Runs use recorded data', async ({
+test('inspector resize, real Project and assignment persist; disclosures and Runs use recorded data', async ({
   page,
 }) => {
   const f = await labFixture(page.request);
   const headers = { 'X-Workspace-ID': f.workspace_id };
   await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
   const research = await (
-    await page.request.post('/api/researches', { headers, data: { name: 'Recorded Research' } })
+    await page.request.post('/api/researches', { headers, data: { name: 'Recorded Project' } })
   ).json();
   const me = await (await page.request.get('/api/me')).json();
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -30,9 +30,7 @@ test('inspector resize, real Research and assignment persist; disclosures and Ru
   await resize.focus();
   await page.keyboard.press('End');
   await expect(inspector).toHaveCSS('width', '480px');
-  await inspector
-    .getByRole('combobox', { name: 'Research', exact: true })
-    .selectOption(research.id);
+  await inspector.getByRole('combobox', { name: 'Project', exact: true }).selectOption(research.id);
   // A started study keeps its assignee: it is shown, not offered.
   await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveCount(0);
   await expect(inspector.locator('.property-row', { hasText: 'Assignee' })).toBeVisible();
@@ -54,7 +52,7 @@ test('inspector resize, real Research and assignment persist; disclosures and Ru
   );
   await page.goto(`/#/studies/${f.card_id}`);
   await expect(inspector).toHaveCSS('width', '480px');
-  await expect(inspector.getByRole('combobox', { name: 'Research', exact: true })).toHaveValue(
+  await expect(inspector.getByRole('combobox', { name: 'Project', exact: true })).toHaveValue(
     research.id,
   );
   await expect(
@@ -81,7 +79,7 @@ test('inspector resize, real Research and assignment persist; disclosures and Ru
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/inspector.png',
   });
   await page.goto('/#/projects/' + research.id);
-  await expect(page.getByRole('heading', { name: 'Recorded Research', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recorded Project', exact: true })).toBeVisible();
   await expect(page.locator('.research-studies a')).toHaveCount(1);
 });
 
@@ -146,23 +144,23 @@ test('Execution log and Details independently disclose; Runs keeps recorded cost
   await expect(dialog).toContainText('Full attempt timing is unavailable.');
 });
 
-test('Research creation/edit and member/agent responsibility use canonical writes and old/current Research events', async ({
+test('Project creation/edit and member/agent responsibility use canonical writes and old/current Project events', async ({
   page,
 }) => {
   const f = await labFixture(page.request),
     headers = { 'X-Workspace-ID': f.workspace_id };
   await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
   await page.goto('/#/projects');
-  await page.getByRole('button', { name: 'New Research', exact: true }).click();
-  const create = page.getByRole('dialog', { name: 'New Research', exact: true });
-  await create.getByRole('textbox', { name: 'Research name' }).fill('Question grouping');
-  await create.getByRole('textbox', { name: 'Research description' }).fill('Recorded scope');
-  await create.getByRole('button', { name: 'Create Research', exact: true }).click();
+  await page.getByRole('button', { name: 'New Project', exact: true }).click();
+  const create = page.getByRole('dialog', { name: 'New Project', exact: true });
+  await create.getByRole('textbox', { name: 'Project name' }).fill('Question grouping');
+  await create.getByRole('textbox', { name: 'Project description' }).fill('Recorded scope');
+  await create.getByRole('button', { name: 'Create Project', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Question grouping', exact: true })).toBeVisible();
   const first = page.url().split('/').pop()!;
-  await page.getByRole('button', { name: 'Edit Research', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Research description' }).fill('Revised scope');
-  await page.getByRole('button', { name: 'Save Research', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit Project', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Project description' }).fill('Revised scope');
+  await page.getByRole('button', { name: 'Save Project', exact: true }).click();
   await expect(page.locator('.description')).toHaveText('Revised scope');
   const second = await (
     await page.request.post('/api/researches', { headers, data: { name: 'Second research' } })
@@ -193,7 +191,7 @@ test('Research creation/edit and member/agent responsibility use canonical write
     [first, second.id],
     [second.id, null],
   ]) {
-    await meta.getByRole('combobox', { name: 'Research', exact: true }).selectOption(current ?? '');
+    await meta.getByRole('combobox', { name: 'Project', exact: true }).selectOption(current ?? '');
     await expect
       .poll(
         async () =>
@@ -226,14 +224,7 @@ test('Research creation/edit and member/agent responsibility use canonical write
     ).toHaveLength(current === second.id ? 1 : 0);
   }
   const after = await (await page.request.get(`/api/cards/${f.card_id}`, { headers })).json();
-  for (const key of [
-    'owner_id',
-    'board_column',
-    'state',
-    'round',
-    'spent_usd',
-    'ending',
-  ])
+  for (const key of ['owner_id', 'board_column', 'state', 'round', 'spent_usd', 'ending'])
     expect(after[key]).toEqual(before[key]);
   expect(
     await (await page.request.get(`/api/cards/${f.card_id}/runs`, { headers })).json(),
@@ -362,13 +353,13 @@ for (const kind of ['researches', 'agents'] as const) {
       await gate;
       await route.fulfill({ response });
     });
-    const label = kind === 'researches' ? 'Research' : 'agent';
+    const label = kind === 'researches' ? 'Project' : 'agent';
     await page.getByRole('button', { name: 'New ' + label, exact: true }).click();
     if (kind === 'agents') await page.getByRole('button', { name: /Start blank/ }).click();
     const dialog = page.getByRole('dialog', { name: 'New ' + label, exact: true });
     const name = 'Held ' + kind + ' creation';
     await dialog
-      .getByRole('textbox', { name: kind === 'researches' ? 'Research name' : 'Agent name' })
+      .getByRole('textbox', { name: kind === 'researches' ? 'Project name' : 'Agent name' })
       .fill(name);
     await dialog.getByRole('button', { name: 'Create ' + label, exact: true }).click();
     await held;
@@ -388,7 +379,7 @@ for (const kind of ['researches', 'agents'] as const) {
   });
 }
 
-test('open Research detail updates embedded linked studies after another client edits and deletes', async ({
+test('open Project detail updates embedded linked studies after another client edits and deletes', async ({
   page,
 }) => {
   const ws = await (

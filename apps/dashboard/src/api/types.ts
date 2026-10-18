@@ -363,6 +363,8 @@ export type AutoresearchRunDetail = {
 
 export type SkillSource = { kind: string; location: string; runtime_id?: string };
 export interface SkillSummary {
+  policy_enabled: boolean;
+  policy_revision: number;
   id: string;
   name: string;
   domain: string;
@@ -395,6 +397,8 @@ export interface ConnectorSummary {
   revision: number;
 }
 export interface WorkspaceMcpSummary {
+  policy_enabled: boolean;
+  policy_revision: number;
   id: string;
   name: string;
   transport: 'url' | 'command';

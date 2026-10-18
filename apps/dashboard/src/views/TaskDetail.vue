@@ -396,23 +396,23 @@ function pin() {
         </select>
       </div>
       <div class="property-row">
-        <label for="study-research">Research</label><Icon name="folder" :size="13" /><select
+        <label for="study-research">Project</label><Icon name="folder" :size="13" /><select
           id="study-research"
-          aria-label="Research"
+          aria-label="Project"
           :value="c.research_id ?? ''"
           :disabled="propertyBusy || researches.isPending.value"
           @change="
             saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
           "
         >
-          <option value="">No research</option>
+          <option value="">No project</option>
           <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
             {{ r.name }}
           </option></select
         ><RouterLink
           v-if="c.research_id"
           :to="'/projects/' + c.research_id"
-          aria-label="Open Research"
+          aria-label="Open Project"
           ><Icon name="right" :size="12"
         /></RouterLink>
       </div>
@@ -420,7 +420,7 @@ function pin() {
         v-for="read in [
           { query: members, label: 'members' },
           { query: agents, label: 'agents' },
-          { query: researches, label: 'Researches' },
+          { query: researches, label: 'Projects' },
         ].filter((x) => x.query.error.value)"
         :key="read.label"
         class="inline-error"
@@ -583,9 +583,11 @@ function pin() {
               <div v-for="s in flow.scores" :key="s.criterion" class="score-row">
                 <span>{{ s.criterion }}</span
                 ><span class="level">{{ levelText(s.level) }} of 5</span
-                ><span v-if="s.level <= 2 && redoLabel(c.redos, c.round, firstRound)" class="chip">{{
-                  redoLabel(c.redos, c.round, firstRound)
-                }}</span>
+                ><span
+                  v-if="s.level <= 2 && redoLabel(c.redos, c.round, firstRound)"
+                  class="chip"
+                  >{{ redoLabel(c.redos, c.round, firstRound) }}</span
+                >
               </div>
             </section>
             <section v-if="flow.steps.length" class="flow-block" aria-label="Steps">

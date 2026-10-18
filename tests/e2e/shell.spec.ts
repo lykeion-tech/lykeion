@@ -10,7 +10,7 @@ test('the sidebar shows the implemented workspace destinations only', async ({ p
     'Inbox',
     'Studies',
     'Teams',
-    'Researches',
+    'Projects',
     'Autoresearch',
     'Agents',
     'Colleagues',
@@ -39,9 +39,9 @@ test('the Studies header has no sidebar toggle when the sidebar is collapsed', a
   await expect(page.locator('.sidebar')).toBeVisible();
 });
 
-test('the approved Researches and Agents directory routes are reachable', async ({ page }) => {
+test('the approved Projects and Agents directory routes are reachable', async ({ page }) => {
   for (const [path, heading] of [
-    ['projects', 'Researches'],
+    ['projects', 'Projects'],
     ['agents', 'Agents'],
   ]) {
     await page.goto(`/#/${path}`);
@@ -49,7 +49,7 @@ test('the approved Researches and Agents directory routes are reachable', async 
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
     await expect(
       page.locator('.page-header').getByRole('button', {
-        name: heading === 'Agents' ? 'New agent' : 'New Research',
+        name: heading === 'Agents' ? 'New agent' : 'New Project',
         exact: true,
       }),
     ).toBeVisible();

@@ -159,6 +159,8 @@ func (h *H) workspaceMCPTools(w http.ResponseWriter, r *http.Request) {
 		Tools       *[]toolroute.Tool           `json:"tools,omitempty"`
 		Fingerprint string                      `json:"fingerprint,omitempty"`
 		Record      *workspacemcp.CommandRecord `json:"record,omitempty"`
+		Begin       *workspacemcp.CommandRecord `json:"begin,omitempty"`
+		Start       string                      `json:"start,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid tools request")
@@ -166,6 +168,34 @@ func (h *H) workspaceMCPTools(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := workspacemcp.WithRunAuthority(r.Context(), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	role := middleware.RoleFrom(ctx)
+	if in.Record != nil {
+		if in.Begin != nil || in.Tools != nil {
+			writeErr(w, 400, "invalid completion request")
+			return
+		}
+		ticket, err := h.MCPBroker.CommandReceipt(ctx, role, id, in.Fingerprint, *in.Record, in.Start)
+		if err != nil {
+			h.brokerError(w, r, err)
+			return
+		}
+		w.Header().Set(workspacemcp.RecordHeader, ticket)
+		writeJSON(w, 200, []toolroute.Tool{})
+		return
+	}
+	if in.Begin != nil {
+		if in.Tools != nil || in.Start != "" {
+			writeErr(w, 400, "invalid authorization request")
+			return
+		}
+		ticket, err := h.MCPBroker.BeginCommand(ctx, role, id, in.Fingerprint, *in.Begin)
+		if err != nil {
+			h.brokerError(w, r, err)
+			return
+		}
+		w.Header().Set(workspacemcp.RecordHeader, ticket)
+		writeJSON(w, 200, []toolroute.Tool{})
+		return
+	}
 	if in.Fingerprint != "" {
 		if err := h.MCPBroker.CheckCommand(ctx, role, id, in.Fingerprint); err != nil {
 			h.brokerError(w, r, err)
@@ -183,14 +213,7 @@ func (h *H) workspaceMCPTools(w http.ResponseWriter, r *http.Request) {
 		h.brokerError(w, r, err)
 		return
 	}
-	if in.Record != nil {
-		ticket, err := h.MCPBroker.CommandReceipt(ctx, role, id, in.Fingerprint, *in.Record)
-		if err != nil {
-			h.brokerError(w, r, err)
-			return
-		}
-		w.Header().Set(workspacemcp.RecordHeader, ticket)
-	}
+
 	writeJSON(w, 200, out)
 }
 func (h *H) workspaceMCPCall(w http.ResponseWriter, r *http.Request) {
@@ -219,6 +242,8 @@ func (h *H) workspaceMCPCall(w http.ResponseWriter, r *http.Request) {
 }
 func (h *H) brokerError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, workspacemcp.ErrDisabled):
+		writeJSON(w, 409, map[string]string{"error": err.Error(), "code": "connector_disabled"})
 	case errors.Is(err, middleware.ErrRoleUnauthorized):
 		writeErr(w, 401, "invalid or finished agent run")
 	case errors.Is(err, pgx.ErrNoRows):

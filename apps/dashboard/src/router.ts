@@ -53,7 +53,7 @@ const routes: RouteRecordRaw[] = [
     path: '/projects/:id?',
     component: ResearchesView,
     props: true,
-    meta: { page: 'projects', title: 'Researches' },
+    meta: { page: 'projects', title: 'Projects' },
   },
   {
     path: '/autoresearch/:id?',

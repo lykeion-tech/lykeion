@@ -34,7 +34,14 @@ function restored(): Tab[] {
           x.index < x.history.length,
       )
     )
-      return t.map((x) => ({ ...x, pinned: x.pinned === true }));
+      return t.map((x) => ({
+        ...x,
+        title:
+          x.title === 'Researches' && /^\/projects(?:\/|[?#]|$)/.test(x.path)
+            ? 'Projects'
+            : x.title,
+        pinned: x.pinned === true,
+      }));
   } catch {
     // An entry that is not an object fails the shape check; the session starts afresh.
   }

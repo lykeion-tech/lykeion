@@ -176,6 +176,20 @@ export function useLibraryMutations() {
     keys.workspaceMCPItem(workspace, summary.id),
   ];
   return {
+    setAvailability: (
+      kind: 'skill' | 'mcp',
+      id: string,
+      input: { revision: number; enabled: boolean },
+    ) =>
+      mutate<{ enabled: boolean; revision: number }>(
+        'PUT',
+        `/api/availability/${kind}/${kind === 'skill' ? skillSegment(id) : encodeURIComponent(id)}`,
+        input,
+        (workspace) =>
+          kind === 'skill'
+            ? [keys.skills(workspace), keys.skill(workspace, id)]
+            : [keys.workspaceMCP(workspace), keys.workspaceMCPItem(workspace, id)],
+      ),
     createSkill: (input: SkillCreate) =>
       mutate<SkillDetail>('POST', '/api/skills', input, skillChanged),
     updateSkill: (id: string, input: SkillUpdate) =>

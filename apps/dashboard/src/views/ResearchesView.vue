@@ -66,11 +66,11 @@ async function save() {
 <template>
   <section class="directory-page">
     <template v-if="id"
-      ><RouterLink to="/projects" class="text-button">← Researches</RouterLink>
+      ><RouterLink to="/projects" class="text-button">← Projects</RouterLink>
       <div v-if="detail.data.value" class="research-detail">
         <header>
           <h1>{{ detail.data.value.name }}</h1>
-          <button class="button" @click="edit">Edit Research</button>
+          <button class="button" @click="edit">Edit Project</button>
         </header>
         <p class="description">{{ detail.data.value.description || 'No description.' }}</p>
         <h2>Studies</h2>
@@ -85,7 +85,7 @@ async function save() {
             ><Icon name="right"
           /></RouterLink>
           <p v-if="!detail.data.value.studies.length" class="muted">
-            No studies linked yet. Choose this Research in a study’s properties.
+            No studies linked yet. Choose this Project in a study’s properties.
           </p>
         </div>
       </div></template
@@ -99,7 +99,7 @@ async function save() {
             editor = true;
           "
         >
-          <Icon name="plus" :size="14" />New Research
+          <Icon name="plus" :size="14" />New Project
         </button>
       </Teleport>
       <div class="directory-list">
@@ -111,29 +111,27 @@ async function save() {
       </div>
       <div v-if="list.isSuccess.value && !list.data.value?.length" class="directory-empty">
         <Icon name="folder" :size="30" />
-        <h2>No Researches yet</h2>
-        <p>Group related studies in a Research.</p>
-        <button class="button" @click="edit">Create Research</button>
+        <h2>No Projects yet</h2>
+        <p>Group related studies in a Project.</p>
+        <button class="button" @click="edit">Create Project</button>
       </div></template
     >
     <p v-if="failure" class="inline-error" role="alert">
       {{ failure.message }} <button @click="id ? detail.refetch() : list.refetch()">Retry</button>
     </p>
-    <p v-if="id ? detail.isPending.value : list.isPending.value" role="status">
-      Loading Researches…
-    </p>
-    <Modal v-if="editor" :title="id ? 'Edit Research' : 'New Research'" @close="editor = false"
+    <p v-if="id ? detail.isPending.value : list.isPending.value" role="status">Loading Projects…</p>
+    <Modal v-if="editor" :title="id ? 'Edit Project' : 'New Project'" @close="editor = false"
       ><form class="directory-form" @submit.prevent="save">
-        <h2>{{ id ? 'Edit Research' : 'New Research' }}</h2>
-        <label>Name<input v-model="name" required aria-label="Research name" /></label
+        <h2>{{ id ? 'Edit Project' : 'New Project' }}</h2>
+        <label>Name<input v-model="name" required aria-label="Project name" /></label
         ><label
-          >Description<textarea v-model="description" aria-label="Research description" />
+          >Description<textarea v-model="description" aria-label="Project description" />
         </label>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
         <footer>
           <button type="button" class="button" @click="editor = false">Cancel</button
           ><button class="button primary" :disabled="busy || !name.trim()">
-            {{ id ? 'Save Research' : 'Create Research' }}
+            {{ id ? 'Save Project' : 'Create Project' }}
           </button>
         </footer>
       </form></Modal

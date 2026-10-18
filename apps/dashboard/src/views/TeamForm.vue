@@ -71,7 +71,11 @@ const auditorClash = computed(() => {
 
 function connectorProblem(c: Conn): string {
   if (c.kind === 'workspace')
-    return workspaceConnectors.data.value?.some((item) => item.id === c.value) ? '' : 'unavailable';
+    return workspaceConnectors.data.value?.some(
+      (item) => item.id === c.value && item.policy_enabled,
+    )
+      ? ''
+      : 'unavailable';
   if (c.kind === 'catalogue')
     return catalogue.data.value?.some((item) => item.name === c.name) ? '' : 'unavailable';
   if (!c.name.trim()) return 'name';
@@ -110,7 +114,11 @@ const problem = computed(() => {
     )
       return `The member name ${m.name} is used twice.`;
     if (!m.agent || !m.role.trim()) return `${m.name} needs an agent and a role.`;
-    if (m.skills.some((name) => !skills.data.value?.some((item) => item.name === name)))
+    if (
+      m.skills.some(
+        (name) => !skills.data.value?.some((item) => item.name === name && item.policy_enabled),
+      )
+    )
       return `Check ${m.name}'s unavailable skills.`;
     if (m.connectors.some((c) => connectorProblem(c))) return `Check ${m.name}'s connectors.`;
   }
@@ -284,7 +292,12 @@ async function create() {
             "
           >
             <option value="">+ skill</option>
-            <option v-for="s in skills.data.value ?? []" :key="s.name" :value="s.name">
+            <option
+              v-for="s in skills.data.value ?? []"
+              :key="s.name"
+              :value="s.name"
+              :disabled="!s.policy_enabled"
+            >
               {{ s.name }}
             </option>
           </select>
@@ -317,7 +330,10 @@ async function create() {
                 v-for="c in workspaceConnectors.data.value ?? []"
                 :key="c.id"
                 :value="'workspace:' + c.id"
-                :disabled="m.connectors.some((x) => x.kind === 'workspace' && x.value === c.id)"
+                :disabled="
+                  !c.policy_enabled ||
+                  m.connectors.some((x) => x.kind === 'workspace' && x.value === c.id)
+                "
               >
                 {{ c.name }}
               </option>

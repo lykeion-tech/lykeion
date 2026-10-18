@@ -75,7 +75,7 @@ test('Properties precedes the study with its right-edge resizer and preserves co
   await page.screenshot({ path: `${artifacts}/mobile-800.png` });
 });
 
-test('Researches creates from the title header without an introductory toolbar or actions on other routes', async ({
+test('Projects creates from the title header without an introductory toolbar or actions on other routes', async ({
   page,
 }) => {
   const f = await labFixture(page.request);
@@ -86,14 +86,14 @@ test('Researches creates from the title header without an introductory toolbar o
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/#/projects');
   const header = page.locator('.page-header');
-  const create = header.getByRole('button', { name: 'New Research', exact: true });
+  const create = header.getByRole('button', { name: 'New Project', exact: true });
   await expect(create).toBeVisible();
   await expect(
     page.getByText('Organize studies around a shared research question.', { exact: true }),
   ).toHaveCount(0);
   await expect(page.locator('.directory-toolbar')).toHaveCount(0);
   const title = (await header
-    .getByRole('heading', { name: 'Researches', exact: true })
+    .getByRole('heading', { name: 'Projects', exact: true })
     .boundingBox())!;
   const button = (await create.boundingBox())!;
   const heading = (await header.boundingBox())!;
@@ -101,22 +101,22 @@ test('Researches creates from the title header without an introductory toolbar o
   expect(heading.x + heading.width - button.x - button.width).toBeLessThanOrEqual(24);
   await page.screenshot({ path: `${artifacts}/researches-header-1920.png` });
   await create.click();
-  const dialog = page.getByRole('dialog', { name: 'New Research', exact: true });
-  await dialog.getByRole('textbox', { name: 'Research name' }).fill('Header-created Research');
-  await dialog.getByRole('button', { name: 'Create Research', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New Project', exact: true });
+  await dialog.getByRole('textbox', { name: 'Project name' }).fill('Header-created Project');
+  await dialog.getByRole('button', { name: 'Create Project', exact: true }).click();
   await expect(page).toHaveURL(/#\/projects\/[a-f0-9-]+$/);
   await expect(
-    page.getByRole('heading', { name: 'Header-created Research', exact: true }),
+    page.getByRole('heading', { name: 'Header-created Project', exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'New Research', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Edit Research', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New Project', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit Project', exact: true })).toBeVisible();
   await page.goto('/#/agents');
-  await expect(page.getByRole('button', { name: 'New Research', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'New Project', exact: true })).toHaveCount(0);
   await page.goto('/#/projects');
   await expect(create).toBeVisible();
 });
 
-test('Agents and Researches create from scoped title actions with decorative plus icons', async ({
+test('Agents and Projects create from scoped title actions with decorative plus icons', async ({
   page,
 }) => {
   const f = await labFixture(page.request);
@@ -146,11 +146,11 @@ test('Agents and Researches create from scoped title actions with decorative plu
   ).toBeVisible();
   await expect(header.getByRole('button', { name: 'New agent', exact: true })).toHaveCount(0);
   await page.goto('/#/projects');
-  const research = header.getByRole('button', { name: 'New Research', exact: true });
+  const research = header.getByRole('button', { name: 'New Project', exact: true });
   await expect(research).toBeVisible();
   await expect(research.locator('svg[aria-hidden="true"]')).toHaveCount(1);
   await expect(header.getByRole('button', { name: 'New agent', exact: true })).toHaveCount(0);
   await page.screenshot({ path: `${artifacts}/researches-header-plus-1920.png` });
   await page.goto('/#/studies');
-  await expect(header.getByRole('button', { name: /New Research|New agent/ })).toHaveCount(0);
+  await expect(header.getByRole('button', { name: /New Project|New agent/ })).toHaveCount(0);
 });

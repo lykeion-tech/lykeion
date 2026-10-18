@@ -5,6 +5,9 @@ import { useConnectorLibrary, useWorkspaceMCPServers } from '../../../api/librar
 import { useWorkspaces } from '../../../api/queries';
 import { matchesQuery } from '../../../lib/search';
 import Icon from '../../Icon.vue';
+import AvailabilitySwitch from './AvailabilitySwitch.vue';
+import { useAvailabilityChanges } from '../../../state/availability';
+const policy = useAvailabilityChanges();
 import CapabilityList from './CapabilityList.vue';
 import ConnectorDialog from './ConnectorDialog.vue';
 import AddConnectorDialog from './AddConnectorDialog.vue';
@@ -57,6 +60,7 @@ watch(
         <Icon name="plus" :size="14" />Add connector
       </button>
     </div>
+    <p v-if="policy.error.value" class="inline-error" role="alert">{{ policy.error.value }}</p>
     <CapabilityList
       v-model:query="query"
       noun="connectors"
@@ -69,38 +73,45 @@ watch(
       "
       ><h3 v-if="scientific.length">Scientific databases</h3>
       <p v-if="scientific.length" class="section-note">Available to agents in this workspace.</p>
-      <button
-        v-for="c in scientific"
-        :key="'catalogue:' + c.name"
-        class="connector-row"
-        :class="{ chosen: selected === c.name && kind === 'catalogue' }"
-        :aria-label="c.name"
-        @click="open(c.name, 'catalogue')"
-      >
-        <div>
-          <strong>{{ c.name }}</strong>
-          <p>{{ c.purpose }}</p>
-          <small>{{ c.domain }} · {{ c.tier }} · {{ c.enabled ? 'Available' : c.reason }}</small>
-        </div>
-        <span class="status" :class="{ ready: c.enabled }">{{
-          c.enabled ? 'Available' : 'Setup'
-        }}</span>
-      </button>
+      <div v-for="c in scientific" :key="'catalogue:' + c.name" class="connector-entry">
+        <button
+          class="connector-row"
+          :class="{ chosen: selected === c.name && kind === 'catalogue' }"
+          :aria-label="c.name"
+          @click="open(c.name, 'catalogue')"
+        >
+          <div>
+            <strong>{{ c.name }}</strong>
+            <p>{{ c.purpose }}</p>
+            <small>{{ c.domain }} · {{ c.tier }} · {{ c.enabled ? 'Available' : c.reason }}</small>
+          </div>
+        </button>
+        <AvailabilitySwitch
+          :name="c.name"
+          :checked="c.policy_enabled"
+          :disabled="!policy.catalogueAllowed.value || !!policy.pending.value"
+          @toggle="policy.toggle('catalogue', c.name, c.revision, !c.policy_enabled)"
+        />
+      </div>
       <h3 v-if="own.length">Custom</h3>
       <p v-if="own.length" class="section-note">Shared connections added to this workspace.</p>
-      <button
-        v-for="c in own"
-        :key="'custom:' + c.id"
-        class="connector-row"
-        :class="{ chosen: selected === c.id && kind === 'custom' }"
-        :aria-label="c.name"
-        @click="open(c.id, 'custom')"
-      >
-        <div>
-          <strong>{{ c.name }}</strong
-          ><small>Custom · {{ c.transport === 'url' ? 'Remote URL' : 'Command' }}</small>
-        </div>
-        <Icon name="right" :size="14" /></button></CapabilityList
+      <div v-for="c in own" :key="'custom:' + c.id" class="connector-entry">
+        <button
+          class="connector-row"
+          :class="{ chosen: selected === c.id && kind === 'custom' }"
+          :aria-label="c.name"
+          @click="open(c.id, 'custom')"
+        >
+          <div>
+            <strong>{{ c.name }}</strong
+            ><small>Custom · {{ c.transport === 'url' ? 'Remote URL' : 'Command' }}</small>
+          </div></button
+        ><AvailabilitySwitch
+          :name="c.name"
+          :checked="c.policy_enabled ?? true"
+          :disabled="!policy.allowed.value || !!policy.pending.value"
+          @toggle="policy.toggle('mcp', c.id, c.policy_revision ?? 0, !(c.policy_enabled ?? true))"
+        /></div></CapabilityList
     ><ConnectorDialog
       v-if="showDetail && selected"
       :key="workspaceId + kind + selected"
@@ -145,14 +156,20 @@ h3 {
   line-height: 1.5;
   margin: 0 0 14px;
 }
+.connector-entry {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
 .connector-row {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
   text-align: left;
   border: 0;
-  border-bottom: 1px solid var(--border);
   padding: 14px 7px;
   color: var(--text);
   background: none;
@@ -184,14 +201,6 @@ h3 {
 .connector-row small {
   font-size: 11px;
   margin-top: 6px;
-}
-.status {
-  font-size: 11px;
-  color: var(--muted);
-  flex-shrink: 0;
-}
-.status.ready {
-  color: var(--primary);
 }
 button:focus-visible {
   outline: 2px solid var(--primary);

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"lykeion/server/internal/availability"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/science"
 	"lykeion/server/internal/store"
@@ -29,6 +30,7 @@ type routingSnapshot struct {
 	scope     Scope
 	authority runAuthority
 	versions  map[string]db.WorkspaceSkillVersion
+	bundled   map[string]bool
 }
 
 // WithRunAuthority carries the authenticated request's authority only for the
@@ -88,7 +90,7 @@ func (s *Service) loadVersion(ctx context.Context, v db.WorkspaceSkillVersion) (
 // for another run or scope. Existing pins hide newer versions and reused names.
 func (s *Service) CandidatesForScope(ctx context.Context, ws uuid.UUID, scope Scope) (context.Context, []toolroute.Skill, error) {
 	a, _ := ctx.Value(authorityKey{}).(runAuthority)
-	snap := routingSnapshot{workspace: ws, scope: scope, authority: a, versions: map[string]db.WorkspaceSkillVersion{}}
+	snap := routingSnapshot{workspace: ws, scope: scope, authority: a, versions: map[string]db.WorkspaceSkillVersion{}, bundled: map[string]bool{}}
 	err := s.Store.InWorkspace(ctx, ws, a.role.AgentRunID, func(tx *store.Tx) error {
 		if err := lockScope(ctx, tx, ws, scope, a); err != nil {
 			return err
@@ -108,8 +110,22 @@ func (s *Service) CandidatesForScope(ctx context.Context, ws uuid.UUID, scope Sc
 		}
 		for _, v := range active {
 			if _, taken := snap.versions[v.Name]; !taken && !ids[v.SkillID] {
+				p, err := availability.Get(ctx, tx, "skill", v.SkillID.String())
+				if err != nil {
+					return err
+				}
+				if !p.Enabled {
+					continue
+				}
 				snap.versions[v.Name] = v
 			}
+		}
+		for _, b := range science.Skills() {
+			p, err := availability.Get(ctx, tx, "skill", "bundle:"+b.Name)
+			if err != nil {
+				return err
+			}
+			snap.bundled[b.Name] = p.Enabled
 		}
 		return nil
 	})
@@ -118,6 +134,9 @@ func (s *Service) CandidatesForScope(ctx context.Context, ws uuid.UUID, scope Sc
 	}
 	out := []toolroute.Skill{}
 	for _, b := range science.Skills() {
+		if !snap.bundled[b.Name] {
+			continue
+		}
 		out = append(out, toolroute.Skill{Name: b.Name, Description: b.Description, Domain: b.Domain})
 	}
 	names := make([]string, 0, len(snap.versions))
@@ -162,7 +181,7 @@ func (s *Service) ResolveForScope(ctx context.Context, ws uuid.UUID, scope Scope
 		}
 		found := false
 		for _, b := range science.Skills() {
-			if b.Name == name {
+			if b.Name == name && snap.bundled[name] {
 				out = append(out, toolroute.Skill{Name: b.Name, Description: b.Description, Domain: b.Domain})
 				found = true
 				break
@@ -183,6 +202,17 @@ func (s *Service) ResolveForScope(ctx context.Context, ws uuid.UUID, scope Scope
 		if err != nil {
 			return err
 		}
+		for _, name := range names {
+			if snap.bundled[name] {
+				p, err := availability.Get(ctx, tx, "skill", "bundle:"+name)
+				if err != nil {
+					return err
+				}
+				if !p.Enabled {
+					return ErrRoutingChanged
+				}
+			}
+		}
 		for _, v := range versions {
 			pinned := false
 			for _, p := range pins {
@@ -195,6 +225,13 @@ func (s *Service) ResolveForScope(ctx context.Context, ws uuid.UUID, scope Scope
 			}
 			if pinned {
 				continue
+			}
+			p, err := availability.Get(ctx, tx, "skill", v.SkillID.String())
+			if err != nil {
+				return err
+			}
+			if !p.Enabled {
+				return ErrRoutingChanged
 			}
 			current, err := tx.Q.GetWorkspaceSkill(ctx, db.GetWorkspaceSkillParams{WorkspaceID: ws, ID: v.SkillID})
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -223,6 +260,7 @@ func (s *Service) ResolveForScope(ctx context.Context, ws uuid.UUID, scope Scope
 type TeamSelection struct {
 	workspace, user uuid.UUID
 	versions        []db.WorkspaceSkillVersion
+	policyIDs       []string
 	Files           map[string]map[string][]byte
 }
 
@@ -238,12 +276,28 @@ func (s *Service) SelectForTeam(ctx context.Context, ws, user uuid.UUID, names [
 		}
 		for _, name := range names {
 			if science.Has(name) {
+				p, err := availability.Get(ctx, tx, "skill", "bundle:"+name)
+				if err != nil {
+					return err
+				}
+				if !p.Enabled {
+					return ErrRoutingChanged
+				}
+				sel.policyIDs = append(sel.policyIDs, "bundle:"+name)
 				continue
 			}
 			at := slices.IndexFunc(active, func(v db.WorkspaceSkillVersion) bool { return v.Name == name })
 			if at < 0 {
 				return pgx.ErrNoRows
 			}
+			p, err := availability.Get(ctx, tx, "skill", active[at].SkillID.String())
+			if err != nil {
+				return err
+			}
+			if !p.Enabled {
+				return ErrRoutingChanged
+			}
+			sel.policyIDs = append(sel.policyIDs, active[at].SkillID.String())
 			sel.versions = append(sel.versions, active[at])
 		}
 		return nil
@@ -269,6 +323,15 @@ func (s TeamSelection) Fence(ctx context.Context, tx *store.Tx, user uuid.UUID) 
 	}
 	if _, err := member(ctx, tx, user, false); err != nil {
 		return err
+	}
+	for _, id := range s.policyIDs {
+		p, err := availability.Get(ctx, tx, "skill", id)
+		if err != nil {
+			return err
+		}
+		if !p.Enabled {
+			return ErrRoutingChanged
+		}
 	}
 	for _, v := range s.versions {
 		current, err := tx.Q.GetWorkspaceSkill(ctx, db.GetWorkspaceSkillParams{WorkspaceID: tx.WS, ID: v.SkillID})

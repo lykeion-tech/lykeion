@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"lykeion/server/internal/availability"
 	"lykeion/server/internal/science"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -35,6 +36,7 @@ type Scope struct {
 	ID   uuid.UUID
 }
 type Summary struct {
+	availability.Policy
 	ID              string     `json:"id"`
 	Name            string     `json:"name"`
 	Description     string     `json:"description"`
@@ -89,10 +91,10 @@ func canEdit(role string, creator, user uuid.UUID) bool {
 	return creator == user || role == "owner" || role == "admin"
 }
 func bundledSummary(sk science.Skill) Summary {
-	return Summary{ID: "bundle:" + sk.Name, Name: sk.Name, Description: sk.Description, Domain: sk.Domain, Origin: "bundled", Revision: 1, Source: Source{Kind: "bundled"}, Licence: sk.Licence}
+	return Summary{Policy: availability.Policy{Enabled: true}, ID: "bundle:" + sk.Name, Name: sk.Name, Description: sk.Description, Domain: sk.Domain, Origin: "bundled", Revision: 1, Source: Source{Kind: "bundled"}, Licence: sk.Licence}
 }
 func summary(id uuid.UUID, name, description, domain string, revision int64, creator, user uuid.UUID, role string, source Source, scripts bool) Summary {
-	return Summary{ID: id.String(), Name: name, Description: description, Domain: domain, Origin: "imported", Revision: revision, CreatedBy: &creator, Source: source, ContainsScripts: scripts, Editable: canEdit(role, creator, user)}
+	return Summary{Policy: availability.Policy{Enabled: true}, ID: id.String(), Name: name, Description: description, Domain: domain, Origin: "imported", Revision: revision, CreatedBy: &creator, Source: source, ContainsScripts: scripts, Editable: canEdit(role, creator, user)}
 }
 func sourceOf(kind, location string, runtime *uuid.UUID) Source {
 	s := Source{Kind: kind, Location: location}
@@ -139,6 +141,13 @@ func (s *Service) List(ctx context.Context, ws, user uuid.UUID) ([]Summary, erro
 				return err
 			}
 			out = append(out, summary(r.ID, r.Name, r.Description, r.Domain, r.Revision, r.CreatedBy, user, m.Role, sourceOf(r.SourceKind, r.SourceLocation, r.SourceRuntimeID), saved.ContainsScripts))
+		}
+		for i := range out {
+			p, err := availability.Get(ctx, tx, "skill", out[i].ID)
+			if err != nil {
+				return err
+			}
+			out[i].Policy = p
 		}
 		return nil
 	})
@@ -316,6 +325,11 @@ func (s *Service) Get(ctx context.Context, ws, user uuid.UUID, id string) (Detai
 		if err != nil {
 			return err
 		}
+		policy, err := availability.Get(ctx, tx, "skill", id)
+		if err != nil {
+			return err
+		}
+		out.Policy = policy
 		if out.Origin == "bundled" {
 			return nil
 		}
@@ -546,6 +560,10 @@ func (s *Service) Update(ctx context.Context, ws, user uuid.UUID, id string, exp
 			return err
 		}
 		out = Detail{Summary: summary(saved.ID, b.Name, b.Description, "Workspace", saved.Revision, saved.CreatedBy, user, m.Role, before.Source, containsScripts(b)), Content: content, Files: fileMetadata(b)}
+		out.Policy, err = availability.Get(ctx, tx, "skill", saved.ID.String())
+		if err != nil {
+			return err
+		}
 		return tx.Emit(ctx, "skill.updated", nil, store.User(user), map[string]any{"skill_id": saved.ID, "name": saved.Name, "revision": saved.Revision})
 	})
 	return out, err

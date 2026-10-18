@@ -320,6 +320,8 @@ describe('shared library queries and mutations', () => {
   let app: App;
   const detail = {
     id: 's1',
+    policy_enabled: true,
+    policy_revision: 0,
     name: 'method',
     domain: 'Workspace',
     description: 'A method',
@@ -704,6 +706,22 @@ describe('shared library queries and mutations', () => {
     expect(form.members.value[0]!.connectors[0]!.name).toBe('geo');
     client.setQueryData(keys.connectors('w1'), [{ name: 'geo' }]);
     await vi.waitFor(() => expect(form.canCreate.value).toBe(true));
+    client.setQueryData(keys.skills('w1'), [{ ...detail, policy_enabled: false }]);
+    await vi.waitFor(() => expect(form.canCreate.value).toBe(false));
+    expect(form.members.value[0]!.skills).toEqual(['method']);
+    client.setQueryData(keys.skills('w1'), [detail]);
+    client.setQueryData(keys.workspaceMCP('w1'), [
+      { id: 'm1', name: 'custom', policy_enabled: true, policy_revision: 0 },
+    ]);
+    form.members.value[0]!.connectors = [
+      { kind: 'workspace', name: 'custom', value: 'm1', env: '' },
+    ];
+    await vi.waitFor(() => expect(form.canCreate.value).toBe(true));
+    client.setQueryData(keys.workspaceMCP('w1'), [
+      { id: 'm1', name: 'custom', policy_enabled: false, policy_revision: 1 },
+    ]);
+    await vi.waitFor(() => expect(form.canCreate.value).toBe(false));
+    expect(form.members.value[0]!.connectors[0]!.value).toBe('m1');
   });
   it('retains real stale revision errors and does not publish a failed draft', async () => {
     const library = await import('../apps/dashboard/src/api/library');

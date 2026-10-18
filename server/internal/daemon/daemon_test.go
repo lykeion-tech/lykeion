@@ -32,6 +32,7 @@ import (
 )
 
 type daemonFixture struct {
+	h                  *handler.H
 	dropMessageACK     atomic.Bool
 	dropReportACK      atomic.Bool
 	dropStartACK       atomic.Bool
@@ -60,6 +61,7 @@ func fixture(t *testing.T) *daemonFixture {
 	issuer := auth.Issuer{Secret: []byte("test"), TTL: time.Hour}
 	h := &handler.H{Connectors: &connectors.Client{Secret: bytes.Repeat([]byte{7}, 32)}, Store: st, JWT: issuer, Limit: auth.Limiter{R: f.env.Redis}, Hub: hub, AgentRuns: f.runs, Blobs: storage.Local{Dir: t.TempDir()}}
 	router := handler.NewRouter(h)
+	f.h = h
 	t.Cleanup(h.MCPBroker.Close)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/prepare-lease") && f.refusePrepare.Swap(false) {

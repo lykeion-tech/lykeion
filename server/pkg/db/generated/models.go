@@ -440,6 +440,17 @@ type Workspace struct {
 	LogoBlob        string          `json:"logo_blob"`
 }
 
+type WorkspaceAvailability struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	Kind        string     `json:"kind"`
+	ResourceID  string     `json:"resource_id"`
+	SkillID     *uuid.UUID `json:"skill_id"`
+	McpID       *uuid.UUID `json:"mcp_id"`
+	Enabled     bool       `json:"enabled"`
+	Revision    int64      `json:"revision"`
+	UpdatedBy   uuid.UUID  `json:"updated_by"`
+}
+
 type WorkspaceConnector struct {
 	WorkspaceID        uuid.UUID  `json:"workspace_id"`
 	Name               string     `json:"name"`

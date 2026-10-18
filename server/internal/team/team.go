@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/availability"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -69,6 +70,13 @@ func FromForm(ctx context.Context, tx *store.Tx, in Form) (pack.Manifest, error)
 				return pack.Member{}, fmt.Errorf("%w: invalid workspace connector", ErrInvalid)
 			}
 			if _, err := tx.Q.GetWorkspaceMCPServer(ctx, db.GetWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id}); err != nil {
+				return pack.Member{}, fmt.Errorf("%w: workspace connector unavailable", ErrInvalid)
+			}
+			policy, err := availability.Get(ctx, tx, "mcp", id.String())
+			if err != nil {
+				return pack.Member{}, err
+			}
+			if !policy.Enabled {
 				return pack.Member{}, fmt.Errorf("%w: workspace connector unavailable", ErrInvalid)
 			}
 		}
