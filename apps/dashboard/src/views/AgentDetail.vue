@@ -8,6 +8,7 @@ import { workspaceId } from '../api/session';
 import type { AgentDefinition, Card } from '../api/types';
 import Icon from '../components/Icon.vue';
 import { matchesQuery } from '../lib/search';
+import { agentConnectorIntegrationAvailable } from '../lib/agent-connectors';
 import { boardColumnOf, boardColumns, studyNumber, timeAgo } from '../lib/studies';
 import { notify } from '../state/notice';
 import { useTaskComposer } from '../state/task-composer';
@@ -314,7 +315,8 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <div v-else class="agent-split">
         <nav class="agent-subnav">
           <template v-if="tab === 'capabilities'"
-            ><button aria-current="page">Instructions</button></template
+            ><button aria-current="page">Instructions</button
+            ><button v-if="agentConnectorIntegrationAvailable">Connectors</button></template
           >
           <template v-else
             ><button

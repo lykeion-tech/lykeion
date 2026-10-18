@@ -207,3 +207,225 @@ test('the agent page shows its studies and edits instructions, profile and acces
   await expect(page.getByRole('button', { name: 'Assign work' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Agent actions' })).toHaveCount(0);
 });
+
+// Mount the real hidden components directly. No agent connector HTTP route or
+// persistence is simulated; the harness observes their public event contract.
+async function mountAgentConnectors(
+  page: Page,
+  servers: Array<{ name: string; url: string }> = [],
+) {
+  await inFixture(page);
+  await page.goto('/#/agents');
+  await page.evaluate(async (servers) => {
+    const vuePath = (await (await fetch('/src/main.ts')).text()).match(
+        /from ["']([^"']+)["']/,
+      )![1]!,
+      componentPath = '/src/components/AgentConnectors.vue';
+    const { createApp, h, reactive } = await import(vuePath);
+    const { default: Panel } = await import(componentPath);
+    const props = reactive({ servers, editable: true, archived: false });
+    const events: Array<{ kind: string; value: unknown }> = [];
+    const root = document.createElement('section');
+    root.id = 'agent-connector-test';
+    root.style.background = 'var(--surface)';
+    document.body.append(root);
+    const app = createApp({
+      render: () =>
+        h('div', [
+          h(Panel, {
+            ...props,
+            onSave: (value: unknown) => events.push({ kind: 'save', value }),
+            onRemove: (value: unknown) => events.push({ kind: 'remove', value }),
+          }),
+        ]),
+    });
+    const routerPath = '/src/router.ts';
+    const { router } = await import(routerPath);
+    app.use(router);
+    app.mount(root);
+    (window as unknown as { agentConnectors: unknown }).agentConnectors = { props, events, app };
+  }, servers);
+  return page.locator('#agent-connector-test');
+}
+async function connectorAccess(
+  page: Page,
+  change: {
+    editable?: boolean;
+    archived?: boolean;
+    servers?: Array<{ name: string; url: string }>;
+  },
+) {
+  await page.evaluate(
+    (change) =>
+      Object.assign(
+        (window as unknown as { agentConnectors: { props: object } }).agentConnectors.props,
+        change,
+      ),
+    change,
+  );
+}
+async function connectorEvents(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          agentConnectors: { events: Array<{ kind: string; value: unknown }> };
+        }
+      ).agentConnectors.events,
+  );
+}
+
+test('agent connector controls obey ownership and archival', async ({ page }) => {
+  const servers = [{ name: 'lab-search', url: 'https://tools.lab.org/mcp' }];
+  const panel = await mountAgentConnectors(page, servers);
+  await expect(panel.getByRole('button', { name: 'Add connector', exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'Edit lab-search' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit connector', exact: true });
+  await dialog.getByRole('textbox', { name: 'Connector URL' }).fill('http://tools.lab.org/changed');
+  await connectorAccess(page, { editable: false });
+  await expect(dialog.getByRole('textbox', { name: 'Connector URL' })).toHaveAttribute(
+    'readonly',
+    '',
+  );
+  await expect(dialog.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
+  await expect(dialog.getByRole('textbox', { name: 'Connector URL' })).toHaveValue(
+    'http://tools.lab.org/changed',
+  );
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Add connector', exact: true })).toHaveCount(0);
+  await panel.getByRole('button', { name: 'View lab-search' }).click();
+  const read = page.getByRole('dialog', { name: 'Connector details', exact: true });
+  await expect(read.getByRole('textbox', { name: 'Connector URL' })).toHaveValue(servers[0]!.url);
+  await read.getByRole('button', { name: 'Close connector', exact: true }).click();
+  await connectorAccess(page, { editable: true, archived: true });
+  await expect(panel.getByRole('button', { name: 'Add connector', exact: true })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Remove lab-search' })).toHaveCount(0);
+  await expect(panel).toContainText('archived');
+  expect(await connectorEvents(page)).toEqual([]);
+  await panel.getByRole('button', { name: 'View lab-search' }).click();
+  await expect(
+    page
+      .getByRole('dialog', { name: 'Connector details', exact: true })
+      .getByRole('textbox', { name: 'Connector name' }),
+  ).toHaveAttribute('readonly', '');
+});
+
+test('agent connector form has no command or header fields and emits structured changes', async ({
+  page,
+}) => {
+  const servers = [{ name: 'lab-search', url: 'https://tools.lab.org/mcp' }];
+  const panel = await mountAgentConnectors(page, servers);
+  await panel.getByRole('button', { name: 'Add connector', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add connector', exact: true });
+  await expect(dialog.getByRole('textbox')).toHaveCount(2);
+  await expect(dialog.getByRole('textbox', { name: /command|header|environment/i })).toHaveCount(0);
+  await dialog.getByRole('textbox', { name: 'Connector name' }).fill('sources');
+  await dialog.getByRole('textbox', { name: 'Connector URL' }).fill('http://index.lab.org/mcp');
+  await expect(dialog.getByRole('alert')).toContainText('reserved');
+  await expect(dialog.getByRole('button', { name: 'Add connector', exact: true })).toBeDisabled();
+  await dialog.getByRole('textbox', { name: 'Connector name' }).fill('lab-search');
+  await expect(dialog.getByRole('alert')).toContainText('twice');
+  await dialog.getByRole('textbox', { name: 'Connector name' }).fill('index');
+  await dialog.getByRole('button', { name: 'Add connector', exact: true }).click();
+  expect(await connectorEvents(page)).toEqual([
+    { kind: 'save', value: [...servers, { name: 'index', url: 'http://index.lab.org/mcp' }] },
+  ]);
+  // Emission alone cannot acknowledge a persisted save.
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await panel.getByRole('button', { name: 'Remove lab-search' }).click();
+  const remove = page.getByRole('dialog', { name: 'Remove connector', exact: true });
+  await expect(remove).toContainText('lab-search');
+  await expect(remove).toContainText('remote server');
+  await expect(remove).toContainText('workspace connectors');
+  await connectorAccess(page, { archived: true });
+  await expect(
+    remove.getByRole('button', { name: 'Remove connector', exact: true }),
+  ).toBeDisabled();
+  await connectorAccess(page, { archived: false });
+  await remove.getByRole('button', { name: 'Remove connector', exact: true }).click();
+  expect(await connectorEvents(page)).toEqual([
+    { kind: 'save', value: [...servers, { name: 'index', url: 'http://index.lab.org/mcp' }] },
+    { kind: 'remove', value: 'lab-search' },
+  ]);
+  await expect(panel.getByRole('link', { name: /Manage workspace connectors/ })).toHaveAttribute(
+    'href',
+    '#/settings/connectors',
+  );
+});
+
+test('agent connector entry is hidden before T1', async ({ page }) => {
+  const { headers } = await inFixture(page);
+  const agent = await (
+    await page.request.post('/api/agents', {
+      headers,
+      data: { name: 'Connector boundary', harness: 'claude' },
+    })
+  ).json();
+  await page.goto('/#/agents/' + agent.id);
+  await page.getByRole('tab', { name: 'Capabilities' }).click();
+  await expect(page.getByRole('button', { name: 'Connectors', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Agent instructions' })).toBeVisible();
+});
+
+test('agent connector edit preserves peer servers and dirty snapshots require explicit discard', async ({
+  page,
+}) => {
+  const servers = [
+    { name: 'lab-search', url: 'https://tools.lab.org/mcp' },
+    { name: 'index', url: 'http://index.lab.org/mcp' },
+  ];
+  const panel = await mountAgentConnectors(page, servers);
+  await panel.getByRole('button', { name: 'Edit lab-search' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit connector', exact: true });
+  await dialog.getByRole('textbox', { name: 'Connector URL' }).fill('https://tools.lab.org/new');
+  await dialog.screenshot({ path: `${artifacts}/agent-connector-prepared-edit.png` });
+  await expect(dialog).toHaveCSS('width', '450px');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  expect(await connectorEvents(page)).toEqual([
+    { kind: 'save', value: [{ name: 'lab-search', url: 'https://tools.lab.org/new' }, servers[1]] },
+  ]);
+  await connectorAccess(page, {
+    servers: [{ name: 'lab-search', url: 'https://tools.lab.org/remote' }, servers[1]!],
+  });
+  await expect(dialog.getByRole('textbox', { name: 'Connector URL' })).toHaveValue(
+    'https://tools.lab.org/new',
+  );
+  await expect(dialog.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Reload saved version' }).click();
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(dialog.getByRole('textbox', { name: 'Connector URL' })).toHaveValue(
+    'https://tools.lab.org/new',
+  );
+  await dialog.getByRole('button', { name: 'Reload saved version' }).click();
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(dialog.getByRole('textbox', { name: 'Connector URL' })).toHaveValue(
+    'https://tools.lab.org/remote',
+  );
+  await dialog
+    .getByRole('textbox', { name: 'Connector URL' })
+    .fill('https://tools.lab.org/unsaved');
+  await page.mouse.click(5, 5);
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close connector', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(panel).toContainText('https://tools.lab.org/remote');
+  await expect(panel).toContainText(servers[1]!.url);
+  await connectorAccess(page, {
+    servers: Array.from({ length: 8 }, (_, n) => ({
+      name: 'server-' + n,
+      url: 'https://tools.lab.org/mcp',
+    })),
+  });
+  await expect(panel.getByRole('button', { name: 'Add connector', exact: true })).toBeDisabled();
+  await connectorAccess(page, { servers: [] });
+  await expect(panel).toContainText('No connectors have been added to this agent.');
+  await panel.screenshot({ path: `${artifacts}/agent-connectors-prepared-empty.png` });
+});
