@@ -481,3 +481,21 @@ func TestALongSummaryIsCutInsideItsFence(t *testing.T) {
 		t.Fatalf("%d bytes, cut mark %v, fence closed %v", len(s), strings.Contains(s, cutMark), strings.Contains(s, "-END\n"))
 	}
 }
+
+// The dashboard reads these sentences back, so their shape is pinned.
+func TestInboxSentences(t *testing.T) {
+	weak := weakCriterion("Does it say what it couldn't do?", 3)
+	if weak != "“Does it say what it couldn't do?” (level 3 of 5)" {
+		t.Fatalf("weak = %q", weak)
+	}
+	for got, want := range map[string]string{
+		middleScoreText(7, "grounding", weak): "Study #7's Grounding column scored in the middle; its weakest criterion was “Does it say what it couldn't do?” (level 3 of 5).",
+		blockedText(7, "grounding", weak):     "Study #7 scored low twice in its Grounding column, lowest on “Does it say what it couldn't do?” (level 3 of 5). Comment on the study to tell the Team what to fix.",
+		doneText(7, "reporting"):              "Study #7 is done, in its Reporting column.",
+		unavailableText(7, "grounding"):       "Scoring is unavailable for study #7's Grounding column. It stays there, and Lykeion keeps retrying.",
+	} {
+		if got != want {
+			t.Errorf("got  %q\nwant %q", got, want)
+		}
+	}
+}

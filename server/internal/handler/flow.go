@@ -271,7 +271,7 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			return tx.Q.InsertInboxItem(r.Context(), db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: card.ID, UserID: card.OwnerID, Kind: "no_tool",
-				Text: fmt.Sprintf("An agent on study #%d's %s column found no skill or connector that fits what it needed: %s", card.Number, role.Column, in.Need)})
+				Text: noToolText(card.Number, role.Column, in.Need)})
 		})
 		if err != nil {
 			roleError(w, r, err)
@@ -279,4 +279,10 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, res)
+}
+
+// noToolText is read back by the dashboard (inboxText in lib/studies.ts), which
+// lifts the need out after "what it needed: ". Change them together.
+func noToolText(number int32, column, need string) string {
+	return fmt.Sprintf("An agent on study #%d's %s column found no skill or connector that fits what it needed: %s", number, column, need)
 }

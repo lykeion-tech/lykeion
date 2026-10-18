@@ -488,3 +488,11 @@ func TestACommentUnblocksIntoARedo(t *testing.T) {
 		t.Fatalf("after the comment: %s %q round %d redos %d", state, kind, round, redos)
 	}
 }
+
+// The dashboard lifts the need out after "what it needed: ", so that text is pinned.
+func TestNoToolText(t *testing.T) {
+	want := "An agent on study #7's grounding column found no skill or connector that fits what it needed: a mass-spec parser"
+	if got := noToolText(7, "grounding", "a mass-spec parser"); got != want {
+		t.Fatalf("got %q", got)
+	}
+}

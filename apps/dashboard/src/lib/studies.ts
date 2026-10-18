@@ -327,27 +327,30 @@ export function flowView(recs: StudyRecord[]): FlowView {
   return out;
 }
 
-// An Inbox item in the words the researcher reads. The server stores a
-// sentence per item; the criterion and the need are lifted out of it, and an
-// item the sentence does not fit keeps the server's own text.
-export function inboxText(item: { kind: InboxItem['kind']; text: string }, study: string): string {
+// An Inbox item in the words the researcher reads, or null when the server's
+// sentence is to be shown as it is. The criterion and the need are lifted out
+// of the server's sentence (see the Go functions that write them).
+export function inboxText(
+  item: { kind: InboxItem['kind']; text: string },
+  study: string,
+): string | null {
   switch (item.kind) {
     case 'middle_score': {
       const criterion = /“([^”]+)”/.exec(item.text)?.[1];
-      return criterion ? `${study} moved on with a middling score: ${criterion}` : item.text;
+      return criterion ? `${study} moved on with a middling score: ${criterion}` : null;
     }
     case 'blocked':
       return `${study} scored low twice and is waiting for you`;
     case 'no_tool': {
-      const need = /needed: ([\s\S]+)$/.exec(item.text)?.[1];
-      return need ? `${study}'s agent found no skill or connector for: ${need}` : item.text;
+      const need = /what it needed: ([\s\S]+)$/.exec(item.text)?.[1];
+      return need ? `${study}'s agent found no skill or connector for: ${need}` : null;
     }
     case 'scoring_unavailable':
       return `${study} couldn't be scored; Lykeion will retry`;
     case 'done':
       return `${study} is done`;
     default:
-      return item.text;
+      return null;
   }
 }
 

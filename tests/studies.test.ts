@@ -358,6 +358,11 @@ describe('flow records and Inbox sentences', () => {
     expect(v.steps.map((s) => s.key)).toEqual(['s2']);
     expect(v.calls).toEqual([]);
   });
+  it('leaves the server text alone when it does not fit', () => {
+    expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();
+    expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();
+    expect(studies.inboxText({ kind: 'escalated', text: 'Asked a question' }, 'S')).toBeNull();
+  });
   it('lifts the criterion and the need out of the server sentence', () => {
     expect(
       studies.inboxText(

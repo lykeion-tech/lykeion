@@ -33,10 +33,7 @@ const kinds: Record<InboxItem['kind'], { label: string; mark: string }> = {
 };
 // The flow's items read as a sentence about the study; the older kinds keep
 // their label and the server's text.
-const line = (i: InboxItem) =>
-  inboxText(i, titleOf(i)) === i.text
-    ? `${kinds[i.kind].label}: ${i.text}`
-    : inboxText(i, titleOf(i));
+const line = (i: InboxItem) => inboxText(i, titleOf(i)) ?? `${kinds[i.kind].label}: ${i.text}`;
 const titleOf = (i: InboxItem) =>
   cards.data.value?.find((c) => c.id === i.card_id)?.title ?? 'Study';
 

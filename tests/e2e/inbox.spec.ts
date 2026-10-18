@@ -319,8 +319,11 @@ test('each new Inbox kind reads and opens its study', async ({ page }) => {
   for (const [, , shown] of kinds)
     await expect(list.getByText(shown, { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/teams-scoring/inbox-kinds.png', fullPage: true });
-  await list.getByText(kinds[4]![2], { exact: true }).click();
-  await expect(
-    page.getByRole('region', { name: 'Study' }).getByRole('heading', { name }),
-  ).toBeVisible();
+  for (const i of [4, 1]) {
+    await list.getByText(kinds[i]![2], { exact: true }).click();
+    await expect(
+      page.getByRole('region', { name: 'Study' }).getByRole('heading', { name }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/#\/inbox\/[0-9a-f-]{36}$/);
+  }
 });

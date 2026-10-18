@@ -170,3 +170,25 @@ test('a Team set Autoresearch shows its range', async ({ page }) => {
   });
   await page.screenshot({ path: `${shots}/autoresearch-detail.png`, fullPage: true });
 });
+
+test('a single-Team Autoresearch sends no scope and shows the Team’s column', async ({ page }) => {
+  const headers = await inFixture(page);
+  await labTeam(page.request, headers['X-Workspace-ID']!);
+  let sent: Record<string, unknown> = {};
+  await page.route('**/api/autoresearch', (route) => {
+    if (route.request().method() === 'POST') sent = route.request().postDataJSON();
+    return route.continue();
+  });
+  await page.goto('/#/autoresearch');
+  await page.getByRole('button', { name: 'Start from scratch' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New autoresearch' });
+  await dialog.getByRole('textbox', { name: 'Autoresearch name' }).fill('One Team');
+  await dialog.getByRole('textbox', { name: 'Runbook' }).fill('Ground it.');
+  await dialog.getByRole('button', { name: 'Unassigned' }).click();
+  await page.getByRole('menuitem', { name: /Built for Grounding/ }).click();
+  await dialog.getByRole('button', { name: 'Create autoresearch' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText('Assigned to a Team · Grounding')).toBeVisible();
+  expect(sent).not.toHaveProperty('scope');
+  expect(sent).toHaveProperty('assignee.type', 'team');
+});

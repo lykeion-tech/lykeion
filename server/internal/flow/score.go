@@ -48,6 +48,29 @@ var errNoJev = errors.New("the lab has no TypeSafe key")
 
 // Verdict reads a column's criterion levels: high when every level is 4 or
 // more, low when any is 2 or less, middle otherwise.
+// The Inbox sentences below are read back by the dashboard (inboxText in
+// lib/studies.ts), which lifts the quoted criterion out of a middle score;
+// the other kinds it words itself. Change them together.
+func weakCriterion(text string, level float64) string {
+	return fmt.Sprintf("“%s” (level %s of 5)", text, strconv.FormatFloat(level, 'g', 3, 64))
+}
+
+func middleScoreText(number int32, column, weak string) string {
+	return fmt.Sprintf("Study #%d's %s column scored in the middle; its weakest criterion was %s.", number, title(column), weak)
+}
+
+func blockedText(number int32, column, weak string) string {
+	return fmt.Sprintf("Study #%d scored low twice in its %s column, lowest on %s. Comment on the study to tell the Team what to fix.", number, title(column), weak)
+}
+
+func doneText(number int32, column string) string {
+	return fmt.Sprintf("Study #%d is done, in its %s column.", number, title(column))
+}
+
+func unavailableText(number int32, column string) string {
+	return fmt.Sprintf("Scoring is unavailable for study #%d's %s column. It stays there, and Lykeion keeps retrying.", number, title(column))
+}
+
 func Verdict(levels []float64) string {
 	high := true
 	for _, l := range levels {
@@ -428,7 +451,7 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 				return err
 			}
 			return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "scoring_unavailable",
-				Text: fmt.Sprintf("Scoring is unavailable for study #%d's %s column. It stays there, and Lykeion keeps retrying.", c.Number, title(c.BoardColumn))})
+				Text: unavailableText(c.Number, c.BoardColumn)})
 		}
 		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 			return err
@@ -452,7 +475,7 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": verdict, "attempt": in.attempt}); err != nil {
 			return err
 		}
-		weak := fmt.Sprintf("“%s” (level %s of 5)", lowest.Text, strconv.FormatFloat(lowestLevel, 'g', 3, 64))
+		weak := weakCriterion(lowest.Text, lowestLevel)
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
 		var items []board.Item
@@ -462,18 +485,16 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			next.HandoffNote = fmt.Sprintf("Jev scored the last attempt at this column low on %s. Redo the column, and fix that first.", weak)
 		case verdict == "low":
 			next.State, next.BlockKind = "blocked", "low_score"
-			items = append(items, board.Item{Kind: "blocked", Text: fmt.Sprintf(
-				"Study #%d scored low twice in its %s column, lowest on %s. Comment on the study to tell the Team what to fix.", c.Number, title(c.BoardColumn), weak)})
+			items = append(items, board.Item{Kind: "blocked", Text: blockedText(c.Number, c.BoardColumn, weak)})
 		default:
 			if verdict == "middle" {
-				items = append(items, board.Item{Kind: "middle_score", Text: fmt.Sprintf(
-					"Study #%d's %s column scored in the middle; its weakest criterion was %s.", c.Number, title(c.BoardColumn), weak)})
+				items = append(items, board.Item{Kind: "middle_score", Text: middleScoreText(c.Number, c.BoardColumn, weak)})
 			}
 			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
 			} else {
 				next.State = "done"
-				items = append(items, board.Item{Kind: "done", Text: fmt.Sprintf("Study #%d is done, in its %s column.", c.Number, title(c.BoardColumn))})
+				items = append(items, board.Item{Kind: "done", Text: doneText(c.Number, c.BoardColumn)})
 			}
 		}
 		if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
