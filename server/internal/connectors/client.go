@@ -225,7 +225,8 @@ func (c *Client) Do(ctx context.Context, ws uuid.UUID, e Entry, r Request, key s
 		q.Set(e.Contact, c.Contact)
 	}
 	u.RawQuery = q.Encode()
-	if err := c.wait(ctx, ws.String()+"/"+e.Name, e.Rate); err != nil {
+	slot, rate := slotOf(ws, e)
+	if err := c.wait(ctx, slot, rate); err != nil {
 		return Response{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
@@ -239,7 +240,7 @@ func (c *Client) Do(ctx context.Context, ws uuid.UUID, e Entry, r Request, key s
 		return Response{}, errors.New(scrub(err.Error(), key))
 	}
 	req.Header.Set("Accept", "application/json, text/plain;q=0.9, */*;q=0.5")
-	req.Header.Set("User-Agent", "Lykeion")
+	req.Header.Set("User-Agent", c.userAgent())
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -330,6 +331,27 @@ func scrub(s, key string) string {
 		s = strings.ReplaceAll(s, k, "[key removed]")
 	}
 	return s
+}
+
+// slotOf names the rate slot of e in a workspace and its rate. Connectors on
+// one host share the slot, since an upstream limits by caller address, and
+// the slowest rate among them is the group's.
+func slotOf(ws uuid.UUID, e Entry) (string, float64) {
+	rate := e.Rate
+	for _, o := range Catalogue {
+		if o.Hosts[0] == e.Hosts[0] && o.Rate < rate {
+			rate = o.Rate
+		}
+	}
+	return ws.String() + "/" + e.Hosts[0], rate
+}
+
+// userAgent tells upstreams who is calling; some refuse a bare product name.
+func (c *Client) userAgent() string {
+	if c.Contact != "" {
+		return "Lykeion (+mailto:" + c.Contact + ")"
+	}
+	return "Lykeion (https://github.com/lykeion-ia/lykeion)"
 }
 
 // wait holds the request until its rate slot in the workspace comes up.

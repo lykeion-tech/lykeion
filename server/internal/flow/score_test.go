@@ -121,15 +121,27 @@ func (l *lab) scoped(t *testing.T, from, to string, agent uuid.UUID) db.Card {
 // agent declare it done, citing keys, then hands the column to the auditor.
 func (l *lab) done(t *testing.T, id uuid.UUID, cites ...string) {
 	t.Helper()
+	if err := l.declare(t, id, cites...); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Audit(context.Background(), l.ws, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// declare has the column's leader or agent declare it done and returns
+// Finish's answer.
+func (l *lab) declare(t *testing.T, id uuid.UUID, cites ...string) error {
+	t.Helper()
 	ctx := context.Background()
 	l.e.Kick(l.ws, id)
 	c := l.card(t, id)
-	var run db.AgentRun
-	l.in(t, func(tx *store.Tx) error {
+	return l.st.InWorkspace(ctx, l.ws, l.owner, func(tx *store.Tx) error {
 		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: l.ws, CardID: id, BoardColumn: c.BoardColumn, Round: c.Round})
 		if err != nil {
 			return err
 		}
+		var run db.AgentRun
 		for _, r := range runs {
 			if r.Role == "leader" || r.Role == "agent" {
 				run = r
@@ -142,9 +154,6 @@ func (l *lab) done(t *testing.T, id uuid.UUID, cites ...string) {
 			"The column is done; see the cited records.", cites)
 		return err
 	})
-	if err := l.e.Audit(ctx, l.ws, id); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // settleAuditor completes the column's auditor run, as its daemon would, and

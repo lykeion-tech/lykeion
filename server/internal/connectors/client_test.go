@@ -284,3 +284,29 @@ func TestTheSourceIDNamesOneExactRequest(t *testing.T) {
 		t.Fatalf("%s %s %s", a.SourceID(), b.SourceID(), c.SourceID())
 	}
 }
+
+func TestConnectorsOnOneHostShareARateSlot(t *testing.T) {
+	gene, pubmed, arxiv := entry(t, "ncbi-gene"), entry(t, "pubmed"), entry(t, "arxiv")
+	k1, r1 := slotOf(ws, gene)
+	k2, r2 := slotOf(ws, pubmed)
+	if k1 != k2 || r1 != r2 {
+		t.Fatalf("two NCBI connectors: %s %v, %s %v", k1, r1, k2, r2)
+	}
+	if k3, _ := slotOf(ws, arxiv); k3 == k1 {
+		t.Fatal("an unrelated host shared the slot")
+	}
+}
+
+func TestTheUserAgentSaysWhoIsCalling(t *testing.T) {
+	var ua string
+	c, _ := stub(t, func(w http.ResponseWriter, r *http.Request) { ua = r.UserAgent(); w.Write([]byte("{}")) })
+	if _, err := c.Do(context.Background(), ws, entry(t, "ensembl"), NewRequest("ensembl", "/x", nil, nil), ""); err != nil {
+		t.Fatal(err)
+	}
+	if ua != "Lykeion (+mailto:lab@example.org)" {
+		t.Fatalf("user agent %q", ua)
+	}
+	if got := (&Client{}).userAgent(); !strings.HasPrefix(got, "Lykeion (https://") {
+		t.Fatalf("without a contact: %q", got)
+	}
+}
