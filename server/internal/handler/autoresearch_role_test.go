@@ -123,7 +123,7 @@ func TestARunOnlyTokenOpensCardsAndNothingElse(t *testing.T) {
 	if code := s.call(t, "POST", "/api/role/records", ltk, "", map[string]any{"kind": "question", "body": map[string]string{"text": "x"}}, nil); code != 403 {
 		t.Fatalf("write a record: %d", code)
 	}
-	for _, p := range []string{"/comments", "/stop", "/resume"} {
+	for _, p := range []string{"/comments", "/stop"} {
 		if code := s.call(t, "POST", "/api/cards/"+other.ID+p, ltk, w.ID, map[string]string{"body": "x", "reason": "x", "to": "backlog"}, nil); code != 401 {
 			t.Fatalf("%s with an agent run token: %d", p, code)
 		}

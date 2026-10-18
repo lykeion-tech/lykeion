@@ -12,7 +12,7 @@ import (
 
 // teamCmd manages the caller's Team archives.
 func teamCmd(e *env) *cobra.Command {
-	c := &cobra.Command{Use: "team", Short: "Team archives: upload, list versions, approve; inside a run: step, done"}
+	c := &cobra.Command{Use: "team", Short: "Team archives: upload, list versions, add; inside a run: step, done"}
 	upload := &cobra.Command{Use: "upload FILE", Args: cobra.ExactArgs(1), Short: "Upload a Team archive (.zip) of your own", RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
@@ -28,7 +28,7 @@ func teamCmd(e *env) *cobra.Command {
 		fmt.Fprintf(e.out, "%s %s v%s %s\n", out.ID, out.Name, out.Version, out.Sha256)
 		return nil
 	}}
-	versions := &cobra.Command{Use: "versions NAME", Args: cobra.ExactArgs(1), Short: "The versions of a Team you may approve", RunE: func(cmd *cobra.Command, a []string) error {
+	versions := &cobra.Command{Use: "versions NAME", Args: cobra.ExactArgs(1), Short: "The versions of a Team you may add", RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
 		}
@@ -51,16 +51,18 @@ func teamCmd(e *env) *cobra.Command {
 		}
 		return nil
 	}}
-	approve := &cobra.Command{Use: "approve ID", Args: cobra.ExactArgs(1), Short: "Approve a Team version for your studies", RunE: func(cmd *cobra.Command, a []string) error {
+	// Adding approves the version for the caller and gives them their own
+	// copies of its agents; approve is its older name.
+	add := &cobra.Command{Use: "add ID", Aliases: []string{"approve"}, Args: cobra.ExactArgs(1), Short: "Add a Team version to your studies", RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
 		}
-		if err := e.client().Do(cmd.Context(), "POST", "/api/packs/"+url.PathEscape(a[0])+"/approve", nil, nil); err != nil {
+		if err := e.client().Do(cmd.Context(), "POST", "/api/teams/"+url.PathEscape(a[0])+"/add", nil, nil); err != nil {
 			return err
 		}
-		fmt.Fprintf(e.out, "approved %s\n", a[0])
+		fmt.Fprintf(e.out, "added %s\n", a[0])
 		return nil
 	}}
-	c.AddCommand(upload, versions, approve, teamStepCmd(e), teamDoneCmd(e))
+	c.AddCommand(upload, versions, add, teamStepCmd(e), teamDoneCmd(e))
 	return c
 }

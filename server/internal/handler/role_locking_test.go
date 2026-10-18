@@ -2,28 +2,17 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
-
-	"lykeion/server/internal/service"
-	"lykeion/server/internal/store"
 )
 
 func TestEveryRoleRecordSerializesBeforeInsertion(t *testing.T) {
-	for _, kind := range []string{"plain", "keyed", "prepared"} {
+	for _, kind := range []string{"plain"} {
 		t.Run(kind, func(t *testing.T) {
 			s := newServer(t)
-			s.H.KindsFor = fixedKinds(map[string]service.Kind{
-				"plain": {Roles: []string{"scoper"}},
-				"keyed": {Roles: []string{"scoper"}, KeyPrefix: "E"},
-				"prepared": {Roles: []string{"scoper"}, Prepare: func(_ context.Context, _ *store.Tx, _ service.Writer, b json.RawMessage) (json.RawMessage, error) {
-					return b, nil
-				}},
-			})
 			_, _, card, run := s.roleFixture(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 			defer cancel()

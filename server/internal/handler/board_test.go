@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestStopEndsAStudyAndResumeIsRefused(t *testing.T) {
+func TestStopEndsAStudyAndThereIsNoResume(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
@@ -28,33 +28,10 @@ func TestStopEndsAStudyAndResumeIsRefused(t *testing.T) {
 	if out.BoardColumn != "done" || out.Ending != "stopped" {
 		t.Fatalf("stop: %+v", out)
 	}
-	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/resume", a, w.ID, nil, nil); code != 409 {
-		t.Fatalf("resumed an ended card: %d", code)
-	}
-}
-
-func TestResumeRefusesABlockedCard(t *testing.T) {
-	s := newServer(t)
-	a := s.signIn(t, "a@lab.org")
-	w := s.workspace(t, a, "lab")
-	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'validation', round = 3, flag = 'escalated', block_kind = 'low_score' WHERE id = $1`, c.ID)
-	var refused struct {
-		Error string `json:"error"`
-	}
-	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/resume", a, w.ID, nil, &refused); code != 409 || refused.Error != "this study is blocked: use unblock" {
-		t.Fatalf("resumed a blocked card: %d %+v", code, refused)
-	}
-	var flag, kind string
-	var round int
-	s.Env.Owner.QueryRow(t.Context(), `SELECT flag, block_kind, round FROM card WHERE id = $1`, c.ID).Scan(&flag, &kind, &round)
-	if flag != "escalated" || kind != "low_score" || round != 3 {
-		t.Fatalf("a refused resume changed the card: %s %s %d", flag, kind, round)
-	}
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET block_kind = '' WHERE id = $1`, c.ID)
-	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/resume", a, w.ID, nil, nil); code != 200 {
-		t.Fatalf("an escalated card without a block kind did not resume: %d", code)
+	// Nothing sets the flag a resume cleared; a blocked study is redone by
+	// its owner's comment.
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/resume", a, w.ID, nil, nil); code != 404 && code != 405 {
+		t.Fatalf("the resume route answered: %d", code)
 	}
 }
 
@@ -113,14 +90,19 @@ func TestSettingsAreOwnerOnly(t *testing.T) {
 	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@lab.org")
 	w := s.workspace(t, a, "lab")
 	s.call(t, "POST", "/api/invitations/"+s.invite(t, a, w.ID, "b@lab.org", "admin")+"/accept", b, "", nil, nil)
-	body := map[string]any{"settings": map[string]any{"jev": map[string]any{"enabled": true}}}
+	body := map[string]any{"settings": map[string]any{"harness": map[string]any{"default": "codex"}}}
 	if code := s.call(t, "PATCH", "/api/workspaces/"+w.ID+"/settings", b, "", body, nil); code != 403 {
-		t.Fatalf("an admin turned on text egress: %d", code)
+		t.Fatalf("an admin changed the settings: %d", code)
 	}
 	if code := s.call(t, "PATCH", "/api/workspaces/"+w.ID+"/settings", a, "", body, nil); code != 204 {
 		t.Fatalf("owner: %d", code)
 	}
-	other := map[string]any{"settings": map[string]any{"jev": map[string]any{"enabled": true, "model": "jev-1.14.0"}}}
+	// The server's TypeSafe key alone decides whether Jev is asked; no
+	// setting pretends to gate it.
+	if code := s.call(t, "PATCH", "/api/workspaces/"+w.ID+"/settings", a, "", map[string]any{"settings": map[string]any{"jev": map[string]any{"enabled": false}}}, nil); code != 400 {
+		t.Fatalf("a Jev switch was accepted: %d", code)
+	}
+	other := map[string]any{"settings": map[string]any{"jev": map[string]any{"model": "jev-1.14.0"}}}
 	var rejected struct {
 		Error string `json:"error"`
 	}

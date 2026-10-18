@@ -87,15 +87,8 @@ func (s *server) blobRequest(t *testing.T, method, path, token string, body io.R
 }
 func TestRoleRecords(t *testing.T) {
 	s := newServer(t)
-	s.H.KindsFor = fixedKinds(map[string]service.Kind{"question": {Roles: []string{"scoper"}, Validate: func(b json.RawMessage) error {
-		var v struct{ Text string }
-		if json.Unmarshal(b, &v) != nil || v.Text == "" {
-			return errors.New("text required")
-		}
-		return nil
-	}}, "evidence": {Roles: []string{"literature-scout"}}, "free": {Roles: []string{"scoper"}}})
 	jwt, ws, c, run := s.roleFixture(t)
-	valid := map[string]any{"kind": "question", "key": "q1", "body": map[string]string{"text": "Scoped?"}}
+	valid := map[string]any{"kind": "question", "body": map[string]string{"text": "Scoped?"}}
 	var rec map[string]any
 	if code := s.call(t, "POST", "/api/role/records", run.token, "", valid, &rec); code != 201 {
 		t.Fatalf("own kind: %d", code)
@@ -107,10 +100,13 @@ func TestRoleRecords(t *testing.T) {
 		kind string
 		body any
 		want int
-	}{{"evidence", map[string]any{}, 403}, {"question", map[string]any{}, 400}, {"Nonsense", map[string]any{}, 400}, {"free", nil, 400}, {"free", []string{}, 400}, {"free", "x", 400}, {"free", map[string]any{}, 201}} {
+	}{{"Nonsense", map[string]any{}, 400}, {"summary", map[string]any{}, 400}, {"free", nil, 400}, {"free", []string{}, 400}, {"free", "x", 400}, {"free", map[string]any{}, 201}} {
 		if got := s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": tc.kind, "body": tc.body}, nil); got != tc.want {
 			t.Fatalf("%+v: %d", tc, got)
 		}
+	}
+	if got := s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": "free", "key": "q1", "body": map[string]any{}}, nil); got != 400 {
+		t.Fatalf("a run chose its record's key: %d", got)
 	}
 	for _, field := range []string{"workspace_id", "card_id", "agent_run_id", "role", "round", "column"} {
 		in := map[string]any{"kind": "free", "body": map[string]any{}, field: c.ID}
@@ -150,7 +146,6 @@ func TestRoleRecords(t *testing.T) {
 }
 func TestRoleBlobs(t *testing.T) {
 	s := newServer(t)
-	s.H.KindsFor = fixedKinds(map[string]service.Kind{"free": {Roles: []string{"scoper"}}})
 	jwt, ws, c, run := s.roleFixture(t)
 	data := bytes.Repeat([]byte("blob"), 400000)
 	code, b := s.blobRequest(t, "POST", "/api/role/blobs", run.token, bytes.NewReader(data))
@@ -236,19 +231,30 @@ func TestRoleWriteRevalidatesAfterSettlement(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			s := newServer(t)
 			jwt, ws, c, run := s.roleFixture(t)
+			code, b := s.blobRequest(t, "POST", "/api/role/blobs", run.token, strings.NewReader("stored"))
+			if code != 201 {
+				t.Fatal(code)
+			}
+			var blob struct {
+				Key string `json:"blob_key"`
+			}
+			if err := json.Unmarshal(b, &blob); err != nil {
+				t.Fatal(err)
+			}
 			entered, release := make(chan struct{}), make(chan struct{})
 			var once sync.Once
 			unblock := func() { once.Do(func() { close(release) }) }
 			defer unblock()
-			s.H.KindsFor = fixedKinds(map[string]service.Kind{"free": {Roles: []string{"scoper"}, Validate: func(json.RawMessage) error { close(entered); <-release; return nil }}})
+			// The write pauses after its first authorization, in the blob probe.
+			s.H.Blobs = &heldGetStorage{Storage: s.H.Blobs, entered: entered, release: release, closed: make(chan struct{})}
 			result := make(chan int, 1)
 			go func() {
-				result <- s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": "free", "body": map[string]any{}}, nil)
+				result <- s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": "free", "body": map[string]any{}, "blob_key": blob.Key}, nil)
 			}()
 			select {
 			case <-entered:
 			case <-time.After(3 * time.Second):
-				t.Fatal("validator not reached")
+				t.Fatal("blob probe not reached")
 			}
 			if action == "complete" {
 				if got := s.call(t, "POST", "/api/daemon/agent-runs/"+run.id+"/complete", run.personal, "", run.ref, nil); got != 200 {
@@ -301,7 +307,6 @@ func TestRoleStaleAttemptRefused(t *testing.T) {
 // must not be downloadable or attachable without its committed trace event.
 func TestRoleBlobCommitFailureIsInaccessible(t *testing.T) {
 	s := newServer(t)
-	s.H.KindsFor = fixedKinds(map[string]service.Kind{"free": {Roles: []string{"scoper"}}})
 	_, ws, c, run := s.roleFixture(t)
 	_, err := s.Env.Owner.Exec(context.Background(), `CREATE FUNCTION reject_blob_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type='blob.created' THEN RAISE EXCEPTION 'injected blob commit failure'; END IF; RETURN NEW; END $$;
  CREATE CONSTRAINT TRIGGER reject_blob_commit AFTER INSERT ON event DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_blob_commit()`)
@@ -361,7 +366,6 @@ func (s heldStorage) Put(ctx context.Context, key string, r io.Reader, size int6
 // eventual Put cannot publish metadata using the authority it had before cancel.
 func TestRoleBlobSlowPutDoesNotBlockCancellation(t *testing.T) {
 	s := newServer(t)
-	s.H.KindsFor = fixedKinds(map[string]service.Kind{"free": {Roles: []string{"scoper"}}})
 	jwt, ws, c, run := s.roleFixture(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
@@ -509,7 +513,6 @@ func TestRoleBlobSlowGetDoesNotBlockCancellation(t *testing.T) {
 	for _, operation := range []string{"reference", "download"} {
 		t.Run(operation, func(t *testing.T) {
 			s := newServer(t)
-			s.H.KindsFor = fixedKinds(map[string]service.Kind{"free": {Roles: []string{"scoper"}}})
 			jwt, ws, c, run := s.roleFixture(t)
 			code, b := s.blobRequest(t, "POST", "/api/role/blobs", run.token, strings.NewReader("stored"))
 			if code != 201 {
@@ -614,9 +617,8 @@ func (b *heldBody) Close() error { b.finish.Do(func() { close(b.release) }); ret
 
 func TestRoleSupersedeRetainsHistoricalRows(t *testing.T) {
 	s := newServer(t)
-	s.H.KindsFor = fixedKinds(map[string]service.Kind{"free": {Roles: []string{"scoper"}}})
 	_, ws, c, run := s.roleFixture(t)
-	in := map[string]any{"kind": "free", "key": "same", "body": map[string]any{}}
+	in := map[string]any{"kind": "free", "body": map[string]any{}}
 	if code := s.call(t, "POST", "/api/role/records", run.token, "", in, nil); code != 201 {
 		t.Fatal(code)
 	}
@@ -690,7 +692,6 @@ func TestRoleBlobRejectsIncompleteUnauthorizedUploadPromptly(t *testing.T) {
 
 func TestRoleBlobIOErrorsAndMissingBytes(t *testing.T) {
 	s := newServer(t)
-	s.H.KindsFor = fixedKinds(map[string]service.Kind{"free": {Roles: []string{"scoper"}}})
 	_, _, c, run := s.roleFixture(t)
 	req := httptest.NewRequest("POST", "/api/role/blobs", &unreadableBody{})
 	req.Header.Set("Authorization", "Bearer "+run.token)

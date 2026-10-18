@@ -26,12 +26,8 @@ import (
 
 var errEnded = errors.New("the card has ended; continue with a new card that follows from it")
 
-// errBlocked refuses a plain resume of a Blocked card: its failed gate opened
-// no round, so only an unblock action can move it on.
-var errBlocked = errors.New("this study is blocked: use unblock")
-
-// resolveBlocked resolves the card's open escalated inbox items: a person
-// has answered them by resuming or stopping.
+// resolveBlocked resolves the card's open items asking for a person, whom
+// stopping the study has answered.
 func resolveBlocked(ctx context.Context, tx *store.Tx, card, who uuid.UUID) error {
 	ids, err := tx.Q.ResolveCardInbox(ctx, db.ResolveCardInboxParams{WorkspaceID: tx.WS, CardID: &card})
 	if err != nil {
@@ -116,7 +112,7 @@ func (h *H) steerCard(w http.ResponseWriter, r *http.Request, cancelAgentRuns, e
 		return err
 	})
 	switch {
-	case errors.Is(err, errEnded), errors.Is(err, errBlocked):
+	case errors.Is(err, errEnded):
 		writeErr(w, 409, err.Error())
 		return
 	case err != nil:
@@ -172,16 +168,6 @@ func (h *H) stopCard(w http.ResponseWriter, r *http.Request) {
 			reason = fmt.Sprintf("duplicate of #%d", o.Number)
 		}
 		board.Stop(s, reason)
-		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
-	})
-}
-
-func (h *H) resumeCard(w http.ResponseWriter, r *http.Request) {
-	h.steer(w, r, false, func(tx *store.Tx, c db.Card, s *board.State, _ flow.Settings) ([]board.Item, error) {
-		if s.BlockKind != "" {
-			return nil, errBlocked
-		}
-		board.Resume(s)
 		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
 	})
 }
@@ -268,11 +254,17 @@ func (h *H) setSettings(w http.ResponseWriter, r *http.Request) {
 
 	var pin struct {
 		Jev struct {
-			Model *string `json:"model"`
+			Model   *string         `json:"model"`
+			Enabled json.RawMessage `json:"enabled"`
 		} `json:"jev"`
 	}
-	if json.Unmarshal(in.Settings, &pin) == nil && pin.Jev.Model != nil && *pin.Jev.Model != jev.Model {
+	json.Unmarshal(in.Settings, &pin)
+	if pin.Jev.Model != nil && *pin.Jev.Model != jev.Model {
 		writeErr(w, 400, "the Jev model is pinned to "+jev.Model)
+		return
+	}
+	if pin.Jev.Enabled != nil {
+		writeErr(w, 400, "Jev is asked whenever the server has a TypeSafe key; there is no setting for it")
 		return
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {

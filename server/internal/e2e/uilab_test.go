@@ -96,7 +96,7 @@ func TestUILab(t *testing.T) {
 	iss := auth.Issuer{Secret: []byte("ui-lab-signing-secret-0123456789"), TTL: 24 * time.Hour}
 
 	h := &handler.H{Store: st, JWT: iss, Mail: mail, Limit: auth.Limiter{R: env.Redis},
-		Hub: hub, AgentRuns: runs, Blobs: blobs, KindsFor: flow.KindsFor, Engine: engine, Sources: hosted.Handler(),
+		Hub: hub, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(),
 		Connectors: &connectors.Client{}}
 	if dir := os.Getenv("LYK_TEST_SHIPPED_DIR"); dir != "" {
 		// Browser tests ship and replace Team versions on disk while the lab runs.
@@ -486,11 +486,11 @@ func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
 		}
 		// A flag excludes this fixture from the engine and daemon claim candidates.
 		s := board.FromCard(c)
-		s.Column, s.State, s.Flag, s.Round = board.Grounding, board.Working, board.Escalated, 1
+		s.Column, s.State, s.Flag, s.Round = board.Grounding, board.Working, "escalated", 1
 		if err := tx.Q.SaveCardBoard(ctx, s.Params(c.ID, ws)); err != nil {
 			return err
 		}
-		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]string{"column": board.Grounding, "flag": board.Escalated})
+		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]string{"column": board.Grounding, "flag": "escalated"})
 	})
 	return f, err
 }

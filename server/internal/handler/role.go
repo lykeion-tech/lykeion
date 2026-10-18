@@ -19,9 +19,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"lykeion/server/internal/auth"
-	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
@@ -83,47 +81,11 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := middleware.RoleFrom(r.Context())
-	// What a role may write depends on its card's pack; the card is read
-	// before the body is validated, and the write is re-authorized under locks.
-	var kinds map[string]service.Kind
-	var err error
-	if h.KindsFor != nil {
-		err = h.Store.InWorkspace(r.Context(), role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
-			var c db.Card
-			if role.CardID != uuid.Nil {
-				var err error
-				if c, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: role.WorkspaceID, ID: role.CardID}); err != nil {
-					return err
-				}
-			}
-			// The record lands in the run's column, so that column's kinds apply.
-			c.BoardColumn = role.Column
-			var err error
-			kinds, err = h.KindsFor(r.Context(), tx, h.Blobs, c)
-			return err
-		})
-	}
-	if errors.Is(err, flow.ErrPackUnavailable) {
-		slog.Error("load pack for record kinds", "card", role.CardID, "err", err)
-		writeErr(w, 503, "this study's Team can't be loaded")
-		return
-	}
-	if err != nil {
-		roleError(w, r, err)
-		return
-	}
 	if err := service.MayWrite(role.Role, in.Kind); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	// A kind the board registers keeps its own rules; any other kind is the
-	// run's work, keyed by the server.
-	kind, registered := kinds[in.Kind]
-	if registered && !slices.Contains(kind.Roles, role.Role) {
-		writeErr(w, 403, "role may not write this kind")
-		return
-	}
-	if !registered && in.Key != "" {
+	if in.Key != "" {
 		writeErr(w, 400, "the server gives a record its key")
 		return
 	}
@@ -136,12 +98,6 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
-	}
-	if kind.Validate != nil {
-		if err := kind.Validate(in.Body); err != nil {
-			writeErr(w, 400, err.Error())
-			return
-		}
 	}
 	if in.BlobKey != "" {
 		_, sum, _ := strings.Cut(in.BlobKey, role.WorkspaceID.String()+"/"+role.CardID.String()+"/")
@@ -186,31 +142,15 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if !registered {
-			var err error
-			if in.Key, err = records.NextRecordKey(r.Context(), tx, role.CardID); err != nil {
-				return err
-			}
-		} else if kind.KeyPrefix != "" {
-			n, err := tx.Q.CountKindRecords(r.Context(), db.CountKindRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: role.Column, Kind: in.Kind})
-			if err != nil {
-				return err
-			}
-			in.Key = fmt.Sprintf("%s%d", kind.KeyPrefix, n+1)
-		}
-		if kind.Prepare != nil {
-			w := service.Writer{Card: role.CardID, AgentRun: role.AgentRunID, Column: role.Column, Role: role.Role, Round: role.Round}
-			var err error
-			if in.Body, err = kind.Prepare(r.Context(), tx, w, in.Body); err != nil {
-				return err
-			}
-		}
-		var err error
-		rec, err = tx.Q.InsertRecord(r.Context(), db.InsertRecordParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: role.Column, Round: role.Round, Kind: in.Kind, Role: role.Role, Key: in.Key, Body: in.Body, BlobKey: in.BlobKey, AgentRunID: &role.AgentRunID})
+		key, err := records.NextRecordKey(r.Context(), tx, role.CardID)
 		if err != nil {
 			return err
 		}
-		return tx.Emit(r.Context(), "record.created", &role.CardID, store.Actor{Type: "role", ID: role.AgentRunID}, map[string]any{"record_id": rec.ID, "kind": in.Kind, "key": in.Key, "role": role.Role})
+		rec, err = tx.Q.InsertRecord(r.Context(), db.InsertRecordParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: role.Column, Round: role.Round, Kind: in.Kind, Role: role.Role, Key: key, Body: in.Body, BlobKey: in.BlobKey, AgentRunID: &role.AgentRunID})
+		if err != nil {
+			return err
+		}
+		return tx.Emit(r.Context(), "record.created", &role.CardID, store.Actor{Type: "role", ID: role.AgentRunID}, map[string]any{"record_id": rec.ID, "kind": in.Kind, "key": key, "role": role.Role})
 	})
 	var inv service.Invalid
 	if errors.As(err, &inv) {

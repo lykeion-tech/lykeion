@@ -167,8 +167,8 @@ func (c *Client) post(ctx context.Context, state string, questions map[string]an
 	return out.Answers, nil
 }
 
-// Retry is shared by every question in one gate: Max bounds the waiting summed
-// across them, so the whole gate stays inside its lease.
+// Retry is shared by every attempt at one scoring: Max bounds the waiting
+// summed across them, so the scoring stays inside its lease.
 type Retry struct {
 	Waits []time.Duration
 	Max   time.Duration
@@ -176,7 +176,7 @@ type Retry struct {
 	spent time.Duration
 }
 
-// NewRetry retries twice, three minutes apart, and waits six minutes at most per gate.
+// NewRetry retries twice, three minutes apart, and waits six minutes at most per scoring.
 func NewRetry() *Retry {
 	return &Retry{Waits: []time.Duration{3 * time.Minute, 3 * time.Minute}, Max: 6 * time.Minute, Sleep: sleep}
 }

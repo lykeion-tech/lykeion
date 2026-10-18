@@ -114,7 +114,7 @@ func newBoardLab(t *testing.T) *boardLab {
 	l.hosted = &sources.Hosted{Store: l.st, Blobs: blobs, GEO: sources.GEO{Base: geo.URL, HTTP: geo.Client()}}
 	iss := auth.Issuer{Secret: []byte("s"), TTL: time.Hour}
 	l.h = &handler.H{Store: l.st, JWT: iss, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
-		Autoresearch: l.ap, AgentRuns: runs, Blobs: blobs, KindsFor: flow.KindsFor, Engine: l.engine, Sources: l.hosted.Handler()}
+		Autoresearch: l.ap, AgentRuns: runs, Blobs: blobs, Engine: l.engine, Sources: l.hosted.Handler()}
 	srv := httptest.NewServer(handler.NewRouter(l.h))
 	t.Cleanup(srv.Close)
 	runs.MCPURL = srv.URL + "/mcp/sources"
@@ -126,9 +126,6 @@ func newBoardLab(t *testing.T) *boardLab {
 	l.owner = u.ID
 	must(t, l.st.InWorkspace(ctx, l.ws, u.ID, func(tx *store.Tx) error {
 		if _, err := tx.Q.CreateWorkspace(ctx, db.CreateWorkspaceParams{ID: l.ws, Slug: "lab", Name: "Lab"}); err != nil {
-			return err
-		}
-		if err := tx.Q.SetWorkspaceSettings(ctx, db.SetWorkspaceSettingsParams{ID: l.ws, Settings: []byte(`{"jev":{"enabled":true}}`)}); err != nil {
 			return err
 		}
 		return tx.Q.AddMember(ctx, db.AddMemberParams{WorkspaceID: l.ws, UserID: u.ID, Role: "owner"})

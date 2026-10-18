@@ -9,14 +9,12 @@ import (
 )
 
 type cardView struct {
-	ID          string  `json:"id"`
-	Number      int     `json:"number"`
-	Title       string  `json:"title"`
-	Question    string  `json:"question"`
-	BoardColumn string  `json:"board_column"`
-	State       string  `json:"state"`
-	Flag        string  `json:"flag"`
-	SpentUsd    float64 `json:"spent_usd"`
+	ID          string `json:"id"`
+	Number      int    `json:"number"`
+	Title       string `json:"title"`
+	Question    string `json:"question"`
+	BoardColumn string `json:"board_column"`
+	State       string `json:"state"`
 }
 
 // byNumber resolves a card number to its id.
@@ -86,8 +84,8 @@ func cardCmd(e *env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(e.out, "#%d %s\ncolumn: %s  state: %s  flag: %s\nspent: $%.2f\n\n%s\n",
-				x.Number, x.Title, x.BoardColumn, x.State, x.Flag, x.SpentUsd, x.Question)
+			fmt.Fprintf(e.out, "#%d %s\ncolumn: %s  state: %s\n\n%s\n",
+				x.Number, x.Title, x.BoardColumn, x.State, x.Question)
 			var comments []struct {
 				Body      string `json:"body"`
 				CreatedAt string `json:"created_at"`

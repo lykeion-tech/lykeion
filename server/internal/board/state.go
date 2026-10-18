@@ -1,5 +1,5 @@
-// Package board holds the rules of the board: what a gate decides and how a
-// card moves because of it. It touches no database.
+// Package board names the board's columns and a study's states, and holds a
+// person's steering of a study. It touches no database.
 package board
 
 import (
@@ -17,11 +17,7 @@ const (
 	Reporting       = "reporting"
 	Done            = "done"
 
-	Working  = "working"
-	InReview = "in_review"
-	Ready    = "ready"
-
-	Escalated = "escalated"
+	Working = "working"
 )
 
 // Stages are the five scientific columns, in board order.

@@ -38,12 +38,6 @@ var ErrPackUnavailable = errors.New("the card's Team cannot be loaded")
 
 var errNoAgent = errors.New("no agent works this column")
 
-// KindsFor is what a card's roles may write in its column. No role writes a
-// record kind yet.
-func KindsFor(context.Context, *store.Tx, storage.Storage, db.Card) (map[string]service.Kind, error) {
-	return map[string]service.Kind{}, nil
-}
-
 // OnSettlement is wired to service.AgentRuns' durable settlement: a settled
 // run may let its study move on. A member's run wakes its leader, and a
 // leader or single agent that stopped without finishing is nudged once. An

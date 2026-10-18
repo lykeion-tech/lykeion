@@ -324,7 +324,6 @@ func TestPackUploadOversize(t *testing.T) {
 // well-formed kind as the run's work, keyed by the server.
 func TestRoleRecordWithoutKinds(t *testing.T) {
 	s := newServer(t)
-	s.H.KindsFor = nil
 	_, _, _, run := s.roleFixture(t)
 	var rec struct{ Key string }
 	if got := s.call(t, "POST", "/api/role/records", run.token, "", map[string]any{"kind": "question", "body": map[string]string{"text": "Scoped?"}}, &rec); got != 201 || rec.Key != "r1" {

@@ -73,7 +73,6 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/agent-runs/{id}/cancel", h.cancelAgentRun)
 		r.Post("/api/autoresearch/{id}/run", h.runAutoresearch)
 		r.Post("/api/cards/{id}/stop", h.stopCard)
-		r.Post("/api/cards/{id}/resume", h.resumeCard)
 
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)

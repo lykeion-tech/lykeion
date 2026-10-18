@@ -43,14 +43,18 @@ func TestTeamCommands(t *testing.T) {
 	if out := lyk(t, "", "team", "versions", "my team"); !strings.Contains(out, "approved") || !strings.Contains(out, "3 studies") {
 		t.Fatalf("versions %q", out)
 	}
-	lyk(t, "", "team", "approve", "p1")
+	if out := lyk(t, "", "team", "add", "p1"); !strings.Contains(out, "added p1") {
+		t.Fatalf("add %q", out)
+	}
+	lyk(t, "", "team", "approve", "p1") // the older name still adds
 
 	want := []req{
 		{"POST", "/api/packs", "application/zip", "PK\x03\x04zip-bytes"},
 		{"GET", "/api/packs?name=my+team", "application/json", ""},
-		{"POST", "/api/packs/p1/approve", "application/json", ""},
+		{"POST", "/api/teams/p1/add", "application/json", ""},
+		{"POST", "/api/teams/p1/add", "application/json", ""},
 	}
-	if len(got) != 3 {
+	if len(got) != 4 {
 		t.Fatalf("%d requests: %+v", len(got), got)
 	}
 	for i, w := range want {

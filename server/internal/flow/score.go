@@ -46,8 +46,6 @@ const scoringLease = 10 * time.Minute
 
 var errNoJev = errors.New("the lab has no TypeSafe key")
 
-// Verdict reads a column's criterion levels: high when every level is 4 or
-// more, low when any is 2 or less, middle otherwise.
 // The Inbox sentences below are read back by the dashboard (inboxText in
 // lib/studies.ts), which lifts the quoted criterion out of a middle score;
 // the other kinds it words itself. Change them together.
@@ -71,6 +69,8 @@ func unavailableText(number int32, column string) string {
 	return fmt.Sprintf("Scoring is unavailable for study #%d's %s column. It stays there, and Lykeion keeps retrying.", number, title(column))
 }
 
+// Verdict reads a column's criterion levels: high when every level is 4 or
+// more, low when any is 2 or less, middle otherwise.
 func Verdict(levels []float64) string {
 	high := true
 	for _, l := range levels {

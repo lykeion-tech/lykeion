@@ -5,11 +5,11 @@ SELECT * FROM card WHERE id = @id AND workspace_id = @workspace_id FOR NO KEY UP
 SELECT pg_try_advisory_xact_lock(hashtextextended(sqlc.arg(card_id)::uuid::text, 1)) AS ok;
 
 -- The same lock as TryLockCard, waited for: the engine's write phase must not
--- drop a finished gate because a short read phase holds the lock.
+-- drop finished scoring because a short read phase holds the lock.
 -- name: WaitLockCard :exec
 SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(card_id)::uuid::text, 1));
 
--- Sets or clears the card's gating lease. version is left alone: the lease is
+-- Sets or clears the card's scoring lease. version is left alone: the lease is
 -- the engine's bookkeeping, not a change to the card.
 -- name: SetGatingLease :exec
 UPDATE card SET gating_until = sqlc.narg(gating_until) WHERE id = @id AND workspace_id = @workspace_id;
@@ -84,10 +84,6 @@ ORDER BY position, number;
 -- name: BoardCandidates :many
 SELECT workspace_id::uuid AS workspace_id, card_id::uuid AS card_id, board_column::text AS board_column
 FROM board_candidates();
-
--- name: CardGates :many
-SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'gate'
-ORDER BY created_at;
 
 -- name: SetWorkspaceSettings :exec
 UPDATE workspace SET settings = @settings WHERE id = @id;

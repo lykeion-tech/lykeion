@@ -139,50 +139,6 @@ func (q *Queries) BoardCandidates(ctx context.Context) ([]BoardCandidatesRow, er
 	return items, nil
 }
 
-const cardGates = `-- name: CardGates :many
-SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2 AND kind = 'gate'
-ORDER BY created_at
-`
-
-type CardGatesParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-}
-
-func (q *Queries) CardGates(ctx context.Context, arg CardGatesParams) ([]Record, error) {
-	rows, err := q.db.Query(ctx, cardGates, arg.WorkspaceID, arg.CardID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Record
-	for rows.Next() {
-		var i Record
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.CardID,
-			&i.BoardColumn,
-			&i.Round,
-			&i.Kind,
-			&i.Role,
-			&i.Key,
-			&i.Body,
-			&i.BlobKey,
-			&i.AgentRunID,
-			&i.SupersededAt,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const cardInflightAgentRuns = `-- name: CardInflightAgentRuns :many
 SELECT id FROM agent_run
 WHERE workspace_id = $1 AND card_id = $2
@@ -675,7 +631,7 @@ type SetGatingLeaseParams struct {
 	WorkspaceID uuid.UUID  `json:"workspace_id"`
 }
 
-// Sets or clears the card's gating lease. version is left alone: the lease is
+// Sets or clears the card's scoring lease. version is left alone: the lease is
 // the engine's bookkeeping, not a change to the card.
 func (q *Queries) SetGatingLease(ctx context.Context, arg SetGatingLeaseParams) error {
 	_, err := q.db.Exec(ctx, setGatingLease, arg.GatingUntil, arg.ID, arg.WorkspaceID)
@@ -751,7 +707,7 @@ SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text, 1))
 `
 
 // The same lock as TryLockCard, waited for: the engine's write phase must not
-// drop a finished gate because a short read phase holds the lock.
+// drop finished scoring because a short read phase holds the lock.
 func (q *Queries) WaitLockCard(ctx context.Context, cardID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, waitLockCard, cardID)
 	return err

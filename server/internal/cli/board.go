@@ -21,13 +21,14 @@ func steerPost(cmd *cobra.Command, e *env, n, action string, body any) error {
 	if err := e.client().Do(cmd.Context(), "POST", "/api/cards/"+c.ID+"/"+action, body, &out); err != nil {
 		return err
 	}
-	fmt.Fprintf(e.out, "#%d %s %s %s\n", out.Number, out.BoardColumn, out.State, out.Flag)
+	fmt.Fprintf(e.out, "#%d %s %s\n", out.Number, out.BoardColumn, out.State)
 	return nil
 }
 
-// boardCmd prints the board, with a Blocked row for cards that need a person.
+// boardCmd prints the board, with a Blocked row for studies that need their
+// owner's comment.
 func boardCmd(e *env) *cobra.Command {
-	return &cobra.Command{Use: "board", Short: "The board, with a Blocked row for cards that need a person", RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "board", Short: "The board, with a Blocked row for studies that need a person", RunE: func(cmd *cobra.Command, _ []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
 		}
@@ -42,16 +43,12 @@ func boardCmd(e *env) *cobra.Command {
 			fmt.Fprintf(e.out, "== %s\n", row)
 			for _, col := range columns {
 				for _, c := range cards {
-					blocked := c.Flag == "escalated"
-					if c.BoardColumn != col || blocked != (row == "Blocked") {
+					if c.BoardColumn != col || (c.State == "blocked") != (row == "Blocked") {
 						continue
 					}
 					badge := c.State
-					switch {
-					case c.Ending != "":
+					if c.Ending != "" {
 						badge = c.Ending
-					case blocked:
-						badge = c.Flag
 					}
 					fmt.Fprintf(e.out, "%-16s #%-4d %-14s %s\n", col, c.Number, badge, c.Title)
 				}
@@ -61,18 +58,14 @@ func boardCmd(e *env) *cobra.Command {
 	}}
 }
 
-// steerCmds adds stop and resume under `lyk card`.
+// steerCmds adds stop under `lyk card`.
 func steerCmds(e *env, card *cobra.Command) {
-	post := func(cmd *cobra.Command, n, action string, body any) error { return steerPost(cmd, e, n, action, body) }
 	var reason string
 	var dupOf int
 	stop := &cobra.Command{Use: "stop N", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
-		return post(cmd, a[0], "stop", map[string]any{"reason": reason, "duplicate_of": dupOf})
+		return steerPost(cmd, e, a[0], "stop", map[string]any{"reason": reason, "duplicate_of": dupOf})
 	}}
 	stop.Flags().StringVar(&reason, "reason", "", "why")
 	stop.Flags().IntVar(&dupOf, "duplicate-of", 0, "the card this one duplicates")
-	resume := &cobra.Command{Use: "resume N", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
-		return post(cmd, a[0], "resume", nil)
-	}}
-	card.AddCommand(stop, resume)
+	card.AddCommand(stop)
 }

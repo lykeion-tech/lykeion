@@ -7,19 +7,13 @@ type Harness struct {
 	Roles   map[string]string `json:"roles,omitempty"`
 }
 
-type JevSettings struct {
-	Enabled bool `json:"enabled"` // sending text to TypeSafe is an owner's opt-in
-}
-
 // Settings live in workspace.settings; missing fields take the defaults.
 type Settings struct {
-	WIPLimit int64       `json:"wip_limit"`
-	Harness  Harness     `json:"harness"`
-	Jev      JevSettings `json:"jev"`
+	Harness Harness `json:"harness"`
 }
 
 func ParseSettings(raw json.RawMessage) Settings {
-	s := Settings{WIPLimit: 2, Harness: Harness{Default: "claude"}}
+	s := Settings{Harness: Harness{Default: "claude"}}
 	json.Unmarshal(raw, &s)
 	return s
 }
