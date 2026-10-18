@@ -146,3 +146,29 @@ func freeName(ctx context.Context, tx *store.Tx, base string) (string, error) {
 		}
 	}
 }
+
+// SkillNames is the distinct library selection made by the Team's members.
+func SkillNames(m pack.Manifest) []string {
+	var out []string
+	for _, mem := range append([]pack.Member{m.Leader, m.Auditor}, m.Members...) {
+		for _, name := range mem.Skills {
+			if !slices.Contains(out, name) {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+
+// SkillFolders embeds a selected import only for the members declaring it.
+func SkillFolders(m pack.Manifest, files map[string]map[string][]byte) map[string]map[string][]byte {
+	out := map[string]map[string][]byte{}
+	for _, mem := range append([]pack.Member{m.Leader, m.Auditor}, m.Members...) {
+		for _, name := range mem.Skills {
+			if folder, ok := files[name]; ok {
+				out[mem.Name+"/"+name] = folder
+			}
+		}
+	}
+	return out
+}

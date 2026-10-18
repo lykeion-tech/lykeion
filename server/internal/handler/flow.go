@@ -15,6 +15,7 @@ import (
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/skill"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/toolroute"
@@ -210,10 +211,20 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 	}
 	var conns []pack.Connector
 	var team *service.TeamClaim
+	var scope skill.Scope
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
 		run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{ID: role.AgentRunID, WorkspaceID: role.WorkspaceID})
 		if err != nil {
 			return err
+		}
+		if role.CardID != uuid.Nil {
+			scope = skill.Scope{Kind: "card", ID: role.CardID}
+		} else {
+			ar, e := tx.Q.RunByAgentRun(r.Context(), db.RunByAgentRunParams{WorkspaceID: role.WorkspaceID, AgentRunID: role.AgentRunID})
+			if e != nil {
+				return e
+			}
+			scope = skill.Scope{Kind: "autoresearch_run", ID: ar.ID}
 		}
 		conns, team, err = service.ClaimConnectors(r.Context(), tx, run)
 		return err
@@ -223,6 +234,7 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var c toolroute.Candidates
+	routeCtx := skill.WithRunAuthority(r.Context(), middleware.RoleFrom(r.Context()), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	if team != nil {
 		p, member, err := service.TeamMember(r.Context(), h.Blobs, *team)
 		if err != nil {
@@ -232,7 +244,13 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 		}
 		c = toolroute.ForTeam(p, member, member.Connectors, in.ConnectorTools)
 	} else {
-		c = toolroute.ForLibrary(conns, in.ConnectorTools)
+		var library []toolroute.Skill
+		routeCtx, library, err = h.skillService().CandidatesForScope(routeCtx, middleware.RoleFrom(r.Context()).WorkspaceID, scope)
+		if err != nil {
+			roleError(w, r, err)
+			return
+		}
+		c = toolroute.ForLibrary(conns, in.ConnectorTools, library)
 	}
 	res, err := toolroute.Route(r.Context(), h.Engine.Jev, in.Need, c)
 	if err != nil {
@@ -240,9 +258,30 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, err.Error())
 		return
 	}
+	if team == nil {
+		names := make([]string, 0, len(res.Skills))
+		for _, s := range res.Skills {
+			names = append(names, s.Name)
+		}
+		c.Skills, err = h.skillService().ResolveForScope(routeCtx, middleware.RoleFrom(r.Context()).WorkspaceID, scope, names)
+		if errors.Is(err, skill.ErrRoutingChanged) {
+			writeErr(w, 409, err.Error())
+			return
+		}
+		if err != nil {
+			roleError(w, r, err)
+			return
+		}
+	}
 	if err := c.AttachFolders(&res); err != nil {
 		fail(w, r, err)
 		return
+	}
+	if middleware.RoleFrom(r.Context()).CardID == uuid.Nil {
+		if err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error { return nil }); err != nil {
+			roleError(w, r, err)
+			return
+		}
 	}
 	if middleware.RoleFrom(r.Context()).CardID != uuid.Nil {
 		err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
