@@ -2,11 +2,21 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../api/client';
-import { useAgent, useCards, useMe, useMembers, useWorkspace, useWorkspaces } from '../api/queries';
+import {
+  useAgent,
+  useCards,
+  useMe,
+  useMembers,
+  useRuntimes,
+  useWorkspace,
+  useWorkspaces,
+} from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import type { AgentDefinition, Card } from '../api/types';
 import Icon from '../components/Icon.vue';
+import BackendDetailsDialog from '../components/BackendDetailsDialog.vue';
+import { backends, backendLabel, backendDefaultModel } from '../lib/backends';
 import { matchesQuery } from '../lib/search';
 import { agentConnectorIntegrationAvailable } from '../lib/agent-connectors';
 import { boardColumnOf, boardColumns, studyNumber, timeAgo } from '../lib/studies';
@@ -21,6 +31,8 @@ const detail = useAgent(() => props.id),
   workspace = useWorkspace(),
   workspaces = useWorkspaces();
 const client = useQueryClient();
+const runtimes = useRuntimes();
+const backendDetails = ref(false);
 const { openComposer } = useTaskComposer();
 
 const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
@@ -59,7 +71,7 @@ const owner = computed(() => {
   const m = members.data.value?.find((x) => x.user_id === agent.value?.owner_id);
   return m ? m.name || m.email : 'Former member';
 });
-const harnessName = (h: string) => (h === 'claude' ? 'Claude Code' : 'Codex');
+const harnessName = backendLabel;
 const assigned = computed(() =>
   (cards.data.value ?? [])
     .filter((c) => c.assignee_type === 'agent' && c.assignee_id === props.id)
@@ -101,6 +113,7 @@ watch([workspaceId, () => props.id], () => {
   tab.value = 'overview';
   error.value = '';
   menu.value = false;
+  backendDetails.value = false;
 });
 
 async function patch(body: Record<string, unknown>) {
@@ -384,8 +397,15 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           <div class="agent-card agent-execution">
             <label
               >Harness<select v-model="general.harness" aria-label="Harness" :disabled="!editable">
-                <option value="claude">Claude Code</option>
-                <option value="codex">Codex</option>
+                <option v-for="backend in backends" :key="backend.id" :value="backend.id">
+                  {{ backend.label }}
+                </option>
+                <option
+                  v-if="!backends.some((backend) => backend.id === general.harness)"
+                  :value="general.harness"
+                >
+                  {{ backendLabel(general.harness) }}
+                </option>
               </select></label
             ><label
               >Model<input
@@ -394,6 +414,31 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
                 placeholder="Harness default"
                 :readonly="!editable"
             /></label>
+          </div>
+          <div class="agent-card" style="padding: 14px 18px; margin-top: 14px">
+            <div
+              style="display: flex; align-items: center; justify-content: space-between; gap: 12px"
+            >
+              <b>{{ backendLabel(general.harness) }}</b
+              ><button type="button" class="text-button" @click="backendDetails = true">
+                Backend details
+              </button>
+            </div>
+            <p v-if="['cursor', 'antigravity'].includes(general.harness)" class="agent-hint">
+              Runs in private mode.
+              {{
+                general.harness === 'cursor'
+                  ? 'Supports Lykeion connectors and read-only runs.'
+                  : 'Supports Lykeion connectors. Read-only runs are not supported.'
+              }}
+            </p>
+            <p class="agent-hint">
+              {{
+                backendDefaultModel(general.harness)
+                  ? `Leave blank to use the adapter default: ${backendDefaultModel(general.harness)}.`
+                  : 'Leave blank to use the harness default.'
+              }}
+            </p>
           </div>
           <footer v-if="editable">
             <button class="button primary" :disabled="busy || !general.name.trim()">
@@ -441,5 +486,12 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       {{ detail.error.value.message }} <button @click="detail.refetch()">Retry</button>
     </p>
   </section>
+  <BackendDetailsDialog
+    v-if="backendDetails"
+    :key="workspaceId + id"
+    :harness="general.harness"
+    :runtimes="runtimes.data.value"
+    @close="backendDetails = false"
+  />
 </template>
 <style src="./agent-detail.css" />

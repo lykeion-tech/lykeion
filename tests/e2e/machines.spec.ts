@@ -659,3 +659,47 @@ test('machine detail uses actual versions, canonical rename, keyboard links and 
       await page.request.delete(`/api/runtimes/${r.id}`, { headers: headers(ws) });
   }
 });
+
+test('four daemon-reported providers retain actual versions and unreported values', async ({
+  page,
+}) => {
+  const ws = await labWorkspace(page.request);
+  const token = await (
+    await page.request.post('/api/tokens', { data: { name: 'Task16 runtime test' } })
+  ).json();
+  let records: MachineRuntime[] = [];
+  try {
+    const response = await page.request.post('/api/daemon/register', {
+      headers: { Authorization: `Bearer ${token.token}` },
+      data: {
+        workspace_id: ws,
+        daemon_id: `task16-${Date.now()}`,
+        device_name: 'Four provider computer',
+        harnesses: ['claude', 'codex', 'cursor', 'antigravity'],
+        versions: { claude: 'actual-claude', cursor: 'actual-cursor' },
+      },
+    });
+    expect(response.status()).toBe(200);
+    records = await response.json();
+    await page.goto(`/#/machines/${records[0]!.daemon_id}`);
+    const table = page.getByRole('table', { name: 'Runtimes' });
+    for (const label of ['Claude Code', 'Codex', 'Cursor', 'Antigravity'])
+      await expect(table).toContainText(label);
+    const cursor = table.getByRole('row').filter({ hasText: 'Cursor' });
+    await expect(cursor).toContainText('actual-cursor');
+    const agy = table.getByRole('row').filter({ hasText: 'Antigravity' });
+    await expect(agy.locator('.runtime-version')).toHaveText('Not reported');
+    await agy.getByRole('button', { name: 'Backend details' }).click();
+    const detail = page.getByRole('dialog', { name: 'Antigravity backend details' });
+    await expect(detail).toContainText('Not reported');
+    await expect(detail).toContainText(
+      records.find((r) => r.harness === 'antigravity')!.status === 'online' ? 'Online' : 'Offline',
+    );
+    await expect(detail).toContainText('Not supported');
+    await page.screenshot({ path: 'test-results/ui2-task16/machine-backend.png' });
+  } finally {
+    await page.request.delete(`/api/tokens/${token.id}`);
+    for (const r of records)
+      await page.request.delete(`/api/runtimes/${r.id}`, { headers: headers(ws) });
+  }
+});

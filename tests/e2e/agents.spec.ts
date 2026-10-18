@@ -429,3 +429,65 @@ test('agent connector edit preserves peer servers and dirty snapshots require ex
   await expect(panel).toContainText('No connectors have been added to this agent.');
   await panel.screenshot({ path: `${artifacts}/agent-connectors-prepared-empty.png` });
 });
+
+test('four backend selectors persist provider labels and expose truthful focused details', async ({
+  page,
+}) => {
+  await inFixture(page);
+  for (const [harness, label] of [
+    ['claude', 'Claude Code'],
+    ['codex', 'Codex'],
+    ['cursor', 'Cursor'],
+    ['antigravity', 'Antigravity'],
+  ]) {
+    await page.goto('/#/agents/new');
+    await page.getByRole('button', { name: /Start blank/ }).click();
+    const form = page.getByRole('dialog', { name: 'New agent', exact: true });
+    await expect(form.getByRole('combobox', { name: 'Harness' }).locator('option')).toHaveText([
+      'Claude Code',
+      'Codex',
+      'Cursor',
+      'Antigravity',
+    ]);
+    await form.getByRole('textbox', { name: 'Agent name', exact: true }).fill(`${label} task16`);
+    await form.getByRole('combobox', { name: 'Harness' }).selectOption(harness!);
+    await form.getByRole('button', { name: 'Create agent', exact: true }).click();
+    await expect(page.locator('.agent-identity')).toContainText(label!);
+    await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+    await expect(page.getByRole('combobox', { name: 'Harness' })).toHaveValue(harness!);
+    if (harness === 'cursor' || harness === 'antigravity') {
+      const trigger = page.getByRole('button', { name: 'Backend details', exact: true });
+      await trigger.click();
+      const detail = page.getByRole('dialog', { name: `${label} backend details` });
+      await expect(detail).toContainText('Private only');
+      await expect(detail).toContainText(harness === 'cursor' ? 'cursor-agent' : 'agy');
+      await expect(detail).toContainText(harness === 'cursor' ? 'gpt-5' : 'gemini-3-pro');
+      await expect(detail).toContainText('Supported through the tool door');
+      await expect(detail).toContainText('Not reported');
+      const agentURL = page.url();
+      const canvases: string[] = [];
+      for (const palette of ['ash', 'midnight', 'dawn', 'pale']) {
+        await page.goto('/#/settings/preferences');
+        await page
+          .getByRole('button', { name: palette[0]!.toUpperCase() + palette.slice(1), exact: true })
+          .click();
+        await expect(page.locator('html')).toHaveAttribute('data-palette', palette);
+        await page.goto(agentURL);
+        await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+        await trigger.click();
+        await expect(detail).toBeVisible();
+        canvases.push(
+          await page
+            .locator('.backend-dialog')
+            .evaluate((el) => getComputedStyle(el).backgroundColor),
+        );
+        await page.screenshot({
+          path: `test-results/ui2-task16/${palette}-${harness}-backend.png`,
+        });
+        await page.keyboard.press('Escape');
+        await expect(trigger).toBeFocused();
+      }
+      expect(new Set(canvases).size).toBe(4);
+    }
+  }
+});

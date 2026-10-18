@@ -72,16 +72,16 @@ const groups = [
     name: 'Laboratory',
     items: [
       { id: 'studies', name: 'Studies', icon: 'tasks' },
-      { id: 'teams', name: 'Teams', icon: 'network' },
       { id: 'projects', name: 'Researches', icon: 'folder' },
-      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
   },
   {
-    name: 'Configure',
+    name: 'IT department',
     items: [
+      { id: 'teams', name: 'Teams', icon: 'network' },
       { id: 'agents', name: 'Agents', icon: 'bot' },
+      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'machines', name: 'Machines', icon: 'monitor' },
     ],
   },

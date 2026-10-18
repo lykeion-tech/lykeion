@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
+import { backendLabel } from '../lib/backends';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
@@ -121,7 +122,7 @@ const problem = computed(() => {
 const canCreate = computed(() => !problem.value && !auditorClash.value && !busy.value);
 
 const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
-const harnessName = (h: string) => (h === 'claude' ? 'Claude Code' : h === 'codex' ? 'Codex' : h);
+const harnessName = backendLabel;
 
 function addConnector(m: Slot, pick: string) {
   if (!pick) return;
