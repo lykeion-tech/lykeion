@@ -163,3 +163,27 @@ func TestCardRecordsCanIncludeSuperseded(t *testing.T) {
 		t.Fatalf("all: %+v", all)
 	}
 }
+
+func TestRecordsWrittenTogetherListInKeyOrder(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var c card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, created_at)
+		SELECT $1, $2, 'grounding', 1, 'score', 'server', k, '2030-01-01T00:00:00Z' FROM unnest(ARRAY['r10','r9','r2','r1']) k`, w.ID, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	var all []struct {
+		Key string `json:"key"`
+	}
+	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/records?column=grounding&all=1", a, w.ID, nil, &all); code != 200 || len(all) != 4 {
+		t.Fatalf("%d %+v", code, all)
+	}
+	for i, k := range []string{"r1", "r2", "r9", "r10"} {
+		if all[i].Key != k {
+			t.Fatalf("order %+v", all)
+		}
+	}
+}

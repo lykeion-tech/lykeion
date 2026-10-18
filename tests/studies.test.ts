@@ -362,6 +362,16 @@ describe('flow records and Inbox sentences', () => {
     expect(v.steps.map((s) => s.key)).toEqual(['s2']);
     expect(v.calls).toEqual([]);
   });
+  it('shows the scores of the outcome even when the outcome comes first', () => {
+    const v = studies.flowView([
+      rec('score', 1, 'r1', { criterion: 'old', level: 2 }),
+      rec('outcome', 2, 'r5', { verdict: 'middle' }),
+      rec('score', 2, 'r3', { criterion: 'a', level: 4 }),
+      rec('score', 2, 'r4', { criterion: 'b', level: 3 }),
+    ]);
+    expect(v.verdict).toBe('middle');
+    expect(v.scores.map((s) => s.criterion)).toEqual(['a', 'b']);
+  });
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();
     expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();

@@ -91,4 +91,4 @@ SELECT * FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_i
 -- Every record of a card's column, superseded ones included, for the card page.
 -- name: ListAllRecords :many
 SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND board_column = @board_column
-ORDER BY created_at;
+ORDER BY created_at, length(key), key;

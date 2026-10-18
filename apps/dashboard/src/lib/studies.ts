@@ -288,7 +288,8 @@ const strings = (v: unknown): string[] =>
 // latest scored attempt.
 export function flowView(recs: StudyRecord[]): FlowView {
   const out: FlowView = { scores: [], verdict: '', steps: [], audit: null, calls: [] };
-  let pending: FlowView['scores'] = [];
+  const scored = new Map<number, FlowView['scores']>();
+  let outcomeRound = -1;
   const latest = Math.max(0, ...recs.map((r) => r.round));
   for (const r of recs) {
     const b = r.body;
@@ -321,13 +322,16 @@ export function flowView(recs: StudyRecord[]): FlowView {
         answer: str(b.answer),
       });
     else if (r.kind === 'score')
-      pending.push({ criterion: str(b.criterion), level: Number(b.level) });
-    else if (r.kind === 'outcome') {
-      out.scores = pending;
+      scored.set(r.round, [
+        ...(scored.get(r.round) ?? []),
+        { criterion: str(b.criterion), level: Number(b.level) },
+      ]);
+    else if (r.kind === 'outcome' && r.round >= outcomeRound) {
+      outcomeRound = r.round;
       out.verdict = str(b.verdict);
-      pending = [];
     }
   }
+  out.scores = scored.get(outcomeRound) ?? [];
   return out;
 }
 

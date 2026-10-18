@@ -392,7 +392,7 @@ func (q *Queries) InsertCardTeam(ctx context.Context, arg InsertCardTeamParams) 
 
 const listAllRecords = `-- name: ListAllRecords :many
 SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2 AND board_column = $3
-ORDER BY created_at
+ORDER BY created_at, length(key), key
 `
 
 type ListAllRecordsParams struct {
