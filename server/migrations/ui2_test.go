@@ -84,6 +84,10 @@ func TestUI2CrossWorkspaceReferencesFail(t *testing.T) {
 	skill := seedUI2Skill(t, env, ws, u, "analysis")
 	otherSkill := seedUI2Skill(t, env, other, u, "analysis")
 	runtime := seedUI2Runtime(t, env, ws, u)
+	otherUser := uuid.New()
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO "user" (id,email) VALUES ($1,'other@x')`, otherUser); err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name, sql string
 		args      []any
@@ -92,7 +96,7 @@ func TestUI2CrossWorkspaceReferencesFail(t *testing.T) {
 		{"pin version", `INSERT INTO workspace_skill_pin (workspace_id,scope_kind,scope_id,skill_id,revision) VALUES ($1,'card',$2,$3,1)`, []any{ws, card, otherSkill}},
 		{"pin card", `INSERT INTO workspace_skill_pin (workspace_id,scope_kind,scope_id,skill_id,revision) VALUES ($1,'card',$2,$3,1)`, []any{other, card, otherSkill}},
 		{"runtime", `INSERT INTO runtime_skill_request (workspace_id,runtime_id,owner_id,daemon_id,operation) VALUES ($1,$2,$3,'daemon','list')`, []any{other, runtime, u}},
-		{"runtime owner", `INSERT INTO runtime_skill_request (workspace_id,runtime_id,owner_id,daemon_id,operation) VALUES ($1,$2,$3,'daemon','list')`, []any{ws, runtime, uuid.New()}},
+		{"runtime owner", `INSERT INTO runtime_skill_request (workspace_id,runtime_id,owner_id,daemon_id,operation) VALUES ($1,$2,$3,'daemon','list')`, []any{ws, runtime, otherUser}},
 		{"runtime daemon", `INSERT INTO runtime_skill_request (workspace_id,runtime_id,owner_id,daemon_id,operation) VALUES ($1,$2,$3,'other','list')`, []any{ws, runtime, u}},
 	}
 	for _, tc := range cases {
@@ -110,7 +114,7 @@ func TestSkillVersionAndPinSurviveSoftDelete(t *testing.T) {
 	u, ws, card := seedWorkspace(t, env)
 	skill := seedUI2Skill(t, env, ws, u, "analysis")
 	seedUI2Pin(t, env, ws, card, skill)
-	_, err := env.Owner.Exec(ctx, `UPDATE workspace_skill_version SET sha256=$3 WHERE workspace_id=$1 AND skill_id=$2`, ws, skill, strings.Repeat("b", 64))
+	_, err := env.Owner.Exec(ctx, `UPDATE workspace_skill_version SET description=$3 WHERE workspace_id=$1 AND skill_id=$2`, ws, skill, "changed description")
 	wantCode(t, err, "23514", "immutable version")
 	_, err = env.Owner.Exec(ctx, `INSERT INTO workspace_skill (workspace_id,name,created_by) VALUES ($1,'analysis',$2)`, ws, u)
 	wantCode(t, err, "23505", "duplicate active name")
