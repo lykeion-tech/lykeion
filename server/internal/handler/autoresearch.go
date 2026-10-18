@@ -405,6 +405,37 @@ func (h *H) runAutoresearch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *H) getAutoresearchRun(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	var out struct {
+		AutoresearchID    uuid.UUID          `json:"autoresearch_id"`
+		AutoresearchTitle string             `json:"autoresearch_title"`
+		ExecutionMode     string             `json:"execution_mode"`
+		Run               db.AutoresearchRun `json:"run"`
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
+		run, err := tx.Q.GetRun(r.Context(), db.GetRunParams{WorkspaceID: ws, ID: id})
+		if err != nil {
+			return err
+		}
+		ap, err := tx.Q.GetAutoresearch(r.Context(), db.GetAutoresearchParams{WorkspaceID: ws, ID: run.AutoresearchID})
+		if err != nil {
+			return err
+		}
+		out.AutoresearchID = ap.ID
+		out.AutoresearchTitle = ap.Title
+		out.ExecutionMode = ap.ExecutionMode
+		out.Run = run
+		return nil
+	})
+	if answer(w, r, err) {
+		writeJSON(w, 200, out)
+	}
+}
+
 func (h *H) listAutoresearchRuns(w http.ResponseWriter, r *http.Request) {
 	out := []db.AutoresearchRun{}
 	ok := h.autoresearchTx(w, r, false, func(tx *store.Tx, ap db.Autoresearch, _ uuid.UUID) error {

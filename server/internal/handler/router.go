@@ -174,6 +174,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/autoresearch/{id}/pause", h.setAutoresearchStatus("paused"))
 			r.Post("/api/autoresearch/{id}/resume", h.setAutoresearchStatus("active"))
 			r.Get("/api/autoresearch/{id}/runs", h.listAutoresearchRuns)
+			r.Get("/api/autoresearch-runs/{id}", h.getAutoresearchRun)
 			r.Post("/api/autoresearch/{id}/triggers", h.createTrigger)
 			r.Patch("/api/autoresearch/{id}/triggers/{trigger}", h.setTriggerEnabled)
 			r.Delete("/api/autoresearch/{id}/triggers/{trigger}", h.deleteTrigger)
