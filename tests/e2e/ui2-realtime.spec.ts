@@ -489,6 +489,19 @@ test('late real run response cannot reopen a report modal after a workspace swit
   try {
     await member.page.route(`**/api/autoresearch-runs/${run}`, async (route) => {
       const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      expect(await response.json()).toMatchObject({
+        autoresearch_id: f.autoresearch_id,
+        execution_mode: 'run_only',
+        run: {
+          id: run,
+          workspace_id: f.workspace_id,
+          autoresearch_id: f.autoresearch_id,
+          source: 'manual',
+          status: 'running',
+          report: '# Workspace A only report',
+        },
+      });
       captured.resolve();
       await release.promise;
       await route.fulfill({ response }).catch(() => {});
