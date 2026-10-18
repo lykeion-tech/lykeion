@@ -304,6 +304,18 @@ async function copySlug() {
   <div class="desktop-settings">
     <nav class="settings-rail" aria-label="Settings">
       <h1>Settings</h1>
+      <select
+        class="settings-mobile-navigation"
+        aria-label="Settings section"
+        :value="section"
+        @change="open(($event.target as HTMLSelectElement).value)"
+      >
+        <optgroup v-for="group in groups" :key="group.title" :label="group.title">
+          <option v-for="item in group.items" :key="item.id" :value="item.id">
+            {{ item.label }}
+          </option>
+        </optgroup>
+      </select>
       <label class="settings-search"
         ><Icon name="search" :size="16" /><input
           v-model="query"
@@ -637,6 +649,9 @@ async function copySlug() {
   border-right: 1px solid var(--border);
   padding: 16px 12px;
   overflow: auto;
+}
+.settings-mobile-navigation {
+  display: none;
 }
 .settings-rail h1 {
   font-size: 20px;
@@ -1731,5 +1746,41 @@ async function copySlug() {
 }
 .danger-text {
   color: var(--error-text);
+}
+@media (width < 48rem) {
+  .desktop-settings {
+    flex-direction: column;
+  }
+  .settings-rail {
+    width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px 16px;
+    overflow: visible;
+  }
+  .settings-rail h1 {
+    padding: 0;
+  }
+  .settings-rail .settings-search,
+  .settings-rail section,
+  .settings-rail .no-match {
+    display: none;
+  }
+  .settings-mobile-navigation {
+    display: block;
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--canvas);
+    color: var(--text);
+  }
+  .settings-scroll {
+    min-height: 0;
+  }
+  .settings-body {
+    padding: 16px 16px 40px;
+  }
 }
 </style>
