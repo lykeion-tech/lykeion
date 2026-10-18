@@ -376,11 +376,14 @@ describe('flow records and Inbox sentences', () => {
     expect(studies.levelText(4.779999999999999)).toBe('4.8');
     expect(studies.levelText(5)).toBe('5');
   });
-  it('labels a redo by what started it', () => {
-    expect(studies.redoLabel(1, 2)).toBe('Redone once');
-    expect(studies.redoLabel(1, 3)).toBe('Redone once, then after your reply');
-    expect(studies.redoLabel(0, 2)).toBe('Redone after your reply');
-    expect(studies.redoLabel(0, 1)).toBe('');
+  it('labels a redo by what started it, counting the column\'s own attempts', () => {
+    expect(studies.redoLabel(1, 2, 1)).toBe('Redone once');
+    expect(studies.redoLabel(1, 3, 1)).toBe('Redone once, then after your reply');
+    expect(studies.redoLabel(0, 2, 1)).toBe('Redone after your reply');
+    expect(studies.redoLabel(0, 1, 1)).toBe('');
+    expect(studies.redoLabel(0, 2, 2)).toBe('');
+    expect(studies.redoLabel(1, 3, 2)).toBe('Redone once');
+    expect(studies.redoLabel(1, 4, 2)).toBe('Redone once, then after your reply');
   });
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();

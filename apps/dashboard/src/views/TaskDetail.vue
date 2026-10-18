@@ -146,6 +146,9 @@ const stage = computed(() =>
 );
 const records = useRecords(() => props.id, stage);
 const flow = computed(() => flowView(records.data.value ?? []));
+const firstRound = computed(() =>
+  Math.min(c.value?.round ?? 1, ...(records.data.value ?? []).map((r) => r.round)),
+);
 const hasFlow = computed(
   () =>
     !!(
@@ -580,8 +583,8 @@ function pin() {
               <div v-for="s in flow.scores" :key="s.criterion" class="score-row">
                 <span>{{ s.criterion }}</span
                 ><span class="level">{{ levelText(s.level) }} of 5</span
-                ><span v-if="s.level <= 2 && redoLabel(c.redos, c.round)" class="chip">{{
-                  redoLabel(c.redos, c.round)
+                ><span v-if="s.level <= 2 && redoLabel(c.redos, c.round, firstRound)" class="chip">{{
+                  redoLabel(c.redos, c.round, firstRound)
                 }}</span>
               </div>
             </section>

@@ -281,3 +281,10 @@ func TestProtocolExamplesNeedNoFileWrites(t *testing.T) {
 		}
 	}
 }
+
+func TestAMidBoardRangeNamesOnlyItsOwnEarlierColumns(t *testing.T) {
+	s := Protocol("agent", "experimentation", "hypotheses", nil)
+	if !strings.Contains(s, "lyk records --column hypotheses") || strings.Contains(s, "grounding") {
+		t.Errorf("Experimentation from Hypotheses:\n%s", s)
+	}
+}

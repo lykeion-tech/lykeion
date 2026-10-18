@@ -274,9 +274,10 @@ export const verdictLabels: Record<string, string> = { high: 'High', middle: 'Mi
 export const levelText = (level: number): string => String(Math.round(level * 10) / 10);
 
 // What redid a low-scored attempt: the automatic redo (the card's redos) and
-// the redos the owner's comments started (the other rounds after the first).
-export function redoLabel(redos: number, round: number): string {
-  const afterReply = Math.max(0, round - 1 - redos);
+// the redos the owner's comments started. The column's attempts run from its
+// first round (a column advance also raises the card's round) to the current one.
+export function redoLabel(redos: number, round: number, firstRound: number): string {
+  const afterReply = Math.max(0, round - firstRound - redos);
   if (redos >= 1 && afterReply >= 1) return 'Redone once, then after your reply';
   if (redos >= 1) return 'Redone once';
   return afterReply >= 1 ? 'Redone after your reply' : '';
