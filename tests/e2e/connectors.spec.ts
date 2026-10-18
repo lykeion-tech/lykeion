@@ -571,3 +571,114 @@ test('late connector creation stays in its captured workspace after discard', as
   ).json();
   expect(list.some((c: { name: string }) => c.name === name)).toBe(false);
 });
+
+test('HTTP header duplicates ignore case while environment names retain case', async ({ page }) => {
+  await open(page);
+  await page.getByRole('button', { name: 'Add connector', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add connector', exact: true });
+  await dialog
+    .getByRole('textbox', { name: 'Name', exact: true })
+    .fill(`header-identity-${Date.now()}`);
+  await dialog
+    .getByRole('textbox', { name: 'MCP URL', exact: true })
+    .fill('https://headers.example.test/mcp');
+  for (const [index, name, value] of [
+    [1, 'Authorization', 'first-private-value'],
+    [2, 'authorization', 'second-private-value'],
+  ] as const) {
+    await dialog.getByRole('button', { name: 'Add HTTP header', exact: true }).click();
+    await dialog.getByRole('textbox', { name: `Header name ${index}`, exact: true }).fill(name);
+    await dialog.getByLabel(`Header value ${index}`, { exact: true }).fill(value);
+  }
+  const submit = dialog.getByRole('button', { name: 'Add connector', exact: true });
+  await expect(submit).toBeDisabled();
+  await expect(submit).toHaveAttribute('title', 'Each row needs a unique name.');
+  await expect(dialog.getByRole('textbox', { name: 'Header name 1', exact: true })).toHaveValue(
+    'Authorization',
+  );
+  await expect(dialog.getByRole('textbox', { name: 'Header name 2', exact: true })).toHaveValue(
+    'authorization',
+  );
+  await expect(dialog.getByLabel('Header value 2', { exact: true })).toHaveValue(
+    'second-private-value',
+  );
+  await dialog.getByRole('textbox', { name: 'Header name 2', exact: true }).fill('X-Lab-Other');
+  const request = page.waitForRequest(
+    (r) => r.url().endsWith('/api/mcp-servers') && r.method() === 'POST',
+  );
+  await submit.click();
+  expect((await request).postDataJSON().config.headers).toEqual({
+    Authorization: 'first-private-value',
+    'X-Lab-Other': 'second-private-value',
+  });
+  await expect(dialog).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Add connector', exact: true }).click();
+  await dialog
+    .getByRole('textbox', { name: 'Name', exact: true })
+    .fill(`env-identity-${Date.now()}`);
+  await dialog.getByRole('button', { name: 'Command', exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Command', exact: true }).fill('printf');
+  for (const [index, name, value] of [
+    [1, 'Lab_Mode', 'first'],
+    [2, 'lab_mode', 'second'],
+  ] as const) {
+    await dialog.getByRole('button', { name: 'Add environment variable', exact: true }).click();
+    await dialog.getByRole('textbox', { name: `Variable name ${index}`, exact: true }).fill(name);
+    await dialog.getByLabel(`Variable value ${index}`, { exact: true }).fill(value);
+  }
+  await expect(submit).toBeEnabled();
+  const commandRequest = page.waitForRequest(
+    (r) => r.url().endsWith('/api/mcp-servers') && r.method() === 'POST',
+  );
+  await submit.click();
+  expect((await commandRequest).postDataJSON().config.env).toEqual({
+    Lab_Mode: 'first',
+    lab_mode: 'second',
+  });
+  await expect(dialog).toHaveCount(0);
+});
+
+test('replacement rejects mixed-case HTTP header duplicates without changing submitted spelling', async ({
+  page,
+}) => {
+  const name = `replacement-headers-${Date.now()}`;
+  const { saved } = await addURL(page, name, 'https://headers-before.example.test/mcp');
+  await page.getByRole('tab', { name: 'Configuration', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit configuration', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: `${name} connector`, exact: true });
+  await dialog
+    .getByRole('textbox', { name: 'MCP URL', exact: true })
+    .fill('https://headers-after.example.test/mcp');
+  for (const [index, header, value] of [
+    [1, 'X-Lab-Credential', 'first-replacement-value'],
+    [2, 'x-lab-credential', 'second-replacement-value'],
+  ] as const) {
+    await dialog.getByRole('button', { name: 'Add HTTP header', exact: true }).click();
+    await dialog.getByRole('textbox', { name: `Header name ${index}`, exact: true }).fill(header);
+    await dialog.getByLabel(`Header value ${index}`, { exact: true }).fill(value);
+  }
+  const submit = dialog.getByRole('button', { name: 'Save changes', exact: true });
+  await expect(submit).toBeDisabled();
+  await expect(submit).toHaveAttribute('title', 'Each row needs a unique name.');
+  await expect(dialog.getByRole('textbox', { name: 'Header name 1', exact: true })).toHaveValue(
+    'X-Lab-Credential',
+  );
+  await expect(dialog.getByLabel('Header value 1', { exact: true })).toHaveValue(
+    'first-replacement-value',
+  );
+  await dialog.getByRole('textbox', { name: 'Header name 2', exact: true }).fill('X-Lab-Other');
+  const request = page.waitForRequest(
+    (r) => r.url().endsWith(`/api/mcp-servers/${saved.id}`) && r.method() === 'PUT',
+  );
+  await submit.click();
+  const body = (await request).postDataJSON();
+  expect(body.revision).toBe(saved.revision);
+  expect(body.config.headers).toEqual({
+    'X-Lab-Credential': 'first-replacement-value',
+    'X-Lab-Other': 'second-replacement-value',
+  });
+  await expect(
+    dialog.getByRole('button', { name: 'Edit configuration', exact: true }),
+  ).toBeVisible();
+});

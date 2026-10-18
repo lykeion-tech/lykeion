@@ -49,8 +49,8 @@ export function connectorProblem(value: ConnectorFields) {
   }
   const pairs = value.transport === 'url' ? value.headers : value.env;
   if (pairs.some((p) => !p.name.trim())) return 'Name each row.';
-  if (new Set(pairs.map((p) => p.name)).size !== pairs.length)
-    return 'Each row needs a unique name.';
+  const names = pairs.map((p) => (value.transport === 'url' ? p.name.toLowerCase() : p.name));
+  if (new Set(names).size !== pairs.length) return 'Each row needs a unique name.';
   return '';
 }
 </script>
