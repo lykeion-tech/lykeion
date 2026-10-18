@@ -326,3 +326,20 @@ test('failed report reads retry and refresh failures retain the selected raw rep
     'true',
   );
 });
+
+test('report module-load failure preserves complete safe recorded report and Raw', async ({
+  page,
+}) => {
+  const f = await reportFixture(page, 'completed', fullAutoresearchReport);
+  await page.route('**/RecordedMarkdown.vue*', (route) => route.abort('failed'));
+  await page.goto(`/#/autoresearch/${f.autoresearch_id}`);
+  await page.getByRole('button', { name: /Completed.*Open report/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
+  await expect(dialog.getByRole('status')).toHaveText(
+    'Markdown formatting is unavailable; showing recorded text.',
+  );
+  await expect(dialog.locator('.recorded-text-fallback')).toHaveText(fullAutoresearchReport);
+  await expect(dialog.locator('script,img,iframe')).toHaveCount(0);
+  await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
+  await expect(dialog.locator('pre.run-raw')).toHaveText(fullAutoresearchReport);
+});

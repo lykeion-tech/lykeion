@@ -1,13 +1,28 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { defineAsyncComponent, defineComponent, h, computed, onUnmounted, ref, watch } from 'vue';
 import Modal from '../../Modal.vue';
 import Icon from '../../Icon.vue';
-import RecordedMarkdown from '../../RecordedMarkdown.vue';
 import { useSkillDetail, useSkillFile, useLibraryMutations } from '../../../api/library';
 import { useMe, useMembers } from '../../../api/queries';
 import { workspaceId } from '../../../api/session';
 import { ApiError } from '../../../api/client';
 import { useResourceDraft } from '../../../state/resource-draft';
+const formattingFailed = ref(false);
+const PlainRecordedText = defineComponent({
+  props: { content: { type: String, default: '' } },
+  setup: (text) => () => h('div', { class: 'recorded-text-fallback' }, text.content),
+});
+const RecordedMarkdown = defineAsyncComponent({
+  loader: () => import('../../RecordedMarkdown.vue'),
+  loadingComponent: PlainRecordedText,
+  errorComponent: PlainRecordedText,
+  delay: 0,
+  onError: (_error, _retry, fail) => {
+    formattingFailed.value = true;
+    fail();
+  },
+});
+
 const props = defineProps<{ skillId: string; startEdit?: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 const detail = useSkillDetail(() => props.skillId);
@@ -146,10 +161,10 @@ async function cancelEdit() {
 </script>
 <template>
   <Modal
+    v-slot="{ close }"
     class="skill-modal"
     :title="detail.data.value?.name || 'Skill'"
     :before-close="form.reset"
-    v-slot="{ close }"
     @close="emit('close')"
   >
     <section class="skill-detail">
@@ -228,7 +243,11 @@ async function cancelEdit() {
               <dd>{{ detail.data.value.licence }}</dd></template
             >
           </dl>
-          <RecordedMarkdown :content="instructions"
+          <p v-if="formattingFailed" class="formatting-notice" role="status">
+            Markdown formatting is unavailable; showing recorded text.
+          </p>
+          <div v-if="formattingFailed" class="recorded-text-fallback">{{ instructions }}</div>
+          <RecordedMarkdown v-else :content="instructions"
         /></template>
         <template v-if="tab === 'files' && detail.data.value"
           ><nav class="file-tree" aria-label="Skill files">
@@ -304,6 +323,14 @@ async function cancelEdit() {
   </Modal>
 </template>
 <style scoped>
+.recorded-text-fallback {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.formatting-notice {
+  color: var(--muted);
+  font-size: 12px;
+}
 .skill-modal {
   width: 640px;
 }

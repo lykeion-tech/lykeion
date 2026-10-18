@@ -54,10 +54,10 @@ async function submit() {
 </script>
 <template>
   <Modal
+    v-slot="{ close }"
     class="add-connector-modal"
     title="Add connector"
     :before-close="guardResourceDrafts"
-    v-slot="{ close }"
     @close="emit('close')"
     ><section class="add-connector">
       <header>

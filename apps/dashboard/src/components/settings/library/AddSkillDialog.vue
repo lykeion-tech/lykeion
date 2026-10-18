@@ -108,11 +108,11 @@ async function submit() {
 </script>
 <template>
   <Modal
+    v-slot="{ close }"
     class="add-skill-modal"
     :class="{ runtime: method === 'runtime' }"
     :before-close="guardResourceDrafts"
     :title="titles[method]"
-    v-slot="{ close }"
     @close="emit('close')"
     ><section class="add-skill" :class="{ runtime: method === 'runtime' }">
       <header class="add-head">

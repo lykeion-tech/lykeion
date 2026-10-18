@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { labWorkspace, labSignIn, LAB, labSkillFolder } from './lab';
 import { rmSync } from 'node:fs';
+import type { SkillSummary, SkillFileMeta } from '../../apps/dashboard/src/api/types';
 
 const text = (name: string) =>
   `---\nname: ${name}\ndescription: Review a scientific result.\n---\n\n# Review a scientific result\n\nCheck the recorded evidence.\n`;
@@ -91,7 +92,7 @@ test('local and URL imports preserve all files', async ({ page }) => {
   const list = await (
     await page.request.get('/api/skills', { headers: { 'X-Workspace-ID': ws } })
   ).json();
-  const id = list.find((x: any) => x.name === name).id;
+  const id = list.find((x: SkillSummary) => x.name === name).id;
   const bytes = await (
     await page.request.get(`/api/skills/${id}/files?path=references%2Fraw.bin`, {
       headers: { 'X-Workspace-ID': ws },
@@ -112,7 +113,7 @@ test('local and URL imports preserve all files', async ({ page }) => {
   const publishedList = await (
     await page.request.get('/api/skills', { headers: { 'X-Workspace-ID': ws } })
   ).json();
-  const published = publishedList.find((s: any) => s.name === 'published-review');
+  const published = publishedList.find((s: SkillSummary) => s.name === 'published-review');
   const headers = { 'X-Workspace-ID': ws };
   expect(
     await (
@@ -342,9 +343,9 @@ test('folder upload preserves relative paths and hidden supporting bytes', async
     const ws = await labWorkspace(page.request),
       headers = { 'X-Workspace-ID': ws };
     const list = await (await page.request.get('/api/skills', { headers })).json(),
-      id = list.find((s: any) => s.name === name).id;
+      id = list.find((s: SkillSummary) => s.name === name).id;
     const detail = await (await page.request.get(`/api/skills/${id}`, { headers })).json();
-    expect(detail.files.map((f: any) => f.path)).toEqual([
+    expect(detail.files.map((f: SkillFileMeta) => f.path)).toEqual([
       '.hidden',
       'SKILL.md',
       'references/raw.bin',
@@ -389,7 +390,7 @@ test('a late URL import completes only in its captured workspace', async ({ page
       const list = await (
         await page.request.get('/api/skills', { headers: { 'X-Workspace-ID': source } })
       ).json();
-      return list.some((s: any) => s.name === 'late-review');
+      return list.some((s: SkillSummary) => s.name === 'late-review');
     })
     .toBe(true);
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -398,7 +399,7 @@ test('a late URL import completes only in its captured workspace', async ({ page
   const list = await (
     await page.request.get('/api/skills', { headers: { 'X-Workspace-ID': newWorkspace.id } })
   ).json();
-  expect(list.some((s: any) => s.name === 'late-review')).toBe(false);
+  expect(list.some((s: SkillSummary) => s.name === 'late-review')).toBe(false);
 });
 
 test('admin permission loss retains the editor draft and disables writes', async ({
@@ -564,4 +565,36 @@ test('runtime change preserves identity and selected skills until explicit disca
   await expect(checkbox).toHaveCount(0);
   await picker.selectOption({ label: 'lab-mac · Claude Code' });
   await expect(checkbox).not.toBeChecked();
+});
+
+test('skill module-load failure keeps complete safe recorded instructions available', async ({
+  page,
+}) => {
+  const name = `renderer-fallback-${Date.now()}`;
+  const s = await skill(page, name);
+  const instructions =
+    '# Complete recorded method\n\n' +
+    'Evidence remains available.\n'.repeat(150) +
+    '<script>window.skillExecuted=true</script>\n![inert](https://example.com/tracker.png)\nend-of-skill-fallback';
+  const content = `---\nname: ${name}\ndescription: Review a scientific result.\n---\n\n${instructions}`;
+  expect(
+    (
+      await page.request.patch(`/api/skills/${s.detail.id}`, {
+        headers: s.headers,
+        data: { revision: s.detail.revision, content },
+      })
+    ).status(),
+  ).toBe(200);
+  await page.route('**/RecordedMarkdown.vue*', (route) => route.abort('failed'));
+  await open(page);
+  await page.getByRole('button', { name, exact: true }).click();
+  const dialog = page.getByRole('dialog', { name, exact: true });
+  await expect(dialog.getByRole('status')).toHaveText(
+    'Markdown formatting is unavailable; showing recorded text.',
+  );
+  await expect(dialog.locator('.recorded-text-fallback')).toHaveText(instructions);
+  await expect(dialog.locator('script,img')).toHaveCount(0);
+  expect(await page.evaluate(() => 'skillExecuted' in window)).toBe(false);
+  await dialog.getByRole('tab', { name: 'Files', exact: true }).click();
+  await expect(dialog.locator('.file-preview')).toHaveText(content);
 });

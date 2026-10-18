@@ -1,10 +1,24 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { defineAsyncComponent, defineComponent, h, computed, ref, watch } from 'vue';
 import { useAutoresearchRun } from '../api/queries';
 import { workspaceId } from '../api/session';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
-import RecordedMarkdown from './RecordedMarkdown.vue';
+const formattingFailed = ref(false);
+const PlainRecordedText = defineComponent({
+  props: { content: { type: String, default: '' } },
+  setup: (text) => () => h('div', { class: 'recorded-text-fallback' }, text.content),
+});
+const RecordedMarkdown = defineAsyncComponent({
+  loader: () => import('./RecordedMarkdown.vue'),
+  loadingComponent: PlainRecordedText,
+  errorComponent: PlainRecordedText,
+  delay: 0,
+  onError: (_error, _retry, fail) => {
+    formattingFailed.value = true;
+    fail();
+  },
+});
 
 const props = defineProps<{ runId: string }>();
 const emit = defineEmits<{ close: [] }>();
@@ -66,7 +80,11 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
           <p v-if="run.reason" class="run-reason">{{ run.reason }}</p>
           <template v-if="run.report">
             <div v-if="tab === 'report'" id="run-report" role="tabpanel" aria-label="Report">
-              <RecordedMarkdown :content="run.report" />
+              <p v-if="formattingFailed" class="formatting-notice" role="status">
+                Markdown formatting is unavailable; showing recorded text.
+              </p>
+              <div v-if="formattingFailed" class="recorded-text-fallback">{{ run.report }}</div>
+              <RecordedMarkdown v-else :content="run.report" />
             </div>
             <pre v-else id="run-raw" role="tabpanel" aria-label="Raw" class="run-raw">{{
               run.report
@@ -99,6 +117,14 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
   </Modal>
 </template>
 <style scoped>
+.recorded-text-fallback {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.formatting-notice {
+  color: var(--muted);
+  font-size: 12px;
+}
 .autoresearch-run-modal {
   width: 760px;
 }

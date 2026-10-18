@@ -162,10 +162,10 @@ async function cancelEdit() {
 </script>
 <template>
   <Modal
+    v-slot="{ close }"
     class="connector-modal"
     :title="`${row?.name ?? connectorId} connector`"
     :before-close="async () => !form.dirty.value || (await form.reset())"
-    v-slot="{ close }"
     @close="emit('close')"
     ><section class="connector-detail">
       <header>
