@@ -1,3 +1,4 @@
+import { registerDraftNavigation } from './state/resource-draft';
 import {
   createRouter,
   createWebHashHistory,
@@ -129,3 +130,5 @@ const routes: RouteRecordRaw[] = [
 
 // Case-sensitive so a miscased path is an unknown path.
 export const router = createRouter({ history: createWebHashHistory(), routes, sensitive: true });
+
+registerDraftNavigation(router);

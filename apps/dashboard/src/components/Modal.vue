@@ -1,9 +1,24 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
-defineProps<{ title: string; wide?: boolean }>();
+const props = defineProps<{
+  title: string;
+  wide?: boolean;
+  beforeClose?: () => boolean | Promise<boolean>;
+}>();
 const emit = defineEmits<{ close: [] }>();
 const dialog = ref<HTMLDialogElement>();
 let previous: HTMLElement | null = null;
+let closing = false;
+async function requestClose() {
+  if (closing) return;
+  closing = true;
+  try {
+    if (!props.beforeClose || (await props.beforeClose())) emit('close');
+  } finally {
+    closing = false;
+  }
+}
+defineExpose({ requestClose });
 onMounted(() => {
   previous = document.activeElement as HTMLElement;
   dialog.value?.showModal();
@@ -20,7 +35,7 @@ function outside(event: MouseEvent) {
     event.clientY < rect.top ||
     event.clientY > rect.bottom
   )
-    emit('close');
+    void requestClose();
 }
 </script>
 <template>
@@ -29,9 +44,9 @@ function outside(event: MouseEvent) {
     class="modal"
     :class="{ wide }"
     :aria-label="title"
-    @cancel.prevent="emit('close')"
+    @cancel.prevent="requestClose"
     @click="outside"
   >
-    <slot />
+    <slot :close="requestClose" />
   </dialog>
 </template>
