@@ -6,9 +6,20 @@ import Icon from '../components/Icon.vue';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { useAgents, useConnectorLibrary, useMe, useSkillLibrary } from '../api/queries';
+import {
+  useAgents,
+  useConnectorLibrary,
+  useMe,
+  useSkillLibrary,
+  useWorkspaceMCPServers,
+} from '../api/queries';
 
-type Conn = { kind: 'catalogue' | 'url' | 'command'; name: string; value: string; env: string };
+type Conn = {
+  kind: 'catalogue' | 'workspace' | 'url' | 'command';
+  name: string;
+  value: string;
+  env: string;
+};
 type Slot = { name: string; agent: string; role: string; skills: string[]; connectors: Conn[] };
 
 const MAX_MEMBERS = 12;
@@ -28,6 +39,7 @@ const me = useMe();
 const agents = useAgents();
 const skills = useSkillLibrary();
 const catalogue = useConnectorLibrary();
+const workspaceConnectors = useWorkspaceMCPServers();
 
 const name = ref('');
 const description = ref('');
@@ -57,6 +69,8 @@ const auditorClash = computed(() => {
 });
 
 function connectorProblem(c: Conn): string {
+  if (c.kind === 'workspace')
+    return workspaceConnectors.data.value?.some((item) => item.id === c.value) ? '' : 'unavailable';
   if (c.kind === 'catalogue')
     return catalogue.data.value?.some((item) => item.name === c.name) ? '' : 'unavailable';
   if (!c.name.trim()) return 'name';
@@ -111,6 +125,12 @@ const harnessName = (h: string) => (h === 'claude' ? 'Claude Code' : h === 'code
 
 function addConnector(m: Slot, pick: string) {
   if (!pick) return;
+  if (pick.startsWith('workspace:')) {
+    const id = pick.slice(10);
+    const item = workspaceConnectors.data.value?.find((c) => c.id === id);
+    if (item) m.connectors.push({ kind: 'workspace', name: item.name, value: item.id, env: '' });
+    return;
+  }
   const kind = pick === 'url' || pick === 'command' ? pick : 'catalogue';
   m.connectors.push({ kind, name: kind === 'catalogue' ? pick : '', value: '', env: '' });
 }
@@ -129,15 +149,17 @@ async function create() {
     agent_id: s.agent,
     skills: s.skills ?? [],
     connectors: (s.connectors ?? []).map((c) =>
-      c.kind === 'catalogue'
-        ? { name: c.name, catalogue: c.name }
-        : c.kind === 'url'
-          ? { name: c.name.trim(), url: c.value.trim() }
-          : {
-              name: c.name.trim(),
-              command: c.value.trim().split(/\s+/),
-              ...(c.env.trim() ? { env: Object.fromEntries(envPairs(c)) } : {}),
-            },
+      c.kind === 'workspace'
+        ? { name: c.name, workspace: c.value }
+        : c.kind === 'catalogue'
+          ? { name: c.name, catalogue: c.name }
+          : c.kind === 'url'
+            ? { name: c.name.trim(), url: c.value.trim() }
+            : {
+                name: c.name.trim(),
+                command: c.value.trim().split(/\s+/),
+                ...(c.env.trim() ? { env: Object.fromEntries(envPairs(c)) } : {}),
+              },
     ),
   });
   try {
@@ -289,6 +311,16 @@ async function create() {
                 {{ c.name }}
               </option>
             </optgroup>
+            <optgroup label="Workspace">
+              <option
+                v-for="c in workspaceConnectors.data.value ?? []"
+                :key="c.id"
+                :value="'workspace:' + c.id"
+                :disabled="m.connectors.some((x) => x.kind === 'workspace' && x.value === c.id)"
+              >
+                {{ c.name }}
+              </option>
+            </optgroup>
             <optgroup label="Your own">
               <option value="url">An https MCP URL</option>
               <option value="command">A local command</option>
@@ -296,8 +328,11 @@ async function create() {
           </select>
         </div>
         <div v-for="(c, j) in m.connectors" :key="j" class="row connector">
-          <template v-if="c.kind === 'catalogue'">
-            <span class="chip-text">{{ c.name }}</span>
+          <template v-if="c.kind === 'catalogue' || c.kind === 'workspace'">
+            <span class="chip-text"
+              >{{ c.name
+              }}<small v-if="connectorProblem(c)" class="inline-error"> · Unavailable</small></span
+            >
           </template>
           <template v-else>
             <input v-model="c.name" aria-label="Connector name" placeholder="Name" />

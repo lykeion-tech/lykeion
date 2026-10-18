@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import Icon from '../../Icon.vue';
-defineProps<{ query: string; loading: boolean; error?: string; count: number }>();
+withDefaults(
+  defineProps<{ query: string; loading: boolean; error?: string; count: number; noun?: string }>(),
+  { noun: 'skills' },
+);
 defineEmits<{ 'update:query': [value: string]; retry: [] }>();
 </script>
 <template>
@@ -8,8 +11,8 @@ defineEmits<{ 'update:query': [value: string]; retry: [] }>();
     <label class="capability-search"
       ><Icon name="search" :size="16" /><input
         type="search"
-        aria-label="Search skills"
-        placeholder="Search skills…"
+        :aria-label="`Search ${noun}`"
+        :placeholder="`Search ${noun}…`"
         :value="query"
         @input="$emit('update:query', ($event.target as HTMLInputElement).value)" /></label
     ><span class="all-control" aria-label="Current scope: All"
@@ -17,13 +20,19 @@ defineEmits<{ 'update:query': [value: string]; retry: [] }>();
     /></span>
   </div>
   <p class="library-caption">Workspace library</p>
-  <p v-if="loading" role="status">Loading skills…</p>
+  <p v-if="loading" role="status">Loading {{ noun }}…</p>
   <div v-else-if="error" role="alert">
     <p>{{ error }}</p>
     <button class="button" @click="$emit('retry')">Try again</button>
   </div>
   <p v-else-if="!count" class="library-empty">
-    {{ query ? 'No skills match your search.' : 'No skills yet. Add a skill to your workspace.' }}
+    {{
+      query
+        ? `No ${noun} match your search.`
+        : noun === 'skills'
+          ? 'No skills yet. Add a skill to your workspace.'
+          : `No ${noun} yet.`
+    }}
   </p>
   <div v-else class="capability-rows"><slot /></div>
 </template>

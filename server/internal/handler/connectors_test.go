@@ -115,3 +115,33 @@ func TestMembersReadTheSkillBundle(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectorPolicyIsSeparateFromReadiness(t *testing.T) {
+	s := newServer(t)
+	token := s.signIn(t, "policy@lab.org")
+	ws := s.workspace(t, token, "policy").ID
+	var listed []map[string]any
+	if code := s.call(t, "GET", "/api/connectors", token, ws, nil, &listed); code != 200 {
+		t.Fatal(code)
+	}
+	for _, row := range listed {
+		if row["name"] == "biogrid" {
+			if row["policy_enabled"] != true || row["enabled"] != false || row["reason"] == "" {
+				t.Fatalf("policy enabled but setup incomplete: %+v", row)
+			}
+		}
+	}
+	var saved map[string]any
+	if code := s.call(t, "PUT", "/api/connectors/biogrid", token, ws, map[string]any{"revision": 0, "enabled": false}, &saved); code != 200 {
+		t.Fatal(code)
+	}
+	if saved["policy_enabled"] != false || saved["enabled"] != false {
+		t.Fatalf("disabled policy: %+v", saved)
+	}
+	if code := s.call(t, "PUT", "/api/connectors/biogrid", token, ws, map[string]any{"revision": 1, "enabled": true}, &saved); code != 200 {
+		t.Fatal(code)
+	}
+	if saved["policy_enabled"] != true || saved["enabled"] != false || !strings.Contains(saved["reason"].(string), "saves a key") {
+		t.Fatalf("policy must not imply readiness: %+v", saved)
+	}
+}

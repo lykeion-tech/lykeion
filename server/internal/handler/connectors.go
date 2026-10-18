@@ -17,6 +17,7 @@ import (
 )
 
 type connectorView struct {
+	PolicyEnabled    bool   `json:"policy_enabled"`
 	Revision         int64  `json:"revision"`
 	Name             string `json:"name"`
 	Domain           string `json:"domain"`
@@ -32,9 +33,10 @@ type connectorView struct {
 
 // viewOf shows a connector's state in a workspace, and never its key.
 func (h *H) viewOf(e connectors.Entry, row *db.WorkspaceConnector) connectorView {
-	v := connectorView{Name: e.Name, Domain: e.Domain, Purpose: e.Purpose, Tier: e.Tier, Terms: e.Terms,
+	v := connectorView{PolicyEnabled: true, Name: e.Name, Domain: e.Domain, Purpose: e.Purpose, Tier: e.Tier, Terms: e.Terms,
 		TakesKey: e.KeyHeader != "" || e.KeyQuery != ""}
 	if row != nil {
+		v.PolicyEnabled = row.Enabled
 		v.Revision = row.Revision
 		v.KeySet, v.LicenceConfirmed = len(row.KeyCiphertext) > 0, row.LicenceConfirmedAt != nil
 	}

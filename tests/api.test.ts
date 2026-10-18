@@ -406,6 +406,7 @@ describe('shared library queries and mutations', () => {
       tier: 'open',
       terms: 'Public',
       enabled: false,
+      policy_enabled: true,
       reason: 'key required',
       key_set: true,
       takes_key: true,

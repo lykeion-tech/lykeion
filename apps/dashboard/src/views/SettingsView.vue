@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { themes } from '../theme';
 import Icon from '../components/Icon.vue';
 import SkillPanel from '../components/settings/library/SkillPanel.vue';
+import ConnectorPanel from '../components/settings/library/ConnectorPanel.vue';
 import TokenCreationForm from '../components/settings/TokenCreationForm.vue';
 import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
 import { api } from '../api/client';
@@ -59,6 +60,7 @@ const groups = computed(() =>
       items: [
         { id: 'general', label: 'General', icon: 'settings' },
         { id: 'skills', label: 'Skills', icon: 'book' },
+        { id: 'connectors', label: 'Connectors', icon: 'link' },
       ],
     },
   ]
@@ -71,6 +73,7 @@ const titles: Record<string, string> = {
   tokens: 'API Tokens',
   general: 'General',
   skills: 'Skills',
+  connectors: 'Connectors',
 };
 function open(id: string) {
   void router.push({ path: '/settings', query: { tab: id } });
@@ -331,7 +334,7 @@ async function copySlug() {
         class="settings-body"
         :class="{ wide: section === 'preferences', 'table-layout': section === 'tokens' }"
       >
-        <header v-if="section !== 'skills'" class="settings-heading">
+        <header v-if="section !== 'skills' && section !== 'connectors'" class="settings-heading">
           <h2>{{ titles[section] ?? 'Settings' }}</h2>
           <span v-if="section === 'general'" class="scope-badge"
             ><Icon name="users" :size="11" />{{ workspace.data.value?.name }} workspace</span
@@ -340,6 +343,7 @@ async function copySlug() {
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
 
         <SkillPanel v-if="section === 'skills'" />
+        <ConnectorPanel v-else-if="section === 'connectors'" />
         <template v-else-if="section === 'profile'">
           <h3>Personal information</h3>
           <div class="setting-box">

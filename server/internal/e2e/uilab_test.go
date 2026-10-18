@@ -109,7 +109,7 @@ func TestUILab(t *testing.T) {
 
 	h := &handler.H{Store: st, JWT: iss, Mail: mail, Limit: auth.Limiter{R: env.Redis},
 		Hub: hub, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(),
-		Connectors: &connectors.Client{}}
+		Connectors: &connectors.Client{Secret: []byte("0123456789abcdef0123456789abcdef")}}
 	if dir := os.Getenv("LYK_TEST_SHIPPED_DIR"); dir != "" {
 		// Browser tests ship and replace Team versions on disk while the lab runs.
 		h.Shipped = os.DirFS(dir)
@@ -129,6 +129,7 @@ func TestUILab(t *testing.T) {
 		}
 		return true
 	}
+	uiConnectorFixtures(t, mux, h, base, sourceFixtureAuth)
 	mux.HandleFunc("GET /lab/skill-source", func(w http.ResponseWriter, r *http.Request) {
 		if !sourceFixtureAuth(w, r) {
 			return

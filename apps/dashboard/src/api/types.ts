@@ -381,6 +381,7 @@ export interface SkillDetail extends SkillSummary {
   files: SkillFileMeta[];
 }
 export interface ConnectorSummary {
+  policy_enabled: boolean;
   name: string;
   domain: string;
   purpose: string;
