@@ -1,2 +1,5 @@
 # Preserve accessibility captures verbatim as reference evidence.
 research/visual-baseline/**/*.ax.txt -whitespace
+
+# Third-party skill text (K-Dense, MIT); not Lykeion code.
+server/internal/science/bundle/** linguist-vendored
