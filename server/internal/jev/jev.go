@@ -147,6 +147,12 @@ func (c *Client) post(ctx context.Context, state string, questions map[string]an
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		switch {
+		case resp.StatusCode == http.StatusBadRequest && bytes.Contains(b, []byte("max_tokens_exceeded")):
+			return nil, fmt.Errorf("%w: %s: %s", ErrTooLong, resp.Status, b)
+		case resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusRequestTimeout:
+			return nil, fmt.Errorf("%w: %s: %s", ErrRefused, resp.Status, b)
+		}
 		return nil, fmt.Errorf("jev: %s: %s", resp.Status, b)
 	}
 	var out struct {
@@ -169,6 +175,14 @@ func (c *Client) post(ctx context.Context, state string, questions map[string]an
 
 // Retry is shared by every attempt at one scoring: Max bounds the waiting
 // summed across them, so the scoring stays inside its lease.
+// ErrTooLong is Jev refusing a request over its token limit: the same
+// request never succeeds, so the caller must send less.
+var ErrTooLong = errors.New("jev: the request is over the model's token limit")
+
+// ErrRefused is any other refusal of the request itself; asking again
+// unchanged cannot succeed.
+var ErrRefused = errors.New("jev refused the request")
+
 type Retry struct {
 	Waits []time.Duration
 	Max   time.Duration
@@ -199,6 +213,9 @@ func (r *Retry) Do(ctx context.Context, fn func() error) error {
 		err := fn()
 		if err == nil {
 			return nil
+		}
+		if errors.Is(err, ErrTooLong) || errors.Is(err, ErrRefused) {
+			return err
 		}
 		if attempt >= len(r.Waits) || r.spent+r.Waits[attempt] > r.Max {
 			return fmt.Errorf("jev unavailable after %d attempts: %w", attempt+1, err)

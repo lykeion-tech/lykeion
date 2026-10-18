@@ -191,3 +191,42 @@ func TestNoQuestionsSendsNothing(t *testing.T) {
 		t.Error("want error")
 	}
 }
+
+func TestARefusedRequestIsNotRetried(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		body   string
+		want   error
+	}{
+		{400, `{"error":{"type":"max_tokens_exceeded"}}`, ErrTooLong},
+		{401, `{"error":"bad key"}`, ErrRefused},
+	} {
+		calls := 0
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			http.Error(w, tc.body, tc.status)
+		}))
+		c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
+		slept := 0
+		r := &Retry{Waits: []time.Duration{time.Minute, time.Minute}, Max: 3 * time.Minute,
+			Sleep: func(context.Context, time.Duration) error { slept++; return nil }}
+		err := r.Do(context.Background(), func() error {
+			_, err := c.Noul(context.Background(), "s", map[string]string{"q": "?"})
+			return err
+		})
+		s.Close()
+		if !errors.Is(err, tc.want) || calls != 1 || slept != 0 {
+			t.Fatalf("%d: err %v, %d calls, %d waits; want %v once, no waits", tc.status, err, calls, slept, tc.want)
+		}
+	}
+	// An outage is still retried.
+	calls := 0
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; http.Error(w, "down", 503) }))
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, Key: "k", Model: Model}
+	r := &Retry{Waits: []time.Duration{time.Minute}, Max: time.Minute, Sleep: func(context.Context, time.Duration) error { return nil }}
+	r.Do(context.Background(), func() error { _, err := c.Noul(context.Background(), "s", map[string]string{"q": "?"}); return err })
+	if calls != 2 {
+		t.Fatalf("a 503 was asked %d times, want 2", calls)
+	}
+}

@@ -36,8 +36,13 @@ var coreCriteria = []string{
 var scoreLevels = []string{"Not at all", "Barely", "Partly", "Mostly", "Fully"}
 
 // maxJevInput is Jev's limit for the state and the questions together: 32k
-// tokens, estimated at 4 bytes a token.
-const maxJevInput = 32 << 10 * 4
+// tokens, estimated at 3 bytes a token, since escaped JSON packs more tokens
+// per byte than prose. Jev refusing a state as too long halves the budget,
+// down to minJevInput.
+const (
+	maxJevInput = 32 << 10 * 3
+	minJevInput = 8 << 10
+)
 
 // scoringLease keeps other passes from scoring a column while one asks Jev:
 // longer than the retry's waits plus three timed-out requests. A crashed pass
@@ -354,17 +359,21 @@ func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch) (m
 	if err != nil {
 		return nil, err
 	}
-	state := scoringState(in, quotes, maxJevInput-len(asked)-256)
 	retry := jev.NewRetry()
 	if e.Retry != nil {
 		retry = e.Retry()
 	}
 	var out map[string]jev.ScoreAnswer
-	err = retry.Do(ctx, func() (err error) {
-		out, err = e.Jev.Score(ctx, state, qs)
-		return err
-	})
-	return out, err
+	for budget := maxJevInput - len(asked) - 256; ; budget /= 2 {
+		state := scoringState(in, quotes, budget)
+		err = retry.Do(ctx, func() (err error) {
+			out, err = e.Jev.Score(ctx, state, qs)
+			return err
+		})
+		if !errors.Is(err, jev.ErrTooLong) || budget/2 < minJevInput {
+			return out, err
+		}
+	}
 }
 
 const cutMark = "\n[cut: the rest is left out to stay within Jev's limit]"
@@ -374,7 +383,7 @@ const cutMark = "\n[cut: the rest is left out to stay within Jev's limit]"
 // bytes. Every agent's text is fenced as data.
 func scoringState(in scoring, quotes []QuoteMatch, budget int) string {
 	var head, tail strings.Builder
-	question, cut := Excerpt(in.card.Question, budget/8)
+	question, cut := Excerpt(asked(in.card), budget/8)
 	if cut {
 		question += cutMark
 	}

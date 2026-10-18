@@ -31,6 +31,7 @@ type jevStub struct {
 	status   int
 	score    func(instructions string) float64
 	requests []jevRequest
+	maxState int // above this many bytes of state, answer as Jev does when a request is too long
 }
 
 type jevRequest struct {
@@ -56,6 +57,10 @@ func (l *lab) jev(t *testing.T, status int, score func(string) float64) *jevStub
 		s.mu.Unlock()
 		if s.status != 200 {
 			http.Error(w, "unavailable", s.status)
+			return
+		}
+		if s.maxState > 0 && len(req.State) > s.maxState {
+			http.Error(w, `{"error":{"type":"max_tokens_exceeded","message":"input exceeds the model's token limit"}}`, 400)
 			return
 		}
 		answers := map[string]any{}

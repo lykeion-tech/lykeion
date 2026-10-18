@@ -58,3 +58,25 @@ func TestACallCitedOnlyInTheSummaryReachesTheScorer(t *testing.T) {
 		t.Fatalf("the cited call never reached Jev: %d requests", len(js.calls()))
 	}
 }
+
+func TestASummaryCitingAHugeCallIsStillScored(t *testing.T) {
+	l := newLab(t)
+	js := l.jev(t, 200, levels(nil))
+	js.maxState = 40 << 10
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "grounding", "hypotheses", a)
+	huge := `{"answer":"` + strings.Repeat(`{\"id\":\"P12345\",\"score\":0.91},`, 7000) + `"}`
+	l.in(t, func(tx *store.Tx) error {
+		_, err := tx.Q.InsertRecord(context.Background(), db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "grounding",
+			Round: c.Round, Kind: "call", Role: "agent", Key: "c1", Body: []byte(huge)})
+		return err
+	})
+	l.done(t, c.ID, "call:c1")
+	got := l.card(t, c.ID)
+	if got.BoardColumn != "hypotheses" {
+		t.Fatalf("a too-long state left the study unscored in %s (%d Jev requests)", got.BoardColumn, len(js.calls()))
+	}
+	if items := l.inbox(t, c.ID, "scoring_unavailable"); len(items) != 0 {
+		t.Fatalf("scoring_unavailable items: %v", items)
+	}
+}
