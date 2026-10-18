@@ -25,7 +25,7 @@ func TestTheBundleIsTheCuratedCopy(t *testing.T) {
 	if !slices.Equal(dirs, Allow) {
 		t.Fatalf("bundled %d folders, allowed %d", len(dirs), len(Allow))
 	}
-	if len(dirs) != 126 || len(Cut) != 51 {
+	if len(dirs) != 125 || len(Cut) != 52 {
 		t.Fatalf("bundled %d, cut %d", len(dirs), len(Cut))
 	}
 	notice, err := File("NOTICE")

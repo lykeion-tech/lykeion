@@ -32,7 +32,7 @@ func TestEveryBundledSkillHasACheckedLicenceRow(t *testing.T) {
 			t.Errorf("GPL skill %s is not cut as GPL", gpl)
 		}
 	}
-	for _, un := range []string{"hugging-science", "latex-posters", "pyhealth", "polars", "sympy", "matplotlib"} {
+	for _, un := range []string{"hugging-science", "latex-posters", "pyhealth", "polars", "sympy", "matplotlib", "markdown-mermaid-writing"} {
 		if _, ok := Licences[un]; Cut[un] != cutUnconfirmed && !ok {
 			t.Errorf("%s states no licence of its own text, yet is neither cut nor confirmed by hand", un)
 		}
@@ -41,7 +41,7 @@ func TestEveryBundledSkillHasACheckedLicenceRow(t *testing.T) {
 
 func TestTheCurationIsTheSpecs(t *testing.T) {
 	// A skill confirmed by hand moves from Cut to Allow: update both numbers.
-	if len(Cut) != 51 || len(Allow) != 126 || len(Cut)+len(Allow) != 177 || !slices.IsSorted(Allow) {
+	if len(Cut) != 52 || len(Allow) != 125 || len(Cut)+len(Allow) != 177 || !slices.IsSorted(Allow) {
 		t.Fatalf("%d cut, %d allowed (sorted %v)", len(Cut), len(Allow), slices.IsSorted(Allow))
 	}
 	for _, a := range Allow {

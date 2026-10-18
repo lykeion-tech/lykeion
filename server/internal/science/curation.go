@@ -36,7 +36,7 @@ var Cut = map[string]string{
 	"clinical-decision-support": cutOff, "clinical-reports": cutOff, "treatment-plans": cutOff,
 	"bioservices": cutGPL, "cobrapy": cutGPL, "etetoolkit": cutGPL,
 	"deeptools": cutUnconfirmed, "hugging-science": cutUnconfirmed, "latex-posters": cutUnconfirmed, "pyhealth": cutUnconfirmed,
-	"polars": cutUnconfirmed, "sympy": cutUnconfirmed, "matplotlib": cutUnconfirmed,
+	"polars": cutUnconfirmed, "sympy": cutUnconfirmed, "matplotlib": cutUnconfirmed, "markdown-mermaid-writing": cutUnconfirmed,
 }
 
 // Allow are the upstream skills bundled. A skill new upstream is bundled only
@@ -49,7 +49,7 @@ var Allow = []string{
 	"flowio", "flowkit", "fluidsim", "folklore-variant-evidence", "geniml", "genomic-coordinates", "geomaster",
 	"geopandas", "get-available-resources", "gget", "gtars", "histolab", "hypogenic",
 	"hypothesis-generation", "imaging-data-commons", "lamindb", "liteparse",
-	"literature-review", "mageck", "marine-carbonate-chemistry", "markdown-mermaid-writing", "markitdown",
+	"literature-review", "mageck", "marine-carbonate-chemistry", "markitdown",
 	"matchms", "matlab", "medchem", "molecular-dynamics", "molfeat", "ncats-arax", "networkx",
 	"neurokit2", "neuropixels-analysis", "nextflow", "nmrglue", "nwb-conversion", "onekgpd",
 	"ontology-term-resolution", "openpiv", "optimize-for-gpu", "pacsomatic", "paper-lookup", "pathml",
@@ -124,7 +124,6 @@ var Licences = LicenceTable{
 	"literature-review":             {Licence: "MIT", Stated: "MIT license", Source: "skills/literature-review/SKILL.md license field (K-Dense a1043ef)"},
 	"mageck":                        {Licence: "MIT", Stated: "MIT", Source: "skills/mageck/SKILL.md license field (K-Dense a1043ef)"},
 	"marine-carbonate-chemistry":    {Licence: "MIT", Stated: "MIT", Source: "skills/marine-carbonate-chemistry/SKILL.md license field (K-Dense a1043ef)"},
-	"markdown-mermaid-writing":      {Licence: "Apache-2.0", Stated: "Apache-2.0", Source: "skills/markdown-mermaid-writing/SKILL.md license field (K-Dense a1043ef)"},
 	"markitdown":                    {Licence: "MIT", Stated: "MIT", Source: "skills/markitdown/SKILL.md license field (K-Dense a1043ef)"},
 	"matchms":                       {Licence: "Apache-2.0", Stated: "Apache-2.0", Source: "skills/matchms/SKILL.md license field (K-Dense a1043ef)"},
 	"matlab":                        {Licence: "MIT", Stated: "MIT", Source: "skills/matlab/SKILL.md license field (K-Dense a1043ef)"},

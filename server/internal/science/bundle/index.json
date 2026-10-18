@@ -368,14 +368,6 @@
     "licence_source": "skills/marine-carbonate-chemistry/SKILL.md license field (K-Dense a1043ef)"
   },
   {
-    "name": "markdown-mermaid-writing",
-    "domain": "Document Processing \u0026 Conversion",
-    "description": "Writes scientific Markdown documentation and Mermaid diagrams for workflows, relationships, timelines, and schemas. Provides syntax references, document templates, accessibility guidance, and version-aware rendering checks. Use when a user requests Markdown, Mermaid, or a text-based structural diagram; quantitative scientific figures require suitable plotting tools.",
-    "licence": "Apache-2.0",
-    "stated_licence": "Apache-2.0",
-    "licence_source": "skills/markdown-mermaid-writing/SKILL.md license field (K-Dense a1043ef)"
-  },
-  {
     "name": "markitdown",
     "domain": "Document Processing \u0026 Conversion",
     "description": "Converts heterogeneous documents and selected URIs to Markdown with Microsoft MarkItDown for text analysis, search, and LLM/RAG ingestion. Covers safe local conversion, streams, Office/PDF/data formats, batch workflows, plugins, vision OCR, Azure extraction, and the official MCP server.",

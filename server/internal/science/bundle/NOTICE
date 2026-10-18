@@ -29,7 +29,7 @@ SOFTWARE.
 Lykeion placed a section of its own first in the SKILL.md of database-lookup and paper-lookup, and kept their
 reference files only for the databases Lykeion connects to. No other file was changed.
 
-Bundled skills (126), each under the licence its SKILL.md states:
+Bundled skills (125), each under the licence its SKILL.md states:
   13c-metabolic-flux  MIT  (stated: "MIT")
   aeon  BSD-3-Clause  (stated: "BSD-3-Clause license")
   alphagenome  MIT  (stated: "MIT")
@@ -76,7 +76,6 @@ Bundled skills (126), each under the licence its SKILL.md states:
   literature-review  MIT  (stated: "MIT license")
   mageck  MIT  (stated: "MIT")
   marine-carbonate-chemistry  MIT  (stated: "MIT")
-  markdown-mermaid-writing  Apache-2.0  (stated: "Apache-2.0")
   markitdown  MIT  (stated: "MIT")
   matchms  Apache-2.0  (stated: "Apache-2.0")
   matlab  MIT  (stated: "MIT")
@@ -157,7 +156,7 @@ Bundled skills (126), each under the licence its SKILL.md states:
   waypoint-bio  MIT  (stated: "MIT")
   zarr-python  MIT  (stated: "MIT license")
 
-Not bundled (51):
+Not bundled (52):
   adaptyv  physical lab and lab systems
   autoskill  off-topic or clinical paperwork
   benchling-integration  physical lab and lab systems
@@ -185,6 +184,7 @@ Not bundled (51):
   labarchive-integration  physical lab and lab systems
   latchbio-integration  paid outside platform needing the user's account key
   latex-posters  licence not established: none stated, or only the library's; bundled once confirmed by hand
+  markdown-mermaid-writing  licence not established: none stated, or only the library's; bundled once confirmed by hand
   market-research-reports  off-topic or clinical paperwork
   matplotlib  licence not established: none stated, or only the library's; bundled once confirmed by hand
   modal  paid outside platform needing the user's account key
