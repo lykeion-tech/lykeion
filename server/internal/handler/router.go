@@ -92,6 +92,12 @@ func NewRouter(h *H) http.Handler {
 		r.Patch("/api/skills/{id}", h.updateSkill)
 		r.Delete("/api/skills/{id}", h.deleteSkill)
 
+		// MCP services own their transactions and recheck current administrator authority.
+		r.Get("/api/mcp-servers", h.listWorkspaceMCP)
+		r.Post("/api/mcp-servers", h.saveWorkspaceMCP(true))
+		r.Put("/api/mcp-servers/{id}", h.saveWorkspaceMCP(false))
+		r.Delete("/api/mcp-servers/{id}", h.deleteWorkspaceMCP)
+
 		// Team creation reads selected folders and writes the pack blob before its transaction.
 		r.Post("/api/teams", h.createTeam)
 

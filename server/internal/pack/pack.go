@@ -313,6 +313,9 @@ func AuditorDiffers(m Manifest) error {
 	return nil
 }
 
+// ValidateConnector applies the Team connector validation to a library entry.
+func ValidateConnector(c Connector) error { return c.validate() }
+
 func (c Connector) validate() error {
 	kinds := 0
 	if c.Catalogue != "" {
