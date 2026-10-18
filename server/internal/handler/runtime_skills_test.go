@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"lykeion/server/internal/skill"
@@ -427,5 +428,95 @@ func TestRuntimeSkillOwnerReplacementCannotPublishOrReadReceipt(t *testing.T) {
 	}
 	if c := f.s.call(t, "GET", "/api/runtimes/"+f.rt+"/local-skills/import/"+j.ID.String(), f.jwt, f.ws, nil, nil); c != 403 {
 		t.Fatalf("old owner read: %d", c)
+	}
+}
+
+// Event writers may hold the event advisory lock before inserting their
+// workspace foreign key. Runtime skill operations must remain compatible.
+func TestRuntimeSkillClaimCompatibleWithEventWorkspaceLocks(t *testing.T) {
+	for _, operation := range []string{"list", "import"} {
+		t.Run(operation, func(t *testing.T) {
+			f := runtimeSkillSetup(t)
+			var keys []string
+			if operation == "import" {
+				keys = []string{"selected"}
+			}
+			job := f.start(t, keys)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			event, err := f.s.Env.Owner.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer event.Rollback(context.Background())
+			if _, err := event.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text,0))", f.ws); err != nil {
+				t.Fatal(err)
+			}
+			suffix := ""
+			if operation == "import" {
+				suffix = "/import"
+			}
+			var claimed []db.RuntimeSkillRequest
+			done := make(chan int, 1)
+			received := false
+			go func() {
+				done <- f.s.call(t, "POST", "/api/daemon/runtimes/"+f.rt+"/local-skills"+suffix, f.token, f.ws, map[string]string{"daemon_id": "skills-daemon"}, &claimed)
+			}()
+			defer func() {
+				event.Rollback(context.Background())
+				if !received {
+					<-done
+				}
+			}()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				var blocked bool
+				if err := f.s.Env.Owner.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1::int=ANY(pg_blocking_pids(pid)) AND query LIKE '%LockWorkspaceEvents%')", event.Conn().PgConn().PID()).Scan(&blocked); err != nil {
+					t.Fatal(err)
+				}
+				if blocked {
+					break
+				}
+				select {
+				case status := <-done:
+					received = true
+					t.Fatalf("claim finished before the event lock was released: %d", status)
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				case <-ticker.C:
+				}
+			}
+			// NOWAIT makes the actual FK-lock incompatibility fail deterministically.
+			if _, err := event.Exec(ctx, "SELECT id FROM workspace WHERE id=$1 FOR KEY SHARE NOWAIT", f.ws); err != nil {
+				t.Fatalf("event writer cannot acquire workspace FK lock: %v", err)
+			}
+			if _, err := event.Exec(ctx, "INSERT INTO event (workspace_id,type,actor_type,payload) VALUES ($1,'runtime.updated','system','{}')", f.ws); err != nil {
+				t.Fatal(err)
+			}
+			if err := event.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			status := <-done
+			received = true
+			if status != 200 || len(claimed) != 1 || claimed[0].ID != job.ID || claimed[0].Status != "running" || claimed[0].AcquisitionID == nil {
+				t.Fatalf("claim: status=%d jobs=%+v", status, claimed)
+			}
+			if operation == "import" {
+				if status := f.upload(t, claimed[0], "selected", runtimeSkillZip(t, "lock-compatible")); status != 200 {
+					t.Fatalf("upload: %d", status)
+				}
+			} else {
+				if status := f.s.call(t, "POST", f.resultPath(claimed[0], ""), f.token, f.ws, map[string]any{"status": "completed", "skills": []any{}}, nil); status != 200 {
+					t.Fatalf("result: %d", status)
+				}
+			}
+			if got := f.poll(t, job); got.Status != "completed" {
+				t.Fatalf("job status=%s", got.Status)
+			}
+			if got := f.s.count(t, "SELECT count(*) FROM event WHERE workspace_id=$1 AND type='runtime_skill_request.updated'", f.ws); got != 3 {
+				t.Fatalf("job events=%d want3", got)
+			}
+		})
 	}
 }

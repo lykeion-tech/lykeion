@@ -106,7 +106,7 @@ func (h *H) lockRuntimeSkillOwner(r *http.Request, tx *store.Tx, id runtimeSkill
 }
 func (h *H) runtimeSkillTx(r *http.Request, id runtimeSkillIdentity, fn func(*store.Tx, db.Runtime) error) error {
 	return h.Store.InWorkspace(r.Context(), id.workspace, user(r), func(tx *store.Tx) error {
-		if _, err := tx.Q.LockWorkspaceForMutation(r.Context(), id.workspace); err != nil {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), id.workspace); err != nil {
 			return err
 		}
 		if err := tx.Q.LockWorkspaceEvents(r.Context(), id.workspace); err != nil {
