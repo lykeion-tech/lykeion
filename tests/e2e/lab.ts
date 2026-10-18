@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, type APIRequestContext } from '@playwright/test';
@@ -191,4 +191,41 @@ export async function labFlow(
     data: { round: 1, ...flow },
   });
   expect(res.status()).toBe(204);
+}
+
+export function labSkillArchive(name: string): Buffer {
+  const dir = mkdtempSync(join(tmpdir(), 'lyk-skill-'));
+  try {
+    mkdirSync(join(dir, 'references'));
+    mkdirSync(join(dir, 'scripts'));
+    writeFileSync(
+      join(dir, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: Complete folder.\n---\n\n# Complete folder\n`,
+    );
+    writeFileSync(join(dir, 'references/raw.bin'), Buffer.from([0, 255, 128, 13, 10]));
+    writeFileSync(join(dir, 'scripts/check.py'), 'print("never executed")');
+    const archive = join(tmpdir(), `${name}.zip`);
+    try {
+      execFileSync('zip', ['-qr', archive, '.'], { cwd: dir });
+      return readFileSync(archive);
+    } finally {
+      rmSync(archive, { force: true });
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export function labSkillFolder(name: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'lyk-skill-folder-'));
+  mkdirSync(join(dir, 'references'));
+  mkdirSync(join(dir, 'scripts'));
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: Folder with raw bytes.\n---\n\n# Folder skill\n`,
+  );
+  writeFileSync(join(dir, 'references/raw.bin'), Buffer.from([0, 255, 128, 13, 10]));
+  writeFileSync(join(dir, 'scripts/check.py'), 'print("never executed")');
+  writeFileSync(join(dir, '.hidden'), 'hidden supporting file');
+  return dir;
 }

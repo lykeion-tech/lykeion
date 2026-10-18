@@ -81,6 +81,18 @@ func TestUILab(t *testing.T) {
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("LYK_TOKEN", "")
 	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "lyk.json"))
+	// Published-source responses stay outside the product API and use its real parser.
+	lateSourceRelease, lateSourceStarted := make(chan struct{}), make(chan struct{})
+	var lateReleaseOnce, lateStartedOnce sync.Once
+	previousHTTP := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: uiSkillSourceTransport{fallback: previousHTTP.Transport, release: lateSourceRelease, started: lateSourceStarted, startedOnce: &lateStartedOnce}}
+	t.Cleanup(func() { lateReleaseOnce.Do(func() { close(lateSourceRelease) }); http.DefaultClient = previousHTTP })
+	for _, name := range []string{"runtime-review", "runtime-duplicate", "runtime-single"} {
+		dir := filepath.Join(os.Getenv("HOME"), ".claude", "skills", name)
+		must(t, os.MkdirAll(filepath.Join(dir, "references"), 0700))
+		must(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: Runtime folder fixture.\n---\n\n# Runtime review\n"), 0600))
+		must(t, os.WriteFile(filepath.Join(dir, "references", "raw.bin"), []byte{0, 255, 128, 13, 10}, 0600))
+	}
 	env := testutil.Setup(t)
 	base := "http://" + addr
 
@@ -104,6 +116,40 @@ func TestUILab(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/", handler.NewRouter(h))
+	sourceFixtureAuth := func(w http.ResponseWriter, r *http.Request) bool {
+		cookie, err := r.Cookie("lyk_session")
+		if err != nil {
+			http.Error(w, "sign in required", 401)
+			return false
+		}
+		_, email, err := iss.Parse(cookie.Value)
+		if err != nil || email != labEmail {
+			http.Error(w, "fixture owner required", 403)
+			return false
+		}
+		return true
+	}
+	mux.HandleFunc("GET /lab/skill-source", func(w http.ResponseWriter, r *http.Request) {
+		if !sourceFixtureAuth(w, r) {
+			return
+		}
+		started := false
+		select {
+		case <-lateSourceStarted:
+			started = true
+		default:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"started": started})
+	})
+	mux.HandleFunc("POST /lab/skill-source/release", func(w http.ResponseWriter, r *http.Request) {
+		if !sourceFixtureAuth(w, r) {
+			return
+		}
+		lateReleaseOnce.Do(func() { close(lateSourceRelease) })
+		w.WriteHeader(204)
+	})
+
 	mux.HandleFunc("GET /lab/code", func(w http.ResponseWriter, r *http.Request) {
 		mail.mu.Lock()
 		code := mail.codes[strings.ToLower(r.URL.Query().Get("email"))]
@@ -559,4 +605,51 @@ func TestUIFakeClaudeRunRecordsFailure(t *testing.T) {
 	}
 	_, err = os.Stat(filepath.Join(home, "claude/projects/fake/s.jsonl"))
 	must(t, err)
+}
+
+// uiSkillSourceTransport supplies only the browser lab's reserved published repo.
+// All daemon, source and authentication traffic retains the ordinary transport.
+type uiSkillSourceTransport struct {
+	fallback         http.RoundTripper
+	release, started chan struct{}
+	startedOnce      *sync.Once
+}
+
+func (s uiSkillSourceTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	body := ""
+	target := r.URL.Host + r.URL.Path
+	late := target == "api.github.com/repos/ui2-fixture/late" || strings.HasPrefix(target, "api.github.com/repos/ui2-fixture/late/") || strings.HasPrefix(target, "raw.githubusercontent.com/ui2-fixture/late/main/")
+	if late {
+		target = strings.Replace(target, "ui2-fixture/late", "ui2-fixture/published", 1)
+	}
+	if late && target == "raw.githubusercontent.com/ui2-fixture/published/main/SKILL.md" {
+		s.startedOnce.Do(func() { close(s.started) })
+		select {
+		case <-s.release:
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		}
+	}
+	switch target {
+	case "api.github.com/repos/ui2-fixture/published":
+		body = `{"default_branch":"main"}`
+	case "api.github.com/repos/ui2-fixture/published/git/trees/main":
+		body = `{"tree":[{"path":"SKILL.md","type":"blob","size":120},{"path":"references/raw.bin","type":"blob","size":5},{"path":"scripts/check.py","type":"blob","size":24}]}`
+	case "raw.githubusercontent.com/ui2-fixture/published/main/SKILL.md":
+		body = "---\nname: published-review\ndescription: Published complete folder.\n---\n\n# Published review\n"
+	case "raw.githubusercontent.com/ui2-fixture/published/main/references/raw.bin":
+		body = string([]byte{0, 255, 128, 13, 10})
+	case "raw.githubusercontent.com/ui2-fixture/published/main/scripts/check.py":
+		body = "print('never executed')\n"
+	default:
+		fallback := s.fallback
+		if fallback == nil {
+			fallback = http.DefaultTransport
+		}
+		return fallback.RoundTrip(r)
+	}
+	if late {
+		body = strings.ReplaceAll(body, "published-review", "late-review")
+	}
+	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 }

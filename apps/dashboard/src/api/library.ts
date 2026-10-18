@@ -46,6 +46,12 @@ export type WorkspaceMcpCreate = { name: string; config: WorkspaceMcpConfig };
 export type WorkspaceMcpUpdate = WorkspaceMcpCreate & { revision: number };
 export type SkillFolderEntry = { path: string; data: Blob };
 
+// Bundled IDs retain their namespace colon in the router path segment.
+function skillSegment(id: string) {
+  const encoded = encodeURIComponent(id);
+  return id.startsWith('bundle:') ? encoded.replace('bundle%3A', 'bundle:') : encoded;
+}
+
 function libraryList<T>(key: (workspace: string) => readonly unknown[], path: string) {
   return useQuery({
     queryKey: computed(() => key(ws.value)),
@@ -67,13 +73,10 @@ export const useSkillDetail = (id: MaybeRefOrGetter<string>) =>
   useQuery({
     queryKey: computed(() => keys.skill(ws.value, toValue(id))),
     queryFn: ({ queryKey, signal }) =>
-      api<SkillDetail>(
-        'GET',
-        `/api/skills/${encodeURIComponent(queryKey[3])}`,
-        undefined,
-        undefined,
-        { workspace: queryKey[1], signal },
-      ),
+      api<SkillDetail>('GET', `/api/skills/${skillSegment(queryKey[3])}`, undefined, undefined, {
+        workspace: queryKey[1],
+        signal,
+      }),
     enabled: computed(() => Boolean(ws.value && toValue(id))),
     retry: false,
   });
@@ -99,7 +102,7 @@ export function useSkillFile(id: MaybeRefOrGetter<string>, path: MaybeRefOrGette
         detail.data.value?.revision === revision;
       const blob = await api<Blob>(
         'GET',
-        `/api/skills/${encodeURIComponent(skill)}/files?path=${encodeURIComponent(filePath)}`,
+        `/api/skills/${skillSegment(skill)}/files?path=${encodeURIComponent(filePath)}`,
         undefined,
         undefined,
         { workspace, signal, response: 'blob' },
@@ -176,12 +179,12 @@ export function useLibraryMutations() {
     createSkill: (input: SkillCreate) =>
       mutate<SkillDetail>('POST', '/api/skills', input, skillChanged),
     updateSkill: (id: string, input: SkillUpdate) =>
-      mutate<SkillDetail>('PATCH', `/api/skills/${encodeURIComponent(id)}`, input, (workspace) => [
+      mutate<SkillDetail>('PATCH', `/api/skills/${skillSegment(id)}`, input, (workspace) => [
         keys.skills(workspace),
         keys.skill(workspace, id),
       ]),
     deleteSkill: (id: string, revision: number) =>
-      mutate<void>('DELETE', `/api/skills/${encodeURIComponent(id)}`, { revision }, (workspace) => [
+      mutate<void>('DELETE', `/api/skills/${skillSegment(id)}`, { revision }, (workspace) => [
         keys.skills(workspace),
         keys.skill(workspace, id),
       ]),

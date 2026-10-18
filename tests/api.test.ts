@@ -348,6 +348,19 @@ describe('shared library queries and mutations', () => {
     scope.stop();
     client.clear();
   });
+  it('keeps bundled ID colon literal while escaping other skill ID characters', async () => {
+    const library = await import('../apps/dashboard/src/api/library');
+    const fetch = vi.fn(async (_path: string) => Response.json({ ...detail, id: 'bundle:aeon' }));
+    vi.stubGlobal('fetch', fetch);
+    const bundled = observe(() => library.useSkillDetail('bundle:aeon'));
+    await vi.waitFor(() => expect(bundled.data.value?.id).toBe('bundle:aeon'));
+    const mutations = observe(library.useLibraryMutations);
+    await mutations.updateSkill('bundle:aeon', { revision: 1, content: 'read-only' });
+    await mutations.deleteSkill('a/b?#', 1);
+    expect(fetch.mock.calls.map(([path]) => path)).toContain('/api/skills/bundle:aeon');
+    expect(fetch.mock.calls.map(([path]) => path)).not.toContain('/api/skills/bundle%3Aaeon');
+    expect(fetch.mock.calls.map(([path]) => path)).toContain('/api/skills/a%2Fb%3F%23');
+  });
   it('preserves nullable Inbox identities and resolves a report without a card', async () => {
     const item = {
       id: 'i1',

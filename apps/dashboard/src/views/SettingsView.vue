@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { themes } from '../theme';
 import Icon from '../components/Icon.vue';
+import SkillPanel from '../components/settings/library/SkillPanel.vue';
 import TokenCreationForm from '../components/settings/TokenCreationForm.vue';
 import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
 import { api } from '../api/client';
@@ -55,7 +56,10 @@ const groups = computed(() =>
     {
       title: workspace.data.value?.name ?? 'Workspace',
       suffix: 'Workspace',
-      items: [{ id: 'general', label: 'General', icon: 'settings' }],
+      items: [
+        { id: 'general', label: 'General', icon: 'settings' },
+        { id: 'skills', label: 'Skills', icon: 'book' },
+      ],
     },
   ]
     .map((g) => ({ ...g, items: g.items.filter((i) => matchesQuery(i.label, query.value)) }))
@@ -66,6 +70,7 @@ const titles: Record<string, string> = {
   preferences: 'Preferences',
   tokens: 'API Tokens',
   general: 'General',
+  skills: 'Skills',
 };
 function open(id: string) {
   void router.push({ path: '/settings', query: { tab: id } });
@@ -326,7 +331,7 @@ async function copySlug() {
         class="settings-body"
         :class="{ wide: section === 'preferences', 'table-layout': section === 'tokens' }"
       >
-        <header class="settings-heading">
+        <header v-if="section !== 'skills'" class="settings-heading">
           <h2>{{ titles[section] ?? 'Settings' }}</h2>
           <span v-if="section === 'general'" class="scope-badge"
             ><Icon name="users" :size="11" />{{ workspace.data.value?.name }} workspace</span
@@ -334,7 +339,8 @@ async function copySlug() {
         </header>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
 
-        <template v-if="section === 'profile'">
+        <SkillPanel v-if="section === 'skills'" />
+        <template v-else-if="section === 'profile'">
           <h3>Personal information</h3>
           <div class="setting-box">
             <label class="setting-row"
