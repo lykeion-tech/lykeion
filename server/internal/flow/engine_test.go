@@ -276,8 +276,12 @@ func TestLaterColumnsAreToldTheEarlierOnes(t *testing.T) {
 func TestProtocolExamplesNeedNoFileWrites(t *testing.T) {
 	m := &pack.Manifest{Leader: pack.Member{Name: "pi"}, Members: []pack.Member{{Name: "x", Role: "Does x."}}}
 	for _, role := range []string{"leader", "x", "agent", "auditor"} {
-		if s := Protocol(role, "grounding", "", m); strings.Contains(s, "--content-file") || !strings.Contains(s, "--content-stdin") {
+		s := Protocol(role, "grounding", "", m)
+		if strings.Contains(s, "--content-file") {
 			t.Errorf("%s:\n%s", role, s)
+		}
+		if strings.Contains(s, "record put") && (strings.Contains(s, "put KIND --content-stdin") || strings.Contains(s, "put audit --content-stdin") || !strings.Contains(s, "--content '")) {
+			t.Errorf("%s writes JSON records through a heredoc or without --content '…':\n%s", role, s)
 		}
 	}
 }

@@ -48,7 +48,7 @@ func prompt(c db.Card, role string, comments []db.Comment, researchContext strin
 }
 
 const (
-	writeWork = "Write your work with `lyk record put KIND --content-stdin <<'EOF'` followed by the JSON body and a closing `EOF` line; it prints the record's key. " +
+	writeWork = "Write your work with `lyk record put KIND --content '{\"text\": \"…\"}'`, the JSON body as one single-quoted argument (write a single quote inside it as `'\\''`, or keep the JSON free of them); it prints the record's key. " +
 		"When a record quotes a database call, cite the call with `--cites call:KEY` (`lyk calls` lists them). " +
 		"Read the study's records with `lyk records`.\n"
 	finish = "When the column delivers what it must, finish with `lyk team done --cites KEY1,KEY2 --content-stdin <<'EOF'` followed by the summary and a closing `EOF` line, " +
@@ -95,7 +95,7 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 			"2. Name the member for it: `lyk team step MEMBER --content \"…\"` (or `--content-stdin` with a heredoc). Say only what the member cannot read in the study for themselves.\n" +
 			"3. Stop after naming one member. You are woken when their work lands.\n" +
 			"4. When no member fits a step, do it yourself: say so first with `lyk team step --self --content \"…\"`, " +
-			"then write the work with `lyk record put KIND --content-stdin <<'EOF'` and the JSON body.\n" +
+			"then write the work with `lyk record put KIND --content '<json>'`, the JSON body as one single-quoted argument.\n" +
 			"5. " + finish)
 	case "agent":
 		b.WriteString(writeWork + finish)
@@ -103,8 +103,8 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 		b.WriteString("Your prompt holds the leader's summary and the records it cites; read more with `lyk records` and `lyk calls`. " +
 			"Check that each claim cites where its facts came from, that quoted passages appear in the calls they cite, " +
 			"that the work answers what the researcher asked, and that it says what it couldn't do.\n" +
-			"Write your findings once with `lyk record put audit --content-stdin <<'EOF'` with a body of the form " +
-			"`{\"text\": \"…\", \"findings\": [\"…\"]}` and a closing `EOF` line. You write no other records, name no members and declare nothing done.\n")
+			"Write your findings once with `lyk record put audit --content '<json>'` with a single-quoted body of the form " +
+			"`{\"text\": \"…\", \"findings\": [\"…\"]}`. You write no other records, name no members and declare nothing done.\n")
 	default:
 		b.WriteString(writeWork + "If you cannot do the step, end with `lyk result failed --content \"why\"`.\n")
 	}
