@@ -21,6 +21,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/pack"
+	"lykeion/server/internal/service"
 	"lykeion/server/pkg/agent"
 )
 
@@ -95,7 +96,8 @@ type claimed struct {
 	MCPURL    string            `json:"mcp_url"`
 	MCP       []agent.MCPServer `json:"mcp"`
 	// Connectors are what the run may call through its tool door.
-	Connectors []pack.Connector `json:"connectors"`
+	Connectors          []pack.Connector                  `json:"connectors"`
+	WorkspaceConnectors []service.WorkspaceConnectorClaim `json:"workspace_connectors,omitempty"`
 }
 type daemon struct {
 	cfg             Config

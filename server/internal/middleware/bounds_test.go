@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -294,6 +295,51 @@ func TestRuntimeSkillZIPBodyBoundIsExact(t *testing.T) {
 			if rec.Code != tc.want {
 				t.Fatalf("status %d want %d", rec.Code, tc.want)
 			}
+		})
+	}
+}
+
+func TestWorkspaceMCPBrokerTimeoutIsExactAndCancellable(t *testing.T) {
+	id := "12345678-1234-1234-1234-123456789012"
+	for _, tc := range []struct {
+		method, path string
+		broker       bool
+	}{
+		{"POST", "/api/role/mcp-servers/" + id + "/tools", true},
+		{"POST", "/api/role/mcp-servers/" + id + "/call", true},
+		{"GET", "/api/role/mcp-servers/" + id + "/call", false},
+		{"POST", "/api/role/mcp-servers/nope/call", false},
+		{"POST", "/api/role/mcp-servers/" + id + "/calls", false},
+		{"POST", "/api/role/mcp-servers/" + id + "/call/extra", false},
+	} {
+		t.Run(tc.method+tc.path, func(t *testing.T) {
+			parent, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)).WithContext(parent)
+			req.Header.Set("Content-Type", "application/json")
+			RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				deadline, ok := r.Context().Deadline()
+				if !ok {
+					t.Fatal("no deadline")
+				}
+				remaining := time.Until(deadline)
+				want := RequestTimeout
+				if tc.broker {
+					want = 5 * time.Minute
+				}
+				if remaining > want || remaining < want-time.Second {
+					t.Fatalf("timeout %s want %s", remaining, want)
+				}
+				if JSONBodyLimit(r) != MaxBodyBytes {
+					t.Fatal("broker widened body limit")
+				}
+				cancel()
+				select {
+				case <-r.Context().Done():
+				case <-time.After(time.Second):
+					t.Fatal("parent cancellation lost")
+				}
+			})).ServeHTTP(httptest.NewRecorder(), req)
 		})
 	}
 }

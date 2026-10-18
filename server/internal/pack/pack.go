@@ -20,6 +20,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/science"
@@ -60,6 +61,7 @@ type AgentDef struct {
 type Connector struct {
 	Name      string            `json:"name"`
 	Catalogue string            `json:"catalogue,omitempty"`
+	Workspace string            `json:"workspace,omitempty"`
 	URL       string            `json:"url,omitempty"`
 	Command   []string          `json:"command,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
@@ -318,6 +320,15 @@ func ValidateConnector(c Connector) error { return c.validate() }
 
 func (c Connector) validate() error {
 	kinds := 0
+	if c.Workspace != "" {
+		kinds++
+		if id, err := uuid.Parse(c.Workspace); err != nil || id == uuid.Nil {
+			return errors.New("workspace must name an MCP UUID")
+		}
+		if len(c.Env) > 0 {
+			return errors.New("workspace references cannot carry configuration")
+		}
+	}
 	if c.Catalogue != "" {
 		kinds++
 		if _, ok := connectors.Get(c.Catalogue); !ok {
@@ -337,7 +348,7 @@ func (c Connector) validate() error {
 		}
 	}
 	if kinds != 1 {
-		return errors.New("exactly one of catalogue, url and command is required")
+		return errors.New("exactly one of catalogue, url, command and workspace is required")
 	}
 	for k := range c.Env {
 		if secretEnv.MatchString(k) {

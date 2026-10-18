@@ -159,6 +159,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Engine: engine, Key: secretKey}
 	runs.OnSettlement = ap.OnSettlement(engine.OnSettlement)
 	conn := &connectors.Client{HTTP: connectors.Guarded(), Secret: secretKey, Contact: getenv("CONTACT_EMAIL")}
+	runs.Keys = conn
 	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},
 		GEO: sources.GEO{Base: sources.EUtilsBase, MetadataBase: sources.GeoMetadataBase}, Store: st, Blobs: blobs}
 	var mail auth.Mailer = auth.LogMailer{}
@@ -221,7 +222,9 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		return err
 	}
 	defer ln.Close()
-	srv := &http.Server{Handler: handler.NewRouter(h), ReadHeaderTimeout: 10 * time.Second,
+	router := handler.NewRouter(h)
+	defer h.MCPBroker.Close()
+	srv := &http.Server{Handler: router, ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout: time.Minute, BaseContext: func(net.Listener) context.Context { return ctx }}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()

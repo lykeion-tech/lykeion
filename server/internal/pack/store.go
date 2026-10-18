@@ -28,6 +28,20 @@ func PutBlob(ctx context.Context, blobs storage.Storage, ws uuid.UUID, zipBytes 
 // Insert writes the row for a parsed archive whose blob PutBlob stored at key.
 // A nil uploadedBy marks a shipped pack.
 func Insert(ctx context.Context, tx *store.Tx, key string, p *Pack, uploadedBy *uuid.UUID) (db.FieldPack, error) {
+	for _, member := range append([]Member{p.Manifest.Leader, p.Manifest.Auditor}, p.Manifest.Members...) {
+		for _, c := range member.Connectors {
+			if c.Workspace == "" {
+				continue
+			}
+			id, err := uuid.Parse(c.Workspace)
+			if err != nil {
+				return db.FieldPack{}, fmt.Errorf("invalid workspace connector reference")
+			}
+			if _, err := tx.Q.GetWorkspaceMCPServer(ctx, db.GetWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id}); err != nil {
+				return db.FieldPack{}, err
+			}
+		}
+	}
 	manifest, err := json.Marshal(p.Manifest)
 	if err != nil {
 		return db.FieldPack{}, err

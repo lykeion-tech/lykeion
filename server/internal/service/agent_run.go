@@ -4,6 +4,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -113,6 +115,14 @@ type NewAgentRun struct {
 	RunPrivate bool
 }
 
+type WorkspaceConnectorClaim struct {
+	ID        uuid.UUID         `json:"id"`
+	Name      string            `json:"name"`
+	Transport string            `json:"transport"`
+	Command   []string          `json:"command,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+}
+
 type Claimed struct {
 	AgentRun db.AgentRun `json:"agent_run"`
 	Token    string      `json:"token"`
@@ -122,7 +132,8 @@ type Claimed struct {
 	MCPURL    string            `json:"mcp_url"`
 	MCP       []agent.MCPServer `json:"mcp,omitempty"` // tool servers besides sources
 	// Connectors are what the run may call through the daemon's tool door.
-	Connectors []pack.Connector `json:"connectors"`
+	Connectors          []pack.Connector          `json:"connectors"`
+	WorkspaceConnectors []WorkspaceConnectorClaim `json:"workspace_connectors,omitempty"`
 }
 
 type Report struct {
@@ -183,6 +194,7 @@ type Message struct {
 }
 
 type AgentRuns struct {
+	Keys      *connectors.Client
 	Store     *store.Store
 	Blobs     storage.Storage // holds the Team packs a claimed run's connectors come from
 	MCPURL    string
@@ -191,7 +203,10 @@ type AgentRuns struct {
 	// Settlement.ID: a crash after callback effects but before acknowledgment can
 	// cause redelivery. Errors leave the durable notification pending.
 	OnSettlement func(context.Context, Settlement) error
-	Stale        time.Duration // a runtime silent this long is offline; default 60 s
+	// OnAttemptEnded releases transient resources after a committed attempt end.
+	// Replayed receipts do not invoke it.
+	OnAttemptEnded func(workspace, run uuid.UUID, attempt int32)
+	Stale          time.Duration // a runtime silent this long is offline; default 60 s
 }
 
 func agentRunEvent(t db.AgentRun) map[string]any {
@@ -374,6 +389,20 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						return err
 					}
 					mcp, err := addon.Servers(t.AddonMcp)
+					var conns []pack.Connector
+					var team *TeamClaim
+					var workspace []WorkspaceConnectorClaim
+					if err == nil {
+						conns, team, err = ClaimConnectors(ctx, tx, t)
+						if err != nil {
+							return err
+						}
+						workspace, err = s.workspaceConnectorClaims(ctx, tx, t)
+						if err != nil {
+							return err
+						}
+						err = claimConnectorNames(conns, team, workspace, mcp)
+					}
 					if err != nil {
 						// No token is issued; the attempt ends here, with its receipt
 						// and the settlement every terminal run gets.
@@ -409,14 +438,10 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: []string{ScopeCall}, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
 						return err
 					}
-					conns, team, err := ClaimConnectors(ctx, tx, t)
-					if err != nil {
-						return err
-					}
 					if team != nil {
 						teams[t.ID] = *team
 					}
-					c = &Claimed{AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns}
+					c = &Claimed{AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {
@@ -443,7 +468,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	// A Team pack is a blob, read only once the transaction is closed.
 	for i := range out {
 		if team, ok := teams[out[i].AgentRun.ID]; ok {
-			out[i].Connectors = s.teamConnectors(ctx, team)
+			out[i].Connectors = slices.DeleteFunc(s.teamConnectors(ctx, team), func(c pack.Connector) bool { return c.Workspace != "" })
 		}
 	}
 	return out, nil
@@ -619,6 +644,7 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 	}
 	var out db.AgentRun
 	notify := false
+	ended := false
 	err := s.onAgentRun(ctx, user, ref, func(tx *store.Tx) error {
 		t, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{ID: run, WorkspaceID: ref.WorkspaceID})
 		if err != nil {
@@ -707,12 +733,16 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 		if err = tx.Emit(ctx, "agent_run."+out.Status, out.CardID, store.System, agentRunEvent(out)); err != nil {
 			return err
 		}
+		ended = true
 		if terminal(out.Status) {
 			notify = true
 			return saveSettlement(ctx, tx, out)
 		}
 		return nil
 	})
+	if err == nil && ended && s.OnAttemptEnded != nil {
+		s.OnAttemptEnded(out.WorkspaceID, out.ID, ref.Attempt)
+	}
 	if err == nil && notify {
 		s.deliverAfterCommit(ctx, out.WorkspaceID, out.ID)
 	}
@@ -825,6 +855,7 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 	if stale <= 0 {
 		stale = 60 * time.Second
 	}
+	var ended []db.AgentRun
 	err := s.Store.Maintenance(ctx, func(tx *store.Tx) error {
 		if _, err := tx.Q.SweepRuntimes(ctx, pgtype.Interval{Microseconds: stale.Microseconds(), Valid: true}); err != nil {
 			return err
@@ -889,6 +920,7 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 				}
 			}
 			changed = append(changed, out)
+			ended = append(ended, t)
 		}
 		// Lock every affected run before taking any workspace event lock. Taking
 		// an event lock between runs could deadlock a concurrent cancel/settle
@@ -909,6 +941,11 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 	})
 	if err != nil {
 		return err
+	}
+	if s.OnAttemptEnded != nil {
+		for _, run := range ended {
+			s.OnAttemptEnded(run.WorkspaceID, run.ID, run.Attempt)
+		}
 	}
 	return s.RecoverSettlements(ctx)
 }
@@ -1006,4 +1043,148 @@ func (s *AgentRuns) RecoverSettlements(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// WorkspaceConnectorRow is a current authorized library entry with its door name.
+// Its sealed configuration is only opened on the server.
+type WorkspaceConnectorRow struct {
+	db.WorkspaceMcpServer
+	DoorName string
+	Attempt  int32
+}
+
+// WorkspaceConnectorRows resolves the run's current Team declarations, or the
+// solo library. Canonical stored manifests require no blob I/O in this transaction.
+func WorkspaceConnectorRows(ctx context.Context, tx *store.Tx, run db.AgentRun) ([]WorkspaceConnectorRow, error) {
+	_, team, err := ClaimConnectors(ctx, tx, run)
+	if err != nil {
+		return nil, err
+	}
+	refs := []pack.Connector{}
+	if team != nil {
+		var manifest pack.Manifest
+		if err := json.Unmarshal(team.Pack.Manifest, &manifest); err != nil {
+			return nil, err
+		}
+		member, ok := manifest.MemberFor(run.Role)
+		if !ok {
+			return []WorkspaceConnectorRow{}, nil
+		}
+		refs = member.Connectors
+	} else {
+		rows, err := tx.Q.ListWorkspaceMCPServers(ctx, tx.WS)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			refs = append(refs, pack.Connector{Name: r.Name, Workspace: r.ID.String()})
+		}
+	}
+	out := []WorkspaceConnectorRow{}
+	for _, ref := range refs {
+		if ref.Workspace == "" {
+			continue
+		}
+		id, err := uuid.Parse(ref.Workspace)
+		if err != nil {
+			return nil, ErrNotYours
+		}
+		row, err := tx.Q.LockWorkspaceMCPServer(ctx, db.LockWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id})
+		if err != nil {
+			return nil, err
+		}
+		if row.Transport == "command" && team != nil && !team.Added {
+			continue
+		}
+		out = append(out, WorkspaceConnectorRow{row, ref.Name, run.Attempt})
+	}
+	return out, nil
+}
+func (s *AgentRuns) workspaceConnectorClaims(ctx context.Context, tx *store.Tx, run db.AgentRun) ([]WorkspaceConnectorClaim, error) {
+	rows, err := WorkspaceConnectorRows(ctx, tx, run)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]WorkspaceConnectorClaim, 0, len(rows))
+	for _, row := range rows {
+		claim := WorkspaceConnectorClaim{ID: row.ID, Name: row.DoorName, Transport: row.Transport}
+		if row.Transport == "command" {
+			if s.Keys == nil {
+				return nil, errors.New("workspace command configuration unavailable")
+			}
+			raw, err := s.Keys.Open(tx.WS, "mcp-servers/"+row.ID.String(), row.ConfigCiphertext)
+			if err != nil {
+				return nil, err
+			}
+			var config struct {
+				Command string
+				Args    []string
+				Env     map[string]string
+			}
+			if json.Unmarshal([]byte(raw), &config) != nil {
+				return nil, errors.New("workspace command configuration unavailable")
+			}
+			claim.Command = append([]string{config.Command}, config.Args...)
+			claim.Env = config.Env
+			if pack.ValidateConnector(pack.Connector{Command: claim.Command, Env: claim.Env}) != nil {
+				return nil, errors.New("workspace command configuration invalid")
+			}
+		}
+		out = append(out, claim)
+	}
+	return out, nil
+}
+
+// claimConnectorNames refuses ambiguity before either run token is issued.
+func claimConnectorNames(conns []pack.Connector, team *TeamClaim, workspace []WorkspaceConnectorClaim, addons []agent.MCPServer) error {
+	if team != nil {
+		var manifest pack.Manifest
+		if json.Unmarshal(team.Pack.Manifest, &manifest) != nil {
+			return errors.New("Team connectors unavailable")
+		}
+		member, _ := manifest.MemberFor(team.Role)
+		conns = member.Connectors
+	}
+	names := map[string]bool{"sources": true}
+	add := func(name string) error {
+		if name == "" || names[name] {
+			return errors.New("connector names are ambiguous or reserved")
+		}
+		names[name] = true
+		return nil
+	}
+	for _, c := range conns {
+		if c.Workspace != "" {
+			continue
+		}
+		name := c.Name
+		if name == "" {
+			name = c.Catalogue
+		}
+		if err := add(name); err != nil {
+			return err
+		}
+	}
+	for _, c := range workspace {
+		if err := add(c.Name); err != nil {
+			return err
+		}
+	}
+	for _, a := range addons {
+		if err := add(a.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CommandFingerprint binds daemon inventory to the exact non-secret configuration
+// in its claim, including argument order and canonical environment key order.
+func CommandFingerprint(command []string, env map[string]string) string {
+	raw, _ := json.Marshal(struct {
+		Command []string
+		Env     map[string]string
+	}{command, env})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }

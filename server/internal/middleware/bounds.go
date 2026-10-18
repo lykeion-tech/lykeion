@@ -60,6 +60,9 @@ func RequestBounds(next http.Handler) http.Handler {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/role/tools" {
 			requestTimeout = ToolsRequestTimeout
 		}
+		if workspaceMCPBrokerPost(r) {
+			requestTimeout = 5 * time.Minute
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
 		r = r.WithContext(ctx)
@@ -176,5 +179,19 @@ func RuntimeSkillZIPUpload(r *http.Request) bool {
 		return false
 	}
 	_, err = uuid.Parse(p[7])
+	return err == nil
+}
+
+// workspaceMCPBrokerPost gives only the two daemon broker endpoints the door's
+// existing call budget. Body size and read deadlines remain the ordinary ones.
+func workspaceMCPBrokerPost(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) != 6 || parts[1] != "api" || parts[2] != "role" || parts[3] != "mcp-servers" || len(parts[4]) != 36 || (parts[5] != "tools" && parts[5] != "call") {
+		return false
+	}
+	_, err := uuid.Parse(parts[4])
 	return err == nil
 }

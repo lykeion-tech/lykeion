@@ -1,16 +1,44 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/workspacemcp"
 )
 
 func NewRouter(h *H) http.Handler {
+	if h.MCPBroker == nil {
+		h.MCPBroker = &workspacemcp.Broker{Store: h.Store, Keys: h.Connectors}
+	}
+	if h.AgentRuns != nil {
+		h.AgentRuns.Keys = h.Connectors
+		attemptEnded := h.AgentRuns.OnAttemptEnded
+		h.AgentRuns.OnAttemptEnded = func(ws, run uuid.UUID, attempt int32) {
+			h.MCPBroker.CloseAttempt(ws, run, attempt)
+			if attemptEnded != nil {
+				attemptEnded(ws, run, attempt)
+			}
+		}
+		previous := h.AgentRuns.OnSettlement
+		legacy := h.AgentRuns.OnSettled
+		h.AgentRuns.OnSettlement = func(ctx context.Context, event service.Settlement) error {
+			h.MCPBroker.CloseRun(event.AgentRun.WorkspaceID, event.AgentRun.ID)
+			if previous != nil {
+				return previous(ctx, event)
+			}
+			if legacy != nil {
+				legacy(ctx, event.AgentRun)
+			}
+			return nil
+		}
+	}
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.Recoverer, middleware.RequestBounds)
 
@@ -41,6 +69,8 @@ func NewRouter(h *H) http.Handler {
 		})
 		// Only the daemon's tool door holds a call token; the agent's cannot record.
 		r.With(middleware.RequireScope(service.ScopeCall)).Post("/calls", h.postCall)
+		r.With(middleware.RequireScope(service.ScopeCall)).Post("/mcp-servers/{id}/tools", h.workspaceMCPTools)
+		r.With(middleware.RequireScope(service.ScopeCall)).Post("/mcp-servers/{id}/call", h.workspaceMCPCall)
 		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Post("/tools", h.postTools)
 		r.With(middleware.RequireScope(service.ScopeReport)).Post("/report", h.autoresearchReport)
 		r.With(middleware.RequireScope(service.ScopeCardCreate)).Post("/cards", h.autoresearchCard)

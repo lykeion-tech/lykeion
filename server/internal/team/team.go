@@ -60,6 +60,18 @@ func FromForm(ctx context.Context, tx *store.Tx, in Form) (pack.Manifest, error)
 		if err != nil {
 			return pack.Member{}, err
 		}
+		for _, c := range s.Connectors {
+			if c.Workspace == "" {
+				continue
+			}
+			id, err := uuid.Parse(c.Workspace)
+			if err != nil {
+				return pack.Member{}, fmt.Errorf("%w: invalid workspace connector", ErrInvalid)
+			}
+			if _, err := tx.Q.GetWorkspaceMCPServer(ctx, db.GetWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id}); err != nil {
+				return pack.Member{}, fmt.Errorf("%w: workspace connector unavailable", ErrInvalid)
+			}
+		}
 		return pack.Member{Name: s.Name, Role: s.Role, Skills: s.Skills, Connectors: s.Connectors,
 			Agent: pack.AgentDef{Harness: a.Harness, Model: a.Model, Instructions: a.Instructions}}, nil
 	}
