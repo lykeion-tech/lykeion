@@ -19,7 +19,8 @@ const runtime = ref(''),
   query = ref(''),
   inventory = ref<RuntimeSkillInventory[]>([]),
   error = ref(''),
-  starting = ref(false);
+  starting = ref(false),
+  changing = ref(false);
 const empty = { revision: 0, value: { selected: [] as string[] } };
 const selection = useResourceDraft(
   computed(() => `${workspaceId.value}:runtime-import:${runtime.value}`),
@@ -92,6 +93,24 @@ watch(
       inventory.value = current.result.skills ?? [];
   },
 );
+async function changeRuntime(event: Event) {
+  const input = event.target as HTMLSelectElement,
+    next = input.value;
+  input.value = runtime.value;
+  if (next === runtime.value || active.value || changing.value) return;
+  const own = visit,
+    ws = workspaceId.value,
+    previous = runtime.value;
+  changing.value = true;
+  try {
+    if (!(await selection.reset())) return;
+    if (own !== visit || ws !== workspaceId.value || runtime.value !== previous) return;
+    runtime.value = next;
+    await discover();
+  } finally {
+    changing.value = false;
+  }
+}
 async function discover() {
   const own = ++visit,
     ws = workspaceId.value,
@@ -149,7 +168,12 @@ function toggleAll() {
 <template>
   <div class="runtime-import">
     <label class="field"
-      >Runtime<select v-model="runtime" aria-label="Runtime" :disabled="active" @change="discover">
+      >Runtime<select
+        :value="runtime"
+        aria-label="Runtime"
+        :disabled="active || changing"
+        @change="changeRuntime"
+      >
         <option value="">Choose runtime</option>
         <option v-for="r in owned" :key="r.id" :value="r.id" :disabled="r.status !== 'online'">
           {{ r.custom_name || r.device_name }} · {{ label(r.harness)

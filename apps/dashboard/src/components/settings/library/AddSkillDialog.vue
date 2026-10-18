@@ -65,6 +65,22 @@ function choose(event: Event, mode: 'archive' | 'folder') {
     );
   error.value = '';
 }
+let backing = false;
+async function back() {
+  if (busy.value || backing) return;
+  const own = visit,
+    ws = workspaceId.value,
+    from = method.value;
+  backing = true;
+  try {
+    if (from === 'runtime' && !(await guardResourceDrafts())) return;
+    if (own !== visit || ws !== workspaceId.value || method.value !== from) return;
+    method.value = 'menu';
+    error.value = '';
+  } finally {
+    backing = false;
+  }
+}
 async function submit() {
   if (!valid.value || busy.value) return;
   const own = visit,
@@ -105,10 +121,7 @@ async function submit() {
           class="icon-button"
           aria-label="Back to methods"
           :disabled="busy"
-          @click="
-            method = 'menu';
-            error = '';
-          "
+          @click="back"
         >
           <Icon name="back" :size="18" />
         </button>

@@ -520,3 +520,48 @@ test('duplicate names and unsupported URLs keep the entered form and real error'
     'https://unsupported.example/skill',
   );
 });
+
+async function selectedRuntimeSkill(page: Page) {
+  await open(page);
+  await page.getByRole('button', { name: 'Add skill', exact: true }).click();
+  await page.getByRole('button', { name: 'Copy from runtime', exact: false }).click();
+  const picker = page.getByRole('combobox', { name: 'Runtime', exact: true });
+  await expect(picker.locator('option')).not.toHaveCount(1);
+  await picker.selectOption({ label: 'lab-mac · Claude Code' });
+  const checkbox = page.getByRole('checkbox', { name: 'runtime-review', exact: false });
+  await checkbox.check();
+  return { picker, checkbox, runtime: await picker.inputValue() };
+}
+
+test('runtime Back preserves selected skills until explicit discard', async ({ page }) => {
+  const { picker, checkbox, runtime } = await selectedRuntimeSkill(page);
+  await page.getByRole('button', { name: 'Back to methods', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(picker).toHaveValue(runtime);
+  await expect(checkbox).toBeChecked();
+  await page.getByRole('button', { name: 'Back to methods', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Add skill', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Copy from runtime', exact: false }).click();
+  await expect(picker).toHaveValue('');
+  await picker.selectOption({ label: 'lab-mac · Claude Code' });
+  await expect(checkbox).not.toBeChecked();
+});
+
+test('runtime change preserves identity and selected skills until explicit discard', async ({
+  page,
+}) => {
+  const { picker, checkbox, runtime } = await selectedRuntimeSkill(page);
+  await picker.selectOption('');
+  await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(picker).toHaveValue(runtime);
+  await expect(checkbox).toBeChecked();
+  await picker.selectOption('');
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(picker).toHaveValue('');
+  await expect(checkbox).toHaveCount(0);
+  await picker.selectOption({ label: 'lab-mac · Claude Code' });
+  await expect(checkbox).not.toBeChecked();
+});
