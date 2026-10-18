@@ -193,7 +193,17 @@ function toggleAll() {
       placeholder="Search local skills"
       :disabled="!inventory.length || active"
     />
-    <p v-if="error || job.error.value" role="alert">{{ error || job.error.value?.message }}</p>
+    <p v-if="error || job.error.value" role="alert">
+      {{ error || job.error.value?.message }}
+      <button
+        v-if="request && job.error.value"
+        class="button"
+        :disabled="job.isFetching.value"
+        @click="job.refetch()"
+      >
+        Retry
+      </button>
+    </p>
     <p v-if="active" role="status">
       {{ operation === 'list' ? 'Discovering installed skills…' : 'Importing selected skills…' }}
     </p>

@@ -159,7 +159,7 @@ func (h *H) createTeam(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = h.Store.InWorkspace(r.Context(), ws, who, func(tx *store.Tx) error {
 			user := who
-			if _, err := tx.Q.LockWorkspaceForMutation(r.Context(), ws); err != nil {
+			if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
 				return err
 			}
 			if err := selection.Fence(r.Context(), tx, user); err != nil {

@@ -598,3 +598,63 @@ test('skill module-load failure keeps complete safe recorded instructions availa
   await dialog.getByRole('tab', { name: 'Files', exact: true }).click();
   await expect(dialog.locator('.file-preview')).toHaveText(content);
 });
+
+test('runtime import retries the same job read after an error without resubmitting', async ({
+  page,
+}) => {
+  const { picker, checkbox, runtime } = await selectedRuntimeSkill(page);
+  const selectedKey = await checkbox.inputValue();
+  let pending: Record<string, unknown> | undefined;
+  let posts = 0;
+  let reads = 0;
+  let recover = false;
+  const readURLs: string[] = [];
+  await page.route(`**/api/runtimes/${runtime}/local-skills/import`, async (route) => {
+    posts++;
+    expect(route.request().method()).toBe('POST');
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    pending = await response.json();
+    expect(pending?.status).toBe('pending');
+    expect(pending?.keys).toEqual([selectedKey]);
+    expect(route.request().postDataJSON()).toEqual({ keys: [selectedKey] });
+    await route.fulfill({ response });
+  });
+  await page.route(`**/api/runtimes/${runtime}/local-skills/import/*`, async (route) => {
+    readURLs.push(route.request().url());
+    reads++;
+    if (reads === 1) {
+      // Hold the server's genuine pending receipt visible before the failed read;
+      // the daemon continues executing the same job through the real server.
+      await route.fulfill({ json: pending });
+    } else if (!recover) {
+      await route.abort('failed');
+    } else {
+      await route.continue();
+    }
+  });
+  await page.getByRole('button', { name: 'Import to workspace', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Copy from runtime', exact: true });
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(picker).toHaveValue(runtime);
+  await expect(picker).toBeDisabled();
+  await expect(dialog.locator('.runtime-actions')).toContainText('1 selected');
+  // The count can come from the cached job; the discard guard proves the actual
+  // selected-folder draft also survived the read failure.
+  await page.getByRole('button', { name: 'Back to methods', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  const retry = dialog.getByRole('button', { name: 'Retry', exact: true });
+  await expect(retry).toBeVisible();
+  recover = true;
+  await retry.click();
+  await expect(dialog.getByText(/runtime-review · (Imported|conflict)/)).toBeVisible();
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await expect(picker).toHaveValue(runtime);
+  await expect(picker).toBeEnabled();
+  await expect(dialog.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  expect(posts).toBe(1);
+  expect(reads).toBeGreaterThanOrEqual(3);
+  expect(new Set(readURLs).size).toBe(1);
+  expect(readURLs[0]).toContain(`/${pending?.id}`);
+});

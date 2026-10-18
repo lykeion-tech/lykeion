@@ -72,7 +72,7 @@ func conflict(err error) error {
 }
 func member(ctx context.Context, tx *store.Tx, user uuid.UUID, write bool) (db.Member, error) {
 	if write {
-		if _, err := tx.Q.LockWorkspaceForMutation(ctx, tx.WS); err != nil {
+		if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
 			return db.Member{}, err
 		}
 		if err := tx.Q.LockWorkspaceEvents(ctx, tx.WS); err != nil {
