@@ -197,6 +197,7 @@ func Run(ctx context.Context, cfg Config) error {
 	background(func() { d.every(ctx, cfg.Flush, func(ctx context.Context) { d.fatal(d.flush(ctx)) }) })
 	background(func() { d.every(ctx, time.Hour, func(ctx context.Context) { d.fatal(d.gc(ctx)) }) })
 	background(func() { d.hints(ctx) })
+	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
 	ticker := time.NewTicker(cfg.Poll)
 	defer ticker.Stop()
 	var runErr error

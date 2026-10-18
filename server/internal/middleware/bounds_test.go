@@ -266,3 +266,34 @@ func TestArchiveImportBodyBound(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeSkillZIPBodyBoundIsExact(t *testing.T) {
+	const route = "/api/daemon/runtimes/00000000-0000-0000-0000-000000000001/local-skills/import/00000000-0000-0000-0000-000000000002/result"
+	for _, tc := range []struct {
+		method, path, media string
+		want                int
+	}{
+		{"POST", route, "application/zip", 204},
+		{"POST", route, "application/json", 413},
+		{"PUT", route, "application/zip", 413},
+		{"POST", route + "/", "application/zip", 413},
+		{"POST", strings.Replace(route, "import/", "", 1), "application/zip", 413},
+		{"POST", strings.Replace(route, "00000000-0000-0000-0000-000000000001", "bad", 1), "application/zip", 413},
+	} {
+		t.Run(tc.method+tc.path+tc.media, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(strings.Repeat("x", 2<<20)))
+			req.Header.Set("Content-Type", tc.media)
+			rec := httptest.NewRecorder()
+			RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				d, ok := r.Context().Deadline()
+				if !ok || time.Until(d) < 50*time.Second {
+					t.Error("raw archive lost blob deadline")
+				}
+				w.WriteHeader(204)
+			})).ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status %d want %d", rec.Code, tc.want)
+			}
+		})
+	}
+}

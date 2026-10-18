@@ -135,3 +135,16 @@ SET enabled = @enabled, key_ciphertext = @key_ciphertext, licence_confirmed_by =
     licence_confirmed_at = @licence_confirmed_at, updated_by = @updated_by, updated_at = now(), revision = revision + 1
 WHERE workspace_id = @workspace_id AND name = @name AND revision = @expected_revision
 RETURNING *;
+
+-- name: UpdateRuntimeSkillRequestResult :one
+UPDATE runtime_skill_request q
+SET status = @status, result = @result,
+    completed_at = CASE WHEN @status::text IN ('completed','failed') THEN clock_timestamp() ELSE NULL END,
+    error = @error
+FROM runtime r
+WHERE q.workspace_id = @workspace_id AND q.id = @id AND q.runtime_id = @runtime_id
+  AND q.owner_id = @owner_id AND q.daemon_id = @daemon_id AND q.acquisition_id = @acquisition_id
+  AND q.status = 'running' AND q.expires_at > clock_timestamp()
+  AND @status::text IN ('running','completed','failed')
+  AND (r.workspace_id,r.id,r.owner_id,r.daemon_id) = (q.workspace_id,q.runtime_id,q.owner_id,q.daemon_id)
+RETURNING q.*;

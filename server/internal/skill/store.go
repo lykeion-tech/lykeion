@@ -396,6 +396,13 @@ func (s *Service) put(ctx context.Context, ws uuid.UUID, b Bundle) (db.InsertWor
 	return db.InsertWorkspaceSkillVersionParams{WorkspaceID: ws, Name: b.Name, Description: b.Description, Sha256: sha, BlobKey: key, Manifest: rawManifest}, err
 }
 func (s *Service) Create(ctx context.Context, ws, user uuid.UUID, b Bundle, source Source) (Detail, error) {
+	return s.CreateFenced(ctx, ws, user, b, source, nil, nil)
+}
+
+// CreateFenced prepares blob bytes before entering the publication transaction.
+// The callbacks may only use the supplied transaction; they fence the operation
+// and commit its receipt alongside the skill and its event.
+func (s *Service) CreateFenced(ctx context.Context, ws, user uuid.UUID, b Bundle, source Source, before func(*store.Tx) error, after func(*store.Tx, Detail) error) (Detail, error) {
 	var out Detail
 	var err error
 	if err = Validate(b); err != nil {
@@ -431,6 +438,11 @@ func (s *Service) Create(ctx context.Context, ws, user uuid.UUID, b Bundle, sour
 		if err != nil {
 			return err
 		}
+		if before != nil {
+			if err := before(tx); err != nil {
+				return err
+			}
+		}
 		row, err := tx.Q.InsertWorkspaceSkill(ctx, db.InsertWorkspaceSkillParams{WorkspaceID: ws, ID: v.SkillID, Name: b.Name, CreatedBy: user, SourceKind: source.Kind, SourceLocation: source.Location, SourceRuntimeID: runtime})
 		if err != nil {
 			return conflict(err)
@@ -439,7 +451,13 @@ func (s *Service) Create(ctx context.Context, ws, user uuid.UUID, b Bundle, sour
 			return err
 		}
 		out = Detail{Summary: summary(row.ID, b.Name, b.Description, "Workspace", 1, user, user, m.Role, source, containsScripts(b)), Content: string(b.Files["SKILL.md"]), Files: fileMetadata(b)}
-		return tx.Emit(ctx, "skill.created", nil, store.User(user), map[string]any{"skill_id": row.ID, "name": b.Name, "revision": 1})
+		if err := tx.Emit(ctx, "skill.created", nil, store.User(user), map[string]any{"skill_id": row.ID, "name": b.Name, "revision": 1}); err != nil {
+			return err
+		}
+		if after != nil {
+			return after(tx, out)
+		}
+		return nil
 	})
 	return out, err
 }

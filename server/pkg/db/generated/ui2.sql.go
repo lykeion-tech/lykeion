@@ -964,6 +964,66 @@ func (q *Queries) TimeoutRuntimeSkillRequests(ctx context.Context, arg TimeoutRu
 	return items, nil
 }
 
+const updateRuntimeSkillRequestResult = `-- name: UpdateRuntimeSkillRequestResult :one
+UPDATE runtime_skill_request q
+SET status = $1, result = $2,
+    completed_at = CASE WHEN $1::text IN ('completed','failed') THEN clock_timestamp() ELSE NULL END,
+    error = $3
+FROM runtime r
+WHERE q.workspace_id = $4 AND q.id = $5 AND q.runtime_id = $6
+  AND q.owner_id = $7 AND q.daemon_id = $8 AND q.acquisition_id = $9
+  AND q.status = 'running' AND q.expires_at > clock_timestamp()
+  AND $1::text IN ('running','completed','failed')
+  AND (r.workspace_id,r.id,r.owner_id,r.daemon_id) = (q.workspace_id,q.runtime_id,q.owner_id,q.daemon_id)
+RETURNING q.workspace_id, q.id, q.runtime_id, q.owner_id, q.daemon_id, q.operation, q.keys, q.status, q.acquisition_id, q.expires_at, q.acquired_at, q.completed_at, q.result, q.result_blob_key, q.error, q.created_at
+`
+
+type UpdateRuntimeSkillRequestResultParams struct {
+	Status        string          `json:"status"`
+	Result        json.RawMessage `json:"result"`
+	Error         string          `json:"error"`
+	WorkspaceID   uuid.UUID       `json:"workspace_id"`
+	ID            uuid.UUID       `json:"id"`
+	RuntimeID     uuid.UUID       `json:"runtime_id"`
+	OwnerID       uuid.UUID       `json:"owner_id"`
+	DaemonID      string          `json:"daemon_id"`
+	AcquisitionID *uuid.UUID      `json:"acquisition_id"`
+}
+
+func (q *Queries) UpdateRuntimeSkillRequestResult(ctx context.Context, arg UpdateRuntimeSkillRequestResultParams) (RuntimeSkillRequest, error) {
+	row := q.db.QueryRow(ctx, updateRuntimeSkillRequestResult,
+		arg.Status,
+		arg.Result,
+		arg.Error,
+		arg.WorkspaceID,
+		arg.ID,
+		arg.RuntimeID,
+		arg.OwnerID,
+		arg.DaemonID,
+		arg.AcquisitionID,
+	)
+	var i RuntimeSkillRequest
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.ID,
+		&i.RuntimeID,
+		&i.OwnerID,
+		&i.DaemonID,
+		&i.Operation,
+		&i.Keys,
+		&i.Status,
+		&i.AcquisitionID,
+		&i.ExpiresAt,
+		&i.AcquiredAt,
+		&i.CompletedAt,
+		&i.Result,
+		&i.ResultBlobKey,
+		&i.Error,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const updateWorkspaceConnectorRevision = `-- name: UpdateWorkspaceConnectorRevision :one
 UPDATE workspace_connector
 SET enabled = $1, key_ciphertext = $2, licence_confirmed_by = $3,

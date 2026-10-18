@@ -60,6 +60,10 @@ func NewRouter(h *H) http.Handler {
 			}
 			r.Post("/register", h.daemonRegister)
 			r.Post("/heartbeat", h.daemonHeartbeat)
+			r.Post("/runtimes/{id}/local-skills", h.claimRuntimeSkills("list"))
+			r.Post("/runtimes/{id}/local-skills/import", h.claimRuntimeSkills("import"))
+			r.Post("/runtimes/{id}/local-skills/{requestId}/result", h.reportRuntimeSkills("list"))
+			r.Post("/runtimes/{id}/local-skills/import/{requestId}/result", h.reportRuntimeSkills("import"))
 			r.Post("/agent-runs/claim", h.daemonClaim)
 			r.Post("/agent-runs/{id}/prepare-lease", h.daemonPrepare())
 			r.Post("/agent-runs/{id}/start", h.daemonStart())
@@ -74,6 +78,11 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/autoresearch/{id}/run", h.runAutoresearch)
 		r.Post("/api/cards/{id}/stop", h.stopCard)
 
+		// Runtime skill jobs own their transactions, including the final upload fence.
+		r.Post("/api/runtimes/{id}/local-skills", h.initiateRuntimeSkills("list"))
+		r.Post("/api/runtimes/{id}/local-skills/import", h.initiateRuntimeSkills("import"))
+		r.Get("/api/runtimes/{id}/local-skills/{requestId}", h.getRuntimeSkills("list"))
+		r.Get("/api/runtimes/{id}/local-skills/import/{requestId}", h.getRuntimeSkills("import"))
 		// Skill services own their transactions so blob I/O stays outside database locks.
 		r.Get("/api/skills", h.listSkills)
 		r.Get("/api/skills/{id}", h.getSkill)

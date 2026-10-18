@@ -47,7 +47,7 @@ func RequestBounds(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs"
+		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r)
 		callPost := r.Method == http.MethodPost && r.URL.Path == "/api/role/calls"
 		packUpload := r.Method == http.MethodPost && r.URL.Path == "/api/packs"
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
@@ -73,7 +73,7 @@ func RequestBounds(next http.Handler) http.Handler {
 				deny(w, http.StatusInternalServerError, "body read unavailable")
 				return
 			}
-			// Only this exact raw endpoint may defer reading until after authentication.
+			// Only the exact raw endpoints may defer reading until after authentication.
 			// Keep the deadline through the spool. Close these upload connections so
 			// net/http never drains an unread body after early authentication failure.
 			if rawBlob {
@@ -156,4 +156,25 @@ func validWebSocketHandshake(r *http.Request) bool {
 	}
 	key, err := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))
 	return err == nil && len(key) == 16
+}
+
+// RuntimeSkillZIPUpload identifies only the daemon's selected-item archive result.
+// Its handler authenticates the operation before spooling at the archive limit.
+func RuntimeSkillZIPUpload(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || media != "application/zip" {
+		return false
+	}
+	p := strings.Split(r.URL.Path, "/")
+	if len(p) != 9 || p[1] != "api" || p[2] != "daemon" || p[3] != "runtimes" || p[5] != "local-skills" || p[6] != "import" || p[8] != "result" || len(p[4]) != 36 || len(p[7]) != 36 {
+		return false
+	}
+	if _, err := uuid.Parse(p[4]); err != nil {
+		return false
+	}
+	_, err = uuid.Parse(p[7])
+	return err == nil
 }
