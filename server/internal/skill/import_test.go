@@ -358,3 +358,49 @@ func TestURLImportClawHubFallback(t *testing.T) {
 		})
 	}
 }
+
+func TestURLImportSkillsShPreferredPartialTree(t *testing.T) {
+	for _, status := range []int{200, 503} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			conventionalLookups := 0
+			folderCrawls := 0
+			client := &http.Client{Transport: importTransport(func(r *http.Request) (*http.Response, error) {
+				switch {
+				case r.URL.Path == "/repos/lab/repo":
+					return importResponse(200, map[string]string{"default_branch": "main"}), nil
+				case strings.Contains(r.URL.Path, "/git/trees/"):
+					return importResponse(200, map[string]any{"tree": []githubEntry{{Path: "custom/method/SKILL.md", Type: "blob", Mode: "100644", Size: 28}}, "truncated": true}), nil
+				case r.URL.Path == "/repos/lab/repo/contents/custom/method":
+					folderCrawls++
+					if status != 200 {
+						return importResponse(status, "unavailable"), nil
+					}
+					return importResponse(200, []map[string]any{{"path": "custom/method/SKILL.md", "type": "file", "size": 28}, {"path": "custom/method/raw.bin", "type": "file", "size": 2}, {"path": "custom/method/.hidden", "type": "file", "size": 4}}), nil
+				case r.URL.Host == "raw.githubusercontent.com" && r.URL.Path == "/lab/repo/main/custom/method/SKILL.md":
+					return importResponse(200, "---\nname: method\n---\nResearch"), nil
+				case r.URL.Host == "raw.githubusercontent.com" && r.URL.Path == "/lab/repo/main/custom/method/raw.bin":
+					return importResponse(200, []byte{0, 255}), nil
+				case r.URL.Host == "raw.githubusercontent.com" && r.URL.Path == "/lab/repo/main/custom/method/.hidden":
+					return importResponse(200, "kept"), nil
+				default:
+					conventionalLookups++
+					return importResponse(404, "missing conventional directory"), nil
+				}
+			})}
+			b, _, err := fetchURLBundle(context.Background(), client, "https://skills.sh/lab/repo/method")
+			if status == 200 {
+				if err != nil || b.Name != "method" || len(b.Files) != 3 || !bytes.Equal(b.Files["raw.bin"], []byte{0, 255}) || string(b.Files[".hidden"]) != "kept" {
+					t.Fatalf("preferred partial tree import: %+v %v", b, err)
+				}
+			} else {
+				var fetch *FetchError
+				if !errors.As(err, &fetch) || fetch.Status != 502 {
+					t.Fatalf("incomplete crawl accepted or misclassified: %+v %v", b, err)
+				}
+			}
+			if conventionalLookups != 0 || folderCrawls != 1 {
+				t.Fatalf("partial tree not resolved first: conventional=%d complete folder crawls=%d", conventionalLookups, folderCrawls)
+			}
+		})
+	}
+}

@@ -359,8 +359,29 @@ func fetchGitHub(ctx context.Context, client *http.Client, s publishedSource) (B
 			return b, fmt.Errorf("%w: could not enumerate Skills.sh repository: %v", errSourceUnavailable, treeErr)
 		}
 		var err error
-		candidates := tree.Tree
+		partialMatch := false
 		if tree.Truncated {
+			for _, entry := range tree.Tree {
+				if entry.Type != "blob" || path.Base(entry.Path) != "SKILL.md" || !preferredSkillPath(s.slug, entry.Path) {
+					continue
+				}
+				data, e := sourceFile(ctx, client, rawBase+escapeSourcePath(entry.Path), entry.Path)
+				if e != nil {
+					return b, e
+				}
+				parsed, e := parseMetadata(Bundle{Files: map[string][]byte{"SKILL.md": data}}, true)
+				if e == nil && parsed.Name == s.slug {
+					dir = path.Dir(entry.Path)
+					if dir == "." {
+						dir = ""
+					}
+					partialMatch = true
+					break
+				}
+			}
+		}
+		candidates := tree.Tree
+		if tree.Truncated && !partialMatch {
 			candidates = nil
 			for _, prefix := range []string{"skills", ".claude/skills", "plugin/skills"} {
 				entries, e := crawlGitHub(ctx, client, api, ref, prefix)
@@ -374,7 +395,9 @@ func fetchGitHub(ctx context.Context, client *http.Client, s publishedSource) (B
 				candidates = append(candidates, entries...)
 			}
 		}
-		dir, err = skillsShDirectory(ctx, client, rawBase, s.slug, candidates)
+		if !partialMatch {
+			dir, err = skillsShDirectory(ctx, client, rawBase, s.slug, candidates)
+		}
 		if err != nil && tree.Truncated {
 			for _, candidate := range []string{"skills/" + s.slug, ".claude/skills/" + s.slug, "plugin/skills/" + s.slug, s.slug} {
 				data, e := sourceFile(ctx, client, rawBase+escapeSourcePath(candidate+"/SKILL.md"), candidate+"/SKILL.md")
