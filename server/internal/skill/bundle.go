@@ -190,7 +190,7 @@ func Tar(b Bundle) ([]byte, error) {
 	slices.Sort(paths)
 	for _, p := range paths {
 		data := b.Files[p]
-		if err := w.WriteHeader(&tar.Header{Name: p, Mode: 0o644, Size: int64(len(data)), Typeflag: tar.TypeReg}); err != nil {
+		if err := w.WriteHeader(tarHeader(p, int64(len(data)))); err != nil {
 			return nil, err
 		}
 		if _, err := w.Write(data); err != nil {
@@ -202,6 +202,10 @@ func Tar(b Bundle) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
+func tarHeader(p string, size int64) *tar.Header {
+	return &tar.Header{Name: p, Mode: 0o644, Size: size, Typeflag: tar.TypeReg}
+}
+
 func hash(data []byte) string { s := sha256.Sum256(data); return hex.EncodeToString(s[:]) }
 
 type FileMeta struct {

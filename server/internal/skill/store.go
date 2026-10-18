@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"strings"
 
 	"github.com/google/uuid"
@@ -178,20 +179,82 @@ func readTar(data []byte) (Bundle, error) {
 	}
 	return b, nil
 }
+
+type byteCounter struct{ size int64 }
+
+func (c *byteCounter) Write(p []byte) (int, error) { c.size += int64(len(p)); return len(p), nil }
+
+// storedArchiveSize includes the encoder's path metadata, padding and footer.
+// Payload limits apply to files; the ZIP upload limit does not bound a tar.
+func storedArchiveSize(files []FileMeta) (int64, error) {
+	if len(files) == 0 || len(files) > SupportingFiles+1 {
+		return 0, fmt.Errorf("invalid skill manifest file count")
+	}
+	seen := map[string]bool{}
+	supporting, count := int64(0), 0
+	main := false
+	var out byteCounter
+	w := tar.NewWriter(&out)
+	zeros := make([]byte, FileBytes)
+	for _, f := range files {
+		if !validPath(f.Path) || seen[f.Path] || f.Size < 0 || f.Size > FileBytes {
+			return 0, fmt.Errorf("invalid skill manifest file")
+		}
+		seen[f.Path] = true
+		if f.Path == "SKILL.md" {
+			main = true
+		} else {
+			supporting += f.Size
+			count++
+			if strings.EqualFold(path.Base(f.Path), "SKILL.md") || supporting > SupportingBytes || count > SupportingFiles {
+				return 0, fmt.Errorf("invalid skill manifest supporting files")
+			}
+		}
+		if err := w.WriteHeader(tarHeader(f.Path, f.Size)); err != nil {
+			return 0, err
+		}
+		if _, err := w.Write(zeros[:f.Size]); err != nil {
+			return 0, err
+		}
+	}
+	if !main {
+		return 0, fmt.Errorf("skill manifest has no SKILL.md")
+	}
+	for p := range seen {
+		for parent := path.Dir(p); parent != "."; parent = path.Dir(parent) {
+			if seen[parent] {
+				return 0, fmt.Errorf("skill manifest file is also used as a directory")
+			}
+		}
+	}
+	if err := w.Close(); err != nil {
+		return 0, err
+	}
+	return out.size, nil
+}
+
 func (s *Service) load(ctx context.Context, row db.GetWorkspaceSkillRow) (Bundle, error) {
 	if row.BlobKey != row.WorkspaceID.String()+"/skills/"+row.Sha256 {
 		return Bundle{}, fmt.Errorf("invalid skill blob identity")
+	}
+	saved, err := readManifest(row.Manifest)
+	if err != nil {
+		return Bundle{}, err
+	}
+	size, err := storedArchiveSize(saved.Files)
+	if err != nil {
+		return Bundle{}, err
 	}
 	r, err := s.Blobs.Get(ctx, row.BlobKey)
 	if err != nil {
 		return Bundle{}, err
 	}
 	defer r.Close()
-	data, err := io.ReadAll(io.LimitReader(r, ArchiveBytes+1))
+	data, err := io.ReadAll(io.LimitReader(r, size+1))
 	if err != nil {
 		return Bundle{}, err
 	}
-	if len(data) > ArchiveBytes || hash(data) != row.Sha256 {
+	if int64(len(data)) != size || hash(data) != row.Sha256 {
 		return Bundle{}, fmt.Errorf("skill blob hash mismatch")
 	}
 	b, err := readTar(data)
