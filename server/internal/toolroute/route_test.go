@@ -106,6 +106,24 @@ func TestRouteKeepsEveryItemAboveTheThreshold(t *testing.T) {
 	}
 }
 
+func TestRouteRecordsEveryProbabilityItWasGiven(t *testing.T) {
+	j, _ := jevStub(t, []answer{{"## Use\n", 0.9}, {`"alpha"`, 0.9}, {`"beta"`, 0.6}, {`"gamma"`, 0.4}, {"\nChemistry\n", 0.9}})
+	c := Candidates{Skills: []Skill{skill("alpha", "Chemistry", "Use"), skill("beta", "Chemistry", "Use"), skill("gamma", "Chemistry", "Use")}}
+	r, err := Route(context.Background(), j, "dock a ligand", c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gamma *Judgement
+	for i, jd := range r.Judged {
+		if jd.Level == "item" && jd.Name == "gamma" {
+			gamma = &r.Judged[i]
+		}
+	}
+	if gamma == nil || gamma.Noul != 0.4 || gamma.Kept {
+		t.Fatalf("judged %+v, want gamma at 0.4 and not kept", r.Judged)
+	}
+}
+
 func TestRouteSkipsItemsOfARejectedDomain(t *testing.T) {
 	j, s := jevStub(t, []answer{{"## Use\n", 0.9}, {`tool "lookup"`, 0.9}, {"\nChemistry\n", 0.9}, {"\nGenomics\n", 0.2}, {`"alpha"`, 0.9}, {`"genes"`, 0.9}, {`"blast"`, 0.9}})
 	c := Candidates{

@@ -379,6 +379,15 @@ describe('flow records and Inbox sentences', () => {
     ).toBe('S moved on with a middling score: Does it say what it couldn’t do?');
     expect(
       studies.inboxText(
+        {
+          kind: 'middle_score',
+          text: 'Study #1\'s Reporting column scored in the middle and the study finished; its weakest criterion was “Does it say what it couldn’t do?” (level 3 of 5).',
+        },
+        'S',
+      ),
+    ).toBe('S finished with a middling score: Does it say what it couldn’t do?');
+    expect(
+      studies.inboxText(
         { kind: 'no_tool', text: 'found no skill or connector that fits what it needed: a parser' },
         'S',
       ),

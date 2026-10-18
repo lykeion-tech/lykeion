@@ -53,8 +53,14 @@ func weakCriterion(text string, level float64) string {
 	return fmt.Sprintf("“%s” (level %s of 5)", text, strconv.FormatFloat(level, 'g', 3, 64))
 }
 
-func middleScoreText(number int32, column, weak string) string {
-	return fmt.Sprintf("Study #%d's %s column scored in the middle; its weakest criterion was %s.", number, title(column), weak)
+// middleScoreText says whether the study went on to the next column or
+// finished; the dashboard tells the two apart by "and the study finished".
+func middleScoreText(number int32, column, weak string, finished bool) string {
+	end := ""
+	if finished {
+		end = " and the study finished"
+	}
+	return fmt.Sprintf("Study #%d's %s column scored in the middle%s; its weakest criterion was %s.", number, title(column), end, weak)
 }
 
 func blockedText(number int32, column, weak string) string {
@@ -526,10 +532,11 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			next.State, next.BlockKind = "blocked", "low_score"
 			items = append(items, board.Item{Kind: "blocked", Text: blockedText(c.Number, c.BoardColumn, weak)})
 		default:
+			last := board.StageIndex(c.BoardColumn) >= board.StageIndex(c.ScopeTo)
 			if verdict == "middle" {
-				items = append(items, board.Item{Kind: "middle_score", Text: middleScoreText(c.Number, c.BoardColumn, weak)})
+				items = append(items, board.Item{Kind: "middle_score", Text: middleScoreText(c.Number, c.BoardColumn, weak, last)})
 			}
-			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
+			if i := board.StageIndex(c.BoardColumn); !last {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
 			} else {
 				next.State = "done"

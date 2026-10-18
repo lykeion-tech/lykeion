@@ -195,9 +195,15 @@ const placeholders: Record<ComposerAction['kind'], string> = {
   stop: 'Why the study stops.',
 };
 const blocked = computed(() => (c.value ? blockedActions(c.value, me.data.value?.id) : []));
-const reassignable = computed(() => (c.value ? canReassign(c.value, me.data.value?.id) : false));
+const reassignable = computed(() =>
+  c.value && c.value.assignee_type !== 'team' ? canReassign(c.value, me.data.value?.id) : false,
+);
 const assigneeName = computed(() => {
   const x = c.value;
+  if (x?.assignee_type === 'team') {
+    const names = [...new Set(Object.values(x.teams ?? {}).map((t) => t.name))];
+    return names.length ? `Team: ${names.join(', ')}` : 'Team';
+  }
   if (!x?.assignee_id) return 'Unassigned';
   if (x.assignee_type === 'member') return name(x.assignee_id);
   return agents.data.value?.find((a) => a.id === x.assignee_id)?.name ?? 'Unavailable agent';

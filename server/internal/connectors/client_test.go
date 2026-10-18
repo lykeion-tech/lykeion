@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -169,6 +170,36 @@ func TestABinaryResponseIsRefused(t *testing.T) {
 	c, _ := stub(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte{0x89, 'P', 'N', 'G', 0xff, 0xfe}) })
 	if _, err := c.Do(context.Background(), ws, entry(t, "string"), NewRequest("string", "/image/network", nil, nil), ""); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "not text") {
 		t.Fatalf("%v", err)
+	}
+}
+
+func gz(b []byte) []byte {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	zw.Write(b)
+	zw.Close()
+	return buf.Bytes()
+}
+
+func TestADoubleGzippedBodyIsReadAsText(t *testing.T) {
+	c, _ := stub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Write(gz(gz([]byte(`{"ok":true}`))))
+	})
+	res, err := c.Do(context.Background(), ws, entry(t, "uniprot"), NewRequest("uniprot", "/x", nil, nil), "")
+	if err != nil || string(res.Body) != `{"ok":true}` {
+		t.Fatalf("%v %q", err, res.Body)
+	}
+}
+
+func TestAGzipBombIsCappedAtTheBodyLimit(t *testing.T) {
+	c, _ := stub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Write(gz(gz(bytes.Repeat([]byte("a"), 8*MaxBody))))
+	})
+	res, err := c.Do(context.Background(), ws, entry(t, "uniprot"), NewRequest("uniprot", "/x", nil, nil), "")
+	if err != nil || !res.Truncated || len(res.Body) != MaxBody {
+		t.Fatalf("%v truncated %v, %d bytes", err, res.Truncated, len(res.Body))
 	}
 }
 

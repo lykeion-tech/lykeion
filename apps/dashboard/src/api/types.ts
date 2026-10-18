@@ -50,7 +50,7 @@ export interface Card {
   title: string;
   question: string;
   research_id: string | null;
-  assignee_type: 'member' | 'agent' | null;
+  assignee_type: 'member' | 'agent' | 'team' | null;
   assignee_id: string | null;
   owner_id: string;
   deadline: string | null;

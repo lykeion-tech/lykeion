@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -269,6 +270,7 @@ func (c *Client) Do(ctx context.Context, ws uuid.UUID, e Entry, r Request, key s
 		return Response{}, errors.New(scrub(err.Error(), key))
 	}
 	out := Response{Status: res.StatusCode, ContentType: res.Header.Get("Content-Type"), RetryAfter: res.Header.Get("Retry-After")}
+	b = gunzipAgain(b)
 	if len(b) > MaxBody {
 		b, out.Truncated = cut(b, MaxBody), true
 	}
@@ -277,6 +279,25 @@ func (c *Client) Do(ctx context.Context, ws uuid.UUID, e Entry, r Request, key s
 	}
 	out.Body = []byte(scrub(string(b), key))
 	return out, nil
+}
+
+// gunzipAgain undoes a second gzip layer: some upstreams (rest.uniprot.org)
+// compress a body that Go's transport has already decompressed once. The
+// decompressed bytes are capped at MaxBody+1, so a bomb costs no more than a
+// plain oversized answer; a body that does not decode is returned unchanged.
+func gunzipAgain(b []byte) []byte {
+	if len(b) < 2 || b[0] != 0x1f || b[1] != 0x8b {
+		return b
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return b
+	}
+	out, _ := io.ReadAll(io.LimitReader(zr, MaxBody+1))
+	if len(out) == 0 {
+		return b
+	}
+	return out
 }
 
 func (c *Client) httpClient() *http.Client {

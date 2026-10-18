@@ -200,6 +200,9 @@ func TestTheLeaderSkillNamesEveryMemberAndItsRole(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", want, s)
 		}
 	}
+	if !strings.Contains(s, "--cites KEY1,KEY2`") {
+		t.Errorf("done protocol must show comma-separated cites:\n%s", s)
+	}
 	if member := Protocol("bioinformatician", "grounding", m); strings.Contains(member, "lyk team step") || !strings.Contains(member, "lyk record put") || !strings.Contains(member, "--cites") {
 		t.Errorf("member protocol:\n%s", member)
 	}

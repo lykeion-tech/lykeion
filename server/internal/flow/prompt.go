@@ -51,7 +51,7 @@ const (
 	writeWork = "Write your work with `lyk record put KIND --content-file body.json`; it prints the record's key. " +
 		"When a record quotes a database call, cite the call with `--cites call:KEY` (`lyk calls` lists them). " +
 		"Read the study's records with `lyk records`.\n"
-	finish = "When the column delivers what it must, finish with `lyk team done --content-file summary.md --cites KEY …`, " +
+	finish = "When the column delivers what it must, finish with `lyk team done --content-file summary.md --cites KEY1,KEY2`, " +
 		"a summary that names the record keys it relies on.\n"
 )
 

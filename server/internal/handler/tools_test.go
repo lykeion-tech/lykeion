@@ -85,6 +85,9 @@ func TestATeamRunRoutesOnlyToItsDeclaredItems(t *testing.T) {
 	if n := l.s.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'tools' AND role = 'server' AND body->>'need' = $2", l.card.ID, "map insulin's identifiers"); n != 1 {
 		t.Fatalf("%d tools records", n)
 	}
+	if n := l.s.count(t, "SELECT count(*) FROM record r, jsonb_array_elements(r.body->'judged') j WHERE r.card_id = $1 AND r.kind = 'tools' AND j->>'level' = 'part' AND j->>'name' = 'uniprot / fetch' AND (j->>'noul')::float = 0.9 AND (j->>'kept')::bool", l.card.ID); n != 1 {
+		t.Fatalf("%d judged entries for uniprot's fetch, want one with its probability", n)
+	}
 	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'no_tool'", l.card.ID); n != 0 {
 		t.Fatalf("%d no_tool items for a need that was met", n)
 	}
@@ -101,6 +104,9 @@ func TestNothingQualifyingTellsTheResearcher(t *testing.T) {
 	}
 	if len(out.Skills)+len(out.Tools) != 0 {
 		t.Fatalf("routed %+v", out)
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM record r, jsonb_array_elements(r.body->'judged') j WHERE r.card_id = $1 AND r.kind = 'tools' AND (j->>'noul')::float = 0.1 AND NOT (j->>'kept')::bool", l.card.ID); n == 0 {
+		t.Fatal("a rejected item's probability was not recorded")
 	}
 	owner := "SELECT count(*) FROM inbox_item i JOIN card c ON c.id = i.card_id WHERE i.card_id = $1 AND i.kind = 'no_tool' AND i.user_id = c.owner_id AND i.text LIKE '%run a cryo-EM reconstruction%'"
 	if n := l.s.count(t, owner, l.card.ID); n != 1 {

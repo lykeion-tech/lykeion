@@ -753,6 +753,18 @@ test('an off-label Team is marked', async ({ page }) => {
   await page.screenshot({ path: `${shots}/off-label.png`, fullPage: true });
 });
 
+test('a Team study shows its Team as the assignee', async ({ page }) => {
+  const workspaceId = await labWorkspace(page.request);
+  const team = await labTeam(page.request, workspaceId);
+  const study = await newStudy(page.request, `Who works this? ${Date.now()}`, {
+    assignee: { type: 'team', teams: { hypotheses: team } },
+  });
+  await page.goto(`/#/studies/${study.id}`);
+  const row = page.locator('.property-row', { hasText: 'Assignee' });
+  await expect(row).toContainText('Team:');
+  await expect(row).not.toContainText('Unassigned');
+});
+
 test('a finished single-stage study stays in its column, done', async ({ page }) => {
   const study = await unassigned(page);
   await labFlow(page.request, study.id, {

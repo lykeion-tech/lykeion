@@ -83,6 +83,17 @@ type RoutedTool struct {
 type Result struct {
 	Skills []RoutedSkill `json:"skills"`
 	Tools  []RoutedTool  `json:"tools"`
+	// Judged is every item Jev was asked about, with its probability, so the
+	// threshold can be tuned from recorded evidence. It stays on the server.
+	Judged []Judgement `json:"-"`
+}
+
+// Judgement is Jev's probability for one item at one level of the walk.
+type Judgement struct {
+	Level string  `json:"level"`
+	Name  string  `json:"name"`
+	Noul  float64 `json:"noul"`
+	Kept  bool    `json:"kept"`
 }
 
 // Empty says nothing qualified.
@@ -190,10 +201,11 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 	for _, d := range order {
 		qs = append(qs, "Is this field relevant to the need?\n"+fence.Untrusted("The field", cut(d, nameMax)))
 	}
-	keep, err := ask(ctx, j, state, qs)
+	ps, err := ask(ctx, j, state, qs)
 	if err != nil {
 		return res, err
 	}
+	keep := res.judge("field", order, ps)
 	for i, d := range order {
 		domains[d] = keep[i]
 	}
@@ -201,21 +213,25 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 	var skills []Skill
 	var conns []Connector
 	qs = nil
+	var names []string
 	for _, s := range c.Skills {
 		if domains[s.Domain] {
 			skills = append(skills, s)
+			names = append(names, s.Name)
 			qs = append(qs, fmt.Sprintf("Could the skill %q help with this need?\n", cut(s.Name, nameMax))+fence.Untrusted("What the skill says of itself", excerpt(s.Description)))
 		}
 	}
 	for _, k := range c.Connectors {
 		if domains[k.Domain] {
 			conns = append(conns, k)
+			names = append(names, k.Name)
 			qs = append(qs, fmt.Sprintf("Could the connector %q help with this need?\n", cut(k.Name, nameMax))+fence.Untrusted("What the connector offers", excerpt(k.Description)))
 		}
 	}
-	if keep, err = ask(ctx, j, state, qs); err != nil {
+	if ps, err = ask(ctx, j, state, qs); err != nil {
 		return res, err
 	}
+	keep = res.judge("item", names, ps)
 	skills, conns = kept(skills, keep[:len(skills)]), kept(conns, keep[len(skills):])
 
 	type sectionOf struct {
@@ -228,7 +244,7 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 	}
 	var secs []sectionOf
 	var tools []toolOf
-	qs = nil
+	qs, names = nil, nil
 	for i, s := range skills {
 		all, err := s.sections()
 		if err != nil {
@@ -236,18 +252,21 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 		}
 		for _, sec := range all {
 			secs = append(secs, sectionOf{i, sec})
+			names = append(names, s.Name+" / "+sec.Heading)
 			qs = append(qs, fmt.Sprintf("Does this section of the skill %q help with this need?\n", cut(s.Name, nameMax))+fence.Untrusted("The section", excerpt("## "+sec.Heading+"\n"+sec.Text)))
 		}
 	}
 	for _, k := range conns {
 		for _, t := range k.Tools {
 			tools = append(tools, toolOf{k.Name, t})
+			names = append(names, k.Name+" / "+t.Name)
 			qs = append(qs, fmt.Sprintf("Does the tool %q of the connector %q help with this need?\n", cut(t.Name, nameMax), cut(k.Name, nameMax))+fence.Untrusted("What the tool does", excerpt(t.Description)))
 		}
 	}
-	if keep, err = ask(ctx, j, state, qs); err != nil {
+	if ps, err = ask(ctx, j, state, qs); err != nil {
 		return res, err
 	}
+	keep = res.judge("part", names, ps)
 	routed := map[int]int{} // skill index → index in res.Skills
 	for i, s := range secs {
 		if !keep[i] {
@@ -313,9 +332,9 @@ func (s Skill) tar(w io.Writer) error {
 	return tw.Close()
 }
 
-// ask answers whether each question qualifies.
-func ask(ctx context.Context, j *jev.Client, state string, qs []string) ([]bool, error) {
-	keep := make([]bool, len(qs))
+// ask returns Jev's probability for each question.
+func ask(ctx context.Context, j *jev.Client, state string, qs []string) ([]float64, error) {
+	keep := make([]float64, len(qs))
 	for start := 0; start < len(qs); start += maxQuestions {
 		end := min(start+maxQuestions, len(qs))
 		batch := map[string]string{}
@@ -327,10 +346,21 @@ func ask(ctx context.Context, j *jev.Client, state string, qs []string) ([]bool,
 			return nil, fmt.Errorf("Jev is unavailable: %w", err)
 		}
 		for i := start; i < end; i++ {
-			keep[i] = ps[fmt.Sprintf("q%d", i)] >= Threshold
+			keep[i] = ps[fmt.Sprintf("q%d", i)]
 		}
 	}
 	return keep, nil
+}
+
+// judge records each probability under level and names, and returns which
+// items qualify.
+func (r *Result) judge(level string, names []string, ps []float64) []bool {
+	keep := make([]bool, len(ps))
+	for i, p := range ps {
+		keep[i] = p >= Threshold
+		r.Judged = append(r.Judged, Judgement{Level: level, Name: names[i], Noul: p, Kept: keep[i]})
+	}
+	return keep
 }
 
 func kept[T any](items []T, keep []bool) []T {

@@ -256,7 +256,7 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 			}
 			wr := writer(role)
 			wr.Role = "server"
-			if _, err := records.WriteAs(r.Context(), tx, wr, "tools", map[string]any{"need": in.Need, "skills": skills, "tools": tools}); err != nil {
+			if _, err := records.WriteAs(r.Context(), tx, wr, "tools", map[string]any{"need": in.Need, "skills": skills, "tools": tools, "judged": res.Judged}); err != nil {
 				return err
 			}
 			if !res.Empty() {

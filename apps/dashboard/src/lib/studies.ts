@@ -341,7 +341,9 @@ export function inboxText(
   switch (item.kind) {
     case 'middle_score': {
       const criterion = /“([^”]+)”/.exec(item.text)?.[1];
-      return criterion ? `${study} moved on with a middling score: ${criterion}` : null;
+      if (!criterion) return null;
+      const finished = item.text.includes(' and the study finished;');
+      return `${study} ${finished ? 'finished' : 'moved on'} with a middling score: ${criterion}`;
     }
     case 'blocked':
       return `${study} scored low twice and is waiting for you`;
