@@ -503,6 +503,70 @@ describe('useRealtimeSync', () => {
     sockets[1]!.onopen!({});
     expect(JSON.parse(sockets[1]!.sent[0]!).cursor).toBe(40);
   });
+  it('does not open a socket for a late initial cursor after switching workspaces', async () => {
+    scope.stop();
+    scope = effectScope();
+    sockets = [];
+    const oldCursor = deferred<number>();
+    scope.run(() =>
+      useRealtimeSync(
+        workspace,
+        client,
+        () => {
+          const socket = new FakeSocket();
+          sockets.push(socket);
+          return socket;
+        },
+        (ws) => (ws === 'w1' ? oldCursor.promise : Promise.resolve(7)),
+      ),
+    );
+    workspace.value = 'w2';
+    await settle();
+    expect(sockets).toHaveLength(1);
+    sockets[0]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    oldCursor.resolve(900);
+    await settle();
+    expect(sockets).toHaveLength(1);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(JSON.parse(sockets[0]!.sent[0]!)).toEqual({
+      type: 'subscribe',
+      workspace: 'w2',
+      cursor: 7,
+    });
+  });
+
+  it('reconnect replaces a pending library snapshot and late responses cannot overwrite it', async () => {
+    const snapshots = [deferred<string[]>(), deferred<string[]>(), deferred<string[]>()];
+    let requests = 0;
+    const observer = new QueryObserver(client, {
+      queryKey: keys.skills('w1'),
+      queryFn: () => snapshots[requests++]!.promise,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      sockets[0]!.onopen!({});
+      await settle();
+      expect(requests).toBe(2);
+      sockets[0]!.onclose!({});
+      await vi.advanceTimersByTimeAsync(500);
+      sockets[1]!.onopen!({});
+      await settle();
+      expect(requests).toBe(3);
+      snapshots[2]!.resolve(['authoritative library after reconnect']);
+      await settle();
+      snapshots[1]!.resolve(['stale first-open snapshot']);
+      snapshots[0]!.resolve(['stale initial snapshot']);
+      await settle();
+      expect(client.getQueryData(keys.skills('w1'))).toEqual([
+        'authoritative library after reconnect',
+      ]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('ignores malformed and non-event envelopes', async () => {
     sockets[0]!.onopen!({});
     await settle();

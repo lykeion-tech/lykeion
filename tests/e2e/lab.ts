@@ -2,7 +2,13 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { expect, type APIRequestContext } from '@playwright/test';
+import {
+  expect,
+  type APIRequestContext,
+  type Browser,
+  type Page,
+  type WebSocketRoute,
+} from '@playwright/test';
 
 export const LAB = 'http://127.0.0.1:18080';
 export const EMAIL = 'ana@lab.test';
@@ -273,4 +279,74 @@ export async function labReportAutoresearch(request: APIRequestContext, mode = '
   });
   expect(response.status()).toBe(201);
   return { ...fixture, autoresearch_id: ((await response.json()) as { id: string }).id };
+}
+
+// A colleague signs in and accepts a real workspace invitation in an isolated
+// cookie jar. It never inherits the setup owner's session.
+export async function labMember(
+  browser: Browser,
+  owner: APIRequestContext,
+  workspace: string,
+  role: 'member' | 'admin' = 'member',
+) {
+  const email = `realtime-${Date.now()}-${Math.random().toString(16).slice(2)}@lab.test`;
+  const invitation = await owner.post(`/api/workspaces/${workspace}/invitations`, {
+    headers: { 'X-Workspace-ID': workspace },
+    data: { email, role },
+  });
+  expect(invitation.status()).toBe(201);
+  const { token } = await invitation.json();
+  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  await labSignIn(context.request, email);
+  expect((await context.request.patch('/api/me', { data: { onboarded: true } })).status()).toBe(
+    200,
+  );
+  expect((await context.request.post(`/api/invitations/${token}/accept`)).status()).toBe(200);
+  const me = await (await context.request.get('/api/me')).json();
+  const page = await context.newPage();
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), workspace);
+  return { context, page, userId: me.id as string };
+}
+
+// The real browser/server socket stays transparent: connectToServer forwards
+// every frame unchanged. Only the transport can be closed/held for a network
+// interruption; state and replay always come from the application's /ws route.
+export async function labRealtime(page: Page) {
+  let subscriptions = 0;
+  const events: string[] = [];
+  let active: { browser: WebSocketRoute; server: WebSocketRoute } | undefined;
+  let gate: Promise<void> | undefined;
+  page.on('websocket', (socket) =>
+    socket.on('framesent', ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.type === 'subscribe') subscriptions++;
+    }),
+  );
+  page.on('websocket', (socket) =>
+    socket.on('framereceived', ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.type === 'event') events.push(frame.event.type);
+    }),
+  );
+  await page.routeWebSocket('**/ws', async (browser) => {
+    if (gate) await gate;
+    active = { browser, server: browser.connectToServer() };
+  });
+  return {
+    events: () => [...events],
+    subscribed: (count = 1) => expect.poll(() => subscriptions).toBe(count),
+    async pause() {
+      let release!: () => void;
+      gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const current = active!;
+      await current.server.close({ code: 1001, reason: 'Transport interruption' });
+      await current.browser.close({ code: 1001, reason: 'Transport interruption' });
+      return () => {
+        gate = undefined;
+        release();
+      };
+    },
+  };
 }

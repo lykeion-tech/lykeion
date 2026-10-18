@@ -71,6 +71,11 @@ func uiAutoresearchFixtures(mux *http.ServeMux, st *store.Store, auth func(http.
 					return err
 				}
 			}
+			if in.Report != run.Report {
+				if err := tx.Emit(ctx, "autoresearch_run.reported", nil, store.System, map[string]any{"run_id": run.ID, "autoresearch_id": id}); err != nil {
+					return err
+				}
+			}
 			return tx.Emit(ctx, "autoresearch_run."+in.Status, nil, store.System, map[string]any{"run_id": run.ID, "autoresearch_id": id})
 		})
 		if err != nil {
