@@ -31,6 +31,7 @@ import (
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/toolroute"
+	"lykeion/server/internal/workspacemcp"
 	"lykeion/server/pkg/agent"
 )
 
@@ -211,14 +212,14 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 		return d.catalogue(ctx, t, in)
 	}
 	var res *mcp.CallToolResult
+	var receipt string
 	var err error
 	if t.kind == "workspace" {
 		res = &mcp.CallToolResult{}
-		api := &apiclient.Client{Server: d.Server, Token: d.CallToken, HTTP: &http.Client{Timeout: callTimeout}}
-		err = api.Do(ctx, "POST", "/api/role/mcp-servers/"+t.c.Workspace+"/call", map[string]any{"tool": in.Tool, "args": in.Args}, res)
+		receipt, err = d.brokerRequest(ctx, "/api/role/mcp-servers/"+t.c.Workspace+"/call", map[string]any{"tool": in.Tool, "args": in.Args}, res)
 	} else {
 		var s *mcp.ClientSession
-		s, err = d.session(t)
+		s, err = d.sessionContext(ctx, t)
 		if err == nil && t.c.Workspace != "" {
 			var tools []toolroute.Tool
 			tools, err = d.list(ctx, t)
@@ -241,9 +242,15 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := d.publishWorkspaceTools(ctx, t, tools); err != nil {
+		receipt, err = d.brokerRequest(ctx, "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"tools": tools, "fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env), "record": workspacemcp.CommandRecord{Tool: in.Tool, Args: in.Args, AnswerSHA256: workspacemcp.AnswerHash(text(res))}}, nil)
+		if err != nil {
+			d.dropCommand(t)
 			return nil, nil, errors.New("workspace command authority changed; answer withheld")
 		}
+
+	}
+	if t.c.Workspace != "" && receipt == "" {
+		return nil, nil, errors.New("workspace execution receipt missing; answer withheld")
 	}
 	answer := text(res)
 	if res.IsError {
@@ -256,7 +263,7 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 		Key string `json:"key"`
 	}
 	api := &apiclient.Client{Server: d.Server, Token: d.CallToken}
-	if err := api.Do(ctx, "POST", "/api/role/calls", map[string]any{"server": in.Server, "tool": in.Tool, "args": in.Args, "answer": answer}, &rec); err != nil {
+	if err := api.Do(ctx, "POST", "/api/role/calls", map[string]any{"server": in.Server, "tool": in.Tool, "args": in.Args, "answer": answer, "workspace_call": receipt}, &rec); err != nil {
 		return nil, nil, fmt.Errorf("the call could not be recorded, so its answer is withheld: %w", err)
 	}
 	return cited(rec.Key, answer), nil, nil
@@ -305,6 +312,18 @@ func teamClient() *http.Client {
 
 // session is the open client session to a server, started on first use.
 func (d *Door) session(t target) (*mcp.ClientSession, error) {
+	return d.sessionContext(d.ctx, t)
+}
+
+func (d *Door) sessionContext(request context.Context, t target) (*mcp.ClientSession, error) {
+	parent := d.ctx
+	if t.kind == "command" && t.c.Workspace != "" {
+		parent = request
+	}
+	ctx, cancel := context.WithTimeout(parent, time.Minute)
+	defer cancel()
+	stop := context.AfterFunc(d.ctx, cancel)
+	defer stop()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.closed {
@@ -319,7 +338,7 @@ func (d *Door) session(t target) (*mcp.ClientSession, error) {
 	}
 	if t.kind == "command" && t.c.Workspace != "" {
 		api := &apiclient.Client{Server: d.Server, Token: d.CallToken, HTTP: &http.Client{Timeout: callTimeout}}
-		if err := api.Do(d.ctx, "POST", "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env)}, nil); err != nil {
+		if err := api.Do(ctx, "POST", "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env)}, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -345,8 +364,6 @@ func (d *Door) session(t target) (*mcp.ClientSession, error) {
 		// fails to start is given half a second to stop on its own.
 		tr = &mcp.CommandTransport{Command: cmd, TerminateDuration: 500 * time.Millisecond}
 	}
-	ctx, cancel := context.WithTimeout(d.ctx, time.Minute)
-	defer cancel()
 	s, err := mcp.NewClient(&mcp.Implementation{Name: "lyk_door", Version: "0.1.0"}, nil).Connect(ctx, tr, nil)
 	if err != nil {
 		if cmd != nil {
@@ -379,19 +396,7 @@ func connectorEnv(o agent.ExecOptions, extra map[string]string) []string {
 	return env
 }
 
-func text(res *mcp.CallToolResult) string {
-	var b strings.Builder
-	for _, c := range res.Content {
-		if t, ok := c.(*mcp.TextContent); ok {
-			b.WriteString(t.Text)
-		}
-	}
-	if b.Len() == 0 && res.StructuredContent != nil {
-		j, _ := json.Marshal(res.StructuredContent)
-		return string(j)
-	}
-	return b.String()
-}
+func text(res *mcp.CallToolResult) string { return workspacemcp.AnswerText(res) }
 
 // cited puts the call's key first, so the agent can cite it. A run with no
 // study keeps no call record, so its answer has no key.
@@ -480,7 +485,7 @@ func (d *Door) list(ctx context.Context, t target) ([]toolroute.Tool, error) {
 		err := api.Do(ctx, "POST", "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{}, &tools)
 		return tools, err
 	}
-	s, err := d.session(t)
+	s, err := d.sessionContext(ctx, t)
 	if err != nil {
 		return nil, err
 	}
@@ -551,4 +556,20 @@ func (d *Door) dropCommand(t target) {
 	if s != nil {
 		s.Close()
 	}
+}
+
+type receiptTransport struct{ ticket *string }
+
+func (t receiptTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	response, err := http.DefaultTransport.RoundTrip(r)
+	if err == nil {
+		*t.ticket = response.Header.Get(workspacemcp.RecordHeader)
+	}
+	return response, err
+}
+func (d *Door) brokerRequest(ctx context.Context, path string, in, out any) (string, error) {
+	var ticket string
+	api := &apiclient.Client{Server: d.Server, Token: d.CallToken, HTTP: &http.Client{Timeout: callTimeout, Transport: receiptTransport{&ticket}}}
+	err := api.Do(ctx, "POST", path, in, out)
+	return ticket, err
 }

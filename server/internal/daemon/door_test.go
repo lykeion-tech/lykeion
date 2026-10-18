@@ -51,6 +51,11 @@ func stubCommand() {
 	}
 	os.WriteFile("stub.pid", []byte(strconv.Itoa(os.Getpid())+" "+strconv.Itoa(child.Process.Pid)), 0600)
 	os.WriteFile("stub.env", []byte("LYK_TOKEN="+os.Getenv("LYK_TOKEN")+" LYK_DOOR_TOKEN="+os.Getenv("LYK_DOOR_TOKEN")), 0600)
+	if os.Getenv("LYK_DOOR_STUB_BLOCK_INIT") == "1" {
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "stub", Version: "0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{Name: "echo"}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		Q string `json:"q"`

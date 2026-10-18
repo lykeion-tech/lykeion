@@ -156,8 +156,9 @@ func (h *H) workspaceMCPTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Tools       *[]toolroute.Tool `json:"tools,omitempty"`
-		Fingerprint string            `json:"fingerprint,omitempty"`
+		Tools       *[]toolroute.Tool           `json:"tools,omitempty"`
+		Fingerprint string                      `json:"fingerprint,omitempty"`
+		Record      *workspacemcp.CommandRecord `json:"record,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid tools request")
@@ -182,6 +183,14 @@ func (h *H) workspaceMCPTools(w http.ResponseWriter, r *http.Request) {
 		h.brokerError(w, r, err)
 		return
 	}
+	if in.Record != nil {
+		ticket, err := h.MCPBroker.CommandReceipt(ctx, role, id, in.Fingerprint, *in.Record)
+		if err != nil {
+			h.brokerError(w, r, err)
+			return
+		}
+		w.Header().Set(workspacemcp.RecordHeader, ticket)
+	}
 	writeJSON(w, 200, out)
 }
 func (h *H) workspaceMCPCall(w http.ResponseWriter, r *http.Request) {
@@ -199,11 +208,13 @@ func (h *H) workspaceMCPCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := workspacemcp.WithRunAuthority(r.Context(), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	ctx, capture := workspacemcp.WithRecordCapture(ctx)
 	out, err := h.MCPBroker.Call(ctx, middleware.RoleFrom(ctx), id, in.Tool, in.Args)
 	if err != nil {
 		h.brokerError(w, r, err)
 		return
 	}
+	w.Header().Set(workspacemcp.RecordHeader, capture.Ticket)
 	writeJSON(w, 200, out)
 }
 func (h *H) brokerError(w http.ResponseWriter, r *http.Request, err error) {

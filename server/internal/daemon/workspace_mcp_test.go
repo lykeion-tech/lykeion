@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,7 +20,10 @@ import (
 
 	"github.com/google/uuid"
 	"lykeion/server/internal/connectors"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/store"
+	"lykeion/server/internal/testutil"
 	"lykeion/server/internal/workspacemcp"
 	"lykeion/server/pkg/agent"
 )
@@ -65,6 +69,7 @@ func TestWorkspaceMCPCallIsRecordedOnce(t *testing.T) {
 				switch r.URL.Path {
 				case "/api/role/mcp-servers/" + id.String() + "/call":
 					brokerCalls++
+					w.Header().Set(workspacemcp.RecordHeader, "fixture-receipt")
 					json.NewEncoder(w).Encode(map[string]any{"content": []any{map[string]any{"type": "text", "text": "server answer"}}})
 				case "/api/role/calls":
 					records++
@@ -251,5 +256,179 @@ func TestWorkspaceRemoteBrokerAndDoorRecordRealAnswerOnce(t *testing.T) {
 	must(t, f.env.Owner.QueryRow(ctx, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='call'`, f.card).Scan(&count))
 	if count != 1 {
 		t.Fatalf("duplicate records=%d", count)
+	}
+}
+
+func TestWorkspaceCommandStartupCancellation(t *testing.T) {
+	for _, phase := range []string{"preflight", "initialize"} {
+		t.Run(phase, func(t *testing.T) {
+			started := make(chan struct{}, 1)
+			release := make(chan struct{})
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if phase == "preflight" {
+					started <- struct{}{}
+					select {
+					case <-r.Context().Done():
+					case <-release:
+					}
+					return
+				}
+				w.Write([]byte("[]"))
+			}))
+			defer srv.Close()
+			defer close(release)
+			dir := t.TempDir()
+			self, err := os.Executable()
+			must(t, err)
+			d := &Door{Server: srv.URL, CallToken: "ltk_private", WorkspaceConnectors: []service.WorkspaceConnectorClaim{{ID: uuid.New(), Name: "blocked", Transport: "command", Command: []string{self}, Env: map[string]string{"LYK_DOOR_STUB": "1", "LYK_DOOR_STUB_BLOCK_INIT": "1"}}}, Child: func() agent.ExecOptions { return agent.ExecOptions{Dir: dir} }}
+			must(t, d.Start())
+			defer d.Close()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { _, _, err := d.callTool(ctx, nil, callIn{Server: "blocked", Tool: "echo"}); done <- err }()
+			if phase == "preflight" {
+				select {
+				case <-started:
+				case <-time.After(5 * time.Second):
+					t.Fatal("preflight not reached")
+				}
+			} else {
+				deadline := time.Now().Add(5 * time.Second)
+				for {
+					if _, err := os.Stat(filepath.Join(dir, "stub.pid")); err == nil {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("initialization not reached")
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("cancelled startup answered")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("request cancellation blocked behind startup")
+			}
+			if phase == "initialize" {
+				raw, err := os.ReadFile(filepath.Join(dir, "stub.pid"))
+				must(t, err)
+				for _, v := range strings.Fields(string(raw)) {
+					pid, _ := strconv.Atoi(v)
+					for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline) && syscall.Kill(pid, 0) == nil; {
+						time.Sleep(10 * time.Millisecond)
+					}
+					if syscall.Kill(pid, 0) == nil {
+						t.Fatalf("partial process %d survived", pid)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestWorkspaceMCPRecordRejectsChangedAuthority(t *testing.T) {
+	for _, transport := range []string{"url", "command"} {
+		for _, mutation := range []string{"replace", "delete", "permission"} {
+			t.Run(transport+"/"+mutation, func(t *testing.T) {
+				f := fixture(t)
+				ctx := t.Context()
+				svc := workspacemcp.Service{Store: f.runs.Store, Secrets: f.runs.Keys}
+				upstream := httptest.NewTLSServer(labMCP(nil))
+				defer upstream.Close()
+				f.runs.Keys.HTTP = upstream.Client()
+				var id uuid.UUID
+				name, tool := "remote", "lookup"
+				if transport == "command" {
+					id = workspaceTestCommand(t, f, f.runs.Keys)
+					name, tool = "workspace-command", "echo"
+				} else {
+					saved, err := svc.Create(ctx, f.ws, f.user, name, workspacemcp.Config{URL: upstream.URL})
+					must(t, err)
+					id = saved.ID
+				}
+				ids := []uuid.UUID{}
+				for i := 0; i < 2; i++ {
+					refs := map[string][]map[string]any{}
+					if i == 0 {
+						refs["member-1"] = []map[string]any{{"name": name, "workspace": id.String()}}
+					}
+					parsed, err := pack.Parse(testutil.Pack(t, testutil.PackOpts{Name: fmt.Sprintf("team-%d", i), Connectors: refs}))
+					must(t, err)
+					must(t, f.runs.Store.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
+						p, e := pack.Insert(ctx, tx, "fixture", parsed, nil)
+						ids = append(ids, p.ID)
+						return e
+					}))
+				}
+				_, err := f.env.Owner.Exec(ctx, `UPDATE agent_run SET role='member-1' WHERE id=$1`, f.id)
+				must(t, err)
+				_, err = f.env.Owner.Exec(ctx, `INSERT INTO card_team(workspace_id,card_id,board_column,pack_id) VALUES($1,$2,'grounding',$3)`, f.ws, f.card, ids[0])
+				must(t, err)
+				var agentID uuid.UUID
+				must(t, f.env.Owner.QueryRow(ctx, `INSERT INTO agent(workspace_id,name,harness,owner_id) VALUES($1,'member','claude',$2) RETURNING id`, f.ws, f.user).Scan(&agentID))
+				_, err = f.env.Owner.Exec(ctx, `INSERT INTO team_agent(workspace_id,pack_id,user_id,member,agent_id) VALUES($1,$2,$3,'member-1',$4)`, f.ws, ids[0], f.user, agentID)
+				must(t, err)
+				rts, err := f.runs.Register(ctx, f.user, f.ws, "record-race", "laptop", []string{"claude"}, nil)
+				must(t, err)
+				ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rts[0].ID}
+				claims, err := f.runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1)
+				must(t, err)
+				if len(claims) != 1 {
+					t.Fatal("no claim")
+				}
+				ref.Attempt = claims[0].AgentRun.Attempt
+				must(t, f.runs.Start(ctx, f.user, ref, claims[0].AgentRun.ID))
+				var intercepted atomic.Bool
+				base, _ := url.Parse(f.cfg.Server)
+				proxy := httputil.NewSingleHostReverseProxy(base)
+				bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/api/role/calls" {
+						intercepted.Store(true)
+						var err error
+						switch mutation {
+						case "delete":
+							err = svc.Delete(ctx, f.ws, f.user, id, 1)
+						case "replace":
+							config := workspacemcp.Config{URL: upstream.URL}
+							if transport == "command" {
+								config = workspacemcp.Config{Command: "replacement"}
+							}
+							_, err = svc.Update(ctx, f.ws, f.user, id, 1, name, config)
+						case "permission":
+							_, err = f.env.Owner.Exec(ctx, `UPDATE card_team SET pack_id=$1 WHERE workspace_id=$2 AND card_id=$3`, ids[1], f.ws, f.card)
+						}
+						if err != nil {
+							t.Error(err)
+							http.Error(w, "mutation failed", 500)
+							return
+						}
+					}
+					proxy.ServeHTTP(w, r)
+				}))
+				defer bridge.Close()
+				dir := t.TempDir()
+				d := &Door{Server: bridge.URL, CallToken: claims[0].CallToken, WorkspaceConnectors: claims[0].WorkspaceConnectors, Child: func() agent.ExecOptions { return agent.ExecOptions{Dir: dir} }}
+				must(t, d.Start())
+				defer d.Close()
+				answer, err := callTool(t, d, name, tool, map[string]any{"q": "stale"})
+				if !intercepted.Load() {
+					t.Fatal("did not reach execution-to-record boundary")
+				}
+				if err == nil || answer != "" {
+					t.Fatalf("stale answer escaped: %q %v", answer, err)
+				}
+				var records, events int
+				must(t, f.env.Owner.QueryRow(ctx, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='call'`, f.card).Scan(&records))
+				must(t, f.env.Owner.QueryRow(ctx, `SELECT count(*) FROM event WHERE workspace_id=$1 AND type='record.created' AND payload->>'kind'='call'`, f.ws).Scan(&events))
+				if records != 0 || events != 0 {
+					t.Fatalf("stale evidence persisted records=%d events=%d", records, events)
+				}
+			})
+		}
 	}
 }

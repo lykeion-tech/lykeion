@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -46,6 +47,16 @@ func TestWorkspaceMCPRemoteSessionsArePerRunAndCloseOnCancellation(t *testing.T)
 	slowStarted := make(chan struct{}, 1)
 	releaseUpstream := make(chan struct{})
 	remote := mcp.NewServer(&mcp.Implementation{Name: "stateful", Version: "1"}, nil)
+	mutate := make(chan func(), 1)
+	mcp.AddTool(remote, &mcp.Tool{Name: "replace"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
+		select {
+		case fn := <-mutate:
+			fn()
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "stale"}}}, nil, nil
+	})
 	mcp.AddTool(remote, &mcp.Tool{Name: "slow"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
 		slowStarted <- struct{}{}
 		select {
@@ -168,6 +179,21 @@ func TestWorkspaceMCPRemoteSessionsArePerRunAndCloseOnCancellation(t *testing.T)
 	if replacement.Revision != 2 || initialized.Load() != 4 {
 		t.Fatal("replacement reused old session")
 	}
+
+	mutate <- func() {
+		if _, err := svc.Update(ctx, ws, user, saved.ID, 2, "stateful", Config{URL: upstream.URL}); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := b.Call(callctx, role, saved.ID, "replace", nil); err == nil {
+		t.Fatal("changed connector answer accepted")
+	}
+	b.mu.Lock()
+	remaining := len(b.sessions)
+	b.mu.Unlock()
+	if remaining != 1 {
+		t.Fatalf("fence-rejected session retained: %d", remaining)
+	}
 	ref := service.RuntimeRef{WorkspaceID: ws, RuntimeID: rts[0].ID, Attempt: 1}
 	if _, err := runs.Fail(ctx, user, ref, role.AgentRunID, service.Report{FailureReason: "provider_network", Error: "retry"}); err != nil {
 		t.Fatal(err)
@@ -234,7 +260,7 @@ func TestWorkspaceMCPStaleSnapshotCannotEvictNewSession(t *testing.T) {
 			b := &Broker{}
 			defer b.Close()
 			role := middleware.Role{WorkspaceID: uuid.New(), AgentRunID: uuid.New()}
-			old := service.WorkspaceConnectorRow{WorkspaceMcpServer: db.WorkspaceMcpServer{ID: uuid.New(), Revision: 1}, Attempt: 1}
+			old := brokerRow{WorkspaceConnectorRow: service.WorkspaceConnectorRow{WorkspaceMcpServer: db.WorkspaceMcpServer{ID: uuid.New(), Revision: 1}, Attempt: 1}}
 			current := old
 			if newerAttempt {
 				current.Attempt = 2
@@ -258,5 +284,40 @@ func TestWorkspaceMCPStaleSnapshotCannotEvictNewSession(t *testing.T) {
 				t.Fatalf("current session lost: %v", err)
 			}
 		})
+	}
+}
+
+func TestWorkspaceMCPCleanupPreventsStaleRecreation(t *testing.T) {
+	for _, kind := range []string{"connector", "attempt", "run"} {
+		for _, existing := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/existing=%v", kind, existing), func(t *testing.T) {
+				b := &Broker{}
+				defer b.Close()
+				role := middleware.Role{WorkspaceID: uuid.New(), AgentRunID: uuid.New()}
+				snapshot := brokerRow{WorkspaceConnectorRow: service.WorkspaceConnectorRow{WorkspaceMcpServer: db.WorkspaceMcpServer{ID: uuid.New(), Revision: 1}, Attempt: 1}}
+				if existing {
+					if _, err := b.entry(role, snapshot); err != nil {
+						t.Fatal(err)
+					}
+				}
+				switch kind {
+				case "connector":
+					b.CloseConnector(role.WorkspaceID, snapshot.ID)
+				case "attempt":
+					b.CloseAttempt(role.WorkspaceID, role.AgentRunID, 1)
+				case "run":
+					b.CloseRun(role.WorkspaceID, role.AgentRunID)
+				}
+				if _, err := b.entry(role, snapshot); err == nil {
+					t.Fatal("cleanup allowed paused snapshot to recreate a session")
+				}
+				b.mu.Lock()
+				n := len(b.sessions)
+				b.mu.Unlock()
+				if n != 0 {
+					t.Fatal("cleanup retained stale session")
+				}
+			})
+		}
 	}
 }

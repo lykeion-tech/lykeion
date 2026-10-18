@@ -2,6 +2,9 @@ package workspacemcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -37,6 +40,11 @@ type sessionKey struct {
 	Revision                  int64
 	Attempt                   int32
 }
+type brokerRow struct {
+	service.WorkspaceConnectorRow
+	generation uint64
+}
+
 type brokerSession struct {
 	mu      sync.Mutex
 	ctx     context.Context
@@ -59,18 +67,29 @@ func (s *brokerSession) close() {
 
 // Broker owns remote credentials and isolates each upstream session to one run.
 type Broker struct {
-	Store    *store.Store
-	Keys     *connectors.Client
-	mu       sync.Mutex
-	sessions map[sessionKey]*brokerSession
-	closed   bool
+	Store       *store.Store
+	Keys        *connectors.Client
+	mu          sync.Mutex
+	sessions    map[sessionKey]*brokerSession
+	closed      bool
+	generation  uint64
+	invalidated map[sessionKey]uint64
 }
 
-func (b *Broker) closeWhere(match func(sessionKey) bool) {
+func (b *Broker) closeWhere(match func(sessionKey) bool) { b.invalidate(sessionKey{}, match) }
+func (b *Broker) invalidate(marker sessionKey, match func(sessionKey) bool) {
 	b.mu.Lock()
+	b.generation++
+	if b.invalidated == nil {
+		b.invalidated = map[sessionKey]uint64{}
+	}
+	if marker != (sessionKey{}) {
+		b.invalidated[marker] = b.generation
+	}
 	var old []*brokerSession
 	for k, s := range b.sessions {
 		if match(k) {
+			b.invalidated[k] = b.generation
 			delete(b.sessions, k)
 			old = append(old, s)
 		}
@@ -81,13 +100,13 @@ func (b *Broker) closeWhere(match func(sessionKey) bool) {
 	}
 }
 func (b *Broker) CloseConnector(ws, id uuid.UUID) {
-	b.closeWhere(func(k sessionKey) bool { return k.Workspace == ws && k.Connector == id })
+	b.invalidate(sessionKey{Workspace: ws, Connector: id}, func(k sessionKey) bool { return k.Workspace == ws && k.Connector == id })
 }
 func (b *Broker) CloseRun(ws, id uuid.UUID) {
-	b.closeWhere(func(k sessionKey) bool { return k.Workspace == ws && k.Run == id })
+	b.invalidate(sessionKey{Workspace: ws, Run: id}, func(k sessionKey) bool { return k.Workspace == ws && k.Run == id })
 }
 func (b *Broker) CloseAttempt(ws, id uuid.UUID, attempt int32) {
-	b.closeWhere(func(k sessionKey) bool { return k.Workspace == ws && k.Run == id && k.Attempt == attempt })
+	b.invalidate(sessionKey{Workspace: ws, Run: id, Attempt: attempt}, func(k sessionKey) bool { return k.Workspace == ws && k.Run == id && k.Attempt == attempt })
 }
 func (b *Broker) Close() {
 	b.mu.Lock()
@@ -96,7 +115,10 @@ func (b *Broker) Close() {
 	b.closeWhere(func(sessionKey) bool { return true })
 }
 
-func (b *Broker) rows(ctx context.Context, role middleware.Role, call bool) ([]service.WorkspaceConnectorRow, error) {
+func (b *Broker) rows(ctx context.Context, role middleware.Role, call bool) ([]brokerRow, error) {
+	b.mu.Lock()
+	generation := b.generation
+	b.mu.Unlock()
 	token, _ := ctx.Value(authorityKey{}).(string)
 	var rows []service.WorkspaceConnectorRow
 	err := b.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
@@ -120,21 +142,28 @@ func (b *Broker) rows(ctx context.Context, role middleware.Role, call bool) ([]s
 		rows, err = service.WorkspaceConnectorRows(ctx, tx, run)
 		return err
 	})
-	return rows, err
+	if err != nil {
+		return nil, err
+	}
+	out := make([]brokerRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, brokerRow{row, generation})
+	}
+	return out, nil
 }
-func (b *Broker) row(ctx context.Context, role middleware.Role, id uuid.UUID, call bool) (service.WorkspaceConnectorRow, error) {
+func (b *Broker) row(ctx context.Context, role middleware.Role, id uuid.UUID, call bool) (brokerRow, error) {
 	rows, err := b.rows(ctx, role, call)
 	if err != nil {
-		return service.WorkspaceConnectorRow{}, err
+		return brokerRow{}, err
 	}
 	for _, r := range rows {
 		if r.ID == id {
 			return r, nil
 		}
 	}
-	return service.WorkspaceConnectorRow{}, pgx.ErrNoRows
+	return brokerRow{}, pgx.ErrNoRows
 }
-func (b *Broker) fence(ctx context.Context, role middleware.Role, row service.WorkspaceConnectorRow, call bool) error {
+func (b *Broker) fence(ctx context.Context, role middleware.Role, row brokerRow, call bool) error {
 	current, err := b.row(ctx, role, row.ID, call)
 	if err != nil {
 		return err
@@ -144,12 +173,18 @@ func (b *Broker) fence(ctx context.Context, role middleware.Role, row service.Wo
 	}
 	return nil
 }
-func (b *Broker) entry(role middleware.Role, row service.WorkspaceConnectorRow) (*brokerSession, error) {
+func (b *Broker) entry(role middleware.Role, row brokerRow) (*brokerSession, error) {
 	key := sessionKey{role.WorkspaceID, role.AgentRunID, row.ID, row.Revision, row.Attempt}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
 		return nil, ErrBroker
+	}
+	for _, marker := range []sessionKey{key, {Workspace: key.Workspace, Connector: key.Connector}, {Workspace: key.Workspace, Run: key.Run}, {Workspace: key.Workspace, Run: key.Run, Attempt: key.Attempt}} {
+		if b.invalidated[marker] > row.generation {
+			b.mu.Unlock()
+			return nil, ErrBroker
+		}
 	}
 	var old []*brokerSession
 	for k, session := range b.sessions {
@@ -198,7 +233,7 @@ func (t configuredHeaders) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	return t.base.RoundTrip(r)
 }
-func (b *Broker) config(row service.WorkspaceConnectorRow) (Config, error) {
+func (b *Broker) config(row brokerRow) (Config, error) {
 	if b.Keys == nil {
 		return Config{}, ErrBroker
 	}
@@ -308,7 +343,11 @@ func (b *Broker) tools(ctx context.Context, run middleware.Role, id uuid.UUID, c
 		s.mu.Lock()
 		out := slices.Clone(s.tools)
 		s.mu.Unlock()
-		return out, b.fence(ctx, run, row, call)
+		if err := b.fence(ctx, run, row, call); err != nil {
+			b.drop(s)
+			return nil, err
+		}
+		return out, nil
 	}
 	c, err := b.config(row)
 	if err != nil {
@@ -316,6 +355,12 @@ func (b *Broker) tools(ctx context.Context, run middleware.Role, id uuid.UUID, c
 	}
 	stop := context.AfterFunc(ctx, func() { b.drop(s) })
 	defer stop()
+	discard := false
+	defer func() {
+		if discard {
+			b.drop(s)
+		}
+	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -333,6 +378,7 @@ func (b *Broker) tools(ctx context.Context, run middleware.Role, id uuid.UUID, c
 		return nil, err
 	}
 	if err := b.fence(ctx, run, row, call); err != nil {
+		discard = true
 		return nil, err
 	}
 	return scrub(out, c)
@@ -355,6 +401,12 @@ func (b *Broker) Call(ctx context.Context, run middleware.Role, id uuid.UUID, to
 	}
 	stop := context.AfterFunc(ctx, func() { b.drop(s) })
 	defer stop()
+	discard := false
+	defer func() {
+		if discard {
+			b.drop(s)
+		}
+	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -375,6 +427,7 @@ func (b *Broker) Call(ctx context.Context, run middleware.Role, id uuid.UUID, to
 		return nil, ErrTool
 	}
 	if err := b.fence(ctx, run, row, true); err != nil {
+		discard = true
 		return nil, err
 	}
 	result, err := s.session.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: args})
@@ -382,9 +435,20 @@ func (b *Broker) Call(ctx context.Context, run middleware.Role, id uuid.UUID, to
 		return nil, ErrBroker
 	}
 	if err := b.fence(ctx, run, row, true); err != nil {
+		discard = true
 		return nil, err
 	}
-	return scrub(result, c)
+	cleaned, err := scrub(result, c)
+	if err != nil {
+		return nil, err
+	}
+	if capture, _ := ctx.Value(receiptKey{}).(*RecordCapture); capture != nil {
+		capture.Ticket, err = b.sealReceipt(run, row, tool, args, AnswerHash(AnswerText(cleaned)))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return cleaned, nil
 }
 
 // PublishTools accepts inventory only on the private daemon transport. The next
@@ -408,12 +472,19 @@ func (b *Broker) PublishTools(ctx context.Context, run middleware.Role, id uuid.
 	if err != nil {
 		return err
 	}
+	discard := false
+	defer func() {
+		if discard {
+			b.drop(s)
+		}
+	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return ErrBroker
 	}
 	if err := b.fence(ctx, run, row, true); err != nil {
+		discard = true
 		return err
 	}
 	s.tools = slices.Clone(tools)
@@ -478,4 +549,162 @@ func (b *Broker) CheckCommand(ctx context.Context, run middleware.Role, id uuid.
 		return ErrBroker
 	}
 	return b.fence(ctx, run, row, true)
+}
+
+// RecordHeader carries a private execution receipt between server and daemon.
+const RecordHeader = "X-Lykeion-Workspace-Call"
+
+type receiptKey struct{}
+type RecordCapture struct{ Ticket string }
+
+func WithRecordCapture(ctx context.Context) (context.Context, *RecordCapture) {
+	capture := &RecordCapture{}
+	return context.WithValue(ctx, receiptKey{}, capture), capture
+}
+
+type CommandRecord struct {
+	Tool         string         `json:"tool"`
+	Args         map[string]any `json:"args"`
+	AnswerSHA256 string         `json:"answer_sha256"`
+}
+type callReceipt struct {
+	Workspace, Run, Connector        uuid.UUID
+	Attempt                          int32
+	Revision                         int64
+	Name, Tool, ArgsHash, AnswerHash string
+}
+
+func AnswerHash(answer string) string {
+	sum := sha256.Sum256([]byte(answer))
+	return hex.EncodeToString(sum[:])
+}
+func argsHash(args any) (string, error) {
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return "", ErrBroker
+	}
+	var canonical any
+	if json.Unmarshal(raw, &canonical) != nil {
+		return "", ErrBroker
+	}
+	if canonical == nil {
+		canonical = map[string]any{}
+	}
+	raw, err = json.Marshal(canonical)
+	if err != nil {
+		return "", ErrBroker
+	}
+	return AnswerHash(string(raw)), nil
+}
+
+// AnswerText is the exact representation recorded by the daemon's Door.
+func AnswerText(result *mcp.CallToolResult) string {
+	var out strings.Builder
+	for _, content := range result.Content {
+		if text, ok := content.(*mcp.TextContent); ok {
+			out.WriteString(text.Text)
+		}
+	}
+	if out.Len() == 0 && result.StructuredContent != nil {
+		raw, _ := json.Marshal(result.StructuredContent)
+		return string(raw)
+	}
+	return out.String()
+}
+func (b *Broker) sealReceipt(run middleware.Role, row brokerRow, tool string, args any, answerHash string) (string, error) {
+	hash, err := argsHash(args)
+	if err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(callReceipt{run.WorkspaceID, run.AgentRunID, row.ID, row.Attempt, row.Revision, row.DoorName, tool, hash, answerHash})
+	if err != nil {
+		return "", ErrBroker
+	}
+	sealed, err := b.Keys.Seal(run.WorkspaceID, "mcp-call-receipt", string(raw))
+	if err != nil {
+		return "", ErrBroker
+	}
+	return base64.RawURLEncoding.EncodeToString(sealed), nil
+}
+
+// CommandReceipt follows the daemon's final actual-inventory handoff.
+func (b *Broker) CommandReceipt(ctx context.Context, run middleware.Role, id uuid.UUID, fingerprint string, record CommandRecord) (string, error) {
+	row, err := b.row(ctx, run, id, true)
+	if err != nil {
+		return "", err
+	}
+	if row.Transport != "command" || record.Tool == "" {
+		return "", ErrBroker
+	}
+	hash, err := hex.DecodeString(record.AnswerSHA256)
+	if err != nil || len(hash) != sha256.Size {
+		return "", ErrBroker
+	}
+	config, err := b.config(row)
+	if err != nil {
+		return "", err
+	}
+	if fingerprint != service.CommandFingerprint(append([]string{config.Command}, config.Args...), config.Env) {
+		return "", ErrBroker
+	}
+	s, err := b.entry(run, row)
+	if err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	listed := slices.ContainsFunc(s.tools, func(t toolroute.Tool) bool { return t.Name == record.Tool })
+	s.mu.Unlock()
+	if !listed {
+		return "", ErrTool
+	}
+	if err := b.fence(ctx, run, row, true); err != nil {
+		b.drop(s)
+		return "", err
+	}
+	return b.sealReceipt(run, row, record.Tool, record.Args, record.AnswerSHA256)
+}
+
+// RecordFence validates the execution receipt and returns the check that must
+// run after LockRole in the same transaction as the evidence write.
+func (b *Broker) RecordFence(ctx context.Context, run middleware.Role, ticket, server, tool string, args any, answer string) (func(*store.Tx) error, error) {
+	var receipt callReceipt
+	if ticket != "" {
+		sealed, err := base64.RawURLEncoding.DecodeString(ticket)
+		if err != nil || b.Keys == nil {
+			return nil, ErrBroker
+		}
+		raw, err := b.Keys.Open(run.WorkspaceID, "mcp-call-receipt", sealed)
+		if err != nil || json.Unmarshal([]byte(raw), &receipt) != nil {
+			return nil, ErrBroker
+		}
+		hash, err := argsHash(args)
+		if err != nil || receipt.Workspace != run.WorkspaceID || receipt.Run != run.AgentRunID || receipt.Name != server || receipt.Tool != tool || receipt.ArgsHash != hash || receipt.AnswerHash != AnswerHash(answer) {
+			return nil, ErrBroker
+		}
+	}
+	return func(tx *store.Tx) error {
+		current, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: run.WorkspaceID, ID: run.AgentRunID})
+		if err != nil {
+			return err
+		}
+		rows, err := service.WorkspaceConnectorRows(ctx, tx, current)
+		if err != nil {
+			return err
+		}
+		if ticket == "" {
+			if slices.ContainsFunc(rows, func(row service.WorkspaceConnectorRow) bool { return row.DoorName == server }) {
+				return ErrBroker
+			}
+			return nil
+		}
+		if current.Attempt != receipt.Attempt {
+			return ErrBroker
+		}
+		if !slices.ContainsFunc(rows, func(row service.WorkspaceConnectorRow) bool {
+			return row.ID == receipt.Connector && row.Revision == receipt.Revision && row.DoorName == receipt.Name
+		}) {
+			return ErrBroker
+		}
+		return nil
+	}, nil
 }

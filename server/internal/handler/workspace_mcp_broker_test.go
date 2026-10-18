@@ -15,6 +15,7 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/testutil"
 	"lykeion/server/internal/toolroute"
+	"lykeion/server/internal/workspacemcp"
 )
 
 // brokerRun uses the actual daemon claim/start protocol so private call authority
@@ -22,7 +23,7 @@ import (
 func brokerRun(t *testing.T, s *server, jwt, ws string) service.Claimed {
 	t.Helper()
 	var c card
-	if code := s.call(t, "POST", "/api/cards", jwt, ws, map[string]any{"question": "q"}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", jwt, ws, map[string]any{"question": "q-" + uuid.NewString()}, &c); code != 201 {
 		t.Fatalf("card: %d", code)
 	}
 	personal := s.personalToken(t, jwt)
@@ -286,5 +287,59 @@ func TestWorkspaceMCPTeamCreationChecksReferenceOwnership(t *testing.T) {
 	}
 	if count := s.count(t, `SELECT count(*) FROM field_pack`); count != 2 {
 		t.Fatalf("unauthorized Team persisted: %d packs", count)
+	}
+}
+
+func TestWorkspaceMCPRecordTicketBindsExecutedBodyAndRun(t *testing.T) {
+	s, jwt, ws, saved, _ := brokerFixture(t)
+	claim := brokerRun(t, s, jwt, ws)
+	req, err := http.NewRequest("POST", s.URL+"/api/role/mcp-servers/"+saved.ID+"/call", strings.NewReader(`{"tool":"echo","args":{"q":"query"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+claim.CallToken)
+	req.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatal(response.StatusCode)
+	}
+	ticket := response.Header.Get(workspacemcp.RecordHeader)
+	if ticket == "" {
+		t.Fatal("no private receipt")
+	}
+	var result mcp.CallToolResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	answer := workspacemcp.AnswerText(&result)
+	other := brokerRun(t, s, jwt, ws)
+	for _, change := range []string{"missing", "corrupt", "answer", "args", "tool", "server", "run"} {
+		t.Run(change, func(t *testing.T) {
+			body := map[string]any{"server": "lab", "tool": "echo", "args": map[string]any{"q": "query"}, "answer": answer, "workspace_call": ticket}
+			token := claim.CallToken
+			switch change {
+			case "missing":
+				delete(body, "workspace_call")
+			case "corrupt":
+				body["workspace_call"] = "bogus"
+			case "run":
+				token = other.CallToken
+			default:
+				body[change] = "tampered"
+			}
+			if code := s.call(t, "POST", "/api/role/calls", token, "", body, nil); code < 400 {
+				t.Fatalf("receipt substitution accepted: %d", code)
+			}
+		})
+	}
+	if n := s.count(t, `SELECT count(*) FROM record WHERE kind='call'`); n != 0 {
+		t.Fatalf("tampered calls persisted: %d", n)
+	}
+	if code := s.call(t, "POST", "/api/role/calls", claim.CallToken, "", map[string]any{"server": "lab", "tool": "echo", "args": map[string]any{"q": "query"}, "answer": answer, "workspace_call": ticket}, nil); code != 201 {
+		t.Fatalf("valid receipt refused: %d", code)
 	}
 }

@@ -157,10 +157,11 @@ const maxCallAnswer = 32 << 20
 // record is built and stored as a catalogue fetch's is.
 func (h *H) postCall(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Server string          `json:"server"`
-		Tool   string          `json:"tool"`
-		Args   json.RawMessage `json:"args"`
-		Answer string          `json:"answer"`
+		Server        string          `json:"server"`
+		Tool          string          `json:"tool"`
+		Args          json.RawMessage `json:"args"`
+		Answer        string          `json:"answer"`
+		WorkspaceCall string          `json:"workspace_call,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil || in.Server == "" || in.Tool == "" {
 		writeErr(w, 400, "server, tool and answer required")
@@ -175,9 +176,14 @@ func (h *H) postCall(w http.ResponseWriter, r *http.Request) {
 		args = in.Args
 	}
 	role := middleware.RoleFrom(r.Context())
+	check, err := h.MCPBroker.RecordFence(r.Context(), role, in.WorkspaceCall, in.Server, in.Tool, args, in.Answer)
+	if err != nil {
+		h.brokerError(w, r, err)
+		return
+	}
 	body, rest := sources.NewCall(role, in.Server, in.Tool, args, in.Answer, false)
 	hosted := &sources.Hosted{Store: h.Store, Blobs: h.Blobs}
-	key, err := hosted.RecordCall(r.Context(), role, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body, rest)
+	key, err := hosted.RecordCall(r.Context(), role, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body, rest, check)
 	if err != nil {
 		roleError(w, r, err)
 		return
