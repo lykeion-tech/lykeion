@@ -167,6 +167,21 @@ test('library pages read real shared data with four palettes and reachable respo
       await page.locator('.wizard .rail').evaluate((el) => getComputedStyle(el).backgroundColor),
     );
     await page.screenshot({ path: `${shots}/${palette}-wizard-skills.png` });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: `${shots}/${palette}-wizard-skills-narrow.png` });
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Connectors', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.getByRole('button', { name: 'Continue', exact: true }).focus();
+    await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeFocused();
+    await page.screenshot({ path: `${shots}/${palette}-wizard-connectors-narrow.png` });
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.setViewportSize({ width: 1512, height: 982 });
   }
   expect(new Set(canvases).size).toBe(4);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();

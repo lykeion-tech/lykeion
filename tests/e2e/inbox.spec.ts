@@ -75,7 +75,21 @@ for (const destination of [
   test(`a delayed read refusal cannot affect ${destination}`, async ({ page }) => {
     const a = await escalation(page, 'Old read visit');
     const b = await escalation(page, 'Current read visit');
+    if (destination === 'another workspace') {
+      const older = await labFixture(page.request);
+      await labInbox(page.request, older.card_id, 'escalated', 'Earlier same-name workspace item');
+    }
     const other = await labFixture(page.request);
+    const otherName = `Inbox target ${other.workspace_id}`;
+    if (destination === 'another workspace')
+      expect(
+        (
+          await page.request.patch(`/api/workspaces/${other.workspace_id}`, {
+            headers: { 'X-Workspace-ID': other.workspace_id },
+            data: { name: otherName },
+          })
+        ).status(),
+      ).toBe(200);
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -113,10 +127,12 @@ for (const destination of [
           .click();
         await page
           .getByRole('menu', { name: 'Workspace' })
-          .getByRole('menuitem', { name: /Browser fixtures/ })
-          .first()
+          .getByRole('menuitem', { name: new RegExp(otherName) })
           .click();
         await expect(page).toHaveURL(/#\/studies$/);
+        await expect
+          .poll(() => page.evaluate(() => localStorage.getItem('lykeion.workspace')))
+          .toBe(other.workspace_id);
         await page.goto('/#/inbox');
         await expect(page.getByText('Nothing needs you right now')).toBeVisible();
       } else {

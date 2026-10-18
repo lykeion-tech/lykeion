@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
   expect,
+  request as apiRequest,
   type APIRequestContext,
   type Browser,
   type Page,
@@ -27,6 +28,12 @@ export interface UILabFixture {
 
 // Uses the shipped email-code route and cookie, including for a second person.
 export async function labSignIn(request: APIRequestContext, email = EMAIL): Promise<void> {
+  const owner = await apiRequest.newContext({ storageState: 'test-results/ui-lab/session.json' });
+  try {
+    expect((await owner.post(`${LAB}/lab/auth-ip/reset`)).status()).toBe(204);
+  } finally {
+    await owner.dispose();
+  }
   expect((await request.post('/auth/send-code', { data: { email } })).status()).toBe(204);
   const code = await labCode(request, email);
   expect((await request.post('/auth/verify-code', { data: { email, code } })).status()).toBe(200);
@@ -278,7 +285,11 @@ export async function labReportAutoresearch(request: APIRequestContext, mode = '
     },
   });
   expect(response.status()).toBe(201);
-  return { ...fixture, autoresearch_id: ((await response.json()) as { id: string }).id };
+  return {
+    ...fixture,
+    agent_id: agent.id as string,
+    autoresearch_id: ((await response.json()) as { id: string }).id,
+  };
 }
 
 // A colleague signs in and accepts a real workspace invitation in an isolated

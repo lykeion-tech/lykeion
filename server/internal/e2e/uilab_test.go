@@ -25,6 +25,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/daemon"
@@ -102,13 +103,14 @@ func TestUILab(t *testing.T) {
 	blobs := storage.Local{Dir: t.TempDir()}
 	runs := &service.AgentRuns{Store: st, MCPURL: base + "/mcp/sources"}
 	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
-	runs.OnSettlement = engine.OnSettlement
+	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Engine: engine, Key: []byte("0123456789abcdef0123456789abcdef")}
+	runs.OnSettlement = ap.OnSettlement(engine.OnSettlement)
 	hosted := &sources.Hosted{Store: st, Blobs: blobs}
 	mail := &codeMail{codes: map[string]string{}}
 	iss := auth.Issuer{Secret: []byte("ui-lab-signing-secret-0123456789"), TTL: 24 * time.Hour}
 
 	h := &handler.H{Store: st, JWT: iss, Mail: mail, Limit: auth.Limiter{R: env.Redis},
-		Hub: hub, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(),
+		Hub: hub, Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(),
 		Connectors: &connectors.Client{Secret: []byte("0123456789abcdef0123456789abcdef")}}
 	if dir := os.Getenv("LYK_TEST_SHIPPED_DIR"); dir != "" {
 		// Browser tests ship and replace Team versions on disk while the lab runs.
@@ -129,6 +131,24 @@ func TestUILab(t *testing.T) {
 		}
 		return true
 	}
+	// Independent fixture sign-ins share the proxy's loopback address. Only the
+	// lab owner can reset that address's two counters; email budgets stay intact.
+	mux.HandleFunc("POST /lab/auth-ip/reset", func(w http.ResponseWriter, r *http.Request) {
+		if !sourceFixtureAuth(w, r) {
+			return
+		}
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil || !net.ParseIP(ip).IsLoopback() {
+			http.Error(w, "loopback required", 403)
+			return
+		}
+		if err := env.Redis.Del(r.Context(), "lyk:rl:code:ip:"+ip, "lyk:rl:verify:ip:"+ip).Err(); err != nil {
+			http.Error(w, "fixture reset failed", 500)
+			return
+		}
+		w.WriteHeader(204)
+	})
+
 	uiConnectorFixtures(t, mux, h, base, sourceFixtureAuth)
 	uiAutoresearchFixtures(mux, st, sourceFixtureAuth)
 	mux.HandleFunc("GET /lab/skill-source", func(w http.ResponseWriter, r *http.Request) {
@@ -399,6 +419,7 @@ func TestUILab(t *testing.T) {
 	must(t, (&apiclient.Client{Server: base, Token: jwt}).Do(ctx, "POST", "/api/tokens", map[string]string{"name": "lab daemon"}, &tok))
 	fake, err := filepath.Abs("testdata/ui-fake-claude.sh")
 	must(t, err)
+	uiAvailabilityFixture(t, mux, daemon.Config{Server: base, Token: tok.Token, Harnesses: map[string]string{"claude": fake}, Slots: 1, Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond}, sourceFixtureAuth)
 	daemonDone := make(chan error, 1)
 	daemonState, daemonHome := t.TempDir(), t.TempDir()
 	go func() {

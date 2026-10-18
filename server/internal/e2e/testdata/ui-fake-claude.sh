@@ -12,6 +12,23 @@ case "$*" in
   *"--input-format stream-json"*) IFS= read -r prompt ;;
   *) prompt="$(cat)" ;;
 esac
+case "$prompt" in
+  *"You are the autoresearch role"*)
+    {
+      printf '# Fresh daemon report\n\n'
+      i=1
+      while [ "$i" -le 100 ]; do
+        printf 'Recorded fixture paragraph %s preserves the full report from real daemon execution through the report command.\n\n' "$i"
+        i=$((i+1))
+      done
+      printf '<script>window.reportExecuted = true</script>\n\n![inert image](https://example.com/tracker.png)\n\nend-of-real-daemon-report\n'
+    } | lyk report >/dev/null || exit 1
+    d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/fake"
+    mkdir -p "$d" && : > "$d/s.jsonl"
+    echo '{"type":"result","is_error":false,"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"costUSD":0.01}}}'
+    exit 0 ;;
+esac
+
 # The browser tests' demo Team names its members demo-*. Its leader names its
 # first member, the member writes a note, and the leader, woken with the
 # member's work, declares the column done citing it.

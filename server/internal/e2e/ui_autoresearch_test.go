@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,7 +77,10 @@ func uiAutoresearchFixtures(mux *http.ServeMux, st *store.Store, auth func(http.
 					return err
 				}
 			}
-			return tx.Emit(ctx, "autoresearch_run."+in.Status, nil, store.System, map[string]any{"run_id": run.ID, "autoresearch_id": id})
+			if in.RunID == uuid.Nil || in.Status != run.Status || in.Reason != run.Reason || !reflect.DeepEqual(in.CardID, run.CardID) {
+				return tx.Emit(ctx, "autoresearch_run."+in.Status, nil, store.System, map[string]any{"run_id": run.ID, "autoresearch_id": id})
+			}
+			return nil
 		})
 		if err != nil {
 			http.Error(w, err.Error(), 500)

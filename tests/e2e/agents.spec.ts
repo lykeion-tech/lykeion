@@ -491,3 +491,53 @@ test('four backend selectors persist provider labels and expose truthful focused
     }
   }
 });
+
+for (const width of [1512, 390]) {
+  test(`prepared agent connectors use actual palettes and keyboard focus at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 982 });
+    const colors: string[] = [];
+    for (const theme of ['ash', 'midnight', 'dawn', 'pale']) {
+      // The actual panel stays absent from production routes until T1.
+      const panel = await mountAgentConnectors(page, [
+        { name: 'lab-search', url: 'https://tools.lab.org/mcp' },
+      ]);
+      await page.setViewportSize({ width: 1512, height: 982 });
+      await page.goto('/#/settings/preferences');
+      await page
+        .getByRole('button', { name: theme[0]!.toUpperCase() + theme.slice(1), exact: true })
+        .click();
+      await expect(page.locator('html')).toHaveAttribute('data-palette', theme);
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 982 });
+      const trigger = panel.getByRole('button', { name: 'Add connector', exact: true });
+      await trigger.scrollIntoViewIfNeeded();
+      await trigger.click();
+      const dialog = page.getByRole('dialog', { name: 'Add connector', exact: true });
+      await expect(dialog).toBeVisible();
+      colors.push(
+        await dialog.evaluate(
+          (el) => getComputedStyle(el).backgroundColor + ' / ' + getComputedStyle(el).color,
+        ),
+      );
+      await dialog.getByRole('textbox', { name: 'Connector name' }).focus();
+      await page.keyboard.press('Tab');
+      await expect(dialog.getByRole('textbox', { name: 'Connector URL' })).toBeFocused();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({
+        path: `test-results/ui2/task18/screenshots/${width}-${theme}-prepared-connectors.png`,
+      });
+      await page.keyboard.press('Escape');
+      await expect(trigger).toBeFocused();
+      expect(await connectorEvents(page)).toEqual([]);
+      await page.evaluate(() => {
+        const host = window as unknown as { agentConnectors: { app: { unmount(): void } } };
+        host.agentConnectors.app.unmount();
+        document.getElementById('agent-connector-test')?.remove();
+      });
+    }
+    expect(new Set(colors).size).toBe(4);
+  });
+}

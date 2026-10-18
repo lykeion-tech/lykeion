@@ -192,6 +192,7 @@ test('report event refreshes member history and selected run independently of ex
     const dialog = member.page.getByRole('dialog', { name: 'Autoresearch run', exact: true });
     await expect(dialog.getByText('Waiting for a report', { exact: true })).toBeVisible();
     await socket.subscribed();
+    const beforeReport = socket.events().length;
     await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
       run_id: run,
       status: 'running',
@@ -199,6 +200,12 @@ test('report event refreshes member history and selected run independently of ex
     });
     await expect.poll(() => socket.events()).toContain('autoresearch_run.reported');
     await expect(dialog.getByText('recorded-tail', { exact: true })).toBeVisible();
+    expect(
+      socket
+        .events()
+        .slice(beforeReport)
+        .filter((type) => type.startsWith('autoresearch_run.')),
+    ).toEqual(['autoresearch_run.reported']);
     await expect(member.page.getByRole('button', { name: /Running.*Open report/ })).toBeVisible();
     await expect(dialog.getByText('Running', { exact: true })).toBeVisible();
     await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
@@ -367,33 +374,42 @@ test('reconnect during initial fetch cancels the old real snapshot before refres
   const ws = await fresh(page);
   const colleague = await labMember(browser, page.request, ws);
   const captured = deferred(),
-    release = deferred(),
-    delivered = deferred();
+    release = deferred();
   let requests = 0,
     deliveries = 0;
+  let holdInitial = true;
   try {
     const socket = await labRealtime(page);
     await page.route('**/api/skills', async (route) => {
-      if (route.request().method() !== 'GET' || ++requests > 2) return route.continue();
-      const requestNumber = requests;
+      if (route.request().method() !== 'GET' || !holdInitial) return route.continue();
+      requests++;
       const response = await route.fetch();
-      if (requestNumber === 2) captured.resolve();
+      expect(response.status()).toBe(200);
+      expect(
+        (await response.json()).some(
+          (skill: { name: string }) => skill.name === 'arrived-during-first-fetch',
+        ),
+      ).toBe(false);
+      captured.resolve();
       await release.promise;
       await route.fulfill({ response }).catch(() => {});
-      if (++deliveries === 2) delivered.resolve();
+      deliveries++;
     });
-    await page.goto('/#/settings/skills');
-    await captured.promise;
+    await page.goto('/#/studies');
     await socket.subscribed();
+    await page.getByRole('link', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Skills', exact: true }).click();
+    await captured.promise;
     const resume = await socket.pause();
     await createSkill(colleague.context.request, ws, 'arrived-during-first-fetch');
+    holdInitial = false;
     resume();
     await socket.subscribed(2);
     await expect(
       page.getByRole('button', { name: 'arrived-during-first-fetch', exact: true }),
     ).toBeVisible();
     release.resolve();
-    await delivered.promise;
+    await expect.poll(() => deliveries).toBe(requests);
     await expect(
       page.getByRole('button', { name: 'arrived-during-first-fetch', exact: true }),
     ).toBeVisible();
