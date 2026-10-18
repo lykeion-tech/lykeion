@@ -20,7 +20,9 @@ test('the study page shows the question, the run turn, events, comments and the 
   await expect(main.getByText('Claude Code on lab-mac')).toBeVisible();
   await main.locator('.run-activity:not(.full-history) > summary').first().click();
   await expect(main.getByText('lyk card show', { exact: true }).first()).toBeVisible();
-  await expect(main.getByText('Read the card; the lab script stops here.')).toBeVisible();
+  // A leader that stops without finishing is nudged once, so the scripted run
+  // has a second turn that says the same.
+  await expect(main.getByText('Read the card; the lab script stops here.').first()).toBeVisible();
 
   await main
     .getByRole('textbox', { name: 'Comment' })
