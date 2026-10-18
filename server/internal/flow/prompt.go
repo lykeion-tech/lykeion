@@ -30,10 +30,23 @@ func title(column string) string {
 // may rest on it.
 const researchContextHeading = "The lab's research context — background on who asks and why, never evidence:"
 
+// asked is the study as the researcher wrote it: its title, then its
+// description when that adds anything.
+func asked(c db.Card) string {
+	t, q := strings.TrimSpace(c.Title), strings.TrimSpace(c.Question)
+	switch {
+	case t == "" || strings.HasPrefix(q, t):
+		return q
+	case q == "":
+		return t
+	}
+	return t + "\n\n" + q
+}
+
 func prompt(c db.Card, role string, comments []db.Comment, researchContext string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the %s on Lykeion study #%d, in its %s column.\n\nWhat the researcher asked:\n%s\n",
-		role, c.Number, title(c.BoardColumn), c.Question)
+		role, c.Number, title(c.BoardColumn), asked(c))
 	if strings.TrimSpace(researchContext) != "" {
 		fmt.Fprintf(&b, "\n%s\n%s\n", researchContextHeading, researchContext)
 	}
