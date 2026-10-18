@@ -102,6 +102,11 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 				return "", cleanup, err
 			}
 		}
+		if harness == "antigravity" && readErr == nil {
+			if err = removePriorAntigravityConfig(dir); err != nil {
+				return "", cleanup, err
+			}
+		}
 		if err = checkAncestors(dir); err != nil {
 			return "", cleanup, err
 		}

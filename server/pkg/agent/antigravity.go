@@ -51,13 +51,12 @@ func (a Antigravity) Execute(ctx context.Context, prompt string, o ExecOptions) 
 	if o.ReadOnly {
 		return nil, ErrNoReadOnly
 	}
-	if o.DoorURL != "" {
-		// agy takes no MCP servers, so it cannot reach the tool door, the only
-		// way to connectors and sources; refusing beats a run that cannot work.
-		return nil, errors.New("antigravity cannot be given MCP servers, so it cannot reach the tool door to connectors and sources")
-	}
 	home, cleanup, err := prepareScratch(&o, "antigravity", "GEMINI_CLI_HOME", "", antigravityCredFile)
 	if err != nil {
+		return nil, err
+	}
+	if err = writeAntigravityMCP(o); err != nil {
+		cleanup(true)
 		return nil, err
 	}
 	model := o.Model
