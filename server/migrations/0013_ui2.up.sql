@@ -124,3 +124,14 @@ CREATE POLICY tenant ON runtime_skill_request USING (workspace_id = app_workspac
 GRANT SELECT, INSERT, UPDATE, DELETE ON workspace_mcp_server, runtime_skill_request TO lykeion_app;
 GRANT SELECT, INSERT, UPDATE ON workspace_skill TO lykeion_app;
 GRANT SELECT, INSERT ON workspace_skill_version, workspace_skill_pin TO lykeion_app;
+
+-- Maintenance discovers identities globally, then changes rows under tenant scope.
+CREATE FUNCTION runtime_sweep_candidates(stale interval)
+RETURNS TABLE (runtime_id uuid, workspace_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+ SELECT r.id, r.workspace_id FROM runtime r
+ WHERE r.status = 'online' AND r.last_seen_at < now() - stale
+ ORDER BY r.workspace_id, r.id
+$$;
+REVOKE ALL ON FUNCTION runtime_sweep_candidates(interval) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION runtime_sweep_candidates(interval) TO lykeion_app;

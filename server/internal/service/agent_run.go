@@ -857,8 +857,65 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 	}
 	var ended []db.AgentRun
 	err := s.Store.Maintenance(ctx, func(tx *store.Tx) error {
-		if _, err := tx.Q.SweepRuntimes(ctx, pgtype.Interval{Microseconds: stale.Microseconds(), Valid: true}); err != nil {
+		interval := pgtype.Interval{Microseconds: stale.Microseconds(), Valid: true}
+		runtimes, err := tx.Q.RuntimeSweepCandidates(ctx, interval)
+		if err != nil {
 			return err
+		}
+		attempts, err := tx.Q.SweepCandidates(ctx)
+		if err != nil {
+			return err
+		}
+		workspaces := make(map[uuid.UUID]bool)
+		for _, runtime := range runtimes {
+			workspaces[runtime.WorkspaceID] = true
+		}
+		for _, attempt := range attempts {
+			if _, ok := workspaces[attempt.WorkspaceID]; !ok {
+				workspaces[attempt.WorkspaceID] = false
+			}
+		}
+		ids := make([]uuid.UUID, 0, len(workspaces))
+		for id := range workspaces {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
+		// Take the whole maintenance batch in workspace order before child rows.
+		// Event locks precede runtime rows, matching runtime registration.
+		for _, id := range ids {
+			if err := tx.Workspace(ctx, id); err != nil {
+				return err
+			}
+			if _, err := tx.Q.LockWorkspaceExecution(ctx, id); errors.Is(err, pgx.ErrNoRows) {
+				delete(workspaces, id)
+			} else if err != nil {
+				return err
+			}
+		}
+		for _, id := range ids {
+			if _, ok := workspaces[id]; !ok {
+				continue
+			}
+			if err := tx.Q.LockWorkspaceEvents(ctx, id); err != nil {
+				return err
+			}
+		}
+		for _, id := range ids {
+			if !workspaces[id] {
+				continue
+			}
+			if err := tx.Workspace(ctx, id); err != nil {
+				return err
+			}
+			n, err := tx.Q.SweepWorkspaceRuntimes(ctx, db.SweepWorkspaceRuntimesParams{WorkspaceID: id, Stale: interval})
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				if err := tx.Emit(ctx, "runtime.updated", nil, store.System, map[string]any{"action": "stale_sweep"}); err != nil {
+					return err
+				}
+			}
 		}
 		candidates, err := tx.Q.SweepCandidates(ctx)
 		if err != nil {
@@ -866,6 +923,10 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 		}
 		var changed []db.AgentRun
 		for _, candidate := range candidates {
+			// A concurrent new candidate outside this locked batch is handled next pass.
+			if _, ok := workspaces[candidate.WorkspaceID]; !ok {
+				continue
+			}
 			if err := tx.Workspace(ctx, candidate.WorkspaceID); err != nil {
 				return err
 			}
@@ -922,9 +983,7 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 			changed = append(changed, out)
 			ended = append(ended, t)
 		}
-		// Lock every affected run before taking any workspace event lock. Taking
-		// an event lock between runs could deadlock a concurrent cancel/settle
-		// that holds the next run and is waiting for that same event lock.
+		// Workspace execution locks protect the complete batch through event writes.
 		for _, out := range changed {
 			if err := tx.Workspace(ctx, out.WorkspaceID); err != nil {
 				return err

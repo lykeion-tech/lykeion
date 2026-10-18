@@ -330,3 +330,54 @@ func TestUI2AutoresearchPinsAndWorkspaceCleanup(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeExpiryDiscoveryIsIDOnlyAndMutationStaysScoped(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	u, ws, _ := seedWorkspace(t, env)
+	runtime := seedUI2Runtime(t, env, ws, u)
+	if _, err := env.Owner.Exec(ctx, "UPDATE runtime SET last_seen_at=now()-interval '5 minutes' WHERE id=$1", runtime); err != nil {
+		t.Fatal(err)
+	}
+	var publicGrant bool
+	if err := env.Owner.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_proc p, LATERAL aclexplode(p.proacl) a WHERE p.oid='runtime_sweep_candidates(interval)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE')`).Scan(&publicGrant); err != nil {
+		t.Fatal(err)
+	}
+	if publicGrant {
+		t.Fatal("maintenance helper is executable by PUBLIC")
+	}
+	rows, err := env.App.Query(ctx, "SELECT * FROM runtime_sweep_candidates(interval '60 seconds')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := rows.FieldDescriptions()
+	if len(fields) != 2 || fields[0].Name != "runtime_id" || fields[1].Name != "workspace_id" {
+		t.Fatalf("discovery exposes extra metadata: %v", fields)
+	}
+	if !rows.Next() {
+		t.Fatal("missing stale candidate")
+	}
+	var gotRuntime, gotWorkspace uuid.UUID
+	if err := rows.Scan(&gotRuntime, &gotWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	if gotRuntime != runtime || gotWorkspace != ws {
+		t.Fatal("wrong runtime identity")
+	}
+	tx, err := env.App.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "SELECT set_config('app.workspace_id',$1,true)", uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	tag, err := tx.Exec(ctx, "UPDATE runtime SET status='offline' WHERE workspace_id=$1 AND id=$2", ws, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag.RowsAffected() != 0 {
+		t.Fatal("foreign scope changed runtime")
+	}
+}

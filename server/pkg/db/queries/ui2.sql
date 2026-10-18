@@ -148,3 +148,11 @@ WHERE q.workspace_id = @workspace_id AND q.id = @id AND q.runtime_id = @runtime_
   AND @status::text IN ('running','completed','failed')
   AND (r.workspace_id,r.id,r.owner_id,r.daemon_id) = (q.workspace_id,q.runtime_id,q.owner_id,q.daemon_id)
 RETURNING q.*;
+
+-- name: RuntimeSweepCandidates :many
+SELECT runtime_id::uuid AS runtime_id, workspace_id::uuid AS workspace_id
+FROM runtime_sweep_candidates(@stale::interval);
+
+-- name: SweepWorkspaceRuntimes :execrows
+UPDATE runtime SET status = 'offline'
+WHERE workspace_id = @workspace_id AND status = 'online' AND last_seen_at < now() - @stale::interval;

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const claimRuntimeSkillRequest = `-- name: ClaimRuntimeSkillRequest :one
@@ -912,6 +913,54 @@ func (q *Queries) PinWorkspaceSkill(ctx context.Context, arg PinWorkspaceSkillPa
 		arg.Revision,
 	)
 	return err
+}
+
+const runtimeSweepCandidates = `-- name: RuntimeSweepCandidates :many
+SELECT runtime_id::uuid AS runtime_id, workspace_id::uuid AS workspace_id
+FROM runtime_sweep_candidates($1::interval)
+`
+
+type RuntimeSweepCandidatesRow struct {
+	RuntimeID   uuid.UUID `json:"runtime_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) RuntimeSweepCandidates(ctx context.Context, stale pgtype.Interval) ([]RuntimeSweepCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, runtimeSweepCandidates, stale)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RuntimeSweepCandidatesRow
+	for rows.Next() {
+		var i RuntimeSweepCandidatesRow
+		if err := rows.Scan(&i.RuntimeID, &i.WorkspaceID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sweepWorkspaceRuntimes = `-- name: SweepWorkspaceRuntimes :execrows
+UPDATE runtime SET status = 'offline'
+WHERE workspace_id = $1 AND status = 'online' AND last_seen_at < now() - $2::interval
+`
+
+type SweepWorkspaceRuntimesParams struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	Stale       pgtype.Interval `json:"stale"`
+}
+
+func (q *Queries) SweepWorkspaceRuntimes(ctx context.Context, arg SweepWorkspaceRuntimesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, sweepWorkspaceRuntimes, arg.WorkspaceID, arg.Stale)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const timeoutRuntimeSkillRequests = `-- name: TimeoutRuntimeSkillRequests :many
