@@ -26,6 +26,9 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "How?"}, &card)
 	id, owner := card["id"].(string), card["owner_id"].(string)
 	path := "/api/cards/" + id + "/properties"
+	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"assignee_type": "member", "assignee_id": owner}, nil); code != 200 {
+		t.Fatalf("assign in Backlog: %d", code)
+	}
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column='grounding',rounds=2,spent_usd=1 WHERE id=$1`, id); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +42,10 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT to_jsonb(r)::text FROM agent_run r WHERE card_id=$1`, id).Scan(&runBefore); err != nil {
 		t.Fatal(err)
 	}
-	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": rid, "assignee_type": "member", "assignee_id": owner}, &card); code != 200 {
+	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": rid, "assignee_type": nil, "assignee_id": nil}, nil); code != 409 {
+		t.Fatalf("a started study's assignee changed: %d", code)
+	}
+	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": rid}, &card); code != 200 {
 		t.Fatalf("properties: %d %+v", code, card)
 	}
 	for _, route := range []string{"/api/cards/" + id, "/api/cards"} {
@@ -61,7 +67,7 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	if code := s.call(t, "GET", "/api/researches/"+rid, a, w.ID, nil, &detail); code != 200 || detail.Name != "Sharper methods" || len(detail.Studies) != 1 || detail.Studies[0]["id"] != id {
 		t.Fatalf("detail: %d %+v", code, detail)
 	}
-	for _, bad := range []map[string]any{{"assignee_type": "member"}, {"assignee_id": owner}, {"assignee_type": "member", "assignee_id": nil}, {"assignee_type": "team", "assignee_id": owner}, {"assignee_type": "member", "assignee_id": uuid.NewString()}, {"research_id": uuid.NewString(), "assignee_type": nil, "assignee_id": nil}, {}} {
+	for _, bad := range []map[string]any{{"assignee_type": "member"}, {"assignee_id": owner}, {"assignee_type": "member", "assignee_id": nil}, {"research_id": uuid.NewString(), "assignee_type": nil, "assignee_id": nil}, {}} {
 		if code := s.call(t, "PATCH", path, a, w.ID, bad, nil); code != 400 {
 			t.Fatalf("bad properties %v: %d", bad, code)
 		}
@@ -70,7 +76,7 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	if card["research_id"] != rid || card["assignee_id"] != owner {
 		t.Fatalf("rejected patch leaked: %+v", card)
 	}
-	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": nil, "assignee_type": nil, "assignee_id": nil}, &card); code != 200 || card["research_id"] != nil || card["assignee_id"] != nil || card["assignee_type"] != nil {
+	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": nil}, &card); code != 200 || card["research_id"] != nil || card["assignee_id"] != owner {
 		t.Fatalf("clear: %d %+v", code, card)
 	}
 	var runs, events int
@@ -86,7 +92,7 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	if scienceBefore != scienceAfter || runBefore != runAfter {
 		t.Fatalf("science or existing role/continuity changed: %s / %s, %s / %s", scienceBefore, scienceAfter, runBefore, runAfter)
 	}
-	if runs != 1 || events != 2 {
+	if runs != 1 || events != 3 {
 		t.Fatalf("runs=%d events=%d", runs, events)
 	}
 }
@@ -129,13 +135,13 @@ func TestAgentRegistryAndAssignmentIsolation(t *testing.T) {
 	if code := s.call(t, "PATCH", path, a, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 200 {
 		t.Fatalf("owner private assignment: %d", code)
 	}
-	if code := s.call(t, "PATCH", path, b, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 400 {
-		t.Fatalf("inaccessible private definition assignment: %d", code)
+	if code := s.call(t, "PATCH", path, b, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 403 {
+		t.Fatalf("a colleague reassigned the study: %d", code)
 	}
 	var other map[string]any
 	s.call(t, "POST", "/api/cards", b, wa.ID, map[string]any{"question": "Other?"}, &other)
 	otherPath := "/api/cards/" + other["id"].(string) + "/properties"
-	if code := s.call(t, "PATCH", otherPath, a, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 400 {
+	if code := s.call(t, "PATCH", otherPath, a, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 403 {
 		t.Fatalf("different responsible person: %d", code)
 	}
 	if code := s.call(t, "PATCH", "/api/agents/"+aid, a, wa.ID, map[string]any{"visibility": "workspace", "name": "Ada Lovelace"}, &ag); code != 200 || ag["name"] != "Ada Lovelace" {
@@ -153,7 +159,9 @@ func TestAgentRegistryAndAssignmentIsolation(t *testing.T) {
 	if code := s.call(t, "GET", "/api/cards/"+card["id"].(string), a, wa.ID, nil, &card); code != 200 || card["assignee_id"] != aid {
 		t.Fatalf("archiving lost study/history: %d %+v", code, card)
 	}
-	if code := s.call(t, "PATCH", path, a, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 400 {
+	var fresh map[string]any
+	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "Fresh?"}, &fresh)
+	if code := s.call(t, "PATCH", "/api/cards/"+fresh["id"].(string)+"/properties", a, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 400 {
 		t.Fatalf("archived assignment: %d", code)
 	}
 	if code := s.call(t, "PATCH", "/api/agents/"+aid, a, wa.ID, map[string]any{"name": "revive"}, nil); code != 409 {
@@ -170,7 +178,7 @@ func TestAgentRegistryAndAssignmentIsolation(t *testing.T) {
 		}
 	}
 	for _, bad := range []map[string]any{{"research_id": res["id"]}, {"assignee_type": "member", "assignee_id": s.userID(t, c)}} {
-		if code := s.call(t, "PATCH", path, a, wa.ID, bad, nil); code != 400 {
+		if code := s.call(t, "PATCH", "/api/cards/"+fresh["id"].(string)+"/properties", a, wa.ID, bad, nil); code != 400 {
 			t.Fatalf("cross assignment: %d", code)
 		}
 	}

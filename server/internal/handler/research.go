@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -141,8 +142,11 @@ func (v *nullableString) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, &v.V)
 }
 
-// Responsibility and research membership are descriptive properties. They never
-// change the card's owner or any input to its scientific execution.
+// updateCardProperties changes a study's research, which is descriptive and
+// anyone may change, and its assignee, which decides who works the study.
+// Only the study's owner reassigns it, and only while it sits in Backlog: an
+// agent assigned there starts the study on the first column of its scope,
+// and a Team is assigned only when a study is created.
 func (h *H) updateCardProperties(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
 	if !ok {
@@ -162,6 +166,7 @@ func (h *H) updateCardProperties(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out db.Card
+	started := false
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		prev, err := tx.Q.LockCard(r.Context(), db.LockCardParams{WorkspaceID: ws, ID: id})
 		if err != nil {
@@ -182,35 +187,20 @@ func (h *H) updateCardProperties(w http.ResponseWriter, r *http.Request) {
 			fields = append(fields, "research_id")
 		}
 		if in.AssigneeType.Set {
-			if in.AssigneeType.V != nil {
-				switch *in.AssigneeType.V {
-				case "member":
-					if _, err := tx.Q.GetMember(r.Context(), db.GetMemberParams{WorkspaceID: ws, UserID: *in.AssigneeID.V}); err != nil {
-						if errors.Is(err, pgx.ErrNoRows) {
-							return cardInputError("assignee is not a workspace member")
-						}
-						return err
-					}
-				case "agent":
-					a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: *in.AssigneeID.V})
-					if err != nil {
-						if errors.Is(err, pgx.ErrNoRows) {
-							return cardInputError("agent is unavailable")
-						}
-						return err
-					}
-					if !agentVisible(r, a, user) || a.ArchivedAt != nil || (a.Visibility == "private" && a.OwnerID != prev.OwnerID) {
-						return cardInputError("agent is unavailable for this study owner")
-					}
-					if _, err := tx.Q.GetMember(r.Context(), db.GetMemberParams{WorkspaceID: ws, UserID: a.OwnerID}); err != nil {
-						if errors.Is(err, pgx.ErrNoRows) {
-							return cardInputError("agent owner is no longer a member")
-						}
-						return err
-					}
-				default:
-					return cardInputError("assignee_type must be member or agent")
+			if prev.OwnerID != user {
+				return forbidden("only the study's owner changes its assignee")
+			}
+			if prev.BoardColumn != board.Backlog {
+				return conflict("a started study keeps its assignee")
+			}
+			if t := in.AssigneeType.V; t != nil {
+				if *t != "member" && *t != "agent" {
+					return cardInputError("assignee_type must be member or agent; a Team is assigned when the study is created")
 				}
+				if err := checkAssignee(r, tx, ws, user, *t, *in.AssigneeID.V); err != nil {
+					return err
+				}
+				started = *t == "agent"
 			}
 			prev.AssigneeType = in.AssigneeType.V
 			prev.AssigneeID = in.AssigneeID.V
@@ -220,7 +210,18 @@ func (h *H) updateCardProperties(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		if started {
+			if out, err = tx.Q.StartBacklogCard(r.Context(), db.StartBacklogCardParams{WorkspaceID: ws, ID: id}); err != nil {
+				return err
+			}
+		}
 		return tx.Emit(r.Context(), "card.properties_updated", &id, store.User(user), map[string]any{"fields": fields, "research_id": out.ResearchID, "previous_research_id": previousResearchID, "assignee_type": out.AssigneeType, "assignee_id": out.AssigneeID})
 	})
-	cardEditFail(w, r, err, out)
+	if !answer(w, r, err) {
+		return
+	}
+	if started && h.Engine != nil {
+		h.Engine.Kick(out.WorkspaceID, out.ID)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
