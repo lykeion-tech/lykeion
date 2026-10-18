@@ -459,14 +459,6 @@ onUnmounted(() => {
           'machine-detail-shell-heading': current === 'machines' && route.params.machineId,
         }"
       >
-        <button
-          v-if="collapsed"
-          class="icon-button"
-          aria-label="Toggle left sidebar"
-          @click="collapsed = false"
-        >
-          <Icon name="sidebar" />
-        </button>
         <h1>{{ heading }}</h1>
         <span id="page-header-count" class="page-header-count" />
         <div id="page-header-actions" class="page-header-actions" />

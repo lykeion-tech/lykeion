@@ -28,6 +28,17 @@ test('the sidebar shows the implemented workspace destinations only', async ({ p
   await page.screenshot({ path: 'test-results/ui-lab/task11-shell.png', fullPage: true });
 });
 
+test('the Studies header has no sidebar toggle when the sidebar is collapsed', async ({ page }) => {
+  await page.goto('/#/studies');
+  const header = page.locator('.page-header');
+  await expect(header.getByRole('heading', { name: 'Studies' })).toBeVisible();
+  await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).first().click();
+  await expect(page.locator('.sidebar')).toBeHidden();
+  await expect(header.getByRole('button', { name: 'Toggle left sidebar' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).first().click();
+  await expect(page.locator('.sidebar')).toBeVisible();
+});
+
 test('the approved Researches and Agents directory routes are reachable', async ({ page }) => {
   for (const [path, heading] of [
     ['projects', 'Researches'],
