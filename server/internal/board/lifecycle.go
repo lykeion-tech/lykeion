@@ -7,5 +7,5 @@ type Item struct {
 
 // Stop ends the study for reason; an ended study is never reopened.
 func Stop(s *State, reason string) {
-	s.Column, s.Ending, s.EndReason, s.Flag, s.BlockKind = Done, "stopped", reason, "", ""
+	s.Column, s.State, s.Ending, s.EndReason, s.Flag, s.BlockKind = Done, "stopped", "stopped", reason, "", ""
 }

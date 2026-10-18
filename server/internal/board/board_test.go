@@ -3,9 +3,9 @@ package board
 import "testing"
 
 func TestStopEndsTheCard(t *testing.T) {
-	s := &State{Column: Hypotheses, Flag: "escalated", BlockKind: "x"}
+	s := &State{Column: Hypotheses, State: "blocked", Flag: "escalated", BlockKind: "x"}
 	Stop(s, "enough")
-	if s.Column != Done || s.Ending != "stopped" || s.EndReason != "enough" || s.Flag != "" || s.BlockKind != "" {
+	if s.Column != Done || s.State != "stopped" || s.Ending != "stopped" || s.EndReason != "enough" || s.Flag != "" || s.BlockKind != "" {
 		t.Fatalf("%+v", s)
 	}
 }
