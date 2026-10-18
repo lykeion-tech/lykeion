@@ -28,3 +28,33 @@ func TestASummaryMayCiteACallAsCallKeyOrAsKey(t *testing.T) {
 		}
 	}
 }
+
+func TestACallCitedOnlyInTheSummaryReachesTheScorer(t *testing.T) {
+	l := newLab(t)
+	js := l.jev(t, 200, levels(nil))
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "grounding", "grounding", a)
+	l.in(t, func(tx *store.Tx) error {
+		for _, r := range []db.InsertRecordParams{
+			{Kind: "call", Key: "c1", Body: []byte(`{"answer":"MARKER-FROM-THE-CALL"}`)},
+			{Kind: "evidence", Key: "r3", Body: []byte(`{"claim":"x"}`)},
+		} {
+			r.WorkspaceID, r.CardID, r.BoardColumn, r.Round, r.Role = l.ws, c.ID, "grounding", c.Round, "agent"
+			if _, err := tx.Q.InsertRecord(context.Background(), r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err := l.declare(t, c.ID, "call:r3"); err == nil {
+		t.Fatal("call:r3 passed for a call")
+	}
+	l.done(t, c.ID, "call:c1")
+	var seen bool
+	for _, r := range js.calls() {
+		seen = seen || strings.Contains(r.State, "MARKER-FROM-THE-CALL")
+	}
+	if !seen {
+		t.Fatalf("the cited call never reached Jev: %d requests", len(js.calls()))
+	}
+}

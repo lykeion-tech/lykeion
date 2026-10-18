@@ -190,6 +190,10 @@ func citedRecords(ctx context.Context, tx *store.Tx, c db.Card, summary db.Recor
 	if len(keys) == 0 {
 		return nil, nil
 	}
+	keys = slices.Clone(keys)
+	for i, k := range keys {
+		keys[i] = strings.TrimPrefix(k, "call:")
+	}
 	return tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: keys})
 }
 

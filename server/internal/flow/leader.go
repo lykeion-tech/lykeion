@@ -171,15 +171,21 @@ func (e *Engine) Finish(ctx context.Context, tx *store.Tx, w service.Writer, sum
 	for i, k := range cites {
 		keys[i] = strings.TrimPrefix(k, "call:")
 	}
-	found, err := tx.Q.LiveRecordKeys(ctx, db.LiveRecordKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: keys})
+	found, err := tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: keys})
 	if err != nil {
 		return db.Record{}, err
 	}
+	kinds := map[string]string{}
+	for _, r := range found {
+		kinds[r.Key] = r.Kind
+	}
 	for i, k := range cites {
-		if !slices.Contains(found, keys[i]) {
+		kind, ok := kinds[keys[i]]
+		if !ok || (keys[i] != k && kind != "call") {
 			return db.Record{}, service.Invalid(fmt.Sprintf("no record of this study has the key %q", k))
 		}
 	}
+	cites = keys
 	return records.WriteAs(ctx, tx, w, "summary", map[string]any{"text": summary, "cites": cites})
 }
 
