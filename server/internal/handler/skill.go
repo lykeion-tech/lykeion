@@ -2,7 +2,12 @@ package handler
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -23,7 +28,10 @@ func skillAnswer(w http.ResponseWriter, r *http.Request, err error) bool {
 		return true
 	}
 	var stale *skill.StaleRevision
+	var fetch *skill.FetchError
 	switch {
+	case errors.As(err, &fetch):
+		writeErr(w, fetch.Status, fetch.Error())
 	case errors.As(err, &stale):
 		writeJSON(w, 409, map[string]any{"error": stale.Error(), "code": "stale_revision", "revision": stale.Revision})
 	case errors.Is(err, skill.ErrForbidden):
@@ -165,4 +173,90 @@ func (h *H) skillScope(w http.ResponseWriter, r *http.Request) (uuid.UUID, uuid.
 		return uuid.Nil, uuid.Nil, false
 	}
 	return ws, user(r), true
+}
+
+func (h *H) importSkill(w http.ResponseWriter, r *http.Request) {
+	ws, u, ok := h.skillScope(w, r)
+	if !ok {
+		return
+	}
+	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil && r.Header.Get("Content-Type") != "" {
+		writeErr(w, 400, "invalid import content type")
+		return
+	}
+	var out skill.Detail
+	if mediaType == "multipart/form-data" {
+		out, err = h.importSkillMultipart(r, ws, u, params["boundary"])
+	} else {
+		var in struct {
+			URL string `json:"url"`
+		}
+		if err = readJSON(r, &in); err == nil {
+			out, err = skill.ImportURL(r.Context(), h.skillService(), ws, u, in.URL)
+		} else {
+			err = fmt.Errorf("%w: invalid URL import body", skill.ErrInvalid)
+		}
+	}
+	if skillAnswer(w, r, err) {
+		writeJSON(w, 201, out)
+	}
+}
+func (h *H) importSkillMultipart(r *http.Request, ws, u uuid.UUID, boundary string) (skill.Detail, error) {
+	reader := multipart.NewReader(r.Body, boundary)
+	files := map[string][]byte{}
+	archiveName := ""
+	var archive []byte
+	total := 0
+	for {
+		part, err := reader.NextRawPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return skill.Detail{}, fmt.Errorf("%w: invalid multipart upload", skill.ErrInvalid)
+		}
+		_, params, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+		if err != nil {
+			return skill.Detail{}, fmt.Errorf("%w: invalid file disposition", skill.ErrInvalid)
+		}
+		name := params["filename"]
+		field := params["name"]
+		if name == "" || (field != "file" && field != "files") {
+			return skill.Detail{}, fmt.Errorf("%w: use file for an archive or files for folder entries", skill.ErrInvalid)
+		}
+		limit := skill.FileBytes
+		isArchive := field == "file"
+		if isArchive {
+			limit = skill.ArchiveBytes
+		}
+		data, err := io.ReadAll(io.LimitReader(part, int64(limit)+1))
+		part.Close()
+		if err != nil || len(data) > limit {
+			return skill.Detail{}, fmt.Errorf("%w: file %q exceeds size limit or could not be read", skill.ErrInvalid, name)
+		}
+		if isArchive {
+			if archiveName != "" || len(files) > 0 {
+				return skill.Detail{}, fmt.Errorf("%w: upload one archive or one folder", skill.ErrInvalid)
+			}
+			archiveName = name
+			archive = data
+		} else {
+			if archiveName != "" {
+				return skill.Detail{}, fmt.Errorf("%w: upload one archive or one folder", skill.ErrInvalid)
+			}
+			if _, exists := files[name]; exists {
+				return skill.Detail{}, fmt.Errorf("%w: duplicate file path %q", skill.ErrInvalid, name)
+			}
+			total += len(data)
+			if len(files) >= skill.SupportingFiles+1 || total > skill.SupportingBytes+skill.FileBytes {
+				return skill.Detail{}, fmt.Errorf("%w: folder exceeds supporting file limits", skill.ErrInvalid)
+			}
+			files[name] = data
+		}
+	}
+	if archiveName != "" {
+		return skill.ImportArchive(r.Context(), h.skillService(), ws, u, archive, skill.Source{Kind: "local", Location: path.Base(archiveName)})
+	}
+	return skill.ImportFolder(r.Context(), h.skillService(), ws, u, files)
 }

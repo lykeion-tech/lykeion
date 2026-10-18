@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"strings"
@@ -121,6 +122,13 @@ func daemonMessagePost(r *http.Request) bool {
 
 // JSONBodyLimit is shared by pre-transaction buffering and strict decoding.
 func JSONBodyLimit(r *http.Request) int64 {
+	if r.Method == http.MethodPost && r.URL.Path == "/api/skills/import" {
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err == nil && mediaType == "multipart/form-data" {
+			return 16 << 20
+		}
+	}
+
 	// A one MiB UTF-8 main file may expand sixfold when JSON escapes it.
 	if r.Method == http.MethodPatch {
 		p := strings.Split(r.URL.Path, "/")

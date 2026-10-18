@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -296,5 +298,200 @@ func TestSkillConcurrentSavesHaveOneWinner(t *testing.T) {
 	}
 	if s.count(t, `SELECT count(*) FROM workspace_skill_version WHERE skill_id=$1`, got.ID) != 2 || s.count(t, `SELECT count(*) FROM event WHERE type='skill.updated'`) != 1 {
 		t.Fatal("concurrent saves published extra versions/events")
+	}
+}
+
+func TestArchiveImportHTTP(t *testing.T) {
+	s := newServer(t)
+	token := s.signIn(t, "a@lab.org")
+	ws := s.workspace(t, token, "lab")
+	outsider := s.signIn(t, "outsider@lab.org")
+	s.workspace(t, outsider, "outsider")
+	if c := s.call(t, "POST", "/api/skills/import", outsider, ws.ID, map[string]string{"url": "https://unsupported.example/method"}, nil); c != 404 {
+		t.Fatalf("outsider import: %d", c)
+	}
+	post := func(data []byte) (int, skill.Detail) {
+		t.Helper()
+		var body bytes.Buffer
+		m := multipart.NewWriter(&body)
+		p, err := m.CreateFormFile("file", "method.skill")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Write(data)
+		m.Close()
+		req, _ := http.NewRequest("POST", s.URL+"/api/skills/import", &body)
+		req.Header.Set("Content-Type", m.FormDataContentType())
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Workspace-ID", ws.ID)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var got skill.Detail
+		if resp.StatusCode == 201 {
+			if err = json.NewDecoder(resp.Body).Decode(&got); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return resp.StatusCode, got
+	}
+	archive := func(size int) []byte {
+		var b bytes.Buffer
+		z := zip.NewWriter(&b)
+		for p, data := range map[string][]byte{"folder/SKILL.md": []byte("---\nname: imported-method\n---\nResearch"), "folder/assets/raw.bin": bytes.Repeat([]byte{0, 255}, size), "folder/.hidden": []byte("kept")} {
+			f, err := z.CreateHeader(&zip.FileHeader{Name: p, Method: zip.Store})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.Write(data)
+		}
+		z.Close()
+		return b.Bytes()
+	}
+	if c, _ := post(make([]byte, skill.ArchiveBytes)); c != 413 {
+		t.Fatalf("oversized multipart envelope: %d", c)
+	}
+	var rejected struct{ Error string }
+	if c := s.call(t, "POST", "/api/skills/import", token, ws.ID, map[string]string{"url": "https://unsupported.example/method"}, &rejected); c != 400 || !strings.Contains(rejected.Error, "unsupported source") {
+		t.Fatalf("unsupported URL: %d %+v", c, rejected)
+	}
+	if c, _ := post(archive(600000)); c != 400 {
+		t.Fatalf("oversized file: %d", c)
+	}
+	c, got := post(archive(524288))
+	if c != 201 || len(got.Files) != 3 || got.Source.Location != "method.skill" {
+		t.Fatalf("whole archive: %d %+v", c, got)
+	}
+	if c, _ = post(archive(524288)); c != 409 {
+		t.Fatalf("duplicate import: %d", c)
+	}
+	if s.count(t, `SELECT count(*) FROM workspace_skill`) != 1 {
+		t.Fatal("failed import published skill")
+	}
+}
+
+func TestArchiveImportFolderEntries(t *testing.T) {
+	s := newServer(t)
+	token := s.signIn(t, "a@lab.org")
+	ws := s.workspace(t, token, "lab")
+	type entry struct {
+		p    string
+		data []byte
+	}
+	binary := []byte{0, 255, 128, 42}
+	post := func(entries []entry) (int, skill.Detail) {
+		t.Helper()
+		var body bytes.Buffer
+		m := multipart.NewWriter(&body)
+		for _, e := range entries {
+			p, err := m.CreateFormFile("files", e.p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.Write(e.data)
+		}
+		m.Close()
+		req, _ := http.NewRequest("POST", s.URL+"/api/skills/import", &body)
+		req.Header.Set("Content-Type", m.FormDataContentType())
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Workspace-ID", ws.ID)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var got skill.Detail
+		if resp.StatusCode == 201 {
+			if err = json.NewDecoder(resp.Body).Decode(&got); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return resp.StatusCode, got
+	}
+	main := entry{"folder-method/SKILL.md", []byte("Research")}
+	for _, bad := range [][]entry{{main, {"folder-method/../escape", []byte{1}}}, {main, {"folder-method/a", []byte{1}}, {"folder-method/a", []byte{2}}}, {{"missing", []byte{1}}}} {
+		if c, _ := post(bad); c != 400 {
+			t.Fatalf("invalid folder: %d", c)
+		}
+	}
+	c, got := post([]entry{main, {"folder-method/assets/raw.bin", binary}, {"folder-method/.hidden", []byte("kept")}})
+	if c != 201 || got.Name != "folder-method" || len(got.Files) != 3 || got.Source.Location != "folder-method" {
+		t.Fatalf("folder import: %d %+v", c, got)
+	}
+	req, _ := http.NewRequest("GET", s.URL+"/api/skills/"+got.ID+"/files?path=assets/raw.bin", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Workspace-ID", ws.ID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != 200 || !bytes.Equal(data, binary) {
+		t.Fatalf("folder file bytes: %d %v %v", resp.StatusCode, data, err)
+	}
+	if c, _ := post([]entry{main}); c != 409 {
+		t.Fatalf("duplicate folder: %d", c)
+	}
+}
+
+type skillImportTransport func(*http.Request) (*http.Response, error)
+
+func (f skillImportTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func TestURLImportHTTPFailures(t *testing.T) {
+	s := newServer(t)
+	token := s.signIn(t, "a@lab.org")
+	ws := s.workspace(t, token, "lab")
+	previous := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = previous })
+	for _, tc := range []struct {
+		name, url string
+		status    int
+	}{
+		{"fetch", "https://clawhub.ai/owner/method", 502},
+		{"cap", "https://clawhub.ai/owner/method", 413},
+		{"deadline", "https://clawhub.ai/owner/method", 504},
+		{"unavailable", "https://skills.sh/lab/repo/method", 503},
+		{"unsupported", "https://unsupported.example/method", 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			http.DefaultClient = &http.Client{Transport: skillImportTransport(func(r *http.Request) (*http.Response, error) {
+				if r.URL.Host == strings.TrimPrefix(s.URL, "http://") {
+					return http.DefaultTransport.RoundTrip(r)
+				}
+				response := func(status int, body string) *http.Response {
+					return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
+				}
+				if tc.name == "deadline" {
+					return nil, context.DeadlineExceeded
+				}
+				if tc.name == "fetch" {
+					return response(503, "unavailable"), nil
+				}
+				if tc.name == "unavailable" {
+					if r.URL.Path == "/repos/lab/repo" {
+						return response(200, `{"default_branch":"main"}`), nil
+					}
+					return response(503, "unavailable"), nil
+				}
+				switch r.URL.Path {
+				case "/api/v1/skills/method":
+					return response(200, `{"skill":{"tags":{"latest":"1.0"}}}`), nil
+				case "/api/v1/skills/method/versions/1.0":
+					return response(200, `{"version":{"files":[{"path":"SKILL.md"}]}}`), nil
+				default:
+					return response(200, strings.Repeat("x", skill.FileBytes+1)), nil
+				}
+			})}
+			var got struct{ Error string }
+			if code := s.call(t, "POST", "/api/skills/import", token, ws.ID, map[string]string{"url": tc.url}, &got); code != tc.status || got.Error == "" {
+				t.Fatalf("source error: %d want %d: %+v", code, tc.status, got)
+			}
+			if s.count(t, `SELECT count(*) FROM workspace_skill`) != 0 || s.count(t, `SELECT count(*) FROM workspace_skill_version`) != 0 || s.count(t, `SELECT count(*) FROM event WHERE type='skill.created'`) != 0 {
+				t.Fatal("source error published an active skill/version/event")
+			}
+		})
 	}
 }

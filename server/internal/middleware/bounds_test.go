@@ -236,3 +236,33 @@ func TestSkillEditBodyBoundIsExact(t *testing.T) {
 		})
 	}
 }
+
+func TestArchiveImportBodyBound(t *testing.T) {
+	for _, tc := range []struct {
+		method, path, contentType string
+		size, status              int
+	}{
+		{"POST", "/api/skills/import", "multipart/form-data; boundary=test", 16 << 20, 204},
+		{"POST", "/api/skills/import", "multipart/form-data; boundary=test", 16<<20 + 1, 413},
+		{"POST", "/api/skills/import", "application/json", 1<<20 + 1, 413},
+		{"POST", "/api/skills/import", "multipart/form-data; broken", 1<<20 + 1, 413},
+		{"POST", "/api/skills/imported", "multipart/form-data; boundary=test", 1<<20 + 1, 413},
+		{"PATCH", "/api/skills/import", "multipart/form-data; boundary=test", 1<<20 + 1, 413},
+	} {
+		t.Run(tc.method+tc.path+tc.contentType+strconv.Itoa(tc.size), func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(strings.Repeat("x", tc.size)))
+			req.Header.Set("Content-Type", tc.contentType)
+			rr := httptest.NewRecorder()
+			RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				data, err := io.ReadAll(r.Body)
+				if err != nil || len(data) != tc.size {
+					t.Fatalf("read %d %v", len(data), err)
+				}
+				w.WriteHeader(204)
+			})).ServeHTTP(rr, req)
+			if rr.Code != tc.status {
+				t.Fatalf("status %d want %d", rr.Code, tc.status)
+			}
+		})
+	}
+}

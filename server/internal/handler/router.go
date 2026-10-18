@@ -79,6 +79,7 @@ func NewRouter(h *H) http.Handler {
 		r.Get("/api/skills/{id}", h.getSkill)
 		r.Get("/api/skills/{id}/files", h.getSkillFile)
 		r.Post("/api/skills", h.createSkill)
+		r.Post("/api/skills/import", h.importSkill)
 		r.Patch("/api/skills/{id}", h.updateSkill)
 		r.Delete("/api/skills/{id}", h.deleteSkill)
 

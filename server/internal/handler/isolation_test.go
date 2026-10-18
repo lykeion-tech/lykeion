@@ -86,7 +86,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		if strings.HasPrefix(route, "/api/workspaces/{id}") {
 			path = strings.Replace(path, "{id}", wa.ID, 1)
 			header = ""
-		} else if strings.HasPrefix(route, "/api/connectors") || route == "/api/skills" {
+		} else if strings.HasPrefix(route, "/api/connectors") || route == "/api/skills" || route == "/api/skills/import" {
 			// Connectors and skills are workspace-scoped: probe them with A's
 			// workspace, which membership must refuse for B's user.
 			header = wa.ID
