@@ -33,6 +33,9 @@ var (
 const (
 	idleNote      = "You ended without naming a member (`lyk team step`) or declaring the column done (`lyk team done`)."
 	agentIdleNote = "You ended without declaring the column done (`lyk team done`)."
+	// failedNote begins the note that wakes a leader or agent whose run
+	// failed, rather than ended, before it named a member or finished.
+	failedNote = "Your last run failed"
 )
 
 const commentNote = "A researcher commented on the study (see the comments above). Read what they said and carry on."
@@ -238,10 +241,10 @@ func lockCard(ctx context.Context, tx *store.Tx, id uuid.UUID) (db.Card, error) 
 }
 
 // afterRun wakes the leader when a member's run settles, with what the
-// member wrote. A leader or single-agent run that ends without naming a
-// member or declaring the column done is woken once with its idle note;
-// ending that way again leaves the study working and escalates it to its
-// owner.
+// member wrote. A leader or single-agent run that ends or fails without
+// naming a member or declaring the column done is woken once with a note
+// saying which; doing so again leaves the study working and escalates it to
+// its owner.
 func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	if (leads(t.Role) && t.Status == "cancelled") || (!leads(t.Role) && !isMember(t.Role)) {
 		return nil
@@ -278,7 +281,18 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 		if t.Role == "agent" {
 			note, who = agentIdleNote, "The study's agent stopped twice without declaring"
 		}
-		if !strings.Contains(t.Prompt, note) {
+		if t.Status == "failed" {
+			reason := "an error"
+			if t.FailureReason != nil && *t.FailureReason != "" {
+				reason = *t.FailureReason
+			}
+			note = fmt.Sprintf("%s (%s) before it finished. Carry on from what the study's records hold.", failedNote, reason)
+			who = fmt.Sprintf("The leader's runs failed (%s) twice without naming a member or declaring", reason)
+			if t.Role == "agent" {
+				who = fmt.Sprintf("The study's agent's runs failed (%s) twice without declaring", reason)
+			}
+		}
+		if !strings.Contains(t.Prompt, idleNote) && !strings.Contains(t.Prompt, agentIdleNote) && !strings.Contains(t.Prompt, failedNote) {
 			return e.wake(ctx, tx, c, note)
 		}
 		return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "escalated",

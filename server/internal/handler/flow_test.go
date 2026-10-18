@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -581,5 +582,47 @@ func TestAWakeThatFailsIsDeliveredAgain(t *testing.T) {
 	}
 	if again := l.claim(t); again.role != "leader" || !strings.Contains(again.prompt, "member-1 finished") {
 		t.Fatalf("leader resume %+v", again)
+	}
+}
+
+// fail reports r as failed for reason, as a daemon does; a retried attempt
+// comes back from the next claim with the same id.
+func (l *teamLab) fail(t *testing.T, r teamRun, reason string) {
+	t.Helper()
+	ref := maps.Clone(r.ref)
+	ref["failure_reason"] = reason
+	if c := l.s.call(t, "POST", "/api/daemon/agent-runs/"+r.id+"/fail", l.personal, "", ref, nil); c != 200 {
+		t.Fatalf("fail %d", c)
+	}
+}
+
+// failUntilSettled fails the leader's run, and any retried attempt of it,
+// until it ends for good, and returns the next run claimed after it.
+func (l *teamLab) failUntilSettled(t *testing.T, r teamRun) teamRun {
+	t.Helper()
+	for {
+		l.fail(t, r, "agent_error")
+		next := l.claim(t)
+		if next.id != r.id {
+			return next
+		}
+		r = next
+	}
+}
+
+func TestAFailedLeaderIsToldItFailedAndEscalatesAsFailed(t *testing.T) {
+	l := newTeamLab(t, 0)
+	woken := l.failUntilSettled(t, l.claim(t))
+	if woken.role != "leader" || !strings.Contains(woken.prompt, "failed") || strings.Contains(woken.prompt, "You ended without") {
+		t.Fatalf("the wake after a failed run: %+v", woken)
+	}
+	l.fail(t, woken, "agent_error")
+	for n := l.queued(t); n > 0; n = l.queued(t) {
+		woken = l.failUntilSettled(t, l.claim(t))
+	}
+	var text string
+	l.s.Env.Owner.QueryRow(context.Background(), "SELECT text FROM inbox_item WHERE card_id = $1 AND kind = 'escalated'", l.card.ID).Scan(&text)
+	if !strings.Contains(text, "failed") || strings.Contains(text, "stopped") {
+		t.Fatalf("escalation %q", text)
 	}
 }
