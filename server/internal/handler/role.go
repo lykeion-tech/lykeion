@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
@@ -193,6 +194,10 @@ func callCites(body json.RawMessage) ([]string, error) {
 
 func (h *H) listRecords(w http.ResponseWriter, r *http.Request) {
 	var records []db.Record
+	if c := r.URL.Query().Get("column"); c != "" && board.StageIndex(c) < 0 {
+		writeErr(w, 400, fmt.Sprintf("unknown column %q; the columns are %s", c, strings.Join(board.Stages, ", ")))
+		return
+	}
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
 		col := r.URL.Query().Get("column")
 		if col == "" {

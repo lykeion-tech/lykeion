@@ -205,7 +205,7 @@ func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role stri
 	}
 	t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
 		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p, RunPrivate: private,
-		Skill: strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, m))})
+		Skill: strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m))})
 	if err != nil {
 		return t, err
 	}

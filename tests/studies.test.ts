@@ -372,6 +372,16 @@ describe('flow records and Inbox sentences', () => {
     expect(v.verdict).toBe('middle');
     expect(v.scores.map((s) => s.criterion)).toEqual(['a', 'b']);
   });
+  it('shows a score level to one decimal', () => {
+    expect(studies.levelText(4.779999999999999)).toBe('4.8');
+    expect(studies.levelText(5)).toBe('5');
+  });
+  it('labels a redo by what started it', () => {
+    expect(studies.redoLabel(1, 2)).toBe('Redone once');
+    expect(studies.redoLabel(1, 3)).toBe('Redone once, then after your reply');
+    expect(studies.redoLabel(0, 2)).toBe('Redone after your reply');
+    expect(studies.redoLabel(0, 1)).toBe('');
+  });
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();
     expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();

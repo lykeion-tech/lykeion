@@ -673,6 +673,31 @@ test('scores show per criterion with the verdict', async ({ page }) => {
   await page.screenshot({ path: `${shots}/scores-block.png`, fullPage: true });
 });
 
+test('every scored column shows its scores, rounded to one decimal', async ({ page }) => {
+  const study = await unassigned(page);
+  await labFlow(page.request, study.id, {
+    column: 'grounding',
+    state: 'done',
+    records: [
+      { ...score(0, 4.779999999999999), key: 'g1' },
+      { kind: 'outcome', key: 'go', body: { verdict: 'high', attempt: 1 } },
+    ],
+  });
+  await labFlow(page.request, study.id, {
+    column: 'hypotheses',
+    state: 'working',
+    records: [
+      { ...score(1, 3), key: 'h1' },
+      { kind: 'outcome', key: 'ho', body: { verdict: 'middle', attempt: 1 } },
+    ],
+  });
+  await page.goto(`/#/studies/${study.id}`);
+  const scores = page.getByRole('region', { name: 'Scores' });
+  await expect(scores).toHaveCount(2);
+  await expect(scores.nth(0)).toContainText('4.8 of 5');
+  await expect(scores.nth(1)).toContainText('3 of 5');
+});
+
 test("the leader's self-step is marked", async ({ page }) => {
   const study = await unassigned(page);
   await labFlow(page.request, study.id, {

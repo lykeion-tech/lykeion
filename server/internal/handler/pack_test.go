@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -377,5 +378,17 @@ func TestCardRecordById(t *testing.T) {
 		if code := s.call(t, "GET", "/api/cards/"+c.ID+"/records?id="+tc.id, a, w.ID, nil, &rows); code != 200 || len(rows) != tc.n || (tc.n == 1 && rows[0].ID != tc.id) {
 			t.Fatalf("id %s: %d %+v", tc.id, code, rows)
 		}
+	}
+}
+
+func TestRoleRecordsRefuseAnUnknownColumn(t *testing.T) {
+	s := newServer(t)
+	_, _, _, run := s.roleFixture(t)
+	var e struct{ Error string }
+	if got := s.call(t, "GET", "/api/role/records?column=literature", run.token, "", nil, &e); got != 400 || !strings.Contains(e.Error, "grounding, hypotheses") {
+		t.Fatalf("unknown column: %d %+v", got, e)
+	}
+	if got := s.call(t, "GET", "/api/role/records?column=grounding", run.token, "", nil, nil); got != 200 {
+		t.Fatalf("known column: %d", got)
 	}
 }

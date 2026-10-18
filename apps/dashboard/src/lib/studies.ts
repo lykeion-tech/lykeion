@@ -270,6 +270,18 @@ export function actionLabel(a: ComposerAction): string {
 
 export const verdictLabels: Record<string, string> = { high: 'High', middle: 'Middle', low: 'Low' };
 
+// A score level to one decimal; Jev's levels are floats like 4.779999999999999.
+export const levelText = (level: number): string => String(Math.round(level * 10) / 10);
+
+// What redid a low-scored attempt: the automatic redo (the card's redos) and
+// the redos the owner's comments started (the other rounds after the first).
+export function redoLabel(redos: number, round: number): string {
+  const afterReply = Math.max(0, round - 1 - redos);
+  if (redos >= 1 && afterReply >= 1) return 'Redone once, then after your reply';
+  if (redos >= 1) return 'Redone once';
+  return afterReply >= 1 ? 'Redone after your reply' : '';
+}
+
 export interface FlowView {
   scores: { criterion: string; level: number }[];
   verdict: string;

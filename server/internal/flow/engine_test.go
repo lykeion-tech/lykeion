@@ -193,17 +193,17 @@ func TestTheLeaderSkillNamesEveryMemberAndItsRole(t *testing.T) {
 		{Name: "bioinformatician", Role: "Aligns sequences and wrangles structure files."},
 		{Name: "data-specialist", Role: "Queries NCBI, UniProt and ClinVar."},
 	}}
-	s := Protocol("leader", "grounding", m)
+	s := Protocol("leader", "grounding", "", m)
 	for _, want := range []string{"bioinformatician", "Aligns sequences and wrangles structure files.", "data-specialist",
 		"Queries NCBI, UniProt and ClinVar.", "lyk team step", "lyk team done", "--self"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in:\n%s", want, s)
 		}
 	}
-	if !strings.Contains(s, "--cites KEY1,KEY2`") {
+	if !strings.Contains(s, "--cites KEY1,KEY2 ") {
 		t.Errorf("done protocol must show comma-separated cites:\n%s", s)
 	}
-	if member := Protocol("bioinformatician", "grounding", m); strings.Contains(member, "lyk team step") || !strings.Contains(member, "lyk record put") || !strings.Contains(member, "--cites") {
+	if member := Protocol("bioinformatician", "grounding", "", m); strings.Contains(member, "lyk team step") || !strings.Contains(member, "lyk record put") || !strings.Contains(member, "--cites") {
 		t.Errorf("member protocol:\n%s", member)
 	}
 }
@@ -216,11 +216,11 @@ func TestTheProtocolNamesTheColumnsDeliverable(t *testing.T) {
 		if role == "agent" {
 			mm = nil
 		}
-		if s := Protocol(role, "hypotheses", mm); !strings.Contains(s, want) {
+		if s := Protocol(role, "hypotheses", "", mm); !strings.Contains(s, want) {
 			t.Errorf("%s: missing the deliverable in:\n%s", role, s)
 		}
 	}
-	if s := Protocol("agent", "grounding", nil); strings.Contains(s, want) {
+	if s := Protocol("agent", "grounding", "", nil); strings.Contains(s, want) {
 		t.Errorf("Grounding names the Hypotheses deliverable:\n%s", s)
 	}
 }
@@ -228,7 +228,7 @@ func TestTheProtocolNamesTheColumnsDeliverable(t *testing.T) {
 func TestEveryRoleIsToldAboutLykTools(t *testing.T) {
 	m := &pack.Manifest{Leader: pack.Member{Name: "pi"}, Members: []pack.Member{{Name: "x", Role: "Does x."}}}
 	for _, role := range []string{"leader", "x", "agent", "auditor"} {
-		if s := Protocol(role, "grounding", m); !strings.Contains(s, "lyk tools \"what you need\"") || !strings.Contains(s, "call_tool") {
+		if s := Protocol(role, "grounding", "", m); !strings.Contains(s, "lyk tools \"what you need\"") || !strings.Contains(s, "call_tool") {
 			t.Errorf("%s is not told about lyk tools:\n%s", role, s)
 		}
 	}
@@ -257,6 +257,27 @@ func TestOnlyWorkingStudiesAreCandidates(t *testing.T) {
 	for id, w := range want {
 		if got[id] != w {
 			t.Errorf("card %s a candidate: %v, want %v", id, got[id], w)
+		}
+	}
+}
+
+func TestLaterColumnsAreToldTheEarlierOnes(t *testing.T) {
+	s := Protocol("agent", "hypotheses", "grounding", nil)
+	if !strings.Contains(s, "lyk records --column grounding") || !strings.Contains(s, "Earlier columns") {
+		t.Errorf("a Hypotheses column that starts at Grounding is not told:\n%s", s)
+	}
+	for _, c := range [][2]string{{"grounding", "grounding"}, {"hypotheses", "hypotheses"}} {
+		if s := Protocol("agent", c[0], c[1], nil); strings.Contains(s, "--column") {
+			t.Errorf("first column %s names earlier ones:\n%s", c[0], s)
+		}
+	}
+}
+
+func TestProtocolExamplesNeedNoFileWrites(t *testing.T) {
+	m := &pack.Manifest{Leader: pack.Member{Name: "pi"}, Members: []pack.Member{{Name: "x", Role: "Does x."}}}
+	for _, role := range []string{"leader", "x", "agent", "auditor"} {
+		if s := Protocol(role, "grounding", "", m); strings.Contains(s, "--content-file") || !strings.Contains(s, "--content-stdin") {
+			t.Errorf("%s:\n%s", role, s)
 		}
 	}
 }

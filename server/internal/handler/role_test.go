@@ -118,7 +118,7 @@ func TestRoleRecords(t *testing.T) {
 	if got := s.call(t, "GET", "/api/role/records", run.token, "", nil, &recs); got != 200 || len(recs) != 2 {
 		t.Fatalf("records %d %+v", got, recs)
 	}
-	if got := s.call(t, "GET", "/api/role/records?column=other", run.token, "", nil, &recs); got != 200 || len(recs) != 0 {
+	if got := s.call(t, "GET", "/api/role/records?column=reporting", run.token, "", nil, &recs); got != 200 || len(recs) != 0 {
 		t.Fatalf("column %d %+v", got, recs)
 	}
 	for _, tok := range []string{jwt, run.personal, "ltk_invalid", ""} {

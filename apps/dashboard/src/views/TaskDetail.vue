@@ -33,6 +33,8 @@ import {
   endLabel,
   flowKinds,
   flowView,
+  levelText,
+  redoLabel,
   recordLine,
   verdictLabels,
   stages,
@@ -161,6 +163,13 @@ const offLabel = computed(() =>
   Boolean(team.value && stage.value && c.value?.off_label?.includes(stage.value)),
 );
 const earlier = computed(() => (c.value ? earlierColumns(c.value) : []));
+const earlierScores = stages.slice(0, -1).map((col) => {
+  const q = useRecords(
+    () => props.id,
+    () => (earlier.value.includes(col) ? col : ''),
+  );
+  return { col, flow: computed(() => flowView(q.data.value ?? [])) };
+});
 const expanded = ref<Column | ''>('');
 const earlierRecords = useRecords(() => props.id, expanded);
 const resourceReads = computed(() =>
@@ -517,6 +526,22 @@ function pin() {
                 :class="'status-' + col"
               />{{ columnName(col) }}
             </button>
+            <section
+              v-for="e in earlierScores.filter((x) => x.col === col && x.flow.value.scores.length)"
+              :key="e.col"
+              class="flow-block"
+              aria-label="Scores"
+            >
+              <h5>
+                Scores<span class="chip" :class="'chip-verdict-' + e.flow.value.verdict">{{
+                  verdictLabels[e.flow.value.verdict] ?? e.flow.value.verdict
+                }}</span>
+              </h5>
+              <div v-for="s in e.flow.value.scores" :key="s.criterion" class="score-row">
+                <span>{{ s.criterion }}</span
+                ><span class="level">{{ levelText(s.level) }} of 5</span>
+              </div>
+            </section>
             <template v-if="expanded === col">
               <div
                 v-for="r in earlierRecords.data.value ?? []"
@@ -554,8 +579,10 @@ function pin() {
               </h5>
               <div v-for="s in flow.scores" :key="s.criterion" class="score-row">
                 <span>{{ s.criterion }}</span
-                ><span class="level">{{ s.level }} of 5</span
-                ><span v-if="s.level <= 2 && c.redos >= 1" class="chip">Redone once</span>
+                ><span class="level">{{ levelText(s.level) }} of 5</span
+                ><span v-if="s.level <= 2 && redoLabel(c.redos, c.round)" class="chip">{{
+                  redoLabel(c.redos, c.round)
+                }}</span>
               </div>
             </section>
             <section v-if="flow.steps.length" class="flow-block" aria-label="Steps">
