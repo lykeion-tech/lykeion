@@ -122,7 +122,7 @@ async function save() {
   }
 }
 async function remove(close: () => Promise<void>) {
-  if (!detail.data.value?.editable || busy.value) return;
+  if (!saved.value || !detail.data.value?.editable || busy.value) return;
   if (!(await form.reset())) return;
   const own = identity.value;
   busy.value = true;
@@ -160,6 +160,7 @@ async function cancelEdit() {
           <button
             v-if="detail.data.value?.editable && tab !== 'editing'"
             class="button"
+            :disabled="!saved || busy"
             @click="tab = 'editing'"
           >
             Edit</button
@@ -167,6 +168,7 @@ async function cancelEdit() {
             v-if="detail.data.value?.editable"
             class="icon-button"
             aria-label="Delete skill"
+            :disabled="!saved || busy"
             @click="deleting = true"
           >
             <Icon name="more" :size="16" /></button
@@ -201,7 +203,7 @@ async function cancelEdit() {
             version.
           </p>
           <button class="button" @click="deleting = false">Keep skill</button>
-          <button class="button danger" :disabled="busy" @click="remove(close)">
+          <button class="button danger" :disabled="!saved || busy" @click="remove(close)">
             Delete skill
           </button>
         </div>
