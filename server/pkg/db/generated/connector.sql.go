@@ -73,7 +73,7 @@ func (q *Queries) GetCardTeamPack(ctx context.Context, arg GetCardTeamPackParams
 }
 
 const getWorkspaceConnector = `-- name: GetWorkspaceConnector :one
-SELECT workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at FROM workspace_connector WHERE workspace_id = $1 AND name = $2
+SELECT workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at, revision FROM workspace_connector WHERE workspace_id = $1 AND name = $2
 `
 
 type GetWorkspaceConnectorParams struct {
@@ -93,6 +93,7 @@ func (q *Queries) GetWorkspaceConnector(ctx context.Context, arg GetWorkspaceCon
 		&i.LicenceConfirmedAt,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -117,7 +118,7 @@ func (q *Queries) LastCallNumber(ctx context.Context, arg LastCallNumberParams) 
 }
 
 const listWorkspaceConnectors = `-- name: ListWorkspaceConnectors :many
-SELECT workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at FROM workspace_connector WHERE workspace_id = $1
+SELECT workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at, revision FROM workspace_connector WHERE workspace_id = $1
 `
 
 func (q *Queries) ListWorkspaceConnectors(ctx context.Context, workspaceID uuid.UUID) ([]WorkspaceConnector, error) {
@@ -138,6 +139,7 @@ func (q *Queries) ListWorkspaceConnectors(ctx context.Context, workspaceID uuid.
 			&i.LicenceConfirmedAt,
 			&i.UpdatedBy,
 			&i.UpdatedAt,
+			&i.Revision,
 		); err != nil {
 			return nil, err
 		}
@@ -150,7 +152,7 @@ func (q *Queries) ListWorkspaceConnectors(ctx context.Context, workspaceID uuid.
 }
 
 const lockWorkspaceConnector = `-- name: LockWorkspaceConnector :one
-SELECT workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at FROM workspace_connector WHERE workspace_id = $1 AND name = $2 FOR UPDATE
+SELECT workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at, revision FROM workspace_connector WHERE workspace_id = $1 AND name = $2 FOR UPDATE
 `
 
 type LockWorkspaceConnectorParams struct {
@@ -170,6 +172,7 @@ func (q *Queries) LockWorkspaceConnector(ctx context.Context, arg LockWorkspaceC
 		&i.LicenceConfirmedAt,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -208,7 +211,7 @@ UPDATE workspace_connector
 SET enabled = $1, key_ciphertext = $2, licence_confirmed_by = $3,
     licence_confirmed_at = $4, updated_by = $5, updated_at = now()
 WHERE workspace_id = $6 AND name = $7
-RETURNING workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at
+RETURNING workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at, revision
 `
 
 type UpdateWorkspaceConnectorParams struct {
@@ -241,6 +244,7 @@ func (q *Queries) UpdateWorkspaceConnector(ctx context.Context, arg UpdateWorksp
 		&i.LicenceConfirmedAt,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }
