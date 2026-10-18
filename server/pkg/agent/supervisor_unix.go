@@ -27,7 +27,7 @@ type processOwner struct {
 }
 
 // The supervisor owns the group until it has cleaned credentials and recorded
-// its child's status. It kills its own group, including any leaked descendants.
+// its child's status. The host stops descendants before retiring this witness.
 const supervisorScript = `nonce=$1
 marker=$2
 shift 2
@@ -40,7 +40,7 @@ wait "$child"
 result=$?
 cleanup || result=125
 (umask 077; printf '%s %s\n' "$nonce" "$result" > "$marker.tmp") && /bin/mv -f -- "$marker.tmp" "$marker" || exit 125
-kill -KILL -$$
+kill -STOP $$
 `
 
 func supervised(ctx context.Context, original *exec.Cmd) (*exec.Cmd, *os.File, *os.File, string, error) {
@@ -150,12 +150,32 @@ func sameProcess(owner processOwner) (bool, error) {
 	return true, nil
 }
 
+const processExitTimeout = 3 * time.Second
+const processPollInterval = 10 * time.Millisecond
+
+type groupMember struct {
+	owner   processOwner
+	stopped bool
+	exited  bool
+}
+
+type groupOperations struct {
+	same    func(processOwner) (bool, error)
+	group   func(int) (int, error)
+	signal  func(int, syscall.Signal) error
+	members func(int) ([]groupMember, error)
+}
+
 func signalOwned(owner processOwner) (bool, error) {
-	alive, err := sameProcess(owner)
+	return signalOwnedWith(owner, groupOperations{sameProcess, syscall.Getpgid, syscall.Kill, processGroupMembers})
+}
+
+func ownedGroupAlive(owner processOwner, ops groupOperations) (bool, error) {
+	alive, err := ops.same(owner)
 	if err != nil || !alive {
 		return false, err
 	}
-	group, err := syscall.Getpgid(owner.PID)
+	group, err := ops.group(owner.PID)
 	if errors.Is(err, syscall.ESRCH) {
 		return false, nil
 	}
@@ -165,11 +185,89 @@ func signalOwned(owner processOwner) (bool, error) {
 	if group != owner.PID {
 		return false, errors.New("agent process group identity changed")
 	}
-	err = syscall.Kill(-group, syscall.SIGKILL)
-	if errors.Is(err, syscall.ESRCH) {
-		return false, nil
+	return true, nil
+}
+
+func signalOwnedWith(owner processOwner, ops groupOperations) (bool, error) {
+	deadline := time.Now().Add(processExitTimeout)
+	for {
+		alive, err := ownedGroupAlive(owner, ops)
+		if err != nil || !alive {
+			return false, err
+		}
+		// Group signalling snapshots membership. Stop every member and observe
+		// acknowledgment before killing; otherwise a concurrent fork can escape.
+		if err := ops.signal(-owner.PID, syscall.SIGSTOP); err != nil {
+			if errors.Is(err, syscall.ESRCH) {
+				return false, nil
+			}
+			return false, err
+		}
+		members, err := ops.members(owner.PID)
+		if err != nil {
+			return false, err
+		}
+		stopped, descendants := true, false
+		for _, member := range members {
+			if member.exited {
+				continue
+			}
+			stopped = stopped && member.stopped
+			descendants = descendants || member.owner.PID != owner.PID
+		}
+		if stopped {
+			// Keep the supervisor alive while retiring descendants. Losing the group
+			// leader first can resume stopped members through orphan-group signals.
+			for _, member := range members {
+				if member.owner.PID == owner.PID || member.exited {
+					continue
+				}
+				alive, err := ownedGroupAlive(owner, ops)
+				if err != nil || !alive {
+					return false, err
+				}
+				same, err := ops.same(member.owner)
+				if err != nil {
+					return false, err
+				}
+				if !same {
+					continue
+				}
+				group, err := ops.group(member.owner.PID)
+				if errors.Is(err, syscall.ESRCH) {
+					continue
+				}
+				if err != nil {
+					return false, err
+				}
+				if group != owner.PID {
+					return false, errors.New("agent descendant left owned process group")
+				}
+				alive, err = ownedGroupAlive(owner, ops)
+				if err != nil || !alive {
+					return false, err
+				}
+				if err := ops.signal(member.owner.PID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+					return false, err
+				}
+			}
+			if !descendants {
+				alive, err := ownedGroupAlive(owner, ops)
+				if err != nil || !alive {
+					return false, err
+				}
+				err = ops.signal(-owner.PID, syscall.SIGKILL)
+				if errors.Is(err, syscall.ESRCH) {
+					return false, nil
+				}
+				return true, err
+			}
+		}
+		if time.Now().After(deadline) {
+			return false, errors.New("owned agent group did not stop")
+		}
+		time.Sleep(processPollInterval)
 	}
-	return true, err
 }
 func supervisorExit(cmd *exec.Cmd, nonce string, waitErr error) error {
 	b, err := os.ReadFile(filepath.Join(cmd.Dir, ".agent-exit"))
@@ -207,7 +305,7 @@ func RecoverScratch(dir string) error {
 			return err
 		}
 		if killed {
-			deadline := time.Now().Add(3 * time.Second)
+			deadline := time.Now().Add(processExitTimeout)
 			for {
 				alive, e := sameProcess(owner)
 				if e != nil {
@@ -219,7 +317,7 @@ func RecoverScratch(dir string) error {
 				if time.Now().After(deadline) {
 					return errors.New("owned agent did not exit")
 				}
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(processPollInterval)
 			}
 		}
 	}

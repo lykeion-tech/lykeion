@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -148,7 +149,8 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 	cmd.Stdout = writer
 	stderr := &diagnosticTail{}
 	cmd.Stderr = stderr
-	cmd.WaitDelay = time.Second
+	// WaitDelay can kill the supervisor without checking ownership. Only the
+	// verified shutdown path may retire it or complete its output streams.
 	if err := cmd.Start(); err != nil {
 		stdout.Close()
 		writer.Close()
@@ -157,7 +159,7 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 	}
 	writer.Close()
 	waited := make(chan error, 1)
-	go func() { err := cmd.Wait(); cleanup(false); waited <- supervisorExit(cmd, nonce, err) }()
+	go func() { err := waitSupervised(cmd, nonce); cleanup(false); waited <- supervisorExit(cmd, nonce, err) }()
 	if err := recordProcess(cmd, nonce); err != nil {
 		gateWrite.Close()
 		<-waited
@@ -167,14 +169,14 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 	}
 	if err := ctx.Err(); err != nil {
 		gateWrite.Close()
-		killProcessTree(cmd)
+		cmd.Cancel()
 		<-waited
 		stdout.Close()
 		cleanup(true)
 		return nil, err
 	}
 	if _, err := gateWrite.Write([]byte("run\n")); err != nil {
-		killProcessTree(cmd)
+		cmd.Cancel()
 		<-waited
 		stdout.Close()
 		cleanup(true)
@@ -197,7 +199,7 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 			if sink != nil {
 				emitErr = sink(m)
 				if emitErr != nil {
-					killProcessTree(cmd)
+					cmd.Cancel()
 				}
 				return
 			}
@@ -215,7 +217,7 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 			}
 			emitErr = spill.put(m)
 			if emitErr != nil {
-				killProcessTree(cmd)
+				cmd.Cancel()
 			}
 		}
 
@@ -232,17 +234,17 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 			}
 			if errors.Is(parseErr, errStop) {
 				parseErr, stopped = nil, true
-				killProcessTree(cmd)
+				cmd.Cancel()
 				break
 			}
 			if parseErr != nil {
-				killProcessTree(cmd)
+				cmd.Cancel()
 				break
 			}
 		}
 		if sc.Err() != nil {
 			parseErr = fmt.Errorf("agent output: %w", sc.Err())
-			killProcessTree(cmd)
+			cmd.Cancel()
 		}
 		waitErr := <-waited
 		switch {
@@ -285,6 +287,36 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 		close(done)
 	}()
 	return &Session{Messages: msgs, Done: done}, nil
+}
+
+// waitSupervised keeps the ownership witness until every descendant is stopped.
+// The nonce-bound marker is written only after the CLI status and credentials
+// have been settled; output is still drained independently by run.
+func waitSupervised(cmd *exec.Cmd, nonce string) error {
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-exited:
+			return err
+		case <-ticker.C:
+			b, err := os.ReadFile(filepath.Join(cmd.Dir, ".agent-exit"))
+			if err != nil {
+				continue
+			}
+			fields := strings.Fields(string(b))
+			if len(fields) != 2 || fields[0] != nonce {
+				continue
+			}
+			stopErr := cmd.Cancel()
+			if errors.Is(stopErr, os.ErrProcessDone) {
+				stopErr = nil
+			}
+			return errors.Join(<-exited, stopErr)
+		}
+	}
 }
 
 func command(ctx context.Context, bin, prompt string, o ExecOptions, home string, args ...string) *exec.Cmd {

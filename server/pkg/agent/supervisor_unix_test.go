@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -209,5 +210,335 @@ func TestRecoveryRemovesEveryHarnessSigninCopy(t *testing.T) {
 				t.Fatalf("recovery left %s copied sign-in: %v", harness, err)
 			}
 		})
+	}
+}
+
+// A group signal can snapshot membership before a running member forks.
+// The kernel model preserves that boundary while executing the real shutdown.
+func TestOwnedShutdownStopsLateForkBeforeKillingWitness(t *testing.T) {
+	const leader, parent, late = 101, 102, 103
+	members := map[int]bool{leader: false, parent: false}
+	forked := false
+	ops := groupOperations{
+		same:  func(owner processOwner) (bool, error) { _, live := members[owner.PID]; return live, nil },
+		group: func(int) (int, error) { return leader, nil },
+		members: func(int) ([]groupMember, error) {
+			var snapshot []groupMember
+			for pid, stopped := range members {
+				snapshot = append(snapshot, groupMember{owner: processOwner{PID: pid, Started: "birth"}, stopped: stopped})
+			}
+			return snapshot, nil
+		},
+		signal: func(target int, signal syscall.Signal) error {
+			var snapshot []int
+			if target == -leader {
+				for pid := range members {
+					snapshot = append(snapshot, pid)
+				}
+			} else {
+				snapshot = []int{target}
+			}
+			if !forked && !members[parent] {
+				members[late] = false
+				forked = true
+			}
+			for _, pid := range snapshot {
+				switch signal {
+				case syscall.SIGSTOP:
+					members[pid] = true
+				case syscall.SIGKILL:
+					if pid == leader && len(members) > 1 {
+						t.Error("ownership witness killed before descendants")
+					}
+					delete(members, pid)
+				default:
+					t.Fatalf("unexpected signal: %v", signal)
+				}
+			}
+			return nil
+		},
+	}
+	killed, err := signalOwnedWith(processOwner{PID: leader, Started: "birth", Nonce: "attempt"}, ops)
+	if err != nil || !killed {
+		t.Fatalf("shutdown: killed=%v err=%v", killed, err)
+	}
+	if len(members) != 0 {
+		t.Fatalf("owned descendants survived shutdown after witness exit: %v", members)
+	}
+}
+
+func TestSupervisorKeepsOwnershipUntilHostFinishesShutdown(t *testing.T) {
+	dir := t.TempDir()
+	original := exec.Command("/bin/sh", "-c", "exit 0")
+	original.Dir = dir
+	cmd, read, write, nonce, err := supervised(context.Background(), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer read.Close()
+	defer write.Close()
+	if err := configureProcess(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	if err := recordProcess(cmd, nonce); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := write.Write([]byte("run\n")); err != nil {
+		t.Fatal(err)
+	}
+	write.Close()
+	waitFile(t, filepath.Join(dir, ".agent-exit"))
+	owner, err := readProcess(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alive, err := sameProcess(owner)
+	if err != nil || !alive {
+		t.Fatalf("supervisor discarded ownership before host confirmed group shutdown: alive=%v err=%v", alive, err)
+	}
+	group, err := syscall.Getpgid(owner.PID)
+	if err != nil || group != owner.PID {
+		t.Fatalf("ownership witness left its group: group=%d err=%v", group, err)
+	}
+}
+
+func TestOwnedShutdownFailsClosedWhenProofChanges(t *testing.T) {
+	for _, scenario := range []string{"missing supervisor", "reused supervisor", "changed supervisor group", "lost supervisor after stop", "enumeration error", "changed descendant group"} {
+		t.Run(scenario, func(t *testing.T) {
+			owner := processOwner{PID: 101, Started: "birth", Nonce: "attempt"}
+			stopped := false
+			signals := 0
+			want := errors.New("cannot enumerate")
+			ops := groupOperations{
+				same: func(processOwner) (bool, error) {
+					return scenario != "missing supervisor" && scenario != "reused supervisor" && !(stopped && scenario == "lost supervisor after stop"), nil
+				},
+				group: func(pid int) (int, error) {
+					if scenario == "changed supervisor group" || (pid == 102 && scenario == "changed descendant group") {
+						return 99, nil
+					}
+					return 101, nil
+				},
+				members: func(int) ([]groupMember, error) {
+					if scenario == "enumeration error" {
+						return nil, want
+					}
+					return []groupMember{{owner: owner, stopped: true}, {owner: processOwner{PID: 102, Started: "child-birth"}, stopped: true}}, nil
+				},
+				signal: func(_ int, signal syscall.Signal) error {
+					signals++
+					if signal != syscall.SIGSTOP {
+						t.Fatalf("destructive signal after proof changed: %v", signal)
+					}
+					stopped = true
+					return nil
+				},
+			}
+			killed, err := signalOwnedWith(owner, ops)
+			if killed {
+				t.Fatal("reported a kill after proof changed")
+			}
+			if scenario == "enumeration error" && !errors.Is(err, want) {
+				t.Fatalf("enumeration error hidden: %v", err)
+			}
+			if strings.Contains(scenario, "group") && err == nil {
+				t.Fatal("changed group was accepted")
+			}
+			if signals > 1 {
+				t.Fatalf("retried signal after proof changed: %d", signals)
+			}
+		})
+	}
+}
+
+func TestOwnedShutdownDoesNotSignalZombieDescendant(t *testing.T) {
+	owner := processOwner{PID: 101, Started: "birth", Nonce: "attempt"}
+	ops := groupOperations{
+		same: func(p processOwner) (bool, error) {
+			if p.PID != owner.PID {
+				t.Fatal("zombie treated as live")
+			}
+			return true, nil
+		},
+		group: func(int) (int, error) { return owner.PID, nil },
+		members: func(int) ([]groupMember, error) {
+			return []groupMember{{owner: owner, stopped: true}, {owner: processOwner{PID: 102}, exited: true}}, nil
+		},
+		signal: func(pid int, _ syscall.Signal) error {
+			if pid != -owner.PID {
+				t.Fatal("individual zombie signal")
+			}
+			return nil
+		},
+	}
+	if killed, err := signalOwnedWith(owner, ops); !killed || err != nil {
+		t.Fatalf("zombie blocked shutdown: %v %v", killed, err)
+	}
+}
+
+func TestRecoveryReconcilesStoppedCompletedSupervisor(t *testing.T) {
+	dir := t.TempDir()
+	original := exec.Command("/bin/sh", "-c", "exit 0")
+	original.Dir = dir
+	cmd, read, write, nonce, err := supervised(context.Background(), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer read.Close()
+	defer write.Close()
+	if err := configureProcess(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+	defer func() { _ = cmd.Process.Kill() }()
+	if err := recordProcess(cmd, nonce); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := write.Write([]byte("run\n")); err != nil {
+		t.Fatal(err)
+	}
+	write.Close()
+	waitFile(t, filepath.Join(dir, ".agent-exit"))
+	if err := RecoverScratch(dir); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-waited:
+		if err := supervisorExit(cmd, nonce, err); err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(processExitTimeout):
+		t.Fatal("recovery left stopped supervisor")
+	}
+}
+
+func TestCancellationDoesNotBypassRejectedOwnership(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	bin := script(t, `echo $$ > '`+ready+`'
+exec sleep 30`)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	sess, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFile(t, ready)
+	owner, err := readProcess(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidText, err := os.ReadFile(ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidText)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	birth, err := processidentity.Start(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := processOwner{PID: pid, Started: birth}
+	t.Cleanup(func() {
+		b, _ := json.Marshal(owner)
+		_ = os.WriteFile(filepath.Join(dir, ".agent-process"), b, 0600)
+		_, _ = signalOwned(owner)
+		// The RED path loses its supervisor; clean only the separately recorded
+		// fixture identity, still in this test's original group.
+		if alive, _ := sameProcess(child); alive {
+			if group, _ := syscall.Getpgid(child.PID); group == owner.PID {
+				_ = syscall.Kill(child.PID, syscall.SIGKILL)
+			}
+		}
+		select {
+		case <-sess.Done:
+		case <-time.After(processExitTimeout):
+			t.Error("fixture did not finish after verified cleanup")
+		}
+	})
+	if err := os.WriteFile(filepath.Join(dir, ".agent-process"), []byte("invalid ownership"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	// Cover the previous os/exec one-second fallback kill, independently of
+	// the rejected ownership proof. The assertion is liveness, not timing.
+	time.Sleep(1200 * time.Millisecond)
+	alive, err := sameProcess(owner)
+	group, groupErr := syscall.Getpgid(owner.PID)
+	if err != nil || !alive || groupErr != nil || group != owner.PID {
+		t.Fatalf("cancellation bypassed rejected ownership: alive=%v err=%v group=%d groupErr=%v", alive, err, group, groupErr)
+	}
+}
+
+func TestOwnedShutdownDoesNotSignalReusedDescendant(t *testing.T) {
+	owner := processOwner{PID: 101, Started: "birth", Nonce: "attempt"}
+	scans := 0
+	checked := false
+	ops := groupOperations{
+		same: func(p processOwner) (bool, error) {
+			if p.PID == 102 {
+				checked = true
+				return false, nil
+			}
+			return true, nil
+		},
+		group: func(int) (int, error) { return owner.PID, nil },
+		members: func(int) ([]groupMember, error) {
+			scans++
+			members := []groupMember{{owner: owner, stopped: true}}
+			if scans == 1 {
+				members = append(members, groupMember{owner: processOwner{PID: 102, Started: "old-child"}, stopped: true})
+			}
+			return members, nil
+		},
+		signal: func(pid int, _ syscall.Signal) error {
+			if pid == 102 {
+				t.Fatal("signalled reused descendant PID")
+			}
+			return nil
+		},
+	}
+	if killed, err := signalOwnedWith(owner, ops); !killed || err != nil {
+		t.Fatalf("shutdown: %v %v", killed, err)
+	}
+	if !checked {
+		t.Fatal("descendant birth was not checked")
+	}
+}
+
+func TestSupervisorMonitorIgnoresStaleCompletionMarker(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	sess, err := (Claude{Bin: script(t, `echo ready > '`+ready+`'
+exec sleep 30`)}).Execute(ctx, "p", ExecOptions{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cancel(); collect(t, sess) }()
+	waitFile(t, ready)
+	owner, err := readProcess(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".agent-exit"), []byte("stale-attempt 0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * processPollInterval)
+	alive, err := sameProcess(owner)
+	group, groupErr := syscall.Getpgid(owner.PID)
+	if err != nil || !alive || groupErr != nil || group != owner.PID {
+		t.Fatalf("stale marker retired current supervisor: %v %v %v", alive, err, groupErr)
 	}
 }
