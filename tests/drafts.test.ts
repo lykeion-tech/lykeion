@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { effectScope, ref } from 'vue';
+import { computed, effectScope, ref } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import {
   useResourceDraft,
@@ -164,6 +164,39 @@ describe('resource drafts', () => {
     expect(state.canSave.value).toBe(false);
     state.saved.value = { revision: 1, value: { content: 'new workspace' } };
     expect(state.draft.value!.content).toBe('new workspace');
+  });
+  it('hydrates a computed saved snapshot immediately when its resource identity changes', () => {
+    const identity = ref('workspace/skill-a');
+    const snapshots: Record<string, { revision: number; value: { content: string } }> = {
+      'workspace/skill-a': { revision: 1, value: { content: 'skill a' } },
+      'workspace/skill-b': { revision: 3, value: { content: 'skill b' } },
+    };
+    const saved = computed(() => snapshots[identity.value]);
+    const scope = effectScope();
+    scopes.push(scope);
+    const state = scope.run(() => useResourceDraft(identity, saved))!;
+    expect(state.draft.value!.content).toBe('skill a');
+    identity.value = 'workspace/skill-b';
+    expect(state.draft.value!.content).toBe('skill b');
+    expect(state.baseRevision.value).toBe(3);
+    state.draft.value!.content = 'edit skill b';
+    expect(state.canSave.value).toBe(true);
+    expect(snapshots['workspace/skill-b']!.value.content).toBe('skill b');
+  });
+  it('discards to the acknowledged save while the query still contains an older revision', async () => {
+    const state = editor();
+    state.draft.value!.content = 'acknowledged revision two';
+    const accept = state.adopt();
+    expect(accept({ revision: 2, value: { content: 'acknowledged revision two' } })).toBe(true);
+    expect(state.saved.value!.revision).toBe(1);
+    state.draft.value!.content = 'discard this later edit';
+    const reset = state.reset();
+    resolveDiscard(true);
+    expect(await reset).toBe(true);
+    expect(state.draft.value!.content).toBe('acknowledged revision two');
+    expect(state.baseRevision.value).toBe(2);
+    expect(state.dirty.value).toBe(false);
+    expect(state.stale.value).toBe(false);
   });
   it('requires confirmation for routes and shares a single pending discard decision', async () => {
     const router = createRouter({

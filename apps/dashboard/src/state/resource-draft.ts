@@ -95,26 +95,32 @@ export function useResourceDraft<T>(identity: Ref<string>, saved: Ref<Saved<T> |
   }
   function discard() {
     generation++;
+    if (
+      available.value &&
+      baseRevision.value !== undefined &&
+      saved.value!.revision < baseRevision.value
+    ) {
+      // An acknowledged save can precede the query cache refresh.
+      draft.value = copy(baseline.value);
+      return;
+    }
     replace(available.value ? saved.value : undefined);
   }
   watch(
-    identity,
-    () => {
-      // A query can still expose the old resource while its new key starts loading.
-      generation++;
-      ignoredSaved = saved.value;
-      replace(undefined);
-    },
-    { flush: 'sync' },
-  );
-  watch(
-    saved,
-    (snapshot) => {
+    [identity, saved],
+    ([key, snapshot], [previousKey, previousSnapshot]) => {
+      if (key !== previousKey) {
+        generation++;
+        // A matching computed snapshot can change in the same transition.
+        // Only retain the fence when the query still exposes its previous value.
+        ignoredSaved = snapshot === previousSnapshot ? snapshot : undefined;
+        replace(undefined);
+      }
       if (!snapshot) {
         generation++;
         return;
       }
-      if (!identity.value || snapshot === ignoredSaved) return;
+      if (!key || snapshot === ignoredSaved) return;
       ignoredSaved = undefined;
       if (
         !dirty.value &&
