@@ -121,6 +121,15 @@ func daemonMessagePost(r *http.Request) bool {
 
 // JSONBodyLimit is shared by pre-transaction buffering and strict decoding.
 func JSONBodyLimit(r *http.Request) int64 {
+	// A one MiB UTF-8 main file may expand sixfold when JSON escapes it.
+	if r.Method == http.MethodPatch {
+		p := strings.Split(r.URL.Path, "/")
+		if len(p) == 4 && p[1] == "api" && p[2] == "skills" && len(p[3]) == 36 {
+			if _, err := uuid.Parse(p[3]); err == nil {
+				return 7 << 20
+			}
+		}
+	}
 	if daemonMessagePost(r) {
 		return MaxDaemonMessageBytes
 	}

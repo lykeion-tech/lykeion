@@ -74,6 +74,14 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/autoresearch/{id}/run", h.runAutoresearch)
 		r.Post("/api/cards/{id}/stop", h.stopCard)
 
+		// Skill services own their transactions so blob I/O stays outside database locks.
+		r.Get("/api/skills", h.listSkills)
+		r.Get("/api/skills/{id}", h.getSkill)
+		r.Get("/api/skills/{id}/files", h.getSkillFile)
+		r.Post("/api/skills", h.createSkill)
+		r.Patch("/api/skills/{id}", h.updateSkill)
+		r.Delete("/api/skills/{id}", h.deleteSkill)
+
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
 		r.Post("/api/cli-token", h.cliToken)
@@ -161,7 +169,6 @@ func NewRouter(h *H) http.Handler {
 
 			r.Get("/api/connectors", h.listConnectors)
 			r.With(middleware.RequireOwner).Put("/api/connectors/{name}", h.setConnector)
-			r.Get("/api/skills", h.listSkills)
 
 			r.Get("/api/inbox", h.listInbox)
 			r.Post("/api/inbox/{id}/read", h.readInbox)

@@ -205,3 +205,34 @@ func TestPackUploadGetsTheBlobDeadlines(t *testing.T) {
 		t.Fatalf("slow pack upload: %d", resp.StatusCode)
 	}
 }
+
+func TestSkillEditBodyBoundIsExact(t *testing.T) {
+	const root = "/api/skills/00000000-0000-0000-0000-000000000001"
+	for _, tc := range []struct {
+		method, path string
+		size, want   int
+	}{
+		{"PATCH", root, 7 << 20, 204}, {"PATCH", root, (7 << 20) + 1, 413},
+		{"POST", root, 2 << 20, 413}, {"PATCH", root + "/files", 2 << 20, 413}, {"PATCH", root + "/", 2 << 20, 413},
+		{"PATCH", "/api/skills/not-uuid", 2 << 20, 413}, {"PATCH", "/api/skills", 2 << 20, 413}, {"PATCH", "/api/cards/00000000-0000-0000-0000-000000000001", 2 << 20, 413},
+	} {
+		t.Run(tc.method+tc.path+strconv.Itoa(tc.size), func(t *testing.T) {
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				data, err := io.ReadAll(r.Body)
+				if err != nil || len(data) != tc.size {
+					t.Errorf("read %d %v", len(data), err)
+				}
+				deadline, ok := r.Context().Deadline()
+				if !ok || time.Until(deadline) > RequestTimeout {
+					t.Error("skill edit changed ordinary deadline")
+				}
+				w.WriteHeader(204)
+			})
+			rec := httptest.NewRecorder()
+			RequestBounds(next).ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(strings.Repeat("x", tc.size))))
+			if rec.Code != tc.want {
+				t.Fatalf("status %d want %d", rec.Code, tc.want)
+			}
+		})
+	}
+}

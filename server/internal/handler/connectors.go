@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/connectors"
-	"lykeion/server/internal/science"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -151,8 +150,4 @@ func (h *H) setConnector(w http.ResponseWriter, r *http.Request) {
 	if answer(w, r, err) {
 		writeJSON(w, 200, out)
 	}
-}
-
-func (h *H) listSkills(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, science.Skills())
 }
