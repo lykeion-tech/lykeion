@@ -9,7 +9,9 @@ import Modal from './components/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
 import CreateTask from './views/CreateTask.vue';
 import { api, ApiError } from './api/client';
-import { workspaceId } from './api/session';
+import { selectWorkspace, workspaceId } from './api/session';
+import DiscardDraftDialog from './components/settings/library/DiscardDraftDialog.vue';
+import { guardResourceDrafts } from './state/resource-draft';
 import { useCards, useMe, useWorkspace, useWorkspaces } from './api/queries';
 import { useRealtimeSync } from './api/realtime';
 import { notice, notify } from './state/notice';
@@ -70,16 +72,16 @@ const groups = [
     name: 'Laboratory',
     items: [
       { id: 'studies', name: 'Studies', icon: 'tasks' },
-      { id: 'teams', name: 'Teams', icon: 'network' },
       { id: 'projects', name: 'Researches', icon: 'folder' },
-      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
   },
   {
-    name: 'Configure',
+    name: 'IT department',
     items: [
+      { id: 'teams', name: 'Teams', icon: 'network' },
       { id: 'agents', name: 'Agents', icon: 'bot' },
+      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'machines', name: 'Machines', icon: 'monitor' },
     ],
   },
@@ -125,13 +127,13 @@ watch(
   () => workspaces.data.value,
   (list) => {
     if (list && !list.some((w) => w.id === workspaceId.value))
-      workspaceId.value = list[0]?.id ?? '';
+      void selectWorkspace(list[0]?.id ?? '');
   },
   { immediate: true },
 );
 // The socket refused the workspace (removed, or deleted): pick another and show the switcher.
-function recoverWorkspace() {
-  workspaceId.value = '';
+async function recoverWorkspace() {
+  if (!(await selectWorkspace(''))) return;
   void client.invalidateQueries({ queryKey: ['workspaces'] });
   workspaceMenu.value = true;
 }
@@ -161,20 +163,26 @@ watch(
     if (error instanceof ApiError && [403, 404].includes(error.status)) recoverWorkspace();
   },
 );
-function chooseWorkspace(id: string) {
-  workspaceId.value = id;
+async function chooseWorkspace(id: string) {
+  if (!(await selectWorkspace(id))) return;
   workspaceMenu.value = false;
   void router.push('/studies');
 }
 async function logOut() {
-  workspaceMenu.value = false;
-  try {
-    await api('POST', '/auth/logout');
-  } catch {
-    notify('Could not reach the server to log out. Try again.');
+  if (
+    !(await guardResourceDrafts(async () => {
+      try {
+        await api('POST', '/auth/logout');
+      } catch {
+        notify('Could not reach the server to log out. Try again.');
+        return false;
+      }
+      await client.cancelQueries();
+      return true;
+    }))
+  )
     return;
-  }
-  await client.cancelQueries();
+  workspaceMenu.value = false;
   workspaceId.value = '';
   await nextTick();
   await router.replace('/signin');
@@ -306,6 +314,7 @@ onUnmounted(() => {
 });
 </script>
 <template>
+  <DiscardDraftDialog />
   <RouterView v-if="route.meta.bare" />
   <div
     v-else-if="!unauthorized && !onboardingTarget"

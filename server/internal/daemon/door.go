@@ -18,16 +18,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/pack"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/toolroute"
+	"lykeion/server/internal/workspacemcp"
 	"lykeion/server/pkg/agent"
 )
 
@@ -38,13 +42,14 @@ import (
 // fetch, which records the call itself; everything else through the call
 // token, which only the door holds.
 type Door struct {
-	Server     string            // Lykeion's server, where calls are recorded
-	Sources    string            // the server's sources endpoint
-	RunToken   string            // the run's own ltk_ token, for the sources endpoint; never the person's
-	CallToken  string            // records calls; never given to the agent
-	Connectors []pack.Connector  // catalogue entries and the Team's own servers
-	Addons     []agent.MCPServer // the workspace's add-on servers, which may be http or loopback
-	Harness    string            // the CLI's, which says where routed skills are written
+	WorkspaceConnectors []service.WorkspaceConnectorClaim
+	Server              string            // Lykeion's server, where calls are recorded
+	Sources             string            // the server's sources endpoint
+	RunToken            string            // the run's own ltk_ token, for the sources endpoint; never the person's
+	CallToken           string            // records calls; never given to the agent
+	Connectors          []pack.Connector  // catalogue entries and the Team's own servers
+	Addons              []agent.MCPServer // the workspace's add-on servers, which may be http or loopback
+	Harness             string            // the CLI's, which says where routed skills are written
 	// Child answers the options the CLI runs with: a local command starts in
 	// their folder, with the environment the CLI gets.
 	Child func() agent.ExecOptions
@@ -52,13 +57,14 @@ type Door struct {
 	// URL and Token are set by Start: the CLI's MCP entry and its bearer.
 	URL, Token string
 
-	srv      *http.Server
-	ctx      context.Context
-	cancel   context.CancelFunc
-	mu       sync.Mutex
-	closed   bool
-	sessions map[string]*mcp.ClientSession
-	cmds     []*exec.Cmd
+	srv             *http.Server
+	ctx             context.Context
+	cancel          context.CancelFunc
+	mu              sync.Mutex
+	closed          bool
+	sessions        map[string]*mcp.ClientSession
+	cmds            []*exec.Cmd
+	sessionCommands map[string]*exec.Cmd
 }
 
 // sourcesTools are the sources server's tools the door forwards, under the
@@ -92,6 +98,7 @@ func (d *Door) Start() error {
 	d.URL = "http://" + ln.Addr().String() + "/mcp"
 	d.ctx, d.cancel = context.WithCancel(context.Background())
 	d.sessions = map[string]*mcp.ClientSession{}
+	d.sessionCommands = map[string]*exec.Cmd{}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "lyk_door", Version: "0.1.0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{Name: "call_tool", Description: "Call one tool of a connector this study may use (lyk tools names them), " +
 		"or of sources: search_literature, fetch_text, search_datasets, open_dataset. " +
@@ -166,6 +173,16 @@ func (d *Door) find(server string) (target, bool) {
 			}
 		}
 	}
+	for _, c := range d.WorkspaceConnectors {
+		if c.Name == server {
+			if c.Transport == "url" {
+				return target{"workspace", pack.Connector{Name: c.Name, Workspace: c.ID.String()}}, true
+			}
+			if c.Transport == "command" {
+				return target{"command", pack.Connector{Name: c.Name, Workspace: c.ID.String(), Command: c.Command, Env: c.Env}}, true
+			}
+		}
+	}
 	for _, a := range d.Addons {
 		if a.Name == server {
 			return target{"addon", pack.Connector{Name: a.Name, URL: a.URL}}, true
@@ -187,16 +204,53 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
+	if t.kind == "command" && t.c.Workspace != "" {
+		stop := context.AfterFunc(ctx, func() { d.dropCommand(t) })
+		defer stop()
+	}
 	if t.kind == "catalogue" {
 		return d.catalogue(ctx, t, in)
 	}
-	s, err := d.session(t)
+	var res *mcp.CallToolResult
+	var receipt string
+	var err error
+	if t.kind == "workspace" {
+		res = &mcp.CallToolResult{}
+		receipt, err = d.brokerRequest(ctx, "/api/role/mcp-servers/"+t.c.Workspace+"/call", map[string]any{"tool": in.Tool, "args": in.Args}, res)
+	} else {
+		var s *mcp.ClientSession
+		s, err = d.sessionContext(ctx, t)
+		if err == nil && t.c.Workspace != "" {
+			var tools []toolroute.Tool
+			tools, err = d.list(ctx, t)
+			if err == nil && !slices.ContainsFunc(tools, func(t toolroute.Tool) bool { return t.Name == in.Tool }) {
+				err = errors.New("tool is not in this connector's current inventory")
+			}
+			if err == nil {
+				err = d.publishWorkspaceTools(ctx, t, tools)
+			}
+		}
+		if err == nil {
+			res, err = s.CallTool(ctx, &mcp.CallToolParams{Name: in.Tool, Arguments: in.Args})
+		}
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	res, err := s.CallTool(ctx, &mcp.CallToolParams{Name: in.Tool, Arguments: in.Args})
-	if err != nil {
-		return nil, nil, err
+	if t.c.Workspace != "" && t.kind == "command" {
+		tools, err := d.list(ctx, t)
+		if err != nil {
+			return nil, nil, err
+		}
+		receipt, err = d.brokerRequest(ctx, "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"tools": tools, "fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env), "record": workspacemcp.CommandRecord{Tool: in.Tool, Args: in.Args, AnswerSHA256: workspacemcp.AnswerHash(text(res))}}, nil)
+		if err != nil {
+			d.dropCommand(t)
+			return nil, nil, errors.New("workspace command authority changed; answer withheld")
+		}
+
+	}
+	if t.c.Workspace != "" && receipt == "" {
+		return nil, nil, errors.New("workspace execution receipt missing; answer withheld")
 	}
 	answer := text(res)
 	if res.IsError {
@@ -209,7 +263,7 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 		Key string `json:"key"`
 	}
 	api := &apiclient.Client{Server: d.Server, Token: d.CallToken}
-	if err := api.Do(ctx, "POST", "/api/role/calls", map[string]any{"server": in.Server, "tool": in.Tool, "args": in.Args, "answer": answer}, &rec); err != nil {
+	if err := api.Do(ctx, "POST", "/api/role/calls", map[string]any{"server": in.Server, "tool": in.Tool, "args": in.Args, "answer": answer, "workspace_call": receipt}, &rec); err != nil {
 		return nil, nil, fmt.Errorf("the call could not be recorded, so its answer is withheld: %w", err)
 	}
 	return cited(rec.Key, answer), nil, nil
@@ -258,6 +312,18 @@ func teamClient() *http.Client {
 
 // session is the open client session to a server, started on first use.
 func (d *Door) session(t target) (*mcp.ClientSession, error) {
+	return d.sessionContext(d.ctx, t)
+}
+
+func (d *Door) sessionContext(request context.Context, t target) (*mcp.ClientSession, error) {
+	parent := d.ctx
+	if t.kind == "command" && t.c.Workspace != "" {
+		parent = request
+	}
+	ctx, cancel := context.WithTimeout(parent, time.Minute)
+	defer cancel()
+	stop := context.AfterFunc(d.ctx, cancel)
+	defer stop()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.closed {
@@ -269,6 +335,12 @@ func (d *Door) session(t target) (*mcp.ClientSession, error) {
 	}
 	if s, ok := d.sessions[key]; ok {
 		return s, nil
+	}
+	if t.kind == "command" && t.c.Workspace != "" {
+		api := &apiclient.Client{Server: d.Server, Token: d.CallToken, HTTP: &http.Client{Timeout: callTimeout}}
+		if err := api.Do(ctx, "POST", "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env)}, nil); err != nil {
+			return nil, err
+		}
 	}
 	var tr mcp.Transport
 	var cmd *exec.Cmd
@@ -292,8 +364,6 @@ func (d *Door) session(t target) (*mcp.ClientSession, error) {
 		// fails to start is given half a second to stop on its own.
 		tr = &mcp.CommandTransport{Command: cmd, TerminateDuration: 500 * time.Millisecond}
 	}
-	ctx, cancel := context.WithTimeout(d.ctx, time.Minute)
-	defer cancel()
 	s, err := mcp.NewClient(&mcp.Implementation{Name: "lyk_door", Version: "0.1.0"}, nil).Connect(ctx, tr, nil)
 	if err != nil {
 		if cmd != nil {
@@ -303,6 +373,7 @@ func (d *Door) session(t target) (*mcp.ClientSession, error) {
 	}
 	if cmd != nil {
 		d.cmds = append(d.cmds, cmd)
+		d.sessionCommands[key] = cmd
 	}
 	d.sessions[key] = s
 	return s, nil
@@ -325,19 +396,7 @@ func connectorEnv(o agent.ExecOptions, extra map[string]string) []string {
 	return env
 }
 
-func text(res *mcp.CallToolResult) string {
-	var b strings.Builder
-	for _, c := range res.Content {
-		if t, ok := c.(*mcp.TextContent); ok {
-			b.WriteString(t.Text)
-		}
-	}
-	if b.Len() == 0 && res.StructuredContent != nil {
-		j, _ := json.Marshal(res.StructuredContent)
-		return string(j)
-	}
-	return b.String()
-}
+func text(res *mcp.CallToolResult) string { return workspacemcp.AnswerText(res) }
 
 // cited puts the call's key first, so the agent can cite it. A run with no
 // study keeps no call record, so its answer has no key.
@@ -386,6 +445,18 @@ func (d *Door) tools(w http.ResponseWriter, r *http.Request) {
 		}
 		listed[connectorName(c)] = ts
 	}
+	for _, c := range d.WorkspaceConnectors {
+		t, _ := d.find(c.Name)
+		tools, err := d.list(ctx, t)
+		if err == nil && c.Transport == "command" {
+			err = d.publishWorkspaceTools(ctx, t, tools)
+		}
+		if err != nil {
+			http.Error(w, "workspace connector tools unavailable", http.StatusBadGateway)
+			return
+		}
+		listed[c.Name] = tools
+	}
 	var res toolroute.Result
 	api := &apiclient.Client{Server: d.Server, Token: d.RunToken, HTTP: &http.Client{Timeout: toolsTimeout}}
 	if err := api.Do(ctx, "POST", "/api/role/tools", map[string]any{"need": in.Need, "connector_tools": listed}, &res); err != nil {
@@ -408,7 +479,13 @@ func (d *Door) tools(w http.ResponseWriter, r *http.Request) {
 
 // list is a server's tools, by name and description.
 func (d *Door) list(ctx context.Context, t target) ([]toolroute.Tool, error) {
-	s, err := d.session(t)
+	if t.kind == "workspace" {
+		var tools []toolroute.Tool
+		api := &apiclient.Client{Server: d.Server, Token: d.CallToken, HTTP: &http.Client{Timeout: callTimeout}}
+		err := api.Do(ctx, "POST", "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{}, &tools)
+		return tools, err
+	}
+	s, err := d.sessionContext(ctx, t)
 	if err != nil {
 		return nil, err
 	}
@@ -448,4 +525,51 @@ func placeRouted(harness, dir string, s toolroute.RoutedSkill) error {
 	// frontmatter must match the folder.
 	agent.RenameSkill(dst, s.Name, name)
 	return nil
+}
+
+func (d *Door) publishWorkspaceTools(ctx context.Context, t target, tools []toolroute.Tool) error {
+	if _, err := uuid.Parse(t.c.Workspace); err != nil {
+		return errors.New("invalid workspace connector")
+	}
+	api := &apiclient.Client{Server: d.Server, Token: d.CallToken, HTTP: &http.Client{Timeout: callTimeout}}
+	err := api.Do(ctx, "POST", "/api/role/mcp-servers/"+t.c.Workspace+"/tools", map[string]any{"tools": tools, "fingerprint": service.CommandFingerprint(t.c.Command, t.c.Env)}, nil)
+	if err != nil {
+		d.dropCommand(t)
+	}
+	return err
+}
+
+func (d *Door) dropCommand(t target) {
+	key := t.kind + ":" + t.c.Name
+	d.mu.Lock()
+	s := d.sessions[key]
+	delete(d.sessions, key)
+	cmd := d.sessionCommands[key]
+	delete(d.sessionCommands, key)
+	if cmd != nil {
+		d.cmds = slices.DeleteFunc(d.cmds, func(c *exec.Cmd) bool { return c == cmd })
+	}
+	d.mu.Unlock()
+	if cmd != nil {
+		killGroup(cmd)
+	}
+	if s != nil {
+		s.Close()
+	}
+}
+
+type receiptTransport struct{ ticket *string }
+
+func (t receiptTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	response, err := http.DefaultTransport.RoundTrip(r)
+	if err == nil {
+		*t.ticket = response.Header.Get(workspacemcp.RecordHeader)
+	}
+	return response, err
+}
+func (d *Door) brokerRequest(ctx context.Context, path string, in, out any) (string, error) {
+	var ticket string
+	api := &apiclient.Client{Server: d.Server, Token: d.CallToken, HTTP: &http.Client{Timeout: callTimeout, Transport: receiptTransport{&ticket}}}
+	err := api.Do(ctx, "POST", path, in, out)
+	return ticket, err
 }

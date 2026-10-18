@@ -6,12 +6,18 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 )
 
 func configureProcess(cmd *exec.Cmd) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return killProcessTree(cmd) }
+	var shutdown sync.Mutex
+	cmd.Cancel = func() error {
+		shutdown.Lock()
+		defer shutdown.Unlock()
+		return killProcessTree(cmd)
+	}
 	return nil
 }
 func killProcessTree(cmd *exec.Cmd) error {

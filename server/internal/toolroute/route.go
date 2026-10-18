@@ -48,6 +48,8 @@ type Skill struct {
 	Sections []science.Section
 	// Files is an archive skill's whole folder; nil for a bundled skill.
 	Files map[string][]byte
+	// LoadFiles reads an immutable imported folder after item qualification.
+	LoadFiles func(context.Context) (map[string][]byte, error) `json:"-"`
 }
 
 type Tool struct {
@@ -131,15 +133,9 @@ func ForTeam(p *pack.Pack, m pack.Member, conns []pack.Connector, tools map[stri
 	return c
 }
 
-// ForLibrary is what a run without a Team routes to: every bundled skill and
-// the given connectors.
-func ForLibrary(conns []pack.Connector, tools map[string][]Tool) Candidates {
-	var c Candidates
-	for _, s := range science.Skills() {
-		c.Skills = append(c.Skills, Skill{Name: s.Name, Domain: s.Domain, Description: s.Description})
-	}
-	c.Connectors = connectorsOf(conns, tools, "the workspace's own servers")
-	return c
+// ForLibrary routes a run without a Team to its supplied skill library and connectors.
+func ForLibrary(conns []pack.Connector, tools map[string][]Tool, skills []Skill) Candidates {
+	return Candidates{Skills: skills, Connectors: connectorsOf(conns, tools, "the workspace's own servers")}
 }
 
 // connectorsOf names each connector as call_tool does. A catalogue connector
@@ -246,7 +242,7 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 	var tools []toolOf
 	qs, names = nil, nil
 	for i, s := range skills {
-		all, err := s.sections()
+		all, err := s.sections(ctx)
 		if err != nil {
 			return res, fmt.Errorf("skill %s: %w", s.Name, err)
 		}
@@ -304,7 +300,14 @@ func (c Candidates) AttachFolders(r *Result) error {
 	return nil
 }
 
-func (s Skill) sections() ([]science.Section, error) {
+func (s Skill) sections(ctx context.Context) ([]science.Section, error) {
+	if s.Files == nil && s.LoadFiles != nil {
+		files, err := s.LoadFiles(ctx)
+		if err != nil {
+			return nil, err
+		}
+		s.Files = files
+	}
 	switch {
 	case s.Sections != nil:
 		return s.Sections, nil

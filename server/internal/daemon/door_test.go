@@ -51,10 +51,28 @@ func stubCommand() {
 	}
 	os.WriteFile("stub.pid", []byte(strconv.Itoa(os.Getpid())+" "+strconv.Itoa(child.Process.Pid)), 0600)
 	os.WriteFile("stub.env", []byte("LYK_TOKEN="+os.Getenv("LYK_TOKEN")+" LYK_DOOR_TOKEN="+os.Getenv("LYK_DOOR_TOKEN")), 0600)
+	if os.Getenv("LYK_DOOR_STUB_BLOCK_INIT") == "1" {
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "stub", Version: "0"}, nil)
-	mcp.AddTool(srv, &mcp.Tool{Name: "echo"}, func(_ context.Context, _ *mcp.CallToolRequest, in struct {
+	mcp.AddTool(srv, &mcp.Tool{Name: "echo"}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		Q string `json:"q"`
 	}) (*mcp.CallToolResult, any, error) {
+		if in.Q == "workspace-wait" {
+			os.WriteFile("stub.started", []byte("ready"), 0600)
+			for {
+				if _, err := os.Stat("stub.release"); err == nil {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					return nil, nil, ctx.Err()
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
+		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "echo " + in.Q}}}, nil, nil
 	})
 	srv.Run(context.Background(), &mcp.StdioTransport{})

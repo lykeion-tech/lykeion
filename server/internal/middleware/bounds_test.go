@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -203,5 +204,142 @@ func TestPackUploadGetsTheBlobDeadlines(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("slow pack upload: %d", resp.StatusCode)
+	}
+}
+
+func TestSkillEditBodyBoundIsExact(t *testing.T) {
+	const root = "/api/skills/00000000-0000-0000-0000-000000000001"
+	for _, tc := range []struct {
+		method, path string
+		size, want   int
+	}{
+		{"PATCH", root, 7 << 20, 204}, {"PATCH", root, (7 << 20) + 1, 413},
+		{"POST", root, 2 << 20, 413}, {"PATCH", root + "/files", 2 << 20, 413}, {"PATCH", root + "/", 2 << 20, 413},
+		{"PATCH", "/api/skills/not-uuid", 2 << 20, 413}, {"PATCH", "/api/skills", 2 << 20, 413}, {"PATCH", "/api/cards/00000000-0000-0000-0000-000000000001", 2 << 20, 413},
+	} {
+		t.Run(tc.method+tc.path+strconv.Itoa(tc.size), func(t *testing.T) {
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				data, err := io.ReadAll(r.Body)
+				if err != nil || len(data) != tc.size {
+					t.Errorf("read %d %v", len(data), err)
+				}
+				deadline, ok := r.Context().Deadline()
+				if !ok || time.Until(deadline) > RequestTimeout {
+					t.Error("skill edit changed ordinary deadline")
+				}
+				w.WriteHeader(204)
+			})
+			rec := httptest.NewRecorder()
+			RequestBounds(next).ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(strings.Repeat("x", tc.size))))
+			if rec.Code != tc.want {
+				t.Fatalf("status %d want %d", rec.Code, tc.want)
+			}
+		})
+	}
+}
+
+func TestArchiveImportBodyBound(t *testing.T) {
+	for _, tc := range []struct {
+		method, path, contentType string
+		size, status              int
+	}{
+		{"POST", "/api/skills/import", "multipart/form-data; boundary=test", 16 << 20, 204},
+		{"POST", "/api/skills/import", "multipart/form-data; boundary=test", 16<<20 + 1, 413},
+		{"POST", "/api/skills/import", "application/json", 1<<20 + 1, 413},
+		{"POST", "/api/skills/import", "multipart/form-data; broken", 1<<20 + 1, 413},
+		{"POST", "/api/skills/imported", "multipart/form-data; boundary=test", 1<<20 + 1, 413},
+		{"PATCH", "/api/skills/import", "multipart/form-data; boundary=test", 1<<20 + 1, 413},
+	} {
+		t.Run(tc.method+tc.path+tc.contentType+strconv.Itoa(tc.size), func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(strings.Repeat("x", tc.size)))
+			req.Header.Set("Content-Type", tc.contentType)
+			rr := httptest.NewRecorder()
+			RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				data, err := io.ReadAll(r.Body)
+				if err != nil || len(data) != tc.size {
+					t.Fatalf("read %d %v", len(data), err)
+				}
+				w.WriteHeader(204)
+			})).ServeHTTP(rr, req)
+			if rr.Code != tc.status {
+				t.Fatalf("status %d want %d", rr.Code, tc.status)
+			}
+		})
+	}
+}
+
+func TestRuntimeSkillZIPBodyBoundIsExact(t *testing.T) {
+	const route = "/api/daemon/runtimes/00000000-0000-0000-0000-000000000001/local-skills/import/00000000-0000-0000-0000-000000000002/result"
+	for _, tc := range []struct {
+		method, path, media string
+		want                int
+	}{
+		{"POST", route, "application/zip", 204},
+		{"POST", route, "application/json", 413},
+		{"PUT", route, "application/zip", 413},
+		{"POST", route + "/", "application/zip", 413},
+		{"POST", strings.Replace(route, "import/", "", 1), "application/zip", 413},
+		{"POST", strings.Replace(route, "00000000-0000-0000-0000-000000000001", "bad", 1), "application/zip", 413},
+	} {
+		t.Run(tc.method+tc.path+tc.media, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(strings.Repeat("x", 2<<20)))
+			req.Header.Set("Content-Type", tc.media)
+			rec := httptest.NewRecorder()
+			RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				d, ok := r.Context().Deadline()
+				if !ok || time.Until(d) < 50*time.Second {
+					t.Error("raw archive lost blob deadline")
+				}
+				w.WriteHeader(204)
+			})).ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status %d want %d", rec.Code, tc.want)
+			}
+		})
+	}
+}
+
+func TestWorkspaceMCPBrokerTimeoutIsExactAndCancellable(t *testing.T) {
+	id := "12345678-1234-1234-1234-123456789012"
+	for _, tc := range []struct {
+		method, path string
+		broker       bool
+	}{
+		{"POST", "/api/role/mcp-servers/" + id + "/tools", true},
+		{"POST", "/api/role/mcp-servers/" + id + "/call", true},
+		{"GET", "/api/role/mcp-servers/" + id + "/call", false},
+		{"POST", "/api/role/mcp-servers/nope/call", false},
+		{"POST", "/api/role/mcp-servers/" + id + "/calls", false},
+		{"POST", "/api/role/mcp-servers/" + id + "/call/extra", false},
+	} {
+		t.Run(tc.method+tc.path, func(t *testing.T) {
+			parent, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)).WithContext(parent)
+			req.Header.Set("Content-Type", "application/json")
+			RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				deadline, ok := r.Context().Deadline()
+				if !ok {
+					t.Fatal("no deadline")
+				}
+				remaining := time.Until(deadline)
+				want := RequestTimeout
+				if tc.broker {
+					want = 5 * time.Minute
+				}
+				if remaining > want || remaining < want-time.Second {
+					t.Fatalf("timeout %s want %s", remaining, want)
+				}
+				if JSONBodyLimit(r) != MaxBodyBytes {
+					t.Fatal("broker widened body limit")
+				}
+				cancel()
+				select {
+				case <-r.Context().Done():
+				case <-time.After(time.Second):
+					t.Fatal("parent cancellation lost")
+				}
+			})).ServeHTTP(httptest.NewRecorder(), req)
+		})
 	}
 }

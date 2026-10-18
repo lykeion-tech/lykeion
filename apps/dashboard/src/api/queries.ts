@@ -8,6 +8,7 @@ import type {
   Autoresearch,
   AutoresearchDetail,
   AutoresearchRun,
+  AutoresearchRunDetail,
   Research,
   ResearchDetail,
   AgentRun,
@@ -285,22 +286,32 @@ export const useTeam = (id: MaybeRefOrGetter<string>) =>
     enabled: computed(() => inWorkspace.value && !!toValue(id)),
   });
 
-export const useSkills = () =>
+// Compatibility names share exactly the same library query contracts.
+export {
+  useSkillLibrary,
+  useSkillLibrary as useSkills,
+  useSkillDetail,
+  useSkillFile,
+  useConnectorLibrary,
+  useConnectorLibrary as useConnectors,
+  useWorkspaceMCPServers,
+  useRuntimeSkillRequest,
+  useLibraryMutations,
+} from './library';
+
+export const useAutoresearchRun = (id: MaybeRefOrGetter<string>) =>
   useQuery({
-    queryKey: computed(() => ['ws', ws.value, 'skills'] as const),
-    queryFn: async () =>
-      (await api<{ name: string; domain: string }[] | null>('GET', '/api/skills')) ?? [],
-    enabled: inWorkspace,
-  });
-export const useConnectors = () =>
-  useQuery({
-    queryKey: computed(() => ['ws', ws.value, 'connectors'] as const),
-    queryFn: async () =>
-      (await api<{ name: string; domain: string; purpose: string }[] | null>(
+    queryKey: computed(() => keys.autoresearchRun(ws.value, toValue(id))),
+    queryFn: ({ queryKey, signal }) =>
+      api<AutoresearchRunDetail>(
         'GET',
-        '/api/connectors',
-      )) ?? [],
-    enabled: inWorkspace,
+        `/api/autoresearch-runs/${encodeURIComponent(queryKey[3])}`,
+        undefined,
+        undefined,
+        { workspace: queryKey[1], signal },
+      ),
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+    retry: false,
   });
 
 // Adds a Team for the caller and answers the agents it created.

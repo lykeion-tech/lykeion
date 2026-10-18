@@ -360,6 +360,25 @@ type Runtime struct {
 	CliVersion    string    `json:"cli_version"`
 }
 
+type RuntimeSkillRequest struct {
+	WorkspaceID   uuid.UUID       `json:"workspace_id"`
+	ID            uuid.UUID       `json:"id"`
+	RuntimeID     uuid.UUID       `json:"runtime_id"`
+	OwnerID       uuid.UUID       `json:"owner_id"`
+	DaemonID      string          `json:"daemon_id"`
+	Operation     string          `json:"operation"`
+	Keys          []string        `json:"keys"`
+	Status        string          `json:"status"`
+	AcquisitionID *uuid.UUID      `json:"acquisition_id"`
+	ExpiresAt     time.Time       `json:"expires_at"`
+	AcquiredAt    *time.Time      `json:"acquired_at"`
+	CompletedAt   *time.Time      `json:"completed_at"`
+	Result        json.RawMessage `json:"result"`
+	ResultBlobKey string          `json:"result_blob_key"`
+	Error         string          `json:"error"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
 type StageAddon struct {
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
 	BoardColumn string          `json:"board_column"`
@@ -430,6 +449,7 @@ type WorkspaceConnector struct {
 	LicenceConfirmedAt *time.Time `json:"licence_confirmed_at"`
 	UpdatedBy          uuid.UUID  `json:"updated_by"`
 	UpdatedAt          time.Time  `json:"updated_at"`
+	Revision           int64      `json:"revision"`
 }
 
 type WorkspaceInvitation struct {
@@ -442,4 +462,54 @@ type WorkspaceInvitation struct {
 	ExpiresAt   time.Time  `json:"expires_at"`
 	AcceptedAt  *time.Time `json:"accepted_at"`
 	CreatedAt   time.Time  `json:"created_at"`
+}
+
+type WorkspaceMcpServer struct {
+	WorkspaceID      uuid.UUID `json:"workspace_id"`
+	ID               uuid.UUID `json:"id"`
+	Name             string    `json:"name"`
+	Transport        string    `json:"transport"`
+	ConfigCiphertext []byte    `json:"config_ciphertext"`
+	Revision         int64     `json:"revision"`
+	CreatedBy        uuid.UUID `json:"created_by"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type WorkspaceSkill struct {
+	WorkspaceID     uuid.UUID  `json:"workspace_id"`
+	ID              uuid.UUID  `json:"id"`
+	Name            string     `json:"name"`
+	Revision        int64      `json:"revision"`
+	CreatedBy       uuid.UUID  `json:"created_by"`
+	SourceKind      string     `json:"source_kind"`
+	SourceLocation  string     `json:"source_location"`
+	SourceRuntimeID *uuid.UUID `json:"source_runtime_id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	DeletedAt       *time.Time `json:"deleted_at"`
+}
+
+type WorkspaceSkillPin struct {
+	WorkspaceID       uuid.UUID  `json:"workspace_id"`
+	ScopeKind         string     `json:"scope_kind"`
+	ScopeID           uuid.UUID  `json:"scope_id"`
+	SkillID           uuid.UUID  `json:"skill_id"`
+	Revision          int64      `json:"revision"`
+	CardID            *uuid.UUID `json:"card_id"`
+	AutoresearchRunID *uuid.UUID `json:"autoresearch_run_id"`
+	CreatedAt         time.Time  `json:"created_at"`
+}
+
+type WorkspaceSkillVersion struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	SkillID     uuid.UUID       `json:"skill_id"`
+	Revision    int64           `json:"revision"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Domain      string          `json:"domain"`
+	Sha256      string          `json:"sha256"`
+	Manifest    json.RawMessage `json:"manifest"`
+	BlobKey     string          `json:"blob_key"`
+	CreatedAt   time.Time       `json:"created_at"`
 }

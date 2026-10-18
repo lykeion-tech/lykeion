@@ -17,8 +17,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"bytes"
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/service"
@@ -56,7 +58,9 @@ func fixture(t *testing.T) *daemonFixture {
 	st.Publish = hub.Publish
 	f.runs = &service.AgentRuns{Store: st}
 	issuer := auth.Issuer{Secret: []byte("test"), TTL: time.Hour}
-	router := handler.NewRouter(&handler.H{Store: st, JWT: issuer, Limit: auth.Limiter{R: f.env.Redis}, Hub: hub, AgentRuns: f.runs, Blobs: storage.Local{Dir: t.TempDir()}})
+	h := &handler.H{Connectors: &connectors.Client{Secret: bytes.Repeat([]byte{7}, 32)}, Store: st, JWT: issuer, Limit: auth.Limiter{R: f.env.Redis}, Hub: hub, AgentRuns: f.runs, Blobs: storage.Local{Dir: t.TempDir()}}
+	router := handler.NewRouter(h)
+	t.Cleanup(h.MCPBroker.Close)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/prepare-lease") && f.refusePrepare.Swap(false) {
 			conn, _, err := w.(http.Hijacker).Hijack()

@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
 import TaskDetail from './TaskDetail.vue';
+import AutoresearchRunDialog from '../components/AutoresearchRunDialog.vue';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
@@ -20,6 +21,34 @@ const shown = computed(() => (archived.value ? resolved.data.value : open.data.v
 const selected = computed(() =>
   [...(open.data.value ?? []), ...(resolved.data.value ?? [])].find((i) => i.id === props.itemId),
 );
+const selectedReport = ref<InboxItem>();
+const reportOpen = ref(false);
+let reportVisit = '';
+// A read receipt moves the item between lists without changing the open run.
+watch(
+  [workspaceId, () => props.itemId, () => selected.value],
+  ([workspace, itemId, item]) => {
+    const visit = `${workspace}:${itemId}`;
+    if (visit !== reportVisit) {
+      reportVisit = visit;
+      selectedReport.value = undefined;
+      reportOpen.value = false;
+    }
+    if (
+      !item ||
+      item.workspace_id !== workspace ||
+      item.id !== itemId ||
+      item.kind !== 'autoresearch_report' ||
+      !item.autoresearch_run_id
+    )
+      return;
+    const previous = selectedReport.value;
+    selectedReport.value = item;
+    if (previous?.id !== item.id || previous.autoresearch_run_id !== item.autoresearch_run_id)
+      reportOpen.value = true;
+  },
+  { immediate: true, flush: 'sync' },
+);
 const kinds: Record<InboxItem['kind'], { label: string; mark: string }> = {
   escalated: { label: 'Escalated', mark: '!' },
   released: { label: 'Released', mark: '✓' },
@@ -35,7 +64,8 @@ const kinds: Record<InboxItem['kind'], { label: string; mark: string }> = {
 // their label and the server's text.
 const line = (i: InboxItem) => inboxText(i, titleOf(i)) ?? `${kinds[i.kind].label}: ${i.text}`;
 const titleOf = (i: InboxItem) =>
-  cards.data.value?.find((c) => c.id === i.card_id)?.title ?? 'Study';
+  cards.data.value?.find((c) => c.id === i.card_id)?.title ??
+  (i.kind === 'autoresearch_report' ? 'Autoresearch' : 'Study');
 
 const error = ref('');
 const listError = computed(() => (archived.value ? resolved.error.value : open.error.value));
@@ -115,13 +145,29 @@ watch(
         </button>
       </nav>
       <div class="conversation-content">
-        <TaskDetail v-if="selected" :id="selected.card_id" :key="selected.card_id" embedded />
+        <TaskDetail
+          v-if="selected?.card_id && selected.kind !== 'autoresearch_report'"
+          :id="selected.card_id"
+          :key="selected.card_id"
+          embedded
+        />
+        <div v-else-if="selectedReport" class="conversation-empty">
+          <Icon name="zap" :size="38" />
+          <p>{{ selectedReport.text }}</p>
+          <button class="button" @click="reportOpen = true">Open report</button>
+        </div>
         <div v-else class="conversation-empty">
           <Icon name="inbox" :size="38" />
           <p>Select an item to open its study</p>
         </div>
       </div>
     </div>
+    <AutoresearchRunDialog
+      v-if="reportOpen && selectedReport?.autoresearch_run_id"
+      :key="workspaceId + ':' + selectedReport.autoresearch_run_id"
+      :run-id="selectedReport.autoresearch_run_id"
+      @close="reportOpen = false"
+    />
   </section>
 </template>
 <style scoped src="./resources.css"></style>

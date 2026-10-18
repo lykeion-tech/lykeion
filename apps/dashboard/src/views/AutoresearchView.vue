@@ -20,6 +20,7 @@ import {
 import type { Autoresearch } from '../api/types';
 import { columnName, type Picked, type Range } from '../lib/studies';
 import Modal from '../components/Modal.vue';
+import AutoresearchRunDialog from '../components/AutoresearchRunDialog.vue';
 import Icon from '../components/Icon.vue';
 import AssignPicker from '../components/AssignPicker.vue';
 import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
@@ -79,6 +80,7 @@ const modes = [
   { id: 'run_only', name: 'Run only', text: 'Each run reports back, no study created' },
 ] as const;
 
+const selectedRunId = ref('');
 const editor = ref(false),
   name = ref(''),
   runbook = ref(''),
@@ -119,7 +121,14 @@ function open(preset = '') {
   error.value = '';
   editor.value = true;
 }
-watch([workspaceId, () => props.id], () => (editor.value = false));
+watch(
+  [workspaceId, () => props.id],
+  () => {
+    editor.value = false;
+    selectedRunId.value = '';
+  },
+  { flush: 'sync' },
+);
 
 const invalid = computed(
   () =>
@@ -273,19 +282,27 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
         <h2>Runs</h2>
         <div class="research-studies">
           <component
-            :is="r.card_id ? 'RouterLink' : 'div'"
+            :is="r.card_id ? 'RouterLink' : 'button'"
             v-for="r in runs.data.value ?? []"
             :key="r.id"
             :to="r.card_id ? '/studies/' + r.card_id : undefined"
-            class="trigger-row"
+            :type="r.card_id ? undefined : 'button'"
+            class="trigger-row run-row"
+            @click="!r.card_id && (selectedRunId = r.id)"
             ><Icon name="zap" /><span
-              >{{ r.status
+              >{{ r.status.charAt(0).toUpperCase() + r.status.slice(1)
               }}<small
                 >{{ r.source }} · {{ when(r.planned_at)
                 }}{{ r.reason ? ' · ' + r.reason : '' }}</small
               ></span
-            ></component
-          >
+            ><span class="run-destination">{{
+              r.card_id ? 'Open study' : r.report ? 'Open report' : 'View run'
+            }}</span
+            ><Icon name="right" :size="14" />
+          </component>
+          <p v-if="runs.error.value" class="inline-error" role="alert">
+            {{ runs.error.value.message }} <button @click="runs.refetch()">Retry</button>
+          </p>
           <p v-if="runs.isSuccess.value && !runs.data.value?.length" class="muted">No runs yet.</p>
         </div>
       </div></template
@@ -331,6 +348,12 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
     <p v-if="id ? detail.isPending.value : list.isPending.value" role="status">
       Loading Autoresearch…
     </p>
+    <AutoresearchRunDialog
+      v-if="selectedRunId"
+      :key="workspaceId + ':' + selectedRunId"
+      :run-id="selectedRunId"
+      @close="selectedRunId = ''"
+    />
     <Modal v-if="editor" title="New autoresearch" @close="editor = false"
       ><form class="directory-form autoresearch-form" @submit.prevent="create">
         <h2>New autoresearch</h2>
@@ -546,6 +569,23 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 8px;
+}
+.run-row {
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+}
+.run-row:hover {
+  background: var(--input);
+}
+.run-destination {
+  margin-left: auto;
+  white-space: nowrap;
+  padding: 4px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--input);
 }
 .trigger-row small {
   display: block;

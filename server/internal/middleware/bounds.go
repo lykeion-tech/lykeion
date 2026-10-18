@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"strings"
@@ -46,7 +47,7 @@ func RequestBounds(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs"
+		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r)
 		callPost := r.Method == http.MethodPost && r.URL.Path == "/api/role/calls"
 		packUpload := r.Method == http.MethodPost && r.URL.Path == "/api/packs"
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
@@ -58,6 +59,9 @@ func RequestBounds(next http.Handler) http.Handler {
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/role/tools" {
 			requestTimeout = ToolsRequestTimeout
+		}
+		if workspaceMCPBrokerPost(r) {
+			requestTimeout = 5 * time.Minute
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
@@ -72,7 +76,7 @@ func RequestBounds(next http.Handler) http.Handler {
 				deny(w, http.StatusInternalServerError, "body read unavailable")
 				return
 			}
-			// Only this exact raw endpoint may defer reading until after authentication.
+			// Only the exact raw endpoints may defer reading until after authentication.
 			// Keep the deadline through the spool. Close these upload connections so
 			// net/http never drains an unread body after early authentication failure.
 			if rawBlob {
@@ -121,6 +125,22 @@ func daemonMessagePost(r *http.Request) bool {
 
 // JSONBodyLimit is shared by pre-transaction buffering and strict decoding.
 func JSONBodyLimit(r *http.Request) int64 {
+	if r.Method == http.MethodPost && r.URL.Path == "/api/skills/import" {
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err == nil && mediaType == "multipart/form-data" {
+			return 16 << 20
+		}
+	}
+
+	// A one MiB UTF-8 main file may expand sixfold when JSON escapes it.
+	if r.Method == http.MethodPatch {
+		p := strings.Split(r.URL.Path, "/")
+		if len(p) == 4 && p[1] == "api" && p[2] == "skills" && len(p[3]) == 36 {
+			if _, err := uuid.Parse(p[3]); err == nil {
+				return 7 << 20
+			}
+		}
+	}
 	if daemonMessagePost(r) {
 		return MaxDaemonMessageBytes
 	}
@@ -139,4 +159,39 @@ func validWebSocketHandshake(r *http.Request) bool {
 	}
 	key, err := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))
 	return err == nil && len(key) == 16
+}
+
+// RuntimeSkillZIPUpload identifies only the daemon's selected-item archive result.
+// Its handler authenticates the operation before spooling at the archive limit.
+func RuntimeSkillZIPUpload(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || media != "application/zip" {
+		return false
+	}
+	p := strings.Split(r.URL.Path, "/")
+	if len(p) != 9 || p[1] != "api" || p[2] != "daemon" || p[3] != "runtimes" || p[5] != "local-skills" || p[6] != "import" || p[8] != "result" || len(p[4]) != 36 || len(p[7]) != 36 {
+		return false
+	}
+	if _, err := uuid.Parse(p[4]); err != nil {
+		return false
+	}
+	_, err = uuid.Parse(p[7])
+	return err == nil
+}
+
+// workspaceMCPBrokerPost gives only the two daemon broker endpoints the door's
+// existing call budget. Body size and read deadlines remain the ordinary ones.
+func workspaceMCPBrokerPost(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) != 6 || parts[1] != "api" || parts[2] != "role" || parts[3] != "mcp-servers" || len(parts[4]) != 36 || (parts[5] != "tools" && parts[5] != "call") {
+		return false
+	}
+	_, err := uuid.Parse(parts[4])
+	return err == nil
 }

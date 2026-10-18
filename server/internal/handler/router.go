@@ -1,16 +1,44 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/workspacemcp"
 )
 
 func NewRouter(h *H) http.Handler {
+	if h.MCPBroker == nil {
+		h.MCPBroker = &workspacemcp.Broker{Store: h.Store, Keys: h.Connectors}
+	}
+	if h.AgentRuns != nil {
+		h.AgentRuns.Keys = h.Connectors
+		attemptEnded := h.AgentRuns.OnAttemptEnded
+		h.AgentRuns.OnAttemptEnded = func(ws, run uuid.UUID, attempt int32) {
+			h.MCPBroker.CloseAttempt(ws, run, attempt)
+			if attemptEnded != nil {
+				attemptEnded(ws, run, attempt)
+			}
+		}
+		previous := h.AgentRuns.OnSettlement
+		legacy := h.AgentRuns.OnSettled
+		h.AgentRuns.OnSettlement = func(ctx context.Context, event service.Settlement) error {
+			h.MCPBroker.CloseRun(event.AgentRun.WorkspaceID, event.AgentRun.ID)
+			if previous != nil {
+				return previous(ctx, event)
+			}
+			if legacy != nil {
+				legacy(ctx, event.AgentRun)
+			}
+			return nil
+		}
+	}
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.Recoverer, middleware.RequestBounds)
 
@@ -41,6 +69,8 @@ func NewRouter(h *H) http.Handler {
 		})
 		// Only the daemon's tool door holds a call token; the agent's cannot record.
 		r.With(middleware.RequireScope(service.ScopeCall)).Post("/calls", h.postCall)
+		r.With(middleware.RequireScope(service.ScopeCall)).Post("/mcp-servers/{id}/tools", h.workspaceMCPTools)
+		r.With(middleware.RequireScope(service.ScopeCall)).Post("/mcp-servers/{id}/call", h.workspaceMCPCall)
 		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Post("/tools", h.postTools)
 		r.With(middleware.RequireScope(service.ScopeReport)).Post("/report", h.autoresearchReport)
 		r.With(middleware.RequireScope(service.ScopeCardCreate)).Post("/cards", h.autoresearchCard)
@@ -60,6 +90,10 @@ func NewRouter(h *H) http.Handler {
 			}
 			r.Post("/register", h.daemonRegister)
 			r.Post("/heartbeat", h.daemonHeartbeat)
+			r.Post("/runtimes/{id}/local-skills", h.claimRuntimeSkills("list"))
+			r.Post("/runtimes/{id}/local-skills/import", h.claimRuntimeSkills("import"))
+			r.Post("/runtimes/{id}/local-skills/{requestId}/result", h.reportRuntimeSkills("list"))
+			r.Post("/runtimes/{id}/local-skills/import/{requestId}/result", h.reportRuntimeSkills("import"))
 			r.Post("/agent-runs/claim", h.daemonClaim)
 			r.Post("/agent-runs/{id}/prepare-lease", h.daemonPrepare())
 			r.Post("/agent-runs/{id}/start", h.daemonStart())
@@ -73,6 +107,29 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/agent-runs/{id}/cancel", h.cancelAgentRun)
 		r.Post("/api/autoresearch/{id}/run", h.runAutoresearch)
 		r.Post("/api/cards/{id}/stop", h.stopCard)
+
+		// Runtime skill jobs own their transactions, including the final upload fence.
+		r.Post("/api/runtimes/{id}/local-skills", h.initiateRuntimeSkills("list"))
+		r.Post("/api/runtimes/{id}/local-skills/import", h.initiateRuntimeSkills("import"))
+		r.Get("/api/runtimes/{id}/local-skills/{requestId}", h.getRuntimeSkills("list"))
+		r.Get("/api/runtimes/{id}/local-skills/import/{requestId}", h.getRuntimeSkills("import"))
+		// Skill services own their transactions so blob I/O stays outside database locks.
+		r.Get("/api/skills", h.listSkills)
+		r.Get("/api/skills/{id}", h.getSkill)
+		r.Get("/api/skills/{id}/files", h.getSkillFile)
+		r.Post("/api/skills", h.createSkill)
+		r.Post("/api/skills/import", h.importSkill)
+		r.Patch("/api/skills/{id}", h.updateSkill)
+		r.Delete("/api/skills/{id}", h.deleteSkill)
+
+		// MCP services own their transactions and recheck current administrator authority.
+		r.Get("/api/mcp-servers", h.listWorkspaceMCP)
+		r.Post("/api/mcp-servers", h.saveWorkspaceMCP(true))
+		r.Put("/api/mcp-servers/{id}", h.saveWorkspaceMCP(false))
+		r.Delete("/api/mcp-servers/{id}", h.deleteWorkspaceMCP)
+
+		// Team creation reads selected folders and writes the pack blob before its transaction.
+		r.Post("/api/teams", h.createTeam)
 
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
@@ -117,6 +174,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/autoresearch/{id}/pause", h.setAutoresearchStatus("paused"))
 			r.Post("/api/autoresearch/{id}/resume", h.setAutoresearchStatus("active"))
 			r.Get("/api/autoresearch/{id}/runs", h.listAutoresearchRuns)
+			r.Get("/api/autoresearch-runs/{id}", h.getAutoresearchRun)
 			r.Post("/api/autoresearch/{id}/triggers", h.createTrigger)
 			r.Patch("/api/autoresearch/{id}/triggers/{trigger}", h.setTriggerEnabled)
 			r.Delete("/api/autoresearch/{id}/triggers/{trigger}", h.deleteTrigger)
@@ -146,7 +204,6 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/packs", h.uploadPack)
 			r.Post("/api/packs/{id}/approve", h.approvePack)
 			r.Get("/api/teams", h.listTeams)
-			r.Post("/api/teams", h.createTeam)
 			r.Get("/api/teams/{id}", h.getTeam)
 			r.Post("/api/teams/{id}/add", h.addTeam)
 			r.Get("/api/cards/{id}", h.getCard)
@@ -161,7 +218,6 @@ func NewRouter(h *H) http.Handler {
 
 			r.Get("/api/connectors", h.listConnectors)
 			r.With(middleware.RequireOwner).Put("/api/connectors/{name}", h.setConnector)
-			r.Get("/api/skills", h.listSkills)
 
 			r.Get("/api/inbox", h.listInbox)
 			r.Post("/api/inbox/{id}/read", h.readInbox)

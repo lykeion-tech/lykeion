@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -15,9 +16,11 @@ import (
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/skill"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/toolroute"
+	"lykeion/server/internal/workspacemcp"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -154,10 +157,11 @@ const maxCallAnswer = 32 << 20
 // record is built and stored as a catalogue fetch's is.
 func (h *H) postCall(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Server string          `json:"server"`
-		Tool   string          `json:"tool"`
-		Args   json.RawMessage `json:"args"`
-		Answer string          `json:"answer"`
+		Server        string          `json:"server"`
+		Tool          string          `json:"tool"`
+		Args          json.RawMessage `json:"args"`
+		Answer        string          `json:"answer"`
+		WorkspaceCall string          `json:"workspace_call,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil || in.Server == "" || in.Tool == "" {
 		writeErr(w, 400, "server, tool and answer required")
@@ -172,9 +176,14 @@ func (h *H) postCall(w http.ResponseWriter, r *http.Request) {
 		args = in.Args
 	}
 	role := middleware.RoleFrom(r.Context())
+	check, err := h.MCPBroker.RecordFence(r.Context(), role, in.WorkspaceCall, in.Server, in.Tool, args, in.Answer)
+	if err != nil {
+		h.brokerError(w, r, err)
+		return
+	}
 	body, rest := sources.NewCall(role, in.Server, in.Tool, args, in.Answer, false)
 	hosted := &sources.Hosted{Store: h.Store, Blobs: h.Blobs}
-	key, err := hosted.RecordCall(r.Context(), role, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body, rest)
+	key, err := hosted.RecordCall(r.Context(), role, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body, rest, check)
 	if err != nil {
 		roleError(w, r, err)
 		return
@@ -210,10 +219,20 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 	}
 	var conns []pack.Connector
 	var team *service.TeamClaim
+	var scope skill.Scope
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
 		run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{ID: role.AgentRunID, WorkspaceID: role.WorkspaceID})
 		if err != nil {
 			return err
+		}
+		if role.CardID != uuid.Nil {
+			scope = skill.Scope{Kind: "card", ID: role.CardID}
+		} else {
+			ar, e := tx.Q.RunByAgentRun(r.Context(), db.RunByAgentRunParams{WorkspaceID: role.WorkspaceID, AgentRunID: role.AgentRunID})
+			if e != nil {
+				return e
+			}
+			scope = skill.Scope{Kind: "autoresearch_run", ID: ar.ID}
 		}
 		conns, team, err = service.ClaimConnectors(r.Context(), tx, run)
 		return err
@@ -222,7 +241,20 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 		roleError(w, r, err)
 		return
 	}
+	brokerCtx := workspacemcp.WithRunAuthority(r.Context(), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	workspace, inventory, checkWorkspace, err := h.MCPBroker.Routing(brokerCtx, middleware.RoleFrom(r.Context()))
+	if err != nil {
+		h.brokerError(w, r, err)
+		return
+	}
+	if in.ConnectorTools == nil {
+		in.ConnectorTools = map[string][]toolroute.Tool{}
+	}
+	for name, tools := range inventory {
+		in.ConnectorTools[name] = tools
+	}
 	var c toolroute.Candidates
+	routeCtx := skill.WithRunAuthority(r.Context(), middleware.RoleFrom(r.Context()), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	if team != nil {
 		p, member, err := service.TeamMember(r.Context(), h.Blobs, *team)
 		if err != nil {
@@ -230,9 +262,26 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 503, "this study's Team can't be loaded")
 			return
 		}
+		member.Connectors = slices.DeleteFunc(member.Connectors, func(ref pack.Connector) bool {
+			if ref.Workspace == "" {
+				return false
+			}
+			return !slices.ContainsFunc(workspace, func(c service.WorkspaceConnectorClaim) bool {
+				return c.ID.String() == ref.Workspace && c.Name == ref.Name
+			})
+		})
 		c = toolroute.ForTeam(p, member, member.Connectors, in.ConnectorTools)
 	} else {
-		c = toolroute.ForLibrary(conns, in.ConnectorTools)
+		var library []toolroute.Skill
+		routeCtx, library, err = h.skillService().CandidatesForScope(routeCtx, middleware.RoleFrom(r.Context()).WorkspaceID, scope)
+		if err != nil {
+			roleError(w, r, err)
+			return
+		}
+		for _, wc := range workspace {
+			conns = append(conns, pack.Connector{Name: wc.Name, Workspace: wc.ID.String()})
+		}
+		c = toolroute.ForLibrary(conns, in.ConnectorTools, library)
 	}
 	res, err := toolroute.Route(r.Context(), h.Engine.Jev, in.Need, c)
 	if err != nil {
@@ -240,12 +289,36 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, err.Error())
 		return
 	}
+	if team == nil {
+		names := make([]string, 0, len(res.Skills))
+		for _, s := range res.Skills {
+			names = append(names, s.Name)
+		}
+		c.Skills, err = h.skillService().ResolveForScope(routeCtx, middleware.RoleFrom(r.Context()).WorkspaceID, scope, names)
+		if errors.Is(err, skill.ErrRoutingChanged) {
+			writeErr(w, 409, err.Error())
+			return
+		}
+		if err != nil {
+			roleError(w, r, err)
+			return
+		}
+	}
 	if err := c.AttachFolders(&res); err != nil {
 		fail(w, r, err)
 		return
 	}
+	if middleware.RoleFrom(r.Context()).CardID == uuid.Nil {
+		if err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error { return checkWorkspace(tx) }); err != nil {
+			roleError(w, r, err)
+			return
+		}
+	}
 	if middleware.RoleFrom(r.Context()).CardID != uuid.Nil {
 		err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+			if err := checkWorkspace(tx); err != nil {
+				return err
+			}
 			skills := []string{}
 			for _, s := range res.Skills {
 				skills = append(skills, s.Name)

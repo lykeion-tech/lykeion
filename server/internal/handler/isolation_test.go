@@ -28,6 +28,14 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if code := s.call(t, "POST", "/api/agents", a, wa.ID, map[string]string{"name": "Isolation agent", "harness": "codex"}, &agent); code != http.StatusCreated || agent.ID == "" {
 		t.Fatalf("agent fixture: %d %+v", code, agent)
 	}
+	var mcp mcpView
+	if code := s.call(t, "POST", "/api/mcp-servers", a, wa.ID, mcpInput("isolation-mcp", 0, map[string]any{"url": "https://example.org/mcp"}), &mcp); code != http.StatusCreated || mcp.ID == "" {
+		t.Fatalf("MCP fixture: %d %+v", code, mcp)
+	}
+	var ownMCP []mcpView
+	if code := s.call(t, "GET", "/api/mcp-servers", a, wa.ID, nil, &ownMCP); code != http.StatusOK || len(ownMCP) != 1 || ownMCP[0].ID != mcp.ID {
+		t.Fatalf("owner cannot list MCP fixture: %d %+v", code, ownMCP)
+	}
 	personal := s.personalToken(t, a)
 	var runtimes []struct{ ID string }
 	if code := s.call(t, "POST", "/api/daemon/register", personal, "", map[string]any{
@@ -86,7 +94,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		if strings.HasPrefix(route, "/api/workspaces/{id}") {
 			path = strings.Replace(path, "{id}", wa.ID, 1)
 			header = ""
-		} else if strings.HasPrefix(route, "/api/connectors") || route == "/api/skills" {
+		} else if strings.HasPrefix(route, "/api/connectors") || route == "/api/mcp-servers" || route == "/api/skills" || route == "/api/skills/import" {
 			// Connectors and skills are workspace-scoped: probe them with A's
 			// workspace, which membership must refuse for B's user.
 			header = wa.ID
@@ -98,6 +106,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		}
 		if route == "/api/inbox/{id}/read" {
 			path = strings.Replace(path, "{id}", item, 1)
+		} else if strings.HasPrefix(route, "/api/mcp-servers/{id}") {
+			path = strings.Replace(path, "{id}", mcp.ID, 1)
 		} else if strings.HasPrefix(route, "/api/runtimes/{id}") {
 			path = strings.Replace(path, "{id}", runtimeID, 1)
 		} else if strings.HasPrefix(route, "/api/researches/{id}") {

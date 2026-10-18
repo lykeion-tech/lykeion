@@ -61,8 +61,8 @@ func (h *Hosted) Record(ctx context.Context, role middleware.Role, token, kind, 
 }
 
 // RecordCall stores a call record built by NewCall and answers its key.
-func (h *Hosted) RecordCall(ctx context.Context, role middleware.Role, token string, call map[string]any, rest string) (string, error) {
-	return h.record(ctx, role, token, "call", "", call, rest)
+func (h *Hosted) RecordCall(ctx context.Context, role middleware.Role, token string, call map[string]any, rest string, checks ...func(*store.Tx) error) (string, error) {
+	return h.record(ctx, role, token, "call", "", call, rest, checks...)
 }
 
 // NewCall builds a call record's body: the answer cut to what a body keeps,
@@ -84,7 +84,7 @@ func NewCall(role middleware.Role, server, tool string, args any, answer string,
 }
 
 // record is Record answering with the key the record was stored under.
-func (h *Hosted) record(ctx context.Context, role middleware.Role, token, kind, key string, body map[string]any, text string) (string, error) {
+func (h *Hosted) record(ctx context.Context, role middleware.Role, token, kind, key string, body map[string]any, text string, checks ...func(*store.Tx) error) (string, error) {
 	// An agent run with no card, an Autoresearch run's, may search and read, but what it
 	// finds is evidence for no card: the call is logged as an event, and no
 	// record or blob is written. The token was checked when the call arrived; the
@@ -94,6 +94,11 @@ func (h *Hosted) record(ctx context.Context, role middleware.Role, token, kind, 
 		return "", h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
 			if err := middleware.LockRole(ctx, tx, role, token); err != nil {
 				return err
+			}
+			for _, check := range checks {
+				if err := check(tx); err != nil {
+					return err
+				}
 			}
 			return tx.Emit(ctx, "sources.called", nil, store.Actor{Type: "role", ID: role.AgentRunID},
 				map[string]any{"agent_run_id": role.AgentRunID, "kind": kind, "key": key, "body": body})
@@ -118,6 +123,11 @@ func (h *Hosted) record(ctx context.Context, role middleware.Role, token, kind, 
 	err = h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
 		if err := middleware.LockRole(ctx, tx, role, token); err != nil {
 			return err
+		}
+		for _, check := range checks {
+			if err := check(tx); err != nil {
+				return err
+			}
 		}
 		if kind == "call" {
 			// the study's next c1, c2, …; the card lock LockRole just took

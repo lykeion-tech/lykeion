@@ -60,6 +60,18 @@ func FromForm(ctx context.Context, tx *store.Tx, in Form) (pack.Manifest, error)
 		if err != nil {
 			return pack.Member{}, err
 		}
+		for _, c := range s.Connectors {
+			if c.Workspace == "" {
+				continue
+			}
+			id, err := uuid.Parse(c.Workspace)
+			if err != nil {
+				return pack.Member{}, fmt.Errorf("%w: invalid workspace connector", ErrInvalid)
+			}
+			if _, err := tx.Q.GetWorkspaceMCPServer(ctx, db.GetWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id}); err != nil {
+				return pack.Member{}, fmt.Errorf("%w: workspace connector unavailable", ErrInvalid)
+			}
+		}
 		return pack.Member{Name: s.Name, Role: s.Role, Skills: s.Skills, Connectors: s.Connectors,
 			Agent: pack.AgentDef{Harness: a.Harness, Model: a.Model, Instructions: a.Instructions}}, nil
 	}
@@ -145,4 +157,30 @@ func freeName(ctx context.Context, tx *store.Tx, base string) (string, error) {
 			return name, err
 		}
 	}
+}
+
+// SkillNames is the distinct library selection made by the Team's members.
+func SkillNames(m pack.Manifest) []string {
+	var out []string
+	for _, mem := range append([]pack.Member{m.Leader, m.Auditor}, m.Members...) {
+		for _, name := range mem.Skills {
+			if !slices.Contains(out, name) {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+
+// SkillFolders embeds a selected import only for the members declaring it.
+func SkillFolders(m pack.Manifest, files map[string]map[string][]byte) map[string]map[string][]byte {
+	out := map[string]map[string][]byte{}
+	for _, mem := range append([]pack.Member{m.Leader, m.Auditor}, m.Members...) {
+		for _, name := range mem.Skills {
+			if folder, ok := files[name]; ok {
+				out[mem.Name+"/"+name] = folder
+			}
+		}
+	}
+	return out
 }

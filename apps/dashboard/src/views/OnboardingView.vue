@@ -1,60 +1,50 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import Aristotle from '../components/Aristotle.vue';
 import Icon from '../components/Icon.vue';
+import CapabilityList from '../components/settings/library/CapabilityList.vue';
+import { useSkillLibrary, useConnectorLibrary, useWorkspaceMCPServers } from '../api/library';
+import { backendLabel } from '../lib/backends';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import {
-  useMe,
-  useRuntimes,
-  useWorkspaces,
-} from '../api/queries';
-import { careerStages, type CareerStage, type Workspace } from '../api/types';
-import {
-  careerStageLabels,
-  prefixFromSlug,
-  randomWorkspaceName,
-  slugFrom,
-  stageIntro,
-} from '../lib/studies';
+import { useRuntimes, useWorkspaces } from '../api/queries';
+import type { Workspace } from '../api/types';
+import { prefixFromSlug, randomWorkspaceName, slugFrom, stageIntro } from '../lib/studies';
 
 const route = useRoute();
 const router = useRouter();
 const client = useQueryClient();
-const me = useMe();
 const workspaces = useWorkspaces();
 const runtimes = useRuntimes();
-const steps = [
-  'Welcome',
-  'Research profile',
-  'Workspace',
-  'Runtime',
-  'Capabilities',
-  'Ready',
-];
-const step = ref(route.query.step === 'workspace' ? 2 : 0);
+const steps = ['Welcome', 'Workspace', 'Runtime', 'Skills', 'Connectors', 'Ready'] as const;
+type Step = (typeof steps)[number];
+const step = ref<Step>(route.query.step === 'workspace' ? 'Workspace' : 'Welcome');
+watch(
+  () => route.query.step,
+  (value) => {
+    if (value === 'workspace') step.value = 'Workspace';
+  },
+);
+const position = computed(() => steps.indexOf(step.value));
 const busy = ref(false);
 const error = ref('');
-
-const context = ref('');
-const career = ref<CareerStage>('');
-watch(
-  () => me.data.value,
-  (m) => {
-    if (m && !career.value) career.value = m.career_stage;
-  },
-  { immediate: true },
-);
+const skills = useSkillLibrary();
+const connectors = useConnectorLibrary();
+const customConnectors = useWorkspaceMCPServers();
+let visit = 0;
+onUnmounted(() => visit++);
+watch(workspaceId, () => visit++, { flush: 'sync' });
 
 // Workspace step: an existing workspace, or a new one.
 const choice = ref<string>('new');
 watch(
   () => workspaces.data.value,
   (list) => {
-    if (list?.length && choice.value === 'new' && step.value !== 2) choice.value = list[0]!.id;
+    if (list?.length && choice.value === 'new' && step.value !== 'Workspace')
+      choice.value = list[0]!.id;
   },
   { immediate: true },
 );
@@ -79,61 +69,75 @@ const onlineRuntimes = computed(() =>
   (runtimes.data.value ?? []).filter((r) => r.status === 'online'),
 );
 
-async function run(fn: () => Promise<void>) {
+async function run(fn: (adoptVisit: () => void) => Promise<void>) {
+  if (busy.value) return;
+  let currentVisit = visit;
   busy.value = true;
   error.value = '';
   try {
-    await fn();
+    await fn(() => {
+      currentVisit = visit;
+    });
   } catch (e) {
-    error.value = (e as Error).message;
+    if (visit === currentVisit) error.value = (e as Error).message;
   } finally {
     busy.value = false;
   }
 }
 
-const saveProfile = () =>
-  run(async () => {
-    if (career.value !== (me.data.value?.career_stage ?? ''))
-      await api('PATCH', '/api/me', { career_stage: career.value });
-    await client.invalidateQueries({ queryKey: keys.me });
-    step.value = 2;
-  });
-
 const saveWorkspace = () =>
-  run(async () => {
+  run(async (adoptVisit) => {
     let id = choice.value;
+    let selected = choice.value;
+    const cardPrefix = prefix.value;
     const patch: Record<string, string> = {};
-    if (context.value.trim()) patch.research_context = context.value.trim();
+    let currentVisit = visit;
+    let workspace = workspaceId.value;
+    const current = () =>
+      visit === currentVisit && workspaceId.value === workspace && choice.value === selected;
     if (id === 'new') {
       const ws = await api<Workspace>('POST', '/api/workspaces', {
         name: name.value.trim(),
         slug: slug.value,
       });
+      if (!current()) return;
       id = ws.id;
+      selected = id;
       choice.value = id;
-      if (prefix.value) pendingPrefix.value = { id, value: prefix.value };
+      workspaceId.value = id;
+      workspace = id;
+      currentVisit = visit;
+      adoptVisit();
+      if (cardPrefix) pendingPrefix.value = { id, value: cardPrefix };
       await client.invalidateQueries({ queryKey: keys.workspaces });
     }
+    if (!current()) return;
     if (pendingPrefix.value?.id === id) patch.card_prefix = pendingPrefix.value.value;
-    if (Object.keys(patch).length) await api('PATCH', `/api/workspaces/${id}`, patch);
+    if (Object.keys(patch).length)
+      await api('PATCH', `/api/workspaces/${id}`, patch, undefined, { workspace });
+    if (!current()) return;
     if (pendingPrefix.value?.id === id) pendingPrefix.value = undefined;
     workspaceId.value = id;
+    const selectedVisit = visit;
     await client.invalidateQueries({ queryKey: keys.workspaces });
-    step.value = 3;
+    if (visit === selectedVisit && workspaceId.value === id) step.value = 'Runtime';
   });
 
 const back = () => {
-  step.value -= 1;
+  if (!busy.value) step.value = steps[Math.max(0, position.value - 1)]!;
 };
 
 const finish = () =>
   run(async () => {
+    const currentVisit = visit;
     await api('PATCH', '/api/me', { onboarded: true });
+    if (visit !== currentVisit) return;
     await client.invalidateQueries({ queryKey: keys.me });
-    await router.replace('/studies');
+    if (visit === currentVisit) await router.replace('/studies');
   });
 
 async function logOut() {
+  visit++;
   try {
     await api('POST', '/auth/logout');
   } catch {
@@ -152,8 +156,9 @@ async function logOut() {
     <aside class="rail">
       <div class="brand">
         <b>Λ</b>Lykeion<button
-          v-if="step > 0"
+          v-if="position > 0"
           class="icon-button push-right"
+          :disabled="busy"
           aria-label="Back"
           @click="back"
         >
@@ -164,10 +169,10 @@ async function logOut() {
         <li
           v-for="(s, i) in steps"
           :key="s"
-          :class="{ done: i < step, current: i === step }"
-          :aria-current="i === step ? 'step' : undefined"
+          :class="{ done: i < position, current: i === position }"
+          :aria-current="i === position ? 'step' : undefined"
         >
-          <span class="dot"><Icon v-if="i < step" name="check" :size="10" /></span>{{ s }}
+          <span class="dot"><Icon v-if="i < position" name="check" :size="10" /></span>{{ s }}
         </li>
       </ol>
       <button class="text-button" @click="logOut"><Icon name="logout" :size="14" />Log out</button>
@@ -178,7 +183,7 @@ async function logOut() {
         <div><b>Aristotle</b><span>Your guide to scientific research</span></div>
       </header>
       <section class="content">
-        <template v-if="step === 0">
+        <template v-if="step === 'Welcome'">
           <small class="muted">Welcome to Lykeion</small>
           <h2 class="hero">A lab for your<br />next discovery.</h2>
           <p class="sub">
@@ -193,30 +198,7 @@ async function logOut() {
             </div>
           </div>
         </template>
-        <template v-else-if="step === 1">
-          <h2 class="centered">What is your research about?</h2>
-          <p class="sub centered">
-            Describe your field, methods and current project. Every agent in this workspace reads it
-            on every run.
-          </p>
-          <label class="field"
-            >Research context<textarea
-              v-model="context"
-              aria-label="Research context"
-              rows="6"
-              placeholder="e.g. I study how single-cell RNA sequencing can reveal mechanisms of zebrafish heart regeneration, using Seurat and Nextflow."
-            />
-          </label>
-          <label class="field"
-            >Your career stage<select v-model="career" aria-label="Your career stage">
-              <option value="">Choose a stage (optional)</option>
-              <option v-for="c in careerStages" :key="c" :value="c">
-                {{ careerStageLabels[c] }}
-              </option>
-            </select></label
-          >
-        </template>
-        <template v-else-if="step === 2">
+        <template v-else-if="step === 'Workspace'">
           <h2>
             {{
               workspaces.data.value?.length
@@ -286,7 +268,7 @@ async function logOut() {
             </template>
           </div>
         </template>
-        <template v-else-if="step === 3">
+        <template v-else-if="step === 'Runtime'">
           <h2>Connect a research runtime</h2>
           <p class="sub">Connect a computer so agents can run research.</p>
           <p class="muted">
@@ -302,7 +284,7 @@ async function logOut() {
           <div v-for="r in runtimes.data.value ?? []" :key="r.id" class="runtime-row">
             <span>{{ r.harness === 'claude' ? '✳' : '◎' }}</span>
             <div>
-              {{ r.harness === 'claude' ? 'Claude Code' : 'Codex'
+              {{ backendLabel(r.harness)
               }}<small
                 >{{ r.custom_name || r.device_name
                 }}<template v-if="r.cli_version"> · {{ r.cli_version }}</template></small
@@ -311,17 +293,69 @@ async function logOut() {
             <span class="push-right" :class="r.status">●</span>
           </div>
         </template>
-        <template v-else-if="step === 4">
-          <h2>Discover your lab's capabilities</h2>
-          <p class="sub">Sources are where agents find evidence. Every claim cites one of them.</p>
-          <div class="choice block">
-            <b>Sources</b>
-            <div class="muted">Europe PMC (full texts), OpenAlex (literature), GEO (datasets).</div>
-          </div>
-          <div class="choice block">
-            <b>Skills and connectors</b>
-            <div class="muted">None configured yet. You can add them later.</div>
-          </div>
+        <template v-else-if="step === 'Skills'">
+          <h2>Skills</h2>
+          <p class="sub">Instruction packs agents can use while working on your studies.</p>
+          <CapabilityList
+            :query="''"
+            :loading="skills.isPending.value"
+            :error="skills.error.value?.message"
+            :count="skills.data.value?.length ?? 0"
+            @retry="skills.refetch()"
+          >
+            <article
+              v-for="skill in skills.data.value ?? []"
+              :key="skill.id"
+              class="onboarding-card"
+            >
+              <b>{{ skill.name }}</b>
+              <p>{{ skill.description }}</p>
+            </article>
+          </CapabilityList>
+        </template>
+        <template v-else-if="step === 'Connectors'">
+          <h2>Connectors</h2>
+          <p class="sub">Connections agents can use to reach scientific databases and tools.</p>
+          <CapabilityList
+            :query="''"
+            noun="connectors"
+            :loading="connectors.isPending.value || customConnectors.isPending.value"
+            :error="connectors.error.value?.message || customConnectors.error.value?.message"
+            :count="
+              (connectors.data.value?.length ?? 0) + (customConnectors.data.value?.length ?? 0)
+            "
+            @retry="
+              connectors.refetch();
+              customConnectors.refetch();
+            "
+          >
+            <article
+              v-for="connector in connectors.data.value ?? []"
+              :key="connector.name"
+              class="onboarding-card"
+            >
+              <div>
+                <b>{{ connector.name }}</b>
+                <p>{{ connector.purpose }}</p>
+                <small>{{ connector.enabled ? 'Available' : connector.reason }}</small>
+              </div>
+              <span
+                class="availability"
+                :class="{ ready: connector.enabled }"
+                aria-hidden="true"
+              ></span>
+            </article>
+            <article
+              v-for="connector in customConnectors.data.value ?? []"
+              :key="connector.id"
+              class="onboarding-card"
+            >
+              <div>
+                <b>{{ connector.name }}</b>
+                <p>Custom · {{ connector.transport === 'url' ? 'Remote URL' : 'Command' }}</p>
+              </div>
+            </article>
+          </CapabilityList>
         </template>
         <template v-else>
           <h2>Your lab is ready</h2>
@@ -337,20 +371,13 @@ async function logOut() {
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
       </section>
       <footer class="actions">
-        <template v-if="step === 0">
-          <button class="button primary" @click="step = 1">Set up your lab</button>
+        <template v-if="step === 'Welcome'">
+          <button class="button primary" @click="step = 'Workspace'">Set up your lab</button>
           <button class="text-button" :disabled="busy" @click="finish">
             I've done this before
           </button>
         </template>
-        <template v-else-if="step === 1">
-          <small class="muted"
-            >Both answers are optional. You can edit them later in Settings.</small
-          >
-          <button class="button primary" :disabled="busy" @click="saveProfile">Continue</button>
-          <button class="text-button" @click="step = 2">Skip</button>
-        </template>
-        <template v-else-if="step === 2">
+        <template v-else-if="step === 'Workspace'">
           <button
             class="button primary"
             :disabled="busy || (choice === 'new' && !canCreate)"
@@ -359,16 +386,18 @@ async function logOut() {
             {{ choice === 'new' ? 'Create workspace' : 'Continue' }}
           </button>
         </template>
-        <template v-else-if="step === 3">
-          <button class="button primary" @click="step = 4">Continue</button>
-          <button class="text-button" @click="step = 4">Skip for now</button>
+        <template v-else-if="step === 'Runtime'">
+          <button class="button primary" @click="step = 'Skills'">Continue</button>
+          <button class="text-button" @click="step = 'Skills'">Skip for now</button>
         </template>
-        <template v-else-if="step === 4">
-          <small class="muted"
-            >This is a short introduction. You can configure capabilities later.</small
-          >
-          <button class="button primary" @click="step = 5">Continue</button>
-          <button class="text-button" @click="step = 5">Skip</button>
+        <template v-else-if="step === 'Skills' || step === 'Connectors'">
+          <small class="muted">Manage later in Settings.</small>
+          <button class="button primary" @click="step = step === 'Skills' ? 'Connectors' : 'Ready'">
+            Continue
+          </button>
+          <button class="text-button" @click="step = step === 'Skills' ? 'Connectors' : 'Ready'">
+            Skip
+          </button>
         </template>
         <button v-else class="button primary" :disabled="busy" @click="finish">
           Enter workspace
@@ -381,12 +410,13 @@ async function logOut() {
 .wizard {
   display: flex;
   gap: 14px;
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   padding: 14px;
   background: var(--surface);
 }
 .rail {
-  width: 318px;
+  width: 290px;
   flex: none;
   background: var(--canvas);
   border-radius: 14px;
@@ -477,9 +507,11 @@ async function logOut() {
 }
 .content {
   flex: 1;
-  width: 440px;
+  width: min(100%, 552px);
   margin: 0 auto;
-  padding-top: 40px;
+  min-height: 0;
+  overflow: auto;
+  padding: 32px 24px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -627,10 +659,126 @@ async function logOut() {
   gap: 8px;
 }
 .actions .button.primary {
-  width: 440px;
+  width: min(100% - 32px, 504px);
   justify-content: center;
 }
 .content .inline-error {
   margin: 0;
+}
+.content :deep(.library-filters),
+.content :deep(.library-caption) {
+  display: none;
+}
+.onboarding-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 12px;
+  margin-bottom: 7px;
+  font-size: 13px;
+}
+.onboarding-card:has(> b) {
+  display: block;
+}
+.onboarding-card b {
+  font-weight: 500;
+}
+.onboarding-card p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+.onboarding-card small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.availability {
+  width: 28px;
+  height: 16px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--border);
+  margin-top: 3px;
+  padding: 2px;
+}
+.availability::after {
+  content: '';
+  display: block;
+  height: 12px;
+  width: 12px;
+  background: var(--surface);
+  border-radius: 50%;
+}
+.availability.ready {
+  background: var(--primary);
+}
+.availability.ready::after {
+  margin-left: 12px;
+}
+@media (max-width: 900px) {
+  .rail {
+    width: 220px;
+  }
+}
+@media (max-width: 600px) {
+  .wizard {
+    padding: 8px;
+    gap: 8px;
+    flex-direction: column;
+  }
+  .rail {
+    width: 100%;
+    padding: 12px;
+  }
+  .brand {
+    padding-right: 90px;
+  }
+  .steps {
+    display: flex;
+    gap: 4px 10px;
+    flex-wrap: wrap;
+    margin: 10px 0 0;
+  }
+  .steps li {
+    font-size: 11px;
+    gap: 5px;
+    flex: none;
+  }
+  .dot {
+    width: 12px;
+    height: 12px;
+  }
+  .rail > .text-button {
+    position: absolute;
+    right: 24px;
+    top: 20px;
+  }
+  .wizard-main {
+    min-height: 0;
+  }
+  .guide {
+    padding: 4px 0 10px;
+  }
+  .content {
+    padding: 20px 12px 12px;
+  }
+  .content .hero {
+    font-size: 28px;
+  }
+  .actions {
+    flex: none;
+  }
+  .row input {
+    min-width: 0;
+  }
+  .choice {
+    padding: 12px;
+  }
 }
 </style>

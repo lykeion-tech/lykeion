@@ -21,6 +21,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/pack"
+	"lykeion/server/internal/service"
 	"lykeion/server/pkg/agent"
 )
 
@@ -95,7 +96,8 @@ type claimed struct {
 	MCPURL    string            `json:"mcp_url"`
 	MCP       []agent.MCPServer `json:"mcp"`
 	// Connectors are what the run may call through its tool door.
-	Connectors []pack.Connector `json:"connectors"`
+	Connectors          []pack.Connector                  `json:"connectors"`
+	WorkspaceConnectors []service.WorkspaceConnectorClaim `json:"workspace_connectors,omitempty"`
 }
 type daemon struct {
 	cfg             Config
@@ -197,6 +199,7 @@ func Run(ctx context.Context, cfg Config) error {
 	background(func() { d.every(ctx, cfg.Flush, func(ctx context.Context) { d.fatal(d.flush(ctx)) }) })
 	background(func() { d.every(ctx, time.Hour, func(ctx context.Context) { d.fatal(d.gc(ctx)) }) })
 	background(func() { d.hints(ctx) })
+	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
 	ticker := time.NewTicker(cfg.Poll)
 	defer ticker.Stop()
 	var runErr error

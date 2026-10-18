@@ -3,13 +3,19 @@ import { labPack, labSignIn, labWorkspace } from './lab';
 
 const shots = 'test-results/teams-scoring';
 
-test('the sidebar shows Teams between Studies and Colleagues', async ({ page }) => {
+test('the sidebar shows the final IT department order', async ({ page }) => {
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
   const names = await nav.getByRole('link').allInnerTexts();
   const at = (name: string) => names.findIndex((n) => n.trim() === name);
   expect(at('Teams')).toBeGreaterThan(at('Studies'));
-  expect(at('Teams')).toBeLessThan(at('Colleagues'));
+  expect(at('Teams')).toBeGreaterThan(at('Colleagues'));
+  expect(
+    names
+      .map((name) => name.trim())
+      .filter((name) => ['Teams', 'Agents', 'Autoresearch', 'Machines'].includes(name)),
+  ).toEqual(['Teams', 'Agents', 'Autoresearch', 'Machines']);
+  await expect(nav.getByText('IT department', { exact: true })).toBeVisible();
   await nav.getByRole('link', { name: 'Teams', exact: true }).click();
   await expect(page).toHaveURL(/#\/teams$/);
   await expect(page.getByRole('heading', { name: 'Teams', level: 1 })).toBeVisible();
@@ -201,4 +207,29 @@ test('the core criteria cannot be removed', async ({ page }) => {
   await page.getByRole('button', { name: 'Remove criterion 1' }).click();
   await expect(page.locator('.core-criterion')).toHaveCount(3);
   await expect(page.getByLabel('Criterion 1', { exact: true })).toHaveCount(0);
+});
+
+test('Team slots show all four real agent backends', async ({ page }) => {
+  const ws = await labWorkspace(page.request);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
+  const agents: { id: string; label: string }[] = [];
+  for (const [harness, label] of [
+    ['claude', 'Claude Code'],
+    ['codex', 'Codex'],
+    ['cursor', 'Cursor'],
+    ['antigravity', 'Antigravity'],
+  ]) {
+    const response = await page.request.post('/api/agents', {
+      headers: { 'X-Workspace-ID': ws },
+      data: { name: `Team ${label}`, harness },
+    });
+    expect(response.status()).toBe(201);
+    agents.push({ id: (await response.json()).id, label: label! });
+  }
+  await page.goto('/#/teams/new');
+  const slot = page.locator('.slot').filter({ has: page.getByLabel('Leader agent') });
+  for (const agent of agents) {
+    await page.getByLabel('Leader agent').selectOption(agent.id);
+    await expect(slot.locator('small')).toHaveText(agent.label);
+  }
 });

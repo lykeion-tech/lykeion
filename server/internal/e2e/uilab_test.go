@@ -25,6 +25,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/daemon"
@@ -81,6 +82,18 @@ func TestUILab(t *testing.T) {
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("LYK_TOKEN", "")
 	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "lyk.json"))
+	// Published-source responses stay outside the product API and use its real parser.
+	lateSourceRelease, lateSourceStarted := make(chan struct{}), make(chan struct{})
+	var lateReleaseOnce, lateStartedOnce sync.Once
+	previousHTTP := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: uiSkillSourceTransport{fallback: previousHTTP.Transport, release: lateSourceRelease, started: lateSourceStarted, startedOnce: &lateStartedOnce}}
+	t.Cleanup(func() { lateReleaseOnce.Do(func() { close(lateSourceRelease) }); http.DefaultClient = previousHTTP })
+	for _, name := range []string{"runtime-review", "runtime-duplicate", "runtime-single"} {
+		dir := filepath.Join(os.Getenv("HOME"), ".claude", "skills", name)
+		must(t, os.MkdirAll(filepath.Join(dir, "references"), 0700))
+		must(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: Runtime folder fixture.\n---\n\n# Runtime review\n"), 0600))
+		must(t, os.WriteFile(filepath.Join(dir, "references", "raw.bin"), []byte{0, 255, 128, 13, 10}, 0600))
+	}
 	env := testutil.Setup(t)
 	base := "http://" + addr
 
@@ -90,20 +103,75 @@ func TestUILab(t *testing.T) {
 	blobs := storage.Local{Dir: t.TempDir()}
 	runs := &service.AgentRuns{Store: st, MCPURL: base + "/mcp/sources"}
 	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
-	runs.OnSettlement = engine.OnSettlement
+	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Engine: engine, Key: []byte("0123456789abcdef0123456789abcdef")}
+	runs.OnSettlement = ap.OnSettlement(engine.OnSettlement)
 	hosted := &sources.Hosted{Store: st, Blobs: blobs}
 	mail := &codeMail{codes: map[string]string{}}
 	iss := auth.Issuer{Secret: []byte("ui-lab-signing-secret-0123456789"), TTL: 24 * time.Hour}
 
 	h := &handler.H{Store: st, JWT: iss, Mail: mail, Limit: auth.Limiter{R: env.Redis},
-		Hub: hub, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(),
-		Connectors: &connectors.Client{}}
+		Hub: hub, Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(),
+		Connectors: &connectors.Client{Secret: []byte("0123456789abcdef0123456789abcdef")}}
 	if dir := os.Getenv("LYK_TEST_SHIPPED_DIR"); dir != "" {
 		// Browser tests ship and replace Team versions on disk while the lab runs.
 		h.Shipped = os.DirFS(dir)
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/", handler.NewRouter(h))
+	sourceFixtureAuth := func(w http.ResponseWriter, r *http.Request) bool {
+		cookie, err := r.Cookie("lyk_session")
+		if err != nil {
+			http.Error(w, "sign in required", 401)
+			return false
+		}
+		_, email, err := iss.Parse(cookie.Value)
+		if err != nil || email != labEmail {
+			http.Error(w, "fixture owner required", 403)
+			return false
+		}
+		return true
+	}
+	// Independent fixture sign-ins share the proxy's loopback address. Only the
+	// lab owner can reset that address's two counters; email budgets stay intact.
+	mux.HandleFunc("POST /lab/auth-ip/reset", func(w http.ResponseWriter, r *http.Request) {
+		if !sourceFixtureAuth(w, r) {
+			return
+		}
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil || !net.ParseIP(ip).IsLoopback() {
+			http.Error(w, "loopback required", 403)
+			return
+		}
+		if err := env.Redis.Del(r.Context(), "lyk:rl:code:ip:"+ip, "lyk:rl:verify:ip:"+ip).Err(); err != nil {
+			http.Error(w, "fixture reset failed", 500)
+			return
+		}
+		w.WriteHeader(204)
+	})
+
+	uiConnectorFixtures(t, mux, h, base, sourceFixtureAuth)
+	uiAutoresearchFixtures(mux, st, sourceFixtureAuth)
+	mux.HandleFunc("GET /lab/skill-source", func(w http.ResponseWriter, r *http.Request) {
+		if !sourceFixtureAuth(w, r) {
+			return
+		}
+		started := false
+		select {
+		case <-lateSourceStarted:
+			started = true
+		default:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"started": started})
+	})
+	mux.HandleFunc("POST /lab/skill-source/release", func(w http.ResponseWriter, r *http.Request) {
+		if !sourceFixtureAuth(w, r) {
+			return
+		}
+		lateReleaseOnce.Do(func() { close(lateSourceRelease) })
+		w.WriteHeader(204)
+	})
+
 	mux.HandleFunc("GET /lab/code", func(w http.ResponseWriter, r *http.Request) {
 		mail.mu.Lock()
 		code := mail.codes[strings.ToLower(r.URL.Query().Get("email"))]
@@ -351,6 +419,7 @@ func TestUILab(t *testing.T) {
 	must(t, (&apiclient.Client{Server: base, Token: jwt}).Do(ctx, "POST", "/api/tokens", map[string]string{"name": "lab daemon"}, &tok))
 	fake, err := filepath.Abs("testdata/ui-fake-claude.sh")
 	must(t, err)
+	uiAvailabilityFixture(t, mux, daemon.Config{Server: base, Token: tok.Token, Harnesses: map[string]string{"claude": fake}, Slots: 1, Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond}, sourceFixtureAuth)
 	daemonDone := make(chan error, 1)
 	daemonState, daemonHome := t.TempDir(), t.TempDir()
 	go func() {
@@ -559,4 +628,51 @@ func TestUIFakeClaudeRunRecordsFailure(t *testing.T) {
 	}
 	_, err = os.Stat(filepath.Join(home, "claude/projects/fake/s.jsonl"))
 	must(t, err)
+}
+
+// uiSkillSourceTransport supplies only the browser lab's reserved published repo.
+// All daemon, source and authentication traffic retains the ordinary transport.
+type uiSkillSourceTransport struct {
+	fallback         http.RoundTripper
+	release, started chan struct{}
+	startedOnce      *sync.Once
+}
+
+func (s uiSkillSourceTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	body := ""
+	target := r.URL.Host + r.URL.Path
+	late := target == "api.github.com/repos/ui2-fixture/late" || strings.HasPrefix(target, "api.github.com/repos/ui2-fixture/late/") || strings.HasPrefix(target, "raw.githubusercontent.com/ui2-fixture/late/main/")
+	if late {
+		target = strings.Replace(target, "ui2-fixture/late", "ui2-fixture/published", 1)
+	}
+	if late && target == "raw.githubusercontent.com/ui2-fixture/published/main/SKILL.md" {
+		s.startedOnce.Do(func() { close(s.started) })
+		select {
+		case <-s.release:
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		}
+	}
+	switch target {
+	case "api.github.com/repos/ui2-fixture/published":
+		body = `{"default_branch":"main"}`
+	case "api.github.com/repos/ui2-fixture/published/git/trees/main":
+		body = `{"tree":[{"path":"SKILL.md","type":"blob","size":120},{"path":"references/raw.bin","type":"blob","size":5},{"path":"scripts/check.py","type":"blob","size":24}]}`
+	case "raw.githubusercontent.com/ui2-fixture/published/main/SKILL.md":
+		body = "---\nname: published-review\ndescription: Published complete folder.\n---\n\n# Published review\n"
+	case "raw.githubusercontent.com/ui2-fixture/published/main/references/raw.bin":
+		body = string([]byte{0, 255, 128, 13, 10})
+	case "raw.githubusercontent.com/ui2-fixture/published/main/scripts/check.py":
+		body = "print('never executed')\n"
+	default:
+		fallback := s.fallback
+		if fallback == nil {
+			fallback = http.DefaultTransport
+		}
+		return fallback.RoundTrip(r)
+	}
+	if late {
+		body = strings.ReplaceAll(body, "published-review", "late-review")
+	}
+	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 }

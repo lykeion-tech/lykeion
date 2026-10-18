@@ -6,9 +6,10 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
-	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/pack"
+	"lykeion/server/internal/skill"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
@@ -112,22 +113,37 @@ func (h *H) addTeam(w http.ResponseWriter, r *http.Request) {
 
 // createTeam builds a private Team from the form and adds it for its creator.
 func (h *H) createTeam(w http.ResponseWriter, r *http.Request) {
+	ws, who, ok := h.skillScope(w, r)
+	if !ok {
+		return
+	}
 	var in team.Form
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid team: "+err.Error())
 		return
 	}
-	in.Admin = agentAdmin(r)
 	var m pack.Manifest
-	err := h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) (err error) {
-		in.User = user
+	err := h.memberTx(r, ws, false, func(tx *store.Tx) (err error) {
+		member, err := tx.Q.LockMember(r.Context(), db.LockMemberParams{WorkspaceID: ws, UserID: who})
+		if err != nil {
+			return err
+		}
+		in.Admin = member.Role == "owner" || member.Role == "admin"
+		in.User = who
 		m, err = team.FromForm(r.Context(), tx, in)
 		return teamInput(err)
 	})
 	if !answer(w, r, err) {
 		return
 	}
-	z, err := pack.Zip(m, nil)
+	selection, err := h.skillService().SelectForTeam(r.Context(), ws, who, team.SkillNames(m))
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = cardInputError("a selected skill is unavailable")
+	}
+	if !answer(w, r, err) {
+		return
+	}
+	z, err := pack.Zip(m, team.SkillFolders(m, selection.Files))
 	var p *pack.Pack
 	if err == nil {
 		if p, err = pack.Parse(z); err != nil {
@@ -136,13 +152,27 @@ func (h *H) createTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	var key string
 	if err == nil {
-		key, err = pack.PutBlob(r.Context(), h.Blobs, middleware.WorkspaceFrom(r.Context()).ID, z, p.SHA256)
+		key, err = pack.PutBlob(r.Context(), h.Blobs, ws, z, p.SHA256)
 	}
 	var row db.FieldPack
 	var agents []db.Agent
 	if err == nil {
-		err = h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) error {
-			var err error
+		err = h.Store.InWorkspace(r.Context(), ws, who, func(tx *store.Tx) error {
+			user := who
+			if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+				return err
+			}
+			if err := selection.Fence(r.Context(), tx, user); err != nil {
+				return err
+			}
+			member, err := tx.Q.LockMember(r.Context(), db.LockMemberParams{WorkspaceID: ws, UserID: user})
+			if err != nil {
+				return err
+			}
+			in.Admin = member.Role == "owner" || member.Role == "admin"
+			if _, err := team.FromForm(r.Context(), tx, in); err != nil {
+				return teamInput(err)
+			}
 			if row, err = h.insertUpload(r, tx, user, key, p); err != nil {
 				return err
 			}
@@ -156,6 +186,9 @@ func (h *H) createTeam(w http.ResponseWriter, r *http.Request) {
 			agents, err = teamAgents(r, tx, rows)
 			return err
 		})
+	}
+	if errors.Is(err, skill.ErrRoutingChanged) {
+		err = conflict(err.Error())
 	}
 	if answer(w, r, err) {
 		writeJSON(w, 201, map[string]any{"id": row.ID, "name": row.Name, "version": row.Version, "sha256": row.Sha256, "agents": agents})

@@ -72,7 +72,7 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 	h.Autoresearch = &autoresearch.Service{Store: st, AgentRuns: h.AgentRuns, Key: bytes.Repeat([]byte{7}, 32), Engine: h.Engine}
 	h.AgentRuns.OnSettlement = h.Autoresearch.OnSettlement(h.Engine.OnSettlement)
 	srv := httptest.NewServer(NewRouter(h))
-	t.Cleanup(func() { srv.Close(); hub.Close() })
+	t.Cleanup(func() { srv.Close(); h.MCPBroker.Close(); hub.Close() })
 	return &server{Server: srv, H: h, Mail: mail, Env: env}
 }
 

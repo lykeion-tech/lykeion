@@ -3,6 +3,7 @@ package toolroute
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -255,5 +256,32 @@ func TestRouteBoundsEachRequest(t *testing.T) {
 		if n > requestBudget/2 {
 			t.Fatalf("request %d holds %d bytes, over half of %d", i, n, requestBudget)
 		}
+	}
+}
+
+func TestImportedSkillRoutesLoadOnlyQualifyingItems(t *testing.T) {
+	j, _ := jevStub(t, []answer{{"## Keep\n", .9}, {"## Reject\n", 0}, {`"wanted"`, .9}, {"\nWorkspace\n", .9}})
+	c := ForLibrary(nil, nil, []Skill{
+		{Name: "wanted", Domain: "Workspace", LoadFiles: func(context.Context) (map[string][]byte, error) {
+			return map[string][]byte{"SKILL.md": []byte("## Keep\nUse this.\n## Reject\nNot this.\n")}, nil
+		}},
+		{Name: "rejected", Domain: "Workspace", LoadFiles: func(context.Context) (map[string][]byte, error) {
+			return nil, errors.New("unselected folder unavailable")
+		}},
+	})
+	r, err := Route(context.Background(), j, "need", c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Skills) != 1 || r.Skills[0].Name != "wanted" || len(r.Skills[0].Sections) != 1 || r.Skills[0].Sections[0].Heading != "Keep" {
+		t.Fatalf("routed %+v", r)
+	}
+}
+func TestImportedSkillRoutesPropagateFolderFailure(t *testing.T) {
+	j, _ := jevStub(t, []answer{{`"wanted"`, .9}, {"\nWorkspace\n", .9}})
+	failure := errors.New("folder unavailable")
+	_, err := Route(context.Background(), j, "need", ForLibrary(nil, nil, []Skill{{Name: "wanted", Domain: "Workspace", LoadFiles: func(context.Context) (map[string][]byte, error) { return nil, failure }}}))
+	if !errors.Is(err, failure) {
+		t.Fatalf("missing folder failure: %v", err)
 	}
 }

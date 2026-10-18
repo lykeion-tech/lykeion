@@ -25,9 +25,11 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/workspacemcp"
 )
 
 type H struct {
+	MCPBroker    *workspacemcp.Broker
 	Autoresearch *autoresearch.Service
 	Store        *store.Store
 	JWT          auth.Issuer

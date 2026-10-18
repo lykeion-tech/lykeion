@@ -11,12 +11,14 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/connectors"
-	"lykeion/server/internal/science"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/workspacemcp"
 	db "lykeion/server/pkg/db/generated"
 )
 
 type connectorView struct {
+	PolicyEnabled    bool   `json:"policy_enabled"`
+	Revision         int64  `json:"revision"`
 	Name             string `json:"name"`
 	Domain           string `json:"domain"`
 	Purpose          string `json:"purpose"`
@@ -31,9 +33,11 @@ type connectorView struct {
 
 // viewOf shows a connector's state in a workspace, and never its key.
 func (h *H) viewOf(e connectors.Entry, row *db.WorkspaceConnector) connectorView {
-	v := connectorView{Name: e.Name, Domain: e.Domain, Purpose: e.Purpose, Tier: e.Tier, Terms: e.Terms,
+	v := connectorView{PolicyEnabled: true, Name: e.Name, Domain: e.Domain, Purpose: e.Purpose, Tier: e.Tier, Terms: e.Terms,
 		TakesKey: e.KeyHeader != "" || e.KeyQuery != ""}
 	if row != nil {
+		v.PolicyEnabled = row.Enabled
+		v.Revision = row.Revision
 		v.KeySet, v.LicenceConfirmed = len(row.KeyCiphertext) > 0, row.LicenceConfirmedAt != nil
 	}
 	if err := connectors.Ready(e, row, h.Connectors.Contact); err != nil {
@@ -75,6 +79,7 @@ func (h *H) listConnectors(w http.ResponseWriter, r *http.Request) {
 }
 
 type connectorIn struct {
+	Revision         *int64  `json:"revision"`
 	Enabled          *bool   `json:"enabled"`
 	Key              *string `json:"key"`
 	LicenceConfirmed *bool   `json:"licence_confirmed"`
@@ -90,7 +95,11 @@ func (h *H) setConnector(w http.ResponseWriter, r *http.Request) {
 	}
 	var in connectorIn
 	if err := readJSON(r, &in); err != nil {
-		writeErr(w, 400, "invalid connector settings: "+err.Error())
+		writeErr(w, 400, "invalid connector settings")
+		return
+	}
+	if in.Revision == nil || *in.Revision < 0 {
+		writeErr(w, 400, "revision is required")
 		return
 	}
 	if in.Key != nil && *in.Key != "" {
@@ -113,6 +122,9 @@ func (h *H) setConnector(w http.ResponseWriter, r *http.Request) {
 		row, err := tx.Q.LockWorkspaceConnector(ctx, db.LockWorkspaceConnectorParams{WorkspaceID: ws, Name: e.Name})
 		if err != nil {
 			return err
+		}
+		if row.Revision != *in.Revision {
+			return &workspacemcp.StaleRevision{Revision: row.Revision}
 		}
 		if in.Enabled != nil {
 			row.Enabled = *in.Enabled
@@ -139,20 +151,21 @@ func (h *H) setConnector(w http.ResponseWriter, r *http.Request) {
 				row.LicenceConfirmedAt, row.LicenceConfirmedBy = &now, &user
 			}
 		}
-		saved, err := tx.Q.UpdateWorkspaceConnector(ctx, db.UpdateWorkspaceConnectorParams{Enabled: row.Enabled, KeyCiphertext: row.KeyCiphertext,
+		saved, err := tx.Q.UpdateWorkspaceConnectorRevision(ctx, db.UpdateWorkspaceConnectorRevisionParams{ExpectedRevision: *in.Revision, Enabled: row.Enabled, KeyCiphertext: row.KeyCiphertext,
 			LicenceConfirmedBy: row.LicenceConfirmedBy, LicenceConfirmedAt: row.LicenceConfirmedAt, UpdatedBy: user, WorkspaceID: ws, Name: e.Name})
 		if err != nil {
 			return err
 		}
 		out = h.viewOf(e, &saved)
 		return tx.Emit(ctx, "connector.updated", nil, store.User(user), map[string]any{"connector": e.Name, "enabled": saved.Enabled,
-			"key_set": out.KeySet, "licence_confirmed": out.LicenceConfirmed})
+			"key_set": out.KeySet, "licence_confirmed": out.LicenceConfirmed, "revision": saved.Revision})
 	})
+	var stale *workspacemcp.StaleRevision
+	if errors.As(err, &stale) {
+		writeJSON(w, 409, map[string]any{"error": stale.Error(), "code": "stale_revision", "revision": stale.Revision})
+		return
+	}
 	if answer(w, r, err) {
 		writeJSON(w, 200, out)
 	}
-}
-
-func (h *H) listSkills(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, science.Skills())
 }

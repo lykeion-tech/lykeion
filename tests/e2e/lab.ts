@@ -1,8 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { expect, type APIRequestContext } from '@playwright/test';
+import {
+  expect,
+  request as apiRequest,
+  type APIRequestContext,
+  type Browser,
+  type Page,
+  type WebSocketRoute,
+} from '@playwright/test';
 
 export const LAB = 'http://127.0.0.1:18080';
 export const EMAIL = 'ana@lab.test';
@@ -21,6 +28,12 @@ export interface UILabFixture {
 
 // Uses the shipped email-code route and cookie, including for a second person.
 export async function labSignIn(request: APIRequestContext, email = EMAIL): Promise<void> {
+  const owner = await apiRequest.newContext({ storageState: 'test-results/ui-lab/session.json' });
+  try {
+    expect((await owner.post(`${LAB}/lab/auth-ip/reset`)).status()).toBe(204);
+  } finally {
+    await owner.dispose();
+  }
   expect((await request.post('/auth/send-code', { data: { email } })).status()).toBe(204);
   const code = await labCode(request, email);
   expect((await request.post('/auth/verify-code', { data: { email, code } })).status()).toBe(200);
@@ -191,4 +204,160 @@ export async function labFlow(
     data: { round: 1, ...flow },
   });
   expect(res.status()).toBe(204);
+}
+
+export function labSkillArchive(name: string): Buffer {
+  const dir = mkdtempSync(join(tmpdir(), 'lyk-skill-'));
+  try {
+    mkdirSync(join(dir, 'references'));
+    mkdirSync(join(dir, 'scripts'));
+    writeFileSync(
+      join(dir, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: Complete folder.\n---\n\n# Complete folder\n`,
+    );
+    writeFileSync(join(dir, 'references/raw.bin'), Buffer.from([0, 255, 128, 13, 10]));
+    writeFileSync(join(dir, 'scripts/check.py'), 'print("never executed")');
+    const archive = join(tmpdir(), `${name}.zip`);
+    try {
+      execFileSync('zip', ['-qr', archive, '.'], { cwd: dir });
+      return readFileSync(archive);
+    } finally {
+      rmSync(archive, { force: true });
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export function labSkillFolder(name: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'lyk-skill-folder-'));
+  mkdirSync(join(dir, 'references'));
+  mkdirSync(join(dir, 'scripts'));
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: Folder with raw bytes.\n---\n\n# Folder skill\n`,
+  );
+  writeFileSync(join(dir, 'references/raw.bin'), Buffer.from([0, 255, 128, 13, 10]));
+  writeFileSync(join(dir, 'scripts/check.py'), 'print("never executed")');
+  writeFileSync(join(dir, '.hidden'), 'hidden supporting file');
+  return dir;
+}
+
+export const fullAutoresearchReport = `# Full research report\n\n${'Recorded evidence beyond the Inbox excerpt.\n\n'.repeat(80)}<script>window.reportExecuted = true</script>\n<img src=x onerror="window.reportExecuted = true">\n\n[unsafe](javascript:alert(1)) [local](file:///etc/passwd) [app](codex://settings)\n\nend-of-full-report`;
+
+export async function labAutoresearchRun(
+  request: APIRequestContext,
+  workspaceId: string,
+  autoresearchId: string,
+  data: {
+    run_id?: string;
+    status: string;
+    report?: string;
+    reason?: string;
+    card_id?: string;
+    inbox?: boolean;
+  },
+): Promise<string> {
+  const response = await request.post(`${LAB}/lab/autoresearch/${autoresearchId}`, {
+    data: { workspace_id: workspaceId, ...data },
+  });
+  expect(response.status(), await response.text()).toBe(200);
+  return ((await response.json()) as { run_id: string }).run_id;
+}
+
+export async function labReportAutoresearch(request: APIRequestContext, mode = 'run_only') {
+  const fixture = await labFixture(request);
+  const headers = { 'X-Workspace-ID': fixture.workspace_id };
+  const agentResponse = await request.post('/api/agents', {
+    headers,
+    data: { name: 'Report watcher', harness: 'claude' },
+  });
+  expect(agentResponse.status()).toBe(201);
+  const agent = await agentResponse.json();
+  const response = await request.post('/api/autoresearch', {
+    headers,
+    data: {
+      title: 'Report literature watch',
+      description: 'Read sources and report.',
+      execution_mode: mode,
+      assignee: { type: 'agent', id: agent.id },
+      scope: { from: 'grounding', to: 'reporting' },
+    },
+  });
+  expect(response.status()).toBe(201);
+  return {
+    ...fixture,
+    agent_id: agent.id as string,
+    autoresearch_id: ((await response.json()) as { id: string }).id,
+  };
+}
+
+// A colleague signs in and accepts a real workspace invitation in an isolated
+// cookie jar. It never inherits the setup owner's session.
+export async function labMember(
+  browser: Browser,
+  owner: APIRequestContext,
+  workspace: string,
+  role: 'member' | 'admin' = 'member',
+) {
+  const email = `realtime-${Date.now()}-${Math.random().toString(16).slice(2)}@lab.test`;
+  const invitation = await owner.post(`/api/workspaces/${workspace}/invitations`, {
+    headers: { 'X-Workspace-ID': workspace },
+    data: { email, role },
+  });
+  expect(invitation.status()).toBe(201);
+  const { token } = await invitation.json();
+  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  await labSignIn(context.request, email);
+  expect((await context.request.patch('/api/me', { data: { onboarded: true } })).status()).toBe(
+    200,
+  );
+  expect((await context.request.post(`/api/invitations/${token}/accept`)).status()).toBe(200);
+  const me = await (await context.request.get('/api/me')).json();
+  const page = await context.newPage();
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), workspace);
+  return { context, page, userId: me.id as string };
+}
+
+// The real browser/server socket stays transparent: connectToServer forwards
+// every frame unchanged. Only the transport can be closed/held for a network
+// interruption; state and replay always come from the application's /ws route.
+export async function labRealtime(page: Page) {
+  let subscriptions = 0;
+  const events: string[] = [];
+  let active: { browser: WebSocketRoute; server: WebSocketRoute } | undefined;
+  let gate: Promise<void> | undefined;
+  page.on('websocket', (socket) =>
+    socket.on('framesent', ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.type === 'subscribe') subscriptions++;
+    }),
+  );
+  page.on('websocket', (socket) =>
+    socket.on('framereceived', ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.type === 'event') events.push(frame.event.type);
+    }),
+  );
+  await page.routeWebSocket('**/ws', async (browser) => {
+    if (gate) await gate;
+    active = { browser, server: browser.connectToServer() };
+  });
+  return {
+    events: () => [...events],
+    subscribed: (count = 1) => expect.poll(() => subscriptions).toBe(count),
+    async pause() {
+      let release!: () => void;
+      gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const current = active!;
+      await current.server.close({ code: 1001, reason: 'Transport interruption' });
+      await current.browser.close({ code: 1001, reason: 'Transport interruption' });
+      return () => {
+        gate = undefined;
+        release();
+      };
+    },
+  };
 }

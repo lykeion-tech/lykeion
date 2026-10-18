@@ -178,7 +178,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// The CLI's one MCP server; add-on servers are reached through it too. The
 	// call token stays with the door. Child reads opts when a local command
 	// starts, after any change below.
-	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, Addons: c.MCP, Harness: c.AgentRun.Harness,
+	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness,
 		Child: func() agent.ExecOptions { return opts }}
 	if err = door.Start(); err != nil {
 		fail(err)

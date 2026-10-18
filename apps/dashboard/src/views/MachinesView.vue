@@ -4,6 +4,8 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
+import BackendDetailsDialog from '../components/BackendDetailsDialog.vue';
+import { backendLabel } from '../lib/backends';
 import AddComputerDialog from '../components/AddComputerDialog.vue';
 import { api, ApiError } from '../api/client';
 import { keys } from '../api/keys';
@@ -20,6 +22,7 @@ const members = useMembers();
 const daemons = computed(() => groupDaemons(runtimes.data.value ?? []));
 const machine = computed(() => daemons.value.find((d) => d.id === props.machineId));
 const menuFor = ref('');
+const backendDetails = ref('');
 const dialog = ref<'' | 'add' | 'daemon' | 'rename'>('');
 const renaming = ref<Daemon | null>(null);
 const draft = ref('');
@@ -32,6 +35,7 @@ watch(
   () => {
     generation++;
     menuFor.value = '';
+    backendDetails.value = '';
     dialog.value = '';
     renaming.value = null;
     draft.value = '';
@@ -77,7 +81,7 @@ const message = (e: unknown, action: string) =>
     ? `Only the machine’s owner can ${action} it.`
     : (e as Error).message;
 const cli = (h: string) => ({ claude: '✳', codex: '◎' })[h] ?? h[0];
-const cliName = (h: string) => ({ claude: 'Claude Code', codex: 'Codex' })[h] ?? h;
+const cliName = backendLabel;
 const owner = (id: string) => {
   const m = members.data.value?.find((x) => x.user_id === id);
   return m ? m.name || m.email : '';
@@ -281,6 +285,7 @@ function menuKey(event: KeyboardEvent) {
                   <th>Active runs</th>
                   <th>Cost · 7d</th>
                   <th>CLI</th>
+                  <th><span class="sr-only">Details</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -296,14 +301,27 @@ function menuKey(event: KeyboardEvent) {
                   <td>
                     <span class="machine-health" :class="{ online: r.status === 'online' }"
                       ><Icon name="network" :size="12" />{{
-                        r.status === 'online' ? 'Online' : 'Offline'
+                        r.status === 'online'
+                          ? 'Online'
+                          : r.status === 'offline'
+                            ? 'Offline'
+                            : 'Not reported'
                       }}</span
                     >
                   </td>
-                  <td>{{ r.active_runs }}</td>
+                  <td>{{ r.active_runs ?? 'Not reported' }}</td>
                   <td class="unknown-metric" title="Seven-day runtime cost is not recorded">—</td>
                   <td class="runtime-version" :title="r.cli_version || 'Version not reported'">
-                    {{ r.cli_version || '—' }}
+                    {{ r.cli_version || 'Not reported' }}
+                  </td>
+                  <td>
+                    <button
+                      class="text-button"
+                      aria-label="Backend details"
+                      @click="backendDetails = r.harness"
+                    >
+                      Details
+                    </button>
                   </td>
                 </tr>
               </tbody>
@@ -419,6 +437,13 @@ function menuKey(event: KeyboardEvent) {
       <button class="button primary" :disabled="busy">Save</button>
     </form></Modal
   >
+  <BackendDetailsDialog
+    v-if="backendDetails"
+    :key="workspaceId + backendDetails"
+    :harness="backendDetails"
+    :runtimes="machine?.runtimes"
+    @close="backendDetails = ''"
+  />
 </template>
 <style scoped src="./resources.css"></style>
 <style scoped src="./machines.css"></style>

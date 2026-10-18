@@ -1,3 +1,4 @@
+import { backendLabel } from '../apps/dashboard/src/lib/backends';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { csvCell, toCsv } from '../apps/dashboard/src/lib/csv';
 import {
@@ -312,5 +313,13 @@ describe('search', () => {
     expect(matchesQuery('Literature Watch', 'WATCH')).toBe(true);
     expect(matchesQuery('Literature', 'watch')).toBe(false);
     expect(matchesQuery('anything', '')).toBe(true);
+  });
+});
+
+describe('backend names', () => {
+  it('labels four providers and preserves unknown names', () => {
+    expect(
+      ['claude', 'codex', 'cursor', 'antigravity', 'other-provider'].map(backendLabel),
+    ).toEqual(['Claude Code', 'Codex', 'Cursor', 'Antigravity', 'other-provider']);
   });
 });

@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { themes } from '../theme';
 import Icon from '../components/Icon.vue';
+import SkillPanel from '../components/settings/library/SkillPanel.vue';
+import ConnectorPanel from '../components/settings/library/ConnectorPanel.vue';
 import TokenCreationForm from '../components/settings/TokenCreationForm.vue';
 import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
 import { api } from '../api/client';
@@ -55,7 +57,11 @@ const groups = computed(() =>
     {
       title: workspace.data.value?.name ?? 'Workspace',
       suffix: 'Workspace',
-      items: [{ id: 'general', label: 'General', icon: 'settings' }],
+      items: [
+        { id: 'general', label: 'General', icon: 'settings' },
+        { id: 'skills', label: 'Skills', icon: 'book' },
+        { id: 'connectors', label: 'Connectors', icon: 'link' },
+      ],
     },
   ]
     .map((g) => ({ ...g, items: g.items.filter((i) => matchesQuery(i.label, query.value)) }))
@@ -66,6 +72,8 @@ const titles: Record<string, string> = {
   preferences: 'Preferences',
   tokens: 'API Tokens',
   general: 'General',
+  skills: 'Skills',
+  connectors: 'Connectors',
 };
 function open(id: string) {
   void router.push({ path: '/settings', query: { tab: id } });
@@ -296,6 +304,18 @@ async function copySlug() {
   <div class="desktop-settings">
     <nav class="settings-rail" aria-label="Settings">
       <h1>Settings</h1>
+      <select
+        class="settings-mobile-navigation"
+        aria-label="Settings section"
+        :value="section"
+        @change="open(($event.target as HTMLSelectElement).value)"
+      >
+        <optgroup v-for="group in groups" :key="group.title" :label="group.title">
+          <option v-for="item in group.items" :key="item.id" :value="item.id">
+            {{ item.label }}
+          </option>
+        </optgroup>
+      </select>
       <label class="settings-search"
         ><Icon name="search" :size="16" /><input
           v-model="query"
@@ -326,7 +346,7 @@ async function copySlug() {
         class="settings-body"
         :class="{ wide: section === 'preferences', 'table-layout': section === 'tokens' }"
       >
-        <header class="settings-heading">
+        <header v-if="section !== 'skills' && section !== 'connectors'" class="settings-heading">
           <h2>{{ titles[section] ?? 'Settings' }}</h2>
           <span v-if="section === 'general'" class="scope-badge"
             ><Icon name="users" :size="11" />{{ workspace.data.value?.name }} workspace</span
@@ -334,7 +354,9 @@ async function copySlug() {
         </header>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
 
-        <template v-if="section === 'profile'">
+        <SkillPanel v-if="section === 'skills'" />
+        <ConnectorPanel v-else-if="section === 'connectors'" />
+        <template v-else-if="section === 'profile'">
           <h3>Personal information</h3>
           <div class="setting-box">
             <label class="setting-row"
@@ -627,6 +649,9 @@ async function copySlug() {
   border-right: 1px solid var(--border);
   padding: 16px 12px;
   overflow: auto;
+}
+.settings-mobile-navigation {
+  display: none;
 }
 .settings-rail h1 {
   font-size: 20px;
@@ -1721,5 +1746,41 @@ async function copySlug() {
 }
 .danger-text {
   color: var(--error-text);
+}
+@media (width < 48rem) {
+  .desktop-settings {
+    flex-direction: column;
+  }
+  .settings-rail {
+    width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px 16px;
+    overflow: visible;
+  }
+  .settings-rail h1 {
+    padding: 0;
+  }
+  .settings-rail .settings-search,
+  .settings-rail section,
+  .settings-rail .no-match {
+    display: none;
+  }
+  .settings-mobile-navigation {
+    display: block;
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--canvas);
+    color: var(--text);
+  }
+  .settings-scroll {
+    min-height: 0;
+  }
+  .settings-body {
+    padding: 16px 16px 40px;
+  }
 }
 </style>

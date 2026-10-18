@@ -275,3 +275,19 @@ func TestAuditorDiffersIsExported(t *testing.T) {
 		t.Fatal("an auditor equal to the leader was accepted")
 	}
 }
+
+func TestWorkspaceMCPReferenceIsExclusiveAndConfigurationFree(t *testing.T) {
+	id := "12345678-1234-1234-1234-123456789012"
+	if err := ValidateConnector(Connector{Name: "lab", Workspace: id}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []Connector{
+		{Workspace: "invalid"}, {Workspace: "00000000-0000-0000-0000-000000000000"},
+		{Workspace: id, URL: "https://example.org"}, {Workspace: id, Command: []string{"echo"}},
+		{Workspace: id, Catalogue: "uniprot"}, {Workspace: id, Env: map[string]string{"MODE": "value"}},
+	} {
+		if err := ValidateConnector(c); err == nil {
+			t.Fatalf("invalid workspace reference accepted: %+v", c)
+		}
+	}
+}

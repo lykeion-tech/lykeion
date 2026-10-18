@@ -9,6 +9,7 @@ import { workspaceId } from '../api/session';
 import type { AgentDefinition } from '../api/types';
 import Modal from '../components/Modal.vue';
 import Icon from '../components/Icon.vue';
+import { backends, backendLabel } from '../lib/backends';
 import { matchesQuery } from '../lib/search';
 import { timeAgo } from '../lib/studies';
 defineProps<{ create?: boolean }>();
@@ -25,7 +26,7 @@ const empty = () => ({
   name: '',
   description: '',
   instructions: '',
-  harness: 'claude' as 'claude' | 'codex',
+  harness: 'claude',
   model: '',
   visibility: 'workspace' as 'workspace' | 'private',
 });
@@ -171,7 +172,7 @@ async function save() {
             }}</span
             >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
           ><span role="cell">{{ a.visibility === 'private' ? 'Owner only' : 'Workspace' }}</span
-          ><span role="cell">{{ a.harness === 'claude' ? 'Claude Code' : 'Codex' }}</span
+          ><span role="cell">{{ backendLabel(a.harness) }}</span
           ><span role="cell">{{ timeAgo(a.updated_at) }}</span
           ><span role="cell" class="agent-studies">{{ studies(a.id) }}</span></RouterLink
         >
@@ -202,8 +203,9 @@ async function save() {
           /></label
         ><label
           >Harness<select v-model="draft.harness" aria-label="Harness">
-            <option value="claude">Claude Code</option>
-            <option value="codex">Codex</option>
+            <option v-for="backend in backends" :key="backend.id" :value="backend.id">
+              {{ backend.label }}
+            </option>
           </select></label
         ><label
           >Model<input
