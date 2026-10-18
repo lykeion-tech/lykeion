@@ -18,8 +18,10 @@ import {
   useMe,
 } from '../api/queries';
 import type { Autoresearch } from '../api/types';
+import { columnName, type Picked, type Range } from '../lib/studies';
 import Modal from '../components/Modal.vue';
 import Icon from '../components/Icon.vue';
+import AssignPicker from '../components/AssignPicker.vue';
 import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
 import {
   scheduleCron,
@@ -72,11 +74,6 @@ const templates = [
   },
 ];
 const agents = useAgents();
-const assignable = computed(() =>
-  (agents.data.value ?? []).filter(
-    (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
-  ),
-);
 const modes = [
   { id: 'create_card', name: 'Create a study', text: 'Each run puts a new study on the board' },
   { id: 'run_only', name: 'Run only', text: 'Each run reports back, no study created' },
@@ -85,7 +82,9 @@ const modes = [
 const editor = ref(false),
   name = ref(''),
   runbook = ref(''),
-  agentId = ref(''),
+  assignee = ref<Picked | null>(null),
+  range = ref<Range>({ from: 'grounding', to: 'reporting' }),
+  picker = ref<InstanceType<typeof AssignPicker>>(),
   mode = ref<Autoresearch['execution_mode']>('create_card'),
   trigger = ref<'schedule' | 'webhook'>('schedule'),
   editingCron = ref(false),
@@ -111,7 +110,8 @@ function blankSchedule(): Schedule {
 function open(preset = '') {
   name.value = preset;
   runbook.value = '';
-  agentId.value = '';
+  assignee.value = null;
+  range.value = { from: 'grounding', to: 'reporting' };
   mode.value = 'create_card';
   trigger.value = 'schedule';
   editingCron.value = false;
@@ -126,9 +126,16 @@ const invalid = computed(
     busy.value ||
     !name.value.trim() ||
     !runbook.value.trim() ||
-    !agentId.value ||
+    !assignee.value ||
+    picker.value?.unstaged ||
     (trigger.value === 'schedule' && !!scheduleError(schedule)),
 );
+
+// A single Team keeps its own stage, so the server takes no range for it.
+const scope = (a: Picked) =>
+  a.type === 'team' && Object.keys(a.teams).length === 1 && !a.agent_id
+    ? {}
+    : { scope: range.value };
 
 async function create() {
   if (invalid.value) return;
@@ -140,7 +147,8 @@ async function create() {
       title: name.value.trim(),
       description: runbook.value,
       execution_mode: mode.value,
-      assignee: { type: 'agent', id: agentId.value },
+      assignee: assignee.value,
+      ...scope(assignee.value!),
     });
     // ponytail: two requests; a refused trigger leaves the autoresearch without one, said in a notice.
     try {
@@ -187,6 +195,17 @@ async function remove() {
     notify((e as Error).message);
   }
 }
+// Who works each run, and over which stages.
+function assigneeLine(a: Autoresearch) {
+  const range =
+    a.scope_from === a.scope_to
+      ? columnName(a.scope_from)
+      : `${columnName(a.scope_from)} → ${columnName(a.scope_to)}`;
+  if (a.assignee_type === 'team')
+    return `${a.scope_from === a.scope_to ? 'a Team' : 'a Team set'} · ${range}`;
+  const agent = agents.data.value?.find((x) => x.id === a.assignee_id)?.name ?? 'an agent';
+  return `${agent} · ${range}`;
+}
 const when = (t: string | null) => (t ? new Date(t).toLocaleString() : '—');
 const failure = computed(() => (props.id ? detail.error.value : list.error.value));
 </script>
@@ -222,6 +241,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
             · {{ detail.data.value.pause_reason }}</template
           >
         </p>
+        <p class="muted">Assigned to {{ assigneeLine(detail.data.value) }}</p>
         <h2>Runbook</h2>
         <p class="description runbook">{{ detail.data.value.description }}</p>
         <h2>Triggers</h2>
@@ -324,13 +344,10 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
             placeholder="# Goal&#10;What should the agent accomplish?&#10;&#10;# Steps&#10;1. ..."
           />
         </label>
-        <label
-          >Agent <small>Works every run</small
-          ><select v-model="agentId" required aria-label="Agent">
-            <option value="" disabled>Choose an agent</option>
-            <option v-for="a in assignable" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
-        </label>
+        <span class="field-label">Assign <small>Works every run</small></span>
+        <div class="property-line">
+          <AssignPicker ref="picker" v-model="assignee" v-model:range="range" menu-below />
+        </div>
         <span class="field-label">Output</span>
         <div class="choice-row">
           <button

@@ -5,6 +5,7 @@ import type {
   Column,
   AgentRun,
   Comment,
+  InboxItem,
   LykEvent,
   StudyRecord,
 } from '../api/types';
@@ -279,12 +280,19 @@ const strings = (v: unknown): string[] =>
     : [];
 
 // The flow's own records of a column, in the order they were written: the
-// steps and calls so far, the auditor's note, and the latest scored attempt.
+// steps and calls of the latest attempt (round), the auditor's note, and the
+// latest scored attempt.
 export function flowView(recs: StudyRecord[]): FlowView {
   const out: FlowView = { scores: [], verdict: '', steps: [], audit: null, calls: [] };
   let pending: FlowView['scores'] = [];
+  const latest = Math.max(0, ...recs.map((r) => r.round));
   for (const r of recs) {
     const b = r.body;
+    if (
+      r.round !== latest &&
+      (r.kind === 'delegation' || r.kind === 'self_step' || r.kind === 'call')
+    )
+      continue;
     if (r.kind === 'delegation')
       out.steps.push({
         key: r.key,
@@ -318,6 +326,37 @@ export function flowView(recs: StudyRecord[]): FlowView {
   }
   return out;
 }
+
+// An Inbox item in the words the researcher reads. The server stores a
+// sentence per item; the criterion and the need are lifted out of it, and an
+// item the sentence does not fit keeps the server's own text.
+export function inboxText(item: { kind: InboxItem['kind']; text: string }, study: string): string {
+  switch (item.kind) {
+    case 'middle_score': {
+      const criterion = /“([^”]+)”/.exec(item.text)?.[1];
+      return criterion ? `${study} moved on with a middling score: ${criterion}` : item.text;
+    }
+    case 'blocked':
+      return `${study} scored low twice and is waiting for you`;
+    case 'no_tool': {
+      const need = /needed: ([\s\S]+)$/.exec(item.text)?.[1];
+      return need ? `${study}'s agent found no skill or connector for: ${need}` : item.text;
+    }
+    case 'scoring_unavailable':
+      return `${study} couldn't be scored; Lykeion will retry`;
+    case 'done':
+      return `${study} is done`;
+    default:
+      return item.text;
+  }
+}
+
+// An assignee as the picker holds it: a Team names a Team per stage, and
+// agent_id works the stages no Team covers.
+export type Picked =
+  | { type: 'member' | 'agent'; id: string }
+  | { type: 'team'; teams: Record<string, string>; agent_id?: string };
+export type Range = { from: string; to: string };
 
 // Kinds the study page shows in their own blocks, not as record lines.
 export const flowKinds = ['delegation', 'self_step', 'audit', 'score', 'outcome', 'call', 'tools'];

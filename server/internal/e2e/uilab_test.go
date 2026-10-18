@@ -300,11 +300,18 @@ func TestUILab(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// Releases a study, as a sealed report would, so it can be reopened.
-	mux.HandleFunc("POST /lab/release/{card}", func(w http.ResponseWriter, r *http.Request) {
-		tag, err := env.Owner.Exec(r.Context(), `UPDATE card SET board_column = 'done', ending = 'released', state = 'ready', flag = '', block_kind = '' WHERE id = $1`, r.PathValue("card"))
+	// Puts an Inbox item of any kind on a study for its owner, as the flow
+	// writes them, so the Inbox can show each kind without running a Team.
+	mux.HandleFunc("POST /lab/inbox/{card}", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Kind, Text string }
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Kind == "" || in.Text == "" {
+			http.Error(w, "kind and text are required", http.StatusBadRequest)
+			return
+		}
+		tag, err := env.Owner.Exec(r.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
+			SELECT workspace_id, id, owner_id, $2, $3 FROM card WHERE id = $1`, r.PathValue("card"), in.Kind, in.Text)
 		if err != nil || tag.RowsAffected() != 1 {
-			http.Error(w, "no such card", 404)
+			http.Error(w, "no such card", http.StatusNotFound)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

@@ -155,9 +155,16 @@ export async function labPack(
   return pack;
 }
 
-// Releases a study, as a sealed report would.
-export async function labRelease(request: APIRequestContext, cardId: string) {
-  expect((await request.post(`${LAB}/lab/release/${cardId}`)).status()).toBe(204);
+// Puts an Inbox item of a kind on a study, as the flow would write it.
+export async function labInbox(
+  request: APIRequestContext,
+  cardId: string,
+  kind: string,
+  text: string,
+) {
+  expect(
+    (await request.post(`${LAB}/lab/inbox/${cardId}`, { data: { kind, text } })).status(),
+  ).toBe(204);
 }
 
 export interface FlowRecord {

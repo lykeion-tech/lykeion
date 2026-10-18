@@ -313,6 +313,10 @@ export type Autoresearch = {
   status: 'active' | 'paused';
   pause_reason: string;
   created_at: string;
+  assignee_type: 'agent' | 'team' | null;
+  assignee_id: string | null;
+  scope_from: Column;
+  scope_to: Column;
 };
 export type AutoresearchTrigger = {
   id: string;

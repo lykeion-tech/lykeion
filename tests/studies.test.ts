@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as studies from '../apps/dashboard/src/lib/studies';
-import {
-  prefixFromSlug,
-  randomWorkspaceName,
-  slugFrom,
-} from '../apps/dashboard/src/lib/studies';
+import { prefixFromSlug, randomWorkspaceName, slugFrom } from '../apps/dashboard/src/lib/studies';
 
 describe('removed features', () => {
   it('removed features are gone', () => {
@@ -296,7 +292,9 @@ describe('composer actions', () => {
     expect(actionLabel({ kind: 'stop' })).toBe('Stop');
   });
   it('offers only Comment to a blocked study', () => {
-    expect(blockedActions(card({ state: 'blocked', block_kind: 'low_score' }))).toEqual(['comment']);
+    expect(blockedActions(card({ state: 'blocked', block_kind: 'low_score' }))).toEqual([
+      'comment',
+    ]);
     expect(blockedActions(card())).toEqual([]);
   });
 });
@@ -340,5 +338,41 @@ describe('machines', () => {
     expect(daemons[0]!.activeRuns).toBe(2);
     expect(daemons[1]!.activeRuns).toBe(0);
     expect(daemons[1]!.online).toBe(false);
+  });
+});
+
+describe('flow records and Inbox sentences', () => {
+  const rec = (kind: string, round: number, key: string, body: Record<string, unknown>) =>
+    ({
+      kind,
+      round,
+      key,
+      body,
+    }) as unknown as import('../apps/dashboard/src/api/types').StudyRecord;
+  it('shows the steps and calls of the latest round only', () => {
+    const v = studies.flowView([
+      rec('delegation', 1, 's1', { member: 'a', step: 'old' }),
+      rec('call', 1, 'c1', { server: 'x', tool: 't' }),
+      rec('delegation', 2, 's2', { member: 'b', step: 'new' }),
+    ]);
+    expect(v.steps.map((s) => s.key)).toEqual(['s2']);
+    expect(v.calls).toEqual([]);
+  });
+  it('lifts the criterion and the need out of the server sentence', () => {
+    expect(
+      studies.inboxText(
+        {
+          kind: 'middle_score',
+          text: 'Study #1 scored; its weakest criterion was “Does it say what it couldn’t do?” (level 3 of 5).',
+        },
+        'S',
+      ),
+    ).toBe('S moved on with a middling score: Does it say what it couldn’t do?');
+    expect(
+      studies.inboxText(
+        { kind: 'no_tool', text: 'found no skill or connector that fits what it needed: a parser' },
+        'S',
+      ),
+    ).toBe("S's agent found no skill or connector for: a parser");
   });
 });

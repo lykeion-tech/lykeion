@@ -8,7 +8,7 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import { useCards, useInbox } from '../api/queries';
 import type { InboxItem } from '../api/types';
-import { timeAgo } from '../lib/studies';
+import { inboxText, timeAgo } from '../lib/studies';
 
 const props = defineProps<{ itemId?: string }>();
 const client = useQueryClient();
@@ -31,6 +31,12 @@ const kinds: Record<InboxItem['kind'], { label: string; mark: string }> = {
   scoring_unavailable: { label: 'Scoring unavailable', mark: '!' },
   done: { label: 'Done', mark: '✓' },
 };
+// The flow's items read as a sentence about the study; the older kinds keep
+// their label and the server's text.
+const line = (i: InboxItem) =>
+  inboxText(i, titleOf(i)) === i.text
+    ? `${kinds[i.kind].label}: ${i.text}`
+    : inboxText(i, titleOf(i));
 const titleOf = (i: InboxItem) =>
   cards.data.value?.find((c) => c.id === i.card_id)?.title ?? 'Study';
 
@@ -96,7 +102,7 @@ watch(
           <span class="workspace-avatar">{{ kinds[item.kind].mark }}</span>
           <span class="inbox-text"
             ><b>{{ titleOf(item) }}</b
-            ><small>{{ kinds[item.kind].label }}: {{ item.text }}</small></span
+            ><small>{{ line(item) }}</small></span
           >
           <span class="inbox-side"
             ><small>{{ timeAgo(item.created_at) }}</small

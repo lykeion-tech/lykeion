@@ -7,32 +7,20 @@ import Icon from '../components/Icon.vue';
 import { api, ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import {
-  useAgents,
-  useCard,
-  useCards,
-  useMe,
-  useMembers,
-  useTeams,
-  useWorkspace,
-} from '../api/queries';
+import { useCard, useCards, useMe, useWorkspace } from '../api/queries';
 import type { Card } from '../api/types';
 import { dateKey } from '../lib/dates';
 import { matchesQuery } from '../lib/search';
-import { stages, studyNumber } from '../lib/studies';
+import { studyNumber, type Picked, type Range } from '../lib/studies';
 import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
-
-// A Team assignee names a Team per stage; agent_id works the stages no Team covers.
-type Picked = Assignee | { type: 'team'; teams: Record<string, string>; agent_id?: string };
+import AssignPicker from '../components/AssignPicker.vue';
 
 const props = defineProps<{ editId?: string; assignee?: Assignee }>();
 const emit = defineEmits<{ close: [] }>();
 const client = useQueryClient();
 const cards = useCards();
 const workspace = useWorkspace();
-const members = useMembers();
-const agents = useAgents();
 const me = useMe();
 const isMac = navigator.platform.includes('Mac');
 const title = ref('');
@@ -49,40 +37,12 @@ const menu = ref('');
 const query = ref('');
 const form = ref<HTMLFormElement>();
 const assignee = ref<Picked | null>(props.assignee ? { ...props.assignee } : null);
-const range = ref<{ from: string; to: string }>({ from: 'grounding', to: 'reporting' });
-const store = useTeams('', '');
-const addedTeams = computed(() => (store.data.value ?? []).filter((t) => t.added));
-const stageName = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : '');
+const range = ref<Range>({ from: 'grounding', to: 'reporting' });
+const picker = ref<InstanceType<typeof AssignPicker>>();
 const usedLastSet = ref(false);
-const setSlots = ref<Record<string, string>>(Object.fromEntries(stages.map((s) => [s, ''])));
-const setAgent = ref('');
 
-// The creator owns the study, so a private agent is offered only to its owner.
-const assignableAgents = computed(() =>
-  (agents.data.value ?? []).filter(
-    (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
-  ),
-);
-const memberName = (id: string) => {
-  const m = members.data.value?.find((x) => x.user_id === id);
-  return m ? m.name || m.email : 'Member';
-};
-const teamColumns = computed(() =>
-  assignee.value?.type === 'team' ? Object.keys(assignee.value.teams) : [],
-);
-const isSet = computed(
-  () => assignee.value?.type === 'team' && range.value.from !== range.value.to,
-);
-const assigneeName = computed(() => {
-  const a = assignee.value;
-  if (!a) return '';
-  if (!('teams' in a))
-    return a.type === 'agent'
-      ? (agents.data.value?.find((x) => x.id === a.id)?.name ?? 'Agent')
-      : memberName(a.id);
-  if (isSet.value) return 'Your Team set';
-  return addedTeams.value.find((t) => t.id === a.teams[teamColumns.value[0]!])?.name ?? 'Team';
-});
+const teamColumns = computed(() => picker.value?.teamColumns ?? []);
+const assigneeName = computed(() => picker.value?.name ?? '');
 // Nobody starts on a study that is unassigned or held by a colleague.
 const hint = computed(() =>
   !assignee.value || assignee.value.type === 'member'
@@ -112,47 +72,6 @@ const lastSet = computed(() => {
     ? { type: 'team' as const, teams, ...(c.assignee_id ? { agent_id: c.assignee_id } : {}) }
     : null;
 });
-const matchingMembers = computed(() =>
-  (members.data.value ?? []).filter((m) => matchesQuery(`${m.name} ${m.email}`, query.value)),
-);
-const matchingTeams = computed(() =>
-  addedTeams.value.filter((t) => matchesQuery(t.name, query.value)),
-);
-const showSets = computed(() => matchesQuery('team sets new set your last set', query.value));
-const matchingAgents = computed(() =>
-  assignableAgents.value.filter((a) => matchesQuery(a.name, query.value)),
-);
-function assign(value: typeof assignee.value) {
-  usedLastSet.value = false;
-  assignee.value = value;
-  // One Team keeps its own stage; a set and any other assignee start end to end.
-  const cols = value?.type === 'team' ? Object.keys(value.teams) : [];
-  range.value =
-    cols.length === 1 && !(value as { agent_id?: string }).agent_id
-      ? { from: cols[0]!, to: cols[0]! }
-      : { from: 'grounding', to: 'reporting' };
-  closeMenu();
-}
-const gaps = computed(() => stages.some((s) => !setSlots.value[s]));
-const setReady = computed(
-  () => stages.some((s) => setSlots.value[s]) && (!gaps.value || !!setAgent.value),
-);
-function pickStage(side: 'from' | 'to', value: string) {
-  range.value = { ...range.value, [side]: value };
-  const { from, to } = range.value;
-  if (stages.indexOf(from as never) > stages.indexOf(to as never))
-    range.value = side === 'from' ? { from, to: from } : { from: to, to };
-  if (side === 'to') closeMenu();
-}
-function useSet() {
-  const teams = Object.fromEntries(
-    stages.flatMap((s) => (setSlots.value[s] ? [[s, setSlots.value[s]]] : [])),
-  );
-  assign({ type: 'team', teams, ...(gaps.value ? { agent_id: setAgent.value } : {}) });
-  range.value = { from: 'grounding', to: 'reporting' };
-}
-
-const slotTeams = computed(() => addedTeams.value);
 const editing = computed(() => cards.data.value?.find((c) => c.id === props.editId));
 const heading = computed(() => (props.editId ? 'Edit study' : 'New study'));
 const number = (n: number) => studyNumber(workspace.data.value, { number: n });
@@ -207,15 +126,8 @@ function keysDown(event: KeyboardEvent) {
 }
 
 // A Team with no stage label has no column until the researcher picks one.
-const unstaged = computed(() => teamColumns.value.includes(''));
+const unstaged = computed(() => picker.value?.unstaged ?? false);
 const blocked = computed(() => busy.value || !question.value.trim() || unstaged.value);
-function pickColumn(col: string) {
-  const a = assignee.value;
-  if (a?.type !== 'team' || !('teams' in a)) return;
-  assignee.value = { ...a, teams: { [col]: a.teams[''] as string } };
-  range.value = { from: col, to: col };
-  closeMenu();
-}
 
 async function submit() {
   if (blocked.value) return;
@@ -352,167 +264,16 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               @close="closeMenu"
             />
           </div>
-          <div v-if="!editId" class="property-anchor">
-            <button
-              type="button"
-              class="property-pill assignee-pill"
-              :aria-label="assignee ? `Assignee: ${assigneeName}` : 'Unassigned'"
-              @click="openMenu('assignee')"
-            >
-              <span v-if="assignee" class="avatar">{{ assigneeName[0] }}</span
-              ><span>{{ assignee ? assigneeName : 'Unassigned' }}</span>
-            </button>
-            <div v-if="menu === 'assignee'" class="composer-menu stage-menu" role="menu">
-              <input v-model="query" placeholder="Assign to…" aria-label="Search assignees" />
-              <button type="button" role="menuitem" @click="assign(null)">Unassigned</button>
-              <p v-if="matchingMembers.length" class="menu-group">Members</p>
-              <button
-                v-for="m in matchingMembers"
-                :key="m.user_id"
-                type="button"
-                role="menuitem"
-                @click="assign({ type: 'member', id: m.user_id })"
-              >
-                <span class="avatar">{{ (m.name || m.email)[0] }}</span
-                ><span>{{ m.name || m.email }}</span>
-              </button>
-              <p v-if="matchingAgents.length" class="menu-group">Agents</p>
-              <button
-                v-for="a in matchingAgents"
-                :key="a.id"
-                type="button"
-                role="menuitem"
-                @click="assign({ type: 'agent', id: a.id })"
-              >
-                <Icon name="bot" :size="14" /><span>{{ a.name }}</span>
-              </button>
-              <p v-if="matchingTeams.length" class="menu-group">Teams</p>
-              <button
-                v-for="t in matchingTeams"
-                :key="t.id"
-                type="button"
-                role="menuitem"
-                @click="assign({ type: 'team', teams: { [t.stage]: t.id } })"
-              >
-                <Icon name="bot" :size="14" /><span>{{ t.name }}</span
-                ><small v-if="t.stage">Built for {{ stageName(t.stage) }}</small
-                ><small v-else>No stage label</small>
-              </button>
-              <p v-if="showSets" class="menu-group">Team sets</p>
-              <button
-                v-if="showSets && lastSet"
-                type="button"
-                role="menuitem"
-                @click="
-                  assign(lastSet);
-                  usedLastSet = true;
-                "
-              >
-                <Icon name="bot" :size="14" /><span>Your last set</span
-                ><small>{{ Object.keys(lastSet.teams).length }} Teams</small>
-              </button>
-              <button v-if="showSets" type="button" role="menuitem" @click="menu = 'set'">
-                <Icon name="plus" :size="14" /><span>New set…</span>
-              </button>
-              <p v-if="!matchingMembers.length && !matchingAgents.length && !matchingTeams.length">
-                No matches
-              </p>
-            </div>
-            <div
-              v-if="menu === 'set'"
-              class="composer-menu stage-menu set-menu"
-              role="dialog"
-              aria-label="New Team set"
-            >
-              <label v-for="s in stages" :key="s"
-                >{{ stageName(s) }}
-                <select v-model="setSlots[s]" :aria-label="`${stageName(s)} Team`">
-                  <option value="">No Team</option>
-                  <option v-for="t in slotTeams" :key="t.id" :value="t.id">{{ t.name }}</option>
-                </select>
-              </label>
-              <label v-if="gaps"
-                >Agent for the other stages
-                <select v-model="setAgent" aria-label="Agent for the other stages">
-                  <option value="">Choose an agent</option>
-                  <option v-for="a in assignableAgents" :key="a.id" :value="a.id">
-                    {{ a.name }}
-                  </option>
-                </select>
-              </label>
-              <button
-                type="button"
-                class="button primary compact"
-                :disabled="!setReady"
-                @click="useSet"
-              >
-                Use this set
-              </button>
-            </div>
-          </div>
-          <div v-if="assignee && assignee.type !== 'member'" class="property-anchor">
-            <button
-              type="button"
-              class="property-pill"
-              :aria-label="
-                unstaged
-                  ? 'Stages: choose a stage'
-                  : `Stages: ${stageName(range.from)}${range.from === range.to ? '' : ' → ' + stageName(range.to)}`
-              "
-              :disabled="assignee.type === 'team' && !unstaged"
-              @click="openMenu('stages')"
-            >
-              <Icon name="circle" :size="14" />{{
-                unstaged
-                  ? 'Choose a stage'
-                  : stageName(range.from) +
-                    (range.from === range.to ? '' : ' → ' + stageName(range.to))
-              }}
-            </button>
-            <div
-              v-if="menu === 'stages' && unstaged"
-              class="composer-menu stage-menu set-menu"
-              role="menu"
-            >
-              <label
-                >Stage
-                <select
-                  aria-label="Stage"
-                  value=""
-                  @change="pickColumn(($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="" disabled>Choose a stage</option>
-                  <option v-for="s in stages" :key="s" :value="s">{{ stageName(s) }}</option>
-                </select>
-              </label>
-            </div>
-            <div
-              v-else-if="menu === 'stages'"
-              class="composer-menu stage-menu set-menu"
-              role="menu"
-            >
-              <label
-                >From
-                <select
-                  :value="range.from"
-                  aria-label="From stage"
-                  @change="pickStage('from', ($event.target as HTMLSelectElement).value)"
-                >
-                  <option v-for="s in stages" :key="s" :value="s">{{ stageName(s) }}</option>
-                </select>
-              </label>
-              <label
-                >To
-                <select
-                  :value="range.to"
-                  aria-label="To stage"
-                  @change="pickStage('to', ($event.target as HTMLSelectElement).value)"
-                >
-                  <option v-for="s in stages" :key="s" :value="s">{{ stageName(s) }}</option>
-                </select>
-              </label>
-            </div>
-          </div>
+          <AssignPicker
+            v-if="!editId"
+            ref="picker"
+            v-model="assignee"
+            v-model:range="range"
+            :members="true"
+            :last-set="lastSet"
+            @open="closeMenu"
+            @picked="(last) => (usedLastSet = last)"
+          />
           <div v-for="id in followsFrom" :key="id" class="property-anchor">
             <button
               type="button"
@@ -563,6 +324,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
     </form>
   </Modal>
 </template>
+<style scoped src="../components/composer-menu.css"></style>
 <style scoped>
 .task-composer {
   width: 578px;
@@ -691,29 +453,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   gap: 6px;
   min-height: 26px;
 }
-.property-anchor {
-  position: relative;
-}
-.property-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid #ffffff42;
-  border-radius: 18px;
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-  max-width: 240px;
-}
-.property-pill:hover {
-  background: #ffffff30;
-}
-.assignee-pill > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .more-pill {
   padding: 0 10px;
 }
@@ -814,76 +553,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   font-size: 12px;
   line-height: 18px;
   padding: 4px 20px 12px;
-}
-.composer-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 70;
-  min-width: 250px;
-  max-width: 340px;
-  max-height: min(460px, 60vh);
-  overflow: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 5px;
-  box-shadow: 0 6px 22px #0002;
-  color: var(--text);
-  font-size: 13px;
-}
-.composer-menu > input {
-  width: 100%;
-  background: none;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  outline: 0;
-  padding: 9px 8px;
-  margin-bottom: 4px;
-  font-size: 13px;
-}
-.composer-menu > button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 31px;
-  padding: 6px 8px;
-  text-align: left;
-  border-radius: 4px;
-  font-size: 13px;
-}
-.composer-menu > button:hover,
-.composer-menu > button:focus-visible {
-  background: var(--input);
-}
-.composer-menu small {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 11px;
-}
-.composer-menu p.menu-group {
-  padding: 6px 8px 2px;
-  font-size: 11px;
-}
-.composer-menu p {
-  padding: 8px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 18px;
-  white-space: normal;
-}
-.composer-menu label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-}
-.composer-menu label input {
-  background: var(--input);
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
 }
 .more-menu {
   min-width: 164px;
@@ -987,10 +656,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   bottom: 8px;
   left: 16px;
 }
-.stage-menu {
-  bottom: calc(100% + 6px);
-  top: auto;
-}
 .expanded .composer-body {
   min-height: 0;
 }
@@ -1019,17 +684,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   padding: 0 20px 8px;
   color: var(--muted);
   font-size: 12px;
-}
-.set-menu select {
-  background: var(--input);
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  font-size: 13px;
-}
-.set-menu > button {
-  margin: 4px 8px 8px;
-  justify-content: center;
 }
 .composer-warning {
   margin: 0 20px 6px;

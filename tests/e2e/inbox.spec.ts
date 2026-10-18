@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labFixture, labHypotheses, labRecords, labWorkspace, newStudy } from './lab';
+import { labFixture, labHypotheses, labInbox, labRecords, labWorkspace, newStudy } from './lab';
 
 test('an escalation reaches the Inbox and is read on opening', async ({ page }) => {
   const title = `Sleep loss and microglial pruning ${Date.now()}`;
@@ -17,7 +17,9 @@ test('an escalation reaches the Inbox and is read on opening', async ({ page }) 
     page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: title }),
   ).toBeVisible();
   await expect(link.locator('.unread')).toHaveCount(0);
-  await expect.poll(async () => (await inbox(page)).find((i) => i.id === item.id)?.read_at).toBeTruthy();
+  await expect
+    .poll(async () => (await inbox(page)).find((i) => i.id === item.id)?.read_at)
+    .toBeTruthy();
   await page.screenshot({ path: `${artifacts}/selected-read.png`, fullPage: true });
 });
 
@@ -138,9 +140,7 @@ for (const destination of [
   });
 }
 
-test('the embedded study fits long evidence and resets drafts on selection', async ({
-  page,
-}) => {
+test('the embedded study fits long evidence and resets drafts on selection', async ({ page }) => {
   const a = await escalation(page, 'Embedded long evidence');
   const b = await escalation(page, 'Embedded next selection');
   await labHypotheses(page.request, a.card.id);
@@ -285,4 +285,42 @@ test('embedded Properties uses its own compact width and responds to the actual 
   expect(await page.evaluate(() => localStorage.getItem('lykeion.study-inspector-width'))).toBe(
     '434',
   );
+});
+
+test('each new Inbox kind reads and opens its study', async ({ page }) => {
+  const name = `Kinds ${Date.now()}`;
+  const card = await newStudy(page.request, `${name}?`, { title: name, assignee: null });
+  const kinds: [string, string, string][] = [
+    [
+      'middle_score',
+      `Study #${card.number}'s Grounding column scored in the middle; its weakest criterion was “Does it answer what the researcher asked?” (level 3 of 5).`,
+      `${name} moved on with a middling score: Does it answer what the researcher asked?`,
+    ],
+    [
+      'blocked',
+      `Study #${card.number} scored low twice.`,
+      `${name} scored low twice and is waiting for you`,
+    ],
+    [
+      'no_tool',
+      `An agent on study #${card.number}'s Grounding column found no skill or connector that fits what it needed: a mass-spec parser`,
+      `${name}'s agent found no skill or connector for: a mass-spec parser`,
+    ],
+    [
+      'scoring_unavailable',
+      `Scoring is unavailable for study #${card.number}.`,
+      `${name} couldn't be scored; Lykeion will retry`,
+    ],
+    ['done', `Study #${card.number} is done.`, `${name} is done`],
+  ];
+  for (const [kind, text] of kinds) await labInbox(page.request, card.id, kind, text);
+  await page.goto('/#/inbox');
+  const list = page.getByRole('navigation', { name: 'Inbox items' });
+  for (const [, , shown] of kinds)
+    await expect(list.getByText(shown, { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/teams-scoring/inbox-kinds.png', fullPage: true });
+  await list.getByText(kinds[4]![2], { exact: true }).click();
+  await expect(
+    page.getByRole('region', { name: 'Study' }).getByRole('heading', { name }),
+  ).toBeVisible();
 });

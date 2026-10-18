@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labFixture } from './lab';
+import { labFixture, labTeam } from './lab';
 
 async function inFixture(page: Page) {
   const f = await labFixture(page.request);
@@ -12,6 +12,12 @@ async function inFixture(page: Page) {
   expect(agent.status()).toBe(201);
   return headers;
 }
+
+const shots = 'test-results/teams-scoring';
+const assign = async (dialog: ReturnType<Page['getByRole']>, page: Page, name: string) => {
+  await dialog.getByRole('button', { name: 'Unassigned' }).click();
+  await page.getByRole('menuitem', { name }).click();
+};
 
 type Detail = {
   id: string;
@@ -38,7 +44,7 @@ test('a template opens the editor, and the schedule reaches the server as cron',
     'Literature watch',
   );
   await dialog.getByRole('textbox', { name: 'Runbook' }).fill('Find new papers on ALDH1A3.');
-  await dialog.getByRole('combobox', { name: 'Agent' }).selectOption({ label: 'Watcher' });
+  await assign(dialog, page, 'Watcher');
   await dialog.getByRole('button', { name: /Run only/ }).click();
   await dialog.getByLabel('Scheduled time').fill('07:30');
   await dialog.getByRole('combobox', { name: 'Schedule days' }).selectOption('week');
@@ -85,7 +91,7 @@ test('a webhook trigger shows its URL once, and Delete removes the autoresearch'
   const dialog = page.getByRole('dialog', { name: 'New autoresearch' });
   await dialog.getByRole('textbox', { name: 'Autoresearch name' }).fill('On new results');
   await dialog.getByRole('textbox', { name: 'Runbook' }).fill('Open a study for each result.');
-  await dialog.getByRole('combobox', { name: 'Agent' }).selectOption({ label: 'Watcher' });
+  await assign(dialog, page, 'Watcher');
   await dialog.getByRole('button', { name: 'Webhook' }).click();
   await dialog.getByRole('button', { name: 'Create autoresearch' }).click();
   await expect(dialog).toHaveCount(0);
@@ -106,4 +112,61 @@ test('a webhook trigger shows its URL once, and Delete removes the autoresearch'
   await page.getByRole('button', { name: 'Delete' }).click();
   await expect(page).toHaveURL(/#\/autoresearch$/);
   expect((await page.request.get(`/api/autoresearch/${id}`, { headers })).status()).toBe(404);
+});
+
+test('an Autoresearch needs an assignee', async ({ page }) => {
+  await inFixture(page);
+  await page.goto('/#/autoresearch');
+  await page.getByRole('button', { name: 'Start from scratch' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New autoresearch' });
+  await dialog.getByRole('textbox', { name: 'Autoresearch name' }).fill('Needs someone');
+  await dialog.getByRole('textbox', { name: 'Runbook' }).fill('Watch.');
+  const create = dialog.getByRole('button', { name: 'Create autoresearch' });
+  await expect(create).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Unassigned' }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: 'Unassigned' })).toHaveCount(0);
+  await expect(menu.getByText('Members')).toHaveCount(0);
+  await page.screenshot({ path: `${shots}/autoresearch-picker.png`, fullPage: true });
+  await menu.getByRole('menuitem', { name: 'Watcher' }).click();
+  await expect(dialog.getByRole('button', { name: /Stages: Grounding → Reporting/ })).toBeVisible();
+  await expect(create).toBeEnabled();
+});
+
+test('a Team set Autoresearch shows its range', async ({ page }) => {
+  const headers = await inFixture(page);
+  await labTeam(page.request, headers['X-Workspace-ID']!);
+  await page.goto('/#/autoresearch');
+  await page.getByRole('button', { name: 'Start from scratch' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New autoresearch' });
+  await dialog.getByRole('textbox', { name: 'Autoresearch name' }).fill('Set watch');
+  await dialog.getByRole('textbox', { name: 'Runbook' }).fill('Run the set.');
+  await dialog.getByRole('button', { name: 'Unassigned' }).click();
+  await page.getByRole('menuitem', { name: 'New set…' }).click();
+  const set = page.getByRole('dialog', { name: 'New Team set' });
+  await set.getByRole('combobox', { name: 'Grounding Team' }).selectOption({ index: 1 });
+  await set
+    .getByRole('combobox', { name: 'Agent for the other stages' })
+    .selectOption({ label: 'Watcher' });
+  await set.getByRole('button', { name: 'Use this set' }).click();
+  await expect(
+    dialog.getByRole('button', { name: 'Stages: Grounding → Reporting' }),
+  ).toBeDisabled();
+  await page.screenshot({ path: `${shots}/autoresearch-editor.png`, fullPage: true });
+  await dialog.getByRole('button', { name: /Run only/ }).click();
+  await dialog.getByRole('button', { name: 'Create autoresearch' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText('Assigned to a Team set · Grounding → Reporting')).toBeVisible();
+  const id = page.url().split('/').pop()!;
+  const got = (await (await page.request.get(`/api/autoresearch/${id}`, { headers })).json()) as {
+    assignee_type: string;
+    scope_from: string;
+    scope_to: string;
+  };
+  expect(got).toMatchObject({
+    assignee_type: 'team',
+    scope_from: 'grounding',
+    scope_to: 'reporting',
+  });
+  await page.screenshot({ path: `${shots}/autoresearch-detail.png`, fullPage: true });
 });

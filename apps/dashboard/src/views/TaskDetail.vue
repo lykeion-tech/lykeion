@@ -144,6 +144,15 @@ const stage = computed(() =>
 );
 const records = useRecords(() => props.id, stage);
 const flow = computed(() => flowView(records.data.value ?? []));
+const hasFlow = computed(
+  () =>
+    !!(
+      flow.value.scores.length ||
+      flow.value.steps.length ||
+      flow.value.audit ||
+      flow.value.calls.length
+    ),
+);
 const lineRecords = computed(() =>
   (records.data.value ?? []).filter((r) => !flowKinds.includes(r.kind)),
 );
@@ -584,10 +593,7 @@ function pin() {
               ><span v-if="recordLine(r).source" class="source">{{ recordLine(r).source }}</span
               ><span v-if="r.superseded_at" class="superseded-mark">superseded</span>
             </div>
-            <p
-              v-if="records.isSuccess.value && !lineRecords.length && !flow.steps.length"
-              class="muted"
-            >
+            <p v-if="records.isSuccess.value && !lineRecords.length && !hasFlow" class="muted">
               No records yet.
             </p>
           </div>
