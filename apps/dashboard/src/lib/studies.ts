@@ -251,17 +251,21 @@ const blockLabels: Record<BlockKind, string> = {
 };
 export const blockLabel = (kind: BlockKind): string => blockLabels[kind];
 
-export type ComposerAction = { kind: 'comment' } | { kind: 'stop' } | { kind: 'resume' };
+export type ComposerAction = { kind: 'comment' } | { kind: 'stop' };
 
-// A Blocked study's picker: Comment, which gives a low-scored study one more
-// redo. An unblocked study gets [] and keeps the ordinary picker.
-export function blockedActions(card: Card): ComposerAction['kind'][] {
-  return card.ending || card.state !== 'blocked' ? [] : ['comment'];
+// A Blocked study's picker for its owner: Comment, which gives a low-scored
+// study one more redo. Anyone else's comment redoes nothing, so they, and
+// everyone on an unblocked study, get [] and keep the ordinary picker.
+export function blockedActions(card: Card, viewer: string | undefined): ComposerAction['kind'][] {
+  return card.ending || card.state !== 'blocked' || card.owner_id !== viewer ? [] : ['comment'];
 }
 
-export const canResume = (card: Card) => !card.ending && card.flag !== '';
+// Only a study's owner reassigns it, and only while it sits in Backlog.
+export const canReassign = (card: Card, viewer: string | undefined) =>
+  card.board_column === 'backlog' && !!viewer && card.owner_id === viewer;
+
 export function actionLabel(a: ComposerAction): string {
-  return { comment: 'Comment', stop: 'Stop', resume: 'Resume' }[a.kind];
+  return { comment: 'Comment', stop: 'Stop' }[a.kind];
 }
 
 export const verdictLabels: Record<string, string> = { high: 'High', middle: 'Middle', low: 'Low' };

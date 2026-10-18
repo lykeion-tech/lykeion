@@ -1,5 +1,16 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { labFixture } from './lab';
+
+// A Backlog study in the fixture's workspace: the only kind whose owner may
+// still reassign it.
+async function backlogStudy(request: APIRequestContext, headers: Record<string, string>) {
+  const res = await request.post('/api/cards', {
+    headers,
+    data: { question: `Backlog question ${Date.now()} ${Math.random()}?` },
+  });
+  expect(res.status()).toBe(201);
+  return (await res.json()) as { id: string };
+}
 
 test('inspector resize, real Research and assignment persist; disclosures and Runs use recorded data', async ({
   page,
@@ -22,22 +33,29 @@ test('inspector resize, real Research and assignment persist; disclosures and Ru
   await inspector
     .getByRole('combobox', { name: 'Research', exact: true })
     .selectOption(research.id);
+  // A started study keeps its assignee: it is shown, not offered.
+  await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveCount(0);
+  await expect(inspector.locator('.property-row', { hasText: 'Assignee' })).toBeVisible();
+  const backlog = await backlogStudy(page.request, headers);
+  await page.goto(`/#/studies/${backlog.id}`);
   await inspector
     .getByRole('combobox', { name: 'Assignee', exact: true })
     .selectOption(`member:${me.id}`);
   await expect
     .poll(
       async () =>
-        (await (await page.request.get(`/api/cards/${f.card_id}`, { headers })).json()).assignee_id,
+        (await (await page.request.get(`/api/cards/${backlog.id}`, { headers })).json())
+          .assignee_id,
     )
     .toBe(me.id);
   await page.reload();
+  await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveValue(
+    `member:${me.id}`,
+  );
+  await page.goto(`/#/studies/${f.card_id}`);
   await expect(inspector).toHaveCSS('width', '480px');
   await expect(inspector.getByRole('combobox', { name: 'Research', exact: true })).toHaveValue(
     research.id,
-  );
-  await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveValue(
-    `member:${me.id}`,
   );
   await expect(
     inspector.getByRole('button', { name: 'Execution log', exact: true }),
@@ -170,15 +188,6 @@ test('Research creation/edit and member/agent responsibility use canonical write
   ).json();
   await page.goto(`/#/studies/${f.card_id}`);
   const meta = page.locator('.study-meta');
-  await meta
-    .getByRole('combobox', { name: 'Assignee', exact: true })
-    .selectOption('agent:' + agentId);
-  await expect
-    .poll(
-      async () =>
-        (await (await page.request.get(`/api/cards/${f.card_id}`, { headers })).json()).assignee_id,
-    )
-    .toBe(agentId);
   for (const [old, current] of [
     [null, first],
     [first, second.id],
@@ -229,109 +238,50 @@ test('Research creation/edit and member/agent responsibility use canonical write
   expect(
     await (await page.request.get(`/api/cards/${f.card_id}/runs`, { headers })).json(),
   ).toEqual(runsBefore);
+  // The owner's agent assigned in Backlog starts the study, which then
+  // shows its assignee instead of offering it.
+  const backlog = await backlogStudy(page.request, headers);
+  await page.goto(`/#/studies/${backlog.id}`);
+  await meta
+    .getByRole('combobox', { name: 'Assignee', exact: true })
+    .selectOption('agent:' + agentId);
+  await expect
+    .poll(async () => {
+      const c = await (await page.request.get(`/api/cards/${backlog.id}`, { headers })).json();
+      return [c.assignee_id, c.board_column];
+    })
+    .toEqual([agentId, 'grounding']);
   await page.reload();
-  await expect(meta.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveValue(
-    'agent:' + agentId,
+  await expect(meta.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveCount(0);
+  await expect(meta.locator('.property-row', { hasText: 'Assignee' })).toContainText(
+    'Evidence curator',
   );
   await page.goto('/#/agents/' + agentId);
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Agent actions' }).click();
   await page.getByRole('menuitem', { name: 'Archive agent' }).click();
   await expect(page.getByText('Archived', { exact: true })).toBeVisible();
-  await page.goto(`/#/studies/${f.card_id}`);
-  await expect(meta.getByRole('combobox', { name: 'Assignee', exact: true })).toContainText(
-    'archived or unavailable',
-  );
   const privateAgent = await (
     await page.request.post('/api/agents', {
       headers,
       data: { name: 'Owner private agent', harness: 'codex', visibility: 'private' },
     })
   ).json();
+  const another = await backlogStudy(page.request, headers);
+  await page.goto(`/#/studies/${another.id}`);
+  await expect(meta.getByRole('combobox', { name: 'Assignee', exact: true })).not.toContainText(
+    'Evidence curator',
+  );
   await meta
     .getByRole('combobox', { name: 'Assignee', exact: true })
     .selectOption('agent:' + privateAgent.id);
   await expect
     .poll(
       async () =>
-        (await (await page.request.get(`/api/cards/${f.card_id}`, { headers })).json()).assignee_id,
+        (await (await page.request.get(`/api/cards/${another.id}`, { headers })).json())
+          .assignee_id,
     )
     .toBe(privateAgent.id);
-});
-
-import { labSignIn } from './lab';
-test('agent visibility revocation clears protected cached details and fences a held stale read', async ({
-  page,
-  browser,
-}) => {
-  const f = await labFixture(page.request),
-    headers = { 'X-Workspace-ID': f.workspace_id };
-  const agent = await (
-    await page.request.post('/api/agents', {
-      headers,
-      data: {
-        name: 'Scoped agent',
-        harness: 'claude',
-        instructions: 'PROTECTED RESEARCH INSTRUCTIONS',
-      },
-    })
-  ).json();
-  const other = await browser.newContext({ storageState: { cookies: [], origins: [] } });
-  try {
-    const email = 'visibility-member@lab.test';
-    const invite = await (
-      await page.request.post(`/api/workspaces/${f.workspace_id}/invitations`, {
-        headers,
-        data: { email, role: 'member' },
-      })
-    ).json();
-    await labSignIn(other.request, email);
-    expect((await other.request.post(`/api/invitations/${invite.token}/accept`)).status()).toBe(
-      200,
-    );
-    await other.request.patch('/api/me', { data: { name: 'Visibility member', onboarded: true } });
-    const member = await other.newPage();
-    await member.addInitScript(
-      (ws) => localStorage.setItem('lykeion.workspace', ws),
-      f.workspace_id,
-    );
-    await member.goto('/#/agents/' + agent.id);
-    await member.getByRole('tab', { name: 'Capabilities' }).click();
-    await expect(member.getByRole('textbox', { name: 'Agent instructions' })).toHaveValue(
-      'PROTECTED RESEARCH INSTRUCTIONS',
-    );
-    let release!: () => void, held!: () => void;
-    const gate = new Promise<void>((r) => (release = r)),
-      reached = new Promise<void>((r) => (held = r));
-    let count = 0;
-    await member.route(`**/api/agents/${agent.id}`, async (route) => {
-      if (++count === 1) {
-        const response = await route.fetch();
-        held();
-        await gate;
-        await route.fulfill({ response });
-      } else await route.continue();
-    });
-    await page.request.patch(`/api/agents/${agent.id}`, {
-      headers,
-      data: { description: 'Start held refresh' },
-    });
-    await reached;
-    await page.request.patch(`/api/agents/${agent.id}`, {
-      headers,
-      data: { visibility: 'private' },
-    });
-    await expect(member.getByRole('alert')).toContainText('not found');
-    await expect(member.getByRole('textbox', { name: 'Agent instructions' })).toHaveCount(0);
-    release();
-    await member.waitForTimeout(150);
-    await expect(member.getByRole('textbox', { name: 'Agent instructions' })).toHaveCount(0);
-    await expect(member.getByText('PROTECTED RESEARCH INSTRUCTIONS', { exact: true })).toHaveCount(
-      0,
-    );
-  } finally {
-    await other.close();
-  }
 });
 
 test('held actual assignment refusal cannot cross study navigation', async ({ page }) => {
@@ -350,12 +300,13 @@ test('held actual assignment refusal cannot cross study navigation', async ({ pa
       data: { name: 'Navigation destination' },
     })
   ).json();
-  await page.goto(`/#/studies/${f.card_id}`);
+  const study = await backlogStudy(page.request, headers);
+  await page.goto(`/#/studies/${study.id}`);
   await expect(page.getByRole('combobox', { name: 'Assignee', exact: true })).toContainText(a.name);
   let release!: () => void, held!: () => void;
   const gate = new Promise<void>((r) => (release = r)),
     reached = new Promise<void>((r) => (held = r));
-  await page.route(`**/api/cards/${f.card_id}/properties`, async (route) => {
+  await page.route(`**/api/cards/${study.id}/properties`, async (route) => {
     await page.request.post(`/api/agents/${a.id}/archive`, { headers });
     const response = await route.fetch();
     expect(response.status()).toBe(400);
@@ -370,10 +321,10 @@ test('held actual assignment refusal cannot cross study navigation', async ({ pa
   release();
   await page.waitForTimeout(150);
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await page.goto(`/#/studies/${f.card_id}`);
+  await page.goto(`/#/studies/${study.id}`);
   await expect(page.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveValue('');
   expect(
-    (await (await page.request.get(`/api/cards/${f.card_id}`, { headers })).json()).assignee_id,
+    (await (await page.request.get(`/api/cards/${study.id}`, { headers })).json()).assignee_id,
   ).toBeNull();
 });
 

@@ -279,23 +279,27 @@ describe('records and transcript', () => {
   });
 });
 
-import { actionLabel, blockedActions, canResume } from '../apps/dashboard/src/lib/studies';
+import { actionLabel, blockedActions, canReassign } from '../apps/dashboard/src/lib/studies';
 
 describe('composer actions', () => {
-  it('offers Resume to a blocked active study only', () => {
-    expect(canResume(card({ flag: 'escalated' }))).toBe(true);
-    expect(canResume(card({ flag: '' }))).toBe(false);
-    expect(canResume(card({ flag: 'escalated', ending: 'stopped' }))).toBe(false);
-  });
   it('labels the chosen action', () => {
     expect(actionLabel({ kind: 'comment' })).toBe('Comment');
     expect(actionLabel({ kind: 'stop' })).toBe('Stop');
   });
-  it('offers only Comment to a blocked study', () => {
-    expect(blockedActions(card({ state: 'blocked', block_kind: 'low_score' }))).toEqual([
-      'comment',
-    ]);
-    expect(blockedActions(card())).toEqual([]);
+  it('offers only Comment on a blocked study, and only to its owner, whose comment redoes it', () => {
+    const blocked = card({ state: 'blocked', block_kind: 'low_score', owner_id: 'u1' });
+    expect(blockedActions(blocked, 'u1')).toEqual(['comment']);
+    expect(blockedActions(blocked, 'u2')).toEqual([]);
+    expect(blockedActions(card({ owner_id: 'u1' }), 'u1')).toEqual([]);
+  });
+});
+
+describe('reassigning', () => {
+  it('is for the owner of a Backlog study only', () => {
+    expect(canReassign(card({ board_column: 'backlog', owner_id: 'u1' }), 'u1')).toBe(true);
+    expect(canReassign(card({ board_column: 'backlog', owner_id: 'u1' }), 'u2')).toBe(false);
+    expect(canReassign(card({ board_column: 'grounding', owner_id: 'u1' }), 'u1')).toBe(false);
+    expect(canReassign(card({ board_column: 'backlog', owner_id: 'u1' }), undefined)).toBe(false);
   });
 });
 

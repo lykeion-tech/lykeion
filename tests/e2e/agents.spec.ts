@@ -3,6 +3,23 @@ import { labFixture } from './lab';
 
 const artifacts = 'test-results/ui-lab/agents';
 
+// Assigns the agent to a new Backlog study of the fixture's workspace, which
+// starts it: a started study keeps its assignee.
+async function assignNewStudy(page: Page, headers: Record<string, string>, agentId: string) {
+  const res = await page.request.post('/api/cards', {
+    headers,
+    data: { question: `Assigned study ${Date.now()}?` },
+  });
+  expect(res.status()).toBe(201);
+  const study = await res.json();
+  const patched = await page.request.patch(`/api/cards/${study.id}/properties`, {
+    headers,
+    data: { assignee_type: 'agent', assignee_id: agentId },
+  });
+  expect(patched.status()).toBe(200);
+  return study.id as string;
+}
+
 async function inFixture(page: Page) {
   const f = await labFixture(page.request);
   await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
@@ -12,7 +29,7 @@ async function inFixture(page: Page) {
 test('the Agents list shows owner, access, harness and assigned studies per tab', async ({
   page,
 }) => {
-  const { f, headers } = await inFixture(page);
+  const { headers } = await inFixture(page);
   const post = async (data: object) =>
     (await page.request.post('/api/agents', { headers, data })).json();
   const curator = await post({
@@ -23,10 +40,7 @@ test('the Agents list shows owner, access, harness and assigned studies per tab'
   await post({ name: 'Private reviewer', harness: 'codex', visibility: 'private' });
   const retired = await post({ name: 'Retired analyst', harness: 'claude' });
   await page.request.post(`/api/agents/${retired.id}/archive`, { headers });
-  await page.request.patch(`/api/cards/${f.card_id}/properties`, {
-    headers,
-    data: { assignee_type: 'agent', assignee_id: curator.id },
-  });
+  await assignNewStudy(page, headers, curator.id);
 
   await page.goto('/#/agents');
   await expect(page.locator('#page-header-count')).toHaveText('2');
@@ -128,18 +142,15 @@ test.describe('new study', () => {
 test('the agent page shows its studies and edits instructions, profile and access', async ({
   page,
 }) => {
-  const { f, headers } = await inFixture(page);
+  const { headers } = await inFixture(page);
   const agent = await (
     await page.request.post('/api/agents', {
       headers,
       data: { name: 'Methods reviewer', harness: 'claude', description: 'Reviews methods' },
     })
   ).json();
-  await page.request.patch(`/api/cards/${f.card_id}/properties`, {
-    headers,
-    data: { assignee_type: 'agent', assignee_id: agent.id },
-  });
-  const card = await (await page.request.get(`/api/cards/${f.card_id}`, { headers })).json();
+  const studyId = await assignNewStudy(page, headers, agent.id);
+  const card = await (await page.request.get(`/api/cards/${studyId}`, { headers })).json();
   const read = async () => (await page.request.get(`/api/agents/${agent.id}`, { headers })).json();
 
   await page.goto('/#/agents/' + agent.id);

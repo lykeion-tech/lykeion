@@ -26,7 +26,7 @@ import type { Card, Column } from '../api/types';
 import {
   actionLabel,
   blockedActions,
-  canResume,
+  canReassign,
   type ComposerAction,
   columnName,
   earlierColumns,
@@ -193,18 +193,20 @@ const picker = ref<'' | 'main'>('');
 const placeholders: Record<ComposerAction['kind'], string> = {
   comment: 'Leave a comment… the stage roles read it next round.',
   stop: 'Why the study stops.',
-  resume: 'Optional: a comment for the next round.',
 };
-// Actions that send without text; any text goes first as a comment.
-const textOptional: ComposerAction['kind'][] = ['resume'];
-const blocked = computed(() => (c.value ? blockedActions(c.value) : []));
+const blocked = computed(() => (c.value ? blockedActions(c.value, me.data.value?.id) : []));
+const reassignable = computed(() => (c.value ? canReassign(c.value, me.data.value?.id) : false));
+const assigneeName = computed(() => {
+  const x = c.value;
+  if (!x?.assignee_id) return 'Unassigned';
+  if (x.assignee_type === 'member') return name(x.assignee_id);
+  return agents.data.value?.find((a) => a.id === x.assignee_id)?.name ?? 'Unavailable agent';
+});
 let draftRevision = 0;
-let acknowledgedResumeComment: string | null = null;
 watch(
   [comment, action],
   () => {
     draftRevision++;
-    acknowledgedResumeComment = null;
   },
   { flush: 'sync' },
 );
@@ -226,7 +228,6 @@ watch(
     expanded.value = '';
     action.value = { kind: 'comment' };
     picker.value = '';
-    acknowledgedResumeComment = null;
   },
   { flush: 'sync' },
 );
@@ -257,12 +258,11 @@ function machine(runtimeId: string | null) {
 }
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-// Each continuation, including the second Resume write, belongs to its captured visit.
+// Each continuation belongs to its captured visit.
 async function send() {
   const text = comment.value.trim();
   const a = action.value;
-  const optional = textOptional.includes(a.kind);
-  if (busy.value || (!text && !optional) || !c.value) return;
+  if (busy.value || !text || !c.value) return;
   if (a.kind === 'stop' && !confirm(`Stop ${number.value}? Ended studies are never reopened.`))
     return;
   const scope = mutationScope();
@@ -271,20 +271,12 @@ async function send() {
   busy.value = true;
   error.value = '';
   try {
-    if (a.kind === 'comment' || (optional && text && acknowledgedResumeComment !== text)) {
-      await api('POST', `${base}/comments`, { body: text });
-      if (!scope.current()) return;
-      // Retry only the remaining step after this comment was acknowledged.
-      if (optional && ownDraftRevision === draftRevision) acknowledgedResumeComment = text;
-    }
-    if (!scope.current()) return;
+    if (a.kind === 'comment') await api('POST', `${base}/comments`, { body: text });
     if (a.kind === 'stop') await api('POST', `${base}/stop`, { reason: text });
-    if (a.kind === 'resume') await api('POST', `${base}/resume`);
     if (!scope.current()) return;
     if (ownDraftRevision === draftRevision) {
       comment.value = '';
       action.value = { kind: 'comment' };
-      acknowledgedResumeComment = null;
     }
     await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
     if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
@@ -338,7 +330,8 @@ function pin() {
         </div>
       </div>
       <div class="property-row">
-        <label for="study-assignee">Assignee</label
+        <label v-if="reassignable" for="study-assignee">Assignee</label
+        ><small v-else>Assignee</small
         ><span class="avatar property-avatar">{{
           c.assignee_type === 'agent'
             ? (agents.data.value?.find((a) => a.id === c?.assignee_id)?.name[0] ?? 'A')
@@ -346,7 +339,9 @@ function pin() {
               ? name(c.assignee_id)[0]
               : '?'
         }}</span
+        ><span v-if="!reassignable" class="v">{{ assigneeName }}</span
         ><select
+          v-else
           id="study-assignee"
           aria-label="Assignee"
           :value="assigneeValue"
@@ -678,20 +673,12 @@ function pin() {
                 >
                   Stop<small>ends the study</small>
                 </button>
-                <button
-                  v-if="!blocked.length && canResume(c)"
-                  type="button"
-                  role="menuitem"
-                  @click="pick({ kind: 'resume' })"
-                >
-                  Resume<small>clears the block</small>
-                </button>
               </div>
             </div>
             <button
               class="round-send"
               type="submit"
-              :disabled="busy || (!comment.trim() && !textOptional.includes(action.kind))"
+              :disabled="busy || !comment.trim()"
               aria-label="Send"
             >
               <Icon name="up" :size="18" />
