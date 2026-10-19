@@ -64,11 +64,13 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/steps", h.postStep)
 			r.Post("/done", h.postDone)
 			r.Get("/calls", h.listCalls)
+			r.Get("/runs", h.listRuns)
 			r.Post("/blobs", h.putBlob)
 			r.Get("/blobs/{sha}", h.getBlob)
 		})
 		// Only the daemon's tool door holds a call token; the agent's cannot record.
 		r.With(middleware.RequireScope(service.ScopeCall)).Post("/calls", h.postCall)
+		r.With(middleware.RequireScope(service.ScopeCall)).Post("/runs", h.postRun)
 		r.With(middleware.RequireScope(service.ScopeCall)).Post("/mcp-servers/{id}/tools", h.workspaceMCPTools)
 		r.With(middleware.RequireScope(service.ScopeCall)).Post("/mcp-servers/{id}/call", h.workspaceMCPCall)
 		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Post("/tools", h.postTools)

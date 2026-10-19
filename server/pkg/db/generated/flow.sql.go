@@ -177,6 +177,23 @@ func (q *Queries) LastRecordNumber(ctx context.Context, arg LastRecordNumberPara
 	return n, err
 }
 
+const lastRunNumber = `-- name: LastRunNumber :one
+SELECT COALESCE(max(substr(key, 2)::int), 0)::int AS n FROM record
+WHERE workspace_id = $1 AND card_id = $2 AND kind = 'run' AND key ~ '^x[0-9]+$'
+`
+
+type LastRunNumberParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) LastRunNumber(ctx context.Context, arg LastRunNumberParams) (int32, error) {
+	row := q.db.QueryRow(ctx, lastRunNumber, arg.WorkspaceID, arg.CardID)
+	var n int32
+	err := row.Scan(&n)
+	return n, err
+}
+
 const liveRecordKeys = `-- name: LiveRecordKeys :many
 SELECT DISTINCT key FROM record WHERE workspace_id = $1 AND card_id = $2
   AND key = ANY($3::text[]) AND superseded_at IS NULL

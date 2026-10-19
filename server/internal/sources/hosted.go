@@ -72,15 +72,24 @@ func (h *Hosted) RecordCall(ctx context.Context, role middleware.Role, token str
 func NewCall(role middleware.Role, server, tool string, args any, answer string, upstreamCut bool) (map[string]any, string) {
 	sum := sha256.Sum256([]byte(answer))
 	rest := ""
-	if len(answer) > MaxCallAnswer {
-		cut := MaxCallAnswer
-		for cut > 0 && !utf8.RuneStart(answer[cut]) {
-			cut--
-		}
-		answer, rest = answer[:cut], answer
+	if kept, cut := Cut(answer); cut {
+		answer, rest = kept, answer
 	}
 	return map[string]any{"server": server, "tool": tool, "args": args, "answer_sha256": hex.EncodeToString(sum[:]),
 		"answer": answer, "truncated": upstreamCut || rest != "", "at": time.Now().UTC().Format(time.RFC3339), "agent_run_id": role.AgentRunID}, rest
+}
+
+// Cut is s cut to what a record body keeps, MaxCallAnswer bytes at a rune
+// boundary, and whether anything was cut.
+func Cut(s string) (string, bool) {
+	if len(s) <= MaxCallAnswer {
+		return s, false
+	}
+	n := MaxCallAnswer
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n], true
 }
 
 // record is Record answering with the key the record was stored under.
