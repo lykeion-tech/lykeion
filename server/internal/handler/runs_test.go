@@ -1,9 +1,9 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -12,14 +12,21 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-func (l *teamLab) blob(t *testing.T, key string) string {
+// blob reads a blob through the role's blobs route, which serves only blobs
+// whose blob.created was committed.
+func (l *teamLab) blob(t *testing.T, token, sum string) string {
 	t.Helper()
-	rc, err := l.s.H.Blobs.Get(context.Background(), key)
+	req, _ := http.NewRequest("GET", l.s.URL+"/api/role/blobs/"+sum, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("blob %s: %v", key, err)
+		t.Fatal(err)
 	}
-	defer rc.Close()
-	b, _ := io.ReadAll(rc)
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("blob %s: %d %s", sum, resp.StatusCode, b)
+	}
 	return string(b)
 }
 
@@ -48,8 +55,11 @@ func TestRunKeysAreSequentialAndApartFromCalls(t *testing.T) {
 	if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", map[string]any{"server": "pubmed", "tool": "search", "answer": "hit"}, &out); c != 201 || out.Key != "c1" {
 		t.Fatalf("call %d %+v", c, out)
 	}
-	for _, want := range []string{"x1", "x2"} {
-		in := map[string]any{"tool": "run_code", "language": "python", "code": "print(1)", "output": "1\n", "exit_status": 0}
+	for _, in := range []map[string]any{
+		{"tool": "run_code", "language": "python", "code": "print(1)", "output": "1\n", "exit_status": 0},
+		{"tool": "run_script", "language": "r", "path": "a.R", "script": "cat(1)", "output": strings.Repeat("o", 3000), "error": "warn", "exit_status": 1},
+	} {
+		want := map[string]string{"run_code": "x1", "run_script": "x2"}[in["tool"].(string)]
 		if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, &out); c != 201 || out.Key != want {
 			t.Fatalf("run %d %+v, want %s", c, out, want)
 		}
@@ -66,9 +76,18 @@ func TestRunKeysAreSequentialAndApartFromCalls(t *testing.T) {
 	if c := l.s.call(t, "GET", "/api/role/runs", leader.token, "", nil, &runs); c != 200 || len(runs) != 2 {
 		t.Fatalf("runs %d %+v", c, runs)
 	}
-	for i, want := range []string{"x1", "x2"} {
-		if runs[i]["key"] != want || runs[i]["tool"] != "run_code" || runs[i]["language"] != "python" {
-			t.Fatalf("run %d: %+v", i, runs[i])
+	if r := runs[0]; r["key"] != "x1" || r["tool"] != "run_code" || r["language"] != "python" || r["exit_status"] != 0.0 || r["at"] == nil || r["truncated"] != false {
+		t.Fatalf("x1: %+v", r)
+	}
+	if r := runs[1]; r["key"] != "x2" || r["tool"] != "run_script" || r["language"] != "r" || r["path"] != "a.R" || r["exit_status"] != 1.0 ||
+		r["output"] != strings.Repeat("o", 2000) || r["truncated"] != true {
+		t.Fatalf("x2: %+v", r)
+	}
+	for _, r := range runs {
+		for _, f := range []string{"script", "error", "code", "packages_study", "agent_run_id"} {
+			if _, ok := r[f]; ok {
+				t.Fatalf("the listing carries %s: %+v", f, r)
+			}
 		}
 	}
 }
@@ -89,7 +108,7 @@ func TestALongRunOutputGoesWholeToABlob(t *testing.T) {
 	if body["truncated"] != true {
 		t.Fatal("a cut output is not marked truncated")
 	}
-	if rec.BlobKey == "" || l.blob(t, rec.BlobKey) != output {
+	if rec.BlobKey != l.ws+"/"+l.card.ID+"/"+hexSHA(output) || l.blob(t, leader.token, hexSHA(output)) != output {
 		t.Fatalf("blob %q does not hold the whole output", rec.BlobKey)
 	}
 	if body["output_sha256"] != hexSHA(output) {
@@ -97,6 +116,33 @@ func TestALongRunOutputGoesWholeToABlob(t *testing.T) {
 	}
 	if _, ok := body["code"]; ok {
 		t.Fatal("a run_script record keeps code")
+	}
+}
+
+func TestALongRunErrorGoesWholeToABlob(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	errText := strings.Repeat("é", sources.MaxCallAnswer)
+	in := map[string]any{"tool": "run_code", "language": "python", "code": "raise", "output": "short", "error": errText, "exit_status": 1}
+	if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, nil); c != 201 {
+		t.Fatalf("run %d", c)
+	}
+	rec, body := l.runRecord(t, leader.token, "x1")
+	kept, _ := body["error"].(string)
+	if !utf8.ValidString(kept) || len(kept) > sources.MaxCallAnswer || !strings.HasPrefix(errText, kept) || kept == "" {
+		t.Fatalf("error keeps %d bytes", len(kept))
+	}
+	if body["error_truncated"] != true || body["truncated"] != false {
+		t.Fatalf("error_truncated %v, truncated %v", body["error_truncated"], body["truncated"])
+	}
+	if body["error_sha256"] != hexSHA(errText) || body["error_blob"] != l.ws+"/"+l.card.ID+"/"+hexSHA(errText) {
+		t.Fatalf("error_sha256 %v, error_blob %v", body["error_sha256"], body["error_blob"])
+	}
+	if l.blob(t, leader.token, hexSHA(errText)) != errText {
+		t.Fatal("the error blob does not hold the whole error")
+	}
+	if rec.BlobKey != "" {
+		t.Fatalf("an uncut output has blob %q", rec.BlobKey)
 	}
 }
 
@@ -113,7 +159,7 @@ func TestARunRecordsItsScriptAndPackages(t *testing.T) {
 	if body["script_sha256"] != hexSHA(script) {
 		t.Fatalf("script_sha256 %v", body["script_sha256"])
 	}
-	if body["packages_sha256"] != hexSHA(packages) || l.blob(t, l.ws+"/"+l.card.ID+"/"+hexSHA(packages)) != packages {
+	if body["packages_sha256"] != hexSHA(packages) || l.blob(t, leader.token, hexSHA(packages)) != packages {
 		t.Fatalf("packages blob: %v", body["packages_sha256"])
 	}
 	if body["packages_study"] != "scanpy==1.10.0\n" {
@@ -122,10 +168,35 @@ func TestARunRecordsItsScriptAndPackages(t *testing.T) {
 	if body["truncated"] != false || body["script"] != script || body["path"] != "analysis/x.py" {
 		t.Fatalf("body %+v", body)
 	}
-	in["script"] = strings.Repeat("a", 256<<10+1)
-	var e struct{ Error string }
-	if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, &e); c != 400 || e.Error != "the script is over 256 KiB" {
-		t.Fatalf("long script: %d %q", c, e.Error)
+	bare := map[string]any{"tool": "run_code", "language": "python", "code": "1", "output": "1", "exit_status": 0}
+	if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", bare, nil); c != 201 {
+		t.Fatalf("run without packages %d", c)
+	}
+	if _, body := l.runRecord(t, leader.token, "x2"); body["packages_sha256"] != nil {
+		t.Fatalf("a run with no package list names one: %v", body["packages_sha256"])
+	}
+	for _, c := range []struct {
+		field string
+		value any
+		want  string
+	}{
+		{"script", strings.Repeat("a", 256<<10+1), "the script is over 256 KiB"},
+		{"code", strings.Repeat("a", 256<<10+1), "the code is over 256 KiB"},
+		{"exit_status", nil, "exit_status is required"},
+		{"exit_status", "zero", "invalid run: "},
+	} {
+		bad := map[string]any{}
+		for k, v := range in {
+			bad[k] = v
+		}
+		bad[c.field] = c.value
+		if c.value == nil {
+			delete(bad, c.field)
+		}
+		var e struct{ Error string }
+		if code := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", bad, &e); code != 400 || !strings.HasPrefix(e.Error, c.want) {
+			t.Fatalf("%s: %d %q", c.field, code, e.Error)
+		}
 	}
 }
 

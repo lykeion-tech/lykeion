@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	// maxScript is the longest script a run record stores whole.
+	// maxScript is the longest script or cell a run record stores whole.
 	maxScript = 256 << 10
 	// maxStudyPackages bounds the study's own part of the package list a
 	// record keeps inline.
@@ -56,11 +56,11 @@ func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 		Script     string `json:"script"`
 		Output     string `json:"output"`
 		Error      string `json:"error"`
-		ExitStatus int    `json:"exit_status"`
+		ExitStatus *int   `json:"exit_status"`
 		Packages   string `json:"packages"`
 	}
 	if err := readJSON(r, &in); err != nil {
-		writeErr(w, 400, "tool, language and output required")
+		writeErr(w, 400, "invalid run: "+err.Error())
 		return
 	}
 	if in.Tool != "run_code" && in.Tool != "run_script" {
@@ -77,6 +77,14 @@ func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "the script is over 256 KiB")
 		return
 	}
+	if len(in.Code) > maxScript {
+		writeErr(w, 400, "the code is over 256 KiB")
+		return
+	}
+	if in.ExitStatus == nil {
+		writeErr(w, 400, "exit_status is required")
+		return
+	}
 	role := middleware.RoleFrom(r.Context())
 	if role.CardID == uuid.Nil {
 		// a run with no card keeps no run record
@@ -88,24 +96,33 @@ func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	output, truncated := sources.Cut(in.Output)
-	errText, _ := sources.Cut(in.Error)
-	body := map[string]any{"tool": in.Tool, "language": in.Language, "exit_status": in.ExitStatus,
-		"output": output, "output_sha256": hexSHA(in.Output), "truncated": truncated, "error": errText,
-		"packages_sha256": hexSHA(in.Packages), "packages_study": studyPackages(in.Packages, in.Language),
-		"at": time.Now().UTC().Format(time.RFC3339), "agent_run_id": role.AgentRunID}
+	errText, errCut := sources.Cut(in.Error)
+	outputSum, errSum := hexSHA(in.Output), hexSHA(in.Error)
+	body := map[string]any{"tool": in.Tool, "language": in.Language, "exit_status": *in.ExitStatus,
+		"output": output, "output_sha256": outputSum, "truncated": truncated,
+		"error": errText, "error_sha256": errSum, "error_truncated": errCut,
+		"packages_study": studyPackages(in.Packages, in.Language),
+		"at":             time.Now().UTC().Format(time.RFC3339), "agent_run_id": role.AgentRunID}
 	if in.Tool == "run_code" {
 		body["code"] = in.Code
 	} else {
 		body["path"], body["script"], body["script_sha256"] = in.Path, in.Script, hexSHA(in.Script)
 	}
-	blobs := map[string]string{} // sha256 → text
+	// the whole texts a body keeps only part of, and the package list, by sha256
+	blobs := map[string]string{}
 	outputKey := ""
 	if truncated {
-		blobs[body["output_sha256"].(string)] = in.Output
-		outputKey = blobKey(role, body["output_sha256"].(string))
+		blobs[outputSum] = in.Output
+		outputKey = blobKey(role, outputSum)
+	}
+	if errCut {
+		blobs[errSum] = in.Error
+		body["error_blob"] = blobKey(role, errSum)
 	}
 	if in.Packages != "" {
-		blobs[body["packages_sha256"].(string)] = in.Packages
+		sum := hexSHA(in.Packages)
+		blobs[sum] = in.Packages
+		body["packages_sha256"] = sum
 	}
 	for sum, text := range blobs {
 		if err := h.Blobs.Put(r.Context(), blobKey(role, sum), bytes.NewReader([]byte(text)), int64(len(text))); err != nil {
@@ -149,8 +166,8 @@ func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]string{"key": key})
 }
 
-// listRuns lists the study's run records in the run's column, each output cut
-// to an excerpt.
+// listRuns lists the study's run records in the run's column: what each ran
+// and how it ended, its output cut to an excerpt.
 func (h *H) listRuns(w http.ResponseWriter, r *http.Request) {
 	var recs []db.Record
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) (err error) {
@@ -166,17 +183,25 @@ func (h *H) listRuns(w http.ResponseWriter, r *http.Request) {
 		if rec.Kind != "run" {
 			continue
 		}
-		var body map[string]any
+		var body struct {
+			Tool       string `json:"tool"`
+			Language   string `json:"language"`
+			Path       string `json:"path"`
+			ExitStatus int    `json:"exit_status"`
+			At         string `json:"at"`
+			Output     string `json:"output"`
+			Truncated  bool   `json:"truncated"`
+		}
 		if json.Unmarshal(rec.Body, &body) != nil {
 			continue
 		}
-		if o, ok := body["output"].(string); ok {
-			if cut, more := flow.Excerpt(o, 2000); more {
-				body["output"], body["truncated"] = cut, true
-			}
+		output, more := flow.Excerpt(body.Output, 2000)
+		run := map[string]any{"key": rec.Key, "tool": body.Tool, "language": body.Language, "exit_status": body.ExitStatus,
+			"at": body.At, "output": output, "truncated": body.Truncated || more}
+		if body.Path != "" {
+			run["path"] = body.Path
 		}
-		body["key"] = rec.Key
-		out = append(out, body)
+		out = append(out, run)
 	}
 	writeJSON(w, 200, out)
 }
