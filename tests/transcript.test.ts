@@ -6,6 +6,11 @@ import RunTurn from '../apps/dashboard/src/components/RunTurn.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { keys } from '../apps/dashboard/src/api/keys';
 import type { AgentRun, RunMessage } from '../apps/dashboard/src/api/types';
+import {
+  executionCells,
+  notebookJson,
+  recordedCode,
+} from '../apps/dashboard/src/lib/run-transcript';
 
 const run = {
   id: 'r',
@@ -41,7 +46,7 @@ async function render(messages: RunMessage[], overrides: Partial<AgentRun> = {})
   });
   client.setQueryData(keys.runMessages('w', 'r', 2), messages);
   const app = createSSRApp({
-    render: () => h(RunTurn, { run: { ...run, ...overrides }, machine: 'Recorded machine' }),
+    render: () => h(RunTurn, { run: { ...run, ...overrides } }),
   });
   app.use(VueQueryPlugin, { queryClient: client });
   try {
@@ -67,8 +72,8 @@ describe('reading-first recorded run', () => {
     ]);
     expect(html).toContain('<h1>Evidence</h1>');
     expect(html).toContain('<strong>recorded</strong>');
-    expect(html.indexOf('First <strong>')).toBeLessThan(html.indexOf('Activity'));
-    expect(html.indexOf('Activity')).toBeLessThan(html.indexOf('<h2>Outcome</h2>'));
+    expect(html.indexOf('First <strong>')).toBeLessThan(html.indexOf('Ran 3 steps'));
+    expect(html.indexOf('Ran 3 steps')).toBeLessThan(html.indexOf('<h2>Outcome</h2>'));
     expect(html.match(/Last paragraph\./g)).toHaveLength(1);
     expect(html).toContain('data-activity-group');
     expect(html).toContain(fullIntent);
@@ -102,8 +107,8 @@ describe('reading-first recorded run', () => {
       expect(html).toContain('<li>first item</li>');
       expect(html).toContain('print(&quot;recorded&quot;)');
       expect(html.match(/class="markdown-body"/g)).toHaveLength(5);
-      expect(html.indexOf('<h2>Result')).toBeLessThan(html.indexOf('Activity'));
-      expect(html.indexOf('Activity')).toBeLessThan(html.indexOf('<p>After activity.</p>'));
+      expect(html.indexOf('<h2>Result')).toBeLessThan(html.indexOf('Ran 1 step'));
+      expect(html.indexOf('Ran 1 step')).toBeLessThan(html.indexOf('<p>After activity.</p>'));
     },
   );
   it('keeps Codex completed command errors and output in their recorded tool entry', async () => {
@@ -183,5 +188,34 @@ describe('reading-first recorded run', () => {
     expect(later).toContain('href="https://example.com"');
     expect(later).not.toContain('unfinished');
     expect(later).not.toContain('data-source');
+  });
+});
+describe('run dialog views', () => {
+  const messages = [
+    msg(1, 'tool_use', { id: 't1', input: { command: 'ls data' } }, 'Bash'),
+    msg(2, 'tool_use', { id: 't2', input: { code: 'print(1)\n' } }, 'notebook'),
+    msg(3, 'tool_result', { tool_use_id: 't2', content: '1' }),
+    msg(4, 'tool_result', { tool_use_id: 't1', content: 'a.tif', is_error: true }),
+    msg(5, 'tool_use', { input: { file_path: 'scripts/area.py', content: 'import csv' } }, 'Write'),
+    msg(6, 'tool_use', { input: { file_path: 'notes.md', content: '# Notes' } }, 'Write'),
+  ];
+  it('collects executed and written code, never shell commands or prose files', () => {
+    expect(recordedCode(messages).map((c) => [c.name, c.language, c.code])).toEqual([
+      ['notebook', 'python', 'print(1)\n'],
+      ['scripts/area.py', 'python', 'import csv'],
+    ]);
+  });
+  it('pairs each call with the result that answers it', () => {
+    const cells = executionCells(messages);
+    expect(cells.map((c) => [c.source, c.language, c.output, c.error])).toEqual([
+      ['ls data', 'shell', 'a.tif', true],
+      ['print(1)\n', 'python', '1', false],
+      [expect.stringContaining('scripts/area.py'), 'json', '', false],
+      [expect.stringContaining('notes.md'), 'json', '', false],
+    ]);
+    const notebook = JSON.parse(notebookJson(cells));
+    expect(notebook.nbformat).toBe(4);
+    expect(notebook.cells[0].outputs[0]).toMatchObject({ name: 'stderr', text: ['a.tif'] });
+    expect(notebook.cells[1].source).toEqual(['print(1)\n']);
   });
 });

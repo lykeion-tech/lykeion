@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import Icon from './Icon.vue';
 import type { RunMessage } from '../api/types';
 import { activityStep, recordedContent } from '../lib/run-transcript';
 const props = defineProps<{ messages: RunMessage[]; history?: boolean }>();
@@ -11,6 +12,7 @@ function toggle(event: Event) {
 const steps = computed(() =>
   props.messages.map((message) => ({ message, ...activityStep(message) })),
 );
+const count = (n: number) => `${n} ${n === 1 ? 'step' : 'steps'}`;
 const errors = computed(() => steps.value.filter((step) => step.error).length);
 </script>
 <template>
@@ -21,8 +23,11 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
     @toggle="toggle"
   >
     <summary>
-      <span>{{ history ? 'Full recorded history' : 'Activity' }}</span>
-      <span class="activity-count">{{ messages.length }} {{ history ? 'messages' : 'steps' }}</span>
+      <Icon name="right" :size="11" class="activity-chevron" />
+      <span>{{ history ? 'Full recorded history' : `Ran ${count(messages.length)}` }}</span>
+      <span class="activity-count">{{
+        history ? `${messages.length} messages` : count(messages.length)
+      }}</span>
       <span v-if="errors" class="activity-error"
         >{{ errors }} {{ errors === 1 ? 'error' : 'errors' }}</span
       >
@@ -77,25 +82,42 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
 </template>
 <style scoped>
 .run-activity {
-  margin: 12px 0 16px;
+  margin: 0;
   font-size: 12px;
   color: var(--muted);
   min-width: 0;
 }
 .run-activity > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
-  width: fit-content;
-  max-width: 100%;
-  line-height: 1.8;
+  list-style: none;
+  min-height: 24px;
+  font-size: 13px;
+  line-height: 20px;
+  border-radius: 6px;
 }
-.run-activity > summary > span + span {
-  margin-left: 9px;
+.run-activity > summary::-webkit-details-marker {
+  display: none;
 }
-.run-activity > summary > span:first-child {
+.run-activity > summary:hover {
+  background: var(--hover);
+}
+.activity-chevron {
+  color: var(--icon-faint);
+  transition: transform 0.15s;
+}
+.run-activity[open] > summary > .activity-chevron {
+  transform: rotate(90deg);
+}
+.run-activity > summary > span:nth-child(2) {
   color: var(--text);
-  font-weight: 500;
+  font-weight: 600;
 }
 .activity-count {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
 }
 .activity-error {

@@ -53,7 +53,8 @@ function readable(value: unknown): string {
     typeof data.content === 'string' ? data.content : undefined,
   );
 }
-export function activityStep(message: RunMessage) {
+// Claude records the call itself; Codex wraps it in an item.
+function toolCall(message: RunMessage) {
   const content = object(message.content);
   const item = Object.keys(object(content.item)).length ? object(content.item) : content;
   const input = Object.keys(object(item.input)).length
@@ -61,6 +62,10 @@ export function activityStep(message: RunMessage) {
     : Object.keys(object(item.arguments)).length
       ? object(item.arguments)
       : item;
+  return { content, item, input };
+}
+export function activityStep(message: RunMessage) {
+  const { content, item, input } = toolCall(message);
   const command = string(input.command, item.command);
   const path = string(input.file_path, input.path, input.file);
   const query = string(input.query, input.pattern);
@@ -116,4 +121,120 @@ export function activityStep(message: RunMessage) {
     readable(content.content) ||
     readable(message.content);
   return { label, detail, state: recordedState, error, output };
+}
+
+const codeLanguages: Record<string, string> = {
+  py: 'python',
+  r: 'r',
+  jl: 'julia',
+  js: 'javascript',
+  ts: 'typescript',
+  sh: 'shell',
+  sql: 'sql',
+};
+export interface RecordedCode {
+  key: string;
+  name: string;
+  language: string;
+  code: string;
+}
+// Code a run executed or wrote: notebook and script inputs, and source files
+// it wrote. Shell commands stay in the execution log.
+export function recordedCode(messages: readonly RunMessage[]): RecordedCode[] {
+  const out: RecordedCode[] = [];
+  for (const message of messages) {
+    if (message.type !== 'tool_use') continue;
+    const { item, input } = toolCall(message);
+    const path = string(input.file_path, input.path, input.file);
+    const extension = path.split('.').pop()?.toLowerCase() ?? '';
+    const source = string(input.code, input.source, input.cell, input.script);
+    const written = codeLanguages[extension] ? string(input.content, input.new_source) : '';
+    const code = source || written;
+    if (!code) continue;
+    out.push({
+      key: `${message.attempt}:${message.seq}`,
+      name: path || message.tool || string(item.tool, item.name) || 'Script',
+      language: string(input.language, input.kernel) || codeLanguages[extension] || 'python',
+      code,
+    });
+  }
+  return out;
+}
+export interface ExecutionCell {
+  key: string;
+  label: string;
+  detail: string;
+  language: string;
+  source: string;
+  output: string;
+  error: boolean;
+}
+// Each recorded call with the result that answers it: by tool_use_id when the
+// adapter records one, otherwise the next result, or the call's own output.
+export function executionCells(messages: readonly RunMessage[]): ExecutionCell[] {
+  const sorted = [...messages].sort((a, b) => a.attempt - b.attempt || a.seq - b.seq);
+  const used = new Set<RunMessage>();
+  const cells: ExecutionCell[] = [];
+  sorted.forEach((message, index) => {
+    if (message.type !== 'tool_use') return;
+    const { content, item, input } = toolCall(message);
+    const id = string(content.id, item.id);
+    const later = sorted.slice(index + 1);
+    const result =
+      (id &&
+        later.find(
+          (m) => m.type === 'tool_result' && string(object(m.content).tool_use_id) === id,
+        )) ||
+      later.find(
+        (m) => m.type === 'tool_result' && !used.has(m) && !string(object(m.content).tool_use_id),
+      );
+    if (result) used.add(result);
+    const step = activityStep(message);
+    const answer = result ? activityStep(result) : undefined;
+    const code = string(input.code, input.source, input.cell, input.script);
+    const command = string(input.command, item.command);
+    const own = readable(item.aggregated_output) || readable(item.output) || readable(item.result);
+    cells.push({
+      key: `${message.attempt}:${message.seq}`,
+      label: step.label,
+      detail: step.detail,
+      language: code
+        ? string(input.language, input.kernel) || 'python'
+        : command
+          ? 'shell'
+          : 'json',
+      source: code || command || recordedContent(input),
+      output: answer?.output || own,
+      error: step.error || Boolean(answer?.error),
+    });
+  });
+  return cells;
+}
+// A minimal nbformat 4 notebook of the recorded cells, for download.
+export function notebookJson(cells: readonly ExecutionCell[]): string {
+  const lines = (text: string) => text.split(/(?<=\n)/);
+  return JSON.stringify(
+    {
+      nbformat: 4,
+      nbformat_minor: 5,
+      metadata: {},
+      cells: cells.map((cell) => ({
+        cell_type: 'code',
+        metadata: { lykeion_label: cell.label },
+        source: lines(cell.source),
+        execution_count: null,
+        outputs: cell.output
+          ? [
+              {
+                output_type: 'stream',
+                name: cell.error ? 'stderr' : 'stdout',
+                text: lines(cell.output),
+              },
+            ]
+          : [],
+      })),
+    },
+    null,
+    1,
+  );
 }
