@@ -85,8 +85,18 @@ RETURNING *;
 -- name: DeleteBacklogCard :execrows
 DELETE FROM card WHERE id = @id AND workspace_id = @workspace_id AND board_column = 'backlog';
 
+-- A card's runs with what the study page shows about each: the name of the
+-- agent it was started as, the latest text of its current attempt and when
+-- that attempt last recorded anything.
 -- name: CardAgentRuns :many
-SELECT * FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_id ORDER BY created_at, id;
+SELECT t.*, a.name AS agent_name,
+  COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
+  m.created_at AS last_activity_at
+FROM agent_run t
+LEFT JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
+LEFT JOIN agent_run_message m ON m.workspace_id = t.workspace_id AND m.agent_run_id = t.id AND m.attempt = t.attempt
+  AND m.seq = (SELECT max(seq) FROM agent_run_message n WHERE n.workspace_id = t.workspace_id AND n.agent_run_id = t.id AND n.attempt = t.attempt)
+WHERE t.workspace_id = @workspace_id AND t.card_id = @card_id ORDER BY t.created_at, t.id;
 
 -- Every record of a card's column, superseded ones included, for the card page.
 -- name: ListAllRecords :many

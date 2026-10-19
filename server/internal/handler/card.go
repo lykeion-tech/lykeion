@@ -421,7 +421,7 @@ func (h *H) cardRuns(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	runs := []db.AgentRun{}
+	runs := []db.CardAgentRunsRow{}
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id}); err != nil {
 			return err
@@ -435,7 +435,7 @@ func (h *H) cardRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if runs == nil {
-		runs = []db.AgentRun{}
+		runs = []db.CardAgentRunsRow{}
 	}
 	writeJSON(w, http.StatusOK, runs)
 }

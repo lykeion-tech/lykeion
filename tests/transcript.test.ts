@@ -8,8 +8,10 @@ import { keys } from '../apps/dashboard/src/api/keys';
 import type { AgentRun, RunMessage } from '../apps/dashboard/src/api/types';
 import {
   executionCells,
+  liveStatus,
   notebookJson,
   recordedCode,
+  transcriptBlocks,
 } from '../apps/dashboard/src/lib/run-transcript';
 
 const run = {
@@ -35,6 +37,11 @@ const run = {
   cost_usd: 0,
   created_at: '2026-10-15T10:00:00Z',
   handoff_note: '',
+  agent_id: null,
+  agent_name: null,
+  assignment: '',
+  latest_text: '',
+  last_activity_at: null,
 } satisfies AgentRun;
 function msg(seq: number, type: RunMessage['type'], content: unknown, tool = ''): RunMessage {
   return { agent_run_id: 'r', attempt: 2, seq, type, content, tool, created_at: run.created_at };
@@ -190,32 +197,348 @@ describe('reading-first recorded run', () => {
     expect(later).not.toContain('data-source');
   });
 });
-describe('run dialog views', () => {
-  const messages = [
-    msg(1, 'tool_use', { id: 't1', input: { command: 'ls data' } }, 'Bash'),
-    msg(2, 'tool_use', { id: 't2', input: { code: 'print(1)\n' } }, 'notebook'),
-    msg(3, 'tool_result', { tool_use_id: 't2', content: '1' }),
-    msg(4, 'tool_result', { tool_use_id: 't1', content: 'a.tif', is_error: true }),
-    msg(5, 'tool_use', { input: { file_path: 'scripts/area.py', content: 'import csv' } }, 'Write'),
-    msg(6, 'tool_use', { input: { file_path: 'notes.md', content: '# Notes' } }, 'Write'),
-  ];
-  it('collects executed and written code, never shell commands or prose files', () => {
+// Message contents below are what the daemon adapters in server/pkg/agent
+// store: Claude content blocks, Codex item.completed events, Cursor tool_call
+// events and Antigravity step_update events (see server/pkg/agent/testdata).
+describe('run dialog views from recorded adapter shapes', () => {
+  it('pairs Claude calls with their results by tool_use id and collects written code', () => {
+    const messages = [
+      msg(
+        1,
+        'tool_use',
+        { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'ls data' } },
+        'Bash',
+      ),
+      msg(
+        2,
+        'tool_use',
+        {
+          type: 'tool_use',
+          id: 'toolu_2',
+          name: 'Write',
+          input: { file_path: 'scripts/area.py', content: 'import csv\n' },
+        },
+        'Write',
+      ),
+      msg(3, 'tool_result', {
+        type: 'tool_result',
+        tool_use_id: 'toolu_2',
+        content: 'File created',
+      }),
+      msg(4, 'tool_result', {
+        type: 'tool_result',
+        tool_use_id: 'toolu_1',
+        content: [{ type: 'text', text: 'a.tif' }],
+        is_error: true,
+      }),
+      msg(
+        5,
+        'tool_use',
+        {
+          type: 'tool_use',
+          id: 'toolu_3',
+          name: 'Write',
+          input: { file_path: 'notes.md', content: '# Notes' },
+        },
+        'Write',
+      ),
+      msg(
+        6,
+        'tool_use',
+        {
+          type: 'tool_use',
+          id: 'toolu_4',
+          name: 'NotebookEdit',
+          input: { notebook_path: 'fit.ipynb', new_source: 'print(1)\n' },
+        },
+        'NotebookEdit',
+      ),
+    ];
     expect(recordedCode(messages).map((c) => [c.name, c.language, c.code])).toEqual([
-      ['notebook', 'python', 'print(1)\n'],
-      ['scripts/area.py', 'python', 'import csv'],
+      ['scripts/area.py', 'python', 'import csv\n'],
+      ['fit.ipynb', 'python', 'print(1)\n'],
     ]);
-  });
-  it('pairs each call with the result that answers it', () => {
     const cells = executionCells(messages);
-    expect(cells.map((c) => [c.source, c.language, c.output, c.error])).toEqual([
-      ['ls data', 'shell', 'a.tif', true],
-      ['print(1)\n', 'python', '1', false],
-      [expect.stringContaining('scripts/area.py'), 'json', '', false],
-      [expect.stringContaining('notes.md'), 'json', '', false],
+    expect(cells.map((c) => [c.label, c.source, c.language, c.output, c.error])).toEqual([
+      ['Run command', 'ls data', 'shell', 'a.tif', true],
+      ['Write file', 'import csv\n', 'python', 'File created', false],
+      ['Write file', expect.stringContaining('notes.md'), 'json', '', false],
+      ['Edit file', 'print(1)\n', 'python', '', false],
     ]);
     const notebook = JSON.parse(notebookJson(cells));
     expect(notebook.nbformat).toBe(4);
     expect(notebook.cells[0].outputs[0]).toMatchObject({ name: 'stderr', text: ['a.tif'] });
-    expect(notebook.cells[1].source).toEqual(['print(1)\n']);
+  });
+  it('pairs Claude calls recorded before ids were kept with results in order', () => {
+    const cells = executionCells([
+      msg(1, 'tool_use', { command: 'lyk records' }, 'Bash'),
+      msg(2, 'tool_use', { pattern: 'TODO' }, 'Grep'),
+      msg(3, 'tool_result', { type: 'tool_result', tool_use_id: 'toolu_a', content: 'r1, r2' }),
+      msg(4, 'tool_result', { type: 'tool_result', tool_use_id: 'toolu_b', content: 'none' }),
+    ]);
+    expect(cells.map((c) => [c.label, c.detail, c.output])).toEqual([
+      ['Run command', 'lyk records', 'r1, r2'],
+      ['Search', 'TODO', 'none'],
+    ]);
+  });
+  it('reads Codex items, which carry their own output, and records no code they did not carry', () => {
+    const messages = [
+      msg(
+        1,
+        'tool_use',
+        {
+          type: 'item.completed',
+          item: {
+            id: 'item_1',
+            type: 'command_execution',
+            command: 'python fit.py',
+            aggregated_output: 'r2=0.91\n',
+            exit_code: 0,
+            status: 'completed',
+          },
+        },
+        'shell',
+      ),
+      msg(
+        2,
+        'tool_use',
+        {
+          type: 'item.completed',
+          item: {
+            id: 'item_2',
+            type: 'mcp_tool_call',
+            server: 'lyk_door',
+            tool: 'call_tool',
+            arguments: { name: 'pubmed_search', arguments: { query: 'senescence' } },
+            result: { content: [{ type: 'text', text: '12 hits' }] },
+            status: 'completed',
+          },
+        },
+        'call_tool',
+      ),
+      msg(3, 'log', {
+        type: 'item.completed',
+        item: {
+          id: 'item_3',
+          type: 'file_change',
+          changes: [{ path: 'fit.py', kind: 'add' }],
+          status: 'completed',
+        },
+      }),
+      msg(
+        4,
+        'tool_use',
+        {
+          type: 'item.completed',
+          item: {
+            id: 'item_4',
+            type: 'command_execution',
+            command: 'pytest',
+            aggregated_output: '1 failed',
+            exit_code: 1,
+            status: 'failed',
+          },
+        },
+        'shell',
+      ),
+    ];
+    expect(recordedCode(messages)).toEqual([]);
+    expect(
+      executionCells(messages).map((c) => [c.label, c.source, c.language, c.output, c.error]),
+    ).toEqual([
+      ['Run command', 'python fit.py', 'shell', 'r2=0.91\n', false],
+      ['call_tool', expect.stringContaining('pubmed_search'), 'json', '12 hits', false],
+      ['Run command', 'pytest', 'shell', '1 failed', true],
+    ]);
+  });
+  it('pairs Cursor calls by call_id and reads their nested results', () => {
+    const messages = [
+      msg(
+        1,
+        'tool_use',
+        {
+          type: 'tool_call',
+          subtype: 'started',
+          call_id: 't1',
+          tool_call: { mcpToolCall: { args: { name: 'search_literature', args: { q: 'x' } } } },
+          session_id: 'c-1',
+        },
+        'mcpToolCall',
+      ),
+      msg(
+        2,
+        'tool_use',
+        {
+          type: 'tool_call',
+          subtype: 'started',
+          call_id: 't2',
+          tool_call: { writeToolCall: { args: { path: 'fit.py', fileText: 'print(2)\n' } } },
+        },
+        'writeToolCall',
+      ),
+      msg(
+        3,
+        'tool_result',
+        {
+          type: 'tool_call',
+          subtype: 'completed',
+          call_id: 't1',
+          tool_call: {
+            mcpToolCall: {
+              args: { name: 'search_literature' },
+              result: { success: { content: '3 hits' } },
+            },
+          },
+          session_id: 'c-1',
+        },
+        'mcpToolCall',
+      ),
+      msg(
+        4,
+        'tool_use',
+        {
+          type: 'tool_call',
+          subtype: 'started',
+          call_id: 't3',
+          tool_call: { shellToolCall: { args: { command: 'python fit.py' } } },
+        },
+        'shellToolCall',
+      ),
+      msg(
+        5,
+        'tool_result',
+        {
+          type: 'tool_call',
+          subtype: 'completed',
+          call_id: 't3',
+          tool_call: {
+            shellToolCall: {
+              args: { command: 'python fit.py' },
+              result: { success: { stdout: '2\n', stderr: '', exitCode: 0 } },
+            },
+          },
+        },
+        'shellToolCall',
+      ),
+    ];
+    expect(recordedCode(messages).map((c) => [c.name, c.language, c.code])).toEqual([
+      ['fit.py', 'python', 'print(2)\n'],
+    ]);
+    expect(executionCells(messages).map((c) => [c.label, c.source, c.output, c.error])).toEqual([
+      ['search_literature', expect.stringContaining('"q": "x"'), '3 hits', false],
+      ['Write file', 'print(2)\n', '', false],
+      ['Run command', 'python fit.py', '2\n', false],
+    ]);
+  });
+  it('pairs Antigravity steps by index', () => {
+    const step = (state: string, info: Record<string, unknown>) => ({
+      event: 'step_update',
+      step_update: {
+        conversation_id: 'a-1',
+        step_index: 1,
+        state,
+        step_type: 'tool',
+        tool_name: 'run_command',
+        tool_info: { name: 'run_command', ...info },
+      },
+    });
+    const cells = executionCells([
+      msg(
+        1,
+        'tool_use',
+        step('ACTIVE', { parameters: { CommandLine: 'lyk ground question' } }),
+        'run_command',
+      ),
+      msg(2, 'tool_result', step('DONE', { output: 'recorded' }), 'run_command'),
+    ]);
+    expect(cells.map((c) => [c.label, c.source, c.language, c.output, c.error])).toEqual([
+      ['Run command', 'lyk ground question', 'shell', 'recorded', false],
+    ]);
+  });
+  it('joins Antigravity text pieces and keeps other harnesses’ text records apart', () => {
+    const messages = [msg(1, 'text', 'Scoped'), msg(2, 'text', ' the question.')];
+    expect(transcriptBlocks(messages, { joinText: true }).map((b) => b.text)).toEqual([
+      'Scoped the question.',
+    ]);
+    expect(transcriptBlocks(messages).map((b) => b.text)).toEqual(['Scoped', ' the question.']);
+  });
+});
+describe('live status line', () => {
+  it('says what the latest record shows the agent doing, and nothing it does not', () => {
+    expect(liveStatus([])).toBe('');
+    expect(liveStatus([msg(1, 'text', 'Hello')])).toBe('');
+    expect(liveStatus([msg(1, 'thinking', 'hmm')])).toBe('Thinking…');
+    expect(
+      liveStatus([
+        msg(
+          1,
+          'tool_use',
+          { type: 'tool_use', id: 't', name: 'Bash', input: { command: 'python fit.py' } },
+          'Bash',
+        ),
+      ]),
+    ).toBe('Run command: python fit.py…');
+    expect(
+      liveStatus([
+        msg(
+          1,
+          'tool_use',
+          { type: 'tool_use', id: 't', name: 'Bash', input: { command: 'ls' } },
+          'Bash',
+        ),
+        msg(2, 'tool_result', { type: 'tool_result', tool_use_id: 't', content: 'a' }),
+      ]),
+    ).toBe('');
+    expect(
+      liveStatus([
+        msg(1, 'log', {
+          type: 'item.started',
+          item: { id: 'item_1', type: 'todo_list', items: [] },
+        }),
+      ]),
+    ).toBe('Planning…');
+    expect(
+      liveStatus([
+        msg(1, 'log', {
+          type: 'item.started',
+          item: {
+            id: 'item_2',
+            type: 'command_execution',
+            command: 'pytest',
+            status: 'in_progress',
+          },
+        }),
+      ]),
+    ).toBe('Run command: pytest…');
+    expect(
+      liveStatus([msg(1, 'log', { type: 'system', subtype: 'status', status: 'compacting' })]),
+    ).toBe('Compacting…');
+    expect(
+      liveStatus([
+        msg(
+          1,
+          'status',
+          { type: 'blocked_action', request_id: 'r', subtype: 'can_use_tool', decision: 'deny' },
+          'WebFetch',
+        ),
+      ]),
+    ).toBe('WebFetch was blocked');
+    expect(liveStatus([msg(1, 'status', { type: 'accounting', message: 'estimate' })])).toBe('');
+  });
+});
+describe('run assignment and agent name', () => {
+  it('opens the transcript with the run’s assignment, then the live status', async () => {
+    const html = await render([msg(1, 'text', 'Starting.'), msg(2, 'thinking', 'plan')], {
+      status: 'running',
+      assignment: 'List three **rival** explanations.',
+    });
+    expect(html).toContain('class="turn-assignment"');
+    expect(html).toContain('<strong>rival</strong>');
+    expect(html.indexOf('turn-assignment')).toBeLessThan(html.indexOf('turn-timeline'));
+    expect(html).toContain('Thinking…');
+  });
+  it('shows no assignment bubble when none was recorded', async () => {
+    const html = await render([msg(1, 'text', 'Done.')]);
+    expect(html).not.toContain('turn-assignment');
   });
 });

@@ -14,9 +14,15 @@ var VersionTimeout = 10 * time.Second
 // printed. Any failure (missing binary, non-zero exit, timeout) gives "": a
 // version is shown to people, never required.
 func DetectVersion(ctx context.Context, bin string) string {
+	return probe(ctx, bin, "--version")
+}
+
+// probe runs name with args and returns VersionLine of what it printed, or ""
+// on any failure.
+func probe(ctx context.Context, name string, args ...string) string {
 	ctx, cancel := context.WithTimeout(ctx, VersionTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "--version")
+	cmd := exec.CommandContext(ctx, name, args...)
 	// A descendant holding stdout open must not outlast the deadline.
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()

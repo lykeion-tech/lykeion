@@ -58,8 +58,8 @@ func TestClaudeStreamJSON(t *testing.T) {
 	bin := script(t, `printf '%s\n' "$@" > `+args+`
 cat <<'EOF'
 {"type":"system","subtype":"init","session_id":"s1"}
-{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Searching."},{"type":"tool_use","name":"mcp__lyk_sources__search_literature","input":{"q":"x"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","content":"3 hits"}]}}
+{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Searching."},{"type":"tool_use","id":"toolu_1","name":"mcp__lyk_sources__search_literature","input":{"q":"x"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"3 hits"}]}}
 {"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.42,"session_id":"s1","result":"done","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":300,"cache_creation_input_tokens":50},"modelUsage":{"model-b":{"inputTokens":10,"outputTokens":5,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.02},"model-a":{"inputTokens":90,"outputTokens":15,"cacheReadInputTokens":300,"cacheCreationInputTokens":50,"costUSD":0.4}}}
 EOF`)
 	dir := t.TempDir()
@@ -74,6 +74,18 @@ EOF`)
 	}
 	if strings.Join(types, ",") != "log,thinking,text,tool_use,tool_result" || ms[3].Tool != "mcp__lyk_sources__search_literature" {
 		t.Fatalf("%v %+v", types, ms)
+	}
+	// The call keeps its id and input, and its result names the same id.
+	var call struct {
+		ID    string `json:"id"`
+		Input struct{ Q string }
+	}
+	var result struct {
+		ToolUseID string `json:"tool_use_id"`
+	}
+	if json.Unmarshal(ms[3].Content, &call) != nil || json.Unmarshal(ms[4].Content, &result) != nil ||
+		call.ID != "toolu_1" || call.Input.Q != "x" || result.ToolUseID != call.ID {
+		t.Fatalf("tool_use %s, tool_result %s", ms[3].Content, ms[4].Content)
 	}
 	if res.Err != nil || res.SessionID != "s1" || len(res.Usage) != 2 {
 		t.Fatalf("%+v", res)

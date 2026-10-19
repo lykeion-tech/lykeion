@@ -67,6 +67,8 @@ type AgentRun struct {
 	Kind                  string          `json:"kind"`
 	RequesterID           *uuid.UUID      `json:"requester_id"`
 	RequestedModel        string          `json:"requested_model"`
+	AgentID               *uuid.UUID      `json:"agent_id"`
+	Assignment            string          `json:"assignment"`
 }
 
 type AgentRunMessage struct {
@@ -358,6 +360,10 @@ type Runtime struct {
 	MaxConcurrent int32     `json:"max_concurrent"`
 	CreatedAt     time.Time `json:"created_at"`
 	CliVersion    string    `json:"cli_version"`
+	Os            string    `json:"os"`
+	Arch          string    `json:"arch"`
+	Kernel        string    `json:"kernel"`
+	Language      string    `json:"language"`
 }
 
 type RuntimeSkillRequest struct {

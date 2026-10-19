@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import Icon from './Icon.vue';
-import { useRunMessages } from '../api/queries';
 import type { AgentRun } from '../api/types';
-import { transcriptBlocks } from '../lib/run-transcript';
 import { columnName, roleLabel, timeAgo } from '../lib/studies';
 
 const props = defineProps<{ run: AgentRun; study: string }>();
 const emit = defineEmits<{ open: [] }>();
-const messages = useRunMessages(() => props.run, true);
-const name = computed(() => roleLabel(props.run.role));
+const name = computed(() => props.run.agent_name || roleLabel(props.run.role));
 const state = computed(
   () =>
     ({
@@ -22,13 +19,12 @@ const state = computed(
     })[props.run.status],
 );
 // The latest thing the agent wrote, as plain text for a three-line preview.
+// The runs listing carries it, so a card never reads the run's messages.
 const preview = computed(() => {
-  const text = transcriptBlocks(messages.data.value ?? [])
-    .filter((b) => b.kind === 'text')
-    .at(-1)?.text;
+  const text = props.run.latest_text;
   if (text)
     return text
-      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/```[\s\S]*?(```|$)/g, ' ')
       .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
       .replace(/[#>*_`|]+/g, ' ')
       .replace(/\s+/g, ' ')
@@ -37,6 +33,9 @@ const preview = computed(() => {
     return props.run.queue_reason ? `Queued: ${props.run.queue_reason.replace(/_/g, ' ')}` : '';
   return props.run.error;
 });
+const lastActive = computed(
+  () => props.run.last_activity_at ?? props.run.started_at ?? props.run.created_at,
+);
 </script>
 <template>
   <article class="agent-card" :data-status="run.status">
@@ -56,9 +55,7 @@ const preview = computed(() => {
     <small class="truncate">{{ columnName(run.board_column) }} · {{ study }}</small>
     <p class="preview">{{ preview }}</p>
     <footer>
-      <time :datetime="run.started_at ?? run.created_at">{{
-        timeAgo(run.started_at ?? run.created_at)
-      }}</time>
+      <time :datetime="lastActive">{{ timeAgo(lastActive) }}</time>
     </footer>
   </article>
 </template>

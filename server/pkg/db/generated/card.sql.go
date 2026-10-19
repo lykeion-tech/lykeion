@@ -7,13 +7,21 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 const cardAgentRuns = `-- name: CardAgentRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model FROM agent_run WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.run_private, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, a.name AS agent_name,
+  COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
+  m.created_at AS last_activity_at
+FROM agent_run t
+LEFT JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
+LEFT JOIN agent_run_message m ON m.workspace_id = t.workspace_id AND m.agent_run_id = t.id AND m.attempt = t.attempt
+  AND m.seq = (SELECT max(seq) FROM agent_run_message n WHERE n.workspace_id = t.workspace_id AND n.agent_run_id = t.id AND n.attempt = t.attempt)
+WHERE t.workspace_id = $1 AND t.card_id = $2 ORDER BY t.created_at, t.id
 `
 
 type CardAgentRunsParams struct {
@@ -21,15 +29,66 @@ type CardAgentRunsParams struct {
 	CardID      *uuid.UUID `json:"card_id"`
 }
 
-func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([]AgentRun, error) {
+type CardAgentRunsRow struct {
+	ID                    uuid.UUID       `json:"id"`
+	WorkspaceID           uuid.UUID       `json:"workspace_id"`
+	CardID                *uuid.UUID      `json:"card_id"`
+	ResponsibleUserID     uuid.UUID       `json:"responsible_user_id"`
+	BoardColumn           string          `json:"board_column"`
+	Round                 int32           `json:"round"`
+	Role                  string          `json:"role"`
+	Harness               string          `json:"harness"`
+	Prompt                string          `json:"prompt"`
+	Skill                 string          `json:"skill"`
+	Status                string          `json:"status"`
+	QueueReason           *string         `json:"queue_reason"`
+	RuntimeID             *uuid.UUID      `json:"runtime_id"`
+	PrepareLeaseExpiresAt *time.Time      `json:"prepare_lease_expires_at"`
+	DispatchedAt          *time.Time      `json:"dispatched_at"`
+	StartedAt             *time.Time      `json:"started_at"`
+	CompletedAt           *time.Time      `json:"completed_at"`
+	Attempt               int32           `json:"attempt"`
+	MaxAttempts           int32           `json:"max_attempts"`
+	SessionID             string          `json:"session_id"`
+	ContinuityScope       string          `json:"continuity_scope"`
+	RunPrivate            bool            `json:"run_private"`
+	ProfileMode           string          `json:"profile_mode"`
+	PolicyDigest          string          `json:"policy_digest"`
+	Model                 string          `json:"model"`
+	Error                 string          `json:"error"`
+	FailureReason         *string         `json:"failure_reason"`
+	CostUsd               float64         `json:"cost_usd"`
+	LateUsageAt           *time.Time      `json:"late_usage_at"`
+	CreatedAt             time.Time       `json:"created_at"`
+	HandoffNote           string          `json:"handoff_note"`
+	InputLeaseExpiresAt   *time.Time      `json:"input_lease_expires_at"`
+	InputFetchExpiresAt   *time.Time      `json:"input_fetch_expires_at"`
+	InputFetchID          *uuid.UUID      `json:"input_fetch_id"`
+	InputOutcomes         json.RawMessage `json:"input_outcomes"`
+	AddonHash             string          `json:"addon_hash"`
+	AddonMcp              json.RawMessage `json:"addon_mcp"`
+	Kind                  string          `json:"kind"`
+	RequesterID           *uuid.UUID      `json:"requester_id"`
+	RequestedModel        string          `json:"requested_model"`
+	AgentID               *uuid.UUID      `json:"agent_id"`
+	Assignment            string          `json:"assignment"`
+	AgentName             *string         `json:"agent_name"`
+	LatestText            string          `json:"latest_text"`
+	LastActivityAt        *time.Time      `json:"last_activity_at"`
+}
+
+// A card's runs with what the study page shows about each: the name of the
+// agent it was started as, the latest text of its current attempt and when
+// that attempt last recorded anything.
+func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([]CardAgentRunsRow, error) {
 	rows, err := q.db.Query(ctx, cardAgentRuns, arg.WorkspaceID, arg.CardID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []AgentRun
+	var items []CardAgentRunsRow
 	for rows.Next() {
-		var i AgentRun
+		var i CardAgentRunsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -71,6 +130,11 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.Kind,
 			&i.RequesterID,
 			&i.RequestedModel,
+			&i.AgentID,
+			&i.Assignment,
+			&i.AgentName,
+			&i.LatestText,
+			&i.LastActivityAt,
 		); err != nil {
 			return nil, err
 		}

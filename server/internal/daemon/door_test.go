@@ -277,7 +277,7 @@ func TestALocalConnectorRunsOnlyForWhoAddedTheTeam(t *testing.T) {
 	}))
 	_, err = f.env.Owner.Exec(ctx, `INSERT INTO card_team (workspace_id, card_id, board_column, pack_id) VALUES ($1, $2, 'grounding', $3)`, f.ws, f.card, packID)
 	must(t, err)
-	rts, err := f.runs.Register(ctx, f.user, f.ws, "door-test", "laptop", []string{"claude"}, nil)
+	rts, err := f.runs.Register(ctx, f.user, f.ws, "door-test", "laptop", []string{"claude"}, nil, agent.Platform{})
 	must(t, err)
 	ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rts[0].ID}
 	_, err = f.env.Owner.Exec(ctx, `UPDATE runtime SET max_concurrent = 32 WHERE id = $1`, rts[0].ID)

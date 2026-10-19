@@ -3,10 +3,11 @@
 SELECT id FROM workspace WHERE id = @id FOR NO KEY UPDATE;
 
 -- name: UpsertRuntime :one
-INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, cli_version, status, last_seen_at)
-VALUES (@workspace_id, @owner_id, @daemon_id, @harness, @device_name, @cli_version, 'online', now())
+INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, cli_version, os, arch, kernel, language, status, last_seen_at)
+VALUES (@workspace_id, @owner_id, @daemon_id, @harness, @device_name, @cli_version, @os, @arch, @kernel, @language, 'online', now())
 ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
-  SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, status = 'online', last_seen_at = now()
+  SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, os = EXCLUDED.os, arch = EXCLUDED.arch,
+    kernel = EXCLUDED.kernel, language = EXCLUDED.language, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
 RETURNING *;
 
@@ -35,8 +36,8 @@ WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 DELETE FROM runtime WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 
 -- name: EnqueueAgentRun :one
-INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private, requested_model)
-VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts, @continuity_scope, @run_private, @requested_model)
+INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private, requested_model, agent_id, assignment)
+VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts, @continuity_scope, @run_private, @requested_model, sqlc.narg(agent_id), @assignment)
 RETURNING *;
 
 -- name: ClaimAgentRun :one

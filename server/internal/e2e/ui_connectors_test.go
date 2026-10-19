@@ -91,7 +91,7 @@ func uiConnectorFixtures(t *testing.T, mux *http.ServeMux, h *handler.H, base st
 			http.Error(w, "fixture enqueue failed", 400)
 			return
 		}
-		rts, err := h.AgentRuns.Register(ctx, user.ID, in.Workspace, "connector-"+run.ID.String(), "Connector acceptance", []string{"codex"}, nil)
+		rts, err := h.AgentRuns.Register(ctx, user.ID, in.Workspace, "connector-"+run.ID.String(), "Connector acceptance", []string{"codex"}, nil, agent.Platform{})
 		if err != nil {
 			http.Error(w, "fixture registration failed", 500)
 			return

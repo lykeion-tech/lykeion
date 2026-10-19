@@ -321,6 +321,10 @@ describe('machines', () => {
     created_at: '2026-10-15T09:00:00Z',
     active_runs: 0,
     cli_version: '',
+    os: '',
+    arch: '',
+    kernel: '',
+    language: '',
     ...extra,
   });
   it('groups runtimes by daemon, names them, and lists online machines first', () => {
