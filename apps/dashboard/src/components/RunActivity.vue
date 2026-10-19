@@ -1,14 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import Icon from './Icon.vue';
 import type { RunMessage } from '../api/types';
 import { activityStep, recordedContent } from '../lib/run-transcript';
-const props = defineProps<{ messages: RunMessage[]; history?: boolean }>();
-const expanded = ref(false);
-function toggle(event: Event) {
-  if (event.target === event.currentTarget)
-    expanded.value = (event.target as HTMLDetailsElement).open;
-}
+const props = defineProps<{ messages: RunMessage[] }>();
 const steps = computed(() =>
   props.messages.map((message) => ({ message, ...activityStep(message) })),
 );
@@ -16,27 +11,16 @@ const count = (n: number) => `${n} ${n === 1 ? 'step' : 'steps'}`;
 const errors = computed(() => steps.value.filter((step) => step.error).length);
 </script>
 <template>
-  <details
-    class="run-activity"
-    data-activity-group
-    :class="{ 'full-history': history }"
-    @toggle="toggle"
-  >
+  <details class="run-activity" data-activity-group>
     <summary>
       <Icon name="right" :size="11" class="activity-chevron" />
-      <span>{{ history ? 'Full recorded history' : `Ran ${count(messages.length)}` }}</span>
-      <span class="activity-count">{{
-        history ? `${messages.length} messages` : count(messages.length)
-      }}</span>
+      <span>{{ `Ran ${count(messages.length)}` }}</span>
+      <span class="activity-count">{{ count(messages.length) }}</span>
       <span v-if="errors" class="activity-error"
         >{{ errors }} {{ errors === 1 ? 'error' : 'errors' }}</span
       >
     </summary>
-    <ol
-      v-if="!history || expanded"
-      class="activity-steps"
-      :aria-label="history ? 'Recorded run messages' : 'Recorded activity'"
-    >
+    <ol class="activity-steps" aria-label="Recorded activity">
       <li
         v-for="step in steps"
         :key="`${step.message.attempt}:${step.message.seq}`"
@@ -198,11 +182,6 @@ summary:focus-visible,
 pre:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 3px;
-}
-.full-history {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  margin-top: 18px;
 }
 @media (max-width: 600px) {
   .step-heading {

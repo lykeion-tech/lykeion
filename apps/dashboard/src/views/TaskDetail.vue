@@ -41,6 +41,7 @@ import {
   stages,
   stateLabel,
   studyNumber,
+  studyOverview,
   transcript,
 } from '../lib/studies';
 import { notify } from '../state/notice';
@@ -194,10 +195,17 @@ const resourceReads = computed(() =>
 const readErrors = computed(() => resourceReads.value.filter((read) => read.error));
 const transcriptPending = computed(() => resourceReads.value.some((read) => read.pending));
 // Runs are read as agent cards above; their transcripts open in a dialog.
-const entries = computed(() => transcript(comments.data.value ?? [], [], events.data.value ?? []));
+const entries = computed(() =>
+  transcript(
+    comments.data.value ?? [],
+    [],
+    (events.data.value ?? []).filter((e) => e.type !== 'card.created'),
+  ),
+);
+const overview = computed(() => studyOverview(records.data.value ?? [], c.value?.round ?? 1));
 const agentRuns = computed(() =>
   [...(runs.data.value ?? [])].sort(
-    (a, b) => Date.parse(a.started_at ?? a.created_at) - Date.parse(b.started_at ?? b.created_at),
+    (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id),
   ),
 );
 const openRun = ref('');
@@ -523,13 +531,98 @@ function pin() {
       <div v-if="c" class="transcript-scroll">
         <div class="transcript-content study-content">
           <h1 class="study-title">{{ c.title }}</h1>
-          <p class="study-question">{{ c.question }}</p>
+          <section v-if="stage" class="stage-box study-summary" aria-label="Overview">
+            <h4>
+              <span class="stage-dot" :class="'status-' + stage" />{{ columnName(stage) }} · round
+              {{ c.round
+              }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
+                stateLabel(c)
+              }}</span
+              ><span v-if="c.flag" class="chip" :class="'chip-' + c.flag">{{
+                c.flag.replace(/_/g, ' ')
+              }}</span
+              ><span v-if="team" class="chip chip-team">{{ team.name }}</span
+              ><span v-if="offLabel" class="chip chip-off-label"
+                >Built for {{ columnName(team!.stage) }}</span
+              >
+            </h4>
+            <p class="summary-text">{{ overview }}</p>
+            <p v-if="flow.audit" class="summary-audit">
+              <Icon name="check" :size="14" />
+              Audit recorded<span v-if="flow.audit.findings.length">
+                · {{ flow.audit.findings.length }}
+                {{ flow.audit.findings.length === 1 ? 'finding' : 'findings' }} to review</span
+              >
+            </p>
+            <details class="study-evidence">
+              <summary>View evidence and activity</summary>
+
+              <section v-if="flow.scores.length" class="flow-block" aria-label="Scores">
+                <h5>
+                  Scores<span class="chip" :class="'chip-verdict-' + flow.verdict">{{
+                    verdictLabels[flow.verdict] ?? flow.verdict
+                  }}</span>
+                </h5>
+                <div v-for="s in flow.scores" :key="s.criterion" class="score-row">
+                  <span>{{ s.criterion }}</span
+                  ><span class="level">{{ levelText(s.level) }} of 5</span
+                  ><span
+                    v-if="s.level <= 2 && redoLabel(c.redos, c.round, firstRound)"
+                    class="chip"
+                    >{{ redoLabel(c.redos, c.round, firstRound) }}</span
+                  >
+                </div>
+              </section>
+              <section v-if="flow.steps.length" class="flow-block" aria-label="Steps">
+                <h5>Steps</h5>
+                <div
+                  v-for="st in flow.steps"
+                  :key="st.key"
+                  class="step-row"
+                  :class="{ 'self-step': st.self }"
+                >
+                  {{ st.text }}<small v-if="st.detail">{{ st.detail }}</small>
+                </div>
+              </section>
+              <section v-if="flow.audit" class="flow-block" aria-label="Audit">
+                <h5>Audit</h5>
+                <p>{{ flow.audit.text }}</p>
+                <ul v-if="flow.audit.findings.length">
+                  <li v-for="f in flow.audit.findings" :key="f">{{ f }}</li>
+                </ul>
+              </section>
+              <section v-if="flow.calls.length" class="flow-block" aria-label="Calls">
+                <h5>Calls</h5>
+                <details v-for="k in flow.calls" :key="k.key" class="call-row">
+                  <summary>{{ k.server }} · {{ k.tool }} · {{ time(k.at) }}</summary>
+                  <pre>{{ k.answer }}</pre>
+                </details>
+              </section>
+              <div
+                v-for="r in lineRecords"
+                :key="r.id"
+                class="record-line"
+                :class="{ superseded: r.superseded_at }"
+              >
+                <span class="key">{{ recordLine(r).key }}</span
+                ><span>{{
+                  typeof r.body.text === 'string' ? r.body.text : recordLine(r).text
+                }}</span
+                ><span v-if="recordLine(r).source" class="source">{{ recordLine(r).source }}</span
+                ><span v-if="r.superseded_at" class="superseded-mark">superseded</span>
+              </div>
+              <p v-if="records.isSuccess.value && !lineRecords.length && !hasFlow" class="muted">
+                No records yet.
+              </p>
+            </details>
+          </section>
           <section v-if="agentRuns.length" class="agent-cards" aria-label="Agents">
             <AgentRunCard
-              v-for="run in agentRuns"
+              v-for="(run, index) in agentRuns"
               :key="run.id"
               :run="run"
               :study="c.title"
+              :position="index + 1"
               @open="openRun = run.id"
             />
           </section>
@@ -580,77 +673,6 @@ function pin() {
               </div>
             </template>
           </div>
-          <div v-if="stage" class="stage-box">
-            <h4>
-              <span class="stage-dot" :class="'status-' + stage" />{{ columnName(stage) }} · round
-              {{ c.round
-              }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
-                stateLabel(c)
-              }}</span
-              ><span v-if="c.flag" class="chip" :class="'chip-' + c.flag">{{
-                c.flag.replace(/_/g, ' ')
-              }}</span
-              ><span v-if="team" class="chip chip-team">{{ team.name }}</span
-              ><span v-if="offLabel" class="chip chip-off-label"
-                >Built for {{ columnName(team!.stage) }}</span
-              >
-            </h4>
-            <section v-if="flow.scores.length" class="flow-block" aria-label="Scores">
-              <h5>
-                Scores<span class="chip" :class="'chip-verdict-' + flow.verdict">{{
-                  verdictLabels[flow.verdict] ?? flow.verdict
-                }}</span>
-              </h5>
-              <div v-for="s in flow.scores" :key="s.criterion" class="score-row">
-                <span>{{ s.criterion }}</span
-                ><span class="level">{{ levelText(s.level) }} of 5</span
-                ><span
-                  v-if="s.level <= 2 && redoLabel(c.redos, c.round, firstRound)"
-                  class="chip"
-                  >{{ redoLabel(c.redos, c.round, firstRound) }}</span
-                >
-              </div>
-            </section>
-            <section v-if="flow.steps.length" class="flow-block" aria-label="Steps">
-              <h5>Steps</h5>
-              <div
-                v-for="st in flow.steps"
-                :key="st.key"
-                class="step-row"
-                :class="{ 'self-step': st.self }"
-              >
-                {{ st.text }}<small v-if="st.detail">{{ st.detail }}</small>
-              </div>
-            </section>
-            <section v-if="flow.audit" class="flow-block" aria-label="Audit">
-              <h5>Audit</h5>
-              <p>{{ flow.audit.text }}</p>
-              <ul v-if="flow.audit.findings.length">
-                <li v-for="f in flow.audit.findings" :key="f">{{ f }}</li>
-              </ul>
-            </section>
-            <section v-if="flow.calls.length" class="flow-block" aria-label="Calls">
-              <h5>Calls</h5>
-              <details v-for="k in flow.calls" :key="k.key" class="call-row">
-                <summary>{{ k.server }} · {{ k.tool }} · {{ time(k.at) }}</summary>
-                <pre>{{ k.answer }}</pre>
-              </details>
-            </section>
-            <div
-              v-for="r in lineRecords"
-              :key="r.id"
-              class="record-line"
-              :class="{ superseded: r.superseded_at }"
-            >
-              <span class="key">{{ recordLine(r).key }}</span
-              ><span>{{ recordLine(r).text }}</span
-              ><span v-if="recordLine(r).source" class="source">{{ recordLine(r).source }}</span
-              ><span v-if="r.superseded_at" class="superseded-mark">superseded</span>
-            </div>
-            <p v-if="records.isSuccess.value && !lineRecords.length && !hasFlow" class="muted">
-              No records yet.
-            </p>
-          </div>
           <div
             v-for="read in readErrors"
             :key="read.label"
@@ -663,7 +685,6 @@ function pin() {
             </button>
           </div>
           <p v-if="transcriptPending" role="status">Loading study activity…</p>
-          <header class="transcript-heading"><h2>Transcript</h2></header>
           <template
             v-for="entry in entries"
             :key="
@@ -1428,15 +1449,9 @@ function pin() {
   margin-bottom: 12px;
   overflow-wrap: anywhere;
 }
-.study-question {
-  font-size: 14.5px;
-  margin-bottom: 14px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .agent-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 12px;
   margin: 24px 0;
 }
@@ -1446,6 +1461,27 @@ function pin() {
   padding: 12px 14px;
   margin-bottom: 10px;
   font-size: 13px;
+}
+.summary-text {
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 10px 0;
+}
+.summary-audit {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+.study-evidence > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding-top: 6px;
 }
 .flow-block {
   margin: 8px 0;
@@ -1491,6 +1527,7 @@ function pin() {
   gap: 8px;
   font-size: 13.5px;
   margin-bottom: 6px;
+  flex-wrap: wrap;
 }
 .collapsed-stage > button {
   display: flex;

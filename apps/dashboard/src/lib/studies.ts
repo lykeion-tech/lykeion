@@ -386,3 +386,48 @@ export type Range = { from: string; to: string };
 
 // Kinds the study page shows in their own blocks, not as record lines.
 export const flowKinds = ['delegation', 'self_step', 'audit', 'score', 'outcome', 'call', 'tools'];
+
+// Use the current round's recorded conclusion, or its latest assigned step.
+// The complete records remain available in the study's evidence disclosure.
+export function studyOverview(records: StudyRecord[], round: number): string {
+  const current = records
+    .filter((r) => r.round === round && !r.superseded_at)
+    .reverse()
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  const summary = current.find((r) => r.kind === 'summary' && str(r.body.text).trim());
+  const step = current.find(
+    (r) => ['delegation', 'self_step'].includes(r.kind) && str(r.body.step).trim(),
+  );
+  const text = summary ? str(summary.body.text) : step ? str(step.body.step) : '';
+  return text.trim().split('\n')[0] || 'No work recorded yet.';
+}
+
+// Older runs stored coordination envelopes as their assignment. Present the
+// task itself rather than repeating the embedded records and prompt framing.
+export function readableAssignment(run: AgentRun): string {
+  const text = run.assignment.trim();
+  const stage = columnName(run.board_column);
+  if (
+    run.role === 'auditor' &&
+    text.startsWith(
+      'The leader declared the column done. Audit its summary and the records it cites:',
+    )
+  )
+    return `Audit the ${stage} summary and its cited evidence.`;
+  const member = text.match(/^([a-z][a-z0-9-]*) (finished the step you named\.)/);
+  const interrupted = text.match(
+    /^([a-z][a-z0-9-]*)'s run (failed:|was cancelled before it finished the step\.)/,
+  );
+  if (
+    run.role === 'leader' &&
+    (member || interrupted) &&
+    (text.includes('What it wrote:') || text.includes('It wrote no records.'))
+  ) {
+    const opening = member
+      ? `${member[1]} finished the step you named.`
+      : `${interrupted![1]}’s run ${interrupted![2] === 'failed:' ? 'failed' : 'was cancelled'} before finishing the step.`;
+    const noRecords = text.includes('It wrote no records.') ? ' It wrote no records.' : '';
+    return `${opening}${noRecords}\n\nReview the recorded work and choose the next step or finish ${stage}.`;
+  }
+  return text;
+}

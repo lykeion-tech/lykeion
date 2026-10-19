@@ -380,7 +380,7 @@ describe('flow records and Inbox sentences', () => {
     expect(studies.levelText(4.779999999999999)).toBe('4.8');
     expect(studies.levelText(5)).toBe('5');
   });
-  it('labels a redo by what started it, counting the column\'s own attempts', () => {
+  it("labels a redo by what started it, counting the column's own attempts", () => {
     expect(studies.redoLabel(1, 2, 1)).toBe('Redone once');
     expect(studies.redoLabel(1, 3, 1)).toBe('Redone once, then after your reply');
     expect(studies.redoLabel(0, 2, 1)).toBe('Redone after your reply');
@@ -408,7 +408,7 @@ describe('flow records and Inbox sentences', () => {
       studies.inboxText(
         {
           kind: 'middle_score',
-          text: 'Study #1\'s Reporting column scored in the middle and the study finished; its weakest criterion was “Does it say what it couldn’t do?” (level 3 of 5).',
+          text: "Study #1's Reporting column scored in the middle and the study finished; its weakest criterion was “Does it say what it couldn’t do?” (level 3 of 5).",
         },
         'S',
       ),
@@ -419,5 +419,32 @@ describe('flow records and Inbox sentences', () => {
         'S',
       ),
     ).toBe("S's agent found no skill or connector for: a parser");
+  });
+});
+
+describe('study overview from recorded work', () => {
+  it('uses the latest current-round summary opening without repeating the evidence payload', () => {
+    const old = { ...rec('summary', { text: 'Old summary.' }), round: 1 };
+    const summary = {
+      ...rec('summary', {
+        text: 'Insulin lookup recorded.\n- Accession: P01308.\nDetailed evidence and citations follow.',
+      }),
+      round: 2,
+    };
+    expect(studies.studyOverview([summary, old], 2)).toBe('Insulin lookup recorded.');
+  });
+  it('uses a current step before a completion summary exists, never a superseded or earlier-round result', () => {
+    const old = { ...rec('summary', { text: 'Old result.' }), round: 1 };
+    const removed = {
+      ...rec('summary', { text: 'Withdrawn result.' }),
+      round: 2,
+      superseded_at: '2026-10-19T10:00:00Z',
+    };
+    const step = {
+      ...rec('delegation', { member: 'researcher', step: 'Retrieve the protein entry.' }),
+      round: 2,
+    };
+    expect(studies.studyOverview([old, removed, step], 2)).toBe('Retrieve the protein entry.');
+    expect(studies.studyOverview([old], 2)).toBe('No work recorded yet.');
   });
 });

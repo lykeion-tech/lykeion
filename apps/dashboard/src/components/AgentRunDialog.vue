@@ -95,7 +95,13 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
   <Modal :title="`${name} transcript`" wide class="agent-run-dialog" @close="emit('close')">
     <template #default="{ close }">
       <header class="run-dialog-heading">
-        <h2>{{ name }}</h2>
+        <div class="run-dialog-title">
+          <h2>{{ name }}</h2>
+          <p>
+            Run {{ index + 1 }} · {{ columnName(run.board_column) }} · Round {{ run.round }} ·
+            Attempt {{ run.attempt }}
+          </p>
+        </div>
         <div class="run-dialog-actions">
           <button
             v-if="runs.length > 1"
@@ -225,6 +231,19 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
   </Modal>
 </template>
 <style scoped>
+.run-dialog-title {
+  flex: 1;
+  min-width: 0;
+}
+.run-dialog-title h2 {
+  overflow-wrap: anywhere;
+}
+.run-dialog-title p {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
 .agent-run-dialog {
   height: min(800px, 90vh);
 }

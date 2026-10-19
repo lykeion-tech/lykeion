@@ -34,7 +34,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await expect(turn.locator('img,script,iframe')).toHaveCount(0);
   expect(await page.evaluate(() => 'transcriptUnsafe' in window)).toBe(false);
   expect(external).toEqual([]);
-  const groups = turn.locator('.run-activity:not(.full-history)');
+  const groups = turn.locator('.run-activity');
   await expect(groups).toHaveCount(2);
   await expect(groups.first()).not.toHaveAttribute('open');
   await expect(turn.locator('.run-activity[open]')).toHaveCount(0);
@@ -92,12 +92,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   const code = turn.locator('.markdown-code pre');
   expect(await code.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   await page.screenshot({ path: `${artifacts}/reading-dark-800.png` });
-  const history = turn.locator('.full-history');
-  await history.locator(':scope > summary').click();
-  await expect(history.locator('.activity-steps > li')).toHaveCount(8);
-  await expect(history.locator('.step-payload[open]')).toHaveCount(0);
-  await history.locator('.step-payload').first().locator('summary').click();
-  await expect(history.locator('pre').first()).toContainText('Recorded observations');
+  await expect(turn.getByText('Full recorded history', { exact: true })).toHaveCount(0);
   await page.route('**/RecordedMarkdown.vue*', (route) => route.abort('failed'));
   await page.reload();
   await openAgentTranscript(page);
@@ -145,19 +140,15 @@ test('current attempt pagination retains every message and compact raw payload a
 
   expect(urls.some((url) => url.includes('attempt=2&after=500'))).toBe(true);
   expect(urls.every((url) => url.includes('attempt=2'))).toBe(true);
-  await turn.locator('.run-activity:not(.full-history) > summary').click();
+  await turn.locator('.run-activity > summary').click();
   await turn
-    .locator(
-      '.run-activity:not(.full-history) [data-message-type="tool_result"] .step-output > summary',
-    )
+    .locator('.run-activity [data-message-type="tool_result"] .step-output > summary')
     .click();
   await expect(turn.getByText('Recorded tool refusal', { exact: true })).toBeVisible();
-  const tool = turn.locator('.run-activity:not(.full-history) .step-payload').first();
+  const tool = turn.locator('.run-activity .step-payload').first();
   await tool.locator('summary').click();
   await expect(tool.locator('pre')).toContainText('END OF FULL TOOL INPUT');
-  const history = turn.locator('.full-history');
-  await history.locator(':scope > summary').click();
-  await expect(history.locator('.activity-steps > li')).toHaveCount(501);
-  await history.locator('.step-payload').last().locator('summary').click();
-  await expect(history.locator('pre').last()).toContainText('Attempt 2 message 501');
+  await expect(turn.getByText('Full recorded history', { exact: true })).toHaveCount(0);
+  await expect(turn.locator('.activity-steps > li')).toHaveCount(3);
+  await expect(turn.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
 });

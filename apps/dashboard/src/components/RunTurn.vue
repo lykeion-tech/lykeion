@@ -4,6 +4,7 @@ import RunActivity from './RunActivity.vue';
 import { activityStep, liveStatus, transcriptBlocks } from '../lib/run-transcript';
 import { useRunMessages } from '../api/queries';
 import type { AgentRun } from '../api/types';
+import { readableAssignment } from '../lib/studies';
 import { durationLabel } from '../lib/run-timeline';
 
 const formattingFailed = ref(false);
@@ -23,6 +24,7 @@ const RecordedMarkdown = defineAsyncComponent({
 });
 
 const props = defineProps<{ run: AgentRun }>();
+const assignment = computed(() => readableAssignment(props.run));
 const messages = useRunMessages(() => props.run, true);
 const active = computed(() => ['dispatched', 'running'].includes(props.run.status));
 // Each block's mark on the timeline: messages are rings, finished activity a
@@ -77,9 +79,9 @@ const ending = computed(() => {
     <p v-if="formattingFailed" class="formatting-notice" role="status">
       Markdown formatting is unavailable; showing recorded text.
     </p>
-    <div v-if="run.assignment" class="turn-assignment" aria-label="Assignment">
-      <div v-if="formattingFailed" class="recorded-text-fallback">{{ run.assignment }}</div>
-      <RecordedMarkdown v-else :content="run.assignment" />
+    <div v-if="assignment" class="turn-assignment" aria-label="Assignment">
+      <div v-if="formattingFailed" class="recorded-text-fallback">{{ assignment }}</div>
+      <RecordedMarkdown v-else :content="assignment" />
     </div>
     <ol class="turn-timeline" aria-label="Transcript">
       <li v-for="block in blocks" :key="block.key" class="turn-item" :class="block.mark">
@@ -96,7 +98,6 @@ const ending = computed(() => {
       </li>
     </ol>
     <p v-if="run.error" class="run-error">{{ run.error }}</p>
-    <RunActivity v-if="messages.data.value?.length" :messages="messages.data.value" history />
   </div>
 </template>
 <style scoped>
@@ -220,8 +221,5 @@ const ending = computed(() => {
 .run-error {
   color: var(--error-text);
   margin-top: 10px;
-}
-.agent-turn > :deep(.full-history) {
-  margin-top: 20px;
 }
 </style>

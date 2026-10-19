@@ -619,6 +619,11 @@ async function logOut() {
   gap: 8px;
   font-size: 12.5px;
 }
+.runtime-box .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .runtime-row {
   border: 1px solid var(--border);
   border-radius: 8px;

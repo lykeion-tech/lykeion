@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { newStudy, openAgentTranscript } from './lab';
 
-test('the study page shows the question, the run turn, events, comments and the metadata', async ({
+test('the study opens with a compact overview and identifiable runs, keeping the question in its assignment', async ({
   page,
 }) => {
   const question = `Microglia pruning after sleep loss ${Date.now()}?`;
@@ -18,13 +18,18 @@ test('the study page shows the question, the run turn, events, comments and the 
   await expect(
     main.getByRole('heading', { name: 'Microglia pruning after sleep loss' }),
   ).toBeVisible();
-  await expect(main.getByText(question)).toBeVisible();
+  await expect(main.locator('.study-question')).toHaveCount(0);
+  await expect(main.locator('.transcript-heading')).toHaveCount(0);
+  await expect(main.locator('.event-line').filter({ hasText: /^Created/ })).toHaveCount(0);
+  await expect(main.getByRole('region', { name: 'Overview' })).toBeVisible();
 
   // The lab's leader arrives live as its Team agent, previewing its latest text.
   const card = main.locator('.agent-card').first();
   await expect(card.getByRole('heading', { name: 'pi · ui-demo' })).toBeVisible({
     timeout: 30_000,
   });
+  await expect(card.locator('.run-identity')).toContainText('Run 1');
+  await expect(card.getByRole('heading')).not.toHaveClass(/truncate/);
   await expect(card.locator('.preview')).toContainText('Read the card; the lab script stops here.');
   expect(messageReads).toEqual([]);
   const transcript = await openAgentTranscript(page);
@@ -55,7 +60,7 @@ test('the study page shows the question, the run turn, events, comments and the 
   );
   await expect(cells.nth(1)).not.toHaveClass(/cell-error/);
   await transcript.getByRole('tab', { name: 'Transcript' }).click();
-  await transcript.locator('.run-activity:not(.full-history) > summary').first().click();
+  await transcript.locator('.run-activity > summary').first().click();
   await expect(transcript.getByText('lyk card show', { exact: true }).first()).toBeVisible();
   // A leader that stops without finishing is nudged once, so the scripted run
   // has a second turn that says the same.
@@ -574,16 +579,16 @@ test('expanded run preserves every ordered recorded message and full tool conten
   await openAgentTranscript(page);
   await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   await expect(page.locator('.markdown-body').first()).toContainText('Attempt 2 message 001');
-  await page.locator('.full-history > summary').click();
-  const messages = page.locator('.full-history .activity-steps > li');
-  await expect(messages).toHaveCount(501);
-  await expect(messages.nth(0)).toContainText('Attempt 2 message 001');
-  await messages.nth(1).locator('.step-payload > summary').click();
-  await expect(messages.nth(1).locator('pre')).toContainText('END OF FULL TOOL INPUT');
-  await expect(messages.nth(2)).toContainText('Recorded tool refusal');
-  await expect(messages.nth(3)).toContainText('Recorded continuity status');
-  await expect(messages.nth(500)).toContainText('Attempt 2 message 501');
-  await messages.nth(1).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await expect(page.getByText('Full recorded history', { exact: true })).toHaveCount(0);
+  await page.locator('.run-activity > summary').click();
+  const messages = page.locator('.activity-steps > li');
+  await expect(messages).toHaveCount(3);
+  await expect(page.locator('.markdown-body')).toHaveCount(498);
+  await messages.nth(0).locator('.step-payload > summary').click();
+  await expect(messages.nth(0).locator('pre')).toContainText('END OF FULL TOOL INPUT');
+  await expect(messages.nth(1)).toContainText('Recorded tool refusal');
+  await expect(messages.nth(2)).toContainText('Recorded continuity status');
+  await messages.nth(0).evaluate((el) => el.scrollIntoView({ block: 'start' }));
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/final-fix-artifacts/expanded-run.png',
     fullPage: true,
@@ -715,6 +720,7 @@ test('scores show per criterion with the verdict', async ({ page }) => {
     ],
   });
   await page.goto(`/#/studies/${study.id}`);
+  await page.getByRole('region', { name: 'Overview' }).locator('.study-evidence > summary').click();
   const scores = page.getByRole('region', { name: 'Scores' });
   await expect(scores.getByText('Low', { exact: true })).toBeVisible();
   const rows = scores.locator('.score-row');
@@ -746,10 +752,15 @@ test('every scored column shows its scores, rounded to one decimal', async ({ pa
     ],
   });
   await page.goto(`/#/studies/${study.id}`);
+  await page.getByRole('region', { name: 'Overview' }).locator('.study-evidence > summary').click();
   const scores = page.getByRole('region', { name: 'Scores' });
   await expect(scores).toHaveCount(2);
-  await expect(scores.nth(0)).toContainText('4.8 of 5');
-  await expect(scores.nth(1)).toContainText('3 of 5');
+  await expect(
+    page.getByRole('region', { name: 'Overview' }).getByRole('region', { name: 'Scores' }),
+  ).toContainText('3 of 5');
+  await expect(
+    page.locator('.collapsed-stage').getByRole('region', { name: 'Scores' }),
+  ).toContainText('4.8 of 5');
 });
 
 test("the leader's self-step is marked", async ({ page }) => {
@@ -780,6 +791,7 @@ test("the leader's self-step is marked", async ({ page }) => {
     ],
   });
   await page.goto(`/#/studies/${study.id}`);
+  await page.getByRole('region', { name: 'Overview' }).locator('.study-evidence > summary').click();
   const steps = page.getByRole('region', { name: 'Steps' });
   await expect(steps).toContainText('Leader → scout: Find islet papers');
   await expect(steps).toContainText('The leader did this itself — no member fit');
@@ -864,4 +876,40 @@ test('a finished single-stage study stays in its column, done', async ({ page })
     page.getByRole('region', { name: 'Done' }).locator(`[data-card="${study.id}"]`),
   ).toHaveCount(0);
   await page.screenshot({ path: `${shots}/done-on-board.png`, fullPage: true });
+});
+
+test('the overview replaces the description and keeps the complete evidence behind a disclosure', async ({
+  page,
+}) => {
+  const study = await unassigned(page);
+  await labFlow(page.request, study.id, {
+    column: 'grounding',
+    state: 'working',
+    records: [
+      {
+        kind: 'summary',
+        key: 's1',
+        body: { text: 'The protein lookup is recorded.\nFull details remain available here.' },
+      },
+      {
+        kind: 'audit',
+        key: 'a1',
+        body: {
+          text: 'One quote needs correction.',
+          findings: ['The organism quote omits a field.'],
+        },
+      },
+    ],
+  });
+  await page.goto(`/#/studies/${study.id}`);
+  const overview = page.getByRole('region', { name: 'Overview' });
+  await expect(overview.locator('.summary-text')).toHaveText('The protein lookup is recorded.');
+  await expect(overview).toContainText('Audit recorded');
+  await expect(overview).toContainText('1 finding to review');
+  await expect(overview.getByRole('region', { name: 'Audit' })).toBeHidden();
+  await expect(page.locator('.study-question, .transcript-heading')).toHaveCount(0);
+  await expect(page.locator('.event-line').filter({ hasText: /^Created/ })).toHaveCount(0);
+  await overview.locator('.study-evidence > summary').click();
+  await expect(overview.getByRole('region', { name: 'Audit' })).toBeVisible();
+  await expect(overview).toContainText('Full details remain available here.');
 });

@@ -4,7 +4,7 @@ import Icon from './Icon.vue';
 import type { AgentRun } from '../api/types';
 import { columnName, roleLabel, timeAgo } from '../lib/studies';
 
-const props = defineProps<{ run: AgentRun; study: string }>();
+const props = defineProps<{ run: AgentRun; study: string; position: number }>();
 const emit = defineEmits<{ open: [] }>();
 const name = computed(() => props.run.agent_name || roleLabel(props.run.role));
 const state = computed(
@@ -42,17 +42,20 @@ const lastActive = computed(
     <header>
       <span class="status-dot" :title="state" />
       <span class="avatar agent">{{ name[0] }}</span>
-      <h3 class="truncate">{{ name }}</h3>
+      <h3>{{ name }}</h3>
       <button
         class="icon-button open-run"
         aria-haspopup="dialog"
-        :aria-label="`Open transcript: ${name} (${state})`"
+        :aria-label="`Open transcript: ${name} (${state}), Run ${position}`"
         @click="emit('open')"
       >
         <Icon name="external" :size="15" />
       </button>
     </header>
-    <small class="truncate">{{ columnName(run.board_column) }} · {{ study }}</small>
+    <small class="run-identity"
+      >Run {{ position }} · {{ columnName(run.board_column) }} · Round {{ run.round }} · Attempt
+      {{ run.attempt }}</small
+    >
     <p class="preview">{{ preview }}</p>
     <footer>
       <time :datetime="lastActive">{{ timeAgo(lastActive) }}</time>
@@ -80,7 +83,7 @@ const lastActive = computed(
 }
 header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   min-width: 0;
 }
@@ -88,8 +91,11 @@ h3 {
   flex: 1;
   min-width: 0;
   font-weight: 500;
+  overflow-wrap: anywhere;
+  line-height: 20px;
 }
 .status-dot {
+  margin-top: 6px;
   flex: none;
   width: 8px;
   height: 8px;
@@ -98,16 +104,20 @@ h3 {
 }
 [data-status='running'] .status-dot,
 [data-status='dispatched'] .status-dot {
+  margin-top: 6px;
   background: var(--primary);
 }
 [data-status='completed'] .status-dot {
+  margin-top: 6px;
   background: var(--stage-validation-dot);
 }
 [data-status='failed'] .status-dot {
+  margin-top: 6px;
   background: var(--error-text);
 }
 [data-status='queued'] .status-dot,
 [data-status='cancelled'] .status-dot {
+  margin-top: 6px;
   background: none;
   box-shadow: inset 0 0 0 1.5px var(--control-border);
 }
