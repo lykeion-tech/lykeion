@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -141,5 +142,76 @@ func TestTheProtocolTellsAgentsAboutRuns(t *testing.T) {
 	}
 	if a := Protocol("auditor", "experimentation", "", nil); !strings.Contains(a, "that each reported value appears in the script run it cites") {
 		t.Errorf("the auditor is not told to check values:\n%s", a)
+	}
+}
+
+func TestANegativeAfterACommaKeepsItsSign(t *testing.T) {
+	runs := map[string]Run{"x1": {Tool: "run_script", Stdout: "a,-0.5\nrange 3-4\n"}}
+	for v, want := range map[string]bool{"-0.5": true, "0.5": false, "4": true, "-4": false} {
+		got := MatchValues([]db.Record{valueRec("r1", "result", map[string]any{"cites": []string{"run:x1"}, "value": json.Number(v)})}, runs)
+		if len(got) != 1 || got[0].Matched != want {
+			t.Errorf("%s: got %+v, want matched=%v", v, got, want)
+		}
+	}
+}
+
+func TestRowObjectsInAValuesListUseTheirOwnCites(t *testing.T) {
+	runs := map[string]Run{"x1": {Tool: "run_script", Stdout: "a 0.5\n"}, "x2": {Tool: "run_script", Stdout: "b 0.7\n"}}
+	rec := valueRec("r1", "result", map[string]any{"cites": []string{"run:x2"}, "values": []any{
+		map[string]any{"value": 0.5, "cites": []string{"run:x1"}},
+		0.7,
+	}})
+	got := MatchValues([]db.Record{rec}, runs)
+	want := []ValueMatch{{Record: "r1", Value: "0.5", Run: "x1", Matched: true}, {Record: "r1", Value: "0.7", Run: "x2", Matched: true}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestARunWhoseBodyCannotBeReadIsUnreadable(t *testing.T) {
+	runs, err := LoadRuns(context.Background(), storage.Local{Dir: t.TempDir()}, []db.Record{{Key: "x1", Kind: "run", Body: []byte(`not json`)}})
+	if err != nil || len(runs) != 1 || !runs["x1"].Unreadable {
+		t.Fatalf("runs %+v, err %v", runs, err)
+	}
+}
+
+func TestValuesComeInRecordAndValueOrder(t *testing.T) {
+	recs := []db.Record{
+		valueRec("r2", "result", map[string]any{"value": 1}),
+		valueRec("r1", "result", map[string]any{"b": map[string]any{"value": 3}, "a": map[string]any{"value": 2}, "c": map[string]any{"value": 1}}),
+	}
+	for range 20 {
+		var got []string
+		for _, m := range MatchValues(recs, nil) {
+			got = append(got, m.Record+"="+m.Value)
+		}
+		if !slices.Equal(got, []string{"r1=1", "r1=2", "r1=3", "r2=1"}) {
+			t.Fatalf("order %v", got)
+		}
+	}
+}
+
+func TestTheValueLinesJevReads(t *testing.T) {
+	s := scoringState(scoring{card: db.Card{Number: 1, BoardColumn: "experimentation"}}, nil, []ValueMatch{
+		{Record: "r1", Value: "1.5", Run: "x1", Exploration: true},
+		{Record: "r2", Value: "2", Uncited: true},
+		{Record: "r3", Value: "3"},
+		{Record: "r4", Value: "4", Unchecked: "x9"},
+	}, maxJevInput)
+	for _, want := range []string{
+		`- r1: found only in exploration (run_code) x1, not in a script run: "1.5"`,
+		`- r2: cites no run: "2"`,
+		`- r3: not found in any run it cites: "3"`,
+		`- r4: could not be checked: run x9's full output is unreadable: "4"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "No record reports a value.") {
+		t.Error("values reported and none at once")
+	}
+	if s := scoringState(scoring{card: db.Card{Number: 1, BoardColumn: "experimentation"}}, nil, nil, maxJevInput); !strings.Contains(s, "Value check, done by Lykeion's code:") || !strings.Contains(s, "No record reports a value.") {
+		t.Errorf("no empty value check in:\n%s", s)
 	}
 }

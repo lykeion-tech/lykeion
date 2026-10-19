@@ -2,6 +2,7 @@ package flow
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -55,6 +56,7 @@ func LoadRuns(ctx context.Context, blobs storage.Storage, recs []db.Record) (map
 			ExitStatus int    `json:"exit_status"`
 		}
 		if json.Unmarshal(rec.Body, &body) != nil {
+			runs[rec.Key] = Run{Unreadable: true}
 			continue
 		}
 		run := Run{Tool: body.Tool, Stdout: body.Output, ExitStatus: body.ExitStatus}
@@ -125,14 +127,14 @@ func parseNumber(s string) (number, bool) {
 	return number{r: r, places: max(frac-exp, 0), integer: !strings.ContainsAny(s, ".eE")}, true
 }
 
-// tokens are the numbers printed in out. A minus sign right after a digit or
-// a comma is not a sign, and a comma never joins digits, so `1,234` is the
-// numbers 1 and 234.
+// tokens are the numbers printed in out. A minus sign right after a digit is
+// not a sign, so `3-4` is 3 and 4, while `a,-0.5` keeps its negative; a comma
+// never joins digits, so `1,234` is the numbers 1 and 234.
 func tokens(out string) []*big.Rat {
 	var rs []*big.Rat
 	for _, ix := range numberToken.FindAllStringIndex(out, -1) {
 		i := ix[0]
-		if out[i] == '-' && i > 0 && (out[i-1] == ',' || (out[i-1] >= '0' && out[i-1] <= '9')) {
+		if out[i] == '-' && i > 0 && out[i-1] >= '0' && out[i-1] <= '9' {
 			i++
 		}
 		if n, ok := parseNumber(out[i:ix[1]]); ok {
@@ -155,15 +157,6 @@ func roundTo(r *big.Rat, d int) *big.Rat {
 	return new(big.Rat).SetFrac(q, scale)
 }
 
-func (n number) in(toks []*big.Rat) bool {
-	for _, t := range toks {
-		if n.integer && t.Cmp(n.r) == 0 || !n.integer && roundTo(t, n.places).Cmp(n.r) == 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // MatchValues checks each reported value in recs against the runs its record
 // cites. A value is a JSON number or a numeric string under a `value` field,
 // or in a `values` list, at any depth of a record's body, checked against the
@@ -172,14 +165,36 @@ func (n number) in(toks []*big.Rat) bool {
 // the places the value states; an integer value must be equal exactly.
 // Records of the free kinds report no values and are skipped.
 func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
+	// printed holds each run's numbers, rounded once per number of places;
+	// places -1 keeps them exact, for integer values.
+	type at struct {
+		run    string
+		places int
+	}
 	toks := map[string][]*big.Rat{}
-	printed := func(k string) []*big.Rat {
-		t, ok := toks[k]
-		if !ok {
-			t = tokens(runs[k].Stdout)
-			toks[k] = t
+	printed := map[at]map[string]bool{}
+	prints := func(k string, n number) bool {
+		key := at{k, n.places}
+		if n.integer {
+			key.places = -1
 		}
-		return t
+		set, ok := printed[key]
+		if !ok {
+			t, ok := toks[k]
+			if !ok {
+				t = tokens(runs[k].Stdout)
+				toks[k] = t
+			}
+			set = map[string]bool{}
+			for _, r := range t {
+				if key.places >= 0 {
+					r = roundTo(r, key.places)
+				}
+				set[r.RatString()] = true
+			}
+			printed[key] = set
+		}
+		return set[n.r.RatString()]
 	}
 	var out []ValueMatch
 	for _, rec := range recs {
@@ -200,7 +215,7 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 				if !cited {
 					continue
 				}
-				found := ok && n.in(printed(k))
+				found := ok && prints(k, n)
 				if found && r.Tool == "run_script" {
 					m.Matched, m.Exploration, m.Run, m.Unchecked = true, false, k, ""
 					break
@@ -220,6 +235,9 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 			out = append(out, m)
 		})
 	}
+	slices.SortStableFunc(out, func(a, b ValueMatch) int {
+		return cmp.Or(strings.Compare(a.Record, b.Record), strings.Compare(a.Value, b.Value))
+	})
 	return out
 }
 
@@ -264,6 +282,8 @@ func walkValues(v any, cites []string, found func(value string, cites []string))
 					for _, x := range list {
 						if s, ok := text(x); ok {
 							found(s, cites)
+						} else {
+							walkValues(x, cites, found)
 						}
 					}
 					continue
