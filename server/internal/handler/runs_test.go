@@ -218,3 +218,28 @@ func TestTheRoleTokenCannotPostRuns(t *testing.T) {
 		t.Fatalf("role token posts a run: %d", c)
 	}
 }
+
+func TestARecordMayCiteARun(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", map[string]any{"server": "pubmed", "tool": "search", "answer": "hit"}, nil); c != 201 {
+		t.Fatalf("call %d", c)
+	}
+	if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", map[string]any{"tool": "run_code", "language": "python", "code": "print(1)", "output": "1\n", "exit_status": 0}, nil); c != 201 {
+		t.Fatalf("run %d", c)
+	}
+	post := func(cites ...string) (int, string) {
+		var e struct{ Error string }
+		c := l.s.call(t, "POST", "/api/role/records", leader.token, "", map[string]any{"kind": "rival", "body": map[string]any{"cites": cites}}, &e)
+		return c, e.Error
+	}
+	if c, e := post("run:x1", "call:c1"); c != 201 {
+		t.Fatalf("a run and a call cited: %d %s", c, e)
+	}
+	if c, e := post("run:x9"); c != 400 || e != "no recorded call or run has the key x9" {
+		t.Fatalf("an unrecorded run: %d %q", c, e)
+	}
+	if c, _ := post("run:c1"); c != 400 {
+		t.Fatalf("a call key under run: %d", c)
+	}
+}

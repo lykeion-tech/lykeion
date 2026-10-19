@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -78,5 +79,37 @@ func TestASummaryCitingAHugeCallIsStillScored(t *testing.T) {
 	}
 	if items := l.inbox(t, c.ID, "scoring_unavailable"); len(items) != 0 {
 		t.Fatalf("scoring_unavailable items: %v", items)
+	}
+}
+
+func TestASummaryMayCiteARun(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "grounding", "grounding", a)
+	l.in(t, func(tx *store.Tx) error {
+		_, err := tx.Q.InsertRecord(context.Background(), db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "grounding",
+			Round: c.Round, Kind: "run", Role: "agent", Key: "x1", Body: []byte(`{}`)})
+		return err
+	})
+	if err := l.declare(t, c.ID, "run:x9"); err == nil {
+		t.Fatal("an unknown run passed")
+	}
+	if err := l.declare(t, c.ID, "run:x1"); err != nil {
+		t.Fatalf("run:x1 refused: %v", err)
+	}
+	var got []byte
+	l.in(t, func(tx *store.Tx) error {
+		recs, err := tx.Q.ListRecords(context.Background(), db.ListRecordsParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "grounding"})
+		for _, r := range recs {
+			if r.Kind == "summary" {
+				got = r.Body
+			}
+		}
+		return err
+	})
+	var body struct{ Cites []string }
+	if json.Unmarshal(got, &body); len(body.Cites) != 1 || body.Cites[0] != "x1" {
+		t.Fatalf("summary %s", got)
 	}
 }
