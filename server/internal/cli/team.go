@@ -114,7 +114,7 @@ func teamDoneCmd(e *env) *cobra.Command {
 			}
 			return emit(cmd, e, out, out.Key)
 		}}
-	c.Flags().StringSliceVar(&cites, "cites", nil, "record keys the summary relies on")
+	c.Flags().StringSliceVar(&cites, "cites", nil, "the records, calls and runs the summary rests on, as KEY, call:KEY or run:KEY")
 	contentFlags(c, "the summary")
 	outputFlag(c)
 	return c

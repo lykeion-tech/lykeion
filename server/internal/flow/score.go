@@ -208,14 +208,18 @@ type scoring struct {
 	criteria  []criterion
 	summary   string
 	cited     []db.Record
-	work      []db.Record // the records whose quotes are checked
+	work      []db.Record // the records whose quotes and values are checked
 	calls     []db.Record // the call records they cite
+	runs      []db.Record // the run records they cite
 	audit     string
 	auditNote string // why there is no audit
 	attempt   int
 }
 
-var callCite = regexp.MustCompile(`"call:([a-z0-9]+)"`)
+var (
+	callCite = regexp.MustCompile(`"call:([a-z0-9]+)"`)
+	runCite  = regexp.MustCompile(`"run:(x[0-9]+)"`)
+)
 
 // Score asks Jev to score the study's current column once it is declared
 // done and its auditor settled, then moves the study on, redoes the column or
@@ -227,9 +231,13 @@ func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 		return err
 	}
 	calls, err := LoadCalls(ctx, e.Blobs, in.calls)
+	var runs map[string]Run
+	if err == nil {
+		runs, err = LoadRuns(ctx, e.Blobs, in.runs)
+	}
 	var answers map[string]jev.ScoreAnswer
 	if err == nil {
-		answers, err = e.askJev(ctx, in, MatchQuotes(in.work, calls))
+		answers, err = e.askJev(ctx, in, MatchQuotes(in.work, calls), MatchValues(in.work, runs))
 	}
 	moved, werr := e.applyScore(ctx, ws, in, answers, err)
 	if werr != nil {
@@ -281,7 +289,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 				summary = &r
 			case r.Kind == "audit":
 				in.audit = string(r.Body)
-			case r.Kind != "call":
+			case r.Kind != "call" && r.Kind != "run":
 				in.work = append(in.work, r)
 			}
 		}
@@ -321,10 +329,12 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 		if in.cited, err = citedRecords(ctx, tx, c, *summary); err != nil {
 			return err
 		}
-		callKeys := []string{}
+		callKeys, runKeys := []string{}, []string{}
 		for _, r := range in.cited {
 			if r.Kind == "call" {
 				callKeys = append(callKeys, r.Key)
+			} else if r.Kind == "run" {
+				runKeys = append(runKeys, r.Key)
 			} else if !slices.ContainsFunc(in.work, func(w db.Record) bool { return w.ID == r.ID }) {
 				in.work = append(in.work, r)
 			}
@@ -333,12 +343,21 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 			for _, m := range callCite.FindAllStringSubmatch(string(r.Body), -1) {
 				callKeys = append(callKeys, m[1])
 			}
+			for _, m := range runCite.FindAllStringSubmatch(string(r.Body), -1) {
+				runKeys = append(runKeys, m[1])
+			}
 		}
 		if len(callKeys) > 0 {
 			if in.calls, err = tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: callKeys}); err != nil {
 				return err
 			}
 			in.calls = slices.DeleteFunc(in.calls, func(r db.Record) bool { return r.Kind != "call" })
+		}
+		if len(runKeys) > 0 {
+			if in.runs, err = tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: runKeys}); err != nil {
+				return err
+			}
+			in.runs = slices.DeleteFunc(in.runs, func(r db.Record) bool { return r.Kind != "run" })
 		}
 		until := e.now().Add(scoringLease)
 		ok = true
@@ -347,7 +366,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 	return in, ok, err
 }
 
-func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch) (map[string]jev.ScoreAnswer, error) {
+func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch, values []ValueMatch) (map[string]jev.ScoreAnswer, error) {
 	if e.Jev == nil {
 		return nil, errNoJev
 	}
@@ -365,7 +384,7 @@ func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch) (m
 	}
 	var out map[string]jev.ScoreAnswer
 	for budget := maxJevInput - len(asked) - 256; ; budget /= 2 {
-		state := scoringState(in, quotes, budget)
+		state := scoringState(in, quotes, values, budget)
 		err = retry.Do(ctx, func() (err error) {
 			out, err = e.Jev.Score(ctx, state, qs)
 			return err
@@ -376,12 +395,18 @@ func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch) (m
 	}
 }
 
+// labelRule asks Jev to check what code cannot: that each item's kind fits
+// its content and that its numbers sit where the value check finds them.
+const labelRule = "\nItems of the kinds prediction, explanation, plan and limitation need no source. " +
+	"Every other item states facts: its quotes cite the calls they come from, and its reported numbers sit in value fields and cite the script run that printed them. " +
+	"Judge whether each item's kind fits its content, and whether its results sit in value fields.\n"
+
 const cutMark = "\n[cut: the rest is left out to stay within Jev's limit]"
 
 // scoringState is what Jev reads: the study, the leader's summary and the
-// records it cites, the code's quote check and the audit, at most budget
-// bytes. Every agent's text is fenced as data.
-func scoringState(in scoring, quotes []QuoteMatch, budget int) string {
+// records it cites, the code's quote and value checks and the audit, at most
+// budget bytes. Every agent's text is fenced as data.
+func scoringState(in scoring, quotes []QuoteMatch, values []ValueMatch, budget int) string {
 	var head, tail strings.Builder
 	question, cut := Excerpt(asked(in.card), budget/8)
 	if cut {
@@ -414,6 +439,39 @@ func scoringState(in scoring, quotes []QuoteMatch, budget int) string {
 		}
 		tail.WriteString(fence.Untrusted("The quotes, as the agents wrote them", list))
 	}
+
+	tail.WriteString("\nValue check, done by Lykeion's code: each reported value looked up in the output of the runs its item cites, " +
+		"every printed number rounded to the decimal places the value states; an integer must be printed exactly.\n")
+	if len(values) == 0 {
+		tail.WriteString("No record reports a value.\n")
+	}
+	var vb strings.Builder
+	for _, v := range values {
+		text, cut := Excerpt(v.Value, 100)
+		if cut {
+			text += "…"
+		}
+		switch {
+		case v.Matched:
+			fmt.Fprintf(&vb, "- %s: found in script run %s: %s\n", v.Record, v.Run, strconv.Quote(text))
+		case v.Unchecked != "":
+			fmt.Fprintf(&vb, "- %s: could not be checked: run %s's full output is unreadable: %s\n", v.Record, v.Unchecked, strconv.Quote(text))
+		case v.Exploration:
+			fmt.Fprintf(&vb, "- %s: found only in exploration (run_code) %s, not in a script run: %s\n", v.Record, v.Run, strconv.Quote(text))
+		case v.Uncited:
+			fmt.Fprintf(&vb, "- %s: cites no run: %s\n", v.Record, strconv.Quote(text))
+		default:
+			fmt.Fprintf(&vb, "- %s: not found in any run it cites: %s\n", v.Record, strconv.Quote(text))
+		}
+	}
+	if vb.Len() > 0 {
+		list, cut := Excerpt(vb.String(), budget/8)
+		if cut {
+			list += cutMark + "\n"
+		}
+		tail.WriteString(fence.Untrusted("The values, as the agents wrote them", list))
+	}
+	tail.WriteString(labelRule)
 	tail.WriteString("\nThe auditor's findings:\n")
 	if in.audit != "" {
 		audit, cut := Excerpt(in.audit, budget/8)
