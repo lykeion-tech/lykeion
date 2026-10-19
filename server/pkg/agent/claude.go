@@ -201,7 +201,8 @@ func parseClaude(fallbackModel, resume string, accounting *claudeAccounting, in 
 				case "thinking":
 					emit(Message{Type: "thinking", Content: raw(item.Thinking)})
 				case "tool_use":
-					emit(Message{Type: "tool_use", Tool: item.Name, Content: item.Input})
+					// The whole block, so its id pairs it with its tool_result.
+					emit(Message{Type: "tool_use", Tool: item.Name, Content: c})
 				case "tool_result":
 					emit(Message{Type: "tool_result", Content: c})
 				}

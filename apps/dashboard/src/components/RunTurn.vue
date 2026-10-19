@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
 import RunActivity from './RunActivity.vue';
-import { activityStep, transcriptBlocks } from '../lib/run-transcript';
+import { activityStep, liveStatus, transcriptBlocks } from '../lib/run-transcript';
 import { useRunMessages } from '../api/queries';
 import type { AgentRun } from '../api/types';
 import { durationLabel } from '../lib/run-timeline';
@@ -28,7 +28,9 @@ const active = computed(() => ['dispatched', 'running'].includes(props.run.statu
 // Each block's mark on the timeline: messages are rings, finished activity a
 // dot, activity with a recorded error a cross, the activity still going a spinner.
 const blocks = computed(() => {
-  const list = transcriptBlocks(messages.data.value ?? []);
+  const list = transcriptBlocks(messages.data.value ?? [], {
+    joinText: props.run.harness === 'antigravity',
+  });
   return list.map((block, i) => ({
     ...block,
     mark:
@@ -47,7 +49,8 @@ const ending = computed(() => {
     r.started_at && r.completed_at
       ? ` · ${durationLabel(Date.parse(r.completed_at) - Date.parse(r.started_at))}`
       : '';
-  if (active.value) return { mark: 'mark-live', text: 'Working…' };
+  if (active.value)
+    return { mark: 'mark-live', text: liveStatus(messages.data.value ?? []) || 'Working…' };
   if (r.status === 'completed') return { mark: 'mark-ok', text: `Run finished${took}` };
   if (r.status === 'failed')
     return {
@@ -74,6 +77,10 @@ const ending = computed(() => {
     <p v-if="formattingFailed" class="formatting-notice" role="status">
       Markdown formatting is unavailable; showing recorded text.
     </p>
+    <div v-if="run.assignment" class="turn-assignment" aria-label="Assignment">
+      <div v-if="formattingFailed" class="recorded-text-fallback">{{ run.assignment }}</div>
+      <RecordedMarkdown v-else :content="run.assignment" />
+    </div>
     <ol class="turn-timeline" aria-label="Transcript">
       <li v-for="block in blocks" :key="block.key" class="turn-item" :class="block.mark">
         <template v-if="block.kind === 'text'">
@@ -98,6 +105,20 @@ const ending = computed(() => {
   line-height: 20px;
   overflow-wrap: anywhere;
   min-width: 0;
+}
+/* The run's assignment, on the right like the researcher's own comments. */
+.turn-assignment {
+  width: fit-content;
+  max-width: min(80%, 560px);
+  margin: 0 0 16px auto;
+  padding: 10px 13px;
+  border-radius: 12px;
+  background: var(--fill-active);
+  min-width: 0;
+}
+.turn-assignment :deep(.markdown-body) {
+  font-size: 13px;
+  line-height: 20px;
 }
 .turn-timeline {
   position: relative;

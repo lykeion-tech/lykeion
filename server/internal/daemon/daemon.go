@@ -102,6 +102,7 @@ type claimed struct {
 type daemon struct {
 	cfg             Config
 	versions        map[string]string // harness → its CLI version, read once at start
+	platform        agent.Platform    // the machine's platform, read once at start
 	api             *apiclient.Client
 	refs            []runtimeRef
 	out, messages   *Outbox
@@ -180,6 +181,7 @@ func Run(ctx context.Context, cfg Config) error {
 	for h, bin := range cfg.Harnesses {
 		d.versions[h] = agent.DetectVersion(ctx, bin)
 	}
+	d.platform = agent.DetectPlatform(ctx)
 	if err = d.register(ctx, id); err != nil {
 		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 			return nil
@@ -270,7 +272,7 @@ func (d *daemon) register(ctx context.Context, id string) error {
 		var runtimes []struct {
 			ID uuid.UUID `json:"id"`
 		}
-		if err := d.api.Do(ctx, "POST", "/api/daemon/register", map[string]any{"workspace_id": ws.ID, "daemon_id": id, "device_name": d.cfg.Device, "harnesses": harnesses, "versions": d.versions}, &runtimes); err != nil {
+		if err := d.api.Do(ctx, "POST", "/api/daemon/register", map[string]any{"workspace_id": ws.ID, "daemon_id": id, "device_name": d.cfg.Device, "harnesses": harnesses, "versions": d.versions, "platform": d.platform}, &runtimes); err != nil {
 			return err
 		}
 		d.knownWorkspaces[ws.ID] = true

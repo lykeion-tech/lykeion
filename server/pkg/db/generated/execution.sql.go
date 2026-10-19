@@ -111,7 +111,7 @@ WHERE id = (
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment
 `
 
 type ClaimAgentRunParams struct {
@@ -163,6 +163,8 @@ func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (A
 		&i.Kind,
 		&i.RequesterID,
 		&i.RequestedModel,
+		&i.AgentID,
+		&i.Assignment,
 	)
 	return i, err
 }
@@ -200,9 +202,9 @@ func (q *Queries) DeleteRuntime(ctx context.Context, arg DeleteRuntimeParams) (i
 }
 
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
-INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private, requested_model)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model
+INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private, requested_model, agent_id, assignment)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment
 `
 
 type EnqueueAgentRunParams struct {
@@ -219,6 +221,8 @@ type EnqueueAgentRunParams struct {
 	ContinuityScope   string     `json:"continuity_scope"`
 	RunPrivate        bool       `json:"run_private"`
 	RequestedModel    string     `json:"requested_model"`
+	AgentID           *uuid.UUID `json:"agent_id"`
+	Assignment        string     `json:"assignment"`
 }
 
 func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams) (AgentRun, error) {
@@ -236,6 +240,8 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		arg.ContinuityScope,
 		arg.RunPrivate,
 		arg.RequestedModel,
+		arg.AgentID,
+		arg.Assignment,
 	)
 	var i AgentRun
 	err := row.Scan(
@@ -279,6 +285,8 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		&i.Kind,
 		&i.RequesterID,
 		&i.RequestedModel,
+		&i.AgentID,
+		&i.Assignment,
 	)
 	return i, err
 }
@@ -332,7 +340,7 @@ func (q *Queries) FinishAgentRun(ctx context.Context, arg FinishAgentRunParams) 
 }
 
 const getAgentRun = `-- name: GetAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model FROM agent_run WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment FROM agent_run WHERE id = $1 AND workspace_id = $2
 `
 
 type GetAgentRunParams struct {
@@ -384,12 +392,14 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 		&i.Kind,
 		&i.RequesterID,
 		&i.RequestedModel,
+		&i.AgentID,
+		&i.Assignment,
 	)
 	return i, err
 }
 
 const getRuntime = `-- name: GetRuntime :one
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version FROM runtime WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language FROM runtime WHERE id = $1 AND workspace_id = $2
 `
 
 type GetRuntimeParams struct {
@@ -413,6 +423,10 @@ func (q *Queries) GetRuntime(ctx context.Context, arg GetRuntimeParams) (Runtime
 		&i.MaxConcurrent,
 		&i.CreatedAt,
 		&i.CliVersion,
+		&i.Os,
+		&i.Arch,
+		&i.Kernel,
+		&i.Language,
 	)
 	return i, err
 }
@@ -607,7 +621,7 @@ func (q *Queries) ListRecords(ctx context.Context, arg ListRecordsParams) ([]Rec
 }
 
 const listRuntimes = `-- name: ListRuntimes :many
-SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
+SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
   AND t.status IN ('dispatched', 'running'))::int AS active_runs
 FROM runtime r WHERE r.workspace_id = $1 ORDER BY r.created_at
 `
@@ -625,6 +639,10 @@ type ListRuntimesRow struct {
 	MaxConcurrent int32     `json:"max_concurrent"`
 	CreatedAt     time.Time `json:"created_at"`
 	CliVersion    string    `json:"cli_version"`
+	Os            string    `json:"os"`
+	Arch          string    `json:"arch"`
+	Kernel        string    `json:"kernel"`
+	Language      string    `json:"language"`
 	ActiveRuns    int32     `json:"active_runs"`
 }
 
@@ -651,6 +669,10 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 			&i.MaxConcurrent,
 			&i.CreatedAt,
 			&i.CliVersion,
+			&i.Os,
+			&i.Arch,
+			&i.Kernel,
+			&i.Language,
 			&i.ActiveRuns,
 		); err != nil {
 			return nil, err
@@ -664,7 +686,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 }
 
 const lockAgentRun = `-- name: LockAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
 
 type LockAgentRunParams struct {
@@ -716,6 +738,8 @@ func (q *Queries) LockAgentRun(ctx context.Context, arg LockAgentRunParams) (Age
 		&i.Kind,
 		&i.RequesterID,
 		&i.RequestedModel,
+		&i.AgentID,
+		&i.Assignment,
 	)
 	return i, err
 }
@@ -1033,12 +1057,13 @@ func (q *Queries) TouchRuntime(ctx context.Context, arg TouchRuntimeParams) (int
 }
 
 const upsertRuntime = `-- name: UpsertRuntime :one
-INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, cli_version, status, last_seen_at)
-VALUES ($1, $2, $3, $4, $5, $6, 'online', now())
+INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, cli_version, os, arch, kernel, language, status, last_seen_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'online', now())
 ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
-  SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, status = 'online', last_seen_at = now()
+  SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, os = EXCLUDED.os, arch = EXCLUDED.arch,
+    kernel = EXCLUDED.kernel, language = EXCLUDED.language, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
-RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version
+RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language
 `
 
 type UpsertRuntimeParams struct {
@@ -1048,6 +1073,10 @@ type UpsertRuntimeParams struct {
 	Harness     string    `json:"harness"`
 	DeviceName  string    `json:"device_name"`
 	CliVersion  string    `json:"cli_version"`
+	Os          string    `json:"os"`
+	Arch        string    `json:"arch"`
+	Kernel      string    `json:"kernel"`
+	Language    string    `json:"language"`
 }
 
 func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (Runtime, error) {
@@ -1058,6 +1087,10 @@ func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (R
 		arg.Harness,
 		arg.DeviceName,
 		arg.CliVersion,
+		arg.Os,
+		arg.Arch,
+		arg.Kernel,
+		arg.Language,
 	)
 	var i Runtime
 	err := row.Scan(
@@ -1073,6 +1106,10 @@ func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (R
 		&i.MaxConcurrent,
 		&i.CreatedAt,
 		&i.CliVersion,
+		&i.Os,
+		&i.Arch,
+		&i.Kernel,
+		&i.Language,
 	)
 	return i, err
 }

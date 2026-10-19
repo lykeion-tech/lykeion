@@ -4,14 +4,14 @@ import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 import RunTurn from './RunTurn.vue';
 import { useRunMessages } from '../api/queries';
-import type { AgentRun } from '../api/types';
+import type { AgentRun, Runtime } from '../api/types';
 import { backendLabel } from '../lib/backends';
 import { executionCells, notebookJson, recordedCode } from '../lib/run-transcript';
 import { columnName, roleLabel } from '../lib/studies';
 
 const props = defineProps<{
   runs: AgentRun[];
-  machine: (runtimeId: string | null) => string;
+  runtime: (runtimeId: string | null) => Runtime | undefined;
 }>();
 const id = defineModel<string>({ required: true });
 const emit = defineEmits<{ close: [] }>();
@@ -23,7 +23,7 @@ const index = computed(() =>
   ),
 );
 const run = computed(() => props.runs[index.value]!);
-const name = computed(() => roleLabel(run.value.role));
+const name = computed(() => run.value.agent_name || roleLabel(run.value.role));
 function step(by: number) {
   const n = props.runs.length;
   id.value = props.runs[(index.value + by + n) % n]!.id;
@@ -51,12 +51,20 @@ function moveTab(event: KeyboardEvent) {
 const messages = useRunMessages(run, true);
 const code = computed(() => recordedCode(messages.data.value ?? []));
 const cells = computed(() => executionCells(messages.data.value ?? []));
+// Only what the run and its machine's daemon recorded; nothing is filled in.
 const environment = computed(() => {
   const r = run.value;
+  const machine = props.runtime(r.runtime_id);
   return [
     { key: 'Runtime', value: backendLabel(r.harness) },
     { key: 'Model', value: r.model },
-    { key: 'Machine', value: props.machine(r.runtime_id) },
+    { key: 'Machine', value: machine ? machine.custom_name || machine.device_name : '' },
+    { key: 'Language', value: machine?.language ?? '' },
+    {
+      key: 'Platform',
+      value: machine?.os && machine.arch ? `${machine.os} / ${machine.arch}` : (machine?.os ?? ''),
+    },
+    { key: 'Kernel', value: machine?.kernel ?? '' },
     { key: 'Stage', value: columnName(r.board_column) },
     { key: 'Round', value: String(r.round) },
     { key: 'Attempt', value: `${r.attempt} of ${r.max_attempts}` },

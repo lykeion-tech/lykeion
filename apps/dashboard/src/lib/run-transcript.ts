@@ -7,19 +7,24 @@ export interface TranscriptBlock {
   messages: RunMessage[];
 }
 
-// Text records are complete adapter messages; only adjacent activity is grouped.
-export function transcriptBlocks(messages: readonly RunMessage[]): TranscriptBlock[] {
+// Text records are complete adapter messages, except Antigravity's, which
+// arrive in pieces: joinText puts adjacent pieces back into one message. Only
+// adjacent activity is grouped.
+export function transcriptBlocks(
+  messages: readonly RunMessage[],
+  { joinText = false } = {},
+): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
-  for (const message of [...messages].sort((a, b) => a.attempt - b.attempt || a.seq - b.seq)) {
+  for (const message of sorted(messages)) {
     const kind =
       message.type === 'text' && typeof message.content === 'string' ? 'text' : 'activity';
     const previous = blocks.at(-1);
     const text = kind === 'text' ? (message.content as string) : '';
-    if (
-      kind === 'activity' &&
-      previous?.kind === kind &&
-      previous.messages[0]?.attempt === message.attempt
-    ) {
+    const sameAttempt = previous?.messages[0]?.attempt === message.attempt;
+    if (kind === 'activity' && previous?.kind === kind && sameAttempt) {
+      previous.messages.push(message);
+    } else if (kind === 'text' && joinText && previous?.kind === kind && sameAttempt) {
+      previous.text += text;
       previous.messages.push(message);
     } else {
       blocks.push({ key: `${message.attempt}:${message.seq}`, kind, text, messages: [message] });
@@ -28,10 +33,16 @@ export function transcriptBlocks(messages: readonly RunMessage[]): TranscriptBlo
   return blocks;
 }
 
+function sorted(messages: readonly RunMessage[]) {
+  return [...messages].sort((a, b) => a.attempt - b.attempt || a.seq - b.seq);
+}
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+function filled(value: unknown): value is Record<string, unknown> {
+  return Object.keys(object(value)).length > 0;
 }
 function string(...values: unknown[]): string {
   return (
@@ -50,39 +61,133 @@ function readable(value: unknown): string {
     data.message,
     data.output,
     data.aggregated_output,
+    data.stdout,
+    data.stderr,
+    data.errorMessage,
     typeof data.content === 'string' ? data.content : undefined,
   );
 }
-// Claude records the call itself; Codex wraps it in an item.
-function toolCall(message: RunMessage) {
-  const content = object(message.content);
-  const item = Object.keys(object(content.item)).length ? object(content.item) : content;
-  const input = Object.keys(object(item.input)).length
-    ? object(item.input)
-    : Object.keys(object(item.arguments)).length
-      ? object(item.arguments)
-      : item;
-  return { content, item, input };
+// Arguments some adapters record as JSON text.
+function args(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string') return object(value);
+  try {
+    return object(JSON.parse(value));
+  } catch {
+    return {};
+  }
 }
+
+interface ToolCall {
+  // What pairs a call with its result: Claude's tool_use id, Cursor's
+  // call_id, Antigravity's step index. Codex records a call complete, with
+  // its own output, under its item id.
+  id: string;
+  tool: string;
+  input: Record<string, unknown>;
+  output: string;
+  state: string;
+  exit: number | undefined;
+  error: boolean;
+}
+// One recorded tool message in the shape each daemon adapter stores it
+// (server/pkg/agent): Codex's item.completed event, Cursor's tool_call event,
+// Antigravity's step_update event, or a Claude content block.
+function toolCall(message: RunMessage): ToolCall {
+  const content = object(message.content);
+  const call: ToolCall = {
+    id: '',
+    tool: message.tool,
+    input: {},
+    output: '',
+    state: '',
+    exit: undefined,
+    error: false,
+  };
+  if (filled(content.item)) {
+    const item = object(content.item);
+    const result = object(item.result);
+    call.id = string(item.id);
+    call.tool ||= string(item.tool, item.server);
+    call.input =
+      item.type === 'command_execution' ? { command: item.command } : args(item.arguments);
+    call.output =
+      readable(item.aggregated_output) ||
+      readable(result.content) ||
+      readable(item.output) ||
+      readable(item.error);
+    call.state = string(item.status);
+    call.exit = typeof item.exit_code === 'number' ? item.exit_code : undefined;
+    call.error = Boolean(item.error);
+  } else if (filled(content.tool_call)) {
+    const [name, value] = Object.entries(object(content.tool_call))[0]!;
+    const body = object(value);
+    const result = object(body.result);
+    const success = object(result.success);
+    call.id = string(content.call_id);
+    call.tool ||= name;
+    call.input = object(body.args);
+    // An MCP call names the server's tool and nests its arguments.
+    if (/^mcpToolCall$/.test(call.tool) && string(call.input.name)) {
+      call.tool = string(call.input.name);
+      call.input = args(call.input.args);
+    }
+    call.output = filled(success)
+      ? readable(success) || readable(success.content) || recordedContent(success)
+      : readable(Object.values(result)[0]);
+    call.exit = typeof success.exitCode === 'number' ? success.exitCode : undefined;
+    call.error = filled(result) && !filled(success);
+  } else if (filled(content.step_update)) {
+    const step = object(content.step_update);
+    const info = object(step.tool_info);
+    call.id = typeof step.step_index === 'number' ? `step:${step.step_index}` : '';
+    call.tool ||= string(step.tool_name, info.name);
+    call.input = object(info.parameters);
+    call.output = readable(info.output) || readable(info.error);
+    // The call is recorded at its first snapshot; only its result is final.
+    call.state = message.type === 'tool_result' ? string(step.state).toLowerCase() : '';
+    call.error = Boolean(info.error);
+  } else if (message.type === 'tool_result') {
+    call.id = string(content.tool_use_id);
+    call.output = readable(content.content) || readable(message.content);
+    call.error = content.is_error === true;
+  } else if (content.type === 'tool_use' || filled(content.input)) {
+    call.id = string(content.id);
+    call.tool ||= string(content.name);
+    call.input = object(content.input);
+  } else {
+    // Claude runs recorded before the whole block was kept: the input alone.
+    call.input = content;
+  }
+  call.error ||=
+    ['error', 'failed', 'declined', 'cancelled', 'canceled'].includes(call.state) ||
+    (call.exit !== undefined && call.exit !== 0);
+  return call;
+}
+
+const command = (input: Record<string, unknown>) => string(input.command, input.CommandLine);
+const filePath = (input: Record<string, unknown>) =>
+  string(
+    input.file_path,
+    input.notebook_path,
+    input.path,
+    input.file,
+    input.TargetFile,
+    input.AbsolutePath,
+  );
+const searched = (input: Record<string, unknown>) =>
+  string(input.query, input.pattern, input.globPattern, input.Query, input.Pattern);
+// Cursor names its tools readToolCall, shellToolCall and so on.
+const toolName = (tool: string) => tool.replace(/ToolCall$/, '');
+
 export function activityStep(message: RunMessage) {
-  const { content, item, input } = toolCall(message);
-  const command = string(input.command, item.command);
-  const path = string(input.file_path, input.path, input.file);
-  const query = string(input.query, input.pattern);
-  const tool = message.tool || string(item.tool, item.name);
-  const state = string(item.status, content.status);
-  const error =
-    content.is_error === true ||
-    item.is_error === true ||
-    Boolean(item.error) ||
-    ['error', 'failed', 'declined', 'cancelled'].includes(state) ||
-    (typeof item.exit_code === 'number' && item.exit_code !== 0);
-  const recordedState = error
+  const call = toolCall(message);
+  const tool = toolName(call.tool);
+  const recordedState = call.error
     ? 'Error'
-    : state
-      ? state.replace(/_/g, ' ')
-      : typeof item.exit_code === 'number'
-        ? `Exit ${item.exit_code}`
+    : call.state
+      ? call.state.replace(/_/g, ' ')
+      : call.exit !== undefined
+        ? `Exit ${call.exit}`
         : message.type === 'tool_result'
           ? 'Result recorded'
           : 'Recorded';
@@ -95,32 +200,34 @@ export function activityStep(message: RunMessage) {
     tool_use: tool || 'Tool activity',
   }[message.type];
   let detail = '';
+  const run = command(call.input);
+  const path = filePath(call.input);
+  const query = searched(call.input);
   if (message.type === 'tool_use') {
-    if (command) {
+    if (run) {
       label = 'Run command';
-      detail = command;
+      detail = run;
     } else if (path) {
-      label = /^(read|read_file)$/i.test(tool)
+      label = /^(read|read_file|view_file)$/i.test(tool)
         ? 'Read file'
-        : /^(edit|edit_file)$/i.test(tool)
+        : /^(edit|edit_file|multiedit|notebookedit|replace_file_content)$/i.test(tool)
           ? 'Edit file'
-          : /^(write|write_file)$/i.test(tool)
+          : /^(write|write_file|write_to_file)$/i.test(tool)
             ? 'Write file'
             : tool || 'Tool activity';
       detail = path;
     } else if (query) {
-      label = /^(search|grep|glob|find)$/i.test(tool) ? 'Search' : tool || 'Tool activity';
+      label = /^(search|grep|glob|find|grep_search|find_by_name)$/i.test(tool)
+        ? 'Search'
+        : tool || 'Tool activity';
       detail = query;
     }
   } else if (message.type === 'tool_result' && tool) detail = tool;
   const output =
-    readable(item.aggregated_output) ||
-    readable(item.output) ||
-    readable(item.result) ||
-    readable(item.error) ||
-    readable(content.content) ||
-    readable(message.content);
-  return { label, detail, state: recordedState, error, output };
+    message.type === 'tool_use' || message.type === 'tool_result'
+      ? call.output
+      : readable(object(message.content).content) || readable(message.content);
+  return { label, detail, state: recordedState, error: call.error, output };
 }
 
 const codeLanguages: Record<string, string> = {
@@ -138,23 +245,39 @@ export interface RecordedCode {
   language: string;
   code: string;
 }
+const extension = (path: string) => path.split('.').pop()?.toLowerCase() ?? '';
+// Code a tool call ran: what an MCP execution tool or a notebook cell was given.
+function executed(input: Record<string, unknown>) {
+  return string(input.code, input.source, input.cell, input.script, input.new_source);
+}
+// Code a tool call wrote into a source file: Claude's Write, Cursor's write,
+// Antigravity's write_to_file. Edits record fragments, not files.
+function written(input: Record<string, unknown>) {
+  return codeLanguages[extension(filePath(input))]
+    ? string(input.content, input.fileText, input.CodeContent)
+    : '';
+}
+function language(input: Record<string, unknown>) {
+  return (
+    string(input.language, input.kernel) ||
+    codeLanguages[extension(filePath(input))] ||
+    (extension(filePath(input)) === 'ipynb' ? 'python' : '')
+  );
+}
 // Code a run executed or wrote: notebook and script inputs, and source files
-// it wrote. Shell commands stay in the execution log.
+// it wrote. Shell commands stay in the execution log. Nothing is recorded as
+// code unless a call carried it.
 export function recordedCode(messages: readonly RunMessage[]): RecordedCode[] {
   const out: RecordedCode[] = [];
-  for (const message of messages) {
+  for (const message of sorted(messages)) {
     if (message.type !== 'tool_use') continue;
-    const { item, input } = toolCall(message);
-    const path = string(input.file_path, input.path, input.file);
-    const extension = path.split('.').pop()?.toLowerCase() ?? '';
-    const source = string(input.code, input.source, input.cell, input.script);
-    const written = codeLanguages[extension] ? string(input.content, input.new_source) : '';
-    const code = source || written;
+    const call = toolCall(message);
+    const code = executed(call.input) || written(call.input);
     if (!code) continue;
     out.push({
       key: `${message.attempt}:${message.seq}`,
-      name: path || message.tool || string(item.tool, item.name) || 'Script',
-      language: string(input.language, input.kernel) || codeLanguages[extension] || 'python',
+      name: filePath(call.input) || toolName(call.tool) || 'Script',
+      language: language(call.input) || 'text',
       code,
     });
   }
@@ -169,46 +292,80 @@ export interface ExecutionCell {
   output: string;
   error: boolean;
 }
-// Each recorded call with the result that answers it: by tool_use_id when the
-// adapter records one, otherwise the next result, or the call's own output.
+// Each recorded call with the result that answers it: by its id where the
+// adapter records one (Claude, Cursor, Antigravity), otherwise the next
+// result no call claims by id (Claude runs recorded before ids were kept).
+// A Codex call holds its own output.
 export function executionCells(messages: readonly RunMessage[]): ExecutionCell[] {
-  const sorted = [...messages].sort((a, b) => a.attempt - b.attempt || a.seq - b.seq);
+  const ordered = sorted(messages);
   const used = new Set<RunMessage>();
+  const claimed = new Set(
+    ordered.filter((m) => m.type === 'tool_use').map((m) => `${m.attempt}:${toolCall(m).id}`),
+  );
   const cells: ExecutionCell[] = [];
-  sorted.forEach((message, index) => {
+  ordered.forEach((message, index) => {
     if (message.type !== 'tool_use') return;
-    const { content, item, input } = toolCall(message);
-    const id = string(content.id, item.id);
-    const later = sorted.slice(index + 1);
-    const result =
-      (id &&
-        later.find(
-          (m) => m.type === 'tool_result' && string(object(m.content).tool_use_id) === id,
-        )) ||
-      later.find(
-        (m) => m.type === 'tool_result' && !used.has(m) && !string(object(m.content).tool_use_id),
-      );
+    const call = toolCall(message);
+    const later = ordered.slice(index + 1).filter((m) => m.attempt === message.attempt);
+    const result = call.id
+      ? later.find((m) => m.type === 'tool_result' && !used.has(m) && toolCall(m).id === call.id)
+      : later.find(
+          (m) =>
+            m.type === 'tool_result' &&
+            !used.has(m) &&
+            !(toolCall(m).id && claimed.has(`${m.attempt}:${toolCall(m).id}`)),
+        );
     if (result) used.add(result);
+    const answer = result ? toolCall(result) : undefined;
     const step = activityStep(message);
-    const answer = result ? activityStep(result) : undefined;
-    const code = string(input.code, input.source, input.cell, input.script);
-    const command = string(input.command, item.command);
-    const own = readable(item.aggregated_output) || readable(item.output) || readable(item.result);
+    const code = executed(call.input) || written(call.input);
+    const run = command(call.input);
     cells.push({
       key: `${message.attempt}:${message.seq}`,
       label: step.label,
       detail: step.detail,
-      language: code
-        ? string(input.language, input.kernel) || 'python'
-        : command
-          ? 'shell'
-          : 'json',
-      source: code || command || recordedContent(input),
-      output: answer?.output || own,
-      error: step.error || Boolean(answer?.error),
+      language: code ? language(call.input) || 'text' : run ? 'shell' : 'json',
+      source: code || run || recordedContent(call.input),
+      output: answer?.output || call.output,
+      error: call.error || Boolean(answer?.error),
     });
   });
   return cells;
+}
+
+// What a live run is doing, as its latest recorded message says: a call
+// still waiting for its result, reasoning, a Codex item it has started, a
+// status the CLI reported. Empty when the record says nothing more specific
+// than that the run is working.
+export function liveStatus(messages: readonly RunMessage[]): string {
+  const ordered = sorted(messages);
+  const last = ordered.at(-1);
+  if (!last) return '';
+  const describe = (message: RunMessage) => {
+    const step = activityStep(message);
+    const text = step.detail ? `${step.label}: ${step.detail}` : step.label;
+    return `${text.length > 120 ? `${text.slice(0, 119)}…` : text}…`;
+  };
+  if (last.type === 'thinking') return 'Thinking…';
+  // A Codex call is recorded once complete; the others wait for a result.
+  if (last.type === 'tool_use') return filled(object(last.content).item) ? '' : describe(last);
+  const content = object(last.content);
+  if (last.type === 'status' && content.type === 'blocked_action')
+    return `${last.tool || 'A tool call'} was blocked`;
+  if (last.type === 'log') {
+    const item = object(content.item);
+    if (content.type === 'item.started' || content.type === 'item.updated') {
+      if (item.type === 'todo_list') return 'Planning…';
+      if (item.type === 'reasoning') return 'Thinking…';
+      if (item.type === 'command_execution' && string(item.command))
+        return describe({ ...last, type: 'tool_use' });
+      if (item.type === 'mcp_tool_call') return describe({ ...last, type: 'tool_use' });
+    }
+    // Claude reports a pause such as compacting its context as a status event.
+    if (content.type === 'system' && content.subtype === 'status' && string(content.status))
+      return `${string(content.status)[0]!.toUpperCase()}${string(content.status).slice(1)}…`;
+  }
+  return '';
 }
 // A minimal nbformat 4 notebook of the recorded cells, for download.
 export function notebookJson(cells: readonly ExecutionCell[]): string {

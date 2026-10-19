@@ -276,9 +276,8 @@ function name(userId: string) {
   const m = members.data.value?.find((x) => x.user_id === userId);
   return m ? m.name || m.email : 'Former member';
 }
-function machine(runtimeId: string | null) {
-  const r = runtimes.data.value?.find((x) => x.id === runtimeId);
-  return r ? r.custom_name || r.device_name : '';
+function runtime(runtimeId: string | null) {
+  return runtimes.data.value?.find((x) => x.id === runtimeId);
 }
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -538,7 +537,7 @@ function pin() {
             v-if="openRun && agentRuns.some((r) => r.id === openRun)"
             v-model="openRun"
             :runs="agentRuns"
-            :machine="machine"
+            :runtime="runtime"
             @close="openRun = ''"
           />
           <div v-for="col in earlier" :key="col" class="stage-box collapsed-stage">

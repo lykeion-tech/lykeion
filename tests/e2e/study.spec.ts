@@ -8,6 +8,11 @@ test('the study page shows the question, the run turn, events, comments and the 
   const study = await newStudy(page.request, question, {
     title: 'Microglia pruning after sleep loss',
   });
+  // Cards read the runs listing; only an open transcript reads a run's messages.
+  const messageReads: string[] = [];
+  page.on('request', (request) => {
+    if (/\/api\/agent-runs\/[^/]+\/messages/.test(request.url())) messageReads.push(request.url());
+  });
   await page.goto(`/#/studies/${study.id}`);
   const main = page.getByRole('region', { name: 'Study' });
   await expect(
@@ -15,12 +20,40 @@ test('the study page shows the question, the run turn, events, comments and the 
   ).toBeVisible();
   await expect(main.getByText(question)).toBeVisible();
 
-  // The lab's leader arrives live: one run turn, its two commands and its text.
-  await expect(main.getByText('Leader', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  // The lab's leader arrives live as its Team agent, previewing its latest text.
+  const card = main.locator('.agent-card').first();
+  await expect(card.getByRole('heading', { name: 'pi · ui-demo' })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(card.locator('.preview')).toContainText('Read the card; the lab script stops here.');
+  expect(messageReads).toEqual([]);
   const transcript = await openAgentTranscript(page);
+  await expect(transcript.getByRole('heading', { name: 'pi · ui-demo', level: 2 })).toBeVisible();
+  // The transcript opens with what the run was asked, not its prompt's framing.
+  await expect(transcript.locator('.turn-assignment')).toContainText(question);
+  await expect(transcript.locator('.turn-assignment')).not.toContainText('You are the leader');
   await transcript.getByRole('tab', { name: 'Environment' }).click();
   await expect(transcript.getByText('Claude Code', { exact: true })).toBeVisible();
   await expect(transcript.getByText(/^lab-mac/)).toBeVisible();
+  // The lab daemon reports its own machine's platform.
+  const platform = transcript.locator('.environment li', { hasText: 'Platform' });
+  await expect(platform.locator('code')).toHaveText(/^(linux|darwin|windows) \/ \w+$/);
+  for (const value of await transcript.locator('.environment code').allTextContents())
+    expect(value.trim()).not.toBe('');
+  // The daemon keeps each call's id, so its result pairs with it; nothing
+  // in the run carried code.
+  await transcript.getByRole('tab', { name: 'Code' }).click();
+  await expect(transcript.getByText('No code was recorded in this run.')).toBeVisible();
+  await transcript.getByRole('tab', { name: 'Execution Log' }).click();
+  const cells = transcript.locator('.cells > li');
+  await expect(cells).toHaveCount(2);
+  await expect(cells.first()).toHaveClass(/cell-error/);
+  await expect(cells.first().locator('.code-line')).toHaveText(['1lyk card show']);
+  await cells.first().locator('.cell-output summary').click();
+  await expect(cells.first().locator('.cell-output pre')).toHaveText(
+    'The scripted card read was declined. No evidence was created.',
+  );
+  await expect(cells.nth(1)).not.toHaveClass(/cell-error/);
   await transcript.getByRole('tab', { name: 'Transcript' }).click();
   await transcript.locator('.run-activity:not(.full-history) > summary').first().click();
   await expect(transcript.getByText('lyk card show', { exact: true }).first()).toBeVisible();
@@ -77,7 +110,9 @@ test('long text and many records never scroll the study page sideways', async ({
   const title = `${'A very long study title about beta-cell dedifferentiation '.repeat(4)}${Date.now()}`;
   const study = await newStudy(page.request, question, { title });
   await page.goto(`/#/studies/${study.id}`);
-  await expect(page.getByText('Leader', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.agent-card h3', { hasText: 'pi · ui-demo' }).first()).toBeVisible({
+    timeout: 30_000,
+  });
   await labRecords(page.request, study.id, 40);
   await page.reload();
   await expect(page.locator('.record-line .key').filter({ hasText: /^E\d+$/ })).toHaveCount(40);

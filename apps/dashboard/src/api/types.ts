@@ -141,6 +141,16 @@ export interface AgentRun {
   cost_usd: number;
   created_at: string;
   handoff_note: string;
+  // The agent the run was started as; null for runs started before agents
+  // were recorded, or when that agent was deleted.
+  agent_id: string | null;
+  agent_name: string | null;
+  // What the run was asked to do, without Lykeion's framing; '' when not recorded.
+  assignment: string;
+  // The latest text of the current attempt, at most 600 characters.
+  latest_text: string;
+  // When the current attempt last recorded a message; null before its first.
+  last_activity_at: string | null;
 }
 
 export interface RunMessage {
@@ -189,6 +199,11 @@ export interface Runtime {
   created_at: string;
   active_runs: number; // dispatched or running on this runtime
   cli_version: string; // as the daemon reported it; '' when unknown
+  // The machine's platform as the daemon reported it; '' when not reported.
+  os: string;
+  arch: string;
+  kernel: string;
+  language: string;
 }
 
 export interface Member {

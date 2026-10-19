@@ -43,7 +43,7 @@ func (d *daemon) refreshReferences(ctx context.Context) error {
 			for h := range d.cfg.Harnesses {
 				harnesses = append(harnesses, h)
 			}
-			err := d.api.Do(ctx, "POST", "/api/daemon/register", map[string]any{"workspace_id": ws.ID, "daemon_id": d.id, "device_name": d.cfg.Device, "harnesses": harnesses, "versions": d.versions}, &rs)
+			err := d.api.Do(ctx, "POST", "/api/daemon/register", map[string]any{"workspace_id": ws.ID, "daemon_id": d.id, "device_name": d.cfg.Device, "harnesses": harnesses, "versions": d.versions, "platform": d.platform}, &rs)
 			if err != nil {
 				slog.Warn("workspace registration pending", "err", err)
 				continue

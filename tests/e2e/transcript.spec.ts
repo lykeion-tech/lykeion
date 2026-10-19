@@ -104,10 +104,13 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await expect(turn.getByRole('status')).toHaveText(
     'Markdown formatting is unavailable; showing recorded text.',
   );
-  await expect(turn.locator('.recorded-text-fallback').first()).toContainText(
+  await expect(turn.locator('.turn-assignment .recorded-text-fallback')).toContainText(
+    'Readable transcript regression',
+  );
+  await expect(turn.locator('.turn-timeline .recorded-text-fallback').first()).toContainText(
     '## Recorded observations',
   );
-  await expect(turn.locator('.recorded-text-fallback').last()).toContainText(
+  await expect(turn.locator('.turn-timeline .recorded-text-fallback').last()).toContainText(
     'Read the card; the lab script stops here.',
   );
   await expect(turn.locator('script,img,iframe')).toHaveCount(0);

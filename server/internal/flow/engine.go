@@ -203,8 +203,9 @@ func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role stri
 	if note != "" {
 		p += "\n" + note + "\n"
 	}
+	agentID := a.ID
 	t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p, RunPrivate: private,
+		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p, RunPrivate: private, Agent: &agentID, Assignment: assignment(c, note),
 		Skill: strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m))})
 	if err != nil {
 		return t, err

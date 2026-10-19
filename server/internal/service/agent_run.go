@@ -114,6 +114,11 @@ type NewAgentRun struct {
 	MaxAttempts int32
 	// RunPrivate forces the daemon's isolated mode whatever the workspace policy.
 	RunPrivate bool
+	// Agent is the agent the run is started as, when there is one.
+	Agent *uuid.UUID
+	// Assignment is what the run was asked to do, as researchers read it:
+	// the prompt without Lykeion's own framing.
+	Assignment string
 }
 
 type WorkspaceConnectorClaim struct {
@@ -234,6 +239,7 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 		WorkspaceID: tx.WS, CardID: &n.Card, ResponsibleUserID: owner, BoardColumn: n.Column, Round: n.Round, Role: n.Role,
 		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, MaxAttempts: n.MaxAttempts,
 		ContinuityScope: "card:" + n.Card.String() + "/role:" + n.Role, RunPrivate: n.RunPrivate, RequestedModel: n.Model,
+		AgentID: n.Agent, Assignment: n.Assignment,
 	})
 	if err != nil {
 		return t, err
@@ -243,8 +249,10 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 	return t, tx.Emit(ctx, "agent_run.queued", t.CardID, store.System, p)
 }
 
-// Register brings the daemon's runtimes online. A missing version stores an empty string.
-func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, device string, harnesses []string, versions map[string]string) ([]db.Runtime, error) {
+// Register brings the daemon's runtimes online. A missing version or platform
+// field stores an empty string.
+func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, device string, harnesses []string, versions map[string]string, platform agent.Platform) ([]db.Runtime, error) {
+	platform = platform.Clean()
 	var out []db.Runtime
 	err := s.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
 		// Registration may update an existing runtime before emitting its event.
@@ -256,7 +264,8 @@ func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, 
 			return ErrNotYours
 		}
 		for _, h := range harnesses {
-			r, err := tx.Q.UpsertRuntime(ctx, db.UpsertRuntimeParams{WorkspaceID: ws, OwnerID: user, DaemonID: daemonID, Harness: h, DeviceName: device, CliVersion: agent.VersionLine(versions[h])})
+			r, err := tx.Q.UpsertRuntime(ctx, db.UpsertRuntimeParams{WorkspaceID: ws, OwnerID: user, DaemonID: daemonID, Harness: h, DeviceName: device, CliVersion: agent.VersionLine(versions[h]),
+				Os: platform.OS, Arch: platform.Arch, Kernel: platform.Kernel, Language: platform.Language})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrNotYours // the daemon id belongs to someone else
 			}

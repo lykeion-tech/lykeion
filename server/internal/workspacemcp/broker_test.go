@@ -25,6 +25,7 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -91,7 +92,7 @@ func TestWorkspaceMCPRemoteSessionsArePerRunAndCloseOnCancellation(t *testing.T)
 		t.Fatal(err)
 	}
 	runs := &service.AgentRuns{Store: st, Keys: keys}
-	rts, err := runs.Register(ctx, user, ws, "broker", "laptop", []string{"claude"}, nil)
+	rts, err := runs.Register(ctx, user, ws, "broker", "laptop", []string{"claude"}, nil, agent.Platform{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +355,7 @@ func TestCommandInventoryDisableFencePreservesStartedCall(t *testing.T) {
 				t.Fatal(err)
 			}
 			runs := &service.AgentRuns{Store: st, Keys: keys}
-			rts, err := runs.Register(ctx, user, ws, "fence", "laptop", []string{"claude"}, nil)
+			rts, err := runs.Register(ctx, user, ws, "fence", "laptop", []string{"claude"}, nil, agent.Platform{})
 			if err != nil {
 				t.Fatal(err)
 			}

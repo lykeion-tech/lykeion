@@ -132,6 +132,11 @@ describe('run message pagination', () => {
     cost_usd: 0,
     created_at: '2026-10-15T00:00:00Z',
     handoff_note: '',
+    agent_id: null,
+    agent_name: null,
+    assignment: '',
+    latest_text: '',
+    last_activity_at: null,
   });
   const messages = (count: number, attempt = 2): RunMessage[] =>
     Array.from({ length: count }, (_, index) => ({

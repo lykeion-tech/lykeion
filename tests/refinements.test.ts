@@ -28,6 +28,11 @@ const run = (extra: Partial<AgentRun> = {}): AgentRun => ({
   cost_usd: 0.3,
   created_at: '2026-10-15T09:00:00Z',
   handoff_note: '',
+  agent_id: null,
+  agent_name: null,
+  assignment: '',
+  latest_text: '',
+  last_activity_at: null,
   ...extra,
 });
 describe('recorded execution time and costs', () => {

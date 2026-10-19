@@ -38,7 +38,7 @@ func TestWorkspaceCommandUsesClaimedDaemon(t *testing.T) {
 	keys := workspaceTestKeys()
 	f.runs.Keys = keys
 	saved := workspaceTestCommand(t, f, keys)
-	rts, err := f.runs.Register(ctx, f.user, f.ws, "workspace-command", "laptop", []string{"claude"}, nil)
+	rts, err := f.runs.Register(ctx, f.user, f.ws, "workspace-command", "laptop", []string{"claude"}, nil, agent.Platform{})
 	must(t, err)
 	claims, err := f.runs.Claim(ctx, f.user, []service.RuntimeRef{{WorkspaceID: f.ws, RuntimeID: rts[0].ID}}, 1)
 	must(t, err)
@@ -125,7 +125,7 @@ func TestWorkspaceCommandReplacementWithholdsAndClosesOldProcess(t *testing.T) {
 	keys := f.runs.Keys
 	id := workspaceTestCommand(t, f, keys)
 	ctx := t.Context()
-	rts, err := f.runs.Register(ctx, f.user, f.ws, "replace", "laptop", []string{"claude"}, nil)
+	rts, err := f.runs.Register(ctx, f.user, f.ws, "replace", "laptop", []string{"claude"}, nil, agent.Platform{})
 	must(t, err)
 	ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rts[0].ID}
 	claims, err := f.runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1)
@@ -211,7 +211,7 @@ func TestWorkspaceRemoteBrokerAndDoorRecordRealAnswerOnce(t *testing.T) {
 	svc := workspacemcp.Service{Store: f.runs.Store, Secrets: f.runs.Keys}
 	saved, err := svc.Create(ctx, f.ws, f.user, "remote", workspacemcp.Config{URL: upstream.URL, Headers: map[string]string{"Authorization": "Bearer upstream-secret"}})
 	must(t, err)
-	rts, err := f.runs.Register(ctx, f.user, f.ws, "remote", "laptop", []string{"claude"}, nil)
+	rts, err := f.runs.Register(ctx, f.user, f.ws, "remote", "laptop", []string{"claude"}, nil, agent.Platform{})
 	must(t, err)
 	ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rts[0].ID}
 	claims, err := f.runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1)
@@ -377,7 +377,7 @@ func TestWorkspaceMCPRecordRejectsChangedAuthority(t *testing.T) {
 				must(t, f.env.Owner.QueryRow(ctx, `INSERT INTO agent(workspace_id,name,harness,owner_id) VALUES($1,'member','claude',$2) RETURNING id`, f.ws, f.user).Scan(&agentID))
 				_, err = f.env.Owner.Exec(ctx, `INSERT INTO team_agent(workspace_id,pack_id,user_id,member,agent_id) VALUES($1,$2,$3,'member-1',$4)`, f.ws, ids[0], f.user, agentID)
 				must(t, err)
-				rts, err := f.runs.Register(ctx, f.user, f.ws, "record-race", "laptop", []string{"claude"}, nil)
+				rts, err := f.runs.Register(ctx, f.user, f.ws, "record-race", "laptop", []string{"claude"}, nil, agent.Platform{})
 				must(t, err)
 				ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rts[0].ID}
 				claims, err := f.runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1)
@@ -441,7 +441,7 @@ func TestWorkspaceCommandDisableKeepsStartedAnswer(t *testing.T) {
 	f := fixture(t)
 	ctx := t.Context()
 	id := workspaceTestCommand(t, f, f.runs.Keys)
-	rts, err := f.runs.Register(ctx, f.user, f.ws, "policy-command", "laptop", []string{"claude"}, nil)
+	rts, err := f.runs.Register(ctx, f.user, f.ws, "policy-command", "laptop", []string{"claude"}, nil, agent.Platform{})
 	must(t, err)
 	ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rts[0].ID}
 	claims, err := f.runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1)
@@ -533,7 +533,7 @@ func TestDoorRoutingSkipsDisabledWorkspaceClaims(t *testing.T) {
 				must(t, e)
 				disabled = c.ID
 			}
-			rts, err := f.runs.Register(ctx, f.user, f.ws, "discovery-policy", "laptop", []string{"claude"}, nil)
+			rts, err := f.runs.Register(ctx, f.user, f.ws, "discovery-policy", "laptop", []string{"claude"}, nil, agent.Platform{})
 			must(t, err)
 			ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rts[0].ID}
 			claims, err := f.runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1)

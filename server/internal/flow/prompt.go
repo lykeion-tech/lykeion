@@ -43,6 +43,20 @@ func asked(c db.Card) string {
 	return t + "\n\n" + q
 }
 
+// assignment is the part of a run's prompt that is its own: the note it was
+// started with (a leader's step, a redo's reason, what to audit), or the
+// study as asked. The role framing, the lab's context, comments and policy
+// lines stay out; researchers already see those elsewhere or never need to.
+func assignment(c db.Card, note string) string {
+	if n := strings.TrimSpace(strings.TrimPrefix(note, leaderStep)); n != "" {
+		return n
+	}
+	return asked(c)
+}
+
+// leaderStep introduces the step a leader hands a member.
+const leaderStep = "Your step, from the leader:\n"
+
 func prompt(c db.Card, role string, comments []db.Comment, researchContext string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the %s on Lykeion study #%d, in its %s column.\n\nWhat the researcher asked:\n%s\n",

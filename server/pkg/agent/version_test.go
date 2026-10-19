@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -47,5 +48,26 @@ func TestDetectVersionGivesUpAfterItsTimeout(t *testing.T) {
 	start := time.Now()
 	if got := DetectVersion(context.Background(), slow); got != "" || time.Since(start) > 3*time.Second {
 		t.Fatalf("slow CLI: %q after %s", got, time.Since(start))
+	}
+}
+
+func TestDetectPlatformReportsOnlyWhatTheMachineAnswers(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "uname"), []byte("#!/bin/sh\n[ \"$1\" = -sr ] && echo 'Linux 6.8.0-lab'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	p := DetectPlatform(context.Background())
+	if p.OS != runtime.GOOS || p.Arch != runtime.GOARCH || p.Kernel != "Linux 6.8.0-lab" {
+		t.Fatalf("platform %+v", p)
+	}
+	if p.Language != "" {
+		t.Fatalf("no Python on PATH, yet language %q", p.Language)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "python"), []byte("#!/bin/sh\necho 'Python 3.11.9'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := DetectPlatform(context.Background()).Language; got != "Python 3.11.9" {
+		t.Fatalf("language %q", got)
 	}
 }

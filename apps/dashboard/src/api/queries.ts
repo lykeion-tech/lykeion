@@ -116,8 +116,17 @@ export const useCardEvents = (id: MaybeRefOrGetter<string>) =>
     },
     enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
   });
+// A card's runs. Each carries its latest text and last activity, which no
+// event announces, so while a run is live the listing polls; this one read
+// stands in for every run's message history on the study page.
 export const useRuns = (id: MaybeRefOrGetter<string>) =>
-  ofCard<AgentRun[]>(id, keys.runs, (c) => `/api/cards/${c}/runs`);
+  useQuery({
+    queryKey: computed(() => keys.runs(ws.value, toValue(id))),
+    queryFn: () => api<AgentRun[]>('GET', `/api/cards/${toValue(id)}/runs`),
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+    refetchInterval: (query) =>
+      query.state.data?.some((r) => ['dispatched', 'running'].includes(r.status)) ? 5000 : false,
+  });
 
 // A column's records, superseded ones included (marked by superseded_at); the
 // server answers null when there are none.

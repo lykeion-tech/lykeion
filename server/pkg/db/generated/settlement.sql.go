@@ -148,7 +148,7 @@ func (q *Queries) InsertSettlement(ctx context.Context, arg InsertSettlementPara
 }
 
 const lockRuntime = `-- name: LockRuntime :one
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version FROM runtime WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language FROM runtime WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
 
 type LockRuntimeParams struct {
@@ -172,6 +172,10 @@ func (q *Queries) LockRuntime(ctx context.Context, arg LockRuntimeParams) (Runti
 		&i.MaxConcurrent,
 		&i.CreatedAt,
 		&i.CliVersion,
+		&i.Os,
+		&i.Arch,
+		&i.Kernel,
+		&i.Language,
 	)
 	return i, err
 }
