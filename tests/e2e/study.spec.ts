@@ -913,3 +913,29 @@ test('the overview replaces the description and keeps the complete evidence behi
   await expect(overview.getByRole('region', { name: 'Audit' })).toBeVisible();
   await expect(overview).toContainText('Full details remain available here.');
 });
+
+test('Properties stays the same width on the right and resizes inward', async ({ page }) => {
+  const study = await unassigned(page);
+  await page.goto(`/#/studies/${study.id}`);
+  const area = page.getByRole('region', { name: 'Study', exact: true });
+  const properties = area.getByRole('complementary', { name: 'Study details' });
+  const splitter = area.getByRole('separator', { name: 'Resize study inspector' });
+  await expect(properties).toHaveCSS('width', '364px');
+  const pane = (await properties.boundingBox())!;
+  const content = (await area.locator('.task-main').boundingBox())!;
+  const container = (await area.boundingBox())!;
+  expect(pane.x).toBeGreaterThan(content.x);
+  expect(pane.x + pane.width).toBeCloseTo(container.x + container.width, 0);
+  expect(pane.x - content.x - content.width).toBeCloseTo(1, 0);
+  await splitter.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(properties).toHaveCSS('width', '374px');
+  await page.keyboard.press('ArrowRight');
+  await expect(properties).toHaveCSS('width', '364px');
+  const handle = (await splitter.boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(handle.x - 40 + handle.width / 2, handle.y + 200);
+  await page.mouse.up();
+  await expect(properties).toHaveCSS('width', '404px');
+});

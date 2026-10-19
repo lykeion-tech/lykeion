@@ -70,7 +70,9 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
     'long recorded value',
   );
-  const payload = groups.first().locator('.step-payload').filter({ hasText: 'Sequence 4' });
+  const payload = groups.first().locator('[data-message-type="tool_result"] .step-payload');
+  await expect(turn.locator('.step-sequence')).toHaveCount(0);
+  await expect(turn.locator('.step-state').filter({ hasText: /recorded/i })).toHaveCount(0);
   await payload.locator('summary').click();
   await expect(payload.locator('pre')).toContainText('"tool_use_id": "t1"');
   await expect(payload.locator('pre')).toContainText('"is_error": true');

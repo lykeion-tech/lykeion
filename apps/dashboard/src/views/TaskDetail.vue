@@ -72,7 +72,7 @@ const inspector = usePaneResize(
   props.embedded ? 260 : 364,
   inspectorMinimum,
   480,
-  1,
+  -1,
   () =>
     props.embedded
       ? Math.max(0, studyWidth.value - studyMinimum)
@@ -345,153 +345,6 @@ function pin() {
     :style="{ '--properties-width': inspector.width.value + 'px' }"
     aria-label="Study"
   >
-    <aside v-if="showMeta && c" class="task-properties study-meta" aria-label="Study details">
-      <header class="properties-title"><h2>Properties</h2></header>
-      <div class="property-row">
-        <small>Stage</small>
-        <div class="v">
-          <span class="stage-dot" :class="'status-' + c.board_column" />{{
-            columnName(c.board_column)
-          }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
-            stateLabel(c)
-          }}</span
-          ><span v-if="c.ending" class="chip ending-chip" :class="'chip-' + c.ending">{{
-            endLabel(c)
-          }}</span>
-        </div>
-      </div>
-      <div class="property-row">
-        <label v-if="reassignable" for="study-assignee">Assignee</label
-        ><small v-else>Assignee</small
-        ><span class="avatar property-avatar">{{
-          c.assignee_type === 'agent'
-            ? (agents.data.value?.find((a) => a.id === c?.assignee_id)?.name[0] ?? 'A')
-            : c.assignee_id
-              ? name(c.assignee_id)[0]
-              : '?'
-        }}</span
-        ><span v-if="!reassignable" class="v">{{ assigneeName }}</span
-        ><select
-          v-else
-          id="study-assignee"
-          aria-label="Assignee"
-          :value="assigneeValue"
-          :disabled="propertyBusy || members.isPending.value || agents.isPending.value"
-          @change="assign"
-        >
-          <option value="">Unassigned</option>
-          <optgroup label="Members">
-            <option
-              v-for="m in members.data.value ?? []"
-              :key="m.user_id"
-              :value="'member:' + m.user_id"
-            >
-              {{ m.name || m.email }}
-            </option>
-          </optgroup>
-          <optgroup label="Agents">
-            <option v-for="a in assignableAgents" :key="a.id" :value="'agent:' + a.id">
-              {{ a.name }}
-            </option>
-          </optgroup>
-          <option
-            v-if="
-              c.assignee_type === 'agent' && !assignableAgents.some((a) => a.id === c?.assignee_id)
-            "
-            :value="assigneeValue"
-            disabled
-          >
-            {{
-              agents.data.value?.find((a) => a.id === c?.assignee_id)?.name ?? 'Unavailable agent'
-            }}
-            (archived or unavailable)
-          </option>
-        </select>
-      </div>
-      <div class="property-row">
-        <label for="study-research">Project</label><Icon name="folder" :size="13" /><select
-          id="study-research"
-          aria-label="Project"
-          :value="c.research_id ?? ''"
-          :disabled="propertyBusy || researches.isPending.value"
-          @change="
-            saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
-          "
-        >
-          <option value="">No project</option>
-          <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
-            {{ r.name }}
-          </option></select
-        ><RouterLink
-          v-if="c.research_id"
-          :to="'/projects/' + c.research_id"
-          aria-label="Open Project"
-          ><Icon name="right" :size="12"
-        /></RouterLink>
-      </div>
-      <div
-        v-for="read in [
-          { query: members, label: 'members' },
-          { query: agents, label: 'agents' },
-          { query: researches, label: 'Projects' },
-        ].filter((x) => x.query.error.value)"
-        :key="read.label"
-        class="inline-error"
-      >
-        {{ read.query.error.value?.message }}
-        <button @click="read.query.refetch()">Retry {{ read.label }}</button>
-      </div>
-      <ExecutionLog :runs="runs.data.value ?? []" :title="number + ' · ' + c.title" />
-      <button
-        class="details-heading"
-        :aria-expanded="detailsOpen"
-        @click="detailsOpen = !detailsOpen"
-      >
-        Details <Icon :name="detailsOpen ? 'down' : 'right'" :size="11" />
-      </button>
-      <div v-if="detailsOpen" class="details-body">
-        <small>Owner</small>
-        <div class="v metadata-owner">
-          <span class="avatar">{{ name(c.owner_id)[0] }}</span
-          >{{ name(c.owner_id) }}
-        </div>
-        <small>Deadline</small>
-        <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
-        <template v-if="c.follows_from.length">
-          <small>Follows from</small>
-          <div class="v">
-            <RouterLink
-              v-for="fid in c.follows_from"
-              :key="fid"
-              class="link"
-              :to="'/studies/' + fid"
-              >{{ cards.data.value?.find((x) => x.id === fid)?.title ?? 'Study' }}</RouterLink
-            >
-          </div>
-        </template>
-        <small>Created</small>
-        <div class="v">{{ new Date(c.created_at).toLocaleString() }}</div>
-        <small>Updated</small>
-        <div class="v">{{ updatedAt ? new Date(updatedAt).toLocaleString() : '—' }}</div>
-        <template v-if="creator"
-          ><small>Created by</small>
-          <div class="v">{{ name(creator) }}</div></template
-        >
-      </div>
-    </aside>
-    <div
-      v-if="showMeta && c"
-      class="task-splitter"
-      role="separator"
-      tabindex="0"
-      aria-orientation="vertical"
-      aria-label="Resize study inspector"
-      :aria-valuenow="inspector.width.value"
-      :aria-valuemin="inspector.minimum.value"
-      :aria-valuemax="inspector.maximum.value"
-      @pointerdown="inspector.pointerdown($event)"
-      @keydown="inspector.keydown"
-    />
     <div class="task-main">
       <header class="task-heading">
         <button
@@ -769,6 +622,153 @@ function pin() {
         </button>
       </p>
     </div>
+    <div
+      v-if="showMeta && c"
+      class="task-splitter"
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      aria-label="Resize study inspector"
+      :aria-valuenow="inspector.width.value"
+      :aria-valuemin="inspector.minimum.value"
+      :aria-valuemax="inspector.maximum.value"
+      @pointerdown="inspector.pointerdown($event)"
+      @keydown="inspector.keydown"
+    />
+    <aside v-if="showMeta && c" class="task-properties study-meta" aria-label="Study details">
+      <header class="properties-title"><h2>Properties</h2></header>
+      <div class="property-row">
+        <small>Stage</small>
+        <div class="v">
+          <span class="stage-dot" :class="'status-' + c.board_column" />{{
+            columnName(c.board_column)
+          }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
+            stateLabel(c)
+          }}</span
+          ><span v-if="c.ending" class="chip ending-chip" :class="'chip-' + c.ending">{{
+            endLabel(c)
+          }}</span>
+        </div>
+      </div>
+      <div class="property-row">
+        <label v-if="reassignable" for="study-assignee">Assignee</label
+        ><small v-else>Assignee</small
+        ><span class="avatar property-avatar">{{
+          c.assignee_type === 'agent'
+            ? (agents.data.value?.find((a) => a.id === c?.assignee_id)?.name[0] ?? 'A')
+            : c.assignee_id
+              ? name(c.assignee_id)[0]
+              : '?'
+        }}</span
+        ><span v-if="!reassignable" class="v">{{ assigneeName }}</span
+        ><select
+          v-else
+          id="study-assignee"
+          aria-label="Assignee"
+          :value="assigneeValue"
+          :disabled="propertyBusy || members.isPending.value || agents.isPending.value"
+          @change="assign"
+        >
+          <option value="">Unassigned</option>
+          <optgroup label="Members">
+            <option
+              v-for="m in members.data.value ?? []"
+              :key="m.user_id"
+              :value="'member:' + m.user_id"
+            >
+              {{ m.name || m.email }}
+            </option>
+          </optgroup>
+          <optgroup label="Agents">
+            <option v-for="a in assignableAgents" :key="a.id" :value="'agent:' + a.id">
+              {{ a.name }}
+            </option>
+          </optgroup>
+          <option
+            v-if="
+              c.assignee_type === 'agent' && !assignableAgents.some((a) => a.id === c?.assignee_id)
+            "
+            :value="assigneeValue"
+            disabled
+          >
+            {{
+              agents.data.value?.find((a) => a.id === c?.assignee_id)?.name ?? 'Unavailable agent'
+            }}
+            (archived or unavailable)
+          </option>
+        </select>
+      </div>
+      <div class="property-row">
+        <label for="study-research">Project</label><Icon name="folder" :size="13" /><select
+          id="study-research"
+          aria-label="Project"
+          :value="c.research_id ?? ''"
+          :disabled="propertyBusy || researches.isPending.value"
+          @change="
+            saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
+          "
+        >
+          <option value="">No project</option>
+          <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
+            {{ r.name }}
+          </option></select
+        ><RouterLink
+          v-if="c.research_id"
+          :to="'/projects/' + c.research_id"
+          aria-label="Open Project"
+          ><Icon name="right" :size="12"
+        /></RouterLink>
+      </div>
+      <div
+        v-for="read in [
+          { query: members, label: 'members' },
+          { query: agents, label: 'agents' },
+          { query: researches, label: 'Projects' },
+        ].filter((x) => x.query.error.value)"
+        :key="read.label"
+        class="inline-error"
+      >
+        {{ read.query.error.value?.message }}
+        <button @click="read.query.refetch()">Retry {{ read.label }}</button>
+      </div>
+      <ExecutionLog :runs="runs.data.value ?? []" :title="number + ' · ' + c.title" />
+      <button
+        class="details-heading"
+        :aria-expanded="detailsOpen"
+        @click="detailsOpen = !detailsOpen"
+      >
+        Details <Icon :name="detailsOpen ? 'down' : 'right'" :size="11" />
+      </button>
+      <div v-if="detailsOpen" class="details-body">
+        <small>Owner</small>
+        <div class="v metadata-owner">
+          <span class="avatar">{{ name(c.owner_id)[0] }}</span
+          >{{ name(c.owner_id) }}
+        </div>
+        <small>Deadline</small>
+        <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
+        <template v-if="c.follows_from.length">
+          <small>Follows from</small>
+          <div class="v">
+            <RouterLink
+              v-for="fid in c.follows_from"
+              :key="fid"
+              class="link"
+              :to="'/studies/' + fid"
+              >{{ cards.data.value?.find((x) => x.id === fid)?.title ?? 'Study' }}</RouterLink
+            >
+          </div>
+        </template>
+        <small>Created</small>
+        <div class="v">{{ new Date(c.created_at).toLocaleString() }}</div>
+        <small>Updated</small>
+        <div class="v">{{ updatedAt ? new Date(updatedAt).toLocaleString() : '—' }}</div>
+        <template v-if="creator"
+          ><small>Created by</small>
+          <div class="v">{{ name(creator) }}</div></template
+        >
+      </div>
+    </aside>
   </section>
 </template>
 <style scoped>

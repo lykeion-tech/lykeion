@@ -238,13 +238,16 @@ test('embedded Properties uses its own compact width and responds to the actual 
   await railToggle.click();
   await expect(meta).toHaveCSS('width', '260px');
   await expect(meta).toBeVisible();
+  expect((await meta.boundingBox())!.x).toBeGreaterThan(
+    (await study.locator('.task-main').boundingBox())!.x,
+  );
   expect(await page.evaluate(() => innerWidth)).toBe(1100);
   await railToggle.click();
   await expect(meta).toBeHidden();
   await page.setViewportSize({ width: 1920, height: 1080 });
   await expect(meta).toHaveCSS('width', '260px');
   await splitter.focus();
-  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
   await expect(meta).toHaveCSS('width', '270px');
   expect(await page.evaluate(() => localStorage.getItem('lykeion.study-inspector-width'))).toBe(
     '424',
@@ -268,8 +271,8 @@ test('embedded Properties uses its own compact width and responds to the actual 
   await expect(meta).toHaveCSS('width', '480px');
   await splitter.focus();
   await page.keyboard.press('Home');
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
   await expect(meta).toHaveCSS('width', '260px');
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/final-fix-artifacts/embedded-1920.png',
@@ -301,7 +304,7 @@ test('embedded Properties uses its own compact width and responds to the actual 
   await page.goto(`/#/studies/${card.id}`);
   await expect(meta).toHaveCSS('width', '424px');
   await splitter.focus();
-  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
   await expect(meta).toHaveCSS('width', '434px');
   expect(
     await page.evaluate(() => localStorage.getItem('lykeion.embedded-study-inspector-width')),

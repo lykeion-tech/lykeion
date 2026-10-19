@@ -77,6 +77,7 @@ describe('reading-first recorded run', () => {
       msg(3, 'thinking', 'Private recorded reasoning'),
       msg(4, 'tool_result', { tool_use_id: 'dropped-id', content: fullOutput, is_error: true }),
       msg(5, 'text', '## Outcome\n\nLast paragraph.'),
+      msg(6, 'tool_result', { content: 'The follow-up tool completed.' }),
     ]);
     expect(html).toContain('<h1>Evidence</h1>');
     expect(html).toContain('<strong>recorded</strong>');
@@ -94,8 +95,9 @@ describe('reading-first recorded run', () => {
     expect(html).toContain('Recorded reasoning');
     expect(html).not.toMatch(/<details[^>]*\bopen(?:=|>)/);
     expect(html).toContain('Error');
-    expect(html).toContain('Attempt 2');
-    expect(html).toContain('Sequence 4');
+    expect(html).not.toContain('step-sequence');
+    expect(html).not.toContain('>Recorded</span>');
+    expect(html).not.toContain('>Result recorded</span>');
   });
   it.each(['claude', 'codex'])(
     'preserves adjacent complete %s text records as independent Markdown blocks',

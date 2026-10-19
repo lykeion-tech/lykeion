@@ -29,9 +29,12 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
         <div class="step-heading">
           <span class="step-label">{{ step.label }}</span
           ><span v-if="step.detail" class="step-intent" :title="step.detail">{{ step.detail }}</span
-          ><span class="step-state" :class="{ 'activity-error': step.error }">{{
-            step.state
-          }}</span>
+          ><span
+            v-if="!['Recorded', 'Result recorded'].includes(step.state)"
+            class="step-state"
+            :class="{ 'activity-error': step.error }"
+            >{{ step.state }}</span
+          >
         </div>
         <details v-if="step.output" class="step-output">
           <summary>
@@ -53,11 +56,7 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
           <pre tabindex="0">{{ step.output }}</pre>
         </details>
         <details class="step-payload">
-          <summary>
-            Full recorded message<span class="step-sequence"
-              >Attempt {{ step.message.attempt }} · Sequence {{ step.message.seq }}</span
-            >
-          </summary>
+          <summary>Full recorded message</summary>
           <pre tabindex="0">{{ recordedContent(step.message) }}</pre>
         </details>
       </li>
@@ -159,10 +158,6 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
 .step-output[open] > summary .when-open {
   display: inline;
 }
-.step-sequence {
-  margin-left: 8px;
-  font-size: 10.5px;
-}
 .step-output pre,
 .step-payload pre {
   white-space: pre-wrap;
@@ -191,10 +186,6 @@ pre:focus-visible {
   .step-intent {
     flex-basis: 100%;
     order: 3;
-  }
-  .step-sequence {
-    display: block;
-    margin-left: 12px;
   }
 }
 </style>
