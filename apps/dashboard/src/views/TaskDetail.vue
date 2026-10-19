@@ -2,7 +2,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
-import RunTurn from '../components/RunTurn.vue';
+import AgentRunCard from '../components/AgentRunCard.vue';
+import AgentRunDialog from '../components/AgentRunDialog.vue';
 import ExecutionLog from '../components/ExecutionLog.vue';
 import { usePaneResize } from '../lib/resize';
 import { api } from '../api/client';
@@ -192,9 +193,14 @@ const resourceReads = computed(() =>
 );
 const readErrors = computed(() => resourceReads.value.filter((read) => read.error));
 const transcriptPending = computed(() => resourceReads.value.some((read) => read.pending));
-const entries = computed(() =>
-  transcript(comments.data.value ?? [], runs.data.value ?? [], events.data.value ?? []),
+// Runs are read as agent cards above; their transcripts open in a dialog.
+const entries = computed(() => transcript(comments.data.value ?? [], [], events.data.value ?? []));
+const agentRuns = computed(() =>
+  [...(runs.data.value ?? [])].sort(
+    (a, b) => Date.parse(a.started_at ?? a.created_at) - Date.parse(b.started_at ?? b.created_at),
+  ),
 );
+const openRun = ref('');
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
 const comment = ref('');
@@ -519,6 +525,22 @@ function pin() {
         <div class="transcript-content study-content">
           <h1 class="study-title">{{ c.title }}</h1>
           <p class="study-question">{{ c.question }}</p>
+          <section v-if="agentRuns.length" class="agent-cards" aria-label="Agents">
+            <AgentRunCard
+              v-for="run in agentRuns"
+              :key="run.id"
+              :run="run"
+              :study="c.title"
+              @open="openRun = run.id"
+            />
+          </section>
+          <AgentRunDialog
+            v-if="openRun && agentRuns.some((r) => r.id === openRun)"
+            v-model="openRun"
+            :runs="agentRuns"
+            :machine="machine"
+            @close="openRun = ''"
+          />
           <div v-for="col in earlier" :key="col" class="stage-box collapsed-stage">
             <button
               :aria-expanded="expanded === col"
@@ -663,12 +685,7 @@ function pin() {
                 {{ entry.comment.body }}
               </p>
             </template>
-            <RunTurn
-              v-else-if="entry.kind === 'run'"
-              :run="entry.run"
-              :machine="machine(entry.run.runtime_id)"
-            />
-            <div v-else class="event-line">
+            <div v-else-if="entry.kind === 'event'" class="event-line">
               <span class="dot" />{{ entry.text }} · {{ time(entry.at) }}
             </div>
           </template>
@@ -1417,6 +1434,12 @@ function pin() {
   margin-bottom: 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.agent-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 24px 0;
 }
 .stage-box {
   border: 1px solid var(--border);

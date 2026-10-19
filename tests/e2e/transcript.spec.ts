@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { newStudy, labFixture } from './lab';
+import { newStudy, labFixture, openAgentTranscript } from './lab';
 const artifacts = '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-4-artifacts';
 
 test('real scripted CLI writing reads naturally and expanded activity stays compact with full recorded data', async ({
@@ -19,6 +19,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   const study = await newStudy(page.request, `Readable transcript regression ${Date.now()}?`);
   await page.goto(`/#/studies/${study.id}`);
   const main = page.getByRole('region', { name: 'Study', exact: true });
+  await openAgentTranscript(page);
   const turn = main.locator('.agent-turn').first();
   await expect(
     turn.getByRole('heading', { name: 'Recorded observations', exact: true }),
@@ -37,7 +38,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await expect(groups).toHaveCount(2);
   await expect(groups.first()).not.toHaveAttribute('open');
   await expect(turn.locator('.run-activity[open]')).toHaveCount(0);
-  await main.locator('.transcript-scroll').evaluate((el) => (el.scrollTop = 0));
+  await main.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
   await page.screenshot({ path: `${artifacts}/reading-light-1920.png` });
   await groups.first().locator(':scope > summary').focus();
   await page.keyboard.press('Enter');
@@ -54,7 +55,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await expect(groups.first().locator('.step-intent')).toHaveCSS('white-space', 'normal');
   await expect(groups.first().locator('.step-intent')).toHaveCSS('overflow-x', 'visible');
   await expect(groups.first().locator('.step-payload[open]')).toHaveCount(0);
-  await main.locator('.transcript-scroll').evaluate((el) => (el.scrollTop = 0));
+  await main.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
   await page.screenshot({ path: `${artifacts}/activity-expanded-light-1920.png` });
   const output = groups.first().locator('[data-message-type="tool_result"] .step-output');
   await expect(output.locator('pre')).toBeHidden();
@@ -80,9 +81,10 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   );
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-palette', 'midnight');
+  await openAgentTranscript(page);
   await expect(turn.getByRole('heading', { name: 'Recorded observations' })).toBeVisible();
   await expect(turn.locator('.run-activity[open]')).toHaveCount(0);
-  await main.locator('.transcript-scroll').evaluate((el) => (el.scrollTop = 0));
+  await main.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
   await page.screenshot({ path: `${artifacts}/reading-dark-1920.png` });
   await page.setViewportSize({ width: 800, height: 982 });
   await expect(turn.getByRole('heading', { name: 'Recorded observations' })).toBeVisible();
@@ -98,6 +100,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await expect(history.locator('pre').first()).toContainText('Recorded observations');
   await page.route('**/RecordedMarkdown.vue*', (route) => route.abort('failed'));
   await page.reload();
+  await openAgentTranscript(page);
   await expect(turn.getByRole('status')).toHaveText(
     'Markdown formatting is unavailable; showing recorded text.',
   );
@@ -125,6 +128,7 @@ test('current attempt pagination retains every message and compact raw payload a
       urls.push(request.url());
   });
   await page.goto(`/#/studies/${fixture.card_id}`);
+  await openAgentTranscript(page);
   const turn = page.locator('.agent-turn').first();
   await expect(turn.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   await expect(turn.locator('.markdown-body')).toHaveCount(498);

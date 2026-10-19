@@ -361,3 +361,15 @@ export async function labRealtime(page: Page) {
     },
   };
 }
+
+// Agent runs are cards on the study page; a run's transcript opens in a dialog.
+export async function openAgentTranscript(page: Page, index = 0) {
+  await page
+    .locator('.agent-card')
+    .nth(index)
+    .getByRole('button', { name: /^Open transcript:/ })
+    .click({ timeout: 30_000 });
+  const dialog = page.locator('dialog.agent-run-dialog');
+  await expect(dialog).toBeVisible();
+  return dialog;
+}

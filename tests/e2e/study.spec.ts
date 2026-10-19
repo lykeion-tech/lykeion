@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { newStudy } from './lab';
+import { newStudy, openAgentTranscript } from './lab';
 
 test('the study page shows the question, the run turn, events, comments and the metadata', async ({
   page,
@@ -17,12 +17,21 @@ test('the study page shows the question, the run turn, events, comments and the 
 
   // The lab's leader arrives live: one run turn, its two commands and its text.
   await expect(main.getByText('Leader', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
-  await expect(main.getByText('Claude Code on lab-mac')).toBeVisible();
-  await main.locator('.run-activity:not(.full-history) > summary').first().click();
-  await expect(main.getByText('lyk card show', { exact: true }).first()).toBeVisible();
+  const transcript = await openAgentTranscript(page);
+  await transcript.getByRole('tab', { name: 'Environment' }).click();
+  await expect(transcript.getByText('Claude Code', { exact: true })).toBeVisible();
+  await expect(transcript.getByText(/^lab-mac/)).toBeVisible();
+  await transcript.getByRole('tab', { name: 'Transcript' }).click();
+  await transcript.locator('.run-activity:not(.full-history) > summary').first().click();
+  await expect(transcript.getByText('lyk card show', { exact: true }).first()).toBeVisible();
   // A leader that stops without finishing is nudged once, so the scripted run
   // has a second turn that says the same.
-  await expect(main.getByText('Read the card; the lab script stops here.').first()).toBeVisible();
+  await expect(
+    transcript.getByText('Read the card; the lab script stops here.').first(),
+  ).toBeVisible();
+  await transcript.getByRole('button', { name: 'Close transcript' }).click();
+  await expect(transcript).toBeHidden();
+  await expect(main.locator('.agent-card')).toHaveCount(2);
 
   await main
     .getByRole('textbox', { name: 'Comment' })
@@ -105,6 +114,7 @@ test('the current attempt loads beyond 500 messages', async ({ page }) => {
   });
   await page.goto(`/#/studies/${fixture.card_id}`);
   const main = page.getByRole('region', { name: 'Study' });
+  await openAgentTranscript(page);
   await expect(main.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   await expect(main.getByText(/Attempt 1 message/)).toHaveCount(0);
   expect(messageRequests.some((u) => u.includes('attempt=2&after=500'))).toBe(true);
@@ -178,7 +188,9 @@ test('a real socket reconnect refreshes without replay and workspace switching i
   });
   await page.goto(`/#/studies/${fixture.card_id}`);
   const main = page.getByRole('region', { name: 'Study' });
+  const transcript = await openAgentTranscript(page);
   await expect(main.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
+  await transcript.getByRole('button', { name: 'Close transcript' }).click();
   await expect.poll(() => subscribed).toEqual([fixture.workspace_id]);
   await closeSocket();
   const missed = 'Written while disconnected; recovered by HTTP refresh';
@@ -524,6 +536,7 @@ test('expanded run preserves every ordered recorded message and full tool conten
   const f = await labFixture(page.request);
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
   await page.goto(`/#/studies/${f.card_id}`);
+  await openAgentTranscript(page);
   await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   await expect(page.locator('.markdown-body').first()).toContainText('Attempt 2 message 001');
   await page.locator('.full-history > summary').click();
@@ -579,7 +592,6 @@ test('transcript and run message refusals show retries and keep already loaded d
   }
   await page.goto(`/#/studies/${f.card_id}`);
   await expect(page.locator('.study-read-error', { hasText: 'Comments' })).toBeVisible();
-  await expect(page.locator('.run-read-error')).toBeVisible();
   await page
     .locator('.study-read-error')
     .first()
@@ -588,11 +600,14 @@ test('transcript and run message refusals show retries and keep already loaded d
     path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/final-fix-artifacts/study-read-errors.png',
     fullPage: true,
   });
+  let transcript = await openAgentTranscript(page);
+  await expect(page.locator('.run-read-error')).toBeVisible();
   refuse = false;
-  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
   await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();
-  await expect(page.locator('.bubble', { hasText: comment })).toBeVisible();
   await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
+  await transcript.getByRole('button', { name: 'Close transcript' }).click();
+  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
+  await expect(page.locator('.bubble', { hasText: comment })).toBeVisible();
   refuse = true;
   await page.evaluate(async () => {
     const app = document.querySelector('#app') as Element & {
@@ -603,12 +618,14 @@ test('transcript and run message refusals show retries and keep already loaded d
     await app.__vue_app__._context.provides.VUE_QUERY_CLIENT!.invalidateQueries();
   });
   await expect(page.locator('.study-read-error', { hasText: 'Comments' })).toBeVisible();
-  await expect(page.locator('.run-read-error')).toBeVisible();
   await expect(page.locator('.bubble', { hasText: comment })).toBeVisible();
+  transcript = await openAgentTranscript(page);
+  await expect(page.locator('.run-read-error')).toBeVisible();
   await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   refuse = false;
-  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
   await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();
+  await transcript.getByRole('button', { name: 'Close transcript' }).click();
+  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
   await expect(page.locator('.study-read-error')).toHaveCount(0);
   await expect(page.locator('.run-read-error')).toHaveCount(0);
 });

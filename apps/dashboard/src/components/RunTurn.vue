@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
 import RunActivity from './RunActivity.vue';
-import { transcriptBlocks } from '../lib/run-transcript';
+import { activityStep, transcriptBlocks } from '../lib/run-transcript';
 import { useRunMessages } from '../api/queries';
 import type { AgentRun } from '../api/types';
-import { roleLabel } from '../lib/studies';
+import { durationLabel } from '../lib/run-timeline';
 
 const formattingFailed = ref(false);
 const PlainRecordedText = defineComponent({
@@ -22,32 +22,47 @@ const RecordedMarkdown = defineAsyncComponent({
   },
 });
 
-const props = defineProps<{ run: AgentRun; machine: string }>();
+const props = defineProps<{ run: AgentRun }>();
 const messages = useRunMessages(() => props.run, true);
-const blocks = computed(() => transcriptBlocks(messages.data.value ?? []));
-const harness = computed(
-  () => ({ claude: 'Claude Code', codex: 'Codex' })[props.run.harness] ?? props.run.harness,
-);
-const status = computed(() =>
-  props.run.status === 'completed'
-    ? 'Completed'
-    : props.run.status === 'queued' && props.run.queue_reason
-      ? `Queued: ${props.run.queue_reason.replace(/_/g, ' ')}`
-      : props.run.status[0]!.toUpperCase() + props.run.status.slice(1),
-);
-const time = (iso: string) =>
-  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const active = computed(() => ['dispatched', 'running'].includes(props.run.status));
+// Each block's mark on the timeline: messages are rings, finished activity a
+// dot, activity with a recorded error a cross, the activity still going a spinner.
+const blocks = computed(() => {
+  const list = transcriptBlocks(messages.data.value ?? []);
+  return list.map((block, i) => ({
+    ...block,
+    mark:
+      block.kind === 'text'
+        ? 'mark-message'
+        : block.messages.some((m) => activityStep(m).error)
+          ? 'mark-fail'
+          : active.value && i === list.length - 1
+            ? 'mark-run'
+            : 'mark-ok',
+  }));
+});
+const ending = computed(() => {
+  const r = props.run;
+  const took =
+    r.started_at && r.completed_at
+      ? ` · ${durationLabel(Date.parse(r.completed_at) - Date.parse(r.started_at))}`
+      : '';
+  if (active.value) return { mark: 'mark-live', text: 'Working…' };
+  if (r.status === 'completed') return { mark: 'mark-ok', text: `Run finished${took}` };
+  if (r.status === 'failed')
+    return {
+      mark: 'mark-fail',
+      text: `Run failed${took}${r.failure_reason ? ` · ${r.failure_reason.replace(/_/g, ' ')}` : ''}`,
+    };
+  if (r.status === 'queued')
+    return {
+      mark: 'mark-queued',
+      text: r.queue_reason ? `Queued: ${r.queue_reason.replace(/_/g, ' ')}` : 'Queued',
+    };
+  return { mark: 'mark-queued', text: 'Cancelled' };
+});
 </script>
 <template>
-  <div class="who">
-    <span class="avatar agent">{{ roleLabel(run.role)[0] }}</span
-    ><span>{{ roleLabel(run.role) }}</span
-    ><span class="tm"
-      >{{ harness }}<template v-if="machine"> on {{ machine }}</template> ·
-      {{ time(run.started_at ?? run.created_at) }}</span
-    ><span v-if="run.attempt > 1" class="tm">Attempt {{ run.attempt }}</span
-    ><span v-if="status" class="chip">{{ status }}</span>
-  </div>
   <div class="agent-turn">
     <p v-if="messages.isError.value" class="run-error run-read-error" role="alert">
       Run messages: {{ messages.error.value?.message }}
@@ -59,42 +74,118 @@ const time = (iso: string) =>
     <p v-if="formattingFailed" class="formatting-notice" role="status">
       Markdown formatting is unavailable; showing recorded text.
     </p>
-    <template v-for="block in blocks" :key="block.key">
-      <template v-if="block.kind === 'text'">
-        <div v-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
-        <RecordedMarkdown v-else :content="block.text" />
-      </template>
-      <RunActivity v-else :messages="block.messages" />
-    </template>
-    <RunActivity v-if="messages.data.value?.length" :messages="messages.data.value" history />
+    <ol class="turn-timeline" aria-label="Transcript">
+      <li v-for="block in blocks" :key="block.key" class="turn-item" :class="block.mark">
+        <template v-if="block.kind === 'text'">
+          <div v-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
+          <RecordedMarkdown v-else :content="block.text" />
+        </template>
+        <RunActivity v-else :messages="block.messages" />
+      </li>
+      <li class="turn-item turn-ending" :class="ending.mark">
+        <span :role="active || run.status === 'queued' ? 'status' : undefined">{{
+          ending.text
+        }}</span>
+      </li>
+    </ol>
     <p v-if="run.error" class="run-error">{{ run.error }}</p>
+    <RunActivity v-if="messages.data.value?.length" :messages="messages.data.value" history />
   </div>
 </template>
 <style scoped>
-.who {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  font-size: 13.5px;
-  margin: 8px 0 6px 14px;
-}
-.tm {
-  color: var(--muted);
-  font-size: 12.5px;
-}
-.avatar.agent {
-  background: #fff3d6;
-  color: #b5841b;
-}
 .agent-turn {
-  margin: 0 0 14px 24px;
-  border-left: 1.5px solid var(--border);
-  padding-left: 14px;
-  font-size: 13.5px;
+  font-size: 13px;
+  line-height: 20px;
   overflow-wrap: anywhere;
   min-width: 0;
-  line-height: 1.7;
+}
+.turn-timeline {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* The rail the marks sit on. */
+.turn-timeline::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--chart-rule);
+}
+.turn-item {
+  position: relative;
+  min-width: 0;
+}
+.turn-item::before {
+  content: '';
+  position: absolute;
+  left: -21px;
+  top: 6px;
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--modal);
+}
+.mark-message::before {
+  border: 1px solid var(--icon-faint);
+  background: var(--modal);
+}
+.mark-ok::before {
+  background: var(--stage-validation-dot);
+}
+.mark-queued::before {
+  border: 1px dashed var(--icon-faint);
+  background: var(--modal);
+}
+.mark-live::before {
+  background: var(--stage-experimentation-dot);
+  animation: turn-pulse 1.6s ease-in-out infinite;
+}
+.mark-run::before {
+  border: 1.5px solid var(--primary);
+  border-right-color: transparent;
+  animation: turn-spin 1s linear infinite;
+}
+.mark-fail::before {
+  left: -22px;
+  top: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 0;
+  background:
+    linear-gradient(45deg, transparent 43%, var(--error-text) 43% 57%, transparent 57%),
+    linear-gradient(-45deg, transparent 43%, var(--error-text) 43% 57%, transparent 57%),
+    var(--modal);
+}
+.turn-ending {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.turn-item :deep(.markdown-body) {
+  font-size: 13px;
+  line-height: 20px;
+}
+@keyframes turn-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes turn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-item::before {
+    animation: none;
+  }
 }
 .recorded-text-fallback {
   white-space: pre-wrap;
@@ -107,5 +198,9 @@ const time = (iso: string) =>
 }
 .run-error {
   color: var(--error-text);
+  margin-top: 10px;
+}
+.agent-turn > :deep(.full-history) {
+  margin-top: 20px;
 }
 </style>
