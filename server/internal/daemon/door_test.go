@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -37,6 +38,10 @@ import (
 func TestMain(m *testing.M) {
 	if os.Getenv("LYK_DOOR_STUB") == "1" {
 		stubCommand()
+		os.Exit(0)
+	}
+	if os.Getenv("LYK_KERNEL_STUB") == "1" {
+		stubBridge()
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
@@ -79,6 +84,7 @@ func stubCommand() {
 }
 
 // lykeion stands in for the server: it answers /api/role/calls with c1, c2, …
+// and /api/role/runs with x1, x2, …
 // and serves a catalogue fetch on /mcp/sources whose call key is c7, beside
 // the sources tools.
 type lykeion struct {
@@ -88,6 +94,9 @@ type lykeion struct {
 	fetches    []map[string]any
 	postAuth   []string // on /api/role/calls
 	sourceAuth []string // on /mcp/sources
+	runs       []map[string]any
+	runSizes   []int // the length of every body /api/role/runs received
+	failRuns   bool  // answer /api/role/runs with 500
 }
 
 func newLykeion(t *testing.T) *lykeion {
@@ -123,6 +132,20 @@ func newLykeion(t *testing.T) *lykeion {
 			l.mu.Unlock()
 			w.WriteHeader(201)
 			json.NewEncoder(w).Encode(map[string]string{"key": "c" + strconv.Itoa(n)})
+		case "/api/role/runs":
+			b, _ := io.ReadAll(r.Body)
+			var body map[string]any
+			json.Unmarshal(b, &body)
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			l.runSizes = append(l.runSizes, len(b))
+			if l.failRuns || r.Header.Get("Authorization") != "Bearer ltk_call" {
+				w.WriteHeader(500)
+				return
+			}
+			l.runs = append(l.runs, body)
+			w.WriteHeader(201)
+			json.NewEncoder(w).Encode(map[string]string{"key": "x" + strconv.Itoa(len(l.runs))})
 		default:
 			http.NotFound(w, r)
 		}
