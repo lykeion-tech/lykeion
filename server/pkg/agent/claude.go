@@ -22,10 +22,10 @@ const claudeCredFile = ".credentials.json"
 // ScriptLimit is how long a script run through the door may take.
 const ScriptLimit = 2 * time.Hour
 
-// claudeDoorTimeout lets a door call outlast the script it runs, so the door's
-// limit ends a long script. The per-server timeout also lifts Claude Code's
-// request and idle timeouts for this server.
-const claudeDoorTimeout = ScriptLimit + 5*time.Minute
+// doorCallTimeout lets a door call outlast the script it runs, so the door's
+// limit ends a long script and not the CLI's own tool-call timeout. In Claude
+// Code the per-server timeout also lifts its request and idle timeouts.
+const doorCallTimeout = ScriptLimit + 5*time.Minute
 
 func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
 	home, cleanup, err := prepareScratch(&o, "claude", "CLAUDE_CONFIG_DIR", ".claude", claudeCredFile)
@@ -149,7 +149,7 @@ func claudeEditRule(dir string) string {
 func claudeMCP(o ExecOptions) []byte {
 	servers := map[string]any{}
 	if o.DoorURL != "" {
-		servers["lyk_door"] = map[string]any{"type": "http", "url": o.DoorURL, "headers": map[string]string{"Authorization": "Bearer " + o.DoorToken}, "timeout": claudeDoorTimeout.Milliseconds()}
+		servers["lyk_door"] = map[string]any{"type": "http", "url": o.DoorURL, "headers": map[string]string{"Authorization": "Bearer " + o.DoorToken}, "timeout": doorCallTimeout.Milliseconds()}
 	}
 	return raw(map[string]any{"mcpServers": servers})
 }

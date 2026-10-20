@@ -270,7 +270,7 @@ func TestTheCLIGetsOnlyTheDoor(t *testing.T) {
 	collect(t, s)
 	a, _ := os.ReadFile(args)
 	if !strings.Contains(string(a), `mcp_servers.lyk_door.url="http://127.0.0.1:4100/mcp"`) || !strings.Contains(string(a), `mcp_servers.lyk_door.bearer_token_env_var="LYK_DOOR_TOKEN"`) ||
-		strings.Count(string(a), "mcp_servers.") != 2 || strings.Contains(string(a), "door-secret") {
+		strings.Count(string(a), "mcp_servers.") != 3 || strings.Contains(string(a), "door-secret") {
 		t.Fatalf("codex args: %s", a)
 	}
 }
@@ -1106,6 +1106,24 @@ func TestClaudeWaitsForTheDoorsScriptLimit(t *testing.T) {
 		}
 		if got := cfg.MCPServers["lyk_door"].Timeout; got != 7_500_000 {
 			t.Fatalf("inherit=%v, door timeout %d ms: %s", inherit, got, raw)
+		}
+	}
+}
+
+// Codex's per-server tool timeout defaults to a minute, so the door's own
+// limit only governs a long script when Codex is told to wait past it.
+func TestCodexWaitsForTheDoorsScriptLimit(t *testing.T) {
+	for _, inherit := range []bool{false, true} {
+		args := filepath.Join(t.TempDir(), "args")
+		s, err := Codex{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
+			ExecOptions{Dir: t.TempDir(), Model: "gpt-5", DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", Inherit: inherit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		a, _ := os.ReadFile(args)
+		if !strings.Contains(string(a), "-c\nmcp_servers.lyk_door.tool_timeout_sec=7500\n") {
+			t.Fatalf("inherit=%v, codex args:\n%s", inherit, a)
 		}
 	}
 }
