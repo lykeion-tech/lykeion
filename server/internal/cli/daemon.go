@@ -32,15 +32,15 @@ func stateDir(e *env) string { return filepath.Join(filepath.Dir(e.path), "daemo
 func pidFile(e *env) string  { return filepath.Join(filepath.Dir(e.path), "daemon.pid") }
 func logFile(e *env) string  { return filepath.Join(filepath.Dir(e.path), "daemon.log") }
 
-// envDir holds the language bases in the user cache folder, not the state
-// folder, because macOS puts that under "Application Support" and the bases'
-// own scripts break on a path with spaces.
+// envDir holds the language bases in a hidden folder in the home folder, not
+// the state folder, because macOS puts that under "Application Support" and
+// the bases' own scripts break on a path with spaces.
 func envDir() (string, error) {
-	dir, err := os.UserCacheDir()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "lyk", "envs"), nil
+	return filepath.Join(home, ".lyk", "envs"), nil
 }
 
 func readOwner(path string) (daemonOwner, error) {

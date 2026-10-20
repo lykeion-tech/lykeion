@@ -30,7 +30,6 @@ func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir)
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	scratch := t.TempDir()
@@ -84,14 +83,13 @@ func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 func TestTheEnvironmentsFolderAvoidsASpacedStateFolder(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("LYK_CONFIG", filepath.Join(home, "Library", "Application Support", "lyk", "config.json"))
 	dir, err := envDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.ContainsAny(dir, " \t") || !strings.HasPrefix(dir, home+string(filepath.Separator)) {
-		t.Fatalf("envDir = %q, want a space-free folder inside %s", dir, home)
+	if want := filepath.Join(home, ".lyk", "envs"); dir != want {
+		t.Fatalf("envDir = %q, want %q", dir, want)
 	}
 }
 
