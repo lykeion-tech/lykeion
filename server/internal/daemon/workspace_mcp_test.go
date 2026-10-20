@@ -55,8 +55,8 @@ func TestWorkspaceCommandUsesClaimedDaemon(t *testing.T) {
 	if !strings.Contains(answer, "echo workspace") {
 		t.Fatal(answer)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "stub.pid")); err != nil {
-		t.Fatal("command did not use claimed folder", err)
+	if _, err := os.Stat(filepath.Join(d.connectorDir, "stub.pid")); err != nil {
+		t.Fatal("command did not start in the door's folder", err)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestWorkspaceCommandReplacementWithholdsAndClosesOldProcess(t *testing.T) {
 	t.Cleanup(d.Close)
 	_, err = callTool(t, d, "workspace-command", "echo", map[string]any{"q": "before"})
 	must(t, err)
-	pids, err := os.ReadFile(filepath.Join(dir, "stub.pid"))
+	pids, err := os.ReadFile(filepath.Join(d.connectorDir, "stub.pid"))
 	must(t, err)
 	pending := make(chan error, 1)
 	go func() {
@@ -153,7 +153,7 @@ func TestWorkspaceCommandReplacementWithholdsAndClosesOldProcess(t *testing.T) {
 		pending <- err
 	}()
 	for deadline := time.Now().Add(5 * time.Second); ; {
-		if _, err := os.Stat(filepath.Join(dir, "stub.started")); err == nil {
+		if _, err := os.Stat(filepath.Join(d.connectorDir, "stub.started")); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -164,7 +164,7 @@ func TestWorkspaceCommandReplacementWithholdsAndClosesOldProcess(t *testing.T) {
 	svc := workspacemcp.Service{Store: f.runs.Store, Secrets: keys}
 	_, err = svc.Update(ctx, f.ws, f.user, id, 1, "workspace-command", workspacemcp.Config{Command: "replacement"})
 	must(t, err)
-	must(t, os.WriteFile(filepath.Join(dir, "stub.release"), []byte("release"), 0600))
+	must(t, os.WriteFile(filepath.Join(d.connectorDir, "stub.release"), []byte("release"), 0600))
 	select {
 	case err := <-pending:
 		if err == nil || !strings.Contains(err.Error(), "withheld") {
@@ -300,7 +300,7 @@ func TestWorkspaceCommandStartupCancellation(t *testing.T) {
 			} else {
 				deadline := time.Now().Add(5 * time.Second)
 				for {
-					if _, err := os.Stat(filepath.Join(dir, "stub.pid")); err == nil {
+					if _, err := os.Stat(filepath.Join(d.connectorDir, "stub.pid")); err == nil {
 						break
 					}
 					if time.Now().After(deadline) {
@@ -319,7 +319,7 @@ func TestWorkspaceCommandStartupCancellation(t *testing.T) {
 				t.Fatal("request cancellation blocked behind startup")
 			}
 			if phase == "initialize" {
-				raw, err := os.ReadFile(filepath.Join(dir, "stub.pid"))
+				raw, err := os.ReadFile(filepath.Join(d.connectorDir, "stub.pid"))
 				must(t, err)
 				for _, v := range strings.Fields(string(raw)) {
 					pid, _ := strconv.Atoi(v)
@@ -465,7 +465,7 @@ func TestWorkspaceCommandDisableKeepsStartedAnswer(t *testing.T) {
 		done <- result{a, e}
 	}()
 	for deadline := time.Now().Add(5 * time.Second); ; {
-		if _, err := os.Stat(filepath.Join(dir, "stub.started")); err == nil {
+		if _, err := os.Stat(filepath.Join(d.connectorDir, "stub.started")); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -479,7 +479,7 @@ func TestWorkspaceCommandDisableKeepsStartedAnswer(t *testing.T) {
 	if denied == nil || answer != "" {
 		t.Fatalf("disabled concurrent call: %q %v", answer, denied)
 	}
-	must(t, os.WriteFile(filepath.Join(dir, "stub.release"), []byte("release"), 0600))
+	must(t, os.WriteFile(filepath.Join(d.connectorDir, "stub.release"), []byte("release"), 0600))
 	select {
 	case res := <-done:
 		if res.err != nil || !strings.Contains(res.answer, "echo workspace-wait") {

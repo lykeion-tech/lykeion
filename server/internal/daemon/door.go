@@ -53,8 +53,8 @@ type Door struct {
 	Connectors          []pack.Connector  // catalogue entries and the Team's own servers
 	Addons              []agent.MCPServer // the workspace's add-on servers, which may be http or loopback
 	Harness             string            // the CLI's, which says where routed skills are written
-	// Child answers the options the CLI runs with: a local command starts in
-	// their folder, with the environment the CLI gets.
+	// Child answers the options the CLI runs with: a local command starts
+	// with the environment the CLI gets.
 	Child func() agent.ExecOptions
 	// Study is the study's environment, where run_code and run_script run.
 	Study *envs.Study
@@ -75,6 +75,9 @@ type Door struct {
 	sessions        map[string]*mcp.ClientSession
 	cmds            []*exec.Cmd
 	sessionCommands map[string]*exec.Cmd
+	// connectorDir is the empty folder local connectors start in: the door's
+	// own, outside every folder the run's code may write.
+	connectorDir string
 	// interp answers a language's interpreter; nil means Study.Interpreter.
 	interp  func(lang string) (string, []string, error)
 	kernels *kernels.Sessions
@@ -121,6 +124,10 @@ func (d *Door) Start() error {
 	d.Token = hex.EncodeToString(b)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		return err
+	}
+	if d.connectorDir, err = os.MkdirTemp("", "lyk-connector-"); err != nil {
+		ln.Close()
 		return err
 	}
 	d.URL = "http://" + ln.Addr().String() + "/mcp"
@@ -171,6 +178,7 @@ func (d *Door) Close() {
 	if d.kernels != nil {
 		d.kernels.Close()
 	}
+	os.RemoveAll(d.connectorDir)
 	d.sandboxMu.Lock()
 	defer d.sandboxMu.Unlock()
 	for _, dir := range []string{d.tmp, d.bridgeDir} {
@@ -410,9 +418,13 @@ func (d *Door) sessionContext(request context.Context, t target) (*mcp.ClientSes
 	case "addon":
 		tr = &mcp.StreamableClientTransport{Endpoint: t.c.URL, DisableStandaloneSSE: true}
 	case "command":
+		// It starts in the door's empty folder, not the run folder, where the
+		// run's code may plant what a command loads from its working folder
+		// (python -m's modules, npm's .npmrc and node_modules, a relative
+		// path); its environment is the CLI's.
 		o := d.Child()
 		cmd = exec.Command(t.c.Command[0], t.c.Command[1:]...)
-		cmd.Dir = o.Dir
+		cmd.Dir = d.connectorDir
 		cmd.Env = connectorEnv(o, t.c.Env)
 		ownGroup(cmd)
 		// The door kills the command's group when the run ends; a command that

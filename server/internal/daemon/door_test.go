@@ -347,7 +347,7 @@ func TestALocalConnectorRunsOnlyForWhoAddedTheTeam(t *testing.T) {
 	if _, err := callTool(t, d, "stub", "echo", map[string]any{"q": "x"}); err == nil || !strings.Contains(err.Error(), "stub") {
 		t.Fatalf("an undeclared server answered: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "stub.pid")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(d.connectorDir, "stub.pid")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a command started: %v", err)
 	}
 
@@ -398,17 +398,17 @@ func TestALocalConnectorStopsWithTheRun(t *testing.T) {
 	if err != nil || got != "call:c1\necho hi" {
 		t.Fatalf("%q %v", got, err)
 	}
-	// started in the run's folder, without the run's credentials
-	pids, err := os.ReadFile(filepath.Join(dir, "stub.pid"))
+	// started in the door's own folder, without the run's credentials
+	pids, err := os.ReadFile(filepath.Join(d.connectorDir, "stub.pid"))
 	must(t, err)
-	if env, _ := os.ReadFile(filepath.Join(dir, "stub.env")); string(env) != "LYK_TOKEN= LYK_DOOR_TOKEN=" {
+	if env, _ := os.ReadFile(filepath.Join(d.connectorDir, "stub.env")); string(env) != "LYK_TOKEN= LYK_DOOR_TOKEN=" {
 		t.Fatalf("the command saw %q", env)
 	}
 	// a second call reuses the running command
 	if got, err := callTool(t, d, "stub", "echo", map[string]any{"q": "again"}); err != nil || got != "call:c2\necho again" {
 		t.Fatalf("%q %v", got, err)
 	}
-	if again, _ := os.ReadFile(filepath.Join(dir, "stub.pid")); string(again) != string(pids) {
+	if again, _ := os.ReadFile(filepath.Join(d.connectorDir, "stub.pid")); string(again) != string(pids) {
 		t.Fatal("the command was started twice")
 	}
 	d.Close()
@@ -424,6 +424,50 @@ func TestALocalConnectorStopsWithTheRun(t *testing.T) {
 	}
 	if _, err := callTool(t, d, "stub", "echo", nil); err == nil {
 		t.Fatal("a closed door answered")
+	}
+}
+
+// A local connector starts in an empty folder of the door's own, which the
+// run's code can't write: what the code plants in the run folder (a module
+// python -m would import, a script named relative to the working folder)
+// never runs as the person.
+func TestALocalConnectorStartsInAnEmptyFolder(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("no python3")
+	}
+	dir, out := t.TempDir(), t.TempDir()
+	must(t, os.WriteFile(filepath.Join(dir, "x.py"), []byte("open("+strconv.Quote(filepath.Join(out, "module"))+", 'w')\n"), 0o600))
+	must(t, os.MkdirAll(filepath.Join(dir, "node_modules", ".bin"), 0o700))
+	must(t, os.WriteFile(filepath.Join(dir, "node_modules", ".bin", "x"), []byte("#!/bin/sh\ntouch "+filepath.Join(out, "relative")+"\n"), 0o700))
+	self, err := os.Executable()
+	must(t, err)
+	d := openDoor(t, newLykeion(t), dir, []pack.Connector{
+		{Name: "module", Command: []string{python, "-m", "x"}},
+		{Name: "relative", Command: []string{"node_modules/.bin/x"}},
+		{Name: "stub", Command: []string{self}, Env: map[string]string{"LYK_DOOR_STUB": "1"}},
+	})
+	for _, name := range []string{"module", "relative"} {
+		callTool(t, d, name, "echo", nil)
+		if _, err := os.Stat(filepath.Join(out, name)); err == nil {
+			t.Errorf("the %s connector ran what was planted in the run folder", name)
+		}
+	}
+	if _, err := callTool(t, d, "stub", "echo", map[string]any{"q": "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "stub.pid")); err == nil {
+		t.Fatal("the connector started in the run folder")
+	}
+	if _, err := os.Stat(filepath.Join(d.connectorDir, "stub.pid")); err != nil {
+		t.Fatalf("the connector did not start in the door's folder: %v", err)
+	}
+	if rel, err := filepath.Rel(dir, d.connectorDir); err == nil && filepath.IsLocal(rel) {
+		t.Fatal("the connectors' folder is inside the run folder")
+	}
+	d.Close()
+	if _, err := os.Stat(d.connectorDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the connectors' folder outlived the run: %v", err)
 	}
 }
 
