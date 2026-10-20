@@ -85,12 +85,17 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	if rule := claudeRule("Edit", o.Dir, ""); rule != "" {
 		if !o.ReadOnly {
-			// The folder's own .claude settings, its .lyk-envs environments and
-			// the CLI's homes, whose settings and hooks the CLI loads, stay out
-			// of reach; a deny rule wins over every allow rule.
+			// The folder's own .claude settings, the CLI's homes, whose
+			// settings and hooks the CLI loads, and its git repository, whose
+			// hooks git runs, stay out of reach, as do the supervisor's
+			// markers; a deny rule wins over every allow rule. A .git file
+			// can point git at another repository, so .git itself is denied.
 			tools = append(tools, rule)
-			for _, sub := range []string{"/.claude", "/.lyk-envs", "/.cli-home", "/.home"} {
+			for _, sub := range []string{"/.claude", "/.cli-home", "/.home", "/.git"} {
 				deny = append(deny, claudeRule("Edit", o.Dir, sub))
+			}
+			for _, file := range []string{"/.git", "/.agent-exit", "/.agent-process"} {
+				deny = append(deny, strings.TrimSuffix(claudeRule("Edit", o.Dir, file), "/**)")+")")
 			}
 		}
 		deny = append(deny, claudeRule("Read", o.Dir, "/.cli-home"), claudeRule("Read", o.Dir, "/.home"))

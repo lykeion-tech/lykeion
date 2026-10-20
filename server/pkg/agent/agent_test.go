@@ -1050,8 +1050,9 @@ func TestClaudeAllowsTheDoor(t *testing.T) {
 }
 
 // Writable runs may edit inside their own folder, matched literally even when
-// the folder's name holds glob characters, but not its .claude settings or its
-// .lyk-envs environments; read-only runs get no edit rule, and a folder name
+// the folder's name holds glob characters, but not its .claude settings, its
+// git repository or the supervisor's markers; read-only runs get no edit
+// rule, and a folder name
 // the CLI would split into several rules gets none either.
 func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
 	// The adapter resolves the run folder, so /var reads as /private/var.
@@ -1092,9 +1093,11 @@ func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
 			continue
 		}
 		base := strings.TrimSuffix(c.want, "/**)")
-		// The CLI's own homes hold the settings and hooks it loads; editing
-		// them would grant anything.
-		if deny := "\n--disallowedTools\n" + base + "/.claude/**)\n" + base + "/.lyk-envs/**)\n" + base + "/.cli-home/**)\n" + base + "/.home/**)\n"; !strings.Contains(string(a), deny) {
+		// The CLI's own homes hold the settings and hooks it loads, and git
+		// runs a repository's hooks; editing them would grant anything. The
+		// markers are the supervisor's alone.
+		if deny := "\n--disallowedTools\n" + base + "/.claude/**)\n" + base + "/.cli-home/**)\n" + base + "/.home/**)\n" + base + "/.git/**)\n" +
+			base + "/.git)\n" + base + "/.agent-exit)\n" + base + "/.agent-process)\n"; !strings.Contains(string(a), deny) {
 			t.Fatalf("%q inherit=%v, want %q, args:\n%s", c.name, c.inherit, deny, a)
 		}
 	}
