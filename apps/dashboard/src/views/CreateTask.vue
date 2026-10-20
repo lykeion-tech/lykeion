@@ -37,7 +37,14 @@ const menu = ref('');
 const query = ref('');
 const form = ref<HTMLFormElement>();
 const assignee = ref<Picked | null>(props.assignee ? { ...props.assignee } : null);
-const range = ref<Range>({ from: 'grounding', to: 'reporting' });
+function initialRange(): Range {
+  const a = props.assignee;
+  const columns = a?.type === 'team' ? Object.keys(a.teams) : [];
+  return columns.length === 1 && a?.type === 'team' && !a.agent_id
+    ? { from: columns[0]!, to: columns[0]! }
+    : { from: 'grounding', to: 'reporting' };
+}
+const range = ref<Range>(initialRange());
 const picker = ref<InstanceType<typeof AssignPicker>>();
 const usedLastSet = ref(false);
 
@@ -176,7 +183,7 @@ async function submit() {
     if (another.value) {
       title.value = question.value = deadline.value = '';
       assignee.value = props.assignee ? { ...props.assignee } : null;
-      range.value = { from: 'grounding', to: 'reporting' };
+      range.value = initialRange();
       followsFrom.value = [];
       await nextTick();
       form.value?.querySelector<HTMLInputElement>('.composer-title')?.focus();

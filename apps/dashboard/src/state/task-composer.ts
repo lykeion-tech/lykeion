@@ -1,9 +1,7 @@
 import { reactive, readonly } from 'vue';
+import type { Picked } from '../lib/studies';
 
-export interface Assignee {
-  type: 'member' | 'agent';
-  id: string;
-}
+export type Assignee = Picked;
 
 // Whether the New study modal is open, which Backlog study it edits, and who a
 // new study starts assigned to.

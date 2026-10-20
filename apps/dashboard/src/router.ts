@@ -17,6 +17,7 @@ import MachinesView from './views/MachinesView.vue';
 import InboxView from './views/InboxView.vue';
 import ColleaguesView from './views/ColleaguesView.vue';
 import TeamsView from './views/TeamsView.vue';
+import TeamDetail from './views/TeamDetail.vue';
 import TeamForm from './views/TeamForm.vue';
 import SettingsView from './views/SettingsView.vue';
 import SignInView from './views/SignInView.vue';
@@ -107,10 +108,16 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'teams', title: 'New Team' },
   },
   {
-    path: '/teams/:id?',
+    path: '/teams',
     component: TeamsView,
     props: true,
     meta: { page: 'teams', title: 'Teams' },
+  },
+  {
+    path: '/teams/:id',
+    component: TeamDetail,
+    props: true,
+    meta: { page: 'teams', title: 'Teams', ownHeader: true },
   },
   {
     path: '/colleagues',
