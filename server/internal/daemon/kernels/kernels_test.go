@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"lykeion/server/internal/daemon/envs"
+	"lykeion/server/internal/daemon/sandbox"
 )
 
 // With LYK_BRIDGE_STUB=1 the test binary stands in for bridge.py: it answers
@@ -356,8 +357,40 @@ func TestRealKernels(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(st.Dir, "queue.py"), []byte("raise SystemExit('the study queue.py was imported')\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The bridge runs in a sandbox like the door's: the bases' parent stands
+	// in for the home folder they live in, and holds a key the kernels must
+	// not read. Caches and the home folder go in the study's temp folder.
+	// This is a smoke copy of the door's policy, since this package can't
+	// import the daemon; TestRealEnvsRunInTheSandbox in package daemon runs
+	// the real bases under the door's own policy.
+	home := filepath.Dir(b.Dir)
+	keyDir, err := os.MkdirTemp(home, "key-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(keyDir)
+	key := filepath.Join(keyDir, "id_rsa")
+	if err := os.WriteFile(key, []byte("PRIVATE KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tmp := filepath.Join(st.Dir, "tmp")
+	policy := sandbox.Policy{Home: home, Write: []string{st.Dir}}
+	for _, f := range b.Folders() {
+		if fi, err := os.Stat(f); err == nil && fi.IsDir() {
+			policy.Read = append(policy.Read, f)
+		}
+	}
+	for _, kv := range [][2]string{{"TMPDIR", ""}, {"HOME", "home"}, {"JUPYTER_RUNTIME_DIR", "jupyter-runtime"}, {"JUPYTER_DATA_DIR", "jupyter-data"}, {"IPYTHONDIR", "ipython"}, {"MPLCONFIGDIR", "matplotlib"}, {"XDG_CACHE_HOME", "cache"}} {
+		env = append(env, kv[0]+"="+filepath.Join(tmp, kv[1]))
+	}
+	if err := os.MkdirAll(filepath.Join(tmp, "home"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sandboxed := func(name string, args ...string) (*exec.Cmd, error) {
+		return policy.Command(context.Background(), name, args...)
+	}
 	before := kernelProcesses(t)
-	s, err := Start(context.Background(), plain, python, env, st.Dir, "")
+	s, err := Start(context.Background(), sandboxed, python, env, st.Dir, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,6 +426,11 @@ func TestRealKernels(t *testing.T) {
 	run("julia", "z = 4")
 	if r := run("julia", "println(z+1)"); !r.OK || r.Stdout != "5\n" {
 		t.Errorf("julia: %+v", r)
+	}
+	for lang, code := range map[string]string{"python": "print(open(%q).read())", "r": "cat(readLines(%q))", "julia": "print(read(%q, String))"} {
+		if r := run(lang, fmt.Sprintf(code, key)); r.OK || strings.Contains(r.Stdout+r.Error, "PRIVATE KEY") {
+			t.Errorf("the %s kernel read the key: %+v", lang, r)
+		}
 	}
 	if r := run("python", "1/0"); r.OK || !strings.Contains(r.Error, "ZeroDivisionError") || strings.Contains(r.Error, "\x1b[") {
 		t.Errorf("python error: %+v", r)

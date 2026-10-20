@@ -154,10 +154,13 @@ func newRunDoor(t *testing.T, l *lykeion, dir string, setup func(*Door), langs .
 	return d
 }
 
+// toolTimeout is how long useTool waits for a tool's answer.
+var toolTimeout = 20 * time.Second
+
 // useTool calls one of the door's tools as the CLI would and answers its text.
 func useTool(t *testing.T, d *Door, name string, args map[string]any) (string, error) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), toolTimeout)
 	defer cancel()
 	c := mcp.NewClient(&mcp.Implementation{Name: "cli", Version: "0"}, nil)
 	s, err := c.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: d.URL, HTTPClient: &http.Client{Transport: bearer(d.Token)}, DisableStandaloneSSE: true}, nil)
