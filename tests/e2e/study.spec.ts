@@ -939,3 +939,30 @@ test('Properties stays the same width on the right and resizes inward', async ({
   await page.mouse.up();
   await expect(properties).toHaveCSS('width', '404px');
 });
+
+test('the execution log sits as far below Project as Details sits below it', async ({ page }) => {
+  const study = await newStudy(page.request, 'How far apart are the panels?', { assignee: null });
+  await page.goto(`/#/studies/${study.id}`);
+  await expect(page.getByRole('button', { name: 'Open timeline' })).toBeVisible();
+  // Measures the rendered text itself, so padding and line boxes don't count.
+  const text = (selector: string, name: string) =>
+    page.evaluate(
+      ([selector, name]) => {
+        const el = [...document.querySelectorAll(selector)].find((e) =>
+          e.textContent?.trim().startsWith(name),
+        )!;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const r = range.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom };
+      },
+      [selector, name],
+    );
+  const project = await text('.property-row label', 'Project');
+  const log = await text('.execution-heading button', 'Execution log');
+  const timeline = await text('.open-timeline', 'Open timeline');
+  const details = await text('.details-heading', 'Details');
+  expect(Math.abs(log.top - project.bottom - (details.top - timeline.bottom))).toBeLessThanOrEqual(
+    1,
+  );
+});

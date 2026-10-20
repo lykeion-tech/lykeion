@@ -1758,8 +1758,9 @@ function pin() {
 .property-row select:hover {
   background: var(--hover);
 }
-.execution-log {
-  margin-top: 32px;
+/* ExecutionLog has two root nodes, so its section takes no scope attribute. */
+.task-properties :deep(.execution-log) {
+  margin-top: 26px;
 }
 .details-heading {
   display: flex;
