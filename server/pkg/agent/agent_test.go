@@ -1027,7 +1027,7 @@ func TestReadOnlyHarnessesMatchTheAdapters(t *testing.T) {
 }
 
 // In both modes a role is pre-approved for Lykeion's own tools, the door
-// among them, and nothing is denied.
+// among them, and none of them is denied.
 func TestClaudeAllowsTheDoor(t *testing.T) {
 	for _, inherit := range []bool{false, true} {
 		args := filepath.Join(t.TempDir(), "args")
@@ -1038,15 +1038,17 @@ func TestClaudeAllowsTheDoor(t *testing.T) {
 		}
 		collect(t, s)
 		a, _ := os.ReadFile(args)
-		if !strings.Contains(string(a), "\n"+claudeTools+"\n") || strings.Contains(string(a), "--disallowedTools") {
+		_, denied, _ := strings.Cut(string(a), "--disallowedTools")
+		if !strings.Contains(string(a), "\n"+claudeTools+"\n") || strings.Contains(denied, "lyk_door") {
 			t.Fatalf("inherit=%v, tools: %s", inherit, a)
 		}
 	}
 }
 
 // Writable runs may edit inside their own folder, matched literally even when
-// the folder's name holds glob characters; read-only runs get no edit rule,
-// and a folder name the CLI would split into several rules gets none either.
+// the folder's name holds glob characters, but not its .claude settings or its
+// .lyk-envs environments; read-only runs get no edit rule, and a folder name
+// the CLI would split into several rules gets none either.
 func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
 	// The adapter resolves the run folder, so /var reads as /private/var.
 	root, err := filepath.EvalSymlinks(t.TempDir())
@@ -1080,6 +1082,13 @@ func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
 		got := strings.Contains(string(a), "Edit(")
 		if c.want == "" && got || c.want != "" && !strings.Contains(string(a), "\n"+claudeTools+"\n"+c.want+"\n") {
 			t.Fatalf("%q inherit=%v readOnly=%v, want %q, args:\n%s", c.name, c.inherit, c.readOnly, c.want, a)
+		}
+		if c.want == "" {
+			continue
+		}
+		base := strings.TrimSuffix(c.want, "/**)")
+		if deny := "\n--disallowedTools\n" + base + "/.claude/**)\n" + base + "/.lyk-envs/**)\n"; !strings.Contains(string(a), deny) {
+			t.Fatalf("%q inherit=%v, want %q, args:\n%s", c.name, c.inherit, deny, a)
 		}
 	}
 }

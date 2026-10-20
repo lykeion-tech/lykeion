@@ -72,8 +72,10 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		mode = "plan" // reads and answers; no edits, no commands
 	}
 	tools := []string{claudeTools}
-	if rule := claudeEditRule(o.Dir); rule != "" && !o.ReadOnly {
-		tools = append(tools, rule)
+	if rule := claudeEditRule(o.Dir, ""); rule != "" && !o.ReadOnly {
+		// The folder's own .claude settings and its .lyk-envs environments stay
+		// out of reach; a deny rule wins over every allow rule.
+		tools = append(tools, rule, "--disallowedTools", claudeEditRule(o.Dir, "/.claude"), claudeEditRule(o.Dir, "/.lyk-envs"))
 	}
 	args := slices.Concat([]string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"})
 	if o.Inherit {
@@ -125,11 +127,12 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	return sess, err
 }
 
-// claudeEditRule pre-approves Claude's file-edit tools inside the run folder
-// only. The folder is matched literally: its glob characters are escaped. A
-// name the CLI would split into several rules (commas, parentheses) gets no
-// rule at all, so edits there fall back to the permission mode.
-func claudeEditRule(dir string) string {
+// claudeEditRule names Claude's file-edit tools for everything under the run
+// folder, or under sub inside it. The folder is matched literally: its glob
+// characters are escaped. A name the CLI would split into several rules
+// (commas, parentheses) gets no rule at all, so edits there fall back to the
+// permission mode.
+func claudeEditRule(dir, sub string) string {
 	abs, err := filepath.Abs(dir)
 	if err != nil || !filepath.IsAbs(abs) || strings.ContainsAny(abs, ",()\r\n") {
 		return ""
@@ -142,7 +145,7 @@ func claudeEditRule(dir string) string {
 		b.WriteRune(r)
 	}
 	// A leading "//" makes the pattern absolute rather than settings-relative.
-	return "Edit(/" + b.String() + "/**)"
+	return "Edit(/" + b.String() + sub + "/**)"
 }
 
 // claudeMCP names the daemon's tool door and nothing else.
