@@ -14,7 +14,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -42,6 +41,7 @@ type Result struct {
 
 type Sessions struct {
 	python string
+	script string
 	env    []string
 	dir    string
 
@@ -66,17 +66,27 @@ type bridge struct {
 	done    chan struct{}
 }
 
-// Start writes the bridge into dir and starts it there with env as its whole
-// environment. Kernels start on each language's first cell. ctx is not kept:
-// the bridge lives until Close, and a bridge that dies is started again by
-// the next Exec.
+// Start writes the bridge to a temporary file, which Close removes, and
+// starts it in dir with env as its whole environment. Kernels start on each
+// language's first cell. ctx is not kept: the bridge lives until Close, and a
+// bridge that dies is started again by the next Exec.
 func Start(ctx context.Context, python string, env []string, dir string) (*Sessions, error) {
-	if err := os.WriteFile(filepath.Join(dir, ".lyk-bridge.py"), []byte(bridgePy), 0o644); err != nil {
+	f, err := os.CreateTemp("", "lyk-bridge-*.py")
+	if err != nil {
 		return nil, err
 	}
-	s := &Sessions{python: python, env: env, dir: dir}
+	_, err = f.WriteString(bridgePy)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(f.Name())
+		return nil, err
+	}
+	s := &Sessions{python: python, script: f.Name(), env: env, dir: dir}
 	b, err := s.start()
 	if err != nil {
+		os.Remove(s.script)
 		return nil, err
 	}
 	s.b = b
@@ -84,7 +94,9 @@ func Start(ctx context.Context, python string, env []string, dir string) (*Sessi
 }
 
 func (s *Sessions) start() (*bridge, error) {
-	cmd := exec.Command(s.python, ".lyk-bridge.py")
+	// -P keeps the script's and the working folder's own files off sys.path,
+	// so a study's queue.py or random.py cannot replace what the bridge imports.
+	cmd := exec.Command(s.python, "-P", s.script)
 	cmd.Env = s.env
 	cmd.Dir = s.dir
 	cmd.Stderr = os.Stderr
@@ -194,6 +206,9 @@ func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) 
 func (s *Sessions) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.closed {
+		defer os.Remove(s.script)
+	}
 	s.closed = true
 	if s.b == nil {
 		return nil

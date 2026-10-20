@@ -98,16 +98,40 @@ func startStub(t *testing.T) *Sessions {
 	return s
 }
 
-func TestStartWritesTheBridge(t *testing.T) {
-	dir := t.TempDir()
-	s, err := Start(context.Background(), os.Args[0], append(os.Environ(), "LYK_BRIDGE_STUB=1"), dir)
+// The bridge file lives outside the run folder, so the agent never sees it,
+// and Python starts it with -P, so a study file named like a module the
+// bridge imports cannot stand in for it. The bridge still runs in the run
+// folder, and its file goes with Close.
+func TestTheBridgeLivesOutsideTheRunFolder(t *testing.T) {
+	dir, seen := t.TempDir(), t.TempDir()
+	python := filepath.Join(seen, "python")
+	os.WriteFile(python, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+seen+"/args\npwd -P > "+seen+"/cwd\ncp \"$2\" "+seen+"/bridge\nexec "+os.Args[0]+"\n"), 0o755)
+	s, err := Start(context.Background(), python, append(os.Environ(), "LYK_BRIDGE_STUB=1"), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
-	b, err := os.ReadFile(dir + "/.lyk-bridge.py")
-	if err != nil || string(b) != bridgePy {
-		t.Fatalf("bridge not written: %v", err)
+	if r, err := s.Exec(context.Background(), "python", "x"); err != nil || r.Stdout != "ran x" {
+		t.Fatalf("exec: %+v %v", r, err)
+	}
+	args, _ := os.ReadFile(filepath.Join(seen, "args"))
+	argv := strings.Split(strings.TrimSpace(string(args)), "\n")
+	if len(argv) != 2 || argv[0] != "-P" || strings.HasPrefix(argv[1], dir) {
+		t.Fatalf("bridge argv: %q", argv)
+	}
+	b, _ := os.ReadFile(filepath.Join(seen, "bridge"))
+	if string(b) != bridgePy {
+		t.Fatal("the bridge file does not hold the bridge")
+	}
+	cwd, _ := os.ReadFile(filepath.Join(seen, "cwd"))
+	if real, _ := filepath.EvalSymlinks(dir); strings.TrimSpace(string(cwd)) != real {
+		t.Fatalf("bridge cwd %q, want %q", cwd, real)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("the run folder holds %v", entries)
+	}
+	s.Close()
+	if _, err := os.Stat(argv[1]); !os.IsNotExist(err) {
+		t.Fatalf("the bridge file outlived Close: %v", err)
 	}
 }
 
@@ -240,6 +264,10 @@ func TestRealKernels(t *testing.T) {
 	}
 	env := append(os.Environ(), st.Env()...)
 	env = append(env, "PATH="+st.PathPrefix()+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// A study file named like a module the bridge imports must not replace it.
+	if err := os.WriteFile(filepath.Join(st.Dir, "queue.py"), []byte("raise SystemExit('the study queue.py was imported')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	before := kernelProcesses(t)
 	s, err := Start(context.Background(), python, env, st.Dir)
 	if err != nil {
@@ -324,7 +352,7 @@ func kernelProcesses(t *testing.T) map[string]string {
 	}
 	found := map[string]string{}
 	for _, line := range strings.Split(string(out), "\n") {
-		if strings.Contains(line, "ipykernel_launcher") || strings.Contains(line, "IRkernel::main") || strings.Contains(line, "IJulia.run_kernel") || strings.Contains(line, ".lyk-bridge.py") {
+		if strings.Contains(line, "ipykernel_launcher") || strings.Contains(line, "IRkernel::main") || strings.Contains(line, "IJulia.run_kernel") || strings.Contains(line, "lyk-bridge-") {
 			found[strings.Fields(line)[0]] = line
 		}
 	}
