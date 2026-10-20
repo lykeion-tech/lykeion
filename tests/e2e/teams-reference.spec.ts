@@ -166,7 +166,12 @@ test('Teams sorts by its latest version and shares Agents column positions and P
     .locator('.projects-table th')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
   expect(projectPositions[0]).toBe((await page.locator('.page-header h1').boundingBox())!.x);
-  expect(projectPositions[1]).toBe(agentPositions[1]);
+  const lastHeading = await page.locator('.projects-table th').last().boundingBox();
+  const newProject = await page
+    .getByRole('button', { name: 'New Project', exact: true })
+    .boundingBox();
+  expect(lastHeading!.x + lastHeading!.width).toBe(newProject!.x + newProject!.width);
+  await expect(page.locator('.projects-table th').last()).toHaveCSS('text-align', 'right');
   for (let i = 2; i < projectPositions.length; i++)
     expect(projectPositions[i]! - projectPositions[i - 1]!).toBe(134);
   const valuePositions = await page

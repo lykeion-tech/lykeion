@@ -756,8 +756,15 @@ async function save() {
   overflow: hidden;
 }
 .project-directory {
-  --directory-columns: minmax(240px, 1fr) repeat(5, 122px);
-  padding: 8px 24px 32px 20px;
+  --directory-columns: minmax(240px, 1fr) repeat(4, 122px) 60px;
+  padding: 8px 20px 32px;
+}
+.projects-table tr {
+  padding-right: 0;
+}
+.projects-table th:last-child,
+.projects-table td:last-child {
+  text-align: right;
 }
 .projects-table th {
   height: 32px;
