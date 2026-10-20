@@ -236,7 +236,11 @@ cat "$`+c.env+`/`+c.cred+`" >> `+seen)
 			}
 			home := filepath.Join(resolved, ".cli-home")
 			got, _ := os.ReadFile(seen)
-			if want := home + "\n" + c.cred + "\nsecret"; strings.TrimSpace(string(got)) != want {
+			listing := c.cred + onDarwin("\n"+keychainStandIn)
+			if c.harness == "codex" {
+				listing = onDarwin(keychainStandIn+"\n") + c.cred
+			}
+			if want := home + "\n" + listing + "\nsecret"; strings.TrimSpace(string(got)) != want {
 				t.Fatalf("the CLI saw\n%s\nwant\n%s", got, want)
 			}
 			if _, err := os.Stat(filepath.Join(home, c.cred)); !os.IsNotExist(err) {

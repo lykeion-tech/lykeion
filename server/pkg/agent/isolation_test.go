@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -199,4 +201,91 @@ func TestCursorCompetingProcessPreservesActiveConfig(t *testing.T) {
 	if err != nil || !strings.Contains(string(after), "http://next/mcp") || strings.Contains(string(after), "ltk_active") {
 		t.Fatalf("configuration not rewritten: %s %v", after, err)
 	}
+}
+
+// A private run's stand-in home has no keychain, and a keychain write there
+// makes macOS ask the person to find one. Only the run's own security tool
+// may ever be run here: /usr/bin/security under the stand-in home is that
+// dialog.
+func TestPrivateRunHasNoKeychain(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the keychain is macOS's")
+	}
+	for _, inherit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "private", true: "continuity"}[inherit], func(t *testing.T) {
+			capture := filepath.Join(t.TempDir(), "out")
+			b, _ := New("claude", script(t, `p=$(command -v security)
+case "$p" in
+/usr/bin/security) echo "$p" > '`+capture+`' ;;
+*) security add-generic-password -a lyk-probe -s lyk-probe -w x 2>/dev/null; echo "$p $?" > '`+capture+`' ;;
+esac
+`))
+			s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: inherit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			collect(t, s)
+			out, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := strings.TrimSpace(string(out))
+			if inherit {
+				if got != "/usr/bin/security" {
+					t.Fatalf("continuity run lost the keychain: %q", got)
+				}
+				return
+			}
+			if !strings.HasSuffix(got, "/.cli-home/.lyk-bin/security 44") {
+				t.Fatalf("private run reaches the keychain: %q", got)
+			}
+		})
+	}
+}
+
+// The CLI runs the keychain stand-in as the person, outside every sandbox, so
+// a writable Claude run may neither edit nor read it.
+func TestClaudeCannotTouchTheKeychainStandIn(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the keychain is macOS's")
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "out")
+	s, err := Claude{Bin: script(t, `command -v security > '`+out+`'; printf '%s\n' "$@" >> '`+out+`'`)}.Execute(context.Background(), "p", ExecOptions{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, s)
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim, args, _ := strings.Cut(string(b), "\n")
+	rel, err := filepath.Rel(dir, shim)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("the stand-in %q is not in the run folder", shim)
+	}
+	_, denied, _ := strings.Cut(args, "--disallowedTools\n")
+	rules := strings.Split(denied, "\n")
+	for _, tool := range []string{"Edit", "Read"} {
+		covered := false
+		for sub := filepath.Dir(rel); sub != "."; sub = filepath.Dir(sub) {
+			covered = covered || slices.Contains(rules, claudeRule(tool, dir, "/"+sub))
+		}
+		if !covered {
+			t.Errorf("%s of the stand-in %s is not denied: %s", tool, rel, denied)
+		}
+	}
+}
+
+// onDarwin is s on macOS, where a private CLI home also holds the keychain
+// stand-in, and nothing elsewhere.
+func onDarwin(s string) string {
+	if runtime.GOOS == "darwin" {
+		return s
+	}
+	return ""
 }

@@ -18,7 +18,7 @@ var notInRunFolder = map[string]string{
 	".py": "a script extension", ".r": "a script extension", ".R": "a script extension", ".jl": "a script extension",
 	".json": "a file suffix", ".jsonl": "a file suffix", ".tmp": "a file suffix", ".overflow.json": "a file suffix", ".config.toml": "a file suffix",
 	".cache": "inside .home", ".config": "inside .home", ".local": "inside .home", ".state": "inside .home",
-	".credentials.json": "inside .cli-home", ".lyk-usage.json": "inside .cli-home",
+	".credentials.json": "inside .cli-home", ".lyk-usage.json": "inside .cli-home", ".lyk-bin": "inside .cli-home",
 	".system_generated": "inside the CLI's session store",
 	".scratch-retired-": "beside the run folders, not in one",
 }

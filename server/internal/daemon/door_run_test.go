@@ -536,16 +536,21 @@ func TestARunsPathKeepsOneStudyPrefix(t *testing.T) {
 	d := runDoor(t, l, t.TempDir(), envs.Python)
 	d.Study.Env() // as a run does, before it reads the prefix
 	sep, prefix := string(os.PathListSeparator), d.Study.PathPrefix()
+	dir := t.TempDir()
 	d.Child = func() agent.ExecOptions {
-		return agent.ExecOptions{Dir: t.TempDir(), Env: []string{"PATH=/self" + sep + prefix + sep + "/usr/bin"}}
+		return agent.ExecOptions{Dir: dir, Env: []string{"PATH=/self" + sep + prefix + sep + "/usr/bin"}}
 	}
-	var path string
-	for _, e := range d.runEnv() {
-		if v, ok := strings.CutPrefix(e, "PATH="); ok {
-			path = v
+	pathOf := func(env []string) (path string) {
+		for _, e := range env {
+			if v, ok := strings.CutPrefix(e, "PATH="); ok {
+				path = v
+			}
 		}
+		return path
 	}
-	if path != "/self"+sep+prefix+sep+"/usr/bin" {
+	// The CLI's own PATH may lead with folders of the run's.
+	child := pathOf(agent.ChildEnv(d.Child()))
+	if path := pathOf(d.runEnv()); path != child || !strings.HasSuffix(path, "/self"+sep+prefix+sep+"/usr/bin") {
 		t.Fatalf("PATH %q", path)
 	}
 }

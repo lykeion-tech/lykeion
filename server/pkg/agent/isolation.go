@@ -218,6 +218,11 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 		}
 		realHome = filepath.Join(real, defaultHome)
 	}
+	if runtime.GOOS == "darwin" {
+		if err = placeKeychainStandIn(home); err != nil {
+			return "", cleanup, err
+		}
+	}
 	target := filepath.Join(home, credFile)
 	// Remove a stale copy from an interrupted run before deciding whether fresh
 	// sign-in data exists. Removal never follows a stale symlink.
@@ -239,6 +244,28 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 	}
 	success = true
 	return home, cleanup, nil
+}
+
+// keychainStandIn is the folder in a private run's CLI home that holds the
+// run's own security tool, first on its PATH. The CLI home is out of reach of
+// the agent's file tools and of sandboxed code, so neither can swap the tool
+// the CLI then runs as the person.
+const keychainStandIn = ".lyk-bin"
+
+// On macOS the Security framework finds the keychain through HOME, so under a
+// private run's stand-in home there is none, and a keychain write makes macOS
+// ask the person to find one. Claude Code tries the keychain through the
+// security tool before its sign-in file, so a private run gets a security
+// tool that finds nothing and stores nothing, and every CLI keeps to the
+// sign-in file as it does on Linux.
+func placeKeychainStandIn(home string) error {
+	// prepareScratch has already removed the folder of an earlier run.
+	dir := filepath.Join(home, keychainStandIn)
+	if err := privateDir(dir); err != nil {
+		return err
+	}
+	// 44 is the security tool's "item not found".
+	return os.WriteFile(filepath.Join(dir, "security"), []byte("#!/bin/sh\necho 'security: a private run has no keychain' >&2\nexit 44\n"), 0700)
 }
 
 func checkAncestors(dir string) error {
@@ -306,9 +333,10 @@ func privateFile(p string, b []byte) error {
 	return closeErr
 }
 
-// placedFolders are the skill folders the daemon places in an isolated CLI
-// state root; checkOwnedState exempts them there and nowhere deeper.
-var placedFolders = []string{"skills", ".agents"}
+// placedFolders are the skill folders and the keychain stand-in the daemon
+// places in an isolated CLI state root; checkOwnedState exempts them there
+// and nowhere deeper.
+var placedFolders = []string{"skills", ".agents", keychainStandIn}
 
 func checkOwnedState(root string) error {
 	var discovery *PrelaunchDiscoveryError
@@ -405,6 +433,13 @@ func childEnv(o ExecOptions, home string) []string {
 		return envList(values)
 	}
 	userHome := filepath.Join(o.Dir, ".home")
+	if runtime.GOOS == "darwin" {
+		rest := values["PATH"]
+		if rest == "" {
+			rest = "/usr/bin:/bin:/usr/sbin:/sbin"
+		}
+		values["PATH"] = filepath.Join(home, keychainStandIn) + string(filepath.ListSeparator) + rest
+	}
 	values["HOME"] = userHome
 	values["USERPROFILE"] = userHome
 	values["CODEX_HOME"] = home
