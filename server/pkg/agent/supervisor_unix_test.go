@@ -22,7 +22,7 @@ func TestSupervisorKillsLingeringDescendantAfterSuccess(t *testing.T) {
 	escaped := filepath.Join(t.TempDir(), "escaped")
 	bin := script(t, `(sleep 0.5; echo leaked > '`+escaped+`') &
 echo '{"type":"result","is_error":false}'`)
-	sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Dir: t.TempDir()})
+	sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ echo '{"type":"result","is_error":false}'`)
 }
 func TestSupervisorStatusCannotOverrideProtocolOrExitFailure(t *testing.T) {
 	for _, body := range []string{`echo '{"type":"result","is_error":false}';exit 7`, `exit 0`, `echo '{"type":"result","is_error":true,"result":"provider refused"}'`} {
-		sess, err := (Claude{Bin: script(t, body)}).Execute(t.Context(), "p", ExecOptions{Dir: t.TempDir()})
+		sess, err := (Claude{Bin: script(t, body)}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -50,7 +50,7 @@ func TestSupervisorStatusCannotOverrideProtocolOrExitFailure(t *testing.T) {
 func TestSupervisorMissingAndStaleExitMarkersFailClosed(t *testing.T) {
 	for _, body := range []string{`kill -KILL "$PPID"; exit 0`, `printf 'old-nonce 0\n' > "$PWD/.agent-exit";kill -KILL "$PPID";exit 0`} {
 		dir := t.TempDir()
-		sess, err := (Claude{Bin: script(t, body)}).Execute(t.Context(), "p", ExecOptions{Dir: dir})
+		sess, err := (Claude{Bin: script(t, body)}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -163,7 +163,7 @@ func TestSupervisorPreservesExecutableResolution(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "harness"), []byte("#!/bin/sh\necho '{\"type\":\"result\",\"is_error\":false,\"session_id\":\"relative\"}'\n"), 0700); err != nil {
 			t.Fatal(err)
 		}
-		sess, err := (Claude{Bin: "./harness"}).Execute(t.Context(), "p", ExecOptions{Dir: dir})
+		sess, err := (Claude{Bin: "./harness"}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -181,7 +181,7 @@ func TestSupervisorPreservesExecutableResolution(t *testing.T) {
 			}
 		}
 		t.Setenv("PATH", parent)
-		sess, err := (Claude{Bin: "harness"}).Execute(t.Context(), "p", ExecOptions{Dir: t.TempDir(), Env: []string{"PATH=" + child}})
+		sess, err := (Claude{Bin: "harness"}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Env: []string{"PATH=" + child}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -427,7 +427,7 @@ func TestCancellationDoesNotBypassRejectedOwnership(t *testing.T) {
 exec sleep 30`)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	sess, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Dir: dir})
+	sess, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +520,7 @@ func TestSupervisorMonitorIgnoresStaleCompletionMarker(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	sess, err := (Claude{Bin: script(t, `echo ready > '`+ready+`'
-exec sleep 30`)}).Execute(ctx, "p", ExecOptions{Dir: dir})
+exec sleep 30`)}).Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -722,7 +722,7 @@ func TestTheExitMarkerIsNotWrittenThroughALink(t *testing.T) {
 		}
 		bin := script(t, `ln -s '`+thesis+`' "$PWD/`+planted+`"
 echo '{"type":"result","is_error":false}'`)
-		sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Dir: t.TempDir()})
+		sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -740,7 +740,7 @@ func TestAnExitMarkerThatIsNoFileNeverHangs(t *testing.T) {
 		bin := script(t, plant+`
 sleep 0.3
 echo '{"type":"result","is_error":false}'`)
-		sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Dir: t.TempDir()})
+		sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
 		}

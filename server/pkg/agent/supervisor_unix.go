@@ -35,14 +35,12 @@ type processOwner struct {
 const supervisorScript = `nonce=$1
 marker=$2
 shift 2
-cleanup() { /bin/rm -f -- "$PWD/.cli-home/.credentials.json" "$PWD/.cli-home/auth.json" "$PWD/.cli-home/cli-config.json" "$PWD/.cli-home/.gemini/oauth_creds.json"; }
-if ! IFS= read -r permit <&3; then cleanup; exit 125; fi
+if ! IFS= read -r permit <&3; then exit 125; fi
 exec 3<&-
 "$@" <&0 &
 child=$!
 wait "$child"
 result=$?
-cleanup || result=125
 (umask 077; /bin/rm -f -- "$marker.tmp" && set -C && printf '%s %s\n' "$nonce" "$result" > "$marker.tmp") && /bin/mv -f -- "$marker.tmp" "$marker" || exit 125
 kill -STOP $$
 `

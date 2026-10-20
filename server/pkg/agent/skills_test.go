@@ -14,7 +14,7 @@ import (
 
 func TestSkillsDirIsTheProjectFolderEachCLIReads(t *testing.T) {
 	dir := t.TempDir()
-	for h, rel := range map[string]string{"claude": ".claude/skills", "codex": ".agents/skills", "cursor": ".cursor/skills", "antigravity": ".agents/skills"} {
+	for h, rel := range map[string]string{"claude": ".claude/skills", "codex": ".agents/skills"} {
 		if got, err := SkillsDir(h, dir); err != nil || got != filepath.Join(dir, filepath.FromSlash(rel)) {
 			t.Errorf("%s: %s %v", h, got, err)
 		}
@@ -78,7 +78,7 @@ func TestStagedSkillsReachTheFolderTheCLIReadsAndNeverTheAccountsHome(t *testing
 			dir := t.TempDir()
 			staged := stage(t)
 			for i := range 2 {
-				s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir, Inherit: true, SkillsFrom: staged})
+				s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, SkillsFrom: staged})
 				if err != nil {
 					t.Fatalf("run %d: %v", i+1, err)
 				}
@@ -101,37 +101,11 @@ func TestStagedSkillsReachTheFolderTheCLIReadsAndNeverTheAccountsHome(t *testing
 	}
 }
 
-func TestAPrivateRunGetsNoSkillFolders(t *testing.T) {
-	real := t.TempDir()
-	t.Setenv("HOME", real)
-	os.Unsetenv("CLAUDE_CONFIG_DIR")
-	for _, c := range []struct{ harness, home, cred, terminal string }{
-		{"claude", ".claude", claudeCredFile, `{"type":"result","is_error":false}`},
-		{"codex", ".codex", codexCredFile, `{"type":"turn.completed","usage":{}}`},
-	} {
-		t.Run(c.harness, func(t *testing.T) {
-			os.MkdirAll(filepath.Join(real, c.home), 0o700)
-			os.WriteFile(filepath.Join(real, c.home, c.cred), []byte("secret"), 0o600)
-			dir := t.TempDir()
-			b, _ := New(c.harness, script(t, "echo '"+c.terminal+"'"))
-			s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir, SkillsFrom: stage(t)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, r := collect(t, s); r.Err != nil {
-				t.Fatal(r.Err)
-			}
-			var found []string
-			filepath.WalkDir(dir, func(p string, d os.DirEntry, _ error) error {
-				if d.IsDir() && d.Name() == "skills" || strings.HasPrefix(d.Name(), "lyk-") {
-					found = append(found, p)
-				}
-				return nil
-			})
-			if len(found) != 0 {
-				t.Fatalf("a private run was given skills: %v", found)
-			}
-		})
+func TestRemovedHarnessHasNoSkillsFolder(t *testing.T) {
+	for _, h := range []string{"cursor", "antigravity"} {
+		if _, err := SkillsDir(h, t.TempDir()); err == nil {
+			t.Fatalf("removed harness %s accepted", h)
+		}
 	}
 }
 

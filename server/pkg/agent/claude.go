@@ -31,7 +31,7 @@ const ScriptLimit = 2 * time.Hour
 const doorCallTimeout = ScriptLimit + 5*time.Minute
 
 func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
-	home, cleanup, err := prepareScratch(&o, "claude", "CLAUDE_CONFIG_DIR", ".claude", claudeCredFile)
+	home, cleanup, err := prepareScratch(&o, "claude")
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		return nil, err
 	}
 	mode := "dontAsk"
-	if o.Inherit && !o.ReadOnly {
+	if !o.ReadOnly {
 		mode = "default" // the account's own allow and deny rules decide the rest
 	}
 	// Glob and Grep obey Read path rules; reads elsewhere go to the account's
@@ -111,12 +111,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if len(deny) > 0 {
 		tools = append(append(tools, "--disallowedTools"), deny...)
 	}
-	args := slices.Concat([]string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"})
-	if o.Inherit {
-		// The account's settings, permission rules and MCP apply; the role's
-		// servers are added and Lykeion's own tools are pre-approved.
-		args = slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg})
-	}
+	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg})
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
 	}
@@ -127,9 +122,10 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if bin == "" {
 		bin = "claude"
 	}
-	cmd := command(ctx, bin, prompt, o, home, args...)
-	if !o.Inherit {
-		return run(ctx, cmd, cleanup, parseClaude(o.Model, o.Resume, accounting, nil), func(res *Result, _ emitMessage) { accounting.finish(res) }, o.OnMessage)
+	cmd, err := command(ctx, bin, prompt, o, args...)
+	if err != nil {
+		cleanup(true)
+		return nil, err
 	}
 	stdin, w, err := os.Pipe()
 	if err != nil {

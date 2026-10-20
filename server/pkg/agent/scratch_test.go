@@ -17,7 +17,7 @@ func TestScratchReservationBorrowKeepsParentLock(t *testing.T) {
 	}
 	defer r.Release()
 	for i := 0; i < 2; i++ {
-		s, err := (Cursor{Bin: script(t, `cat >/dev/null`)}).Execute(t.Context(), "p", ExecOptions{Dir: dir, ScratchReservation: r})
+		s, err := (Codex{Bin: script(t, `cat >/dev/null`)}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, ScratchReservation: r})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -28,7 +28,7 @@ func TestScratchReservationBorrowKeepsParentLock(t *testing.T) {
 		}
 	}
 	r.Release()
-	if _, err := (Cursor{Bin: script(t, `exit 0`)}).Execute(t.Context(), "p", ExecOptions{Dir: dir, ScratchReservation: r}); err == nil {
+	if _, err := (Codex{Bin: script(t, `exit 0`)}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, ScratchReservation: r}); err == nil {
 		t.Fatal("accepted released reservation")
 	}
 	next, err := ReserveScratch(dir)
@@ -46,7 +46,7 @@ func TestScratchReservationRejectsMismatchAndChangedIdentity(t *testing.T) {
 	}
 	defer r.Release()
 	other := t.TempDir()
-	if _, err := (Cursor{Bin: script(t, `exit 0`)}).Execute(t.Context(), "p", ExecOptions{Dir: other, ScratchReservation: r}); err == nil {
+	if _, err := (Codex{Bin: script(t, `exit 0`)}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: other, ScratchReservation: r}); err == nil {
 		t.Fatal("accepted another scratch's reservation")
 	}
 	if _, err := os.Stat(filepath.Join(other, ".agent-owned")); !os.IsNotExist(err) {
@@ -58,7 +58,7 @@ func TestScratchReservationRejectsMismatchAndChangedIdentity(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".agent-lock"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (Cursor{Bin: script(t, `exit 0`)}).Execute(t.Context(), "p", ExecOptions{Dir: dir, ScratchReservation: r}); err == nil {
+	if _, err := (Codex{Bin: script(t, `exit 0`)}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, ScratchReservation: r}); err == nil {
 		t.Fatal("accepted replaced reservation lock inode")
 	}
 }

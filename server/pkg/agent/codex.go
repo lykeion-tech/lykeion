@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"runtime"
 
 	"lykeion/server/internal/pricing"
 )
@@ -20,33 +19,23 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	if bin == "" {
 		bin = "codex"
 	}
-	home, cleanup, err := prepareScratch(&o, "codex", "CODEX_HOME", ".codex", codexCredFile)
+	_, cleanup, err := prepareScratch(&o, "codex")
 	if err != nil {
 		return nil, err
 	}
-	var personal codexConfig
-	if o.Inherit {
-		personal = readCodexConfig(accountHome("codex"))
-	}
+	personal := readCodexConfig(accountHome("codex"))
 	// Codex events name no model, so the run must know which one it chose.
 	model := o.Model
 	if model == "" {
-		if model, err = codexModel(ctx, bin, o.Dir, childEnv(o, home), personal.Model); err != nil {
+		if model, err = codexModel(ctx, bin, o, personal.Model); err != nil {
 			cleanup(true)
 			return nil, err
 		}
 	}
 	// These flags belong to exec, before the optional resume subcommand.
-	sandbox := codexSandbox(runtime.GOOS)
-	if o.ReadOnly {
-		// Reads only, without network, on every platform and in both modes.
-		sandbox = []string{"-s", "read-only"}
-	}
-	args := append([]string{"exec", "--json", "--skip-git-repo-check"}, sandbox...)
+	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", "danger-full-access"}
 	args = append(args, "-m", model)
-	if !o.Inherit {
-		args = append(args, "--ignore-user-config", "--ignore-rules", "--disable", "apps", "--disable", "plugins", "--disable", "remote_plugin")
-	} else if clash := personalClash(personal, o); clash != "" {
+	if clash := personalClash(personal, o); clash != "" {
 		// -c deep-merges into a personal entry of the same name, so its headers
 		// would reach Lykeion's server. Only ignoring config.toml lets ours win.
 		// Personal servers are not re-supplied: their secrets would sit in argv.
@@ -69,7 +58,12 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		args = append(args, "resume", o.Resume)
 	}
 	args = append(args, "-")
-	return run(ctx, command(ctx, bin, prompt, o, home, args...), cleanup, parseCodex(model), func(res *Result, _ emitMessage) { res.Model = model }, o.OnMessage)
+	cmd, err := command(ctx, bin, prompt, o, args...)
+	if err != nil {
+		cleanup(true)
+		return nil, err
+	}
+	return run(ctx, cmd, cleanup, parseCodex(model), func(res *Result, _ emitMessage) { res.Model = model }, o.OnMessage)
 }
 
 // personalClash names a personal MCP entry that shares a Lykeion entry's name.
@@ -80,15 +74,6 @@ func personalClash(personal codexConfig, o ExecOptions) string {
 	return ""
 }
 
-// codexSandbox always keeps network, so lyk reaches the server and the daemon
-// socket. macOS Seatbelt ignores network_access (openai/codex#10390), so there
-// both modes run unsandboxed until a Codex release with the fix is known.
-func codexSandbox(goos string) []string {
-	if goos == "darwin" {
-		return []string{"-s", "danger-full-access"}
-	}
-	return []string{"-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true"}
-}
 func parseCodex(model string) parser {
 	return func(line []byte, emit emitMessage, res *Result) (bool, error) {
 		var ev struct {

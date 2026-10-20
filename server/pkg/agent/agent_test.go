@@ -63,7 +63,7 @@ cat <<'EOF'
 {"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.42,"session_id":"s1","result":"done","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":300,"cache_creation_input_tokens":50},"modelUsage":{"model-b":{"inputTokens":10,"outputTokens":5,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.02},"model-a":{"inputTokens":90,"outputTokens":15,"cacheReadInputTokens":300,"cacheCreationInputTokens":50,"costUSD":0.4}}}
 EOF`)
 	dir := t.TempDir()
-	s, err := Claude{Bin: bin}.Execute(context.Background(), "scope it", ExecOptions{Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "door-abc", MCPToken: "ltk_abc"})
+	s, err := Claude{Bin: bin}.Execute(context.Background(), "scope it", ExecOptions{Sandbox: testSandbox, Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "door-abc", MCPToken: "ltk_abc"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ EOF`)
 		t.Fatalf("usage %+v %+v", a, b)
 	}
 	args2, _ := os.ReadFile(args)
-	for _, want := range []string{"-p", "stream-json", "--verbose", "--strict-mcp-config", "dontAsk"} {
+	for _, want := range []string{"-p", "stream-json", "--verbose", "--input-format", "default"} {
 		if !strings.Contains(string(args2), want) {
 			t.Errorf("claude args missing %q", want)
 		}
@@ -109,7 +109,7 @@ EOF`)
 
 func TestClaudeResultWithoutModelUsage(t *testing.T) {
 	bin := script(t, `echo '{"type":"result","is_error":true,"total_cost_usd":0.1,"result":"max turns reached"}'`)
-	s, _ := Claude{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir()})
+	s, _ := Claude{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	_, res := collect(t, s)
 	if res.Err == nil || !strings.Contains(res.Err.Error(), "max turns") || res.Reason != ReasonAgentError {
 		t.Fatalf("%+v", res)
@@ -121,7 +121,7 @@ func TestClaudeResultWithoutModelUsage(t *testing.T) {
 
 func TestClaudePromptTooLongIsContextExhausted(t *testing.T) {
 	bin := script(t, `echo '{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"prompt_too_long","result":"stopped"}'`)
-	s, _ := Claude{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir()})
+	s, _ := Claude{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if _, res := collect(t, s); res.Reason != ReasonContextExhausted {
 		t.Fatalf("%+v", res)
 	}
@@ -133,7 +133,7 @@ func TestExitWithoutResultIsClassified(t *testing.T) {
 		"TypeError: x is not a function":          ReasonAgentError,
 	} {
 		bin := script(t, "echo '"+stderr+"' >&2\nexit 1")
-		s, _ := Claude{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir()})
+		s, _ := Claude{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 		if _, res := collect(t, s); res.Err == nil || res.Reason != want {
 			t.Fatalf("%q: %+v", stderr, res)
 		}
@@ -146,7 +146,7 @@ cat >&2 <<'EOF'
 Error: turn/start: turn/start failed: Input exceeds the maximum length of 1048576 characters. (code -32602), data: {"input_error_code":"input_too_large","max_chars":1048576,"actual_chars":7200013}
 EOF
 exit 1`)
-	s, err := (Codex{Bin: bin}).Execute(t.Context(), "oversized input", ExecOptions{Dir: t.TempDir()})
+	s, err := (Codex{Bin: bin}).Execute(t.Context(), "oversized input", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ cat <<'EOF'
 {"type":"item.completed","item":{"type":"agent_message","text":"Done."}}
 {"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50}}
 EOF`)
-	s, err := Codex{Bin: bin}.Execute(context.Background(), "scope it", ExecOptions{Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp"})
+	s, err := Codex{Bin: bin}.Execute(context.Background(), "scope it", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ EOF`)
 		t.Fatalf("usage %+v", u)
 	}
 	a, _ := os.ReadFile(args)
-	for _, want := range []string{"exec", "--json", "-m\ngpt-5.6-sol", "--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_door.url=", "bearer_token_env_var", "-"} {
+	for _, want := range []string{"exec", "--json", "-m\ngpt-5.6-sol", "mcp_servers.lyk_door.url=", "bearer_token_env_var", "-"} {
 		if !strings.Contains(string(a), want) {
 			t.Errorf("codex args missing %q", want)
 		}
@@ -196,7 +196,7 @@ EOF`)
 
 func TestCodexTurnFailed(t *testing.T) {
 	bin := script(t, `echo '{"type":"turn.failed","error":{"message":"rate limited"}}'`)
-	s, _ := Codex{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir()})
+	s, _ := Codex{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	_, res := collect(t, s)
 	if res.Err == nil || !strings.Contains(res.Err.Error(), "rate limited") || res.Reason != ReasonProviderNetwork {
 		t.Fatalf("%+v", res)
@@ -206,52 +206,46 @@ func TestCodexTurnFailed(t *testing.T) {
 // TestConfigHomeIsIsolated puts a personal skill and a sign-in file in each
 // CLI's real config home. The agent run's config home must hold the sign-in file
 // and nothing else, and the copy must be gone once the CLI exits.
-func TestConfigHomeIsIsolated(t *testing.T) {
-	real := t.TempDir()
-	t.Setenv("HOME", real)
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	for _, c := range []struct{ harness, env, home, cred string }{
-		{"claude", "CLAUDE_CONFIG_DIR", ".claude", claudeCredFile},
-		{"codex", "CODEX_HOME", ".codex", codexCredFile},
-	} {
-		t.Run(c.harness, func(t *testing.T) {
-			skill := filepath.Join(real, c.home, "skills", "personal")
-			os.MkdirAll(skill, 0o700)
-			os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("# my own skill"), 0o600)
-			os.WriteFile(filepath.Join(real, c.home, c.cred), []byte("secret"), 0o600)
-			seen := filepath.Join(t.TempDir(), "seen")
-			bin := script(t, `echo "$`+c.env+`" > `+seen+`
-ls -A "$`+c.env+`" >> `+seen+`
-cat "$`+c.env+`/`+c.cred+`" >> `+seen)
+func TestAccountSigninIsNeverCopied(t *testing.T) {
+	for _, h := range []string{"claude", "codex"} {
+		t.Run(h, func(t *testing.T) {
+			home := t.TempDir()
+			env, cred := "CODEX_HOME", "auth.json"
+			terminal := `{"type":"turn.completed","usage":{}}`
+			if h == "claude" {
+				env, cred = "CLAUDE_CONFIG_DIR", claudeCredFile
+				terminal = `{"type":"result","is_error":false}`
+			}
+			t.Setenv(env, home)
+			if err := os.WriteFile(filepath.Join(home, cred), []byte("account-signin"), 0600); err != nil {
+				t.Fatal(err)
+			}
 			dir := t.TempDir()
-			b, _ := New(c.harness, bin)
-			s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir})
+			seen := filepath.Join(t.TempDir(), "seen")
+			b, _ := New(h, script(t, `printf '%s' "$`+env+`" > '`+seen+`'; echo '`+terminal+`'`))
+			session, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 			if err != nil {
 				t.Fatal(err)
 			}
-			collect(t, s)
-			resolved, err := filepath.EvalSymlinks(dir)
-			if err != nil {
-				t.Fatal(err)
+			if _, r := collect(t, session); r.Err != nil {
+				t.Fatal(r.Err)
 			}
-			home := filepath.Join(resolved, ".cli-home")
 			got, _ := os.ReadFile(seen)
-			listing := c.cred + onDarwin("\n"+keychainStandIn)
-			if c.harness == "codex" {
-				listing = onDarwin(keychainStandIn+"\n") + c.cred
+			if string(got) != home {
+				t.Fatalf("CLI home %q", got)
 			}
-			if want := home + "\n" + listing + "\nsecret"; strings.TrimSpace(string(got)) != want {
-				t.Fatalf("the CLI saw\n%s\nwant\n%s", got, want)
+			if _, err := os.Lstat(filepath.Join(dir, ".cli-home", cred)); !os.IsNotExist(err) {
+				t.Fatalf("copied signin: %v", err)
 			}
-			if _, err := os.Stat(filepath.Join(home, c.cred)); !os.IsNotExist(err) {
-				t.Fatal("the copied sign-in file outlived the run")
+			if got, err := os.ReadFile(filepath.Join(home, cred)); err != nil || string(got) != "account-signin" {
+				t.Fatalf("account signin changed: %q %v", got, err)
 			}
 		})
 	}
 }
 
 func TestTheCLIGetsOnlyTheDoor(t *testing.T) {
-	o := ExecOptions{Dir: t.TempDir(), MCPToken: "ltk_x", DoorURL: "http://127.0.0.1:4100/mcp", DoorToken: "door-secret"}
+	o := ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), MCPToken: "ltk_x", DoorURL: "http://127.0.0.1:4100/mcp", DoorToken: "door-secret"}
 	var parsed struct {
 		Servers map[string]struct {
 			Type, URL string
@@ -265,12 +259,9 @@ func TestTheCLIGetsOnlyTheDoor(t *testing.T) {
 	if door.Type != "http" || door.URL != o.DoorURL || door.Headers["Authorization"] != "Bearer door-secret" {
 		t.Fatalf("claude mcp config: %s", claudeMCP(o))
 	}
-	if string(cursorApprovals(o)) != `["lyk_door"]` {
-		t.Fatalf("cursor approvals: %s", cursorApprovals(o))
-	}
 
 	args := filepath.Join(t.TempDir(), "args")
-	s, _ := Codex{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Model: "gpt-5", DoorURL: o.DoorURL, DoorToken: o.DoorToken})
+	s, _ := Codex{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Model: "gpt-5", DoorURL: o.DoorURL, DoorToken: o.DoorToken})
 	collect(t, s)
 	a, _ := os.ReadFile(args)
 	if !strings.Contains(string(a), `mcp_servers.lyk_door.url="http://127.0.0.1:4100/mcp"`) || !strings.Contains(string(a), `mcp_servers.lyk_door.bearer_token_env_var="LYK_DOOR_TOKEN"`) ||
@@ -284,7 +275,7 @@ func TestCancelKillsTheProcessTree(t *testing.T) {
 	bin := script(t, `sleep 300 & echo $! > `+pidfile+`
 wait`)
 	ctx, cancel := context.WithCancel(context.Background())
-	s, err := Claude{Bin: bin}.Execute(ctx, "p", ExecOptions{Dir: t.TempDir()})
+	s, err := Claude{Bin: bin}.Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +299,7 @@ wait`)
 func TestClaudeStructuredExhaustionOverridesSuccess(t *testing.T) {
 	for _, result := range []string{"", "stopped"} {
 		bin := script(t, `echo '{"type":"result","is_error":false,"terminal_reason":" prompt_too_long ","result":"`+result+`","session_id":"full"}'`)
-		s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir()})
+		s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -329,13 +320,13 @@ func TestPromptStdinWithStartupBurst(t *testing.T) {
 			}
 			bin := script(t, `printf '%s\n' "$@" > '`+args+`'
 i=0; while [ "$i" -lt 3000 ]; do echo '{"type":"log","message":"startup"}'; i=$((i+1)); done
-cat > '`+captured+`'
+if [ "$1" = -p ]; then IFS= read -r frame; printf '%s' "$frame" > '`+captured+`'; else cat > '`+captured+`'; fi
 echo '`+terminal+`'`)
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			b, _ := New(harness, bin)
 			prompt := strings.Repeat("Large prompt.\n", 200000)
-			s, err := b.Execute(ctx, prompt, ExecOptions{Dir: t.TempDir()})
+			s, err := b.Execute(ctx, prompt, ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -344,6 +335,13 @@ echo '`+terminal+`'`)
 				t.Fatal(r.Err)
 			}
 			got, err := os.ReadFile(captured)
+			if harness == "claude" {
+				var frame struct{ Message struct{ Content string } }
+				if e := json.Unmarshal(got, &frame); e != nil {
+					t.Fatal(e)
+				}
+				got = []byte(frame.Message.Content)
+			}
 			if err != nil || string(got) != prompt {
 				t.Fatalf("stdin length %d: %v", len(got), err)
 			}
@@ -365,7 +363,7 @@ func TestMissingTerminalAndScannerFailure(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				b, _ := New(harness, script(t, body))
-				s, err := b.Execute(ctx, "p", ExecOptions{Dir: t.TempDir()})
+				s, err := b.Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -388,7 +386,7 @@ while :; do echo '{"type":"log","message":"busy"}'; done`)
 			defer cancel()
 			b, _ := New(harness, bin)
 			dir := t.TempDir()
-			s, err := b.Execute(ctx, "p", ExecOptions{Dir: dir})
+			s, err := b.Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -441,7 +439,7 @@ func TestChildEnvironment(t *testing.T) {
 				dir := t.TempDir()
 				capture := filepath.Join(t.TempDir(), "env")
 				b, _ := New(harness, script(t, `env > '`+capture+`'`))
-				o := ExecOptions{Dir: dir, MCPToken: "ltk_run"}
+				o := ExecOptions{Sandbox: testSandbox, Dir: dir, MCPToken: "ltk_run"}
 				if explicit {
 					o.Env = []string{"LYK_TOKEN=ltk_run", "LYK_CONFIG=" + filepath.Join(dir, "lyk.json"), "CLAUDECODE=bad", "HOME=/personal", "CODEX_HOME=/personal", "XDG_CONFIG_HOME=/personal"}
 				}
@@ -467,7 +465,7 @@ func TestChildEnvironment(t *testing.T) {
 				if explicit && !strings.Contains(env, "LYK_CONFIG="+filepath.Join(resolved, "lyk.json")) {
 					t.Fatal("explicit scratch LYK_CONFIG was lost")
 				}
-				for _, want := range []string{"CLAUDE_CODE_USE_BEDROCK=1", "ANTHROPIC_API_KEY=provider-key", "LYK_TOKEN=ltk_run", "HOME=" + filepath.Join(resolved, ".home"), "XDG_CONFIG_HOME=" + filepath.Join(resolved, ".home", ".config")} {
+				for _, want := range []string{"CLAUDE_CODE_USE_BEDROCK=1", "ANTHROPIC_API_KEY=provider-key", "LYK_TOKEN=ltk_run", "HOME=" + os.Getenv("HOME"), "XDG_CONFIG_HOME=" + os.Getenv("XDG_CONFIG_HOME")} {
 					if !strings.Contains(env, want) {
 						t.Fatalf("missing %q", want)
 					}
@@ -499,7 +497,7 @@ func TestCredentialsRemovedOnSetupAndStartFailure(t *testing.T) {
 					}
 				}
 				b, _ := New(harness, filepath.Join(t.TempDir(), "missing"))
-				_, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir})
+				_, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 				if err == nil {
 					t.Fatal("expected setup/start failure")
 				}
@@ -515,7 +513,7 @@ func TestCodexResumeAndModelOverride(t *testing.T) {
 	args := filepath.Join(t.TempDir(), "args")
 	b := Codex{Bin: script(t, `printf '%s\n' "$@" > '`+args+`'
 echo '{"type":"turn.completed","usage":{"input_tokens":9,"cached_input_tokens":4,"output_tokens":2}}'`)}
-	s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Resume: "session", Model: "custom"})
+	s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Resume: "session", Model: "custom"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +534,7 @@ func TestClaudeFallbackAndMissingCost(t *testing.T) {
 		{`{"type":"result","modelUsage":{"actual":{"inputTokens":20,"cacheReadInputTokens":40}}}`, "", "actual", false},
 	} {
 		b := Claude{Bin: script(t, "echo '"+tc.frame+"'")}
-		s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Model: tc.model})
+		s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Model: tc.model})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -550,11 +548,12 @@ func TestClaudeFallbackAndMissingCost(t *testing.T) {
 	}
 }
 
-func TestUnsafeAncestorsAndSymlinkScratchRefused(t *testing.T) {
+func TestAncestorConfigAndScratchAliasUseSandbox(t *testing.T) {
 	for _, artifact := range []string{".codex", ".agents", ".claude", "AGENTS.md", "CLAUDE.md", ".mcp.json"} {
 		t.Run(artifact, func(t *testing.T) {
 			parent := t.TempDir()
-			if err := os.WriteFile(filepath.Join(parent, artifact), []byte("personal"), 0600); err != nil {
+			path := filepath.Join(parent, artifact)
+			if err := os.WriteFile(path, []byte("personal"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			dir := filepath.Join(parent, "run")
@@ -566,10 +565,20 @@ func TestUnsafeAncestorsAndSymlinkScratchRefused(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, h := range []string{"claude", "codex"} {
+				called := false
+				blocked := errors.New("test sandbox refuses launch")
 				b, _ := New(h, script(t, "exit 0"))
-				if _, err := b.Execute(context.Background(), "p", ExecOptions{Dir: alias}); err == nil {
-					t.Fatal("unsafe ancestor accepted via symlink")
+				_, err := b.Execute(context.Background(), "p", ExecOptions{Dir: alias, Model: "gpt-5", Sandbox: func(ctx context.Context, paths CLIPaths, bin string, args ...string) (*exec.Cmd, error) {
+					called = true
+					return nil, blocked
+				}})
+				if !called || !errors.Is(err, blocked) {
+					t.Fatalf("launch bypassed sandbox: %v", err)
 				}
+				os.Remove(filepath.Join(dir, ".agent-owned"))
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != "personal" {
+				t.Fatalf("ancestor changed %q %v", got, err)
 			}
 		})
 	}
@@ -583,12 +592,12 @@ func TestScratchPrivateAndSymlinksRefused(t *testing.T) {
 				t.Fatal(err)
 			}
 			b, _ := New(h, script(t, "exit 0"))
-			s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir})
+			s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 			if err != nil {
 				t.Fatal(err)
 			}
 			collect(t, s)
-			for _, p := range []string{dir, filepath.Join(dir, ".cli-home"), filepath.Join(dir, ".home")} {
+			for _, p := range []string{dir, filepath.Join(dir, ".cli-home")} {
 				st, err := os.Stat(p)
 				if err != nil || st.Mode().Perm() != 0700 {
 					t.Fatalf("nonprivate %s: %v %v", p, st, err)
@@ -599,7 +608,7 @@ func TestScratchPrivateAndSymlinksRefused(t *testing.T) {
 			if err := os.Symlink(outside, filepath.Join(unsafe, ".cli-home")); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := b.Execute(context.Background(), "p", ExecOptions{Dir: unsafe}); err == nil {
+			if _, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: unsafe}); err == nil {
 				t.Fatal("symlink config home accepted")
 			}
 		})
@@ -607,6 +616,7 @@ func TestScratchPrivateAndSymlinksRefused(t *testing.T) {
 }
 
 func TestOwnedHistoryResumeAndConcurrentRefusal(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	for _, h := range []string{"claude", "codex"} {
 		t.Run(h, func(t *testing.T) {
 			dir := t.TempDir()
@@ -617,12 +627,12 @@ echo started > '`+marker+`'
 sleep 300`))
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			s, err := b.Execute(ctx, "p", ExecOptions{Dir: dir})
+			s, err := b.Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 			if err != nil {
 				t.Fatal(err)
 			}
 			waitFile(t, marker)
-			if _, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir}); err == nil {
+			if _, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir}); err == nil {
 				t.Fatal("concurrent scratch execution accepted")
 			}
 			cancel()
@@ -630,12 +640,15 @@ sleep 300`))
 			b, _ = New(h, script(t, `test "$(cat "$CODEX_HOME/sessions/test")" = history || exit 9
 echo '{"type":"result","is_error":false}'
 echo '{"type":"turn.completed","usage":{}}'`))
-			s, err = b.Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: "session"})
+			if h == "claude" {
+				seedClaudeTranscript(t, "session")
+			}
+			s, err = b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: "session"})
 			if h == "claude" {
 				if err == nil || !strings.Contains(err.Error(), "baseline") {
 					t.Fatalf("cancelled Claude history resumed without baseline: %v", err)
 				}
-				history, e := os.ReadFile(filepath.Join(dir, ".cli-home", "sessions", "test"))
+				history, e := os.ReadFile(filepath.Join(os.Getenv("CODEX_HOME"), "sessions", "test"))
 				if e != nil || string(history) != "history\n" {
 					t.Fatalf("owned history was removed: %v", e)
 				}
@@ -651,21 +664,26 @@ echo '{"type":"turn.completed","usage":{}}'`))
 		})
 	}
 }
-func TestPreexistingConfigAndHistoryRefused(t *testing.T) {
+func TestPreexistingAccountingStateCannotBypassSandbox(t *testing.T) {
 	for _, h := range []string{"claude", "codex"} {
 		for _, name := range []string{"config.toml", "settings.json", "sessions/personal"} {
 			t.Run(h+name, func(t *testing.T) {
 				dir := t.TempDir()
-				p := filepath.Join(dir, ".cli-home", name)
-				if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(p, []byte("personal"), 0600); err != nil {
-					t.Fatal(err)
-				}
+				path := filepath.Join(dir, ".cli-home", name)
+				os.MkdirAll(filepath.Dir(path), 0700)
+				os.WriteFile(path, []byte("existing"), 0600)
+				blocked := errors.New("test sandbox refuses launch")
+				called := false
 				b, _ := New(h, script(t, "exit 0"))
-				if _, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir}); err == nil {
-					t.Fatal("unowned config/history accepted")
+				_, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir, Model: "gpt-5", Sandbox: func(ctx context.Context, p CLIPaths, bin string, args ...string) (*exec.Cmd, error) {
+					called = true
+					return nil, blocked
+				}})
+				if !called || !errors.Is(err, blocked) {
+					t.Fatalf("launch bypassed sandbox: %v", err)
+				}
+				if got, err := os.ReadFile(path); err != nil || string(got) != "existing" {
+					t.Fatalf("state changed: %q %v", got, err)
 				}
 			})
 		}
@@ -675,7 +693,7 @@ func TestDiagnosticsBoundedAndRedacted(t *testing.T) {
 	b := Claude{Bin: script(t, `head -c 10000 /dev/zero | tr '\000' x >&2
 printf '\ngetaddrinfo ENOTFOUND api.anthropic.com\nAuthorization: Bearer secret-value\napi_key=hidden-value\nltk_secrettoken\n' >&2
 exit 1`)}
-	s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir()})
+	s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +714,7 @@ exit 1`)}
 
 func TestCurrentDirectoryDiscoveryAndForgedOwnershipRefused(t *testing.T) {
 	for _, h := range []string{"claude", "codex"} {
-		for _, artifact := range []string{".codex", ".claude", ".agents", "AGENTS.md", "CLAUDE.md", ".agent-owned"} {
+		for _, artifact := range []string{".agent-owned"} {
 			t.Run(h+artifact, func(t *testing.T) {
 				dir := t.TempDir()
 				if artifact == ".agent-owned" {
@@ -713,7 +731,7 @@ func TestCurrentDirectoryDiscoveryAndForgedOwnershipRefused(t *testing.T) {
 					}
 				}
 				b, _ := New(h, script(t, "exit 0"))
-				if _, err := b.Execute(context.Background(), "p", ExecOptions{Dir: dir}); err == nil {
+				if _, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir}); err == nil {
 					t.Fatal("unsafe current directory accepted")
 				}
 			})
@@ -723,57 +741,43 @@ func TestCurrentDirectoryDiscoveryAndForgedOwnershipRefused(t *testing.T) {
 func TestOwnerTokenCannotBePassedAsRunToken(t *testing.T) {
 	for _, h := range []string{"claude", "codex"} {
 		b, _ := New(h, script(t, "exit 0"))
-		if _, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), MCPToken: "lyk_owner"}); err == nil {
+		if _, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), MCPToken: "lyk_owner"}); err == nil {
 			t.Fatal("owner token accepted as MCPToken")
 		}
 	}
 }
-func TestCopiedCredentialsArePrivateAndRemovedWhileConsumerBlocked(t *testing.T) {
+func TestSigninNotCopiedWhileConsumerBlocked(t *testing.T) {
 	for _, h := range []string{"claude", "codex"} {
 		t.Run(h, func(t *testing.T) {
 			home := t.TempDir()
-			cred := "auth.json"
-			envVar := "CODEX_HOME"
+			env, cred := "CODEX_HOME", "auth.json"
 			if h == "claude" {
-				cred = ".credentials.json"
-				envVar = "CLAUDE_CONFIG_DIR"
+				env, cred = "CLAUDE_CONFIG_DIR", claudeCredFile
 			}
-			t.Setenv(envVar, home)
-			if err := os.WriteFile(filepath.Join(home, cred), []byte("fake-signin"), 0600); err != nil {
-				t.Fatal(err)
-			}
+			t.Setenv(env, home)
+			original := filepath.Join(home, cred)
+			os.WriteFile(original, []byte("account-signin"), 0600)
 			dir := t.TempDir()
 			ready := filepath.Join(t.TempDir(), "ready")
 			release := filepath.Join(t.TempDir(), "release")
-			b, _ := New(h, script(t, `echo ready > '`+ready+`'
-while [ ! -f '`+release+`' ]; do sleep 0.01; done
-i=0; while [ "$i" -lt 100 ]; do echo '{"type":"log"}'; i=$((i+1)); done`))
+			bin := script(t, `echo ready > '`+ready+`'; while [ ! -f '`+release+`' ]; do sleep 0.01; done; i=0; while [ "$i" -lt 100 ]; do echo '{"type":"log"}'; i=$((i+1)); done`)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			s, err := b.Execute(ctx, "p", ExecOptions{Dir: dir})
+			b, _ := New(h, bin)
+			session, err := b.Execute(ctx, "p", ExecOptions{Dir: dir, Sandbox: testSandbox})
 			if err != nil {
 				t.Fatal(err)
 			}
 			waitFile(t, ready)
-			copied := filepath.Join(dir, ".cli-home", cred)
-			st, err := os.Stat(copied)
-			if err != nil || st.Mode().Perm() != 0600 {
-				t.Fatalf("credential permissions: %v %v", st, err)
+			if _, err := os.Lstat(filepath.Join(dir, ".cli-home", cred)); !os.IsNotExist(err) {
+				t.Fatalf("copied signin %v", err)
 			}
-			if err := os.WriteFile(release, nil, 0600); err != nil {
-				t.Fatal(err)
+			os.WriteFile(release, nil, 0600)
+			cancel()
+			collect(t, session)
+			if got, err := os.ReadFile(original); err != nil || string(got) != "account-signin" {
+				t.Fatalf("signin changed %q %v", got, err)
 			}
-			deadline := time.Now().Add(3 * time.Second)
-			for time.Now().Before(deadline) {
-				if _, err := os.Stat(copied); os.IsNotExist(err) {
-					break
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-			if _, err := os.Stat(copied); !os.IsNotExist(err) {
-				t.Fatal("credential cleanup blocked behind message consumer")
-			}
-			collect(t, s)
 		})
 	}
 }
@@ -786,7 +790,7 @@ echo ready > '`+ready+`'
 sleep 300`)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	sess, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Dir: dir})
+	sess, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -828,7 +832,7 @@ sleep 300`)
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	n := 0
-	sess, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Dir: t.TempDir(), OnMessage: func(m Message) error {
+	sess, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), OnMessage: func(m Message) error {
 		n++
 		if n == 1 {
 			close(entered)
@@ -860,7 +864,7 @@ sleep 300`)
 }
 func TestDurableSinkFailureStopsChildAndSurfaces(t *testing.T) {
 	want := errors.New("durable storage unavailable")
-	sess, err := (Claude{Bin: script(t, `echo '{"type":"log","message":"evidence"}'; sleep 300`)}).Execute(t.Context(), "p", ExecOptions{Dir: t.TempDir(), OnMessage: func(Message) error { return want }})
+	sess, err := (Claude{Bin: script(t, `echo '{"type":"log","message":"evidence"}'; sleep 300`)}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), OnMessage: func(Message) error { return want }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -921,22 +925,18 @@ func TestCodexRejectsInvalidUsageCounts(t *testing.T) {
 	}
 }
 
-func TestCodexFeatureIsolationFlags(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "args")
-	bin := script(t, `printf '%s\n' "$@" > `+path+`
-echo '{"type":"turn.completed","usage":{}}'`)
-	s, err := (Codex{Bin: bin}).Execute(t.Context(), "ready", ExecOptions{Dir: t.TempDir(), DoorURL: "http://localhost/sources"})
+func TestCodexKeepsAccountConfig(t *testing.T) {
+	args := filepath.Join(t.TempDir(), "args")
+	bin := script(t, `printf '%s\n' "$@" > '`+args+`'; echo '{"type":"turn.completed","usage":{}}'`)
+	session, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Sandbox: testSandbox})
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(t, s)
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"--disable\napps", "--disable\nplugins", "--disable\nremote_plugin", "mcp_servers.lyk_door.url=\"http://localhost/sources\""} {
-		if !strings.Contains(string(b), want) {
-			t.Errorf("missing %q in %s", want, b)
+	collect(t, session)
+	got, _ := os.ReadFile(args)
+	for _, flag := range []string{"--ignore-user-config", "--ignore-rules", "--disable"} {
+		if strings.Contains(string(got), flag) {
+			t.Fatalf("discarded personal config: %s", got)
 		}
 	}
 }
@@ -944,7 +944,7 @@ echo '{"type":"turn.completed","usage":{}}'`)
 func TestCodexAccountingNoticeUsesDurableSink(t *testing.T) {
 	var messages []Message
 	bin := script(t, `echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'`)
-	s, err := (Codex{Bin: bin}).Execute(t.Context(), "ready", ExecOptions{Dir: t.TempDir(), OnMessage: func(m Message) error { messages = append(messages, m); return nil }})
+	s, err := (Codex{Bin: bin}).Execute(t.Context(), "ready", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), OnMessage: func(m Message) error { messages = append(messages, m); return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -979,15 +979,15 @@ func TestReadOnlyClaudeAndCodex(t *testing.T) {
 	}{
 		{"claude", false, "--permission-mode\ndontAsk\n", "--permission-mode\nplan\n"},
 		{"claude", true, "--permission-mode\ndontAsk\n", "--permission-mode\ndefault\n"},
-		{"codex", false, "-s\nread-only\n", "-s\nworkspace-write\n"},
-		{"codex", true, "-s\nread-only\n", "-s\nworkspace-write\n"},
-		{"codex", false, "-s\nread-only\n", "danger-full-access"},
-		{"codex", true, "-s\nread-only\n", "network_access"},
+		{"codex", false, "-s\ndanger-full-access\n", "-s\nworkspace-write\n"},
+		{"codex", true, "-s\ndanger-full-access\n", "-s\nworkspace-write\n"},
+		{"codex", false, "-s\ndanger-full-access\n", "-s\nread-only\n"},
+		{"codex", true, "-s\ndanger-full-access\n", "network_access"},
 	} {
 		t.Run(fmt.Sprintf("%s inherit=%v", c.harness, c.inherit), func(t *testing.T) {
 			args := filepath.Join(t.TempDir(), "args")
 			b, _ := New(c.harness, script(t, `printf '%s\n' "$@" > `+args))
-			s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), ReadOnly: true, Inherit: c.inherit})
+			s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), ReadOnly: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1017,15 +1017,15 @@ func TestReadOnlyHarnessesMatchTheAdapters(t *testing.T) {
 	}
 	for h := range Harnesses {
 		b, _ := New(h, script(t, "exit 0"))
-		s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), ReadOnly: true})
+		s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), ReadOnly: true})
 		if s != nil {
-			collectWithin(t, s, 5*time.Second)
+			collect(t, s)
 		}
-		if err != nil && !errors.Is(err, ErrNoReadOnly) {
+		if err != nil {
 			t.Fatalf("%s: unexpected execution error: %v", h, err)
 		}
-		if refused := errors.Is(err, ErrNoReadOnly); refused == ReadOnlyHarnesses[h] {
-			t.Fatalf("%s: ReadOnlyHarnesses says %v, the adapter refused: %v", h, ReadOnlyHarnesses[h], refused)
+		if !ReadOnlyHarnesses[h] {
+			t.Fatalf("%s: ReadOnlyHarnesses says %v, the adapter refused: %v", h, ReadOnlyHarnesses[h], err)
 		}
 	}
 }
@@ -1036,7 +1036,7 @@ func TestClaudeAllowsTheDoor(t *testing.T) {
 	for _, inherit := range []bool{false, true} {
 		args := filepath.Join(t.TempDir(), "args")
 		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
-			ExecOptions{Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", MCPToken: "ltk_x", Inherit: inherit})
+			ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", MCPToken: "ltk_x"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1078,7 +1078,7 @@ func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
 		}
 		args := filepath.Join(t.TempDir(), "args")
 		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
-			ExecOptions{Dir: dir, Inherit: c.inherit, ReadOnly: c.readOnly})
+			ExecOptions{Sandbox: testSandbox, Dir: dir, ReadOnly: c.readOnly})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1126,7 +1126,7 @@ func TestClaudeReadsOnlyItsFolders(t *testing.T) {
 	for _, c := range []struct{ inherit, readOnly bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
 		args := filepath.Join(t.TempDir(), "args")
 		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
-			ExecOptions{Dir: dir, ReadDirs: reads, Inherit: c.inherit, ReadOnly: c.readOnly})
+			ExecOptions{Sandbox: testSandbox, Dir: dir, ReadDirs: reads, ReadOnly: c.readOnly})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1162,7 +1162,7 @@ func TestClaudeWaitsForTheDoorsScriptLimit(t *testing.T) {
 	for _, inherit := range []bool{false, true} {
 		dir := t.TempDir()
 		s, err := Claude{Bin: script(t, "exit 0")}.Execute(context.Background(), "p",
-			ExecOptions{Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", Inherit: inherit})
+			ExecOptions{Sandbox: testSandbox, Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1188,7 +1188,7 @@ func TestCodexWaitsForTheDoorsScriptLimit(t *testing.T) {
 	for _, inherit := range []bool{false, true} {
 		args := filepath.Join(t.TempDir(), "args")
 		s, err := Codex{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
-			ExecOptions{Dir: t.TempDir(), Model: "gpt-5", DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", Inherit: inherit})
+			ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Model: "gpt-5", DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d"})
 		if err != nil {
 			t.Fatal(err)
 		}

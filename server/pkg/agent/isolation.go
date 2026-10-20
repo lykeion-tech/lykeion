@@ -7,23 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 )
 
-// scratchCleanup removes credentials immediately; release also relinquishes the
-// scratch lock after output accounting has finished.
+// scratchCleanup relinquishes the scratch lock after output accounting finishes.
 type scratchCleanup func(release bool)
-
-// PrelaunchDiscoveryError identifies isolated discovery state refused before launch.
-type PrelaunchDiscoveryError struct{ Path string }
-
-func (e *PrelaunchDiscoveryError) Error() string {
-	return fmt.Sprintf("discovery configuration in isolated CLI state: %s", e.Path)
-}
-
-var discoveryNames = []string{".cursor", ".codex", ".claude", ".agents", ".claude.json", ".mcp.json", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"}
 
 // RunFolderPath is a file or folder in a run's folder that a CLI or the
 // daemon keeps for itself.
@@ -62,9 +51,11 @@ var RunFolderConfig = []RunFolderPath{
 	{Name: ".cursor/mcp.json", Hidden: true}, {Name: ".agents/mcp_config.json", Hidden: true},
 }
 
-// prepareScratch protects discovery boundaries, not arbitrary filesystem access.
-// Only this scratch's own history is reusable; personal config is never copied.
-func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile string) (home string, cleanup scratchCleanup, err error) {
+// prepareScratch reserves the run folder and its daemon-owned accounting state.
+func prepareScratch(o *ExecOptions, harness string) (home string, cleanup scratchCleanup, err error) {
+	if o.Sandbox == nil {
+		return "", nil, ErrNoSandbox
+	}
 	if o.MCPToken != "" && !strings.HasPrefix(o.MCPToken, "ltk_") {
 		return "", nil, errors.New("MCP token must be a run-scoped ltk_ token")
 	}
@@ -79,35 +70,21 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 	if err != nil {
 		return "", nil, err
 	}
-	if !o.Inherit {
-		if err = checkManagedConfig(harness); err != nil {
-			return "", nil, err
-		}
-	}
 	var unlock func()
 	if o.ScratchReservation != nil {
 		unlock, err = o.ScratchReservation.borrow(dir)
 	} else {
-		var reservation *ScratchReservation
-		reservation, err = ReserveScratch(dir)
+		var r *ScratchReservation
+		r, err = ReserveScratch(dir)
 		if err == nil {
-			unlock = reservation.Release
+			unlock = r.Release
 		}
 	}
 	if err != nil {
 		return "", nil, err
 	}
-	if err = privateDir(dir); err != nil {
-		unlock()
-		return "", nil, err
-	}
-	o.Dir = dir
-	cred := ""
 	var once sync.Once
 	cleanup = func(release bool) {
-		if cred != "" {
-			os.Remove(cred)
-		}
 		if release {
 			once.Do(unlock)
 		}
@@ -118,192 +95,46 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 			cleanup(true)
 		}
 	}()
-	home = filepath.Join(dir, ".cli-home")
-	userHome := filepath.Join(dir, ".home")
+	if err = privateDir(dir); err != nil {
+		return "", cleanup, err
+	}
+	o.Dir = dir
 	marker := filepath.Join(dir, ".agent-owned")
 	if st, e := os.Lstat(marker); e == nil && !st.Mode().IsRegular() {
 		return "", cleanup, errors.New("scratch ownership marker is not a regular file")
 	} else if e != nil && !errors.Is(e, fs.ErrNotExist) {
 		return "", cleanup, e
 	}
-	owned, readErr := os.ReadFile(marker)
-	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
-		return "", cleanup, readErr
+	owned, e := os.ReadFile(marker)
+	if e != nil && !errors.Is(e, fs.ErrNotExist) {
+		return "", cleanup, e
 	}
-	if readErr == nil && string(owned) != "lykeion-agent-v1:"+harness {
+	if e == nil && string(owned) != "lykeion-agent-v1:"+harness {
 		return "", cleanup, errors.New("scratch belongs to a different harness")
 	}
-	if !o.Inherit {
-		if harness == "cursor" && readErr == nil {
-			if err = removePriorCursorConfig(dir); err != nil {
-				return "", cleanup, err
-			}
-		}
-		if harness == "antigravity" && readErr == nil {
-			if err = removePriorAntigravityConfig(dir); err != nil {
-				return "", cleanup, err
-			}
-		}
-		if err = checkAncestors(dir); err != nil {
-			return "", cleanup, err
-		}
-	}
-	var discovery *PrelaunchDiscoveryError
-	for _, p := range []string{home, userHome} {
-		if readErr != nil {
-			entries, e := os.ReadDir(p)
-			if e != nil && !errors.Is(e, fs.ErrNotExist) {
-				return "", cleanup, e
-			}
-			if len(entries) > 0 {
-				return "", cleanup, fmt.Errorf("refusing unowned CLI state in %s", p)
-			}
-		}
-		if err = privateDir(p); err != nil {
-			return "", cleanup, err
-		}
-		// The daemon owns these folders and rewrites them on every prepare.
-		for _, placed := range placedFolders {
-			if err = os.RemoveAll(filepath.Join(p, placed)); err != nil {
-				return "", cleanup, err
-			}
-		}
-		if err = checkOwnedState(p); err != nil {
-			var refused *PrelaunchDiscoveryError
-			if !errors.As(err, &refused) {
-				return "", cleanup, err
-			}
-			if discovery == nil {
-				discovery = refused
-			}
-		}
-	}
-	if discovery != nil {
-		// Adapter-owned root files are outside the isolated-home scan. Their
-		// structural refusals must take precedence over a fresh-folder retry.
-		if harness == "claude" {
-			if _, err = claudeMCPExists(filepath.Join(dir, ".lyk-mcp.json")); err != nil {
-				return "", cleanup, err
-			}
-		}
-		if readErr != nil || o.Inherit {
-			return "", cleanup, errors.New(discovery.Error())
-		}
-		return "", cleanup, discovery
-	}
-	if readErr != nil {
+	if errors.Is(e, fs.ErrNotExist) {
 		if err = privateFile(marker, []byte("lykeion-agent-v1:"+harness)); err != nil {
 			return "", cleanup, err
 		}
 	}
-	for _, p := range []string{filepath.Join(userHome, ".config"), filepath.Join(userHome, ".local"), filepath.Join(userHome, ".local", "share"), filepath.Join(userHome, ".cache"), filepath.Join(userHome, ".state")} {
-		if err = privateDir(p); err != nil {
-			return "", cleanup, err
-		}
-	}
-	if o.Inherit {
-		if err = placeSkills(o, harness); err != nil {
-			return "", cleanup, err
-		}
-		// The account's own config home stays authoritative; no sign-in copy.
-		success = true
-		return home, cleanup, nil
-	}
-	realHome := os.Getenv(homeVar)
-	if realHome == "" {
-		real, err := os.UserHomeDir()
-		if err != nil {
-			return "", cleanup, err
-		}
-		realHome = filepath.Join(real, defaultHome)
-	}
-	if runtime.GOOS == "darwin" {
-		if err = placeKeychainStandIn(home); err != nil {
-			return "", cleanup, err
-		}
-	}
-	target := filepath.Join(home, credFile)
-	// Remove a stale copy from an interrupted run before deciding whether fresh
-	// sign-in data exists. Removal never follows a stale symlink.
-	if err = os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	home = filepath.Join(dir, ".cli-home")
+	if err = privateDir(home); err != nil {
 		return "", cleanup, err
 	}
-	data, err := readSignIn(filepath.Join(realHome, credFile), harness, runtime.GOOS, os.Getenv(homeVar) != "", defaultClaudeSignIn)
+	if err = placeSkills(o, harness); err != nil {
+		return "", cleanup, err
+	}
+	o.CLIPaths, err = SandboxPaths(harness, accountHome(harness), dir, o.Resume, runtime.GOOS)
 	if err != nil {
 		return "", cleanup, err
 	}
-	if len(data) != 0 {
-		cred = target
-		if err = privateDir(filepath.Dir(target)); err != nil {
-			return "", cleanup, err
-		}
-		if err = privateFile(target, data); err != nil {
+	if runtime.GOOS == "linux" {
+		if err = PlaceBlocked(o.CLIPaths); err != nil {
 			return "", cleanup, err
 		}
 	}
 	success = true
 	return home, cleanup, nil
-}
-
-// keychainStandIn is the folder in a private run's CLI home that holds the
-// run's own security tool, first on its PATH. The CLI home is out of reach of
-// the agent's file tools and of sandboxed code, so neither can swap the tool
-// the CLI then runs as the person.
-const keychainStandIn = ".lyk-bin"
-
-// On macOS the Security framework finds the keychain through HOME, so under a
-// private run's stand-in home there is none, and a keychain write makes macOS
-// ask the person to find one. Claude Code tries the keychain through the
-// security tool before its sign-in file, so a private run gets a security
-// tool that finds nothing and stores nothing, and every CLI keeps to the
-// sign-in file as it does on Linux.
-func placeKeychainStandIn(home string) error {
-	// prepareScratch has already removed the folder of an earlier run.
-	dir := filepath.Join(home, keychainStandIn)
-	if err := privateDir(dir); err != nil {
-		return err
-	}
-	// 44 is the security tool's "item not found".
-	return os.WriteFile(filepath.Join(dir, "security"), []byte("#!/bin/sh\necho 'security: a private run has no keychain' >&2\nexit 44\n"), 0700)
-}
-
-func checkAncestors(dir string) error {
-	for parent := dir; ; parent = filepath.Dir(parent) {
-		for _, name := range discoveryNames {
-			p := filepath.Join(parent, name)
-			if _, err := os.Lstat(p); err == nil {
-				return fmt.Errorf("unsafe scratch discovery path: %s", p)
-			} else if !errors.Is(err, fs.ErrNotExist) {
-				return err
-			}
-		}
-		if parent == filepath.Dir(parent) {
-			break
-		}
-	}
-	return nil
-}
-
-func checkManagedConfig(harness string) error {
-	var paths []string
-	if harness == "codex" {
-		paths = []string{"/etc/codex/config.toml", "/etc/codex/managed_config.toml"}
-	}
-	if harness == "claude" {
-		root := "/etc/claude-code"
-		if runtime.GOOS == "darwin" {
-			root = "/Library/Application Support/ClaudeCode"
-		}
-		paths = []string{filepath.Join(root, "managed-settings.json"), filepath.Join(root, "managed-settings.d"), filepath.Join(root, "managed-mcp.json")}
-	}
-	for _, p := range paths {
-		if _, err := os.Lstat(p); err == nil {
-			return fmt.Errorf("cannot isolate agent from managed configuration: %s", p)
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-	}
-	return nil
 }
 
 func privateDir(p string) error {
@@ -332,52 +163,6 @@ func privateFile(p string, b []byte) error {
 	return closeErr
 }
 
-// placedFolders are the skill folders and the keychain stand-in the daemon
-// places in an isolated CLI state root; checkOwnedState exempts them there
-// and nowhere deeper.
-var placedFolders = []string{"skills", ".agents", keychainStandIn}
-
-func checkOwnedState(root string) error {
-	var discovery *PrelaunchDiscoveryError
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if p == root {
-			return nil
-		}
-		if filepath.Dir(p) == root && d.IsDir() && slices.Contains(placedFolders, d.Name()) {
-			return filepath.SkipDir
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlink in isolated CLI state: %s", p)
-		}
-		n := d.Name()
-		if n == "config.toml" || strings.HasSuffix(n, ".config.toml") || n == "settings.json" || n == "settings.local.json" || n == "plugins" || n == "skills" || n == "hooks" || n == "rules" {
-			if discovery == nil {
-				discovery = &PrelaunchDiscoveryError{Path: p}
-			}
-			return nil
-		}
-		for _, name := range discoveryNames {
-			if n == name {
-				if discovery == nil {
-					discovery = &PrelaunchDiscoveryError{Path: p}
-				}
-				return nil
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	if discovery != nil {
-		return discovery
-	}
-	return nil
-}
-
 func filteredEnvKey(k string) bool {
 	u := strings.ToUpper(k)
 	switch u {
@@ -389,9 +174,9 @@ func filteredEnvKey(k string) bool {
 
 // ChildEnv is the environment a run's own child processes get: the one the
 // CLI gets, with the run's config home.
-func ChildEnv(o ExecOptions) []string { return childEnv(o, filepath.Join(o.Dir, ".cli-home")) }
+func ChildEnv(o ExecOptions) []string { return childEnv(o, o.CacheDir) }
 
-func childEnv(o ExecOptions, home string) []string {
+func childEnv(o ExecOptions, cacheDir string) []string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {
 		k, v, ok := strings.Cut(entry, "=")
@@ -422,35 +207,17 @@ func childEnv(o ExecOptions, home string) []string {
 			}
 		}
 	}
-	if o.Inherit {
-		for _, entry := range os.Environ() {
-			k, v, ok := strings.Cut(entry, "=")
-			if ok && inheritedEnvKey(k) {
-				values[k] = v
-			}
+	for _, entry := range os.Environ() {
+		k, v, ok := strings.Cut(entry, "=")
+		if ok && inheritedEnvKey(k) {
+			values[k] = v
 		}
-		return envList(values)
 	}
-	userHome := filepath.Join(o.Dir, ".home")
-	if runtime.GOOS == "darwin" {
-		rest := values["PATH"]
-		if rest == "" {
-			rest = "/usr/bin:/bin:/usr/sbin:/sbin"
+	if cacheDir != "" {
+		for k, sub := range map[string]string{"npm_config_cache": "npm", "UV_CACHE_DIR": "uv", "UV_PYTHON_INSTALL_DIR": "uv-python", "UV_TOOL_DIR": "uv-tools"} {
+			values[k] = filepath.Join(cacheDir, sub)
 		}
-		values["PATH"] = filepath.Join(home, keychainStandIn) + string(filepath.ListSeparator) + rest
 	}
-	values["HOME"] = userHome
-	values["USERPROFILE"] = userHome
-	values["CODEX_HOME"] = home
-	values["CLAUDE_CONFIG_DIR"] = home
-	values["CURSOR_DATA_DIR"] = home
-	values["GEMINI_CLI_HOME"] = home
-	values["XDG_CONFIG_HOME"] = filepath.Join(userHome, ".config")
-	values["XDG_CONFIG_DIRS"] = values["XDG_CONFIG_HOME"]
-	values["XDG_DATA_HOME"] = filepath.Join(userHome, ".local", "share")
-	values["XDG_DATA_DIRS"] = values["XDG_DATA_HOME"]
-	values["XDG_CACHE_HOME"] = filepath.Join(userHome, ".cache")
-	values["XDG_STATE_HOME"] = filepath.Join(userHome, ".state")
 	return envList(values)
 }
 

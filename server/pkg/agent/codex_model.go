@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"time"
@@ -21,10 +20,10 @@ const codexCatalogLimit = 4 << 20
 // configured default when the account can see it, else the first model in
 // Codex's own catalog. The live catalog is account-visible; --bundled is the
 // binary's offline snapshot.
-func codexModel(ctx context.Context, bin, dir string, env []string, configured string) (string, error) {
+func codexModel(ctx context.Context, bin string, o ExecOptions, configured string) (string, error) {
 	var models []string
 	for _, args := range [][]string{{"debug", "models"}, {"debug", "models", "--bundled"}} {
-		models = codexCatalog(ctx, bin, dir, env, args...)
+		models = codexCatalog(ctx, bin, o, args...)
 		if len(models) > 0 {
 			break
 		}
@@ -39,31 +38,44 @@ func codexModel(ctx context.Context, bin, dir string, env []string, configured s
 }
 
 // codexCatalog lists visible model slugs in catalog order, or nil on failure.
-func codexCatalog(ctx context.Context, bin, dir string, env []string, args ...string) []string {
+func codexCatalog(ctx context.Context, bin string, o ExecOptions, args ...string) []string {
 	ctx, cancel := context.WithTimeout(ctx, codexCatalogTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir, cmd.Env, cmd.Stderr = dir, env, io.Discard
-	cmd.WaitDelay = time.Second
-	out, err := cmd.StdoutPipe()
-	if err != nil || cmd.Start() != nil {
-		return nil
-	}
-	raw, _ := io.ReadAll(io.LimitReader(out, codexCatalogLimit+1))
-	if cmd.Wait() != nil || len(raw) > codexCatalogLimit {
-		return nil
-	}
-	var catalog struct {
-		Models []struct{ Slug, Visibility string } `json:"models"`
-	}
-	if json.Unmarshal(raw, &catalog) != nil {
+	cmd, err := command(ctx, bin, "", o, args...)
+	if err != nil {
 		return nil
 	}
 	var slugs []string
-	for _, m := range catalog.Models {
-		if m.Slug != "" && len(m.Slug) <= 200 && m.Visibility != "hide" {
-			slugs = append(slugs, m.Slug)
+	var catalogJSON []byte
+	parse := func(line []byte, _ emitMessage, _ *Result) (bool, error) {
+		if len(catalogJSON)+len(line)+1 > codexCatalogLimit {
+			return false, errors.New("Codex catalog exceeds size limit")
 		}
+		catalogJSON = append(catalogJSON, line...)
+		catalogJSON = append(catalogJSON, '\n')
+		if !json.Valid(catalogJSON) {
+			return false, nil
+		}
+		var catalog struct {
+			Models []struct{ Slug, Visibility string } `json:"models"`
+		}
+		if err := json.Unmarshal(catalogJSON, &catalog); err != nil {
+			return false, err
+		}
+		for _, m := range catalog.Models {
+			if m.Slug != "" && len(m.Slug) <= 200 && m.Visibility != "hide" {
+				slugs = append(slugs, m.Slug)
+			}
+		}
+		return true, nil
+	}
+	session, err := run(ctx, cmd, func(bool) {}, parse, nil, func(Message) error { return nil })
+	if err != nil {
+		return nil
+	}
+	result := <-session.Done
+	if result.Err != nil {
+		return nil
 	}
 	return slugs
 }

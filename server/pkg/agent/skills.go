@@ -15,10 +15,8 @@ import (
 // skillFolders says where each harness reads project skills, relative to the
 // run's folder.
 var skillFolders = map[string]string{
-	"claude":      ".claude/skills",
-	"codex":       ".agents/skills",
-	"cursor":      ".cursor/skills",
-	"antigravity": ".agents/skills",
+	"claude": ".claude/skills",
+	"codex":  ".agents/skills",
 }
 
 // SkillsDir is the folder a harness reads skills from in a run folder. It is
@@ -57,10 +55,9 @@ const ReloadSkills = "This session continues in a new working folder. Skills you
 
 // placeSkills wipes the run folder's skills folder and copies the staged
 // skill folders into it, so every prepare leaves exactly the staged skills
-// there. A private run is given none: its folder must hold no CLI discovery
-// paths. Only folders and regular files are copied.
+// there. Only folders and regular files are copied.
 func placeSkills(o *ExecOptions, harness string) error {
-	if o.SkillsFrom == "" || !o.Inherit {
+	if o.SkillsFrom == "" {
 		return nil
 	}
 	es, err := os.ReadDir(o.SkillsFrom)

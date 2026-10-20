@@ -18,7 +18,7 @@ while IFS= read -r prompt; do
  echo '{"type":"assistant","message":{"content":[{"type":"text","text":"1. Check model residuals"}]}}'
  echo "{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"naming-only\",\"modelUsage\":{\"m\":{\"inputTokens\":$i,\"outputTokens\":$i,\"costUSD\":0.01}}}"
 done`)
-	n, err := OpenNamingSession(context.Background(), "claude", bin, t.TempDir(), "m")
+	n, err := OpenNamingSession(context.Background(), "claude", bin, t.TempDir(), "m", testSandbox)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ done`)
 func TestNamingCancellationReleasesScratchAndNeverAnswersAnotherBatch(t *testing.T) {
 	bin := script(t, `while IFS= read -r prompt; do sleep 10; done`)
 	dir := t.TempDir()
-	n, err := OpenNamingSession(context.Background(), "claude", bin, dir, "m")
+	n, err := OpenNamingSession(context.Background(), "claude", bin, dir, "m", testSandbox)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,13 +77,13 @@ func TestNamingCancellationReleasesScratchAndNeverAnswersAnotherBatch(t *testing
 }
 
 func TestNamingRefusesUnverifiedHarnessAndToolRequests(t *testing.T) {
-	if _, err := OpenNamingSession(context.Background(), "codex", "does-not-exist", t.TempDir(), ""); err == nil {
+	if _, err := OpenNamingSession(context.Background(), "codex", "does-not-exist", t.TempDir(), "", testSandbox); err == nil {
 		t.Fatal("unverified tool denial accepted")
 	}
 	bin := script(t, `read prompt
 echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"bad","name":"Read","input":{"file_path":"secret"}}]}}'
 `)
-	n, err := OpenNamingSession(context.Background(), "claude", bin, t.TempDir(), "")
+	n, err := OpenNamingSession(context.Background(), "claude", bin, t.TempDir(), "", testSandbox)
 	if err != nil {
 		t.Fatal(err)
 	}

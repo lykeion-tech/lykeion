@@ -68,7 +68,7 @@ func TestRunFolderConfigListsEveryName(t *testing.T) {
 	if found < 30 {
 		t.Fatalf("only %d names found; the scan is not reading the sources", found)
 	}
-	for _, d := range discoveryNames {
+	for _, d := range []string{".codex", ".claude", ".agents", ".claude.json", ".mcp.json", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"} {
 		if !slices.ContainsFunc(RunFolderConfig, func(p RunFolderPath) bool { return p.Name == d }) {
 			t.Errorf("discovery name %q is not in RunFolderConfig", d)
 		}

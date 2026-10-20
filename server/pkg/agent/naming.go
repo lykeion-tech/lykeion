@@ -26,13 +26,16 @@ type namingAnswer struct {
 	err  error
 }
 
-func OpenNamingSession(ctx context.Context, harness, bin, dir, model string) (*NamingSession, error) {
+func OpenNamingSession(ctx context.Context, harness, bin, dir, model string, sandbox SandboxCommand) (*NamingSession, error) {
+	if sandbox == nil {
+		return nil, ErrNoSandbox
+	}
 	if harness != "claude" {
 		return nil, errors.New("this harness has no verified tool-free naming mode")
 	}
 	processCtx, cancel := context.WithCancel(ctx)
-	opts := ExecOptions{Dir: dir, Model: model}
-	home, cleanup, err := prepareScratch(&opts, "claude", "CLAUDE_CONFIG_DIR", ".claude", claudeCredFile)
+	opts := ExecOptions{Dir: dir, Model: model, Sandbox: sandbox}
+	home, cleanup, err := prepareScratch(&opts, "claude")
 	if err != nil {
 		cancel()
 		return nil, err
@@ -44,7 +47,12 @@ func OpenNamingSession(ctx context.Context, harness, bin, dir, model string) (*N
 	if bin == "" {
 		bin = "claude"
 	}
-	cmd := command(processCtx, bin, "", opts, home, args...)
+	cmd, err := command(processCtx, bin, "", opts, args...)
+	if err != nil {
+		cleanup(true)
+		cancel()
+		return nil, err
+	}
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		cleanup(true)

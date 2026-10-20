@@ -22,8 +22,11 @@ func modelUsage(input, output, read, write int64, cost any) map[string]any {
 	return m
 }
 func runClaudeUsage(t *testing.T, dir, resume, frame string) Result {
+	if resume != "" {
+		seedClaudeTranscript(t, resume)
+	}
 	t.Helper()
-	s, err := (Claude{Bin: script(t, "echo '"+frame+"'")}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: resume})
+	s, err := (Claude{Bin: script(t, "echo '"+frame+"'")}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: seedClaudeTranscript(t, resume)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +127,7 @@ func TestClaudeResumeRefusesUnknownOrWrongBaselineBeforeLaunch(t *testing.T) {
 			if tc == "session_mismatch" {
 				resume = "different"
 			}
-			_, err := (Claude{Bin: script(t, "touch '"+started+"'")}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: resume})
+			_, err := (Claude{Bin: script(t, "touch '"+started+"'")}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: seedClaudeTranscript(t, resume)})
 			if err == nil || !strings.Contains(err.Error(), "baseline") {
 				t.Fatalf("unsafe resume accepted: %v", err)
 			}
@@ -177,7 +180,7 @@ func TestClaudeResumeInvalidatesBaselineOnInterruptedAttempt(t *testing.T) {
 		if r.Err != nil {
 			t.Fatal(r.Err)
 		}
-		s, err := (Claude{Bin: script(t, body)}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: "s"})
+		s, err := (Claude{Bin: script(t, body)}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: seedClaudeTranscript(t, "s")})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -185,7 +188,7 @@ func TestClaudeResumeInvalidatesBaselineOnInterruptedAttempt(t *testing.T) {
 		if r.Err == nil {
 			t.Fatal("expected failed resumed attempt")
 		}
-		if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: "s"}); err == nil {
+		if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: seedClaudeTranscript(t, "s")}); err == nil {
 			t.Fatal("failed run reused stale baseline")
 		}
 	}
@@ -235,13 +238,13 @@ echo '` + usageFrame("s", map[string]any{"main": modelUsage(115, 27, 360, 42, 1.
 touch '` + exited + `'`
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	s, err := (Claude{Bin: script(t, body)}).Execute(ctx, "p", ExecOptions{Dir: dir, Resume: "s"})
+	s, err := (Claude{Bin: script(t, body)}).Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: seedClaudeTranscript(t, "s")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitFile(t, exited)
 	time.Sleep(100 * time.Millisecond)
-	if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Dir: dir}); err == nil {
+	if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir}); err == nil {
 		t.Fatal("scratch released before pending usage normalization")
 	}
 	_, r = collect(t, s)
@@ -266,7 +269,7 @@ func TestClaudeUsageRejectsInvalidNumericBaselines(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, ".cli-home", ".lyk-usage.json"), []byte(bad), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: "s"}); err == nil {
+		if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: seedClaudeTranscript(t, "s")}); err == nil {
 			t.Fatalf("invalid baseline accepted: %s", bad)
 		}
 	}
@@ -280,7 +283,7 @@ func TestClaudeResumeCancellationConsumesBaseline(t *testing.T) {
 	ready := filepath.Join(t.TempDir(), "ready")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s, err := (Claude{Bin: script(t, "touch '"+ready+"'\nsleep 300")}).Execute(ctx, "p", ExecOptions{Dir: dir, Resume: "s"})
+	s, err := (Claude{Bin: script(t, "touch '"+ready+"'\nsleep 300")}).Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: seedClaudeTranscript(t, "s")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +293,7 @@ func TestClaudeResumeCancellationConsumesBaseline(t *testing.T) {
 	if r.Reason != ReasonRuntimeOffline {
 		t.Fatalf("%+v", r)
 	}
-	if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: "s"}); err == nil {
+	if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: seedClaudeTranscript(t, "s")}); err == nil {
 		t.Fatal("cancelled execution left reusable stale baseline")
 	}
 }
@@ -316,7 +319,7 @@ func TestClaudeResumeTerminalFailureSurvivesMissingUsage(t *testing.T) {
 			if len(r.Usage) != 0 {
 				t.Fatalf("ambiguous resumed usage retained: %+v", r.Usage)
 			}
-			if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Resume: "s"}); err == nil {
+			if _, err := (Claude{Bin: script(t, "exit 0")}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: seedClaudeTranscript(t, "s")}); err == nil {
 				t.Fatal("failed terminal result restored unsafe baseline")
 			}
 		})

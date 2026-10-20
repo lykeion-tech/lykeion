@@ -29,13 +29,12 @@ type ExecOptions struct {
 	// DoorURL and DoorToken reach the daemon's tool door, the one MCP server
 	// the CLI is given; every connector call goes through it.
 	DoorURL, DoorToken string
-	// Inherit runs the CLI as the account's own: its sign-in, history, personal
-	// settings, skills, instructions, hooks and MCP all apply. Nothing is copied.
-	Inherit bool
+	Sandbox            SandboxCommand
+	CLIPaths           CLIPaths
+	CacheDir           string
 	// SkillsFrom is a folder of skill folders Lykeion staged for this run.
 	// Each time the scratch is prepared they are copied afresh into the run
-	// folder's skills folder, but only for a run that inherits the account's
-	// setup; the account's own skills folder is never written.
+	// folder's skills folder; the account's own skills folder is never written.
 	SkillsFrom string
 	// ReadOnly lets the CLI's own tools read, but not write files or run
 	// commands that change anything.
@@ -82,20 +81,17 @@ type Backend interface {
 
 // Harnesses maps every harness Lykeion can run to the binary the daemon looks
 // for on PATH. The database harness constraints mirror these names.
-var Harnesses = map[string]string{"claude": "claude", "codex": "codex", "cursor": "cursor-agent", "antigravity": "agy"}
+var Harnesses = map[string]string{"claude": "claude", "codex": "codex"}
 
-// ReadOnlyHarnesses are the harnesses whose adapter honours ExecOptions.ReadOnly;
-// the others refuse a read-only run with ErrNoReadOnly.
-var ReadOnlyHarnesses = map[string]bool{"claude": true, "codex": true, "cursor": true}
+// ReadOnlyHarnesses are the harnesses whose adapter honours ExecOptions.ReadOnly.
+var ReadOnlyHarnesses = map[string]bool{"claude": true, "codex": true}
 
 func New(harness, bin string) (Backend, error) {
 	switch harness {
 	case "claude":
 		return Claude{Bin: bin}, nil
-	case "antigravity":
-		return Antigravity{Bin: bin}, nil
-	case "cursor":
-		return Cursor{Bin: bin}, nil
+	case "antigravity", "cursor":
+		return nil, ErrHarnessRemoved
 	case "codex":
 		return Codex{Bin: bin}, nil
 	}
@@ -322,10 +318,25 @@ func waitSupervised(cmd *exec.Cmd, nonce string) error {
 	}
 }
 
-func command(ctx context.Context, bin, prompt string, o ExecOptions, home string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, bin, args...)
+// SandboxCommand creates an OS-confined CLI command from its computed state grants.
+type SandboxCommand func(context.Context, CLIPaths, string, ...string) (*exec.Cmd, error)
+
+var ErrNoSandbox = errors.New("this run has no sandbox")
+var ErrHarnessRemoved = errors.New("this agent harness is no longer supported")
+
+func command(ctx context.Context, bin, prompt string, o ExecOptions, args ...string) (*exec.Cmd, error) {
+	if o.Sandbox == nil {
+		return nil, ErrNoSandbox
+	}
+	cmd, err := o.Sandbox(ctx, o.CLIPaths, bin, args...)
+	if err != nil {
+		return nil, err
+	}
+	if cmd == nil {
+		return nil, errors.New("sandbox returned no command")
+	}
 	cmd.Dir = o.Dir
-	cmd.Env = childEnv(o, home)
+	cmd.Env = childEnv(o, o.CacheDir)
 	cmd.Stdin = strings.NewReader(prompt)
-	return cmd
+	return cmd, nil
 }

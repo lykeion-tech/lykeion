@@ -32,7 +32,7 @@ echo "HOME=$HOME CFG=$`+c.env+`" > `+seen+`
 ls -A .cli-home >> `+seen+`
 echo '`+c.terminal+`'`)
 			b, _ := New(c.harness, bin)
-			s, err := b.Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: true})
+			s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -51,7 +51,7 @@ echo '`+c.terminal+`'`)
 					t.Errorf("continuity run kept isolation flag %q", isolation)
 				}
 			}
-			want := []string{strings.Join(codexSandbox(runtime.GOOS), "\n") + "\n"}
+			want := []string{"-s\ndanger-full-access" + "\n"}
 			if c.harness == "claude" {
 				want = []string{"--input-format\nstream-json", "--permission-mode\ndefault\n--allowedTools\n" + claudeTools + "\n"}
 			}
@@ -64,16 +64,13 @@ echo '`+c.terminal+`'`)
 	}
 }
 
-func TestInheritSkipsManagedAndAncestorRefusals(t *testing.T) {
+func TestSingleModeAllowsAccountDiscovery(t *testing.T) {
 	parent := t.TempDir()
-	os.WriteFile(filepath.Join(parent, "CLAUDE.md"), []byte("project"), 0o600)
+	os.WriteFile(filepath.Join(parent, "CLAUDE.md"), []byte("project"), 0600)
 	dir := filepath.Join(parent, "scratch")
-	os.Mkdir(dir, 0o700)
+	os.Mkdir(dir, 0700)
 	bin := script(t, `IFS= read -r first; echo '{"type":"result","is_error":false}'; cat >/dev/null`)
-	if _, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: dir}); err == nil {
-		t.Fatal("private mode accepted a discovery ancestor")
-	}
-	s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Inherit: true})
+	s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Sandbox: testSandbox})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +88,7 @@ cat >/dev/null`)
 	prompt := strings.Repeat("Line with \"quotes\", \\ slashes,\nnewlines and   separators.\n", 80000)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	s, err := (Claude{Bin: bin}).Execute(ctx, prompt, ExecOptions{Dir: t.TempDir(), Inherit: true})
+	s, err := (Claude{Bin: bin}).Execute(ctx, prompt, ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +117,7 @@ echo '{"type":"result","is_error":false}'
 cat >/dev/null`)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	s, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Dir: t.TempDir(), Inherit: true})
+	s, err := (Claude{Bin: bin}).Execute(ctx, "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +151,7 @@ func TestMalformedClaudeControlRequestFails(t *testing.T) {
 		`{"type":"control_request","request_id":"r1","request":{}}`,
 	} {
 		bin := script(t, `IFS= read -r first; echo '`+frame+`'; sleep 5`)
-		s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: true})
+		s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -165,6 +162,7 @@ func TestMalformedClaudeControlRequestFails(t *testing.T) {
 }
 
 func TestClaudeResumeRefusedBeforeWork(t *testing.T) {
+	seedClaudeTranscript(t, "gone")
 	for _, c := range []struct {
 		name, out string
 		refused   bool
@@ -180,7 +178,7 @@ func TestClaudeResumeRefusedBeforeWork(t *testing.T) {
 `+c.out+`
 EOF
 cat >/dev/null`)
-			s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Inherit: true, Resume: "gone", ClaudeBaseline: baseline})
+			s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, Resume: "gone", ClaudeBaseline: baseline})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -216,7 +214,7 @@ func TestClaudeInputIsBoundedAndCloseUnblocks(t *testing.T) {
 func TestCancelWhileClaudeIgnoresStdin(t *testing.T) {
 	bin := script(t, `sleep 30`)
 	ctx, cancel := context.WithCancel(context.Background())
-	s, err := (Claude{Bin: bin}).Execute(ctx, strings.Repeat("x", 4<<20), ExecOptions{Dir: t.TempDir(), Inherit: true})
+	s, err := (Claude{Bin: bin}).Execute(ctx, strings.Repeat("x", 4<<20), ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,10 +232,11 @@ func TestCancelWhileClaudeIgnoresStdin(t *testing.T) {
 }
 
 func TestClaudeBaselineRoundTripsThroughResult(t *testing.T) {
+	seedClaudeTranscript(t, "s1")
 	result := `{"type":"result","is_error":false,"session_id":"s1","modelUsage":{"m":{"inputTokens":%d,"outputTokens":%d,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":%s}}}`
 	run := func(out string, o ExecOptions) Result {
 		bin := script(t, "IFS= read -r first; echo '"+out+"'; cat >/dev/null")
-		o.Dir, o.Inherit = t.TempDir(), true
+		o.Dir = t.TempDir()
 		s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", o)
 		if err != nil {
 			t.Fatal(err)
@@ -245,13 +244,13 @@ func TestClaudeBaselineRoundTripsThroughResult(t *testing.T) {
 		_, r := collect(t, s)
 		return r
 	}
-	first := run(fmt.Sprintf(result, 10, 5, "0.5"), ExecOptions{})
+	first := run(fmt.Sprintf(result, 10, 5, "0.5"), ExecOptions{Sandbox: testSandbox})
 	if first.Err != nil || len(first.ClaudeSnapshot) == 0 {
 		t.Fatalf("%+v", first)
 	}
 	// A fresh scratch resumes from the returned snapshot and is charged only
 	// for the work after it, never twice.
-	second := run(fmt.Sprintf(result, 14, 9, "0.75"), ExecOptions{Resume: "s1", ClaudeBaseline: first.ClaudeSnapshot})
+	second := run(fmt.Sprintf(result, 14, 9, "0.75"), ExecOptions{Sandbox: testSandbox, Resume: "s1", ClaudeBaseline: first.ClaudeSnapshot})
 	if second.Err != nil || len(second.Usage) != 1 {
 		t.Fatalf("%+v", second)
 	}
@@ -259,7 +258,7 @@ func TestClaudeBaselineRoundTripsThroughResult(t *testing.T) {
 	if u.InputTokens != 4 || u.OutputTokens != 4 || u.CostUSD == nil || *u.CostUSD != 0.25 {
 		t.Fatalf("resumed usage %+v cost %v", u, *u.CostUSD)
 	}
-	if _, err := (Claude{Bin: "/bin/false"}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: true, Resume: "s1"}); err == nil {
+	if _, err := (Claude{Bin: "/bin/false"}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Resume: "s1"}); err == nil {
 		t.Fatal("resume without a trustworthy baseline started")
 	}
 }
@@ -293,7 +292,6 @@ func TestCodexModelComesFromTheAccount(t *testing.T) {
 		{"configured default the account can see", live, "gpt-5.6-sol", "", "gpt-5.6-sol", true},
 		{"configured default the account cannot see", live, "gpt-retired", "", "gpt-6.1-sol", true},
 		{"no configured default", live, "", "", "gpt-6.1-sol", true},
-		{"private mode ignores the personal config", live, "gpt-5.6-sol", "", "gpt-6.1-sol", false},
 		{"offline falls back to the bundled catalog", "fail", "", "", "gpt-5.6-luna", true},
 		{"explicit model wins", live, "gpt-5.6-sol", "gpt-x", "gpt-x", true},
 	} {
@@ -304,7 +302,7 @@ func TestCodexModelComesFromTheAccount(t *testing.T) {
 				os.WriteFile(filepath.Join(home, "config.toml"), []byte("# personal\nmodel = \""+c.configured+"\"\nmodel_reasoning_effort = \"medium\"\n[profiles.fast]\nmodel = \"other\"\n"), 0o600)
 			}
 			args := filepath.Join(t.TempDir(), "args")
-			s, err := (Codex{Bin: catalogScript(t, c.live, bundled, args)}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: c.inherit, Model: c.explicit})
+			s, err := (Codex{Bin: catalogScript(t, c.live, bundled, args)}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Model: c.explicit})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -318,7 +316,7 @@ func TestCodexModelComesFromTheAccount(t *testing.T) {
 	t.Run("no catalog and no default", func(t *testing.T) {
 		t.Setenv("CODEX_HOME", t.TempDir())
 		bin := catalogScript(t, "fail", "not json", filepath.Join(t.TempDir(), "args"))
-		if _, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: true}); err == nil || !strings.Contains(err.Error(), "cannot determine the Codex model") {
+		if _, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "cannot determine the Codex model") {
 			t.Fatal(err)
 		}
 	})
@@ -327,7 +325,7 @@ func TestCodexModelComesFromTheAccount(t *testing.T) {
 func TestUnpricedCodexModelRunsWithAVisibleWarning(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	bin := catalogScript(t, `{"models":[{"slug":"gpt-unpriced","visibility":"list"}]}`, "", filepath.Join(t.TempDir(), "args"))
-	s, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: true})
+	s, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,10 +343,10 @@ func TestUnpricedCodexModelRunsWithAVisibleWarning(t *testing.T) {
 }
 
 func TestClaudeReportsItsModel(t *testing.T) {
-	bin := script(t, `cat >/dev/null
+	bin := script(t, `IFS= read -r prompt
 echo '{"type":"system","subtype":"init","model":"claude-haiku-5-5","session_id":"s"}'
 echo '{"type":"result","is_error":false,"session_id":"s"}'`)
-	s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir()})
+	s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,27 +355,18 @@ echo '{"type":"result","is_error":false,"session_id":"s"}'`)
 	}
 }
 
-func TestCodexSandboxKeepsNetworkPerOS(t *testing.T) {
-	for goos, want := range map[string]string{
-		"darwin":  "-s danger-full-access",
-		"linux":   "-s workspace-write -c sandbox_workspace_write.network_access=true",
-		"windows": "-s workspace-write -c sandbox_workspace_write.network_access=true",
-	} {
-		if got := strings.Join(codexSandbox(goos), " "); got != want {
-			t.Errorf("%s: %s", goos, got)
-		}
-	}
-	for _, inherit := range []bool{false, true} {
+func TestCodexAlwaysDangerFullAccess(t *testing.T) {
+	for _, ro := range []bool{false, true} {
 		args := filepath.Join(t.TempDir(), "args")
-		bin := script(t, `printf '%s\n' "$@" > `+args+`; echo '{"type":"turn.completed","usage":{}}'`)
-		s, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Inherit: inherit})
+		bin := script(t, `printf '%s\n' "$@" > '`+args+`'; echo '{"type":"turn.completed","usage":{}}'`)
+		session, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Sandbox: testSandbox, ReadOnly: ro})
 		if err != nil {
 			t.Fatal(err)
 		}
-		collect(t, s)
-		argv, _ := os.ReadFile(args)
-		if !strings.Contains(string(argv), strings.Join(codexSandbox(runtime.GOOS), "\n")+"\n") {
-			t.Fatalf("inherit=%v sandbox missing: %s", inherit, argv)
+		collect(t, session)
+		got, _ := os.ReadFile(args)
+		if !strings.Contains(string(got), "-s\ndanger-full-access\n") || strings.Contains(string(got), "--ignore-user-config") {
+			t.Fatalf("args %s", got)
 		}
 	}
 }
@@ -400,13 +389,13 @@ func TestScratchLockSurvivesAKilledHolder(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	bin := script(t, `cat >/dev/null; echo '{"type":"result","is_error":false}'`)
-	if _, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: dir}); err == nil || !strings.Contains(err.Error(), "already in use") {
+	bin := script(t, `IFS= read -r prompt; echo '{"type":"result","is_error":false}'`)
+	if _, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir}); err == nil || !strings.Contains(err.Error(), "already in use") {
 		t.Fatalf("a held scratch was entered: %v", err)
 	}
 	holder.Process.Signal(syscall.SIGKILL)
 	holder.Wait()
-	s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: dir})
+	s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir})
 	if err != nil {
 		t.Fatalf("a killed holder still blocks the scratch: %v", err)
 	}
@@ -418,25 +407,20 @@ func TestScratchLockSurvivesAKilledHolder(t *testing.T) {
 	}
 }
 
-func TestPlacedSkillFoldersAreRewrittenOnEveryPrepare(t *testing.T) {
+func TestAccountingStateIsNotADiscoveryHome(t *testing.T) {
 	dir := t.TempDir()
-	bin := script(t, `cat >/dev/null; echo '{"type":"result","is_error":false}'`)
-	for i := 0; i < 2; i++ {
-		s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: dir})
-		if err != nil {
-			t.Fatalf("prepare %d: %v", i, err)
-		}
-		collect(t, s)
-		resolved, _ := filepath.EvalSymlinks(dir)
-		for _, placed := range []string{"skills/a", ".agents/skills/b"} {
-			os.MkdirAll(filepath.Join(resolved, ".cli-home", placed), 0o700)
-			os.WriteFile(filepath.Join(resolved, ".cli-home", placed, "SKILL.md"), []byte("x"), 0o600)
-		}
+	path := filepath.Join(dir, ".cli-home", "nested", "skills")
+	os.MkdirAll(path, 0700)
+	bin := script(t, `echo '{"type":"result","is_error":false}'`)
+	s, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: dir, Sandbox: testSandbox})
+	if err != nil {
+		t.Fatal(err)
 	}
-	resolved, _ := filepath.EvalSymlinks(dir)
-	os.MkdirAll(filepath.Join(resolved, ".cli-home", "nested", "skills"), 0o700)
-	if _, err := (Claude{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: dir}); err == nil {
-		t.Fatal("a skills folder outside the placed roots was accepted")
+	if _, r := collect(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -454,13 +438,12 @@ func TestSessionReachableLooksInTheCLIStore(t *testing.T) {
 	}{
 		{"claude", "s-1", true, true},
 		{"claude", "s-2", true, false},
-		{"claude", "s-1", false, false},
 		{"claude", "../s-1", true, false},
 		{"codex", "t-1", true, true},
 		{"codex", "t-2", true, false},
 		{"cursor", "s-1", true, false},
 	} {
-		if got := SessionReachable(c.harness, c.session, c.inherit, t.TempDir()); got != c.want {
+		if got := SessionReachable(c.harness, c.session); got != c.want {
 			t.Errorf("%+v: %v", c, got)
 		}
 	}
@@ -478,7 +461,7 @@ func TestPersonalLykeionNamedCodexServerCannotMerge(t *testing.T) {
 		args := filepath.Join(t.TempDir(), "args")
 		bin := script(t, `printf '%s\n' "$@" > `+args+`; echo '{"type":"turn.completed","usage":{}}'`)
 		var notes []string
-		o := ExecOptions{Dir: t.TempDir(), Inherit: true, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", MCPToken: "ltk_x", OnMessage: func(m Message) error {
+		o := ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", MCPToken: "ltk_x", OnMessage: func(m Message) error {
 			if m.Type == "status" && strings.Contains(string(m.Content), "continuity") {
 				notes = append(notes, string(m.Content))
 			}
