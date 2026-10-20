@@ -163,7 +163,15 @@ test('Teams sorts by its latest version and shares Agents column positions and P
   const projectPositions = await page
     .locator('.projects-table th')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
-  expect(projectPositions).toEqual(agentPositions);
+  expect(projectPositions.slice(0, 2)).toEqual(agentPositions.slice(0, 2));
+  for (let i = 2; i < projectPositions.length; i++)
+    expect(projectPositions[i]! - projectPositions[i - 1]!).toBe(134);
+  const valuePositions = await page
+    .locator('.projects-table tbody tr')
+    .first()
+    .locator('td')
+    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
+  expect(valuePositions).toEqual(projectPositions);
   expect((await heading.boundingBox())!.y).toBe(teamHeaderY - 46);
   await expect(heading).toHaveCSS('border-bottom-width', '0px');
   await expect(heading).toHaveCSS('padding-bottom', '0px');

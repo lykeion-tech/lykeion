@@ -756,6 +756,7 @@ async function save() {
   overflow: hidden;
 }
 .project-directory {
+  --directory-columns: minmax(240px, 1fr) repeat(5, 122px);
   padding: 8px 24px 32px;
 }
 .projects-table th {
