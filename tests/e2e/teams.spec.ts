@@ -62,6 +62,14 @@ test('the store filters by domain and stage', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'Filter Teams' })).toHaveCount(0);
   await page.screenshot({ path: `${shots}/store-filtered.png` });
+  const search = page.getByRole('textbox', { name: 'Search Teams', exact: true });
+  await search.fill('STORE-NEURO');
+  await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(1);
+  await search.fill('store-chem');
+  await expect(rows).toHaveCount(0);
+  await expect(page.getByText('No matching Teams', { exact: true })).toBeVisible();
+  await search.fill('');
+  await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(1);
 });
 
 test('adding a Team creates its agents', async ({ page }) => {

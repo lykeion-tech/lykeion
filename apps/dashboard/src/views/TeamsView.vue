@@ -6,9 +6,11 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import { addTeam, useTeam, useTeams } from '../api/queries';
 import type { TeamMember } from '../api/types';
+import { matchesQuery } from '../lib/search';
 
 const props = defineProps<{ id?: string }>();
 const client = useQueryClient();
+const search = ref('');
 const domain = ref('');
 const stage = ref('');
 const filterOpen = ref(false);
@@ -35,6 +37,11 @@ onUnmounted(() => document.removeEventListener('pointerdown', outsideFilter));
 const stages = ['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'];
 const everything = useTeams('', '');
 const teams = useTeams(domain, stage);
+const rows = computed(() =>
+  (teams.data.value ?? []).filter((team) =>
+    matchesQuery(`${team.name} ${team.manifest.description}`, search.value),
+  ),
+);
 const detail = useTeam(() => props.id ?? '');
 const domains = computed(() =>
   [...new Set((everything.data.value ?? []).map((t) => t.domain).filter(Boolean))].sort(),
@@ -164,6 +171,12 @@ const add = (id: string) =>
     </template>
     <template v-else>
       <div class="agent-toolbar team-toolbar">
+        <label class="agent-search"
+          ><Icon name="search" :size="14" /><input
+            v-model="search"
+            placeholder="Search Teams..."
+            aria-label="Search Teams"
+        /></label>
         <div ref="filterAnchor" class="team-filter menu-anchor" @focusout="leaveFilter">
           <button
             ref="filterTrigger"
@@ -231,7 +244,7 @@ const add = (id: string) =>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="t in teams.data.value" :key="t.id">
+            <tr v-for="t in rows" :key="t.id">
               <td>
                 <RouterLink :to="'/teams/' + t.id" class="team-name"
                   ><Icon name="network" :size="18" /><span>{{ t.name }}</span></RouterLink
@@ -246,7 +259,13 @@ const add = (id: string) =>
           </tbody>
         </table>
       </div>
-      <div v-if="teams.isSuccess.value && !teams.data.value?.length" class="directory-empty">
+      <p v-if="teams.isSuccess.value && search && !rows.length" class="agent-none">
+        No matching Teams
+      </p>
+      <div
+        v-if="teams.isSuccess.value && !search && !teams.data.value?.length"
+        class="directory-empty"
+      >
         <Icon name="network" :size="30" />
         <h2>No Teams yet</h2>
         <p>A Team is the agents that work each stage of your studies.</p>

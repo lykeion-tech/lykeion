@@ -11,6 +11,11 @@ test('Teams uses the reference table and opens the reference-size scientific cre
     stage: 'grounding',
   });
   await page.goto('/#/teams');
+  const search = page.getByRole('textbox', { name: 'Search Teams', exact: true });
+  await expect(search).toHaveAttribute('placeholder', 'Search Teams...');
+  await expect(search.locator('..')).toHaveClass('agent-search');
+  await expect(search.locator('..')).toHaveCSS('width', '224px');
+  await expect(search.locator('..')).toHaveCSS('height', '32px');
   const table = page.getByRole('table', { name: 'Teams', exact: true });
   await expect(table.getByRole('columnheader', { name: 'Name', exact: true })).toHaveCSS(
     'font-size',
