@@ -19,6 +19,7 @@ import (
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/kernels"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/pkg/agent"
 )
 
 const (
@@ -181,7 +182,7 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	}
 	limit := d.ScriptTimeout
 	if limit == 0 {
-		limit = 2 * time.Hour
+		limit = agent.ScriptLimit
 	}
 	runCtx, stop := context.WithTimeout(ctx, limit)
 	defer stop()

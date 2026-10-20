@@ -57,7 +57,7 @@ type Door struct {
 	Child func() agent.ExecOptions
 	// Study is the study's environment, where run_code and run_script run.
 	Study *envs.Study
-	// ScriptTimeout is how long a script may run; 0 means 2 hours.
+	// ScriptTimeout is how long a script may run; 0 means agent.ScriptLimit.
 	ScriptTimeout time.Duration
 
 	// URL and Token are set by Start: the CLI's MCP entry and its bearer.

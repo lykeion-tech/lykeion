@@ -1083,3 +1083,29 @@ func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
 		}
 	}
 }
+
+// Claude waits on a door call a little past the door's own script limit, so a
+// long script ends by the door's rule and not by Claude's request timeout.
+func TestClaudeWaitsForTheDoorsScriptLimit(t *testing.T) {
+	for _, inherit := range []bool{false, true} {
+		dir := t.TempDir()
+		s, err := Claude{Bin: script(t, "exit 0")}.Execute(context.Background(), "p",
+			ExecOptions{Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", Inherit: inherit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		raw, _ := os.ReadFile(filepath.Join(dir, ".lyk-mcp.json"))
+		var cfg struct {
+			MCPServers map[string]struct {
+				Timeout int64 `json:"timeout"`
+			} `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.MCPServers["lyk_door"].Timeout; got != 7_500_000 {
+			t.Fatalf("inherit=%v, door timeout %d ms: %s", inherit, got, raw)
+		}
+	}
+}
