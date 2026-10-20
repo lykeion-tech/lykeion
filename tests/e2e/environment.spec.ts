@@ -1,8 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labFixture, labFlow, newStudy } from './lab';
+import { labFixture, labFlow, newStudy, openAgentTranscript } from './lab';
 
 const evidence = process.env.LYK_EVIDENCE_DIR;
 const longPackage = `very-long-package-name-${'x'.repeat(240)}==1.0`;
+
+// Opens a run of the study from its agent card, on the run dialog's Environment tab.
+async function openEnvironment(page: Page, cardId: string) {
+  await page.goto(`/#/studies/${cardId}`);
+  const study = await openAgentTranscript(page);
+  await study.getByRole('tab', { name: 'Environment' }).click();
+  return study;
+}
 
 // Seeds the fixture study's machine and a run record, and opens its Environment tab.
 async function fixtureEnvironment(page: Page) {
@@ -40,9 +48,7 @@ async function fixtureEnvironment(page: Page) {
   }[];
   const runtime = runtimes.find((r) => r.daemon_id === 'fixture')!;
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
-  await page.goto(`/#/studies/${f.card_id}`);
-  const study = page.getByRole('region', { name: 'Study' });
-  await study.getByRole('tab', { name: 'Environment' }).click();
+  const study = await openEnvironment(page, f.card_id);
   return { f, runtime, study };
 }
 
@@ -62,64 +68,44 @@ async function heartbeat(page: Page, ws: string, runtimeId: string, bases: Recor
   }
 }
 
-test('the study modal has Overview and Environment tabs moved by arrow keys', async ({ page }) => {
+test('the study page has no Overview and Environment tabs', async ({ page }) => {
   const study = await newStudy(page.request, 'Which tab opens first?', { assignee: null });
   await page.goto(`/#/studies/${study.id}`);
   const region = page.getByRole('region', { name: 'Study' });
-  const overview = region.getByRole('tab', { name: 'Overview' });
-  const environment = region.getByRole('tab', { name: 'Environment' });
-  await expect(overview).toHaveAttribute('aria-selected', 'true');
-  await expect(region.locator('.study-title')).toBeVisible();
-  await overview.focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(environment).toHaveAttribute('aria-selected', 'true');
-  await expect(environment).toBeFocused();
-  await expect(region.locator('.study-title')).toHaveCount(0);
-  await page.keyboard.press('ArrowLeft');
-  await expect(overview).toHaveAttribute('aria-selected', 'true');
-  await expect(overview).toBeFocused();
-  // Another study opens on Overview again.
-  await environment.click();
-  await expect(environment).toHaveAttribute('aria-selected', 'true');
-  const other = await newStudy(page.request, 'Which tab opens next?', { assignee: null });
-  await page.goto(`/#/studies/${other.id}`);
-  await expect(region.locator('.study-title')).toHaveText('Which tab opens next?');
-  await expect(overview).toHaveAttribute('aria-selected', 'true');
-  await expect(environment).toHaveAttribute('aria-selected', 'false');
+  await expect(region.locator('.study-title')).toHaveText('Which tab opens first?');
+  await expect(region.getByRole('tablist')).toHaveCount(0);
+  await expect(region.getByRole('tab', { name: 'Overview' })).toHaveCount(0);
+  await expect(region.getByRole('tab', { name: 'Environment' })).toHaveCount(0);
 });
 
-test('no machine is claimed missing while the study’s runs are still loading', async ({ page }) => {
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route('**/api/cards/*/runs', async (route) => {
-    await held;
-    await route.continue();
-  });
+test('the run dialog’s Environment keeps the run’s facts above the study’s machines and packages', async ({
+  page,
+}) => {
   const { study } = await fixtureEnvironment(page);
-  await expect(study.getByRole('heading', { name: 'Machines' })).toBeVisible();
-  await expect(study.locator('.env-packages pre')).toContainText('pandas');
-  await expect(study.getByText('No machine has run this study yet.')).toHaveCount(0);
-  release();
-  await expect(
-    study.getByRole('listitem').filter({ hasText: 'Recorded transcript' }),
-  ).toBeVisible();
-  await expect(study.getByText('No machine has run this study yet.')).toHaveCount(0);
+  const facts = study.locator('.environment li');
+  await expect(facts.filter({ hasText: 'Runtime' })).toBeVisible();
+  const machines = study.getByRole('heading', { name: 'Machines' });
+  await expect(machines).toBeVisible();
+  await expect(study.getByRole('heading', { name: 'Packages added by this study' })).toBeVisible();
+  const factsBox = (await facts.first().boundingBox())!;
+  expect(factsBox.y).toBeLessThan((await machines.boundingBox())!.y);
 });
 
-test('a study with no runs shows both empty states', async ({ page }) => {
-  const study = await newStudy(page.request, 'Has anything run yet?', { assignee: null });
-  await page.goto(`/#/studies/${study.id}`);
-  const region = page.getByRole('region', { name: 'Study' });
-  await region.getByRole('tab', { name: 'Environment' }).click();
-  await expect(region.getByRole('heading', { name: 'Machines' })).toBeVisible();
-  await expect(region.getByText('No machine has run this study yet.')).toBeVisible();
-  await expect(region.getByRole('heading', { name: 'Packages added by this study' })).toBeVisible();
-  await expect(region.getByText("This study hasn't added any packages.")).toBeVisible();
+test('a study without packages or a reported machine shows both empty states', async ({ page }) => {
+  // A deleted machine is hidden, so with no runtimes left no machine is listed.
+  await page.route('**/api/runtimes', (route) => route.fulfill({ json: [] }));
+  const f = await labFixture(page.request);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
+  const study = await openEnvironment(page, f.card_id);
+  await expect(study.getByRole('heading', { name: 'Machines' })).toBeVisible();
+  await expect(study.getByText('No machine has run this study yet.')).toBeVisible();
+  await expect(study.getByRole('heading', { name: 'Packages added by this study' })).toBeVisible();
+  await expect(study.getByText("This study hasn't added any packages.")).toBeVisible();
 });
 
 test('Environment lists the machine’s bases live and the latest packages', async ({ page }) => {
   const { f, runtime, study } = await fixtureEnvironment(page);
-  const machine = study.getByRole('listitem').filter({ hasText: 'Recorded transcript' });
+  const machine = study.locator('.env-machines li').filter({ hasText: 'Recorded transcript' });
   const base = (language: string) =>
     machine.locator('.base').filter({ has: page.getByText(language, { exact: true }) });
   await expect(base('Python')).toContainText('Not reported');

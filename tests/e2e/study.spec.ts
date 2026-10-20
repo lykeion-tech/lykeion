@@ -39,7 +39,7 @@ test('the study opens with a compact overview and identifiable runs, keeping the
   await expect(transcript.locator('.turn-assignment')).not.toContainText('You are the leader');
   await transcript.getByRole('tab', { name: 'Environment' }).click();
   await expect(transcript.getByText('Claude Code', { exact: true })).toBeVisible();
-  await expect(transcript.getByText(/^lab-mac/)).toBeVisible();
+  await expect(transcript.locator('.environment').getByText(/^lab-mac/)).toBeVisible();
   // The lab daemon reports its own machine's platform.
   const platform = transcript.locator('.environment li', { hasText: 'Platform' });
   await expect(platform.locator('code')).toHaveText(/^(linux|darwin|windows) \/ \w+$/);

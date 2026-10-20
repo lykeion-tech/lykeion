@@ -4,7 +4,7 @@ import { useKindRecords, useRuntimes } from '../api/queries';
 import type { AgentRun } from '../api/types';
 import { environmentView } from '../lib/environment';
 
-const props = defineProps<{ id: string; runs: AgentRun[]; runsLoaded: boolean }>();
+const props = defineProps<{ id: string; runs: AgentRun[] }>();
 const runtimes = useRuntimes();
 const records = useKindRecords(() => props.id, 'run');
 const view = computed(() =>
@@ -23,7 +23,7 @@ const chip = { Ready: 'chip-ready', Building: 'chip-working', Failed: 'chip-bloc
         {{ runtimes.error.value?.message }}
         <button class="text-button" @click="runtimes.refetch()">Retry machines</button>
       </p>
-      <p v-else-if="runsLoaded && runtimes.isSuccess.value && !view.machines.length" class="muted">
+      <p v-else-if="runtimes.isSuccess.value && !view.machines.length" class="muted">
         No machine has run this study yet.
       </p>
       <ul v-else class="env-machines">
