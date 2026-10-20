@@ -21,6 +21,10 @@ TIME_LIMIT = "the cell ran past its time limit; the session restarted and its va
 STOPPED = "the session's kernel stopped; it restarted and its variables are gone"
 START_TIMEOUT = 180
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# Each of stdout and error keeps at most CAP bytes of its JSON encoding, so a
+# reply always fits the line the daemon reads.
+CAP = 32 << 20
+CUT = "\n[output cut at 32 MiB]\n"
 
 replies = sys.stdout
 sys.stdout = sys.stderr
@@ -29,21 +33,23 @@ cwd = os.getcwd()
 # Kernels come only from the bases' kernelspec folders on JUPYTER_PATH, never
 # from the person's own Jupyter setup.
 _dirs = [os.path.join(p, "kernels") for p in os.environ.get("JUPYTER_PATH", "").split(os.pathsep) if p]
-specs = KernelSpecManager(kernel_dirs=_dirs) if _dirs else KernelSpecManager()
+specs = KernelSpecManager(kernel_dirs=_dirs)
 
 sessions = {}
 
 
 def kernel_name(language):
+    if not _dirs:
+        raise RuntimeError("no kernels are installed for this study")
     if language == "python":
         return "python3"
     if language == "r":
         return "ir"
     if language == "julia":
         # IJulia names its kernelspec after the Julia version, julia-<major.minor>.
-        names = sorted(n for n in specs.find_kernel_specs() if n.startswith("julia-"))
+        names = [n for n in specs.find_kernel_specs() if n.startswith("julia-")]
         if names:
-            return names[-1]
+            return max(names, key=lambda n: [int(d) for d in re.findall(r"\d+", n)])
         raise RuntimeError("no Julia kernel is installed")
     raise RuntimeError("unknown language %r" % language)
 
@@ -56,8 +62,8 @@ def start(language):
         km.kernel_spec.argv[0] = sys.executable
     km.start_kernel(cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     kc = km.client()
-    kc.start_channels()
     try:
+        kc.start_channels()
         kc.wait_for_ready(timeout=START_TIMEOUT)
     except Exception:
         stop(km, kc)
@@ -77,12 +83,14 @@ def stop(km, kc):
 
 
 def restart(language):
-    km, kc = sessions.pop(language)
+    # The session stays listed until the restart fails, so a shutdown that
+    # interrupts the restart still stops its kernel.
+    km, kc = sessions[language]
     try:
         km.restart_kernel(now=True)
         kc.wait_for_ready(timeout=START_TIMEOUT)
-        sessions[language] = (km, kc)
     except Exception:
+        del sessions[language]
         stop(km, kc)
 
 
@@ -91,7 +99,7 @@ def run(language, code, timeout):
         sessions[language] = start(language)
     km, kc = sessions[language]
     msg_id = kc.execute(code, allow_stdin=False)
-    out, err, failed = [], [], False
+    out, err, failed = Capped(), Capped(), False
     deadline = time.monotonic() + timeout
     while True:
         if time.monotonic() > deadline:
@@ -100,35 +108,65 @@ def run(language, code, timeout):
             except Exception:
                 pass
             restart(language)
-            return clean(out), TIME_LIMIT, False, True
+            return out.text(), TIME_LIMIT, False, True
         try:
             msg = kc.get_iopub_msg(timeout=0.2)
         except queue.Empty:
             if not km.is_alive():
                 restart(language)
-                return clean(out), STOPPED, False, True
+                return out.text(), STOPPED, False, True
             continue
         if msg["parent_header"].get("msg_id") != msg_id:
             continue
         kind, content = msg["msg_type"], msg["content"]
         if kind == "stream":
-            (err if content.get("name") == "stderr" else out).append(content.get("text", ""))
+            (err if content.get("name") == "stderr" else out).add(content.get("text", ""))
         elif kind in ("execute_result", "display_data"):
             text = content.get("data", {}).get("text/plain")
             if text is not None:
-                out.append(text if text.endswith("\n") else text + "\n")
+                out.add(text if text.endswith("\n") else text + "\n")
         elif kind == "error":
             failed = True
-            err.append("%s: %s\n" % (content.get("ename", ""), content.get("evalue", "")))
-            err.extend(line + "\n" for line in content.get("traceback", []))
+            err.add("%s: %s\n" % (content.get("ename", ""), content.get("evalue", "")))
+            for line in content.get("traceback", []):
+                err.add(line + "\n")
         elif kind == "status" and content.get("execution_state") == "idle":
             break
     ok = reply_status(kc, msg_id) == "ok" and not failed
-    return clean(out), clean(err), ok, False
+    return out.text(), err.text(), ok, False
 
 
-def clean(parts):
-    return ANSI.sub("", "".join(parts))
+def encoded(text):
+    return len(json.dumps(text)) - 2
+
+
+class Capped:
+    """Collects text up to CAP bytes of JSON encoding; past that it drops what
+    comes and notes the cut."""
+
+    def __init__(self):
+        self.parts, self.size, self.cut = [], 0, False
+
+    def add(self, text):
+        if self.cut:
+            return
+        n = encoded(text)
+        if self.size + n > CAP:
+            # The longest prefix whose encoding fits what is left.
+            lo, hi = 0, len(text)
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                if encoded(text[:mid]) <= CAP - self.size:
+                    lo = mid
+                else:
+                    hi = mid - 1
+            text, n, self.cut = text[:lo], encoded(text[:lo]), True
+        self.parts.append(text)
+        self.size += n
+
+    def text(self):
+        s = ANSI.sub("", "".join(self.parts))
+        return s + CUT if self.cut else s
 
 
 def reply_status(kc, msg_id):

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,11 @@ var CellTimeout = 10 * time.Minute
 // restartGrace is how long past CellTimeout the bridge has to interrupt and
 // restart a kernel before the daemon gives up on the bridge itself.
 const restartGrace = 5 * time.Minute
+
+// maxLine fits the longest reply the bridge writes: it caps stdout and error
+// at 32 MiB each, measured as their JSON encoding, so a reply is those two
+// plus a cut note apiece and a few short fields.
+const maxLine = 2*(32<<20) + 1<<20
 
 type Result struct {
 	Stdout, Error string
@@ -60,7 +66,9 @@ type bridge struct {
 }
 
 // Start writes the bridge into dir and starts it there with env as its whole
-// environment. Kernels start on each language's first cell.
+// environment. Kernels start on each language's first cell. ctx is not kept:
+// the bridge lives until Close, and a bridge that dies is started again by
+// the next Exec.
 func Start(ctx context.Context, python string, env []string, dir string) (*Sessions, error) {
 	if err := os.WriteFile(filepath.Join(dir, ".lyk-bridge.py"), []byte(bridgePy), 0o644); err != nil {
 		return nil, err
@@ -92,14 +100,28 @@ func (s *Sessions) start() (*bridge, error) {
 	}
 	b := &bridge{cmd: cmd, in: in, replies: make(chan reply, 1), done: make(chan struct{})}
 	go func() {
+		// A bridge that breaks the protocol is told to stop, which shuts its
+		// kernels down, and killed if it hasn't exited after 5 seconds.
+		halt := func(msg string, err error) {
+			slog.Warn(msg, "err", err)
+			cmd.Process.Signal(syscall.SIGTERM)
+			time.AfterFunc(5*time.Second, func() { cmd.Process.Kill() })
+		}
 		sc := bufio.NewScanner(out)
-		sc.Buffer(nil, 64<<20)
+		sc.Buffer(nil, maxLine)
 		for sc.Scan() {
 			var r reply
-			if json.Unmarshal(sc.Bytes(), &r) == nil {
-				b.replies <- r
+			if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
+				halt("the session bridge wrote a line that isn't a reply; stopping it", err)
+				break
 			}
+			b.replies <- r
 		}
+		if err := sc.Err(); err != nil {
+			halt("reading the session bridge; stopping it", err)
+		}
+		// The bridge may still be writing; drain so Wait can return.
+		io.Copy(io.Discard, out)
 		cmd.Wait()
 		close(b.done)
 	}()
@@ -143,6 +165,14 @@ func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) 
 				return Result{Stdout: r.Stdout, Error: r.Error, OK: r.OK}, nil
 			}
 		case <-b.done:
+			select {
+			case r := <-b.replies:
+				if r.ID == id {
+					s.b = nil
+					return Result{Stdout: r.Stdout, Error: r.Error, OK: r.OK}, nil
+				}
+			default:
+			}
 			return gone()
 		case <-limit.C:
 			stop(b)
@@ -155,7 +185,8 @@ func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) 
 
 // Close shuts the kernels down through the bridge. A bridge that doesn't exit
 // is told to stop, which it also handles by shutting its kernels down, and is
-// killed last.
+// killed last. Close waits for a running Exec to return, so a caller cancels
+// that Exec's context first.
 func (s *Sessions) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

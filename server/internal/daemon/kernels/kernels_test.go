@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,7 +22,9 @@ import (
 // each exec with "ran <code>", handles requests concurrently so that a second
 // request arriving before the first is answered shows up as an overlap, and
 // for "hang" sleeps past the request's timeout and answers as a restarted
-// session would.
+// session would. "slow" answers late and outside the overlap count, "huge"
+// answers with a line longer than the daemon reads, and "garbage" with a line
+// that isn't JSON.
 func TestMain(m *testing.M) {
 	if os.Getenv("LYK_BRIDGE_STUB") == "1" {
 		stub()
@@ -50,6 +53,22 @@ func stub() {
 		}
 		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Op == "shutdown" {
 			return
+		}
+		switch req.Code {
+		case "huge":
+			out.Lock()
+			os.Stdout.Write([]byte(`{"id":1,"stdout":"` + strings.Repeat("x", maxLine+1) + "\"}\n"))
+			out.Unlock()
+			continue
+		case "garbage":
+			write("not json")
+			continue
+		case "slow":
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				write(map[string]any{"id": req.ID, "stdout": "ran slow", "ok": true})
+			}()
+			continue
 		}
 		go func() {
 			overlap := inFlight.Add(1) > 1
@@ -159,6 +178,37 @@ func TestABridgeThatDiesIsStartedAgain(t *testing.T) {
 	}
 }
 
+func TestABadReplyLineStopsTheBridgeAtOnce(t *testing.T) {
+	for _, code := range []string{"huge", "garbage"} {
+		t.Run(code, func(t *testing.T) {
+			s := startStub(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			start := time.Now()
+			if _, err := s.Exec(ctx, "python", code); err == nil || ctx.Err() != nil {
+				t.Fatalf("Exec = %v, ctx %v", err, ctx.Err())
+			}
+			t.Logf("failed in %s", time.Since(start).Round(time.Millisecond))
+			if r, err := s.Exec(context.Background(), "python", "1"); err != nil || r.Stdout != "ran 1" {
+				t.Fatalf("the bridge was not started again: %+v %v", r, err)
+			}
+		})
+	}
+}
+
+func TestACancelledCallsReplyIsNotTakenByTheNext(t *testing.T) {
+	s := startStub(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := s.Exec(ctx, "python", "slow"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v", err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if r, err := s.Exec(context.Background(), "python", "2"); err != nil || r.Stdout != "ran 2" {
+		t.Fatalf("got %+v %v", r, err)
+	}
+}
+
 func TestRealKernels(t *testing.T) {
 	if os.Getenv("LYK_TEST_ENVS") != "1" {
 		t.Skip("set LYK_TEST_ENVS=1 and LYK_TEST_ENVS_DIR to built bases to run real kernels")
@@ -190,7 +240,11 @@ func TestRealKernels(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s %q: %v", lang, code, err)
 		}
-		t.Logf("%s %q in %s: %+v", lang, code, time.Since(start).Round(time.Millisecond), r)
+		logged := r
+		if len(logged.Stdout) > 200 {
+			logged.Stdout = fmt.Sprintf("%s…(%d bytes)…%s", logged.Stdout[:40], len(logged.Stdout), logged.Stdout[len(logged.Stdout)-40:])
+		}
+		t.Logf("%s %q in %s: %+v", lang, code, time.Since(start).Round(time.Millisecond), logged)
 		return r
 	}
 	run("python", "x = 21")
@@ -214,9 +268,16 @@ func TestRealKernels(t *testing.T) {
 		t.Errorf("python error: %+v", r)
 	}
 
+	r := run("python", "print('x' * (33 << 20))")
+	if !r.OK || len(r.Stdout) > 32<<20+100 || !strings.HasSuffix(r.Stdout, "[output cut at 32 MiB]\n") {
+		t.Errorf("long output: OK %v, %d bytes, ends %q", r.OK, len(r.Stdout), r.Stdout[max(0, len(r.Stdout)-40):])
+	}
+	if r := run("python", "print(x*2)"); !r.OK || r.Stdout != "42\n" {
+		t.Errorf("the session did not survive the long output: %+v", r)
+	}
 	old := CellTimeout
 	CellTimeout = 3 * time.Second
-	r := run("python", "import time; time.sleep(30)")
+	r = run("python", "import time; time.sleep(30)")
 	CellTimeout = old
 	if r.OK || r.Error != "the cell ran past its time limit; the session restarted and its variables are gone" {
 		t.Errorf("timeout: %+v", r)
