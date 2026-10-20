@@ -412,7 +412,8 @@ func TestACellThatInstallsAPackageSaysHowToRestart(t *testing.T) {
 	l := newLykeion(t)
 	d := runDoor(t, l, t.TempDir(), envs.Python)
 	for code, note := range map[string]bool{
-		"%pip install scanpy": true, "!pip install x": true, "import subprocess; subprocess.run(['uv', 'pip', 'install', 'x'])": false,
+		"%pip install scanpy": true, "!pip install x": true, "import subprocess; subprocess.run(['uv', 'pip', 'install', 'x'])": true,
+		"subprocess.run([sys.executable, \"-m\", \"pip\", \"install\", \"humanize\"])": true, "pip3  install x": true,
 		"uv PIP install x": true, "install.packages('x')": true, "BiocManager::install('x')": true, "Pkg.add(\"x\")": true,
 		"print('installed')": false,
 	} {

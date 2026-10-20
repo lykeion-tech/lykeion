@@ -53,7 +53,9 @@ type runCodeIn struct {
 // running session may not load until it restarts.
 const installNote = "If the new package doesn't load, restart the session with run_code(language, code, restart: true) and re-run what you need."
 
-var installs = regexp.MustCompile(`(?i)pip install|%pip|!pip|uv pip install|install\.packages\(|BiocManager::install\(|Pkg\.add\(`)
+// installs finds a package install in a cell, written as a command or as a
+// list of arguments such as ["pip", "install", ...].
+var installs = regexp.MustCompile(`(?i)pip3?\s+install|%pip|!pip|install\.packages\(|BiocManager::install\(|Pkg\.add\(|pip3?['"]\s*,\s*['"]install`)
 
 type runScriptIn struct {
 	Path string `json:"path" jsonschema:"the script's path, relative to your working folder"`

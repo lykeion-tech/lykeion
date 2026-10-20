@@ -24,7 +24,8 @@ import (
 // for "hang" sleeps past the request's timeout and answers as a restarted
 // session would. "slow" answers late and outside the overlap count, "huge"
 // answers with a line longer than the daemon reads, and "garbage" with a line
-// that isn't JSON. A restart of "cobol" fails as an unknown language would.
+// that isn't JSON. A restart of "cobol" fails as an unknown language would,
+// and one of "mute" fails without saying why.
 func TestMain(m *testing.M) {
 	if os.Getenv("LYK_BRIDGE_STUB") == "1" {
 		stub()
@@ -57,6 +58,8 @@ func stub() {
 		if req.Op == "restart" {
 			if req.Language == "cobol" {
 				write(map[string]any{"id": req.ID, "error": "RuntimeError: unknown language 'cobol'", "ok": false})
+			} else if req.Language == "mute" {
+				write(map[string]any{"id": req.ID, "ok": false})
 			} else {
 				write(map[string]any{"id": req.ID, "ok": true, "restarted": true})
 			}
@@ -262,6 +265,9 @@ func TestARestartIsSentToTheBridge(t *testing.T) {
 	}
 	if err := s.Restart(context.Background(), "cobol"); err == nil || !strings.Contains(err.Error(), "unknown language") {
 		t.Fatalf("a failed restart: %v", err)
+	}
+	if err := s.Restart(context.Background(), "mute"); err == nil || err.Error() == "" {
+		t.Fatalf("a restart that failed silently: %v", err)
 	}
 	if r, err := s.Exec(context.Background(), "python", "1"); err != nil || r.Stdout != "ran 1" {
 		t.Fatalf("after the restart: %+v %v", r, err)

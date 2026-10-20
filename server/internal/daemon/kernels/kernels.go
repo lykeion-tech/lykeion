@@ -5,6 +5,7 @@ package kernels
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -153,7 +154,7 @@ func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) 
 func (s *Sessions) Restart(ctx context.Context, lang string) error {
 	r, err := s.call(ctx, map[string]any{"op": "restart", "language": lang})
 	if err == nil && !r.OK {
-		err = errors.New(r.Error)
+		err = errors.New(cmp.Or(r.Error, "the "+lang+" session could not be restarted"))
 	}
 	return err
 }

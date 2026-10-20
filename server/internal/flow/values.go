@@ -34,7 +34,8 @@ type Run struct {
 // when only a cited run_code run did; Run names that run. Uncited is set when
 // the value's item cites nothing, CallsOnly when it cites database calls but
 // no run. Unchecked names a cited run whose full output could not be read,
-// for a value no run that counts was seen to print.
+// for a value no run that counts was seen to print; only a script run that
+// succeeded is named, since no other run could make the value match.
 type ValueMatch struct {
 	Record, Value        string
 	Run                  string
@@ -235,13 +236,13 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 						explored = k
 					}
 				}
-				if r.Unreadable && (unchecked == "" || counts(r) && !counts(runs[unchecked])) {
+				if r.Unreadable && counts(r) && unchecked == "" {
 					unchecked = k
 				}
 			}
-			// An unreadable run that counts may hold the match, so it
+			// Only an unreadable run that counts may hide the match, so it
 			// outranks what other runs printed; any other unreadable run
-			// matters only when no run printed the value.
+			// leaves the value not found.
 			switch {
 			case m.Matched:
 			case unchecked != "" && counts(runs[unchecked]):
@@ -250,8 +251,6 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 				m.Failed, m.Run, m.ExitStatus = true, failed, runs[failed].ExitStatus
 			case explored != "":
 				m.Exploration, m.Run = true, explored
-			default:
-				m.Unchecked = unchecked
 			}
 			out = append(out, m)
 		})

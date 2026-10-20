@@ -224,12 +224,13 @@ func TestTheValueLinesJevReads(t *testing.T) {
 
 func TestOnlyAScriptRunThatSucceededCounts(t *testing.T) {
 	runs := map[string]Run{
-		"bad":      {Tool: "run_script", Stdout: "mean 3.14\n", ExitStatus: 1},
-		"timeout":  {Tool: "run_script", Stdout: "mean 3.14\n", ExitStatus: -1},
-		"good":     {Tool: "run_script", Stdout: "mean 3.14\n"},
-		"cell":     {Tool: "run_code", Stdout: "mean 3.14\n"},
-		"lost":     {Tool: "run_code", Unreadable: true},
-		"elsewise": {Tool: "run_script", Stdout: "mean 2.71\n"},
+		"bad":        {Tool: "run_script", Stdout: "mean 3.14\n", ExitStatus: 1},
+		"timeout":    {Tool: "run_script", Stdout: "mean 3.14\n", ExitStatus: -1},
+		"good":       {Tool: "run_script", Stdout: "mean 3.14\n"},
+		"cell":       {Tool: "run_code", Stdout: "mean 3.14\n"},
+		"lost":       {Tool: "run_code", Unreadable: true},
+		"lostscript": {Tool: "run_script", Unreadable: true},
+		"elsewise":   {Tool: "run_script", Stdout: "mean 2.71\n"},
 	}
 	for _, tc := range []struct {
 		cites []string
@@ -242,6 +243,8 @@ func TestOnlyAScriptRunThatSucceededCounts(t *testing.T) {
 		{[]string{"run:lost", "run:bad"}, ValueMatch{Run: "bad", Failed: true, ExitStatus: 1}},
 		{[]string{"run:cell", "run:elsewise"}, ValueMatch{Run: "cell", Exploration: true}},
 		{[]string{"run:elsewise"}, ValueMatch{}},
+		{[]string{"run:lostscript", "run:bad"}, ValueMatch{Unchecked: "lostscript"}},
+		{[]string{"run:lost", "run:elsewise"}, ValueMatch{}},
 	} {
 		got := MatchValues([]db.Record{valueRec("r1", "result", map[string]any{"cites": tc.cites, "value": 3.14})}, runs)
 		tc.want.Record, tc.want.Value = "r1", "3.14"
