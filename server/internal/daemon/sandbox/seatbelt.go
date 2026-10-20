@@ -124,7 +124,11 @@ func (p Policy) seatbeltProfile() (string, error) {
 		rule("deny network-outbound (remote unix-socket (subpath " + sbplString(c) + "))")
 		rule("deny network-inbound network-bind (local unix-socket (subpath " + sbplString(c) + "))")
 	}
-	for _, c := range r.blocked {
+	protected := r.blocked
+	if p.HomeRead {
+		protected = slices.Concat(protected, r.hidden)
+	}
+	for _, c := range protected {
 		rule("deny file-write* (subpath " + sbplString(c) + ")")
 		// A writable ancestor must not carry the protected path away.
 		for a := filepath.Dir(c); a != "/"; a = filepath.Dir(a) {

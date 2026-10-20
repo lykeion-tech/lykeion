@@ -151,3 +151,37 @@ func TestNewPathsRejectLinksInWriteFolders(t *testing.T) {
 		})
 	}
 }
+
+func TestHomeReadRejectsHiddenUnderWritableAncestor(t *testing.T) {
+	home := tempDir(t)
+	w := mkdir(t, filepath.Join(home, "w"))
+	parent := mkdir(t, filepath.Join(w, "parent"))
+	secret := filepath.Join(parent, "secret")
+	if err := os.WriteFile(secret, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, HomeRead: true, Write: []string{w}, Hidden: []string{secret}}
+	if _, err := p.seatbeltProfile(); err == nil {
+		t.Error("accepted hidden path below movable writable ancestor")
+	}
+	if _, err := p.bwrapArgs("true"); err == nil {
+		t.Error("accepted hidden path below movable writable ancestor")
+	}
+}
+
+func TestWriteDataCannotReopenBlockedSubtree(t *testing.T) {
+	home := tempDir(t)
+	w := mkdir(t, filepath.Join(home, "w"))
+	config := mkdir(t, filepath.Join(w, "config"))
+	f := filepath.Join(config, "file")
+	if err := os.WriteFile(f, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, Write: []string{w}, Blocked: []string{config}, WriteData: []string{f}}
+	if _, err := p.seatbeltProfile(); err == nil {
+		t.Error("accepted write-data under blocked path")
+	}
+	if _, err := p.bwrapArgs("true"); err == nil {
+		t.Error("accepted write-data under blocked path")
+	}
+}

@@ -235,6 +235,11 @@ func (p Policy) resolve() (resolved, error) {
 		if !fi.Mode().IsRegular() {
 			return resolved{}, fmt.Errorf("sandbox write-data path %q is not a regular file", raw)
 		}
+		for _, blocked := range r.blocked {
+			if isAtOrUnder(c, blocked) {
+				return resolved{}, fmt.Errorf("sandbox write-data path %q is inside blocked path %q", raw, blocked)
+			}
+		}
 		r.writeData = append(r.writeData, c)
 	}
 	for _, raw := range p.Hidden {
@@ -256,6 +261,14 @@ func (p Policy) resolve() (resolved, error) {
 				for _, w := range slices.Concat(r.write, r.writeData) {
 					if isAtOrUnder(w, c) {
 						return resolved{}, fmt.Errorf("sandbox hidden path %q holds a write path", raw)
+					}
+				}
+				for _, w := range r.write {
+					if isAtOrUnder(c, w) {
+						if _, err := r.carve(raw, h, slices.Concat(r.write, r.readOnly)); err != nil {
+							return resolved{}, err
+						}
+						break
 					}
 				}
 				r.hidden = append(r.hidden, c)
