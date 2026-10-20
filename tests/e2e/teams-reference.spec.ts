@@ -151,6 +151,8 @@ test('Teams sorts by its latest version and shares Agents column positions and P
     .locator('.agent-head > span')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
   expect(teamPositions).toEqual(agentPositions);
+  expect(teamPositions[0]).toBe((await page.locator('.agent-search').boundingBox())!.x);
+  expect((await page.locator('.agent-cell').first().boundingBox())!.x).toBe(agentPositions[0]);
   const style = await page
     .locator('.agent-head > span')
     .first()
@@ -163,7 +165,8 @@ test('Teams sorts by its latest version and shares Agents column positions and P
   const projectPositions = await page
     .locator('.projects-table th')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
-  expect(projectPositions.slice(0, 2)).toEqual(agentPositions.slice(0, 2));
+  expect(projectPositions[0]).toBe((await page.locator('.page-header h1').boundingBox())!.x);
+  expect(projectPositions[1]).toBe(agentPositions[1]);
   for (let i = 2; i < projectPositions.length; i++)
     expect(projectPositions[i]! - projectPositions[i - 1]!).toBe(134);
   const valuePositions = await page

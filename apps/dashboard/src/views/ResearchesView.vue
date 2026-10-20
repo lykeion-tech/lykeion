@@ -757,7 +757,7 @@ async function save() {
 }
 .project-directory {
   --directory-columns: minmax(240px, 1fr) repeat(5, 122px);
-  padding: 8px 24px 32px;
+  padding: 8px 24px 32px 20px;
 }
 .projects-table th {
   height: 32px;
