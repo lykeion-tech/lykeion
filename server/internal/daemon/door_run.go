@@ -95,8 +95,10 @@ func (d *Door) sandboxReady() error {
 }
 
 // sandboxPolicy builds the run's sandbox: its code writes only the run
-// folder and the study's add-on folder, which holds the run's private temp
-// folder, and reads those and the language bases. The bases are listed one
+// folder, the study's add-on folder and the run's private temp folder, and
+// reads those and the language bases. The temp folder lies outside the
+// study's folder, which every run of the study shares, so another run's code
+// can't read this one's caches or kernel connection files. The bases are listed one
 // by one, since their parent folder holds every study's add-on folder. What
 // the CLIs and the daemon keep in the run folder is read-only to the code.
 func (d *Door) sandboxPolicy() error {
@@ -114,7 +116,7 @@ func (d *Door) sandboxPolicy() error {
 		}
 		home = u.HomeDir
 	}
-	tmp, err := os.MkdirTemp(d.Study.Dir, "tmp-")
+	tmp, err := os.MkdirTemp("", "lyk-run-")
 	if err != nil {
 		return err
 	}
@@ -123,7 +125,7 @@ func (d *Door) sandboxPolicy() error {
 		return err
 	}
 	dir := d.Child().Dir
-	d.policy = sandbox.Policy{Home: home, Write: []string{dir, d.Study.Dir}}
+	d.policy = sandbox.Policy{Home: home, Write: []string{dir, d.Study.Dir, tmp}}
 	for _, p := range agent.RunFolderConfig {
 		path := filepath.Join(dir, p.Name)
 		_, err := os.Lstat(path)

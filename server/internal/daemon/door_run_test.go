@@ -602,14 +602,18 @@ func TestCodeRunsInTheSandbox(t *testing.T) {
 	}
 	u, err := user.Current()
 	must(t, err)
-	want := sandbox.Policy{Write: []string{dir, d.Study.Dir}, Read: []string{d.bridgeDir, filepath.Join(d.Study.Bases.Dir, "python")}, Home: u.HomeDir}
+	want := sandbox.Policy{Write: []string{dir, d.Study.Dir, d.tmp}, Read: []string{d.bridgeDir, filepath.Join(d.Study.Bases.Dir, "python")}, Home: u.HomeDir}
 	for _, p := range policies {
 		if !slices.Equal(p.Write, want.Write) || !slices.Equal(p.Read, want.Read) || p.Home != want.Home {
 			t.Fatalf("policy %+v, want %+v", p, want)
 		}
 	}
-	if rel, err := filepath.Rel(d.Study.Dir, d.tmp); err != nil || !filepath.IsLocal(rel) {
-		t.Fatalf("temp folder %q is not in the study folder %q", d.tmp, d.Study.Dir)
+	// the study folder is every run's of the study, the temp folder this
+	// run's alone
+	for _, shared := range []string{d.Study.Dir, dir} {
+		if rel, err := filepath.Rel(shared, d.tmp); err == nil && filepath.IsLocal(rel) {
+			t.Fatalf("temp folder %q is in %q", d.tmp, shared)
+		}
 	}
 }
 
