@@ -484,3 +484,24 @@ func TestBasesBuildForReal(t *testing.T) {
 	}
 	t.Logf("kernelspecs:\n%s", out)
 }
+
+func TestAStudyEnvStopsWithItsContext(t *testing.T) {
+	b, _ := fakeBases(t)
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	b.Run = func(ctx context.Context, _ []string, _, _ string, _ ...string) ([]byte, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancel)
+	start := time.Now()
+	env := ForStudy(b, t.TempDir()).EnvContext(ctx)
+	if time.Since(start) > 10*time.Second {
+		t.Fatalf("EnvContext outlived its context by %v", time.Since(start))
+	}
+	if _, ok := envValue(env, "VIRTUAL_ENV"); ok {
+		t.Fatalf("VIRTUAL_ENV set without a venv: %q", env)
+	}
+}

@@ -398,8 +398,11 @@ func (s *Study) hasVenv() bool {
 	return err == nil
 }
 
-func (s *Study) Env() []string {
-	if err := s.prepare(context.Background()); err != nil {
+func (s *Study) Env() []string { return s.EnvContext(context.Background()) }
+
+// EnvContext is Env, giving up on creating the add-on folders when ctx ends.
+func (s *Study) EnvContext(ctx context.Context) []string {
+	if err := s.prepare(ctx); err != nil {
 		slog.Warn("study add-on folders", "dir", s.Dir, "err", err)
 	}
 	b, sep := s.Bases, string(os.PathListSeparator)

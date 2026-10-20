@@ -60,8 +60,8 @@ func (d *Door) interpreter(lang string) (string, []string, error) {
 }
 
 // runEnv is the environment code runs with: the connectors' one, which holds
-// none of the run's tokens, with the study's folders and interpreters first
-// on PATH.
+// none of the run's tokens, with the study's folders and interpreters on
+// PATH ahead of the person's own.
 func (d *Door) runEnv() []string {
 	env := append(connectorEnv(d.Child(), nil), d.Study.Env()...)
 	path := os.Getenv("PATH")
@@ -70,8 +70,10 @@ func (d *Door) runEnv() []string {
 			path = v
 		}
 	}
-	if prefix := d.Study.PathPrefix(); prefix != "" {
-		path = prefix + string(os.PathListSeparator) + path
+	// A run's own PATH already carries the prefix; a child's without it gets it first.
+	sep := string(os.PathListSeparator)
+	if prefix := d.Study.PathPrefix(); prefix != "" && !strings.Contains(sep+path+sep, sep+prefix+sep) {
+		path = prefix + sep + path
 	}
 	return append(env, "PATH="+path)
 }

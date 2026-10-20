@@ -19,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/internal/daemon/envs"
+	"lykeion/server/pkg/agent"
 )
 
 // stubBridge stands in for the session bridge: it answers each exec with the
@@ -409,5 +410,24 @@ func TestTheCallTokenNeverReachesAScript(t *testing.T) {
 		if strings.Contains(got, s) {
 			t.Fatalf("the script saw %q", s)
 		}
+	}
+}
+
+func TestARunsPathKeepsOneStudyPrefix(t *testing.T) {
+	l := newLykeion(t)
+	d := runDoor(t, l, t.TempDir(), envs.Python)
+	d.Study.Env() // as a run does, before it reads the prefix
+	sep, prefix := string(os.PathListSeparator), d.Study.PathPrefix()
+	d.Child = func() agent.ExecOptions {
+		return agent.ExecOptions{Dir: t.TempDir(), Env: []string{"PATH=/self" + sep + prefix + sep + "/usr/bin"}}
+	}
+	var path string
+	for _, e := range d.runEnv() {
+		if v, ok := strings.CutPrefix(e, "PATH="); ok {
+			path = v
+		}
+	}
+	if path != "/self"+sep+prefix+sep+"/usr/bin" {
+		t.Fatalf("PATH %q", path)
 	}
 }

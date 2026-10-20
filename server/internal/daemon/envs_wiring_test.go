@@ -41,8 +41,9 @@ func readyPython(t *testing.T) *envs.Bases {
 }
 
 type launched struct {
-	dir string
-	env []string
+	dir  string
+	env  []string
+	opts agent.ExecOptions
 }
 
 // captureLaunches records each run's working folder and environment.
@@ -50,7 +51,7 @@ func captureLaunches(f *daemonFixture) <-chan launched {
 	got := make(chan launched, 8)
 	f.cfg.NewBackend = func(string, string) (agent.Backend, error) {
 		return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
-			got <- launched{o.Dir, o.Env}
+			got <- launched{o.Dir, o.Env, o}
 			msgs := make(chan agent.Message)
 			done := make(chan agent.Result, 1)
 			close(msgs)
@@ -130,6 +131,18 @@ func TestARunSeesItsStudyEnvironment(t *testing.T) {
 	want := filepath.Dir(self) + sep + filepath.Join(study, "python", "bin") + sep + filepath.Join(f.cfg.EnvDir, "python", "bin") + sep
 	if v, _ := lookup(l.env, "PATH"); !strings.HasPrefix(v, want) {
 		t.Fatalf("PATH %q, want prefix %q", v, want)
+	}
+	// The CLI's own environment carries it in both continuity and private mode.
+	for _, inherit := range []bool{true, false} {
+		o := l.opts
+		o.Inherit = inherit
+		child := agent.ChildEnv(o)
+		if v, _ := lookup(child, "VIRTUAL_ENV"); v != filepath.Join(study, "python") {
+			t.Fatalf("inherit %v: child VIRTUAL_ENV %q", inherit, v)
+		}
+		if v, _ := lookup(child, "PATH"); !strings.HasPrefix(v, want) {
+			t.Fatalf("inherit %v: child PATH %q, want prefix %q", inherit, v, want)
+		}
 	}
 }
 

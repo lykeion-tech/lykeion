@@ -37,6 +37,19 @@ func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("LYK_DAEMON_HOME", scratch)
+	// Bases already marked ready, so the daemon builds none from the network.
+	for _, base := range []string{"python", "r", filepath.Join("julia", "base")} {
+		ready := filepath.Join(configDir, "daemon", "envs", base, "ready")
+		if err := os.MkdirAll(filepath.Dir(ready), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(ready, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(configDir, "daemon"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	done := make(chan error, 1)
 	go func() {
 		cmd := Root(strings.NewReader(""), &bytes.Buffer{})

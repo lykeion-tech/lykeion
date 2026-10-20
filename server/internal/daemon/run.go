@@ -189,7 +189,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			return nil
 		}
 		study = envs.ForStudy(d.bases, studyDir)
-		studyEnv = study.Env()
+		studyEnv = study.EnvContext(runCtx)
 		if prefix := study.PathPrefix(); prefix != "" {
 			path += prefix + sep
 		}
