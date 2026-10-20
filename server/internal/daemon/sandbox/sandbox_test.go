@@ -308,7 +308,10 @@ func sandboxed(t *testing.T, p Policy, script string) (string, error) {
 		t.Fatal(err)
 	}
 	cmd.Env = append(os.Environ(), "HOME="+p.Home)
-	cmd.Dir = p.Write[0]
+	cmd.Dir = p.Home
+	if len(p.Write) > 0 {
+		cmd.Dir = p.Write[0]
+	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

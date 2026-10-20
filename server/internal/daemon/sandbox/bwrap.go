@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -24,7 +26,11 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 		"--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
 		"--tmpfs", "/tmp", "--tmpfs", "/run",
 		"--ro-bind-try", "/run/systemd/resolve", "/run/systemd/resolve",
-		"--tmpfs", r.home,
+	}
+	if p.HomeRead {
+		argv = append(argv, "--ro-bind", r.home, r.home)
+	} else {
+		argv = append(argv, "--tmpfs", r.home)
 	}
 	type bind struct{ flag, dir string }
 	// A hidden file is covered by /dev/null and a hidden folder by an empty
@@ -33,6 +39,9 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	for _, dir := range r.write {
 		binds = append(binds, bind{"--bind", dir})
 	}
+	for _, file := range r.writeData {
+		binds = append(binds, bind{"--bind", file})
+	}
 	for _, dir := range r.read {
 		binds = append(binds, bind{"--ro-bind", dir})
 	}
@@ -40,6 +49,15 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	// that folder, on top of it; as a mount it can't be removed or renamed.
 	for _, dir := range r.readOnly {
 		binds = append(binds, bind{"--ro-bind", dir})
+	}
+	for _, path := range r.blocked {
+		if !slices.Contains(r.write, filepath.Dir(path)) {
+			return nil, fmt.Errorf("sandbox blocked path %q must be directly inside a write folder on Linux", path)
+		}
+		if _, err := os.Lstat(path); err != nil {
+			return nil, fmt.Errorf("sandbox blocked path: %w", err)
+		}
+		binds = append(binds, bind{"--ro-bind", path})
 	}
 	for _, dir := range r.hidden {
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {

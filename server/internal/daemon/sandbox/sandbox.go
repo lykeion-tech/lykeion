@@ -40,13 +40,21 @@ type Policy struct {
 	Write []string
 	Read  []string
 	Home  string
+	// HomeRead makes the home readable, apart from Hidden paths.
+	HomeRead bool
+	// Blocked paths inside Write cannot be changed, even when absent.
+	Blocked []string
+	// WriteData grants only in-place writes to existing regular files.
+	WriteData []string
+	// Keychain allows the macOS Keychain services.
+	Keychain bool
 	// ReadOnly are files and folders directly inside a Write folder that the
 	// process may read but not write, remove, rename or replace. Each must
 	// already exist and be no link.
 	ReadOnly []string
 	// Hidden are files and folders inside a Write folder or a ReadOnly path
-	// that the process may neither read nor write. Each must already exist
-	// and be no link.
+	// that the process may neither read nor write. With HomeRead, paths under
+	// Home are also accepted and missing ones are skipped. Paths must be no link.
 	Hidden []string
 }
 
@@ -129,6 +137,7 @@ func check(ctx context.Context, command func(Policy, context.Context, string, ..
 type resolved struct {
 	home                          string
 	write, read, readOnly, hidden []string
+	blocked, writeData            []string
 }
 
 func (p Policy) resolve() (resolved, error) {
@@ -193,7 +202,66 @@ func (p Policy) resolve() (resolved, error) {
 		}
 		r.readOnly = append(r.readOnly, c)
 	}
+	for _, raw := range p.Blocked {
+		c, err := r.blockedPath(raw, h)
+		if err != nil {
+			return resolved{}, err
+		}
+		inside := false
+		for _, w := range r.write {
+			if c != w && isAtOrUnder(c, w) {
+				inside = true
+			}
+		}
+		if !inside {
+			return resolved{}, fmt.Errorf("sandbox blocked path %q is not inside a write folder", raw)
+		}
+		for _, w := range r.write {
+			if isAtOrUnder(w, c) {
+				return resolved{}, fmt.Errorf("sandbox blocked path %q holds a write folder", raw)
+			}
+		}
+		r.blocked = append(r.blocked, c)
+	}
+	for _, raw := range p.WriteData {
+		c, err := r.policyPath(raw, h)
+		if err != nil {
+			return resolved{}, err
+		}
+		fi, err := os.Stat(c)
+		if err != nil {
+			return resolved{}, err
+		}
+		if !fi.Mode().IsRegular() {
+			return resolved{}, fmt.Errorf("sandbox write-data path %q is not a regular file", raw)
+		}
+		r.writeData = append(r.writeData, c)
+	}
 	for _, raw := range p.Hidden {
+		if p.HomeRead {
+			c, _, err := walk(raw, h)
+			if errors.Is(err, os.ErrNotExist) {
+				missing, missingErr := r.blockedPath(raw, h)
+				if missingErr != nil {
+					return resolved{}, missingErr
+				}
+				if missing != h.path && isAtOrUnder(missing, h.path) {
+					continue
+				}
+			}
+			if err != nil {
+				return resolved{}, err
+			}
+			if c != h.path && isAtOrUnder(c, h.path) {
+				for _, w := range slices.Concat(r.write, r.writeData) {
+					if isAtOrUnder(w, c) {
+						return resolved{}, fmt.Errorf("sandbox hidden path %q holds a write path", raw)
+					}
+				}
+				r.hidden = append(r.hidden, c)
+				continue
+			}
+		}
 		c, err := r.carve(raw, h, slices.Concat(r.write, r.readOnly))
 		if err != nil {
 			return resolved{}, err
@@ -201,6 +269,55 @@ func (p Policy) resolve() (resolved, error) {
 		r.hidden = append(r.hidden, c)
 	}
 	return r, nil
+}
+
+// policyPath also refuses links the sandboxed process could replace.
+func (r resolved) policyPath(raw string, h home) (string, error) {
+	c, links, err := walk(raw, h)
+	if err != nil {
+		return "", err
+	}
+	for _, w := range r.write {
+		fi, err := os.Stat(w)
+		if err != nil {
+			return "", err
+		}
+		folder := home{w, fi}
+		for _, dir := range links {
+			if folder.holds(dir) {
+				return "", fmt.Errorf("sandbox path passes a link in the write folder %q", w)
+			}
+		}
+	}
+	return c, nil
+}
+
+// blockedPath resolves existing components without following links in the home.
+// The remaining suffix may be absent: Seatbelt can deny a future path.
+func (r resolved) blockedPath(raw string, h home) (string, error) {
+	if err := checkSpelling(raw); err != nil {
+		return "", err
+	}
+	current := raw
+	var tail []string
+	for {
+		c, err := r.policyPath(current, h)
+		if err == nil {
+			for i := len(tail) - 1; i >= 0; i-- {
+				c = filepath.Join(c, tail[i])
+			}
+			return c, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", err
+		}
+		tail = append(tail, filepath.Base(current))
+		current = parent
+	}
 }
 
 // carve resolves a read-only or hidden path: an existing file or folder, no

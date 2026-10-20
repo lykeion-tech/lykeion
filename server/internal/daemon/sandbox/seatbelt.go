@@ -61,18 +61,29 @@ func (p Policy) seatbeltProfile() (string, error) {
 	meta := []string{"allow file-read-metadata", `(literal "/etc")`, `(literal "/tmp")`, `(literal "/var")`}
 	seen := map[string]bool{}
 	dirs := []string{"/opt/homebrew", "/private/var/db/timezone", "/private/var/select/sh"}
-	for _, dir := range slices.Concat(dirs, r.read, r.write) {
+	paths := slices.Concat(dirs, r.read, r.write, r.writeData)
+	if p.HomeRead {
+		paths = append(paths, r.home)
+	}
+	for _, dir := range paths {
 		for a := filepath.Dir(dir); a != "/" && !seen[a]; a = filepath.Dir(a) {
 			seen[a] = true
 			meta = append(meta, "(literal "+sbplString(a)+")")
 		}
 	}
 	rule(meta...)
+	if p.HomeRead {
+		rule("allow file-read* (subpath " + sbplString(r.home) + ")")
+	}
 	for _, dir := range r.read {
 		rule("allow file-read* (subpath " + sbplString(dir) + ")")
 	}
 	for _, dir := range r.write {
 		rule("allow file-read* file-write* (subpath " + sbplString(dir) + ")")
+	}
+	for _, file := range r.writeData {
+		rule("allow file-read* (literal " + sbplString(file) + ")")
+		rule("allow file-write-data (literal " + sbplString(file) + ")")
 	}
 	// The package managers keep the person's own data (databases, service
 	// state) under var; the rest of their trees stays readable.
@@ -85,7 +96,11 @@ func (p Policy) seatbeltProfile() (string, error) {
 	rule("allow ipc-posix-shm*")
 
 	services := []string{"allow mach-lookup"}
-	for _, s := range machServices {
+	allowedServices := machServices
+	if p.Keychain {
+		allowedServices = slices.Concat(allowedServices, []string{"com.apple.SecurityServer", "com.apple.securityd.xpc"})
+	}
+	for _, s := range allowedServices {
 		services = append(services, "(global-name "+sbplString(s)+")")
 	}
 	rule(services...)
@@ -108,6 +123,18 @@ func (p Policy) seatbeltProfile() (string, error) {
 		rule("deny file-write* (subpath " + sbplString(c) + ")")
 		rule("deny network-outbound (remote unix-socket (subpath " + sbplString(c) + "))")
 		rule("deny network-inbound network-bind (local unix-socket (subpath " + sbplString(c) + "))")
+	}
+	for _, c := range r.blocked {
+		rule("deny file-write* (subpath " + sbplString(c) + ")")
+		// A writable ancestor must not carry the protected path away.
+		for a := filepath.Dir(c); a != "/"; a = filepath.Dir(a) {
+			for _, w := range r.write {
+				if a != w && isAtOrUnder(a, w) {
+					rule("deny file-write-unlink (literal " + sbplString(a) + ")")
+					break
+				}
+			}
+		}
 	}
 	// Hidden paths come last of all: the code may neither read nor write them.
 	for _, c := range r.hidden {

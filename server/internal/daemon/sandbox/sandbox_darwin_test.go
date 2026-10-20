@@ -169,3 +169,36 @@ func showsThePersonsHome(p Policy, ctx context.Context, name string, args ...str
 	prof += "(allow file-read* (subpath " + sbplString(home) + "))\n"
 	return exec.CommandContext(ctx, sandboxExec, append([]string{"-p", prof, "--", name}, args...)...), nil
 }
+
+func TestWriteDataRewritesInPlaceOnly(t *testing.T) {
+	requireSandbox(t)
+	home := tempDir(t)
+	f := filepath.Join(home, "file")
+	if err := os.WriteFile(f, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, HomeRead: true, WriteData: []string{f}}
+	if out, err := sandboxed(t, p, "printf x > "+shq(f)); err != nil {
+		t.Fatalf("rewrite: %v %s", err, out)
+	}
+	if b, err := os.ReadFile(f); err != nil || string(b) != "x" {
+		t.Fatalf("data: %q %v", b, err)
+	}
+	for _, script := range []string{"rm " + shq(f), "mv " + shq(f) + " " + shq(f+"g"), "touch " + shq(filepath.Join(home, "sibling"))} {
+		refused(t, p, script)
+	}
+}
+
+func TestKeychainServicesOnlyWhenAsked(t *testing.T) {
+	requireSandbox(t)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, Keychain: true}
+	if out, err := sandboxed(t, p, "security list-keychains"); err != nil {
+		t.Fatalf("keychain enabled: %v %s", err, out)
+	}
+	p.Keychain = false
+	refused(t, p, "security list-keychains")
+}
