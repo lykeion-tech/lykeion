@@ -19,8 +19,9 @@ var notInRunFolder = map[string]string{
 	".json": "a file suffix", ".jsonl": "a file suffix", ".tmp": "a file suffix", ".overflow.json": "a file suffix", ".config.toml": "a file suffix",
 	".cache": "inside .home", ".config": "inside .home", ".local": "inside .home", ".state": "inside .home",
 	".credentials.json": "inside .cli-home", ".lyk-usage.json": "inside .cli-home", ".lyk-bin": "inside .cli-home",
-	".system_generated": "inside the CLI's session store",
-	".scratch-retired-": "beside the run folders, not in one",
+	".system_generated":        "inside the CLI's session store",
+	".sqlite-maintenance.lock": "inside the account's Codex home, not the run folder",
+	".scratch-retired-":        "beside the run folders, not in one",
 }
 
 // Every name the adapters and the daemon keep at the top of a run's folder
