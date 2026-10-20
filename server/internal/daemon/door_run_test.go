@@ -915,3 +915,47 @@ func TestTheRunnerUsesTheRunsEnvironment(t *testing.T) {
 		}
 	}
 }
+
+// The person's credentials and their own Python, R, Julia and conda settings
+// never reach the run's code, by name; what the network and the locale need
+// does, and so does the study's own environment.
+func TestCodeGetsNoSecretsOrThePersonsSettings(t *testing.T) {
+	planted := map[string]string{"GITHUB_TOKEN": "t1", "OPENAI_API_KEY": "t2", "My_Secret": "t3", "DB_PASSWORD": "t4", "PGPASSWD": "t5",
+		"GIT_CREDENTIAL_HELPER": "t6", "AWS_REGION": "t7", "GOOGLE_APPLICATION_CREDENTIALS": "t8", "AZURE_TENANT_ID": "t9",
+		"PYTHONPATH": "/persons/py", "PYTHONHOME": "/persons/home", "CONDA_PREFIX": "/persons/conda", "MAMBA_ROOT_PREFIX": "/persons/mamba",
+		"R_LIBS_USER": "/persons/r", "R_PROFILE_USER": "/persons/rprofile", "JULIA_DEPOT_PATH": "/persons/julia", "VIRTUAL_ENV": "/persons/venv"}
+	kept := map[string]string{"HTTPS_PROXY": "http://proxy:3128", "NO_PROXY": "localhost", "SSL_CERT_FILE": "/etc/ssl/cert.pem",
+		"REQUESTS_CA_BUNDLE": "/etc/ssl/cert.pem", "LANG": "en_US.UTF-8"}
+	for k, v := range planted {
+		t.Setenv(k, v)
+	}
+	for k, v := range kept {
+		t.Setenv(k, v)
+	}
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("env\n"), 0o644))
+	script, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, err := d.Study.Run(context.Background(), nil, dir, "/usr/bin/env")
+	must(t, err)
+	for name, got := range map[string]string{"script": script, "step": string(step)} {
+		lines := strings.Split(got, "\n")
+		for k, v := range planted {
+			if slices.Contains(lines, k+"="+v) {
+				t.Errorf("the %s saw %s=%s", name, k, v)
+			}
+		}
+		for k, v := range kept {
+			if !slices.Contains(lines, k+"="+v) {
+				t.Errorf("the %s lost %s", name, k)
+			}
+		}
+	}
+	if !strings.Contains(script, "\nVIRTUAL_ENV="+d.Study.Dir) {
+		t.Errorf("the script lost the study's own VIRTUAL_ENV: %s", script)
+	}
+}

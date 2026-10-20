@@ -217,3 +217,26 @@ func TestAScriptCannotPlantTheExitMarker(t *testing.T) {
 		}
 	}
 }
+
+func TestAScriptInTheSandboxSeesNoSecrets(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghp_planted")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "aws_planted")
+	t.Setenv("PYTHONPATH", "/persons/python")
+	t.Setenv("NO_PROXY", "localhost")
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d, _ := realSandboxDoor(t, l, dir)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("import os\nfor k, v in sorted(os.environ.items()): print(k + '=' + v)\n"), 0o644))
+	got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"ghp_planted", "aws_planted", "/persons/python"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("the script saw %q", bad)
+		}
+	}
+	if !strings.Contains(got, "\nNO_PROXY=localhost\n") || !strings.Contains(got, "\nHOME="+d.tmp) {
+		t.Errorf("env %s", got)
+	}
+}

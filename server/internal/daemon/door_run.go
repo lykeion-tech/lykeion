@@ -232,18 +232,17 @@ func unsandboxed(err error) error {
 }
 
 // runSandboxed runs a step in the study's folders in the sandbox and
-// answers its stdout. Its environment is the run's, without the person's own
-// Python, R, Julia or conda settings, then env, which holds what the study
-// adds, then temp files and caches in the run's temp folder. It can't be the
-// full environment code runs with, which comes from the study's folders this
-// step may be making.
+// answers its stdout. Its environment is the person's, as personEnv leaves
+// it, then env, which holds what the study adds, then temp files and caches
+// in the run's temp folder. It can't be the full environment code runs with,
+// which comes from the study's folders this step may be making.
 func (d *Door) runSandboxed(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
 	cmd, err := d.command(ctx, name, args...)
 	if err != nil {
 		return nil, err
 	}
 	env = slices.DeleteFunc(slices.Clone(env), func(e string) bool { return strings.HasPrefix(e, "LYK_") })
-	cmd.Dir, cmd.Env = dir, slices.Concat(envs.Isolate(connectorEnv(d.Child(), nil)), env, d.tmpEnv())
+	cmd.Dir, cmd.Env = dir, slices.Concat(d.personEnv(), env, d.tmpEnv())
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -271,12 +270,30 @@ func (d *Door) tmpEnv() []string {
 	return env
 }
 
-// runEnv is the environment code runs with: the connectors' one, which holds
-// none of the run's tokens, with the study's folders and interpreters on
-// PATH ahead of the person's own, and temp files and caches in the run's
-// temp folder.
+// secretNames are what a variable's name holds when its value is likely a
+// credential, matched in any case.
+var secretNames = []string{"KEY", "SECRET", "TOKEN", "PASSWORD", "PASSWD", "CREDENTIAL"}
+
+// personEnv is the person's environment as code gets it: the connectors'
+// one, which holds none of the run's tokens, without what looks like a
+// credential by its name (cloud accounts included) and without the person's
+// own Python, R, Julia and conda settings. The proxy and certificate
+// variables stay for the network; a proxy URL that carries a password
+// reaches the code with it.
+func (d *Door) personEnv() []string {
+	return slices.DeleteFunc(envs.Isolate(connectorEnv(d.Child(), nil)), func(e string) bool {
+		k, _, _ := strings.Cut(e, "=")
+		k = strings.ToUpper(k)
+		return strings.HasPrefix(k, "AWS_") || strings.HasPrefix(k, "AZURE_") ||
+			slices.ContainsFunc(secretNames, func(s string) bool { return strings.Contains(k, s) })
+	})
+}
+
+// runEnv is the environment code runs with: the person's, as personEnv
+// leaves it, with the study's folders and interpreters on PATH ahead of the
+// person's own, and temp files and caches in the run's temp folder.
 func (d *Door) runEnv() []string {
-	env := append(append(connectorEnv(d.Child(), nil), d.Study.Env()...), d.tmpEnv()...)
+	env := append(append(d.personEnv(), d.Study.Env()...), d.tmpEnv()...)
 	path := os.Getenv("PATH")
 	for _, e := range env {
 		if v, ok := strings.CutPrefix(e, "PATH="); ok {
