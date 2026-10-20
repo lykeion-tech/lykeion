@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 const Python, R, Julia = "python", "r", "julia"
@@ -35,7 +36,9 @@ func (e notReady) Error() string {
 func (e notReady) Unwrap() error { return ErrNotReady }
 
 type Bases struct {
-	Dir   string
+	Dir string
+	// Run's env, when non-nil, is the command's whole environment; nil
+	// inherits the daemon's.
 	Run   func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error)
 	Fetch func(ctx context.Context, url, sha256, dest string) error
 
@@ -49,7 +52,7 @@ func NewBases(dir string) *Bases {
 
 func run(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = env
 	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -58,6 +61,35 @@ func run(ctx context.Context, env []string, dir, name string, args ...string) ([
 		return out, fmt.Errorf("%s %s: %w: %s", filepath.Base(name), strings.Join(args, " "), err, tail(stderr.String(), 4096))
 	}
 	return out, nil
+}
+
+// isolated is the daemon's environment without anything that would point a
+// build or a check at the person's own Python, R, Julia, conda or Jupyter
+// setup, with extra appended.
+func isolated(extra ...string) []string {
+	set := map[string]bool{}
+	for _, e := range extra {
+		k, _, _ := strings.Cut(e, "=")
+		set[k] = true
+	}
+	var env []string
+	for _, e := range os.Environ() {
+		k, _, _ := strings.Cut(e, "=")
+		if set[k] || k == "R_HOME" || k == "VIRTUAL_ENV" || hasAnyPrefix(k, "CONDA_", "MAMBA_", "PYTHON", "R_LIBS", "R_PROFILE", "R_ENVIRON", "JULIA_", "JUPYTER") {
+			continue
+		}
+		env = append(env, e)
+	}
+	return append(env, extra...)
+}
+
+func hasAnyPrefix(s string, prefixes ...string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func tail(s string, n int) string {
@@ -230,8 +262,10 @@ func (b *Bases) buildConda(ctx context.Context, plat, lang string) error {
 		return err
 	}
 	prefix := filepath.Join(b.Dir, lang)
-	// The package cache stays under Dir, apart from the person's own conda.
-	env := []string{"MAMBA_ROOT_PREFIX=" + filepath.Join(b.Dir, "micromamba", "root")}
+	// micromamba keeps its cache under the root prefix and records every
+	// environment it creates in $HOME/.conda, so both point inside Dir, apart
+	// from the person's own conda.
+	env := isolated("MAMBA_ROOT_PREFIX="+filepath.Join(b.Dir, "micromamba", "root"), "HOME="+filepath.Join(b.Dir, "micromamba", "home"))
 	pins := pythonPins
 	if lang == R {
 		pins = rPins
@@ -246,17 +280,29 @@ func (b *Bases) buildConda(ctx context.Context, plat, lang string) error {
 	if err := os.WriteFile(filepath.Join(prefix, "lock.txt"), lock, 0o644); err != nil {
 		return err
 	}
+	if err := b.verifyConda(ctx, lang, prefix); err != nil {
+		return err
+	}
+	// The packages are linked into the prefix, so the cache can go.
+	if _, err := b.Run(ctx, env, b.Dir, mm, "--no-rc", "clean", "-a", "-y"); err != nil {
+		slog.Warn("cleaning the conda package cache", "err", err)
+	}
+	return nil
+}
+
+func (b *Bases) verifyConda(ctx context.Context, lang, prefix string) error {
 	if lang == Python {
-		_, err = b.Run(ctx, nil, b.Dir, filepath.Join(prefix, "bin", "python"), "-c", "import numpy, pandas, scipy, matplotlib, statsmodels, ipykernel, jupyter_client")
+		_, err := b.Run(ctx, isolated(), b.Dir, filepath.Join(prefix, "bin", "python"), "-I", "-c", "import numpy, pandas, scipy, matplotlib, statsmodels, ipykernel, jupyter_client")
 		return err
 	}
 	// IRkernel registers itself through the Python base's jupyter.
-	path := []string{"PATH=" + filepath.Join(b.Dir, "python", "bin") + string(os.PathListSeparator) + os.Getenv("PATH")}
+	path := isolated("PATH=" + filepath.Join(b.Dir, "python", "bin") + string(os.PathListSeparator) + os.Getenv("PATH"))
 	rscript := filepath.Join(prefix, "bin", "Rscript")
-	if _, err := b.Run(ctx, path, b.Dir, rscript, "-e", fmt.Sprintf("IRkernel::installspec(user = FALSE, prefix = %q)", prefix)); err != nil {
+	if _, err := b.Run(ctx, path, b.Dir, rscript, "--vanilla", "-e", fmt.Sprintf("IRkernel::installspec(user = FALSE, prefix = %q)", prefix)); err != nil {
 		return err
 	}
-	_, err = b.Run(ctx, nil, b.Dir, rscript, "-e", "library(tidyverse); library(jsonlite); library(IRkernel)")
+	// --vanilla still honours R_LIBS_USER; clearing .libPaths leaves only the base's own library.
+	_, err := b.Run(ctx, isolated(), b.Dir, rscript, "--vanilla", "-e", ".libPaths(character()); library(tidyverse); library(jsonlite); library(IRkernel)")
 	return err
 }
 
@@ -269,7 +315,7 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 	if err := os.MkdirAll(release, 0o755); err != nil {
 		return err
 	}
-	if _, err := b.Run(ctx, nil, b.Dir, "tar", "-xzf", tarball, "-C", release, "--strip-components=1"); err != nil {
+	if _, err := b.Run(ctx, isolated(), b.Dir, "tar", "-xzf", tarball, "-C", release, "--strip-components=1"); err != nil {
 		return err
 	}
 	if err := os.Remove(tarball); err != nil {
@@ -281,13 +327,14 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 	}
 	jl := filepath.Join(b.juliaBin(), "julia")
 	py := filepath.Join(b.Dir, "python", "bin")
-	env := []string{
-		"JULIA_DEPOT_PATH=" + filepath.Join(b.Dir, "julia", "depot"),
-		"JULIA_PROJECT=" + project,
-		"JUPYTER_DATA_DIR=" + filepath.Join(b.Dir, "julia", "jupyter"),
-		"JUPYTER=" + filepath.Join(py, "jupyter"),
-		"PATH=" + py + string(os.PathListSeparator) + os.Getenv("PATH"),
-	}
+	env := isolated(
+		"JULIA_DEPOT_PATH="+filepath.Join(b.Dir, "julia", "depot"),
+		"JULIA_PROJECT="+project,
+		"JULIA_LOAD_PATH=@"+string(os.PathListSeparator)+"@stdlib",
+		"JUPYTER_DATA_DIR="+filepath.Join(b.Dir, "julia", "jupyter"),
+		"JUPYTER="+filepath.Join(py, "jupyter"),
+		"PATH="+py+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
 	var specs []string
 	for _, p := range juliaPins {
 		specs = append(specs, fmt.Sprintf("PackageSpec(name=%q, version=%q)", p[0], p[1]))
@@ -319,13 +366,15 @@ func ForStudy(b *Bases, dir string) *Study { return &Study{Bases: b, Dir: dir} }
 // prepare creates the add-on folders for the ready bases that lack them.
 func (s *Study) prepare(ctx context.Context) error {
 	b := s.Bases
+	l := b.lock("study:" + s.Dir)
+	l.Lock()
+	defer l.Unlock()
 	var errs []error
-	if b.Ready(Python) {
-		venv := filepath.Join(s.Dir, "python")
-		if _, err := os.Stat(filepath.Join(venv, "bin", "python")); err != nil {
-			if _, err := b.Run(ctx, nil, s.Dir, filepath.Join(b.Dir, "python", "bin", "python"), "-m", "venv", "--system-site-packages", venv); err != nil {
-				errs = append(errs, err)
-			}
+	if b.Ready(Python) && !s.hasVenv() {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		if _, err := b.Run(ctx, isolated(), s.Dir, filepath.Join(b.Dir, "python", "bin", "python"), "-m", "venv", "--system-site-packages", filepath.Join(s.Dir, "python")); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	if b.Ready(R) {
@@ -344,13 +393,18 @@ func (s *Study) prepare(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+func (s *Study) hasVenv() bool {
+	_, err := os.Stat(filepath.Join(s.Dir, "python", "bin", "python"))
+	return err == nil
+}
+
 func (s *Study) Env() []string {
 	if err := s.prepare(context.Background()); err != nil {
 		slog.Warn("study add-on folders", "dir", s.Dir, "err", err)
 	}
 	b, sep := s.Bases, string(os.PathListSeparator)
 	var env []string
-	if b.Ready(Python) {
+	if b.Ready(Python) && s.hasVenv() {
 		env = append(env, "VIRTUAL_ENV="+filepath.Join(s.Dir, "python"))
 	}
 	if b.Ready(R) {
@@ -372,7 +426,10 @@ func (s *Study) PathPrefix() string {
 	b := s.Bases
 	var dirs []string
 	if b.Ready(Python) {
-		dirs = append(dirs, filepath.Join(s.Dir, "python", "bin"), filepath.Join(b.Dir, "python", "bin"))
+		if s.hasVenv() {
+			dirs = append(dirs, filepath.Join(s.Dir, "python", "bin"))
+		}
+		dirs = append(dirs, filepath.Join(b.Dir, "python", "bin"))
 	}
 	if b.Ready(R) {
 		dirs = append(dirs, filepath.Join(b.Dir, "r", "bin"))
@@ -413,9 +470,9 @@ func (s *Study) Packages(ctx context.Context, lang string) (string, error) {
 	var study []byte
 	switch lang {
 	case Python:
-		study, err = s.Bases.Run(ctx, s.Env(), s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-m", "pip", "freeze", "--local")
+		study, err = s.Bases.Run(ctx, append(os.Environ(), s.Env()...), s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-m", "pip", "freeze", "--local")
 	case R:
-		study, err = s.Bases.Run(ctx, s.Env(), s.Dir, filepath.Join(s.Bases.Dir, "r", "bin", "Rscript"), "-e",
+		study, err = s.Bases.Run(ctx, append(os.Environ(), s.Env()...), s.Dir, filepath.Join(s.Bases.Dir, "r", "bin", "Rscript"), "-e",
 			`ip <- installed.packages(lib.loc=Sys.getenv("R_LIBS_USER"))[,c("Package","Version")]; write.table(ip, row.names=FALSE, col.names=FALSE, quote=FALSE)`)
 	case Julia:
 		study, err = os.ReadFile(filepath.Join(s.Dir, "julia", "Manifest.toml"))

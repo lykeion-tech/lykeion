@@ -5,23 +5,30 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 type fakeRun struct {
-	calls      []string
-	failVerify bool
+	mu                              sync.Mutex
+	calls                           []string
+	envs                            [][]string
+	failVerify, failJulia, failVenv bool
 }
 
-func (f *fakeRun) run(_ context.Context, _ []string, _, name string, args ...string) ([]byte, error) {
+func (f *fakeRun) run(_ context.Context, env []string, _, name string, args ...string) ([]byte, error) {
 	line := strings.Join(append([]string{filepath.Base(name)}, args...), " ")
+	f.mu.Lock()
 	f.calls = append(f.calls, line)
+	f.envs = append(f.envs, env)
+	f.mu.Unlock()
 	switch {
 	case filepath.Base(name) == "micromamba" && slicesIndex(args, "create") >= 0:
 		prefix := args[slicesIndex(args, "-p")+1]
@@ -32,6 +39,9 @@ func (f *fakeRun) run(_ context.Context, _ []string, _, name string, args ...str
 	case filepath.Base(name) == "micromamba" && slicesIndex(args, "export") >= 0:
 		return []byte("@EXPLICIT\nhttps://conda.anaconda.org/conda-forge/python-3.13.16.conda\n"), nil
 	case len(args) == 4 && args[1] == "venv":
+		if f.failVenv {
+			return nil, errors.New("venv: ensurepip failed")
+		}
 		if err := os.MkdirAll(filepath.Join(args[3], "bin"), 0o755); err != nil {
 			return nil, err
 		}
@@ -40,6 +50,11 @@ func (f *fakeRun) run(_ context.Context, _ []string, _, name string, args ...str
 		return []byte("requests==2.32.0\n"), nil
 	case strings.Contains(line, "import numpy") && f.failVerify:
 		return nil, errors.New("ModuleNotFoundError: No module named 'numpy'")
+	case strings.Contains(line, "Pkg.add"):
+		project, _ := envValue(env, "JULIA_PROJECT")
+		return nil, os.WriteFile(filepath.Join(project, "Manifest.toml"), []byte("julia_version = \"1.12.6\"\n"), 0o644)
+	case strings.Contains(line, "using DataFrames, CSV, IJulia") && f.failJulia:
+		return nil, errors.New("ArgumentError: Package CSV not found")
 	}
 	return nil, nil
 }
@@ -91,6 +106,9 @@ func TestABaseIsBuiltVerifiedAndMarkedReady(t *testing.T) {
 			t.Fatalf("create lacks %s: %s", pin, f.calls[create])
 		}
 	}
+	if clean := index(f.calls, "clean -a -y"); clean < verify {
+		t.Fatalf("package cache not cleaned after verifying: %q", f.calls)
+	}
 	if !b.Ready(Python) {
 		t.Fatal("python not ready")
 	}
@@ -118,10 +136,8 @@ func TestAFailedBaseBuildLeavesNothing(t *testing.T) {
 	if b.Ready(Python) {
 		t.Fatal("python ready after a failed build")
 	}
-	for _, p := range []string{"python", "python.building"} {
-		if _, err := os.Stat(filepath.Join(b.Dir, p)); !os.IsNotExist(err) {
-			t.Fatalf("%s left behind: %v", p, err)
-		}
+	if _, err := os.Stat(filepath.Join(b.Dir, "python")); !os.IsNotExist(err) {
+		t.Fatalf("python left behind: %v", err)
 	}
 	if !b.Ready(R) {
 		t.Fatal("the ready R base was disturbed")
@@ -244,6 +260,183 @@ func TestPackagesJoinsBaseAndStudyParts(t *testing.T) {
 	}
 }
 
+func TestAStaleBuildIsReplaced(t *testing.T) {
+	b, _ := fakeBases(t)
+	junk := filepath.Join(b.Dir, "python", "junk")
+	if err := os.MkdirAll(junk, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(junk); !os.IsNotExist(err) || !b.Ready(Python) {
+		t.Fatalf("junk %v ready %v", err, b.Ready(Python))
+	}
+}
+
+func TestVerificationIgnoresThePersonsEnvironment(t *testing.T) {
+	t.Setenv("PYTHONPATH", "/person/site")
+	t.Setenv("R_LIBS_USER", "/person/rlib")
+	t.Setenv("CONDA_PREFIX", "/person/conda")
+	t.Setenv("JULIA_LOAD_PATH", "/person/julia")
+	b, f := fakeBases(t)
+	for _, lang := range []string{Python, R, Julia} {
+		if err := b.Ensure(context.Background(), lang); err != nil {
+			t.Fatal(err)
+		}
+	}
+	py := index(f.calls, "import numpy")
+	if !strings.HasPrefix(f.calls[py], "python -I -c ") {
+		t.Fatalf("python verify: %s", f.calls[py])
+	}
+	rv := index(f.calls, "library(tidyverse)")
+	if !strings.HasPrefix(f.calls[rv], "Rscript --vanilla -e .libPaths(character()); library(tidyverse)") {
+		t.Fatalf("R verify: %s", f.calls[rv])
+	}
+	for i, env := range f.envs {
+		if env == nil {
+			t.Fatalf("%s inherits the whole environment", f.calls[i])
+		}
+		for _, k := range []string{"PYTHONPATH", "R_LIBS_USER", "CONDA_PREFIX"} {
+			if _, ok := envValue(env, k); ok {
+				t.Fatalf("%s carries %s", f.calls[i], k)
+			}
+		}
+		if v, ok := envValue(env, "JULIA_LOAD_PATH"); ok && v != "@"+string(os.PathListSeparator)+"@stdlib" {
+			t.Fatalf("%s: JULIA_LOAD_PATH %q", f.calls[i], v)
+		}
+	}
+	jv := index(f.calls, "using DataFrames, CSV, IJulia")
+	if v, _ := envValue(f.envs[jv], "JULIA_LOAD_PATH"); v != "@"+string(os.PathListSeparator)+"@stdlib" {
+		t.Fatalf("julia verify JULIA_LOAD_PATH %q", v)
+	}
+	mm := index(f.calls, "micromamba ")
+	if v, _ := envValue(f.envs[mm], "MAMBA_ROOT_PREFIX"); v != filepath.Join(b.Dir, "micromamba", "root") {
+		t.Fatalf("MAMBA_ROOT_PREFIX %q", v)
+	}
+	if v, _ := envValue(f.envs[mm], "HOME"); v != filepath.Join(b.Dir, "micromamba", "home") {
+		t.Fatalf("micromamba HOME %q", v)
+	}
+}
+
+func TestTheRBaseRegistersItsKernelThenVerifies(t *testing.T) {
+	b, f := fakeBases(t)
+	if err := b.Ensure(context.Background(), R); err == nil || !strings.Contains(err.Error(), "Python") {
+		t.Fatalf("R without Python: %v", err)
+	}
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	f.calls, f.envs = nil, nil
+	if err := b.Ensure(context.Background(), R); err != nil {
+		t.Fatal(err)
+	}
+	create, export, spec, verify := index(f.calls, " create "), index(f.calls, "env export"), index(f.calls, "IRkernel::installspec"), index(f.calls, "library(IRkernel)")
+	if create < 0 || !(create < export && export < spec && spec < verify) {
+		t.Fatalf("order %d %d %d %d: %q", create, export, spec, verify, f.calls)
+	}
+	for _, pin := range rPins {
+		if !strings.Contains(f.calls[create]+" ", " "+pin+" ") {
+			t.Fatalf("create lacks %s", pin)
+		}
+	}
+	if !strings.Contains(f.calls[spec], fmt.Sprintf("prefix = %q", filepath.Join(b.Dir, "r"))) {
+		t.Fatalf("installspec: %s", f.calls[spec])
+	}
+	if path, _ := envValue(f.envs[spec], "PATH"); !strings.HasPrefix(path, filepath.Join(b.Dir, "python", "bin")+string(os.PathListSeparator)) {
+		t.Fatalf("installspec PATH %q", path)
+	}
+	if !b.Ready(R) {
+		t.Fatal("R not ready")
+	}
+}
+
+func TestAFailedJuliaBuildLeavesNothing(t *testing.T) {
+	b, f := fakeBases(t)
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	f.failJulia = true
+	if err := b.Ensure(context.Background(), Julia); err == nil {
+		t.Fatal("want error")
+	}
+	if _, err := os.Stat(filepath.Join(b.Dir, "julia")); !os.IsNotExist(err) {
+		t.Fatalf("julia left behind: %v", err)
+	}
+	if b.Ready(Julia) || !b.Ready(Python) {
+		t.Fatal("readiness wrong after a failed Julia build")
+	}
+}
+
+func TestAStudyEnvWithEveryBaseReady(t *testing.T) {
+	b, _ := fakeBases(t)
+	if errs := b.EnsureAll(context.Background()); errs[Python] != nil || errs[R] != nil || errs[Julia] != nil {
+		t.Fatal(errs)
+	}
+	lock, err := os.ReadFile(filepath.Join(b.Dir, "julia", "base", "lock.txt"))
+	if err != nil || !strings.Contains(string(lock), "julia_version") {
+		t.Fatalf("julia lock %q %v", lock, err)
+	}
+	s := ForStudy(b, t.TempDir())
+	env, sep := s.Env(), string(os.PathListSeparator)
+	for k, want := range map[string]string{
+		"JULIA_PROJECT":    filepath.Join(s.Dir, "julia"),
+		"JULIA_DEPOT_PATH": filepath.Join(s.Dir, "julia", "depot") + sep + filepath.Join(b.Dir, "julia", "depot"),
+		"JULIA_LOAD_PATH":  "@" + sep + filepath.Join(b.Dir, "julia", "base") + sep + "@stdlib",
+		"JUPYTER_PATH":     strings.Join([]string{filepath.Join(b.Dir, "python", "share", "jupyter"), filepath.Join(b.Dir, "r", "share", "jupyter"), filepath.Join(b.Dir, "julia", "jupyter")}, sep),
+	} {
+		if v, _ := envValue(env, k); v != want {
+			t.Fatalf("%s = %q, want %q", k, v, want)
+		}
+	}
+	if fi, err := os.Stat(filepath.Join(s.Dir, "julia", "Project.toml")); err != nil || fi.Size() != 0 {
+		t.Fatalf("Project.toml %v", err)
+	}
+}
+
+func TestConcurrentEnsureBuildsOnce(t *testing.T) {
+	b, f := fakeBases(t)
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := b.Ensure(context.Background(), Python); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	creates := 0
+	for _, c := range f.calls {
+		if strings.Contains(c, " create ") {
+			creates++
+		}
+	}
+	if creates != 1 {
+		t.Fatalf("%d builds", creates)
+	}
+}
+
+func TestAFailedVenvLeavesOnlyBaseEntries(t *testing.T) {
+	b, f := fakeBases(t)
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	f.failVenv = true
+	s := ForStudy(b, t.TempDir())
+	env := s.Env()
+	if v, ok := envValue(env, "VIRTUAL_ENV"); ok {
+		t.Fatalf("VIRTUAL_ENV %q without a venv", v)
+	}
+	if _, ok := envValue(env, "JUPYTER_PATH"); !ok {
+		t.Fatal("base entries dropped")
+	}
+	if p := s.PathPrefix(); p != filepath.Join(b.Dir, "python", "bin") {
+		t.Fatalf("path %q", p)
+	}
+}
+
 func TestBasesBuildForReal(t *testing.T) {
 	if os.Getenv("LYK_TEST_ENVS") != "1" {
 		t.Skip("set LYK_TEST_ENVS=1 to build the real bases")
@@ -262,7 +455,7 @@ func TestBasesBuildForReal(t *testing.T) {
 		t.Logf("%s base ready in %s", lang, time.Since(start).Round(time.Second))
 	}
 	s := ForStudy(b, t.TempDir())
-	env := s.Env()
+	env := append(os.Environ(), s.Env()...)
 	env = append(env, "PATH="+s.PathPrefix()+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Logf("study env: %q", env)
 	for lang, code := range map[string][]string{
