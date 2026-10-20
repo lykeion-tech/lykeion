@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -47,4 +49,30 @@ func TestNoCapabilitiesInside(t *testing.T) {
 	if err == nil || strings.Contains(out, "PRIVATE KEY") {
 		t.Fatalf("home unmounted: err=%v out=%q", err, out)
 	}
+}
+
+// showsThePersonsHome is the sandbox without the empty mount over the
+// policy's home folder.
+func showsThePersonsHome(p Policy, ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+	argv, err := p.bwrapArgs(name, args...)
+	if err != nil {
+		return nil, err
+	}
+	r, err := p.resolve()
+	if err != nil {
+		return nil, err
+	}
+	var kept []string
+	for i := 0; i < len(argv); i++ {
+		if (argv[i] == "--tmpfs" || argv[i] == "--remount-ro") && i+1 < len(argv) && argv[i+1] == r.home {
+			i++
+			continue
+		}
+		kept = append(kept, argv[i])
+	}
+	bwrap, err := exec.LookPath("bwrap")
+	if err != nil {
+		return nil, err
+	}
+	return exec.CommandContext(ctx, bwrap, kept...), nil
 }

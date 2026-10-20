@@ -151,3 +151,21 @@ func TestSocketsInReadOnlyPathsAreUnreachable(t *testing.T) {
 		t.Fatalf("socket %s reachable from the sandbox: err=%v out=%q", sock, err, out)
 	}
 }
+
+// showsThePersonsHome is the sandbox with reads of the person's real home
+// folder allowed.
+func showsThePersonsHome(p Policy, ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+	prof, err := p.seatbeltProfile()
+	if err != nil {
+		return nil, err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	if home, err = filepath.EvalSymlinks(home); err != nil {
+		return nil, err
+	}
+	prof += "(allow file-read* (subpath " + sbplString(home) + "))\n"
+	return exec.CommandContext(ctx, sandboxExec, append([]string{"-p", prof, "--", name}, args...)...), nil
+}

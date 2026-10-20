@@ -90,19 +90,23 @@ func (p Policy) Command(ctx context.Context, name string, args ...string) (*exec
 // Check proves the sandbox both starts and confines on this machine: true
 // runs under a policy for the person's home, and a file under a stand-in home
 // is unreadable. The error names what is missing.
-func Check(ctx context.Context) error {
+func Check(ctx context.Context) error { return check(ctx, Policy.Command) }
+
+func check(ctx context.Context, command func(Policy, context.Context, string, ...string) (*exec.Cmd, error)) error {
 	u, err := user.Current()
 	if err != nil {
 		return err
 	}
-	cmd, err := Policy{Home: u.HomeDir}.Command(ctx, "true")
+	cmd, err := command(Policy{Home: u.HomeDir}, ctx, "true")
 	if err != nil {
 		return err
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("sandbox failed to start: %v: %s", err, strings.TrimSpace(string(out)))
 	}
-	home, err := os.MkdirTemp("", "lyk-sandbox-check")
+	// The stand-in home lies in the person's own, where nothing but the home
+	// rule hides it: the temp folders are hidden on every platform anyway.
+	home, err := os.MkdirTemp(u.HomeDir, ".lyk-sandbox-check-")
 	if err != nil {
 		return err
 	}
@@ -111,7 +115,7 @@ func Check(ctx context.Context) error {
 	if err := os.WriteFile(probe, []byte("x"), 0o600); err != nil {
 		return err
 	}
-	if cmd, err = (Policy{Home: home}).Command(ctx, "cat", probe); err != nil {
+	if cmd, err = command(Policy{Home: home}, ctx, "cat", probe); err != nil {
 		return err
 	}
 	if cmd.Run() == nil {

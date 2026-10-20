@@ -394,6 +394,15 @@ func TestCheck(t *testing.T) {
 	}
 }
 
+// Check's probe lies where only the home rule hides it: a sandbox that
+// shows the person's home folder fails the check.
+func TestCheckFailsASandboxThatShowsTheHomeFolder(t *testing.T) {
+	requireSandbox(t)
+	if err := check(context.Background(), showsThePersonsHome); err == nil {
+		t.Fatal("a sandbox that shows the person's home folder passed the check")
+	}
+}
+
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 func TestReadFolderUnderHomeResolves(t *testing.T) {
