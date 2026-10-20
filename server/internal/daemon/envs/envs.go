@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -224,6 +225,11 @@ func (b *Bases) Ensure(ctx context.Context, lang string) error {
 }
 
 func (b *Bases) build(ctx context.Context, lang string) error {
+	// conda-forge's R scripts word-split R_HOME, and console-script shebangs
+	// break on spaces too, so a base is never built under such a path.
+	if strings.ContainsFunc(b.Dir, unicode.IsSpace) {
+		return fmt.Errorf("the environments folder must not contain spaces: %s", b.Dir)
+	}
 	plat, err := platform()
 	if err != nil {
 		return err

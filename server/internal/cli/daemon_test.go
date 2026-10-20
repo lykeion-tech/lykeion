@@ -30,6 +30,7 @@ func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir)
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	scratch := t.TempDir()
@@ -38,17 +39,18 @@ func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 	}
 	t.Setenv("LYK_DAEMON_HOME", scratch)
 	// Bases already marked ready, so the daemon builds none from the network.
+	envs, err := envDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, base := range []string{"python", "r", filepath.Join("julia", "base")} {
-		ready := filepath.Join(configDir, "daemon", "envs", base, "ready")
+		ready := filepath.Join(envs, base, "ready")
 		if err := os.MkdirAll(filepath.Dir(ready), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(ready, nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if err := os.Chmod(filepath.Join(configDir, "daemon"), 0o700); err != nil {
-		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() {
@@ -77,6 +79,20 @@ func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal("the daemon's runtime never appeared")
+}
+
+func TestTheEnvironmentsFolderAvoidsASpacedStateFolder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("LYK_CONFIG", filepath.Join(home, "Library", "Application Support", "lyk", "config.json"))
+	dir, err := envDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(dir, " \t") || !strings.HasPrefix(dir, home+string(filepath.Separator)) {
+		t.Fatalf("envDir = %q, want a space-free folder inside %s", dir, home)
+	}
 }
 
 func TestDaemonAndRuntimeCommandsAreRegistered(t *testing.T) {

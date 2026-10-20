@@ -545,3 +545,20 @@ func TestStatesReportBuildingAndFailure(t *testing.T) {
 		t.Fatalf("states after a rebuild: %v", s)
 	}
 }
+
+func TestAFolderWithASpaceIsRefusedBeforeAnyBuild(t *testing.T) {
+	b, f := fakeBases(t)
+	b.Dir = filepath.Join(b.Dir, "Application Support", "envs")
+	fetched := false
+	b.Fetch = func(context.Context, string, string, string) error { fetched = true; return nil }
+	err := b.Ensure(context.Background(), Python)
+	if err == nil || !strings.Contains(err.Error(), "must not contain spaces") || !strings.Contains(err.Error(), b.Dir) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(f.calls) != 0 || fetched {
+		t.Fatalf("ran %v, fetched %v", f.calls, fetched)
+	}
+	if _, err := os.Stat(filepath.Dir(b.Dir)); !os.IsNotExist(err) {
+		t.Fatalf("created %s: %v", filepath.Dir(b.Dir), err)
+	}
+}
