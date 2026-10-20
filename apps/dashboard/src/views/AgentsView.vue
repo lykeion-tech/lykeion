@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
 import { api } from '../api/client';
-import { useAgents, useCards, useMe, useMembers } from '../api/queries';
+import { useAgents, useMe, useMembers } from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import type { AgentDefinition } from '../api/types';
@@ -15,8 +15,7 @@ import { timeAgo } from '../lib/studies';
 defineProps<{ create?: boolean }>();
 const list = useAgents(),
   me = useMe(),
-  members = useMembers(),
-  cards = useCards();
+  members = useMembers();
 const client = useQueryClient(),
   router = useRouter();
 const editor = ref(false),
@@ -35,6 +34,65 @@ let visit = 0;
 const tab = ref<'mine' | 'all' | 'archived'>('mine'),
   search = ref(''),
   newestFirst = ref(true);
+const filterOpen = ref(false);
+const filterAnchor = ref<HTMLElement>();
+const filterTrigger = ref<HTMLButtonElement>();
+const filterOptions = ['mine', 'all', 'archived'] as const;
+function closeFilter(restoreFocus = false) {
+  filterOpen.value = false;
+  if (restoreFocus) filterTrigger.value?.focus();
+}
+async function openFilter(position: 'selected' | 'first' | 'last' = 'selected') {
+  filterOpen.value = true;
+  await nextTick();
+  const options = filterAnchor.value?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]');
+  if (!options?.length) return;
+  const index =
+    position === 'first'
+      ? 0
+      : position === 'last'
+        ? options.length - 1
+        : filterOptions.indexOf(tab.value);
+  options[index]?.focus();
+}
+function selectFilter(value: typeof tab.value) {
+  tab.value = value;
+  closeFilter(true);
+}
+function filterKeys(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    closeFilter(true);
+    return;
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+  const options = [
+    ...(filterAnchor.value?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? []),
+  ];
+  if (!options.length) return;
+  event.preventDefault();
+  const index = options.indexOf(document.activeElement as HTMLButtonElement);
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? options.length - 1
+        : index < 0
+          ? event.key === 'ArrowDown'
+            ? 0
+            : options.length - 1
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+  options[next]?.focus();
+}
+function leaveFilter(event: FocusEvent) {
+  if (!filterAnchor.value?.contains(event.relatedTarget as Node | null)) closeFilter();
+}
+function outsideFilter(event: PointerEvent) {
+  if (!filterAnchor.value?.contains(event.target as Node | null)) closeFilter();
+}
+onMounted(() => document.addEventListener('pointerdown', outsideFilter));
+onUnmounted(() => document.removeEventListener('pointerdown', outsideFilter));
 const inTab = (a: AgentDefinition, t: typeof tab.value) =>
   t === 'archived'
     ? !!a.archived_at
@@ -46,13 +104,11 @@ const rows = computed(() =>
     .sort((a, b) => (newestFirst.value ? -1 : 1) * a.updated_at.localeCompare(b.updated_at)),
 );
 const owner = (id: string) => members.data.value?.find((m) => m.user_id === id);
-const studies = (id: string) =>
-  (cards.data.value ?? []).filter((c) => c.assignee_type === 'agent' && c.assignee_id === id)
-    .length;
 watch(workspaceId, () => {
   visit++;
   editor.value = false;
   busy.value = false;
+  closeFilter();
 });
 onUnmounted(() => visit++);
 function edit() {
@@ -123,16 +179,41 @@ async function save() {
             placeholder="Search agents..."
             aria-label="Search agents"
         /></label>
-        <div class="agent-tabs" role="tablist">
+        <div ref="filterAnchor" class="agent-filter menu-anchor" @focusout="leaveFilter">
           <button
-            v-for="t in ['mine', 'all', 'archived'] as const"
-            :key="t"
-            role="tab"
-            :aria-selected="tab === t"
-            @click="tab = t"
+            ref="filterTrigger"
+            class="button compact"
+            :class="{ active: tab !== 'mine' }"
+            aria-haspopup="menu"
+            :aria-expanded="filterOpen"
+            aria-controls="agent-filter-menu"
+            @click="filterOpen ? closeFilter(true) : openFilter()"
+            @keydown.down.prevent="openFilter('first')"
+            @keydown.up.prevent="openFilter('last')"
           >
-            {{ t[0]!.toUpperCase() + t.slice(1) }} <small>{{ count(t) }}</small>
+            <Icon name="filter" :size="14" />Filter
           </button>
+          <div
+            v-if="filterOpen"
+            id="agent-filter-menu"
+            class="agent-filter-menu"
+            role="menu"
+            aria-label="Filter agents"
+            @keydown="filterKeys"
+          >
+            <button
+              v-for="t in filterOptions"
+              :key="t"
+              role="menuitemradio"
+              :aria-checked="tab === t"
+              tabindex="-1"
+              @click="selectFilter(t)"
+            >
+              <span class="filter-check"><Icon v-if="tab === t" name="check" :size="12" /></span
+              ><span>{{ t[0]!.toUpperCase() + t.slice(1) }}</span
+              ><small>{{ count(t) }}</small>
+            </button>
+          </div>
         </div>
         <button class="button agent-sort" @click="newestFirst = !newestFirst">
           <Icon :name="newestFirst ? 'down' : 'up'" :size="13" />Last updated
@@ -143,8 +224,7 @@ async function save() {
           <span role="columnheader">Agent</span><span role="columnheader">Status</span
           ><span role="columnheader">Owner</span><span role="columnheader">Access</span
           ><span role="columnheader">Harness</span
-          ><span role="columnheader" aria-sort="descending">Last updated</span
-          ><span role="columnheader">Studies</span>
+          ><span role="columnheader" aria-sort="descending">Last updated</span>
         </div>
         <RouterLink
           v-for="a in rows"
@@ -173,8 +253,7 @@ async function save() {
             >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
           ><span role="cell">{{ a.visibility === 'private' ? 'Owner only' : 'Workspace' }}</span
           ><span role="cell">{{ backendLabel(a.harness) }}</span
-          ><span role="cell">{{ timeAgo(a.updated_at) }}</span
-          ><span role="cell" class="agent-studies">{{ studies(a.id) }}</span></RouterLink
+          ><span role="cell">{{ timeAgo(a.updated_at) }}</span></RouterLink
         >
         <p v-if="!rows.length" class="agent-none">No matching agents</p>
       </div>
@@ -236,3 +315,54 @@ async function save() {
   </section>
 </template>
 <style src="./directory.css" />
+
+<style scoped>
+.agent-filter {
+  margin-left: auto;
+}
+.agent-sort {
+  margin-left: 0;
+}
+.agent-filter-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 152px;
+  padding: 4px;
+  background: var(--fill-menu);
+  border: 1px solid #ffffff55;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px #00000012;
+  color: var(--text);
+  font-size: 14px;
+}
+.agent-filter-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 6px;
+  text-align: left;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.agent-filter-menu > button:hover,
+.agent-filter-menu > button:focus-visible {
+  background: #00000008;
+  outline: 0;
+}
+.filter-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex: none;
+}
+.agent-filter-menu small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+</style>

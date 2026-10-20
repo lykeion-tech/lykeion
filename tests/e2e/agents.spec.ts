@@ -26,13 +26,13 @@ async function inFixture(page: Page) {
   return { f, headers: { 'X-Workspace-ID': f.workspace_id } };
 }
 
-test('the Agents list shows owner, access, harness and assigned studies per tab', async ({
+test('the Agents list filters Mine, All and Archived through one compact Filter button', async ({
   page,
 }) => {
   const { headers } = await inFixture(page);
   const post = async (data: object) =>
     (await page.request.post('/api/agents', { headers, data })).json();
-  const curator = await post({
+  await post({
     name: 'Evidence curator',
     harness: 'claude',
     description: 'Keeps sources traceable',
@@ -40,36 +40,67 @@ test('the Agents list shows owner, access, harness and assigned studies per tab'
   await post({ name: 'Private reviewer', harness: 'codex', visibility: 'private' });
   const retired = await post({ name: 'Retired analyst', harness: 'claude' });
   await page.request.post(`/api/agents/${retired.id}/archive`, { headers });
-  await assignNewStudy(page, headers, curator.id);
 
   await page.goto('/#/agents');
   await expect(page.locator('#page-header-count')).toHaveText('2');
-  const tabs = page.getByRole('tablist');
-  await expect(tabs.getByRole('tab', { name: 'Mine 2' })).toHaveAttribute('aria-selected', 'true');
-  await expect(tabs.getByRole('tab', { name: 'All 2' })).toBeVisible();
-  await expect(tabs.getByRole('tab', { name: 'Archived 1' })).toBeVisible();
+  const filter = page.getByRole('button', { name: 'Filter', exact: true });
+  await expect(filter).toBeVisible();
+  await expect(filter.locator('svg')).toHaveClass(/lucide-funnel/);
+  await expect(page.locator('.agent-tabs')).toHaveCount(0);
+  await filter.click();
+  const menu = page.getByRole('menu', { name: 'Filter agents' });
+  await expect(menu.getByRole('menuitemradio', { name: 'Mine 2' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(menu.getByRole('menuitemradio', { name: 'All 2' })).toBeVisible();
+  await expect(menu.getByRole('menuitemradio', { name: 'Archived 1' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(filter).toBeFocused();
   const table = page.getByRole('table', { name: 'Agents' });
   const curatorRow = table.getByRole('row').filter({ hasText: 'Evidence curator' });
   await expect(curatorRow).toContainText('Keeps sources traceable');
   await expect(curatorRow).toContainText('Workspace');
   await expect(curatorRow).toContainText('Claude Code');
   await expect(curatorRow).toContainText('You');
-  await expect(curatorRow.getByRole('cell').last()).toHaveText('1');
+  await expect(curatorRow.getByRole('cell')).toHaveCount(6);
   const privateRow = table.getByRole('row').filter({ hasText: 'Private reviewer' });
   await expect(privateRow).toContainText('Owner only');
   await expect(privateRow).toContainText('Codex');
-  await expect(privateRow.getByRole('cell').last()).toHaveText('0');
+  await expect(privateRow.getByRole('cell')).toHaveCount(6);
+  await expect(table.getByRole('columnheader')).toHaveText([
+    'Agent',
+    'Status',
+    'Owner',
+    'Access',
+    'Harness',
+    'Last updated',
+  ]);
+  await expect(table.getByRole('columnheader', { name: 'Studies', exact: true })).toHaveCount(0);
   await expect(table.getByRole('row').filter({ hasText: 'Retired analyst' })).toHaveCount(0);
   await page.screenshot({ path: `${artifacts}/agents-list.png` });
 
   await page.getByRole('textbox', { name: 'Search agents' }).fill('traceable');
   await expect(table.getByRole('row')).toHaveCount(2);
   await page.getByRole('textbox', { name: 'Search agents' }).fill('');
-  await tabs.getByRole('tab', { name: 'Archived 1' }).click();
+  await filter.click();
+  await menu.getByRole('menuitemradio', { name: 'Archived 1' }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(filter).toBeFocused();
   await expect(table.getByRole('row').filter({ hasText: 'Retired analyst' })).toContainText(
     'Archived',
   );
   await expect(table.getByRole('row')).toHaveCount(2);
+  await filter.press('ArrowDown');
+  await page.keyboard.press('Home');
+  await expect(menu.getByRole('menuitemradio', { name: 'Mine 2' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(menu).toHaveCount(0);
+  await expect(table.getByRole('row').filter({ hasText: 'Retired analyst' })).toHaveCount(0);
+  await filter.click();
+  await page.getByRole('textbox', { name: 'Search agents' }).click();
+  await expect(menu).toHaveCount(0);
 });
 
 test('New agent opens the starting-point page, and Start blank opens the form', async ({

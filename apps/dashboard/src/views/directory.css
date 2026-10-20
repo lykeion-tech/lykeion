@@ -164,31 +164,13 @@
   width: 100%;
   font-size: 13px;
 }
-.agent-tabs {
-  display: flex;
-  gap: 4px;
-}
-.agent-tabs button {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-}
-.agent-tabs button[aria-selected='true'] {
-  background: var(--hover);
-}
-.agent-tabs small {
-  margin-left: 4px;
-  color: var(--muted);
-  font-size: 11px;
-}
 .agent-sort {
   margin-left: auto;
   gap: 5px;
 }
 .agent-row {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) 120px 150px 110px 120px 110px 70px;
+  grid-template-columns: minmax(240px, 1fr) 120px 150px 110px 120px 110px;
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
@@ -252,9 +234,6 @@ a.agent-row:hover {
   width: 18px;
   height: 18px;
   font-size: 10px;
-}
-.agent-studies {
-  text-align: right;
 }
 .agent-none {
   padding: 24px 16px;
