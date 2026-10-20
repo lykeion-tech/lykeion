@@ -150,6 +150,27 @@ test('Teams sorts by its latest version and shares Agents column positions and P
   expect(teamLast.x + teamLast.width).toBe(teamSort.x + teamSort.width);
   await expect(page.locator('.team-table th').last()).toHaveCSS('text-align', 'right');
   await expect(rows.first().locator('td').last()).toHaveCSS('text-align', 'right');
+  const teamIcon = (await rows.first().locator('.team-icon').boundingBox())!;
+  const teamGlyph = (await rows.first().locator('.team-icon svg').boundingBox())!;
+  const teamLabelX = (await rows.first().locator('.team-label').boundingBox())!.x;
+  expect(teamIcon.width).toBe(32);
+  expect(teamIcon.height).toBe(32);
+  expect(teamGlyph.x + teamGlyph.width / 2).toBe(teamIcon.x + teamIcon.width / 2);
+  const teamNameStyle = await rows
+    .first()
+    .locator('.team-label')
+    .evaluate((el) => {
+      const css = getComputedStyle(el);
+      return { size: css.fontSize, weight: css.fontWeight, color: css.color };
+    });
+  const teamMetadataStyle = await rows
+    .first()
+    .locator('td')
+    .nth(1)
+    .evaluate((el) => {
+      const css = getComputedStyle(el);
+      return { size: css.fontSize, weight: css.fontWeight, color: css.color };
+    });
   const teamHeaderY = (await page.locator('.team-table th').first().boundingBox())!.y;
   const teamPositions = await page
     .locator('.team-table th')
@@ -161,6 +182,27 @@ test('Teams sorts by its latest version and shares Agents column positions and P
     .locator('.agent-head > span')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
   expect(teamPositions).toEqual(agentPositions);
+  const agentIcon = (await page.locator('.agent-cell > .avatar').first().boundingBox())!;
+  expect(agentIcon.x + agentIcon.width / 2).toBe(teamIcon.x + teamIcon.width / 2);
+  expect((await page.locator('.agent-cell > span:last-child').first().boundingBox())!.x).toBe(
+    teamLabelX,
+  );
+  const agentNameStyle = await page
+    .locator('.agent-cell b')
+    .first()
+    .evaluate((el) => {
+      const css = getComputedStyle(el);
+      return { size: css.fontSize, weight: css.fontWeight, color: css.color };
+    });
+  const agentMetadataStyle = await page
+    .locator('a.agent-row > span')
+    .nth(3)
+    .evaluate((el) => {
+      const css = getComputedStyle(el);
+      return { size: css.fontSize, weight: css.fontWeight, color: css.color };
+    });
+  expect(teamNameStyle).toEqual(agentNameStyle);
+  expect(teamMetadataStyle).toEqual(agentMetadataStyle);
   const agentLast = (await page.locator('.agent-head > span').last().boundingBox())!;
   const agentSort = (await page
     .getByRole('button', { name: 'Last updated', exact: true })

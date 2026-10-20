@@ -126,7 +126,8 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
           <tr v-for="t in rows" :key="t.id">
             <td>
               <RouterLink :to="'/teams/' + t.id" class="team-name"
-                ><Icon name="network" :size="18" /><span>{{ t.name }}</span></RouterLink
+                ><span class="team-icon"><Icon name="network" :size="18" /></span
+                ><span class="team-label">{{ t.name }}</span></RouterLink
               >
             </td>
             <td>{{ t.domain || '—' }}</td>
@@ -211,12 +212,14 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 .team-table-scroll {
   overflow-x: auto;
 }
-.team-name {
+.team-table td:first-child .team-name {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
   min-height: 24px;
+  flex: 1;
+  font-size: 13px;
   color: var(--text);
 }
 .team-name > span {
@@ -224,11 +227,21 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.team-name > svg {
+.team-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   flex: none;
   color: var(--muted);
 }
-.team-table td:not(:first-child) {
-  color: var(--muted);
+.team-table td:last-child {
+  justify-content: flex-end;
+}
+.team-table td {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text);
 }
 </style>
