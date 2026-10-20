@@ -774,10 +774,10 @@ async function save() {
 }
 .project-status-label {
   display: block;
-  text-align: center;
+  text-align: left;
   color: var(--muted);
   font-size: 12px;
-  padding: 3px 4px;
+  padding: 3px 0;
 }
 .table-progress {
   display: flex;
