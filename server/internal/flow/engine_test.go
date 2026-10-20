@@ -299,7 +299,7 @@ func TestTheAgentsAndJevSeeTheStudysTitle(t *testing.T) {
 	if !strings.Contains(p, c.Title) || !strings.Contains(p, c.Question) {
 		t.Fatalf("the prompt lacks the title or the description:\n%s", p)
 	}
-	if s := scoringState(scoring{card: c}, nil, maxJevInput); !strings.Contains(s, c.Title) {
+	if s := scoringState(scoring{card: c}, nil, nil, maxJevInput); !strings.Contains(s, c.Title) {
 		t.Fatalf("Jev's state lacks the title:\n%s", s)
 	}
 	// A study whose description repeats its title says it once.

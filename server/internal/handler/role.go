@@ -95,7 +95,7 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "body must be a JSON object")
 		return
 	}
-	cites, err := callCites(in.Body)
+	cites, err := recordCites(in.Body)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -139,7 +139,7 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 			}
 			for _, k := range cites {
 				if !slices.Contains(found, k) {
-					return service.Invalid("no recorded call has the key " + k)
+					return service.Invalid("no recorded call or run has the key " + k)
 				}
 			}
 		}
@@ -165,11 +165,14 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, rec)
 }
 
-var callKey = regexp.MustCompile(`^c[0-9]+$`)
+var (
+	callKey = regexp.MustCompile(`^c[0-9]+$`)
+	runKey  = regexp.MustCompile(`^x[0-9]+$`)
+)
 
-// callCites reads the calls a record body cites, `call:<key>` each, and
-// returns their keys.
-func callCites(body json.RawMessage) ([]string, error) {
+// recordCites reads the calls and runs a record body cites, `call:<key>` or
+// `run:<key>` each, and returns their keys.
+func recordCites(body json.RawMessage) ([]string, error) {
 	var v struct {
 		Cites json.RawMessage `json:"cites"`
 	}
@@ -179,13 +182,19 @@ func callCites(body json.RawMessage) ([]string, error) {
 	}
 	var refs []string
 	if err := json.Unmarshal(v.Cites, &refs); err != nil {
-		return nil, errors.New("cites must be a list of call:KEY references")
+		return nil, errors.New("cites must be a list of call:KEY or run:KEY references")
 	}
 	keys := make([]string, 0, len(refs))
 	for _, ref := range refs {
 		k, ok := strings.CutPrefix(ref, "call:")
-		if !ok || !callKey.MatchString(k) {
-			return nil, fmt.Errorf("cite %q is not a call:KEY reference", ref)
+		if ok && !callKey.MatchString(k) {
+			ok = false
+		} else if !ok {
+			k, ok = strings.CutPrefix(ref, "run:")
+			ok = ok && runKey.MatchString(k)
+		}
+		if !ok {
+			return nil, fmt.Errorf("cite %q is not a call:KEY or run:KEY reference", ref)
 		}
 		keys = append(keys, k)
 	}

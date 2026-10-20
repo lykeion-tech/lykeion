@@ -4,7 +4,7 @@ import { labFixture } from './lab';
 const artifacts =
   '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-layout-corrections-artifacts';
 
-test('Properties precedes the study with its right-edge resizer and preserves collapsed/narrow geometry', async ({
+test('Properties follows the study with its left-edge resizer and preserves collapsed/narrow geometry', async ({
   page,
 }) => {
   const f = await labFixture(page.request);
@@ -22,31 +22,31 @@ test('Properties precedes the study with its right-edge resizer and preserves co
   const properties = (await meta.boundingBox())!;
   const content = (await main.boundingBox())!;
   const separator = (await splitter.boundingBox())!;
-  expect(properties.x).toBeCloseTo(rail.x + rail.width, 0);
-  expect(separator.x).toBeCloseTo(properties.x + properties.width, 0);
-  expect(content.x).toBeCloseTo(separator.x + separator.width, 0);
+  expect(content.x).toBeCloseTo(rail.x + rail.width, 0);
+  expect(separator.x).toBeCloseTo(content.x + content.width, 0);
+  expect(properties.x).toBeCloseTo(separator.x + separator.width, 0);
   expect(
     await meta.evaluate((el) =>
       Boolean(
         el.compareDocumentPosition(el.parentElement!.querySelector('.task-main')!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+        Node.DOCUMENT_POSITION_PRECEDING,
       ),
     ),
   ).toBe(true);
   await splitter.focus();
-  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
   await expect(meta).toHaveCSS('width', '374px');
   await expect(splitter).toHaveAttribute('aria-valuenow', '374');
   const drag = (await splitter.boundingBox())!;
   await page.mouse.move(drag.x, drag.y + 60);
   await page.mouse.down();
-  await page.mouse.move(drag.x + 50, drag.y + 60);
+  await page.mouse.move(drag.x - 50, drag.y + 60);
   await page.mouse.up();
   await expect(meta).toHaveCSS('width', '424px');
   const shrink = (await splitter.boundingBox())!;
   await page.mouse.move(shrink.x, shrink.y + 60);
   await page.mouse.down();
-  await page.mouse.move(shrink.x - 60, shrink.y + 60);
+  await page.mouse.move(shrink.x + 60, shrink.y + 60);
   await page.mouse.up();
   await expect(meta).toHaveCSS('width', '364px');
   await page.reload();
@@ -54,7 +54,9 @@ test('Properties precedes the study with its right-edge resizer and preserves co
   await page.screenshot({ path: `${artifacts}/left-properties-1920.png` });
   await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).first().click();
   await expect(page.locator('.sidebar')).toBeHidden();
-  expect((await meta.boundingBox())!.x).toBeLessThan(20);
+  const open = (await main.boundingBox())!;
+  expect(open.x).toBeLessThan(20);
+  expect((await meta.boundingBox())!.x).toBeGreaterThanOrEqual(open.x + open.width);
   await page.getByRole('button', { name: 'Toggle details', exact: true }).click();
   await expect(meta).toHaveCount(0);
   await expect(splitter).toHaveCount(0);
@@ -64,8 +66,8 @@ test('Properties precedes the study with its right-edge resizer and preserves co
   await page.setViewportSize({ width: 900, height: 982 });
   const narrow = (await main.boundingBox())!;
   const narrowMeta = (await meta.boundingBox())!;
-  expect(narrow.x).toBeGreaterThanOrEqual(narrowMeta.x + narrowMeta.width);
-  expect(narrow.x + narrow.width).toBeLessThanOrEqual(900);
+  expect(narrowMeta.x).toBeGreaterThanOrEqual(narrow.x + narrow.width);
+  expect(narrowMeta.x + narrowMeta.width).toBeLessThanOrEqual(900);
   await page.screenshot({ path: `${artifacts}/collapsed-rail-900.png` });
   await page.setViewportSize({ width: 800, height: 982 });
   await expect(meta).toBeHidden();

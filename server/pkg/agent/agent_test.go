@@ -236,7 +236,11 @@ cat "$`+c.env+`/`+c.cred+`" >> `+seen)
 			}
 			home := filepath.Join(resolved, ".cli-home")
 			got, _ := os.ReadFile(seen)
-			if want := home + "\n" + c.cred + "\nsecret"; strings.TrimSpace(string(got)) != want {
+			listing := c.cred + onDarwin("\n"+keychainStandIn)
+			if c.harness == "codex" {
+				listing = onDarwin(keychainStandIn+"\n") + c.cred
+			}
+			if want := home + "\n" + listing + "\nsecret"; strings.TrimSpace(string(got)) != want {
 				t.Fatalf("the CLI saw\n%s\nwant\n%s", got, want)
 			}
 			if _, err := os.Stat(filepath.Join(home, c.cred)); !os.IsNotExist(err) {
@@ -270,7 +274,7 @@ func TestTheCLIGetsOnlyTheDoor(t *testing.T) {
 	collect(t, s)
 	a, _ := os.ReadFile(args)
 	if !strings.Contains(string(a), `mcp_servers.lyk_door.url="http://127.0.0.1:4100/mcp"`) || !strings.Contains(string(a), `mcp_servers.lyk_door.bearer_token_env_var="LYK_DOOR_TOKEN"`) ||
-		strings.Count(string(a), "mcp_servers.") != 2 || strings.Contains(string(a), "door-secret") {
+		strings.Count(string(a), "mcp_servers.") != 3 || strings.Contains(string(a), "door-secret") {
 		t.Fatalf("codex args: %s", a)
 	}
 }
@@ -973,8 +977,8 @@ func TestReadOnlyClaudeAndCodex(t *testing.T) {
 		inherit     bool
 		want, never string
 	}{
-		{"claude", false, "--permission-mode\nplan\n", "dontAsk"},
-		{"claude", true, "--permission-mode\nplan\n", "--permission-mode\ndefault\n"},
+		{"claude", false, "--permission-mode\ndontAsk\n", "--permission-mode\nplan\n"},
+		{"claude", true, "--permission-mode\ndontAsk\n", "--permission-mode\ndefault\n"},
 		{"codex", false, "-s\nread-only\n", "-s\nworkspace-write\n"},
 		{"codex", true, "-s\nread-only\n", "-s\nworkspace-write\n"},
 		{"codex", false, "-s\nread-only\n", "danger-full-access"},
@@ -1027,7 +1031,7 @@ func TestReadOnlyHarnessesMatchTheAdapters(t *testing.T) {
 }
 
 // In both modes a role is pre-approved for Lykeion's own tools, the door
-// among them, and nothing is denied.
+// among them, and none of them is denied.
 func TestClaudeAllowsTheDoor(t *testing.T) {
 	for _, inherit := range []bool{false, true} {
 		args := filepath.Join(t.TempDir(), "args")
@@ -1038,8 +1042,160 @@ func TestClaudeAllowsTheDoor(t *testing.T) {
 		}
 		collect(t, s)
 		a, _ := os.ReadFile(args)
-		if !strings.Contains(string(a), "\n"+claudeTools+"\n") || strings.Contains(string(a), "--disallowedTools") {
+		_, denied, _ := strings.Cut(string(a), "--disallowedTools")
+		if !strings.Contains(string(a), "\n"+claudeTools+"\n") || strings.Contains(denied, "lyk_door") {
 			t.Fatalf("inherit=%v, tools: %s", inherit, a)
+		}
+	}
+}
+
+// Writable runs may edit inside their own folder, matched literally even when
+// the folder's name holds glob characters, but not its .claude settings, its
+// git repository or the supervisor's markers; read-only runs get no edit
+// rule, and a folder name
+// the CLI would split into several rules gets none either.
+func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
+	// The adapter resolves the run folder, so /var reads as /private/var.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name              string
+		inherit, readOnly bool
+		want              string
+	}{
+		{"run dir [1]*", false, false, "Edit(/" + root + `/run dir \[1\]\*/**)`},
+		{"run dir [1]*", true, false, "Edit(/" + root + `/run dir \[1\]\*/**)`},
+		{"run dir", false, true, ""},
+		{"run dir", true, true, ""},
+		{"a,Write,b", false, false, ""},
+		{"a) Write (b", true, false, ""},
+	} {
+		dir := filepath.Join(root, c.name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		args := filepath.Join(t.TempDir(), "args")
+		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
+			ExecOptions{Dir: dir, Inherit: c.inherit, ReadOnly: c.readOnly})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		a, _ := os.ReadFile(args)
+		allowed, _, _ := strings.Cut(string(a), "--disallowedTools")
+		got := strings.Contains(allowed, "Edit(")
+		if c.want == "" && got || c.want != "" && !strings.Contains(string(a), "\n"+claudeTools+"\n"+c.want+"\n") {
+			t.Fatalf("%q inherit=%v readOnly=%v, want %q, args:\n%s", c.name, c.inherit, c.readOnly, c.want, a)
+		}
+		if c.want == "" {
+			continue
+		}
+		base := strings.TrimSuffix(c.want, "/**)")
+		// The CLI's own homes hold the settings and hooks it loads, and git
+		// runs a repository's hooks; editing them would grant anything. The
+		// markers are the supervisor's alone.
+		if deny := "\n--disallowedTools\n" + base + "/.claude/**)\n" + base + "/.cli-home/**)\n" + base + "/.home/**)\n" + base + "/.git/**)\n" +
+			base + "/.git)\n" + base + "/.agent-exit)\n" + base + "/.agent-process)\n"; !strings.Contains(string(a), deny) {
+			t.Fatalf("%q inherit=%v, want %q, args:\n%s", c.name, c.inherit, deny, a)
+		}
+	}
+}
+
+// Every run may read, without asking, only inside its run folder and the
+// folders the daemon names (the study's add-on folder, the bases), each
+// matched literally, and never the CLI's own homes in the run folder; no bare
+// Read, Glob or Grep is pre-approved, since a bare search tool reads past
+// every path rule. A folder whose name the CLI would split gets no rule.
+// Read-only runs get the same reads in dontAsk mode and, of the door, only
+// connector calls: no code runs.
+func TestClaudeReadsOnlyItsFolders(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "run dir [1]*")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := "/" + root + `/run dir \[1\]\*`
+	reads := []string{filepath.Join(root, "study {a}"), filepath.Join(root, "a,Read,b"), filepath.Join(root, "bases", "python")}
+	allow := "Read(" + run + "/**)\nRead(/" + root + `/study \{a\}/**)` + "\nRead(/" + root + "/bases/python/**)\n--disallowedTools\n"
+	deny := "Read(" + run + "/.cli-home/**)\nRead(" + run + "/.home/**)\n--mcp-config\n"
+	for _, c := range []struct{ inherit, readOnly bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
+		args := filepath.Join(t.TempDir(), "args")
+		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
+			ExecOptions{Dir: dir, ReadDirs: reads, Inherit: c.inherit, ReadOnly: c.readOnly})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		a, _ := os.ReadFile(args)
+		want := "\n--allowedTools\n" + claudeTools + "\nEdit(" + run + "/**)\n" + allow
+		deny := deny
+		if c.readOnly {
+			// Nothing else is pre-approved, and no account rule may edit or run
+			// commands either.
+			want = "\n--permission-mode\ndontAsk\n--allowedTools\nSkill,mcp__lyk_door__call_tool\n" + allow
+			deny = strings.TrimSuffix(deny, "--mcp-config\n") + "Edit(//**)\nBash\n--mcp-config\n"
+		}
+		if !strings.Contains(string(a), want) || !strings.Contains(string(a), deny) || strings.Contains(string(a), "a,Read,b") {
+			t.Fatalf("inherit=%v readOnly=%v, want %q and %q, args:\n%s", c.inherit, c.readOnly, want, deny, a)
+		}
+		if allowed, _, _ := strings.Cut(string(a), "--disallowedTools"); c.readOnly && strings.Contains(allowed, "Edit(") {
+			t.Fatalf("inherit=%v read-only run may edit:\n%s", c.inherit, a)
+		}
+		for _, line := range strings.Split(string(a), "\n") {
+			for _, tool := range strings.Split(line, ",") {
+				if tool == "Read" || tool == "Glob" || tool == "Grep" {
+					t.Fatalf("inherit=%v readOnly=%v pre-approves bare %s:\n%s", c.inherit, c.readOnly, tool, a)
+				}
+			}
+		}
+	}
+}
+
+// Claude waits on a door call a little past the door's own script limit, so a
+// long script ends by the door's rule and not by Claude's request timeout.
+func TestClaudeWaitsForTheDoorsScriptLimit(t *testing.T) {
+	for _, inherit := range []bool{false, true} {
+		dir := t.TempDir()
+		s, err := Claude{Bin: script(t, "exit 0")}.Execute(context.Background(), "p",
+			ExecOptions{Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", Inherit: inherit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		raw, _ := os.ReadFile(filepath.Join(dir, ".lyk-mcp.json"))
+		var cfg struct {
+			MCPServers map[string]struct {
+				Timeout int64 `json:"timeout"`
+			} `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.MCPServers["lyk_door"].Timeout; got != 7_500_000 {
+			t.Fatalf("inherit=%v, door timeout %d ms: %s", inherit, got, raw)
+		}
+	}
+}
+
+// Codex's per-server tool timeout defaults to a minute, so the door's own
+// limit only governs a long script when Codex is told to wait past it.
+func TestCodexWaitsForTheDoorsScriptLimit(t *testing.T) {
+	for _, inherit := range []bool{false, true} {
+		args := filepath.Join(t.TempDir(), "args")
+		s, err := Codex{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
+			ExecOptions{Dir: t.TempDir(), Model: "gpt-5", DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d", Inherit: inherit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		a, _ := os.ReadFile(args)
+		if !strings.Contains(string(a), "-c\nmcp_servers.lyk_door.tool_timeout_sec=7500\n") {
+			t.Fatalf("inherit=%v, codex args:\n%s", inherit, a)
 		}
 	}
 }

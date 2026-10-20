@@ -48,7 +48,10 @@ func uiTeamFixture(t *testing.T, mux *http.ServeMux, h *handler.H, issuer auth.I
 			http.Error(w, "workspace required", 400)
 			return
 		}
-		var in struct{ Name, Domain, Stage string }
+		var in struct {
+			Name, Domain string
+			Stage        *string
+		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in); err != nil || in.Name == "" {
 			http.Error(w, "fixture name required", 400)
 			return
@@ -66,8 +69,8 @@ func uiTeamFixture(t *testing.T, mux *http.ServeMux, h *handler.H, issuer auth.I
 		if in.Domain != "" {
 			m.Domain = in.Domain
 		}
-		if in.Stage != "" {
-			m.Stage = in.Stage
+		if in.Stage != nil {
+			m.Stage = *in.Stage
 		}
 		z, err := pack.Zip(m, skills)
 		if err != nil {

@@ -172,7 +172,7 @@ func (e *Engine) Finish(ctx context.Context, tx *store.Tx, w service.Writer, sum
 	}
 	keys := make([]string, len(cites))
 	for i, k := range cites {
-		keys[i] = strings.TrimPrefix(k, "call:")
+		keys[i] = strings.TrimPrefix(strings.TrimPrefix(k, "call:"), "run:")
 	}
 	found, err := tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: keys})
 	if err != nil {
@@ -184,7 +184,7 @@ func (e *Engine) Finish(ctx context.Context, tx *store.Tx, w service.Writer, sum
 	}
 	for i, k := range cites {
 		kind, ok := kinds[keys[i]]
-		if !ok || (keys[i] != k && kind != "call") {
+		if !ok || (strings.HasPrefix(k, "call:") && kind != "call") || (strings.HasPrefix(k, "run:") && kind != "run") {
 			return db.Record{}, service.Invalid(fmt.Sprintf("no record of this study has the key %q", k))
 		}
 	}

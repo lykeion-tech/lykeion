@@ -166,13 +166,14 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 	name := privateScratch(c)
 	dir := filepath.Join(f.cfg.Home, name)
 	must(t, os.Mkdir(dir, 0700))
-	must(t, os.WriteFile(filepath.Join(dir, ".finished"), []byte(`{"retention_days":1}`), 0600))
+	finishedFor(t, f.cfg.StateDir, dir, `{"retention_days":1}`, 48*time.Hour)
 	old := time.Now().Add(-48 * time.Hour)
-	must(t, os.Chtimes(filepath.Join(dir, ".finished"), old, old))
 	stopFirst := scopeDaemonProcess(t, f.cfg)
 	waitFor(t, func() bool { _, err := os.Stat(ready); return err == nil })
-	if _, err := os.Stat(filepath.Join(dir, ".finished")); !errors.Is(err, os.ErrNotExist) {
-		t.Error("old finished marker survived beginning a reused run", err)
+	for _, p := range []string{filepath.Join(dir, ".finished"), finishedRecord(f.cfg.StateDir, dir)} {
+		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
+			t.Error("old finished marker survived beginning a reused run", p, err)
+		}
 	}
 	actual, err := os.ReadFile(ready)
 	must(t, err)
@@ -221,8 +222,7 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 		t.Error("competing daemon launched", string(b))
 	}
 	// A stale marker must not permit another process's GC or forget to mutate a held folder.
-	must(t, os.WriteFile(filepath.Join(dir, ".finished"), []byte(`{"retention_days":1}`), 0600))
-	must(t, os.Chtimes(filepath.Join(dir, ".finished"), old, old))
+	finishedFor(t, state, dir, `{"retention_days":1}`, time.Since(old))
 	if err := other.gc(t.Context()); err != nil {
 		t.Error(err)
 	}
@@ -235,7 +235,7 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatal("forget deleted another daemon's active scope", err)
 	}
-	must(t, os.Remove(filepath.Join(dir, ".finished")))
+	must(t, os.Remove(finishedRecord(state, dir)))
 	// A stale journal cannot authorize recovery to kill the current holder's CLI.
 	r := reportFixture()
 	r.Scratch = name
@@ -307,22 +307,21 @@ func TestGCFinishesInterruptedScratchRetirement(t *testing.T) {
 }
 
 func TestReusedScopeLosesOldFinishedClockAfterParentExit(t *testing.T) {
-	home := t.TempDir()
+	home, state := t.TempDir(), t.TempDir()
 	dir := filepath.Join(home, "scope-crashed")
 	must(t, os.Mkdir(dir, 0700))
-	marker := filepath.Join(dir, ".finished")
-	must(t, os.WriteFile(marker, []byte(`{"retention_days":1}`), 0600))
-	past := time.Now().Add(-48 * time.Hour)
-	must(t, os.Chtimes(marker, past, past))
+	marker := finishedRecord(state, dir)
+	finishedFor(t, state, dir, `{"retention_days":1}`, 48*time.Hour)
+	d := &daemon{cfg: Config{Home: home, StateDir: state}, active: map[string]bool{}}
 	reservation, err := agent.ReserveScratch(dir)
 	must(t, err)
 	must(t, reuseScratch(dir))
+	must(t, d.unmarkFinished(dir))
 	must(t, os.Mkdir(filepath.Join(dir, ".cli-home"), 0700))
 	must(t, os.WriteFile(filepath.Join(dir, ".cli-home", "auth.json"), []byte("synthetic"), 0600))
 	// Simulate the parent disappearing: the kernel reservation is gone, but the
 	// unfinished execution must not inherit the previous run's deletion clock.
 	reservation.Release()
-	d := &daemon{cfg: Config{Home: home}, active: map[string]bool{}}
 	must(t, d.gc(t.Context()))
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("previous finished marker survived", err)
@@ -385,10 +384,7 @@ func TestOrphanScopeReconciledBeforeReuseOrDeletion(t *testing.T) {
 			case "forget":
 				must(t, other.ForgetScope(f.ws, f.user, "cursor", c.AgentRun.ContinuityScope))
 			case "gc":
-				marker := filepath.Join(dir, ".finished")
-				must(t, os.WriteFile(marker, []byte(`{"retention_days":1}`), 0600))
-				old := time.Now().Add(-48 * time.Hour)
-				must(t, os.Chtimes(marker, old, old))
+				finishedFor(t, other.cfg.StateDir, dir, `{"retention_days":1}`, 48*time.Hour)
 				must(t, other.gc(t.Context()))
 			}
 			if err := syscall.Kill(owner.PID, 0); !errors.Is(err, syscall.ESRCH) {
@@ -403,5 +399,36 @@ func TestOrphanScopeReconciledBeforeReuseOrDeletion(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A run's code may write its run folder, so the finished marker there is not
+// trusted: gc goes by the copy the daemon keeps in its state folder.
+func TestGCTrustsOnlyTheFinishedRecordsItKeeps(t *testing.T) {
+	home, state := t.TempDir(), t.TempDir()
+	d := &daemon{cfg: Config{Home: home, StateDir: state}, active: map[string]bool{}}
+	old := time.Now().Add(-48 * time.Hour)
+	for _, name := range []string{"planted", "recorded", "forged"} {
+		dir := filepath.Join(home, name)
+		must(t, os.Mkdir(dir, 0700))
+		if name != "planted" {
+			must(t, d.markFinished(dir, map[string]int{"retention_days": 1}))
+		}
+		if name == "recorded" {
+			must(t, os.Chtimes(finishedRecord(state, dir), old, old))
+		}
+		if name != "recorded" {
+			must(t, os.WriteFile(filepath.Join(dir, ".finished"), []byte(`{"retention_days":1}`), 0600))
+			must(t, os.Chtimes(filepath.Join(dir, ".finished"), old, old))
+		}
+	}
+	must(t, d.gc(t.Context()))
+	for name, kept := range map[string]bool{"planted": true, "forged": true, "recorded": false} {
+		if _, err := os.Stat(filepath.Join(home, name)); (err == nil) != kept {
+			t.Errorf("%s: kept %v, want %v", name, err == nil, kept)
+		}
+	}
+	if _, err := os.Stat(finishedRecord(state, filepath.Join(home, "recorded"))); err == nil {
+		t.Error("the record outlived its folder")
 	}
 }

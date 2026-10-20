@@ -118,7 +118,7 @@ func (d *daemon) recoverAttempt(ctx context.Context, r Report, hasFinal bool) er
 			if err := agent.RecoverScratch(dir); err != nil {
 				return fmt.Errorf("recover attempt %s: %w", r.AgentRunID, err)
 			}
-			if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": entry.retention}); err != nil {
+			if err := d.markFinished(dir, map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": entry.retention}); err != nil {
 				return err
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {

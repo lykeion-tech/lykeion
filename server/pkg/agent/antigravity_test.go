@@ -175,7 +175,7 @@ echo '{"event":"result","result":{"status":"SUCCESS","response":"ok"}}'`)
 	dir, _ := filepath.EvalSymlinks(t.TempDir())
 	agy(t, bin, ExecOptions{Dir: dir})
 	got, _ := os.ReadFile(seen)
-	if want := filepath.Join(dir, ".home") + "\n./.gemini/oauth_creds.json\nsecret"; strings.TrimSpace(string(got)) != want {
+	if want := filepath.Join(dir, ".home") + "\n./.gemini/oauth_creds.json" + onDarwin("\n./"+keychainStandIn+"/security") + "\nsecret"; strings.TrimSpace(string(got)) != want {
 		t.Fatalf("agy saw\n%s\nwant\n%s", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".cli-home", ".gemini", "oauth_creds.json")); !os.IsNotExist(err) {

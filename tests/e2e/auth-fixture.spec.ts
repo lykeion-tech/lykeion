@@ -3,9 +3,10 @@ import { LAB, labCode } from './lab';
 
 test('lab auth reset is owner-only and preserves actual IP and email limits', async ({
   request,
+  baseURL,
 }) => {
   const outsider = await apiRequest.newContext({
-    baseURL: 'http://127.0.0.1:1431',
+    baseURL,
     storageState: { cookies: [], origins: [] },
   });
   const reset = () => request.post(`${LAB}/lab/auth-ip/reset`);

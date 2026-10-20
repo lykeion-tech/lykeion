@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -240,8 +241,13 @@ func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	if string(skill) != "# Scoper" {
 		t.Fatal(string(skill))
 	}
-	if _, err = os.Stat(filepath.Join(dir, ".finished")); err != nil {
+	// the daemon keeps its finished record in its own state folder alone:
+	// the run's code may write the run folder
+	if _, err = os.Stat(finishedRecord(f.cfg.StateDir, dir)); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(dir, ".finished")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the run folder holds a finished marker: %v", err)
 	}
 }
 func TestPrivateWorkspaceKeepsF2Isolation(t *testing.T) {
@@ -519,16 +525,15 @@ func TestStateOwnershipAndFinishedOnlyGC(t *testing.T) {
 	owner, err = ownState(dir)
 	must(t, err)
 	must(t, owner.Close())
-	home := t.TempDir()
-	d := &daemon{cfg: Config{Home: home}, active: map[string]bool{"active": true}}
+	home, state := t.TempDir(), t.TempDir()
+	d := &daemon{cfg: Config{Home: home, StateDir: state}, active: map[string]bool{"active": true}}
 	for _, name := range []string{"active", "finished", "unfinished", "recent", "held"} {
 		p := filepath.Join(home, name)
 		must(t, os.Mkdir(p, 0700))
 		if name != "unfinished" {
-			must(t, os.WriteFile(filepath.Join(p, ".finished"), []byte("done"), 0600))
+			finishedFor(t, state, p, "done", 0)
 			if name != "recent" {
-				past := time.Now().Add(-25 * time.Hour)
-				must(t, os.Chtimes(filepath.Join(p, ".finished"), past, past))
+				finishedFor(t, state, p, "done", 25*time.Hour)
 			}
 		}
 		past := time.Now().Add(-48 * time.Hour)
@@ -547,9 +552,7 @@ func TestStateOwnershipAndFinishedOnlyGC(t *testing.T) {
 	} {
 		p := filepath.Join(home, name)
 		must(t, os.Mkdir(p, 0700))
-		must(t, os.WriteFile(filepath.Join(p, ".finished"), []byte(m.body), 0600))
-		past := time.Now().Add(-m.age)
-		must(t, os.Chtimes(filepath.Join(p, ".finished"), past, past))
+		finishedFor(t, state, p, m.body, m.age)
 	}
 
 	d.holdScratch("held")
@@ -920,7 +923,7 @@ func TestRecoveryPreservesExistingFinalAndMakesScratchGCEligible(t *testing.T) {
 		t.Fatal("recent recovered scratch deleted")
 	}
 	old := time.Now().Add(-25 * time.Hour)
-	must(t, os.Chtimes(filepath.Join(dir, ".finished"), old, old))
+	must(t, os.Chtimes(finishedRecord(d.cfg.StateDir, dir), old, old))
 	must(t, d.gc(t.Context()))
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatal("recovered finished scratch never became collectible")
@@ -1263,7 +1266,7 @@ func TestRecoveryReachesAScopeFolder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".cli-home", "auth.json")); !os.IsNotExist(err) {
 		t.Fatal("sign-in copy left in a crashed scope folder")
 	}
-	b, err := os.ReadFile(filepath.Join(dir, ".finished"))
+	b, err := os.ReadFile(finishedRecord(state, dir))
 	var m struct {
 		RetentionDays int `json:"retention_days"`
 	}
@@ -1288,12 +1291,12 @@ func TestScopeWaitAlreadyCanceledTakesNoFolder(t *testing.T) {
 func TestScopeGCInvalidRetentionFallsBackToOneDay(t *testing.T) {
 	for _, days := range []int{-1, 0, maxRetentionDays + 1, int(^uint(0) >> 1)} {
 		t.Run(strconv.Itoa(days), func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "scope-invalid")
+			dir, state := filepath.Join(t.TempDir(), "scope-invalid"), t.TempDir()
 			must(t, os.Mkdir(dir, 0700))
-			must(t, atomicJSON(dir, ".finished", map[string]int{"retention_days": days}))
-			past := time.Now().Add(-25 * time.Hour)
-			must(t, os.Chtimes(filepath.Join(dir, ".finished"), past, past))
-			must(t, collectScratch(dir))
+			b, err := json.Marshal(map[string]int{"retention_days": days})
+			must(t, err)
+			finishedFor(t, state, dir, string(b), 25*time.Hour)
+			must(t, collectScratch(dir, finishedRecord(state, dir)))
 			if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("invalid retention kept scope: %v", err)
 			}
@@ -1329,4 +1332,53 @@ func TestTheRequestedModelReachesTheCLI(t *testing.T) {
 	if got != "claude-opus-5-5" {
 		t.Fatalf("ExecOptions.Model = %q", got)
 	}
+}
+
+func TestTheDaemonSendsBaseStates(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		mu.Lock()
+		bodies = append(bodies, body)
+		mu.Unlock()
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+	refs := []runtimeRef{{WorkspaceID: uuid.New(), RuntimeID: uuid.New()}}
+	d := &daemon{api: &apiclient.Client{Server: srv.URL}, refs: refs, bases: readyPython(t)}
+	d.heartbeat(context.Background())
+	d.sandboxErr = errors.New("sandbox-exec\x00 missin" + strings.Repeat("é", 100))
+	d.heartbeat(context.Background())
+	d.bases = nil
+	d.heartbeat(context.Background())
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) != 3 {
+		t.Fatalf("heartbeats: %d", len(bodies))
+	}
+	var bases map[string]string
+	if err := json.Unmarshal(bodies[0]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready", "sandbox": "ready"}) {
+		t.Fatalf("bases %s: %v", bodies[0]["bases"], err)
+	}
+	bases = nil
+	if err := json.Unmarshal(bodies[1]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready", "sandbox": "failed: sandbox-exec missin" + strings.Repeat("é", 90)}) {
+		t.Fatalf("bases with a failed sandbox %s: %v", bodies[1]["bases"], err)
+	}
+	if _, ok := bodies[2]["bases"]; ok {
+		t.Fatalf("a daemon without bases sent %s", bodies[2]["bases"])
+	}
+}
+
+// finishedFor writes the daemon's record that a folder finished, age old.
+func finishedFor(t *testing.T, state, dir, body string, age time.Duration) {
+	t.Helper()
+	at := time.Now().Add(-age)
+	p := finishedRecord(state, dir)
+	must(t, os.MkdirAll(filepath.Dir(p), 0700))
+	must(t, os.WriteFile(p, []byte(body), 0600))
+	must(t, os.Chtimes(p, at, at))
 }

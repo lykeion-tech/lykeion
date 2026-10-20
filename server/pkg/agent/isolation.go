@@ -25,6 +25,43 @@ func (e *PrelaunchDiscoveryError) Error() string {
 
 var discoveryNames = []string{".cursor", ".codex", ".claude", ".agents", ".claude.json", ".mcp.json", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"}
 
+// RunFolderPath is a file or folder in a run's folder that a CLI or the
+// daemon keeps for itself.
+type RunFolderPath struct {
+	Name   string
+	Folder bool
+	// A marker means something by existing (a lock, a live process), so
+	// only its owner may ever create one.
+	Marker bool
+	// A hidden path holds the door's token or the CLI's sign-in: code may
+	// not even read it.
+	Hidden bool
+}
+
+// RunFolderConfig lists what the CLIs read in their working folder as
+// configuration or instructions, their private homes, the files the daemon
+// places for a run, and the markers the daemon trusts. Code a run starts may
+// read these but never write them, and may not read the hidden ones.
+var RunFolderConfig = []RunFolderPath{
+	{Name: ".claude", Folder: true}, {Name: ".codex", Folder: true}, {Name: ".cursor", Folder: true}, {Name: ".agents", Folder: true},
+	{Name: ".cli-home", Folder: true, Hidden: true}, {Name: ".home", Folder: true, Hidden: true},
+	{Name: ".claude.json"}, {Name: ".mcp.json"}, {Name: ".lyk-mcp.json", Hidden: true}, {Name: ".lyk-config.json", Hidden: true},
+	{Name: "AGENTS.md"}, {Name: "AGENTS.override.md"}, {Name: "CLAUDE.md"}, {Name: "CLAUDE.local.md"}, {Name: "SKILL.md"},
+	{Name: ".agent-owned", Marker: true}, {Name: ".agent-lock", Marker: true}, {Name: ".agent-process", Marker: true},
+	// The supervisor writes its exit marker from outside the sandbox, and
+	// the daemon reads it and Antigravity's log: they get placeholders, so
+	// code can't plant a link in their place.
+	{Name: ".agent-exit"}, {Name: ".agent-exit.tmp"}, {Name: ".agy.log", Hidden: true},
+	// The CLIs read these from their working folder by themselves, so no
+	// source here names them: git's repository (hooks, fsmonitor), Cursor's
+	// rules and ignore files, Antigravity's rules and workflows and the
+	// Gemini settings and instructions it shares.
+	{Name: ".git", Folder: true}, {Name: ".agent", Folder: true}, {Name: ".gemini", Folder: true},
+	{Name: "GEMINI.md"}, {Name: ".geminiignore"}, {Name: ".cursorrules"}, {Name: ".cursorignore"}, {Name: ".cursorindexingignore"},
+	// MCP configs inside the folders above that carry the door's token.
+	{Name: ".cursor/mcp.json", Hidden: true}, {Name: ".agents/mcp_config.json", Hidden: true},
+}
+
 // prepareScratch protects discovery boundaries, not arbitrary filesystem access.
 // Only this scratch's own history is reusable; personal config is never copied.
 func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile string) (home string, cleanup scratchCleanup, err error) {
@@ -180,6 +217,11 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 		}
 		realHome = filepath.Join(real, defaultHome)
 	}
+	if runtime.GOOS == "darwin" {
+		if err = placeKeychainStandIn(home); err != nil {
+			return "", cleanup, err
+		}
+	}
 	target := filepath.Join(home, credFile)
 	// Remove a stale copy from an interrupted run before deciding whether fresh
 	// sign-in data exists. Removal never follows a stale symlink.
@@ -201,6 +243,28 @@ func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile stri
 	}
 	success = true
 	return home, cleanup, nil
+}
+
+// keychainStandIn is the folder in a private run's CLI home that holds the
+// run's own security tool, first on its PATH. The CLI home is out of reach of
+// the agent's file tools and of sandboxed code, so neither can swap the tool
+// the CLI then runs as the person.
+const keychainStandIn = ".lyk-bin"
+
+// On macOS the Security framework finds the keychain through HOME, so under a
+// private run's stand-in home there is none, and a keychain write makes macOS
+// ask the person to find one. Claude Code tries the keychain through the
+// security tool before its sign-in file, so a private run gets a security
+// tool that finds nothing and stores nothing, and every CLI keeps to the
+// sign-in file as it does on Linux.
+func placeKeychainStandIn(home string) error {
+	// prepareScratch has already removed the folder of an earlier run.
+	dir := filepath.Join(home, keychainStandIn)
+	if err := privateDir(dir); err != nil {
+		return err
+	}
+	// 44 is the security tool's "item not found".
+	return os.WriteFile(filepath.Join(dir, "security"), []byte("#!/bin/sh\necho 'security: a private run has no keychain' >&2\nexit 44\n"), 0700)
 }
 
 func checkAncestors(dir string) error {
@@ -268,9 +332,10 @@ func privateFile(p string, b []byte) error {
 	return closeErr
 }
 
-// placedFolders are the skill folders the daemon places in an isolated CLI
-// state root; checkOwnedState exempts them there and nowhere deeper.
-var placedFolders = []string{"skills", ".agents"}
+// placedFolders are the skill folders and the keychain stand-in the daemon
+// places in an isolated CLI state root; checkOwnedState exempts them there
+// and nowhere deeper.
+var placedFolders = []string{"skills", ".agents", keychainStandIn}
 
 func checkOwnedState(root string) error {
 	var discovery *PrelaunchDiscoveryError
@@ -367,6 +432,13 @@ func childEnv(o ExecOptions, home string) []string {
 		return envList(values)
 	}
 	userHome := filepath.Join(o.Dir, ".home")
+	if runtime.GOOS == "darwin" {
+		rest := values["PATH"]
+		if rest == "" {
+			rest = "/usr/bin:/bin:/usr/sbin:/sbin"
+		}
+		values["PATH"] = filepath.Join(home, keychainStandIn) + string(filepath.ListSeparator) + rest
+	}
 	values["HOME"] = userHome
 	values["USERPROFILE"] = userHome
 	values["CODEX_HOME"] = home

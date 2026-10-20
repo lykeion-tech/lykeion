@@ -3,7 +3,9 @@ package handler
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -440,5 +442,112 @@ func TestDaemonInvalidBatchNeverHidesCommittedClaims(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAHeartbeatRecordsBaseStates(t *testing.T) {
+	s := newServer(t)
+	jwt := s.signIn(t, "bases@lab.org")
+	tok := s.personalToken(t, jwt)
+	w := s.workspace(t, jwt, "lab")
+	var rts []struct{ ID string }
+	if got := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": w.ID, "daemon_id": "d1", "harnesses": []string{"claude", "codex"}}, &rts); got != 200 || len(rts) != 2 {
+		t.Fatalf("register: %d %+v", got, rts)
+	}
+	otherJWT := s.signIn(t, "neighbour@lab.org")
+	otherTok := s.personalToken(t, otherJWT)
+	ow := s.workspace(t, otherJWT, "neighbour")
+	var others []struct{ ID string }
+	if got := s.call(t, "POST", "/api/daemon/register", otherTok, "", map[string]any{"workspace_id": ow.ID, "daemon_id": "d2", "harnesses": []string{"claude"}}, &others); got != 200 || len(others) != 1 {
+		t.Fatalf("register other: %d %+v", got, others)
+	}
+	ref := []any{map[string]any{"workspace_id": w.ID, "runtime_id": rts[0].ID}, map[string]any{"workspace_id": w.ID, "runtime_id": rts[1].ID}}
+	states := map[string]string{"python": "ready", "r": "failed: no network", "sandbox": "ready"}
+	events := func() []string {
+		t.Helper()
+		var out []string
+		rows, err := s.Env.Owner.Query(t.Context(), "SELECT payload->>'action' FROM event WHERE workspace_id=$1 AND type='runtime.updated' ORDER BY id", w.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var a string
+			if err := rows.Scan(&a); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, a)
+		}
+		return out
+	}
+	// listed is the bases every runtime in the workspace shows, or nil when
+	// they differ.
+	listed := func(jwt, ws string) map[string]string {
+		t.Helper()
+		var list []struct {
+			Bases map[string]string `json:"bases"`
+		}
+		if got := s.call(t, "GET", "/api/runtimes", jwt, ws, nil, &list); got != 200 || len(list) == 0 {
+			t.Fatalf("runtimes: %d %+v", got, list)
+		}
+		for _, r := range list[1:] {
+			if !maps.Equal(r.Bases, list[0].Bases) {
+				return nil
+			}
+		}
+		return list[0].Bases
+	}
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": states}, nil); got != 200 {
+		t.Fatalf("heartbeat: %d", got)
+	}
+	if got := listed(jwt, w.ID); !maps.Equal(got, states) {
+		t.Fatalf("bases: %v", got)
+	}
+	if got := events(); !slices.Equal(got, []string{"bases"}) {
+		t.Fatalf("events after first heartbeat: %v", got)
+	}
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": states}, nil); got != 200 {
+		t.Fatalf("repeat heartbeat: %d", got)
+	}
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref}, nil); got != 200 {
+		t.Fatalf("bare heartbeat: %d", got)
+	}
+	if got := listed(jwt, w.ID); !maps.Equal(got, states) {
+		t.Fatalf("bases after bare heartbeat: %v", got)
+	}
+	if got := events(); len(got) != 1 {
+		t.Fatalf("unchanged bases emitted: %v", got)
+	}
+	foreign := map[string]any{"workspace_id": ow.ID, "runtime_id": others[0].ID}
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": []any{foreign}, "bases": states}, nil); got != 404 {
+		t.Fatalf("foreign heartbeat: %d", got)
+	}
+	if got := listed(otherJWT, ow.ID); len(got) != 0 {
+		t.Fatalf("foreign runtime changed: %v", got)
+	}
+	// A bad entry is dropped and the rest applied; a bases value that is not an
+	// object is ignored. Neither fails the heartbeat or skips the runtimes.
+	mixed := map[string]any{
+		"python": "ready", "fortran": "ready", "r": "done", "julia": "failed: " + strings.Repeat("x", 201), "sandbox": "building",
+	}
+	var touched struct{ Touched int }
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": mixed}, &touched); got != 200 || touched.Touched != 2 {
+		t.Fatalf("mixed bases: %d %+v", got, touched)
+	}
+	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"python": "ready"}) {
+		t.Fatalf("bases after mixed heartbeat: %v", got)
+	}
+	touched.Touched = 0
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": []string{"ready"}}, &touched); got != 200 || touched.Touched != 2 {
+		t.Fatalf("non-object bases: %d %+v", got, touched)
+	}
+	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"python": "ready"}) {
+		t.Fatalf("bases after non-object heartbeat: %v", got)
+	}
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": map[string]any{"r": "failed: " + strings.Repeat("x", 200), "julia": "failed: nul\x00", "python": 5, "sandbox": "failed: sandbox-exec missing"}}, nil); got != 200 {
+		t.Fatalf("edge bases: %d", got)
+	}
+	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"r": "failed: " + strings.Repeat("x", 200), "sandbox": "failed: sandbox-exec missing"}) {
+		t.Fatalf("bases after edge heartbeat: %v", got)
 	}
 }

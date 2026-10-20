@@ -171,7 +171,7 @@ func testPrivateFallback(t *testing.T, fault string) {
 		t.Fatalf("calls=%d report=%+v", calls, r)
 	}
 	for _, dir := range []string{scope, filepath.Join(home, scratchName(c.AgentRun.ID, c.AgentRun.Attempt))} {
-		if _, err := os.Stat(filepath.Join(dir, ".finished")); err != nil {
+		if _, err := os.Stat(finishedRecord(state, dir)); err != nil {
 			t.Error(err)
 		}
 	}
@@ -205,7 +205,7 @@ func TestFallbackRecoveryFinalizesBothFolders(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, ".cli-home", "auth.json")); !os.IsNotExist(err) {
 			t.Errorf("credential retained: %s", dir)
 		}
-		b, err := os.ReadFile(filepath.Join(dir, ".finished"))
+		b, err := os.ReadFile(finishedRecord(state, dir))
 		must(t, err)
 		var m struct {
 			RetentionDays int `json:"retention_days"`

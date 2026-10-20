@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -72,10 +73,25 @@ func (h *H) daemonRegister(w http.ResponseWriter, r *http.Request) {
 func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Runtimes []service.RuntimeRef `json:"runtimes"`
+		Bases    json.RawMessage      `json:"bases"`
 	}
 	if err := readJSON(r, &in); err != nil || len(in.Runtimes) == 0 || len(in.Runtimes) > 64 {
 		writeErr(w, 400, "runtimes required (1-64)")
 		return
+	}
+	// A bad base report must not stop the heartbeat that keeps the runtimes
+	// online: entries the server cannot read are dropped, and a value that is
+	// not an object leaves the stored states as they are.
+	var reported map[string]json.RawMessage
+	var bases map[string]string
+	if json.Unmarshal(in.Bases, &reported) == nil && reported != nil {
+		bases = map[string]string{}
+		for lang, v := range reported {
+			var state string
+			if json.Unmarshal(v, &state) == nil && validBaseState(lang, state) {
+				bases[lang] = state
+			}
+		}
 	}
 	for _, ref := range in.Runtimes {
 		if ref.WorkspaceID == uuid.Nil || ref.RuntimeID == uuid.Nil {
@@ -83,12 +99,33 @@ func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	n, err := h.AgentRuns.Heartbeat(r.Context(), user(r), in.Runtimes)
+	n, err := h.AgentRuns.Heartbeat(r.Context(), user(r), in.Runtimes, bases)
 	if err != nil {
 		agentRunFail(w, r, err)
 		return
 	}
 	writeJSON(w, 200, map[string]int{"touched": n})
+}
+
+// validBaseState accepts a base the daemon knows reported as ready, building
+// or failed with a reason of at most 200 bytes, which keeps a runtime's whole
+// set well inside its column's size limit. jsonb text cannot hold NUL. The
+// sandbox entry is checked once at start, so it is never building.
+func validBaseState(lang, state string) bool {
+	switch lang {
+	case "python", "r", "julia":
+		if state == "building" {
+			return true
+		}
+	case "sandbox":
+	default:
+		return false
+	}
+	if state == "ready" {
+		return true
+	}
+	reason, ok := strings.CutPrefix(state, "failed: ")
+	return ok && reason != "" && len(reason) <= 200 && !strings.ContainsRune(reason, 0)
 }
 
 func (h *H) daemonClaim(w http.ResponseWriter, r *http.Request) {

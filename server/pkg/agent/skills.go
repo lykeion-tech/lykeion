@@ -22,11 +22,27 @@ var skillFolders = map[string]string{
 }
 
 // SkillsDir is the folder a harness reads skills from in a run folder. It is
-// always the run's own folder, never the account's config home.
+// always the run's own folder, never the account's config home. Code the run
+// started may have planted a link on the way there, so a link below dir is
+// refused: whoever writes skills there would follow it out of the folder.
 func SkillsDir(harness, dir string) (string, error) {
 	rel, ok := skillFolders[harness]
 	if !ok {
 		return "", fmt.Errorf("no skills folder is known for harness %q", harness)
+	}
+	p := dir
+	for _, part := range strings.Split(rel, "/") {
+		p = filepath.Join(p, part)
+		fi, err := os.Lstat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("the skills folder's path passes the link %s", p)
+		}
 	}
 	return filepath.Join(dir, filepath.FromSlash(rel)), nil
 }

@@ -432,7 +432,7 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 }
 
 const getRuntime = `-- name: GetRuntime :one
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language FROM runtime WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases FROM runtime WHERE id = $1 AND workspace_id = $2
 `
 
 type GetRuntimeParams struct {
@@ -460,6 +460,7 @@ func (q *Queries) GetRuntime(ctx context.Context, arg GetRuntimeParams) (Runtime
 		&i.Arch,
 		&i.Kernel,
 		&i.Language,
+		&i.Bases,
 	)
 	return i, err
 }
@@ -654,29 +655,30 @@ func (q *Queries) ListRecords(ctx context.Context, arg ListRecordsParams) ([]Rec
 }
 
 const listRuntimes = `-- name: ListRuntimes :many
-SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
+SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, r.bases, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
   AND t.status IN ('dispatched', 'running'))::int AS active_runs
 FROM runtime r WHERE r.workspace_id = $1 ORDER BY r.created_at
 `
 
 type ListRuntimesRow struct {
-	ID            uuid.UUID `json:"id"`
-	WorkspaceID   uuid.UUID `json:"workspace_id"`
-	OwnerID       uuid.UUID `json:"owner_id"`
-	DaemonID      string    `json:"daemon_id"`
-	Harness       string    `json:"harness"`
-	DeviceName    string    `json:"device_name"`
-	CustomName    *string   `json:"custom_name"`
-	Status        string    `json:"status"`
-	LastSeenAt    time.Time `json:"last_seen_at"`
-	MaxConcurrent int32     `json:"max_concurrent"`
-	CreatedAt     time.Time `json:"created_at"`
-	CliVersion    string    `json:"cli_version"`
-	Os            string    `json:"os"`
-	Arch          string    `json:"arch"`
-	Kernel        string    `json:"kernel"`
-	Language      string    `json:"language"`
-	ActiveRuns    int32     `json:"active_runs"`
+	ID            uuid.UUID       `json:"id"`
+	WorkspaceID   uuid.UUID       `json:"workspace_id"`
+	OwnerID       uuid.UUID       `json:"owner_id"`
+	DaemonID      string          `json:"daemon_id"`
+	Harness       string          `json:"harness"`
+	DeviceName    string          `json:"device_name"`
+	CustomName    *string         `json:"custom_name"`
+	Status        string          `json:"status"`
+	LastSeenAt    time.Time       `json:"last_seen_at"`
+	MaxConcurrent int32           `json:"max_concurrent"`
+	CreatedAt     time.Time       `json:"created_at"`
+	CliVersion    string          `json:"cli_version"`
+	Os            string          `json:"os"`
+	Arch          string          `json:"arch"`
+	Kernel        string          `json:"kernel"`
+	Language      string          `json:"language"`
+	Bases         json.RawMessage `json:"bases"`
+	ActiveRuns    int32           `json:"active_runs"`
 }
 
 // active_runs: the runtime's agent runs that are dispatched or running.
@@ -706,6 +708,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 			&i.Arch,
 			&i.Kernel,
 			&i.Language,
+			&i.Bases,
 			&i.ActiveRuns,
 		); err != nil {
 			return nil, err
@@ -935,6 +938,31 @@ func (q *Queries) RoleBlobExists(ctx context.Context, arg RoleBlobExistsParams) 
 	return column_1, err
 }
 
+const setRuntimeBases = `-- name: SetRuntimeBases :execrows
+UPDATE runtime SET bases = $1
+WHERE id = $2 AND workspace_id = $3 AND owner_id = $4 AND bases IS DISTINCT FROM $1
+`
+
+type SetRuntimeBasesParams struct {
+	Bases       json.RawMessage `json:"bases"`
+	ID          uuid.UUID       `json:"id"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	OwnerID     uuid.UUID       `json:"owner_id"`
+}
+
+func (q *Queries) SetRuntimeBases(ctx context.Context, arg SetRuntimeBasesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setRuntimeBases,
+		arg.Bases,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.OwnerID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setRuntimeConcurrency = `-- name: SetRuntimeConcurrency :execrows
 UPDATE runtime SET max_concurrent = $1
 WHERE id = $2 AND workspace_id = $3 AND owner_id = $4
@@ -1096,7 +1124,7 @@ ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
   SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, os = EXCLUDED.os, arch = EXCLUDED.arch,
     kernel = EXCLUDED.kernel, language = EXCLUDED.language, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
-RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language
+RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases
 `
 
 type UpsertRuntimeParams struct {
@@ -1143,6 +1171,7 @@ func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (R
 		&i.Arch,
 		&i.Kernel,
 		&i.Language,
+		&i.Bases,
 	)
 	return i, err
 }

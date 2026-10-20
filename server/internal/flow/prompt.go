@@ -77,6 +77,9 @@ func prompt(c db.Card, role string, comments []db.Comment, researchContext strin
 const (
 	writeWork = "Write your work with `lyk record put KIND --content '{\"text\": \"…\"}'`, the JSON body as one single-quoted argument (write a single quote inside it as `'\\''`, or keep the JSON free of them); it prints the record's key. " +
 		"When a record quotes a database call, cite the call with `--cites call:KEY` (`lyk calls` lists them). " +
+		"Run analysis code through the door: `run_code` for exploring (a live Python, R or Julia session) and `run_script` for the result (a saved script run from start to finish). " +
+		"Each answer starts with `run:<key>`. Put each reported number in a `value` field (or a `values` list) next to `\"cites\": [\"run:KEY\"]` naming the `run_script` run that printed it; `lyk runs` lists them. " +
+		"Records of the kinds prediction, explanation, plan and limitation cite nothing. " +
 		"Read the study's records with `lyk records`.\n"
 	finish = "When the column delivers what it must, finish with `lyk team done --cites KEY1,KEY2 --content-stdin <<'EOF'` followed by the summary and a closing `EOF` line, " +
 		"a summary that names the record keys it relies on. Pass file contents through stdin or `--content`; do not write files for it.\n"
@@ -127,8 +130,9 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 	case "agent":
 		b.WriteString(writeWork + finish)
 	case "auditor":
-		b.WriteString("Your prompt holds the leader's summary and the records it cites; read more with `lyk records` and `lyk calls`. " +
+		b.WriteString("Your prompt holds the leader's summary and the records it cites; read more with `lyk records`, `lyk calls` and `lyk runs`. " +
 			"Check that each claim cites where its facts came from, that quoted passages appear in the calls they cite, " +
+			"that each reported value appears in the script run it cites, " +
 			"that the work answers what the researcher asked, and that it says what it couldn't do.\n" +
 			"Write your findings once with `lyk record put audit --content '<json>'` with a single-quoted body of the form " +
 			"`{\"text\": \"…\", \"findings\": [\"…\"]}`. You write no other records, name no members and declare nothing done.\n")

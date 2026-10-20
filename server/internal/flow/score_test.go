@@ -602,3 +602,33 @@ func TestAnAuditorCopyEditedToMatchAMemberIsNotRun(t *testing.T) {
 		t.Fatalf("the column was not scored: %s", got.State)
 	}
 }
+
+func TestScoringStateReportsValues(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "experimentation", "experimentation", a)
+	l.e.Kick(l.ws, c.ID)
+	l.in(t, func(tx *store.Tx) error {
+		ctx := context.Background()
+		if _, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "experimentation", Round: c.Round,
+			Kind: "run", Role: "server", Key: "x1", Body: []byte(`{"tool":"run_script","output":"effect 0.123456\n","exit_status":0}`)}); err != nil {
+			return err
+		}
+		_, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "experimentation", Round: c.Round,
+			Kind: "result", Role: "agent", Key: "r1", Body: []byte(`{"cites":["run:x1"],"value":0.12}`)})
+		return err
+	})
+	l.done(t, c.ID, "r1")
+	calls := stub.calls()
+	if len(calls) != 1 {
+		t.Fatalf("%d Jev calls", len(calls))
+	}
+	s := calls[0].State
+	for _, want := range []string{"Value check, done by Lykeion's code:", `- r1: found in script run x1: "0.12"`,
+		"Judge whether each item's kind fits its content, and whether its results sit in value fields."} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in the state:\n%s", want, s)
+		}
+	}
+}

@@ -30,6 +30,8 @@ import {
   validCreateFields,
 } from '../apps/dashboard/src/lib/settings';
 import { matchesQuery } from '../apps/dashboard/src/lib/search';
+import { environmentView } from '../apps/dashboard/src/lib/environment';
+import type { AgentRun, Runtime, StudyRecord } from '../apps/dashboard/src/api/types';
 
 // A zone with daylight saving, so calendar arithmetic crosses real 23- and 25-hour days.
 beforeAll(() => {
@@ -321,5 +323,118 @@ describe('backend names', () => {
     expect(
       ['claude', 'codex', 'cursor', 'antigravity', 'other-provider'].map(backendLabel),
     ).toEqual(['Claude Code', 'Codex', 'Cursor', 'Antigravity', 'other-provider']);
+  });
+});
+
+describe('study environment', () => {
+  const runtime = (id: string, daemon: string, bases: Record<string, string>) =>
+    ({
+      id,
+      daemon_id: daemon,
+      device_name: 'lab-mac',
+      custom_name: daemon === 'd1' ? 'Bench Mac' : null,
+      bases,
+    }) as Runtime;
+  const run = (runtimeId: string | null) => ({ runtime_id: runtimeId }) as AgentRun;
+  const record = (language: string, packages: string, at: string, createdAt = at) =>
+    ({
+      kind: 'run',
+      created_at: createdAt,
+      body: { language, packages_study: packages, at },
+    }) as unknown as StudyRecord;
+
+  it('maps each base state and dedupes one daemon’s runtimes into one machine', () => {
+    const bases = {
+      python: 'ready',
+      r: 'failed: no network',
+      sandbox: 'failed: sandbox-exec missing',
+    };
+    const view = environmentView(
+      [run('a'), run('b'), run(null), run('gone')],
+      [runtime('a', 'd1', bases), runtime('b', 'd1', bases), runtime('c', 'd2', {})],
+      [],
+    );
+    expect(view.machines).toEqual([
+      {
+        name: 'Bench Mac',
+        bases: [
+          { language: 'Python', state: 'Ready', reason: '' },
+          { language: 'R', state: 'Failed', reason: 'no network' },
+          { language: 'Julia', state: 'Not reported', reason: '' },
+          { language: 'Sandbox', state: 'Failed', reason: 'sandbox-exec missing' },
+        ],
+      },
+    ]);
+  });
+
+  it('shows a ready sandbox after the languages, and none when unreported', () => {
+    const view = environmentView(
+      [run('a'), run('b')],
+      [runtime('a', 'd1', { sandbox: 'ready' }), runtime('b', 'd2', {})],
+      [],
+    );
+    expect(view.machines.map((m) => m.bases.map((b) => `${b.language} ${b.state}`))).toEqual([
+      ['Python Not reported', 'R Not reported', 'Julia Not reported', 'Sandbox Ready'],
+      ['Python Not reported', 'R Not reported', 'Julia Not reported', 'Sandbox Not reported'],
+    ]);
+  });
+
+  it('takes each language’s packages from its latest run, skipping empty ones', () => {
+    const view = environmentView(
+      [],
+      [],
+      [
+        record('python', 'scipy==1.14\n', '2026-10-19T11:00:00Z'),
+        record('python', 'numpy==2.0\n', '2026-10-19T10:00:00Z'),
+        record('julia', '', '2026-10-19T12:00:00Z'),
+      ],
+    );
+    expect(view.packages).toEqual([
+      { language: 'Python', text: 'scipy==1.14\n', at: '2026-10-19T11:00:00Z' },
+    ]);
+    expect(view.machines).toEqual([]);
+  });
+
+  it('marks building and treats a malformed state as not reported', () => {
+    const view = environmentView(
+      [run('a')],
+      [
+        runtime('a', 'd1', {
+          python: 'building',
+          r: 'failed',
+          julia: 'failed:no space',
+          sandbox: 'building',
+        }),
+      ],
+      [],
+    );
+    expect(view.machines[0]!.bases.map((b) => [b.state, b.reason])).toEqual([
+      ['Building', ''],
+      ['Not reported', ''],
+      ['Not reported', ''],
+      ['Not reported', ''],
+    ]);
+  });
+
+  it('orders runs of one second by their full creation time, later input winning a tie', () => {
+    const at = '2026-10-19T10:00:00Z';
+    const packages = (records: StudyRecord[]) =>
+      environmentView([], [], records).packages.map((p) => p.text);
+    expect(
+      packages([
+        record('python', 'old\n', at, '2026-10-19T10:00:00.100Z'),
+        record('python', 'new\n', at, '2026-10-19T10:00:00.200Z'),
+      ]),
+    ).toEqual(['new\n']);
+    expect(packages([record('python', 'first\n', at), record('python', 'second\n', at)])).toEqual([
+      'second\n',
+    ]);
+    // A creation time that doesn't parse falls back to the run's own time.
+    expect(
+      packages([
+        record('python', 'dated\n', '2026-10-19T11:00:00Z', 'not a date'),
+        record('python', 'older\n', at),
+      ]),
+    ).toEqual(['dated\n']);
   });
 });

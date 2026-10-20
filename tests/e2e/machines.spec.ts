@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { labFixture, labSignIn, labWorkspace } from './lab';
+import { LAB, labFixture, labSignIn, labWorkspace } from './lab';
 
 test('the lab daemon is listed and can be renamed', async ({ page }) => {
   await page.goto('/#/machines');
@@ -306,11 +306,10 @@ test('another owner gets real rename/remove refusals; offline own machines can b
       await deleteDrained;
       await page.unroute('**/api/runtimes/*');
     }
-    await page
-      .getByRole('listitem')
-      .filter({ hasText: 'Offline owned computer' })
-      .getByRole('button', { name: 'Machine actions' })
-      .click();
+    // The first removal reaches the list by a realtime event; a stale list resends it.
+    const remaining = page.getByRole('listitem').filter({ hasText: 'Offline owned computer' });
+    await expect(remaining).toContainText('1 runtime');
+    await remaining.getByRole('button', { name: 'Machine actions' }).click();
     page.once('dialog', (dialog) => dialog.accept());
     await page.getByRole('menuitem', { name: 'Remove' }).click();
     await expect(
@@ -495,13 +494,9 @@ test('Machines active run count follows lifecycle transitions without navigation
   const machine = page.getByRole('listitem').filter({ hasText: 'Recorded transcript' });
   await expect(machine.locator('.runs')).toHaveText('All idle');
   const origin = await page.evaluate(() => performance.timeOrigin);
-  expect(
-    (await page.request.post(`http://127.0.0.1:18080/lab/run/${f.run_id}/start`)).status(),
-  ).toBe(204);
+  expect((await page.request.post(`${LAB}/lab/run/${f.run_id}/start`)).status()).toBe(204);
   await expect(machine.locator('.runs')).toHaveText('1 run');
-  expect(
-    (await page.request.post(`http://127.0.0.1:18080/lab/run/${f.run_id}/finish`)).status(),
-  ).toBe(204);
+  expect((await page.request.post(`${LAB}/lab/run/${f.run_id}/finish`)).status()).toBe(204);
   await expect(machine.locator('.runs')).toHaveText('All idle');
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
 });
@@ -541,7 +536,7 @@ test('computer setup offers supported platform commands, real clipboard, and det
   );
   await dialog.getByRole('button', { name: 'Copy start commands' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    "./lyk login --server 'http://127.0.0.1:18080' --email you@lab.org\n./lyk daemon start",
+    `./lyk login --server '${LAB}' --email you@lab.org\n./lyk daemon start`,
   );
   await dialog.getByRole('tab', { name: 'Windows', exact: true }).click();
   await dialog.getByRole('button', { name: 'Copy build command' }).click();
@@ -550,7 +545,7 @@ test('computer setup offers supported platform commands, real clipboard, and det
   );
   await dialog.getByRole('button', { name: 'Copy start commands' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    ".\\lyk.exe login --server 'http://127.0.0.1:18080' --email you@lab.org\n.\\lyk.exe daemon run",
+    `.\\lyk.exe login --server '${LAB}' --email you@lab.org\n.\\lyk.exe daemon run`,
   );
   await dialog.getByText('Can’t open a browser on that computer?', { exact: true }).click();
   await expect(dialog.getByText(/email code in the terminal/)).toBeVisible();

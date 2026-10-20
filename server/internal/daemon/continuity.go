@@ -212,6 +212,9 @@ func (d *daemon) ForgetScope(ws, user uuid.UUID, harness, scope string) error {
 			return err
 		}
 	}
+	if err = os.Remove(finishedRecord(d.cfg.StateDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	dir := sessionsDir(d.cfg.StateDir, ws)
 	if err := checkProfileDir(filepath.Dir(dir)); err != nil {
 		return err

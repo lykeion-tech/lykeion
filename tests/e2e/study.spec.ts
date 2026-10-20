@@ -39,7 +39,7 @@ test('the study opens with a compact overview and identifiable runs, keeping the
   await expect(transcript.locator('.turn-assignment')).not.toContainText('You are the leader');
   await transcript.getByRole('tab', { name: 'Environment' }).click();
   await expect(transcript.getByText('Claude Code', { exact: true })).toBeVisible();
-  await expect(transcript.getByText(/^lab-mac/)).toBeVisible();
+  await expect(transcript.locator('.environment').getByText(/^lab-mac/)).toBeVisible();
   // The lab daemon reports its own machine's platform.
   const platform = transcript.locator('.environment li', { hasText: 'Platform' });
   await expect(platform.locator('code')).toHaveText(/^(linux|darwin|windows) \/ \w+$/);
@@ -732,7 +732,9 @@ test('scores show per criterion with the verdict', async ({ page }) => {
   await page.screenshot({ path: `${shots}/scores-block.png`, fullPage: true });
 });
 
-test('every scored column shows its scores, rounded to one decimal', async ({ page }) => {
+test('only the current column shows its scores, with no stage cards below the agents', async ({
+  page,
+}) => {
   const study = await unassigned(page);
   await labFlow(page.request, study.id, {
     column: 'grounding',
@@ -751,15 +753,12 @@ test('every scored column shows its scores, rounded to one decimal', async ({ pa
     ],
   });
   await page.goto(`/#/studies/${study.id}`);
-  await page.getByRole('region', { name: 'Overview' }).locator('.study-evidence > summary').click();
-  const scores = page.getByRole('region', { name: 'Scores' });
-  await expect(scores).toHaveCount(2);
-  await expect(
-    page.getByRole('region', { name: 'Overview' }).getByRole('region', { name: 'Scores' }),
-  ).toContainText('3 of 5');
-  await expect(
-    page.locator('.collapsed-stage').getByRole('region', { name: 'Scores' }),
-  ).toContainText('4.8 of 5');
+  const overview = page.getByRole('region', { name: 'Overview' });
+  await overview.locator('.study-evidence > summary').click();
+  await expect(overview.getByRole('region', { name: 'Scores' })).toContainText('3 of 5');
+  await expect(page.getByRole('region', { name: 'Scores' })).toHaveCount(1);
+  const main = page.getByRole('region', { name: 'Study' });
+  await expect(main.getByRole('button', { name: 'Grounding', exact: true })).toHaveCount(0);
 });
 
 test("the leader's self-step is marked", async ({ page }) => {
@@ -970,4 +969,31 @@ test('study content and composer share a wider measure and only the corner butto
   const narrowComposer = await main.locator('.task-comment').boundingBox();
   expect(narrowComposer!.x).toBeCloseTo(narrowCards!.x, 0);
   expect(narrowComposer!.width).toBeCloseTo(narrowCards!.width, 0);
+});
+
+test('the execution log sits as far below Project as Details sits below it', async ({ page }) => {
+  const study = await newStudy(page.request, 'How far apart are the panels?', { assignee: null });
+  await page.goto(`/#/studies/${study.id}`);
+  await expect(page.getByRole('button', { name: 'Open timeline' })).toBeVisible();
+  // Measures the rendered text itself, so padding and line boxes don't count.
+  const text = (selector: string, name: string) =>
+    page.evaluate(
+      ([selector, name]) => {
+        const el = [...document.querySelectorAll(selector)].find((e) =>
+          e.textContent?.trim().startsWith(name),
+        )!;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const r = range.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom };
+      },
+      [selector, name],
+    );
+  const project = await text('.property-row label', 'Project');
+  const log = await text('.execution-heading button', 'Execution log');
+  const timeline = await text('.open-timeline', 'Open timeline');
+  const details = await text('.details-heading', 'Details');
+  expect(Math.abs(log.top - project.bottom - (details.top - timeline.bottom))).toBeLessThanOrEqual(
+    1,
+  );
 });

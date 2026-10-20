@@ -711,3 +711,39 @@ func TestOwnedShutdownReconcilesNewZombieIdentity(t *testing.T) {
 		t.Fatalf("grandchild survived: %v", live)
 	}
 }
+
+// The supervisor runs outside the sandbox; a link planted where it writes
+// its exit marker never carries that write to another file.
+func TestTheExitMarkerIsNotWrittenThroughALink(t *testing.T) {
+	for _, planted := range []string{".agent-exit.tmp", ".agent-exit"} {
+		thesis := filepath.Join(t.TempDir(), "thesis.tex")
+		if err := os.WriteFile(thesis, []byte("THESIS"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		bin := script(t, `ln -s '`+thesis+`' "$PWD/`+planted+`"
+echo '{"type":"result","is_error":false}'`)
+		sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Dir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collectWithin(t, sess, 20*time.Second)
+		if b, err := os.ReadFile(thesis); err != nil || string(b) != "THESIS" {
+			t.Fatalf("%s: the linked file became %q %v", planted, b, err)
+		}
+	}
+}
+
+// An exit marker that is no regular file (a device, a pipe) is never read
+// whole or waited on.
+func TestAnExitMarkerThatIsNoFileNeverHangs(t *testing.T) {
+	for _, plant := range []string{`ln -s /dev/zero "$PWD/.agent-exit"`, `mkfifo "$PWD/.agent-exit"`} {
+		bin := script(t, plant+`
+sleep 0.3
+echo '{"type":"result","is_error":false}'`)
+		sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Dir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collectWithin(t, sess, 20*time.Second)
+	}
+}

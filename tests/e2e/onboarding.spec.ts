@@ -259,6 +259,9 @@ for (const phase of ['create', 'list'] as const) {
         b = await make(`Onboarding B ${phase}`);
       await controlled.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), a.id);
       await controlled.goto('/#/onboarding?step=workspace');
+      // The hold below must catch a refetch, not the list's first load: the
+      // switcher can only offer B once the list has arrived.
+      await expect(controlled.getByRole('radio', { name: b.name, exact: true })).toBeVisible();
       await controlled.getByRole('radio', { name: 'Create a new workspace' }).check();
       await controlled
         .getByRole('textbox', { name: 'Workspace name' })

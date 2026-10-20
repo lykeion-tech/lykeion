@@ -181,7 +181,7 @@ func TestCursorPrivateHomeHoldsOnlyTheSignIn(t *testing.T) {
 	}
 	collectWithin(t, s, 5*time.Second)
 	got, _ := os.ReadFile(seen)
-	if want := filepath.Join(dir, ".home") + "\n./" + cursorCredFile + "\n./mcp-approvals.json\nsecret"; strings.TrimSpace(string(got)) != want {
+	if want := filepath.Join(dir, ".home") + onDarwin("\n./"+keychainStandIn+"/security") + "\n./" + cursorCredFile + "\n./mcp-approvals.json\nsecret"; strings.TrimSpace(string(got)) != want {
 		t.Fatalf("the CLI saw\n%s\nwant\n%s", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".cli-home", cursorCredFile)); !os.IsNotExist(err) {

@@ -373,7 +373,7 @@ func TestSweepReclaimsLostWork(t *testing.T) {
 	if status != "queued" || reason != "runtime_offline" {
 		t.Fatalf("after one lost attempt: %s %s", status, reason)
 	}
-	if _, err := f.T.Heartbeat(ctx, f.Owner, []RuntimeRef{ref}); err != nil {
+	if _, err := f.T.Heartbeat(ctx, f.Owner, []RuntimeRef{ref}, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, err = f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
@@ -665,7 +665,7 @@ func TestMembershipAndAssignedRuntimeRequired(t *testing.T) {
 	if _, err := f.Env.Owner.Exec(ctx, "DELETE FROM member WHERE workspace_id=$1 AND user_id=$2", f.WS, f.Owner); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.T.Heartbeat(ctx, f.Owner, []RuntimeRef{ref}); !errors.Is(err, ErrNotYours) {
+	if _, err := f.T.Heartbeat(ctx, f.Owner, []RuntimeRef{ref}, nil); !errors.Is(err, ErrNotYours) {
 		t.Fatalf("removed-member heartbeat: %v", err)
 	}
 	if _, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1); !errors.Is(err, ErrNotYours) {

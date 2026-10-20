@@ -32,6 +32,17 @@ func stateDir(e *env) string { return filepath.Join(filepath.Dir(e.path), "daemo
 func pidFile(e *env) string  { return filepath.Join(filepath.Dir(e.path), "daemon.pid") }
 func logFile(e *env) string  { return filepath.Join(filepath.Dir(e.path), "daemon.log") }
 
+// envDir holds the language bases in a hidden folder in the home folder, not
+// the state folder, because macOS puts that under "Application Support" and
+// the bases' own scripts break on a path with spaces.
+func envDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".lyk", "envs"), nil
+}
+
 func readOwner(path string) (daemonOwner, error) {
 	fi, err := os.Lstat(path)
 	if err != nil {
@@ -220,8 +231,12 @@ func daemonCmd(e *env) *cobra.Command {
 				return fmt.Errorf("identify daemon process: %w", err)
 			}
 		}
+		envs, err := envDir()
+		if err != nil {
+			return err
+		}
 		cfg := daemon.Config{Server: e.cfg.Server, Token: e.cfg.Token, StateDir: stateDir(e),
-			Home: home, Device: host, Harnesses: h, Slots: slots}
+			Home: home, Device: host, Harnesses: h, Slots: slots, EnvDir: envs}
 		if ownerNonce != "" {
 			cfg.Ready = func() error { return writeOwner(pidFile(e), owner) }
 			cfg.OnExit = func() {

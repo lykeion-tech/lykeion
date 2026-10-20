@@ -114,7 +114,7 @@ func teamDoneCmd(e *env) *cobra.Command {
 			}
 			return emit(cmd, e, out, out.Key)
 		}}
-	c.Flags().StringSliceVar(&cites, "cites", nil, "record keys the summary relies on")
+	c.Flags().StringSliceVar(&cites, "cites", nil, "the records, calls and runs the summary rests on, as KEY, call:KEY or run:KEY")
 	contentFlags(c, "the summary")
 	outputFlag(c)
 	return c
@@ -138,11 +138,35 @@ func recordCmd(e *env) *cobra.Command {
 			}
 			return record(cmd, e, a[0], body)
 		}}
-	put.Flags().StringSliceVar(&cites, "cites", nil, "the recorded calls the record quotes, as call:KEY")
+	put.Flags().StringSliceVar(&cites, "cites", nil, "the recorded calls and runs the record rests on, as call:KEY or run:KEY")
 	contentFlags(put, "the record's JSON body")
 	outputFlag(put)
 	r.AddCommand(put)
 	return r
+}
+
+func runsCmd(e *env) *cobra.Command {
+	c := &cobra.Command{Use: "runs", Short: "List the study's recorded code runs in your column", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			rc, err := roleClient()
+			if err != nil {
+				return err
+			}
+			var runs []map[string]any
+			if err := rc.Do(cmd.Context(), "GET", "/api/role/runs", nil, &runs); err != nil {
+				return err
+			}
+			if o, _ := cmd.Flags().GetString("output"); o == "json" {
+				return emit(cmd, e, runs, "")
+			}
+			for _, run := range runs {
+				path, _ := run["path"].(string)
+				fmt.Fprintf(e.out, "%v %v %v %s\n", run["key"], run["tool"], run["language"], path)
+			}
+			return nil
+		}}
+	outputFlag(c)
+	return c
 }
 
 func callsCmd(e *env) *cobra.Command {

@@ -11,3 +11,7 @@ func killGroup(cmd *exec.Cmd) {
 		cmd.Process.Kill()
 	}
 }
+
+// scriptOpen opens a script without following a link in its last place
+// or waiting on a pipe.
+const scriptOpen = 0

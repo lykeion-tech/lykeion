@@ -20,6 +20,8 @@ import (
 	"github.com/gorilla/websocket"
 
 	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/daemon/envs"
+	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
 	"lykeion/server/pkg/agent"
@@ -34,6 +36,11 @@ type Config struct {
 	NewBackend                            func(harness, bin string) (agent.Backend, error)
 	Ready                                 func() error
 	OnExit                                func()
+	// EnvDir holds the language bases and the studies' add-on folders; empty
+	// gives runs no study environment.
+	EnvDir string
+	// Bases, when non-nil, replaces the bases the daemon builds at EnvDir.
+	Bases *envs.Bases
 }
 
 func (c *Config) defaults() {
@@ -57,6 +64,9 @@ func (c *Config) defaults() {
 	}
 	if c.NewBackend == nil {
 		c.NewBackend = agent.New
+	}
+	if c.Bases == nil && c.EnvDir != "" {
+		c.Bases = envs.NewBases(c.EnvDir)
 	}
 }
 func Detect() map[string]string {
@@ -89,6 +99,8 @@ type claimed struct {
 		RunPrivate      bool   `json:"run_private"`
 		// RequestedModel is the agent's model; empty runs the CLI's default.
 		RequestedModel string `json:"requested_model"`
+		// CardID is the run's study; nil for a run on no card.
+		CardID *uuid.UUID `json:"card_id"`
 	} `json:"agent_run"`
 	Token string `json:"token"`
 	// CallToken records the run's calls; only the door holds it.
@@ -119,6 +131,11 @@ type daemon struct {
 	activeCancels   map[string]context.CancelFunc
 	scopes          map[string]bool
 	scratches       map[string]bool
+	// bases are the machine's language bases; nil when the daemon has none.
+	bases *envs.Bases
+	// sandboxErr is why the sandbox failed its check at start; analysis code
+	// runs nowhere while it is set.
+	sandboxErr error
 }
 
 func daemonID(dir, server string) (string, error) {
@@ -172,7 +189,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}}
+	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}, bases: cfg.Bases}
 	d.messages = &Outbox{Dir: filepath.Join(cfg.StateDir, "messages"), Send: d.sendMessages}
 	d.out = &Outbox{Dir: filepath.Join(cfg.StateDir, "outbox"), Send: d.send}
 	if err = d.recoverAttempts(ctx); err != nil {
@@ -197,12 +214,31 @@ func Run(ctx context.Context, cfg Config) error {
 			return fmt.Errorf("announce daemon readiness: %w", err)
 		}
 	}
+	if d.bases != nil {
+		if d.sandboxErr = sandbox.Check(ctx); d.sandboxErr != nil {
+			slog.Warn("analysis code can't run on this machine: the sandbox isn't available", "err", d.sandboxErr)
+		}
+	}
 	background := func(fn func()) { d.wg.Add(1); go func() { defer d.wg.Done(); fn() }() }
 	background(func() { d.every(ctx, cfg.Heartbeat, d.heartbeat) })
 	background(func() { d.every(ctx, cfg.Flush, func(ctx context.Context) { d.fatal(d.flush(ctx)) }) })
 	background(func() { d.every(ctx, time.Hour, func(ctx context.Context) { d.fatal(d.gc(ctx)) }) })
 	background(func() { d.hints(ctx) })
 	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
+	if d.bases != nil {
+		// Bases build in the background; a run started before one is ready
+		// gets only the ones that are.
+		background(func() {
+			errs := d.bases.EnsureAll(ctx)
+			for _, lang := range []string{envs.Python, envs.R, envs.Julia} {
+				if errs[lang] != nil {
+					slog.Warn(lang+" environment not ready", "err", errs[lang])
+				} else {
+					slog.Info(lang + " environment ready")
+				}
+			}
+		})
+	}
 	ticker := time.NewTicker(cfg.Poll)
 	defer ticker.Stop()
 	var runErr error
@@ -288,8 +324,20 @@ func (d *daemon) heartbeat(ctx context.Context) {
 		slog.Warn("runtime refresh pending", "err", err)
 	}
 	refs := d.references()
+	var bases map[string]string
+	if d.bases != nil {
+		bases = d.bases.States()
+		bases["sandbox"] = "ready"
+		if d.sandboxErr != nil {
+			bases["sandbox"] = envs.Failed(d.sandboxErr)
+		}
+	}
 	for i := 0; i < len(refs); i += 64 {
-		if err := d.api.Do(ctx, "POST", "/api/daemon/heartbeat", map[string]any{"runtimes": refs[i:min(i+64, len(refs))]}, nil); err != nil {
+		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))]}
+		if bases != nil {
+			body["bases"] = bases
+		}
+		if err := d.api.Do(ctx, "POST", "/api/daemon/heartbeat", body, nil); err != nil {
 			slog.Warn("heartbeat failed", "err", err)
 		}
 	}
@@ -473,7 +521,7 @@ func (d *daemon) waitScratch(ctx context.Context, name string) (bool, error) {
 	}
 }
 
-// Only a finished marker written after child exit starts the deletion clock.
+// Only a finished record written after child exit starts the deletion clock.
 func (d *daemon) gc(context.Context) error {
 	es, err := os.ReadDir(d.cfg.Home)
 	if err != nil {
@@ -491,7 +539,7 @@ func (d *daemon) gc(context.Context) error {
 		if active || !d.holdScratch(e.Name()) {
 			continue
 		}
-		err := collectScratch(filepath.Join(d.cfg.Home, e.Name()))
+		err := collectScratch(filepath.Join(d.cfg.Home, e.Name()), finishedRecord(d.cfg.StateDir, e.Name()))
 		d.releaseScratch(e.Name())
 		if err != nil {
 			return err
@@ -500,10 +548,11 @@ func (d *daemon) gc(context.Context) error {
 	return nil
 }
 
-// collectScratch deletes a folder whose finished marker is old enough: a day
+// collectScratch deletes a folder whose finished record is old enough: a day
 // for an attempt's own folder; for a scope's folder, whose sessions later runs
-// resume, the retention its marker records, or a day when it records none.
-func collectScratch(dir string) error {
+// resume, the retention its record keeps, or a day when it keeps none. The
+// record goes with the folder.
+func collectScratch(dir, record string) error {
 	reservation, err := agent.ReserveScratch(dir)
 	if errors.Is(err, agent.ErrScratchBusy) || errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -516,8 +565,7 @@ func collectScratch(dir string) error {
 		return reservation.Remove()
 	}
 
-	marker := filepath.Join(dir, ".finished")
-	fi, err := os.Lstat(marker)
+	fi, err := os.Lstat(record)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -532,12 +580,35 @@ func collectScratch(dir string) error {
 		var m struct {
 			RetentionDays int `json:"retention_days"`
 		}
-		if b, err := readBounded(marker, recordLimit); err == nil && json.Unmarshal(b, &m) == nil && m.RetentionDays > 0 && m.RetentionDays <= maxRetentionDays {
+		if b, err := readBounded(record, recordLimit); err == nil && json.Unmarshal(b, &m) == nil && m.RetentionDays > 0 && m.RetentionDays <= maxRetentionDays {
 			keep = time.Duration(m.RetentionDays) * 24 * time.Hour
 		}
 	}
 	if time.Since(fi.ModTime()) < keep {
 		return nil
 	}
-	return reservation.Remove()
+	if err := reservation.Remove(); err != nil {
+		return err
+	}
+	return os.Remove(record)
+}
+
+// finishedRecord is the daemon's record that a folder's run finished, kept
+// in its state folder: a run's code may write its run folder, so nothing
+// there is trusted.
+func finishedRecord(stateDir, dir string) string {
+	return filepath.Join(stateDir, "finished", filepath.Base(dir))
+}
+
+// markFinished writes a folder's finished record.
+func (d *daemon) markFinished(dir string, v any) error {
+	return atomicJSON(filepath.Dir(finishedRecord(d.cfg.StateDir, dir)), filepath.Base(dir), v)
+}
+
+// unmarkFinished takes the record away, as a reused folder runs again.
+func (d *daemon) unmarkFinished(dir string) error {
+	if err := os.Remove(finishedRecord(d.cfg.StateDir, dir)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }

@@ -23,14 +23,13 @@ import {
   useRuntimes,
   useWorkspace,
 } from '../api/queries';
-import type { Card, Column } from '../api/types';
+import type { Card } from '../api/types';
 import {
   actionLabel,
   blockedActions,
   canReassign,
   type ComposerAction,
   columnName,
-  earlierColumns,
   endLabel,
   flowKinds,
   flowView,
@@ -167,23 +166,12 @@ const team = computed(() => (c.value && stage.value ? c.value.teams?.[stage.valu
 const offLabel = computed(() =>
   Boolean(team.value && stage.value && c.value?.off_label?.includes(stage.value)),
 );
-const earlier = computed(() => (c.value ? earlierColumns(c.value) : []));
-const earlierScores = stages.slice(0, -1).map((col) => {
-  const q = useRecords(
-    () => props.id,
-    () => (earlier.value.includes(col) ? col : ''),
-  );
-  return { col, flow: computed(() => flowView(q.data.value ?? [])) };
-});
-const expanded = ref<Column | ''>('');
-const earlierRecords = useRecords(() => props.id, expanded);
 const resourceReads = computed(() =>
   [
     { label: 'Comments', query: comments },
     { label: 'Events', query: events },
     { label: 'Runs', query: runs },
     ...(stage.value ? [{ label: 'Records', query: records }] : []),
-    ...(expanded.value ? [{ label: 'Earlier records', query: earlierRecords }] : []),
   ].map(({ label, query }) => ({
     label,
     error: query.error.value,
@@ -257,7 +245,6 @@ watch(
     comment.value = '';
     busy.value = false;
     error.value = '';
-    expanded.value = '';
     action.value = { kind: 'comment' };
     picker.value = '';
   },
@@ -484,48 +471,9 @@ function pin() {
             v-model="openRun"
             :runs="agentRuns"
             :runtime="runtime"
+            :study-id="id"
             @close="openRun = ''"
           />
-          <div v-for="col in earlier" :key="col" class="stage-box collapsed-stage">
-            <button
-              :aria-expanded="expanded === col"
-              @click="expanded = expanded === col ? '' : col"
-            >
-              <Icon :name="expanded === col ? 'down' : 'right'" :size="12" /><span
-                class="stage-dot"
-                :class="'status-' + col"
-              />{{ columnName(col) }}
-            </button>
-            <section
-              v-for="e in earlierScores.filter((x) => x.col === col && x.flow.value.scores.length)"
-              :key="e.col"
-              class="flow-block"
-              aria-label="Scores"
-            >
-              <h5>
-                Scores<span class="chip" :class="'chip-verdict-' + e.flow.value.verdict">{{
-                  verdictLabels[e.flow.value.verdict] ?? e.flow.value.verdict
-                }}</span>
-              </h5>
-              <div v-for="s in e.flow.value.scores" :key="s.criterion" class="score-row">
-                <span>{{ s.criterion }}</span
-                ><span class="level">{{ levelText(s.level) }} of 5</span>
-              </div>
-            </section>
-            <template v-if="expanded === col">
-              <div
-                v-for="r in earlierRecords.data.value ?? []"
-                :key="r.id"
-                class="record-line"
-                :class="{ superseded: r.superseded_at }"
-              >
-                <span class="key">{{ recordLine(r).key }}</span
-                ><span>{{ recordLine(r).text }}</span
-                ><span v-if="recordLine(r).source" class="source">{{ recordLine(r).source }}</span
-                ><span v-if="r.superseded_at" class="superseded-mark">superseded</span>
-              </div>
-            </template>
-          </div>
           <div
             v-for="read in readErrors"
             :key="read.label"
@@ -1531,13 +1479,6 @@ function pin() {
   margin-bottom: 6px;
   flex-wrap: wrap;
 }
-.collapsed-stage > button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  color: var(--muted);
-}
 .record-line {
   display: flex;
   gap: 10px;
@@ -1759,8 +1700,9 @@ function pin() {
 .property-row select:hover {
   background: var(--hover);
 }
-.execution-log {
-  margin-top: 32px;
+/* ExecutionLog has two root nodes, so its section takes no scope attribute. */
+.task-properties :deep(.execution-log) {
+  margin-top: 26px;
 }
 .details-heading {
   font-size: 14px;

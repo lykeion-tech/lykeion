@@ -239,12 +239,6 @@ export function transcript(
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
 
-// The stages shown collapsed above the current one.
-export function earlierColumns(card: Card): Column[] {
-  const index = stages.indexOf(card.board_column);
-  return index >= 0 ? stages.slice(0, index) : [];
-}
-
 const blockLabels: Record<BlockKind, string> = {
   '': '',
   low_score: 'low score',

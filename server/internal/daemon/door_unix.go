@@ -16,3 +16,7 @@ func killGroup(cmd *exec.Cmd) {
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
+
+// scriptOpen opens a script without following a link in its last place
+// or waiting on a pipe.
+const scriptOpen = syscall.O_NOFOLLOW | syscall.O_NONBLOCK

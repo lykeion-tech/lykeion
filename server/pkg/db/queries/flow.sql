@@ -48,3 +48,7 @@ RETURNING id;
 UPDATE card SET board_column = @board_column, state = @state, block_kind = @block_kind, round = @round,
   redos = @redos, handoff_note = @handoff_note, gating_until = NULL, version = version + 1
 WHERE id = @id AND workspace_id = @workspace_id;
+
+-- name: LastRunNumber :one
+SELECT COALESCE(max(substr(key, 2)::int), 0)::int AS n FROM record
+WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'run' AND key ~ '^x[0-9]+$';

@@ -80,7 +80,7 @@ test('inspector resize, real Project and assignment persist; disclosures and Run
   });
   await page.goto('/#/projects/' + research.id);
   await expect(page.getByRole('heading', { name: 'Recorded Project', exact: true })).toBeVisible();
-  await expect(page.locator('.research-studies a')).toHaveCount(1);
+  await expect(page.locator(`.project-board [data-card="${f.card_id}"]`)).toHaveCount(1);
 });
 
 test('both separators persist pointer and keyboard sizes without collapsing after a drag', async ({
@@ -107,7 +107,7 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   const right = (await inspector.boundingBox())!;
   await page.mouse.move(right.x, right.y + 60);
   await page.mouse.down();
-  await page.mouse.move(right.x + 70, right.y + 60);
+  await page.mouse.move(right.x - 70, right.y + 60);
   await page.mouse.up();
   await expect(page.locator('.study-meta')).toHaveCSS('width', '310px');
   await page.goto('/#/projects');
@@ -159,9 +159,16 @@ test('Project creation/edit and member/agent responsibility use canonical writes
   await expect(page.getByRole('heading', { name: 'Question grouping', exact: true })).toBeVisible();
   const first = page.url().split('/').pop()!;
   await page.getByRole('button', { name: 'Edit Project', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Project description' }).fill('Revised scope');
+  await page
+    .getByRole('dialog', { name: 'Edit Project', exact: true })
+    .getByRole('textbox', { name: 'Project description' })
+    .fill('Revised scope');
   await page.getByRole('button', { name: 'Save Project', exact: true }).click();
-  await expect(page.locator('.description')).toHaveText('Revised scope');
+  await expect(
+    page
+      .getByRole('complementary', { name: 'Project properties' })
+      .getByRole('textbox', { name: 'Project description' }),
+  ).toHaveValue('Revised scope');
   const second = await (
     await page.request.post('/api/researches', { headers, data: { name: 'Second research' } })
   ).json();
@@ -330,10 +337,18 @@ for (const kind of ['researches', 'agents'] as const) {
       kind === 'agents'
         ? await (
             await page.request.post('/api/workspaces', {
-              data: { name: 'Refetch destination', slug: 'refetch-' + Date.now() },
+              data: { name: 'Refetch destination ' + Date.now(), slug: 'refetch-' + Date.now() },
             })
           ).json()
         : null;
+    // The created row's realtime event would cancel the held refetch, so the
+    // create would navigate early, before the test leaves its visit.
+    await page.routeWebSocket(/\/ws$/, (socket) => {
+      const server = socket.connectToServer();
+      server.onMessage((raw) => {
+        if (JSON.parse(String(raw)).type !== 'event') socket.send(raw);
+      });
+    });
     const path = kind === 'researches' ? '/projects' : '/agents';
     const collection = page.waitForResponse(
       (r) => r.request().method() === 'GET' && r.url().endsWith('/api/' + kind),
@@ -343,8 +358,17 @@ for (const kind of ['researches', 'agents'] as const) {
     let release!: () => void, reached!: () => void;
     const held = new Promise<void>((r) => (reached = r)),
       gate = new Promise<void>((r) => (release = r));
+    // Only the create's refetch is held: an earlier read, such as the socket's
+    // on-open refresh, would not list the new row.
+    let created = false;
     await page.route('**/api/' + kind, async (route) => {
       if (route.request().method() !== 'GET') {
+        const response = await route.fetch();
+        created = true;
+        await route.fulfill({ response });
+        return;
+      }
+      if (!created) {
         await route.continue();
         return;
       }
@@ -367,8 +391,8 @@ for (const kind of ['researches', 'agents'] as const) {
     expect(canonical.some((item: { name: string }) => item.name === name)).toBe(true);
     if (kind === 'agents') {
       await page.locator('.workspace-switch').click();
-      await page.getByRole('menuitem', { name: 'Refetch destination', exact: false }).click();
-      await expect(page.locator('.workspace-switch')).toContainText('Refetch destination');
+      await page.getByRole('menuitem', { name: other.name }).click();
+      await expect(page.locator('.workspace-switch')).toContainText(other.name);
       expect(other.id).not.toBe(f.workspace_id);
     } else await page.goto('/#/studies/' + f.card_id);
     release();
@@ -414,7 +438,9 @@ test('open Project detail updates embedded linked studies after another client e
   ).toBe(200);
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws.id);
   await page.goto('/#/projects/' + research.id);
-  await expect(page.locator('.research-studies a')).toContainText('Before linked edit');
+  await expect(page.locator(`.project-board [data-card="${study.id}"]`)).toContainText(
+    'Before linked edit',
+  );
   expect(
     (
       await page.request.patch(`/api/cards/${study.id}`, {
@@ -423,8 +449,10 @@ test('open Project detail updates embedded linked studies after another client e
       })
     ).status(),
   ).toBe(200);
-  await expect(page.locator('.research-studies a')).toContainText('After linked edit');
+  await expect(page.locator(`.project-board [data-card="${study.id}"]`)).toContainText(
+    'After linked edit',
+  );
   expect((await page.request.delete(`/api/cards/${study.id}`, { headers })).status()).toBe(204);
-  await expect(page.locator('.research-studies a')).toHaveCount(0);
-  await expect(page.locator('.research-studies')).toContainText('No studies linked yet.');
+  await expect(page.locator(`.project-board [data-card="${study.id}"]`)).toHaveCount(0);
+  await expect(page.locator('.project-empty')).toContainText('No studies linked');
 });

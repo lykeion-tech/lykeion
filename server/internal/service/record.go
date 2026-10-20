@@ -20,7 +20,11 @@ type Writer struct {
 
 // ServerKinds are the record kinds only the server writes: no role command
 // stores one, except the auditor's own `audit`.
-var ServerKinds = []string{"delegation", "self_step", "summary", "audit", "score", "outcome", "call", "tools"}
+var ServerKinds = []string{"delegation", "self_step", "summary", "audit", "score", "outcome", "call", "tools", "run"}
+
+// FreeKinds are the agent-written kinds that need no citation; every other
+// agent-written kind is a fact kind.
+var FreeKinds = []string{"prediction", "explanation", "plan", "limitation"}
 
 var kindName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

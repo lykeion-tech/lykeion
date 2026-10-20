@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -156,8 +157,13 @@ echo '{"event":"result","result":{"conversation_id":"` + session + `","status":"
 		must(t, err)
 		list, err := conn.ListTools(callCtx, nil)
 		must(t, err)
-		if len(list.Tools) != 1 || list.Tools[0].Name != "call_tool" {
-			t.Fatalf("unexpected MCP surface: %+v", list.Tools)
+		var names []string
+		for _, tool := range list.Tools {
+			names = append(names, tool.Name)
+		}
+		slices.Sort(names)
+		if !slices.Equal(names, []string{"call_tool", "run_code", "run_script"}) {
+			t.Fatalf("unexpected MCP surface: %q", names)
 		}
 		answer, err := conn.CallTool(callCtx, &mcp.CallToolParams{Name: "call_tool", Arguments: map[string]any{"server": "sources", "tool": "search_datasets", "args": map[string]any{"query": "X Y mice"}}})
 		must(t, err)

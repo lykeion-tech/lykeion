@@ -46,7 +46,7 @@ func RequestBounds(next http.Handler) http.Handler {
 			return
 		}
 		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r)
-		callPost := r.Method == http.MethodPost && r.URL.Path == "/api/role/calls"
+		callPost := r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs")
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
 		if rawBlob || callPost {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
@@ -141,7 +141,7 @@ func JSONBodyLimit(r *http.Request) int64 {
 	if daemonMessagePost(r) {
 		return MaxDaemonMessageBytes
 	}
-	if r.Method == http.MethodPost && r.URL.Path == "/api/role/calls" {
+	if r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs") {
 		return MaxCallBodyBytes
 	}
 	return MaxBodyBytes

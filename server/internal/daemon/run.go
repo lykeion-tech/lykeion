@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/pkg/agent"
 )
@@ -62,13 +63,13 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		// Only after the final report is durable may a baseline become resumable.
 		localErr = errors.Join(localErr, d.finishContinuity(cont, final))
 		if retainedDir != "" {
-			if err := atomicJSON(retainedDir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": journalRecord.RetainedRetentionDays}); err != nil {
+			if err := d.markFinished(retainedDir, map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": journalRecord.RetainedRetentionDays}); err != nil {
 				localErr = errors.Join(localErr, err)
 				return
 			}
 		}
 		if created {
-			if err := atomicJSON(dir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": journalRecord.RetentionDays}); err != nil {
+			if err := d.markFinished(dir, map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": journalRecord.RetentionDays}); err != nil {
 				localErr = errors.Join(localErr, err)
 				return
 			}
@@ -115,6 +116,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			reservation, err = agent.ReserveScratch(dir)
 			if err == nil {
 				err = reuseScratch(dir)
+			}
+			if err == nil {
+				err = d.unmarkFinished(dir)
 			}
 		}
 	}
@@ -187,14 +191,44 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		return nil
 	}
+	path := filepath.Dir(self) + string(os.PathListSeparator)
+	// The study's add-on folders are the door's alone: code runs only
+	// through it, in the sandbox, so the CLI's environment holds none of the
+	// study's interpreters or folders, which the study's code may have planted.
+	var study *envs.Study
+	if d.bases != nil {
+		// A study's runs share its add-on folders. A run on no card keeps its
+		// own beside them, never in its run folder: code may write the run
+		// folder, and a link it left there would be the next run's folder. A
+		// scope's runs share one; an attempt's own goes when the run ends.
+		studies := filepath.Join(d.bases.Dir, "studies", c.AgentRun.WorkspaceID.String())
+		studyDir := filepath.Join(studies, "_run", filepath.Base(dir))
+		switch {
+		case c.AgentRun.CardID != nil:
+			studyDir = filepath.Join(studies, c.AgentRun.CardID.String())
+		case held != "":
+			// ponytail: a scope's add-on folder outlives its run folder; collect it with the scope's folder if it grows
+			studyDir = filepath.Join(studies, "_scope", held)
+		default:
+			defer os.RemoveAll(studyDir)
+		}
+		if err = os.MkdirAll(studyDir, 0700); err != nil {
+			fail(fmt.Errorf("prepare study folder: %w", err))
+			return nil
+		}
+		study = envs.ForStudy(d.bases, studyDir)
+	}
 	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
-		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + filepath.Dir(self) + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path + os.Getenv("PATH"),
 	}}
+	if study != nil {
+		opts.ReadDirs = append([]string{study.Dir}, d.bases.Folders()...)
+	}
 	// The CLI's one MCP server; add-on servers are reached through it too. The
 	// call token stays with the door. Child reads opts when a local command
 	// starts, after any change below.
-	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness,
-		Child: func() agent.ExecOptions { return opts }}
+	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study,
+		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions { return opts }}
 	if err = door.Start(); err != nil {
 		fail(err)
 		return nil
@@ -278,7 +312,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			fail(err)
 			return nil
 		}
-		if err = atomicJSON(freshDir, ".finished", map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt}); err != nil {
+		if err = d.markFinished(freshDir, map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt}); err != nil {
 			fail(err)
 			return err
 		}
@@ -292,7 +326,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		journalRecord = candidate
 		retainedDir, dir = dir, freshDir
 		r.Scratch, r.RetainedScratch, r.RetainedRetentionDays = "", held, journalRecord.RetainedRetentionDays
-		if err = os.Remove(filepath.Join(dir, ".finished")); err != nil {
+		if err = d.unmarkFinished(dir); err != nil {
 			fail(err)
 			return nil
 		}
@@ -537,7 +571,7 @@ func reuseScratch(dir string) error {
 	if err := privateDir(dir); err != nil {
 		return err
 	}
-	for _, name := range []string{".finished", "SKILL.md", ".lyk-config.json"} {
+	for _, name := range []string{"SKILL.md", ".lyk-config.json"} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}

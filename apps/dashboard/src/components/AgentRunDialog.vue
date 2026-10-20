@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 import RunTurn from './RunTurn.vue';
+import StudyEnvironment from './StudyEnvironment.vue';
 import { useRunMessages } from '../api/queries';
 import type { AgentRun, Runtime } from '../api/types';
 import { backendLabel } from '../lib/backends';
@@ -12,6 +13,7 @@ import { columnName, roleLabel } from '../lib/studies';
 const props = defineProps<{
   runs: AgentRun[];
   runtime: (runtimeId: string | null) => Runtime | undefined;
+  studyId: string;
 }>();
 const id = defineModel<string>({ required: true });
 const emit = defineEmits<{ close: [] }>();
@@ -219,12 +221,15 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
           </template>
         </template>
 
-        <ul v-else class="environment">
-          <li v-for="e in environment" :key="e.key">
-            <span>{{ e.key }}</span
-            ><code>{{ e.value }}</code>
-          </li>
-        </ul>
+        <template v-else>
+          <ul class="environment">
+            <li v-for="e in environment" :key="e.key">
+              <span>{{ e.key }}</span
+              ><code>{{ e.value }}</code>
+            </li>
+          </ul>
+          <StudyEnvironment :id="studyId" :runs="runs" class="study-environment" />
+        </template>
         <span class="copy-notice" role="status">{{ notice }}</span>
       </div>
     </template>
@@ -437,6 +442,9 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
     SFMono-Regular,
     Menlo,
     monospace;
+}
+.study-environment {
+  margin-top: 24px;
 }
 .copy-notice {
   position: absolute;

@@ -607,7 +607,6 @@ test('runtime import retries the same job read after an error without resubmitti
   let pending: Record<string, unknown> | undefined;
   let posts = 0;
   let reads = 0;
-  let recover = false;
   const readURLs: string[] = [];
   await page.route(`**/api/runtimes/${runtime}/local-skills/import`, async (route) => {
     posts++;
@@ -627,7 +626,7 @@ test('runtime import retries the same job read after an error without resubmitti
       // Hold the server's genuine pending receipt visible before the failed read;
       // the daemon continues executing the same job through the real server.
       await route.fulfill({ json: pending });
-    } else if (!recover) {
+    } else if (!(await page.evaluate(() => 'retried' in window))) {
       await route.abort('failed');
     } else {
       await route.continue();
@@ -646,7 +645,10 @@ test('runtime import retries the same job read after an error without resubmitti
   await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
   const retry = dialog.getByRole('button', { name: 'Retry', exact: true });
   await expect(retry).toBeVisible();
-  recover = true;
+  // A realtime event may refetch the job by itself; only reads after the click recover.
+  await page.evaluate(() =>
+    document.addEventListener('click', () => Object.assign(window, { retried: true }), true),
+  );
   await retry.click();
   await expect(dialog.getByText(/runtime-review · (Imported|conflict)/)).toBeVisible();
   await expect(dialog.getByRole('alert')).toHaveCount(0);
