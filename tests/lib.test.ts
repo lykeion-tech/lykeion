@@ -30,6 +30,8 @@ import {
   validCreateFields,
 } from '../apps/dashboard/src/lib/settings';
 import { matchesQuery } from '../apps/dashboard/src/lib/search';
+import { environmentView } from '../apps/dashboard/src/lib/environment';
+import type { AgentRun, Runtime, StudyRecord } from '../apps/dashboard/src/api/types';
 
 // A zone with daylight saving, so calendar arithmetic crosses real 23- and 25-hour days.
 beforeAll(() => {
@@ -321,5 +323,58 @@ describe('backend names', () => {
     expect(
       ['claude', 'codex', 'cursor', 'antigravity', 'other-provider'].map(backendLabel),
     ).toEqual(['Claude Code', 'Codex', 'Cursor', 'Antigravity', 'other-provider']);
+  });
+});
+
+describe('study environment', () => {
+  const runtime = (id: string, daemon: string, bases: Record<string, string>) =>
+    ({
+      id,
+      daemon_id: daemon,
+      device_name: 'lab-mac',
+      custom_name: daemon === 'd1' ? 'Bench Mac' : null,
+      bases,
+    }) as Runtime;
+  const run = (runtimeId: string | null) => ({ runtime_id: runtimeId }) as AgentRun;
+  const record = (language: string, packages: string, at: string) =>
+    ({
+      kind: 'run',
+      created_at: at,
+      body: { language, packages_study: packages, at },
+    }) as unknown as StudyRecord;
+
+  it('maps each base state and dedupes one daemon’s runtimes into one machine', () => {
+    const bases = { python: 'ready', r: 'failed: no network' };
+    const view = environmentView(
+      [run('a'), run('b'), run(null), run('gone')],
+      [runtime('a', 'd1', bases), runtime('b', 'd1', bases), runtime('c', 'd2', {})],
+      [],
+    );
+    expect(view.machines).toEqual([
+      {
+        name: 'Bench Mac',
+        bases: [
+          { language: 'Python', state: 'Ready', reason: '' },
+          { language: 'R', state: 'Failed', reason: 'no network' },
+          { language: 'Julia', state: 'Not reported', reason: '' },
+        ],
+      },
+    ]);
+  });
+
+  it('takes each language’s packages from its latest run, skipping empty ones', () => {
+    const view = environmentView(
+      [],
+      [],
+      [
+        record('python', 'scipy==1.14\n', '2026-10-19T11:00:00Z'),
+        record('python', 'numpy==2.0\n', '2026-10-19T10:00:00Z'),
+        record('julia', '', '2026-10-19T12:00:00Z'),
+      ],
+    );
+    expect(view.packages).toEqual([
+      { language: 'Python', text: 'scipy==1.14\n', at: '2026-10-19T11:00:00Z' },
+    ]);
+    expect(view.machines).toEqual([]);
   });
 });

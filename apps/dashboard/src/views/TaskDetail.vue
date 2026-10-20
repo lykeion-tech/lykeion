@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
 import AgentRunCard from '../components/AgentRunCard.vue';
 import AgentRunDialog from '../components/AgentRunDialog.vue';
 import ExecutionLog from '../components/ExecutionLog.vue';
+import StudyEnvironment from '../components/StudyEnvironment.vue';
 import { usePaneResize } from '../lib/resize';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
@@ -209,6 +210,20 @@ const agentRuns = computed(() =>
   ),
 );
 const openRun = ref('');
+const tabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'environment', label: 'Environment' },
+] as const;
+const tab = ref<(typeof tabs)[number]['id']>('overview');
+const tabList = ref<HTMLElement>();
+function moveTab(event: KeyboardEvent) {
+  const by = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+  if (!by) return;
+  event.preventDefault();
+  const i = tabs.findIndex((t) => t.id === tab.value);
+  tab.value = tabs[(i + by + tabs.length) % tabs.length]!.id;
+  void nextTick(() => tabList.value?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus());
+}
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
 const comment = ref('');
@@ -252,6 +267,7 @@ watch(
   [workspaceId, () => props.id],
   () => {
     generation++;
+    tab.value = 'overview';
     detailsOpen.value = true;
     propertyBusy.value = false;
     comment.value = '';
@@ -381,8 +397,38 @@ function pin() {
         </div>
       </header>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-      <div v-if="c" class="transcript-scroll">
-        <div class="transcript-content study-content">
+      <div
+        v-if="c"
+        ref="tabList"
+        class="transcript-content study-content study-tabs"
+        role="tablist"
+        aria-label="Study views"
+        @keydown="moveTab"
+      >
+        <button
+          v-for="t in tabs"
+          :id="`study-tab-${t.id}`"
+          :key="t.id"
+          role="tab"
+          :aria-selected="tab === t.id"
+          :aria-controls="`study-panel-${t.id}`"
+          :tabindex="tab === t.id ? 0 : -1"
+          @click="tab = t.id"
+        >
+          {{ t.label }}
+        </button>
+      </div>
+      <div
+        v-if="c"
+        :id="`study-panel-${tab}`"
+        class="transcript-scroll"
+        role="tabpanel"
+        :aria-labelledby="`study-tab-${tab}`"
+      >
+        <div v-if="tab === 'environment'" class="transcript-content study-content">
+          <StudyEnvironment :id="id" :runs="agentRuns" />
+        </div>
+        <div v-else class="transcript-content study-content">
           <h1 class="study-title">{{ c.title }}</h1>
           <section v-if="stage" class="stage-box study-summary" aria-label="Overview">
             <h4>
@@ -1441,6 +1487,28 @@ function pin() {
 .study-content {
   max-width: 780px;
   padding: 22px 20px 40px;
+}
+.study-content.study-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  padding-top: 10px;
+  padding-bottom: 0;
+}
+.study-tabs button {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.study-tabs button:hover {
+  color: var(--text);
+}
+.study-tabs button[aria-selected='true'] {
+  background: var(--fill-active);
+  color: var(--text);
 }
 .study-title {
   font-size: 25px;
