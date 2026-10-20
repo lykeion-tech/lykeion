@@ -176,9 +176,8 @@ function menuKey(event: KeyboardEvent) {
 <template>
   <section class="resources resource-machines" :class="{ 'machine-detail': machineId }">
     <div v-if="!machineId" class="resource-header-actions">
-      <button class="button" @click="dialog = 'daemon'"><Icon name="network" />Daemon</button>
       <button class="button primary" @click="dialog = 'add'">
-        <Icon name="plus" />Add a computer
+        <Icon name="plus" />Add a machine
       </button>
     </div>
     <p v-if="runtimes.error.value" class="inline-error machine-error" role="alert">
@@ -402,9 +401,9 @@ function menuKey(event: KeyboardEvent) {
       <div v-else-if="runtimes.isSuccess.value" class="small-empty">
         <Icon name="monitor" :size="28" />
         <p>No computers connected</p>
-        <small>Add a computer to run your agents.</small
+        <small>Add a machine to run your agents.</small
         ><button class="button primary" @click="dialog = 'add'">
-          <Icon name="plus" />Add a computer
+          <Icon name="plus" />Add a machine
         </button>
       </div>
     </div>

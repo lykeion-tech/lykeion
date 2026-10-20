@@ -160,7 +160,7 @@ const titles: Record<string, string> = {
   'import-local': 'Import from local',
   'import-runtime': 'Copy from runtime',
   autoresearch: 'New autoresearch',
-  machine: 'Add a computer',
+  machine: 'Add a machine',
   daemon: 'Daemon',
 };
 watch(

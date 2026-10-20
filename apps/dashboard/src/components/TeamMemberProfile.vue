@@ -2,7 +2,8 @@
 import type { TeamMember } from '../api/types';
 import { backendLabel } from '../lib/backends';
 import Icon from './Icon.vue';
-defineProps<{ member: TeamMember; role?: string; card?: boolean }>();
+defineProps<{ member: TeamMember; role?: string; card?: boolean; editableSkills?: boolean }>();
+const emit = defineEmits<{ editSkills: [] }>();
 </script>
 <template>
   <article :class="['team-member-profile', { 'role-card': card }]">
@@ -24,6 +25,14 @@ defineProps<{ member: TeamMember; role?: string; card?: boolean }>();
     <p v-if="member.skills?.length" class="member-capabilities">
       Skills: {{ member.skills.join(', ') }}
     </p>
+    <button
+      v-if="editableSkills"
+      class="edit-skills"
+      :aria-label="'Edit skills for ' + member.name"
+      @click="emit('editSkills')"
+    >
+      <Icon name="plus" :size="12" />Edit skills
+    </button>
     <p v-if="member.connectors?.length" class="member-capabilities">
       Connectors: {{ member.connectors.map((c) => c.catalogue || c.url || c.name).join(', ') }}
     </p>
@@ -94,6 +103,17 @@ h4 {
 }
 .role-card .member-capabilities {
   margin-left: 0;
+}
+.edit-skills {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 0 44px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.edit-skills:hover {
+  color: var(--text);
 }
 .role-label {
   margin-left: 8px;

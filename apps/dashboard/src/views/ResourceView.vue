@@ -177,9 +177,8 @@ watch(automaticUpdates, (value) => writeText('lykeion.automatic-updates', String
         }}
       </button>
       <template v-else-if="page === 'runtimes'">
-        <button class="button" @click="open('daemon')"><Icon name="network" />Daemon</button>
         <button class="button primary" @click="open('machine')">
-          <Icon name="plus" />Add a computer
+          <Icon name="plus" />Add a machine
         </button>
       </template>
       <button v-else-if="page === 'skills'" class="button primary" @click="open('skills')">
@@ -508,9 +507,9 @@ watch(automaticUpdates, (value) => writeText('lykeion.automatic-updates', String
         <div v-else class="small-empty">
           <Icon name="monitor" :size="28" />
           <p>No computers connected</p>
-          <small>Add a computer to run your agents.</small>
+          <small>Add a machine to run your agents.</small>
           <button class="button primary" @click="open('machine')">
-            <Icon name="plus" />Add a computer
+            <Icon name="plus" />Add a machine
           </button>
         </div>
       </div>

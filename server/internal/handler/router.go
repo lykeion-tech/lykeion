@@ -133,6 +133,7 @@ func NewRouter(h *H) http.Handler {
 
 		// Team creation reads selected folders and writes the pack blob before its transaction.
 		r.Post("/api/teams", h.createTeam)
+		r.Post("/api/teams/{id}/skills", h.saveTeamSkills)
 
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)

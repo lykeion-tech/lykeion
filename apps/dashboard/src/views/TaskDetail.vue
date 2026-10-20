@@ -588,8 +588,9 @@ function pin() {
       <div class="property-row">
         <small>Stage</small>
         <div class="v">
-          <span class="stage-dot" :class="'status-' + c.board_column" />{{
-            columnName(c.board_column)
+          <span class="property-icon"
+            ><span class="stage-dot" :class="'status-' + c.board_column" /></span
+          >{{ columnName(c.board_column)
           }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
             stateLabel(c)
           }}</span
@@ -601,7 +602,7 @@ function pin() {
       <div class="property-row">
         <label v-if="reassignable" for="study-assignee">Assignee</label
         ><small v-else>Assignee</small
-        ><span class="avatar property-avatar">{{
+        ><span class="avatar property-avatar property-icon">{{
           c.assignee_type === 'agent'
             ? (agents.data.value?.find((a) => a.id === c?.assignee_id)?.name[0] ?? 'A')
             : c.assignee_id
@@ -647,7 +648,9 @@ function pin() {
         </select>
       </div>
       <div class="property-row">
-        <label for="study-research">Project</label><Icon name="folder" :size="13" /><select
+        <label for="study-research">Project</label
+        ><span class="property-icon"><Icon name="folder" :size="13" /></span
+        ><select
           id="study-research"
           aria-label="Project"
           :value="c.research_id ?? ''"
@@ -1691,6 +1694,16 @@ function pin() {
   font-size: 12px;
   padding: 5px 0;
   border-radius: 4px;
+}
+.property-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  flex: 0 0 18px;
+}
+.property-icon .stage-dot {
+  margin: 0;
 }
 .property-avatar {
   width: 18px;

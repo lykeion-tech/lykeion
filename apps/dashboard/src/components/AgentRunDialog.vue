@@ -99,10 +99,6 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
       <header class="run-dialog-heading">
         <div class="run-dialog-title">
           <h2>{{ name }}</h2>
-          <p>
-            Run {{ index + 1 }} · {{ columnName(run.board_column) }} · Round {{ run.round }} ·
-            Attempt {{ run.attempt }}
-          </p>
         </div>
         <div class="run-dialog-actions">
           <button
@@ -242,11 +238,6 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
 }
 .run-dialog-title h2 {
   overflow-wrap: anywhere;
-}
-.run-dialog-title p {
-  color: var(--muted);
-  font-size: 12px;
-  margin-top: 4px;
 }
 
 .agent-run-dialog {

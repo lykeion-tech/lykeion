@@ -57,16 +57,12 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <Modal title="Add a computer" class="add-computer-modal" @close="emit('close')">
+  <Modal title="Add a machine" class="add-computer-modal" @close="emit('close')">
     <div class="add-computer">
-      <button
-        class="icon-button close-add"
-        aria-label="Close Add a computer"
-        @click="emit('close')"
-      >
+      <button class="icon-button close-add" aria-label="Close Add a machine" @click="emit('close')">
         <Icon name="close" />
       </button>
-      <h2>Add a computer</h2>
+      <h2>Add a machine</h2>
       <p class="intro">
         Run these commands on the computer you want to add. We’ll detect it when the daemon comes
         online.

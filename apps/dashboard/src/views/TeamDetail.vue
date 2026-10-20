@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { api } from '../api/client';
+import type { TeamMember } from '../api/types';
+import TeamSkillsPicker from '../components/TeamSkillsPicker.vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { addTeam, useTeam, useTeams } from '../api/queries';
 import { keys } from '../api/keys';
@@ -9,6 +13,41 @@ import TeamMemberProfile from '../components/TeamMemberProfile.vue';
 import { useTaskComposer } from '../state/task-composer';
 const props = defineProps<{ id: string }>();
 const client = useQueryClient();
+const router = useRouter();
+const skillMember = ref<TeamMember | null>(null);
+const skillsBusy = ref(false);
+const skillsError = ref('');
+async function saveSkills(skills: string[]) {
+  if (!skillMember.value || skillsBusy.value) return;
+  const ownVisit = visit,
+    ws = workspaceId.value,
+    id = props.id;
+  skillsBusy.value = true;
+  skillsError.value = '';
+  try {
+    const saved = await api<{ id: string }>(
+      'POST',
+      `/api/teams/${id}/skills`,
+      { member: skillMember.value.name, skills },
+      undefined,
+      { workspace: ws },
+    );
+    await Promise.all([
+      client.invalidateQueries({ queryKey: keys.packs(ws) }),
+      client.invalidateQueries({ queryKey: keys.agents(ws) }),
+    ]);
+    if (ownVisit === visit) {
+      skillMember.value = null;
+      await router.push(`/teams/${saved.id}`);
+      await nextTick();
+      if (workspaceId.value === ws && props.id === saved.id) tab.value = 'Agents';
+    }
+  } catch (e) {
+    if (ownVisit === visit) skillsError.value = (e as Error).message;
+  } finally {
+    if (ownVisit === visit) skillsBusy.value = false;
+  }
+}
 const detail = useTeam(() => props.id);
 const store = useTeams('', '');
 const manifest = computed(() => detail.data.value?.manifest);
@@ -31,6 +70,9 @@ const busy = ref(false),
 let visit = 0;
 watch([workspaceId, () => props.id], () => {
   visit++;
+  skillMember.value = null;
+  skillsBusy.value = false;
+  skillsError.value = '';
   tab.value = 'Overview';
   busy.value = false;
   error.value = '';
@@ -219,6 +261,11 @@ function tabKey(event: KeyboardEvent, index: number) {
             :key="person.role + person.member.name"
             :member="person.member"
             :role="person.role"
+            editable-skills
+            @edit-skills="
+              skillsError = '';
+              skillMember = person.member;
+            "
           />
         </div>
       </section>
@@ -293,6 +340,14 @@ function tabKey(event: KeyboardEvent, index: number) {
       </p>
       <p v-else class="muted" role="status">Loading Team…</p>
     </div>
+    <TeamSkillsPicker
+      v-if="skillMember"
+      :member="skillMember"
+      :busy="skillsBusy"
+      :error="skillsError"
+      @close="skillMember = null"
+      @save="saveSkills"
+    />
   </section>
 </template>
 <style src="./agent-detail.css" />

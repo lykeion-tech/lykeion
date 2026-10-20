@@ -32,17 +32,14 @@ test('the lab daemon is listed and can be renamed', async ({ page }) => {
   }
 });
 
-test('Add a computer and Daemon show the commands', async ({ page }) => {
+test('Add a machine shows the connection commands without a Daemon action', async ({ page }) => {
   await page.goto('/#/machines');
-  await page.getByRole('button', { name: 'Add a computer' }).click();
+  await page.getByRole('button', { name: 'Add a machine' }).click();
   await expect(
-    page.getByRole('dialog', { name: 'Add a computer' }).getByText('lyk login'),
+    page.getByRole('dialog', { name: 'Add a machine' }).getByText('lyk login'),
   ).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Daemon' }).click();
-  await expect(
-    page.getByRole('dialog', { name: 'Daemon' }).getByText('lyk daemon start'),
-  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Daemon', exact: true })).toHaveCount(0);
 });
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-19-artifacts';
@@ -232,8 +229,8 @@ test('another owner gets real rename/remove refusals; offline own machines can b
       page.once('dialog', (dialog) => dialog.accept());
       await page.getByRole('menuitem', { name: 'Remove' }).click();
       expect(await heldRefusal).toBe(404);
-      await page.getByRole('button', { name: 'Daemon', exact: true }).click();
-      await expect(page.getByRole('dialog', { name: 'Daemon' })).toBeVisible();
+      await page.getByRole('button', { name: 'Add a machine', exact: true }).click();
+      await expect(page.getByRole('dialog', { name: 'Add a machine' })).toBeVisible();
       await page.keyboard.press('Escape');
       await edit(page, 'lab-mac', 'Draft after an old removal refusal');
       releaseRefusal();
@@ -513,9 +510,9 @@ test('computer setup offers supported platform commands, real clipboard, and det
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/#/machines');
   await expect(page.getByRole('listitem').filter({ hasText: 'lab-mac' })).toBeVisible();
-  const trigger = page.getByRole('button', { name: 'Add a computer', exact: true });
+  const trigger = page.getByRole('button', { name: 'Add a machine', exact: true });
   await trigger.click();
-  const dialog = page.getByRole('dialog', { name: 'Add a computer', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Add a machine', exact: true });
   await expect(dialog.getByText('1. Build the Lykeion CLI', { exact: true })).toBeVisible();
   await expect(dialog.locator('.connection-status')).toHaveText('Waiting for your computer');
   await expect(dialog).toHaveCSS('width', '512px');
