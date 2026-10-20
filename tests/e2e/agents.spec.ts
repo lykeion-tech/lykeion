@@ -42,7 +42,7 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await page.request.post(`/api/agents/${retired.id}/archive`, { headers });
 
   await page.goto('/#/agents');
-  await expect(page.locator('#page-header-count')).toHaveText('2');
+  await expect(page.locator('#page-header-count')).toBeEmpty();
   const filter = page.getByRole('button', { name: 'Filter', exact: true });
   await expect(filter).toBeVisible();
   const sort = page.getByRole('button', { name: 'Last updated', exact: true });

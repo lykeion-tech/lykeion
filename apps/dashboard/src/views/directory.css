@@ -168,9 +168,12 @@
   margin-left: auto;
   gap: 5px;
 }
+.directory-page {
+  --directory-columns: minmax(240px, 1fr) 120px 150px 110px 120px 110px;
+}
 .agent-row {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) 120px 150px 110px 120px 110px;
+  grid-template-columns: var(--directory-columns);
   align-items: center;
   gap: 12px;
   padding: 10px 16px;

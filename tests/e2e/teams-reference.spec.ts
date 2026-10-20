@@ -96,3 +96,69 @@ test('direct Team creation keeps the footer accessible on a narrow screen', asyn
   await modal.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page).toHaveURL(/#\/teams$/);
 });
+
+test('Teams sorts by its latest version and shares Agents column positions and Projects heading style', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const ws = await labWorkspace(page.request);
+  const headers = { 'X-Workspace-ID': ws };
+  expect(
+    (
+      await page.request.post('/api/agents', {
+        headers,
+        data: { name: 'Directory layout agent', harness: 'claude' },
+      })
+    ).status(),
+  ).toBe(201);
+  expect(
+    (
+      await page.request.post('/api/researches', {
+        headers,
+        data: { name: 'Directory layout project' },
+      })
+    ).status(),
+  ).toBe(201);
+  const first = await labPack(page.request, 'sort-earlier-team', ws);
+  const second = await labPack(page.request, 'sort-later-team', ws);
+  const response = await page.request.get('/api/teams', { headers: { 'X-Workspace-ID': ws } });
+  expect(response.status()).toBe(200);
+  const records = (await response.json()) as { id: string; created_at: string }[];
+  expect(
+    records.find((t) => t.id === first.id)!.created_at <
+      records.find((t) => t.id === second.id)!.created_at,
+  ).toBe(true);
+  await page.goto('/#/teams');
+  await page.getByRole('textbox', { name: 'Search Teams', exact: true }).fill('sort-');
+  const rows = page.locator('.team-table tbody tr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText('sort-later-team');
+  const sort = page.getByRole('button', { name: 'Last updated', exact: true });
+  await expect(sort).toHaveCSS('height', '32px');
+  await sort.click();
+  await expect(rows.first()).toContainText('sort-earlier-team');
+  await sort.click();
+  await expect(rows.first()).toContainText('sort-later-team');
+  const teamPositions = await page
+    .locator('.team-table th')
+    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
+  await page.goto('/#/agents');
+  await expect(page.locator('.agent-head')).toBeVisible();
+  await expect(page.locator('#page-header-count')).toBeEmpty();
+  const agentPositions = await page
+    .locator('.agent-head > span')
+    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
+  expect(teamPositions).toEqual(agentPositions);
+  const style = await page
+    .locator('.agent-head > span')
+    .first()
+    .evaluate((el) => {
+      const css = getComputedStyle(el);
+      return { size: css.fontSize, weight: css.fontWeight, color: css.color };
+    });
+  await page.goto('/#/projects');
+  const heading = page.locator('.projects-table th').first();
+  await expect(heading).toHaveCSS('font-size', style.size);
+  await expect(heading).toHaveCSS('font-weight', style.weight);
+  await expect(heading).toHaveCSS('color', style.color);
+});

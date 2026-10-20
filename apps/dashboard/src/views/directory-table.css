@@ -12,8 +12,8 @@
 .directory-data-table th {
   height: 32px;
   padding: 0 16px;
-  font-weight: 500;
-  font-size: 14px;
+  font-weight: 400;
+  font-size: 12px;
   color: var(--muted);
   text-align: left;
   background: transparent;

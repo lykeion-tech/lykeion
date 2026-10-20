@@ -166,7 +166,6 @@ async function save() {
         </div>
       </div></template
     ><template v-else
-      ><Teleport to="#page-header-count">{{ list.isSuccess.value ? count('all') : '' }}</Teleport
       ><Teleport to="#page-header-actions">
         <button class="button primary" @click="router.push('/agents/new')">
           <Icon name="plus" :size="14" />New agent

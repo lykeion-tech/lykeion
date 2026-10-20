@@ -38,7 +38,7 @@ test('Projects has the reference table and scopes its board and saved Properties
   const table = page.getByRole('table', { name: 'Projects', exact: true });
   await expect(table.getByRole('columnheader', { name: 'Name', exact: true })).toHaveCSS(
     'font-size',
-    '14px',
+    '12px',
   );
   await expect(table.locator('th').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(table.getByRole('columnheader')).toHaveText([

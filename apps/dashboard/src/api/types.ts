@@ -293,6 +293,7 @@ export interface TeamManifest {
 // A Team in the store; added is whether the caller has added it.
 export interface StoreTeam {
   id: string;
+  created_at: string;
   name: string;
   version: string;
   source: 'shipped' | 'uploaded';

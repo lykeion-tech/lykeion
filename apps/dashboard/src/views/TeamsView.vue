@@ -11,6 +11,7 @@ import { matchesQuery } from '../lib/search';
 const props = defineProps<{ id?: string }>();
 const client = useQueryClient();
 const search = ref('');
+const newestFirst = ref(true);
 const domain = ref('');
 const stage = ref('');
 const filterOpen = ref(false);
@@ -38,9 +39,9 @@ const stages = ['grounding', 'hypotheses', 'experimentation', 'validation', 'rep
 const everything = useTeams('', '');
 const teams = useTeams(domain, stage);
 const rows = computed(() =>
-  (teams.data.value ?? []).filter((team) =>
-    matchesQuery(`${team.name} ${team.manifest.description}`, search.value),
-  ),
+  (teams.data.value ?? [])
+    .filter((team) => matchesQuery(`${team.name} ${team.manifest.description}`, search.value))
+    .sort((a, b) => (newestFirst.value ? -1 : 1) * a.created_at.localeCompare(b.created_at)),
 );
 const detail = useTeam(() => props.id ?? '');
 const domains = computed(() =>
@@ -222,17 +223,12 @@ const add = (id: string) =>
             </button>
           </div>
         </div>
+        <button class="button agent-sort" @click="newestFirst = !newestFirst">
+          <Icon :name="newestFirst ? 'down' : 'up'" :size="13" />Last updated
+        </button>
       </div>
       <div class="team-table-scroll">
         <table class="directory-data-table team-table" aria-label="Teams">
-          <colgroup>
-            <col class="name-column" />
-            <col />
-            <col />
-            <col />
-            <col />
-            <col />
-          </colgroup>
           <thead>
             <tr>
               <th scope="col">Name</th>
@@ -282,6 +278,9 @@ const add = (id: string) =>
 .team-directory {
   padding: 4px 24px 32px;
 }
+.team-toolbar .agent-sort {
+  margin-left: 0;
+}
 .team-filter {
   margin-left: auto;
 }
@@ -320,23 +319,34 @@ const add = (id: string) =>
 .team-filter-popover > button {
   margin-top: 12px;
 }
+.team-table-scroll {
+  overflow-x: auto;
+}
+.team-table,
+.team-table thead,
+.team-table tbody {
+  display: block;
+}
+.team-table {
+  min-width: 942px;
+}
+.team-table tr {
+  display: grid;
+  grid-template-columns: var(--directory-columns);
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
 .team-table th {
   height: auto;
-  padding: 6px 16px;
+  padding: 6px 0;
   line-height: 1.4;
   font-size: 12px;
   font-weight: 400;
   border-bottom: 0;
 }
-.team-table-scroll {
-  overflow-x: auto;
-}
-.team-table {
-  min-width: 780px;
-  table-layout: fixed;
-}
-.team-table .name-column {
-  width: 44%;
+.team-table td {
+  padding: 0;
 }
 .team-name {
   display: flex;
@@ -359,7 +369,7 @@ const add = (id: string) =>
   color: var(--muted);
 }
 .team-table th:first-child {
-  padding-left: 16px;
+  padding-left: 0;
 }
 .team-members {
   margin: 0;
