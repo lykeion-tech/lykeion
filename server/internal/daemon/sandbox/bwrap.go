@@ -19,6 +19,9 @@ import (
 // root daemon's code unable to unmount what hides the home folder.
 // --die-with-parent ends the sandbox if the door dies.
 func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
+	if len(p.WriteFiles) != 0 || len(p.WriteSQLite) != 0 {
+		return nil, fmt.Errorf("exact file lifecycle grants are unsupported on Linux")
+	}
 	r, err := p.resolve()
 	if err != nil {
 		return nil, err

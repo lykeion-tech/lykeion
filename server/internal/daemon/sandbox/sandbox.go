@@ -46,6 +46,10 @@ type Policy struct {
 	Blocked []string
 	// WriteData grants only in-place writes to existing regular files.
 	WriteData []string
+	// WriteFiles grants lifecycle operations on exact filenames (macOS only).
+	WriteFiles []string
+	// WriteSQLite grants numeric-version SQLite stores directly in these folders.
+	WriteSQLite []string
 	// Keychain allows the macOS Keychain services.
 	Keychain bool
 	// ReadOnly are files and folders directly inside a Write folder that the
@@ -135,9 +139,10 @@ func check(ctx context.Context, command func(Policy, context.Context, string, ..
 // resolved is a policy with every path absolute, symlink-free and free of
 // characters a profile cannot carry.
 type resolved struct {
-	home                          string
-	write, read, readOnly, hidden []string
-	blocked, writeData            []string
+	home                           string
+	write, read, readOnly, hidden  []string
+	blocked, writeData, writeFiles []string
+	writeSQLite                    []string
 }
 
 func (p Policy) resolve() (resolved, error) {
@@ -223,6 +228,52 @@ func (p Policy) resolve() (resolved, error) {
 		}
 		r.blocked = append(r.blocked, c)
 	}
+	for _, raw := range p.WriteSQLite {
+		c, err := r.policyPath(raw, h)
+		if err != nil {
+			return resolved{}, err
+		}
+		if strings.Contains(c, `"`) {
+			return resolved{}, fmt.Errorf("sandbox SQLite parent %q contains a quote unsupported by Seatbelt regex", raw)
+		}
+		fi, err := os.Stat(c)
+		if err != nil {
+			return resolved{}, err
+		}
+		if !fi.IsDir() {
+			return resolved{}, fmt.Errorf("sandbox SQLite parent %q is not a directory", raw)
+		}
+		r.writeSQLite = append(r.writeSQLite, c)
+	}
+	for _, raw := range p.WriteFiles {
+		parent, err := r.policyPath(filepath.Dir(raw), h)
+		if err != nil {
+			return resolved{}, err
+		}
+		if err := checkSpelling(raw); err != nil {
+			return resolved{}, err
+		}
+		c := filepath.Join(parent, filepath.Base(raw))
+		fi, err := os.Lstat(c)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return resolved{}, err
+		}
+		if err == nil {
+			if !fi.Mode().IsRegular() {
+				return resolved{}, fmt.Errorf("sandbox write-file path %q is not a regular file", raw)
+			}
+			c, err = r.policyPath(c, h)
+			if err != nil {
+				return resolved{}, err
+			}
+		}
+		for _, protected := range slices.Concat(r.blocked, r.readOnly) {
+			if isAtOrUnder(c, protected) {
+				return resolved{}, fmt.Errorf("sandbox write-file path %q is protected", raw)
+			}
+		}
+		r.writeFiles = append(r.writeFiles, c)
+	}
 	for _, raw := range p.WriteData {
 		c, err := r.policyPath(raw, h)
 		if err != nil {
@@ -251,6 +302,16 @@ func (p Policy) resolve() (resolved, error) {
 					return resolved{}, missingErr
 				}
 				if missing != h.path && isAtOrUnder(missing, h.path) {
+					for _, file := range r.writeFiles {
+						if isAtOrUnder(file, missing) {
+							return resolved{}, fmt.Errorf("sandbox missing hidden path %q holds a writable file", raw)
+						}
+					}
+					for _, dir := range r.writeSQLite {
+						if isAtOrUnder(dir, missing) || filepath.Dir(missing) == dir {
+							return resolved{}, fmt.Errorf("sandbox missing hidden path %q overlaps SQLite state", raw)
+						}
+					}
 					continue
 				}
 			}
@@ -258,7 +319,7 @@ func (p Policy) resolve() (resolved, error) {
 				return resolved{}, err
 			}
 			if c != h.path && isAtOrUnder(c, h.path) {
-				for _, w := range slices.Concat(r.write, r.writeData) {
+				for _, w := range slices.Concat(r.write, r.writeData, r.writeFiles, r.writeSQLite) {
 					if isAtOrUnder(w, c) {
 						return resolved{}, fmt.Errorf("sandbox hidden path %q holds a write path", raw)
 					}

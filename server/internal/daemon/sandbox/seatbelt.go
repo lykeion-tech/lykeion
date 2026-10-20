@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -61,7 +62,7 @@ func (p Policy) seatbeltProfile() (string, error) {
 	meta := []string{"allow file-read-metadata", `(literal "/etc")`, `(literal "/tmp")`, `(literal "/var")`}
 	seen := map[string]bool{}
 	dirs := []string{"/opt/homebrew", "/private/var/db/timezone", "/private/var/select/sh"}
-	paths := slices.Concat(dirs, r.read, r.write, r.writeData)
+	paths := slices.Concat(dirs, r.read, r.write, r.writeData, r.writeFiles, r.writeSQLite)
 	if p.HomeRead {
 		paths = append(paths, r.home)
 	}
@@ -80,6 +81,14 @@ func (p Policy) seatbeltProfile() (string, error) {
 	}
 	for _, dir := range r.write {
 		rule("allow file-read* file-write* (subpath " + sbplString(dir) + ")")
+	}
+	// Regex literals preserve regex backslashes; ordinary SBPL string quoting does not.
+	for _, dir := range r.writeSQLite {
+		pattern := "^" + regexp.QuoteMeta(dir) + "/[A-Za-z][A-Za-z0-9_]*_[0-9]+[.]sqlite(-wal|-shm|-journal)?$"
+		rule("allow file-read* file-write* (regex #" + `"` + pattern + `"` + ")")
+	}
+	for _, file := range r.writeFiles {
+		rule("allow file-read* file-write* (literal " + sbplString(file) + ")")
 	}
 	for _, file := range r.writeData {
 		rule("allow file-read* (literal " + sbplString(file) + ")")
