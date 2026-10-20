@@ -248,3 +248,21 @@ func TestRunsDoNotWaitForBases(t *testing.T) {
 		}
 	}
 }
+
+// The CLI may read the study's add-on folder and the bases without asking;
+// nothing else outside its run folder is named for it.
+func TestTheCLIMayReadTheStudyAndTheBases(t *testing.T) {
+	f := fixture(t)
+	f.cfg.Bases = readyPython(t)
+	f.cfg.EnvDir = f.cfg.Bases.Dir
+	got := captureLaunches(f)
+	cancel, done := startDaemon(t, f.cfg)
+	l := next(t, got)
+	waitFor(t, f.settled(t, 1))
+	stopDaemon(t, cancel, done)
+	b := f.cfg.EnvDir
+	want := []string{filepath.Join(b, "studies", f.ws.String(), f.card.String()), filepath.Join(b, "python"), filepath.Join(b, "r"), filepath.Join(b, "julia"), filepath.Join(b, "micromamba")}
+	if !slices.Equal(l.opts.ReadDirs, want) {
+		t.Fatalf("read folders %q, want %q", l.opts.ReadDirs, want)
+	}
+}

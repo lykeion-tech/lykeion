@@ -40,6 +40,9 @@ type ExecOptions struct {
 	// ReadOnly lets the CLI's own tools read, but not write files or run
 	// commands that change anything.
 	ReadOnly bool
+	// ReadDirs are folders besides Dir that a writable run's CLI may read
+	// without asking: the study's add-on folder and the language bases.
+	ReadDirs []string
 	// ClaudeBaseline is the opaque usage snapshot a prior Lykeion attempt
 	// returned for Resume. It is consumed before launch.
 	ClaudeBaseline []byte

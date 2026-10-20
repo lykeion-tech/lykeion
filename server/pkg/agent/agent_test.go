@@ -973,8 +973,8 @@ func TestReadOnlyClaudeAndCodex(t *testing.T) {
 		inherit     bool
 		want, never string
 	}{
-		{"claude", false, "--permission-mode\nplan\n", "dontAsk"},
-		{"claude", true, "--permission-mode\nplan\n", "--permission-mode\ndefault\n"},
+		{"claude", false, "--permission-mode\ndontAsk\n", "--permission-mode\nplan\n"},
+		{"claude", true, "--permission-mode\ndontAsk\n", "--permission-mode\ndefault\n"},
 		{"codex", false, "-s\nread-only\n", "-s\nworkspace-write\n"},
 		{"codex", true, "-s\nread-only\n", "-s\nworkspace-write\n"},
 		{"codex", false, "-s\nread-only\n", "danger-full-access"},
@@ -1079,7 +1079,8 @@ func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
 		}
 		collect(t, s)
 		a, _ := os.ReadFile(args)
-		got := strings.Contains(string(a), "Edit(")
+		allowed, _, _ := strings.Cut(string(a), "--disallowedTools")
+		got := strings.Contains(allowed, "Edit(")
 		if c.want == "" && got || c.want != "" && !strings.Contains(string(a), "\n"+claudeTools+"\n"+c.want+"\n") {
 			t.Fatalf("%q inherit=%v readOnly=%v, want %q, args:\n%s", c.name, c.inherit, c.readOnly, c.want, a)
 		}
@@ -1087,8 +1088,63 @@ func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
 			continue
 		}
 		base := strings.TrimSuffix(c.want, "/**)")
-		if deny := "\n--disallowedTools\n" + base + "/.claude/**)\n" + base + "/.lyk-envs/**)\n"; !strings.Contains(string(a), deny) {
+		// The CLI's own homes hold the settings and hooks it loads; editing
+		// them would grant anything.
+		if deny := "\n--disallowedTools\n" + base + "/.claude/**)\n" + base + "/.lyk-envs/**)\n" + base + "/.cli-home/**)\n" + base + "/.home/**)\n"; !strings.Contains(string(a), deny) {
 			t.Fatalf("%q inherit=%v, want %q, args:\n%s", c.name, c.inherit, deny, a)
+		}
+	}
+}
+
+// Every run may read, without asking, only inside its run folder and the
+// folders the daemon names (the study's add-on folder, the bases), each
+// matched literally, and never the CLI's own homes in the run folder; no bare
+// Read, Glob or Grep is pre-approved, since a bare search tool reads past
+// every path rule. A folder whose name the CLI would split gets no rule.
+// Read-only runs get the same reads in dontAsk mode and, of the door, only
+// connector calls: no code runs.
+func TestClaudeReadsOnlyItsFolders(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "run dir [1]*")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := "/" + root + `/run dir \[1\]\*`
+	reads := []string{filepath.Join(root, "study {a}"), filepath.Join(root, "a,Read,b"), filepath.Join(root, "bases", "python")}
+	allow := "Read(" + run + "/**)\nRead(/" + root + `/study \{a\}/**)` + "\nRead(/" + root + "/bases/python/**)\n--disallowedTools\n"
+	deny := "Read(" + run + "/.cli-home/**)\nRead(" + run + "/.home/**)\n--mcp-config\n"
+	for _, c := range []struct{ inherit, readOnly bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
+		args := filepath.Join(t.TempDir(), "args")
+		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
+			ExecOptions{Dir: dir, ReadDirs: reads, Inherit: c.inherit, ReadOnly: c.readOnly})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		a, _ := os.ReadFile(args)
+		want := "\n--allowedTools\n" + claudeTools + "\nEdit(" + run + "/**)\n" + allow
+		deny := deny
+		if c.readOnly {
+			// Nothing else is pre-approved, and no account rule may edit or run
+			// commands either.
+			want = "\n--permission-mode\ndontAsk\n--allowedTools\nSkill,mcp__lyk_door__call_tool\n" + allow
+			deny = strings.TrimSuffix(deny, "--mcp-config\n") + "Edit(//**)\nBash\n--mcp-config\n"
+		}
+		if !strings.Contains(string(a), want) || !strings.Contains(string(a), deny) || strings.Contains(string(a), "a,Read,b") {
+			t.Fatalf("inherit=%v readOnly=%v, want %q and %q, args:\n%s", c.inherit, c.readOnly, want, deny, a)
+		}
+		if allowed, _, _ := strings.Cut(string(a), "--disallowedTools"); c.readOnly && strings.Contains(allowed, "Edit(") {
+			t.Fatalf("inherit=%v read-only run may edit:\n%s", c.inherit, a)
+		}
+		for _, line := range strings.Split(string(a), "\n") {
+			for _, tool := range strings.Split(line, ",") {
+				if tool == "Read" || tool == "Glob" || tool == "Grep" {
+					t.Fatalf("inherit=%v readOnly=%v pre-approves bare %s:\n%s", c.inherit, c.readOnly, tool, a)
+				}
+			}
 		}
 	}
 }

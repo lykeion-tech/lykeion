@@ -15,7 +15,10 @@ import (
 
 type Claude struct{ Bin string }
 
-const claudeTools = "Read,Glob,Grep,Skill,Bash(lyk:*),mcp__lyk_door"
+// claudeTools are pre-approved in every run. Reads are not among them: a run
+// may read only its own folders (claudeRule), and a bare Glob or Grep allow
+// would search past every Read path rule.
+const claudeTools = "Skill,Bash(lyk:*),mcp__lyk_door"
 
 const claudeCredFile = ".credentials.json"
 
@@ -65,17 +68,43 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		return nil, err
 	}
 	mode := "dontAsk"
-	if o.Inherit {
+	if o.Inherit && !o.ReadOnly {
 		mode = "default" // the account's own allow and deny rules decide the rest
 	}
-	if o.ReadOnly {
-		mode = "plan" // reads and answers; no edits, no commands
-	}
+	// Glob and Grep obey Read path rules; reads elsewhere go to the account's
+	// own rules, or are refused in an isolated run. The CLI's own homes in the
+	// run folder are its alone: it uses them, its file tools may not.
 	tools := []string{claudeTools}
-	if rule := claudeEditRule(o.Dir, ""); rule != "" && !o.ReadOnly {
-		// The folder's own .claude settings and its .lyk-envs environments stay
-		// out of reach; a deny rule wins over every allow rule.
-		tools = append(tools, rule, "--disallowedTools", claudeEditRule(o.Dir, "/.claude"), claudeEditRule(o.Dir, "/.lyk-envs"))
+	var deny []string
+	if o.ReadOnly {
+		// Plan mode would read any path, so a read-only run asks nothing and
+		// may only read its folders, load skills and call connectors through
+		// the door, never run code: no account rule edits or runs commands,
+		// and nothing else is pre-approved.
+		tools = []string{"Skill,mcp__lyk_door__call_tool"}
+	}
+	if rule := claudeRule("Edit", o.Dir, ""); rule != "" {
+		if !o.ReadOnly {
+			// The folder's own .claude settings, its .lyk-envs environments and
+			// the CLI's homes, whose settings and hooks the CLI loads, stay out
+			// of reach; a deny rule wins over every allow rule.
+			tools = append(tools, rule)
+			for _, sub := range []string{"/.claude", "/.lyk-envs", "/.cli-home", "/.home"} {
+				deny = append(deny, claudeRule("Edit", o.Dir, sub))
+			}
+		}
+		deny = append(deny, claudeRule("Read", o.Dir, "/.cli-home"), claudeRule("Read", o.Dir, "/.home"))
+	}
+	for _, dir := range append([]string{o.Dir}, o.ReadDirs...) {
+		if rule := claudeRule("Read", dir, ""); rule != "" {
+			tools = append(tools, rule)
+		}
+	}
+	if o.ReadOnly {
+		deny = append(deny, "Edit(//**)", "Bash")
+	}
+	if len(deny) > 0 {
+		tools = append(append(tools, "--disallowedTools"), deny...)
 	}
 	args := slices.Concat([]string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"})
 	if o.Inherit {
@@ -127,12 +156,12 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	return sess, err
 }
 
-// claudeEditRule names Claude's file-edit tools for everything under the run
-// folder, or under sub inside it. The folder is matched literally: its glob
-// characters are escaped. A name the CLI would split into several rules
-// (commas, parentheses) gets no rule at all, so edits there fall back to the
-// permission mode.
-func claudeEditRule(dir, sub string) string {
+// claudeRule names Claude's file-edit or file-read tools (tool is Edit or
+// Read) for everything under dir, or under sub inside it. The folder is
+// matched literally: its glob characters are escaped. A name the CLI would
+// split into several rules (commas, parentheses) gets no rule at all, so use
+// there falls back to the permission mode.
+func claudeRule(tool, dir, sub string) string {
 	abs, err := filepath.Abs(dir)
 	if err != nil || !filepath.IsAbs(abs) || strings.ContainsAny(abs, ",()\r\n") {
 		return ""
@@ -145,7 +174,7 @@ func claudeEditRule(dir, sub string) string {
 		b.WriteRune(r)
 	}
 	// A leading "//" makes the pattern absolute rather than settings-relative.
-	return "Edit(/" + b.String() + sub + "/**)"
+	return tool + "(/" + b.String() + sub + "/**)"
 }
 
 // claudeMCP names the daemon's tool door and nothing else.

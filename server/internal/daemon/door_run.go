@@ -158,8 +158,8 @@ func (d *Door) sandboxPolicy() error {
 	}
 	d.policy.Read = append(d.policy.Read, d.bridgeDir)
 	// ponytail: a base built after the run started is not readable until the next run
-	for _, base := range []string{envs.Python, envs.R, envs.Julia, "micromamba"} {
-		if dir := filepath.Join(d.Study.Bases.Dir, base); isDir(dir) {
+	for _, dir := range d.Study.Bases.Folders() {
+		if isDir(dir) {
 			d.policy.Read = append(d.policy.Read, dir)
 		}
 	}
