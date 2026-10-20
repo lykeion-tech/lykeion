@@ -75,3 +75,30 @@
 .directory-table-page .directory-empty {
   min-height: 300px;
 }
+
+.directory-aligned-table,
+.directory-aligned-table thead,
+.directory-aligned-table tbody {
+  display: block;
+}
+.directory-aligned-table {
+  min-width: 942px;
+}
+.directory-aligned-table tr {
+  display: grid;
+  grid-template-columns: var(--directory-columns);
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+.directory-aligned-table th {
+  height: auto;
+  padding: 6px 0 14px;
+  line-height: 1.4;
+  border-bottom: 0;
+}
+.directory-aligned-table th:first-child,
+.directory-aligned-table td {
+  padding-left: 0;
+  padding-right: 0;
+}

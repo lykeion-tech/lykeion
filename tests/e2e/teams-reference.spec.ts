@@ -139,6 +139,8 @@ test('Teams sorts by its latest version and shares Agents column positions and P
   await expect(rows.first()).toContainText('sort-earlier-team');
   await sort.click();
   await expect(rows.first()).toContainText('sort-later-team');
+  await expect(page.locator('.team-table th').first()).toHaveCSS('padding-bottom', '14px');
+  const teamHeaderY = (await page.locator('.team-table th').first().boundingBox())!.y;
   const teamPositions = await page
     .locator('.team-table th')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
@@ -158,6 +160,13 @@ test('Teams sorts by its latest version and shares Agents column positions and P
     });
   await page.goto('/#/projects');
   const heading = page.locator('.projects-table th').first();
+  const projectPositions = await page
+    .locator('.projects-table th')
+    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
+  expect(projectPositions).toEqual(agentPositions);
+  expect((await heading.boundingBox())!.y).toBe(teamHeaderY);
+  await expect(heading).toHaveCSS('border-bottom-width', '0px');
+  await expect(heading).toHaveCSS('padding-bottom', '14px');
   await expect(heading).toHaveCSS('font-size', style.size);
   await expect(heading).toHaveCSS('font-weight', style.weight);
   await expect(heading).toHaveCSS('color', style.color);

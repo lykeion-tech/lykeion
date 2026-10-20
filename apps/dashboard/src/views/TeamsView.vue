@@ -228,7 +228,7 @@ const add = (id: string) =>
         </button>
       </div>
       <div class="team-table-scroll">
-        <table class="directory-data-table team-table" aria-label="Teams">
+        <table class="directory-data-table directory-aligned-table team-table" aria-label="Teams">
           <thead>
             <tr>
               <th scope="col">Name</th>
@@ -322,32 +322,6 @@ const add = (id: string) =>
 .team-table-scroll {
   overflow-x: auto;
 }
-.team-table,
-.team-table thead,
-.team-table tbody {
-  display: block;
-}
-.team-table {
-  min-width: 942px;
-}
-.team-table tr {
-  display: grid;
-  grid-template-columns: var(--directory-columns);
-  align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-}
-.team-table th {
-  height: auto;
-  padding: 6px 0;
-  line-height: 1.4;
-  font-size: 12px;
-  font-weight: 400;
-  border-bottom: 0;
-}
-.team-table td {
-  padding: 0;
-}
 .team-name {
   display: flex;
   align-items: center;
@@ -367,9 +341,6 @@ const add = (id: string) =>
 }
 .team-table td:not(:first-child) {
   color: var(--muted);
-}
-.team-table th:first-child {
-  padding-left: 0;
 }
 .team-members {
   margin: 0;

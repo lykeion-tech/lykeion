@@ -200,7 +200,10 @@ async function save() {
 }
 </script>
 <template>
-  <section class="directory-page directory-table-page" :class="{ 'project-detail-page': id }">
+  <section
+    class="directory-page directory-table-page"
+    :class="{ 'project-detail-page': id, 'project-directory': !id }"
+  >
     <ProjectDetail
       v-if="id && detail.data.value"
       :key="id"
@@ -213,15 +216,10 @@ async function save() {
           <Icon name="plus" :size="14" />New Project
         </button></Teleport
       >
-      <table class="directory-data-table projects-table" aria-label="Projects">
-        <colgroup>
-          <col />
-          <col style="width: 116px" />
-          <col style="width: 116px" />
-          <col style="width: 100px" />
-          <col style="width: 64px" />
-          <col style="width: 88px" />
-        </colgroup>
+      <table
+        class="directory-data-table directory-aligned-table projects-table"
+        aria-label="Projects"
+      >
         <thead>
           <tr>
             <th scope="col">Name</th>
@@ -757,8 +755,8 @@ async function save() {
   flex-direction: column;
   overflow: hidden;
 }
-.projects-table {
-  min-width: 760px;
+.project-directory {
+  padding: 54px 24px 32px;
 }
 .table-priority {
   display: flex;
