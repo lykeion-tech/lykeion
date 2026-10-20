@@ -66,7 +66,8 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await expect(output.locator('pre')).toHaveCSS('max-height', 'none');
   await output.locator('summary').click();
   await turn.getByRole('button', { name: 'Copy code', exact: true }).click();
-  await expect(turn.getByRole('status')).toHaveText('Code copied');
+  await expect(turn.locator('.copy-notice:not(:empty)')).toHaveRole('status');
+  await expect(turn.locator('.copy-notice:not(:empty)')).toHaveText('Code copied');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
     'long recorded value',
   );
@@ -98,7 +99,8 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await page.route('**/RecordedMarkdown.vue*', (route) => route.abort('failed'));
   await page.reload();
   await openAgentTranscript(page);
-  await expect(turn.getByRole('status')).toHaveText(
+  await expect(turn.locator('.formatting-notice')).toHaveRole('status');
+  await expect(turn.locator('.formatting-notice')).toHaveText(
     'Markdown formatting is unavailable; showing recorded text.',
   );
   await expect(turn.locator('.turn-assignment .recorded-text-fallback')).toContainText(
