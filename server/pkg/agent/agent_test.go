@@ -1198,3 +1198,15 @@ func TestCodexWaitsForTheDoorsScriptLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestRemovedHarnessExplainsSupportedAlternatives(t *testing.T) {
+	const want = "Cursor and Antigravity are no longer supported; choose Claude Code or Codex"
+	for _, harness := range []string{"cursor", "antigravity"} {
+		t.Run(harness, func(t *testing.T) {
+			backend, err := New(harness, "unused")
+			if backend != nil || !errors.Is(err, ErrHarnessRemoved) || err.Error() != want {
+				t.Fatalf("removed harness: backend=%v error=%v; want %q", backend, err, want)
+			}
+		})
+	}
+}

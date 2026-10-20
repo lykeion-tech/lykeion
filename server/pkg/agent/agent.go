@@ -322,7 +322,7 @@ func waitSupervised(cmd *exec.Cmd, nonce string) error {
 type SandboxCommand func(context.Context, CLIPaths, string, ...string) (*exec.Cmd, error)
 
 var ErrNoSandbox = errors.New("this run has no sandbox")
-var ErrHarnessRemoved = errors.New("this agent harness is no longer supported")
+var ErrHarnessRemoved = errors.New("Cursor and Antigravity are no longer supported; choose Claude Code or Codex")
 
 func command(ctx context.Context, bin, prompt string, o ExecOptions, args ...string) (*exec.Cmd, error) {
 	if o.Sandbox == nil {
