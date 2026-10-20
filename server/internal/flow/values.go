@@ -163,7 +163,8 @@ func roundTo(r *big.Rat, d int) *big.Rat {
 // runs named by the `cites` of the nearest enclosing object that has one.
 // A value matches a printed number equal to it once that number is rounded to
 // the places the value states; an integer value must be equal exactly.
-// Records of the free kinds report no values and are skipped.
+// Records of the free kinds report no values, and server-written records are
+// not the agent's reports; both are skipped.
 func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 	// printed holds each run's numbers, rounded once per number of places;
 	// places -1 keeps them exact, for integer values.
@@ -198,7 +199,7 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 	}
 	var out []ValueMatch
 	for _, rec := range recs {
-		if slices.Contains(service.FreeKinds, rec.Kind) {
+		if slices.Contains(service.FreeKinds, rec.Kind) || slices.Contains(service.ServerKinds, rec.Kind) {
 			continue
 		}
 		d := json.NewDecoder(bytes.NewReader(rec.Body))

@@ -93,9 +93,11 @@ func TestAValueOnlyInExplorationIsFlagged(t *testing.T) {
 	}
 }
 
-func TestAFreeKindIsNotChecked(t *testing.T) {
+func TestFreeAndServerKindsAreNotChecked(t *testing.T) {
 	got := MatchValues([]db.Record{
 		valueRec("r1", "prediction", map[string]any{"value": 0.5}),
+		valueRec("s1", "score", map[string]any{"value": 0.5}),
+		valueRec("s2", "summary", map[string]any{"value": 0.5}),
 		valueRec("r2", "result", map[string]any{"value": 0.5}),
 		valueRec("r3", "result", map[string]any{"value": 0.5, "cites": []string{"call:c1"}}),
 	}, nil)

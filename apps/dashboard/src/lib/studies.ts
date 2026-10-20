@@ -239,7 +239,6 @@ export function transcript(
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
 
-// The stages shown collapsed above the current one.
 const blockLabels: Record<BlockKind, string> = {
   '': '',
   low_score: 'low score',

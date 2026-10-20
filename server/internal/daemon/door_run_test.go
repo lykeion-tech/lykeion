@@ -163,6 +163,23 @@ func TestRunScriptRecordsAFailingExitStatus(t *testing.T) {
 	}
 }
 
+// Bytes that are not UTF-8 reach the record and the answer as U+FFFD, the
+// way JSON encoding writes them, and the run is recorded as usual.
+func TestOutputThatIsNotUTF8IsRecordedAsReplacementCharacters(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("printf 'a\\377b\\n'\nprintf 'c\\376\\n' >&2\n"), 0o644))
+	got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"})
+	if err != nil || got != "run:x1\na\uFFFDb\n\n[stderr]\nc\uFFFD\n" {
+		t.Fatalf("answer %q %v", got, err)
+	}
+	runs, _ := l.recorded()
+	if len(runs) != 1 || runs[0]["output"] != "a\uFFFDb\n" || runs[0]["error"] != "c\uFFFD\n" || runs[0]["exit_status"] != float64(0) {
+		t.Fatalf("posted %+v", runs)
+	}
+}
+
 func TestRunScriptRefusesAPathOutsideTheRunFolder(t *testing.T) {
 	l := newLykeion(t)
 	dir := t.TempDir()

@@ -760,7 +760,6 @@ test('only the current column shows its scores, with no stage cards below the ag
   await expect(page.getByRole('region', { name: 'Scores' })).toHaveCount(1);
   const main = page.getByRole('region', { name: 'Study' });
   await expect(main.getByRole('button', { name: 'Grounding', exact: true })).toHaveCount(0);
-  await expect(main.locator('.collapsed-stage')).toHaveCount(0);
 });
 
 test("the leader's self-step is marked", async ({ page }) => {

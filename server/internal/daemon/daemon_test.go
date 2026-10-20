@@ -1333,13 +1333,16 @@ func TestTheRequestedModelReachesTheCLI(t *testing.T) {
 }
 
 func TestTheDaemonSendsBaseStates(t *testing.T) {
+	var mu sync.Mutex
 	var bodies []map[string]json.RawMessage
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]json.RawMessage
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
+		mu.Lock()
 		bodies = append(bodies, body)
+		mu.Unlock()
 		w.WriteHeader(204)
 	}))
 	defer srv.Close()
@@ -1348,6 +1351,8 @@ func TestTheDaemonSendsBaseStates(t *testing.T) {
 	d.heartbeat(context.Background())
 	d.bases = nil
 	d.heartbeat(context.Background())
+	mu.Lock()
+	defer mu.Unlock()
 	if len(bodies) != 2 {
 		t.Fatalf("heartbeats: %d", len(bodies))
 	}

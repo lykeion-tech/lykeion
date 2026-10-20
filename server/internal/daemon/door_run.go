@@ -244,6 +244,8 @@ func limitText(d time.Duration) string {
 
 // answerRun records the run and answers its output under the run's key. A
 // run that can't be recorded has its output withheld.
+// Output is kept as the script wrote it; JSON encoding writes any bytes that
+// are not UTF-8 as U+FFFD, both in the record and in the answer.
 func (d *Door) answerRun(ctx context.Context, body map[string]any) (*mcp.CallToolResult, any, error) {
 	fitBody(body)
 	key, err := d.recordRun(ctx, body)
