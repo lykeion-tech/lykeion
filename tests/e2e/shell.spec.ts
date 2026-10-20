@@ -344,3 +344,19 @@ test('Colleagues navigation has no extraneous global create listener warning', a
   await page.evaluate(() => new Promise(requestAnimationFrame));
   expect(warnings).toEqual([]);
 });
+
+test('every new workspace tab is named Studies, including when Studies is already open', async ({
+  page,
+}) => {
+  await page.goto('/#/studies');
+  const tabs = page.getByRole('tablist', { name: 'Workspace tabs' });
+  for (const path of ['studies', 'teams', 'studies']) {
+    await page.goto(`/#/${path}`);
+    const before = await tabs.getByRole('tab').count();
+    await page.getByRole('button', { name: 'New tab', exact: true }).click();
+    await expect(page).toHaveURL(/#\/studies$/);
+    await expect(tabs.getByRole('tab')).toHaveCount(before + 1);
+    await expect(tabs.getByRole('tab', { selected: true })).toHaveAccessibleName('Studies');
+    await expect(tabs.getByRole('tab', { name: 'Tasks', exact: true })).toHaveCount(0);
+  }
+});

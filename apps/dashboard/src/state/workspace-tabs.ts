@@ -59,7 +59,7 @@ watch(selected, (id) => writeText('lykeion.active-tab', String(id), 'session'));
 watch(tabs, (x) => writeJSON('lykeion.tabs', x, 'session'), { deep: true });
 
 // Adds a tab and selects it; WorkspaceTabs navigates to whichever tab is selected.
-function openTab(path = '/tasks', title = 'Tasks', icon = 'tasks') {
+function openTab(path = '/studies', title = 'Studies', icon = 'tasks') {
   if (!validPath(path)) return;
   const t: Tab = { id: nextId++, path, title, icon, history: [path], index: 0, pinned: false };
   tabs.value.push(t);

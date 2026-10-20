@@ -109,3 +109,23 @@ describe('preferences', () => {
     expect(usePreferences()).toMatchObject({ theme: 'ash', pinComments: true, taskOpen: 'page' });
   });
 });
+
+describe('workspace tab defaults', () => {
+  it('opens every new tab directly on Studies with the Studies title', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    const { useWorkspaceTabs } = await import('../apps/dashboard/src/state/workspace-tabs');
+    const state = useWorkspaceTabs();
+    state.openTab('/teams', 'Teams', 'network');
+    state.openTab();
+    state.openTab();
+    expect(
+      state.tabs.value
+        .slice(1)
+        .map((tab) => ({ path: tab.path, title: tab.title, history: tab.history })),
+    ).toEqual([
+      { path: '/studies', title: 'Studies', history: ['/studies'] },
+      { path: '/studies', title: 'Studies', history: ['/studies'] },
+    ]);
+    expect(state.selected.value).toBe(state.tabs.value[2]!.id);
+  });
+});
