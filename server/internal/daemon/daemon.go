@@ -314,8 +314,16 @@ func (d *daemon) heartbeat(ctx context.Context) {
 		slog.Warn("runtime refresh pending", "err", err)
 	}
 	refs := d.references()
+	var bases map[string]string
+	if d.bases != nil {
+		bases = d.bases.States()
+	}
 	for i := 0; i < len(refs); i += 64 {
-		if err := d.api.Do(ctx, "POST", "/api/daemon/heartbeat", map[string]any{"runtimes": refs[i:min(i+64, len(refs))]}, nil); err != nil {
+		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))]}
+		if bases != nil {
+			body["bases"] = bases
+		}
+		if err := d.api.Do(ctx, "POST", "/api/daemon/heartbeat", body, nil); err != nil {
 			slog.Warn("heartbeat failed", "err", err)
 		}
 	}

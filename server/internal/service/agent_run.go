@@ -314,9 +314,21 @@ func (s *AgentRuns) runtimeBatch(ctx context.Context, user uuid.UUID, refs []Run
 		return fn(tx, refs)
 	})
 }
-func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []RuntimeRef) (int, error) {
+
+// Heartbeat marks the runtimes online. A non-nil bases replaces each one's
+// language base states, and each workspace whose states changed gets one
+// runtime.updated event.
+func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []RuntimeRef, bases map[string]string) (int, error) {
+	var states json.RawMessage
+	if bases != nil {
+		var err error
+		if states, err = json.Marshal(bases); err != nil {
+			return 0, err
+		}
+	}
 	n := 0
 	err := s.runtimeBatch(ctx, user, refs, func(tx *store.Tx, refs []RuntimeRef) error {
+		changed := map[uuid.UUID]bool{}
 		for _, ref := range refs {
 			if err := tx.Workspace(ctx, ref.WorkspaceID); err != nil {
 				return err
@@ -326,6 +338,21 @@ func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []Runtim
 				return err
 			}
 			n += int(k)
+			if states == nil {
+				continue
+			}
+			k, err = tx.Q.SetRuntimeBases(ctx, db.SetRuntimeBasesParams{Bases: states, ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID, OwnerID: user})
+			if err != nil {
+				return err
+			}
+			if k > 0 && !changed[ref.WorkspaceID] {
+				changed[ref.WorkspaceID] = true
+				// refs are in workspace order, so event locks are taken in
+				// the same order as every other batch.
+				if err := tx.Emit(ctx, "runtime.updated", nil, store.User(user), map[string]any{"action": "bases"}); err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	})

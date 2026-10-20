@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const Python, R, Julia = "python", "r", "julia"
@@ -44,6 +45,8 @@ type Bases struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
+	// states holds the bases being built or that failed in this process.
+	states map[string]string
 }
 
 func NewBases(dir string) *Bases {
@@ -210,6 +213,17 @@ func (b *Bases) Ensure(ctx context.Context, lang string) error {
 	if b.Ready(lang) {
 		return nil
 	}
+	b.setState(lang, "building")
+	err := b.build(ctx, lang)
+	if err != nil {
+		b.setState(lang, "failed: "+cut(err.Error(), 200))
+	} else {
+		b.setState(lang, "")
+	}
+	return err
+}
+
+func (b *Bases) build(ctx context.Context, lang string) error {
 	plat, err := platform()
 	if err != nil {
 		return err
@@ -235,6 +249,49 @@ func (b *Bases) Ensure(ctx context.Context, lang string) error {
 		return fmt.Errorf("building the %s base: %w", displayNames[lang], err)
 	}
 	return nil
+}
+
+func (b *Bases) setState(lang, state string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.states == nil {
+		b.states = map[string]string{}
+	}
+	if state == "" {
+		delete(b.states, lang)
+	} else {
+		b.states[lang] = state
+	}
+}
+
+// States reports each base as "ready", "building" or "failed: <reason>". A
+// base not yet tried is absent.
+func (b *Bases) States() map[string]string {
+	out := map[string]string{}
+	for lang := range displayNames {
+		if b.Ready(lang) {
+			out[lang] = "ready"
+		}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for lang, state := range b.states {
+		if _, ready := out[lang]; !ready {
+			out[lang] = state
+		}
+	}
+	return out
+}
+
+// cut keeps at most n bytes of s without splitting a character.
+func cut(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 func (b *Bases) EnsureAll(ctx context.Context) map[string]error {

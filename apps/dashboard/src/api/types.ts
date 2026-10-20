@@ -204,6 +204,9 @@ export interface Runtime {
   arch: string;
   kernel: string;
   language: string;
+  // Each language base on the machine ('python', 'r', 'julia'): 'ready',
+  // 'building' or 'failed: <reason>'. A base not yet tried is absent.
+  bases: Record<string, string>;
 }
 
 export interface Member {

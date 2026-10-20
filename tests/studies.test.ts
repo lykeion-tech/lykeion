@@ -325,6 +325,7 @@ describe('machines', () => {
     arch: '',
     kernel: '',
     language: '',
+    bases: {},
     ...extra,
   });
   it('groups runtimes by daemon, names them, and lists online machines first', () => {

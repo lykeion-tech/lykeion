@@ -348,22 +348,23 @@ type Research struct {
 }
 
 type Runtime struct {
-	ID            uuid.UUID `json:"id"`
-	WorkspaceID   uuid.UUID `json:"workspace_id"`
-	OwnerID       uuid.UUID `json:"owner_id"`
-	DaemonID      string    `json:"daemon_id"`
-	Harness       string    `json:"harness"`
-	DeviceName    string    `json:"device_name"`
-	CustomName    *string   `json:"custom_name"`
-	Status        string    `json:"status"`
-	LastSeenAt    time.Time `json:"last_seen_at"`
-	MaxConcurrent int32     `json:"max_concurrent"`
-	CreatedAt     time.Time `json:"created_at"`
-	CliVersion    string    `json:"cli_version"`
-	Os            string    `json:"os"`
-	Arch          string    `json:"arch"`
-	Kernel        string    `json:"kernel"`
-	Language      string    `json:"language"`
+	ID            uuid.UUID       `json:"id"`
+	WorkspaceID   uuid.UUID       `json:"workspace_id"`
+	OwnerID       uuid.UUID       `json:"owner_id"`
+	DaemonID      string          `json:"daemon_id"`
+	Harness       string          `json:"harness"`
+	DeviceName    string          `json:"device_name"`
+	CustomName    *string         `json:"custom_name"`
+	Status        string          `json:"status"`
+	LastSeenAt    time.Time       `json:"last_seen_at"`
+	MaxConcurrent int32           `json:"max_concurrent"`
+	CreatedAt     time.Time       `json:"created_at"`
+	CliVersion    string          `json:"cli_version"`
+	Os            string          `json:"os"`
+	Arch          string          `json:"arch"`
+	Kernel        string          `json:"kernel"`
+	Language      string          `json:"language"`
+	Bases         json.RawMessage `json:"bases"`
 }
 
 type RuntimeSkillRequest struct {

@@ -72,10 +72,17 @@ func (h *H) daemonRegister(w http.ResponseWriter, r *http.Request) {
 func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Runtimes []service.RuntimeRef `json:"runtimes"`
+		Bases    map[string]string    `json:"bases"`
 	}
 	if err := readJSON(r, &in); err != nil || len(in.Runtimes) == 0 || len(in.Runtimes) > 64 {
 		writeErr(w, 400, "runtimes required (1-64)")
 		return
+	}
+	for lang, state := range in.Bases {
+		if !validBaseState(lang, state) {
+			writeErr(w, 400, fmt.Sprintf("bad base state %q for %q", state, lang))
+			return
+		}
 	}
 	for _, ref := range in.Runtimes {
 		if ref.WorkspaceID == uuid.Nil || ref.RuntimeID == uuid.Nil {
@@ -83,12 +90,28 @@ func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	n, err := h.AgentRuns.Heartbeat(r.Context(), user(r), in.Runtimes)
+	n, err := h.AgentRuns.Heartbeat(r.Context(), user(r), in.Runtimes, in.Bases)
 	if err != nil {
 		agentRunFail(w, r, err)
 		return
 	}
 	writeJSON(w, 200, map[string]int{"touched": n})
+}
+
+// validBaseState accepts a base the daemon knows reported as ready, building
+// or failed with a reason of at most 200 bytes, which keeps a runtime's whole
+// set well inside its column's size limit. jsonb text cannot hold NUL.
+func validBaseState(lang, state string) bool {
+	switch lang {
+	case "python", "r", "julia":
+	default:
+		return false
+	}
+	if state == "ready" || state == "building" {
+		return true
+	}
+	reason, ok := strings.CutPrefix(state, "failed: ")
+	return ok && reason != "" && len(reason) <= 200 && !strings.ContainsRune(reason, 0)
 }
 
 func (h *H) daemonClaim(w http.ResponseWriter, r *http.Request) {

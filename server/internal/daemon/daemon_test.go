@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1328,5 +1329,33 @@ func TestTheRequestedModelReachesTheCLI(t *testing.T) {
 	stopDaemon(t, cancel, done)
 	if got != "claude-opus-5-5" {
 		t.Fatalf("ExecOptions.Model = %q", got)
+	}
+}
+
+func TestTheDaemonSendsBaseStates(t *testing.T) {
+	var bodies []map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		bodies = append(bodies, body)
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+	refs := []runtimeRef{{WorkspaceID: uuid.New(), RuntimeID: uuid.New()}}
+	d := &daemon{api: &apiclient.Client{Server: srv.URL}, refs: refs, bases: readyPython(t)}
+	d.heartbeat(context.Background())
+	d.bases = nil
+	d.heartbeat(context.Background())
+	if len(bodies) != 2 {
+		t.Fatalf("heartbeats: %d", len(bodies))
+	}
+	var bases map[string]string
+	if err := json.Unmarshal(bodies[0]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready"}) {
+		t.Fatalf("bases %s: %v", bodies[0]["bases"], err)
+	}
+	if _, ok := bodies[1]["bases"]; ok {
+		t.Fatalf("a daemon without bases sent %s", bodies[1]["bases"])
 	}
 }

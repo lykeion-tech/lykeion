@@ -505,3 +505,43 @@ func TestAStudyEnvStopsWithItsContext(t *testing.T) {
 		t.Fatalf("VIRTUAL_ENV set without a venv: %q", env)
 	}
 }
+
+func TestStatesReportBuildingAndFailure(t *testing.T) {
+	b, f := fakeBases(t)
+	if s := b.States(); len(s) != 0 {
+		t.Fatalf("states before any build: %v", s)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	reason := strings.Repeat("x", 173) + "é" + strings.Repeat("y", 300)
+	b.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+		if slicesIndex(args, "create") >= 0 {
+			close(started)
+			<-release
+			return nil, errors.New(reason)
+		}
+		return f.run(ctx, env, dir, name, args...)
+	}
+	done := make(chan error, 1)
+	go func() { done <- b.Ensure(context.Background(), Python) }()
+	<-started
+	if s := b.States(); s[Python] != "building" || len(s) != 1 {
+		t.Fatalf("states while building: %v", s)
+	}
+	close(release)
+	err := <-done
+	if err == nil {
+		t.Fatal("want error")
+	}
+	got := b.States()[Python]
+	want := "failed: " + err.Error()[:199]
+	if got != want {
+		t.Fatalf("failed state:\n got %q\nwant %q", got, want)
+	}
+	b.Run = f.run
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	if s := b.States(); s[Python] != "ready" || len(s) != 1 {
+		t.Fatalf("states after a rebuild: %v", s)
+	}
+}

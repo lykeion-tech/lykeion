@@ -15,6 +15,10 @@ RETURNING *;
 UPDATE runtime SET status = 'online', last_seen_at = now()
 WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 
+-- name: SetRuntimeBases :execrows
+UPDATE runtime SET bases = @bases
+WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id AND bases IS DISTINCT FROM @bases;
+
 -- name: GetRuntime :one
 SELECT * FROM runtime WHERE id = @id AND workspace_id = @workspace_id;
 
