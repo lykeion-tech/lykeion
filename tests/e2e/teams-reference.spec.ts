@@ -140,6 +140,11 @@ test('Teams sorts by its latest version and shares Agents column positions and P
   await sort.click();
   await expect(rows.first()).toContainText('sort-later-team');
   await expect(page.locator('.team-table th').first()).toHaveCSS('padding-bottom', '14px');
+  const teamLast = (await page.locator('.team-table th').last().boundingBox())!;
+  const teamSort = (await sort.boundingBox())!;
+  expect(teamLast.x + teamLast.width).toBe(teamSort.x + teamSort.width);
+  await expect(page.locator('.team-table th').last()).toHaveCSS('text-align', 'right');
+  await expect(rows.first().locator('td').last()).toHaveCSS('text-align', 'right');
   const teamHeaderY = (await page.locator('.team-table th').first().boundingBox())!.y;
   const teamPositions = await page
     .locator('.team-table th')
@@ -151,6 +156,12 @@ test('Teams sorts by its latest version and shares Agents column positions and P
     .locator('.agent-head > span')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
   expect(teamPositions).toEqual(agentPositions);
+  const agentLast = (await page.locator('.agent-head > span').last().boundingBox())!;
+  const agentSort = (await page
+    .getByRole('button', { name: 'Last updated', exact: true })
+    .boundingBox())!;
+  expect(agentLast.x + agentLast.width).toBe(agentSort.x + agentSort.width);
+  await expect(page.locator('.agent-head > span').last()).toHaveCSS('text-align', 'right');
   expect(teamPositions[0]).toBe((await page.locator('.agent-search').boundingBox())!.x);
   expect((await page.locator('.agent-cell').first().boundingBox())!.x).toBe(agentPositions[0]);
   const style = await page

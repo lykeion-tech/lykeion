@@ -319,6 +319,13 @@ const add = (id: string) =>
 .team-filter-popover > button {
   margin-top: 12px;
 }
+.team-table tr {
+  padding-right: 0;
+}
+.team-table th:last-child,
+.team-table td:last-child {
+  text-align: right;
+}
 .team-table-scroll {
   overflow-x: auto;
 }

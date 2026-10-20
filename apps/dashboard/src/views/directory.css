@@ -169,21 +169,24 @@
   gap: 5px;
 }
 .directory-page {
-  --directory-columns: minmax(240px, 1fr) 120px 150px 110px 120px 110px;
+  --directory-columns: minmax(240px, 1fr) repeat(4, 122px) 80px;
 }
 .agent-row {
   display: grid;
   grid-template-columns: var(--directory-columns);
   align-items: center;
   gap: 12px;
-  padding: 10px 16px 10px 0;
+  padding: 10px 0;
   font-size: 12px;
+}
+.agent-row > :last-child {
+  text-align: right;
 }
 a.agent-row:hover {
   background: var(--hover);
 }
 .agent-head {
-  padding: 6px 16px 6px 0;
+  padding: 6px 0;
   color: var(--muted);
 }
 .agent-cell {
