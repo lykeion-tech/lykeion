@@ -11,6 +11,128 @@ const msg = (
 const call = (seq: number, id: string, input: unknown = { command: 'python check.py' }) =>
   msg(seq, 'tool_use', { type: 'tool_use', id, name: 'Bash', input }, 'Bash');
 describe('logical tool steps', () => {
+  it('exposes recorded notebook code as a tool step without treating file writes as cells', () => {
+    const source = 'print("transcript UI check")';
+    const steps = activitySteps([
+      msg(
+        1,
+        'tool_use',
+        {
+          id: 'cell',
+          input: { code: source, human_description: 'Print transcript check', execution_count: 3 },
+        },
+        'mcp__notebook__execute_python_cell',
+      ),
+      msg(2, 'tool_result', { tool_use_id: 'cell', content: 'transcript UI check' }),
+      msg(
+        3,
+        'tool_use',
+        { id: 'write', input: { file_path: 'example.py', content: source } },
+        'Write',
+      ),
+    ]);
+    expect(steps[0]!.notebook).toEqual({ code: source, language: 'python', executionCount: 3 });
+    expect(steps[0]!.output).toBe('transcript UI check');
+    expect(steps[1]!.notebook).toBeUndefined();
+  });
+  it('unwraps addressed notebook calls while preserving their original records', () => {
+    const call = msg(
+      1,
+      'tool_use',
+      {
+        id: 'cell',
+        input: {
+          tool: 'mcp__notebook__execute_r_cell',
+          args: { code: 'print(1)', human_description: 'Print the test value' },
+        },
+      },
+      'mcp__lyk_door__call_tool',
+    );
+    const step = activitySteps([call])[0]!;
+    expect(step.notebook).toEqual({ code: 'print(1)', language: 'r', executionCount: undefined });
+    expect(step.title).toBe('Print the test value');
+    expect(step.messages).toEqual([call]);
+  });
+  it('shows shell notebook commands in direct and addressed tool calls', () => {
+    for (const addressed of [false, true]) {
+      const args = { command: 'printf "second step\\n"' };
+      const input = addressed ? { tool: 'mcp__notebook__execute_shell_cell', args } : args;
+      const tool = addressed ? 'mcp__lyk_door__call_tool' : 'mcp__notebook__execute_shell_cell';
+      expect(
+        activitySteps([msg(1, 'tool_use', { id: 'shell', input }, tool)])[0]!.notebook,
+      ).toEqual({ code: args.command, language: 'shell', executionCount: undefined });
+    }
+  });
+  it('requires a notebook or Lykeion execution address before displaying a cell', () => {
+    for (const tool of ['notexecute_python_cell', 'mcp__other__execute_python_cell', 'Write']) {
+      expect(
+        activitySteps([
+          msg(
+            1,
+            'tool_use',
+            { input: { code: 'print(1)', name: 'mcp__notebook__execute_python_cell' } },
+            tool,
+          ),
+        ])[0]!.notebook,
+      ).toBeUndefined();
+    }
+    expect(
+      activitySteps([
+        msg(
+          1,
+          'tool_use',
+          {
+            input: {
+              tool: 'mcp__notebook__execute_python_cell',
+              server: 'other',
+              args: { code: 'print(1)' },
+            },
+          },
+          'mcp__lyk_door__call_tool',
+        ),
+      ])[0]!.notebook,
+    ).toBeUndefined();
+    expect(
+      activitySteps([
+        msg(
+          1,
+          'tool_use',
+          { input: { code: 'print(1)', language: 'python' } },
+          'mcp__lyk_door__run_code',
+        ),
+      ])[0]!.notebook?.code,
+    ).toBe('print(1)');
+  });
+  it('uses Codex server provenance without changing the recorded tool label', () => {
+    const cell = msg(1, 'tool_use', {
+      item: {
+        id: 'c',
+        type: 'mcp_tool_call',
+        server: 'notebook',
+        tool: 'execute_python_cell',
+        arguments: { code: 'print(42)' },
+        status: 'completed',
+      },
+    });
+    expect(activitySteps([cell])[0]!.notebook?.code).toBe('print(42)');
+    expect(cell.tool).toBe('');
+  });
+  it('reads the door server plus bare tool envelope used by real MCP calls', () => {
+    for (const language of ['python', 'shell']) {
+      const input = {
+        server: 'notebook',
+        tool: `execute_${language}_cell`,
+        args: { code: 'print(1)' },
+        human_description: 'Print the test value',
+      };
+      const step = activitySteps([
+        msg(1, 'tool_use', { id: 'cell', input }, 'mcp__lyk_door__call_tool'),
+      ])[0]!;
+      expect(step.notebook?.code).toBe('print(1)');
+      expect(step.notebook?.language).toBe(language);
+      expect(step.title).toBe('Print the test value');
+    }
+  });
   it('pairs out-of-order results by identity and preserves complete records', () => {
     const steps = activitySteps([
       call(1, 'a'),

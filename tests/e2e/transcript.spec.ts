@@ -58,26 +58,26 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await page.keyboard.press('Enter');
   await expect(call.locator('.tool-step')).toHaveAttribute('open', '');
   await expect(call.getByText('lyk card show', { exact: true })).toBeVisible();
-  await expect(call.locator('.activity-error')).toContainText('Error');
+  await expect(call).toHaveClass(/failed/);
   await expect(
     groups
       .first()
       .getByText('Recorded lab reasoning remains collapsed by default.', { exact: true }),
   ).toBeHidden();
   await expect(groups.first().locator('.step-output[open]')).toHaveCount(0);
-  await expect(groups.first().locator('.step-intent')).toHaveCSS('white-space', 'pre-wrap');
-  await expect(groups.first().locator('.step-intent')).toHaveCSS('overflow-x', 'visible');
+  await expect(call.locator('.step-code-source')).toContainText('lyk card show');
+  await expect(call.locator('.step-code-source')).toHaveCSS('overflow-x', 'auto');
   await expect(groups.first().locator('.step-payload[open]')).toHaveCount(0);
   await main.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
   await page.screenshot({ path: `${artifacts}/activity-expanded-light-1920.png` });
   const output = call.locator('.step-output');
-  await expect(output.locator('pre')).toBeHidden();
-  await output.locator('summary').click();
-  await expect(output.locator('pre')).toHaveText(
+  await expect(output.locator(':scope > pre')).toBeHidden();
+  await output.locator(':scope > summary').click();
+  await expect(output.locator(':scope > pre')).toHaveText(
     'The scripted card read was declined. No evidence was created.',
   );
-  await expect(output.locator('pre')).toHaveCSS('max-height', 'none');
-  await output.locator('summary').click();
+  await expect(output.locator(':scope > pre')).toHaveCSS('max-height', 'none');
+  await output.locator(':scope > summary').click();
   await turn.getByRole('button', { name: 'Copy code', exact: true }).click();
   await expect(turn.locator('.copy-notice:not(:empty)')).toHaveText('Code copied');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
@@ -86,11 +86,13 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   const payload = call.locator('.step-payload[data-message-type="tool_result"]');
   await expect(turn.locator('.step-sequence')).toHaveCount(0);
   await expect(turn.locator('.step-state').filter({ hasText: /recorded/i })).toHaveCount(0);
+  await output.locator(':scope > summary').click();
   await payload.locator('summary').click();
   await expect(payload.locator('pre')).toContainText('"tool_use_id": "t1"');
   await expect(payload.locator('pre')).toContainText('"is_error": true');
   await expect(payload.locator('pre')).toHaveCSS('max-height', 'none');
   await payload.locator('summary').click();
+  await output.locator(':scope > summary').click();
   await page.evaluate(() =>
     localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: 'midnight' })),
   );
@@ -161,9 +163,75 @@ test('current attempt pagination retains every message and compact raw payload a
     .click();
   await expect(turn.getByText('Recorded tool refusal', { exact: true })).toBeVisible();
   const tool = turn.locator('.run-activity .step-payload').first();
+  await turn.locator('.activity-step[data-message-type="tool_use"] .step-output > summary').click();
   await tool.locator('summary').click();
   await expect(tool.locator('pre')).toContainText('END OF FULL TOOL INPUT');
   await expect(turn.getByText('Full recorded history', { exact: true })).toHaveCount(0);
   await expect(turn.locator('.activity-step')).toHaveCount(3);
   await expect(turn.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
+});
+
+test('notebook cells match the L2 tool-step geometry and retain code and output', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.addInitScript(
+    () =>
+      !localStorage.getItem('lykeion.preferences') &&
+      localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: 'ash' })),
+  );
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const study = await newStudy(page.request, `Notebook cell transcript fixture ${Date.now()}?`);
+  await page.goto(`/#/studies/${study.id}`);
+  await openAgentTranscript(page);
+  const turn = page.locator('.agent-turn').first();
+  const cells = turn.locator('.notebook-cell');
+  await expect(cells).toHaveCount(2, { timeout: 30000 });
+  await expect(cells.first().locator('.cell-count')).toHaveText('In [3]');
+  await expect(cells.nth(1).locator('.cell-count')).toHaveText('In [ ]');
+  await expect(cells.first().locator('.step-code-source')).toContainText(
+    'print("transcript UI check")',
+  );
+  await expect(cells.first().locator('.line-number')).toHaveText(['1', '2']);
+  await expect(cells.first().locator('.step-code-source')).toHaveClass(/highlighted/);
+  await expect(cells.first().locator('.step-code-source span[style*="color"]')).not.toHaveCount(0);
+  await expect(turn.locator('.step-label').first()).toHaveCSS('font-size', '14px');
+  await expect(turn.locator('.step-label').first()).toHaveCSS('font-weight', '600');
+  await expect(turn.locator('.step-body').first()).toHaveCSS('padding', '8px 10px');
+  await expect(turn.locator('.activity-step.nested').first()).toHaveCSS('padding-left', '24px');
+  await expect(turn.locator('.step-chevron,.step-provenance')).toHaveCount(0);
+  await cells.first().getByRole('button', { name: 'Copy tool code' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'print("transcript UI check")\nprint(42)',
+  );
+  const first = turn
+    .locator('.activity-step')
+    .filter({ has: page.locator('.notebook-cell') })
+    .first();
+  await first.locator('.step-output > summary').click();
+  await expect(first.locator('.step-output > pre')).toHaveText('transcript UI check\n42');
+  await first.locator('.step-payload').first().locator('summary').click();
+  await expect(first.locator('.step-payload').first().locator('pre')).toContainText(
+    'execute_python_cell',
+  );
+  await first.locator('.step-output > summary').click();
+  await expect(cells.first().getByRole('button', { name: 'Copy tool code' })).toHaveText('Copy');
+  await page.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
+  await page.screenshot({ path: `${artifacts}/notebook-steps-light-1920.png` });
+  await page.setViewportSize({ width: 800, height: 982 });
+  expect(
+    await page.locator('.run-panel').evaluate((el) => el.scrollWidth - el.clientWidth),
+  ).toBeLessThanOrEqual(0);
+  await page.screenshot({ path: `${artifacts}/notebook-steps-light-800.png` });
+  await page.evaluate(() =>
+    localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: 'midnight' })),
+  );
+  await page.reload();
+  await openAgentTranscript(page);
+  await expect(page.locator('html')).toHaveAttribute('data-palette', 'midnight');
+  await expect(cells).toHaveCount(2);
+  await expect(cells.first().locator('.step-code-source')).toHaveClass(/highlighted/);
+  await page.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
+  await page.screenshot({ path: `${artifacts}/notebook-steps-dark-800.png` });
 });

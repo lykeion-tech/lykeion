@@ -11,7 +11,7 @@ import {
   type WebSocketRoute,
 } from '@playwright/test';
 
-export const LAB = 'http://127.0.0.1:18080';
+export const LAB = `http://${process.env.LYK_UI_LAB_ADDR || '127.0.0.1:18080'}`;
 export const EMAIL = 'ana@lab.test';
 
 export async function labCode(request: APIRequestContext, email: string): Promise<string> {

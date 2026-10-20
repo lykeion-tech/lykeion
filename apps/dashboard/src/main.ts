@@ -4,6 +4,7 @@ import App from './App.vue';
 import { router } from './router';
 import { ApiError } from './api/client';
 import '@fontsource-variable/inter';
+import '@fontsource-variable/jetbrains-mono';
 import './style.css';
 import { applyTheme } from './theme';
 import { usePreferences } from './state/preferences';

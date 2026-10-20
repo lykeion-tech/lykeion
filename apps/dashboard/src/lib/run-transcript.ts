@@ -107,6 +107,7 @@ function args(value: unknown): Record<string, unknown> {
 }
 
 interface ToolCall {
+  server?: string;
   // What pairs a call with its result: Claude's tool_use id, Cursor's
   // call_id, Antigravity's step index. Codex records a call complete, with
   // its own output, under its item id.
@@ -137,6 +138,7 @@ function toolCall(message: RunMessage): ToolCall {
     const result = object(item.result);
     call.id = string(item.id);
     call.tool ||= string(item.tool, item.server);
+    call.server = string(item.server);
     call.input =
       item.type === 'command_execution' ? { command: item.command } : args(item.arguments);
     call.output =
@@ -270,6 +272,8 @@ export interface ActivityStep {
   error: boolean;
   tool: boolean;
   running: boolean;
+  notebook?: { code: string; language: string; executionCount?: number };
+  command?: string;
 }
 function isStepTitles(message: RunMessage): boolean {
   const data = object(message.content);
@@ -290,6 +294,45 @@ function validTitle(value: unknown, supplied = false): string {
 function suppliedDescription(input: Record<string, unknown>): string {
   return validTitle(input.human_description, true) || validTitle(input.description, true);
 }
+function notebookCall(call: ToolCall): ActivityStep['notebook'] {
+  let name = call.tool;
+  if (['notebook', 'lyk_door'].includes(call.server ?? '') && !/^mcp(?:__|\.)/.test(name))
+    name = `mcp__${call.server}__${name}`;
+  let input = call.input;
+  if (/^mcp(?:__|\.)lyk_door(?:__|\.)call_tool$/.test(name)) {
+    name = string(input.tool);
+    if (input.server === 'notebook' && /^execute_[a-z][a-z0-9+_-]*_cell$/.test(name))
+      name = `mcp__notebook__${name}`;
+    const expectedServer = /^mcp(?:__|\.)notebook(?:__|\.)/.test(name) ? 'notebook' : 'lyk_door';
+    if (input.server !== undefined && input.server !== expectedServer) return;
+    input = args(input.args ?? input.arguments);
+    if (name === 'run_code') name = 'mcp__lyk_door__run_code';
+  }
+  const match = /^mcp(?:__|\.)notebook(?:__|\.)execute_([a-z][a-z0-9+_-]*)_cell$/i.exec(name);
+  const studyCell = /^mcp(?:__|\.)lyk_door(?:__|\.)run_code$/.test(name);
+  if (!match && !studyCell) return;
+  if (input.server !== undefined || input.arguments !== undefined) {
+    const expected = match ? `execute_${match[1]}_cell` : 'run_code';
+    if (
+      input.server !== (match ? 'notebook' : 'lyk_door') ||
+      input.tool !== expected ||
+      !filled(input.arguments)
+    )
+      return;
+    input = args(input.arguments);
+  }
+  const code = executed(input) || command(input);
+  if (!code) return;
+  const lang = string(input.language, match?.[1], input.kernel) || 'python';
+  const count = input.execution_count;
+  return {
+    code,
+    language: lang,
+    executionCount:
+      typeof count === 'number' && Number.isInteger(count) && count >= 0 ? count : undefined,
+  };
+}
+
 export function isActivityGroup(steps: readonly ActivityStep[]): boolean {
   const calls = steps.filter((step) => step.tool).length;
   return calls > 1 || (calls === 0 && steps.length > 1);
@@ -337,8 +380,13 @@ export function activitySteps(messages: readonly RunMessage[]): ActivityStep[] {
       title:
         titles.get(`${message.attempt}:${message.seq}`) ||
         suppliedDescription(call.input) ||
-        fallback,
+        suppliedDescription(args(call.input.args ?? call.input.arguments)) ||
+        (notebookCall(call)
+          ? `Run ${notebookCall(call)!.language === 'python' ? 'Python' : notebookCall(call)!.language} notebook cell`
+          : fallback),
       tool,
+      notebook: tool ? notebookCall(call) : undefined,
+      command: tool ? command(call.input) || undefined : undefined,
       running: tool && !call.output && !call.state && call.exit === undefined,
     };
     steps.push(step);

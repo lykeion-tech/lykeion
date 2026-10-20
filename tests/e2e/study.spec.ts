@@ -582,6 +582,7 @@ test('expanded run preserves every ordered recorded message and full tool conten
   const messages = page.locator('.activity-step');
   await expect(messages).toHaveCount(3);
   await expect(page.locator('.markdown-body')).toHaveCount(498);
+  await messages.nth(0).locator('.step-output > summary').click();
   await messages.nth(0).locator('.step-payload > summary').click();
   await expect(messages.nth(0).locator('pre')).toContainText('END OF FULL TOOL INPUT');
   await expect(messages.nth(1)).toContainText('Recorded tool refusal');

@@ -245,6 +245,8 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
 }
 
 .agent-run-dialog {
+  --modal: var(--surface);
+  background: var(--surface);
   height: min(800px, 90vh);
 }
 .agent-run-dialog[open] {

@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test';
 import { SHIPPED } from './tests/e2e/lab';
 
-const lab = '127.0.0.1:18080';
+const lab = process.env.LYK_UI_LAB_ADDR || '127.0.0.1:18080';
+const rendererPort = process.env.LYK_UI_RENDERER_PORT || '1431';
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -29,7 +30,7 @@ export default defineConfig({
     },
   ],
   use: {
-    baseURL: 'http://127.0.0.1:1431',
+    baseURL: `http://127.0.0.1:${rendererPort}`,
     viewport: { width: 1512, height: 982 },
     browserName: 'chromium',
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
@@ -51,9 +52,9 @@ export default defineConfig({
       stdout: 'pipe',
     },
     {
-      command: 'npx vite --config apps/dashboard/vite.config.ts --host 127.0.0.1 --port 1431',
+      command: `npx vite --config apps/dashboard/vite.config.ts --host 127.0.0.1 --port ${rendererPort}`,
       env: { LYK_API_URL: `http://${lab}` },
-      url: 'http://127.0.0.1:1431',
+      url: `http://127.0.0.1:${rendererPort}`,
       timeout: 60_000,
       reuseExistingServer: false,
       gracefulShutdown: { signal: 'SIGTERM', timeout: 5_000 },

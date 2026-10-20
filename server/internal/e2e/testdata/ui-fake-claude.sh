@@ -12,6 +12,7 @@ for option in "$@"; do
     while IFS= read -r prompt; do
       count=$((count+1))
       case "$prompt" in
+        *'execute_python_cell'*'execute_shell_cell'*) title='1. Print transcript check\n2. Print second step line\n3. Inspect the study record\n4. Record the failed run outcome' ;;
         *'lyk card show'*'lyk result failed'*) title='1. Inspect the study record\n2. Record the failed run outcome' ;;
         *'lyk result failed'*) title='1. Record the failed run outcome' ;;
         *) title='1. Inspect the study record' ;;
@@ -71,6 +72,15 @@ case "$role:$member" in leader:demo-*|demo-*:)
   mkdir -p "$d" && : > "$d/s.jsonl"
   echo '{"type":"result","is_error":false,"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.01}}}'
   exit 0 ;;
+esac
+case "$prompt" in
+  *"Notebook cell transcript fixture"*)
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"nb1","name":"mcp__notebook__execute_python_cell","input":{"code":"print(\"transcript UI check\")\nprint(42)","human_description":"Print transcript check","execution_count":3}}]}}'
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_result","tool_use_id":"nb1","content":"transcript UI check\n42","is_error":false}]}}'
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"nb2","name":"mcp__notebook__execute_shell_cell","input":{"code":"printf \"second step\\n\"","human_description":"Print second step line"}}]}}'
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_result","tool_use_id":"nb2","content":"second step","is_error":false}]}}'
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Both recorded cells printed their lines."}]}}'
+    ;;
 esac
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"## Recorded observations\n\nThe lab reads **recorded evidence** before deciding what follows.\n\n- Inspect the current study\n- Keep source identity intact\n\nSee [the documentation](https://example.com/research) and literal citation [1]."}]}}'
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"lyk card show"}}]}}'

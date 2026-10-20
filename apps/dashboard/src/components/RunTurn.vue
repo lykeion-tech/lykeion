@@ -118,33 +118,42 @@ const ending = computed(() => {
 </template>
 <style scoped>
 .agent-turn {
+  --step-canvas: var(--surface);
+  --step-border: color-mix(in srgb, var(--text) 12%, var(--surface));
+  --step-line: color-mix(in srgb, var(--text) 20%, var(--surface));
+  --step-quiet: color-mix(in srgb, var(--text) 40%, var(--surface));
+  --step-muted: color-mix(in srgb, var(--text) 55%, var(--surface));
+  --step-surface: #edeef3;
+  --step-hover: color-mix(in srgb, var(--step-surface) 92%, var(--text));
+  --step-done: #27a644;
   width: 100%;
   max-width: 100ch;
   margin-inline: auto;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 14px;
+  line-height: 21px;
   overflow-wrap: anywhere;
   min-width: 0;
 }
 /* The run's assignment, on the right like the researcher's own comments. */
 .turn-assignment {
   width: fit-content;
-  max-width: min(80%, 560px);
-  margin: 0 0 16px auto;
-  padding: 10px 13px;
+  max-width: min(100%, 52ch);
+  margin: 0 0 39px auto;
+  padding: 8px 12px;
+  border: 1px solid var(--step-line);
   border-radius: 12px;
-  background: var(--fill-active);
+  background: var(--step-hover);
   min-width: 0;
 }
 .turn-assignment :deep(.markdown-body) {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 14px;
+  line-height: 21px;
 }
 .turn-timeline {
   position: relative;
   list-style: none;
   margin: 0;
-  padding: 0 0 0 20px;
+  padding: 0 0 0 28px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -154,37 +163,43 @@ const ending = computed(() => {
   content: '';
   position: absolute;
   left: 10px;
-  top: 10px;
-  bottom: 10px;
+  top: 0;
+  bottom: 0;
   width: 1px;
-  background: var(--chart-rule);
+  background: var(--step-line);
 }
 .turn-item {
   position: relative;
   min-width: 0;
   padding-block: 5px;
 }
+.turn-item:has(> .run-activity) {
+  padding-block: 0;
+}
+.turn-item:has(> .run-activity)::before {
+  top: 9px;
+}
 .turn-item::before {
   content: '';
   position: absolute;
-  left: -13px;
+  left: -21px;
   top: 12px;
   width: 7px;
   height: 7px;
   box-sizing: border-box;
   border-radius: 50%;
-  box-shadow: 0 0 0 3px var(--modal);
+  box-shadow: 0 0 0 4px var(--step-canvas);
 }
 .mark-message::before {
-  border: 1px solid var(--icon-faint);
-  background: var(--modal);
+  border: 1px solid var(--step-muted);
+  background: var(--step-canvas);
 }
 .mark-ok::before {
-  background: var(--stage-validation-dot);
+  background: var(--step-done);
 }
 .mark-queued::before {
-  border: 1px dashed var(--icon-faint);
-  background: var(--modal);
+  border: 1px dashed var(--step-muted);
+  background: var(--step-canvas);
 }
 .mark-live::before {
   background: var(--stage-experimentation-dot);
@@ -196,7 +211,7 @@ const ending = computed(() => {
   animation: turn-spin 1s linear infinite;
 }
 .mark-fail::before {
-  left: -14px;
+  left: -22px;
   top: 11px;
   width: 9px;
   height: 9px;
@@ -204,15 +219,15 @@ const ending = computed(() => {
   background:
     linear-gradient(45deg, transparent 43%, var(--error-text) 43% 57%, transparent 57%),
     linear-gradient(-45deg, transparent 43%, var(--error-text) 43% 57%, transparent 57%),
-    var(--modal);
+    var(--step-canvas);
 }
 .turn-ending {
   font-size: 12.5px;
   color: var(--muted);
 }
 .turn-item :deep(.markdown-body) {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 14px;
+  line-height: 21px;
 }
 @keyframes turn-pulse {
   50% {
@@ -241,5 +256,11 @@ const ending = computed(() => {
 .run-error {
   color: var(--error-text);
   margin-top: 10px;
+}
+</style>
+
+<style>
+:root[data-theme='dark'] .agent-turn {
+  --step-surface: color-mix(in srgb, var(--surface) 92%, var(--text));
 }
 </style>

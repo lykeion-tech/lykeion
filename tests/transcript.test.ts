@@ -100,6 +100,25 @@ describe('reading-first recorded run', () => {
     expect(html).not.toContain('>Recorded</span>');
     expect(html).not.toContain('>Result recorded</span>');
   });
+  it('displays a notebook cell inline with its tool step and complete result', async () => {
+    const html = await render([
+      msg(
+        1,
+        'tool_use',
+        { id: 'cell', input: { code: 'print(42)', execution_count: 3 } },
+        'mcp__notebook__execute_python_cell',
+      ),
+      msg(2, 'tool_result', { tool_use_id: 'cell', content: '42' }),
+    ]);
+    expect(html).toContain('notebook-cell');
+    expect(html).toContain('In [3]');
+    expect(html).toContain('python');
+    expect(html).toContain('print(42)');
+    expect(html).toContain('Show output');
+    expect(html).toContain('Full recorded message');
+    expect(html).not.toContain('step-provenance');
+    expect(html).not.toContain('step-chevron');
+  });
   it('counts tool calls rather than reasoning or result records', async () => {
     const calls = [
       msg(1, 'tool_use', { id: 'a', input: { command: 'ls' } }, 'Bash'),

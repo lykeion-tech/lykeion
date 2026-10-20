@@ -14,7 +14,7 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
 <template>
   <details v-if="grouped" class="run-activity" data-activity-group open>
     <summary>
-      <Icon name="right" :size="11" class="activity-chevron" />
+      <Icon name="right" :size="13" class="activity-chevron" />
       <span class="activity-title">{{
         callCount ? `${working ? 'Running' : 'Ran'} ${callCount} steps` : 'Recorded activity'
       }}</span>
@@ -36,8 +36,8 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
 <style scoped>
 .run-activity {
   margin: 0;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 14px;
+  line-height: 21px;
   color: var(--muted);
   min-width: 0;
 }
@@ -47,7 +47,7 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
   gap: 6px;
   cursor: pointer;
   list-style: none;
-  min-height: 24px;
+  min-height: 26px;
   padding: 1px 4px;
   margin-inline: -4px;
   border-radius: 6px;
@@ -56,10 +56,10 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
   display: none;
 }
 .run-activity > summary:hover {
-  background: var(--hover);
+  background: var(--step-hover, var(--hover));
 }
 .activity-chevron {
-  color: var(--icon-faint);
+  color: var(--step-quiet, var(--icon-faint));
   transition: transform 0.12s;
 }
 .run-activity[open] > summary > .activity-chevron {
@@ -67,16 +67,18 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
 }
 .activity-title {
   color: var(--text);
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 20.3px;
 }
 .activity-count {
   margin-left: auto;
   font:
-    11px ui-monospace,
+    12px/1.4 'JetBrains Mono Variable',
+    ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
-  color: var(--icon-faint);
+  color: var(--step-quiet, var(--icon-faint));
 }
 .activity-error {
   color: var(--error-text);
@@ -85,7 +87,7 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
 .activity-steps {
   list-style: none;
   padding: 0;
-  margin: 0;
+  margin: 0 0 0 -8px;
 }
 .activity-single {
   padding: 0;
@@ -93,7 +95,7 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
 }
 .activity-single :deep(.activity-step + .activity-step > .step-marker) {
   display: block;
-  left: -13px;
+  left: -21px;
 }
 summary:focus-visible {
   outline: 2px solid var(--primary);
