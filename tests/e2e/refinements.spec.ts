@@ -330,10 +330,18 @@ for (const kind of ['researches', 'agents'] as const) {
       kind === 'agents'
         ? await (
             await page.request.post('/api/workspaces', {
-              data: { name: 'Refetch destination', slug: 'refetch-' + Date.now() },
+              data: { name: 'Refetch destination ' + Date.now(), slug: 'refetch-' + Date.now() },
             })
           ).json()
         : null;
+    // The created row's realtime event would cancel the held refetch, so the
+    // create would navigate early, before the test leaves its visit.
+    await page.routeWebSocket(/\/ws$/, (socket) => {
+      const server = socket.connectToServer();
+      server.onMessage((raw) => {
+        if (JSON.parse(String(raw)).type !== 'event') socket.send(raw);
+      });
+    });
     const path = kind === 'researches' ? '/projects' : '/agents';
     const collection = page.waitForResponse(
       (r) => r.request().method() === 'GET' && r.url().endsWith('/api/' + kind),
@@ -343,8 +351,17 @@ for (const kind of ['researches', 'agents'] as const) {
     let release!: () => void, reached!: () => void;
     const held = new Promise<void>((r) => (reached = r)),
       gate = new Promise<void>((r) => (release = r));
+    // Only the create's refetch is held: an earlier read, such as the socket's
+    // on-open refresh, would not list the new row.
+    let created = false;
     await page.route('**/api/' + kind, async (route) => {
       if (route.request().method() !== 'GET') {
+        const response = await route.fetch();
+        created = true;
+        await route.fulfill({ response });
+        return;
+      }
+      if (!created) {
         await route.continue();
         return;
       }
@@ -367,8 +384,8 @@ for (const kind of ['researches', 'agents'] as const) {
     expect(canonical.some((item: { name: string }) => item.name === name)).toBe(true);
     if (kind === 'agents') {
       await page.locator('.workspace-switch').click();
-      await page.getByRole('menuitem', { name: 'Refetch destination', exact: false }).click();
-      await expect(page.locator('.workspace-switch')).toContainText('Refetch destination');
+      await page.getByRole('menuitem', { name: other.name }).click();
+      await expect(page.locator('.workspace-switch')).toContainText(other.name);
       expect(other.id).not.toBe(f.workspace_id);
     } else await page.goto('/#/studies/' + f.card_id);
     release();
