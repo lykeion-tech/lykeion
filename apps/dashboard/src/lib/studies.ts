@@ -240,11 +240,6 @@ export function transcript(
 }
 
 // The stages shown collapsed above the current one.
-export function earlierColumns(card: Card): Column[] {
-  const index = stages.indexOf(card.board_column);
-  return index >= 0 ? stages.slice(0, index) : [];
-}
-
 const blockLabels: Record<BlockKind, string> = {
   '': '',
   low_score: 'low score',

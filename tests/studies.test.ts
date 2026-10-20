@@ -175,13 +175,7 @@ describe('backlog positions', () => {
   });
 });
 
-import {
-  blockLabel,
-  earlierColumns,
-  eventText,
-  recordLine,
-  transcript,
-} from '../apps/dashboard/src/lib/studies';
+import { blockLabel, eventText, recordLine, transcript } from '../apps/dashboard/src/lib/studies';
 import type {
   AgentRun,
   BlockKind,
@@ -216,14 +210,6 @@ const lykEvent = (type: string, payload: Record<string, unknown>, at: string): L
 });
 
 describe('stages and blocks', () => {
-  it('lists the stages before the current one', () => {
-    expect(earlierColumns(card({ board_column: 'experimentation' }))).toEqual([
-      'grounding',
-      'hypotheses',
-    ]);
-    expect(earlierColumns(card({ board_column: 'grounding' }))).toEqual([]);
-    expect(earlierColumns(card({ board_column: 'done', ending: 'stopped' }))).toEqual([]);
-  });
   it('names the block reason', () => {
     const kinds: BlockKind[] = ['', 'low_score'];
     expect(kinds.map(blockLabel)).toEqual(['', 'low score']);
