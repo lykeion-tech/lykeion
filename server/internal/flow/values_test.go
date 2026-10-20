@@ -101,7 +101,7 @@ func TestFreeAndServerKindsAreNotChecked(t *testing.T) {
 		valueRec("r2", "result", map[string]any{"value": 0.5}),
 		valueRec("r3", "result", map[string]any{"value": 0.5, "cites": []string{"call:c1"}}),
 	}, nil)
-	if len(got) != 2 || got[0].Record != "r2" || !got[0].Uncited || got[1].Record != "r3" || !got[1].Uncited {
+	if len(got) != 2 || got[0].Record != "r2" || !got[0].Uncited || got[1].Record != "r3" || got[1].Uncited || !got[1].CallsOnly {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -199,12 +199,16 @@ func TestTheValueLinesJevReads(t *testing.T) {
 		{Record: "r2", Value: "2", Uncited: true},
 		{Record: "r3", Value: "3"},
 		{Record: "r4", Value: "4", Unchecked: "x9"},
+		{Record: "r5", Value: "5", CallsOnly: true},
+		{Record: "r6", Value: "6", Run: "x2", Failed: true, ExitStatus: -1},
 	}, maxJevInput)
 	for _, want := range []string{
 		`- r1: found only in exploration (run_code) x1, not in a script run: "1.5"`,
 		`- r2: cites no run: "2"`,
 		`- r3: not found in any run it cites: "3"`,
 		`- r4: could not be checked: run x9's full output is unreadable: "4"`,
+		`- r5: cites only database calls; values are checked against script runs only: "5"`,
+		`- r6: found only in a script run that failed (exit status -1) x2: "6"`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("no %q in:\n%s", want, s)
@@ -215,5 +219,46 @@ func TestTheValueLinesJevReads(t *testing.T) {
 	}
 	if s := scoringState(scoring{card: db.Card{Number: 1, BoardColumn: "experimentation"}}, nil, nil, maxJevInput); !strings.Contains(s, "Value check, done by Lykeion's code:") || !strings.Contains(s, "No record reports a value.") {
 		t.Errorf("no empty value check in:\n%s", s)
+	}
+}
+
+func TestOnlyAScriptRunThatSucceededCounts(t *testing.T) {
+	runs := map[string]Run{
+		"bad":      {Tool: "run_script", Stdout: "mean 3.14\n", ExitStatus: 1},
+		"timeout":  {Tool: "run_script", Stdout: "mean 3.14\n", ExitStatus: -1},
+		"good":     {Tool: "run_script", Stdout: "mean 3.14\n"},
+		"cell":     {Tool: "run_code", Stdout: "mean 3.14\n"},
+		"lost":     {Tool: "run_code", Unreadable: true},
+		"elsewise": {Tool: "run_script", Stdout: "mean 2.71\n"},
+	}
+	for _, tc := range []struct {
+		cites []string
+		want  ValueMatch
+	}{
+		{[]string{"run:bad", "run:good"}, ValueMatch{Run: "good", Matched: true}},
+		{[]string{"run:bad"}, ValueMatch{Run: "bad", Failed: true, ExitStatus: 1}},
+		{[]string{"run:timeout"}, ValueMatch{Run: "timeout", Failed: true, ExitStatus: -1}},
+		{[]string{"run:cell", "run:bad"}, ValueMatch{Run: "bad", Failed: true, ExitStatus: 1}},
+		{[]string{"run:lost", "run:bad"}, ValueMatch{Run: "bad", Failed: true, ExitStatus: 1}},
+		{[]string{"run:cell", "run:elsewise"}, ValueMatch{Run: "cell", Exploration: true}},
+		{[]string{"run:elsewise"}, ValueMatch{}},
+	} {
+		got := MatchValues([]db.Record{valueRec("r1", "result", map[string]any{"cites": tc.cites, "value": 3.14})}, runs)
+		tc.want.Record, tc.want.Value = "r1", "3.14"
+		if len(got) != 1 || got[0] != tc.want {
+			t.Errorf("%v: got %+v, want %+v", tc.cites, got, tc.want)
+		}
+	}
+}
+
+func TestAValueCitingOnlyCallsIsNotUncited(t *testing.T) {
+	got := MatchValues([]db.Record{
+		valueRec("r1", "result", map[string]any{"value": 1, "cites": []string{"call:c1"}}),
+		valueRec("r2", "result", map[string]any{"value": 1, "cites": []string{"call:c1", "run:x1"}}),
+		valueRec("r3", "result", map[string]any{"value": 1, "cites": []string{}}),
+	}, map[string]Run{"x1": {Tool: "run_script", Stdout: "1"}})
+	want := []ValueMatch{{Record: "r1", Value: "1", CallsOnly: true}, {Record: "r2", Value: "1", Run: "x1", Matched: true}, {Record: "r3", Value: "1", Uncited: true}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %+v", got)
 	}
 }

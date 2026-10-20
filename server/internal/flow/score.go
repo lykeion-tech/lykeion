@@ -456,8 +456,12 @@ func scoringState(in scoring, quotes []QuoteMatch, values []ValueMatch, budget i
 			fmt.Fprintf(&vb, "- %s: found in script run %s: %s\n", v.Record, v.Run, strconv.Quote(text))
 		case v.Unchecked != "":
 			fmt.Fprintf(&vb, "- %s: could not be checked: run %s's full output is unreadable: %s\n", v.Record, v.Unchecked, strconv.Quote(text))
+		case v.Failed:
+			fmt.Fprintf(&vb, "- %s: found only in a script run that failed (exit status %d) %s: %s\n", v.Record, v.ExitStatus, v.Run, strconv.Quote(text))
 		case v.Exploration:
 			fmt.Fprintf(&vb, "- %s: found only in exploration (run_code) %s, not in a script run: %s\n", v.Record, v.Run, strconv.Quote(text))
+		case v.CallsOnly:
+			fmt.Fprintf(&vb, "- %s: cites only database calls; values are checked against script runs only: %s\n", v.Record, strconv.Quote(text))
 		case v.Uncited:
 			fmt.Fprintf(&vb, "- %s: cites no run: %s\n", v.Record, strconv.Quote(text))
 		default:

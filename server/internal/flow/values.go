@@ -29,15 +29,19 @@ type Run struct {
 }
 
 // ValueMatch is one reported value found in a record. Matched is set when a
-// cited script run printed it, Exploration when only a cited run_code run
-// did; Run names that run. Uncited is set when the value's item cites no
-// run. Unchecked names a cited run whose full output could not be read, for a
-// value no script run was seen to print.
+// cited script run that exited with status 0 printed it; Failed when only a
+// cited script run that failed did, ExitStatus being that run's; Exploration
+// when only a cited run_code run did; Run names that run. Uncited is set when
+// the value's item cites nothing, CallsOnly when it cites database calls but
+// no run. Unchecked names a cited run whose full output could not be read,
+// for a value no run that counts was seen to print.
 type ValueMatch struct {
 	Record, Value        string
 	Run                  string
 	Matched, Exploration bool
-	Uncited              bool
+	Failed               bool
+	ExitStatus           int
+	Uncited, CallsOnly   bool
 	Unchecked            string
 }
 
@@ -208,30 +212,46 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 		if d.Decode(&body) != nil {
 			continue
 		}
-		walkValues(body, nil, func(v string, cites []string) {
-			m := ValueMatch{Record: rec.Key, Value: v, Uncited: len(cites) == 0}
+		walkValues(body, nil, false, func(v string, cites []string, calls bool) {
+			m := ValueMatch{Record: rec.Key, Value: v, Uncited: len(cites) == 0 && !calls, CallsOnly: len(cites) == 0 && calls}
 			n, ok := parseNumber(v)
+			// Only a script run that exited with status 0 counts; a timeout's
+			// status is -1.
+			counts := func(r Run) bool { return r.Tool == "run_script" && r.ExitStatus == 0 }
+			var failed, explored, unchecked string
 			for _, k := range cites {
 				r, cited := runs[k]
 				if !cited {
 					continue
 				}
-				found := ok && prints(k, n)
-				if found && r.Tool == "run_script" {
-					m.Matched, m.Exploration, m.Run, m.Unchecked = true, false, k, ""
-					break
+				if ok && prints(k, n) {
+					if counts(r) {
+						m.Matched, m.Run = true, k
+						break
+					}
+					if r.Tool == "run_script" && failed == "" {
+						failed = k
+					} else if r.Tool != "run_script" && explored == "" {
+						explored = k
+					}
 				}
-				if found && !m.Exploration {
-					m.Exploration, m.Run = true, k
-				}
-				if r.Unreadable && (m.Unchecked == "" || r.Tool == "run_script" && runs[m.Unchecked].Tool != "run_script") {
-					m.Unchecked = k
+				if r.Unreadable && (unchecked == "" || counts(r) && !counts(runs[unchecked])) {
+					unchecked = k
 				}
 			}
-			// Once exploration printed the value, an unreadable run_code run
-			// can hide nothing more.
-			if m.Exploration && runs[m.Unchecked].Tool != "run_script" {
-				m.Unchecked = ""
+			// An unreadable run that counts may hold the match, so it
+			// outranks what other runs printed; any other unreadable run
+			// matters only when no run printed the value.
+			switch {
+			case m.Matched:
+			case unchecked != "" && counts(runs[unchecked]):
+				m.Unchecked = unchecked
+			case failed != "":
+				m.Failed, m.Run, m.ExitStatus = true, failed, runs[failed].ExitStatus
+			case explored != "":
+				m.Exploration, m.Run = true, explored
+			default:
+				m.Unchecked = unchecked
 			}
 			out = append(out, m)
 		})
@@ -243,8 +263,9 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 }
 
 // walkValues finds each value as walkQuotes finds quotes, keeping only the
-// `run:` entries of a `cites` list.
-func walkValues(v any, cites []string, found func(value string, cites []string)) {
+// `run:` entries of a `cites` list; calls is set when that list also names a
+// `call:` entry.
+func walkValues(v any, cites []string, calls bool, found func(value string, cites []string, calls bool)) {
 	text := func(e any) (string, bool) {
 		switch e := e.(type) {
 		case json.Number:
@@ -258,16 +279,17 @@ func walkValues(v any, cites []string, found func(value string, cites []string))
 	switch v := v.(type) {
 	case []any:
 		for _, e := range v {
-			walkValues(e, cites, found)
+			walkValues(e, cites, calls, found)
 		}
 	case map[string]any:
 		if list, ok := v["cites"].([]any); ok {
-			cites = nil
+			cites, calls = nil, false
 			for _, c := range list {
 				if s, ok := c.(string); ok {
 					if k, ok := strings.CutPrefix(s, "run:"); ok {
 						cites = append(cites, k)
 					}
+					calls = calls || strings.HasPrefix(s, "call:")
 				}
 			}
 		}
@@ -275,22 +297,22 @@ func walkValues(v any, cites []string, found func(value string, cites []string))
 			switch name {
 			case "value":
 				if s, ok := text(e); ok {
-					found(s, cites)
+					found(s, cites, calls)
 					continue
 				}
 			case "values":
 				if list, ok := e.([]any); ok {
 					for _, x := range list {
 						if s, ok := text(x); ok {
-							found(s, cites)
+							found(s, cites, calls)
 						} else {
-							walkValues(x, cites, found)
+							walkValues(x, cites, calls, found)
 						}
 					}
 					continue
 				}
 			}
-			walkValues(e, cites, found)
+			walkValues(e, cites, calls, found)
 		}
 	}
 }
