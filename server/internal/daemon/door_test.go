@@ -97,6 +97,7 @@ type lykeion struct {
 	runs       []map[string]any
 	runSizes   []int // the length of every body /api/role/runs received
 	failRuns   bool  // answer /api/role/runs with 500
+	noCard     bool  // answer /api/role/runs as for a run without a card
 }
 
 func newLykeion(t *testing.T) *lykeion {
@@ -144,6 +145,11 @@ func newLykeion(t *testing.T) *lykeion {
 				return
 			}
 			l.runs = append(l.runs, body)
+			if l.noCard {
+				w.WriteHeader(201)
+				w.Write([]byte("{}"))
+				return
+			}
 			w.WriteHeader(201)
 			json.NewEncoder(w).Encode(map[string]string{"key": "x" + strconv.Itoa(len(l.runs))})
 		default:

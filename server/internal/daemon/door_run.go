@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -116,22 +117,36 @@ func (d *Door) runCode(ctx context.Context, _ *mcp.CallToolRequest, in runCodeIn
 // Python base's interpreter, which runs the bridge for every language.
 func (d *Door) liveSessions() (*kernels.Sessions, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.closed {
+	s, closed := d.kernels, d.closed
+	d.mu.Unlock()
+	if closed {
 		return nil, errors.New("the run has ended")
 	}
-	if d.kernels != nil {
-		return d.kernels, nil
+	if s != nil {
+		return s, nil
 	}
+	// resolving may create the study's venv, so it runs outside the lock
 	python, _, err := d.interpreter(envs.Python)
 	if err != nil {
 		return nil, err
 	}
-	s, err := kernels.Start(d.ctx, python, d.runEnv(), d.Child().Dir)
+	s, err = kernels.Start(d.ctx, python, d.runEnv(), d.Child().Dir)
 	if err != nil {
 		return nil, err
 	}
+	d.mu.Lock()
+	if d.closed || d.kernels != nil {
+		// the door closed, or another cell started the sessions, meanwhile
+		kept, closed := d.kernels, d.closed
+		d.mu.Unlock()
+		s.Close()
+		if closed {
+			return nil, errors.New("the run has ended")
+		}
+		return kept, nil
+	}
 	d.kernels = s
+	d.mu.Unlock()
 	return s, nil
 }
 
@@ -184,6 +199,9 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	status, errText := cmd.ProcessState.ExitCode(), stderr.String()
 	if ctx.Err() != nil {
 		return nil, nil, errors.New("the run has ended")
+	}
+	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() && runCtx.Err() == nil {
+		errText += fmt.Sprintf("\nthe script was stopped by a signal: %s\n", ws.Signal())
 	}
 	if runCtx.Err() != nil {
 		status = -1

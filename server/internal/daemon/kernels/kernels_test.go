@@ -209,6 +209,20 @@ func TestACancelledCallsReplyIsNotTakenByTheNext(t *testing.T) {
 	}
 }
 
+func TestNoBridgeStartsAfterClose(t *testing.T) {
+	s := startStub(t)
+	s.Close()
+	if _, err := s.Exec(context.Background(), "python", "1"); err == nil {
+		t.Fatal("a cell ran after Close")
+	}
+	s.mu.Lock()
+	started := s.b != nil
+	s.mu.Unlock()
+	if started {
+		t.Fatal("Exec started a bridge after Close")
+	}
+}
+
 func TestRealKernels(t *testing.T) {
 	if os.Getenv("LYK_TEST_ENVS") != "1" {
 		t.Skip("set LYK_TEST_ENVS=1 and LYK_TEST_ENVS_DIR to built bases to run real kernels")

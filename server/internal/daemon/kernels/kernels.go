@@ -48,6 +48,7 @@ type Sessions struct {
 	mu     sync.Mutex
 	b      *bridge
 	nextID int
+	closed bool
 }
 
 type reply struct {
@@ -133,6 +134,9 @@ func (s *Sessions) start() (*bridge, error) {
 func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return Result{}, errors.New("the run's sessions are closed")
+	}
 	if s.b == nil {
 		b, err := s.start()
 		if err != nil {
@@ -186,10 +190,11 @@ func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) 
 // Close shuts the kernels down through the bridge. A bridge that doesn't exit
 // is told to stop, which it also handles by shutting its kernels down, and is
 // killed last. Close waits for a running Exec to return, so a caller cancels
-// that Exec's context first.
+// that Exec's context first. A later Exec is refused.
 func (s *Sessions) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.closed = true
 	if s.b == nil {
 		return nil
 	}

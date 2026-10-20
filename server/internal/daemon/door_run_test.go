@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -114,6 +115,14 @@ func useTool(t *testing.T, d *Door, name string, args map[string]any) (string, e
 	return text(res), nil
 }
 
+// recorded copies the run bodies the fake server kept and the length of every
+// body it received.
+func (l *lykeion) recorded() ([]map[string]any, []int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.runs), slices.Clone(l.runSizes)
+}
+
 func TestRunScriptRecordsTheScriptItsOutputAndPackages(t *testing.T) {
 	l := newLykeion(t)
 	dir := t.TempDir()
@@ -127,10 +136,11 @@ func TestRunScriptRecordsTheScriptItsOutputAndPackages(t *testing.T) {
 	if got != "run:x1\n42\n\n[stderr]\nwarn\n" {
 		t.Fatalf("answer %q", got)
 	}
-	if len(l.runs) != 1 {
-		t.Fatalf("%d runs posted", len(l.runs))
+	runs, _ := l.recorded()
+	if len(runs) != 1 {
+		t.Fatalf("%d runs posted", len(runs))
 	}
-	b := l.runs[0]
+	b := runs[0]
 	want := map[string]any{"tool": "run_script", "language": "python", "path": "a.py", "script": script, "output": "42\n", "error": "warn\n", "exit_status": float64(0), "packages": fakePackages}
 	for k, v := range want {
 		if b[k] != v {
@@ -147,8 +157,8 @@ func TestRunScriptRecordsAFailingExitStatus(t *testing.T) {
 	if got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil || got != "run:x1\n" {
 		t.Fatalf("%q %v", got, err)
 	}
-	if l.runs[0]["exit_status"] != float64(3) {
-		t.Fatalf("exit status %v", l.runs[0]["exit_status"])
+	if runs, _ := l.recorded(); runs[0]["exit_status"] != float64(3) {
+		t.Fatalf("exit status %v", runs[0]["exit_status"])
 	}
 }
 
@@ -159,13 +169,16 @@ func TestRunScriptRefusesAPathOutsideTheRunFolder(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "x.py")
 	must(t, os.WriteFile(outside, []byte("echo out\n"), 0o644))
 	must(t, os.Symlink(outside, filepath.Join(dir, "link.py")))
-	for _, p := range []string{"../x.py", "/etc/x.py", outside, "link.py"} {
+	// a relative path to a file that exists outside the folder
+	up, err := filepath.Rel(dir, outside)
+	must(t, err)
+	for _, p := range []string{"../x.py", up, "/etc/x.py", outside, "link.py"} {
 		if got, err := useTool(t, d, "run_script", map[string]any{"path": p}); err == nil {
 			t.Errorf("%s ran: %q", p, got)
 		}
 	}
-	if len(l.runSizes) != 0 {
-		t.Fatalf("%d runs posted", len(l.runSizes))
+	if _, sizes := l.recorded(); len(sizes) != 0 {
+		t.Fatalf("%d runs posted", len(sizes))
 	}
 }
 
@@ -177,8 +190,11 @@ func TestRunScriptRefusesAnUnknownExtension(t *testing.T) {
 	if got, err := useTool(t, d, "run_script", map[string]any{"path": "a.sh"}); err == nil {
 		t.Fatalf("a.sh ran: %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "ran")); err == nil || len(l.runSizes) != 0 {
-		t.Fatalf("the script ran or was recorded: %d posts", len(l.runSizes))
+	if _, sizes := l.recorded(); len(sizes) != 0 {
+		t.Fatalf("%d runs posted", len(sizes))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran")); err == nil {
+		t.Fatal("the script ran")
 	}
 }
 
@@ -212,7 +228,8 @@ func TestAScriptPastItsTimeLimitIsStopped(t *testing.T) {
 	if err != nil || time.Since(start) > 5*time.Second {
 		t.Fatalf("%q %v after %v", got, err, time.Since(start))
 	}
-	b := l.runs[0]
+	runs, _ := l.recorded()
+	b := runs[0]
 	if b["exit_status"] != float64(-1) || !strings.Contains(b["error"].(string), "the script ran past its time limit of 300ms and was stopped") {
 		t.Fatalf("exit %v error %q", b["exit_status"], b["error"])
 	}
@@ -247,6 +264,37 @@ func TestClosingTheDoorStopsARunningScript(t *testing.T) {
 		t.Fatal("the script's process group is still running")
 	}
 	<-done
+	if _, sizes := l.recorded(); len(sizes) != 0 {
+		t.Fatalf("a script stopped by the run's end was recorded: %d posts", len(sizes))
+	}
+}
+
+func TestAScriptKilledByASignalSaysSo(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("kill -TERM $$\n"), 0o644))
+	got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := l.recorded()
+	if runs[0]["exit_status"] != float64(-1) || !strings.Contains(runs[0]["error"].(string), "the script was stopped by a signal: terminated") || !strings.Contains(got, "stopped by a signal") {
+		t.Fatalf("exit %v error %q answer %q", runs[0]["exit_status"], runs[0]["error"], got)
+	}
+}
+
+func TestARunWithoutACardHasNoKey(t *testing.T) {
+	l := newLykeion(t)
+	l.mu.Lock()
+	l.noCard = true
+	l.mu.Unlock()
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo 42\n"), 0o644))
+	if got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil || got != "42\n" {
+		t.Fatalf("%q %v", got, err)
+	}
 }
 
 func TestRunScriptCutsOutputAtTheCap(t *testing.T) {
@@ -259,8 +307,8 @@ func TestRunScriptCutsOutputAtTheCap(t *testing.T) {
 	if _, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil {
 		t.Fatal(err)
 	}
-	if out := l.runs[0]["output"].(string); out != strings.Repeat("a", 100)+"\n[output cut at 32 MiB]\n" {
-		t.Fatalf("output %q", out)
+	if runs, _ := l.recorded(); runs[0]["output"].(string) != strings.Repeat("a", 100)+"\n[output cut at 32 MiB]\n" {
+		t.Fatalf("output %q", runs[0]["output"])
 	}
 }
 
@@ -274,11 +322,12 @@ func TestARunBodyStaysUnderTheServersLimit(t *testing.T) {
 	if _, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil {
 		t.Fatal(err)
 	}
-	if l.runSizes[0] > 4096 {
-		t.Fatalf("a %d-byte body", l.runSizes[0])
+	runs, sizes := l.recorded()
+	if sizes[0] > 4096 {
+		t.Fatalf("a %d-byte body", sizes[0])
 	}
 	// the error is cut first
-	b := l.runs[0]
+	b := runs[0]
 	if b["output"] != strings.Repeat("a", 3000) || !strings.HasSuffix(b["error"].(string), runCut) {
 		t.Fatalf("output %d bytes, error %q", len(b["output"].(string)), b["error"])
 	}
@@ -294,18 +343,20 @@ func TestRunCodeKeepsASessionAndRecordsEachCell(t *testing.T) {
 			t.Fatalf("cell %d: %q %v, want %q", i+1, got, err, want)
 		}
 	}
-	if len(l.runs) != 2 {
-		t.Fatalf("%d runs posted", len(l.runs))
+	runs, _ := l.recorded()
+	if len(runs) != 2 {
+		t.Fatalf("%d runs posted", len(runs))
 	}
 	for i, code := range []string{"x = 1", "print(x)"} {
-		b := l.runs[i]
+		b := runs[i]
 		if b["tool"] != "run_code" || b["language"] != "python" || b["code"] != code || b["exit_status"] != float64(0) || b["packages"] != fakePackages {
 			t.Fatalf("run %d: %v", i+1, b)
 		}
 	}
 	got, err := useTool(t, d, "run_code", map[string]any{"language": "python", "code": "fail"})
-	if err != nil || got != "run:x3\n\n[stderr]\nboom" || l.runs[2]["exit_status"] != float64(1) {
-		t.Fatalf("a failing cell: %q %v %v", got, err, l.runs[2]["exit_status"])
+	runs, _ = l.recorded()
+	if err != nil || got != "run:x3\n\n[stderr]\nboom" || runs[2]["exit_status"] != float64(1) {
+		t.Fatalf("a failing cell: %q %v %v", got, err, runs[2]["exit_status"])
 	}
 }
 
@@ -317,14 +368,19 @@ func TestRunCodeAnswersNotReadyWhenTheBaseIsMissing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "the R environment isn't ready on this machine") {
 		t.Fatalf("%v", err)
 	}
-	if len(l.runSizes) != 0 || d.kernels != nil {
-		t.Fatalf("%d posts; sessions started %v", len(l.runSizes), d.kernels != nil)
+	d.mu.Lock()
+	started := d.kernels != nil
+	d.mu.Unlock()
+	if _, sizes := l.recorded(); len(sizes) != 0 || started {
+		t.Fatalf("%d posts; sessions started %v", len(sizes), started)
 	}
 }
 
 func TestARunIsWithheldWhenRecordingFails(t *testing.T) {
 	l := newLykeion(t)
+	l.mu.Lock()
 	l.failRuns = true
+	l.mu.Unlock()
 	dir := t.TempDir()
 	d := runDoor(t, l, dir, envs.Python)
 	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo secret-result\n"), 0o644))
@@ -332,8 +388,8 @@ func TestARunIsWithheldWhenRecordingFails(t *testing.T) {
 	if err == nil || strings.Contains(got+err.Error(), "secret-result") {
 		t.Fatalf("%q %v", got, err)
 	}
-	if len(l.runSizes) != 1 {
-		t.Fatalf("%d posts", len(l.runSizes))
+	if _, sizes := l.recorded(); len(sizes) != 1 {
+		t.Fatalf("%d posts", len(sizes))
 	}
 }
 
