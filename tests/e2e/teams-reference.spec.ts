@@ -142,6 +142,11 @@ test('Teams sorts by its latest version and shares Agents column positions and P
   await expect(page.locator('.team-table th').first()).toHaveCSS('padding-bottom', '14px');
   const teamLast = (await page.locator('.team-table th').last().boundingBox())!;
   const teamSort = (await sort.boundingBox())!;
+  const teamNew = (await page.locator('#page-header-actions > *').first().boundingBox())!;
+  expect(teamSort.x + teamSort.width).toBe(teamNew.x + teamNew.width);
+  expect((await page.locator('.agent-search').boundingBox())!.x).toBe(
+    (await page.locator('.page-header h1').boundingBox())!.x,
+  );
   expect(teamLast.x + teamLast.width).toBe(teamSort.x + teamSort.width);
   await expect(page.locator('.team-table th').last()).toHaveCSS('text-align', 'right');
   await expect(rows.first().locator('td').last()).toHaveCSS('text-align', 'right');
@@ -161,6 +166,13 @@ test('Teams sorts by its latest version and shares Agents column positions and P
     .getByRole('button', { name: 'Last updated', exact: true })
     .boundingBox())!;
   expect(agentLast.x + agentLast.width).toBe(agentSort.x + agentSort.width);
+  const agentNew = (await page
+    .getByRole('button', { name: 'New agent', exact: true })
+    .boundingBox())!;
+  expect(agentSort.x + agentSort.width).toBe(agentNew.x + agentNew.width);
+  expect((await page.locator('.agent-search').boundingBox())!.x).toBe(
+    (await page.locator('.page-header h1').boundingBox())!.x,
+  );
   await expect(page.locator('.agent-head > span').last()).toHaveCSS('text-align', 'right');
   expect(teamPositions[0]).toBe((await page.locator('.agent-search').boundingBox())!.x);
   expect((await page.locator('.agent-cell').first().boundingBox())!.x).toBe(agentPositions[0]);

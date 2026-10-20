@@ -158,7 +158,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 <style src="./directory-table.css" />
 <style scoped>
 .team-directory {
-  padding: 4px 24px 32px;
+  padding: 4px 20px 32px;
 }
 .team-toolbar .agent-sort {
   margin-left: 0;

@@ -136,7 +136,7 @@ async function save() {
 }
 </script>
 <template>
-  <section class="directory-page">
+  <section class="directory-page agent-directory">
     <template v-if="create"
       ><header class="agent-create-header">
         <RouterLink to="/agents" class="icon-button" aria-label="Back to agents"
@@ -316,6 +316,9 @@ async function save() {
 <style src="./directory.css" />
 
 <style scoped>
+.agent-directory {
+  padding: 4px 20px 32px;
+}
 .agent-filter {
   margin-left: auto;
 }
