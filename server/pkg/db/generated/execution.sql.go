@@ -29,6 +29,39 @@ func (q *Queries) AddCardSpend(ctx context.Context, arg AddCardSpendParams) erro
 	return err
 }
 
+const agentRunMessage = `-- name: AgentRunMessage :one
+SELECT workspace_id, agent_run_id, attempt, seq, type, tool, content, created_at FROM agent_run_message
+WHERE workspace_id = $1 AND agent_run_id = $2 AND attempt = $3 AND seq = $4
+`
+
+type AgentRunMessageParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	Attempt     int32     `json:"attempt"`
+	Seq         int32     `json:"seq"`
+}
+
+func (q *Queries) AgentRunMessage(ctx context.Context, arg AgentRunMessageParams) (AgentRunMessage, error) {
+	row := q.db.QueryRow(ctx, agentRunMessage,
+		arg.WorkspaceID,
+		arg.AgentRunID,
+		arg.Attempt,
+		arg.Seq,
+	)
+	var i AgentRunMessage
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.AgentRunID,
+		&i.Attempt,
+		&i.Seq,
+		&i.Type,
+		&i.Tool,
+		&i.Content,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const agentRunMessagesAfter = `-- name: AgentRunMessagesAfter :many
 SELECT workspace_id, agent_run_id, attempt, seq, type, tool, content, created_at FROM agent_run_message WHERE workspace_id = $1 AND agent_run_id = $2 AND attempt = $3 AND seq > $4
 ORDER BY seq LIMIT 500

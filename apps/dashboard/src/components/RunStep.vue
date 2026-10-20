@@ -6,11 +6,11 @@ defineProps<{ step: ActivityStep; active?: boolean; nested?: boolean }>();
 <template>
   <li
     class="activity-step"
-    :class="{ nested, failed: step.error, running: active && step.running }"
+    :class="{ nested, recorded: !step.tool, failed: step.error, running: active && step.running }"
     :data-message-type="step.messages[0]!.type"
   >
     <span class="step-marker" aria-hidden="true">{{ step.error ? '×' : '' }}</span>
-    <details class="tool-step">
+    <details class="tool-step" open>
       <summary class="step-heading">
         <span class="step-label">{{ step.title }}</span>
         <Icon name="right" :size="11" class="step-chevron" />
@@ -60,7 +60,7 @@ defineProps<{ step: ActivityStep; active?: boolean; nested?: boolean }>();
   content: '';
   position: absolute;
   width: 1px;
-  left: 3px;
+  left: 7.5px;
   top: 0;
   bottom: 0;
   background: var(--border);
@@ -68,10 +68,10 @@ defineProps<{ step: ActivityStep; active?: boolean; nested?: boolean }>();
 .step-marker {
   display: none;
   position: absolute;
-  left: 1px;
+  left: 4.5px;
   top: 11px;
-  width: 5px;
-  height: 5px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--stage-validation-dot);
   box-shadow: 0 0 0 3px var(--modal);
@@ -79,7 +79,12 @@ defineProps<{ step: ActivityStep; active?: boolean; nested?: boolean }>();
 .nested .step-marker {
   display: block;
 }
+.recorded .step-marker {
+  background: var(--modal);
+  border: 1px solid var(--icon-faint);
+}
 .failed .step-marker {
+  border: 0;
   color: var(--error-text);
   background: var(--modal);
   border-radius: 0;

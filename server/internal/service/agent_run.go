@@ -144,6 +144,7 @@ type Claimed struct {
 
 type Report struct {
 	Usage         []agent.Usage `json:"usage"`
+	NamingUsage   []agent.Usage `json:"naming_usage,omitempty"`
 	SessionID     string        `json:"session_id"`
 	Error         string        `json:"error"`
 	FailureReason string        `json:"failure_reason"`
@@ -157,7 +158,7 @@ type Report struct {
 // check refuses a report that would lower spend or name an unknown reason,
 // and fills in agent_error for a failure that names none.
 func (r *Report) check(ok bool) error {
-	if len(r.Usage) > 32 || (r.FailureReason != "" && !slices.Contains(FailureReasons, r.FailureReason)) ||
+	if len(r.Usage) > 32 || len(r.NamingUsage) > 64 || (r.FailureReason != "" && !slices.Contains(FailureReasons, r.FailureReason)) ||
 		!slices.Contains([]string{"", "workspace_continuity", "private"}, r.Mode) || len(r.PolicyDigest) > 128 || len(r.Model) > 200 {
 		return ErrBadReport
 	}
@@ -183,6 +184,44 @@ func (r *Report) check(ok bool) error {
 			return ErrBadReport
 		}
 		r.Usage[i].CostUSD = &cost
+	}
+	for _, named := range r.NamingUsage {
+		single := Report{Usage: []agent.Usage{named}}
+		if err := single.check(ok); err != nil {
+			return err
+		}
+		addition := single.Usage[0]
+		total += *addition.CostUSD
+		if math.IsInf(total, 0) {
+			return ErrBadReport
+		}
+		found := false
+		for i := range r.Usage {
+			existing := &r.Usage[i]
+			if existing.Model != addition.Model {
+				continue
+			}
+			for _, pair := range [][2]int64{{existing.InputTokens, addition.InputTokens}, {existing.OutputTokens, addition.OutputTokens}, {existing.CacheReadTokens, addition.CacheReadTokens}, {existing.CacheWriteTokens, addition.CacheWriteTokens}} {
+				if pair[1] > math.MaxInt64-pair[0] {
+					return ErrBadReport
+				}
+			}
+			existing.InputTokens += addition.InputTokens
+			existing.OutputTokens += addition.OutputTokens
+			existing.CacheReadTokens += addition.CacheReadTokens
+			existing.CacheWriteTokens += addition.CacheWriteTokens
+			cost := *existing.CostUSD + *addition.CostUSD
+			if math.IsInf(cost, 0) {
+				return ErrBadReport
+			}
+			existing.CostUSD = &cost
+			existing.CostReported = existing.CostReported && addition.CostReported
+			found = true
+			break
+		}
+		if !found {
+			r.Usage = append(r.Usage, addition)
+		}
 	}
 	if ok {
 		r.FailureReason = ""
@@ -628,6 +667,31 @@ func (s *AgentRuns) Messages(ctx context.Context, user uuid.UUID, ref RuntimeRef
 			return ErrConflict
 		}
 		for _, m := range ms {
+			meta, err := agent.ParseStepTitles(m.Content)
+			if err != nil {
+				return ErrBadReport
+			}
+			if meta != nil {
+				if m.Type != "status" {
+					return ErrBadReport
+				}
+				for _, title := range meta.Titles {
+					if title.Seq >= m.Seq {
+						return ErrBadReport
+					}
+					target, err := tx.Q.AgentRunMessage(ctx, db.AgentRunMessageParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run, Attempt: ref.Attempt, Seq: title.Seq})
+					if err != nil {
+						if errors.Is(err, pgx.ErrNoRows) {
+							return ErrBadReport
+						}
+						return err
+					}
+					id, _, _, ok := agent.ToolNamingEvidence(agent.Message{Type: target.Type, Tool: target.Tool, Content: target.Content})
+					if !ok || title.ToolUseID != id {
+						return ErrBadReport
+					}
+				}
+			}
 			if err := tx.Q.InsertAgentRunMessage(ctx, db.InsertAgentRunMessageParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run,
 				Attempt: ref.Attempt, Seq: m.Seq, Type: m.Type, Tool: m.Tool, Content: m.Content}); err != nil {
 				return err
@@ -649,6 +713,7 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 	}
 	// Work on a copy so callers can safely reuse one report concurrently.
 	r.Usage = slices.Clone(r.Usage)
+	r.NamingUsage = slices.Clone(r.NamingUsage)
 	if err := r.check(ok); err != nil {
 		return db.AgentRun{}, err
 	}

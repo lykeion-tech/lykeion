@@ -3,18 +3,24 @@ import { computed } from 'vue';
 import Icon from './Icon.vue';
 import RunStep from './RunStep.vue';
 import type { RunMessage } from '../api/types';
-import { activitySteps } from '../lib/run-transcript';
+import { activitySteps, isActivityGroup } from '../lib/run-transcript';
 const props = defineProps<{ messages: RunMessage[]; active?: boolean }>();
 const steps = computed(() => activitySteps(props.messages));
+const callCount = computed(() => steps.value.filter((step) => step.tool).length);
+const grouped = computed(() => isActivityGroup(steps.value));
 const errors = computed(() => steps.value.filter((s) => s.error).length);
 const working = computed(() => props.active && steps.value.some((s) => s.running));
 </script>
 <template>
-  <details v-if="steps.length > 1" class="run-activity" data-activity-group>
+  <details v-if="grouped" class="run-activity" data-activity-group open>
     <summary>
       <Icon name="right" :size="11" class="activity-chevron" />
-      <span class="activity-title">{{ working ? 'Running' : 'Ran' }} {{ steps.length }} steps</span>
-      <span class="activity-count">{{ steps.length }} steps</span>
+      <span class="activity-title">{{
+        callCount ? `${working ? 'Running' : 'Ran'} ${callCount} steps` : 'Recorded activity'
+      }}</span>
+      <span class="activity-count">{{
+        callCount ? `${callCount} steps` : `${steps.length} records`
+      }}</span>
       <span v-if="errors" class="activity-error"
         >{{ errors }} {{ errors === 1 ? 'error' : 'errors' }}</span
       >
@@ -78,12 +84,16 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
 }
 .activity-steps {
   list-style: none;
-  padding: 0 0 0 6px;
+  padding: 0;
   margin: 0;
 }
 .activity-single {
   padding: 0;
   list-style: none;
+}
+.activity-single :deep(.activity-step + .activity-step > .step-marker) {
+  display: block;
+  left: -13px;
 }
 summary:focus-visible {
   outline: 2px solid var(--primary);

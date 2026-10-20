@@ -81,10 +81,10 @@ describe('reading-first recorded run', () => {
     ]);
     expect(html).toContain('<h1>Evidence</h1>');
     expect(html).toContain('<strong>recorded</strong>');
-    expect(html.indexOf('First <strong>')).toBeLessThan(html.indexOf('Ran 3 steps'));
-    expect(html.indexOf('Ran 3 steps')).toBeLessThan(html.indexOf('<h2>Outcome</h2>'));
+    expect(html.indexOf('First <strong>')).toBeLessThan(html.indexOf('class="step-label"'));
+    expect(html.indexOf('class="step-label"')).toBeLessThan(html.indexOf('<h2>Outcome</h2>'));
     expect(html.match(/Last paragraph\./g)).toHaveLength(1);
-    expect(html).toContain('data-activity-group');
+    expect(html).toContain('class="tool-step"');
     expect(html).not.toContain('Full recorded history');
     expect(html).not.toContain('full-history');
     expect(html).toContain(fullIntent);
@@ -93,11 +93,62 @@ describe('reading-first recorded run', () => {
     expect(result.slice(0, result.indexOf('class="step-payload"'))).toContain(fullOutput);
     expect(result.slice(0, result.indexOf('class="step-payload"'))).toContain('Show output');
     expect(html).toContain('Recorded reasoning');
-    expect(html).not.toMatch(/<details[^>]*\bopen(?:=|>)/);
+    expect(html).toMatch(/<details[^>]*class="tool-step"[^>]*\bopen(?=[\s=>])/);
+    expect(html).not.toMatch(/<details[^>]*class="step-(?:output|payload)"[^>]*\bopen(?=[\s=>])/);
     expect(html).toContain('Error');
     expect(html).not.toContain('step-sequence');
     expect(html).not.toContain('>Recorded</span>');
     expect(html).not.toContain('>Result recorded</span>');
+  });
+  it('counts tool calls rather than reasoning or result records', async () => {
+    const calls = [
+      msg(1, 'tool_use', { id: 'a', input: { command: 'ls' } }, 'Bash'),
+      msg(2, 'thinking', 'Recorded reasoning'),
+      msg(3, 'tool_result', { tool_use_id: 'a', content: 'files' }),
+    ];
+    const single = await render(calls);
+    expect(single).not.toContain('data-activity-group');
+    expect(single).not.toContain('Ran 2 steps');
+    expect(single).toContain('Recorded reasoning');
+    const group = await render([
+      ...calls,
+      msg(4, 'tool_use', { id: 'b', input: { command: 'pwd' } }, 'Bash'),
+    ]);
+    expect(group).toContain('Ran 2 steps');
+    expect(group).toMatch(/<details[^>]*data-activity-group[^>]*\bopen(?=[\s=>])/);
+    expect(group).not.toContain('Ran 3 steps');
+  });
+  it('keeps unmatched recorded failures visible on the rail', async () => {
+    const html = await render([
+      msg(1, 'tool_result', {
+        tool_use_id: 'missing',
+        is_error: true,
+        content: 'The recorded action failed.',
+      }),
+    ]);
+    expect(html).toContain('mark-fail');
+  });
+  it('marks each direct activity row from its own recorded state', async () => {
+    const html = await render([
+      msg(1, 'tool_use', { id: 'a', input: { command: 'ls' } }, 'Bash'),
+      msg(2, 'tool_result', { tool_use_id: 'a', content: 'files' }),
+      msg(3, 'tool_result', {
+        tool_use_id: 'unmatched',
+        is_error: true,
+        content: 'failed elsewhere',
+      }),
+    ]);
+    expect(html).toContain('class="mark-ok turn-item"');
+    expect(html).toContain('activity-step recorded failed');
+    const thinkingFirst = await render(
+      [
+        msg(1, 'thinking', 'Recorded reasoning'),
+        msg(2, 'tool_use', { id: 'a', input: { command: 'ls' } }, 'Bash'),
+      ],
+      { status: 'running' },
+    );
+    expect(thinkingFirst).toContain('class="mark-message turn-item"');
+    expect(thinkingFirst).toContain('activity-step running');
   });
   it.each(['claude', 'codex'])(
     'preserves adjacent complete %s text records as independent Markdown blocks',

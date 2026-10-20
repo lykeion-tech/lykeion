@@ -60,7 +60,6 @@ test('the study opens with a compact overview and identifiable runs, keeping the
   );
   await expect(cells.nth(1)).not.toHaveClass(/cell-error/);
   await transcript.getByRole('tab', { name: 'Transcript' }).click();
-  await transcript.locator('.run-activity > summary').first().click();
   await expect(transcript.getByText('lyk card show', { exact: true }).first()).toBeVisible();
   // A leader that stops without finishing is nudged once, so the scripted run
   // has a second turn that says the same.
@@ -580,8 +579,7 @@ test('expanded run preserves every ordered recorded message and full tool conten
   await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   await expect(page.locator('.markdown-body').first()).toContainText('Attempt 2 message 001');
   await expect(page.getByText('Full recorded history', { exact: true })).toHaveCount(0);
-  await page.locator('.run-activity > summary').click();
-  const messages = page.locator('.activity-steps > li');
+  const messages = page.locator('.activity-step');
   await expect(messages).toHaveCount(3);
   await expect(page.locator('.markdown-body')).toHaveCount(498);
   await messages.nth(0).locator('.step-payload > summary').click();
@@ -590,11 +588,11 @@ test('expanded run preserves every ordered recorded message and full tool conten
   await expect(messages.nth(2)).toContainText('Recorded continuity status');
   await messages.nth(0).evaluate((el) => el.scrollIntoView({ block: 'start' }));
   await page.screenshot({
-    path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/final-fix-artifacts/expanded-run.png',
+    path: 'test-results/l2-transcript/expanded-run.png',
     fullPage: true,
   });
   expect(
-    await page.locator('.transcript-scroll').evaluate((el) => el.scrollWidth - el.clientWidth),
+    await page.locator('.run-panel').evaluate((el) => el.scrollWidth - el.clientWidth),
   ).toBeLessThanOrEqual(0);
 });
 

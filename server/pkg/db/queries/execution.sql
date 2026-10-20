@@ -158,3 +158,7 @@ SELECT EXISTS (
   SELECT 1 FROM event WHERE workspace_id = @workspace_id AND card_id = @card_id
     AND type = 'blob.created' AND payload->>'blob_key' = @blob_key::text
 )::boolean;
+
+-- name: AgentRunMessage :one
+SELECT * FROM agent_run_message
+WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt = @attempt AND seq = @seq;

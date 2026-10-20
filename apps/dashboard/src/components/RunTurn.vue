@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
 import RunActivity from './RunActivity.vue';
-import { activityStep, liveStatus, transcriptBlocks } from '../lib/run-transcript';
+import {
+  activitySteps,
+  isActivityGroup,
+  liveStatus,
+  transcriptBlocks,
+} from '../lib/run-transcript';
 import { useRunMessages } from '../api/queries';
 import type { AgentRun } from '../api/types';
 import { readableAssignment } from '../lib/studies';
@@ -33,19 +38,24 @@ const blocks = computed(() => {
   const list = transcriptBlocks(messages.data.value ?? [], {
     joinText: props.run.harness === 'antigravity',
   });
-  return list.map((block, i) => ({
-    ...block,
-    mark:
+  return list.map((block, i) => {
+    const steps = block.kind === 'activity' ? activitySteps(block.messages) : [];
+    const markedSteps = isActivityGroup(steps) ? steps : steps.slice(0, 1);
+    const mark =
       block.kind === 'text'
         ? 'mark-message'
-        : block.messages.some((m) => activityStep(m).error)
+        : markedSteps.some((step) => step.error)
           ? 'mark-fail'
-          : active.value &&
-              block.messages[0]?.attempt === props.run.attempt &&
-              i === list.length - 1
-            ? 'mark-run'
-            : 'mark-ok',
-  }));
+          : !markedSteps.some((step) => step.tool)
+            ? 'mark-message'
+            : active.value &&
+                block.messages[0]?.attempt === props.run.attempt &&
+                i === list.length - 1 &&
+                markedSteps.some((step) => step.running)
+              ? 'mark-run'
+              : 'mark-ok';
+    return { ...block, mark };
+  });
 });
 const ending = computed(() => {
   const r = props.run;
@@ -143,7 +153,7 @@ const ending = computed(() => {
 .turn-timeline::before {
   content: '';
   position: absolute;
-  left: 4px;
+  left: 10px;
   top: 10px;
   bottom: 10px;
   width: 1px;
@@ -157,10 +167,10 @@ const ending = computed(() => {
 .turn-item::before {
   content: '';
   position: absolute;
-  left: -18px;
-  top: 13px;
-  width: 5px;
-  height: 5px;
+  left: -13px;
+  top: 12px;
+  width: 7px;
+  height: 7px;
   box-sizing: border-box;
   border-radius: 50%;
   box-shadow: 0 0 0 3px var(--modal);
@@ -186,7 +196,7 @@ const ending = computed(() => {
   animation: turn-spin 1s linear infinite;
 }
 .mark-fail::before {
-  left: -20px;
+  left: -14px;
   top: 11px;
   width: 9px;
   height: 9px;

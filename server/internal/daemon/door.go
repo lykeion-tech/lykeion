@@ -79,9 +79,10 @@ var (
 )
 
 type callIn struct {
-	Server string         `json:"server" jsonschema:"the connector, as lyk tools names it; sources for literature and GEO"`
-	Tool   string         `json:"tool" jsonschema:"the connector's tool; a catalogue connector's tool is fetch"`
-	Args   map[string]any `json:"args,omitempty" jsonschema:"the tool's arguments"`
+	HumanDescription string         `json:"human_description,omitempty" jsonschema:"A short plain-language action phrase explaining this call to the researcher: 2 to 8 words, one line, at most 80 characters. Presentation only; never forwarded to the connector."`
+	Server           string         `json:"server" jsonschema:"the connector, as lyk tools names it; sources for literature and GEO"`
+	Tool             string         `json:"tool" jsonschema:"the connector's tool; a catalogue connector's tool is fetch"`
+	Args             map[string]any `json:"args,omitempty" jsonschema:"the tool's arguments"`
 }
 
 // Start mints the door's token and listens on a free loopback port.

@@ -3,6 +3,26 @@
 case "$1" in
   --version) echo '2.1.0 (Claude Code)'; exit 0 ;;
 esac
+# Naming is an independent, tool-free conversation. Its fixture never invokes
+# lyk or writes a research result from that conversation.
+previous=''
+for option in "$@"; do
+  if [ "$previous" = '--tools' ] && [ -z "$option" ]; then
+    count=0
+    while IFS= read -r prompt; do
+      count=$((count+1))
+      case "$prompt" in
+        *'lyk card show'*'lyk result failed'*) title='1. Inspect the study record\n2. Record the failed run outcome' ;;
+        *'lyk result failed'*) title='1. Record the failed run outcome' ;;
+        *) title='1. Inspect the study record' ;;
+      esac
+      printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$title"
+      printf '{"type":"result","is_error":false,"session_id":"naming-fixture","modelUsage":{"m":{"inputTokens":%s,"outputTokens":%s,"costUSD":0.001}}}\n' "$count" "$count"
+    done
+    exit 0
+  fi
+  previous=$option
+done
 # Stands in for Claude Code in the dashboard's browser-test lab. It reports recorded writing and two
 # commands with inspectable results, then records that it failed, so every card it
 # works on is escalated at once and reaches the Inbox. The prompt arrives on

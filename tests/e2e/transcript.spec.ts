@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { newStudy, labFixture, openAgentTranscript } from './lab';
-const artifacts = '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-4-artifacts';
+const artifacts = 'test-results/l2-transcript';
 
 test('real scripted CLI writing reads naturally and expanded activity stays compact with full recorded data', async ({
   page,
@@ -34,30 +34,43 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await expect(turn.locator('img,script,iframe')).toHaveCount(0);
   expect(await page.evaluate(() => 'transcriptUnsafe' in window)).toBe(false);
   expect(external).toEqual([]);
+  const fontLoaded = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts].some(
+      (font) => font.family.includes('Inter Variable') && font.status === 'loaded',
+    );
+  });
+  expect(fontLoaded).toBe(true);
   const groups = turn.locator('.run-activity');
   await expect(groups).toHaveCount(2);
   await expect(groups.first()).not.toHaveAttribute('open');
   await expect(turn.locator('.run-activity[open]')).toHaveCount(0);
   await main.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
   await page.screenshot({ path: `${artifacts}/reading-light-1920.png` });
-  await groups.first().locator(':scope > summary').focus();
+  await expect(groups.first().locator('.activity-title')).toHaveCount(0);
+  const call = groups.first().locator('.activity-step[data-message-type="tool_use"]');
+  await expect(call.getByText('Inspect the study record', { exact: true })).toBeVisible();
+  await expect(call.locator('.tool-step')).toHaveAttribute('open', '');
+  await page.screenshot({ path: `${artifacts}/compact-steps-light-1920.png` });
+  await call.locator('.tool-step > summary').focus();
   await page.keyboard.press('Enter');
-  await expect(groups.first()).toHaveAttribute('open', '');
-  await expect(groups.first().getByText('lyk card show', { exact: true })).toBeVisible();
-  await expect(groups.first().getByText('Tool result', { exact: true })).toBeVisible();
-  await expect(groups.first().getByText('Error', { exact: true })).toBeVisible();
+  await expect(call.locator('.tool-step')).not.toHaveAttribute('open');
+  await page.keyboard.press('Enter');
+  await expect(call.locator('.tool-step')).toHaveAttribute('open', '');
+  await expect(call.getByText('lyk card show', { exact: true })).toBeVisible();
+  await expect(call.locator('.activity-error')).toContainText('Error');
   await expect(
     groups
       .first()
       .getByText('Recorded lab reasoning remains collapsed by default.', { exact: true }),
   ).toBeHidden();
   await expect(groups.first().locator('.step-output[open]')).toHaveCount(0);
-  await expect(groups.first().locator('.step-intent')).toHaveCSS('white-space', 'normal');
+  await expect(groups.first().locator('.step-intent')).toHaveCSS('white-space', 'pre-wrap');
   await expect(groups.first().locator('.step-intent')).toHaveCSS('overflow-x', 'visible');
   await expect(groups.first().locator('.step-payload[open]')).toHaveCount(0);
   await main.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
   await page.screenshot({ path: `${artifacts}/activity-expanded-light-1920.png` });
-  const output = groups.first().locator('[data-message-type="tool_result"] .step-output');
+  const output = call.locator('.step-output');
   await expect(output.locator('pre')).toBeHidden();
   await output.locator('summary').click();
   await expect(output.locator('pre')).toHaveText(
@@ -66,11 +79,11 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await expect(output.locator('pre')).toHaveCSS('max-height', 'none');
   await output.locator('summary').click();
   await turn.getByRole('button', { name: 'Copy code', exact: true }).click();
-  await expect(turn.getByRole('status')).toHaveText('Code copied');
+  await expect(turn.locator('.copy-notice:not(:empty)')).toHaveText('Code copied');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
     'long recorded value',
   );
-  const payload = groups.first().locator('[data-message-type="tool_result"] .step-payload');
+  const payload = call.locator('.step-payload[data-message-type="tool_result"]');
   await expect(turn.locator('.step-sequence')).toHaveCount(0);
   await expect(turn.locator('.step-state').filter({ hasText: /recorded/i })).toHaveCount(0);
   await payload.locator('summary').click();
@@ -86,6 +99,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await openAgentTranscript(page);
   await expect(turn.getByRole('heading', { name: 'Recorded observations' })).toBeVisible();
   await expect(turn.locator('.run-activity[open]')).toHaveCount(0);
+  await expect(turn.getByText('Inspect the study record', { exact: true })).toBeVisible();
   await main.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
   await page.screenshot({ path: `${artifacts}/reading-dark-1920.png` });
   await page.setViewportSize({ width: 800, height: 982 });
@@ -98,7 +112,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await page.route('**/RecordedMarkdown.vue*', (route) => route.abort('failed'));
   await page.reload();
   await openAgentTranscript(page);
-  await expect(turn.getByRole('status')).toHaveText(
+  await expect(turn.locator('.formatting-notice')).toHaveText(
     'Markdown formatting is unavailable; showing recorded text.',
   );
   await expect(turn.locator('.turn-assignment .recorded-text-fallback')).toContainText(
@@ -137,20 +151,19 @@ test('current attempt pagination retains every message and compact raw payload a
   await page.setViewportSize({ width: 1920, height: 1080 });
   await turn.locator('.markdown-body').first().scrollIntoViewIfNeeded();
   await page.screenshot({
-    path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/final-fix-artifacts/adjacent-recorded-text-1920.png',
+    path: `${artifacts}/adjacent-recorded-text-1920.png`,
   });
 
   expect(urls.some((url) => url.includes('attempt=2&after=500'))).toBe(true);
   expect(urls.every((url) => url.includes('attempt=2'))).toBe(true);
-  await turn.locator('.run-activity > summary').click();
   await turn
-    .locator('.run-activity [data-message-type="tool_result"] .step-output > summary')
+    .locator('.run-activity .activity-step[data-message-type="tool_result"] .step-output > summary')
     .click();
   await expect(turn.getByText('Recorded tool refusal', { exact: true })).toBeVisible();
   const tool = turn.locator('.run-activity .step-payload').first();
   await tool.locator('summary').click();
   await expect(tool.locator('pre')).toContainText('END OF FULL TOOL INPUT');
   await expect(turn.getByText('Full recorded history', { exact: true })).toHaveCount(0);
-  await expect(turn.locator('.activity-steps > li')).toHaveCount(3);
+  await expect(turn.locator('.activity-step')).toHaveCount(3);
   await expect(turn.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
 });

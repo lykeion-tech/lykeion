@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"lykeion/server/internal/apiclient"
@@ -163,14 +164,28 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	var sinkErr error
 	var sequence int32
-	sink := func(m agent.Message) error {
+	var sequenceMu sync.Mutex
+	messageRef := Report{AgentRunID: r.AgentRunID, WorkspaceID: r.WorkspaceID, RuntimeID: r.RuntimeID, Attempt: r.Attempt}
+	var namer *stepNamer
+	appendMessage := func(m agent.Message) (int32, error) {
+		sequenceMu.Lock()
+		defer sequenceMu.Unlock()
 		if sequence == math.MaxInt32 {
-			sinkErr = errors.New("message sequence exhausted")
-			return sinkErr
+			return 0, errors.New("message sequence exhausted")
 		}
 		sequence++
-		sinkErr = d.persistMessage(r, sequence, m)
-		return sinkErr
+		return sequence, d.persistMessage(messageRef, sequence, m)
+	}
+	sink := func(m agent.Message) error {
+		seq, err := appendMessage(m)
+		if err != nil {
+			sinkErr = errors.Join(sinkErr, err)
+			return err
+		}
+		if namer != nil {
+			namer.saw(seq, m)
+		}
+		return nil
 	}
 	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + filepath.Dir(self) + string(os.PathListSeparator) + os.Getenv("PATH"),
@@ -221,13 +236,23 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		opts.Resume, opts.ClaudeBaseline = "", nil
 	}
 
+	namer = newStepNamer(runCtx, func(ctx context.Context) (toolNamingSession, error) { return d.openToolNamer(ctx, c) }, func(titles agent.StepTitles) error {
+		_, err := appendMessage(agent.Message{Type: "status", Content: rawJSON(titles)})
+		return err
+	})
+	defer func() { usage, err := namer.finish(); r.NamingUsage = usage; localErr = errors.Join(localErr, err) }()
 	// execute returns the launch error, or the result and the stream error.
 	execute := func() (res agent.Result, streamErr, launchErr error) {
 		sess, err := backend.Execute(runCtx, prompt, opts)
 		if err != nil {
 			return res, nil, err
 		}
-		streamErr = d.stream(r, sess.Messages, cancel)
+		for message := range sess.Messages {
+			if err := sink(message); err != nil {
+				streamErr = errors.Join(streamErr, err)
+				cancel()
+			}
+		}
 		res, ok := <-sess.Done
 		if !ok {
 			res.Err = errors.New("backend closed without a result")

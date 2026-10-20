@@ -37,6 +37,7 @@ type Report struct {
 
 	Kind          string        `json:"kind"`
 	Usage         []agent.Usage `json:"usage,omitempty"`
+	NamingUsage   []agent.Usage `json:"naming_usage,omitempty"`
 	SessionID     string        `json:"session_id,omitempty"`
 	Error         string        `json:"error,omitempty"`
 	FailureReason string        `json:"failure_reason,omitempty"`

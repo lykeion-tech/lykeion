@@ -100,6 +100,7 @@ type claimed struct {
 	WorkspaceConnectors []service.WorkspaceConnectorClaim `json:"workspace_connectors,omitempty"`
 }
 type daemon struct {
+	namingSlots     chan struct{}
 	cfg             Config
 	versions        map[string]string // harness → its CLI version, read once at start
 	platform        agent.Platform    // the machine's platform, read once at start
@@ -422,7 +423,7 @@ func (d *daemon) send(ctx context.Context, r Report) error {
 	return d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+r.AgentRunID.String()+"/"+r.Kind, reportBody(r), nil)
 }
 func reportBody(r Report) map[string]any {
-	return map[string]any{"workspace_id": r.WorkspaceID, "runtime_id": r.RuntimeID, "attempt": r.Attempt, "usage": r.Usage, "session_id": r.SessionID, "error": r.Error, "failure_reason": r.FailureReason, "mode": r.Mode, "policy_digest": r.PolicyDigest, "model": r.Model}
+	return map[string]any{"workspace_id": r.WorkspaceID, "runtime_id": r.RuntimeID, "attempt": r.Attempt, "usage": r.Usage, "naming_usage": r.NamingUsage, "session_id": r.SessionID, "error": r.Error, "failure_reason": r.FailureReason, "mode": r.Mode, "policy_digest": r.PolicyDigest, "model": r.Model}
 }
 func (d *daemon) sendMessages(ctx context.Context, r Report) error {
 	return d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+r.AgentRunID.String()+"/messages", messageBody(r), nil)

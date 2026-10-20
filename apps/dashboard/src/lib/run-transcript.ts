@@ -280,7 +280,7 @@ function validTitle(value: unknown, supplied = false): string {
   const text = value.trim();
   const words = text.split(/\s+/).length;
   return text &&
-    text.length <= 80 &&
+    Array.from(text).length <= 80 &&
     !/[\r\n<>]/.test(text) &&
     words <= (supplied ? 8 : 6) &&
     (!supplied || words >= 2)
@@ -290,6 +290,11 @@ function validTitle(value: unknown, supplied = false): string {
 function suppliedDescription(input: Record<string, unknown>): string {
   return validTitle(input.human_description, true) || validTitle(input.description, true);
 }
+export function isActivityGroup(steps: readonly ActivityStep[]): boolean {
+  const calls = steps.filter((step) => step.tool).length;
+  return calls > 1 || (calls === 0 && steps.length > 1);
+}
+
 export function activitySteps(messages: readonly RunMessage[]): ActivityStep[] {
   const steps: ActivityStep[] = [];
   const calls = new Map<string, ActivityStep>();
@@ -323,7 +328,7 @@ export function activitySteps(messages: readonly RunMessage[]): ActivityStep[] {
       bare === 'call_tool' && typeof call.input.tool === 'string' ? call.input.tool : bare;
     const readableTool = named.replace(/[_-]+/g, ' ');
     const fallback = activity.detail
-      ? `${activity.label} ${activity.detail}`
+      ? `${activity.label} ${command(call.input) ? activity.detail.split('\n')[0] : activity.detail}`
       : readableTool || activity.label;
     const step: ActivityStep = {
       ...activity,
