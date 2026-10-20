@@ -756,7 +756,12 @@ async function save() {
   overflow: hidden;
 }
 .project-directory {
-  padding: 54px 24px 32px;
+  padding: 8px 24px 32px;
+}
+.projects-table th {
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 .table-priority {
   display: flex;

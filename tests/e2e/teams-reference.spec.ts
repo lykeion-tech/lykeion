@@ -164,9 +164,10 @@ test('Teams sorts by its latest version and shares Agents column positions and P
     .locator('.projects-table th')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
   expect(projectPositions).toEqual(agentPositions);
-  expect((await heading.boundingBox())!.y).toBe(teamHeaderY);
+  expect((await heading.boundingBox())!.y).toBe(teamHeaderY - 46);
   await expect(heading).toHaveCSS('border-bottom-width', '0px');
-  await expect(heading).toHaveCSS('padding-bottom', '14px');
+  await expect(heading).toHaveCSS('padding-bottom', '0px');
+  expect((await heading.boundingBox())!.height).toBe(32);
   await expect(heading).toHaveCSS('font-size', style.size);
   await expect(heading).toHaveCSS('font-weight', style.weight);
   await expect(heading).toHaveCSS('color', style.color);
