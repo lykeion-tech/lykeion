@@ -15,20 +15,49 @@ export function transcriptBlocks(
   { joinText = false } = {},
 ): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
+  const owners = new Map<string, RunMessage>();
+  const results = new Map<RunMessage, RunMessage[]>();
+  const paired = new Set<RunMessage>();
   for (const message of sorted(messages)) {
+    if (message.type !== 'tool_use' && message.type !== 'tool_result') continue;
+    const call = toolCall(message);
+    if (!call.id) continue;
+    const key = `${message.attempt}:${call.id}`;
+    if (message.type === 'tool_use') owners.set(key, message);
+    else {
+      const owner = owners.get(key);
+      if (owner) {
+        results.set(owner, [...(results.get(owner) ?? []), message]);
+        paired.add(message);
+      }
+    }
+  }
+  for (const message of sorted(messages)) {
+    if (paired.has(message)) continue;
+    if (isStepTitles(message)) continue;
     const kind =
       message.type === 'text' && typeof message.content === 'string' ? 'text' : 'activity';
     const previous = blocks.at(-1);
     const text = kind === 'text' ? (message.content as string) : '';
     const sameAttempt = previous?.messages[0]?.attempt === message.attempt;
     if (kind === 'activity' && previous?.kind === kind && sameAttempt) {
-      previous.messages.push(message);
+      previous.messages.push(message, ...(results.get(message) ?? []));
     } else if (kind === 'text' && joinText && previous?.kind === kind && sameAttempt) {
       previous.text += text;
       previous.messages.push(message);
     } else {
-      blocks.push({ key: `${message.attempt}:${message.seq}`, kind, text, messages: [message] });
+      blocks.push({
+        key: `${message.attempt}:${message.seq}`,
+        kind,
+        text,
+        messages: [message, ...(results.get(message) ?? [])],
+      });
     }
+  }
+  const metadata = messages.filter(isStepTitles);
+  for (const block of blocks) {
+    if (block.kind === 'activity')
+      block.messages.push(...metadata.filter((m) => m.attempt === block.messages[0]?.attempt));
   }
   return blocks;
 }
@@ -228,6 +257,89 @@ export function activityStep(message: RunMessage) {
       ? call.output
       : readable(object(message.content).content) || readable(message.content);
   return { label, detail, state: recordedState, error: call.error, output };
+}
+
+export interface ActivityStep {
+  key: string;
+  messages: RunMessage[];
+  title: string;
+  label: string;
+  detail: string;
+  output: string;
+  state: string;
+  error: boolean;
+  tool: boolean;
+  running: boolean;
+}
+function isStepTitles(message: RunMessage): boolean {
+  const data = object(message.content);
+  return message.type === 'status' && data.type === 'tool_step_titles' && data.version === 1;
+}
+function validTitle(value: unknown, supplied = false): string {
+  if (typeof value !== 'string') return '';
+  const text = value.trim();
+  const words = text.split(/\s+/).length;
+  return text &&
+    text.length <= 80 &&
+    !/[\r\n<>]/.test(text) &&
+    words <= (supplied ? 8 : 6) &&
+    (!supplied || words >= 2)
+    ? text
+    : '';
+}
+function suppliedDescription(input: Record<string, unknown>): string {
+  return validTitle(input.human_description, true) || validTitle(input.description, true);
+}
+export function activitySteps(messages: readonly RunMessage[]): ActivityStep[] {
+  const steps: ActivityStep[] = [];
+  const calls = new Map<string, ActivityStep>();
+  const titles = new Map<string, string>();
+  for (const message of messages.filter(isStepTitles)) {
+    const entries = object(message.content).titles;
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      const data = object(entry);
+      const title = validTitle(data.title);
+      if (Number.isInteger(data.seq) && title) titles.set(`${message.attempt}:${data.seq}`, title);
+    }
+  }
+  for (const message of sorted(messages)) {
+    if (isStepTitles(message)) continue;
+    const call = toolCall(message);
+    const id = call.id ? `${message.attempt}:${call.id}` : '';
+    const previous = message.type === 'tool_result' && id ? calls.get(id) : undefined;
+    if (previous) {
+      previous.messages.push(message);
+      previous.output = [previous.output, call.output].filter(Boolean).join('\n');
+      previous.error ||= call.error;
+      previous.state = previous.error ? 'Error' : 'Completed';
+      previous.running = false;
+      continue;
+    }
+    const activity = activityStep(message);
+    const tool = message.type === 'tool_use';
+    const bare = toolName(call.tool).replace(/^mcp(?:__|\.)[^.]+?(?:__|\.)/, '');
+    const named =
+      bare === 'call_tool' && typeof call.input.tool === 'string' ? call.input.tool : bare;
+    const readableTool = named.replace(/[_-]+/g, ' ');
+    const fallback = activity.detail
+      ? `${activity.label} ${activity.detail}`
+      : readableTool || activity.label;
+    const step: ActivityStep = {
+      ...activity,
+      key: `${message.attempt}:${message.seq}`,
+      messages: [message],
+      title:
+        titles.get(`${message.attempt}:${message.seq}`) ||
+        suppliedDescription(call.input) ||
+        fallback,
+      tool,
+      running: tool && !call.output && !call.state && call.exit === undefined,
+    };
+    steps.push(step);
+    if (tool && id) calls.set(id, step);
+  }
+  return steps;
 }
 
 const codeLanguages: Record<string, string> = {

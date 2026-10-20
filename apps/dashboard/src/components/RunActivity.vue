@@ -1,72 +1,37 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import Icon from './Icon.vue';
+import RunStep from './RunStep.vue';
 import type { RunMessage } from '../api/types';
-import { activityStep, recordedContent } from '../lib/run-transcript';
-const props = defineProps<{ messages: RunMessage[] }>();
-const steps = computed(() =>
-  props.messages.map((message) => ({ message, ...activityStep(message) })),
-);
-const count = (n: number) => `${n} ${n === 1 ? 'step' : 'steps'}`;
-const errors = computed(() => steps.value.filter((step) => step.error).length);
+import { activitySteps } from '../lib/run-transcript';
+const props = defineProps<{ messages: RunMessage[]; active?: boolean }>();
+const steps = computed(() => activitySteps(props.messages));
+const errors = computed(() => steps.value.filter((s) => s.error).length);
+const working = computed(() => props.active && steps.value.some((s) => s.running));
 </script>
 <template>
-  <details class="run-activity" data-activity-group>
+  <details v-if="steps.length > 1" class="run-activity" data-activity-group>
     <summary>
       <Icon name="right" :size="11" class="activity-chevron" />
-      <span>{{ `Ran ${count(messages.length)}` }}</span>
-      <span class="activity-count">{{ count(messages.length) }}</span>
+      <span class="activity-title">{{ working ? 'Running' : 'Ran' }} {{ steps.length }} steps</span>
+      <span class="activity-count">{{ steps.length }} steps</span>
       <span v-if="errors" class="activity-error"
         >{{ errors }} {{ errors === 1 ? 'error' : 'errors' }}</span
       >
     </summary>
     <ol class="activity-steps" aria-label="Recorded activity">
-      <li
-        v-for="step in steps"
-        :key="`${step.message.attempt}:${step.message.seq}`"
-        :data-message-type="step.message.type"
-      >
-        <div class="step-heading">
-          <span class="step-label">{{ step.label }}</span
-          ><span v-if="step.detail" class="step-intent" :title="step.detail">{{ step.detail }}</span
-          ><span
-            v-if="!['Recorded', 'Result recorded'].includes(step.state)"
-            class="step-state"
-            :class="{ 'activity-error': step.error }"
-            >{{ step.state }}</span
-          >
-        </div>
-        <details v-if="step.output" class="step-output">
-          <summary>
-            <span class="when-closed">{{
-              step.message.type === 'thinking'
-                ? 'Show recorded reasoning'
-                : step.message.type === 'text'
-                  ? 'Show recorded text'
-                  : 'Show output'
-            }}</span>
-            <span class="when-open">{{
-              step.message.type === 'thinking'
-                ? 'Hide recorded reasoning'
-                : step.message.type === 'text'
-                  ? 'Hide recorded text'
-                  : 'Hide output'
-            }}</span>
-          </summary>
-          <pre tabindex="0">{{ step.output }}</pre>
-        </details>
-        <details class="step-payload">
-          <summary>Full recorded message</summary>
-          <pre tabindex="0">{{ recordedContent(step.message) }}</pre>
-        </details>
-      </li>
+      <RunStep v-for="step in steps" :key="step.key" :step="step" :active="active" nested />
     </ol>
   </details>
+  <ol v-else class="run-activity activity-single" aria-label="Recorded activity">
+    <RunStep v-for="step in steps" :key="step.key" :step="step" :active="active" />
+  </ol>
 </template>
 <style scoped>
 .run-activity {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 20px;
   color: var(--muted);
   min-width: 0;
 }
@@ -77,8 +42,8 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
   cursor: pointer;
   list-style: none;
   min-height: 24px;
-  font-size: 13px;
-  line-height: 20px;
+  padding: 1px 4px;
+  margin-inline: -4px;
   border-radius: 6px;
 }
 .run-activity > summary::-webkit-details-marker {
@@ -89,103 +54,44 @@ const errors = computed(() => steps.value.filter((step) => step.error).length);
 }
 .activity-chevron {
   color: var(--icon-faint);
-  transition: transform 0.15s;
+  transition: transform 0.12s;
 }
 .run-activity[open] > summary > .activity-chevron {
   transform: rotate(90deg);
 }
-.run-activity > summary > span:nth-child(2) {
+.activity-title {
   color: var(--text);
-  font-weight: 600;
+  font-weight: 500;
 }
 .activity-count {
   margin-left: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
-}
-.activity-error {
-  color: var(--error-text);
-}
-.activity-steps {
-  list-style: none;
-  padding: 0 0 0 15px;
-  margin: 8px 0 0 4px;
-  border-left: 1px solid var(--border);
-}
-.activity-steps > li {
-  padding: 7px 0 9px;
-  min-width: 0;
-}
-.activity-steps > li + li {
-  border-top: 1px solid var(--border);
-}
-.step-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-.step-label {
-  font-weight: 500;
-  color: var(--text);
-  flex: none;
-}
-.step-intent {
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
-.step-state {
-  margin-left: auto;
-  flex: none;
-  font-size: 11px;
-  text-transform: capitalize;
-}
-.step-output,
-.step-payload {
-  font-size: 11px;
-}
-.step-output summary,
-.step-payload summary {
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-.step-output .when-open {
-  display: none;
-}
-.step-output[open] > summary .when-closed {
-  display: none;
-}
-.step-output[open] > summary .when-open {
-  display: inline;
-}
-.step-output pre,
-.step-payload pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  overflow: auto;
-  padding: 10px;
-  background: var(--input);
-  border: 1px solid var(--border);
-  border-radius: 5px;
   font:
-    11.5px/1.6 ui-monospace,
+    11px ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
+  color: var(--icon-faint);
 }
-summary:focus-visible,
-pre:focus-visible {
+.activity-error {
+  color: var(--error-text);
+  font-size: 11px;
+}
+.activity-steps {
+  list-style: none;
+  padding: 0 0 0 6px;
+  margin: 0;
+}
+.activity-single {
+  padding: 0;
+  list-style: none;
+}
+summary:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 3px;
 }
-@media (max-width: 600px) {
-  .step-heading {
-    flex-wrap: wrap;
-    gap: 3px 8px;
-  }
-  .step-intent {
-    flex-basis: 100%;
-    order: 3;
+@media (prefers-reduced-motion: reduce) {
+  .activity-chevron {
+    transition: none;
   }
 }
 </style>

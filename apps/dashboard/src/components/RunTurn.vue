@@ -40,7 +40,9 @@ const blocks = computed(() => {
         ? 'mark-message'
         : block.messages.some((m) => activityStep(m).error)
           ? 'mark-fail'
-          : active.value && i === list.length - 1
+          : active.value &&
+              block.messages[0]?.attempt === props.run.attempt &&
+              i === list.length - 1
             ? 'mark-run'
             : 'mark-ok',
   }));
@@ -89,7 +91,11 @@ const ending = computed(() => {
           <div v-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
           <RecordedMarkdown v-else :content="block.text" />
         </template>
-        <RunActivity v-else :messages="block.messages" />
+        <RunActivity
+          v-else
+          :messages="block.messages"
+          :active="active && block.messages[0]?.attempt === run.attempt"
+        />
       </li>
       <li class="turn-item turn-ending" :class="ending.mark">
         <span :role="active || run.status === 'queued' ? 'status' : undefined">{{
@@ -102,6 +108,9 @@ const ending = computed(() => {
 </template>
 <style scoped>
 .agent-turn {
+  width: 100%;
+  max-width: 100ch;
+  margin-inline: auto;
   font-size: 13px;
   line-height: 20px;
   overflow-wrap: anywhere;
@@ -125,10 +134,10 @@ const ending = computed(() => {
   position: relative;
   list-style: none;
   margin: 0;
-  padding: 0 0 0 22px;
+  padding: 0 0 0 20px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
 }
 /* The rail the marks sit on. */
 .turn-timeline::before {
@@ -143,14 +152,15 @@ const ending = computed(() => {
 .turn-item {
   position: relative;
   min-width: 0;
+  padding-block: 5px;
 }
 .turn-item::before {
   content: '';
   position: absolute;
-  left: -21px;
-  top: 6px;
-  width: 7px;
-  height: 7px;
+  left: -18px;
+  top: 13px;
+  width: 5px;
+  height: 5px;
   box-sizing: border-box;
   border-radius: 50%;
   box-shadow: 0 0 0 3px var(--modal);
@@ -176,8 +186,8 @@ const ending = computed(() => {
   animation: turn-spin 1s linear infinite;
 }
 .mark-fail::before {
-  left: -22px;
-  top: 5px;
+  left: -20px;
+  top: 11px;
   width: 9px;
   height: 9px;
   border-radius: 0;

@@ -119,8 +119,10 @@ describe('reading-first recorded run', () => {
       expect(html).toContain('<li>first item</li>');
       expect(html).toContain('print(&quot;recorded&quot;)');
       expect(html.match(/class="markdown-body"/g)).toHaveLength(5);
-      expect(html.indexOf('<h2>Result')).toBeLessThan(html.indexOf('Ran 1 step'));
-      expect(html.indexOf('Ran 1 step')).toBeLessThan(html.indexOf('<p>After activity.</p>'));
+      expect(html.indexOf('<h2>Result')).toBeLessThan(html.indexOf('class="step-label"'));
+      expect(html.indexOf('class="step-label"')).toBeLessThan(
+        html.indexOf('<p>After activity.</p>'),
+      );
     },
   );
   it('keeps Codex completed command errors and output in their recorded tool entry', async () => {
@@ -157,7 +159,7 @@ describe('reading-first recorded run', () => {
       msg(3, 'tool_use', { path: 'data.xlsx' }, 'spreadsheet_custom'),
     ]);
     expect(html).toContain('unknown-x');
-    expect(html).toMatch(/class="step-label"[^>]*>spreadsheet_custom</);
+    expect(html).toMatch(/class="step-label"[^>]*>spreadsheet_custom data.xlsx</);
     expect(html).toContain('structured text');
     expect(html).toContain('payload');
     expect(html).toContain('Full recorded message');
