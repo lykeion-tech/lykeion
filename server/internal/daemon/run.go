@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/pkg/agent"
 )
@@ -172,13 +173,34 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		sinkErr = d.persistMessage(r, sequence, m)
 		return sinkErr
 	}
-	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
-		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + filepath.Dir(self) + string(os.PathListSeparator) + os.Getenv("PATH"),
-	}}
+	sep := string(os.PathListSeparator)
+	path := filepath.Dir(self) + sep
+	var study *envs.Study
+	var studyEnv []string
+	if d.bases != nil {
+		// A study's runs share its add-on folders; a run on no card keeps its
+		// own in its working folder.
+		studyDir := filepath.Join(dir, ".lyk-envs")
+		if c.AgentRun.CardID != nil {
+			studyDir = filepath.Join(d.bases.Dir, "studies", c.AgentRun.WorkspaceID.String(), c.AgentRun.CardID.String())
+		}
+		if err = os.MkdirAll(studyDir, 0700); err != nil {
+			fail(fmt.Errorf("prepare study folder: %w", err))
+			return nil
+		}
+		study = envs.ForStudy(d.bases, studyDir)
+		studyEnv = study.Env()
+		if prefix := study.PathPrefix(); prefix != "" {
+			path += prefix + sep
+		}
+	}
+	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: append([]string{
+		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path + os.Getenv("PATH"),
+	}, studyEnv...)}
 	// The CLI's one MCP server; add-on servers are reached through it too. The
 	// call token stays with the door. Child reads opts when a local command
 	// starts, after any change below.
-	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness,
+	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study,
 		Child: func() agent.ExecOptions { return opts }}
 	if err = door.Start(); err != nil {
 		fail(err)

@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
 	"lykeion/server/pkg/agent"
@@ -34,6 +35,11 @@ type Config struct {
 	NewBackend                            func(harness, bin string) (agent.Backend, error)
 	Ready                                 func() error
 	OnExit                                func()
+	// EnvDir holds the language bases and the studies' add-on folders; empty
+	// gives runs no study environment.
+	EnvDir string
+	// Bases, when non-nil, replaces the bases the daemon builds at EnvDir.
+	Bases *envs.Bases
 }
 
 func (c *Config) defaults() {
@@ -57,6 +63,9 @@ func (c *Config) defaults() {
 	}
 	if c.NewBackend == nil {
 		c.NewBackend = agent.New
+	}
+	if c.Bases == nil && c.EnvDir != "" {
+		c.Bases = envs.NewBases(c.EnvDir)
 	}
 }
 func Detect() map[string]string {
@@ -89,6 +98,8 @@ type claimed struct {
 		RunPrivate      bool   `json:"run_private"`
 		// RequestedModel is the agent's model; empty runs the CLI's default.
 		RequestedModel string `json:"requested_model"`
+		// CardID is the run's study; nil for a run on no card.
+		CardID *uuid.UUID `json:"card_id"`
 	} `json:"agent_run"`
 	Token string `json:"token"`
 	// CallToken records the run's calls; only the door holds it.
@@ -118,6 +129,8 @@ type daemon struct {
 	activeCancels   map[string]context.CancelFunc
 	scopes          map[string]bool
 	scratches       map[string]bool
+	// bases are the machine's language bases; nil when the daemon has none.
+	bases *envs.Bases
 }
 
 func daemonID(dir, server string) (string, error) {
@@ -171,7 +184,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}}
+	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}, bases: cfg.Bases}
 	d.messages = &Outbox{Dir: filepath.Join(cfg.StateDir, "messages"), Send: d.sendMessages}
 	d.out = &Outbox{Dir: filepath.Join(cfg.StateDir, "outbox"), Send: d.send}
 	if err = d.recoverAttempts(ctx); err != nil {
@@ -202,6 +215,20 @@ func Run(ctx context.Context, cfg Config) error {
 	background(func() { d.every(ctx, time.Hour, func(ctx context.Context) { d.fatal(d.gc(ctx)) }) })
 	background(func() { d.hints(ctx) })
 	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
+	if d.bases != nil {
+		// Bases build in the background; a run started before one is ready
+		// gets only the ones that are.
+		background(func() {
+			errs := d.bases.EnsureAll(ctx)
+			for _, lang := range []string{envs.Python, envs.R, envs.Julia} {
+				if errs[lang] != nil {
+					slog.Warn(lang+" environment not ready", "err", errs[lang])
+				} else {
+					slog.Info(lang + " environment ready")
+				}
+			}
+		})
+	}
 	ticker := time.NewTicker(cfg.Poll)
 	defer ticker.Stop()
 	var runErr error

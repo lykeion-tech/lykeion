@@ -221,7 +221,7 @@ func daemonCmd(e *env) *cobra.Command {
 			}
 		}
 		cfg := daemon.Config{Server: e.cfg.Server, Token: e.cfg.Token, StateDir: stateDir(e),
-			Home: home, Device: host, Harnesses: h, Slots: slots}
+			Home: home, Device: host, Harnesses: h, Slots: slots, EnvDir: filepath.Join(stateDir(e), "envs")}
 		if ownerNonce != "" {
 			cfg.Ready = func() error { return writeOwner(pidFile(e), owner) }
 			cfg.OnExit = func() {
