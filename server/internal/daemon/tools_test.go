@@ -56,8 +56,6 @@ func TestRoutedSkillsLandWhereTheCLIReadsThem(t *testing.T) {
 		{"claude", true, ".claude/skills/lyk-rdkit"},
 		{"codex", true, ".agents/skills/lyk-rdkit"},
 		{"claude", false, ""},
-		{"cursor", true, ""},
-		{"antigravity", true, ""},
 	} {
 		dir := t.TempDir()
 		d := &Door{Server: srv.URL, RunToken: "ltk_run", CallToken: "ltk_call", Harness: c.harness,
@@ -78,7 +76,7 @@ func TestRoutedSkillsLandWhereTheCLIReadsThem(t *testing.T) {
 		if strings.Contains(body.String(), "folder") || !strings.Contains(body.String(), `"Use it.\n"`) || !strings.Contains(body.String(), `"echo"`) {
 			t.Fatalf("%s: the door answered %s", c.harness, body.String())
 		}
-		for _, p := range []string{".claude", ".agents", ".cursor"} {
+		for _, p := range []string{".claude", ".agents"} {
 			if _, err := os.Stat(filepath.Join(dir, p)); err == nil && (c.lands == "" || !strings.HasPrefix(c.lands, p)) {
 				t.Fatalf("%s inherit=%v: %s was written", c.harness, c.inherit, p)
 			}
@@ -94,7 +92,7 @@ func TestRoutedSkillsLandWhereTheCLIReadsThem(t *testing.T) {
 			t.Fatalf("%s: the whole folder did not land: %v", c.harness, err)
 		}
 	}
-	if len(asked) != 5 {
+	if len(asked) != 3 {
 		t.Fatalf("%d requests reached the server", len(asked))
 	}
 	tools, _ := asked[0]["connector_tools"].(map[string]any)

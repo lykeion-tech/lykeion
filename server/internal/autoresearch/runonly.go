@@ -17,6 +17,7 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/skills"
 	"lykeion/server/internal/store"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -48,9 +49,7 @@ func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch,
 		}
 		harness, model, instructions = a.Harness, a.Model, a.Instructions
 	}
-	// The agent run always carries the sources server, which the Antigravity adapter
-	// refuses before it starts.
-	if harness == "antigravity" {
+	if _, supported := agent.Harnesses[harness]; !supported {
 		return end("failed", "harness_unsupported")
 	}
 	online, err := tx.Q.HasOnlineRuntime(ctx, db.HasOnlineRuntimeParams{WorkspaceID: tx.WS, OwnerID: r.ActingUserID, Harness: harness})

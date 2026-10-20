@@ -184,9 +184,9 @@ func TestPrivateIsForcedByTheRunOrAnUnknownHarness(t *testing.T) {
 	SavePolicy(d.cfg.StateDir, ws, Policy{Mode: ModeContinuity})
 	private := claimFor(ws, uuid.New(), uuid.New(), "objector")
 	private.AgentRun.RunPrivate = true
-	cursor := claimFor(ws, uuid.New(), uuid.New(), "analysis")
-	cursor.AgentRun.Harness = "cursor"
-	for name, c := range map[string]claimed{"run_private": private, "cursor": cursor} {
+	unknown := claimFor(ws, uuid.New(), uuid.New(), "analysis")
+	unknown.AgentRun.Harness = "unknown"
+	for name, c := range map[string]claimed{"run_private": private, "unknown": unknown} {
 		pol, _ := LoadPolicy(d.cfg.StateDir, ws)
 		if mode := runMode(c, pol); mode != ModePrivate {
 			t.Errorf("%s ran %s", name, mode)

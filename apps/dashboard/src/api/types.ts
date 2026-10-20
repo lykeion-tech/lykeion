@@ -435,7 +435,7 @@ export type RuntimeSkillInventory = {
   name: string;
   description: string;
   source_path: string;
-  provider: 'claude' | 'codex' | 'cursor' | 'antigravity';
+  provider: 'claude' | 'codex';
   root: 'provider' | 'universal';
   file_count: number;
 };

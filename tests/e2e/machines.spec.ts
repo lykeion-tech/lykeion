@@ -652,7 +652,7 @@ test('machine detail uses actual versions, canonical rename, keyboard links and 
   }
 });
 
-test('four daemon-reported providers retain actual versions and unreported values', async ({
+test('supported daemon-reported providers retain actual versions and unreported values', async ({
   page,
 }) => {
   const ws = await labWorkspace(page.request);
@@ -666,28 +666,26 @@ test('four daemon-reported providers retain actual versions and unreported value
       data: {
         workspace_id: ws,
         daemon_id: `task16-${Date.now()}`,
-        device_name: 'Four provider computer',
-        harnesses: ['claude', 'codex', 'cursor', 'antigravity'],
-        versions: { claude: 'actual-claude', cursor: 'actual-cursor' },
+        device_name: 'Supported provider computer',
+        harnesses: ['claude', 'codex'],
+        versions: { claude: 'actual-claude' },
       },
     });
     expect(response.status()).toBe(200);
     records = await response.json();
     await page.goto(`/#/machines/${records[0]!.daemon_id}`);
     const table = page.getByRole('table', { name: 'Runtimes' });
-    for (const label of ['Claude Code', 'Codex', 'Cursor', 'Antigravity'])
-      await expect(table).toContainText(label);
-    const cursor = table.getByRole('row').filter({ hasText: 'Cursor' });
-    await expect(cursor).toContainText('actual-cursor');
-    const agy = table.getByRole('row').filter({ hasText: 'Antigravity' });
-    await expect(agy.locator('.runtime-version')).toHaveText('Not reported');
-    await agy.getByRole('button', { name: 'Backend details' }).click();
-    const detail = page.getByRole('dialog', { name: 'Antigravity backend details' });
+    for (const label of ['Claude Code', 'Codex']) await expect(table).toContainText(label);
+    const claude = table.getByRole('row').filter({ hasText: 'Claude Code' });
+    await expect(claude).toContainText('actual-claude');
+    const codex = table.getByRole('row').filter({ hasText: 'Codex' });
+    await expect(codex.locator('.runtime-version')).toHaveText('Not reported');
+    await codex.getByRole('button', { name: 'Backend details' }).click();
+    const detail = page.getByRole('dialog', { name: 'Codex backend details' });
     await expect(detail).toContainText('Not reported');
     await expect(detail).toContainText(
-      records.find((r) => r.harness === 'antigravity')!.status === 'online' ? 'Online' : 'Offline',
+      records.find((r) => r.harness === 'codex')!.status === 'online' ? 'Online' : 'Offline',
     );
-    await expect(detail).toContainText('Not supported');
     await page.screenshot({ path: 'test-results/ui2-task16/machine-backend.png' });
   } finally {
     await page.request.delete(`/api/tokens/${token.id}`);

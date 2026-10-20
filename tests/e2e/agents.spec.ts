@@ -475,15 +475,13 @@ test('agent connector edit preserves peer servers and dirty snapshots require ex
   await panel.screenshot({ path: `${artifacts}/agent-connectors-prepared-empty.png` });
 });
 
-test('four backend selectors persist provider labels and expose truthful focused details', async ({
+test('supported backend selectors persist provider labels and expose truthful focused details', async ({
   page,
 }) => {
   await inFixture(page);
   for (const [harness, label] of [
     ['claude', 'Claude Code'],
     ['codex', 'Codex'],
-    ['cursor', 'Cursor'],
-    ['antigravity', 'Antigravity'],
   ]) {
     await page.goto('/#/agents/new');
     await page.getByRole('button', { name: /Start blank/ }).click();
@@ -491,8 +489,6 @@ test('four backend selectors persist provider labels and expose truthful focused
     await expect(form.getByRole('combobox', { name: 'Harness' }).locator('option')).toHaveText([
       'Claude Code',
       'Codex',
-      'Cursor',
-      'Antigravity',
     ]);
     await form.getByRole('textbox', { name: 'Agent name', exact: true }).fill(`${label} task16`);
     await form.getByRole('combobox', { name: 'Harness' }).selectOption(harness!);
@@ -500,14 +496,13 @@ test('four backend selectors persist provider labels and expose truthful focused
     await expect(page.locator('.agent-identity')).toContainText(label!);
     await page.getByRole('tab', { name: 'Settings', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Harness' })).toHaveValue(harness!);
-    if (harness === 'cursor' || harness === 'antigravity') {
+    {
       const trigger = page.getByRole('button', { name: 'Backend details', exact: true });
       await trigger.click();
       const detail = page.getByRole('dialog', { name: `${label} backend details` });
-      await expect(detail).toContainText('Private only');
-      await expect(detail).toContainText(harness === 'cursor' ? 'cursor-agent' : 'agy');
-      await expect(detail).toContainText(harness === 'cursor' ? 'gpt-5' : 'gemini-3-pro');
-      await expect(detail).toContainText('Supported through the tool door');
+      await expect(detail).not.toContainText('Private only');
+      await expect(detail).toContainText(harness!);
+      await expect(detail).toContainText('Harness default');
       await expect(detail).toContainText('Not reported');
       const agentURL = page.url();
       const canvases: string[] = [];

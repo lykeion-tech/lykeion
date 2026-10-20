@@ -6,16 +6,16 @@ import (
 	"testing"
 )
 
-func TestDetectFindsTheNewCLIs(t *testing.T) {
+func TestDetectFindsOnlySupportedCLIs(t *testing.T) {
 	bin := t.TempDir()
-	for _, name := range []string{"cursor-agent", "agy"} {
+	for _, name := range []string{"claude", "codex", "cursor-agent", "agy"} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("PATH", bin)
 	got := Detect()
-	if got["cursor"] != filepath.Join(bin, "cursor-agent") || got["antigravity"] != filepath.Join(bin, "agy") || len(got) != 2 {
+	if len(got) != 2 || got["claude"] != filepath.Join(bin, "claude") || got["codex"] != filepath.Join(bin, "codex") {
 		t.Fatalf("%v", got)
 	}
 }

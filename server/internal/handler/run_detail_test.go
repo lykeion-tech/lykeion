@@ -82,9 +82,8 @@ func TestStudyRunsNameTheirAgentAssignmentAndLatestText(t *testing.T) {
 	}
 }
 
-// Antigravity records its text in pieces; the preview joins the pieces of
-// its latest message, and no earlier one.
-func TestAntigravityPreviewJoinsItsTextPieces(t *testing.T) {
+// Historical runs retain their recorded text-piece preview behavior.
+func TestHistoricalHarnessPreviewJoinsItsTextPieces(t *testing.T) {
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)
 	if _, err := l.s.Env.Owner.Exec(context.Background(), "UPDATE agent_run SET harness = 'antigravity' WHERE id = $1", leader.id); err != nil {

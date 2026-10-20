@@ -170,7 +170,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return errors.New("invalid daemon directories, slots or intervals")
 	}
 	if len(cfg.Harnesses) == 0 {
-		return errors.New("no agent CLI found: install claude, codex, cursor-agent or agy")
+		return errors.New("no agent CLI found: install claude or codex")
 	}
 	lock, err := ownState(cfg.StateDir)
 	if err != nil {

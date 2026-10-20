@@ -229,15 +229,13 @@ test('the core criteria cannot be removed', async ({ page }) => {
   await expect(page.getByLabel('Criterion 1', { exact: true })).toHaveCount(0);
 });
 
-test('Team slots show all four real agent backends', async ({ page }) => {
+test('Team slots show the supported agent backends', async ({ page }) => {
   const ws = await labWorkspace(page.request);
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
   const agents: { id: string; label: string }[] = [];
   for (const [harness, label] of [
     ['claude', 'Claude Code'],
     ['codex', 'Codex'],
-    ['cursor', 'Cursor'],
-    ['antigravity', 'Antigravity'],
   ]) {
     const response = await page.request.post('/api/agents', {
       headers: { 'X-Workspace-ID': ws },

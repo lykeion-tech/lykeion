@@ -21,7 +21,7 @@ func localSkillFixture(t *testing.T, dir, name string) {
 func TestRuntimeSkillRootsAndDeduplication(t *testing.T) {
 	home := t.TempDir()
 	codex := t.TempDir()
-	for harness, want := range map[string]string{"claude": filepath.Join(home, ".claude", "skills"), "codex": filepath.Join(codex, "skills"), "cursor": filepath.Join(home, ".cursor", "skills"), "antigravity": filepath.Join(home, ".gemini", "antigravity-cli", "skills")} {
+	for harness, want := range map[string]string{"claude": filepath.Join(home, ".claude", "skills"), "codex": filepath.Join(codex, "skills")} {
 		roots, err := localSkillRoots(harness, home, codex)
 		if err != nil || len(roots) != 2 || roots[0].path != want || roots[1].path != filepath.Join(home, ".agents", "skills") {
 			t.Fatalf("%s roots: %+v %v", harness, roots, err)

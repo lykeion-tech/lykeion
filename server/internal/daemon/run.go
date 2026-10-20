@@ -76,6 +76,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		localErr = errors.Join(localErr, d.forgetAttempt(r))
 	}()
+	if c.AgentRun.Harness == "cursor" || c.AgentRun.Harness == "antigravity" {
+		fail(agent.ErrHarnessRemoved)
+		return nil
+	}
 	// The attempt keeps this snapshot even if the policy file changes later.
 	pol, err := LoadPolicy(d.cfg.StateDir, c.AgentRun.WorkspaceID)
 	if err != nil {

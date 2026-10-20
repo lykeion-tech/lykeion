@@ -778,13 +778,13 @@ func TestTheCLIsOwnFilesAreReadOnlyToCode(t *testing.T) {
 			}
 		}
 	}
-	for name, want := range map[string]string{".lyk-config.json": "{}", ".claude.json": "{}", "CLAUDE.md": "", ".agy.log": "", ".agent-exit.tmp": ""} {
+	for name, want := range map[string]string{".lyk-config.json": "{}", ".claude.json": "{}", "CLAUDE.md": "", ".agent-exit.tmp": ""} {
 		if b, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(b) != want {
 			t.Errorf("placeholder %s: %q %v", name, b, err)
 		}
 	}
 	d.Close()
-	for _, name := range []string{".codex", ".git", ".lyk-config.json", "CLAUDE.md", ".claude.json", ".cursorrules"} {
+	for _, name := range []string{".codex", ".git", ".lyk-config.json", "CLAUDE.md", ".claude.json"} {
 		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
 			t.Errorf("placeholder %s left behind", name)
 		}

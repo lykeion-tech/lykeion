@@ -96,19 +96,19 @@ func TestRuntimeSkillDaemonCopiesOnlySelectedAndRetries(t *testing.T) {
 func TestRuntimeSkillDaemonInventoryIsExplicit(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	localSkillFixture(t, filepath.Join(home, ".cursor", "skills", "method"), "cursor-method")
+	localSkillFixture(t, filepath.Join(home, ".claude", "skills", "method"), "claude-method")
 	ws, rt, job, acquisition := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	prefix := "/api/daemon/runtimes/" + rt.String() + "/local-skills"
 	received := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case prefix:
-			json.NewEncoder(w).Encode([]any{map[string]any{"id": job, "workspace_id": ws, "runtime_id": rt, "daemon_id": "d", "operation": "list", "status": "running", "harness": "cursor", "acquisition_id": acquisition, "expires_at": time.Now().Add(time.Minute)}})
+			json.NewEncoder(w).Encode([]any{map[string]any{"id": job, "workspace_id": ws, "runtime_id": rt, "daemon_id": "d", "operation": "list", "status": "running", "harness": "claude", "acquisition_id": acquisition, "expires_at": time.Now().Add(time.Minute)}})
 		case prefix + "/import":
 			json.NewEncoder(w).Encode([]any{})
 		case prefix + "/" + job.String() + "/result":
 			data, _ := io.ReadAll(r.Body)
-			if !bytes.Contains(data, []byte("cursor-method")) || bytes.Contains(data, []byte(`"files"`)) || bytes.Contains(data, []byte("Local research\\n---")) {
+			if !bytes.Contains(data, []byte("claude-method")) || bytes.Contains(data, []byte(`"files"`)) || bytes.Contains(data, []byte("Local research\\n---")) {
 				t.Errorf("bad metadata %s", data)
 			}
 			received = true

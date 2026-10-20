@@ -548,7 +548,7 @@ func TestRefusesReadOnlyPathsThatCannotBeExpressed(t *testing.T) {
 	envs := mkdir(t, filepath.Join(run, ".lyk-envs"))
 	mkdir(t, filepath.Join(run, "a", "b"))
 	for name, ro := range map[string]string{
-		"missing":             filepath.Join(run, ".cursor"),
+		"missing":             filepath.Join(run, ".missing-config"),
 		"folder link":         filepath.Join(run, ".codex"),
 		"file link":           filepath.Join(run, "AGENTS.md"),
 		"outside the folders": filepath.Join(p.Home, ".ssh"),

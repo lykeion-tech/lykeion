@@ -12,12 +12,12 @@ func TestNewHarnessesRegisterAndUnknownOnesAreRefused(t *testing.T) {
 	tok := s.personalToken(t, a) // /api/daemon refuses a session JWT
 	var rts []struct{ ID, Harness string }
 	if code := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": w.ID, "daemon_id": "d1", "device_name": "laptop",
-		"harnesses": []string{"cursor", "antigravity"}}, &rts); code != 200 || len(rts) != 2 {
+		"harnesses": []string{"claude", "codex"}}, &rts); code != 200 || len(rts) != 2 {
 		t.Fatalf("register: %d %+v", code, rts)
 	}
 	var rejected struct{ Error string }
 	if code := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": w.ID, "daemon_id": "d2",
-		"harnesses": []string{"cursor", "gemini"}}, &rejected); code != 400 || rejected.Error != `unknown harness "gemini"` {
+		"harnesses": []string{"claude", "gemini"}}, &rejected); code != 400 || rejected.Error != `unknown harness "gemini"` {
 		t.Fatalf("an unknown harness registered: %d", code)
 	}
 }
@@ -26,7 +26,7 @@ func TestSettingsRefuseAHarnessNoDaemonRuns(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	ok := map[string]any{"settings": map[string]any{"harness": map[string]any{"default": "cursor", "roles": map[string]string{"grounding-reviewer": "antigravity"}}}}
+	ok := map[string]any{"settings": map[string]any{"harness": map[string]any{"default": "claude", "roles": map[string]string{"grounding-reviewer": "codex"}}}}
 	if code := s.call(t, "PATCH", "/api/workspaces/"+w.ID+"/settings", a, "", ok, nil); code != 204 {
 		t.Fatalf("valid harnesses refused: %d", code)
 	}
@@ -47,7 +47,7 @@ func TestNewHarnessesAgentRegistryCreateUpdate(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "registry@lab.org")
 	w := s.workspace(t, a, "registry")
-	for _, h := range []string{"cursor", "antigravity"} {
+	for _, h := range []string{"claude", "codex"} {
 		t.Run(h, func(t *testing.T) {
 			var created struct{ ID, Harness string }
 			t.Run("create", func(t *testing.T) {
@@ -82,5 +82,27 @@ func TestNewHarnessesAgentRegistryCreateUpdate(t *testing.T) {
 	}
 	if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": "unknown", "harness": "gemini"}, nil); code != 400 {
 		t.Fatalf("unknown create: %d", code)
+	}
+}
+
+func TestRemovedHarnessRejected(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "removed@lab.org")
+	w := s.workspace(t, a, "removed")
+	tok := s.personalToken(t, a)
+	var baseline struct{ ID string }
+	if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": "supported", "harness": "claude"}, &baseline); code != 201 {
+		t.Fatal(code)
+	}
+	for _, harness := range []string{"cursor", "antigravity"} {
+		if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": harness, "harness": harness}, nil); code != 400 {
+			t.Fatalf("create %s: %d", harness, code)
+		}
+		if code := s.call(t, "PATCH", "/api/agents/"+baseline.ID, a, w.ID, map[string]string{"harness": harness}, nil); code != 400 {
+			t.Fatalf("update %s: %d", harness, code)
+		}
+		if code := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": w.ID, "daemon_id": "removed", "harnesses": []string{harness}}, nil); code != 400 {
+			t.Fatalf("register %s: %d", harness, code)
+		}
 	}
 }

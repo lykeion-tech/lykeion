@@ -36,7 +36,7 @@ const active = computed(() => ['dispatched', 'running'].includes(props.run.statu
 // dot, activity with a recorded error a cross, the activity still going a spinner.
 const blocks = computed(() => {
   const list = transcriptBlocks(messages.data.value ?? [], {
-    joinText: props.run.harness === 'antigravity',
+    joinText: false,
   });
   return list.map((block, i) => {
     const steps = block.kind === 'activity' ? activitySteps(block.messages) : [];

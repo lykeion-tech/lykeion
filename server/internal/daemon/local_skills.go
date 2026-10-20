@@ -37,10 +37,6 @@ func localSkillRoots(harness, home, codexHome string) ([]localSkillRoot, error) 
 			codexHome = filepath.Join(home, ".codex")
 		}
 		provider = filepath.Join(codexHome, "skills")
-	case "cursor":
-		provider = filepath.Join(home, ".cursor", "skills")
-	case "antigravity":
-		provider = filepath.Join(home, ".gemini", "antigravity-cli", "skills")
 	default:
 		return nil, fmt.Errorf("unsupported runtime harness")
 	}

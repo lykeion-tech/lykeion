@@ -96,10 +96,10 @@ func TestRunOnlyQueuesOneCardlessAgentRunWithTheGroundingServers(t *testing.T) {
 	}
 }
 
-func TestRunOnlyRefusesABrokenAddonAndAntigravity(t *testing.T) {
+func TestRunOnlyRefusesABrokenAddonAndRemovedHarness(t *testing.T) {
 	f := setup(t)
 	f.online(t, f.owner, "claude")
-	f.online(t, f.owner, "antigravity")
+
 	ap := f.autoresearch(t, "run_only", "Digest", "", "")
 	f.exec(t, `INSERT INTO stage_addon (workspace_id, board_column, mcp, updated_by)
 		VALUES ($1, 'grounding', '[{"name":"sources","url":"https://x.org/mcp"}]', $2)`, f.ws, f.owner)

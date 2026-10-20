@@ -1382,3 +1382,27 @@ func finishedFor(t *testing.T, state, dir, body string, age time.Duration) {
 	must(t, os.WriteFile(p, []byte(body), 0600))
 	must(t, os.Chtimes(p, at, at))
 }
+
+func TestRemovedHarnessRunFails(t *testing.T) {
+	for _, harness := range []string{"cursor", "antigravity"} {
+		t.Run(harness, func(t *testing.T) {
+			state, home := t.TempDir(), t.TempDir()
+			c := claimFor(uuid.New(), uuid.New(), uuid.New(), "analysis")
+			rt := uuid.New()
+			c.AgentRun.RuntimeID = &rt
+			c.AgentRun.Harness = harness
+			launched := false
+			d := &daemon{cfg: Config{StateDir: state, Home: home, NewBackend: func(string, string) (agent.Backend, error) {
+				launched = true
+				return nil, errors.New("unexpected backend launch")
+			}}}
+			d.out = &Outbox{Dir: filepath.Join(state, "outbox")}
+			must(t, d.runAgentRun(t.Context(), c))
+			report, err := readReport(d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}))
+			must(t, err)
+			if launched || report.Kind != "fail" || report.Error != agent.ErrHarnessRemoved.Error() {
+				t.Fatalf("launched=%v report=%+v", launched, report)
+			}
+		})
+	}
+}

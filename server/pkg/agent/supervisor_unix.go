@@ -27,7 +27,7 @@ type processOwner struct {
 	Nonce   string `json:"nonce"`
 }
 
-// The supervisor owns the group until it has cleaned credentials and recorded
+// The supervisor owns the group until it has recorded
 // its child's status. The host stops descendants before retiring this witness.
 // The run's code may have planted a link where the marker is written, so the
 // temporary marker is removed and then created afresh (noclobber), never

@@ -82,14 +82,14 @@ func TestRunFolderConfigHasEachCLIsOwnFiles(t *testing.T) {
 	for _, p := range RunFolderConfig {
 		byName[p.Name] = p
 	}
-	for _, n := range []string{".git", ".agent", ".gemini", "GEMINI.md", ".geminiignore", ".cursorrules", ".cursorignore", ".cursorindexingignore", ".claude", "CLAUDE.md", "AGENTS.md", ".codex"} {
+	for _, n := range []string{".git", ".agents", ".claude", "CLAUDE.md", "AGENTS.md", ".codex"} {
 		if _, ok := byName[n]; !ok {
 			t.Errorf("%s is not listed", n)
 		}
 	}
 	// What holds the door's token or the CLI's sign-in is hidden, not only
 	// read-only.
-	for _, n := range []string{".lyk-mcp.json", ".cursor/mcp.json", ".agents/mcp_config.json", ".cli-home", ".home", ".lyk-config.json", ".agy.log"} {
+	for _, n := range []string{".lyk-mcp.json", ".cli-home", ".home", ".lyk-config.json"} {
 		if !byName[n].Hidden {
 			t.Errorf("%s is not hidden", n)
 		}
@@ -97,7 +97,7 @@ func TestRunFolderConfigHasEachCLIsOwnFiles(t *testing.T) {
 	// The supervisor writes its exit marker from outside the sandbox: a
 	// placeholder, not a marker that may be missing, keeps code from planting
 	// a link it would write through.
-	for _, n := range []string{".agent-exit", ".agent-exit.tmp", ".agy.log"} {
+	for _, n := range []string{".agent-exit", ".agent-exit.tmp"} {
 		if byName[n].Marker {
 			t.Errorf("%s is left missing for code to plant", n)
 		}

@@ -193,7 +193,7 @@ func TestSupervisorPreservesExecutableResolution(t *testing.T) {
 }
 
 func TestRecoveryRemovesEveryHarnessSigninCopy(t *testing.T) {
-	for harness, file := range map[string]string{"claude": ".credentials.json", "codex": "auth.json", "cursor": "cli-config.json", "antigravity": ".gemini/oauth_creds.json"} {
+	for harness, file := range map[string]string{"claude": ".credentials.json", "codex": "auth.json"} {
 		t.Run(harness, func(t *testing.T) {
 			dir := t.TempDir()
 			copy := filepath.Join(dir, ".cli-home", file)

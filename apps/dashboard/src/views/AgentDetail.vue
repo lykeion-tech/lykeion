@@ -424,14 +424,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
                 Backend details
               </button>
             </div>
-            <p v-if="['cursor', 'antigravity'].includes(general.harness)" class="agent-hint">
-              Runs in private mode.
-              {{
-                general.harness === 'cursor'
-                  ? 'Supports Lykeion connectors and read-only runs.'
-                  : 'Supports Lykeion connectors. Read-only runs are not supported.'
-              }}
-            </p>
             <p class="agent-hint">
               {{
                 backendDefaultModel(general.harness)

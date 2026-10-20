@@ -32,23 +32,17 @@ type RunFolderPath struct {
 // places for a run, and the markers the daemon trusts. Code a run starts may
 // read these but never write them, and may not read the hidden ones.
 var RunFolderConfig = []RunFolderPath{
-	{Name: ".claude", Folder: true}, {Name: ".codex", Folder: true}, {Name: ".cursor", Folder: true}, {Name: ".agents", Folder: true},
+	{Name: ".claude", Folder: true}, {Name: ".codex", Folder: true}, {Name: ".agents", Folder: true},
 	{Name: ".cli-home", Folder: true, Hidden: true}, {Name: ".home", Folder: true, Hidden: true},
 	{Name: ".claude.json"}, {Name: ".mcp.json"}, {Name: ".lyk-mcp.json", Hidden: true}, {Name: ".lyk-config.json", Hidden: true},
 	{Name: "AGENTS.md"}, {Name: "AGENTS.override.md"}, {Name: "CLAUDE.md"}, {Name: "CLAUDE.local.md"}, {Name: "SKILL.md"},
 	{Name: ".agent-owned", Marker: true}, {Name: ".agent-lock", Marker: true}, {Name: ".agent-process", Marker: true},
 	// The supervisor writes its exit marker from outside the sandbox, and
-	// the daemon reads it and Antigravity's log: they get placeholders, so
+	// the daemon reads it: both get placeholders, so
 	// code can't plant a link in their place.
-	{Name: ".agent-exit"}, {Name: ".agent-exit.tmp"}, {Name: ".agy.log", Hidden: true},
-	// The CLIs read these from their working folder by themselves, so no
-	// source here names them: git's repository (hooks, fsmonitor), Cursor's
-	// rules and ignore files, Antigravity's rules and workflows and the
-	// Gemini settings and instructions it shares.
-	{Name: ".git", Folder: true}, {Name: ".agent", Folder: true}, {Name: ".gemini", Folder: true},
-	{Name: "GEMINI.md"}, {Name: ".geminiignore"}, {Name: ".cursorrules"}, {Name: ".cursorignore"}, {Name: ".cursorindexingignore"},
-	// MCP configs inside the folders above that carry the door's token.
-	{Name: ".cursor/mcp.json", Hidden: true}, {Name: ".agents/mcp_config.json", Hidden: true},
+	{Name: ".agent-exit"}, {Name: ".agent-exit.tmp"},
+	// Git configuration can execute hooks and filesystem monitors.
+	{Name: ".git", Folder: true},
 }
 
 // prepareScratch reserves the run folder and its daemon-owned accounting state.
@@ -166,7 +160,7 @@ func privateFile(p string, b []byte) error {
 func filteredEnvKey(k string) bool {
 	u := strings.ToUpper(k)
 	switch u {
-	case "LYK_TOKEN", "LYK_CONFIG", "LYK_SERVER", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_APP_TOOLS_PIPE_PATH", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "CODEX_CONFIG", "CODEX_CONFIG_TOML", "CODEX_MANAGED_CONFIG_PATH", "HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "CURSOR_DATA_DIR", "GEMINI_CLI_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME", "BASH_ENV", "ENV", "ZDOTDIR":
+	case "LYK_TOKEN", "LYK_CONFIG", "LYK_SERVER", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_APP_TOOLS_PIPE_PATH", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "CODEX_CONFIG", "CODEX_CONFIG_TOML", "CODEX_MANAGED_CONFIG_PATH", "HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME", "BASH_ENV", "ENV", "ZDOTDIR":
 		return true
 	}
 	return strings.HasPrefix(u, "CLAUDECODE_") || strings.HasPrefix(u, "LYKEION_")
@@ -224,7 +218,7 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 // inheritedEnvKey names the account locations a continuity run keeps as-is.
 func inheritedEnvKey(k string) bool {
 	switch strings.ToUpper(k) {
-	case "HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "CURSOR_DATA_DIR", "GEMINI_CLI_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME":
+	case "HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME":
 		return true
 	}
 	return false

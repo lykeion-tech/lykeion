@@ -319,10 +319,10 @@ describe('search', () => {
 });
 
 describe('backend names', () => {
-  it('labels four providers and preserves unknown names', () => {
+  it('labels supported providers and preserves historical or unknown names', () => {
     expect(
       ['claude', 'codex', 'cursor', 'antigravity', 'other-provider'].map(backendLabel),
-    ).toEqual(['Claude Code', 'Codex', 'Cursor', 'Antigravity', 'other-provider']);
+    ).toEqual(['Claude Code', 'Codex', 'cursor', 'antigravity', 'other-provider']);
   });
 });
 

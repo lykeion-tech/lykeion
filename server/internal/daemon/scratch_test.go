@@ -153,16 +153,16 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{Mode: ModePrivate}))
 	control := t.TempDir()
 	ready, release, launches := filepath.Join(control, "ready"), filepath.Join(control, "release"), filepath.Join(control, "launches")
-	bin := filepath.Join(control, "cursor")
-	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cursor-test; exit 0; fi\ncat >/dev/null\necho launched >> " + strconv.Quote(launches) + "\necho active-config > \"$PWD/.lyk-config.json\"\necho \"$PWD\" > " + strconv.Quote(ready) + "\nwhile [ ! -f " + strconv.Quote(release) + " ]; do sleep 0.05; done\necho '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"s\"}'\n"
+	bin := filepath.Join(control, "claude")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\ncat >/dev/null\necho launched >> " + strconv.Quote(launches) + "\necho active-config > \"$PWD/.lyk-config.json\"\necho \"$PWD\" > " + strconv.Quote(ready) + "\nwhile [ ! -f " + strconv.Quote(release) + " ]; do sleep 0.05; done\necho '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"s\"}'\n"
 	must(t, os.WriteFile(bin, []byte(script), 0700))
-	f.cfg.Harnesses = map[string]string{"cursor": bin}
+	f.cfg.Harnesses = map[string]string{"claude": bin}
 	f.cfg.Slots = 1
-	_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='cursor' WHERE id=$1", f.id)
+	_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude' WHERE id=$1", f.id)
 	must(t, err)
 	first := f.id
 	c := claimFor(f.ws, f.card, f.user, "scoper")
-	c.AgentRun.Harness = "cursor"
+	c.AgentRun.Harness = "claude"
 	name := privateScratch(c)
 	dir := filepath.Join(f.cfg.Home, name)
 	must(t, os.Mkdir(dir, 0700))
@@ -183,7 +183,7 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 		t.Fatalf("CLI scratch %q, expected %q", actual, resolved)
 	}
 	must(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("active skill"), 0600))
-	files := []string{"SKILL.md", ".lyk-config.json", ".cursor/mcp.json"}
+	files := []string{"SKILL.md", ".lyk-config.json", ".lyk-mcp.json"}
 	before := map[string]string{}
 	for _, file := range files {
 		b, err := os.ReadFile(filepath.Join(dir, file))
@@ -199,7 +199,7 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 	state := t.TempDir()
 	other := &daemon{cfg: Config{StateDir: state, Home: f.cfg.Home}, active: map[string]bool{}}
 	f.enqueue(t)
-	_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='cursor',skill='competing skill' WHERE id=$1", f.id)
+	_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude',skill='competing skill' WHERE id=$1", f.id)
 	must(t, err)
 	cfg := f.cfg
 	cfg.StateDir = t.TempDir()
@@ -229,7 +229,7 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatal("GC deleted another daemon's active scope", err)
 	}
-	if err := other.ForgetScope(f.ws, f.user, "cursor", c.AgentRun.ContinuityScope); err == nil {
+	if err := other.ForgetScope(f.ws, f.user, "claude", c.AgentRun.ContinuityScope); err == nil {
 		t.Error("forgot another daemon's held scope")
 	}
 	if _, err := os.Stat(dir); err != nil {
@@ -264,7 +264,7 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 	})
 	stopFirst()
 	f.enqueue(t)
-	_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='cursor',skill='next skill' WHERE id=$1", f.id)
+	_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude',skill='next skill' WHERE id=$1", f.id)
 	must(t, err)
 	stopNext := scopeDaemonProcess(t, cfg)
 	waitFor(t, func() bool { return f.status(t) == "completed" })
@@ -338,15 +338,15 @@ func TestOrphanScopeReconciledBeforeReuseOrDeletion(t *testing.T) {
 			control := t.TempDir()
 			ready, again := filepath.Join(control, "ready"), filepath.Join(control, "again")
 			violation := filepath.Join(control, "overlap")
-			bin := filepath.Join(control, "cursor")
-			body := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cursor-test; exit 0; fi\ncat >/dev/null\nif [ -f " + strconv.Quote(ready) + " ]; then if kill -0 \"$(cat " + strconv.Quote(ready) + ")\" 2>/dev/null; then echo overlap > " + strconv.Quote(violation) + "; fi; echo relaunched > " + strconv.Quote(again) + "; echo '{\"type\":\"result\",\"result\":\"done\"}'; exit 0; fi\necho $$ > " + strconv.Quote(ready) + "\nwhile :; do sleep 0.05; done\n"
+			bin := filepath.Join(control, "claude")
+			body := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\ncat >/dev/null\nif [ -f " + strconv.Quote(ready) + " ]; then if kill -0 \"$(cat " + strconv.Quote(ready) + ")\" 2>/dev/null; then echo overlap > " + strconv.Quote(violation) + "; fi; echo relaunched > " + strconv.Quote(again) + "; echo '{\"type\":\"result\",\"result\":\"done\"}'; exit 0; fi\necho $$ > " + strconv.Quote(ready) + "\nwhile :; do sleep 0.05; done\n"
 			must(t, os.WriteFile(bin, []byte(body), 0700))
-			f.cfg.Harnesses = map[string]string{"cursor": bin}
+			f.cfg.Harnesses = map[string]string{"claude": bin}
 			f.cfg.Slots = 1
-			_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='cursor' WHERE id=$1", f.id)
+			_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude' WHERE id=$1", f.id)
 			must(t, err)
 			c := claimFor(f.ws, f.card, f.user, "scoper")
-			c.AgentRun.Harness = "cursor"
+			c.AgentRun.Harness = "claude"
 			dir := filepath.Join(f.cfg.Home, privateScratch(c))
 			_, kill := scopeDaemonProcessControl(t, f.cfg)
 			waitFor(t, func() bool { _, err := os.Stat(ready); return err == nil })
@@ -368,7 +368,7 @@ func TestOrphanScopeReconciledBeforeReuseOrDeletion(t *testing.T) {
 			switch action {
 			case "reuse":
 				f.enqueue(t)
-				_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='cursor',skill='next skill' WHERE id=$1", f.id)
+				_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude',skill='next skill' WHERE id=$1", f.id)
 				must(t, err)
 				cfg := f.cfg
 				cfg.StateDir = other.cfg.StateDir
@@ -382,7 +382,7 @@ func TestOrphanScopeReconciledBeforeReuseOrDeletion(t *testing.T) {
 					t.Fatal("second CLI launched before orphan CLI exit", err)
 				}
 			case "forget":
-				must(t, other.ForgetScope(f.ws, f.user, "cursor", c.AgentRun.ContinuityScope))
+				must(t, other.ForgetScope(f.ws, f.user, "claude", c.AgentRun.ContinuityScope))
 			case "gc":
 				finishedFor(t, other.cfg.StateDir, dir, `{"retention_days":1}`, 48*time.Hour)
 				must(t, other.gc(t.Context()))

@@ -23,7 +23,6 @@ func TestMain(m *testing.M) {
 	os.Setenv("HOME", home)
 	os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	os.Unsetenv("CODEX_HOME")
-	os.Unsetenv("CURSOR_DATA_DIR")
 	os.Unsetenv("GEMINI_CLI_HOME")
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	os.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local/share"))

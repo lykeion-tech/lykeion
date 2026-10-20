@@ -50,8 +50,7 @@ const active = computed(
 const allSelected = computed(
   () => rows.value.length > 0 && rows.value.every((s) => selected.value.includes(s.key)),
 );
-const label = (h: string) =>
-  ({ claude: 'Claude Code', codex: 'Codex', cursor: 'Cursor', antigravity: 'Antigravity' })[h] ?? h;
+const label = (h: string) => ({ claude: 'Claude Code', codex: 'Codex' })[h] ?? h;
 let visit = 0;
 let timer: ReturnType<typeof setInterval>;
 onMounted(() => {

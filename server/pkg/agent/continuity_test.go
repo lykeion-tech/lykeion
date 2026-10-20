@@ -441,7 +441,7 @@ func TestSessionReachableLooksInTheCLIStore(t *testing.T) {
 		{"claude", "../s-1", true, false},
 		{"codex", "t-1", true, true},
 		{"codex", "t-2", true, false},
-		{"cursor", "s-1", true, false},
+		{"unknown", "s-1", true, false},
 	} {
 		if got := SessionReachable(c.harness, c.session); got != c.want {
 			t.Errorf("%+v: %v", c, got)

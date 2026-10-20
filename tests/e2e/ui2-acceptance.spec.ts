@@ -27,7 +27,7 @@ for (const width of [1512, 390]) {
     expect(created.status()).toBe(201);
     const agentResponse = await page.request.post('/api/agents', {
       headers,
-      data: { name: 'Matrix backend', harness: 'antigravity' },
+      data: { name: 'Matrix backend', harness: 'codex' },
     });
     expect(agentResponse.status()).toBe(201);
     const agent = await agentResponse.json();
@@ -100,9 +100,9 @@ for (const width of [1512, 390]) {
       await page.getByRole('tab', { name: 'Settings', exact: true }).click();
       const backendTrigger = page.getByRole('button', { name: 'Backend details', exact: true });
       await backendTrigger.click();
-      const backend = page.getByRole('dialog', { name: 'Antigravity backend details' });
+      const backend = page.getByRole('dialog', { name: 'Codex backend details' });
       await expect(backend).toBeVisible();
-      await expect(backend).toContainText('Private only');
+      await expect(backend).not.toContainText('Private only');
       colors.backend!.push(
         await page
           .locator('.backend-dialog')

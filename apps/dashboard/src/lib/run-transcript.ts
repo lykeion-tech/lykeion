@@ -7,9 +7,7 @@ export interface TranscriptBlock {
   messages: RunMessage[];
 }
 
-// Text records are complete adapter messages, except Antigravity's, which
-// arrive in pieces: joinText puts adjacent pieces back into one message. Only
-// adjacent activity is grouped.
+// Text records are complete adapter messages.
 export function transcriptBlocks(
   messages: readonly RunMessage[],
   { joinText = false } = {},
@@ -108,8 +106,7 @@ function args(value: unknown): Record<string, unknown> {
 
 interface ToolCall {
   server?: string;
-  // What pairs a call with its result: Claude's tool_use id, Cursor's
-  // call_id, Antigravity's step index. Codex records a call complete, with
+  // Claude pairs tool calls with their tool_use id. Codex records a call complete, with
   // its own output, under its item id.
   id: string;
   tool: string;
@@ -120,8 +117,7 @@ interface ToolCall {
   error: boolean;
 }
 // One recorded tool message in the shape each daemon adapter stores it
-// (server/pkg/agent): Codex's item.completed event, Cursor's tool_call event,
-// Antigravity's step_update event, or a Claude content block.
+// (server/pkg/agent): Codex's item.completed event or a Claude content block.
 function toolCall(message: RunMessage): ToolCall {
   const content = object(message.content);
   const call: ToolCall = {
@@ -207,7 +203,6 @@ const filePath = (input: Record<string, unknown>) =>
   );
 const searched = (input: Record<string, unknown>) =>
   string(input.query, input.pattern, input.globPattern, input.Query, input.Pattern);
-// Cursor names its tools readToolCall, shellToolCall and so on.
 const toolName = (tool: string) => tool.replace(/ToolCall$/, '');
 
 export function activityStep(message: RunMessage) {
@@ -415,8 +410,7 @@ const extension = (path: string) => path.split('.').pop()?.toLowerCase() ?? '';
 function executed(input: Record<string, unknown>) {
   return string(input.code, input.source, input.cell, input.script, input.new_source);
 }
-// Code a tool call wrote into a source file: Claude's Write, Cursor's write,
-// Antigravity's write_to_file. Edits record fragments, not files.
+// Code a tool call wrote into a source file. Edits record fragments, not files.
 function written(input: Record<string, unknown>) {
   return codeLanguages[extension(filePath(input))]
     ? string(input.content, input.fileText, input.CodeContent)
@@ -458,7 +452,7 @@ export interface ExecutionCell {
   error: boolean;
 }
 // Each recorded call with the result that answers it: by its id where the
-// adapter records one (Claude, Cursor, Antigravity), otherwise the next
+// adapter records one, otherwise the next
 // result no call claims by id (Claude runs recorded before ids were kept).
 // A Codex call holds its own output.
 export function executionCells(messages: readonly RunMessage[]): ExecutionCell[] {

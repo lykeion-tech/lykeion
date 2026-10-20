@@ -7,7 +7,6 @@ import type { Runtime } from '../api/types';
 const props = defineProps<{ harness: string; runtimes?: Runtime[] }>();
 defineEmits<{ close: [] }>();
 const name = computed(() => backendLabel(props.harness));
-const privateOnly = computed(() => ['cursor', 'antigravity'].includes(props.harness));
 const reported = computed(() => (props.runtimes ?? []).filter((r) => r.harness === props.harness));
 </script>
 <template>
@@ -27,24 +26,8 @@ const reported = computed(() => (props.runtimes ?? []).filter((r) => r.harness =
         <dl class="backend-facts">
           <dt>CLI</dt>
           <dd>
-            {{
-              { claude: 'claude', codex: 'codex', cursor: 'cursor-agent', antigravity: 'agy' }[
-                harness
-              ] || 'Not reported'
-            }}
+            {{ { claude: 'claude', codex: 'codex' }[harness] || 'Not reported' }}
           </dd>
-          <template v-if="privateOnly">
-            <dt>Execution profile</dt>
-            <dd>Private only</dd>
-            <dt>Session resume</dt>
-            <dd>Supported within its private scope when the saved session is reachable.</dd>
-            <dt>Read-only runs</dt>
-            <dd>{{ harness === 'cursor' ? 'Supported' : 'Not supported' }}</dd>
-            <dt>Lykeion connectors</dt>
-            <dd>Supported through the tool door</dd>
-            <dt>Personal setup</dt>
-            <dd>Does not inherit the person’s CLI settings or personal MCP servers.</dd>
-          </template>
           <dt>Default model</dt>
           <dd>{{ backendDefaultModel(harness) || 'Harness default' }}</dd>
           <dt>Model selection</dt>
