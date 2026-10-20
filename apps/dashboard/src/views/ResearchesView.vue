@@ -775,8 +775,6 @@ async function save() {
 .project-status-label {
   display: block;
   text-align: center;
-  background: var(--fill-card);
-  border-radius: 4px;
   color: var(--muted);
   font-size: 12px;
   padding: 3px 4px;
