@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { useAgents, useMe, useMembers, useWorkspace } from '../api/queries';
+import { useAgents, useMe, useMembers } from '../api/queries';
 import type { ResearchDetail, Research } from '../api/types';
 import Icon from './Icon.vue';
 import TaskBoard from '../views/TaskBoard.vue';
@@ -12,7 +12,6 @@ import { useTaskComposer } from '../state/task-composer';
 const props = defineProps<{ project: ResearchDetail }>();
 defineEmits<{ edit: [] }>();
 const client = useQueryClient(),
-  workspace = useWorkspace(),
   members = useMembers(),
   agents = useAgents(),
   me = useMe();
@@ -107,8 +106,9 @@ function pickLead(event: Event) {
     <section class="project-main">
       <header class="project-heading">
         <nav aria-label="Project breadcrumb">
-          <RouterLink to="/projects">{{ workspace.data.value?.name }}</RouterLink
-          ><Icon name="right" :size="12" /><span>{{ project.name }}</span>
+          <RouterLink to="/projects" class="icon-button back-project" aria-label="Back to projects">
+            <Icon name="back" /> </RouterLink
+          ><span>{{ project.name }}</span>
         </nav>
         <button
           class="icon-button"
@@ -116,7 +116,7 @@ function pickLead(event: Event) {
           aria-label="Toggle project properties"
           @click="rail = !rail"
         >
-          <Icon name="panel" :size="17" />
+          <Icon name="panel" />
         </button>
       </header>
       <div class="project-board">
@@ -285,25 +285,28 @@ function pickLead(event: Event) {
   min-width: 0;
 }
 .project-heading {
-  height: 48px;
+  height: 56px;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
+  padding: 0 20px;
+  gap: 8px;
 }
 .project-heading nav {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   font-size: 14px;
 }
 .project-heading nav a {
   color: var(--muted);
   flex: none;
+}
+.project-heading .back-project {
+  width: 20px;
+  margin-left: -8px;
 }
 .project-heading nav span {
   overflow: hidden;

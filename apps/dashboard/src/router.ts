@@ -50,10 +50,16 @@ function param(route: RouteLocationNormalized, name: string) {
 // the tree.
 const routes: RouteRecordRaw[] = [
   {
-    path: '/projects/:id?',
+    path: '/projects',
     component: ResearchesView,
     props: true,
     meta: { page: 'projects', title: 'Projects' },
+  },
+  {
+    path: '/projects/:id',
+    component: ResearchesView,
+    props: true,
+    meta: { page: 'projects', title: 'Projects', ownHeader: true },
   },
   {
     path: '/autoresearch/:id?',

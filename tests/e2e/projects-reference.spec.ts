@@ -59,6 +59,10 @@ test('Projects has the reference table and scopes its board and saved Properties
   await expect(page.getByRole('navigation', { name: 'Project breadcrumb' })).toContainText(
     project.name,
   );
+  await expect(page.locator('.page-header')).toHaveCount(0);
+  await expect(page.locator('.project-heading')).toHaveCSS('height', '56px');
+  await expect(page.locator('.project-heading')).toHaveCSS('border-bottom-width', '0px');
+  await expect(page.getByRole('link', { name: 'Back to projects', exact: true })).toBeVisible();
   const rail = page.getByRole('complementary', { name: 'Project properties' });
   await expect(rail).toBeVisible();
   await expect(page.getByRole('button', { name: /Linked research study/ })).toBeVisible();
