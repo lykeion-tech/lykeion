@@ -220,7 +220,7 @@ async function save() {
       </div>
       <div v-if="list.data.value?.length" class="agent-table" role="table" aria-label="Agents">
         <div class="agent-row agent-head" role="row">
-          <span role="columnheader">Agent</span><span role="columnheader">Status</span
+          <span role="columnheader">Name</span><span role="columnheader">Status</span
           ><span role="columnheader">Owner</span><span role="columnheader">Access</span
           ><span role="columnheader">Harness</span
           ><span role="columnheader" aria-sort="descending">Last updated</span>

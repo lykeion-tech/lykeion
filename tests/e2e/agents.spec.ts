@@ -84,7 +84,7 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await expect(privateRow).toContainText('Codex');
   await expect(privateRow.getByRole('cell')).toHaveCount(6);
   await expect(table.getByRole('columnheader')).toHaveText([
-    'Agent',
+    'Name',
     'Status',
     'Owner',
     'Access',
