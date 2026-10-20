@@ -429,7 +429,7 @@ func refused(t *testing.T, p Policy, script string) {
 	out, err := sandboxed(t, p, script)
 	markers := []string{"Operation not permitted"}
 	if runtime.GOOS == "linux" {
-		markers = append(markers, "Permission denied", "Read-only file system", "No such file or directory", "Directory nonexistent")
+		markers = append(markers, "Permission denied", "Read-only file system", "No such file or directory", "Directory nonexistent", "Device or resource busy")
 	}
 	denied := slices.ContainsFunc(markers, func(m string) bool { return strings.Contains(out, m) })
 	// A sandbox that could not start says so in its own name.
@@ -466,5 +466,276 @@ if __name__ == "__main__":
 	}
 	if out, err := sandboxed(t, p, "TMPDIR=$PWD "+py+" mp.py 2>&1 | grep -v xcrun"); err != nil || !strings.HasSuffix(out, "30\nok\n") {
 		t.Fatalf("multiprocessing: err=%v out=%q", err, out)
+	}
+}
+
+// carveFixture is policyFixture with the CLI's settings folder and MCP file
+// in the run folder, both read-only to the sandboxed code.
+func carveFixture(t *testing.T) (Policy, string) {
+	t.Helper()
+	p, _, run := policyFixture(t)
+	mkdir(t, filepath.Join(run, ".claude", "skills"))
+	for _, f := range []string{filepath.Join(run, ".claude", "settings.json"), filepath.Join(run, ".mcp.json")} {
+		if err := os.WriteFile(f, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p.ReadOnly = []string{filepath.Join(run, ".claude"), filepath.Join(run, ".mcp.json")}
+	return p, run
+}
+
+func TestReadOnlyRules(t *testing.T) {
+	p, run := carveFixture(t)
+	prof, err := p.seatbeltProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Later rules win, so the carve-outs' denials follow every allow.
+	last := 0
+	for _, allow := range []string{
+		"(allow file-read* file-write* (subpath " + sbplString(run) + "))",
+		"(allow network-inbound network-bind (local unix-socket (subpath " + sbplString(run) + ")))",
+	} {
+		i := strings.Index(prof, allow)
+		if i < 0 {
+			t.Fatalf("no %s in\n%s", allow, prof)
+		}
+		last = max(last, i)
+	}
+	for _, c := range p.ReadOnly {
+		for _, deny := range []string{
+			"(deny file-write* (subpath " + sbplString(c) + "))",
+			"(deny network-outbound (remote unix-socket (subpath " + sbplString(c) + ")))",
+			"(deny network-inbound network-bind (local unix-socket (subpath " + sbplString(c) + ")))",
+		} {
+			if i := strings.Index(prof, deny); i < last {
+				t.Errorf("%s missing or before the allows:\n%s", deny, prof)
+			}
+		}
+	}
+	args, err := p.bwrapArgs("true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(args, " ")
+	want := "--bind " + run + " " + run + " --ro-bind " + p.ReadOnly[0] + " " + p.ReadOnly[0] + " --ro-bind " + p.ReadOnly[1] + " " + p.ReadOnly[1] + " --remount-ro"
+	if !strings.Contains(got, want) {
+		t.Fatalf("bwrap args\n got %s\nwant …%s…", got, want)
+	}
+}
+
+func TestRefusesReadOnlyPathsThatCannotBeExpressed(t *testing.T) {
+	p, run := carveFixture(t)
+	other := mkdir(t, filepath.Join(run, "other"))
+	if err := os.Symlink(other, filepath.Join(run, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(run, ".mcp.json"), filepath.Join(run, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	envs := mkdir(t, filepath.Join(run, ".lyk-envs"))
+	mkdir(t, filepath.Join(run, "a", "b"))
+	for name, ro := range map[string]string{
+		"missing":             filepath.Join(run, ".cursor"),
+		"folder link":         filepath.Join(run, ".codex"),
+		"file link":           filepath.Join(run, "AGENTS.md"),
+		"outside the folders": filepath.Join(p.Home, ".ssh"),
+		"not a direct child":  filepath.Join(run, "a", "b"),
+		"the folder itself":   run,
+		"holds a write":       envs,
+		"dotdot":              run + "/a/../.mcp.json",
+		"relative":            ".mcp.json",
+	} {
+		q := p
+		q.Write = append(slices.Clone(p.Write), envs)
+		q.ReadOnly = []string{ro}
+		if _, err := q.seatbeltProfile(); err == nil {
+			t.Errorf("%s: seatbelt profile accepted %q", name, ro)
+		}
+		if _, err := q.bwrapArgs("true"); err == nil {
+			t.Errorf("%s: bwrap args accepted %q", name, ro)
+		}
+	}
+}
+
+// The CLI's own files in the run folder can be read but not written,
+// removed, renamed or replaced by a link; the rest of the folder stays
+// writable.
+func TestReadOnlyPathsHoldForReal(t *testing.T) {
+	requireSandbox(t)
+	p, run := carveFixture(t)
+	if out, err := sandboxed(t, p, "cat .mcp.json .claude/settings.json && echo x > data.csv && mkdir -p data/sub && echo y > data/sub/f"); err != nil || out != "{}{}" {
+		t.Fatalf("reads and ordinary writes: err=%v out=%q", err, out)
+	}
+	for _, script := range []string{
+		"echo x > .claude/settings.json",
+		"echo x > .claude/new.json",
+		"mkdir .claude/hooks",
+		"echo x > .claude/skills/SKILL.md",
+		"echo x > .mcp.json",
+		"echo x >> .mcp.json",
+		"rm .mcp.json",
+		"rm .claude/settings.json",
+		"mv .mcp.json moved.json",
+		"mv data.csv .mcp.json",
+		"mv .claude moved",
+		"rm -rf .claude",
+		"ln -sf /etc/hosts .mcp.json",
+		"rm -f .mcp.json && ln -s /etc/hosts .mcp.json",
+		"chmod 777 .mcp.json",
+		"touch -t 200001010000 .mcp.json",
+	} {
+		refused(t, p, script)
+	}
+	if runtime.GOOS == "darwin" {
+		if _, err := os.Stat(filepath.Join(run, ".MCP.JSON")); err == nil {
+			refused(t, p, "echo x > .MCP.JSON")
+		}
+	}
+	if out, err := sandboxed(t, p, `/usr/bin/python3 -c "import socket; socket.socket(socket.AF_UNIX).bind('.claude/s.sock')"`); err == nil {
+		t.Errorf("a socket was bound in a read-only folder: %q", out)
+	}
+	for f, want := range map[string]string{filepath.Join(run, ".mcp.json"): "{}", filepath.Join(run, ".claude", "settings.json"): "{}"} {
+		if b, err := os.ReadFile(f); err != nil || string(b) != want {
+			t.Errorf("%s changed: %q %v", f, b, err)
+		}
+	}
+	for _, f := range []string{".claude/new.json", ".claude/hooks", ".claude/s.sock", "moved.json", "moved"} {
+		if _, err := os.Lstat(filepath.Join(run, f)); err == nil {
+			t.Errorf("%s exists", f)
+		}
+	}
+	if fi, err := os.Lstat(filepath.Join(run, ".mcp.json")); err != nil || !fi.Mode().IsRegular() {
+		t.Errorf(".mcp.json was replaced: %v", err)
+	}
+}
+
+// Code may write a write folder, so a link in it may be its own: a policy
+// path reached through one is refused, even when the link leads outside the
+// home folder.
+func TestRefusesAPathThroughALinkInAWriteFolder(t *testing.T) {
+	home := tempDir(t)
+	run := mkdir(t, filepath.Join(home, "run"))
+	away := mkdir(t, filepath.Join(tempDir(t), "away"))
+	if err := os.Symlink(away, filepath.Join(run, ".lyk-envs")); err != nil {
+		t.Fatal(err)
+	}
+	outRun := mkdir(t, filepath.Join(tempDir(t), "run"))
+	if err := os.Symlink(away, filepath.Join(outRun, "data")); err != nil {
+		t.Fatal(err)
+	}
+	for name, p := range map[string]Policy{
+		"write in home":     {Home: home, Write: []string{run, filepath.Join(run, ".lyk-envs")}},
+		"write outside":     {Home: home, Write: []string{outRun, filepath.Join(outRun, "data")}},
+		"read outside":      {Home: home, Write: []string{outRun}, Read: []string{filepath.Join(outRun, "data")}},
+		"write order swaps": {Home: home, Write: []string{filepath.Join(outRun, "data"), outRun}},
+	} {
+		if _, err := p.seatbeltProfile(); err == nil {
+			t.Errorf("%s: seatbelt profile accepted", name)
+		}
+		if _, err := p.bwrapArgs("true"); err == nil {
+			t.Errorf("%s: bwrap args accepted", name)
+		}
+	}
+}
+
+// hiddenFixture is carveFixture with the CLI's MCP config, which holds the
+// door's token, hidden from the code entirely.
+func hiddenFixture(t *testing.T) (Policy, string) {
+	t.Helper()
+	p, run := carveFixture(t)
+	cfg := filepath.Join(run, ".lyk-mcp.json")
+	if err := os.WriteFile(cfg, []byte(`{"token":"DOOR TOKEN"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := mkdir(t, filepath.Join(run, ".cli-home"))
+	if err := os.WriteFile(filepath.Join(home, ".credentials.json"), []byte("DOOR TOKEN"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mcp := filepath.Join(run, ".claude", "mcp.json")
+	if err := os.WriteFile(mcp, []byte("DOOR TOKEN"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.Hidden = []string{cfg, home, mcp}
+	return p, run
+}
+
+func TestHiddenRules(t *testing.T) {
+	p, run := hiddenFixture(t)
+	prof, err := p.seatbeltProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := strings.Index(prof, "(allow file-read* file-write* (subpath "+sbplString(run)+"))")
+	for _, h := range p.Hidden {
+		if i := strings.Index(prof, "(deny file-read* file-write* (subpath "+sbplString(h)+"))"); i < allow || allow < 0 {
+			t.Errorf("%s not denied after the allows:\n%s", h, prof)
+		}
+	}
+	args, err := p.bwrapArgs("true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(args, " ")
+	for _, want := range []string{
+		"--ro-bind /dev/null " + p.Hidden[0] + " ",
+		"--tmpfs " + p.Hidden[1] + " --remount-ro " + p.Hidden[1] + " ",
+		"--ro-bind /dev/null " + p.Hidden[2] + " ",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("bwrap args lack %q:\n%s", want, got)
+		}
+	}
+	// the hidden file in a read-only folder is covered after that folder's bind
+	if strings.Index(got, "--ro-bind "+p.ReadOnly[0]+" ") > strings.Index(got, "/dev/null "+p.Hidden[2]) {
+		t.Errorf("hidden file bound before its read-only folder:\n%s", got)
+	}
+	q := p
+	q.Hidden = []string{filepath.Join(run, "nope.json")}
+	if _, err := q.seatbeltProfile(); err == nil {
+		t.Error("a missing hidden path was accepted")
+	}
+	q.Hidden = []string{filepath.Join(p.Home, ".ssh")}
+	if _, err := q.seatbeltProfile(); err == nil {
+		t.Error("a hidden path outside the write folders was accepted")
+	}
+}
+
+// The code reads nothing of a hidden path, though the CLI outside does.
+func TestHiddenPathsHoldForReal(t *testing.T) {
+	requireSandbox(t)
+	p, run := hiddenFixture(t)
+	for _, script := range []string{"cat .lyk-mcp.json", "cat .cli-home/.credentials.json", "cat .claude/mcp.json", "ls .cli-home", "grep -r TOKEN ."} {
+		out, _ := sandboxed(t, p, script)
+		if strings.Contains(out, "DOOR TOKEN") {
+			t.Errorf("%s: read the token: %q", script, out)
+		}
+	}
+	for _, script := range []string{"echo x > .lyk-mcp.json", "rm .lyk-mcp.json", "echo x > .cli-home/new", "rm .claude/mcp.json"} {
+		refused(t, p, script)
+	}
+	if runtime.GOOS == "darwin" {
+		refused(t, p, "cat .lyk-mcp.json")
+		refused(t, p, "cat .cli-home/.credentials.json")
+	}
+	if b, err := os.ReadFile(filepath.Join(run, ".lyk-mcp.json")); err != nil || !strings.Contains(string(b), "DOOR TOKEN") {
+		t.Fatalf("outside the sandbox the config is %q %v", b, err)
+	}
+}
+
+// A link inside a write folder is found whatever spelling of that folder a
+// path uses, on a file system that takes several.
+func TestALinkInAWriteFolderIsFoundUnderAnySpelling(t *testing.T) {
+	run, other := spellingDir(t, "Run", "rUN")
+	away := mkdir(t, filepath.Join(tempDir(t), "away"))
+	if err := os.Symlink(away, filepath.Join(run, "data")); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: tempDir(t), Write: []string{run, filepath.Join(other, "data")}}
+	if _, err := p.seatbeltProfile(); err == nil {
+		t.Error("seatbelt profile accepted a path through a link in a write folder spelled otherwise")
+	}
+	if _, err := p.bwrapArgs("true"); err == nil {
+		t.Error("bwrap args accepted a path through a link in a write folder spelled otherwise")
 	}
 }

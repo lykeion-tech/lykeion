@@ -112,7 +112,10 @@ func (f *daemonFixture) settled(t *testing.T, n int) func() bool {
 	}
 }
 
-func TestARunSeesItsStudyEnvironment(t *testing.T) {
+// Code runs only through the door: the CLI's own environment, and what its
+// shell starts, carry none of the study's interpreters or folders, which the
+// study's code may have planted. The study's folder is there for the door.
+func TestTheCLIDoesNotGetTheStudyEnvironment(t *testing.T) {
 	f := fixture(t)
 	f.cfg.Bases = readyPython(t)
 	f.cfg.EnvDir = f.cfg.Bases.Dir
@@ -122,26 +125,21 @@ func TestARunSeesItsStudyEnvironment(t *testing.T) {
 	waitFor(t, f.settled(t, 1))
 	stopDaemon(t, cancel, done)
 	study := filepath.Join(f.cfg.EnvDir, "studies", f.ws.String(), f.card.String())
-	if v, _ := lookup(l.env, "VIRTUAL_ENV"); v != filepath.Join(study, "python") {
-		t.Fatalf("VIRTUAL_ENV %q in %q", v, l.env)
+	if fi, err := os.Stat(study); err != nil || !fi.IsDir() {
+		t.Fatalf("no study folder: %v", err)
 	}
-	self, err := os.Executable()
-	must(t, err)
-	sep := string(os.PathListSeparator)
-	want := filepath.Dir(self) + sep + filepath.Join(study, "python", "bin") + sep + filepath.Join(f.cfg.EnvDir, "python", "bin") + sep
-	if v, _ := lookup(l.env, "PATH"); !strings.HasPrefix(v, want) {
-		t.Fatalf("PATH %q, want prefix %q", v, want)
-	}
-	// The CLI's own environment carries it in both continuity and private mode.
 	for _, inherit := range []bool{true, false} {
 		o := l.opts
 		o.Inherit = inherit
-		child := agent.ChildEnv(o)
-		if v, _ := lookup(child, "VIRTUAL_ENV"); v != filepath.Join(study, "python") {
-			t.Fatalf("inherit %v: child VIRTUAL_ENV %q", inherit, v)
-		}
-		if v, _ := lookup(child, "PATH"); !strings.HasPrefix(v, want) {
-			t.Fatalf("inherit %v: child PATH %q, want prefix %q", inherit, v, want)
+		for _, env := range [][]string{l.env, agent.ChildEnv(o)} {
+			for _, k := range []string{"VIRTUAL_ENV", "R_LIBS_USER", "R_PROFILE_USER", "JULIA_PROJECT", "JULIA_DEPOT_PATH", "JULIA_LOAD_PATH", "JUPYTER_PATH"} {
+				if v, ok := lookup(env, k); ok {
+					t.Errorf("inherit %v: %s=%q", inherit, k, v)
+				}
+			}
+			if v, _ := lookup(env, "PATH"); strings.Contains(v, f.cfg.EnvDir) {
+				t.Errorf("inherit %v: PATH %q holds the study's folders", inherit, v)
+			}
 		}
 	}
 }
@@ -151,30 +149,23 @@ func TestTwoStudiesGetSeparateFolders(t *testing.T) {
 	f.cfg.Bases = readyPython(t)
 	f.cfg.EnvDir = f.cfg.Bases.Dir
 	c2 := f.newCard(t)
-	got := captureLaunches(f)
+	captureLaunches(f)
 	cancel, done := startDaemon(t, f.cfg)
-	first := next(t, got)
-	waitFor(t, f.settled(t, 1))
-	f.enqueueFor(t, f.card)
 	f.enqueueFor(t, c2)
-	second, third := next(t, got), next(t, got)
-	waitFor(t, f.settled(t, 3))
+	waitFor(t, f.settled(t, 2))
 	stopDaemon(t, cancel, done)
-	var venvs []string
-	for _, l := range []launched{first, second, third} {
-		v, _ := lookup(l.env, "VIRTUAL_ENV")
-		venvs = append(venvs, v)
-	}
-	slices.Sort(venvs)
 	studies := filepath.Join(f.cfg.EnvDir, "studies", f.ws.String())
-	want := []string{filepath.Join(studies, f.card.String(), "python"), filepath.Join(studies, f.card.String(), "python"), filepath.Join(studies, c2.String(), "python")}
-	slices.Sort(want)
-	if !slices.Equal(venvs, want) {
-		t.Fatalf("VIRTUAL_ENV values %q, want %q", venvs, want)
+	for _, c := range []uuid.UUID{f.card, c2} {
+		if fi, err := os.Stat(filepath.Join(studies, c.String())); err != nil || !fi.IsDir() {
+			t.Fatalf("study %s: %v", c, err)
+		}
 	}
 }
 
-func TestARunWithoutACardUsesItsRunFolder(t *testing.T) {
+// A run on no card keeps its add-on folder beside the studies' folders, never
+// in its run folder, where its code could swap it for a link the next run
+// would be granted. An attempt's own folder goes when the run ends.
+func TestARunWithoutACardKeepsItsFolderOutsideItsRunFolder(t *testing.T) {
 	f := fixture(t)
 	f.cfg.Bases = readyPython(t)
 	f.cfg.EnvDir = f.cfg.Bases.Dir
@@ -182,22 +173,46 @@ func TestARunWithoutACardUsesItsRunFolder(t *testing.T) {
 		_, err := f.runs.EnqueueAutoresearch(context.Background(), tx, f.user, service.AutoresearchAgentRun{Harness: "claude", Prompt: "run only"})
 		return err
 	}))
-	got := captureLaunches(f)
+	runs := filepath.Join(f.cfg.EnvDir, "studies", f.ws.String(), "_run")
+	type seen struct {
+		dir     string
+		entries []string
+	}
+	got := make(chan seen, 8)
+	f.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+		return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
+			es, _ := os.ReadDir(runs)
+			var names []string
+			for _, e := range es {
+				names = append(names, e.Name())
+			}
+			got <- seen{o.Dir, names}
+			msgs := make(chan agent.Message)
+			done := make(chan agent.Result, 1)
+			close(msgs)
+			done <- agent.Result{}
+			close(done)
+			return &agent.Session{Messages: msgs, Done: done}, nil
+		}), nil
+	}
 	cancel, done := startDaemon(t, f.cfg)
-	a, b := next(t, got), next(t, got)
 	waitFor(t, f.settled(t, 2))
 	stopDaemon(t, cancel, done)
-	cardVenv := filepath.Join(f.cfg.EnvDir, "studies", f.ws.String(), f.card.String(), "python")
-	va, _ := lookup(a.env, "VIRTUAL_ENV")
-	if va == cardVenv {
-		a, b = b, a
-		va, _ = lookup(a.env, "VIRTUAL_ENV")
+	close(got)
+	found := false
+	for s := range got {
+		if _, err := os.Lstat(filepath.Join(s.dir, ".lyk-envs")); err == nil {
+			t.Errorf("a study folder in the run folder %s", s.dir)
+		}
+		if slices.Contains(s.entries, filepath.Base(s.dir)) {
+			found = true
+		}
 	}
-	if vb, _ := lookup(b.env, "VIRTUAL_ENV"); vb != cardVenv {
-		t.Fatalf("card run VIRTUAL_ENV %q, want %q", vb, cardVenv)
+	if !found {
+		t.Fatal("the card-less run had no folder of its own under _run")
 	}
-	if want := filepath.Join(a.dir, ".lyk-envs", "python"); va != want {
-		t.Fatalf("card-less run VIRTUAL_ENV %q, want %q", va, want)
+	if es, _ := os.ReadDir(runs); len(es) != 0 {
+		t.Fatalf("left behind: %v", es)
 	}
 }
 

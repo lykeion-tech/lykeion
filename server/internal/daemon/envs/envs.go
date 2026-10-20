@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -27,6 +28,8 @@ import (
 const Python, R, Julia = "python", "r", "julia"
 
 var ErrNotReady = errors.New("environment not ready")
+
+var ErrDamaged = errors.New("the study's Python environment is damaged")
 
 var displayNames = map[string]string{Python: "Python", R: "R", Julia: "Julia"}
 
@@ -77,14 +80,26 @@ func isolated(extra ...string) []string {
 		set[k] = true
 	}
 	var env []string
-	for _, e := range os.Environ() {
-		k, _, _ := strings.Cut(e, "=")
-		if set[k] || k == "R_HOME" || k == "VIRTUAL_ENV" || hasAnyPrefix(k, "CONDA_", "MAMBA_", "PYTHON", "R_LIBS", "R_PROFILE", "R_ENVIRON", "JULIA_", "JUPYTER") {
-			continue
+	for _, e := range Isolate(os.Environ()) {
+		if k, _, _ := strings.Cut(e, "="); !set[k] {
+			env = append(env, e)
 		}
-		env = append(env, e)
 	}
 	return append(env, extra...)
+}
+
+// Isolate is env without anything that would point a build, a check or a
+// study step at the person's own Python, R, Julia, conda or Jupyter setup.
+func Isolate(env []string) []string {
+	var out []string
+	for _, e := range env {
+		k, _, _ := strings.Cut(e, "=")
+		if k == "R_HOME" || k == "VIRTUAL_ENV" || hasAnyPrefix(k, "CONDA_", "MAMBA_", "PYTHON", "R_LIBS", "R_PROFILE", "R_ENVIRON", "JULIA_", "JUPYTER") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func hasAnyPrefix(s string, prefixes ...string) bool {
@@ -422,35 +437,60 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 type Study struct {
 	Bases *Bases
 	Dir   string
+	// Run runs every step in the study's folders: making them, and the
+	// study's own interpreters, which load whatever its code installed. The
+	// code may have planted anything there, so Run must be the sandbox;
+	// with none, nothing in the folders is touched. Its env holds only what
+	// the study adds; the runner supplies the rest from its run.
+	Run func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error)
 }
 
 func ForStudy(b *Bases, dir string) *Study { return &Study{Bases: b, Dir: dir} }
 
-// prepare creates the add-on folders for the ready bases that lack them.
+var errNoRunner = errors.New("the study's folders can only be used in a sandbox, and this study has none")
+
+// prepare creates the add-on folders for the ready bases that lack them,
+// through Run. A venv folder that exists without its interpreter is made
+// again with --clear, in Run too: whatever the study's code left in it runs
+// only there.
 func (s *Study) prepare(ctx context.Context) error {
+	if s.Run == nil {
+		return errNoRunner
+	}
 	b := s.Bases
 	l := b.lock("study:" + s.Dir)
 	l.Lock()
 	defer l.Unlock()
 	var errs []error
-	if b.Ready(Python) && !s.hasVenv() {
+	if b.Ready(Python) {
+		venv := filepath.Join(s.Dir, "python")
+		python := filepath.Join(b.Dir, "python", "bin", "python")
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		if _, err := b.Run(ctx, isolated(), s.Dir, filepath.Join(b.Dir, "python", "bin", "python"), "-m", "venv", "--system-site-packages", filepath.Join(s.Dir, "python")); err != nil {
+		if _, err := os.Lstat(venv); errors.Is(err, fs.ErrNotExist) {
+			if _, err := s.Run(ctx, nil, s.Dir, python, "-m", "venv", "--system-site-packages", venv); err != nil {
+				errs = append(errs, err)
+			}
+		} else if err != nil {
 			errs = append(errs, err)
+		} else if !s.hasVenv() {
+			if _, err := s.Run(ctx, nil, s.Dir, python, "-m", "venv", "--clear", "--system-site-packages", venv); err != nil {
+				errs = append(errs, fmt.Errorf("%w and could not be rebuilt: %v", ErrDamaged, err))
+			} else if !s.hasVenv() {
+				errs = append(errs, fmt.Errorf("%w and could not be rebuilt: it has no interpreter", ErrDamaged))
+			}
 		}
 	}
+	var steps []string
 	if b.Ready(R) {
-		errs = append(errs, os.MkdirAll(filepath.Join(s.Dir, "r", "library"), 0o755))
-		profile := filepath.Join(s.Dir, "r", "Rprofile")
-		if _, err := os.Stat(profile); err != nil {
-			errs = append(errs, os.WriteFile(profile, []byte(`options(repos = c(CRAN = "https://cloud.r-project.org"))`+"\n"), 0o644))
-		}
+		steps = append(steps, `mkdir -p r/library && { [ -e r/Rprofile ] || printf '%s\n' "$1" > r/Rprofile; }`)
 	}
 	if b.Ready(Julia) {
-		project := filepath.Join(s.Dir, "julia", "Project.toml")
-		if _, err := os.Stat(project); err != nil {
-			errs = append(errs, os.MkdirAll(filepath.Dir(project), 0o755), os.WriteFile(project, nil, 0o644))
+		steps = append(steps, `mkdir -p julia && { [ -e julia/Project.toml ] || : > julia/Project.toml; }`)
+	}
+	if len(steps) > 0 {
+		if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", strings.Join(steps, " && "), "sh", `options(repos = c(CRAN = "https://cloud.r-project.org"))`); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
@@ -533,17 +573,21 @@ func (s *Study) Packages(ctx context.Context, lang string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	run := s.Run
+	if run == nil {
+		return "", errNoRunner
+	}
 	var study []byte
 	switch lang {
 	case Python:
-		study, err = s.Bases.Run(ctx, append(os.Environ(), s.Env()...), s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-m", "pip", "freeze", "--local")
+		study, err = run(ctx, s.Env(), s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-m", "pip", "freeze", "--local")
 	case R:
-		study, err = s.Bases.Run(ctx, append(os.Environ(), s.Env()...), s.Dir, filepath.Join(s.Bases.Dir, "r", "bin", "Rscript"), "-e",
+		study, err = run(ctx, s.Env(), s.Dir, filepath.Join(s.Bases.Dir, "r", "bin", "Rscript"), "-e",
 			`ip <- installed.packages(lib.loc=Sys.getenv("R_LIBS_USER"))[,c("Package","Version")]; write.table(ip, row.names=FALSE, col.names=FALSE, quote=FALSE)`)
 	case Julia:
-		study, err = os.ReadFile(filepath.Join(s.Dir, "julia", "Manifest.toml"))
-		if errors.Is(err, os.ErrNotExist) {
-			study, err = nil, nil
+		study, err = run(ctx, nil, s.Dir, "/bin/sh", "-c", `[ -e julia/Manifest.toml ] || exit 0; head -c 1048577 julia/Manifest.toml`)
+		if err == nil && len(study) > 1<<20 {
+			err = errors.New("the study's Julia manifest is over 1 MiB")
 		}
 	}
 	if err != nil {

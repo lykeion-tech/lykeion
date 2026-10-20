@@ -178,3 +178,52 @@ func TestUnixSocketsOutsideWriteFoldersAreUnreachable(t *testing.T) {
 		t.Fatalf("socket in the write folder: err=%v out=%q", err, out)
 	}
 }
+
+// A process that leaves the sandbox's session before the door kills it may
+// outlive the run, but it never writes what is read-only, even once the
+// door has taken the placeholder away. On Linux the pid namespace ends it.
+func TestALingeringChildCannotCreateAReadOnlyPath(t *testing.T) {
+	requireSandbox(t)
+	py := "/usr/bin/python3"
+	if _, err := os.Stat(py); err != nil {
+		t.Skip("no python3")
+	}
+	p, run := carveFixture(t)
+	script := `import os, time
+if os.fork() == 0:
+    os.setsid()
+    time.sleep(1.5)
+    open("tried", "w").write("1")
+    os.makedirs(".claude", exist_ok=True)
+    open(".claude/settings.json", "w").write("planted")
+    os._exit(0)
+time.sleep(60)
+`
+	if err := os.WriteFile(filepath.Join(run, "linger.py"), []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd, err := p.Command(context.Background(), py, "linger.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Dir = run
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	cmd.Wait()
+	// the door removes its placeholders after the kill
+	if err := os.RemoveAll(filepath.Join(run, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+	if _, err := os.Stat(filepath.Join(run, ".claude", "settings.json")); err == nil {
+		t.Fatal("a lingering child wrote a read-only path")
+	}
+	_, err = os.Stat(filepath.Join(run, "tried"))
+	if runtime.GOOS == "linux" && err == nil {
+		t.Fatal("a child outlived the sandbox on Linux")
+	}
+	t.Logf("child outlived the kill: %v", err == nil)
+}

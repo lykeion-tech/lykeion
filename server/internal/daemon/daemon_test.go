@@ -520,16 +520,15 @@ func TestStateOwnershipAndFinishedOnlyGC(t *testing.T) {
 	owner, err = ownState(dir)
 	must(t, err)
 	must(t, owner.Close())
-	home := t.TempDir()
-	d := &daemon{cfg: Config{Home: home}, active: map[string]bool{"active": true}}
+	home, state := t.TempDir(), t.TempDir()
+	d := &daemon{cfg: Config{Home: home, StateDir: state}, active: map[string]bool{"active": true}}
 	for _, name := range []string{"active", "finished", "unfinished", "recent", "held"} {
 		p := filepath.Join(home, name)
 		must(t, os.Mkdir(p, 0700))
 		if name != "unfinished" {
-			must(t, os.WriteFile(filepath.Join(p, ".finished"), []byte("done"), 0600))
+			finishedFor(t, state, p, "done", 0)
 			if name != "recent" {
-				past := time.Now().Add(-25 * time.Hour)
-				must(t, os.Chtimes(filepath.Join(p, ".finished"), past, past))
+				finishedFor(t, state, p, "done", 25*time.Hour)
 			}
 		}
 		past := time.Now().Add(-48 * time.Hour)
@@ -548,9 +547,7 @@ func TestStateOwnershipAndFinishedOnlyGC(t *testing.T) {
 	} {
 		p := filepath.Join(home, name)
 		must(t, os.Mkdir(p, 0700))
-		must(t, os.WriteFile(filepath.Join(p, ".finished"), []byte(m.body), 0600))
-		past := time.Now().Add(-m.age)
-		must(t, os.Chtimes(filepath.Join(p, ".finished"), past, past))
+		finishedFor(t, state, p, m.body, m.age)
 	}
 
 	d.holdScratch("held")
@@ -921,7 +918,7 @@ func TestRecoveryPreservesExistingFinalAndMakesScratchGCEligible(t *testing.T) {
 		t.Fatal("recent recovered scratch deleted")
 	}
 	old := time.Now().Add(-25 * time.Hour)
-	must(t, os.Chtimes(filepath.Join(dir, ".finished"), old, old))
+	must(t, os.Chtimes(finishedRecord(d.cfg.StateDir, dir), old, old))
 	must(t, d.gc(t.Context()))
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatal("recovered finished scratch never became collectible")
@@ -1289,12 +1286,12 @@ func TestScopeWaitAlreadyCanceledTakesNoFolder(t *testing.T) {
 func TestScopeGCInvalidRetentionFallsBackToOneDay(t *testing.T) {
 	for _, days := range []int{-1, 0, maxRetentionDays + 1, int(^uint(0) >> 1)} {
 		t.Run(strconv.Itoa(days), func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "scope-invalid")
+			dir, state := filepath.Join(t.TempDir(), "scope-invalid"), t.TempDir()
 			must(t, os.Mkdir(dir, 0700))
-			must(t, atomicJSON(dir, ".finished", map[string]int{"retention_days": days}))
-			past := time.Now().Add(-25 * time.Hour)
-			must(t, os.Chtimes(filepath.Join(dir, ".finished"), past, past))
-			must(t, collectScratch(dir))
+			b, err := json.Marshal(map[string]int{"retention_days": days})
+			must(t, err)
+			finishedFor(t, state, dir, string(b), 25*time.Hour)
+			must(t, collectScratch(dir, finishedRecord(state, dir)))
 			if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("invalid retention kept scope: %v", err)
 			}
@@ -1362,5 +1359,17 @@ func TestTheDaemonSendsBaseStates(t *testing.T) {
 	}
 	if _, ok := bodies[1]["bases"]; ok {
 		t.Fatalf("a daemon without bases sent %s", bodies[1]["bases"])
+	}
+}
+
+// finishedFor writes a folder's finished marker and the daemon's record of
+// it, both age old.
+func finishedFor(t *testing.T, state, dir, body string, age time.Duration) {
+	t.Helper()
+	at := time.Now().Add(-age)
+	for _, p := range []string{filepath.Join(dir, ".finished"), finishedRecord(state, dir)} {
+		must(t, os.MkdirAll(filepath.Dir(p), 0700))
+		must(t, os.WriteFile(p, []byte(body), 0600))
+		must(t, os.Chtimes(p, at, at))
 	}
 }

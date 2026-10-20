@@ -135,3 +135,19 @@ func TestLinkOutOfHomeGrantsNothing(t *testing.T) {
 		t.Fatal("wrote through the link into a folder outside the policy")
 	}
 }
+
+// A socket the CLI keeps in its own folder of the run is out of reach,
+// though the folder around it is a write folder. (bwrap's read-only mount
+// does not stop a connect; see the package doc.)
+func TestSocketsInReadOnlyPathsAreUnreachable(t *testing.T) {
+	p, _, _ := fixtureIn(t, shortDir(t))
+	run := mkdir(t, filepath.Join(p.Home, "r"))
+	cli := mkdir(t, filepath.Join(run, ".cli-home"))
+	p.Write, p.ReadOnly = []string{run}, []string{cli}
+	sock := filepath.Join(cli, "c.sock")
+	serveUnix(t, sock)
+	out, err := sandboxed(t, p, "curl -q -sS --unix-socket "+shq(sock)+" http://x/")
+	if err == nil || strings.Contains(out, "hello") {
+		t.Fatalf("socket %s reachable from the sandbox: err=%v out=%q", sock, err, out)
+	}
+}

@@ -21,6 +21,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/daemon/envs"
+	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
 	"lykeion/server/pkg/agent"
@@ -131,6 +132,9 @@ type daemon struct {
 	scratches       map[string]bool
 	// bases are the machine's language bases; nil when the daemon has none.
 	bases *envs.Bases
+	// sandboxErr is why the sandbox failed its check at start; analysis code
+	// runs nowhere while it is set.
+	sandboxErr error
 }
 
 func daemonID(dir, server string) (string, error) {
@@ -216,6 +220,9 @@ func Run(ctx context.Context, cfg Config) error {
 	background(func() { d.hints(ctx) })
 	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
 	if d.bases != nil {
+		if d.sandboxErr = sandbox.Check(ctx); d.sandboxErr != nil {
+			slog.Warn("analysis code can't run on this machine: the sandbox isn't available", "err", d.sandboxErr)
+		}
 		// Bases build in the background; a run started before one is ready
 		// gets only the ones that are.
 		background(func() {
@@ -525,7 +532,7 @@ func (d *daemon) gc(context.Context) error {
 		if active || !d.holdScratch(e.Name()) {
 			continue
 		}
-		err := collectScratch(filepath.Join(d.cfg.Home, e.Name()))
+		err := collectScratch(filepath.Join(d.cfg.Home, e.Name()), finishedRecord(d.cfg.StateDir, e.Name()))
 		d.releaseScratch(e.Name())
 		if err != nil {
 			return err
@@ -534,10 +541,11 @@ func (d *daemon) gc(context.Context) error {
 	return nil
 }
 
-// collectScratch deletes a folder whose finished marker is old enough: a day
+// collectScratch deletes a folder whose finished record is old enough: a day
 // for an attempt's own folder; for a scope's folder, whose sessions later runs
-// resume, the retention its marker records, or a day when it records none.
-func collectScratch(dir string) error {
+// resume, the retention its record keeps, or a day when it keeps none. The
+// record goes with the folder.
+func collectScratch(dir, record string) error {
 	reservation, err := agent.ReserveScratch(dir)
 	if errors.Is(err, agent.ErrScratchBusy) || errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -550,8 +558,7 @@ func collectScratch(dir string) error {
 		return reservation.Remove()
 	}
 
-	marker := filepath.Join(dir, ".finished")
-	fi, err := os.Lstat(marker)
+	fi, err := os.Lstat(record)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -566,12 +573,42 @@ func collectScratch(dir string) error {
 		var m struct {
 			RetentionDays int `json:"retention_days"`
 		}
-		if b, err := readBounded(marker, recordLimit); err == nil && json.Unmarshal(b, &m) == nil && m.RetentionDays > 0 && m.RetentionDays <= maxRetentionDays {
+		if b, err := readBounded(record, recordLimit); err == nil && json.Unmarshal(b, &m) == nil && m.RetentionDays > 0 && m.RetentionDays <= maxRetentionDays {
 			keep = time.Duration(m.RetentionDays) * 24 * time.Hour
 		}
 	}
 	if time.Since(fi.ModTime()) < keep {
 		return nil
 	}
-	return reservation.Remove()
+	if err := reservation.Remove(); err != nil {
+		return err
+	}
+	return os.Remove(record)
+}
+
+// finishedRecord is the daemon's own copy of a folder's finished marker,
+// kept in its state folder. A run's code may write its run folder, marker
+// included, so gc goes by this copy alone.
+func finishedRecord(stateDir, dir string) string {
+	return filepath.Join(stateDir, "finished", filepath.Base(dir))
+}
+
+// markFinished writes a folder's finished marker and the daemon's copy.
+func (d *daemon) markFinished(dir string, v any) error {
+	if err := atomicJSON(dir, ".finished", v); err != nil {
+		return err
+	}
+	return atomicJSON(filepath.Dir(finishedRecord(d.cfg.StateDir, dir)), filepath.Base(dir), v)
+}
+
+// unmarkFinished takes both away, as a reused folder runs again.
+func (d *daemon) unmarkFinished(dir string) error {
+	err := os.Remove(filepath.Join(dir, ".finished"))
+	if errors.Is(err, os.ErrNotExist) {
+		err = nil
+	}
+	if rerr := os.Remove(finishedRecord(d.cfg.StateDir, dir)); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+		err = errors.Join(err, rerr)
+	}
+	return err
 }

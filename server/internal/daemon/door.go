@@ -30,6 +30,7 @@ import (
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/kernels"
+	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/toolroute"
@@ -59,6 +60,9 @@ type Door struct {
 	Study *envs.Study
 	// ScriptTimeout is how long a script may run; 0 means agent.ScriptLimit.
 	ScriptTimeout time.Duration
+	// SandboxErr is why the machine's sandbox failed its check; while it is
+	// set, run_code and run_script run nothing.
+	SandboxErr error
 
 	// URL and Token are set by Start: the CLI's MCP entry and its bearer.
 	URL, Token string
@@ -74,6 +78,21 @@ type Door struct {
 	// interp answers a language's interpreter; nil means Study.Interpreter.
 	interp  func(lang string) (string, []string, error)
 	kernels *kernels.Sessions
+	// policy is what the run's code may touch, built once, before the first
+	// code runs; tmp is the run's private temp folder in it and placeholders
+	// the read-only stand-ins it made, which Close removes. sandboxErr is why
+	// the run's code can't run at all.
+	sandboxMu    sync.Mutex
+	sandboxBuilt bool
+	policy       sandbox.Policy
+	tmp          string
+	bridgeDir    string
+	placeholders []placeholder
+	sandboxErr   error
+	// home is the person's home folder; empty means the current user's.
+	home string
+	// wrap starts a command under the policy; nil means Policy.Command.
+	wrap func(ctx context.Context, p sandbox.Policy, name string, args ...string) (*exec.Cmd, error)
 }
 
 // sourcesTools are the sources server's tools the door forwards, under the
@@ -106,6 +125,14 @@ func (d *Door) Start() error {
 	}
 	d.URL = "http://" + ln.Addr().String() + "/mcp"
 	d.ctx, d.cancel = context.WithCancel(context.Background())
+	d.sandboxErr = d.SandboxErr
+	if d.Study != nil {
+		// The study's own interpreters load what its code installed, so
+		// listing its packages runs in the sandbox too.
+		study := *d.Study
+		study.Run = d.runSandboxed
+		d.Study = &study
+	}
 	d.sessions = map[string]*mcp.ClientSession{}
 	d.sessionCommands = map[string]*exec.Cmd{}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "lyk_door", Version: "0.1.0"}, nil)
@@ -143,6 +170,16 @@ func (d *Door) Close() {
 	}
 	if d.kernels != nil {
 		d.kernels.Close()
+	}
+	d.sandboxMu.Lock()
+	defer d.sandboxMu.Unlock()
+	for _, dir := range []string{d.tmp, d.bridgeDir} {
+		if dir != "" {
+			os.RemoveAll(dir)
+		}
+	}
+	for _, p := range d.placeholders {
+		p.remove()
 	}
 }
 

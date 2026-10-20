@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"os"
 	"slices"
 	"strings"
 )
@@ -26,6 +27,8 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 		"--tmpfs", r.home,
 	}
 	type bind struct{ flag, dir string }
+	// A hidden file is covered by /dev/null and a hidden folder by an empty
+	// read-only tmpfs.
 	var binds []bind
 	for _, dir := range r.write {
 		binds = append(binds, bind{"--bind", dir})
@@ -33,11 +36,30 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	for _, dir := range r.read {
 		binds = append(binds, bind{"--ro-bind", dir})
 	}
+	// A read-only path lies directly inside a write folder, so it binds after
+	// that folder, on top of it; as a mount it can't be removed or renamed.
+	for _, dir := range r.readOnly {
+		binds = append(binds, bind{"--ro-bind", dir})
+	}
+	for _, dir := range r.hidden {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			binds = append(binds, bind{"--tmpfs", dir})
+		} else {
+			binds = append(binds, bind{"--hide", dir})
+		}
+	}
 	slices.SortStableFunc(binds, func(a, b bind) int {
 		return strings.Count(a.dir, "/") - strings.Count(b.dir, "/")
 	})
 	for _, b := range binds {
-		argv = append(argv, b.flag, b.dir, b.dir)
+		switch b.flag {
+		case "--tmpfs":
+			argv = append(argv, "--tmpfs", b.dir, "--remount-ro", b.dir)
+		case "--hide":
+			argv = append(argv, "--ro-bind", "/dev/null", b.dir)
+		default:
+			argv = append(argv, b.flag, b.dir, b.dir)
+		}
 	}
 	// The empty home stays read-only, so a write there fails instead of landing
 	// in a tmpfs that vanishes; the bound folders keep their own mounts.

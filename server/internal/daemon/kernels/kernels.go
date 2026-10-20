@@ -5,6 +5,7 @@ package kernels
 
 import (
 	"bufio"
+	"bytes"
 	"cmp"
 	"context"
 	_ "embed"
@@ -40,11 +41,15 @@ type Result struct {
 	OK            bool
 }
 
+// Command makes the command that starts the bridge: the door's sandbox.
+type Command func(name string, args ...string) (*exec.Cmd, error)
+
 type Sessions struct {
-	python string
-	script string
-	env    []string
-	dir    string
+	command Command
+	python  string
+	script  string
+	env     []string
+	dir     string
 
 	mu     sync.Mutex
 	b      *bridge
@@ -67,12 +72,17 @@ type bridge struct {
 	done    chan struct{}
 }
 
-// Start writes the bridge to a temporary file, which Close removes, and
-// starts it in dir with env as its whole environment. Kernels start on each
-// language's first cell. ctx is not kept: the bridge lives until Close, and a
-// bridge that dies is started again by the next Exec.
-func Start(ctx context.Context, python string, env []string, dir string) (*Sessions, error) {
-	f, err := os.CreateTemp("", "lyk-bridge-*.py")
+// Start writes the bridge to a file in tmp ("" for the system's temp
+// folder), which Close removes, and starts it through command, which is
+// required, in dir with
+// env as its whole environment. Kernels start on each language's first cell.
+// ctx is not kept: the bridge lives until Close, and a bridge that dies is
+// started again by the next Exec.
+func Start(ctx context.Context, command Command, python string, env []string, dir, tmp string) (*Sessions, error) {
+	if command == nil {
+		return nil, errors.New("the session bridge has no command to start it")
+	}
+	f, err := os.CreateTemp(tmp, "lyk-bridge-*.py")
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +94,7 @@ func Start(ctx context.Context, python string, env []string, dir string) (*Sessi
 		os.Remove(f.Name())
 		return nil, err
 	}
-	s := &Sessions{python: python, script: f.Name(), env: env, dir: dir}
+	s := &Sessions{command: command, python: python, script: f.Name(), env: env, dir: dir}
 	b, err := s.start()
 	if err != nil {
 		os.Remove(s.script)
@@ -97,10 +107,15 @@ func Start(ctx context.Context, python string, env []string, dir string) (*Sessi
 func (s *Sessions) start() (*bridge, error) {
 	// -P keeps the script's and the working folder's own files off sys.path,
 	// so a study's queue.py or random.py cannot replace what the bridge imports.
-	cmd := exec.Command(s.python, "-P", s.script)
+	cmd, err := s.command(s.python, "-P", s.script)
+	if err != nil {
+		return nil, err
+	}
 	cmd.Env = s.env
 	cmd.Dir = s.dir
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &stderrLog{}
+	// a kernel left running may hold stderr open after the bridge exits
+	cmd.WaitDelay = 5 * time.Second
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -262,4 +277,44 @@ func exited(b *bridge, d time.Duration) bool {
 			return false
 		}
 	}
+}
+
+// stderrLog writes what the bridge and its kernels print to stderr to the
+// daemon's log a line at a time, each cut at 4 KiB, and drops the rest once
+// 1 MiB has been logged: the code they run decides what that is.
+type stderrLog struct {
+	line   []byte
+	cut    bool
+	logged int
+}
+
+const maxStderrLine, maxStderr = 4 << 10, 1 << 20
+
+func (w *stderrLog) Write(p []byte) (int, error) {
+	n := len(p)
+	for len(p) > 0 {
+		i := bytes.IndexByte(p, '\n')
+		part := p
+		if i >= 0 {
+			part = p[:i]
+		}
+		room := maxStderrLine - len(w.line)
+		if len(part) > room {
+			part, w.cut = part[:max(room, 0)], true
+		}
+		w.line = append(w.line, part...)
+		if i < 0 {
+			break
+		}
+		if w.logged < maxStderr {
+			text := string(w.line)
+			if w.cut {
+				text += " [cut]"
+			}
+			slog.Warn("session bridge", "stderr", text)
+			w.logged += len(w.line)
+		}
+		w.line, w.cut, p = w.line[:0], false, p[i+1:]
+	}
+	return n, nil
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,9 @@ type processOwner struct {
 
 // The supervisor owns the group until it has cleaned credentials and recorded
 // its child's status. The host stops descendants before retiring this witness.
+// The run's code may have planted a link where the marker is written, so the
+// temporary marker is removed and then created afresh (noclobber), never
+// written through what stands there; mv replaces a link at the marker itself.
 const supervisorScript = `nonce=$1
 marker=$2
 shift 2
@@ -39,7 +43,7 @@ child=$!
 wait "$child"
 result=$?
 cleanup || result=125
-(umask 077; printf '%s %s\n' "$nonce" "$result" > "$marker.tmp") && /bin/mv -f -- "$marker.tmp" "$marker" || exit 125
+(umask 077; /bin/rm -f -- "$marker.tmp" && set -C && printf '%s %s\n' "$nonce" "$result" > "$marker.tmp") && /bin/mv -f -- "$marker.tmp" "$marker" || exit 125
 kill -STOP $$
 `
 
@@ -294,7 +298,7 @@ func signalOwnedWith(owner processOwner, ops groupOperations) (bool, error) {
 	}
 }
 func supervisorExit(cmd *exec.Cmd, nonce string, waitErr error) error {
-	b, err := os.ReadFile(filepath.Join(cmd.Dir, ".agent-exit"))
+	b, err := readMarker(filepath.Join(cmd.Dir, ".agent-exit"))
 	if err != nil {
 		return fmt.Errorf("supervisor exit status unavailable: %w", errors.Join(waitErr, err))
 	}
@@ -352,4 +356,23 @@ func RecoverScratch(dir string) error {
 		}
 	}
 	return errors.Join(failures...)
+}
+
+// readMarker reads a small marker file in a run folder, which the run's code
+// may have swapped for a link, a device or a pipe: it opens no link, never
+// waits on a pipe, reads only a regular file, and at most 4 KiB of it.
+func readMarker(p string) ([]byte, error) {
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("marker is not a regular file: %s", p)
+	}
+	return io.ReadAll(io.LimitReader(f, 4<<10))
 }

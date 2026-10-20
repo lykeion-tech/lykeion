@@ -1,0 +1,104 @@
+package agent
+
+import (
+	"go/ast"
+	goparser "go/parser"
+	"go/token"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+// notInRunFolder are the dot-names the adapters and the daemon use that are
+// not paths of their own at the top of a run's folder.
+var notInRunFolder = map[string]string{
+	".py": "a script extension", ".r": "a script extension", ".R": "a script extension", ".jl": "a script extension",
+	".json": "a file suffix", ".jsonl": "a file suffix", ".tmp": "a file suffix", ".overflow.json": "a file suffix", ".config.toml": "a file suffix",
+	".cache": "inside .home", ".config": "inside .home", ".local": "inside .home", ".state": "inside .home",
+	".credentials.json": "inside .cli-home", ".lyk-usage.json": "inside .cli-home",
+	".system_generated": "inside the CLI's session store",
+	".scratch-retired-": "beside the run folders, not in one",
+}
+
+// Every name the adapters and the daemon keep at the top of a run's folder
+// is in RunFolderConfig, so a new one can't be left writable to code by
+// accident: a new dot-name (or *.md) literal fails here until it is listed
+// or explained.
+func TestRunFolderConfigListsEveryName(t *testing.T) {
+	name := regexp.MustCompile(`^(\.[A-Za-z][\w.-]*|[A-Z][A-Za-z.]*\.md)(/.*)?$`)
+	var files []string
+	for _, dir := range []string{".", filepath.Join("..", "..", "internal", "daemon")} {
+		got, err := filepath.Glob(filepath.Join(dir, "*.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, got...)
+	}
+	found := 0
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		af, err := goparser.ParseFile(token.NewFileSet(), f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(af, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			s, err := strconv.Unquote(lit.Value)
+			m := name.FindStringSubmatch(s)
+			if err != nil || m == nil {
+				return true
+			}
+			found++
+			listed := slices.ContainsFunc(RunFolderConfig, func(p RunFolderPath) bool { return p.Name == m[1] })
+			if _, other := notInRunFolder[m[1]]; !listed && !other {
+				t.Errorf("%s: %q is neither in RunFolderConfig nor explained in notInRunFolder", filepath.Base(f), m[1])
+			}
+			return true
+		})
+	}
+	if found < 30 {
+		t.Fatalf("only %d names found; the scan is not reading the sources", found)
+	}
+	for _, d := range discoveryNames {
+		if !slices.ContainsFunc(RunFolderConfig, func(p RunFolderPath) bool { return p.Name == d }) {
+			t.Errorf("discovery name %q is not in RunFolderConfig", d)
+		}
+	}
+}
+
+// Names a CLI reads from its working folder by itself, which no source here
+// spells out, so the scan above can't see them.
+func TestRunFolderConfigHasEachCLIsOwnFiles(t *testing.T) {
+	byName := map[string]RunFolderPath{}
+	for _, p := range RunFolderConfig {
+		byName[p.Name] = p
+	}
+	for _, n := range []string{".git", ".agent", ".gemini", "GEMINI.md", ".geminiignore", ".cursorrules", ".cursorignore", ".cursorindexingignore", ".claude", "CLAUDE.md", "AGENTS.md", ".codex"} {
+		if _, ok := byName[n]; !ok {
+			t.Errorf("%s is not listed", n)
+		}
+	}
+	// What holds the door's token or the CLI's sign-in is hidden, not only
+	// read-only.
+	for _, n := range []string{".lyk-mcp.json", ".cursor/mcp.json", ".agents/mcp_config.json", ".cli-home", ".home", ".lyk-config.json", ".agy.log"} {
+		if !byName[n].Hidden {
+			t.Errorf("%s is not hidden", n)
+		}
+	}
+	// The supervisor writes its exit marker from outside the sandbox: a
+	// placeholder, not a marker that may be missing, keeps code from planting
+	// a link it would write through.
+	for _, n := range []string{".agent-exit", ".agent-exit.tmp", ".agy.log"} {
+		if byName[n].Marker {
+			t.Errorf("%s is left missing for code to plant", n)
+		}
+	}
+}

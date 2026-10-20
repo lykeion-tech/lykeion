@@ -2,13 +2,18 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -19,6 +24,7 @@ import (
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/kernels"
+	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/pkg/agent"
 )
@@ -33,7 +39,8 @@ const (
 	maxScript = 256 << 10
 	// outputCut ends output dropped past maxAnswer, as the session bridge
 	// ends a cell's.
-	outputCut = "\n[output cut at 32 MiB]\n"
+	outputCut     = "\n[output cut at 32 MiB]\n"
+	scriptChanged = "the script changed while it ran; the recorded script may not be what ran"
 	// runCut ends output dropped so the record fits the server's body limit.
 	runCut = "\n[output cut to fit the run record]\n"
 )
@@ -71,18 +78,212 @@ func (d *Door) interpreter(lang string) (string, []string, error) {
 	return d.Study.Interpreter(lang)
 }
 
+// sandboxReady builds the run's sandbox once, before its first code runs:
+// by then the run is in the folder it keeps, which may not be the one it
+// started in. It answers why code can't run, if it can't.
+func (d *Door) sandboxReady() error {
+	d.sandboxMu.Lock()
+	defer d.sandboxMu.Unlock()
+	if d.sandboxErr == nil && !d.sandboxBuilt {
+		d.sandboxBuilt = true
+		d.sandboxErr = d.sandboxPolicy()
+	}
+	if d.sandboxErr != nil {
+		return unsandboxed(d.sandboxErr)
+	}
+	return nil
+}
+
+// sandboxPolicy builds the run's sandbox: its code writes only the run
+// folder and the study's add-on folder, which holds the run's private temp
+// folder, and reads those and the language bases. The bases are listed one
+// by one, since their parent folder holds every study's add-on folder. What
+// the CLIs and the daemon keep in the run folder is read-only to the code.
+func (d *Door) sandboxPolicy() error {
+	if d.Study == nil {
+		return errors.New("this run has no study environment")
+	}
+	if d.ctx.Err() != nil {
+		return errors.New("the run has ended")
+	}
+	home := d.home
+	if home == "" {
+		u, err := user.Current()
+		if err != nil {
+			return err
+		}
+		home = u.HomeDir
+	}
+	tmp, err := os.MkdirTemp(d.Study.Dir, "tmp-")
+	if err != nil {
+		return err
+	}
+	d.tmp = tmp
+	if err := os.Mkdir(filepath.Join(tmp, "home"), 0o700); err != nil {
+		return err
+	}
+	dir := d.Child().Dir
+	d.policy = sandbox.Policy{Home: home, Write: []string{dir, d.Study.Dir}}
+	for _, p := range agent.RunFolderConfig {
+		path := filepath.Join(dir, p.Name)
+		_, err := os.Lstat(path)
+		switch {
+		case err == nil && p.Hidden:
+			d.policy.Hidden = append(d.policy.Hidden, path)
+		case err == nil:
+			d.policy.ReadOnly = append(d.policy.ReadOnly, path)
+		case !errors.Is(err, fs.ErrNotExist):
+			return err
+		case p.Marker || strings.Contains(p.Name, "/"):
+			// a missing marker is never made, and what is missing inside a
+			// read-only folder can't be made by the code either
+		default:
+			ph, err := makePlaceholder(path, p.Folder)
+			if err != nil {
+				return err
+			}
+			d.placeholders = append(d.placeholders, ph)
+			if p.Hidden {
+				d.policy.Hidden = append(d.policy.Hidden, path)
+			} else {
+				d.policy.ReadOnly = append(d.policy.ReadOnly, path)
+			}
+		}
+	}
+	// The session bridge's file goes in a folder of the door's own, outside
+	// every folder the code may write, so no link the code makes is followed
+	// when it is written. The code may only read it.
+	if d.bridgeDir, err = os.MkdirTemp("", "lyk-bridge-"); err != nil {
+		return err
+	}
+	d.policy.Read = append(d.policy.Read, d.bridgeDir)
+	// ponytail: a base built after the run started is not readable until the next run
+	for _, base := range []string{envs.Python, envs.R, envs.Julia, "micromamba"} {
+		if dir := filepath.Join(d.Study.Bases.Dir, base); isDir(dir) {
+			d.policy.Read = append(d.policy.Read, dir)
+		}
+	}
+	return nil
+}
+
+// placeholder stands in, read-only to the code, for a CLI's config the run
+// folder doesn't hold, so the code can't create it. A JSON one holds an
+// empty object, which its readers take as no config.
+type placeholder struct {
+	path, content string
+	folder        bool
+}
+
+func makePlaceholder(path string, folder bool) (placeholder, error) {
+	p := placeholder{path: path, folder: folder}
+	if folder {
+		return p, os.Mkdir(path, 0o700)
+	}
+	if strings.HasSuffix(path, ".json") {
+		p.content = "{}"
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return p, err
+	}
+	_, err = f.WriteString(p.content)
+	return p, errors.Join(err, f.Close())
+}
+
+// remove takes the placeholder away unless the CLI has since used it: a
+// folder only while empty, a file only while it holds what was written.
+func (p placeholder) remove() {
+	if p.folder {
+		os.Remove(p.path)
+		return
+	}
+	fi, err := os.Lstat(p.path)
+	if b, rerr := os.ReadFile(p.path); err == nil && rerr == nil && fi.Mode().IsRegular() && string(b) == p.content {
+		os.Remove(p.path)
+	}
+}
+
+func isDir(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
+// command starts name with args in the run's sandbox. Code never runs
+// outside it: with no working sandbox, nothing starts.
+func (d *Door) command(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+	if err := d.sandboxReady(); err != nil {
+		return nil, err
+	}
+	wrap := d.wrap
+	if wrap == nil {
+		wrap = func(ctx context.Context, p sandbox.Policy, name string, args ...string) (*exec.Cmd, error) {
+			return p.Command(ctx, name, args...)
+		}
+	}
+	cmd, err := wrap(ctx, d.policy, name, args...)
+	if err != nil {
+		return nil, unsandboxed(err)
+	}
+	return cmd, nil
+}
+
+func unsandboxed(err error) error {
+	return fmt.Errorf("analysis code can't run on this machine: the sandbox isn't available (%v)", err)
+}
+
+// runSandboxed runs a step in the study's folders in the sandbox and
+// answers its stdout. Its environment is the run's, without the person's own
+// Python, R, Julia or conda settings, then env, which holds what the study
+// adds, then temp files and caches in the run's temp folder. It can't be the
+// full environment code runs with, which comes from the study's folders this
+// step may be making.
+func (d *Door) runSandboxed(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+	cmd, err := d.command(ctx, name, args...)
+	if err != nil {
+		return nil, err
+	}
+	env = slices.DeleteFunc(slices.Clone(env), func(e string) bool { return strings.HasPrefix(e, "LYK_") })
+	cmd.Dir, cmd.Env = dir, slices.Concat(envs.Isolate(connectorEnv(d.Child(), nil)), env, d.tmpEnv())
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return out, fmt.Errorf("%s %s: %w: %s", filepath.Base(name), strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return out, nil
+}
+
+// cacheDirs are where the home folder and the caches and config that
+// default to it go in the run's temp folder: the person's home is hidden
+// and the CLI's own is read-only to code.
+var cacheDirs = map[string]string{"HOME": "home", "XDG_CONFIG_HOME": "config", "XDG_DATA_HOME": "data", "XDG_STATE_HOME": "state", "PIP_CACHE_DIR": "pip", "JUPYTER_RUNTIME_DIR": "jupyter-runtime", "JUPYTER_DATA_DIR": "jupyter-data",
+	"IPYTHONDIR": "ipython", "MPLCONFIGDIR": "matplotlib", "XDG_CACHE_HOME": "cache"}
+
+// tmpEnv points temp files and caches into the run's temp folder.
+func (d *Door) tmpEnv() []string {
+	if d.tmp == "" {
+		return nil
+	}
+	env := []string{"TMPDIR=" + d.tmp}
+	for k, sub := range cacheDirs {
+		env = append(env, k+"="+filepath.Join(d.tmp, sub))
+	}
+	return env
+}
+
 // runEnv is the environment code runs with: the connectors' one, which holds
 // none of the run's tokens, with the study's folders and interpreters on
-// PATH ahead of the person's own.
+// PATH ahead of the person's own, and temp files and caches in the run's
+// temp folder.
 func (d *Door) runEnv() []string {
-	env := append(connectorEnv(d.Child(), nil), d.Study.Env()...)
+	env := append(append(connectorEnv(d.Child(), nil), d.Study.Env()...), d.tmpEnv()...)
 	path := os.Getenv("PATH")
 	for _, e := range env {
 		if v, ok := strings.CutPrefix(e, "PATH="); ok {
 			path = v
 		}
 	}
-	// A run's own PATH already carries the prefix; a child's without it gets it first.
+	// The CLI's PATH holds none of the study's folders; they go first, once.
 	sep := string(os.PathListSeparator)
 	if prefix := d.Study.PathPrefix(); prefix != "" && !strings.Contains(sep+path+sep, sep+prefix+sep) {
 		path = prefix + sep + path
@@ -156,7 +357,14 @@ func (d *Door) liveSessions() (*kernels.Sessions, error) {
 	if err != nil {
 		return nil, err
 	}
-	s, err = kernels.Start(d.ctx, python, d.runEnv(), d.Child().Dir)
+	// the bridge's folder and environment come from the built sandbox
+	if err := d.sandboxReady(); err != nil {
+		return nil, err
+	}
+	command := func(name string, args ...string) (*exec.Cmd, error) {
+		return d.command(context.Background(), name, args...)
+	}
+	s, err = kernels.Start(d.ctx, command, python, d.runEnv(), d.Child().Dir, d.bridgeDir)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +390,7 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 		return nil, nil, fmt.Errorf("%q is not a script run_script runs: it runs .py, .R and .jl files", in.Path)
 	}
 	dir := d.Child().Dir
-	script, err := insideDir(dir, in.Path)
+	script, contents, err := readScript(dir, in.Path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -190,12 +398,8 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	if err != nil {
 		return nil, nil, err
 	}
-	contents, err := os.ReadFile(script)
-	if err != nil {
+	if err := d.sandboxReady(); err != nil {
 		return nil, nil, err
-	}
-	if len(contents) > maxScript {
-		return nil, nil, errors.New("the script is over 256 KiB, more than a run record keeps")
 	}
 	ctx, cancel := d.runContext(ctx)
 	defer cancel()
@@ -210,11 +414,15 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	runCtx, stop := context.WithTimeout(ctx, limit)
 	defer stop()
 	var stdout, stderr capped
-	cmd := exec.CommandContext(runCtx, name, append(args, script)...)
+	cmd, err := d.command(runCtx, name, append(args, script)...)
+	if err != nil {
+		return nil, nil, err
+	}
 	cmd.Dir = dir
 	cmd.Env = d.runEnv()
+	// pipes, not files: the sandbox loses some interpreters' buffered output to a file
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	ownGroup(cmd)
+	// the sandbox starts the script in a session of its own, whose group killGroup ends
 	cmd.Cancel = func() error { killGroup(cmd); return nil }
 	// what the script left running may hold its output open
 	cmd.WaitDelay = 5 * time.Second
@@ -228,6 +436,11 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	}
 	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() && runCtx.Err() == nil {
 		errText += fmt.Sprintf("\nthe script was stopped by a signal: %s\n", ws.Signal())
+	}
+	// The script runs from its own path, so paths relative to it work; the
+	// record keeps the bytes read before, and says so if they changed.
+	if _, after, err := readScript(dir, in.Path); err != nil || sha256.Sum256(after) != sha256.Sum256(contents) {
+		errText += "\n" + scriptChanged + "\n"
 	}
 	if runCtx.Err() != nil {
 		status = -1
@@ -256,6 +469,42 @@ func insideDir(dir, path string) (string, error) {
 		return "", fmt.Errorf("%q is not inside your working folder", path)
 	}
 	return full, nil
+}
+
+// readScript reads a script in dir for the run's record, refusing one that
+// leaves dir. The run's code may have planted links there, so the file is
+// opened without following a link, and the path is checked again after the
+// open: a link swapped in for any folder on the way is refused, not read.
+func readScript(dir, path string) (string, []byte, error) {
+	full, err := insideDir(dir, path)
+	if err != nil {
+		return "", nil, err
+	}
+	f, err := os.OpenFile(full, os.O_RDONLY|scriptOpen, 0)
+	if err != nil {
+		return "", nil, fmt.Errorf("%q: %w", path, err)
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil {
+		return "", nil, err
+	}
+	again, err := insideDir(dir, path)
+	if err != nil {
+		return "", nil, err
+	}
+	now, err := os.Stat(again)
+	if err != nil || again != full || !os.SameFile(opened, now) || !opened.Mode().IsRegular() {
+		return "", nil, fmt.Errorf("%q changed while it was read", path)
+	}
+	contents, err := io.ReadAll(io.LimitReader(f, maxScript+1))
+	if err != nil {
+		return "", nil, err
+	}
+	if len(contents) > maxScript {
+		return "", nil, errors.New("the script is over 256 KiB, more than a run record keeps")
+	}
+	return full, contents, nil
 }
 
 func limitText(d time.Duration) string {

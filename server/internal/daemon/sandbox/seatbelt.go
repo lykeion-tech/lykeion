@@ -101,6 +101,20 @@ func (p Policy) seatbeltProfile() (string, error) {
 		rule("allow network-outbound (remote unix-socket (subpath " + sbplString(dir) + "))")
 		rule("allow network-inbound network-bind (local unix-socket (subpath " + sbplString(dir) + "))")
 	}
+	// Read-only paths inside the write folders come last, so their denials
+	// win. A denied write covers removing, renaming and replacing the path,
+	// whatever case it is spelled in, as Seatbelt matches the stored name.
+	for _, c := range r.readOnly {
+		rule("deny file-write* (subpath " + sbplString(c) + ")")
+		rule("deny network-outbound (remote unix-socket (subpath " + sbplString(c) + "))")
+		rule("deny network-inbound network-bind (local unix-socket (subpath " + sbplString(c) + "))")
+	}
+	// Hidden paths come last of all: the code may neither read nor write them.
+	for _, c := range r.hidden {
+		rule("deny file-read* file-write* (subpath " + sbplString(c) + ")")
+		rule("deny network-outbound (remote unix-socket (subpath " + sbplString(c) + "))")
+		rule("deny network-inbound network-bind (local unix-socket (subpath " + sbplString(c) + "))")
+	}
 	return b.String(), nil
 }
 

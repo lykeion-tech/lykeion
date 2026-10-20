@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,6 +75,14 @@ func stub() {
 		case "garbage":
 			write("not json")
 			continue
+		case "noisy":
+			fmt.Fprintln(os.Stderr, "first line")
+			fmt.Fprintln(os.Stderr, strings.Repeat("y", 10<<10))
+			for range 2 << 10 {
+				fmt.Fprintln(os.Stderr, strings.Repeat("z", 1<<10))
+			}
+			write(map[string]any{"id": req.ID, "stdout": "ran noisy", "ok": true})
+			continue
 		case "slow":
 			go func() {
 				time.Sleep(300 * time.Millisecond)
@@ -99,9 +108,58 @@ func stub() {
 	}
 }
 
+// plain starts the bridge as it is; the door passes its sandbox instead.
+func plain(name string, args ...string) (*exec.Cmd, error) { return exec.Command(name, args...), nil }
+
+func TestStartNeedsACommand(t *testing.T) {
+	if _, err := Start(context.Background(), nil, os.Args[0], nil, t.TempDir(), ""); err == nil {
+		t.Fatal("a bridge started with no command to start it")
+	}
+}
+
+// What the bridge and its kernels write to stderr reaches the daemon's log
+// a line at a time, marked as theirs and capped, never raw.
+func TestTheBridgesStderrIsLoggedAndCapped(t *testing.T) {
+	var buf safeBuffer
+	defer func(l *slog.Logger) { slog.SetDefault(l) }(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	s := startStub(t)
+	if r, err := s.Exec(context.Background(), "python", "noisy"); err != nil || r.Stdout != "ran noisy" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	s.Close()
+	got := buf.String()
+	if !strings.Contains(got, "session bridge") || !strings.Contains(got, "first line") {
+		t.Fatalf("log %q", got[:min(len(got), 500)])
+	}
+	if strings.Contains(got, strings.Repeat("y", 5<<10)) {
+		t.Error("a long line was logged whole")
+	}
+	if len(got) > 1<<20+256<<10 { // 2 MiB were written
+		t.Errorf("%d bytes logged", len(got))
+	}
+}
+
+type safeBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *safeBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *safeBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
 func startStub(t *testing.T) *Sessions {
 	t.Helper()
-	s, err := Start(context.Background(), os.Args[0], append(os.Environ(), "LYK_BRIDGE_STUB=1"), t.TempDir())
+	s, err := Start(context.Background(), plain, os.Args[0], append(os.Environ(), "LYK_BRIDGE_STUB=1"), t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +175,7 @@ func TestTheBridgeLivesOutsideTheRunFolder(t *testing.T) {
 	dir, seen := t.TempDir(), t.TempDir()
 	python := filepath.Join(seen, "python")
 	os.WriteFile(python, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+seen+"/args\npwd -P > "+seen+"/cwd\ncp \"$2\" "+seen+"/bridge\nexec "+os.Args[0]+"\n"), 0o755)
-	s, err := Start(context.Background(), python, append(os.Environ(), "LYK_BRIDGE_STUB=1"), dir)
+	s, err := Start(context.Background(), plain, python, append(os.Environ(), "LYK_BRIDGE_STUB=1"), dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,6 +343,9 @@ func TestRealKernels(t *testing.T) {
 		}
 	}
 	st := envs.ForStudy(b, t.TempDir())
+	st.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+		return b.Run(ctx, append(os.Environ(), env...), dir, name, args...)
+	}
 	python, _, err := st.Interpreter(envs.Python)
 	if err != nil {
 		t.Fatal(err)
@@ -296,7 +357,7 @@ func TestRealKernels(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := kernelProcesses(t)
-	s, err := Start(context.Background(), python, env, st.Dir)
+	s, err := Start(context.Background(), plain, python, env, st.Dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}

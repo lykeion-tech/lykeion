@@ -302,7 +302,7 @@ func waitSupervised(cmd *exec.Cmd, nonce string) error {
 		case err := <-exited:
 			return err
 		case <-ticker.C:
-			b, err := os.ReadFile(filepath.Join(cmd.Dir, ".agent-exit"))
+			b, err := readMarker(filepath.Join(cmd.Dir, ".agent-exit"))
 			if err != nil {
 				continue
 			}

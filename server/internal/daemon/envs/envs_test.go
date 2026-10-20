@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,7 +24,7 @@ type fakeRun struct {
 	failVerify, failJulia, failVenv bool
 }
 
-func (f *fakeRun) run(_ context.Context, env []string, _, name string, args ...string) ([]byte, error) {
+func (f *fakeRun) run(_ context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
 	line := strings.Join(append([]string{filepath.Base(name)}, args...), " ")
 	f.mu.Lock()
 	f.calls = append(f.calls, line)
@@ -38,16 +39,21 @@ func (f *fakeRun) run(_ context.Context, env []string, _, name string, args ...s
 		return nil, os.WriteFile(filepath.Join(prefix, "bin", "python"), nil, 0o755)
 	case filepath.Base(name) == "micromamba" && slicesIndex(args, "export") >= 0:
 		return []byte("@EXPLICIT\nhttps://conda.anaconda.org/conda-forge/python-3.13.16.conda\n"), nil
-	case len(args) == 4 && args[1] == "venv":
+	case len(args) >= 4 && args[1] == "venv":
 		if f.failVenv {
 			return nil, errors.New("venv: ensurepip failed")
 		}
-		if err := os.MkdirAll(filepath.Join(args[3], "bin"), 0o755); err != nil {
+		venv := args[len(args)-1]
+		if err := os.MkdirAll(filepath.Join(venv, "bin"), 0o755); err != nil {
 			return nil, err
 		}
-		return nil, os.WriteFile(filepath.Join(args[3], "bin", "python"), nil, 0o755)
+		return nil, os.WriteFile(filepath.Join(venv, "bin", "python"), nil, 0o755)
 	case strings.Contains(line, "freeze --local"):
 		return []byte("requests==2.32.0\n"), nil
+	case name == "/bin/sh":
+		cmd := exec.Command(name, args...)
+		cmd.Dir = dir
+		return cmd.Output()
 	case strings.Contains(line, "import numpy") && f.failVerify:
 		return nil, errors.New("ModuleNotFoundError: No module named 'numpy'")
 	case strings.Contains(line, "Pkg.add"):
@@ -78,6 +84,16 @@ func fakeBases(t *testing.T) (*Bases, *fakeRun) {
 		return os.WriteFile(dest, nil, 0o755)
 	}}
 	return b, f
+}
+
+// newStudy is a study whose folders are prepared with the bases' runner,
+// as the door's sandbox would.
+func newStudy(b *Bases, dir string) *Study {
+	s := ForStudy(b, dir)
+	s.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+		return b.Run(ctx, isolated(env...), dir, name, args...)
+	}
+	return s
 }
 
 func index(calls []string, sub string) int {
@@ -190,7 +206,7 @@ func TestAStudyEnvNamesOnlyReadyBases(t *testing.T) {
 	if err := b.Ensure(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
-	s := ForStudy(b, t.TempDir())
+	s := newStudy(b, t.TempDir())
 	env := s.Env()
 	if v, ok := envValue(env, "VIRTUAL_ENV"); !ok || v != filepath.Join(s.Dir, "python") {
 		t.Fatalf("VIRTUAL_ENV %q %v", v, ok)
@@ -223,7 +239,7 @@ func TestStudiesHaveSeparateAddOnFolders(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	one, two := ForStudy(b, t.TempDir()).Env(), ForStudy(b, t.TempDir()).Env()
+	one, two := newStudy(b, t.TempDir()).Env(), newStudy(b, t.TempDir()).Env()
 	for _, k := range []string{"VIRTUAL_ENV", "R_LIBS_USER"} {
 		a, okA := envValue(one, k)
 		c, okC := envValue(two, k)
@@ -231,7 +247,7 @@ func TestStudiesHaveSeparateAddOnFolders(t *testing.T) {
 			t.Fatalf("%s: %q %q", k, a, c)
 		}
 	}
-	s := ForStudy(b, t.TempDir())
+	s := newStudy(b, t.TempDir())
 	s.Env()
 	profile, err := os.ReadFile(filepath.Join(s.Dir, "r", "Rprofile"))
 	if err != nil || string(profile) != `options(repos = c(CRAN = "https://cloud.r-project.org"))`+"\n" {
@@ -251,7 +267,7 @@ func TestPackagesJoinsBaseAndStudyParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := ForStudy(b, t.TempDir()).Packages(context.Background(), Python)
+	got, err := newStudy(b, t.TempDir()).Packages(context.Background(), Python)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +393,7 @@ func TestAStudyEnvWithEveryBaseReady(t *testing.T) {
 	if err != nil || !strings.Contains(string(lock), "julia_version") {
 		t.Fatalf("julia lock %q %v", lock, err)
 	}
-	s := ForStudy(b, t.TempDir())
+	s := newStudy(b, t.TempDir())
 	env, sep := s.Env(), string(os.PathListSeparator)
 	for k, want := range map[string]string{
 		"JULIA_PROJECT":    filepath.Join(s.Dir, "julia"),
@@ -424,7 +440,7 @@ func TestAFailedVenvLeavesOnlyBaseEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.failVenv = true
-	s := ForStudy(b, t.TempDir())
+	s := newStudy(b, t.TempDir())
 	env := s.Env()
 	if v, ok := envValue(env, "VIRTUAL_ENV"); ok {
 		t.Fatalf("VIRTUAL_ENV %q without a venv", v)
@@ -454,7 +470,7 @@ func TestBasesBuildForReal(t *testing.T) {
 		}
 		t.Logf("%s base ready in %s", lang, time.Since(start).Round(time.Second))
 	}
-	s := ForStudy(b, t.TempDir())
+	s := newStudy(b, t.TempDir())
 	env := append(os.Environ(), s.Env()...)
 	env = append(env, "PATH="+s.PathPrefix()+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Logf("study env: %q", env)
@@ -497,7 +513,7 @@ func TestAStudyEnvStopsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(50*time.Millisecond, cancel)
 	start := time.Now()
-	env := ForStudy(b, t.TempDir()).EnvContext(ctx)
+	env := newStudy(b, t.TempDir()).EnvContext(ctx)
 	if time.Since(start) > 10*time.Second {
 		t.Fatalf("EnvContext outlived its context by %v", time.Since(start))
 	}
@@ -560,5 +576,142 @@ func TestAFolderWithASpaceIsRefusedBeforeAnyBuild(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Dir(b.Dir)); !os.IsNotExist(err) {
 		t.Fatalf("created %s: %v", filepath.Dir(b.Dir), err)
+	}
+}
+
+// With no runner, the study's folders are left alone: code the study's
+// earlier runs left there must only ever run in a sandbox.
+func TestAStudyWithoutARunnerPreparesNothing(t *testing.T) {
+	b, f := fakeBases(t)
+	for _, lang := range []string{Python, R, Julia} {
+		if err := b.Ensure(context.Background(), lang); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := len(f.calls)
+	s := ForStudy(b, t.TempDir())
+	s.Env()
+	if _, _, err := s.Interpreter(Python); err == nil {
+		t.Fatal("an interpreter without a runner")
+	}
+	if _, err := s.Packages(context.Background(), Julia); err == nil {
+		t.Fatal("packages without a runner")
+	}
+	if es, _ := os.ReadDir(s.Dir); len(es) != 0 || len(f.calls) != before {
+		t.Fatalf("prepared without a runner: %v %q", es, f.calls[before:])
+	}
+}
+
+// A venv that exists but lacks its interpreter is made again with --clear
+// through the runner; if that fails, the answer says it couldn't be.
+func TestADamagedVenvIsRebuiltByTheRunner(t *testing.T) {
+	b, f := fakeBases(t)
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	s := newStudy(b, t.TempDir())
+	if err := os.MkdirAll(filepath.Join(s.Dir, "python", "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := len(f.calls)
+	if name, _, err := s.Interpreter(Python); err != nil || name != filepath.Join(s.Dir, "python", "bin", "python") {
+		t.Fatalf("%q %v", name, err)
+	}
+	if i := index(f.calls[before:], "venv --clear --system-site-packages"); i < 0 {
+		t.Fatalf("not rebuilt with --clear: %q", f.calls[before:])
+	}
+	broken := newStudy(b, t.TempDir())
+	if err := os.MkdirAll(filepath.Join(broken.Dir, "python"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	broken.Run = func(context.Context, []string, string, string, ...string) ([]byte, error) {
+		return nil, errors.New("no space left")
+	}
+	_, _, err := broken.Interpreter(Python)
+	if !errors.Is(err, ErrDamaged) || !strings.Contains(err.Error(), "the study's Python environment is damaged and could not be rebuilt: ") || !strings.Contains(err.Error(), "no space left") {
+		t.Fatalf("%v", err)
+	}
+}
+
+// R's and Julia's add-on files are made by the runner, so a link the code
+// planted is followed only inside the sandbox.
+func TestStudyFilesAreMadeByTheRunner(t *testing.T) {
+	b, f := fakeBases(t)
+	for _, lang := range []string{Python, R, Julia} {
+		if err := b.Ensure(context.Background(), lang); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := newStudy(b, t.TempDir())
+	var shells []string
+	s.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+		if name == "/bin/sh" {
+			shells = append(shells, strings.Join(args, " "))
+		}
+		return f.run(ctx, env, dir, name, args...)
+	}
+	s.Env()
+	if len(shells) != 1 || !strings.Contains(shells[0], "r/library") || !strings.Contains(shells[0], "julia/Project.toml") {
+		t.Fatalf("shell steps %q", shells)
+	}
+}
+
+// Julia's manifest is read by the runner too: the daemon itself never opens
+// a file the study's code could have swapped for a link.
+func TestTheJuliaManifestIsReadByTheRunner(t *testing.T) {
+	b, _ := fakeBases(t)
+	for _, lang := range []string{Python, Julia} {
+		if err := b.Ensure(context.Background(), lang); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := newStudy(b, t.TempDir())
+	secret := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secret, []byte("PRIVATE KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Env()
+	if err := os.Symlink(secret, filepath.Join(s.Dir, "julia", "Manifest.toml")); err != nil {
+		t.Fatal(err)
+	}
+	s.Run = func(_ context.Context, _ []string, _, name string, args ...string) ([]byte, error) {
+		if name == "/bin/sh" && strings.Contains(strings.Join(args, " "), "Manifest.toml") {
+			return []byte("read by the runner\n"), nil
+		}
+		return nil, nil
+	}
+	got, err := s.Packages(context.Background(), Julia)
+	if err != nil || strings.Contains(got, "PRIVATE KEY") || !strings.Contains(got, "read by the runner") {
+		t.Fatalf("%q %v", got, err)
+	}
+}
+
+// The study passes its runner only what the study adds; the runner, which
+// knows the run, supplies the rest. Nothing of the daemon's own environment
+// is handed on.
+func TestTheRunnerGetsOnlyTheStudysEnvironment(t *testing.T) {
+	t.Setenv("LYK_DAEMON_ONLY", "daemon-secret")
+	b, f := fakeBases(t)
+	for _, lang := range []string{Python, R} {
+		if err := b.Ensure(context.Background(), lang); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := newStudy(b, t.TempDir())
+	var envs [][]string
+	s.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+		envs = append(envs, env)
+		return f.run(ctx, append(os.Environ(), env...), dir, name, args...)
+	}
+	if _, err := s.Packages(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	if len(envs) == 0 {
+		t.Fatal("the runner never ran")
+	}
+	for _, env := range envs {
+		if strings.Contains(strings.Join(env, "\n"), "daemon-secret") {
+			t.Fatalf("the daemon's environment reached the runner: %q", env)
+		}
 	}
 }

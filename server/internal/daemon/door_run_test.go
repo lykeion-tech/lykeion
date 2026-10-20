@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -19,6 +22,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/internal/daemon/envs"
+	"lykeion/server/internal/daemon/sandbox"
+	"lykeion/server/internal/toolroute"
 	"lykeion/server/pkg/agent"
 )
 
@@ -54,20 +59,14 @@ func stubBridge() {
 	}
 }
 
-// fakeStudy is a study over bases marked ready without building them: pip
-// freeze answers one add-on package and venv makes an empty interpreter.
+// fakeStudy is a study over bases marked ready without building them. The
+// Python base's interpreter is a shell script that, run as -m venv, makes a
+// venv whose interpreter answers pip freeze with one add-on package and
+// leaves python.ran beside itself.
 func fakeStudy(t *testing.T, langs ...string) *envs.Study {
 	t.Helper()
 	run := func(_ context.Context, _ []string, _, name string, args ...string) ([]byte, error) {
-		line := strings.Join(args, " ")
-		switch {
-		case len(args) == 4 && args[1] == "venv":
-			must(t, os.MkdirAll(filepath.Join(args[3], "bin"), 0o755))
-			return nil, os.WriteFile(filepath.Join(args[3], "bin", "python"), nil, 0o755)
-		case strings.Contains(line, "freeze --local"):
-			return []byte("requests==2.32.0\n"), nil
-		}
-		return nil, nil
+		return exec.Command(name, args...).Output()
 	}
 	b := &envs.Bases{Dir: t.TempDir(), Run: run}
 	for _, lang := range langs {
@@ -79,16 +78,66 @@ func fakeStudy(t *testing.T, langs ...string) *envs.Study {
 		must(t, os.WriteFile(filepath.Join(dir, "lock.txt"), []byte(lang+"-lock\n"), 0o644))
 		must(t, os.WriteFile(filepath.Join(dir, "ready"), nil, 0o644))
 	}
+	if slices.Contains(langs, envs.Python) {
+		must(t, os.MkdirAll(filepath.Join(b.Dir, "python", "bin"), 0o755))
+		must(t, os.WriteFile(filepath.Join(b.Dir, "python", "bin", "python"), []byte(fakeBasePython), 0o755))
+	}
 	return envs.ForStudy(b, t.TempDir())
 }
+
+// fakeBasePython makes the venv named last on its command line.
+const fakeBasePython = `#!/bin/sh
+[ "$2" = venv ] || exit 3
+for v; do :; done
+mkdir -p "$v/bin" || exit 4
+printf '#!/bin/sh\ntouch "$0.ran"\necho requests==2.32.0\n' > "$v/bin/python" && chmod +x "$v/bin/python"
+`
 
 const fakePackages = "# python base\npython-lock\n\n# python study\nrequests==2.32.0\n"
 
 // runDoor is a door over a study with a ready Python base whose scripts run
 // under /bin/sh and whose session bridge is the test binary.
+// The door's sandbox is a stand-in that runs the command as given in a
+// session of its own, as the real one does, and notes each command line and
+// policy in sandboxed.
 func runDoor(t *testing.T, l *lykeion, dir string, langs ...string) *Door {
 	t.Helper()
-	d := openDoor(t, l, dir, nil)
+	d := newRunDoor(t, l, dir, func(d *Door) { d.wrap = stubSandbox(&sandboxed{}) }, langs...)
+	return d
+}
+
+type sandboxed struct {
+	mu       sync.Mutex
+	commands [][]string
+	policies []sandbox.Policy
+}
+
+func (s *sandboxed) seen() ([][]string, []sandbox.Policy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.commands), slices.Clone(s.policies)
+}
+
+func stubSandbox(s *sandboxed) func(context.Context, sandbox.Policy, string, ...string) (*exec.Cmd, error) {
+	return func(ctx context.Context, p sandbox.Policy, name string, args ...string) (*exec.Cmd, error) {
+		s.mu.Lock()
+		s.commands = append(s.commands, append([]string{name}, args...))
+		s.policies = append(s.policies, p)
+		s.mu.Unlock()
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		return cmd, nil
+	}
+}
+
+// newRunDoor starts a door over a fake study after setup, which may set what
+// Start reads.
+func newRunDoor(t *testing.T, l *lykeion, dir string, setup func(*Door), langs ...string) *Door {
+	t.Helper()
+	d := &Door{Server: l.URL, Sources: l.URL + "/mcp/sources", RunToken: "ltk_run", CallToken: "ltk_call",
+		Child: func() agent.ExecOptions {
+			return agent.ExecOptions{Dir: dir, MCPToken: "ltk_run", Env: []string{"LYK_TOKEN=ltk_run", "LYK_DOOR_TOKEN=secret"}}
+		}}
 	d.Study = fakeStudy(t, langs...)
 	d.interp = func(lang string) (string, []string, error) {
 		if _, _, err := d.Study.Interpreter(lang); err != nil {
@@ -99,6 +148,9 @@ func runDoor(t *testing.T, l *lykeion, dir string, langs ...string) *Door {
 		}
 		return "/bin/sh", nil, nil
 	}
+	setup(d)
+	must(t, d.Start())
+	t.Cleanup(func() { d.Close() })
 	return d
 }
 
@@ -495,5 +547,363 @@ func TestARunsPathKeepsOneStudyPrefix(t *testing.T) {
 	}
 	if path != "/self"+sep+prefix+sep+"/usr/bin" {
 		t.Fatalf("PATH %q", path)
+	}
+}
+
+// Scripts, the session bridge and the study's package list each start
+// through the sandbox, under one policy built when the door starts.
+func TestCodeRunsInTheSandbox(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	s := &sandboxed{}
+	d := newRunDoor(t, l, dir, func(d *Door) { d.wrap = stubSandbox(s) }, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo 42\n"), 0o644))
+	// a cell first, so the sandbox is built for the session bridge; the
+	// Python interpreter is the stand-in bridge until the script runs
+	t.Setenv("LYK_KERNEL_STUB", "1")
+	if got, err := useTool(t, d, "run_code", map[string]any{"language": "python", "code": "x = 1"}); err != nil || got != "run:x1\n1 ran x = 1" {
+		t.Fatalf("%q %v", got, err)
+	}
+	t.Setenv("LYK_KERNEL_STUB", "0")
+	if got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil || got != "run:x2\n42\n" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if runs, _ := l.recorded(); len(runs) != 2 || runs[0]["packages"] != fakePackages || runs[1]["packages"] != fakePackages {
+		t.Fatalf("runs %v", runs)
+	}
+	commands, policies := s.seen()
+	venv := filepath.Join(d.Study.Dir, "python", "bin", "python")
+	has := func(want ...string) bool {
+		return slices.ContainsFunc(commands, func(c []string) bool {
+			return len(c) == len(want) && slices.Equal(c[:len(want)-1], want[:len(want)-1]) && strings.HasPrefix(c[len(want)-1], want[len(want)-1])
+		})
+	}
+	script, err := filepath.EvalSymlinks(filepath.Join(dir, "a.py"))
+	must(t, err)
+	if !has("/bin/sh", script) {
+		t.Errorf("the script did not start in the sandbox: %q", commands)
+	}
+	if !has(filepath.Join(d.Study.Bases.Dir, "python", "bin", "python"), "-m", "venv", "--system-site-packages", venv[:len(venv)-len("/bin/python")]) {
+		t.Errorf("the study's venv was not made in the sandbox: %q", commands)
+	}
+	if !has(os.Args[0], "-P", filepath.Join(d.bridgeDir, "lyk-bridge-")) {
+		t.Errorf("the session bridge did not start in the sandbox from the door's bridge folder: %q", commands)
+	}
+	if !has(venv, "-m", "pip", "freeze", "--local") {
+		t.Errorf("pip freeze, which loads the study's own packages, did not run in the sandbox: %q", commands)
+	}
+	u, err := user.Current()
+	must(t, err)
+	want := sandbox.Policy{Write: []string{dir, d.Study.Dir}, Read: []string{d.bridgeDir, filepath.Join(d.Study.Bases.Dir, "python")}, Home: u.HomeDir}
+	for _, p := range policies {
+		if !slices.Equal(p.Write, want.Write) || !slices.Equal(p.Read, want.Read) || p.Home != want.Home {
+			t.Fatalf("policy %+v, want %+v", p, want)
+		}
+	}
+	if rel, err := filepath.Rel(d.Study.Dir, d.tmp); err != nil || !filepath.IsLocal(rel) {
+		t.Fatalf("temp folder %q is not in the study folder %q", d.tmp, d.Study.Dir)
+	}
+}
+
+// With no sandbox, code tools answer why, start nothing and record nothing.
+func TestCodeRunsNowhereWithoutTheSandbox(t *testing.T) {
+	t.Setenv("LYK_KERNEL_STUB", "1")
+	for name, setup := range map[string]func(*Door){
+		"failed its check": func(d *Door) { d.SandboxErr = errors.New("install bubblewrap") },
+		"refused the policy": func(d *Door) {
+			d.wrap = func(context.Context, sandbox.Policy, string, ...string) (*exec.Cmd, error) {
+				return nil, errors.New("install bubblewrap")
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l := newLykeion(t)
+			dir := t.TempDir()
+			d := newRunDoor(t, l, dir, setup, envs.Python)
+			must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo hi > ran\n"), 0o644))
+			const want = "analysis code can't run on this machine: the sandbox isn't available (install bubblewrap)"
+			for _, call := range []struct {
+				tool string
+				args map[string]any
+			}{{"run_script", map[string]any{"path": "a.py"}}, {"run_code", map[string]any{"language": "python", "code": "x = 1"}}} {
+				if got, err := useTool(t, d, call.tool, call.args); err == nil || !strings.Contains(err.Error(), want) {
+					t.Errorf("%s: %q %v", call.tool, got, err)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(dir, "ran")); err == nil {
+				t.Error("the script ran")
+			}
+			if _, err := os.Stat(filepath.Join(d.Study.Dir, "python", "bin", "python.ran")); err == nil {
+				t.Error("the study's interpreter ran")
+			}
+			d.mu.Lock()
+			started := d.kernels != nil
+			d.mu.Unlock()
+			if _, sizes := l.recorded(); len(sizes) != 0 || started {
+				t.Fatalf("%d posts; sessions started %v", len(sizes), started)
+			}
+		})
+	}
+}
+
+// Caches that default to the home folder, which the sandbox hides, are kept
+// in the run's temp folder; none of the run's tokens reach the code.
+func TestCodeKeepsItsCachesInTheRunsTempFolder(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("env\n"), 0o644))
+	got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, line := range strings.Split(got, "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok {
+			env[k] = v
+		}
+	}
+	if env["TMPDIR"] != d.tmp {
+		t.Errorf("TMPDIR %q, want %q", env["TMPDIR"], d.tmp)
+	}
+	for _, k := range []string{"PIP_CACHE_DIR", "JUPYTER_RUNTIME_DIR", "JUPYTER_DATA_DIR", "IPYTHONDIR", "MPLCONFIGDIR", "XDG_CACHE_HOME", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"} {
+		if rel, err := filepath.Rel(d.tmp, env[k]); env[k] == "" || err != nil || !filepath.IsLocal(rel) {
+			t.Errorf("%s=%q is not in the run's temp folder %q", k, env[k], d.tmp)
+		}
+	}
+	for _, k := range []string{"LYK_TOKEN", "LYK_DOOR_TOKEN", "LYK_DOOR", "LYK_SERVER", "LYK_CONFIG"} {
+		if _, ok := env[k]; ok {
+			t.Errorf("the script saw %s", k)
+		}
+	}
+	for _, s := range []string{d.CallToken, d.RunToken, d.Token, "secret"} {
+		if strings.Contains(got, s) {
+			t.Errorf("the script saw %q", s)
+		}
+	}
+}
+
+func TestClosingTheDoorRemovesItsTempFolder(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo hi\n"), 0o644))
+	if _, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(d.tmp); err != nil || !fi.IsDir() {
+		t.Fatalf("no temp folder: %v", err)
+	}
+	d.Close()
+	if _, err := os.Stat(d.tmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the temp folder is still there: %v", err)
+	}
+}
+
+// The run's code may leave anything at a script's path; the door reads only
+// a regular file and never waits on one that isn't.
+func TestRunScriptReadsOnlyARegularFile(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	must(t, syscall.Mkfifo(filepath.Join(dir, "a.py"), 0o644))
+	start := time.Now()
+	if got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err == nil {
+		t.Fatalf("a pipe ran: %q", got)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("reading a pipe took %v", time.Since(start))
+	}
+	if _, sizes := l.recorded(); len(sizes) != 0 {
+		t.Fatalf("%d runs posted", len(sizes))
+	}
+}
+
+// The CLI's own files in the run folder are read-only to code: those that
+// exist, and placeholders for the CLI's config that doesn't yet, which go
+// when the door closes. A marker that doesn't exist is never made.
+func TestTheCLIsOwnFilesAreReadOnlyToCode(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(dir, ".claude"), 0o700))
+	must(t, os.MkdirAll(filepath.Join(dir, ".cli-home"), 0o700))
+	must(t, os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(`{"a":1}`), 0o600))
+	must(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"x":1}`), 0o600))
+	must(t, os.WriteFile(filepath.Join(dir, ".lyk-mcp.json"), []byte(`{"token":"t"}`), 0o600))
+	must(t, os.WriteFile(filepath.Join(dir, ".agent-lock"), nil, 0o600))
+	existed := []string{".claude", ".cli-home", ".mcp.json", ".lyk-mcp.json", ".agent-lock"}
+	s := &sandboxed{}
+	d := newRunDoor(t, l, dir, func(d *Door) { d.wrap = stubSandbox(s) }, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo hi\n"), 0o644))
+	if _, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil {
+		t.Fatal(err)
+	}
+	_, policies := s.seen()
+	if len(policies) == 0 {
+		t.Fatal("nothing ran")
+	}
+	ro, hidden := policies[len(policies)-1].ReadOnly, policies[len(policies)-1].Hidden
+	for _, p := range agent.RunFolderConfig {
+		path := filepath.Join(dir, p.Name)
+		fi, err := os.Lstat(path)
+		had := slices.Contains(existed, p.Name)
+		switch {
+		case strings.Contains(p.Name, "/") && !had:
+			if err == nil || slices.Contains(ro, path) || slices.Contains(hidden, path) {
+				t.Errorf("%s: made or carved out", p.Name)
+			}
+		case p.Hidden:
+			if !slices.Contains(hidden, path) || slices.Contains(ro, path) || err != nil {
+				t.Errorf("%s: not hidden: %v", p.Name, err)
+			}
+		case p.Marker && !had:
+			if err == nil || slices.Contains(ro, path) || slices.Contains(hidden, path) {
+				t.Errorf("%s: made or carved out", p.Name)
+			}
+		default:
+			if !slices.Contains(ro, path) || err != nil || fi.IsDir() != p.Folder {
+				t.Errorf("%s: read-only %v, on disk %v %v", p.Name, slices.Contains(ro, path), fi, err)
+			}
+		}
+	}
+	for name, want := range map[string]string{".lyk-config.json": "{}", ".claude.json": "{}", "CLAUDE.md": "", ".agy.log": "", ".agent-exit.tmp": ""} {
+		if b, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(b) != want {
+			t.Errorf("placeholder %s: %q %v", name, b, err)
+		}
+	}
+	d.Close()
+	for _, name := range []string{".codex", ".git", ".lyk-config.json", "CLAUDE.md", ".claude.json", ".cursorrules"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			t.Errorf("placeholder %s left behind", name)
+		}
+	}
+	for name, want := range map[string]string{".claude/settings.json": `{"a":1}`, ".mcp.json": `{"x":1}`, ".lyk-mcp.json": `{"token":"t"}`} {
+		if b, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(b) != want {
+			t.Errorf("%s: %q %v", name, b, err)
+		}
+	}
+}
+
+// The script runs from its own path, so paths relative to it work. If it
+// changed while it ran, the record keeps what was read and says so.
+func TestAScriptThatChangesWhileItRunsIsNoted(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	resolved, err := filepath.EvalSymlinks(dir)
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo \"$0\"\n"), 0o644))
+	rewrites := "echo 'echo changed' > \"$0\"\necho ran\n"
+	must(t, os.WriteFile(filepath.Join(dir, "b.py"), []byte(rewrites), 0o644))
+	got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"})
+	if err != nil || got != "run:x1\n"+filepath.Join(resolved, "a.py")+"\n" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if _, err := useTool(t, d, "run_script", map[string]any{"path": "b.py"}); err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := l.recorded()
+	const note = "the script changed while it ran; the recorded script may not be what ran"
+	if strings.Contains(runs[0]["error"].(string), note) {
+		t.Errorf("a script that didn't change was noted: %q", runs[0]["error"])
+	}
+	if !strings.Contains(runs[1]["error"].(string), note) || runs[1]["script"] != rewrites || runs[1]["output"] != "ran\n" {
+		t.Fatalf("record %v", runs[1])
+	}
+}
+
+// A run may move to a fresh folder before its CLI starts, so the sandbox is
+// built for the folder the first code runs in.
+func TestTheSandboxIsBuiltForTheRunsFinalFolder(t *testing.T) {
+	l := newLykeion(t)
+	first, final := t.TempDir(), t.TempDir()
+	s := &sandboxed{}
+	d := newRunDoor(t, l, first, func(d *Door) { d.wrap = stubSandbox(s) }, envs.Python)
+	d.Child = func() agent.ExecOptions { return agent.ExecOptions{Dir: final} }
+	must(t, os.WriteFile(filepath.Join(final, "a.py"), []byte("echo hi > out\n"), 0o644))
+	if _, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil {
+		t.Fatal(err)
+	}
+	_, policies := s.seen()
+	if len(policies) == 0 || policies[0].Write[0] != final {
+		t.Fatalf("policies %+v", policies)
+	}
+	if es, _ := os.ReadDir(first); len(es) != 0 {
+		t.Fatalf("the first folder was touched: %v", es)
+	}
+}
+
+// Routing a skill never writes or removes through a link the run's code
+// planted in the skills folder's path.
+func TestARoutedSkillIsNotWrittenThroughALink(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(outside, "lyk-x"), 0o700))
+	must(t, os.WriteFile(filepath.Join(outside, "lyk-x", "keep"), []byte("mine"), 0o600))
+	must(t, os.MkdirAll(filepath.Join(dir, ".claude"), 0o700))
+	must(t, os.Symlink(outside, filepath.Join(dir, ".claude", "skills")))
+	if err := placeRouted("claude", dir, toolroute.RoutedSkill{Name: "x"}); err == nil {
+		t.Fatal("placed through a link")
+	}
+	if b, err := os.ReadFile(filepath.Join(outside, "lyk-x", "keep")); err != nil || string(b) != "mine" {
+		t.Fatalf("the folder the link leads to changed: %q %v", b, err)
+	}
+}
+
+// The bridge's file is written where code can't put a link: not in the
+// run's temp folder, which code may write, but in a folder of the door's
+// that code may only read.
+func TestTheBridgeIsNotWrittenThroughALink(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	s := &sandboxed{}
+	d := newRunDoor(t, l, dir, func(d *Door) { d.wrap = stubSandbox(s) }, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo hi\n"), 0o644))
+	if _, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	must(t, os.RemoveAll(d.tmp))
+	must(t, os.Symlink(outside, d.tmp))
+	t.Setenv("LYK_KERNEL_STUB", "1")
+	if _, err := useTool(t, d, "run_code", map[string]any{"language": "python", "code": "x = 1"}); err != nil {
+		t.Fatal(err)
+	}
+	if es, _ := os.ReadDir(outside); len(es) != 0 {
+		t.Fatalf("written through the link: %v", es)
+	}
+	commands, policies := s.seen()
+	i := slices.IndexFunc(commands, func(c []string) bool { return c[0] == os.Args[0] })
+	if i < 0 {
+		t.Fatalf("no bridge started: %q", commands)
+	}
+	bridge := commands[i]
+	if len(bridge) != 3 || !slices.ContainsFunc(policies[len(policies)-1].Read, func(r string) bool { return strings.HasPrefix(bridge[2], r+string(os.PathSeparator)) }) {
+		t.Fatalf("the bridge %q is not in a read-only folder of %+v", bridge, policies[len(policies)-1])
+	}
+}
+
+// The door's runner supplies the run's environment around what the study
+// adds: the daemon's own settings and the person's Python setup never reach
+// a study step.
+func TestTheRunnerUsesTheRunsEnvironment(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/the/daemon/config")
+	t.Setenv("PYTHONHOME", "/the/persons/python")
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	out, err := d.Study.Run(context.Background(), []string{"STUDY=1"}, dir, "/usr/bin/env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := "\n" + string(out)
+	for _, bad := range []string{"/the/daemon/config", "/the/persons/python", "LYK_"} {
+		if strings.Contains(env, bad) {
+			t.Errorf("%q reached the step", bad)
+		}
+	}
+	for _, want := range []string{"\nSTUDY=1\n", "\nPATH=", "\nTMPDIR=" + d.tmp + "\n"} {
+		if !strings.Contains(env, want) {
+			t.Errorf("no %q in %q", want, env)
+		}
 	}
 }

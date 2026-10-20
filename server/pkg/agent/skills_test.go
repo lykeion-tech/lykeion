@@ -24,6 +24,27 @@ func TestSkillsDirIsTheProjectFolderEachCLIReads(t *testing.T) {
 	}
 }
 
+// A link anywhere on the way to the skills folder, planted by code the run
+// started, is refused rather than followed out of the run folder.
+func TestSkillsDirRefusesALinkOnTheWay(t *testing.T) {
+	for _, planted := range []string{".claude", filepath.Join(".claude", "skills")} {
+		dir, outside := t.TempDir(), t.TempDir()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, planted)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(dir, planted)); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := SkillsDir("claude", dir); err == nil {
+			t.Errorf("%s: link followed to %s", planted, got)
+		}
+	}
+	// A folder that doesn't exist yet is fine: the caller makes it.
+	if _, err := SkillsDir("claude", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // stage writes what the daemon stages for a run: two pinned skills.
 func stage(t *testing.T) string {
 	t.Helper()

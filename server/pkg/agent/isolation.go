@@ -25,6 +25,44 @@ func (e *PrelaunchDiscoveryError) Error() string {
 
 var discoveryNames = []string{".cursor", ".codex", ".claude", ".agents", ".claude.json", ".mcp.json", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"}
 
+// RunFolderPath is a file or folder in a run's folder that a CLI or the
+// daemon keeps for itself.
+type RunFolderPath struct {
+	Name   string
+	Folder bool
+	// A marker means something by existing (a lock, a live process, a
+	// finished run), so only its owner may ever create one.
+	Marker bool
+	// A hidden path holds the door's token or the CLI's sign-in: code may
+	// not even read it.
+	Hidden bool
+}
+
+// RunFolderConfig lists what the CLIs read in their working folder as
+// configuration or instructions, their private homes, the files the daemon
+// places for a run, and the markers the daemon trusts. Code a run starts may
+// read these but never write them, and may not read the hidden ones.
+var RunFolderConfig = []RunFolderPath{
+	{Name: ".claude", Folder: true}, {Name: ".codex", Folder: true}, {Name: ".cursor", Folder: true}, {Name: ".agents", Folder: true},
+	{Name: ".cli-home", Folder: true, Hidden: true}, {Name: ".home", Folder: true, Hidden: true},
+	{Name: ".claude.json"}, {Name: ".mcp.json"}, {Name: ".lyk-mcp.json", Hidden: true}, {Name: ".lyk-config.json", Hidden: true},
+	{Name: "AGENTS.md"}, {Name: "AGENTS.override.md"}, {Name: "CLAUDE.md"}, {Name: "CLAUDE.local.md"}, {Name: "SKILL.md"},
+	{Name: ".agent-owned", Marker: true}, {Name: ".agent-lock", Marker: true}, {Name: ".agent-process", Marker: true},
+	{Name: ".finished", Marker: true},
+	// The supervisor writes its exit marker from outside the sandbox, and
+	// the daemon reads it and Antigravity's log: they get placeholders, so
+	// code can't plant a link in their place.
+	{Name: ".agent-exit"}, {Name: ".agent-exit.tmp"}, {Name: ".agy.log", Hidden: true},
+	// The CLIs read these from their working folder by themselves, so no
+	// source here names them: git's repository (hooks, fsmonitor), Cursor's
+	// rules and ignore files, Antigravity's rules and workflows and the
+	// Gemini settings and instructions it shares.
+	{Name: ".git", Folder: true}, {Name: ".agent", Folder: true}, {Name: ".gemini", Folder: true},
+	{Name: "GEMINI.md"}, {Name: ".geminiignore"}, {Name: ".cursorrules"}, {Name: ".cursorignore"}, {Name: ".cursorindexingignore"},
+	// MCP configs inside the folders above that carry the door's token.
+	{Name: ".cursor/mcp.json", Hidden: true}, {Name: ".agents/mcp_config.json", Hidden: true},
+}
+
 // prepareScratch protects discovery boundaries, not arbitrary filesystem access.
 // Only this scratch's own history is reusable; personal config is never copied.
 func prepareScratch(o *ExecOptions, harness, homeVar, defaultHome, credFile string) (home string, cleanup scratchCleanup, err error) {
