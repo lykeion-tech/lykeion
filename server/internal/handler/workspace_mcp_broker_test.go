@@ -224,9 +224,7 @@ func TestWorkspaceMCPUnapprovedCommandCannotRoutePoisonedInventory(t *testing.T)
 	}
 	var uploaded struct{ ID string }
 	archive := testutil.Pack(t, testutil.PackOpts{Name: "custom-team", Stage: "hypotheses", Members: 1, Connectors: map[string][]map[string]any{"pi": {{"name": "command", "workspace": command.ID}}}})
-	if code := s.upload(t, jwt, ws, archive, &uploaded); code != 201 {
-		t.Fatalf("upload: %d", code)
-	}
+	s.installPackFixture(t, jwt, ws, archive, &uploaded)
 	if code := s.call(t, "POST", "/api/teams/"+uploaded.ID+"/add", jwt, ws, nil, nil); code != 200 {
 		t.Fatalf("add: %d", code)
 	}
@@ -266,12 +264,12 @@ func TestWorkspaceMCPTeamCreationChecksReferenceOwnership(t *testing.T) {
 	aud := s.newAgent(t, jwt, ws, "aud", "codex")
 	mem := s.newAgent(t, jwt, ws, "mem", "claude")
 	for _, tc := range []struct {
-		name, id              string
-		formStatus, zipStatus int
+		name, id   string
+		formStatus int
 	}{
-		{"foreign", foreign.ID, 400, 404},
-		{"missing", uuid.NewString(), 400, 404},
-		{"owned", saved.ID, 201, 201},
+		{"foreign", foreign.ID, 400},
+		{"missing", uuid.NewString(), 400},
+		{"owned", saved.ID, 201},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			form := formFor(lead, aud, mem)
@@ -279,13 +277,9 @@ func TestWorkspaceMCPTeamCreationChecksReferenceOwnership(t *testing.T) {
 			if code := s.call(t, "POST", "/api/teams", jwt, ws, form, nil); code != tc.formStatus {
 				t.Fatalf("form: %d want %d", code, tc.formStatus)
 			}
-			zip := testutil.Pack(t, testutil.PackOpts{Name: "import-" + tc.name, Connectors: map[string][]map[string]any{"member-1": {{"name": "library", "workspace": tc.id}}}})
-			if code := s.upload(t, jwt, ws, zip, nil); code != tc.zipStatus {
-				t.Fatalf("ZIP: %d want %d", code, tc.zipStatus)
-			}
 		})
 	}
-	if count := s.count(t, `SELECT count(*) FROM field_pack`); count != 2 {
+	if count := s.count(t, `SELECT count(*) FROM field_pack`); count != 1 {
 		t.Fatalf("unauthorized Team persisted: %d packs", count)
 	}
 }

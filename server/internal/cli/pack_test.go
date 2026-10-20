@@ -4,7 +4,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,10 +17,6 @@ func TestTeamCommands(t *testing.T) {
 		got = append(got, req{r.Method, r.URL.RequestURI(), r.Header.Get("Content-Type"), string(b)})
 		switch r.URL.Path {
 		case "/api/packs":
-			if r.Method == "POST" {
-				w.Write([]byte(`{"id":"p1","name":"mine","version":"2","sha256":"abc"}`))
-				return
-			}
 			w.Write([]byte(`[{"id":"p1","version":"2","source":"uploaded","approvals_by_me":true,"pinned_studies":3}]`))
 		default:
 			w.Write([]byte(`{}`))
@@ -34,12 +29,6 @@ func TestTeamCommands(t *testing.T) {
 	if err := SaveConfig(cfg, Config{Server: srv.URL, Token: "lyk_t", Workspace: "ws1"}); err != nil {
 		t.Fatal(err)
 	}
-	archive := filepath.Join(dir, "mine.zip")
-	os.WriteFile(archive, []byte("PK\x03\x04zip-bytes"), 0o600)
-
-	if out := lyk(t, "", "team", "upload", archive); !strings.Contains(out, "p1 mine v2") {
-		t.Fatalf("upload %q", out)
-	}
 	if out := lyk(t, "", "team", "versions", "my team"); !strings.Contains(out, "approved") || !strings.Contains(out, "3 studies") {
 		t.Fatalf("versions %q", out)
 	}
@@ -48,13 +37,15 @@ func TestTeamCommands(t *testing.T) {
 	}
 	lyk(t, "", "team", "approve", "p1") // the older name still adds
 
+	if out := lyk(t, "", "team", "--help"); strings.Contains(out, "upload") {
+		t.Fatalf("removed upload in help: %s", out)
+	}
 	want := []req{
-		{"POST", "/api/packs", "application/zip", "PK\x03\x04zip-bytes"},
 		{"GET", "/api/packs?name=my+team", "application/json", ""},
 		{"POST", "/api/teams/p1/add", "application/json", ""},
 		{"POST", "/api/teams/p1/add", "application/json", ""},
 	}
-	if len(got) != 4 {
+	if len(got) != 3 {
 		t.Fatalf("%d requests: %+v", len(got), got)
 	}
 	for i, w := range want {

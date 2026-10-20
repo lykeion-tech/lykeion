@@ -78,9 +78,7 @@ func TestTheStoreShowsOnlyTheNewestVersionAndWhetherIAddedIt(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	for _, v := range []string{"1", "2"} {
-		if c := s.upload(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "mine", Version: v}), nil); c != 201 {
-			t.Fatalf("upload %s: %d", v, c)
-		}
+		s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "mine", Version: v}), nil)
 	}
 	got := s.storeList(t, a, w.ID, "")
 	if len(got) != 1 || got[0].Added {
@@ -100,9 +98,7 @@ func TestAColleaguesUploadIsNotInMyStore(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	b := s.member(t, a, w.ID, "ben@lab.org", "member")
 	var up struct{ ID string }
-	if c := s.upload(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "ana-only"}), &up); c != 201 {
-		t.Fatalf("upload: %d", c)
-	}
+	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "ana-only"}), &up)
 	if got := s.storeList(t, b, w.ID, ""); len(got) != 0 {
 		t.Fatalf("Ben sees %+v", got)
 	}

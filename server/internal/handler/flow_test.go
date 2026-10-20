@@ -44,9 +44,7 @@ func newTeamLabWith(t *testing.T, o testutil.PackOpts) *teamLab {
 	l := &teamLab{s: s, jwt: s.signIn(t, "pi@lab.org")}
 	l.ws = s.workspace(t, l.jwt, "lab").ID
 	var up struct{ ID string }
-	if c := s.upload(t, l.jwt, l.ws, testutil.Pack(t, o), &up); c != 201 {
-		t.Fatalf("upload: %d", c)
-	}
+	s.installPackFixture(t, l.jwt, l.ws, testutil.Pack(t, o), &up)
 	if c := s.call(t, "POST", "/api/teams/"+up.ID+"/add", l.jwt, l.ws, nil, nil); c != 200 {
 		t.Fatalf("add: %d", c)
 	}

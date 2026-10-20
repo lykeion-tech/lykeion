@@ -163,13 +163,11 @@ type studyJSON struct {
 	}
 }
 
-// addedTeam uploads a Team and adds it for the caller, returning its id.
+// addedTeam installs a Team fixture and adds it for the caller, returning its id.
 func (s *server) addedTeam(t *testing.T, tok, wsID, name, stage string) string {
 	t.Helper()
 	var up struct{ ID string }
-	if c := s.upload(t, tok, wsID, testutil.Pack(t, testutil.PackOpts{Name: name, Stage: stage}), &up); c != 201 {
-		t.Fatalf("upload %s: %d", name, c)
-	}
+	s.installPackFixture(t, tok, wsID, testutil.Pack(t, testutil.PackOpts{Name: name, Stage: stage}), &up)
 	if c := s.call(t, "POST", "/api/teams/"+up.ID+"/add", tok, wsID, nil, nil); c != 200 {
 		t.Fatalf("add %s: %d", name, c)
 	}
@@ -227,9 +225,7 @@ func TestATeamTheCreatorHasNotAddedIsRefused(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var up struct{ ID string }
-	if code := s.upload(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "unadded", Stage: "grounding"}), &up); code != 201 {
-		t.Fatalf("upload: %d", code)
-	}
+	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "unadded", Stage: "grounding"}), &up)
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": up.ID})}, nil); code != 400 {
 		t.Fatalf("unadded Team: %d", code)
 	}
@@ -397,7 +393,7 @@ func TestOnlyTheOwnerChangesAStudysTeams(t *testing.T) {
 		t.Fatalf("non-owner: %d", code)
 	}
 	var up struct{ ID string }
-	s.upload(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "r3", Stage: "reporting"}), &up)
+	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "r3", Stage: "reporting"}), &up)
 	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"reporting": up.ID}, nil); code != 400 {
 		t.Fatalf("Team the owner has not added: %d", code)
 	}

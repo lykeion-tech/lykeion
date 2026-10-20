@@ -22,7 +22,9 @@ test('the sidebar shows the final IT Department order', async ({ page }) => {
   await expect(nav.getByRole('link', { name: 'Teams', exact: true }).locator('svg')).toHaveClass(
     /lucide-network/,
   );
-  await expect(page.locator('#page-header-count')).toHaveText('');
+  await expect(page.locator('#page-header-count')).toBeEmpty();
+  await expect(page.locator('.page-header')).toHaveCSS('height', '58px');
+  await expect(page.locator('.page-header h1')).toHaveCSS('font-size', '20px');
 });
 
 test('Teams shows the empty state when nothing is shipped or uploaded', async ({ page }) => {
@@ -33,10 +35,10 @@ test('Teams shows the empty state when nothing is shipped or uploaded', async ({
   const empty = page.locator('.directory-empty');
   await expect(empty.getByRole('heading', { name: 'No Teams yet' })).toBeVisible();
   await expect(empty).toContainText('A Team is the agents that work each stage of your studies.');
-  await expect(empty.locator('svg')).toHaveClass(/lucide-network/);
-  const chooser = page.waitForEvent('filechooser');
-  await empty.getByRole('button', { name: 'Upload a Team' }).click();
-  await chooser;
+  await expect(empty.locator(':scope > svg')).toHaveClass(/lucide-network/);
+  await expect(page.getByRole('button', { name: 'Upload a Team' })).toHaveCount(0);
+  await empty.getByRole('link', { name: 'New Team' }).click();
+  await expect(page.getByRole('dialog', { name: 'Create Team' })).toBeVisible();
 });
 
 test('the store filters by domain and stage', async ({ page }) => {
@@ -44,16 +46,16 @@ test('the store filters by domain and stage', async ({ page }) => {
   await labPack(page.request, 'store-neuro', ws, { domain: 'neuroscience', stage: 'grounding' });
   await labPack(page.request, 'store-chem', ws, { domain: 'chemistry', stage: 'validation' });
   await page.goto('/#/teams');
-  const rows = page.locator('.directory-list a');
-  await expect(rows.filter({ hasText: 'store-neuro' })).toContainText('Built for Grounding');
+  const rows = page.locator('.team-table tbody tr');
+  await expect(rows.filter({ hasText: 'store-neuro' })).toContainText('Grounding');
   await expect(rows.filter({ hasText: 'store-chem' })).toContainText('chemistry');
   await page.screenshot({ path: `${shots}/store.png` });
 
-  await page.getByLabel('Domain').selectOption('chemistry');
+  await page.getByRole('combobox', { name: 'Domain', exact: true }).selectOption('chemistry');
   await expect(rows.filter({ hasText: 'store-chem' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(0);
-  await page.getByLabel('Domain').selectOption('');
-  await page.getByLabel('Stage').selectOption('grounding');
+  await page.getByRole('combobox', { name: 'Domain', exact: true }).selectOption('');
+  await page.getByRole('combobox', { name: 'Stage', exact: true }).selectOption('grounding');
   await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'store-chem' })).toHaveCount(0);
   await page.screenshot({ path: `${shots}/store-filtered.png` });
@@ -63,9 +65,9 @@ test('adding a Team creates its agents', async ({ page }) => {
   const ws = await labWorkspace(page.request);
   await labPack(page.request, 'store-add', ws, { domain: 'neuroscience', stage: 'grounding' });
   await page.goto('/#/teams');
-  const row = page.locator('.directory-list a').filter({ hasText: 'store-add' });
+  const row = page.locator('.team-table tbody tr').filter({ hasText: 'store-add' });
   await expect(row).not.toContainText('Added');
-  await row.click();
+  await row.getByRole('link').click();
   await expect(page.getByRole('heading', { name: 'store-add', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Leader' })).toBeVisible();
   await expect(page.getByText('scout', { exact: true })).toBeVisible();
@@ -76,7 +78,7 @@ test('adding a Team creates its agents', async ({ page }) => {
   await page.getByRole('link', { name: 'Agents', exact: true }).first().click();
   await expect(page.getByRole('table', { name: 'Agents' })).toContainText('pi · store-add');
   await page.goto('/#/teams');
-  await expect(page.locator('.directory-list a').filter({ hasText: 'store-add' })).toContainText(
+  await expect(page.locator('.team-table tbody tr').filter({ hasText: 'store-add' })).toContainText(
     'Added',
   );
 });
@@ -99,10 +101,10 @@ test("a colleague's Team is not in my store", async ({ page, browser }) => {
       stage: 'grounding',
     });
     await page.goto('/#/teams');
-    await expect(page.locator('.directory-list a').first()).toBeVisible();
-    await expect(page.locator('.directory-list a').filter({ hasText: 'store-theirs' })).toHaveCount(
-      0,
-    );
+    await expect(page.locator('.team-table tbody tr').first()).toBeVisible();
+    await expect(
+      page.locator('.team-table tbody tr').filter({ hasText: 'store-theirs' }),
+    ).toHaveCount(0);
   } finally {
     await other.close();
   }
@@ -135,8 +137,14 @@ test('creating a Team from the template', async ({ page }) => {
   await page.goto('/#/teams/new');
   await page.getByLabel('Team name').fill(name);
   await page.getByLabel('Description', { exact: true }).fill('Evidence briefs for scRNA-seq');
-  await page.getByLabel('Domain').fill('Computational biology');
-  await page.getByLabel('Built for').selectOption('grounding');
+  await page
+    .getByRole('dialog', { name: 'Create Team' })
+    .getByLabel('Domain')
+    .fill('Computational biology');
+  await page
+    .getByRole('dialog', { name: 'Create Team' })
+    .getByRole('combobox', { name: 'Built for', exact: true })
+    .selectOption('grounding');
   await page.getByLabel('Leader agent').selectOption({ label: a.lead });
   await page.getByLabel('Leader role').fill('Reads the question and names a member for each step');
   const member = page.locator('.team-member').first();

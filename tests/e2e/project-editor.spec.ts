@@ -78,9 +78,11 @@ test('project editor follows the reference layout at the New study modal size an
   });
   await page.reload();
   await expect(page.getByRole('heading', { name: projectName, exact: true })).toBeVisible();
-  await expect(page.locator('.description')).toHaveText(
-    'A recorded description for the new project.',
-  );
+  await expect(
+    page
+      .getByRole('complementary', { name: 'Project properties' })
+      .getByRole('textbox', { name: 'Project description' }),
+  ).toHaveValue('A recorded description for the new project.');
   await page.getByRole('button', { name: 'Edit Project', exact: true }).click();
   const edit = page.getByRole('dialog', { name: 'Edit Project', exact: true });
   await expect(edit.getByRole('textbox', { name: 'Project name' })).toHaveValue(projectName);
@@ -94,7 +96,11 @@ test('project editor follows the reference layout at the New study modal size an
   await edit.getByRole('menuitemradio', { name: 'No lead', exact: true }).click();
   await edit.getByRole('textbox', { name: 'Project description' }).fill('Edited description.');
   await edit.getByRole('button', { name: 'Save Project', exact: true }).click();
-  await expect(page.locator('.description')).toHaveText('Edited description.');
+  await expect(
+    page
+      .getByRole('complementary', { name: 'Project properties' })
+      .getByRole('textbox', { name: 'Project description' }),
+  ).toHaveValue('Edited description.');
   await page.reload();
   await page.getByRole('button', { name: 'Edit Project', exact: true }).click();
   await expect(edit.getByRole('button', { name: 'Lead', exact: true })).toBeVisible();

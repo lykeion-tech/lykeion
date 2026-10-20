@@ -325,9 +325,3 @@ export const useAutoresearchRun = (id: MaybeRefOrGetter<string>) =>
 
 // Adds a Team for the caller and answers the agents it created.
 export const addTeam = (id: string) => api<AgentDefinition[]>('POST', `/api/teams/${id}/add`);
-
-export const uploadPack = (file: Blob) =>
-  api<{ id: string; name: string; version: string }>('POST', '/api/packs', undefined, {
-    data: file,
-    type: 'application/zip',
-  });

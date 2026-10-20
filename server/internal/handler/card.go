@@ -21,6 +21,7 @@ import (
 )
 
 type newCard struct {
+	ResearchID  *uuid.UUID  `json:"research_id"`
 	Title       string      `json:"title"`
 	Question    string      `json:"question"`
 	Deadline    *time.Time  `json:"deadline"`
@@ -259,6 +260,14 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	var c studyView
 	var dup db.ActiveDuplicateRow
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if in.ResearchID != nil {
+			if _, err := tx.Q.GetResearch(r.Context(), db.GetResearchParams{WorkspaceID: ws, ID: *in.ResearchID}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return cardInputError("research is not in this workspace")
+				}
+				return err
+			}
+		}
 		for _, parentID := range in.FollowsFrom {
 			if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: parentID}); err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -268,7 +277,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		params := db.CreateCardParams{
-			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user,
+			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
 			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to,
 		}
 		if a := in.Assignee; a != nil {

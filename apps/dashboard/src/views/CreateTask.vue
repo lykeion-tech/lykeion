@@ -16,7 +16,7 @@ import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
 import AssignPicker from '../components/AssignPicker.vue';
 
-const props = defineProps<{ editId?: string; assignee?: Assignee }>();
+const props = defineProps<{ editId?: string; assignee?: Assignee; projectId?: string }>();
 const emit = defineEmits<{ close: [] }>();
 const client = useQueryClient();
 const cards = useCards();
@@ -135,6 +135,7 @@ async function submit() {
   error.value = '';
   duplicate.value = null;
   const fields = {
+    ...(!props.editId && props.projectId ? { research_id: props.projectId } : {}),
     title: title.value.trim(),
     question: question.value.trim(),
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
@@ -159,6 +160,10 @@ async function submit() {
     if (props.editId) await api('PATCH', `/api/cards/${props.editId}`, fields);
     else {
       await api<Card>('POST', '/api/cards', fields);
+      if (props.projectId)
+        await client.invalidateQueries({
+          queryKey: keys.research(workspaceId.value, props.projectId),
+        });
     }
     await client.invalidateQueries({ queryKey: keys.cards(workspaceId.value) });
     if (props.editId) {

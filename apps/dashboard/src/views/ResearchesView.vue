@@ -7,6 +7,7 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import {
   useAgents,
+  useCards,
   useMe,
   useMembers,
   useResearch,
@@ -15,6 +16,8 @@ import {
 } from '../api/queries';
 import type { Research } from '../api/types';
 import Modal from '../components/Modal.vue';
+import ProjectDetail from '../components/ProjectDetail.vue';
+import { timeAgo } from '../lib/studies';
 import Icon from '../components/Icon.vue';
 const props = defineProps<{ id?: string }>();
 const list = useResearches(),
@@ -22,6 +25,16 @@ const list = useResearches(),
 const client = useQueryClient(),
   router = useRouter();
 const workspace = useWorkspace();
+const cards = useCards();
+const metrics = (id: string) => {
+  const linked = (cards.data.value ?? []).filter((c) => c.research_id === id);
+  return { total: linked.length, done: linked.filter((c) => c.board_column === 'done').length };
+};
+const actorName = (r: Research) =>
+  r.lead_type === 'member'
+    ? members.data.value?.find((m) => m.user_id === r.lead_id)?.name
+    : agents.data.value?.find((a) => a.id === r.lead_id)?.name;
+
 const members = useMembers(),
   agents = useAgents(),
   me = useMe();
@@ -187,51 +200,97 @@ async function save() {
 }
 </script>
 <template>
-  <section class="directory-page">
-    <template v-if="id"
-      ><RouterLink to="/projects" class="text-button">← Projects</RouterLink>
-      <div v-if="detail.data.value" class="research-detail">
-        <header>
-          <h1>{{ detail.data.value.name }}</h1>
-          <button class="button" @click="edit">Edit Project</button>
-        </header>
-        <p class="description">{{ detail.data.value.description || 'No description.' }}</p>
-        <h2>Studies</h2>
-        <div class="research-studies">
-          <RouterLink
-            v-for="study in detail.data.value.studies"
-            :key="study.id"
-            :to="'/studies/' + study.id"
-            ><Icon name="tasks" /><span
-              >{{ study.title
-              }}<small>{{ study.board_column }} · round {{ study.round }}</small></span
-            ><Icon name="right"
-          /></RouterLink>
-          <p v-if="!detail.data.value.studies.length" class="muted">
-            No studies linked yet. Choose this Project in a study’s properties.
-          </p>
-        </div>
-      </div></template
-    ><template v-else
-      ><Teleport to="#page-header-actions">
-        <button class="button primary" @click="edit">
+  <section class="directory-page directory-table-page" :class="{ 'project-detail-page': id }">
+    <ProjectDetail
+      v-if="id && detail.data.value"
+      :key="id"
+      :project="detail.data.value"
+      @edit="edit"
+    />
+    <template v-else-if="!id">
+      <Teleport to="#page-header-actions"
+        ><button class="button primary" @click="edit">
           <Icon name="plus" :size="14" />New Project
-        </button>
-      </Teleport>
-      <div class="directory-list">
-        <RouterLink v-for="r in list.data.value ?? []" :key="r.id" :to="'/projects/' + r.id"
-          ><Icon name="folder" /><span
-            >{{ r.name }}<small>{{ r.description || 'No description' }}</small></span
-          ><Icon name="right"
-        /></RouterLink>
-      </div>
+        </button></Teleport
+      >
+      <table class="directory-data-table projects-table" aria-label="Projects">
+        <colgroup>
+          <col />
+          <col style="width: 116px" />
+          <col style="width: 116px" />
+          <col style="width: 100px" />
+          <col style="width: 64px" />
+          <col style="width: 88px" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Priority</th>
+            <th scope="col">Status</th>
+            <th scope="col">Progress</th>
+            <th scope="col">Lead</th>
+            <th scope="col">Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in list.data.value ?? []" :key="r.id">
+            <td>
+              <RouterLink :to="'/projects/' + r.id"
+                ><span class="table-folder" aria-hidden="true">📁</span
+                ><span>{{ r.name }}</span></RouterLink
+              >
+            </td>
+            <td class="table-secondary">
+              <span class="table-priority"
+                ><span class="project-priority-mark" aria-hidden="true"
+                  ><template v-if="r.priority === 'none'">—</template
+                  ><template v-else
+                    ><i
+                      v-for="n in 4"
+                      :key="n"
+                      :class="{
+                        filled: n <= (priorities.find((p) => p.value === r.priority)?.bars ?? 0),
+                      }"
+                      :style="{ height: `${3 + n * 2}px` }" /></template></span
+                >{{ priorities.find((p) => p.value === r.priority)?.label }}</span
+              >
+            </td>
+            <td>
+              <span class="project-status-label" :class="r.status">{{
+                statuses.find((st) => st.value === r.status)?.label
+              }}</span>
+            </td>
+            <td>
+              <div v-if="cards.data.value" class="table-progress">
+                <progress
+                  :max="metrics(r.id).total || 1"
+                  :value="metrics(r.id).done"
+                  :aria-label="r.name + ' completed studies'"
+                /><span>{{ metrics(r.id).done }}/{{ metrics(r.id).total }}</span>
+              </div>
+              <span v-else class="muted">—</span>
+            </td>
+            <td>
+              <span
+                v-if="r.lead_id"
+                class="table-lead-avatar"
+                :title="actorName(r) || 'Unavailable lead'"
+                >{{ (actorName(r) || '?')[0] }}</span
+              ><span v-else class="table-lead-empty" aria-label="No lead" />
+            </td>
+            <td class="table-secondary" :title="new Date(r.created_at).toLocaleString()">
+              {{ timeAgo(r.created_at) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
       <div v-if="list.isSuccess.value && !list.data.value?.length" class="directory-empty">
         <Icon name="folder" :size="30" />
         <h2>No Projects yet</h2>
         <p>Group related studies in a Project.</p>
         <button class="button" @click="edit">Create Project</button>
-      </div></template
-    >
+      </div>
+    </template>
     <p v-if="failure" class="inline-error" role="alert">
       {{ failure.message }} <button @click="id ? detail.refetch() : list.refetch()">Retry</button>
     </p>
@@ -452,6 +511,7 @@ async function save() {
   </section>
 </template>
 <style src="./directory.css" />
+<style src="./directory-table.css" />
 
 <style scoped>
 .project-editor {
@@ -688,5 +748,74 @@ async function save() {
 }
 .project-priority-mark.low {
   color: var(--stage-reporting-dot);
+}
+</style>
+
+<style scoped>
+.project-detail-page {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.projects-table {
+  min-width: 760px;
+}
+.table-priority {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.table-folder {
+  font-size: 18px;
+  line-height: 24px;
+}
+.project-status-label {
+  display: block;
+  text-align: center;
+  background: var(--fill-card);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 3px 4px;
+}
+.table-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.table-progress progress {
+  appearance: none;
+  width: 48px;
+  height: 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill-card);
+}
+.table-progress progress::-webkit-progress-bar {
+  background: var(--fill-card);
+  border-radius: 4px;
+}
+.table-progress progress::-webkit-progress-value {
+  background: var(--stage-reporting-dot);
+  border-radius: 4px;
+}
+.table-lead-avatar,
+.table-lead-empty {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+.table-lead-avatar {
+  background: var(--fill-card);
+  color: var(--muted);
+}
+.table-lead-empty {
+  border: 1px dashed var(--border);
 }
 </style>

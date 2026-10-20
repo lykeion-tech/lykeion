@@ -45,9 +45,12 @@ function position(run: AgentRun) {
 <template>
   <section class="execution-log">
     <div class="execution-heading">
-      <button :aria-expanded="expanded" @click="expanded = !expanded">
-        Execution log <Icon :name="expanded ? 'down' : 'right'" :size="11" /></button
-      ><button class="execution-total" aria-label="Open Runs" @click="showRuns = true">
+      <h3>
+        <button :aria-expanded="expanded" @click="expanded = !expanded">
+          Execution log <Icon :name="expanded ? 'down' : 'right'" :size="11" />
+        </button>
+      </h3>
+      <button class="execution-total" aria-label="Open Runs" @click="showRuns = true">
         {{ count(runs.length) }} · {{ money(data.total) }}
       </button>
     </div>
@@ -191,11 +194,20 @@ function position(run: AgentRun) {
   gap: 8px;
   margin-bottom: 12px;
 }
+.execution-heading h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.execution-heading h3 button {
+  padding: 0;
+  font: inherit;
+}
 .execution-heading button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
   white-space: nowrap;
 }
 .execution-heading .execution-total {

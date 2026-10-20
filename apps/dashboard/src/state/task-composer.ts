@@ -7,15 +7,25 @@ export interface Assignee {
 
 // Whether the New study modal is open, which Backlog study it edits, and who a
 // new study starts assigned to.
-const composer = reactive<{ open: boolean; editId?: string; assignee?: Assignee }>({
+const composer = reactive<{
+  open: boolean;
+  editId?: string;
+  assignee?: Assignee;
+  projectId?: string;
+}>({
   open: false,
 });
 
-function openComposer(editId?: string, assignee?: Assignee) {
-  Object.assign(composer, { open: true, editId, assignee });
+function openComposer(editId?: string, assignee?: Assignee, projectId?: string) {
+  Object.assign(composer, { open: true, editId, assignee, projectId });
 }
 function closeComposer() {
-  Object.assign(composer, { open: false, editId: undefined, assignee: undefined });
+  Object.assign(composer, {
+    open: false,
+    editId: undefined,
+    assignee: undefined,
+    projectId: undefined,
+  });
 }
 
 export function useTaskComposer() {

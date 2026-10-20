@@ -165,46 +165,17 @@ func TestOnlyTheSourcesServerPostGetsTheSourcesDeadline(t *testing.T) {
 	}
 }
 
-func TestPackUploadGetsTheBlobDeadlines(t *testing.T) {
-	for _, tc := range []struct {
-		method, path string
-		long         bool
-	}{{"POST", "/api/packs", true}, {"GET", "/api/packs", false}, {"POST", "/api/packs/x/approve", false}} {
-		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			d, ok := r.Context().Deadline()
-			left := time.Until(d)
-			if !ok || (tc.long && left < BlobRequestTimeout-time.Second) || (!tc.long && left > RequestTimeout) {
-				t.Errorf("%s %s: deadline in %v", tc.method, tc.path, left)
-			}
-			w.WriteHeader(http.StatusNoContent)
-		})
-		RequestBounds(next).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}")))
+func TestRemovedPackUploadUsesOrdinaryBounds(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/api/packs", strings.NewReader("{}"))
+	if got := JSONBodyLimit(r); got != MaxBodyBytes {
+		t.Fatalf("body limit: %d", got)
 	}
-
-	// A body that takes longer than BodyReadTimeout to arrive is still read.
-	srv := httptest.NewServer(RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		if string(b) != "first-second" {
-			t.Errorf("body %q", b)
+	RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deadline, ok := r.Context().Deadline()
+		if !ok || time.Until(deadline) > RequestTimeout {
+			t.Errorf("removed upload kept extended timeout")
 		}
-		w.WriteHeader(http.StatusNoContent)
-	})))
-	defer srv.Close()
-	pr, pw := io.Pipe()
-	go func() {
-		pw.Write([]byte("first-"))
-		time.Sleep(BodyReadTimeout + 500*time.Millisecond)
-		pw.Write([]byte("second"))
-		pw.Close()
-	}()
-	resp, err := http.Post(srv.URL+"/api/packs", "application/zip", pr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("slow pack upload: %d", resp.StatusCode)
-	}
+	})).ServeHTTP(httptest.NewRecorder(), r)
 }
 
 func TestSkillEditBodyBoundIsExact(t *testing.T) {

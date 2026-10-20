@@ -117,23 +117,6 @@ function demoPackAt(
   writeFileSync(join(dir, 'pack.json'), JSON.stringify({ ...manifest, name, version, ...extra }));
 }
 
-// The demo Team zipped with the system zip command, named name.
-export function labPackArchive(
-  name = 'ui-demo',
-  version = '1',
-  extra: Record<string, string> = {},
-): Buffer {
-  const dir = mkdtempSync(join(tmpdir(), 'lyk-pack-'));
-  try {
-    demoPackAt(join(dir, 'pack'), name, version, extra);
-    const archive = join(dir, 'pack.zip');
-    execFileSync('zip', ['-qr', archive, '.', '-x', '.*', '*/.*'], { cwd: join(dir, 'pack') });
-    return readFileSync(archive);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
 // Makes the lab ship the demo Team as name at version, replacing any version
 // it shipped before. labUnship stops shipping it.
 export function labShip(name: string, version: string) {
@@ -145,7 +128,7 @@ export function labUnship(name: string) {
   rmSync(join(SHIPPED, name), { recursive: true, force: true });
 }
 
-// Uploads the demo Team and approves its version for the lab person.
+// Installs the fixed demo Team as pre-existing lab data and approves its version.
 export async function labPack(
   request: APIRequestContext,
   name = 'ui-demo',
@@ -153,17 +136,12 @@ export async function labPack(
   extra: { domain?: string; stage?: string } = {},
 ): Promise<{ id: string; name: string }> {
   const headers = { 'X-Workspace-ID': workspaceId ?? (await labWorkspace(request)) };
-  const upload = await request.post('/api/packs', {
-    headers: { ...headers, 'Content-Type': 'application/zip' },
-    data: labPackArchive(name, '1', extra),
+  const installed = await request.post(`${LAB}/lab/installed-teams`, {
+    headers,
+    data: { name, ...extra },
   });
-  if (upload.status() === 409) {
-    // An earlier spec in this run already uploaded and approved this version.
-    const versions = await request.get(`/api/packs?name=${name}`, { headers });
-    return ((await versions.json()) as { id: string; name: string }[])[0]!;
-  }
-  expect(upload.status()).toBe(201);
-  const pack = (await upload.json()) as { id: string; name: string };
+  expect(installed.status()).toBe(201);
+  const pack = (await installed.json()) as { id: string; name: string };
   expect((await request.post(`/api/packs/${pack.id}/approve`, { headers })).status()).toBe(200);
   return pack;
 }

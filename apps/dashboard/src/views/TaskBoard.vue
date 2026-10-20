@@ -29,6 +29,7 @@ import {
 import { readJSON, writeJSON } from '../storage';
 import { notify } from '../state/notice';
 import { useTaskComposer } from '../state/task-composer';
+const props = defineProps<{ projectId?: string }>();
 defineEmits<{ create: [] }>();
 const router = useRouter();
 const cards = useCards();
@@ -137,7 +138,8 @@ async function removeStudy(id: string) {
 
 type Display = { mode: 'Board' | 'List'; properties: string[] };
 const propertyNames = ['Role', 'Updated'];
-const saved = readJSON<Partial<Display>>('lykeion.study-display', {});
+const displayKey = props.projectId ? 'lykeion.project-display' : 'lykeion.study-display';
+const saved = readJSON<Partial<Display>>(displayKey, {});
 const display = reactive<Display>({
   mode: saved.mode === 'List' ? 'List' : 'Board',
   properties: Array.isArray(saved.properties) ? saved.properties : propertyNames,
@@ -145,13 +147,15 @@ const display = reactive<Display>({
 watch(
   display,
   (value) => {
-    if (!writeJSON('lykeion.study-display', value))
-      notify('Display preferences could not be saved.');
+    if (!writeJSON(displayKey, value)) notify('Display preferences could not be saved.');
   },
   { deep: true },
 );
 
-const tab = ref<'All' | 'Mine'>('All');
+const tab = ref<'All' | 'Mine' | 'Members' | 'Agents'>('All');
+const actorTabs = computed(() =>
+  props.projectId ? (['All', 'Members', 'Agents'] as const) : (['All', 'Mine'] as const),
+);
 const popup = ref('');
 const submenu = ref<Category | null>(null);
 const filters = ref<StudyFilters>({});
@@ -163,7 +167,9 @@ const categoryIcons: Record<Category, string> = {
   Flag: 'flag',
   Owner: 'users',
 };
-const all = computed(() => cards.data.value ?? []);
+const all = computed(() =>
+  (cards.data.value ?? []).filter((c) => !props.projectId || c.research_id === props.projectId),
+);
 const number = (c: Card) => studyNumber(workspace.data.value, c);
 function ownerName(id: string) {
   const m = members.data.value?.find((x) => x.user_id === id);
@@ -176,7 +182,11 @@ const options = (category: Category) =>
 const visible = computed(() =>
   all.value.filter(
     (c) =>
-      (tab.value === 'All' || c.owner_id === me.data.value?.id) && matchesFilters(c, filters.value),
+      (tab.value === 'All' ||
+        (tab.value === 'Mine' && c.owner_id === me.data.value?.id) ||
+        (tab.value === 'Members' && c.assignee_type === 'member') ||
+        (tab.value === 'Agents' && (c.assignee_type === 'agent' || c.assignee_type === 'team'))) &&
+      matchesFilters(c, filters.value),
   ),
 );
 const grouped = computed(() => groupByColumn(visible.value));
@@ -301,7 +311,7 @@ onUnmounted(() => {
   <div class="task-toolbar">
     <div class="toolbar-group">
       <button
-        v-for="name in ['All', 'Mine'] as const"
+        v-for="name in actorTabs"
         :key="name"
         class="button compact"
         :class="{ active: tab === name }"
@@ -468,7 +478,7 @@ onUnmounted(() => {
           v-if="column.id === 'backlog'"
           class="icon-button push-right"
           aria-label="New study"
-          @click="openComposer()"
+          @click="openComposer(undefined, undefined, projectId)"
         >
           <Icon name="plus" :size="14" />
         </button>
@@ -489,9 +499,10 @@ onUnmounted(() => {
       >
         <small class="card-id"
           >{{ number(card) }}<span v-if="card.queued" class="chip chip-queued">queued</span
-          ><span v-if="card.flag === 'escalated' || card.state === 'blocked'" class="chip chip-escalated">{{
-            blockLabel(card.block_kind) || 'escalated'
-          }}</span
+          ><span
+            v-if="card.flag === 'escalated' || card.state === 'blocked'"
+            class="chip chip-escalated"
+            >{{ blockLabel(card.block_kind) || 'escalated' }}</span
           ><span v-if="column.id === 'blocked'" class="chip">{{
             columnName(card.board_column)
           }}</span></small

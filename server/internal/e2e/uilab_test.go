@@ -149,6 +149,7 @@ func TestUILab(t *testing.T) {
 		w.WriteHeader(204)
 	})
 
+	uiTeamFixture(t, mux, h, iss)
 	uiConnectorFixtures(t, mux, h, base, sourceFixtureAuth)
 	uiAutoresearchFixtures(mux, st, sourceFixtureAuth)
 	mux.HandleFunc("GET /lab/skill-source", func(w http.ResponseWriter, r *http.Request) {

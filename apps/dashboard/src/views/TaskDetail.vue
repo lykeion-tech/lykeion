@@ -732,13 +732,11 @@ function pin() {
         <button @click="read.query.refetch()">Retry {{ read.label }}</button>
       </div>
       <ExecutionLog :runs="runs.data.value ?? []" :title="number + ' · ' + c.title" />
-      <button
-        class="details-heading"
-        :aria-expanded="detailsOpen"
-        @click="detailsOpen = !detailsOpen"
-      >
-        Details <Icon :name="detailsOpen ? 'down' : 'right'" :size="11" />
-      </button>
+      <h3 class="details-heading">
+        <button :aria-expanded="detailsOpen" @click="detailsOpen = !detailsOpen">
+          Details <Icon :name="detailsOpen ? 'down' : 'right'" :size="11" />
+        </button>
+      </h3>
       <div v-if="detailsOpen" class="details-body">
         <small>Owner</small>
         <div class="v metadata-owner">
@@ -1765,11 +1763,17 @@ function pin() {
   margin-top: 32px;
 }
 .details-heading {
-  display: flex;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  margin: 26px 0 16px;
+}
+.details-heading button {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
-  margin: 26px 0 16px;
+  padding: 0;
+  font: inherit;
 }
 .details-body {
   display: grid;

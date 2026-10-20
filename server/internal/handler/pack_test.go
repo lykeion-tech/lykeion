@@ -4,12 +4,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"io"
 	"io/fs"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -68,23 +66,38 @@ func shippedFS(t *testing.T, zips ...[]byte) fstest.MapFS {
 	return out
 }
 
-func (s *server) upload(t *testing.T, tok, wsID string, z []byte, out any) int {
+// installPackFixture seeds a pre-existing private Team version for API tests.
+// It bypasses HTTP so fixtures cannot make a removed endpoint appear usable.
+func (s *server) installPackFixture(t *testing.T, tok, wsID string, z []byte, out any) {
 	t.Helper()
-	req, _ := http.NewRequest("POST", s.URL+"/api/packs", bytes.NewReader(z))
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("X-Workspace-ID", wsID)
-	req.Header.Set("Content-Type", "application/zip")
-	resp, err := http.DefaultClient.Do(req)
+	ctx := t.Context()
+	ws, user := uuid.MustParse(wsID), uuid.MustParse(s.userID(t, tok))
+	p, err := pack.Parse(z)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
-	if out != nil && resp.StatusCode < 300 {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	key, err := pack.PutBlob(ctx, s.H.Blobs, ws, z, p.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row db.FieldPack
+	err = s.H.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
+		var err error
+		row, err = pack.Insert(ctx, tx, key, p, &user)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != nil {
+		body, err := json.Marshal(map[string]any{"id": row.ID, "name": row.Name, "version": row.Version, "sha256": row.Sha256})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(body, out); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return resp.StatusCode
 }
 
 func (s *server) versions(t *testing.T, tok, wsID, name string) []packRow {
@@ -152,90 +165,54 @@ func TestApprovingAShippedPackIsRecordedOnce(t *testing.T) {
 	}
 }
 
-func TestOwnPackUpload(t *testing.T) {
+func TestPackArchiveUploadIsRemoved(t *testing.T) {
 	s := newServer(t)
-	a := s.signIn(t, "ana@lab.org")
-	w := s.workspace(t, a, "lab")
-	b := s.member(t, a, w.ID, "ben@lab.org", "member")
-	z := testutil.Pack(t, testutil.PackOpts{Name: "ana-pack", Version: "1"})
-	var up struct{ ID, Name, Version, Sha256 string }
-	if c := s.upload(t, a, w.ID, z, &up); c != 201 || up.Name != "ana-pack" || up.Version != "1" || len(up.Sha256) != 64 {
-		t.Fatalf("upload %d %+v", c, up)
-	}
-	if n := s.count(t, "SELECT count(*) FROM event WHERE type = 'pack.uploaded'"); n != 1 {
-		t.Fatalf("pack.uploaded events: %d", n)
-	}
-	if c := s.upload(t, a, w.ID, z, nil); c != 409 {
-		t.Fatalf("duplicate version: %d", c)
-	}
-	if c := s.upload(t, b, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "ana-pack", Version: "2"}), nil); c != 409 {
-		t.Fatalf("Ben took Ana's pack name: %d", c)
-	}
-	if rows := s.versions(t, b, w.ID, "ana-pack"); len(rows) != 0 {
-		t.Fatalf("Ben lists %+v", rows)
-	}
-	if c := s.call(t, "POST", "/api/packs/"+up.ID+"/approve", b, w.ID, nil, nil); c != 404 {
-		t.Fatalf("Ben approved Ana's upload: %d", c)
-	}
-	if c := s.call(t, "POST", "/api/packs/"+up.ID+"/approve", a, w.ID, nil, nil); c != 200 {
-		t.Fatalf("approve: %d", c)
-	}
-	// Workspace events reach every member, so an upload's events name only its id.
-	if n := s.count(t, "SELECT count(*) FROM event WHERE type IN ('pack.uploaded', 'pack.approved') AND payload->>'pack_id' = $1", up.ID); n != 2 {
-		t.Fatalf("upload events: %d", n)
-	}
-	if n := s.count(t, "SELECT count(*) FROM event WHERE type IN ('pack.uploaded', 'pack.approved') AND payload - 'pack_id' <> '{}'::jsonb"); n != 0 {
-		t.Fatalf("%d upload events carry more than the pack id", n)
-	}
-}
-
-func TestUploadShippedNameRefused(t *testing.T) {
-	s := newServer(t)
-	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo"}))
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	if c := s.upload(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "9"}), nil); c != 409 {
-		t.Fatalf("upload under a shipped name: %d", c)
+	req, err := http.NewRequest("POST", s.URL+"/api/packs", bytes.NewReader(testutil.Pack(t, testutil.PackOpts{Name: "removed"})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+a)
+	req.Header.Set("X-Workspace-ID", w.ID)
+	req.Header.Set("Content-Type", "application/zip")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("archive upload: %d", resp.StatusCode)
 	}
 	if n := s.count(t, "SELECT count(*) FROM field_pack"); n != 0 {
 		t.Fatalf("stored %d packs", n)
 	}
+	if n := s.count(t, "SELECT count(*) FROM event WHERE type = 'pack.uploaded'"); n != 0 {
+		t.Fatalf("emitted %d upload events", n)
+	}
 }
 
-func TestPackUploadHostile(t *testing.T) {
+func TestInstalledPrivatePackIsVisibleOnlyToItsOwner(t *testing.T) {
 	s := newServer(t)
-	a := s.signIn(t, "a@lab.org")
+	a := s.signIn(t, "ana@lab.org")
 	w := s.workspace(t, a, "lab")
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	f, _ := zw.Create("../evil.md")
-	f.Write([]byte("x"))
-	zw.Close()
-	if c := s.upload(t, a, w.ID, buf.Bytes(), nil); c != 400 {
-		t.Fatalf("hostile archive: %d", c)
+	b := s.member(t, a, w.ID, "ben@lab.org", "member")
+	var up struct{ ID string }
+	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "ana-pack"}), &up)
+	if rows := s.versions(t, a, w.ID, "ana-pack"); len(rows) != 1 {
+		t.Fatalf("owner versions: %+v", rows)
 	}
-	if c := s.upload(t, a, w.ID, []byte("not a zip"), nil); c != 400 {
-		t.Fatalf("not a zip: %d", c)
+	if rows := s.versions(t, b, w.ID, "ana-pack"); len(rows) != 0 {
+		t.Fatalf("colleague versions: %+v", rows)
 	}
-	err := s.H.Store.InWorkspace(context.Background(), uuid.MustParse(w.ID), uuid.MustParse(s.userID(t, a)), func(tx *store.Tx) error {
-		rows, err := tx.Q.ListFieldPacks(context.Background(), tx.WS)
-		if err == nil && len(rows) != 0 {
-			t.Errorf("stored %+v", rows)
-		}
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
+	if code := s.call(t, "POST", "/api/packs/"+up.ID+"/approve", b, w.ID, nil, nil); code != 404 {
+		t.Fatalf("colleague approval: %d", code)
 	}
-	stored := 0
-	filepath.WalkDir(s.H.Blobs.(storage.Local).Dir, func(_ string, d fs.DirEntry, _ error) error {
-		if d != nil && !d.IsDir() {
-			stored++
-		}
-		return nil
-	})
-	if stored != 0 {
-		t.Fatalf("%d blobs stored", stored)
+	if code := s.call(t, "POST", "/api/packs/"+up.ID+"/approve", a, w.ID, nil, nil); code != 200 {
+		t.Fatalf("owner approval: %d", code)
+	}
+	if n := s.count(t, "SELECT count(*) FROM event WHERE type = 'pack.approved' AND payload - 'pack_id' <> '{}'::jsonb"); n != 0 {
+		t.Fatalf("%d private approval events exposed metadata", n)
 	}
 }
 
@@ -244,80 +221,9 @@ func TestPackOtherWorkspace(t *testing.T) {
 	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@else.org")
 	wa, wb := s.workspace(t, a, "lab-a"), s.workspace(t, b, "lab-b")
 	var mine struct{ ID string }
-	s.upload(t, a, wa.ID, testutil.Pack(t, testutil.PackOpts{Name: "own"}), &mine)
+	s.installPackFixture(t, a, wa.ID, testutil.Pack(t, testutil.PackOpts{Name: "own"}), &mine)
 	if c := s.call(t, "POST", "/api/packs/"+mine.ID+"/approve", b, wb.ID, nil, nil); c != 404 {
 		t.Fatalf("approved another workspace's upload: %d", c)
-	}
-}
-
-// withFiles copies an archive and adds stored, incompressible files to it.
-func withFiles(t *testing.T, z []byte, files map[string][]byte) []byte {
-	t.Helper()
-	zr, err := zip.NewReader(bytes.NewReader(z), int64(len(z)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	for _, f := range zr.File {
-		if err := zw.Copy(f); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for name, body := range files {
-		w, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
-		if err == nil {
-			_, err = w.Write(body)
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
-}
-
-func (s *server) storedBlobs(t *testing.T) int {
-	n := 0
-	filepath.WalkDir(s.H.Blobs.(storage.Local).Dir, func(_ string, d fs.DirEntry, _ error) error {
-		if d != nil && !d.IsDir() {
-			n++
-		}
-		return nil
-	})
-	return n
-}
-
-func TestPackUploadLarge(t *testing.T) {
-	s := newServer(t)
-	a := s.signIn(t, "a@lab.org")
-	w := s.workspace(t, a, "lab")
-	noise := func() []byte { b := make([]byte, 900<<10); rand.Read(b); return b }
-	z := withFiles(t, testutil.Pack(t, testutil.PackOpts{Name: "big"}), map[string][]byte{
-		"skills/pi/work/a.bin": noise(), "skills/pi/work/b.bin": noise()})
-	if len(z) <= 1<<20 || len(z) > pack.MaxArchive {
-		t.Fatalf("archive is %d bytes", len(z))
-	}
-	var up struct{ Name string }
-	if c := s.upload(t, a, w.ID, z, &up); c != 201 || up.Name != "big" {
-		t.Fatalf("large upload: %d %+v", c, up)
-	}
-	if s.storedBlobs(t) != 1 {
-		t.Fatal("the archive was not stored")
-	}
-}
-
-func TestPackUploadOversize(t *testing.T) {
-	s := newServer(t)
-	a := s.signIn(t, "a@lab.org")
-	w := s.workspace(t, a, "lab")
-	if c := s.upload(t, a, w.ID, make([]byte, pack.MaxArchive+1), nil); c != 413 {
-		t.Fatalf("oversize upload: %d", c)
-	}
-	if n := s.count(t, "SELECT count(*) FROM field_pack"); n != 0 || s.storedBlobs(t) != 0 {
-		t.Fatalf("stored %d packs, %d blobs", n, s.storedBlobs(t))
 	}
 }
 

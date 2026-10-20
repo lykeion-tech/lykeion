@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"io"
 	"net/http"
 	"slices"
 
@@ -9,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -35,40 +33,6 @@ func approve(r *http.Request, tx *store.Tx, user uuid.UUID, p db.FieldPack) erro
 		payload["sha256"], payload["version"] = p.Sha256, p.Version
 	}
 	return tx.Emit(r.Context(), "pack.approved", nil, store.User(user), payload)
-}
-
-// uploadPack stores the caller's own pack archive, sent as the raw body.
-func (h *H) uploadPack(w http.ResponseWriter, r *http.Request) {
-	// The bounds middleware has already buffered the body and refused one
-	// over pack.MaxArchive with 413.
-	z, err := io.ReadAll(http.MaxBytesReader(w, r.Body, pack.MaxArchive))
-	if err != nil {
-		writeErr(w, 413, "request body exceeds endpoint limit")
-		return
-	}
-	p, err := pack.Parse(z)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	key, err := pack.PutBlob(r.Context(), h.Blobs, middleware.WorkspaceFrom(r.Context()).ID, z, p.SHA256)
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
-	var row db.FieldPack
-	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		var err error
-		if row, err = h.insertUpload(r, tx, user, key, p); err != nil {
-			return err
-		}
-		// Only the id: every member sees workspace events, and the upload is its uploader's alone.
-		return tx.Emit(r.Context(), "pack.uploaded", nil, store.User(user), map[string]any{"pack_id": row.ID})
-	})
-	if !answer(w, r, err) {
-		return
-	}
-	writeJSON(w, 201, map[string]any{"id": row.ID, "name": row.Name, "version": row.Version, "sha256": row.Sha256})
 }
 
 // insertUpload stores a parsed archive as user's private upload, refusing a

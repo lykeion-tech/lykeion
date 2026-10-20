@@ -25,9 +25,7 @@ func TestAnAutoresearchNeedsAnAssignee(t *testing.T) {
 		t.Fatalf("no assignee: %d", code)
 	}
 	var up struct{ ID string }
-	if c := s.upload(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "unadded", Stage: "grounding"}), &up); c != 201 {
-		t.Fatalf("upload: %d", c)
-	}
+	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "unadded", Stage: "grounding"}), &up)
 	for name, as := range map[string]map[string]any{
 		"a member":        {"type": "member", "id": s.userID(t, a)},
 		"an unadded Team": teamAssignee(map[string]string{"grounding": up.ID}),

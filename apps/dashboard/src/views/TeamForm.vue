@@ -3,6 +3,8 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
+import Modal from '../components/Modal.vue';
+import TeamsView from './TeamsView.vue';
 import { backendLabel } from '../lib/backends';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
@@ -196,289 +198,409 @@ async function create() {
 }
 </script>
 <template>
-  <section class="directory-page">
+  <TeamsView />
+  <Modal title="Create Team" class="team-editor" @close="router.push('/teams')">
     <form class="team-form" @submit.prevent="create">
-      <h1>New Team</h1>
-
-      <h2>Identity</h2>
-      <input
-        v-model="name"
-        aria-label="Team name"
-        placeholder="Name, for example scRNA-seq evidence brief"
-        maxlength="64"
-      />
-      <input
-        v-model="description"
-        aria-label="Description"
-        placeholder="What this Team does, in one or two sentences"
-      />
-      <div class="row">
-        <input
-          v-model="domain"
-          aria-label="Domain"
-          placeholder="Domain, for example Computational biology"
-        />
-        <select v-model="stage" aria-label="Built for">
-          <option value="">Built for a set of stages</option>
-          <option v-for="s in stages" :key="s" :value="s">Built for {{ label(s) }}</option>
-        </select>
-      </div>
-
-      <h2>Leader</h2>
-      <div class="slot">
-        <select v-model="leader.agent" aria-label="Leader agent">
-          <option value="" disabled>Choose an agent</option>
-          <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
-        <small v-if="agentById(leader.agent)">{{
-          harnessName(agentById(leader.agent)!.harness)
-        }}</small>
-        <textarea
-          v-model="leader.role"
-          aria-label="Leader role"
-          placeholder="Role description: what the leader decides and who it names for each step"
-        />
-      </div>
-
-      <h2>Members</h2>
-      <div v-for="(m, i) in members" :key="i" class="slot team-member">
-        <div class="row">
-          <input
-            v-model="m.name"
-            aria-label="Member name"
-            placeholder="Name, for example bioinformatician"
-            maxlength="32"
-          />
-          <select v-model="m.agent" aria-label="Member agent">
+      <header class="team-editor-heading">
+        <div>
+          <h1>Create Team</h1>
+          <p>Create a scientific Team with a leader, members and an independent auditor.</p>
+        </div>
+        <button type="button" class="icon-button" aria-label="Close" @click="router.push('/teams')">
+          <Icon name="close" :size="18" />
+        </button>
+      </header>
+      <div class="team-editor-body">
+        <div class="team-identity">
+          <div class="team-avatar" aria-hidden="true"><Icon name="network" :size="24" /></div>
+          <div class="team-identity-fields">
+            <label for="team-name">Name</label>
+            <input
+              id="team-name"
+              v-model="name"
+              autofocus
+              aria-label="Team name"
+              placeholder="e.g. Computational Biology Team"
+              maxlength="64"
+            />
+            <label for="team-description">Description</label>
+            <input
+              id="team-description"
+              v-model="description"
+              aria-label="Description"
+              placeholder="Describe what this Team is responsible for..."
+            />
+          </div>
+        </div>
+        <h2>Leader Agent</h2>
+        <p class="section-description">
+          The leader coordinates the Team and chooses who works next.
+        </p>
+        <div class="slot">
+          <select v-model="leader.agent" aria-label="Leader agent">
             <option value="" disabled>Choose an agent</option>
             <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
-          <button
-            type="button"
-            class="button"
-            :disabled="members.length < 2"
-            :aria-label="`Remove member ${i + 1}`"
-            @click="members.splice(i, 1)"
-          >
-            <Icon name="close" :size="14" />
-          </button>
+          <small v-if="agentById(leader.agent)">{{
+            harnessName(agentById(leader.agent)!.harness)
+          }}</small>
+          <textarea
+            v-model="leader.role"
+            aria-label="Leader role"
+            placeholder="Role description: what the leader decides and who it names for each step"
+          />
         </div>
-        <small v-if="agentById(m.agent)">{{ harnessName(agentById(m.agent)!.harness) }}</small>
-        <textarea
-          v-model="m.role"
-          aria-label="Member role"
-          placeholder="Role description (the leader reads it)"
-        />
-        <div class="row chips">
-          <span class="muted">Skills</span>
-          <button
-            v-for="s in m.skills"
-            :key="s"
-            type="button"
-            class="button chip"
-            :aria-label="`Remove skill ${s}`"
-            @click="m.skills.splice(m.skills.indexOf(s), 1)"
-          >
-            {{ s }} ×
-          </button>
-          <select
-            aria-label="Add skill"
-            @change="
-              (e) => {
-                const t = e.target as HTMLSelectElement;
-                if (t.value && !m.skills.includes(t.value)) m.skills.push(t.value);
-                t.value = '';
-              }
-            "
-          >
-            <option value="">+ skill</option>
-            <option
-              v-for="s in skills.data.value ?? []"
-              :key="s.name"
-              :value="s.name"
-              :disabled="!s.policy_enabled"
-            >
-              {{ s.name }}
-            </option>
-          </select>
-        </div>
-        <div class="row chips">
-          <span class="muted">Connectors</span>
-          <select
-            aria-label="Add connector"
-            @change="
-              (e) => {
-                const t = e.target as HTMLSelectElement;
-                addConnector(m, t.value);
-                t.value = '';
-              }
-            "
-          >
-            <option value="">+ connector</option>
-            <optgroup label="Catalogue">
-              <option
-                v-for="c in catalogue.data.value ?? []"
-                :key="c.name"
-                :value="c.name"
-                :disabled="m.connectors.some((x) => x.name === c.name)"
-              >
-                {{ c.name }}
-              </option>
-            </optgroup>
-            <optgroup label="Workspace">
-              <option
-                v-for="c in workspaceConnectors.data.value ?? []"
-                :key="c.id"
-                :value="'workspace:' + c.id"
-                :disabled="
-                  !c.policy_enabled ||
-                  m.connectors.some((x) => x.kind === 'workspace' && x.value === c.id)
-                "
-              >
-                {{ c.name }}
-              </option>
-            </optgroup>
-            <optgroup label="Your own">
-              <option value="url">An https MCP URL</option>
-              <option value="command">A local command</option>
-            </optgroup>
-          </select>
-        </div>
-        <div v-for="(c, j) in m.connectors" :key="j" class="row connector">
-          <template v-if="c.kind === 'catalogue' || c.kind === 'workspace'">
-            <span class="chip-text"
-              >{{ c.name
-              }}<small v-if="connectorProblem(c)" class="inline-error"> · Unavailable</small></span
-            >
-          </template>
-          <template v-else>
-            <input v-model="c.name" aria-label="Connector name" placeholder="Name" />
-            <input
-              v-if="c.kind === 'url'"
-              v-model="c.value"
-              aria-label="Connector URL"
-              placeholder="https://"
-            />
-            <template v-else>
-              <input
-                v-model="c.value"
-                aria-label="Connector command"
-                placeholder="program and arguments"
-              />
-              <textarea
-                v-model="c.env"
-                aria-label="Connector environment"
-                placeholder="NAME=value, one per line (no secrets)"
-              />
-            </template>
-            <small
-              v-if="connectorProblem(c) && connectorProblem(c) !== 'name'"
-              class="inline-error"
-            >
-              {{
-                connectorProblem(c) === 'url'
-                  ? 'An https URL is required'
-                  : connectorProblem(c) === 'env'
-                    ? 'An environment name looks like a secret'
-                    : 'Name a program, not a path'
-              }}
-            </small>
-          </template>
-          <button
-            type="button"
-            class="button"
-            :aria-label="`Remove connector ${c.name}`"
-            @click="m.connectors.splice(j, 1)"
-          >
-            <Icon name="close" :size="14" />
-          </button>
-        </div>
-      </div>
-      <button
-        type="button"
-        class="button"
-        :disabled="members.length >= MAX_MEMBERS"
-        @click="members.push(blank())"
-      >
-        + Add member
-      </button>
 
-      <h2>Auditor</h2>
-      <div class="slot">
-        <select v-model="auditor.agent" aria-label="Auditor agent">
-          <option value="" disabled>Choose an agent</option>
-          <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
-        <small v-if="agentById(auditor.agent)"
-          >{{ harnessName(agentById(auditor.agent)!.harness) }} · runs once after the leader says
-          done, before scoring</small
-        >
-        <p v-if="auditorClash" class="inline-error" role="alert">
-          The auditor must run on a different model from the leader and every member
+        <h2>Additional Members</h2>
+        <p class="section-description">
+          Agents the leader can call on, with their roles and scientific tools.
         </p>
-        <textarea
-          v-model="auditor.role"
-          aria-label="Auditor role"
-          placeholder="Instructions: check every quote against its recorded call"
-        />
-      </div>
+        <div v-for="(m, i) in members" :key="i" class="slot team-member">
+          <div class="row">
+            <input
+              v-model="m.name"
+              aria-label="Member name"
+              placeholder="Name, for example bioinformatician"
+              maxlength="32"
+            />
+            <select v-model="m.agent" aria-label="Member agent">
+              <option value="" disabled>Choose an agent</option>
+              <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+            <button
+              type="button"
+              class="button"
+              :disabled="members.length < 2"
+              :aria-label="`Remove member ${i + 1}`"
+              @click="members.splice(i, 1)"
+            >
+              <Icon name="close" :size="14" />
+            </button>
+          </div>
+          <small v-if="agentById(m.agent)">{{ harnessName(agentById(m.agent)!.harness) }}</small>
+          <textarea
+            v-model="m.role"
+            aria-label="Member role"
+            placeholder="Role description (the leader reads it)"
+          />
+          <div class="row chips">
+            <span class="muted">Skills</span>
+            <button
+              v-for="s in m.skills"
+              :key="s"
+              type="button"
+              class="button chip"
+              :aria-label="`Remove skill ${s}`"
+              @click="m.skills.splice(m.skills.indexOf(s), 1)"
+            >
+              {{ s }} ×
+            </button>
+            <select
+              aria-label="Add skill"
+              @change="
+                (e) => {
+                  const t = e.target as HTMLSelectElement;
+                  if (t.value && !m.skills.includes(t.value)) m.skills.push(t.value);
+                  t.value = '';
+                }
+              "
+            >
+              <option value="">+ skill</option>
+              <option
+                v-for="s in skills.data.value ?? []"
+                :key="s.name"
+                :value="s.name"
+                :disabled="!s.policy_enabled"
+              >
+                {{ s.name }}
+              </option>
+            </select>
+          </div>
+          <div class="row chips">
+            <span class="muted">Connectors</span>
+            <select
+              aria-label="Add connector"
+              @change="
+                (e) => {
+                  const t = e.target as HTMLSelectElement;
+                  addConnector(m, t.value);
+                  t.value = '';
+                }
+              "
+            >
+              <option value="">+ connector</option>
+              <optgroup label="Catalogue">
+                <option
+                  v-for="c in catalogue.data.value ?? []"
+                  :key="c.name"
+                  :value="c.name"
+                  :disabled="m.connectors.some((x) => x.name === c.name)"
+                >
+                  {{ c.name }}
+                </option>
+              </optgroup>
+              <optgroup label="Workspace">
+                <option
+                  v-for="c in workspaceConnectors.data.value ?? []"
+                  :key="c.id"
+                  :value="'workspace:' + c.id"
+                  :disabled="
+                    !c.policy_enabled ||
+                    m.connectors.some((x) => x.kind === 'workspace' && x.value === c.id)
+                  "
+                >
+                  {{ c.name }}
+                </option>
+              </optgroup>
+              <optgroup label="Your own">
+                <option value="url">An https MCP URL</option>
+                <option value="command">A local command</option>
+              </optgroup>
+            </select>
+          </div>
+          <div v-for="(c, j) in m.connectors" :key="j" class="row connector">
+            <template v-if="c.kind === 'catalogue' || c.kind === 'workspace'">
+              <span class="chip-text"
+                >{{ c.name
+                }}<small v-if="connectorProblem(c)" class="inline-error">
+                  · Unavailable</small
+                ></span
+              >
+            </template>
+            <template v-else>
+              <input v-model="c.name" aria-label="Connector name" placeholder="Name" />
+              <input
+                v-if="c.kind === 'url'"
+                v-model="c.value"
+                aria-label="Connector URL"
+                placeholder="https://"
+              />
+              <template v-else>
+                <input
+                  v-model="c.value"
+                  aria-label="Connector command"
+                  placeholder="program and arguments"
+                />
+                <textarea
+                  v-model="c.env"
+                  aria-label="Connector environment"
+                  placeholder="NAME=value, one per line (no secrets)"
+                />
+              </template>
+              <small
+                v-if="connectorProblem(c) && connectorProblem(c) !== 'name'"
+                class="inline-error"
+              >
+                {{
+                  connectorProblem(c) === 'url'
+                    ? 'An https URL is required'
+                    : connectorProblem(c) === 'env'
+                      ? 'An environment name looks like a secret'
+                      : 'Name a program, not a path'
+                }}
+              </small>
+            </template>
+            <button
+              type="button"
+              class="button"
+              :aria-label="`Remove connector ${c.name}`"
+              @click="m.connectors.splice(j, 1)"
+            >
+              <Icon name="close" :size="14" />
+            </button>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="button"
+          :disabled="members.length >= MAX_MEMBERS"
+          @click="members.push(blank())"
+        >
+          + Add member
+        </button>
 
-      <h2>Scoring criteria</h2>
-      <ul class="criteria">
-        <li v-for="c in core" :key="c" class="core-criterion">
-          {{ c }}
-        </li>
-        <li v-for="(_, i) in criteria" :key="i" class="row">
-          <input v-model="criteria[i]" :aria-label="`Criterion ${i + 1}`" maxlength="200" />
-          <button
-            type="button"
-            class="button"
-            :aria-label="`Remove criterion ${i + 1}`"
-            @click="criteria.splice(i, 1)"
+        <h2>Independent Auditor</h2>
+        <p class="section-description">An independent model checks the work before scoring.</p>
+        <div class="slot">
+          <select v-model="auditor.agent" aria-label="Auditor agent">
+            <option value="" disabled>Choose an agent</option>
+            <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
+          </select>
+          <small v-if="agentById(auditor.agent)"
+            >{{ harnessName(agentById(auditor.agent)!.harness) }} · runs once after the leader says
+            done, before scoring</small
           >
-            <Icon name="close" :size="14" />
-          </button>
-        </li>
-      </ul>
-      <button
-        type="button"
-        class="button"
-        :disabled="criteria.length >= MAX_CRITERIA"
-        @click="criteria.push('')"
-      >
-        + This Team's own criterion
-      </button>
+          <p v-if="auditorClash" class="inline-error" role="alert">
+            The auditor must run on a different model from the leader and every member
+          </p>
+          <textarea
+            v-model="auditor.role"
+            aria-label="Auditor role"
+            placeholder="Instructions: check every quote against its recorded call"
+          />
+        </div>
 
-      <h2>Limits</h2>
-      <label class="steps"
-        >Steps per column<input
-          v-model.number="steps"
-          type="number"
-          min="1"
-          max="50"
-          aria-label="Steps per column"
-      /></label>
+        <h2>Scientific settings</h2>
+        <div class="row">
+          <input
+            v-model="domain"
+            aria-label="Domain"
+            placeholder="Domain, for example Computational biology"
+          />
+          <select v-model="stage" aria-label="Built for">
+            <option value="">Built for a set of stages</option>
+            <option v-for="s in stages" :key="s" :value="s">Built for {{ label(s) }}</option>
+          </select>
+        </div>
 
-      <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
+        <h2>Scoring criteria</h2>
+        <ul class="criteria">
+          <li v-for="c in core" :key="c" class="core-criterion">
+            {{ c }}
+          </li>
+          <li v-for="(_, i) in criteria" :key="i" class="row">
+            <input v-model="criteria[i]" :aria-label="`Criterion ${i + 1}`" maxlength="200" />
+            <button
+              type="button"
+              class="button"
+              :aria-label="`Remove criterion ${i + 1}`"
+              @click="criteria.splice(i, 1)"
+            >
+              <Icon name="close" :size="14" />
+            </button>
+          </li>
+        </ul>
+        <button
+          type="button"
+          class="button"
+          :disabled="criteria.length >= MAX_CRITERIA"
+          @click="criteria.push('')"
+        >
+          + This Team's own criterion
+        </button>
+
+        <h2>Limits</h2>
+        <label class="steps"
+          >Steps per column<input
+            v-model.number="steps"
+            type="number"
+            min="1"
+            max="50"
+            aria-label="Steps per column"
+        /></label>
+
+        <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
+      </div>
       <footer>
         <button type="button" class="button" @click="router.push('/teams')">Cancel</button>
         <button class="button primary" :disabled="!canCreate" :title="problem">Create Team</button>
       </footer>
     </form>
-  </section>
+  </Modal>
 </template>
 <style scoped>
-.team-form {
-  max-width: 720px;
-  margin: 8px auto 0;
+.team-editor {
+  width: 676px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  background: var(--fill-menu);
+}
+.team-editor-heading {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.team-editor-heading p {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.team-editor-heading .icon-button {
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+.team-editor-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.team-identity {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 6px;
+}
+.team-avatar {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+}
+.team-identity-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.team-identity-fields label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.team-identity-fields input + label {
+  margin-top: 5px;
+}
+.section-description {
+  margin: -3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+@media (max-width: 600px) {
+  .team-form {
+    height: calc(100dvh - 48px);
+  }
+  .team-identity {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .team-avatar {
+    width: 44px;
+    height: 44px;
+  }
+  .row {
+    flex-wrap: wrap;
+  }
+  .row > input,
+  .row > select {
+    min-width: 0;
+  }
+}
+
+.team-form {
+  width: 100%;
+  height: min(820px, calc(100dvh - 160px));
+  min-height: 360px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
   font-size: 13px;
+  overflow: hidden;
 }
 h1 {
-  font-size: 25px;
-  margin: 12px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
 }
 h2 {
   margin: 20px 0 0;
@@ -515,9 +637,8 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  padding: 0;
+  margin: 0 0 8px;
 }
 .slot > small,
 .muted {
@@ -561,7 +682,11 @@ footer {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin: 16px 0 32px;
+  margin: 0;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  flex: none;
+  background: var(--fill-menu);
 }
 .inline-error {
   margin: 0;

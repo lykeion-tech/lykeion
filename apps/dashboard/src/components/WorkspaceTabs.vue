@@ -319,8 +319,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 10px;
+  height: 30px;
+  min-width: 0;
+  padding: 0 10px;
   font-size: 14px;
+  line-height: 20px;
   max-width: 230px;
 }
 .workspace-tab span {
@@ -329,14 +332,22 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .workspace-tab .icon {
+  display: block;
+  flex-shrink: 0;
   color: var(--primary);
 }
 .pinned-marker {
   color: var(--muted);
 }
 .tab-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
   width: 18px;
+  height: 24px;
   padding: 0;
+  line-height: 1;
   opacity: 0;
 }
 .workspace-tab:hover .tab-control,

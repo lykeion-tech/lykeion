@@ -91,7 +91,9 @@ const destinations = [
   { id: 'settings', name: 'Settings', icon: 'settings' },
 ];
 const workspaceName = computed(() => workspace.data.value?.name ?? 'Lykeion');
-const heading = computed(() => route.meta.title ?? 'Studies');
+const heading = computed(() =>
+  current.value === 'teams' ? 'Teams' : (route.meta.title ?? 'Studies'),
+);
 const shownCard = computed(() => cards.data.value?.find((c) => c.id === cardId.value));
 const tabTitle = computed(() =>
   shownCard.value
@@ -492,6 +494,7 @@ onUnmounted(() => {
       v-if="composer.open"
       :edit-id="composer.editId"
       :assignee="composer.assignee"
+      :project-id="composer.projectId"
       @close="closeComposer()"
     />
     <div

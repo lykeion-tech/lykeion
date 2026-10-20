@@ -2,10 +2,9 @@
 import { computed, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
-import { ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { addTeam, uploadPack, useTeam, useTeams } from '../api/queries';
+import { addTeam, useTeam, useTeams } from '../api/queries';
 import type { TeamMember } from '../api/types';
 
 const props = defineProps<{ id?: string }>();
@@ -22,7 +21,6 @@ const domains = computed(() =>
 const busy = ref(false);
 const error = ref('');
 const created = ref<string[] | null>(null);
-const file = ref<HTMLInputElement>();
 watch([workspaceId, () => props.id], () => {
   error.value = '';
   created.value = null;
@@ -44,11 +42,7 @@ async function act(work: () => Promise<unknown>) {
   try {
     await work();
   } catch (e) {
-    if (workspaceId.value === workspace)
-      error.value =
-        e instanceof ApiError && e.status === 413
-          ? 'A Team archive can be at most 5 MiB.'
-          : (e as Error).message;
+    if (workspaceId.value === workspace) error.value = (e as Error).message;
   } finally {
     busy.value = false;
     await Promise.all([
@@ -63,29 +57,11 @@ const add = (id: string) =>
   act(async () => {
     created.value = (await addTeam(id)).map((a) => a.name);
   });
-
-function upload(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const chosen = input.files?.[0];
-  input.value = '';
-  if (chosen) void act(() => uploadPack(chosen));
-}
 </script>
 <template>
-  <section class="directory-page">
-    <input
-      ref="file"
-      type="file"
-      accept=".zip,application/zip"
-      hidden
-      aria-hidden="true"
-      @change="upload"
-    />
+  <section class="directory-page" :class="{ 'directory-table-page': !id }">
     <Teleport to="#page-header-actions">
-      <button v-if="!id" class="button" :disabled="busy" @click="file?.click()">
-        <Icon name="upload" :size="14" />Upload a Team
-      </button>
-      <RouterLink to="/teams/new" class="button primary"
+      <RouterLink v-if="!id" to="/teams/new" class="button primary"
         ><Icon name="plus" :size="14" />New Team</RouterLink
       >
     </Teleport>
@@ -165,52 +141,125 @@ function upload(event: Event) {
       <p v-else-if="detail.isError.value" class="muted">No such Team.</p>
     </template>
     <template v-else>
-      <div class="store-filters">
-        <label
-          >Domain<select v-model="domain">
-            <option value="">All domains</option>
-            <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
-          </select></label
-        >
-        <label
-          >Stage<select v-model="stage">
-            <option value="">All stages</option>
-            <option v-for="s in stages" :key="s" :value="s">{{ label(s) }}</option>
-          </select></label
-        >
-      </div>
-      <div class="directory-list">
-        <RouterLink v-for="t in teams.data.value" :key="t.id" :to="'/teams/' + t.id"
-          ><Icon name="network" /><span
-            >{{ t.name
-            }}<small
-              >{{ t.manifest.description }} · {{ t.domain }} · {{ builtFor(t.stage)
-              }}<template v-if="t.added"> · Added</template></small
-            ></span
-          ><Icon name="right"
-        /></RouterLink>
+      <div class="team-table-scroll">
+        <table class="directory-data-table team-table" aria-label="Teams">
+          <colgroup>
+            <col class="name-column" />
+            <col />
+            <col />
+            <col />
+            <col />
+            <col />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col" aria-label="Domain">
+                <span class="header-filter"
+                  ><select v-model="domain" aria-label="Domain">
+                    <option value="">Domain</option>
+                    <option v-for="d in domains" :key="d" :value="d">{{ d }}</option></select
+                  ><Icon name="down" :size="12"
+                /></span>
+              </th>
+              <th scope="col" aria-label="Built for">
+                <span class="header-filter"
+                  ><select v-model="stage" aria-label="Stage">
+                    <option value="">Built for</option>
+                    <option v-for="s in stages" :key="s" :value="s">{{ label(s) }}</option></select
+                  ><Icon name="down" :size="12"
+                /></span>
+              </th>
+              <th scope="col">Agents</th>
+              <th scope="col">Version</th>
+              <th scope="col">Availability</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in teams.data.value" :key="t.id">
+              <td>
+                <RouterLink :to="'/teams/' + t.id" class="team-name"
+                  ><Icon name="network" :size="18" /><span>{{ t.name }}</span></RouterLink
+                >
+              </td>
+              <td>{{ t.domain || '—' }}</td>
+              <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>
+              <td>{{ t.manifest.members.length + 2 }}</td>
+              <td>{{ t.version }}</td>
+              <td>{{ t.added ? 'Added' : 'Not added' }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       <div v-if="teams.isSuccess.value && !teams.data.value?.length" class="directory-empty">
         <Icon name="network" :size="30" />
         <h2>No Teams yet</h2>
         <p>A Team is the agents that work each stage of your studies.</p>
-        <button class="button" :disabled="busy" @click="file?.click()">Upload a Team</button>
+        <RouterLink to="/teams/new" class="button"
+          ><Icon name="plus" :size="14" />New Team</RouterLink
+        >
       </div>
     </template>
   </section>
 </template>
 <style src="./directory.css" />
+<style src="./directory-table.css" />
 <style scoped>
-.store-filters {
-  display: flex;
-  gap: 16px;
-  margin: 12px 0;
-  font-size: 13px;
+.header-filter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
 }
-.store-filters label {
+.header-filter select {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0 18px 0 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.header-filter svg {
+  position: absolute;
+  right: 0;
+  pointer-events: none;
+}
+.team-table-scroll {
+  overflow-x: auto;
+}
+.team-table {
+  min-width: 780px;
+  table-layout: fixed;
+}
+.team-table .name-column {
+  width: 44%;
+}
+.team-name {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  min-width: 0;
+  min-height: 24px;
+  color: var(--text);
+}
+.team-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-name > svg {
+  flex: none;
+  color: var(--muted);
+}
+.team-table td:not(:first-child) {
+  color: var(--muted);
+}
+.team-table th:first-child {
+  padding-left: 52px;
 }
 .team-members {
   margin: 0;

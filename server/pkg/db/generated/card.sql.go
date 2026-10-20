@@ -193,11 +193,11 @@ func (q *Queries) CardTeams(ctx context.Context, arg CardTeamsParams) ([]CardTea
 
 const createCard = `-- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
-  scope_from, scope_to, assignee_type, assignee_id, board_column, round)
+  scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = 'backlog'), 1) - 1,
   COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'reporting'),
-  $10, $11, COALESCE(NULLIF($12::text, ''), 'backlog'), $13)
+  $10, $11, COALESCE(NULLIF($12::text, ''), 'backlog'), $13, $14)
 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos
 `
 
@@ -215,6 +215,7 @@ type CreateCardParams struct {
 	AssigneeID   *uuid.UUID  `json:"assignee_id"`
 	BoardColumn  string      `json:"board_column"`
 	Round        int32       `json:"round"`
+	ResearchID   *uuid.UUID  `json:"research_id"`
 }
 
 // A new card goes to the top of Backlog, so WIP pull takes it next unless
@@ -235,6 +236,7 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		arg.AssigneeID,
 		arg.BoardColumn,
 		arg.Round,
+		arg.ResearchID,
 	)
 	var i Card
 	err := row.Scan(

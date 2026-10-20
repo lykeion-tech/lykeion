@@ -14,8 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-
-	"lykeion/server/internal/pack"
 )
 
 const (
@@ -49,9 +47,8 @@ func RequestBounds(next http.Handler) http.Handler {
 		}
 		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r)
 		callPost := r.Method == http.MethodPost && r.URL.Path == "/api/role/calls"
-		packUpload := r.Method == http.MethodPost && r.URL.Path == "/api/packs"
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
-		if rawBlob || packUpload || callPost {
+		if rawBlob || callPost {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
@@ -146,9 +143,6 @@ func JSONBodyLimit(r *http.Request) int64 {
 	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/role/calls" {
 		return MaxCallBodyBytes
-	}
-	if r.Method == http.MethodPost && r.URL.Path == "/api/packs" {
-		return pack.MaxArchive
 	}
 	return MaxBodyBytes
 }
