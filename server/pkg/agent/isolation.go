@@ -30,8 +30,8 @@ var discoveryNames = []string{".cursor", ".codex", ".claude", ".agents", ".claud
 type RunFolderPath struct {
 	Name   string
 	Folder bool
-	// A marker means something by existing (a lock, a live process, a
-	// finished run), so only its owner may ever create one.
+	// A marker means something by existing (a lock, a live process), so
+	// only its owner may ever create one.
 	Marker bool
 	// A hidden path holds the door's token or the CLI's sign-in: code may
 	// not even read it.
@@ -48,7 +48,6 @@ var RunFolderConfig = []RunFolderPath{
 	{Name: ".claude.json"}, {Name: ".mcp.json"}, {Name: ".lyk-mcp.json", Hidden: true}, {Name: ".lyk-config.json", Hidden: true},
 	{Name: "AGENTS.md"}, {Name: "AGENTS.override.md"}, {Name: "CLAUDE.md"}, {Name: "CLAUDE.local.md"}, {Name: "SKILL.md"},
 	{Name: ".agent-owned", Marker: true}, {Name: ".agent-lock", Marker: true}, {Name: ".agent-process", Marker: true},
-	{Name: ".finished", Marker: true},
 	// The supervisor writes its exit marker from outside the sandbox, and
 	// the daemon reads it and Antigravity's log: they get placeholders, so
 	// code can't plant a link in their place.

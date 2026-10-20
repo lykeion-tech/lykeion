@@ -546,7 +546,7 @@ func reuseScratch(dir string) error {
 	if err := privateDir(dir); err != nil {
 		return err
 	}
-	for _, name := range []string{".finished", "SKILL.md", ".lyk-config.json"} {
+	for _, name := range []string{"SKILL.md", ".lyk-config.json"} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}

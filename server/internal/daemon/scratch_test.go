@@ -235,7 +235,7 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatal("forget deleted another daemon's active scope", err)
 	}
-	must(t, os.Remove(filepath.Join(dir, ".finished")))
+	must(t, os.Remove(finishedRecord(state, dir)))
 	// A stale journal cannot authorize recovery to kill the current holder's CLI.
 	r := reportFixture()
 	r.Scratch = name
@@ -310,7 +310,7 @@ func TestReusedScopeLosesOldFinishedClockAfterParentExit(t *testing.T) {
 	home, state := t.TempDir(), t.TempDir()
 	dir := filepath.Join(home, "scope-crashed")
 	must(t, os.Mkdir(dir, 0700))
-	marker := filepath.Join(dir, ".finished")
+	marker := finishedRecord(state, dir)
 	finishedFor(t, state, dir, `{"retention_days":1}`, 48*time.Hour)
 	d := &daemon{cfg: Config{Home: home, StateDir: state}, active: map[string]bool{}}
 	reservation, err := agent.ReserveScratch(dir)

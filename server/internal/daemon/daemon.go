@@ -520,7 +520,7 @@ func (d *daemon) waitScratch(ctx context.Context, name string) (bool, error) {
 	}
 }
 
-// Only a finished marker written after child exit starts the deletion clock.
+// Only a finished record written after child exit starts the deletion clock.
 func (d *daemon) gc(context.Context) error {
 	es, err := os.ReadDir(d.cfg.Home)
 	if err != nil {
@@ -592,29 +592,22 @@ func collectScratch(dir, record string) error {
 	return os.Remove(record)
 }
 
-// finishedRecord is the daemon's own copy of a folder's finished marker,
-// kept in its state folder. A run's code may write its run folder, marker
-// included, so gc goes by this copy alone.
+// finishedRecord is the daemon's record that a folder's run finished, kept
+// in its state folder: a run's code may write its run folder, so nothing
+// there is trusted.
 func finishedRecord(stateDir, dir string) string {
 	return filepath.Join(stateDir, "finished", filepath.Base(dir))
 }
 
-// markFinished writes a folder's finished marker and the daemon's copy.
+// markFinished writes a folder's finished record.
 func (d *daemon) markFinished(dir string, v any) error {
-	if err := atomicJSON(dir, ".finished", v); err != nil {
-		return err
-	}
 	return atomicJSON(filepath.Dir(finishedRecord(d.cfg.StateDir, dir)), filepath.Base(dir), v)
 }
 
-// unmarkFinished takes both away, as a reused folder runs again.
+// unmarkFinished takes the record away, as a reused folder runs again.
 func (d *daemon) unmarkFinished(dir string) error {
-	err := os.Remove(filepath.Join(dir, ".finished"))
-	if errors.Is(err, os.ErrNotExist) {
-		err = nil
+	if err := os.Remove(finishedRecord(d.cfg.StateDir, dir)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	if rerr := os.Remove(finishedRecord(d.cfg.StateDir, dir)); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
-		err = errors.Join(err, rerr)
-	}
-	return err
+	return nil
 }

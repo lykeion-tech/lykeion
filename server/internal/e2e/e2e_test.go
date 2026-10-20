@@ -750,7 +750,7 @@ exec sleep 300
 		cmd = startProcess(t, cfg) // Deliberately no sleep, sweep, or state-directory change.
 		waitFor(t, "prior child and copied credential recovered", func() bool {
 			_, e := os.Stat(filepath.Join(dir, ".cli-home", ".credentials.json"))
-			_, finished := os.Stat(filepath.Join(dir, ".finished"))
+			_, finished := os.Stat(filepath.Join(cfg.StateDir, "finished", filepath.Base(dir)))
 			return errors.Is(e, os.ErrNotExist) && finished == nil
 		})
 		if attempt == 1 {

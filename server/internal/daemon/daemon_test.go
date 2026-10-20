@@ -241,8 +241,13 @@ func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	if string(skill) != "# Scoper" {
 		t.Fatal(string(skill))
 	}
-	if _, err = os.Stat(filepath.Join(dir, ".finished")); err != nil {
+	// the daemon keeps its finished record in its own state folder alone:
+	// the run's code may write the run folder
+	if _, err = os.Stat(finishedRecord(f.cfg.StateDir, dir)); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(dir, ".finished")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the run folder holds a finished marker: %v", err)
 	}
 }
 func TestPrivateWorkspaceKeepsF2Isolation(t *testing.T) {
@@ -1261,7 +1266,7 @@ func TestRecoveryReachesAScopeFolder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".cli-home", "auth.json")); !os.IsNotExist(err) {
 		t.Fatal("sign-in copy left in a crashed scope folder")
 	}
-	b, err := os.ReadFile(filepath.Join(dir, ".finished"))
+	b, err := os.ReadFile(finishedRecord(state, dir))
 	var m struct {
 		RetentionDays int `json:"retention_days"`
 	}
@@ -1368,14 +1373,12 @@ func TestTheDaemonSendsBaseStates(t *testing.T) {
 	}
 }
 
-// finishedFor writes a folder's finished marker and the daemon's record of
-// it, both age old.
+// finishedFor writes the daemon's record that a folder finished, age old.
 func finishedFor(t *testing.T, state, dir, body string, age time.Duration) {
 	t.Helper()
 	at := time.Now().Add(-age)
-	for _, p := range []string{filepath.Join(dir, ".finished"), finishedRecord(state, dir)} {
-		must(t, os.MkdirAll(filepath.Dir(p), 0700))
-		must(t, os.WriteFile(p, []byte(body), 0600))
-		must(t, os.Chtimes(p, at, at))
-	}
+	p := finishedRecord(state, dir)
+	must(t, os.MkdirAll(filepath.Dir(p), 0700))
+	must(t, os.WriteFile(p, []byte(body), 0600))
+	must(t, os.Chtimes(p, at, at))
 }
