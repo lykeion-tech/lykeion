@@ -170,6 +170,12 @@ func platform() (string, error) {
 	return "", fmt.Errorf("no language bases for platform %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
+// Folders are the bases' own folders, which a study's code and its agent
+// may read: every language base and micromamba, built or not.
+func (b *Bases) Folders() []string {
+	return []string{filepath.Join(b.Dir, Python), filepath.Join(b.Dir, R), filepath.Join(b.Dir, Julia), filepath.Join(b.Dir, "micromamba")}
+}
+
 // baseDir is where a base's lock.txt and ready marker live.
 func (b *Bases) baseDir(lang string) string {
 	if lang == Julia {
@@ -232,7 +238,7 @@ func (b *Bases) Ensure(ctx context.Context, lang string) error {
 	b.setState(lang, "building")
 	err := b.build(ctx, lang)
 	if err != nil {
-		b.setState(lang, "failed: "+cut(err.Error(), 200))
+		b.setState(lang, Failed(err))
 	} else {
 		b.setState(lang, "")
 	}
@@ -302,6 +308,13 @@ func (b *Bases) States() map[string]string {
 		}
 	}
 	return out
+}
+
+// Failed is the state reported for something that failed with err, its
+// reason cut to the 200 bytes the server accepts and stripped of the NUL bytes
+// it refuses.
+func Failed(err error) string {
+	return "failed: " + cut(strings.ReplaceAll(err.Error(), "\x00", ""), 200)
 }
 
 // cut keeps at most n bytes of s without splitting a character.

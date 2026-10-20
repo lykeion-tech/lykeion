@@ -109,12 +109,18 @@ test('Environment lists the machine’s bases live and the latest packages', asy
   const base = (language: string) =>
     machine.locator('.base').filter({ has: page.getByText(language, { exact: true }) });
   await expect(base('Python')).toContainText('Not reported');
+  await expect(base('Sandbox')).toContainText('Not reported');
   // A heartbeat's runtime.updated refreshes the open tab.
-  await heartbeat(page, f.workspace_id, runtime.id, { python: 'ready', r: 'failed: no network' });
+  await heartbeat(page, f.workspace_id, runtime.id, {
+    python: 'ready',
+    r: 'failed: no network',
+    sandbox: 'ready',
+  });
   await expect(base('Python')).toContainText('Ready');
   await expect(base('R')).toContainText('Failed');
   await expect(base('R')).toContainText('no network');
   await expect(base('Julia')).toContainText('Not reported');
+  await expect(base('Sandbox')).toContainText('Ready');
   const packages = study.locator('.env-packages pre');
   await expect(packages).toHaveCount(1);
   await expect(packages).toContainText('pandas==2.2.3');

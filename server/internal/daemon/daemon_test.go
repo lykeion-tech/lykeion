@@ -1346,19 +1346,25 @@ func TestTheDaemonSendsBaseStates(t *testing.T) {
 	refs := []runtimeRef{{WorkspaceID: uuid.New(), RuntimeID: uuid.New()}}
 	d := &daemon{api: &apiclient.Client{Server: srv.URL}, refs: refs, bases: readyPython(t)}
 	d.heartbeat(context.Background())
+	d.sandboxErr = errors.New("sandbox-exec\x00 missin" + strings.Repeat("é", 100))
+	d.heartbeat(context.Background())
 	d.bases = nil
 	d.heartbeat(context.Background())
 	mu.Lock()
 	defer mu.Unlock()
-	if len(bodies) != 2 {
+	if len(bodies) != 3 {
 		t.Fatalf("heartbeats: %d", len(bodies))
 	}
 	var bases map[string]string
-	if err := json.Unmarshal(bodies[0]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready"}) {
+	if err := json.Unmarshal(bodies[0]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready", "sandbox": "ready"}) {
 		t.Fatalf("bases %s: %v", bodies[0]["bases"], err)
 	}
-	if _, ok := bodies[1]["bases"]; ok {
-		t.Fatalf("a daemon without bases sent %s", bodies[1]["bases"])
+	bases = nil
+	if err := json.Unmarshal(bodies[1]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready", "sandbox": "failed: sandbox-exec missin" + strings.Repeat("é", 90)}) {
+		t.Fatalf("bases with a failed sandbox %s: %v", bodies[1]["bases"], err)
+	}
+	if _, ok := bodies[2]["bases"]; ok {
+		t.Fatalf("a daemon without bases sent %s", bodies[2]["bases"])
 	}
 }
 

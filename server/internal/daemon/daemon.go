@@ -213,6 +213,11 @@ func Run(ctx context.Context, cfg Config) error {
 			return fmt.Errorf("announce daemon readiness: %w", err)
 		}
 	}
+	if d.bases != nil {
+		if d.sandboxErr = sandbox.Check(ctx); d.sandboxErr != nil {
+			slog.Warn("analysis code can't run on this machine: the sandbox isn't available", "err", d.sandboxErr)
+		}
+	}
 	background := func(fn func()) { d.wg.Add(1); go func() { defer d.wg.Done(); fn() }() }
 	background(func() { d.every(ctx, cfg.Heartbeat, d.heartbeat) })
 	background(func() { d.every(ctx, cfg.Flush, func(ctx context.Context) { d.fatal(d.flush(ctx)) }) })
@@ -220,9 +225,6 @@ func Run(ctx context.Context, cfg Config) error {
 	background(func() { d.hints(ctx) })
 	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
 	if d.bases != nil {
-		if d.sandboxErr = sandbox.Check(ctx); d.sandboxErr != nil {
-			slog.Warn("analysis code can't run on this machine: the sandbox isn't available", "err", d.sandboxErr)
-		}
 		// Bases build in the background; a run started before one is ready
 		// gets only the ones that are.
 		background(func() {
@@ -324,6 +326,10 @@ func (d *daemon) heartbeat(ctx context.Context) {
 	var bases map[string]string
 	if d.bases != nil {
 		bases = d.bases.States()
+		bases["sandbox"] = "ready"
+		if d.sandboxErr != nil {
+			bases["sandbox"] = envs.Failed(d.sandboxErr)
+		}
 	}
 	for i := 0; i < len(refs); i += 64 {
 		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))]}

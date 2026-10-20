@@ -109,14 +109,19 @@ func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 
 // validBaseState accepts a base the daemon knows reported as ready, building
 // or failed with a reason of at most 200 bytes, which keeps a runtime's whole
-// set well inside its column's size limit. jsonb text cannot hold NUL.
+// set well inside its column's size limit. jsonb text cannot hold NUL. The
+// sandbox entry is checked once at start, so it is never building.
 func validBaseState(lang, state string) bool {
 	switch lang {
 	case "python", "r", "julia":
+		if state == "building" {
+			return true
+		}
+	case "sandbox":
 	default:
 		return false
 	}
-	if state == "ready" || state == "building" {
+	if state == "ready" {
 		return true
 	}
 	reason, ok := strings.CutPrefix(state, "failed: ")

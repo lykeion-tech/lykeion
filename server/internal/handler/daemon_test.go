@@ -462,7 +462,7 @@ func TestAHeartbeatRecordsBaseStates(t *testing.T) {
 		t.Fatalf("register other: %d %+v", got, others)
 	}
 	ref := []any{map[string]any{"workspace_id": w.ID, "runtime_id": rts[0].ID}, map[string]any{"workspace_id": w.ID, "runtime_id": rts[1].ID}}
-	states := map[string]string{"python": "ready", "r": "failed: no network"}
+	states := map[string]string{"python": "ready", "r": "failed: no network", "sandbox": "ready"}
 	events := func() []string {
 		t.Helper()
 		var out []string
@@ -528,7 +528,7 @@ func TestAHeartbeatRecordsBaseStates(t *testing.T) {
 	// A bad entry is dropped and the rest applied; a bases value that is not an
 	// object is ignored. Neither fails the heartbeat or skips the runtimes.
 	mixed := map[string]any{
-		"python": "ready", "fortran": "ready", "r": "done", "julia": "failed: " + strings.Repeat("x", 201),
+		"python": "ready", "fortran": "ready", "r": "done", "julia": "failed: " + strings.Repeat("x", 201), "sandbox": "building",
 	}
 	var touched struct{ Touched int }
 	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": mixed}, &touched); got != 200 || touched.Touched != 2 {
@@ -544,10 +544,10 @@ func TestAHeartbeatRecordsBaseStates(t *testing.T) {
 	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"python": "ready"}) {
 		t.Fatalf("bases after non-object heartbeat: %v", got)
 	}
-	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": map[string]any{"r": "failed: " + strings.Repeat("x", 200), "julia": "failed: nul\x00", "python": 5}}, nil); got != 200 {
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": map[string]any{"r": "failed: " + strings.Repeat("x", 200), "julia": "failed: nul\x00", "python": 5, "sandbox": "failed: sandbox-exec missing"}}, nil); got != 200 {
 		t.Fatalf("edge bases: %d", got)
 	}
-	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"r": "failed: " + strings.Repeat("x", 200)}) {
+	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"r": "failed: " + strings.Repeat("x", 200), "sandbox": "failed: sandbox-exec missing"}) {
 		t.Fatalf("bases after edge heartbeat: %v", got)
 	}
 }

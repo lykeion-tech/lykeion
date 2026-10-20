@@ -344,7 +344,11 @@ describe('study environment', () => {
     }) as unknown as StudyRecord;
 
   it('maps each base state and dedupes one daemon’s runtimes into one machine', () => {
-    const bases = { python: 'ready', r: 'failed: no network' };
+    const bases = {
+      python: 'ready',
+      r: 'failed: no network',
+      sandbox: 'failed: sandbox-exec missing',
+    };
     const view = environmentView(
       [run('a'), run('b'), run(null), run('gone')],
       [runtime('a', 'd1', bases), runtime('b', 'd1', bases), runtime('c', 'd2', {})],
@@ -357,8 +361,21 @@ describe('study environment', () => {
           { language: 'Python', state: 'Ready', reason: '' },
           { language: 'R', state: 'Failed', reason: 'no network' },
           { language: 'Julia', state: 'Not reported', reason: '' },
+          { language: 'Sandbox', state: 'Failed', reason: 'sandbox-exec missing' },
         ],
       },
+    ]);
+  });
+
+  it('shows a ready sandbox after the languages, and none when unreported', () => {
+    const view = environmentView(
+      [run('a'), run('b')],
+      [runtime('a', 'd1', { sandbox: 'ready' }), runtime('b', 'd2', {})],
+      [],
+    );
+    expect(view.machines.map((m) => m.bases.map((b) => `${b.language} ${b.state}`))).toEqual([
+      ['Python Not reported', 'R Not reported', 'Julia Not reported', 'Sandbox Ready'],
+      ['Python Not reported', 'R Not reported', 'Julia Not reported', 'Sandbox Not reported'],
     ]);
   });
 
@@ -381,11 +398,19 @@ describe('study environment', () => {
   it('marks building and treats a malformed state as not reported', () => {
     const view = environmentView(
       [run('a')],
-      [runtime('a', 'd1', { python: 'building', r: 'failed', julia: 'failed:no space' })],
+      [
+        runtime('a', 'd1', {
+          python: 'building',
+          r: 'failed',
+          julia: 'failed:no space',
+          sandbox: 'building',
+        }),
+      ],
       [],
     );
     expect(view.machines[0]!.bases.map((b) => [b.state, b.reason])).toEqual([
       ['Building', ''],
+      ['Not reported', ''],
       ['Not reported', ''],
       ['Not reported', ''],
     ]);
