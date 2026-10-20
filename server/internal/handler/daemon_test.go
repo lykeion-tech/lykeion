@@ -525,18 +525,29 @@ func TestAHeartbeatRecordsBaseStates(t *testing.T) {
 	if got := listed(otherJWT, ow.ID); len(got) != 0 {
 		t.Fatalf("foreign runtime changed: %v", got)
 	}
-	for _, bad := range []any{
-		map[string]string{"go": "ready"},
-		map[string]string{"python": "done"},
-		map[string]string{"python": "failed: " + strings.Repeat("x", 201)},
-		map[string]string{"python": "failed: nul\x00"},
-		[]string{"ready"},
-	} {
-		if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": bad}, nil); got != 400 {
-			t.Fatalf("bad bases %v: %d", bad, got)
-		}
+	// A bad entry is dropped and the rest applied; a bases value that is not an
+	// object is ignored. Neither fails the heartbeat or skips the runtimes.
+	mixed := map[string]any{
+		"python": "ready", "fortran": "ready", "r": "done", "julia": "failed: " + strings.Repeat("x", 201),
 	}
-	if got := listed(jwt, w.ID); !maps.Equal(got, states) {
-		t.Fatalf("bases after rejected heartbeats: %v", got)
+	var touched struct{ Touched int }
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": mixed}, &touched); got != 200 || touched.Touched != 2 {
+		t.Fatalf("mixed bases: %d %+v", got, touched)
+	}
+	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"python": "ready"}) {
+		t.Fatalf("bases after mixed heartbeat: %v", got)
+	}
+	touched.Touched = 0
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": []string{"ready"}}, &touched); got != 200 || touched.Touched != 2 {
+		t.Fatalf("non-object bases: %d %+v", got, touched)
+	}
+	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"python": "ready"}) {
+		t.Fatalf("bases after non-object heartbeat: %v", got)
+	}
+	if got := s.call(t, "POST", "/api/daemon/heartbeat", tok, "", map[string]any{"runtimes": ref, "bases": map[string]any{"r": "failed: " + strings.Repeat("x", 200), "julia": "failed: nul\x00", "python": 5}}, nil); got != 200 {
+		t.Fatalf("edge bases: %d", got)
+	}
+	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"r": "failed: " + strings.Repeat("x", 200)}) {
+		t.Fatalf("bases after edge heartbeat: %v", got)
 	}
 }

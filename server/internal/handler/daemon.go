@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -72,16 +73,24 @@ func (h *H) daemonRegister(w http.ResponseWriter, r *http.Request) {
 func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Runtimes []service.RuntimeRef `json:"runtimes"`
-		Bases    map[string]string    `json:"bases"`
+		Bases    json.RawMessage      `json:"bases"`
 	}
 	if err := readJSON(r, &in); err != nil || len(in.Runtimes) == 0 || len(in.Runtimes) > 64 {
 		writeErr(w, 400, "runtimes required (1-64)")
 		return
 	}
-	for lang, state := range in.Bases {
-		if !validBaseState(lang, state) {
-			writeErr(w, 400, fmt.Sprintf("bad base state %q for %q", state, lang))
-			return
+	// A bad base report must not stop the heartbeat that keeps the runtimes
+	// online: entries the server cannot read are dropped, and a value that is
+	// not an object leaves the stored states as they are.
+	var reported map[string]json.RawMessage
+	var bases map[string]string
+	if json.Unmarshal(in.Bases, &reported) == nil && reported != nil {
+		bases = map[string]string{}
+		for lang, v := range reported {
+			var state string
+			if json.Unmarshal(v, &state) == nil && validBaseState(lang, state) {
+				bases[lang] = state
+			}
 		}
 	}
 	for _, ref := range in.Runtimes {
@@ -90,7 +99,7 @@ func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	n, err := h.AgentRuns.Heartbeat(r.Context(), user(r), in.Runtimes, in.Bases)
+	n, err := h.AgentRuns.Heartbeat(r.Context(), user(r), in.Runtimes, bases)
 	if err != nil {
 		agentRunFail(w, r, err)
 		return
