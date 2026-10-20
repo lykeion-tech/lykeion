@@ -336,10 +336,10 @@ describe('study environment', () => {
       bases,
     }) as Runtime;
   const run = (runtimeId: string | null) => ({ runtime_id: runtimeId }) as AgentRun;
-  const record = (language: string, packages: string, at: string) =>
+  const record = (language: string, packages: string, at: string, createdAt = at) =>
     ({
       kind: 'run',
-      created_at: at,
+      created_at: createdAt,
       body: { language, packages_study: packages, at },
     }) as unknown as StudyRecord;
 
@@ -376,5 +376,40 @@ describe('study environment', () => {
       { language: 'Python', text: 'scipy==1.14\n', at: '2026-10-19T11:00:00Z' },
     ]);
     expect(view.machines).toEqual([]);
+  });
+
+  it('marks building and treats a malformed state as not reported', () => {
+    const view = environmentView(
+      [run('a')],
+      [runtime('a', 'd1', { python: 'building', r: 'failed', julia: 'failed:no space' })],
+      [],
+    );
+    expect(view.machines[0]!.bases.map((b) => [b.state, b.reason])).toEqual([
+      ['Building', ''],
+      ['Not reported', ''],
+      ['Not reported', ''],
+    ]);
+  });
+
+  it('orders runs of one second by their full creation time, later input winning a tie', () => {
+    const at = '2026-10-19T10:00:00Z';
+    const packages = (records: StudyRecord[]) =>
+      environmentView([], [], records).packages.map((p) => p.text);
+    expect(
+      packages([
+        record('python', 'old\n', at, '2026-10-19T10:00:00.100Z'),
+        record('python', 'new\n', at, '2026-10-19T10:00:00.200Z'),
+      ]),
+    ).toEqual(['new\n']);
+    expect(packages([record('python', 'first\n', at), record('python', 'second\n', at)])).toEqual([
+      'second\n',
+    ]);
+    // A creation time that doesn't parse falls back to the run's own time.
+    expect(
+      packages([
+        record('python', 'dated\n', '2026-10-19T11:00:00Z', 'not a date'),
+        record('python', 'older\n', at),
+      ]),
+    ).toEqual(['dated\n']);
   });
 });

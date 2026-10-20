@@ -426,7 +426,7 @@ function pin() {
         :aria-labelledby="`study-tab-${tab}`"
       >
         <div v-if="tab === 'environment'" class="transcript-content study-content">
-          <StudyEnvironment :id="id" :runs="agentRuns" />
+          <StudyEnvironment :id="id" :runs="agentRuns" :runs-loaded="runs.isSuccess.value" />
         </div>
         <div v-else class="transcript-content study-content">
           <h1 class="study-title">{{ c.title }}</h1>

@@ -78,6 +78,32 @@ test('the study modal has Overview and Environment tabs moved by arrow keys', as
   await page.keyboard.press('ArrowLeft');
   await expect(overview).toHaveAttribute('aria-selected', 'true');
   await expect(overview).toBeFocused();
+  // Another study opens on Overview again.
+  await environment.click();
+  await expect(environment).toHaveAttribute('aria-selected', 'true');
+  const other = await newStudy(page.request, 'Which tab opens next?', { assignee: null });
+  await page.goto(`/#/studies/${other.id}`);
+  await expect(region.locator('.study-title')).toHaveText('Which tab opens next?');
+  await expect(overview).toHaveAttribute('aria-selected', 'true');
+  await expect(environment).toHaveAttribute('aria-selected', 'false');
+});
+
+test('no machine is claimed missing while the study’s runs are still loading', async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/cards/*/runs', async (route) => {
+    await held;
+    await route.continue();
+  });
+  const { study } = await fixtureEnvironment(page);
+  await expect(study.getByRole('heading', { name: 'Machines' })).toBeVisible();
+  await expect(study.locator('.env-packages pre')).toContainText('pandas');
+  await expect(study.getByText('No machine has run this study yet.')).toHaveCount(0);
+  release();
+  await expect(
+    study.getByRole('listitem').filter({ hasText: 'Recorded transcript' }),
+  ).toBeVisible();
+  await expect(study.getByText('No machine has run this study yet.')).toHaveCount(0);
 });
 
 test('a study with no runs shows both empty states', async ({ page }) => {

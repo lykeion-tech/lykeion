@@ -15,8 +15,12 @@ function baseState(value: string | undefined): { state: BaseState; reason: strin
   return { state: 'Not reported', reason: '' };
 }
 
-const recorded = (r: StudyRecord) =>
-  Date.parse(typeof r.body.at === 'string' ? r.body.at : r.created_at);
+// The record's full-precision creation time; the run's own time, kept to the
+// second, only when that doesn't parse.
+function recorded(r: StudyRecord) {
+  const created = Date.parse(r.created_at);
+  return Number.isNaN(created) ? Date.parse(String(r.body.at)) || 0 : created;
+}
 
 // What the study's runs ran on and added: each machine (one per daemon) whose
 // runtimes ran the study with the state of its language bases, and per
@@ -35,7 +39,7 @@ export function environmentView(runs: AgentRun[], runtimes: Runtime[], runRecord
     const latest = runRecords
       .filter((r) => r.body.language === l.key)
       .reduce<StudyRecord | undefined>(
-        (a, r) => (!a || recorded(r) > recorded(a) ? r : a),
+        (a, r) => (!a || recorded(r) >= recorded(a) ? r : a),
         undefined,
       );
     const text = latest?.body.packages_study;
