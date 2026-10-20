@@ -182,7 +182,7 @@ async function save() {
         <div ref="filterAnchor" class="agent-filter menu-anchor" @focusout="leaveFilter">
           <button
             ref="filterTrigger"
-            class="button compact"
+            class="button"
             :class="{ active: tab !== 'mine' }"
             aria-haspopup="menu"
             :aria-expanded="filterOpen"

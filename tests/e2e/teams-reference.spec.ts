@@ -14,24 +14,30 @@ test('Teams uses the reference table and opens the reference-size scientific cre
   const table = page.getByRole('table', { name: 'Teams', exact: true });
   await expect(table.getByRole('columnheader', { name: 'Name', exact: true })).toHaveCSS(
     'font-size',
-    '14px',
+    '12px',
   );
-  const columns = ['Name', 'Domain', 'Built for', 'Agents', 'Version', 'Availability'];
+  const columns = ['Name', 'Domain', 'Stage', 'Agents', 'Version', 'Availability'];
   for (const [i, name] of columns.entries())
     await expect(table.getByRole('columnheader').nth(i)).toHaveAccessibleName(name);
   await expect(table.locator('thead')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(
-    table.getByRole('columnheader', { name: 'Domain', exact: true }).getByLabel('Domain'),
-  ).toHaveValue('');
-  await expect(
-    table.getByRole('columnheader', { name: 'Built for', exact: true }).getByLabel('Stage'),
-  ).toHaveValue('');
+  await expect(table.getByRole('combobox')).toHaveCount(0);
   await expect(page.locator('.store-filters')).toHaveCount(0);
+  const filter = page.getByRole('button', { name: 'Filter', exact: true });
+  await expect(filter).toHaveCSS('height', '32px');
+  await filter.click();
+  const popup = page.getByRole('dialog', { name: 'Filter Teams' });
+  await expect(popup.getByRole('combobox', { name: 'Domain', exact: true })).toHaveValue('');
+  await expect(popup.getByRole('combobox', { name: 'Stage', exact: true })).toHaveValue('');
+  await expect(popup.getByText('Built for', { exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(popup).toHaveCount(0);
+  await expect(filter).toBeFocused();
   const row = table.getByRole('row').filter({ hasText: 'reference-layout-team' });
   await expect(row).toContainText('biology');
   await expect(row).toContainText('Grounding');
   expect((await row.boundingBox())!.height).toBe(44);
-  expect((await table.locator('thead').boundingBox())!.height).toBe(32);
+  await expect(table.getByRole('columnheader').first()).toHaveCSS('padding-top', '6px');
+  await expect(table.getByRole('columnheader').first()).toHaveCSS('font-weight', '400');
   await expect(page.getByRole('button', { name: 'Upload a Team' })).toHaveCount(0);
   await expect(page.locator('input[type="file"]')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/teams-reference/list-light.png' });

@@ -51,6 +51,7 @@ test('the store filters by domain and stage', async ({ page }) => {
   await expect(rows.filter({ hasText: 'store-chem' })).toContainText('chemistry');
   await page.screenshot({ path: `${shots}/store.png` });
 
+  await page.getByRole('button', { name: 'Filter', exact: true }).click();
   await page.getByRole('combobox', { name: 'Domain', exact: true }).selectOption('chemistry');
   await expect(rows.filter({ hasText: 'store-chem' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(0);
@@ -58,6 +59,8 @@ test('the store filters by domain and stage', async ({ page }) => {
   await page.getByRole('combobox', { name: 'Stage', exact: true }).selectOption('grounding');
   await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'store-chem' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Filter Teams' })).toHaveCount(0);
   await page.screenshot({ path: `${shots}/store-filtered.png` });
 });
 

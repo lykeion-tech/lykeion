@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
 import { keys } from '../api/keys';
@@ -11,6 +11,27 @@ const props = defineProps<{ id?: string }>();
 const client = useQueryClient();
 const domain = ref('');
 const stage = ref('');
+const filterOpen = ref(false);
+const filterAnchor = ref<HTMLElement>();
+const filterTrigger = ref<HTMLButtonElement>();
+function closeFilter(restoreFocus = false) {
+  filterOpen.value = false;
+  if (restoreFocus) filterTrigger.value?.focus();
+}
+async function toggleFilter() {
+  if (filterOpen.value) return closeFilter(true);
+  filterOpen.value = true;
+  await nextTick();
+  filterAnchor.value?.querySelector<HTMLSelectElement>('select')?.focus();
+}
+function outsideFilter(event: PointerEvent) {
+  if (!filterAnchor.value?.contains(event.target as Node | null)) closeFilter();
+}
+function leaveFilter(event: FocusEvent) {
+  if (!filterAnchor.value?.contains(event.relatedTarget as Node | null)) closeFilter();
+}
+onMounted(() => document.addEventListener('pointerdown', outsideFilter));
+onUnmounted(() => document.removeEventListener('pointerdown', outsideFilter));
 const stages = ['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'];
 const everything = useTeams('', '');
 const teams = useTeams(domain, stage);
@@ -24,6 +45,7 @@ const created = ref<string[] | null>(null);
 watch([workspaceId, () => props.id], () => {
   error.value = '';
   created.value = null;
+  closeFilter();
 });
 
 const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
@@ -59,7 +81,7 @@ const add = (id: string) =>
   });
 </script>
 <template>
-  <section class="directory-page" :class="{ 'directory-table-page': !id }">
+  <section class="directory-page" :class="{ 'directory-table-page team-directory': !id }">
     <Teleport to="#page-header-actions">
       <RouterLink v-if="!id" to="/teams/new" class="button primary"
         ><Icon name="plus" :size="14" />New Team</RouterLink
@@ -141,6 +163,53 @@ const add = (id: string) =>
       <p v-else-if="detail.isError.value" class="muted">No such Team.</p>
     </template>
     <template v-else>
+      <div class="agent-toolbar team-toolbar">
+        <div ref="filterAnchor" class="team-filter menu-anchor" @focusout="leaveFilter">
+          <button
+            ref="filterTrigger"
+            class="button"
+            :class="{ active: domain || stage }"
+            aria-haspopup="dialog"
+            :aria-expanded="filterOpen"
+            aria-controls="team-filter-popover"
+            @click="toggleFilter"
+            @keydown.down.prevent="!filterOpen && toggleFilter()"
+          >
+            <Icon name="filter" :size="14" />Filter
+          </button>
+          <div
+            v-if="filterOpen"
+            id="team-filter-popover"
+            role="dialog"
+            aria-label="Filter Teams"
+            class="team-filter-popover"
+            @keydown.esc.stop.prevent="closeFilter(true)"
+          >
+            <label
+              >Domain<select v-model="domain" aria-label="Domain">
+                <option value="">All domains</option>
+                <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
+              </select></label
+            >
+            <label
+              >Stage<select v-model="stage" aria-label="Stage">
+                <option value="">All stages</option>
+                <option v-for="s in stages" :key="s" :value="s">{{ label(s) }}</option>
+              </select></label
+            >
+            <button
+              v-if="domain || stage"
+              class="text-button"
+              @click="
+                domain = '';
+                stage = '';
+              "
+            >
+              Clear filters
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="team-table-scroll">
         <table class="directory-data-table team-table" aria-label="Teams">
           <colgroup>
@@ -154,22 +223,8 @@ const add = (id: string) =>
           <thead>
             <tr>
               <th scope="col">Name</th>
-              <th scope="col" aria-label="Domain">
-                <span class="header-filter"
-                  ><select v-model="domain" aria-label="Domain">
-                    <option value="">Domain</option>
-                    <option v-for="d in domains" :key="d" :value="d">{{ d }}</option></select
-                  ><Icon name="down" :size="12"
-                /></span>
-              </th>
-              <th scope="col" aria-label="Built for">
-                <span class="header-filter"
-                  ><select v-model="stage" aria-label="Stage">
-                    <option value="">Built for</option>
-                    <option v-for="s in stages" :key="s" :value="s">{{ label(s) }}</option></select
-                  ><Icon name="down" :size="12"
-                /></span>
-              </th>
+              <th scope="col">Domain</th>
+              <th scope="col">Stage</th>
               <th scope="col">Agents</th>
               <th scope="col">Version</th>
               <th scope="col">Availability</th>
@@ -205,28 +260,54 @@ const add = (id: string) =>
 <style src="./directory.css" />
 <style src="./directory-table.css" />
 <style scoped>
-.header-filter {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
+.team-directory {
+  padding: 4px 24px 32px;
 }
-.header-filter select {
-  appearance: none;
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  border-radius: 0;
-  padding: 0 18px 0 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+.team-filter {
+  margin-left: auto;
 }
-.header-filter svg {
+.team-filter-popover {
   position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
   right: 0;
-  pointer-events: none;
+  width: 240px;
+  padding: 12px;
+  background: var(--fill-menu);
+  border: 1px solid #ffffff55;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px #00000012;
+}
+.team-filter-popover label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.team-filter-popover label:last-of-type {
+  margin-bottom: 0;
+}
+.team-filter-popover select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+.team-filter-popover > button {
+  margin-top: 12px;
+}
+.team-table th {
+  height: auto;
+  padding: 6px 16px;
+  line-height: 1.4;
+  font-size: 12px;
+  font-weight: 400;
+  border-bottom: 0;
 }
 .team-table-scroll {
   overflow-x: auto;
@@ -259,7 +340,7 @@ const add = (id: string) =>
   color: var(--muted);
 }
 .team-table th:first-child {
-  padding-left: 52px;
+  padding-left: 16px;
 }
 .team-members {
   margin: 0;

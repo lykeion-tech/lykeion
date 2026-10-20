@@ -45,6 +45,20 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await expect(page.locator('#page-header-count')).toHaveText('2');
   const filter = page.getByRole('button', { name: 'Filter', exact: true });
   await expect(filter).toBeVisible();
+  const sort = page.getByRole('button', { name: 'Last updated', exact: true });
+  expect((await filter.boundingBox())!.height).toBe((await sort.boundingBox())!.height);
+  for (const property of [
+    'padding-left',
+    'padding-right',
+    'font-size',
+    'font-weight',
+    'border-radius',
+  ]) {
+    await expect(filter).toHaveCSS(
+      property,
+      await sort.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), property),
+    );
+  }
   await expect(filter.locator('svg')).toHaveClass(/lucide-funnel/);
   await expect(page.locator('.agent-tabs')).toHaveCount(0);
   await filter.click();
