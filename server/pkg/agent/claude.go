@@ -62,11 +62,15 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if o.ReadOnly {
 		mode = "plan" // reads and answers; no edits, no commands
 	}
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools", claudeTools, "--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"}
+	tools := []string{claudeTools}
+	if rule := claudeEditRule(o.Dir); rule != "" && !o.ReadOnly {
+		tools = append(tools, rule)
+	}
+	args := slices.Concat([]string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "user"})
 	if o.Inherit {
 		// The account's settings, permission rules and MCP apply; the role's
 		// servers are added and Lykeion's own tools are pre-approved.
-		args = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools", claudeTools, "--mcp-config", cfg}
+		args = slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg})
 	}
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
@@ -110,6 +114,26 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		in.close()
 	}
 	return sess, err
+}
+
+// claudeEditRule pre-approves Claude's file-edit tools inside the run folder
+// only. The folder is matched literally: its glob characters are escaped. A
+// name the CLI would split into several rules (commas, parentheses) gets no
+// rule at all, so edits there fall back to the permission mode.
+func claudeEditRule(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil || !filepath.IsAbs(abs) || strings.ContainsAny(abs, ",()\r\n") {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range abs {
+		if strings.ContainsRune(`\*?[]{}!`, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	// A leading "//" makes the pattern absolute rather than settings-relative.
+	return "Edit(/" + b.String() + "/**)"
 }
 
 // claudeMCP names the daemon's tool door and nothing else.

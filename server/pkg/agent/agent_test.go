@@ -1043,3 +1043,43 @@ func TestClaudeAllowsTheDoor(t *testing.T) {
 		}
 	}
 }
+
+// Writable runs may edit inside their own folder, matched literally even when
+// the folder's name holds glob characters; read-only runs get no edit rule,
+// and a folder name the CLI would split into several rules gets none either.
+func TestClaudeEditsOnlyItsRunFolder(t *testing.T) {
+	// The adapter resolves the run folder, so /var reads as /private/var.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name              string
+		inherit, readOnly bool
+		want              string
+	}{
+		{"run dir [1]*", false, false, "Edit(/" + root + `/run dir \[1\]\*/**)`},
+		{"run dir [1]*", true, false, "Edit(/" + root + `/run dir \[1\]\*/**)`},
+		{"run dir", false, true, ""},
+		{"run dir", true, true, ""},
+		{"a,Write,b", false, false, ""},
+		{"a) Write (b", true, false, ""},
+	} {
+		dir := filepath.Join(root, c.name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		args := filepath.Join(t.TempDir(), "args")
+		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
+			ExecOptions{Dir: dir, Inherit: c.inherit, ReadOnly: c.readOnly})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		a, _ := os.ReadFile(args)
+		got := strings.Contains(string(a), "Edit(")
+		if c.want == "" && got || c.want != "" && !strings.Contains(string(a), "\n"+claudeTools+"\n"+c.want+"\n") {
+			t.Fatalf("%q inherit=%v readOnly=%v, want %q, args:\n%s", c.name, c.inherit, c.readOnly, c.want, a)
+		}
+	}
+}
