@@ -306,11 +306,10 @@ test('another owner gets real rename/remove refusals; offline own machines can b
       await deleteDrained;
       await page.unroute('**/api/runtimes/*');
     }
-    await page
-      .getByRole('listitem')
-      .filter({ hasText: 'Offline owned computer' })
-      .getByRole('button', { name: 'Machine actions' })
-      .click();
+    // The first removal reaches the list by a realtime event; a stale list resends it.
+    const remaining = page.getByRole('listitem').filter({ hasText: 'Offline owned computer' });
+    await expect(remaining).toContainText('1 runtime');
+    await remaining.getByRole('button', { name: 'Machine actions' }).click();
     page.once('dialog', (dialog) => dialog.accept());
     await page.getByRole('menuitem', { name: 'Remove' }).click();
     await expect(
