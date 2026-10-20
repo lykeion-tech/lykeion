@@ -938,3 +938,36 @@ test('Properties stays the same width on the right and resizes inward', async ({
   await page.mouse.up();
   await expect(properties).toHaveCSS('width', '404px');
 });
+
+test('study content and composer share a wider measure and only the corner button opens a run', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2071, height: 960 });
+  const study = await newStudy(page.request, `Study layout alignment ${Date.now()}?`);
+  await page.goto(`/#/studies/${study.id}`);
+  const main = page.getByRole('region', { name: 'Study', exact: true });
+  const cards = main.locator('.agent-card');
+  await expect(cards).toHaveCount(2);
+  const content = main.locator('.study-content');
+  await expect(content).toHaveCSS('max-width', '860px');
+  const bounds = await main.locator('.agent-cards').boundingBox();
+  const composer = await main.locator('.task-comment').boundingBox();
+  expect(bounds).toBeTruthy();
+  expect(composer).toBeTruthy();
+  expect(composer!.x).toBeCloseTo(bounds!.x, 0);
+  expect(composer!.width).toBeCloseTo(bounds!.width, 0);
+  await cards.first().locator('.preview').click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await cards
+    .first()
+    .getByRole('button', { name: /Open transcript/ })
+    .click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Close transcript' }).click();
+  await page.screenshot({ path: 'test-results/l2-transcript/study-width-composer-alignment.png' });
+  await page.setViewportSize({ width: 800, height: 982 });
+  const narrowCards = await main.locator('.agent-cards').boundingBox();
+  const narrowComposer = await main.locator('.task-comment').boundingBox();
+  expect(narrowComposer!.x).toBeCloseTo(narrowCards!.x, 0);
+  expect(narrowComposer!.width).toBeCloseTo(narrowCards!.width, 0);
+});

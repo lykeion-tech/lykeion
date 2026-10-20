@@ -1438,8 +1438,12 @@ function pin() {
   min-height: 0;
   background: var(--surface);
 }
+.study-content,
+.pinned-composer {
+  max-width: 860px;
+  padding-inline: 20px;
+}
 .study-content {
-  max-width: 780px;
   padding: 22px 20px 40px;
 }
 .study-title {

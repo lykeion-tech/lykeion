@@ -78,9 +78,6 @@ const lastActive = computed(
   line-height: 19px;
   min-width: 0;
 }
-.agent-card:hover {
-  background: var(--hover);
-}
 header {
   display: flex;
   align-items: flex-start;
@@ -125,14 +122,7 @@ h3 {
   background: #fff3d6;
   color: #b5841b;
 }
-/* The open button covers the card, so the whole card opens the transcript. */
-.open-run::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 8px;
-}
-.agent-card:hover .open-run {
+.open-run:hover {
   background: var(--hover);
   color: var(--text);
 }
