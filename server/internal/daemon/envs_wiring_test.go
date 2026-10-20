@@ -128,17 +128,16 @@ func TestTheCLIDoesNotGetTheStudyEnvironment(t *testing.T) {
 	if fi, err := os.Stat(study); err != nil || !fi.IsDir() {
 		t.Fatalf("no study folder: %v", err)
 	}
-	for _, inherit := range []bool{true, false} {
+	{
 		o := l.opts
-		o.Inherit = inherit
 		for _, env := range [][]string{l.env, agent.ChildEnv(o)} {
 			for _, k := range []string{"VIRTUAL_ENV", "R_LIBS_USER", "R_PROFILE_USER", "JULIA_PROJECT", "JULIA_DEPOT_PATH", "JULIA_LOAD_PATH", "JUPYTER_PATH"} {
 				if v, ok := lookup(env, k); ok {
-					t.Errorf("inherit %v: %s=%q", inherit, k, v)
+					t.Errorf("%s=%q", k, v)
 				}
 			}
 			if v, _ := lookup(env, "PATH"); strings.Contains(v, f.cfg.EnvDir) {
-				t.Errorf("inherit %v: PATH %q holds the study's folders", inherit, v)
+				t.Errorf("PATH %q holds the study's folders", v)
 			}
 		}
 	}

@@ -124,19 +124,6 @@ func continuityCmd(e *env) *cobra.Command {
 		}
 		return uuid.Parse(id)
 	}
-	set := func(mode, done string) *cobra.Command {
-		return &cobra.Command{Use: map[string]string{daemon.ModeContinuity: "enable", daemon.ModePrivate: "disable"}[mode], Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
-			ws, err := target()
-			if err != nil {
-				return err
-			}
-			if err := daemon.SavePolicy(stateDir(e), ws, daemon.Policy{Mode: mode}); err != nil {
-				return err
-			}
-			fmt.Fprintln(e.out, done)
-			return nil
-		}}
-	}
 	cmd := &cobra.Command{Use: "continuity", Short: "Run agents as your own CLI and continue each card and role's session (the default)"}
 	cmd.PersistentFlags().StringVar(&id, "workspace", "", "workspace id (default: the selected workspace)")
 	cmd.AddCommand(
@@ -153,7 +140,7 @@ func continuityCmd(e *env) *cobra.Command {
 			if pol.Explicit {
 				source = "policy " + pol.Digest[:12]
 			}
-			fmt.Fprintf(e.out, "mode %s (%s), sessions kept %d days\n", pol.Mode, source, pol.RetentionDays)
+			fmt.Fprintf(e.out, "sessions kept %d days (%s)\n", pol.RetentionDays, source)
 			states := make([]string, 0, len(counts))
 			for s := range counts {
 				states = append(states, s)
@@ -164,8 +151,6 @@ func continuityCmd(e *env) *cobra.Command {
 			}
 			return nil
 		}},
-		set(daemon.ModeContinuity, "Continuity on: agents use your sign-in, history, settings, skills and MCP."),
-		set(daemon.ModePrivate, "Continuity off: agents run isolated, with a copied sign-in and no personal configuration."),
 		&cobra.Command{Use: "reset", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
 			ws, err := target()
 			if err != nil {

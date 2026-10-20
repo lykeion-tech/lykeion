@@ -1,7 +1,12 @@
 package daemon
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"lykeion/server/internal/apiclient"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,18 +50,18 @@ var cleanClaude = agent.Result{SessionID: "s1", ClaudeSnapshot: []byte(`{"versio
 func TestPolicyDefaultsToContinuityAndRejectsInvalid(t *testing.T) {
 	dir, ws := t.TempDir(), uuid.New()
 	pol, err := LoadPolicy(dir, ws)
-	if err != nil || pol.Mode != ModeContinuity || pol.Explicit || pol.RetentionDays != defaultRetention {
+	if err != nil || pol.Explicit || pol.RetentionDays != defaultRetention {
 		t.Fatalf("%+v %v", pol, err)
 	}
-	if err := SavePolicy(dir, ws, Policy{Mode: ModePrivate}); err != nil {
+	if err := SavePolicy(dir, ws, Policy{}); err != nil {
 		t.Fatal(err)
 	}
 	pol, err = LoadPolicy(dir, ws)
-	if err != nil || pol.Mode != ModePrivate || !pol.Explicit || pol.Digest == defaultPolicyHash {
+	if err != nil || !pol.Explicit || pol.Digest == defaultPolicyHash {
 		t.Fatalf("%+v %v", pol, err)
 	}
 	p := filepath.Join(profileDir(dir, ws), "policy.json")
-	for _, bad := range []string{`{"version":1,"mode":"private","extra":true}`, `{"version":2,"mode":"private"}`, `{"version":1,"mode":"inherit_all"}`, `{"version":1,"mode":"private","session_retention_days":-1}`, `not json`} {
+	for _, bad := range []string{`{"version":1,"mode":"private","extra":true}`, `{"version":2,"mode":"private"}`, `{"version":1,"mode":"private","session_retention_days":-1}`, `not json`} {
 		os.WriteFile(p, []byte(bad), 0o600)
 		if _, err := LoadPolicy(dir, ws); err == nil {
 			t.Errorf("accepted %s", bad)
@@ -70,7 +75,7 @@ func TestPolicyDefaultsToContinuityAndRejectsInvalid(t *testing.T) {
 	if err := ResetProfile(dir, ws); err != nil {
 		t.Fatal(err)
 	}
-	if pol, err := LoadPolicy(dir, ws); err != nil || pol.Mode != ModeContinuity {
+	if pol, err := LoadPolicy(dir, ws); err != nil || pol.RetentionDays != defaultRetention {
 		t.Fatalf("reset left %+v %v", pol, err)
 	}
 }
@@ -97,12 +102,41 @@ func TestPolicyRefusesPlantedLinks(t *testing.T) {
 	}
 }
 
-func TestPrivateModeHasNoContinuity(t *testing.T) {
+func TestLegacyPrivatePolicyLoads(t *testing.T) {
+	dir, ws := t.TempDir(), uuid.New()
+	must(t, os.MkdirAll(profileDir(dir, ws), 0700))
+	must(t, os.WriteFile(filepath.Join(profileDir(dir, ws), "policy.json"), []byte(`{"version":1,"mode":"private","session_retention_days":7}`), 0600))
+	pol, err := LoadPolicy(dir, ws)
+	if err != nil || pol.RetentionDays != 7 {
+		t.Fatalf("%+v %v", pol, err)
+	}
+	first := pol.Digest
+	must(t, os.WriteFile(filepath.Join(profileDir(dir, ws), "policy.json"), []byte(`{"session_retention_days":7,"version":1,"mode":"workspace_continuity"}`), 0600))
+	pol, err = LoadPolicy(dir, ws)
+	if err != nil || pol.Digest != first {
+		t.Fatalf("legacy mode changed retention digest: %+v %v", pol, err)
+	}
+}
+
+func TestLegacyPrivateClaimResumesScope(t *testing.T) {
 	d := registryDaemon(t)
 	c := claimFor(uuid.New(), uuid.New(), uuid.New(), "analysis")
-	SavePolicy(d.cfg.StateDir, c.AgentRun.WorkspaceID, Policy{Mode: ModePrivate})
-	if cont := begin(t, d, c); cont != nil {
-		t.Fatalf("private workspace got %+v", cont)
+	must(t, d.finishContinuity(begin(t, d, c), cleanClaude))
+	raw, err := json.Marshal(c)
+	must(t, err)
+	var legacy map[string]json.RawMessage
+	must(t, json.Unmarshal(raw, &legacy))
+	var run map[string]json.RawMessage
+	must(t, json.Unmarshal(legacy["agent_run"], &run))
+	run["run_private"] = json.RawMessage(`true`)
+	legacy["agent_run"], err = json.Marshal(run)
+	must(t, err)
+	raw, err = json.Marshal(legacy)
+	must(t, err)
+	must(t, json.Unmarshal(raw, &c))
+	cont := begin(t, d, c)
+	if cont == nil || cont.resume != "s1" || len(cont.baseline) == 0 {
+		t.Fatalf("legacy private claim did not resume: %+v", cont)
 	}
 }
 
@@ -159,7 +193,7 @@ func TestContinuityIgnoresTheClaimedSessionID(t *testing.T) {
 	}
 }
 
-func TestEmptyScopeInheritsButNeverResumes(t *testing.T) {
+func TestEmptyScopeNeverResumes(t *testing.T) {
 	d := registryDaemon(t)
 	ws, user := uuid.New(), uuid.New()
 	for i := 0; i < 2; i++ {
@@ -175,25 +209,6 @@ func TestEmptyScopeInheritsButNeverResumes(t *testing.T) {
 	}
 	if _, err := os.Stat(sessionsDir(d.cfg.StateDir, ws)); !os.IsNotExist(err) {
 		t.Fatal("an empty scope recorded a session")
-	}
-}
-
-func TestPrivateIsForcedByTheRunOrAnUnknownHarness(t *testing.T) {
-	d := registryDaemon(t)
-	ws := uuid.New()
-	SavePolicy(d.cfg.StateDir, ws, Policy{Mode: ModeContinuity})
-	private := claimFor(ws, uuid.New(), uuid.New(), "objector")
-	private.AgentRun.RunPrivate = true
-	unknown := claimFor(ws, uuid.New(), uuid.New(), "analysis")
-	unknown.AgentRun.Harness = "unknown"
-	for name, c := range map[string]claimed{"run_private": private, "unknown": unknown} {
-		pol, _ := LoadPolicy(d.cfg.StateDir, ws)
-		if mode := runMode(c, pol); mode != ModePrivate {
-			t.Errorf("%s ran %s", name, mode)
-		}
-		if cont := begin(t, d, c); cont != nil {
-			t.Errorf("%s got continuity %+v", name, cont)
-		}
 	}
 }
 
@@ -227,7 +242,7 @@ func TestContextChangeStartsFresh(t *testing.T) {
 		t.Fatalf("%+v", cont)
 	}
 	d.scopes = map[string]bool{}
-	SavePolicy(d.cfg.StateDir, ws, Policy{Mode: ModeContinuity, RetentionDays: 7})
+	SavePolicy(d.cfg.StateDir, ws, Policy{RetentionDays: 7})
 	if cont := begin(t, d, claimFor(ws, card, user, "analysis")); cont.resume != "" {
 		t.Fatalf("a policy change kept the session: %+v", cont)
 	}
@@ -299,7 +314,7 @@ func TestAbandonRestoresTheConsumedSession(t *testing.T) {
 func TestRegistryRetentionPrunesOldRecords(t *testing.T) {
 	d := registryDaemon(t)
 	ws := uuid.New()
-	SavePolicy(d.cfg.StateDir, ws, Policy{Mode: ModeContinuity, RetentionDays: 1})
+	SavePolicy(d.cfg.StateDir, ws, Policy{RetentionDays: 1})
 	old := begin(t, d, claimFor(ws, uuid.New(), uuid.New(), "analysis"))
 	d.finishContinuity(old, cleanClaude)
 	p := filepath.Join(old.dir, old.key+".json")
@@ -338,8 +353,8 @@ func TestForgetScopeDeletesItsPrivateFolder(t *testing.T) {
 	d := registryDaemon(t)
 	d.cfg.Home = t.TempDir()
 	ws, user, kept, gone := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	keptDir := filepath.Join(d.cfg.Home, privateScratch(claimFor(ws, kept, user, "analysis")))
-	goneName := privateScratch(claimFor(ws, gone, user, "analysis"))
+	keptDir := filepath.Join(d.cfg.Home, "scope-"+(sessionScope{Workspace: ws, User: user, Harness: "claude", Scope: boardScope(kept, "analysis")}).key())
+	goneName := "scope-" + (sessionScope{Workspace: ws, User: user, Harness: "claude", Scope: boardScope(gone, "analysis")}).key()
 	goneDir := filepath.Join(d.cfg.Home, goneName)
 	for _, p := range []string{keptDir, goneDir} {
 		must(t, os.MkdirAll(filepath.Join(p, ".cli-home"), 0700))
@@ -363,5 +378,65 @@ func TestForgetScopeDeletesItsPrivateFolder(t *testing.T) {
 	}
 	if !d.holdScratch(goneName) {
 		t.Fatal("forget kept its hold on the folder")
+	}
+}
+
+func TestEveryRunResumesItsScope(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	must(t, os.MkdirAll(filepath.Join(config, "projects", "test"), 0700))
+	must(t, os.WriteFile(filepath.Join(config, "projects", "test", "s1.jsonl"), nil, 0600))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"running"}`))
+	}))
+	defer srv.Close()
+	d := registryDaemon(t)
+	d.cfg.Home = t.TempDir()
+	d.cfg.Server = srv.URL
+	d.api = &apiclient.Client{Server: srv.URL}
+	d.out = &Outbox{Dir: filepath.Join(d.cfg.StateDir, "outbox")}
+	d.messages = &Outbox{Dir: filepath.Join(d.cfg.StateDir, "messages")}
+	c := claimFor(uuid.New(), uuid.New(), uuid.New(), "analysis")
+	runtime := uuid.New()
+	c.AgentRun.RuntimeID = &runtime
+	must(t, d.finishContinuity(begin(t, d, c), cleanClaude))
+	raw, err := json.Marshal(c)
+	must(t, err)
+	var legacy map[string]json.RawMessage
+	must(t, json.Unmarshal(raw, &legacy))
+	var run map[string]json.RawMessage
+	must(t, json.Unmarshal(legacy["agent_run"], &run))
+	run["run_private"] = json.RawMessage(`true`)
+	legacy["agent_run"], err = json.Marshal(run)
+	must(t, err)
+	raw, err = json.Marshal(legacy)
+	must(t, err)
+	must(t, json.Unmarshal(raw, &c))
+	launched := false
+	d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+		return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
+			launched = true
+			if o.Resume != "s1" || len(o.ClaudeBaseline) == 0 {
+				t.Errorf("resume=%q baseline=%s", o.Resume, o.ClaudeBaseline)
+			}
+			messages := make(chan agent.Message)
+			close(messages)
+			done := make(chan agent.Result, 1)
+			done <- cleanClaude
+			close(done)
+			return &agent.Session{Messages: messages, Done: done}, nil
+		}), nil
+	}
+	must(t, d.runAgentRun(t.Context(), c))
+	report, err := readReport(d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}))
+	must(t, err)
+	if !launched || report.Kind != "complete" || report.Mode != "sandboxed" {
+		t.Fatalf("launched=%v report=%+v", launched, report)
+	}
+	entries, err := os.ReadDir(d.cfg.Home)
+	must(t, err)
+	if len(entries) != 1 || entries[0].Name() != scratchName(c.AgentRun.ID, c.AgentRun.Attempt) {
+		t.Fatalf("run folders=%v", entries)
 	}
 }

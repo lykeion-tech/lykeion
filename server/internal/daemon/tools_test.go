@@ -50,17 +50,15 @@ func TestRoutedSkillsLandWhereTheCLIReadsThem(t *testing.T) {
 
 	for _, c := range []struct {
 		harness string
-		inherit bool
 		lands   string // the skill's folder relative to the run folder, or "" for none
 	}{
-		{"claude", true, ".claude/skills/lyk-rdkit"},
-		{"codex", true, ".agents/skills/lyk-rdkit"},
-		{"claude", false, ""},
+		{"claude", ".claude/skills/lyk-rdkit"},
+		{"codex", ".agents/skills/lyk-rdkit"},
 	} {
 		dir := t.TempDir()
 		d := &Door{Server: srv.URL, RunToken: "ltk_run", CallToken: "ltk_call", Harness: c.harness,
 			Connectors: []pack.Connector{{Name: "stub", Command: []string{self}, Env: map[string]string{"LYK_DOOR_STUB": "1"}}, {Catalogue: "uniprot"}},
-			Child:      func() agent.ExecOptions { return agent.ExecOptions{Dir: dir, Inherit: c.inherit} }}
+			Child:      func() agent.ExecOptions { return agent.ExecOptions{Dir: dir} }}
 		must(t, d.Start())
 		req, _ := http.NewRequest("POST", strings.TrimSuffix(d.URL, "/mcp")+"/tools", strings.NewReader(`{"need":"draw a molecule"}`))
 		req.Header.Set("Authorization", "Bearer "+d.Token)
@@ -78,7 +76,7 @@ func TestRoutedSkillsLandWhereTheCLIReadsThem(t *testing.T) {
 		}
 		for _, p := range []string{".claude", ".agents"} {
 			if _, err := os.Stat(filepath.Join(dir, p)); err == nil && (c.lands == "" || !strings.HasPrefix(c.lands, p)) {
-				t.Fatalf("%s inherit=%v: %s was written", c.harness, c.inherit, p)
+				t.Fatalf("%s: %s was written", c.harness, p)
 			}
 		}
 		if c.lands == "" {
@@ -92,7 +90,7 @@ func TestRoutedSkillsLandWhereTheCLIReadsThem(t *testing.T) {
 			t.Fatalf("%s: the whole folder did not land: %v", c.harness, err)
 		}
 	}
-	if len(asked) != 3 {
+	if len(asked) != 2 {
 		t.Fatalf("%d requests reached the server", len(asked))
 	}
 	tools, _ := asked[0]["connector_tools"].(map[string]any)

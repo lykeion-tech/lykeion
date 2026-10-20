@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,23 +24,13 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	r := Report{AgentRunID: c.AgentRun.ID, WorkspaceID: c.AgentRun.WorkspaceID, RuntimeID: *c.AgentRun.RuntimeID, Attempt: c.AgentRun.Attempt, Kind: "complete"}
 	dir := filepath.Join(d.cfg.Home, scratchName(r.AgentRunID, r.Attempt))
 	created := false
-	reused := false
-	var retainedDir string
 	var cont *continuity
 	var final agent.Result
 	fail := func(err error) { r.Kind = "fail"; r.Error = err.Error(); r.FailureReason = agent.ReasonAgentError }
 	// Registered before the deferred report, so it runs after the finished
 	// marker: gc never finds the folder unheld with only an older marker.
-	var held string
 	var reservation *agent.ScratchReservation
-	var freshReservation *agent.ScratchReservation
-	defer func() {
-		reservation.Release()
-		freshReservation.Release()
-		if held != "" {
-			d.releaseScratch(held)
-		}
-	}()
+	defer func() { reservation.Release() }()
 
 	// Journal before the server can enter running or any CLI can launch.
 	journalRecord := r
@@ -62,12 +51,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		// Only after the final report is durable may a baseline become resumable.
 		localErr = errors.Join(localErr, d.finishContinuity(cont, final))
-		if retainedDir != "" {
-			if err := d.markFinished(retainedDir, map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": journalRecord.RetainedRetentionDays}); err != nil {
-				localErr = errors.Join(localErr, err)
-				return
-			}
-		}
 		if created {
 			if err := d.markFinished(dir, map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt, "retention_days": journalRecord.RetentionDays}); err != nil {
 				localErr = errors.Join(localErr, err)
@@ -86,51 +69,18 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(fmt.Errorf("workspace policy: %w", err))
 		return nil
 	}
-	r.Mode, r.PolicyDigest = runMode(c, pol), pol.Digest
-	if r.Mode == ModePrivate && c.AgentRun.ContinuityScope != "" {
-		if !continuityScope.MatchString(c.AgentRun.ContinuityScope) {
-			fail(fmt.Errorf("invalid continuity scope %q", c.AgentRun.ContinuityScope))
-			return nil
-		}
-		// A private scope keeps one folder, whose .cli-home holds the CLI's
-		// sessions. A run that finds it held waits for it a while, then works in
-		// its attempt's own folder.
-		name := privateScratch(c)
-		var ok bool
-		if ok, err = d.waitScratch(ctx, name); err != nil {
-			fail(err)
-			return nil
-		}
-		if ok {
-			held, r.Scratch, journalRecord.Scratch, journalRecord.RetentionDays = name, name, name, pol.RetentionDays
-			dir = filepath.Join(d.cfg.Home, name)
-			// Attempt metadata changes before launch; delivery reports stay immutable.
-			journal := d.journal()
-			if err = atomicJSON(journal.Dir, filepath.Base(journal.file(journalRecord)), journalRecord); err != nil {
-				fail(fmt.Errorf("journal scope scratch: %w", err))
-				return err
-			}
-		}
-	}
-	if held == "" {
-		err = os.Mkdir(dir, 0700)
-	} else {
-		if err = os.Mkdir(dir, 0700); err == nil || errors.Is(err, os.ErrExist) {
-			reused = errors.Is(err, os.ErrExist)
-			reservation, err = agent.ReserveScratch(dir)
-			if err == nil {
-				err = reuseScratch(dir)
-			}
-			if err == nil {
-				err = d.unmarkFinished(dir)
-			}
-		}
-	}
+	r.Mode, r.PolicyDigest = ModeSandboxed, pol.Digest
+	err = os.Mkdir(dir, 0700)
 	if err != nil {
 		fail(fmt.Errorf("prepare scratch: %w", err))
 		return nil
 	}
 	created = true
+	reservation, err = agent.ReserveScratch(dir)
+	if err != nil {
+		fail(fmt.Errorf("reserve scratch: %w", err))
+		return nil
+	}
 	prompt := c.AgentRun.Prompt
 	if c.AgentRun.Skill != "" {
 		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(c.AgentRun.Skill), 0600); err != nil {
@@ -203,16 +153,13 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	if d.bases != nil {
 		// A study's runs share its add-on folders. A run on no card keeps its
 		// own beside them, never in its run folder: code may write the run
-		// folder, and a link it left there would be the next run's folder. A
-		// scope's runs share one; an attempt's own goes when the run ends.
+		// folder, and a link it left there would be the next run's folder.
+		// An attempt's own goes when the run ends.
 		studies := filepath.Join(d.bases.Dir, "studies", c.AgentRun.WorkspaceID.String())
 		studyDir := filepath.Join(studies, "_run", filepath.Base(dir))
 		switch {
 		case c.AgentRun.CardID != nil:
 			studyDir = filepath.Join(studies, c.AgentRun.CardID.String())
-		case held != "":
-			// ponytail: a scope's add-on folder outlives its run folder; collect it with the scope's folder if it grows
-			studyDir = filepath.Join(studies, "_scope", held)
 		default:
 			defer os.RemoveAll(studyDir)
 		}
@@ -248,7 +195,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return sink(agent.Message{Type: "status", Content: rawJSON(map[string]string{"type": "continuity", "message": text})})
 	}
 	if cont != nil {
-		opts.Inherit, opts.Resume, opts.ClaudeBaseline = true, cont.resume, cont.baseline
+		opts.Resume, opts.ClaudeBaseline = cont.resume, cont.baseline
 		if cont.note != "" {
 			if err = note(cont.note); err != nil {
 				fail(err)
@@ -257,17 +204,8 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 	}
 	// Resume only what this run's CLI can find; otherwise continue fresh.
-	if opts.Resume != "" && !agent.SessionReachable(c.AgentRun.Harness, opts.Resume, opts.Inherit, dir) {
+	if opts.Resume != "" && !agent.SessionReachable(c.AgentRun.Harness, opts.Resume) {
 		if err = note("session " + opts.Resume + " is not in the CLI's session store; starting a fresh session"); err != nil {
-			fail(err)
-			return errors.Join(err, d.abandonContinuity(cont))
-		}
-		opts.Resume, opts.ClaudeBaseline = "", nil
-	}
-	// A private Claude resume is charged against its folder's usage baseline;
-	// with none for this session, continue fresh rather than fail at launch.
-	if opts.Resume != "" && !opts.Inherit && c.AgentRun.Harness == "claude" && !agent.ClaudeResumable(dir, opts.Resume) {
-		if err = note("session " + opts.Resume + " has no usage baseline in this run's folder; starting a fresh session"); err != nil {
 			fail(err)
 			return errors.Join(err, d.abandonContinuity(cont))
 		}
@@ -298,64 +236,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return res, streamErr, nil
 	}
 	res, streamErr, launchErr := execute()
-	var discovery *agent.PrelaunchDiscoveryError
-	if launchErr != nil && errors.As(launchErr, &discovery) && reused && held != "" && r.Mode == ModePrivate && !opts.Inherit && runCtx.Err() == nil && sinkErr == nil {
-		if err = agent.RecoverScratch(dir); err != nil {
-			fail(err)
-			return nil
-		}
-		freshDir := filepath.Join(d.cfg.Home, scratchName(r.AgentRunID, r.Attempt))
-		// Exclusive creation precedes journaling so a collision never becomes
-		// recovery-owned. No credentials are written until the journal is durable.
-		if err = os.Mkdir(freshDir, 0700); err != nil {
-			fail(err)
-			return nil
-		}
-		freshReservation, err = agent.ReserveScratch(freshDir)
-		if err != nil {
-			fail(err)
-			return nil
-		}
-		if err = d.markFinished(freshDir, map[string]any{"ended_at": time.Now().UTC(), "attempt": r.Attempt}); err != nil {
-			fail(err)
-			return err
-		}
-		candidate := journalRecord
-		candidate.RetainedScratch, candidate.RetainedRetentionDays = held, journalRecord.RetentionDays
-		candidate.Scratch, candidate.RetentionDays = "", 0
-		if err = atomicJSON(d.journal().Dir, filepath.Base(d.journal().file(candidate)), candidate); err != nil {
-			fail(err)
-			return err
-		}
-		journalRecord = candidate
-		retainedDir, dir = dir, freshDir
-		r.Scratch, r.RetainedScratch, r.RetainedRetentionDays = "", held, journalRecord.RetainedRetentionDays
-		if err = d.unmarkFinished(dir); err != nil {
-			fail(err)
-			return nil
-		}
-		if c.AgentRun.Skill != "" {
-			if err = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(c.AgentRun.Skill), 0600); err != nil {
-				fail(err)
-				return nil
-			}
-		}
-		opts.Dir, opts.ScratchReservation, opts.Resume, opts.ClaudeBaseline = dir, freshReservation, "", nil
-		for i, entry := range opts.Env {
-			if strings.HasPrefix(entry, "LYK_CONFIG=") {
-				opts.Env[i] = "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json")
-			}
-		}
-		if err = note("private discovery configuration was refused; restarting in a fresh folder without prior session or files"); err != nil {
-			fail(err)
-			return err
-		}
-		if err = runCtx.Err(); err != nil {
-			fail(err)
-			return nil
-		}
-		res, streamErr, launchErr = execute()
-	}
 	if launchErr != nil {
 		fail(launchErr)
 		return d.abandonContinuity(cont)
@@ -557,28 +437,4 @@ func (d *daemon) persistMessage(r Report, seq int32, m agent.Message) error {
 		return &oversizedMessageError{seq: seq, size: len(b)}
 	}
 	return d.messages.Put(r)
-}
-
-// privateScratch names the folder every private run of one scope shares: the
-// scope's key, a sha256 of workspace, responsible user, harness and scope, so
-// the scope's "/" and ":" never reach a path and another harness or user is
-// another folder.
-func privateScratch(c claimed) string {
-	run := c.AgentRun
-	return "scope-" + sessionScope{Workspace: run.WorkspaceID, User: run.ResponsibleUserID, Harness: run.Harness, Scope: run.ContinuityScope}.key()
-}
-
-// reuseScratch makes a scope's folder or reopens it as it is: the CLI's state,
-// its sessions and the agent's files stay; the files the daemon writes for one
-// run go, so each run places its own.
-func reuseScratch(dir string) error {
-	if err := privateDir(dir); err != nil {
-		return err
-	}
-	for _, name := range []string{"SKILL.md", ".lyk-config.json"} {
-		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	return nil
 }

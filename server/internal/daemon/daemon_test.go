@@ -232,7 +232,7 @@ func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	var reported bool
 	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT continuity_scope, profile_mode, policy_digest, model FROM agent_run WHERE id=$1", f.id).Scan(&scope, &mode, &digest, &model))
 	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT cost_reported FROM agent_run_usage WHERE agent_run_id=$1", f.id).Scan(&reported))
-	if scope != "card:"+f.card.String()+"/role:scoper" || mode != ModeContinuity || digest != defaultPolicyHash || model != "m" || !reported {
+	if scope != "card:"+f.card.String()+"/role:scoper" || mode != ModeSandboxed || digest != defaultPolicyHash || model != "m" || !reported {
 		t.Fatalf("scope %q mode %q digest %q model %q reported %v", scope, mode, digest, model, reported)
 	}
 	dir := filepath.Join(f.cfg.Home, f.id.String()+"-1")
@@ -248,39 +248,6 @@ func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	}
 	if _, err = os.Stat(filepath.Join(dir, ".finished")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the run folder holds a finished marker: %v", err)
-	}
-}
-func TestPrivateWorkspaceKeepsF2Isolation(t *testing.T) {
-	f := fixture(t)
-	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{Mode: ModePrivate}))
-	cancel, done := startDaemon(t, f.cfg)
-	waitFor(t, func() bool { return f.status(t) == "completed" })
-	stopDaemon(t, cancel, done)
-	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
-	must(t, err)
-	if strings.Contains(string(argv), "stream-json --verbose --allowedTools") || !strings.Contains(string(argv), "--strict-mcp-config") {
-		t.Fatalf("private workspace ran without F2 isolation: %s", argv)
-	}
-	if _, err := os.Stat(filepath.Join(f.cfg.StateDir, "workspace-profiles", f.ws.String(), "sessions")); !os.IsNotExist(err) {
-		t.Fatal("private workspace recorded a session")
-	}
-}
-func TestRunPrivateOverridesTheContinuityDefault(t *testing.T) {
-	f := fixture(t)
-	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET run_private=true WHERE id=$1", f.id)
-	must(t, err)
-	cancel, done := startDaemon(t, f.cfg)
-	waitFor(t, func() bool { return f.status(t) == "completed" })
-	stopDaemon(t, cancel, done)
-	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
-	must(t, err)
-	if !strings.Contains(string(argv), "--strict-mcp-config") || strings.Contains(string(argv), "--input-format") {
-		t.Fatalf("run_private ran with the account's setup: %s", argv)
-	}
-	var mode string
-	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT profile_mode FROM agent_run WHERE id=$1", f.id).Scan(&mode))
-	if mode != ModePrivate {
-		t.Fatalf("recorded mode %q", mode)
 	}
 }
 func TestSecondRunOnTheCardAndRoleResumesWithoutDoubleCharge(t *testing.T) {
@@ -1031,145 +998,18 @@ func TestShutdownDuringInitialRegistrationIsGraceful(t *testing.T) {
 	}
 }
 
-// privateTurn queues one more run of the fixture's card and role, claiming
-// session s, applies set to it, and runs it to completion on a new daemon.
-func (f *daemonFixture) privateTurn(t *testing.T, set string, args ...any) {
-	t.Helper()
-	f.enqueue(t)
-	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET session_id='s'"+set+" WHERE id=$1", append([]any{f.id}, args...)...)
-	must(t, err)
-	cancel, done := startDaemon(t, f.cfg)
-	waitFor(t, func() bool { return f.status(t) == "completed" })
-	stopDaemon(t, cancel, done)
-}
-func privateFirstTurn(t *testing.T) *daemonFixture {
+// Concurrent runs of a scope always receive separate attempt folders.
+func twoScopeRuns(t *testing.T, live time.Duration) (dirs []string, gap time.Duration) {
 	t.Helper()
 	f := fixture(t)
-	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{Mode: ModePrivate}))
-	cancel, done := startDaemon(t, f.cfg)
-	waitFor(t, func() bool { return f.status(t) == "completed" })
-	stopDaemon(t, cancel, done)
-	return f
-}
-func (f *daemonFixture) invocations(t *testing.T) []string {
-	t.Helper()
-	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
-	must(t, err)
-	return strings.Split(strings.TrimSpace(string(argv)), "\n")
-}
-func (f *daemonFixture) notes(t *testing.T, like string) (n int) {
-	t.Helper()
-	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM agent_run_message m JOIN agent_run r ON r.id=m.agent_run_id WHERE r.card_id=$1 AND m.type='status' AND m.content->>'type'='continuity' AND m.content->>'message' LIKE $2", f.card, like).Scan(&n))
-	return n
-}
-func scopeFolders(t *testing.T, home string) (scoped []string, others []string) {
-	t.Helper()
-	es, err := os.ReadDir(home)
-	must(t, err)
-	for _, e := range es {
-		if strings.HasPrefix(e.Name(), "scope-") {
-			scoped = append(scoped, e.Name())
-		} else {
-			others = append(others, e.Name())
-		}
-	}
-	return scoped, others
-}
-
-// The second private run of a card and role finds its session in the folder
-// the first one left, resumes it, and is charged only for its own work.
-func TestPrivateRunResumesInItsScopeFolder(t *testing.T) {
-	f := privateFirstTurn(t)
-	f.privateTurn(t, "")
-	lines := f.invocations(t)
-	if len(lines) != 2 || strings.Contains(lines[0], "--resume") || !strings.Contains(lines[1], "--strict-mcp-config") || !strings.HasSuffix(lines[1], "--resume s") {
-		t.Fatalf("invocations:\n%s", strings.Join(lines, "\n"))
-	}
-	if scoped, others := scopeFolders(t, f.cfg.Home); len(scoped) != 1 || len(others) != 0 {
-		t.Fatalf("scratch folders %v %v", scoped, others)
-	}
-	var cost float64
-	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT spent_usd FROM card WHERE id=$1", f.card).Scan(&cost))
-	if cost != .25 {
-		t.Fatalf("card spent %v", cost)
-	}
-}
-
-// Another scope has its own folder and an empty scope the attempt's own; the
-// claimed session is in neither, so both start fresh.
-func TestPrivateRunsOfOtherScopesStartFresh(t *testing.T) {
-	f := privateFirstTurn(t)
-	f.privateTurn(t, ", continuity_scope=$2", boardScope(f.card, "critic"))
-	f.privateTurn(t, ", continuity_scope=''")
-	for _, l := range f.invocations(t) {
-		if strings.Contains(l, "--resume") {
-			t.Fatalf("resumed in another scope's folder: %s", l)
-		}
-	}
-	scoped, others := scopeFolders(t, f.cfg.Home)
-	if len(scoped) != 2 || len(others) != 1 || others[0] != scratchName(f.id, 1) {
-		t.Fatalf("scratch folders %v %v", scoped, others)
-	}
-	if n := f.notes(t, "%not in the CLI's session store%"); n != 2 {
-		t.Fatalf("continuity notes %d", n)
-	}
-}
-
-// A folder whose usage baseline is gone (its last run failed, or the daemon
-// died) continues fresh instead of failing at launch.
-func TestPrivateResumeWithoutABaselineStartsFresh(t *testing.T) {
-	f := privateFirstTurn(t)
-	scoped, _ := scopeFolders(t, f.cfg.Home)
-	if len(scoped) != 1 {
-		t.Fatalf("scope folders %v", scoped)
-	}
-	must(t, os.Remove(filepath.Join(f.cfg.Home, scoped[0], ".cli-home", ".lyk-usage.json")))
-	f.privateTurn(t, "")
-	if lines := f.invocations(t); len(lines) != 2 || strings.Contains(lines[1], "--resume") {
-		t.Fatalf("invocations:\n%s", strings.Join(lines, "\n"))
-	}
-	if n := f.notes(t, "%no usage baseline%"); n != 1 {
-		t.Fatalf("continuity notes %d", n)
-	}
-}
-
-// twoPrivateRuns queues a second run after the first backend starts, on
-// a daemon that waits up to wait for their shared scope folder. Each run stays live
-// until both have started, or for at most live. It returns each run's folder
-// and how long after the first the second started.
-func twoPrivateRuns(t *testing.T, wait, live time.Duration) (dirs []string, gap time.Duration) {
-	t.Helper()
-	f := fixture(t)
-	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{Mode: ModePrivate}))
-	f.cfg.ScopeWait = wait
+	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{}))
 	var mu sync.Mutex
 	var starts []time.Time
 	firstStarted := make(chan struct{})
 	both := make(chan struct{})
 	f.cfg.NewBackend = func(string, string) (agent.Backend, error) {
 		return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
-			if strings.HasPrefix(filepath.Base(o.Dir), "scope-") {
-				entries, err := os.ReadDir(filepath.Join(f.cfg.StateDir, "attempts"))
-				if err != nil {
-					return nil, err
-				}
-				recorded := false
-				for _, entry := range entries {
-					if !strings.HasSuffix(entry.Name(), ".json") {
-						continue
-					}
-					r, err := readReport(filepath.Join(f.cfg.StateDir, "attempts", entry.Name()))
-					if err != nil {
-						return nil, err
-					}
-					if r.Scratch == filepath.Base(o.Dir) && r.RetentionDays == defaultRetention {
-						recorded = true
-					}
-				}
-				if !recorded {
-					return nil, errors.New("selected scope and retention were not journaled before launch")
-				}
-			}
+
 			mu.Lock()
 			dirs, starts = append(dirs, o.Dir), append(starts, time.Now())
 			if len(dirs) == 1 {
@@ -1213,43 +1053,7 @@ func twoPrivateRuns(t *testing.T, wait, live time.Duration) (dirs []string, gap 
 	return dirs, starts[1].Sub(starts[0])
 }
 
-// A run that finds its scope's folder held waits for it, and resumes there
-// once the run holding it lets go.
-func TestPrivateRunWaitsForItsHeldScopeFolder(t *testing.T) {
-	dirs, gap := twoPrivateRuns(t, 8*time.Second, 300*time.Millisecond)
-	if dirs[0] != dirs[1] || !strings.HasPrefix(filepath.Base(dirs[0]), "scope-") || gap < 300*time.Millisecond {
-		t.Fatalf("folders %v, second started %v after the first", dirs, gap)
-	}
-}
-
-// Two runs of one scope never share its folder: one holds it, the other waits
-// out the bounded wait and then works in its attempt's own folder.
-func TestPrivateRunTakesItsOwnFolderAfterTheWait(t *testing.T) {
-	dirs, gap := twoPrivateRuns(t, time.Second, 8*time.Second)
-	scoped := 0
-	for _, d := range dirs {
-		if strings.HasPrefix(filepath.Base(d), "scope-") {
-			scoped++
-		}
-	}
-	if dirs[0] == dirs[1] || scoped != 1 || gap < time.Second {
-		t.Fatalf("folders %v, second started %v after the first", dirs, gap)
-	}
-}
-
-// A run cancelled while it waits for a held folder ends there and takes none.
-func TestScopeWaitEndsWithTheRun(t *testing.T) {
-	d := &daemon{cfg: Config{ScopeWait: time.Hour}}
-	d.holdScratch("scope-x")
-	ctx, cancel := context.WithCancel(t.Context())
-	time.AfterFunc(100*time.Millisecond, cancel)
-	if ok, err := d.waitScratch(ctx, "scope-x"); ok || !errors.Is(err, context.Canceled) {
-		t.Fatalf("waitScratch after cancel: %v %v", ok, err)
-	}
-}
-
-// A crashed run's scope folder is recovered like an attempt folder: its
-// sign-in copy goes and gc can collect it.
+// Recovery still cleans up scope folders created before the upgrade.
 func TestRecoveryReachesAScopeFolder(t *testing.T) {
 	r := reportFixture()
 	r.Kind = "fail"
@@ -1272,19 +1076,6 @@ func TestRecoveryReachesAScopeFolder(t *testing.T) {
 	}
 	if err != nil || json.Unmarshal(b, &m) != nil || m.RetentionDays != 7 {
 		t.Fatalf("crashed scope folder's marker %q %v", b, err)
-	}
-}
-
-func TestScopeWaitAlreadyCanceledTakesNoFolder(t *testing.T) {
-	d := &daemon{cfg: Config{ScopeWait: time.Second}}
-	ctx, cancel := context.WithCancelCause(t.Context())
-	cause := errors.New("run ended")
-	cancel(cause)
-	if ok, err := d.waitScratch(ctx, "scope-free"); ok || !errors.Is(err, cause) {
-		t.Fatalf("canceled waiter took scratch: %v %v", ok, err)
-	}
-	if !d.holdScratch("scope-free") {
-		t.Fatal("canceled waiter kept scratch")
 	}
 }
 
@@ -1404,5 +1195,17 @@ func TestRemovedHarnessRunFails(t *testing.T) {
 				t.Fatalf("launched=%v report=%+v", launched, report)
 			}
 		})
+	}
+}
+
+func TestNoScopeFolders(t *testing.T) {
+	dirs, _ := twoScopeRuns(t, 300*time.Millisecond)
+	if len(dirs) != 2 || dirs[0] == dirs[1] {
+		t.Fatalf("attempts shared folder: %v", dirs)
+	}
+	for _, dir := range dirs {
+		if strings.HasPrefix(filepath.Base(dir), "scope-") {
+			t.Fatalf("created scope folder: %s", dir)
+		}
 	}
 }

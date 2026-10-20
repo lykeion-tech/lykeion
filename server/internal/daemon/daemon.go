@@ -32,7 +32,6 @@ type Config struct {
 	Harnesses                             map[string]string
 	Slots                                 int
 	Poll, Heartbeat, Flush                time.Duration
-	ScopeWait                             time.Duration
 	NewBackend                            func(harness, bin string) (agent.Backend, error)
 	Ready                                 func() error
 	OnExit                                func()
@@ -44,12 +43,6 @@ type Config struct {
 }
 
 func (c *Config) defaults() {
-	// A private run waits this long for its scope's folder while the run
-	// before it is still letting go.
-	if c.ScopeWait == 0 {
-		c.ScopeWait = 15 * time.Second
-	}
-
 	if c.Slots == 0 {
 		c.Slots = 2
 	}
@@ -96,7 +89,8 @@ type claimed struct {
 		SessionID         string     `json:"session_id"`
 		// ContinuityScope keys session continuity; empty never resumes.
 		ContinuityScope string `json:"continuity_scope"`
-		RunPrivate      bool   `json:"run_private"`
+		// RunPrivate is decoded only for claims created before single-mode runs.
+		RunPrivate bool `json:"run_private"`
 		// RequestedModel is the agent's model; empty runs the CLI's default.
 		RequestedModel string `json:"requested_model"`
 		// CardID is the run's study; nil for a run on no card.
@@ -496,29 +490,6 @@ func (d *daemon) releaseScratch(name string) {
 	d.mu.Lock()
 	delete(d.scratches, name)
 	d.mu.Unlock()
-}
-
-// waitScratch holds a scope's folder, waiting up to ScopeWait for its holder
-// to let go, so a run queued behind the one still ending keeps the session.
-// False means the folder stayed held; an error means the run was cancelled.
-func (d *daemon) waitScratch(ctx context.Context, name string) (bool, error) {
-	deadline := time.Now().Add(d.cfg.ScopeWait)
-	for {
-		if err := context.Cause(ctx); err != nil {
-			return false, err
-		}
-		if d.holdScratch(name) {
-			return true, nil
-		}
-		if !time.Now().Before(deadline) {
-			return false, nil
-		}
-		select {
-		case <-ctx.Done():
-			return false, context.Cause(ctx)
-		case <-time.After(250 * time.Millisecond):
-		}
-	}
 }
 
 // Only a finished record written after child exit starts the deletion clock.

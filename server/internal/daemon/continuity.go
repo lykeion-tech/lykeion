@@ -20,12 +20,8 @@ import (
 	"lykeion/server/pkg/agent"
 )
 
-// Workspace modes. Continuity is the default: agents run as the account's own
-// CLI and continue the same card and role's session. Private is F2 isolation.
-const (
-	ModeContinuity = "workspace_continuity"
-	ModePrivate    = "private"
-)
+// ModeSandboxed is the only supported run mode.
+const ModeSandboxed = "sandboxed"
 
 const (
 	policyLimit       = 4 << 10
@@ -46,9 +42,8 @@ var continuityScope = regexp.MustCompile(`^[a-z]+:[0-9a-f-]{36}(/[a-z]+:[A-Za-z0
 // Policy is a workspace's daemon-local runtime preference. It holds no secrets
 // and cannot add skills or tool servers to a run.
 type Policy struct {
-	Version       int    `json:"version"`
-	Mode          string `json:"mode"`
-	RetentionDays int    `json:"session_retention_days,omitempty"`
+	Version       int `json:"version"`
+	RetentionDays int `json:"session_retention_days,omitempty"`
 }
 
 // PolicySnapshot is what one attempt was started under.
@@ -103,7 +98,7 @@ func checkProfileDir(p string) error {
 	return nil
 }
 
-// LoadPolicy returns the workspace's policy, or the continuity default when it
+// LoadPolicy returns the workspace's policy, or the retention default when it
 // has none. An explicit but invalid policy is an error, never a fallback.
 func LoadPolicy(stateDir string, ws uuid.UUID) (PolicySnapshot, error) {
 	dir := profileDir(stateDir, ws)
@@ -112,32 +107,37 @@ func LoadPolicy(stateDir string, ws uuid.UUID) (PolicySnapshot, error) {
 	}
 	b, err := readBounded(filepath.Join(dir, "policy.json"), policyLimit)
 	if errors.Is(err, os.ErrNotExist) {
-		return PolicySnapshot{Policy: Policy{Version: policyVersion, Mode: ModeContinuity, RetentionDays: defaultRetention}, Digest: defaultPolicyHash}, nil
+		return PolicySnapshot{Policy: Policy{Version: policyVersion, RetentionDays: defaultRetention}, Digest: defaultPolicyHash}, nil
 	}
 	if err != nil {
 		return PolicySnapshot{}, err
 	}
-	var p Policy
+	var stored struct {
+		Policy
+		LegacyMode json.RawMessage `json:"mode,omitempty"`
+	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&p); err != nil {
+	if err := dec.Decode(&stored); err != nil {
 		return PolicySnapshot{}, fmt.Errorf("invalid workspace policy: %w", err)
 	}
+	p := stored.Policy
 	if err := p.check(); err != nil {
 		return PolicySnapshot{}, err
 	}
 	if p.RetentionDays == 0 {
 		p.RetentionDays = defaultRetention
 	}
-	sum := sha256.Sum256(b)
+	canonical, err := json.Marshal(p)
+	if err != nil {
+		return PolicySnapshot{}, err
+	}
+	sum := sha256.Sum256(canonical)
 	return PolicySnapshot{Policy: p, Digest: hex.EncodeToString(sum[:]), Explicit: true}, nil
 }
 func (p Policy) check() error {
 	if p.Version != policyVersion {
 		return fmt.Errorf("unsupported workspace policy version %d", p.Version)
-	}
-	if p.Mode != ModeContinuity && p.Mode != ModePrivate {
-		return fmt.Errorf("unknown workspace policy mode %q", p.Mode)
 	}
 	if p.RetentionDays < 0 || p.RetentionDays > maxRetentionDays {
 		return fmt.Errorf("session_retention_days must be 0..%d", maxRetentionDays)
@@ -181,15 +181,6 @@ type sessionScope struct {
 func (s sessionScope) key() string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{s.Workspace.String(), s.User.String(), s.Harness, s.Scope}, "\x00")))
 	return hex.EncodeToString(sum[:])
-}
-
-// runMode is how one attempt runs: private when the workspace or the run asks
-// for it, or when Lykeion cannot run the harness as the account's own CLI.
-func runMode(c claimed, pol PolicySnapshot) string {
-	if pol.Mode == ModePrivate || c.AgentRun.RunPrivate || (c.AgentRun.Harness != "claude" && c.AgentRun.Harness != "codex") {
-		return ModePrivate
-	}
-	return ModeContinuity
 }
 
 // ForgetScope deletes one scope's private folder and session record, e.g. when
@@ -289,13 +280,10 @@ func contextDigest(pol PolicySnapshot, c claimed) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// beginContinuity returns nil for a private run. Otherwise it claims the scope
+// beginContinuity claims the scope
 // and durably consumes its previous session before any launch, so a crash can
 // never subtract a stale baseline. The daemon alone chooses what to resume.
 func (d *daemon) beginContinuity(c claimed, pol PolicySnapshot) (*continuity, error) {
-	if runMode(c, pol) == ModePrivate {
-		return nil, nil
-	}
 	run := c.AgentRun
 	if run.ContinuityScope != "" && !continuityScope.MatchString(run.ContinuityScope) {
 		return nil, fmt.Errorf("invalid continuity scope %q", run.ContinuityScope)
@@ -485,7 +473,7 @@ func (d *daemon) recoverSessions() error {
 	return nil
 }
 
-// ProfileStatus describes a workspace's mode and its recorded sessions.
+// ProfileStatus describes a workspace's retention and its recorded sessions.
 func ProfileStatus(stateDir string, ws uuid.UUID) (PolicySnapshot, map[string]int, error) {
 	pol, err := LoadPolicy(stateDir, ws)
 	if err != nil {

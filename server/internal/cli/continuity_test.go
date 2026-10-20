@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,7 +11,8 @@ import (
 )
 
 func TestWorkspaceContinuityCommands(t *testing.T) {
-	t.Setenv("LYK_CONFIG", t.TempDir()+"/config.json")
+	configDir := t.TempDir()
+	t.Setenv("LYK_CONFIG", filepath.Join(configDir, "config.json"))
 	ws := uuid.NewString()
 	run := func(args ...string) string {
 		t.Helper()
@@ -21,11 +24,25 @@ func TestWorkspaceContinuityCommands(t *testing.T) {
 		}
 		return out.String()
 	}
-	if got := run("status"); !strings.Contains(got, "mode workspace_continuity (default)") {
+	if got := run("status"); !strings.Contains(got, "sessions kept 30 days (default)") {
 		t.Fatal(got)
 	}
-	run("disable")
-	if got := run("status"); !strings.Contains(got, "mode private (policy ") {
+	for _, removed := range []string{"enable", "disable"} {
+		var out bytes.Buffer
+		root := Root(strings.NewReader(""), &out)
+		root.SetArgs([]string{"workspace", "continuity", removed, "--workspace", ws})
+		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "unknown command") {
+			t.Fatalf("%s: %v", removed, err)
+		}
+	}
+	policyDir := filepath.Join(configDir, "daemon", "workspace-profiles", ws)
+	if err := os.MkdirAll(policyDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(policyDir, "policy.json"), []byte(`{"version":1,"mode":"private","session_retention_days":7}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := run("status"); !strings.Contains(got, "sessions kept 7 days (policy ") {
 		t.Fatal(got)
 	}
 	run("reset")

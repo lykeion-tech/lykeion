@@ -11,65 +11,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"lykeion/server/pkg/agent"
 )
-
-func TestScopeJournalUpdateFailureNeverCompletes(t *testing.T) {
-	state, home := t.TempDir(), t.TempDir()
-	ws, user := uuid.New(), uuid.New()
-	c := claimFor(ws, uuid.New(), user, "analysis")
-	runtime := uuid.New()
-	c.AgentRun.RuntimeID = &runtime
-	var launched atomic.Bool
-	d := &daemon{cfg: Config{StateDir: state, Home: home, ScopeWait: 5 * time.Second, NewBackend: func(string, string) (agent.Backend, error) {
-		launched.Store(true)
-		return nil, errors.New("unexpected backend")
-	}}}
-	d.out = &Outbox{Dir: filepath.Join(state, "outbox")}
-	must(t, SavePolicy(state, ws, Policy{Mode: ModePrivate}))
-	name := privateScratch(c)
-	d.holdScratch(name)
-	finished := make(chan error, 1)
-	go func() { finished <- d.runAgentRun(t.Context(), c) }()
-	original := Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}
-	path := d.journal().file(original)
-	waitFor(t, func() bool { _, err := os.Stat(path); return err == nil })
-	backup := path + ".saved"
-	must(t, os.Rename(path, backup))
-	must(t, os.Mkdir(path, 0700))
-	must(t, os.WriteFile(filepath.Join(path, "block"), nil, 0600))
-	d.releaseScratch(name)
-	select {
-	case err := <-finished:
-		if err == nil {
-			t.Fatal("journal replacement I/O failure was lost")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("failed journal update did not settle")
-	}
-	if launched.Load() {
-		t.Fatal("launched before durable scope journal update")
-	}
-	report, err := readReport(d.out.file(original))
-	must(t, err)
-	if report.Kind != "fail" || report.FailureReason != agent.ReasonAgentError {
-		t.Fatalf("journal error persisted a successful settlement: %+v", report)
-	}
-	prior, err := readReport(backup)
-	must(t, err)
-	if prior.Kind != "fail" || prior.Scratch != "" {
-		t.Fatalf("initial recovery record changed: %+v", prior)
-	}
-	if entries, err := os.ReadDir(home); err != nil || len(entries) != 0 {
-		t.Fatalf("scope mutated before journal durability: %v %v", entries, err)
-	}
-}
 
 func TestScopeSharedHomeDaemonHelper(t *testing.T) {
 	raw := os.Getenv("LYK_SCOPE_DAEMON_TEST")
@@ -100,7 +47,7 @@ func scopeDaemonProcess(t *testing.T, cfg Config) func() {
 
 func scopeDaemonProcessControl(t *testing.T, cfg Config) (func(), func()) {
 	t.Helper()
-	raw, err := json.Marshal(map[string]any{"Server": cfg.Server, "Token": cfg.Token, "StateDir": cfg.StateDir, "Home": cfg.Home, "Device": cfg.Device, "Harnesses": cfg.Harnesses, "Slots": cfg.Slots, "Poll": cfg.Poll, "Heartbeat": cfg.Heartbeat, "Flush": cfg.Flush, "ScopeWait": cfg.ScopeWait})
+	raw, err := json.Marshal(map[string]any{"Server": cfg.Server, "Token": cfg.Token, "StateDir": cfg.StateDir, "Home": cfg.Home, "Device": cfg.Device, "Harnesses": cfg.Harnesses, "Slots": cfg.Slots, "Poll": cfg.Poll, "Heartbeat": cfg.Heartbeat, "Flush": cfg.Flush})
 	must(t, err)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestScopeSharedHomeDaemonHelper$")
 	cmd.Env = append(os.Environ(), "LYK_SCOPE_DAEMON_TEST="+string(raw))
@@ -148,31 +95,27 @@ func scopeDaemonProcessControl(t *testing.T, cfg Config) (func(), func()) {
 	return stop, kill
 }
 
-func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
+func TestAttemptReservationProtectsAllMutations(t *testing.T) {
 	f := fixture(t)
-	must(t, SavePolicy(f.cfg.StateDir, f.ws, Policy{Mode: ModePrivate}))
+
 	control := t.TempDir()
 	ready, release, launches := filepath.Join(control, "ready"), filepath.Join(control, "release"), filepath.Join(control, "launches")
 	bin := filepath.Join(control, "claude")
-	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\ncat >/dev/null\necho launched >> " + strconv.Quote(launches) + "\necho active-config > \"$PWD/.lyk-config.json\"\necho \"$PWD\" > " + strconv.Quote(ready) + "\nwhile [ ! -f " + strconv.Quote(release) + " ]; do sleep 0.05; done\necho '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"s\"}'\n"
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\nIFS= read -r first || exit 46\necho launched >> " + strconv.Quote(launches) + "\necho active-config > \"$PWD/.lyk-config.json\"\necho \"$PWD\" > " + strconv.Quote(ready) + "\nwhile [ ! -f " + strconv.Quote(release) + " ]; do sleep 0.05; done\necho '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"s\"}'\n"
 	must(t, os.WriteFile(bin, []byte(script), 0700))
 	f.cfg.Harnesses = map[string]string{"claude": bin}
 	f.cfg.Slots = 1
 	_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude' WHERE id=$1", f.id)
 	must(t, err)
 	first := f.id
-	c := claimFor(f.ws, f.card, f.user, "scoper")
-	c.AgentRun.Harness = "claude"
-	name := privateScratch(c)
+	name := scratchName(f.id, 1)
 	dir := filepath.Join(f.cfg.Home, name)
-	must(t, os.Mkdir(dir, 0700))
-	finishedFor(t, f.cfg.StateDir, dir, `{"retention_days":1}`, 48*time.Hour)
 	old := time.Now().Add(-48 * time.Hour)
 	stopFirst := scopeDaemonProcess(t, f.cfg)
 	waitFor(t, func() bool { _, err := os.Stat(ready); return err == nil })
 	for _, p := range []string{filepath.Join(dir, ".finished"), finishedRecord(f.cfg.StateDir, dir)} {
 		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
-			t.Error("old finished marker survived beginning a reused run", p, err)
+			t.Error("finished marker present during an active run", p, err)
 		}
 	}
 	actual, err := os.ReadFile(ready)
@@ -183,13 +126,6 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 		t.Fatalf("CLI scratch %q, expected %q", actual, resolved)
 	}
 	must(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("active skill"), 0600))
-	files := []string{"SKILL.md", ".lyk-config.json", ".lyk-mcp.json"}
-	before := map[string]string{}
-	for _, file := range files {
-		b, err := os.ReadFile(filepath.Join(dir, file))
-		must(t, err)
-		before[file] = string(b)
-	}
 	var process struct {
 		PID int `json:"pid"`
 	}
@@ -198,42 +134,13 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 	must(t, json.Unmarshal(b, &process))
 	state := t.TempDir()
 	other := &daemon{cfg: Config{StateDir: state, Home: f.cfg.Home}, active: map[string]bool{}}
-	f.enqueue(t)
-	_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude',skill='competing skill' WHERE id=$1", f.id)
-	must(t, err)
-	cfg := f.cfg
-	cfg.StateDir = t.TempDir()
-	stopOther := scopeDaemonProcess(t, cfg)
-	waitFor(t, func() bool { return f.status(t) == "failed" })
-	var failure string
-	must(t, f.env.Owner.QueryRow(t.Context(), "SELECT error FROM agent_run WHERE id=$1", f.id).Scan(&failure))
-	if !strings.Contains(failure, "scratch is already in use") {
-		t.Error("wrong cross-process refusal", failure)
-	}
-	for _, file := range files {
-		b, err := os.ReadFile(filepath.Join(dir, file))
-		if err != nil || string(b) != before[file] {
-			t.Errorf("active %s changed: %q %v", file, b, err)
-		}
-	}
-	b, err = os.ReadFile(launches)
-	must(t, err)
-	if strings.Count(string(b), "launched") != 1 {
-		t.Error("competing daemon launched", string(b))
-	}
-	// A stale marker must not permit another process's GC or forget to mutate a held folder.
+	// A stale marker must not permit another process's GC to mutate a held folder.
 	finishedFor(t, state, dir, `{"retention_days":1}`, time.Since(old))
 	if err := other.gc(t.Context()); err != nil {
 		t.Error(err)
 	}
 	if _, err := os.Stat(dir); err != nil {
-		t.Fatal("GC deleted another daemon's active scope", err)
-	}
-	if err := other.ForgetScope(f.ws, f.user, "claude", c.AgentRun.ContinuityScope); err == nil {
-		t.Error("forgot another daemon's held scope")
-	}
-	if _, err := os.Stat(dir); err != nil {
-		t.Fatal("forget deleted another daemon's active scope", err)
+		t.Fatal("GC deleted another daemon's active attempt", err)
 	}
 	must(t, os.Remove(finishedRecord(state, dir)))
 	// A stale journal cannot authorize recovery to kill the current holder's CLI.
@@ -255,7 +162,6 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 	if t.Failed() {
 		return
 	}
-	stopOther()
 	must(t, os.WriteFile(release, nil, 0600))
 	waitFor(t, func() bool {
 		var status string
@@ -263,22 +169,7 @@ func TestSharedScopeReservationProtectsAllMutations(t *testing.T) {
 		return status == "completed"
 	})
 	stopFirst()
-	f.enqueue(t)
-	_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude',skill='next skill' WHERE id=$1", f.id)
-	must(t, err)
-	stopNext := scopeDaemonProcess(t, cfg)
-	waitFor(t, func() bool { return f.status(t) == "completed" })
-	stopNext()
-	b, err = os.ReadFile(filepath.Join(dir, "SKILL.md"))
-	must(t, err)
-	if string(b) != "next skill" {
-		t.Fatalf("released scope could not refresh skill: %q", b)
-	}
-	b, err = os.ReadFile(launches)
-	must(t, err)
-	if strings.Count(string(b), "launched") != 2 {
-		t.Fatalf("launches: %s", b)
-	}
+
 }
 
 func TestGCFinishesInterruptedScratchRetirement(t *testing.T) {
@@ -315,7 +206,7 @@ func TestReusedScopeLosesOldFinishedClockAfterParentExit(t *testing.T) {
 	d := &daemon{cfg: Config{Home: home, StateDir: state}, active: map[string]bool{}}
 	reservation, err := agent.ReserveScratch(dir)
 	must(t, err)
-	must(t, reuseScratch(dir))
+
 	must(t, d.unmarkFinished(dir))
 	must(t, os.Mkdir(filepath.Join(dir, ".cli-home"), 0700))
 	must(t, os.WriteFile(filepath.Join(dir, ".cli-home", "auth.json"), []byte("synthetic"), 0600))
@@ -331,23 +222,21 @@ func TestReusedScopeLosesOldFinishedClockAfterParentExit(t *testing.T) {
 	}
 }
 
-func TestOrphanScopeReconciledBeforeReuseOrDeletion(t *testing.T) {
-	for _, action := range []string{"reuse", "forget", "gc"} {
+func TestOrphanAttemptReconciledBeforeDeletion(t *testing.T) {
+	for _, action := range []string{"gc"} {
 		t.Run(action, func(t *testing.T) {
 			f := fixture(t)
 			control := t.TempDir()
 			ready, again := filepath.Join(control, "ready"), filepath.Join(control, "again")
 			violation := filepath.Join(control, "overlap")
 			bin := filepath.Join(control, "claude")
-			body := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\ncat >/dev/null\nif [ -f " + strconv.Quote(ready) + " ]; then if kill -0 \"$(cat " + strconv.Quote(ready) + ")\" 2>/dev/null; then echo overlap > " + strconv.Quote(violation) + "; fi; echo relaunched > " + strconv.Quote(again) + "; echo '{\"type\":\"result\",\"result\":\"done\"}'; exit 0; fi\necho $$ > " + strconv.Quote(ready) + "\nwhile :; do sleep 0.05; done\n"
+			body := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\nIFS= read -r first || exit 46\nif [ -f " + strconv.Quote(ready) + " ]; then if kill -0 \"$(cat " + strconv.Quote(ready) + ")\" 2>/dev/null; then echo overlap > " + strconv.Quote(violation) + "; fi; echo relaunched > " + strconv.Quote(again) + "; echo '{\"type\":\"result\",\"result\":\"done\"}'; exit 0; fi\necho $$ > " + strconv.Quote(ready) + "\nwhile :; do sleep 0.05; done\n"
 			must(t, os.WriteFile(bin, []byte(body), 0700))
 			f.cfg.Harnesses = map[string]string{"claude": bin}
 			f.cfg.Slots = 1
 			_, err := f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude' WHERE id=$1", f.id)
 			must(t, err)
-			c := claimFor(f.ws, f.card, f.user, "scoper")
-			c.AgentRun.Harness = "claude"
-			dir := filepath.Join(f.cfg.Home, privateScratch(c))
+			dir := filepath.Join(f.cfg.Home, scratchName(f.id, 1))
 			_, kill := scopeDaemonProcessControl(t, f.cfg)
 			waitFor(t, func() bool { _, err := os.Stat(ready); return err == nil })
 			var owner struct {
@@ -366,23 +255,6 @@ func TestOrphanScopeReconciledBeforeReuseOrDeletion(t *testing.T) {
 			must(t, syscall.Kill(owner.PID, 0))
 			other := &daemon{cfg: Config{StateDir: t.TempDir(), Home: f.cfg.Home}, active: map[string]bool{}}
 			switch action {
-			case "reuse":
-				f.enqueue(t)
-				_, err = f.env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness='claude',skill='next skill' WHERE id=$1", f.id)
-				must(t, err)
-				cfg := f.cfg
-				cfg.StateDir = other.cfg.StateDir
-				stop := scopeDaemonProcess(t, cfg)
-				waitFor(t, func() bool { return f.status(t) == "completed" })
-				stop()
-				if _, err := os.Stat(again); err != nil {
-					t.Fatal("next CLI did not launch", err)
-				}
-				if _, err := os.Stat(violation); !errors.Is(err, os.ErrNotExist) {
-					t.Fatal("second CLI launched before orphan CLI exit", err)
-				}
-			case "forget":
-				must(t, other.ForgetScope(f.ws, f.user, "claude", c.AgentRun.ContinuityScope))
 			case "gc":
 				finishedFor(t, other.cfg.StateDir, dir, `{"retention_days":1}`, 48*time.Hour)
 				must(t, other.gc(t.Context()))
