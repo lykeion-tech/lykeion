@@ -24,7 +24,8 @@ import (
 
 // stubBridge stands in for the session bridge: it answers each exec with the
 // session's cell count and the code, so two cells in one session read 1 and
-// 2, and "fail" answers as a cell that raised.
+// 2, and "fail" answers as a cell that raised. A restart sets the count back
+// to 0.
 func stubBridge() {
 	n := 0
 	sc := bufio.NewScanner(os.Stdin)
@@ -36,6 +37,12 @@ func stubBridge() {
 		}
 		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Op == "shutdown" {
 			return
+		}
+		if req.Op == "restart" {
+			n = 0
+			b, _ := json.Marshal(map[string]any{"id": req.ID, "ok": true, "restarted": true})
+			os.Stdout.Write(append(b, '\n'))
+			continue
 		}
 		n++
 		r := map[string]any{"id": req.ID, "stdout": fmt.Sprintf("%d ran %s", n, req.Code), "ok": true}
@@ -375,6 +382,47 @@ func TestRunCodeKeepsASessionAndRecordsEachCell(t *testing.T) {
 	runs, _ = l.recorded()
 	if err != nil || got != "run:x3\n\n[stderr]\nboom" || runs[2]["exit_status"] != float64(1) {
 		t.Fatalf("a failing cell: %q %v %v", got, err, runs[2]["exit_status"])
+	}
+}
+
+func TestTheAgentRestartsItsOwnSession(t *testing.T) {
+	t.Setenv("LYK_KERNEL_STUB", "1")
+	l := newLykeion(t)
+	d := runDoor(t, l, t.TempDir(), envs.Python)
+	for _, step := range []struct {
+		args map[string]any
+		want string
+	}{
+		{map[string]any{"language": "python", "code": "x = 1"}, "run:x1\n1 ran x = 1"},
+		{map[string]any{"language": "python", "code": "", "restart": true}, "the python session restarted; its variables are gone"},
+		{map[string]any{"language": "python", "code": "print(x)"}, "run:x2\n1 ran print(x)"},
+		{map[string]any{"language": "python", "code": "y = 2", "restart": true}, "run:x3\n1 ran y = 2"},
+	} {
+		if got, err := useTool(t, d, "run_code", step.args); err != nil || got != step.want {
+			t.Fatalf("%v: %q %v, want %q", step.args, got, err, step.want)
+		}
+	}
+	if runs, _ := l.recorded(); len(runs) != 3 || runs[2]["code"] != "y = 2" {
+		t.Fatalf("runs %v", runs)
+	}
+}
+
+func TestACellThatInstallsAPackageSaysHowToRestart(t *testing.T) {
+	t.Setenv("LYK_KERNEL_STUB", "1")
+	l := newLykeion(t)
+	d := runDoor(t, l, t.TempDir(), envs.Python)
+	for code, note := range map[string]bool{
+		"%pip install scanpy": true, "!pip install x": true, "import subprocess; subprocess.run(['uv', 'pip', 'install', 'x'])": false,
+		"uv PIP install x": true, "install.packages('x')": true, "BiocManager::install('x')": true, "Pkg.add(\"x\")": true,
+		"print('installed')": false,
+	} {
+		got, err := useTool(t, d, "run_code", map[string]any{"language": "python", "code": code})
+		if err != nil || strings.HasSuffix(got, "\n"+installNote) != note {
+			t.Errorf("%q: %q %v, want the note %v", code, got, err, note)
+		}
+	}
+	if runs, _ := l.recorded(); strings.Contains(fmt.Sprint(runs), "restart the session") {
+		t.Error("the note reached the run record")
 	}
 }
 

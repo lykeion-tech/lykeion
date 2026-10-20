@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -24,7 +25,8 @@ import (
 
 const (
 	runCodeDescription = "Run code in a live session (language: python, r or julia) that keeps its variables between calls, in this study's environment. " +
-		"For exploring; a reported result must come from run_script. The answer starts with run:<key>, which you may cite as run:<key>."
+		"For exploring; a reported result must come from run_script. The answer starts with run:<key>, which you may cite as run:<key>. " +
+		"Pass restart: true to restart the session first, clearing its variables; with no code, only the restart happens."
 	runScriptDescription = "Run a saved script (.py, .R or .jl, a path inside your working folder) from start to finish in a fresh process, in this study's environment. " +
 		"Cite the result's numbers as run:<key>, the first line of the answer."
 	// maxScript is the longest script or cell the server records.
@@ -44,7 +46,14 @@ var scriptLanguages = map[string]string{".py": envs.Python, ".R": envs.R, ".r": 
 type runCodeIn struct {
 	Language string `json:"language" jsonschema:"python, r or julia"`
 	Code     string `json:"code" jsonschema:"the code to run in the language's session"`
+	Restart  bool   `json:"restart,omitempty" jsonschema:"restart the language's session before running code; its variables are gone"`
 }
+
+// installNote ends the answer to a cell that installs packages, which a
+// running session may not load until it restarts.
+const installNote = "If the new package doesn't load, restart the session with run_code(language, code, restart: true) and re-run what you need."
+
+var installs = regexp.MustCompile(`(?i)pip install|%pip|!pip|uv pip install|install\.packages\(|BiocManager::install\(|Pkg\.add\(`)
 
 type runScriptIn struct {
 	Path string `json:"path" jsonschema:"the script's path, relative to your working folder"`
@@ -99,6 +108,14 @@ func (d *Door) runCode(ctx context.Context, _ *mcp.CallToolRequest, in runCodeIn
 	if err != nil {
 		return nil, nil, err
 	}
+	if in.Restart {
+		if err := s.Restart(ctx, in.Language); err != nil {
+			return nil, nil, err
+		}
+		if in.Code == "" {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "the " + in.Language + " session restarted; its variables are gone"}}}, nil, nil
+		}
+	}
 	packages, err := d.Study.Packages(ctx, in.Language)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading the study's package list: %w", err)
@@ -112,8 +129,12 @@ func (d *Door) runCode(ctx context.Context, _ *mcp.CallToolRequest, in runCodeIn
 	if !res.OK {
 		status = 1
 	}
-	return d.answerRun(ctx, map[string]any{"tool": "run_code", "language": in.Language, "code": in.Code,
+	out, _, err := d.answerRun(ctx, map[string]any{"tool": "run_code", "language": in.Language, "code": in.Code,
 		"output": res.Stdout, "error": res.Error, "exit_status": status, "packages": packages})
+	if err == nil && installs.MatchString(in.Code) {
+		out.Content[0].(*mcp.TextContent).Text += "\n" + installNote
+	}
+	return out, nil, err
 }
 
 // liveSessions are the run's live sessions, started on the first cell with the

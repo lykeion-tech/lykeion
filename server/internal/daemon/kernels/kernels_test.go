@@ -24,7 +24,7 @@ import (
 // for "hang" sleeps past the request's timeout and answers as a restarted
 // session would. "slow" answers late and outside the overlap count, "huge"
 // answers with a line longer than the daemon reads, and "garbage" with a line
-// that isn't JSON.
+// that isn't JSON. A restart of "cobol" fails as an unknown language would.
 func TestMain(m *testing.M) {
 	if os.Getenv("LYK_BRIDGE_STUB") == "1" {
 		stub()
@@ -53,6 +53,14 @@ func stub() {
 		}
 		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Op == "shutdown" {
 			return
+		}
+		if req.Op == "restart" {
+			if req.Language == "cobol" {
+				write(map[string]any{"id": req.ID, "error": "RuntimeError: unknown language 'cobol'", "ok": false})
+			} else {
+				write(map[string]any{"id": req.ID, "ok": true, "restarted": true})
+			}
+			continue
 		}
 		switch req.Code {
 		case "huge":
@@ -247,6 +255,19 @@ func TestNoBridgeStartsAfterClose(t *testing.T) {
 	}
 }
 
+func TestARestartIsSentToTheBridge(t *testing.T) {
+	s := startStub(t)
+	if err := s.Restart(context.Background(), "python"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Restart(context.Background(), "cobol"); err == nil || !strings.Contains(err.Error(), "unknown language") {
+		t.Fatalf("a failed restart: %v", err)
+	}
+	if r, err := s.Exec(context.Background(), "python", "1"); err != nil || r.Stdout != "ran 1" {
+		t.Fatalf("after the restart: %+v %v", r, err)
+	}
+}
+
 func TestRealKernels(t *testing.T) {
 	if os.Getenv("LYK_TEST_ENVS") != "1" {
 		t.Skip("set LYK_TEST_ENVS=1 and LYK_TEST_ENVS_DIR to built bases to run real kernels")
@@ -326,6 +347,13 @@ func TestRealKernels(t *testing.T) {
 	}
 	if r := run("python", "print(x)"); r.OK || !strings.Contains(r.Error, "NameError") {
 		t.Errorf("the session kept its variables after the restart: %+v", r)
+	}
+	run("python", "x = 1")
+	if err := s.Restart(ctx, "python"); err != nil {
+		t.Errorf("restart: %v", err)
+	}
+	if r := run("python", "print(x)"); r.OK || !strings.Contains(r.Error, "NameError") {
+		t.Errorf("the session kept its variables after a restart it was asked for: %+v", r)
 	}
 	if r := run("python", "import os; os._exit(1)"); r.OK || r.Error != "the session's kernel stopped; it restarted and its variables are gone" {
 		t.Errorf("dead kernel: %+v", r)

@@ -144,30 +144,47 @@ func (s *Sessions) start() (*bridge, error) {
 // Exec runs one cell. Calls run one at a time. If the bridge has exited, the
 // call fails and the next one starts a new bridge with fresh sessions.
 func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) {
+	r, err := s.call(ctx, map[string]any{"op": "exec", "language": lang, "code": code, "timeout": CellTimeout.Seconds()})
+	return Result{Stdout: r.Stdout, Error: r.Error, OK: r.OK}, err
+}
+
+// Restart restarts lang's session, dropping its variables; a language with
+// no session yet has nothing to restart.
+func (s *Sessions) Restart(ctx context.Context, lang string) error {
+	r, err := s.call(ctx, map[string]any{"op": "restart", "language": lang})
+	if err == nil && !r.OK {
+		err = errors.New(r.Error)
+	}
+	return err
+}
+
+// call sends req to the bridge under the next id and waits for its reply.
+func (s *Sessions) call(ctx context.Context, req map[string]any) (reply, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return Result{}, errors.New("the run's sessions are closed")
+		return reply{}, errors.New("the run's sessions are closed")
 	}
 	if s.b == nil {
 		b, err := s.start()
 		if err != nil {
-			return Result{}, err
+			return reply{}, err
 		}
 		s.b = b
 	}
 	b := s.b
 	s.nextID++
 	id := s.nextID
-	req, err := json.Marshal(map[string]any{"id": id, "op": "exec", "language": lang, "code": code, "timeout": CellTimeout.Seconds()})
+	req["id"] = id
+	line, err := json.Marshal(req)
 	if err != nil {
-		return Result{}, err
+		return reply{}, err
 	}
-	gone := func() (Result, error) {
+	gone := func() (reply, error) {
 		s.b = nil
-		return Result{}, errors.New("the session bridge stopped; its sessions and their variables are gone")
+		return reply{}, errors.New("the session bridge stopped; its sessions and their variables are gone")
 	}
-	if _, err := b.in.Write(append(req, '\n')); err != nil {
+	if _, err := b.in.Write(append(line, '\n')); err != nil {
 		stop(b)
 		return gone()
 	}
@@ -178,14 +195,14 @@ func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) 
 		case r := <-b.replies:
 			// A reply to a call abandoned through its context is skipped.
 			if r.ID == id {
-				return Result{Stdout: r.Stdout, Error: r.Error, OK: r.OK}, nil
+				return r, nil
 			}
 		case <-b.done:
 			select {
 			case r := <-b.replies:
 				if r.ID == id {
 					s.b = nil
-					return Result{Stdout: r.Stdout, Error: r.Error, OK: r.OK}, nil
+					return r, nil
 				}
 			default:
 			}
@@ -194,7 +211,7 @@ func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) 
 			stop(b)
 			return gone()
 		case <-ctx.Done():
-			return Result{}, ctx.Err()
+			return reply{}, ctx.Err()
 		}
 	}
 }

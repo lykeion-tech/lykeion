@@ -200,8 +200,15 @@ def main():
                 break
             reply = {"id": req.get("id"), "stdout": "", "error": "", "ok": False, "restarted": False}
             try:
-                out, err, ok, restarted = run(req.get("language"), req.get("code", ""), float(req.get("timeout", 600)))
-                reply.update(stdout=out, error=err, ok=ok, restarted=restarted)
+                if req.get("op") == "restart":
+                    # A language with no session yet has nothing to restart.
+                    kernel_name(req.get("language"))
+                    if req.get("language") in sessions:
+                        restart(req.get("language"))
+                    reply.update(ok=True, restarted=True)
+                else:
+                    out, err, ok, restarted = run(req.get("language"), req.get("code", ""), float(req.get("timeout", 600)))
+                    reply.update(stdout=out, error=err, ok=ok, restarted=restarted)
             except Exception as e:
                 reply["error"] = "%s: %s" % (type(e).__name__, e)
             replies.write(json.dumps(reply) + "\n")
