@@ -7,6 +7,8 @@ import { workspaceId } from '../api/session';
 import { useAgents, useMe, useMembers } from '../api/queries';
 import type { ResearchDetail, Research } from '../api/types';
 import Icon from './Icon.vue';
+import { usePaneResize } from '../lib/resize';
+import { readText } from '../storage';
 import TaskBoard from '../views/TaskBoard.vue';
 import { useTaskComposer } from '../state/task-composer';
 const props = defineProps<{ project: ResearchDetail }>();
@@ -16,6 +18,9 @@ const client = useQueryClient(),
   agents = useAgents(),
   me = useMe();
 const { openComposer } = useTaskComposer();
+const inspector = usePaneResize('lykeion.project-inspector-width', 364, 240, 480, -1, () =>
+  Math.max(160, window.innerWidth - (Number(readText('lykeion.sidebar-width')) || 224) - 400),
+);
 const emptyTab = ref('All');
 const descriptionConflict = ref(false);
 const rail = ref(true),
@@ -102,7 +107,10 @@ function pickLead(event: Event) {
 }
 </script>
 <template>
-  <div class="project-detail-layout">
+  <div
+    class="project-detail-layout"
+    :style="{ '--project-properties-width': inspector.width.value + 'px' }"
+  >
     <section class="project-main">
       <header class="project-heading">
         <nav aria-label="Project breadcrumb">
@@ -145,6 +153,19 @@ function pickLead(event: Event) {
         </template>
       </div>
     </section>
+    <div
+      v-if="rail"
+      class="project-splitter"
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      aria-label="Resize project properties"
+      :aria-valuenow="inspector.width.value"
+      :aria-valuemin="inspector.minimum.value"
+      :aria-valuemax="inspector.maximum.value"
+      @pointerdown="inspector.pointerdown($event)"
+      @keydown="inspector.keydown"
+    />
     <aside v-if="rail" class="project-properties-rail" aria-label="Project properties">
       <span class="project-detail-folder" aria-hidden="true">📁</span>
       <div class="project-title-row">
@@ -320,11 +341,28 @@ function pickLead(event: Event) {
   min-height: 0;
 }
 .project-properties-rail {
-  width: 420px;
-  flex: none;
-  border-left: 1px solid var(--border);
-  padding: 20px 16px;
+  width: var(--project-properties-width);
+  flex: 0 0 var(--project-properties-width);
+  padding: 20px 12px 24px;
   overflow: auto;
+}
+.project-splitter {
+  flex: none;
+  width: 1px;
+  background: var(--border);
+  cursor: col-resize;
+  position: relative;
+  touch-action: none;
+}
+.project-splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0 -3px;
+  z-index: 2;
+}
+.project-splitter:hover,
+.project-splitter:focus-visible {
+  background: var(--primary);
 }
 .project-detail-folder {
   font-size: 24px;
@@ -365,14 +403,15 @@ function pickLead(event: Event) {
 .project-property-rows {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 0 8px;
+  gap: 0;
+  padding: 0;
 }
 .project-property-rows label {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 5px;
   align-items: center;
-  min-height: 30px;
+  min-height: 34px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -448,7 +487,7 @@ function pickLead(event: Event) {
   justify-content: center;
   gap: 16px;
   color: var(--muted);
-  padding: 32px;
+  padding: 32px 32px 144px;
   text-align: center;
 }
 .project-empty h2 {
@@ -460,15 +499,7 @@ function pickLead(event: Event) {
   font-size: 12px;
   margin: 0;
 }
-@media (max-width: 1200px) {
-  .project-properties-rail {
-    width: 320px;
-  }
-}
 @media (max-width: 760px) {
-  .project-properties-rail {
-    width: 260px;
-  }
   .project-heading nav {
     font-size: 12px;
   }
@@ -482,8 +513,12 @@ function pickLead(event: Event) {
     min-height: 500px;
     flex: none;
   }
+  .project-splitter {
+    display: none;
+  }
   .project-properties-rail {
     width: 100%;
+    flex-basis: auto;
     border-left: 0;
     border-top: 1px solid var(--border);
   }

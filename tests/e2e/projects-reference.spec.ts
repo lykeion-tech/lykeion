@@ -165,3 +165,50 @@ test('a remote project description update keeps a local draft until the person r
     0,
   );
 });
+
+test('Project properties shares study pane proportions and saves pointer and keyboard resizing', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1512, height: 982 });
+  const ws = await labWorkspace(page.request);
+  const response = await page.request.post('/api/researches', {
+    headers: { 'X-Workspace-ID': ws },
+    data: { name: 'Resizable project properties' },
+  });
+  expect(response.status()).toBe(201);
+  const project = await response.json();
+  await page.goto(`/#/projects/${project.id}`);
+  const rail = page.getByRole('complementary', { name: 'Project properties' });
+  const splitter = page.getByRole('separator', { name: 'Resize project properties' });
+  const main = (await page.locator('.project-main').boundingBox())!;
+  const emptyCenter = await page.locator('.project-empty').evaluate((el) => {
+    const children = Array.from(el.children).map((child) => child.getBoundingClientRect());
+    return (children[0]!.top + children[children.length - 1]!.bottom) / 2;
+  });
+  expect(Math.abs(emptyCenter - (main.y + main.height / 2))).toBeLessThan(1);
+  await expect(rail).toHaveCSS('width', '364px');
+  await expect(rail).toHaveCSS('padding-left', '12px');
+  await expect(splitter).toHaveAttribute('aria-valuemin', '240');
+  await expect(splitter).toHaveAttribute('aria-valuemax', '480');
+  await splitter.focus();
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect(rail).toHaveCSS('width', '404px');
+  const bounds = (await splitter.boundingBox())!;
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width / 2 - 36, bounds.y + 100, { steps: 4 });
+  await page.mouse.up();
+  await expect(rail).toHaveCSS('width', '440px');
+  await page.reload();
+  await expect(rail).toHaveCSS('width', '440px');
+  const toggle = page.getByRole('button', { name: 'Toggle project properties' });
+  await toggle.click();
+  await expect(splitter).toHaveCount(0);
+  await toggle.click();
+  await expect(rail).toHaveCSS('width', '440px');
+  await splitter.focus();
+  await page.keyboard.press('Home');
+  await expect(rail).toHaveCSS('width', '240px');
+  await page.keyboard.press('End');
+  await expect(rail).toHaveCSS('width', '480px');
+});
