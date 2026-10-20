@@ -335,6 +335,15 @@ func (h *H) remove(w http.ResponseWriter, r *http.Request, target uuid.UUID) {
 				return err
 			}
 		}
+		projects, err := tx.Q.ClearDepartedMemberProjectLeads(r.Context(), db.ClearDepartedMemberProjectLeadsParams{WorkspaceID: ws, UserID: &target})
+		if err != nil {
+			return err
+		}
+		for _, p := range projects {
+			if err := tx.Emit(r.Context(), "research.updated", nil, store.User(user), map[string]any{"research_id": p.ID}); err != nil {
+				return err
+			}
+		}
 		agents, err := tx.Q.ArchiveOwnedAgents(r.Context(), db.ArchiveOwnedAgentsParams{WorkspaceID: ws, OwnerID: target})
 		if err != nil {
 			return err

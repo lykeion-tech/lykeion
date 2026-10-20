@@ -31,26 +31,105 @@ func (h *H) listResearches(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-func (h *H) createResearch(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+type researchInput struct {
+	Name        *string        `json:"name"`
+	Description *string        `json:"description"`
+	Status      nullableString `json:"status"`
+	Priority    nullableString `json:"priority"`
+	LeadType    nullableString `json:"lead_type"`
+	LeadID      nullableUUID   `json:"lead_id"`
+}
+
+func (in researchInput) valid(create bool) bool {
+	if create && in.Name == nil || in.Name != nil && strings.TrimSpace(*in.Name) == "" {
+		return false
 	}
-	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Name) == "" {
-		writeErr(w, 400, "name required and valid research fields expected")
+	if !create && in.Name == nil && in.Description == nil && !in.Status.Set && !in.Priority.Set && !in.LeadType.Set && !in.LeadID.Set {
+		return false
+	}
+	if in.Status.Set {
+		if in.Status.V == nil {
+			return false
+		}
+		switch *in.Status.V {
+		case "planned", "in_progress", "paused", "completed", "cancelled":
+		default:
+			return false
+		}
+	}
+	if in.Priority.Set {
+		if in.Priority.V == nil {
+			return false
+		}
+		switch *in.Priority.V {
+		case "none", "urgent", "high", "medium", "low":
+		default:
+			return false
+		}
+	}
+	if in.LeadType.Set != in.LeadID.Set {
+		return false
+	}
+	if in.LeadType.Set {
+		if (in.LeadType.V == nil) != (in.LeadID.V == nil) {
+			return false
+		}
+		if in.LeadType.V != nil && *in.LeadType.V != "member" && *in.LeadType.V != "agent" {
+			return false
+		}
+	}
+	return true
+}
+
+func (in researchInput) apply(r *db.Research) {
+	if in.Name != nil {
+		r.Name = strings.TrimSpace(*in.Name)
+	}
+	if in.Description != nil {
+		r.Description = *in.Description
+	}
+	if in.Status.Set {
+		r.Status = *in.Status.V
+	}
+	if in.Priority.Set {
+		r.Priority = *in.Priority.V
+	}
+	if in.LeadType.Set {
+		r.LeadType, r.LeadID = in.LeadType.V, in.LeadID.V
+	}
+}
+
+func sameResearchLead(a, b db.Research) bool {
+	if a.LeadType == nil || b.LeadType == nil {
+		return a.LeadType == nil && b.LeadType == nil
+	}
+	return *a.LeadType == *b.LeadType && *a.LeadID == *b.LeadID
+}
+
+func (h *H) createResearch(w http.ResponseWriter, r *http.Request) {
+	var in researchInput
+	if err := readJSON(r, &in); err != nil || !in.valid(true) {
+		writeErr(w, 400, "valid project fields and a name required")
 		return
 	}
 	var out db.Research
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		fields := db.Research{Status: "planned", Priority: "none"}
+		in.apply(&fields)
+		if fields.LeadType != nil {
+			if err := checkAssignee(r, tx, ws, user, *fields.LeadType, *fields.LeadID); err != nil {
+				return err
+			}
+		}
 		var err error
-		out, err = tx.Q.CreateResearch(r.Context(), db.CreateResearchParams{WorkspaceID: ws, Name: strings.TrimSpace(in.Name), Description: in.Description, CreatedBy: user})
+		out, err = tx.Q.CreateResearch(r.Context(), db.CreateResearchParams{WorkspaceID: ws, Name: fields.Name, Description: fields.Description, CreatedBy: user, Status: fields.Status, Priority: fields.Priority, LeadType: fields.LeadType, LeadID: fields.LeadID})
 		if err != nil {
 			return err
 		}
 		return tx.Emit(r.Context(), "research.created", nil, store.User(user), map[string]any{"research_id": out.ID})
 	})
 	if err != nil {
-		fail(w, r, err)
+		answer(w, r, err)
 		return
 	}
 	writeJSON(w, 201, out)
@@ -89,12 +168,9 @@ func (h *H) updateResearch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var in struct {
-		Name        *string `json:"name"`
-		Description *string `json:"description"`
-	}
-	if err := readJSON(r, &in); err != nil || (in.Name == nil && in.Description == nil) || (in.Name != nil && strings.TrimSpace(*in.Name) == "") {
-		writeErr(w, 400, "valid name or description required")
+	var in researchInput
+	if err := readJSON(r, &in); err != nil || !in.valid(false) {
+		writeErr(w, 400, "valid project fields required")
 		return
 	}
 	var out db.Research
@@ -103,20 +179,21 @@ func (h *H) updateResearch(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if in.Name != nil {
-			prev.Name = strings.TrimSpace(*in.Name)
+		fields := prev
+		in.apply(&fields)
+		if !sameResearchLead(prev, fields) && fields.LeadType != nil {
+			if err := checkAssignee(r, tx, ws, user, *fields.LeadType, *fields.LeadID); err != nil {
+				return err
+			}
 		}
-		if in.Description != nil {
-			prev.Description = *in.Description
-		}
-		out, err = tx.Q.UpdateResearch(r.Context(), db.UpdateResearchParams{WorkspaceID: ws, ID: id, Name: prev.Name, Description: prev.Description})
+		out, err = tx.Q.UpdateResearch(r.Context(), db.UpdateResearchParams{WorkspaceID: ws, ID: id, Name: fields.Name, Description: fields.Description, Status: fields.Status, Priority: fields.Priority, LeadType: fields.LeadType, LeadID: fields.LeadID})
 		if err != nil {
 			return err
 		}
 		return tx.Emit(r.Context(), "research.updated", nil, store.User(user), map[string]any{"research_id": id})
 	})
 	if err != nil {
-		fail(w, r, err)
+		answer(w, r, err)
 		return
 	}
 	writeJSON(w, 200, out)

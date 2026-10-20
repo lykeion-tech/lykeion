@@ -72,15 +72,61 @@ func (q *Queries) ClearDepartedMemberAssignees(ctx context.Context, arg ClearDep
 	return items, nil
 }
 
+const clearDepartedMemberProjectLeads = `-- name: ClearDepartedMemberProjectLeads :many
+UPDATE research SET lead_type = NULL, lead_id = NULL, updated_at = now()
+WHERE workspace_id = $1 AND lead_type = 'member' AND lead_id = $2 RETURNING id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id
+`
+
+type ClearDepartedMemberProjectLeadsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	UserID      *uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) ClearDepartedMemberProjectLeads(ctx context.Context, arg ClearDepartedMemberProjectLeadsParams) ([]Research, error) {
+	rows, err := q.db.Query(ctx, clearDepartedMemberProjectLeads, arg.WorkspaceID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Research
+	for rows.Next() {
+		var i Research
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Description,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Status,
+			&i.Priority,
+			&i.LeadType,
+			&i.LeadID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createResearch = `-- name: CreateResearch :one
-INSERT INTO research (workspace_id, name, description, created_by) VALUES ($1, $2, $3, $4) RETURNING id, workspace_id, name, description, created_by, created_at, updated_at
+INSERT INTO research (workspace_id, name, description, created_by, status, priority, lead_type, lead_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id
 `
 
 type CreateResearchParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	CreatedBy   uuid.UUID `json:"created_by"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	CreatedBy   uuid.UUID  `json:"created_by"`
+	Status      string     `json:"status"`
+	Priority    string     `json:"priority"`
+	LeadType    *string    `json:"lead_type"`
+	LeadID      *uuid.UUID `json:"lead_id"`
 }
 
 func (q *Queries) CreateResearch(ctx context.Context, arg CreateResearchParams) (Research, error) {
@@ -89,6 +135,10 @@ func (q *Queries) CreateResearch(ctx context.Context, arg CreateResearchParams) 
 		arg.Name,
 		arg.Description,
 		arg.CreatedBy,
+		arg.Status,
+		arg.Priority,
+		arg.LeadType,
+		arg.LeadID,
 	)
 	var i Research
 	err := row.Scan(
@@ -99,12 +149,16 @@ func (q *Queries) CreateResearch(ctx context.Context, arg CreateResearchParams) 
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.Priority,
+		&i.LeadType,
+		&i.LeadID,
 	)
 	return i, err
 }
 
 const getResearch = `-- name: GetResearch :one
-SELECT id, workspace_id, name, description, created_by, created_at, updated_at FROM research WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id FROM research WHERE workspace_id = $1 AND id = $2
 `
 
 type GetResearchParams struct {
@@ -123,12 +177,16 @@ func (q *Queries) GetResearch(ctx context.Context, arg GetResearchParams) (Resea
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.Priority,
+		&i.LeadType,
+		&i.LeadID,
 	)
 	return i, err
 }
 
 const listResearches = `-- name: ListResearches :many
-SELECT id, workspace_id, name, description, created_by, created_at, updated_at FROM research WHERE workspace_id = $1 ORDER BY created_at, id
+SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id FROM research WHERE workspace_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListResearches(ctx context.Context, workspaceID uuid.UUID) ([]Research, error) {
@@ -148,6 +206,10 @@ func (q *Queries) ListResearches(ctx context.Context, workspaceID uuid.UUID) ([]
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Status,
+			&i.Priority,
+			&i.LeadType,
+			&i.LeadID,
 		); err != nil {
 			return nil, err
 		}
@@ -327,20 +389,28 @@ func (q *Queries) UpdateCardProperties(ctx context.Context, arg UpdateCardProper
 }
 
 const updateResearch = `-- name: UpdateResearch :one
-UPDATE research SET name = $1, description = $2, updated_at = now() WHERE workspace_id = $3 AND id = $4 RETURNING id, workspace_id, name, description, created_by, created_at, updated_at
+UPDATE research SET name = $1, description = $2, status = $3, priority = $4, lead_type = $5, lead_id = $6, updated_at = now() WHERE workspace_id = $7 AND id = $8 RETURNING id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id
 `
 
 type UpdateResearchParams struct {
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	ID          uuid.UUID `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	Priority    string     `json:"priority"`
+	LeadType    *string    `json:"lead_type"`
+	LeadID      *uuid.UUID `json:"lead_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
 }
 
 func (q *Queries) UpdateResearch(ctx context.Context, arg UpdateResearchParams) (Research, error) {
 	row := q.db.QueryRow(ctx, updateResearch,
 		arg.Name,
 		arg.Description,
+		arg.Status,
+		arg.Priority,
+		arg.LeadType,
+		arg.LeadID,
 		arg.WorkspaceID,
 		arg.ID,
 	)
@@ -353,6 +423,10 @@ func (q *Queries) UpdateResearch(ctx context.Context, arg UpdateResearchParams) 
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.Priority,
+		&i.LeadType,
+		&i.LeadID,
 	)
 	return i, err
 }

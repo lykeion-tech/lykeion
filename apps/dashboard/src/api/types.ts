@@ -243,6 +243,10 @@ export interface Research {
   workspace_id: string;
   name: string;
   description: string;
+  status: 'planned' | 'in_progress' | 'paused' | 'completed' | 'cancelled';
+  priority: 'none' | 'urgent' | 'high' | 'medium' | 'low';
+  lead_type: 'member' | 'agent' | null;
+  lead_id: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

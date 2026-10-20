@@ -338,13 +338,17 @@ type Record struct {
 }
 
 type Research struct {
-	ID          uuid.UUID `json:"id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	CreatedBy   uuid.UUID `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	CreatedBy   uuid.UUID  `json:"created_by"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	Status      string     `json:"status"`
+	Priority    string     `json:"priority"`
+	LeadType    *string    `json:"lead_type"`
+	LeadID      *uuid.UUID `json:"lead_id"`
 }
 
 type Runtime struct {
