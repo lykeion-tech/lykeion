@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -66,6 +67,15 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 			binds = append(binds, bind{"--hide", dir})
 		}
 	}
+	if p.HomeRead {
+		sockets, err := homeSockets(r.home, append(append([]string{}, r.hidden...), r.write...))
+		if err != nil {
+			return nil, fmt.Errorf("sandbox home sockets: %w", err)
+		}
+		for _, socket := range sockets {
+			binds = append(binds, bind{"--hide", socket})
+		}
+	}
 	slices.SortStableFunc(binds, func(a, b bind) int {
 		return strings.Count(a.dir, "/") - strings.Count(b.dir, "/")
 	})
@@ -83,4 +93,28 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	// in a tmpfs that vanishes; the bound folders keep their own mounts.
 	argv = append(argv, "--remount-ro", r.home, "--unshare-pid", "--unshare-ipc", "--cap-drop", "ALL", "--share-net", "--die-with-parent", "--", name)
 	return append(argv, args...), nil
+}
+
+// ponytail: walks the whole home per run; cache per daemon if launch time grows
+func homeSockets(home string, skip []string) ([]string, error) {
+	var sockets []string
+	err := filepath.WalkDir(home, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsPermission(err) {
+				return filepath.SkipDir
+			}
+			return err
+		}
+		if slices.Contains(skip, path) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&fs.ModeSocket != 0 {
+			sockets = append(sockets, path)
+		}
+		return nil
+	})
+	return sockets, err
 }
