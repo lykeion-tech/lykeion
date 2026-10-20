@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
@@ -134,7 +136,8 @@ func parseNumber(s string) (number, bool) {
 
 // tokens are the numbers printed in out. A minus sign right after a digit is
 // not a sign, so `3-4` is 3 and 4, while `a,-0.5` keeps its negative; a comma
-// never joins digits, so `1,234` is the numbers 1 and 234.
+// never joins digits, so `1,234` is the numbers 1 and 234. A number right
+// after a letter or `_` is part of a name and is not a value.
 func tokens(out string) []*big.Rat {
 	var rs []*big.Rat
 	for _, ix := range numberToken.FindAllStringIndex(out, -1) {
@@ -142,11 +145,26 @@ func tokens(out string) []*big.Rat {
 		if out[i] == '-' && i > 0 && out[i-1] >= '0' && out[i-1] <= '9' {
 			i++
 		}
+		if joinedToName(out, ix[0]) {
+			continue
+		}
 		if n, ok := parseNumber(out[i:ix[1]]); ok {
 			rs = append(rs, n.r)
 		}
 	}
 	return rs
+}
+
+// joinedToName reports whether the number at out[start:end] follows a letter
+// or `_`, as in `H2O`, `log10` or `x_2`: that is part of a name, not a printed
+// value. Letters after a number are units, so `5.3ms` is still 5.3. A leading
+// minus is a sign, so the character before it is not checked.
+func joinedToName(out string, start int) bool {
+	if start == 0 || out[start] == '-' {
+		return false
+	}
+	r, _ := utf8.DecodeLastRuneInString(out[:start])
+	return r == '_' || unicode.IsLetter(r)
 }
 
 // roundTo rounds r to d decimal places, halves away from zero.

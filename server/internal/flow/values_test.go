@@ -80,6 +80,41 @@ func TestValueMatchingRules(t *testing.T) {
 	})
 }
 
+func TestValueJoinedToNames(t *testing.T) {
+	for _, tc := range []struct {
+		out   string
+		value any
+		want  bool
+	}{
+		{"H2O\n", json.Number("2"), false},
+		{"log10(x)\n", json.Number("10"), false},
+		{"x_2 done\n", json.Number("2"), false},
+		{"3rd place\n", json.Number("3"), true},
+		{"2x\n", json.Number("2"), true},
+		{"1e3x\n", json.Number("1000"), true},
+		{"0.5mg\n", json.Number("0.5"), true},
+		{"5.3ms\n", json.Number("5.3"), true},
+		{"5µm\n", json.Number("5"), true},
+		{"µ5\n", json.Number("5"), false},
+		{"p=0.04\n", json.Number("0.04"), true},
+		{"(0.12)\n", json.Number("0.12"), true},
+		{"0.12, 0.3\n", json.Number("0.12"), true},
+		{"t-stat 5.3\n", json.Number("5.3"), true},
+		{"a,-0.5\n", json.Number("-0.5"), true},
+		{"it was 7. Next\n", json.Number("7"), true},
+		{"12.5%\n", json.Number("12.5"), true},
+		{"1e-3\n", json.Number("0.001"), true},
+	} {
+		t.Run(tc.out, func(t *testing.T) {
+			rec := valueRec("r1", "result", map[string]any{"cites": []string{"run:x1"}, "value": tc.value})
+			got := MatchValues([]db.Record{rec}, map[string]Run{"x1": {Tool: "run_script", Stdout: tc.out}})
+			if len(got) != 1 || got[0].Matched != tc.want {
+				t.Fatalf("got %+v, want matched=%v", got, tc.want)
+			}
+		})
+	}
+}
+
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
