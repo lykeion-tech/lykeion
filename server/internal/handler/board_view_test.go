@@ -12,9 +12,7 @@ func TestCardListShowsQueuedAndTheWorkingRole(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	var idle, waiting, working, stopped card
 	for i, c := range []*card{&idle, &waiting, &working, &stopped} {
-		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q" + itoa(int64(i))}, c); code != 201 {
-			t.Fatal(code)
-		}
+		*c = s.idleCard(t, a, w.ID, "q"+itoa(int64(i)))
 	}
 	owner := s.userID(t, a)
 	s.queue(t, w.ID, waiting.ID, owner, "claude")
@@ -73,8 +71,7 @@ func TestCardRunsListOldestFirst(t *testing.T) {
 	s.H.Engine = nil
 	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@else.org")
 	w, other := s.workspace(t, a, "lab"), s.workspace(t, b, "else")
-	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	c := s.idleCard(t, a, w.ID, "q")
 	owner := s.userID(t, a)
 	s.queue(t, w.ID, c.ID, owner, "claude")
 	s.queue(t, w.ID, c.ID, owner, "codex")
@@ -107,6 +104,7 @@ func TestCardRunsListOldestFirst(t *testing.T) {
 
 func TestCardListUpdatedAtIsTheNewestEvent(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	s.H.Engine = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
@@ -142,8 +140,7 @@ func TestCardRecordsCanIncludeSuperseded(t *testing.T) {
 	s.H.Engine = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	c := s.idleCard(t, a, w.ID, "q")
 	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, superseded_at, created_at)
 		VALUES ($1, $2, 'grounding', 1, 'scope', 'scoper', 'old', now(), now() - interval '1 second'), ($1, $2, 'grounding', 2, 'scope', 'scoper', 'new', NULL, now())`, w.ID, c.ID); err != nil {
 		t.Fatal(err)
@@ -169,8 +166,7 @@ func TestRecordsWrittenTogetherListInKeyOrder(t *testing.T) {
 	s.H.Engine = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	c := s.idleCard(t, a, w.ID, "q")
 	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, created_at)
 		SELECT $1, $2, 'grounding', 1, 'score', 'server', k, '2030-01-01T00:00:00Z' FROM unnest(ARRAY['r10','r9','r2','r1']) k`, w.ID, c.ID); err != nil {
 		t.Fatal(err)

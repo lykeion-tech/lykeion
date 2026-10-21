@@ -96,10 +96,7 @@ func TestARunOnlyTokenOpensCardsAndNothingElse(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var other card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Someone's own question"}, &other); code != 201 {
-		t.Fatalf("request: %d", code)
-	}
+	other := s.idleCard(t, a, w.ID, "Someone's own question")
 	ap, _, ltk, complete := s.runOnly(t, a, w.ID)
 
 	var c struct {

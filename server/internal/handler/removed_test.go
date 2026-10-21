@@ -12,10 +12,7 @@ func TestGateEraRoutesAreGone(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var c card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
-		t.Fatalf("card: %d", code)
-	}
+	c := s.idleCard(t, a, w.ID, "q")
 	for _, r := range []struct{ method, path string }{
 		{"POST", "/api/cards/" + c.ID + "/send-back"},
 		{"POST", "/api/cards/" + c.ID + "/budget"},

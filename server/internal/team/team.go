@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/availability"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -116,6 +118,34 @@ func FromForm(ctx context.Context, tx *store.Tx, in Form) (pack.Manifest, error)
 // AuditorDiffers is the pack package's rule, so a form and an archive meet the
 // same one.
 func AuditorDiffers(m pack.Manifest) error { return pack.AuditorDiffers(m) }
+
+// NoBuiltInError: a column needs its free stage Team and the workspace has none.
+type NoBuiltInError struct{ Stage string }
+
+func (e NoBuiltInError) Error() string {
+	return "No built-in Team for " + strings.ToUpper(e.Stage[:1]) + e.Stage[1:]
+}
+
+// ColumnTeams gives the Team of every column from..to: the chosen one where
+// there is one, the stage's built-in Team elsewhere.
+func ColumnTeams(ctx context.Context, tx *store.Tx, from, to string, chosen map[string]uuid.UUID) (map[string]uuid.UUID, error) {
+	out := map[string]uuid.UUID{}
+	for _, col := range board.Stages[board.StageIndex(from) : board.StageIndex(to)+1] {
+		if id, ok := chosen[col]; ok {
+			out[col] = id
+			continue
+		}
+		p, err := tx.Q.BuiltInStageTeam(ctx, db.BuiltInStageTeamParams{WorkspaceID: tx.WS, Stage: col})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, NoBuiltInError{col}
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[col] = p.ID
+	}
+	return out, nil
+}
 
 // Add records user's approval of the Team version and gives them an agent for
 // the leader, the auditor and each member: private, owned by them, named

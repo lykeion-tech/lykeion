@@ -517,10 +517,7 @@ func newAgentLab(t *testing.T) *teamLab {
 		t.Fatalf("register %d %+v", c, rts)
 	}
 	l.rts = rts[0].ID
-	if c := s.call(t, "POST", "/api/cards", l.jwt, l.ws, map[string]any{"question": "Why do cells age?",
-		"scope": map[string]string{"from": "grounding", "to": "grounding"}, "assignee": map[string]any{"type": "agent", "id": a.ID}}, &l.card); c != 201 {
-		t.Fatalf("card: %d", c)
-	}
+	l.card = s.agentCard(t, l.jwt, l.ws, a.ID, "grounding", "grounding", "Why do cells age?")
 	return l
 }
 

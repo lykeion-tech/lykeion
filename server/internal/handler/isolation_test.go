@@ -17,10 +17,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@else.org")
 	wa := s.workspace(t, a, "lab-a")
 	wb := s.workspace(t, b, "lab-b")
-	var c card
-	if code := s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q"}, &c); code != http.StatusCreated || c.ID == "" {
-		t.Fatalf("create card fixture: %d %+v", code, c)
-	}
+	c := s.idleCard(t, a, wa.ID, "q")
 	var research, agent struct{ ID string }
 	if code := s.call(t, "POST", "/api/researches", a, wa.ID, map[string]string{"name": "Isolation research"}, &research); code != http.StatusCreated || research.ID == "" {
 		t.Fatalf("research fixture: %d %+v", code, research)

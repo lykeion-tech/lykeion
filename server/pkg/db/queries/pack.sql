@@ -70,5 +70,10 @@ SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND n
 UPDATE field_pack SET name = @new_name::text, manifest = jsonb_set(manifest, '{name}', to_jsonb(@new_name::text))
 WHERE workspace_id = @workspace_id AND name = @name AND source <> 'shipped';
 
+-- The free Team of a stage: the shipped Team labelled for that stage and no field.
+-- name: BuiltInStageTeam :one
+SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND source = 'shipped' AND stage = @stage AND domain = ''
+ORDER BY created_at, id LIMIT 1;
+
 -- name: ListOwnPacks :many
 SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND uploaded_by = @user_id ORDER BY name, created_at;

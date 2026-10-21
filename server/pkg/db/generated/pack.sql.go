@@ -56,6 +56,37 @@ func (q *Queries) ApproveFieldPack(ctx context.Context, arg ApproveFieldPackPara
 	return result.RowsAffected(), nil
 }
 
+const builtInStageTeam = `-- name: BuiltInStageTeam :one
+SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage FROM field_pack WHERE workspace_id = $1 AND source = 'shipped' AND stage = $2 AND domain = ''
+ORDER BY created_at, id LIMIT 1
+`
+
+type BuiltInStageTeamParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Stage       string    `json:"stage"`
+}
+
+// The free Team of a stage: the shipped Team labelled for that stage and no field.
+func (q *Queries) BuiltInStageTeam(ctx context.Context, arg BuiltInStageTeamParams) (FieldPack, error) {
+	row := q.db.QueryRow(ctx, builtInStageTeam, arg.WorkspaceID, arg.Stage)
+	var i FieldPack
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Version,
+		&i.Sha256,
+		&i.Manifest,
+		&i.BlobKey,
+		&i.Source,
+		&i.UploadedBy,
+		&i.CreatedAt,
+		&i.Domain,
+		&i.Stage,
+	)
+	return i, err
+}
+
 const getFieldPack = `-- name: GetFieldPack :one
 SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage FROM field_pack WHERE workspace_id = $1 AND id = $2
 `

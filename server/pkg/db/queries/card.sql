@@ -74,16 +74,8 @@ UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id;
 
--- People edit and delete a card only while it is in Backlog; the column check
--- is repeated here so a card WIP pull has started is never changed.
--- name: EditBacklogCard :one
-UPDATE card SET title = @title, question = @question, deadline = sqlc.narg(deadline),
-  follows_from = @follows_from, position = @position, version = version + 1
-WHERE id = @id AND workspace_id = @workspace_id AND board_column = 'backlog'
-RETURNING *;
-
--- name: DeleteBacklogCard :execrows
-DELETE FROM card WHERE id = @id AND workspace_id = @workspace_id AND board_column = 'backlog';
+-- name: DeleteCard :exec
+DELETE FROM card WHERE id = @id AND workspace_id = @workspace_id;
 
 -- A card's runs with what the study page shows about each: the name of the
 -- agent it was started as, the latest text of its current attempt and when

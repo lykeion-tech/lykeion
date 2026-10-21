@@ -43,10 +43,7 @@ func TestDaemonProtocolOverHTTP(t *testing.T) {
 	jwt := s.signIn(t, "a@lab.org")
 	tok := s.personalToken(t, jwt)
 	w := s.workspace(t, jwt, "lab")
-	var c card
-	if got := s.call(t, "POST", "/api/cards", jwt, w.ID, map[string]any{"question": "q"}, &c); got != 201 {
-		t.Fatalf("card: %d", got)
-	}
+	c := s.idleCard(t, jwt, w.ID, "q")
 	reg := map[string]any{"workspace_id": w.ID, "daemon_id": "d1", "device_name": "laptop", "harnesses": []string{"claude", "codex"}}
 	if got := s.call(t, "POST", "/api/daemon/register", jwt, "", reg, nil); got != 401 {
 		t.Fatalf("JWT daemon access: %d", got)
@@ -238,10 +235,7 @@ func TestAgentRunMessagesPaginationRequiresRunAndAttempt(t *testing.T) {
 	jwt := s.signIn(t, "reader@lab.org")
 	tok := s.personalToken(t, jwt)
 	w := s.workspace(t, jwt, "lab")
-	var c card
-	if got := s.call(t, "POST", "/api/cards", jwt, w.ID, map[string]any{"question": "q"}, &c); got != 201 {
-		t.Fatalf("card: %d", got)
-	}
+	c := s.idleCard(t, jwt, w.ID, "q")
 	var rts []struct{ ID string }
 	s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": w.ID, "daemon_id": "d1", "harnesses": []string{"claude"}}, &rts)
 	s.queue(t, w.ID, c.ID, s.userID(t, jwt), "claude")
@@ -289,10 +283,7 @@ func TestPeopleCancelAndDaemonAcknowledges(t *testing.T) {
 	jwt := s.signIn(t, "cancel@lab.org")
 	tok := s.personalToken(t, jwt)
 	w := s.workspace(t, jwt, "lab")
-	var c card
-	if got := s.call(t, "POST", "/api/cards", jwt, w.ID, map[string]any{"question": "q"}, &c); got != 201 {
-		t.Fatalf("card: %d", got)
-	}
+	c := s.idleCard(t, jwt, w.ID, "q")
 	var workspaces []map[string]any
 	if got := s.call(t, "GET", "/api/daemon/workspaces", tok, "", nil, &workspaces); got != 200 || len(workspaces) != 1 {
 		t.Fatalf("daemon workspaces: %d %+v", got, workspaces)
@@ -343,10 +334,7 @@ func TestDaemonSocketSurvivesRequestTimeout(t *testing.T) {
 	jwt := s.signIn(t, "long-lived@lab.org")
 	tok := s.personalToken(t, jwt)
 	w := s.workspace(t, jwt, "lab")
-	var c card
-	if got := s.call(t, http.MethodPost, "/api/cards", jwt, w.ID, map[string]any{"question": "q"}, &c); got != http.StatusCreated || c.ID == "" {
-		t.Fatalf("card: %d %+v", got, c)
-	}
+	c := s.idleCard(t, jwt, w.ID, "q")
 	conn, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(s.URL, "http")+"/api/daemon/ws", http.Header{"Authorization": {"Bearer " + tok}})
 	if err != nil {
 		t.Fatalf("dial daemon socket: %v %v", err, resp)
@@ -394,10 +382,7 @@ func TestDaemonInvalidBatchNeverHidesCommittedClaims(t *testing.T) {
 				jwt := s.signIn(t, "batch@lab.org")
 				tok := s.personalToken(t, jwt)
 				w := s.workspace(t, jwt, "batch")
-				var card card
-				if got := s.call(t, "POST", "/api/cards", jwt, w.ID, map[string]any{"question": "q"}, &card); got != 201 {
-					t.Fatal(got)
-				}
+				card := s.idleCard(t, jwt, w.ID, "q")
 				var refs []struct{ ID string }
 				if got := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": w.ID, "daemon_id": "batch", "device_name": "test", "harnesses": []string{"claude"}}, &refs); got != 200 {
 					t.Fatal(got)

@@ -2,8 +2,10 @@ package handler
 
 import (
 	"io"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/testutil"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +22,8 @@ type card struct {
 
 func TestCardLifecycleBasics(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c1, c2 card
@@ -27,7 +31,7 @@ func TestCardLifecycleBasics(t *testing.T) {
 		t.Fatalf("create: %d", code)
 	}
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"title": "Second", "question": "q2", "follows_from": []string{c1.ID}}, &c2)
-	if c1.Number != 1 || c2.Number != 2 || c1.BoardColumn != "backlog" || c1.Title == "" || c1.OwnerID != s.userID(t, a) {
+	if c1.Number != 1 || c2.Number != 2 || c1.BoardColumn != "grounding" || c1.Title == "" || c1.OwnerID != s.userID(t, a) {
 		t.Fatalf("%+v %+v", c1, c2)
 	}
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": " "}, nil); code != 400 {
@@ -37,7 +41,7 @@ func TestCardLifecycleBasics(t *testing.T) {
 		t.Fatalf("follows_from an unknown card: %d", code)
 	}
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "board_column": "validation"}, nil); code != 400 {
-		t.Fatal("a card was created outside Backlog")
+		t.Fatal("a card was created in a column the request named")
 	}
 
 	if code := s.call(t, "POST", "/api/cards/"+c1.ID+"/comments", a, w.ID, map[string]string{"body": "Focus on fasting state."}, nil); code != 201 {
@@ -65,6 +69,7 @@ func TestCardLifecycleBasics(t *testing.T) {
 
 func TestCardsAreScopedToTheirWorkspace(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@else.org")
 	wa, wb := s.workspace(t, a, "lab-a"), s.workspace(t, b, "lab-b")
 	var c card
@@ -82,6 +87,7 @@ func TestCardsAreScopedToTheirWorkspace(t *testing.T) {
 
 func TestInbox(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c card
@@ -106,6 +112,8 @@ func TestInbox(t *testing.T) {
 
 func TestEmptyCollectionResponsesAreJSONArrays(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
 	a := s.signIn(t, "empty@lab.org")
 	w := s.workspace(t, a, "empty-lab")
 	assertBody := func(method, path string) {
@@ -184,6 +192,7 @@ func teamAssignee(teams map[string]string, extra ...string) map[string]any {
 
 func TestASingleTeamStudyStaysInItsColumn(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	pack := s.addedTeam(t, a, w.ID, "hyp", "hypotheses")
@@ -195,33 +204,40 @@ func TestASingleTeamStudyStaysInItsColumn(t *testing.T) {
 	if c.ScopeFrom != "hypotheses" || c.ScopeTo != "hypotheses" || c.BoardColumn != "hypotheses" || c.State != "working" || c.Teams["hypotheses"].PackID != pack {
 		t.Fatalf("%+v", c)
 	}
+	var wide studyJSON
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2", "scope": map[string]string{"from": "grounding", "to": "reporting"},
-		"assignee": teamAssignee(map[string]string{"hypotheses": pack})}, nil); code != 400 {
+		"assignee": teamAssignee(map[string]string{"hypotheses": pack})}, &wide); code != 201 {
 		t.Fatalf("a wider scope for one Team: %d", code)
+	}
+	if len(wide.Teams) != 5 || wide.Teams["hypotheses"].PackID != pack || wide.Teams["grounding"].PackID != s.builtInID(t, w.ID, "grounding") {
+		t.Fatalf("%+v", wide)
 	}
 }
 
-func TestATeamSetNeedsAnAgentForItsGaps(t *testing.T) {
+func TestATeamSetsGapsGetTheBuiltInTeams(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting")
-	agent := s.newAgent(t, a, w.ID, "filler", "claude")
 	teams := map[string]string{"grounding": g, "reporting": r}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(teams)}, nil); code != 400 {
-		t.Fatalf("gaps without an agent: %d", code)
-	}
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(teams, agent)}, &c); code != 201 {
-		t.Fatalf("with an agent: %d", code)
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(teams)}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
 	}
-	if c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" || c.BoardColumn != "grounding" || len(c.Teams) != 2 {
+	if c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" || c.BoardColumn != "grounding" || len(c.Teams) != 5 ||
+		c.Teams["grounding"].PackID != g || c.Teams["reporting"].PackID != r || c.Teams["validation"].PackID != s.builtInID(t, w.ID, "validation") {
 		t.Fatalf("%+v", c)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "scope": map[string]string{"from": "grounding", "to": "validation"},
+		"assignee": teamAssignee(teams)}, nil); code != 400 {
+		t.Fatalf("a Team outside the scope: %d", code)
 	}
 }
 
 func TestATeamTheCreatorHasNotAddedIsRefused(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var up struct{ ID string }
@@ -236,63 +252,54 @@ func TestATeamTheCreatorHasNotAddedIsRefused(t *testing.T) {
 
 func TestFollowsFromOnlyEndToEnd(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	agent := s.newAgent(t, a, w.ID, "solo", "claude")
 	var parent studyJSON
-	single := map[string]any{"question": "parent", "scope": map[string]string{"from": "validation", "to": "validation"}, "assignee": map[string]any{"type": "agent", "id": agent}}
+	single := map[string]any{"question": "parent", "scope": map[string]string{"from": "validation", "to": "validation"}}
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, single, &parent); code != 201 {
 		t.Fatalf("parent: %d", code)
 	}
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "child 1", "follows_from": []string{parent.ID},
-		"scope": map[string]string{"from": "grounding", "to": "hypotheses"}, "assignee": map[string]any{"type": "agent", "id": agent}}, nil); code != 400 {
+		"scope": map[string]string{"from": "grounding", "to": "hypotheses"}}, nil); code != 400 {
 		t.Fatalf("single-stage follower: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "child 2", "follows_from": []string{parent.ID},
-		"assignee": map[string]any{"type": "agent", "id": agent}}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "child 2", "follows_from": []string{parent.ID}}, nil); code != 201 {
 		t.Fatalf("end-to-end follower: %d", code)
 	}
 }
 
-func TestUnassignedStudiesWait(t *testing.T) {
+func TestAStudyWithNoTeamPickedStartsAtOnceEndToEnd(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c studyJSON
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if c.BoardColumn != "backlog" || c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" {
+	if c.BoardColumn != "grounding" || c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" || len(c.Teams) != 5 {
 		t.Fatalf("%+v", c)
 	}
-	// An assigned study starts at once, so the unassigned one's empty queue
-	// is the engine's choice, not its absence.
-	agent := s.newAgent(t, a, w.ID, "solo", "claude")
-	var assigned studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2", "assignee": map[string]any{"type": "agent", "id": agent}}, &assigned); code != 201 {
-		t.Fatalf("create assigned: %d", code)
+	for _, col := range board.Stages {
+		if c.Teams[col].PackID != s.builtInID(t, w.ID, col) {
+			t.Fatalf("%s: %+v", col, c.Teams[col])
+		}
 	}
 	// The engine starts a study after the request's transaction commits.
-	n := 0
-	for deadline := time.Now().Add(5 * time.Second); n == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		n = s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND status = 'queued' AND role = 'agent'", assigned.ID)
-	}
-	if n != 1 {
-		t.Fatalf("assigned study: %d queued agent runs", n)
-	}
-	if n := s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1", c.ID); n != 0 {
-		t.Fatalf("%d agent runs", n)
+	if n := s.queuedRuns(t, c.ID); n != 1 || s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND role = 'leader' AND board_column = 'grounding'", c.ID) != 1 {
+		t.Fatalf("%d queued runs", n)
 	}
 }
 
 func TestALaterColumnsTeamCanChangeUntilItStarts(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting"), s.addedTeam(t, a, w.ID, "r2", "reporting")
-	agent := s.newAgent(t, a, w.ID, "filler", "claude")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r}, agent)}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"reporting": r2}, nil); code != 200 {
@@ -308,6 +315,7 @@ func TestALaterColumnsTeamCanChangeUntilItStarts(t *testing.T) {
 
 func TestOffLabelColumnsAreMarked(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	pack := s.addedTeam(t, a, w.ID, "hyp", "hypotheses")
@@ -324,9 +332,9 @@ func TestOffLabelColumnsAreMarked(t *testing.T) {
 
 func TestDuplicateSaysWhetherFollowingIsAllowed(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	agent := s.newAgent(t, a, w.ID, "solo", "claude")
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, nil); code != 201 {
 		t.Fatalf("first: %d", code)
 	}
@@ -338,20 +346,19 @@ func TestDuplicateSaysWhetherFollowingIsAllowed(t *testing.T) {
 		t.Fatalf("end-to-end duplicate: %d %+v", code, dup)
 	}
 	dup.FollowsAllowed = true
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question", "scope": map[string]string{"from": "validation", "to": "validation"},
-		"assignee": map[string]any{"type": "agent", "id": agent}}, &dup); code != 409 || dup.FollowsAllowed {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question", "scope": map[string]string{"from": "validation", "to": "validation"}}, &dup); code != 409 || dup.FollowsAllowed {
 		t.Fatalf("single-stage duplicate: %d %+v", code, dup)
 	}
 }
 
 func TestATeamCountsTheStudiesItWorks(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting")
-	agent := s.newAgent(t, a, w.ID, "filler", "claude")
 	for _, q := range []string{"one?", "two?"} {
-		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": q, "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": g}, agent)}, nil); code != 201 {
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": q, "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": g})}, nil); code != 201 {
 			t.Fatalf("create: %d", code)
 		}
 	}
@@ -366,6 +373,7 @@ func TestATeamCountsTheStudiesItWorks(t *testing.T) {
 
 func TestADoneStudyNoLongerHoldsItsQuestion(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var first card
@@ -380,13 +388,13 @@ func TestADoneStudyNoLongerHoldsItsQuestion(t *testing.T) {
 
 func TestOnlyTheOwnerChangesAStudysTeams(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
 	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting"), s.addedTeam(t, a, w.ID, "r2", "reporting")
-	agent := s.newAgent(t, a, w.ID, "filler", "claude")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r}, agent)}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", b, w.ID, map[string]string{"reporting": r2}, nil); code != 403 {
@@ -401,6 +409,7 @@ func TestOnlyTheOwnerChangesAStudysTeams(t *testing.T) {
 
 func TestMixedAssigneeShapesAreRefused(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	agent := s.newAgent(t, a, w.ID, "solo", "claude")
@@ -413,5 +422,165 @@ func TestMixedAssigneeShapesAreRefused(t *testing.T) {
 		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": name, "assignee": assignee}, nil); code != 400 {
 			t.Errorf("%s: %d", name, code)
 		}
+	}
+}
+
+// builtIns ships a free Team for each stage named, or for every stage;
+// workspaces made afterwards have them.
+func (s *server) builtIns(t *testing.T, stages ...string) {
+	t.Helper()
+	if len(stages) == 0 {
+		stages = board.Stages
+	}
+	var zips [][]byte
+	for _, st := range stages {
+		zips = append(zips, testutil.Pack(t, testutil.PackOpts{Name: strings.ToUpper(st[:1]) + st[1:] + " Team", Stage: st}))
+	}
+	s.H.Shipped = shippedFS(t, zips...)
+}
+
+// builtInID is the id of the workspace's built-in Team for a stage.
+func (s *server) builtInID(t *testing.T, wsID, stage string) string {
+	t.Helper()
+	var id string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT id::text FROM field_pack WHERE workspace_id = $1 AND source = 'shipped' AND stage = $2`, wsID, stage).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// queuedRuns waits for the engine to queue a study's first run.
+func (s *server) queuedRuns(t *testing.T, cardID string) int {
+	t.Helper()
+	n := 0
+	for deadline := time.Now().Add(5 * time.Second); n == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		n = s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND status = 'queued'", cardID)
+	}
+	return n
+}
+
+func TestNoTeamPickedUsesTheBuiltInTeams(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "scope": map[string]string{"from": "hypotheses", "to": "hypotheses"}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if c.BoardColumn != "hypotheses" || c.State != "working" || len(c.Teams) != 1 || c.Teams["hypotheses"].PackID != s.builtInID(t, w.ID, "hypotheses") {
+		t.Fatalf("%+v", c)
+	}
+	if n := s.count(t, "SELECT count(*) FROM card WHERE id = $1 AND round = 1 AND assignee_type = 'team'", c.ID); n != 1 {
+		t.Fatal("the study did not start on round 1 as a Team study")
+	}
+	if n := s.queuedRuns(t, c.ID); n != 1 {
+		t.Fatalf("%d queued runs", n)
+	}
+}
+
+func TestAChosenTeamFillsItsColumnAndBuiltInsTheRest(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	exp := s.addedTeam(t, a, w.ID, "exp", "experimentation")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "scope": map[string]string{"from": "hypotheses", "to": "validation"},
+		"assignee": teamAssignee(map[string]string{"experimentation": exp})}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if len(c.Teams) != 3 || c.Teams["hypotheses"].PackID != s.builtInID(t, w.ID, "hypotheses") ||
+		c.Teams["experimentation"].PackID != exp || c.Teams["validation"].PackID != s.builtInID(t, w.ID, "validation") || c.BoardColumn != "hypotheses" {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestAStudyCannotBeAssignedToAnAgentOrMember(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "solo", "claude")
+	for name, assignee := range map[string]map[string]any{
+		"agent":           {"type": "agent", "id": agent},
+		"member":          {"type": "member", "id": s.userID(t, a)},
+		"team with agent": {"type": "team", "teams": map[string]string{"grounding": s.builtInID(t, w.ID, "grounding")}, "agent_id": agent},
+	} {
+		var e struct{ Error string }
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": name, "assignee": assignee}, &e); code != 400 || e.Error != "a study is worked by a Team" {
+			t.Errorf("%s: %d %q", name, code, e.Error)
+		}
+	}
+	if n := s.count(t, "SELECT count(*) FROM card"); n != 0 {
+		t.Fatalf("%d studies", n)
+	}
+}
+
+func TestCreateRefusesWhenAStageHasNoBuiltInTeam(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t, board.Stages[:4]...)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var e struct{ Error string }
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &e); code != 422 || e.Error != "No built-in Team for Reporting" {
+		t.Fatalf("%d %q", code, e.Error)
+	}
+	if n := s.count(t, "SELECT count(*) FROM card"); n != 0 {
+		t.Fatalf("%d studies", n)
+	}
+}
+
+func TestAStartedStudyCannotBeEdited(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	for _, body := range []map[string]any{{"title": "t"}, {"question": "q2"}, {"deadline": "2026-12-01T00:00:00Z"}, {"assignee": map[string]any{"type": "team"}}} {
+		if code := s.call(t, "PATCH", "/api/cards/"+c.ID, a, w.ID, body, nil); code != 405 && code != 404 {
+			t.Fatalf("edit %v: %d", body, code)
+		}
+	}
+	agent := s.newAgent(t, a, w.ID, "solo", "claude")
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/properties", a, w.ID, map[string]any{"assignee_type": "agent", "assignee_id": agent}, nil); code != 400 {
+		t.Fatalf("reassign: %d", code)
+	}
+	var res struct{ ID string }
+	if code := s.call(t, "POST", "/api/researches", a, w.ID, map[string]any{"name": "Ageing"}, &res); code != 201 {
+		t.Fatalf("research: %d", code)
+	}
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/properties", a, w.ID, map[string]any{"research_id": res.ID}, nil); code != 200 {
+		t.Fatalf("research stays editable: %d", code)
+	}
+	if n := s.count(t, "SELECT count(*) FROM card WHERE id = $1 AND title = 'q' AND assignee_type = 'team' AND assignee_id IS NULL", c.ID); n != 1 {
+		t.Fatal("the study changed")
+	}
+}
+
+func TestTheOwnerDeletesAStudyAnyTime(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if n := s.queuedRuns(t, c.ID); n != 1 {
+		t.Fatalf("the study is not working: %d queued runs", n)
+	}
+	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, b, w.ID, nil, nil); code != 403 {
+		t.Fatalf("another member deletes: %d", code)
+	}
+	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, a, w.ID, nil, nil); code != 204 {
+		t.Fatalf("owner deletes: %d", code)
+	}
+	if n := s.count(t, "SELECT count(*) FROM card WHERE id = $1", c.ID) + s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1", c.ID); n != 0 {
+		t.Fatalf("%d rows left", n)
 	}
 }

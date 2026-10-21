@@ -21,11 +21,6 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-type packCard struct {
-	ID     string
-	PackID *string `json:"pack_id"`
-}
-
 type packRow struct {
 	ID            string
 	Name          string
@@ -107,17 +102,6 @@ func (s *server) versions(t *testing.T, tok, wsID, name string) []packRow {
 		t.Fatalf("versions: %d", c)
 	}
 	return rows
-}
-
-func (s *server) newCard(t *testing.T, tok, wsID string, in map[string]any) (int, packCard, string) {
-	t.Helper()
-	var raw json.RawMessage
-	code := s.call(t, "POST", "/api/cards", tok, wsID, in, &raw)
-	var c packCard
-	var e struct{ Error string }
-	json.Unmarshal(raw, &c)
-	json.Unmarshal(raw, &e)
-	return code, c, e.Error
 }
 
 // shipOne files a shipped pack the way a deployment that ships Teams would.
@@ -245,7 +229,7 @@ func TestCardRecordsOfOneKind(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	_, c, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q"})
+	c := s.idleCard(t, a, w.ID, "q")
 	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body, superseded_at) VALUES
 		($1, $2, 'grounding', 1, 'starting_point', 'server', '0', '{}', NULL),
 		($1, $2, 'experimentation', 2, 'starting_point', 'server', '1', '{}', NULL),
@@ -264,8 +248,8 @@ func TestCardRecordById(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	_, c, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q"})
-	_, other, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q2"})
+	c := s.idleCard(t, a, w.ID, "q")
+	other := s.idleCard(t, a, w.ID, "q2")
 	var live, gone, foreign string
 	for _, row := range []struct {
 		card, sup string
