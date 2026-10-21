@@ -2,6 +2,7 @@ package pack
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 
 	"lykeion/server/internal/storage"
@@ -33,7 +34,18 @@ func InstallShipped(ctx context.Context, tx *store.Tx, blobs storage.Storage, sh
 		if err != nil {
 			return err
 		}
-		if err := tx.Q.RenameFieldPack(ctx, db.RenameFieldPackParams{WorkspaceID: tx.WS, Name: name, NewName: name + " (custom)"}); err != nil {
+		renamed := name + " (custom)"
+		for n := 2; ; n++ {
+			used, err := tx.Q.PackNameInUse(ctx, db.PackNameInUseParams{WorkspaceID: tx.WS, Name: renamed})
+			if err != nil {
+				return err
+			}
+			if !used {
+				break
+			}
+			renamed = fmt.Sprintf("%s (custom %d)", name, n)
+		}
+		if err := tx.Q.RenameFieldPack(ctx, db.RenameFieldPackParams{WorkspaceID: tx.WS, Name: name, NewName: renamed}); err != nil {
 			return err
 		}
 		key, err := PutBlob(ctx, blobs, tx.WS, zipBytes, p.SHA256)

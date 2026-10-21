@@ -27,9 +27,15 @@ func shippedOf(t *testing.T, name string) fstest.MapFS {
 	}
 	out := fstest.MapFS{}
 	for _, f := range zr.File {
-		rc, _ := f.Open()
-		b, _ := io.ReadAll(rc)
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := io.ReadAll(rc)
 		rc.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
 		out[name+"/"+f.Name] = &fstest.MapFile{Data: b}
 	}
 	return out
@@ -142,11 +148,43 @@ func TestInstallRenamesAWorkspaceTeamWithTheSameName(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m struct{ Name string }
-	json.Unmarshal(custom.Manifest, &m)
+	if err := json.Unmarshal(custom.Manifest, &m); err != nil {
+		t.Fatal(err)
+	}
 	if got["uploaded"] != "Grounding Team (custom)" || m.Name != "Grounding Team (custom)" {
 		t.Fatalf("upload %v manifest %q", got, m.Name)
 	}
 	if rows := rowsOf(t, st, ws, user); len(rows) != 2 {
 		t.Fatalf("rows %+v", rows)
+	}
+}
+
+func TestInstallPicksAFreeNameWhenCustomIsTaken(t *testing.T) {
+	st, ws, user, blobs := installLab(t)
+	ctx := context.Background()
+	for _, name := range []string{"Grounding Team", "Grounding Team (custom)"} {
+		p, err := Parse(testutil.Pack(t, testutil.PackOpts{Name: name, Stage: "grounding"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = st.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
+			_, err := Insert(ctx, tx, "k", p, &user)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := installOnce(t, st, ws, user, blobs, shippedOf(t, "Grounding Team")); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, r := range rowsOf(t, st, ws, user) {
+		names[r.Name] = true
+	}
+	for _, want := range []string{"Grounding Team", "Grounding Team (custom)", "Grounding Team (custom 2)"} {
+		if !names[want] {
+			t.Fatalf("missing %q in %v", want, names)
+		}
 	}
 }

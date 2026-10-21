@@ -447,6 +447,22 @@ func (q *Queries) OwnerHarnesses(ctx context.Context, arg OwnerHarnessesParams) 
 	return items, nil
 }
 
+const packNameInUse = `-- name: PackNameInUse :one
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = $1 AND name = $2) AS used
+`
+
+type PackNameInUseParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+}
+
+func (q *Queries) PackNameInUse(ctx context.Context, arg PackNameInUseParams) (bool, error) {
+	row := q.db.QueryRow(ctx, packNameInUse, arg.WorkspaceID, arg.Name)
+	var used bool
+	err := row.Scan(&used)
+	return used, err
+}
+
 const packNameTaken = `-- name: PackNameTaken :one
 SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = $1 AND name = $2
   AND uploaded_by IS DISTINCT FROM $3::uuid) AS taken
