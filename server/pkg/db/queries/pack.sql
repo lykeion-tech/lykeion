@@ -33,6 +33,11 @@ UPDATE card SET pack_id = @pack_id WHERE workspace_id = @workspace_id AND id = @
 SELECT DISTINCT harness FROM runtime WHERE workspace_id = @workspace_id AND owner_id = @owner_id AND status = 'online'
 ORDER BY harness;
 
+-- The harnesses the owner has a runtime for, online or not.
+-- name: OwnerHarnesses :many
+SELECT DISTINCT harness FROM runtime WHERE workspace_id = @workspace_id AND owner_id = @owner_id
+ORDER BY harness;
+
 -- name: GetFieldPackVersion :one
 SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND version = @version;
 

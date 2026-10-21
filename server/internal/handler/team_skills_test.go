@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
@@ -28,7 +29,7 @@ func TestTeamSkillsCreatePrivateVersionAndPreserveOriginal(t *testing.T) {
 	if slices.Contains(old.Manifest.Leader.Skills, "aeon") || !slices.Equal(updated.Manifest.Leader.Skills, []string{"aeon"}) {
 		t.Fatal("original changed or selection not saved")
 	}
-	if updated.Manifest.Auditor.Agent != old.Manifest.Auditor.Agent || updated.Manifest.Leader.Agent != old.Manifest.Leader.Agent {
+	if !reflect.DeepEqual(updated.Manifest.Auditor.Agent, old.Manifest.Auditor.Agent) || !reflect.DeepEqual(updated.Manifest.Leader.Agent, old.Manifest.Leader.Agent) {
 		t.Fatal("agent definitions changed")
 	}
 	if c := s.call(t, "GET", "/api/teams/"+made.ID, b, w.ID, nil, nil); c != 404 {

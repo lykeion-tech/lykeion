@@ -392,6 +392,37 @@ func (q *Queries) OnlineHarnesses(ctx context.Context, arg OnlineHarnessesParams
 	return items, nil
 }
 
+const ownerHarnesses = `-- name: OwnerHarnesses :many
+SELECT DISTINCT harness FROM runtime WHERE workspace_id = $1 AND owner_id = $2
+ORDER BY harness
+`
+
+type OwnerHarnessesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+// The harnesses the owner has a runtime for, online or not.
+func (q *Queries) OwnerHarnesses(ctx context.Context, arg OwnerHarnessesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, ownerHarnesses, arg.WorkspaceID, arg.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var harness string
+		if err := rows.Scan(&harness); err != nil {
+			return nil, err
+		}
+		items = append(items, harness)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const packNameTaken = `-- name: PackNameTaken :one
 SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = $1 AND name = $2
   AND uploaded_by IS DISTINCT FROM $3::uuid) AS taken

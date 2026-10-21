@@ -197,7 +197,7 @@ func (h *H) createTeam(w http.ResponseWriter, r *http.Request) {
 
 // teamInput turns the team package's input refusals into 400s.
 func teamInput(err error) error {
-	if errors.Is(err, team.ErrInvalid) {
+	if errors.Is(err, team.ErrInvalid) || errors.Is(err, team.ErrNoHarness) {
 		return cardInputError(err.Error())
 	}
 	return err

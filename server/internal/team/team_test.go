@@ -2,6 +2,8 @@ package team
 
 import (
 	"context"
+	"errors"
+	"github.com/jackc/pgx/v5/pgtype"
 	"testing"
 
 	"github.com/google/uuid"
@@ -178,5 +180,62 @@ func TestAddTwiceChangesNothing(t *testing.T) {
 	first, second := l.add(t, ana), l.add(t, ana)
 	if len(first) != 4 || len(second) != 4 || len(l.agents(t)) != 4 {
 		t.Fatalf("first %d, second %d, agents %d", len(first), len(second), len(l.agents(t)))
+	}
+}
+
+func TestAddPicksTheOwnersHarness(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		have    []string
+		harness string
+		model   string
+		err     error
+	}{
+		{"codex only", []string{"codex"}, "codex", "gpt-6", nil},
+		{"claude only", []string{"claude"}, "claude", "opus", nil},
+		{"both", []string{"codex", "claude"}, "claude", "opus", nil},
+		{"none", nil, "", "", ErrNoHarness},
+	} {
+		l, owner := newLab(t)
+		ctx := context.Background()
+		for i, h := range c.have {
+			err := l.store.InWorkspace(ctx, l.ws, owner, func(tx *store.Tx) error {
+				// Offline runtimes count.
+				_, err := tx.Q.UpsertRuntime(ctx, db.UpsertRuntimeParams{WorkspaceID: l.ws, OwnerID: owner,
+					DaemonID: uuid.NewString() + string(rune('a'+i)), Harness: h})
+				if err != nil {
+					return err
+				}
+				_, err = tx.Q.SweepWorkspaceRuntimes(ctx, db.SweepWorkspaceRuntimesParams{WorkspaceID: l.ws,
+					Stale: pgtype.Interval{Microseconds: -1_000_000, Valid: true}})
+				return err
+			})
+			if err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+		}
+		l.man.Members[0].Agent = pack.AgentDef{Models: map[string]string{"claude": "opus", "codex": "gpt-6"}, Instructions: "i"}
+		err := l.store.InWorkspace(ctx, l.ws, owner, func(tx *store.Tx) error {
+			_, err := Add(ctx, tx, l.pack, l.man, owner)
+			return err
+		})
+		if !errors.Is(err, c.err) {
+			t.Fatalf("%s: err = %v, want %v", c.name, err, c.err)
+		}
+		if c.err != nil {
+			continue
+		}
+		found := false
+		for _, a := range l.agents(t) {
+			if a.Name == l.man.Members[0].Name+" · "+l.man.Name {
+				found = true
+				if a.Harness != c.harness || a.Model != c.model {
+					t.Errorf("%s: agent %s/%s, want %s/%s", c.name, a.Harness, a.Model, c.harness, c.model)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s: member agent not created", c.name)
+		}
 	}
 }

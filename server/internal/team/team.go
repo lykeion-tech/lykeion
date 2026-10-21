@@ -22,6 +22,10 @@ import (
 // ErrInvalid marks a refusal caused by the caller's input.
 var ErrInvalid = errors.New("invalid team")
 
+// ErrNoHarness: a member names a model per harness and the user has no runtime
+// for any of them.
+var ErrNoHarness = errors.New("Connect Claude Code or Codex first")
+
 const maxAgentName = 64
 
 type Slot struct {
@@ -128,13 +132,27 @@ func Add(ctx context.Context, tx *store.Tx, p db.FieldPack, m pack.Manifest, use
 	if err != nil || len(have) > 0 {
 		return have, err
 	}
+	owned, err := tx.Q.OwnerHarnesses(ctx, db.OwnerHarnessesParams{WorkspaceID: tx.WS, OwnerID: user})
+	if err != nil {
+		return nil, err
+	}
 	for _, mem := range slices.Concat([]pack.Member{m.Leader, m.Auditor}, m.Members) {
+		harness, model := mem.Agent.Harness, mem.Agent.Model
+		if len(mem.Agent.Models) > 0 {
+			// owned is sorted, so the first match is the same on every run.
+			i := slices.IndexFunc(owned, func(h string) bool { _, ok := mem.Agent.Models[h]; return ok })
+			if i < 0 {
+				return nil, ErrNoHarness
+			}
+			harness = owned[i]
+			model = mem.Agent.Models[harness]
+		}
 		name, err := freeName(ctx, tx, mem.Name+" · "+m.Name)
 		if err != nil {
 			return nil, err
 		}
 		a, err := tx.Q.CreateAgent(ctx, db.CreateAgentParams{WorkspaceID: tx.WS, Name: name, Description: mem.Role,
-			Instructions: mem.Agent.Instructions, Harness: mem.Agent.Harness, Model: mem.Agent.Model,
+			Instructions: mem.Agent.Instructions, Harness: harness, Model: model,
 			Visibility: "private", OwnerID: user})
 		if err != nil {
 			return nil, err
