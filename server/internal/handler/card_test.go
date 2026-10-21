@@ -541,7 +541,7 @@ func TestAStartedStudyCannotBeEdited(t *testing.T) {
 		t.Fatalf("create: %d", code)
 	}
 	for _, body := range []map[string]any{{"title": "t"}, {"question": "q2"}, {"deadline": "2026-12-01T00:00:00Z"}, {"assignee": map[string]any{"type": "team"}}} {
-		if code := s.call(t, "PATCH", "/api/cards/"+c.ID, a, w.ID, body, nil); code != 405 && code != 404 {
+		if code := s.call(t, "PATCH", "/api/cards/"+c.ID, a, w.ID, body, nil); code != 405 {
 			t.Fatalf("edit %v: %d", body, code)
 		}
 	}
@@ -582,5 +582,23 @@ func TestTheOwnerDeletesAStudyAnyTime(t *testing.T) {
 	}
 	if n := s.count(t, "SELECT count(*) FROM card WHERE id = $1", c.ID) + s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1", c.ID); n != 0 {
 		t.Fatalf("%d rows left", n)
+	}
+}
+
+func TestDeletingAWorkingStudyCancelsItsRunningRun(t *testing.T) {
+	l := newTeamLab(t, 0)
+	run := l.claim(t)
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatalf("delete: %d", code)
+	}
+	if n := l.s.count(t, `SELECT count(*) FROM event WHERE type = 'agent_run.cancelled' AND payload->>'agent_run_id' = $1`, run.id); n != 1 {
+		t.Fatalf("%d agent_run.cancelled events", n)
+	}
+	if code := l.s.call(t, "POST", "/api/role/report", run.token, "", map[string]string{"text": "still here"}, nil); code != 401 {
+		t.Fatalf("the run's token still works: %d", code)
+	}
+	status := "/api/daemon/agent-runs/" + run.id + "/status?workspace_id=" + l.ws + "&runtime_id=" + l.rts + "&attempt=1"
+	if code := l.s.call(t, "GET", status, l.personal, "", nil, nil); code != 404 {
+		t.Fatalf("status of the deleted run: %d", code)
 	}
 }

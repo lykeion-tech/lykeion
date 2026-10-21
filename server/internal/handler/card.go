@@ -17,6 +17,7 @@ import (
 
 	"lykeion/server/internal/board"
 	packpkg "lykeion/server/internal/pack"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
@@ -673,7 +674,8 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteCard removes a study and everything recorded on it, at any point of
-// its work; only its owner may. Its events stay, with the card's id in the
+// its work; only its owner may. Its open agent runs are cancelled first, so
+// their tokens stop working. Its events stay, with the card's id in the
 // payload; the database clears their card reference and drops its runs.
 func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
@@ -693,6 +695,9 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 		}
 		if c.OwnerID != user {
 			return forbidden("only the study's owner deletes it")
+		}
+		if err := service.CancelCardRuns(r.Context(), tx, user, id); err != nil {
+			return err
 		}
 		runs, err := tx.Q.FailRunsForDeletedCard(r.Context(), db.FailRunsForDeletedCardParams{WorkspaceID: ws, CardID: &id})
 		if err != nil {
