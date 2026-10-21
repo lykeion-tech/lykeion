@@ -13,6 +13,8 @@ func TestOnlyAStudyFileDownloadGetsTheLongBudget(t *testing.T) {
 	}{
 		{"GET", "/api/cards/" + id + "/attachments/" + id, true},
 		{"POST", "/api/cards/" + id + "/attachments/" + id, false},
+		{"GET", "/api/cards/" + id + "/attachments/not-a-uuid", false},
+		{"GET", "/api/cards/x/attachments/" + id, false},
 		{"GET", "/api/cards/" + id + "/comments", false},
 		{"GET", "/api/cards/" + id, false},
 	} {

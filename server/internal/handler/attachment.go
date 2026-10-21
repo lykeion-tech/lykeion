@@ -246,15 +246,15 @@ func (h *H) uploadText(name, typ string, r io.Reader) (string, bool) {
 // buffering workspace scope so a 100 MB file never sits in memory, and it
 // checks membership and the file's study before reading the blob.
 func (h *H) downloadAttachment(w http.ResponseWriter, r *http.Request) {
-	ws, err := uuid.Parse(r.Header.Get("X-Workspace-ID"))
-	card, err2 := uuid.Parse(chi.URLParam(r, "id"))
-	aid, err3 := uuid.Parse(chi.URLParam(r, "aid"))
-	if err != nil || err2 != nil || err3 != nil {
+	ws, wsErr := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+	card, cardErr := uuid.Parse(chi.URLParam(r, "id"))
+	aid, aidErr := uuid.Parse(chi.URLParam(r, "aid"))
+	if err := errors.Join(wsErr, cardErr, aidErr); err != nil {
 		writeErr(w, 404, "not found")
 		return
 	}
 	var row db.Attachment
-	err = h.memberTx(r, ws, false, func(tx *store.Tx) error {
+	err := h.memberTx(r, ws, false, func(tx *store.Tx) error {
 		var err error
 		row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: ws, CardID: &card, ID: aid})
 		return err
