@@ -22,8 +22,12 @@ const members = useMembers();
 const daemons = computed(() => groupDaemons(runtimes.data.value ?? []));
 const machine = computed(() => daemons.value.find((d) => d.id === props.machineId));
 const sandboxFailure = computed(() => {
-  const status = machine.value?.runtimes.find((r) => r.bases?.sandbox?.startsWith('failed'))?.bases
-    .sandbox;
+  const current = machine.value;
+  if (!current) return '';
+  // Omitted CLI rows keep old bases; use only the latest machine report.
+  const status = current.runtimes.find(
+    (r) => r.last_seen_at === current.lastSeen && r.bases?.sandbox?.startsWith('failed'),
+  )?.bases.sandbox;
   if (!status) return '';
   const reason = status.slice('failed'.length).replace(/^:\s*/, '').trim();
   return reason ? `Can't run agents: ${reason}` : "Can't run agents";

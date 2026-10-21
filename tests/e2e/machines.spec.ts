@@ -702,11 +702,11 @@ test('machine detail explains a failed sandbox and clears the reason after a rea
   const token = await (
     await page.request.post('/api/tokens', { data: { name: 'Sandbox heartbeat browser test' } })
   ).json();
-  const heartbeat = async (sandbox: string) => {
+  const heartbeat = async (sandbox: string, active = records) => {
     const response = await page.request.post('/api/daemon/heartbeat', {
       headers: { Authorization: `Bearer ${token.token}` },
       data: {
-        runtimes: records.map((r) => ({ workspace_id: ws, runtime_id: r.id })),
+        runtimes: active.map((r) => ({ workspace_id: ws, runtime_id: r.id })),
         bases: { sandbox },
       },
     });
@@ -721,7 +721,10 @@ test('machine detail explains a failed sandbox and clears the reason after a rea
     await expect(failure).toHaveCount(0);
     await heartbeat('failed: install bubblewrap');
     await expect(failure).toHaveText("Can't run agents: install bubblewrap");
-    await heartbeat('ready');
+    await heartbeat(
+      'ready',
+      records.filter((r) => r.harness === 'claude'),
+    );
     await expect(failure).toHaveCount(0);
   } finally {
     expect((await page.request.delete(`/api/tokens/${token.id}`)).status()).toBe(204);

@@ -7,7 +7,10 @@ import MachinesView from '../apps/dashboard/src/views/MachinesView.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { keys } from '../apps/dashboard/src/api/keys';
 
-async function renderMachine(sandbox?: string) {
+async function renderMachine(
+  sandbox?: string,
+  previous?: { sandbox: string; status: 'online' | 'offline' },
+) {
   workspaceId.value = 'w';
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
@@ -26,6 +29,23 @@ async function renderMachine(sandbox?: string) {
       last_seen_at: '2026-10-21T10:00:00Z',
       bases: sandbox ? { sandbox } : {},
     },
+    ...(previous
+      ? [
+          {
+            id: 'previous-runtime',
+            daemon_id: 'daemon',
+            device_name: 'Bench computer',
+            custom_name: null,
+            owner_id: 'owner',
+            status: previous.status,
+            harness: 'codex',
+            cli_version: '1.0',
+            active_runs: 0,
+            last_seen_at: '2026-10-21T09:00:00Z',
+            bases: { sandbox: previous.sandbox },
+          },
+        ]
+      : []),
   ]);
   client.setQueryData(keys.members('w'), []);
   const router = createRouter({
@@ -54,6 +74,27 @@ describe('machine sandbox readiness', () => {
     expect(html).toContain('Bench computer');
     expect(html).toContain('Can&#39;t run agents: install bubblewrap');
     expect(html).toContain('role="alert"');
+  });
+  it.each(['online', 'offline'] as const)(
+    'ignores an older failed %s runtime after the current machine reports ready',
+    async (status) => {
+      const html = await renderMachine('ready', { sandbox: 'failed: install bubblewrap', status });
+      expect(html).not.toContain('run agents:');
+    },
+  );
+  it('preserves a current failure even when an older runtime reports ready', async () => {
+    const html = await renderMachine('failed: install bubblewrap', {
+      sandbox: 'ready',
+      status: 'offline',
+    });
+    expect(html).toContain('Can&#39;t run agents: install bubblewrap');
+  });
+  it('does not substitute a historical failure for an unreported current sandbox', async () => {
+    const html = await renderMachine(undefined, {
+      sandbox: 'failed: install bubblewrap',
+      status: 'offline',
+    });
+    expect(html).not.toContain('run agents:');
   });
   it.each(['ready', undefined])('shows no failure when sandbox status is %s', async (sandbox) => {
     expect(await renderMachine(sandbox)).not.toContain('run agents:');
