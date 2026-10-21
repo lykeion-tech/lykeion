@@ -191,3 +191,28 @@ func TestTheSweepRemovesOnlyStalePendingUploads(t *testing.T) {
 		}
 	}
 }
+
+func TestTheSweepSparesAnUploadLinkedAfterItWasListed(t *testing.T) {
+	s := newServer(t)
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "up-lab")
+	linked := s.idleCard(t, tok, w.ID, "A question?")
+	_, out := s.upload(t, tok, w.ID, "kept.txt", 100)
+	id := uuid.MustParse(out["id"].(string))
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE attachment SET card_id = $2 WHERE id = $1`, id, linked.ID); err != nil {
+		t.Fatal(err)
+	}
+	key := w.ID + "/attachments/" + id.String()
+	if err := removePendingAttachment(t.Context(), s.H.Store, s.H.Blobs, uuid.MustParse(w.ID), id, key); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	_ = s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM attachment WHERE id=$1`, id).Scan(&n)
+	rc, err := s.H.Blobs.Get(t.Context(), key)
+	if err == nil {
+		rc.Close()
+	}
+	if n != 1 || err != nil {
+		t.Fatalf("linked upload lost: row %d, blob err %v", n, err)
+	}
+}

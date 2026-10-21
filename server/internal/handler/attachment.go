@@ -151,16 +151,25 @@ func SweepAttachments(ctx context.Context, st *store.Store, blobs storage.Storag
 	}
 	var errs []error
 	for _, a := range stale {
-		err := st.InWorkspace(ctx, a.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
-			return tx.Q.DeleteAttachment(ctx, db.DeleteAttachmentParams{WorkspaceID: a.WorkspaceID, ID: a.ID})
-		})
-		if err == nil {
-			err = blobs.Delete(ctx, a.BlobKey)
-		}
-		if err != nil {
+		if err := removePendingAttachment(ctx, st, blobs, a.WorkspaceID, a.ID, a.BlobKey); err != nil {
 			slog.Error("attachment sweep", "id", a.ID, "err", err)
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// removePendingAttachment deletes an upload still unlinked, then its blob. An
+// upload a study linked since it was listed is left alone, blob included.
+func removePendingAttachment(ctx context.Context, st *store.Store, blobs storage.Storage, ws, id uuid.UUID, key string) error {
+	var n int64
+	err := st.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		var err error
+		n, err = tx.Q.DeletePendingAttachment(ctx, db.DeletePendingAttachmentParams{WorkspaceID: ws, ID: id})
+		return err
+	})
+	if err != nil || n == 0 {
+		return err
+	}
+	return blobs.Delete(ctx, key)
 }

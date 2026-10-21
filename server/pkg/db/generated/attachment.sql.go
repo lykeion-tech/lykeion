@@ -54,18 +54,22 @@ func (q *Queries) CardAttachments(ctx context.Context, arg CardAttachmentsParams
 	return items, nil
 }
 
-const deleteAttachment = `-- name: DeleteAttachment :exec
-DELETE FROM attachment WHERE workspace_id = $1 AND id = $2
+const deletePendingAttachment = `-- name: DeletePendingAttachment :execrows
+DELETE FROM attachment WHERE workspace_id = $1 AND id = $2 AND card_id IS NULL
 `
 
-type DeleteAttachmentParams struct {
+type DeletePendingAttachmentParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	ID          uuid.UUID `json:"id"`
 }
 
-func (q *Queries) DeleteAttachment(ctx context.Context, arg DeleteAttachmentParams) error {
-	_, err := q.db.Exec(ctx, deleteAttachment, arg.WorkspaceID, arg.ID)
-	return err
+// Zero rows means the upload was linked to a study after it was listed.
+func (q *Queries) DeletePendingAttachment(ctx context.Context, arg DeletePendingAttachmentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePendingAttachment, arg.WorkspaceID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const insertPendingAttachment = `-- name: InsertPendingAttachment :one
