@@ -47,6 +47,11 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 				return nil, err
 			}
 		}
+	} else if override, err := codexMCPCacheOverride(personal, o.CacheDir); err != nil {
+		cleanup(true)
+		return nil, err
+	} else if override != "" {
+		args = append(args, "-c", override)
 	}
 	if o.DoorURL != "" {
 		// The door's token stays out of argv: Codex reads it from the env.
