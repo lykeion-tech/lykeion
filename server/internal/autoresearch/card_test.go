@@ -37,7 +37,7 @@ func TestAdmitRecordsARunOncePerKey(t *testing.T) {
 	}
 }
 
-func TestCreateCardOpensABacklogCardOwnedByTheActor(t *testing.T) {
+func TestCreateCardOpensAStudyOwnedByTheActor(t *testing.T) {
 	f := setup(t)
 	collab := f.user(t, "c@lab.org", "member")
 	sub := f.user(t, "s@lab.org", "member")
@@ -52,7 +52,7 @@ func TestCreateCardOpensABacklogCardOwnedByTheActor(t *testing.T) {
 		t.Fatalf("run: %+v", r)
 	}
 	c := f.card(t, *r.CardID)
-	if c.BoardColumn != "backlog" || c.OwnerID != collab || c.Origin != Origin(ap) || c.Title != "Digest 2026-10-14" ||
+	if c.BoardColumn != "grounding" || c.Round != 1 || c.OwnerID != collab || c.Origin != Origin(ap) || c.Title != "Digest 2026-10-14" ||
 		c.Question != "What changed in mouse liver lipidomics this week?" || len(c.FollowsFrom) != 0 {
 		t.Fatalf("card: %+v", c)
 	}
@@ -110,11 +110,12 @@ func TestAWebhookPayloadIsARecordNeverTheQuestion(t *testing.T) {
 	if c.Question != "Is the new dataset usable for our question?" {
 		t.Fatalf("the payload reached the question: %q", c.Question)
 	}
-	if n := f.count(t, `SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'trigger_payload' AND board_column = 'backlog'
-		AND role = 'server' AND body @> '{"event":"dataset.published"}'`, c.ID); n != 1 {
+	if n := f.count(t, `SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'trigger_payload' AND board_column = 'grounding'
+		AND round = 0 AND role = 'server' AND body @> '{"event":"dataset.published"}'`, c.ID); n != 1 {
 		t.Fatalf("payload records: %d", n)
 	}
-	if f.count(t, `SELECT count(*) FROM record WHERE card_id = $1 AND board_column <> 'backlog'`, c.ID) != 0 {
+	// No attempt's round holds it.
+	if f.count(t, `SELECT count(*) FROM record WHERE card_id = $1 AND round <> 0`, c.ID) != 0 {
 		t.Fatal("the payload was stored where a gate reads")
 	}
 }

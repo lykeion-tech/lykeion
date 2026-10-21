@@ -51,7 +51,7 @@ func serve(t *testing.T) (*httptest.Server, *mail) {
 	m := &mail{}
 	srv := httptest.NewServer(handler.NewRouter(&handler.H{Store: st, JWT: auth.Issuer{Secret: []byte("s"), TTL: time.Hour},
 		Mail: m, Limit: auth.Limiter{R: env.Redis}, Hub: hub,
-		AgentRuns: &service.AgentRuns{Store: st}, Blobs: storage.Local{Dir: t.TempDir()}}))
+		AgentRuns: &service.AgentRuns{Store: st}, Blobs: storage.Local{Dir: t.TempDir()}, Shipped: testutil.BuiltIns(t)}))
 	t.Cleanup(srv.Close)
 	return srv, m
 }
@@ -87,7 +87,7 @@ func TestPeopleCommands(t *testing.T) {
 	}
 	lyk(t, "", "card", "comment", "1", "Focus on the fasting state.")
 	got := lyk(t, "", "card", "show", "1")
-	if !strings.Contains(got, "backlog") || !strings.Contains(got, "fasting state") {
+	if !strings.Contains(got, "column: grounding") || !strings.Contains(got, "fasting state") {
 		t.Fatalf("card show: %s", got)
 	}
 	if got := lyk(t, "", "card", "list"); !strings.Contains(got, "Does X raise Y") {

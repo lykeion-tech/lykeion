@@ -3,6 +3,7 @@ package autoresearch
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -44,8 +45,10 @@ func (s *Service) Report(ctx context.Context, tx *store.Tx, ar uuid.UUID, text s
 		map[string]any{"run_id": r.ID, "autoresearch_id": ap.ID})
 }
 
-// OpenCardForAgentRun opens a Backlog card for a run_only agent run, owned by its run's
-// acting user and under the same duplicate guard as create_card.
+// OpenCardForAgentRun opens a study for a run_only agent run, owned by its run's
+// acting user and under the same duplicate guard as create_card. The agent the
+// run works as works the study; a run with no assigned agent leaves the study
+// to the built-in Teams.
 func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid.UUID, title, question string) (db.Card, error) {
 	r, err := tx.Q.RunByAgentRun(ctx, db.RunByAgentRunParams{WorkspaceID: tx.WS, AgentRunID: ar})
 	if err != nil {
@@ -55,5 +58,13 @@ func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid
 	if err != nil {
 		return db.Card{}, err
 	}
-	return s.openCard(ctx, tx, ap, r, title, question, nil, false)
+	var agent *uuid.UUID
+	if ap.AssigneeType != nil {
+		a, err := s.assignedAgent(ctx, tx, ap, r.ActingUserID)
+		if err != nil {
+			return db.Card{}, fmt.Errorf("%w: %w", ErrStartFailed, err)
+		}
+		agent = &a.ID
+	}
+	return s.openCard(ctx, tx, ap, r, title, question, nil, agent, nil)
 }

@@ -71,15 +71,6 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id AND board_column = @bo
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
 VALUES (@workspace_id, @card_id::uuid, @user_id, @kind, @text);
 
--- name: ActiveCardCount :one
-SELECT count(*) FROM card WHERE workspace_id = @workspace_id AND ending = ''
-  AND board_column NOT IN ('backlog', 'done');
-
--- WIP pull takes the top of Backlog first: the lowest position, then the lowest number.
--- name: BacklogCards :many
-SELECT * FROM card WHERE workspace_id = @workspace_id AND board_column = 'backlog' AND flag = ''
-ORDER BY position, number;
-
 -- name: BoardCandidates :many
 SELECT workspace_id::uuid AS workspace_id, card_id::uuid AS card_id, board_column::text AS board_column
 FROM board_candidates();

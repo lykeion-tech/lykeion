@@ -105,7 +105,7 @@ func TestARunOnlyTokenOpensCardsAndNothingElse(t *testing.T) {
 		BoardColumn       string `json:"board_column"`
 	}
 	if code := s.call(t, "POST", "/api/role/cards", ltk, "", map[string]string{"question": "Does Z lower W in mouse liver?", "title": "Z and W"}, &c); code != 201 ||
-		c.Origin != "autoresearch:"+ap.ID || c.OwnerID != s.userID(t, a) || c.BoardColumn != "backlog" || c.Title != "Z and W" {
+		c.Origin != "autoresearch:"+ap.ID || c.OwnerID != s.userID(t, a) || c.BoardColumn != "grounding" || c.Title != "Z and W" {
 		t.Fatalf("open a card: %d %+v", code, c)
 	}
 	var dup struct {

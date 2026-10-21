@@ -147,7 +147,7 @@ func reportCmd(e *env) *cobra.Command {
 
 func openCardCmd(e *env) *cobra.Command {
 	var title string
-	cmd := &cobra.Command{Use: "open-card QUESTION", Short: "Open a Backlog card from this Autoresearch run", Args: cobra.MinimumNArgs(1),
+	cmd := &cobra.Command{Use: "open-card QUESTION", Short: "Open a study from this Autoresearch run", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, a []string) error {
 			c, err := roleClient()
 			if err != nil {

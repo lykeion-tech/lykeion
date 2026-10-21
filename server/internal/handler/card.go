@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
-	packpkg "lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -163,7 +161,7 @@ func checkAssigneeRefs(r *http.Request, tx *store.Tx, ws, user uuid.UUID, a *ass
 		return checkAssignee(r, tx, ws, user, a.Type, *a.ID)
 	}
 	for _, pack := range a.Teams {
-		if err := ensureTeam(r, tx, ws, user, pack); err != nil {
+		if err := ensureTeam(r, tx, user, pack); err != nil {
 			return err
 		}
 	}
@@ -199,30 +197,12 @@ func checkAssignee(r *http.Request, tx *store.Tx, ws, creator uuid.UUID, typ str
 
 // ensureTeam readies a Team for the person: a shipped Team gives them their
 // agents on the spot, an uploaded one must already be added.
-func ensureTeam(r *http.Request, tx *store.Tx, ws, user, pack uuid.UUID) error {
-	p, err := tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: pack})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return cardInputError("add this Team to your workspace first")
-		}
-		return err
+func ensureTeam(r *http.Request, tx *store.Tx, user, pack uuid.UUID) error {
+	err := team.Ensure(r.Context(), tx, user, pack)
+	if errors.Is(err, team.ErrNotAdded) {
+		return cardInputError(err.Error())
 	}
-	if p.Source == "shipped" {
-		var m packpkg.Manifest
-		if err := json.Unmarshal(p.Manifest, &m); err != nil {
-			return err
-		}
-		_, err := team.Add(r.Context(), tx, p, m, user)
-		return teamInput(err)
-	}
-	have, err := tx.Q.TeamAgentsFor(r.Context(), db.TeamAgentsForParams{WorkspaceID: ws, PackID: pack, UserID: user})
-	if err != nil {
-		return err
-	}
-	if len(have) == 0 {
-		return cardInputError("add this Team to your workspace first")
-	}
-	return nil
+	return teamInput(err)
 }
 
 type cardTeamView struct {
@@ -331,7 +311,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		for _, col := range board.Stages[board.StageIndex(from) : board.StageIndex(to)+1] {
-			if err := ensureTeam(r, tx, ws, user, teams[col]); err != nil {
+			if err := ensureTeam(r, tx, user, teams[col]); err != nil {
 				return err
 			}
 		}
@@ -433,7 +413,7 @@ func (h *H) setCardTeams(w http.ResponseWriter, r *http.Request) {
 			if c.Ending != "" || i <= board.StageIndex(c.BoardColumn) {
 				return errTeamStarted
 			}
-			if err := ensureTeam(r, tx, ws, c.OwnerID, pack); err != nil {
+			if err := ensureTeam(r, tx, c.OwnerID, pack); err != nil {
 				return err
 			}
 			if err := tx.Q.SetCardTeam(r.Context(), db.SetCardTeamParams{WorkspaceID: ws, CardID: id, BoardColumn: col, PackID: pack}); err != nil {

@@ -50,17 +50,17 @@ func TestCardListShowsQueuedAndTheWorkingRole(t *testing.T) {
 		got[c.ID] = c.BoardColumn + "/" + map[bool]string{true: "queued", false: "-"}[c.Queued] + "/" + c.Role
 	}
 	want := map[string]string{
-		idle.ID:    "backlog/-/",
+		idle.ID:    "grounding/-/",
 		waiting.ID: "grounding/queued/scoper",
 		working.ID: "grounding/-/grounding-reviewer",
-		stopped.ID: "backlog/-/",
+		stopped.ID: "grounding/-/",
 	}
 	for id, exp := range want {
 		if got[id] != exp {
 			t.Errorf("card %s: %q, want %q", id, got[id], exp)
 		}
 	}
-	// Grouped by column, then Backlog's position order.
+	// Grouped by column, then position: the newest card heads its column.
 	if list[0].ID != stopped.ID || list[1].ID != idle.ID || list[2].BoardColumn != "grounding" {
 		t.Errorf("order: %+v", list)
 	}

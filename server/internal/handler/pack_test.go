@@ -1,11 +1,9 @@
 package handler
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -37,28 +35,7 @@ type packRow struct {
 // the embedded shipped packs.
 func shippedFS(t *testing.T, zips ...[]byte) fstest.MapFS {
 	t.Helper()
-	out := fstest.MapFS{}
-	for _, z := range zips {
-		zr, err := zip.NewReader(bytes.NewReader(z), int64(len(z)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		files := map[string][]byte{}
-		for _, f := range zr.File {
-			rc, _ := f.Open()
-			b, _ := io.ReadAll(rc)
-			rc.Close()
-			files[f.Name] = b
-		}
-		var m struct{ Name string }
-		if err := json.Unmarshal(files["pack.json"], &m); err != nil {
-			t.Fatal(err)
-		}
-		for name, b := range files {
-			out[m.Name+"/"+name] = &fstest.MapFile{Data: b}
-		}
-	}
-	return out
+	return testutil.Shipped(t, zips...)
 }
 
 // installPackFixture seeds a pre-existing private Team version for API tests.

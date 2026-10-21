@@ -15,19 +15,24 @@ type backlogCard struct {
 	Position    float64    `json:"position"`
 }
 
-func TestNewCardsGoToTheTopOfBacklog(t *testing.T) {
+func TestNewCardsGoToTheTopOfTheirColumn(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	s.H.Engine = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c1, c2, c3 backlogCard
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q1"}, &c1)
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2"}, &c2)
+	if s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q1"}, &c1) != 201 ||
+		s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2"}, &c2) != 201 {
+		t.Fatal("create")
+	}
 	if c1.Position != 0 || c2.Position != -1 {
 		t.Fatalf("positions %v %v", c1.Position, c2.Position)
 	}
-	// Only Backlog counts: a started card's position is not the top.
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'grounding', position = -50 WHERE id = $1`, c2.ID)
+	// Only the new card's column counts: a card further on is not the top.
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'hypotheses', position = -50 WHERE id = $1`, c2.ID); err != nil {
+		t.Fatal(err)
+	}
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q3"}, &c3)
 	if c3.Position != -1 {
 		t.Fatalf("third position %v", c3.Position)

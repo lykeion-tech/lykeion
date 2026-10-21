@@ -8,6 +8,22 @@ import (
 	"testing"
 )
 
+func TestBoardColumnsHaveNoBacklog(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"id":"a","number":1,"title":"Old","board_column":"backlog","state":"","flag":""},
+			{"id":"b","number":2,"title":"New","board_column":"grounding","state":"working","flag":""}]`))
+	}))
+	defer srv.Close()
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("LYK_CONFIG", cfg)
+	if err := SaveConfig(cfg, Config{Server: srv.URL, Token: "lyk_t", Workspace: "ws1"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := lyk(t, "", "board"); strings.Contains(out, "backlog") || !strings.Contains(out, "#2") {
+		t.Fatalf("board:\n%s", out)
+	}
+}
+
 func TestBoardAndShowReadTheStudysState(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

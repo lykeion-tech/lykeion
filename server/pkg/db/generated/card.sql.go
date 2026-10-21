@@ -193,9 +193,9 @@ const createCard = `-- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
   scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
-  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = 'backlog'), 1) - 1,
-  COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'reporting'),
-  $10, $11, $12::text, $13, $14)
+  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = $8::text), 1) - 1,
+  COALESCE(NULLIF($9::text, ''), 'grounding'), COALESCE(NULLIF($10::text, ''), 'reporting'),
+  $11, $12, $8::text, $13, $14)
 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos
 `
 
@@ -207,18 +207,17 @@ type CreateCardParams struct {
 	OwnerID      uuid.UUID   `json:"owner_id"`
 	Deadline     *time.Time  `json:"deadline"`
 	FollowsFrom  []uuid.UUID `json:"follows_from"`
+	BoardColumn  string      `json:"board_column"`
 	ScopeFrom    string      `json:"scope_from"`
 	ScopeTo      string      `json:"scope_to"`
 	AssigneeType *string     `json:"assignee_type"`
 	AssigneeID   *uuid.UUID  `json:"assignee_id"`
-	BoardColumn  string      `json:"board_column"`
 	Round        int32       `json:"round"`
 	ResearchID   *uuid.UUID  `json:"research_id"`
 }
 
-// A new card goes to the top of Backlog, so WIP pull takes it next unless
-// someone reorders. NextCardNumber has already locked the workspace row, so two
-// creates never read the same minimum.
+// A new card goes to the top of its column. NextCardNumber has already locked
+// the workspace row, so two creates never read the same minimum.
 func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, error) {
 	row := q.db.QueryRow(ctx, createCard,
 		arg.WorkspaceID,
@@ -228,11 +227,11 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		arg.OwnerID,
 		arg.Deadline,
 		arg.FollowsFrom,
+		arg.BoardColumn,
 		arg.ScopeFrom,
 		arg.ScopeTo,
 		arg.AssigneeType,
 		arg.AssigneeID,
-		arg.BoardColumn,
 		arg.Round,
 		arg.ResearchID,
 	)

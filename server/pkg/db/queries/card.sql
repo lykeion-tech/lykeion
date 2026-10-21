@@ -1,14 +1,13 @@
 -- name: NextCardNumber :one
 UPDATE workspace SET card_counter = card_counter + 1 WHERE id = @id RETURNING card_counter;
 
--- A new card goes to the top of Backlog, so WIP pull takes it next unless
--- someone reorders. NextCardNumber has already locked the workspace row, so two
--- creates never read the same minimum.
+-- A new card goes to the top of its column. NextCardNumber has already locked
+-- the workspace row, so two creates never read the same minimum.
 -- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
   scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id)
 VALUES (@workspace_id, @number, @title, @question, @owner_id, @deadline, @follows_from,
-  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = @workspace_id AND b.board_column = 'backlog'), 1) - 1,
+  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = @workspace_id AND b.board_column = @board_column::text), 1) - 1,
   COALESCE(NULLIF(@scope_from::text, ''), 'grounding'), COALESCE(NULLIF(@scope_to::text, ''), 'reporting'),
   sqlc.narg(assignee_type), sqlc.narg(assignee_id), @board_column::text, @round, sqlc.narg(research_id))
 RETURNING *;

@@ -31,7 +31,7 @@ import (
 )
 
 // Token scopes. A role run's token acts as its role on its card. An
-// autoresearch agent run's token may only post its run's report, open Backlog
+// autoresearch agent run's token may only post its run's report and open
 // cards.
 const (
 	ScopeRole       = "card:role"

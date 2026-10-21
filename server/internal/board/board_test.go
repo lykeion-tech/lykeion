@@ -16,7 +16,7 @@ func TestStageIndex(t *testing.T) {
 			t.Fatalf("%s: %d", c, StageIndex(c))
 		}
 	}
-	if StageIndex(Backlog) != -1 || StageIndex(Done) != -1 {
+	if StageIndex("backlog") != -1 || StageIndex(Done) != -1 {
 		t.Fatal("backlog and done are not stages")
 	}
 }

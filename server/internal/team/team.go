@@ -4,6 +4,7 @@ package team
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -145,6 +146,34 @@ func ColumnTeams(ctx context.Context, tx *store.Tx, from, to string, chosen map[
 		out[col] = p.ID
 	}
 	return out, nil
+}
+
+// ErrNotAdded: an uploaded Team the user has no agents for.
+var ErrNotAdded = errors.New("add this Team to your workspace first")
+
+// Ensure readies a Team for user: a shipped Team gives them their agents on
+// the spot, an uploaded one must already be added.
+func Ensure(ctx context.Context, tx *store.Tx, user, packID uuid.UUID) error {
+	p, err := tx.Q.GetFieldPack(ctx, db.GetFieldPackParams{WorkspaceID: tx.WS, ID: packID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotAdded
+	}
+	if err != nil {
+		return err
+	}
+	if p.Source == "shipped" {
+		var m pack.Manifest
+		if err := json.Unmarshal(p.Manifest, &m); err != nil {
+			return err
+		}
+		_, err := Add(ctx, tx, p, m, user)
+		return err
+	}
+	have, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: packID, UserID: user})
+	if err == nil && len(have) == 0 {
+		err = ErrNotAdded
+	}
+	return err
 }
 
 // Add records user's approval of the Team version and gives them an agent for

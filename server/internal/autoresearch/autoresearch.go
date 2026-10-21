@@ -1,5 +1,5 @@
 // Package autoresearch runs a lab's saved rules: when a schedule, a webhook or a
-// person fires one, it opens a gated Backlog card or runs one agent run with narrow
+// person fires one, it opens a study or runs one agent run with narrow
 // powers. Every firing is a run, recorded once per idempotency key, acting as
 // a named member of the workspace.
 package autoresearch
@@ -108,7 +108,7 @@ func (s *Service) setRun(ctx context.Context, tx *store.Tx, r db.AutoresearchRun
 // concurrent dispatch acts once.
 func (s *Service) Dispatch(ctx context.Context, ws, id uuid.UUID) error {
 	err := s.dispatch(ctx, ws, id)
-	if !errors.Is(err, errStartFailed) {
+	if !errors.Is(err, ErrStartFailed) {
 		return err
 	}
 	// The failed attempt left nothing behind; record why, so a retry does not
