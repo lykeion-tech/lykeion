@@ -126,31 +126,8 @@ func (d *Door) sandboxPolicy() error {
 	}
 	dir := d.Child().Dir
 	d.policy = sandbox.Policy{Home: home, Write: []string{dir, d.Study.Dir, tmp}}
-	for _, p := range agent.RunFolderConfig {
-		path := filepath.Join(dir, p.Name)
-		_, err := os.Lstat(path)
-		switch {
-		case err == nil && p.Hidden:
-			d.policy.Hidden = append(d.policy.Hidden, path)
-		case err == nil:
-			d.policy.ReadOnly = append(d.policy.ReadOnly, path)
-		case !errors.Is(err, fs.ErrNotExist):
-			return err
-		case p.Marker || strings.Contains(p.Name, "/"):
-			// a missing marker is never made, and what is missing inside a
-			// read-only folder can't be made by the code either
-		default:
-			ph, err := makePlaceholder(path, p.Folder)
-			if err != nil {
-				return err
-			}
-			d.placeholders = append(d.placeholders, ph)
-			if p.Hidden {
-				d.policy.Hidden = append(d.policy.Hidden, path)
-			} else {
-				d.policy.ReadOnly = append(d.policy.ReadOnly, path)
-			}
-		}
+	if err := protectRunFolder(&d.policy, dir, true, &d.placeholders); err != nil {
+		return err
 	}
 	// The session bridge's file goes in a folder of the door's own, outside
 	// every folder the code may write, so no link the code makes is followed
@@ -286,7 +263,7 @@ func (d *Door) personEnv() []string {
 	return slices.DeleteFunc(envs.Isolate(connectorEnv(d.Child(), nil)), func(e string) bool {
 		k, _, _ := strings.Cut(e, "=")
 		k = strings.ToUpper(k)
-		return strings.HasPrefix(k, "AWS_") || strings.HasPrefix(k, "AZURE_") ||
+		return slices.Contains([]string{"HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME"}, k) || strings.HasPrefix(k, "AWS_") || strings.HasPrefix(k, "AZURE_") ||
 			slices.ContainsFunc(secretNames, func(s string) bool { return strings.Contains(k, s) })
 	})
 }
@@ -609,4 +586,40 @@ func (c *capped) String() string {
 		return c.b.String() + outputCut
 	}
 	return c.b.String()
+}
+
+func protectRunFolder(policy *sandbox.Policy, dir string, hide bool, placeholders *[]placeholder) error {
+	for _, p := range agent.RunFolderConfig {
+		if p.Hidden && !hide {
+			p.Hidden = false
+		}
+		path := filepath.Join(dir, p.Name)
+		_, err := os.Lstat(path)
+		switch {
+		case err == nil && p.Hidden:
+			policy.Hidden = append(policy.Hidden, path)
+		case err == nil:
+			policy.ReadOnly = append(policy.ReadOnly, path)
+		case !errors.Is(err, fs.ErrNotExist):
+			return err
+		case p.Marker:
+			if !hide && p.Name == ".agent-process" {
+				policy.LateReadOnly = append(policy.LateReadOnly, path)
+			}
+		case strings.Contains(p.Name, "/"):
+			// Entries inside a read-only folder cannot be created by code.
+		default:
+			ph, err := makePlaceholder(path, p.Folder)
+			if err != nil {
+				return err
+			}
+			*placeholders = append(*placeholders, ph)
+			if p.Hidden {
+				policy.Hidden = append(policy.Hidden, path)
+			} else {
+				policy.ReadOnly = append(policy.ReadOnly, path)
+			}
+		}
+	}
+	return nil
 }

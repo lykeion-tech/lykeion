@@ -137,3 +137,51 @@ func TestHomeSocketsWalkSkipsFoldersAndLinks(t *testing.T) {
 		t.Fatalf("sockets = %v, want %v", got, want)
 	}
 }
+
+func TestRestrictedRootsStillMaskExposedReadOnlySockets(t *testing.T) {
+	requireSandbox(t)
+	home := shortDir(t)
+	root := mkdir(t, filepath.Join(home, "shared"))
+	read := mkdir(t, filepath.Join(root, "read"))
+	write := mkdir(t, filepath.Join(root, "write"))
+	socket := filepath.Join(read, "service.sock")
+	serveUnix(t, socket)
+	p := Policy{Home: home, HomeRead: true, RestrictedRoots: []string{root}, Read: []string{read}, Write: []string{write}}
+	script := "python3 -c " + shq("import socket; s=socket.socket(socket.AF_UNIX); s.connect("+strconv.Quote(socket)+")")
+	if out, err := sandboxed(t, p, script); err == nil {
+		t.Fatalf("socket in exposed readonly descendant reachable: %s", out)
+	}
+}
+
+func TestLateReadOnlyRequiresPublicationAtLaunch(t *testing.T) {
+	requireSandbox(t)
+	home := shortDir(t)
+	write := mkdir(t, filepath.Join(home, "write"))
+	marker := filepath.Join(write, "marker")
+	p := Policy{Home: home, Write: []string{write}, LateReadOnly: []string{marker}}
+	cmd, err := p.Command(t.Context(), "/bin/sh", "-c", "true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Run(); err == nil {
+		t.Fatal("missing late marker did not fail launch")
+	}
+	ordinary := Policy{Home: home, Write: []string{write}, Blocked: []string{marker}}
+	if _, err := ordinary.Command(t.Context(), "true"); err == nil {
+		t.Fatal("ordinary missing Blocked contract weakened")
+	}
+	cmd, err = p.Command(t.Context(), "/bin/sh", "-c", "echo forged > "+shq(marker))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("published"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("late marker was writable: %s", out)
+	}
+	b, err := os.ReadFile(marker)
+	if err != nil || string(b) != "published" {
+		t.Fatalf("late marker changed: %q %v", b, err)
+	}
+}

@@ -11,7 +11,8 @@ import (
 
 func TestDaemonPersistsLiveToolNamesAndChargesBothConversations(t *testing.T) {
 	f := fixture(t)
-	bin := filepath.Join(t.TempDir(), "claude")
+	bin := filepath.Join(os.Getenv("HOME"), "naming-bin", "claude")
+	must(t, os.MkdirAll(filepath.Dir(bin), 0700))
 	must(t, os.WriteFile(bin, []byte(`#!/bin/sh
 [ "$1" != --version ] || { echo '2.1.304';exit 0; }
 previous=''

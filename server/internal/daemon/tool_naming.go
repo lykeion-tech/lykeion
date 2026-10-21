@@ -328,13 +328,15 @@ func (d *daemon) openToolNamer(ctx context.Context, c claimed) (toolNamingSessio
 		<-slots
 		return nil, err
 	}
-	sess, err := agent.OpenNamingSession(ctx, c.AgentRun.Harness, d.cfg.Harnesses[c.AgentRun.Harness], dir, c.AgentRun.RequestedModel)
+	namingCtx, cancelNaming := context.WithCancel(ctx)
+	sess, err := agent.OpenNamingSession(namingCtx, c.AgentRun.Harness, d.cfg.Harnesses[c.AgentRun.Harness], dir, c.AgentRun.RequestedModel, d.cliSandbox(dir, nil, true))
 	if err != nil {
+		cancelNaming()
 		os.RemoveAll(dir)
 		<-slots
 		return nil, err
 	}
-	return &slottedNaming{toolNamingSession: sess, release: func() { os.RemoveAll(dir); <-slots }}, nil
+	return &slottedNaming{toolNamingSession: sess, release: func() { cancelNaming(); os.RemoveAll(dir); <-slots }}, nil
 }
 
 type slottedNaming struct {

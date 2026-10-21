@@ -534,7 +534,8 @@ func (d *Door) tools(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	if o := d.Child(); o.Inherit {
+	{
+		o := d.Child()
 		for _, s := range res.Skills {
 			if err := placeRouted(d.Harness, o.Dir, s); err != nil {
 				slog.Warn("write a routed skill", "skill", s.Name, "err", err)

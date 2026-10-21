@@ -132,23 +132,26 @@ func (f *daemonFixture) enqueue(t *testing.T) {
 }
 func fakeClaude(t *testing.T) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "claude")
+	p := filepath.Join(os.Getenv("HOME"), "fake-bin", "claude")
+	must(t, os.MkdirAll(filepath.Dir(p), 0700))
 	must(t, os.WriteFile(p, []byte(`#!/bin/sh
 case "$LYK_TOKEN" in ltk_*) ;; *) exit 41;; esac
 case "$LYK_CONFIG" in "$PWD"/*) ;; *) exit 42;; esac
-[ ! -f "$LYK_CONFIG" ] || exit 43
-printf '%s\n' "$*" >> "$(dirname "$0")/argv"
+[ ! -f "$LYK_CONFIG" ] || [ "$(cat "$LYK_CONFIG")" = '{}' ] || exit 43
+mkdir -p "$npm_config_cache"
+printf '%s\n' "$*" >> "$npm_config_cache/argv"
+project="$CLAUDE_CONFIG_DIR/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"
 case "$*" in
 *"--input-format stream-json"*)
 	# Continuity: the account's own HOME, one NDJSON frame, stdin left open.
 	case "$HOME" in "$PWD"/*) exit 45;; esac
 	IFS= read -r first || exit 46
 	case "$first" in *'"type":"user"'*) ;; *) exit 47;; esac
-	mkdir -p "$CLAUDE_CONFIG_DIR/projects/fake" && : > "$CLAUDE_CONFIG_DIR/projects/fake/s.jsonl" ;;
+	mkdir -p "$project" && : > "$project/s.jsonl" ;;
 *)
 	case "$HOME" in "$PWD"/*) ;; *) exit 44;; esac
 	cat >/dev/null
-	mkdir -p "$CLAUDE_CONFIG_DIR/projects/fake" && : > "$CLAUDE_CONFIG_DIR/projects/fake/s.jsonl" ;;
+	mkdir -p "$project" && : > "$project/s.jsonl" ;;
 esac
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}'
 echo '{"type":"result","is_error":false,"total_cost_usd":0.25,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.25}}}'
@@ -258,7 +261,7 @@ func TestSecondRunOnTheCardAndRoleResumesWithoutDoubleCharge(t *testing.T) {
 	f.enqueue(t)
 	waitFor(t, func() bool { return f.status(t) == "completed" })
 	stopDaemon(t, cancel, done)
-	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
+	argv, err := os.ReadFile(filepath.Join(f.cfg.Home, ".caches", "npm", "argv"))
 	must(t, err)
 	lines := strings.Split(strings.TrimSpace(string(argv)), "\n")
 	if len(lines) != 2 || strings.Contains(lines[0], "--resume") || !strings.HasSuffix(lines[1], "--resume s") {
@@ -279,7 +282,7 @@ func TestUnreachableSessionStartsFreshInTheSameRun(t *testing.T) {
 	f.enqueue(t)
 	waitFor(t, func() bool { return f.status(t) == "completed" })
 	stopDaemon(t, cancel, done)
-	argv, err := os.ReadFile(filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv"))
+	argv, err := os.ReadFile(filepath.Join(f.cfg.Home, ".caches", "npm", "argv"))
 	must(t, err)
 	if strings.Contains(string(argv), "--resume") {
 		t.Fatalf("resumed a session its store no longer holds:\n%s", argv)
@@ -772,7 +775,7 @@ func TestControlPlaneTransportLossRetriesWithoutDuplicateCLI(t *testing.T) {
 				f.dropStartACK.Store(true)
 			}
 			// The fake CLI appends one argv line per launch.
-			invocations := filepath.Join(filepath.Dir(f.cfg.Harnesses["claude"]), "argv")
+			invocations := filepath.Join(f.cfg.Home, ".caches", "npm", "argv")
 			cancel, done := startDaemon(t, f.cfg)
 			waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" })
 			stopDaemon(t, cancel, done)
@@ -797,7 +800,7 @@ func TestControlPlaneTransportLossRetriesWithoutDuplicateCLI(t *testing.T) {
 
 func TestRealAdapterCancellationBacklogIsDurable(t *testing.T) {
 	f := fixture(t)
-	ready := filepath.Join(t.TempDir(), "written")
+	ready := filepath.Join(f.cfg.Home, ".caches", "written")
 	bin := f.cfg.Harnesses["claude"]
 	must(t, os.WriteFile(bin, []byte(`#!/bin/sh
 [ "$1" = --version ] && exit 0
@@ -1159,9 +1162,11 @@ func TestTheDaemonSendsBaseStates(t *testing.T) {
 	if err := json.Unmarshal(bodies[1]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready", "sandbox": "failed: sandbox-exec missin" + strings.Repeat("é", 90)}) {
 		t.Fatalf("bases with a failed sandbox %s: %v", bodies[1]["bases"], err)
 	}
-	if _, ok := bodies[2]["bases"]; ok {
-		t.Fatalf("a daemon without bases sent %s", bodies[2]["bases"])
+	bases = nil
+	if err := json.Unmarshal(bodies[2]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"sandbox": "failed: sandbox-exec missin" + strings.Repeat("é", 90)}) {
+		t.Fatalf("a daemon without bases lost sandbox failure %s: %v", bodies[2]["bases"], err)
 	}
+
 }
 
 // finishedFor writes the daemon's record that a folder finished, age old.

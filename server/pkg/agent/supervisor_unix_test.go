@@ -291,7 +291,7 @@ func TestSupervisorKeepsOwnershipUntilHostFinishesShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	write.Close()
-	waitFile(t, filepath.Join(dir, ".agent-exit"))
+	waitExitMarker(t, dir, nonce)
 	owner, err := readProcess(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -406,7 +406,7 @@ func TestRecoveryReconcilesStoppedCompletedSupervisor(t *testing.T) {
 		t.Fatal(err)
 	}
 	write.Close()
-	waitFile(t, filepath.Join(dir, ".agent-exit"))
+	waitExitMarker(t, dir, nonce)
 	if err := RecoverScratch(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -720,7 +720,8 @@ func TestTheExitMarkerIsNotWrittenThroughALink(t *testing.T) {
 		if err := os.WriteFile(thesis, []byte("THESIS"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		bin := script(t, `ln -s '`+thesis+`' "$PWD/`+planted+`"
+		bin := script(t, `rm -f "$PWD/`+planted+`"
+ln -s '`+thesis+`' "$PWD/`+planted+`"
 echo '{"type":"result","is_error":false}'`)
 		sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
 		if err != nil {
@@ -737,7 +738,8 @@ echo '{"type":"result","is_error":false}'`)
 // whole or waited on.
 func TestAnExitMarkerThatIsNoFileNeverHangs(t *testing.T) {
 	for _, plant := range []string{`ln -s /dev/zero "$PWD/.agent-exit"`, `mkfifo "$PWD/.agent-exit"`} {
-		bin := script(t, plant+`
+		bin := script(t, `rm -f "$PWD/.agent-exit"
+`+plant+`
 sleep 0.3
 echo '{"type":"result","is_error":false}'`)
 		sess, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
@@ -746,4 +748,54 @@ echo '{"type":"result","is_error":false}'`)
 		}
 		collectWithin(t, sess, 20*time.Second)
 	}
+}
+
+func TestSupervisorPreparesReadOnlyExitTargets(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "protected")
+	if err := os.WriteFile(outside, []byte("untouched"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".agent-exit", ".agent-exit.tmp"} {
+		if err := os.Symlink(outside, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	original := exec.Command("/bin/sh", "-c", "true")
+	original.Dir = dir
+	_, reader, writer, _, err := supervised(t.Context(), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	for _, name := range []string{".agent-exit", ".agent-exit.tmp"} {
+		fi, err := os.Lstat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !fi.Mode().IsRegular() || fi.Size() != 0 {
+			t.Fatalf("unsafe exit target %s: %v", name, fi)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".agent-process")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("supervisor created process placeholder: %v", err)
+	}
+	b, err := os.ReadFile(outside)
+	if err != nil || string(b) != "untouched" {
+		t.Fatalf("followed planted witness link: %q %v", b, err)
+	}
+}
+
+func waitExitMarker(t *testing.T, dir, nonce string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		b, err := readMarker(filepath.Join(dir, ".agent-exit"))
+		if err == nil && strings.HasPrefix(string(b), nonce+" ") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("supervisor never published its exit witness")
 }

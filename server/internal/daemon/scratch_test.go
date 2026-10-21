@@ -98,10 +98,11 @@ func scopeDaemonProcessControl(t *testing.T, cfg Config) (func(), func()) {
 func TestAttemptReservationProtectsAllMutations(t *testing.T) {
 	f := fixture(t)
 
-	control := t.TempDir()
+	control := filepath.Join(f.cfg.Home, ".caches", "control")
+	must(t, os.MkdirAll(control, 0700))
 	ready, release, launches := filepath.Join(control, "ready"), filepath.Join(control, "release"), filepath.Join(control, "launches")
 	bin := filepath.Join(control, "claude")
-	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\nIFS= read -r first || exit 46\necho launched >> " + strconv.Quote(launches) + "\necho active-config > \"$PWD/.lyk-config.json\"\necho \"$PWD\" > " + strconv.Quote(ready) + "\nwhile [ ! -f " + strconv.Quote(release) + " ]; do sleep 0.05; done\necho '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"s\"}'\n"
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\nIFS= read -r first || exit 46\necho launched >> " + strconv.Quote(launches) + "\necho active-data > \"$PWD/active-data.txt\"\necho \"$PWD\" > " + strconv.Quote(ready) + "\nwhile [ ! -f " + strconv.Quote(release) + " ]; do sleep 0.05; done\necho '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"s\"}'\n"
 	must(t, os.WriteFile(bin, []byte(script), 0700))
 	f.cfg.Harnesses = map[string]string{"claude": bin}
 	f.cfg.Slots = 1
@@ -145,6 +146,8 @@ func TestAttemptReservationProtectsAllMutations(t *testing.T) {
 	must(t, os.Remove(finishedRecord(state, dir)))
 	// A stale journal cannot authorize recovery to kill the current holder's CLI.
 	r := reportFixture()
+	r.AgentRunID = first
+	r.WorkspaceID = f.ws
 	r.Scratch = name
 	r.RetentionDays = 1
 	must(t, other.journal().Put(r))
@@ -226,7 +229,8 @@ func TestOrphanAttemptReconciledBeforeDeletion(t *testing.T) {
 	for _, action := range []string{"gc"} {
 		t.Run(action, func(t *testing.T) {
 			f := fixture(t)
-			control := t.TempDir()
+			control := filepath.Join(f.cfg.Home, ".caches", "control")
+			must(t, os.MkdirAll(control, 0700))
 			ready, again := filepath.Join(control, "ready"), filepath.Join(control, "again")
 			violation := filepath.Join(control, "overlap")
 			bin := filepath.Join(control, "claude")

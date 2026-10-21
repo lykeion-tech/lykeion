@@ -37,8 +37,10 @@ marker=$2
 shift 2
 if ! IFS= read -r permit <&3; then exit 125; fi
 exec 3<&-
-"$@" <&0 &
+exec 4<&0
+"$@" <&4 4<&- &
 child=$!
+exec 4<&-
 wait "$child"
 result=$?
 (umask 077; /bin/rm -f -- "$marker.tmp" && set -C && printf '%s %s\n' "$nonce" "$result" > "$marker.tmp") && /bin/mv -f -- "$marker.tmp" "$marker" || exit 125
@@ -60,6 +62,13 @@ func supervised(ctx context.Context, original *exec.Cmd) (*exec.Cmd, *os.File, *
 	marker := filepath.Join(original.Dir, ".agent-exit")
 	for _, p := range []string{marker, marker + ".tmp"} {
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, nil, nil, "", err
+		}
+		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
+		if err = f.Close(); err != nil {
 			return nil, nil, nil, "", err
 		}
 	}

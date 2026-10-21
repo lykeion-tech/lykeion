@@ -52,7 +52,18 @@ func (p Policy) seatbeltProfile() (string, error) {
 	if _, err := os.Stat("/opt/homebrew"); err == nil {
 		reads = append(reads[:len(reads):len(reads)], `(subpath "/opt/homebrew")`)
 	}
-	rule(append([]string{"allow file-read*"}, reads...)...)
+	ambientRead := func(filters ...string) {
+		if len(r.restricted) == 0 {
+			rule(append([]string{"allow file-read*"}, filters...)...)
+			return
+		}
+		terms := []string{"(require-any " + strings.Join(filters, " ") + ")"}
+		for _, root := range r.restricted {
+			terms = append(terms, "(require-not (subpath "+sbplString(root)+"))")
+		}
+		rule("allow file-read* (require-all " + strings.Join(terms, " ") + ")")
+	}
+	ambientRead(reads...)
 	rule(`allow file-ioctl (literal "/dev/dtracehelper")`)
 
 	// Resolving a path (realpath, a venv's interpreter link) stats every
@@ -74,7 +85,7 @@ func (p Policy) seatbeltProfile() (string, error) {
 	}
 	rule(meta...)
 	if p.HomeRead {
-		rule("allow file-read* (subpath " + sbplString(r.home) + ")")
+		ambientRead("(subpath " + sbplString(r.home) + ")")
 	}
 	for _, dir := range r.read {
 		rule("allow file-read* (subpath " + sbplString(dir) + ")")
@@ -128,7 +139,7 @@ func (p Policy) seatbeltProfile() (string, error) {
 	// Read-only paths inside the write folders come last, so their denials
 	// win. A denied write covers removing, renaming and replacing the path,
 	// whatever case it is spelled in, as Seatbelt matches the stored name.
-	for _, c := range r.readOnly {
+	for _, c := range slices.Concat(r.readOnly, r.lateReadOnly) {
 		rule("deny file-write* (subpath " + sbplString(c) + ")")
 		rule("deny network-outbound (remote unix-socket (subpath " + sbplString(c) + "))")
 		rule("deny network-inbound network-bind (local unix-socket (subpath " + sbplString(c) + "))")
@@ -139,16 +150,19 @@ func (p Policy) seatbeltProfile() (string, error) {
 	}
 	for _, c := range protected {
 		rule("deny file-write* (subpath " + sbplString(c) + ")")
-		// A writable ancestor must not carry the protected path away.
+	}
+	// No writable ancestor, including a granted root, may carry protected
+	// children into another write grant and change their policy paths.
+	guarded := map[string]bool{}
+	for _, c := range slices.Concat(r.readOnly, r.lateReadOnly, r.blocked, r.hidden) {
 		for a := filepath.Dir(c); a != "/"; a = filepath.Dir(a) {
-			for _, w := range r.write {
-				if a != w && isAtOrUnder(a, w) {
-					rule("deny file-write-unlink (literal " + sbplString(a) + ")")
-					break
-				}
+			if !guarded[a] && slices.ContainsFunc(r.write, func(w string) bool { return isAtOrUnder(a, w) }) {
+				rule("deny file-write-unlink (literal " + sbplString(a) + ")")
+				guarded[a] = true
 			}
 		}
 	}
+
 	// Hidden paths come last of all: the code may neither read nor write them.
 	for _, c := range r.hidden {
 		rule("deny file-read* file-write* (subpath " + sbplString(c) + ")")

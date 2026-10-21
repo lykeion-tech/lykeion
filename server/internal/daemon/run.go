@@ -172,6 +172,8 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path + os.Getenv("PATH"),
 	}}
+	opts.CacheDir = d.cacheDir()
+	opts.Sandbox = d.cliSandbox(dir, study, opts.ReadOnly)
 	if study != nil {
 		opts.ReadDirs = append([]string{study.Dir}, d.bases.Folders()...)
 	}

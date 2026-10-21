@@ -124,7 +124,7 @@ func continuityCmd(e *env) *cobra.Command {
 		}
 		return uuid.Parse(id)
 	}
-	cmd := &cobra.Command{Use: "continuity", Short: "Run agents as your own CLI and continue each card and role's session (the default)"}
+	cmd := &cobra.Command{Use: "continuity", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }, Short: "Run agents as your own CLI and continue each card and role's session (the default)"}
 	cmd.PersistentFlags().StringVar(&id, "workspace", "", "workspace id (default: the selected workspace)")
 	cmd.AddCommand(
 		&cobra.Command{Use: "status", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {

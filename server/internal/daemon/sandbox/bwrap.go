@@ -40,6 +40,9 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	// A hidden file is covered by /dev/null and a hidden folder by an empty
 	// read-only tmpfs.
 	var binds []bind
+	for _, root := range r.restricted {
+		binds = append(binds, bind{"--restricted", root})
+	}
 	for _, dir := range r.write {
 		binds = append(binds, bind{"--bind", dir})
 	}
@@ -51,7 +54,7 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	}
 	// A read-only path lies directly inside a write folder, so it binds after
 	// that folder, on top of it; as a mount it can't be removed or renamed.
-	for _, dir := range r.readOnly {
+	for _, dir := range slices.Concat(r.readOnly, r.lateReadOnly) {
 		binds = append(binds, bind{"--ro-bind", dir})
 	}
 	for _, path := range r.blocked {
@@ -76,6 +79,11 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 			return nil, fmt.Errorf("sandbox home sockets: %w", err)
 		}
 		for _, socket := range sockets {
+			masked := slices.ContainsFunc(r.restricted, func(root string) bool { return isAtOrUnder(socket, root) })
+			exposed := slices.ContainsFunc(r.read, func(rd string) bool { return isAtOrUnder(socket, rd) })
+			if masked && !exposed {
+				continue
+			}
 			binds = append(binds, bind{"--hide", socket})
 		}
 	}
@@ -84,6 +92,8 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	})
 	for _, b := range binds {
 		switch b.flag {
+		case "--restricted":
+			argv = append(argv, "--tmpfs", b.dir)
 		case "--tmpfs":
 			argv = append(argv, "--tmpfs", b.dir, "--remount-ro", b.dir)
 		case "--hide":
@@ -91,6 +101,9 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 		default:
 			argv = append(argv, b.flag, b.dir, b.dir)
 		}
+	}
+	for _, root := range r.restricted {
+		argv = append(argv, "--remount-ro", root)
 	}
 	// The empty home stays read-only, so a write there fails instead of landing
 	// in a tmpfs that vanishes; the bound folders keep their own mounts.

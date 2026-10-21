@@ -91,14 +91,13 @@ func TestUnifiedPolicyRejectsUnsafePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, p := range map[string]Policy{
-		"blocked outside":        {Home: home, Write: []string{w}, Blocked: []string{f}},
-		"blocked link":           {Home: home, Write: []string{w}, Blocked: []string{link}},
-		"blocked relative":       {Home: home, Write: []string{w}, Blocked: []string{"relative"}},
-		"data folder":            {Home: home, WriteData: []string{w}},
-		"data missing":           {Home: home, WriteData: []string{filepath.Join(home, "missing")}},
-		"data link":              {Home: home, WriteData: []string{link}},
-		"hidden missing outside": {Home: home, HomeRead: true, Hidden: []string{filepath.Join(tempDir(t), "missing")}},
-		"hidden home itself":     {Home: home, HomeRead: true, Hidden: []string{home}},
+		"blocked outside":    {Home: home, Write: []string{w}, Blocked: []string{f}},
+		"blocked link":       {Home: home, Write: []string{w}, Blocked: []string{link}},
+		"blocked relative":   {Home: home, Write: []string{w}, Blocked: []string{"relative"}},
+		"data folder":        {Home: home, WriteData: []string{w}},
+		"data missing":       {Home: home, WriteData: []string{filepath.Join(home, "missing")}},
+		"data link":          {Home: home, WriteData: []string{link}},
+		"hidden home itself": {Home: home, HomeRead: true, Hidden: []string{home}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := p.seatbeltProfile(); err == nil {
@@ -183,5 +182,135 @@ func TestWriteDataCannotReopenBlockedSubtree(t *testing.T) {
 	}
 	if _, err := p.bwrapArgs("true"); err == nil {
 		t.Error("accepted write-data under blocked path")
+	}
+}
+
+func TestExplicitHiddenOutsideHome(t *testing.T) {
+	home := tempDir(t)
+	outside := tempDir(t)
+	secret := mkdir(t, filepath.Join(outside, "state"))
+	write := mkdir(t, filepath.Join(outside, "run"))
+	p := Policy{Home: home, HomeRead: true, Write: []string{write}, Hidden: []string{secret, filepath.Join(outside, "missing")}}
+	if _, err := p.resolve(); err != nil {
+		t.Fatal(err)
+	}
+	nested := mkdir(t, filepath.Join(write, "nested"))
+	deep := mkdir(t, filepath.Join(nested, "secret"))
+	p.Hidden = []string{deep}
+	if _, err := p.resolve(); err == nil {
+		t.Fatal("accepted movable hidden ancestor")
+	}
+	link := filepath.Join(outside, "link")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatal(err)
+	}
+	p.Hidden = []string{link}
+	p.Write = []string{outside}
+	if _, err := p.resolve(); err == nil {
+		t.Fatal("accepted link under writable parent")
+	}
+}
+
+func TestRestrictedRootsRejectAncestorGrants(t *testing.T) {
+	home := tempDir(t)
+	parent := mkdir(t, filepath.Join(home, "shared"))
+	root := mkdir(t, filepath.Join(parent, "root"))
+	own := mkdir(t, filepath.Join(root, "own"))
+	for _, p := range []Policy{{Home: home, HomeRead: true, Read: []string{parent}, RestrictedRoots: []string{root}}, {Home: home, HomeRead: true, Write: []string{parent}, RestrictedRoots: []string{root}}, {Home: home, HomeRead: true, Read: []string{root}, RestrictedRoots: []string{root}}, {Home: home, HomeRead: true, WriteSQLite: []string{parent}, RestrictedRoots: []string{root}}} {
+		if _, err := p.resolve(); err == nil {
+			t.Fatalf("accepted reopening restricted root: %+v", p)
+		}
+	}
+	if _, err := (Policy{Home: home, HomeRead: true, RestrictedRoots: []string{root}, Write: []string{own}}).resolve(); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, "link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Policy{Home: home, HomeRead: true, RestrictedRoots: []string{link}}).resolve(); err == nil {
+		t.Fatal("accepted linked root")
+	}
+}
+
+func TestPrepareRestrictedRootPreservesExistingContent(t *testing.T) {
+	home := tempDir(t)
+	root := filepath.Join(home, ".lyk")
+	if err := PrepareRestrictedRoot(home, root); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(root)
+	if err != nil || fi.Mode().Perm() != 0700 {
+		t.Fatalf("root mode: %v %v", fi, err)
+	}
+	file := filepath.Join(root, "existing")
+	if err := os.WriteFile(file, []byte("kept"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareRestrictedRoot(home, root); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(file)
+	if err != nil || string(b) != "kept" {
+		t.Fatalf("changed existing content: %q %v", b, err)
+	}
+	link := filepath.Join(home, "alias")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareRestrictedRoot(home, link); err == nil {
+		t.Fatal("followed linked root")
+	}
+	if err := PrepareRestrictedRoot(home, file); err == nil {
+		t.Fatal("replaced existing file")
+	}
+}
+
+func TestProtectedWriteRootCannotMoveIntoAnotherGrant(t *testing.T) {
+	requireSandbox(t)
+	home := tempDir(t)
+	run := mkdir(t, filepath.Join(home, "run"))
+	study := mkdir(t, filepath.Join(home, "study"))
+	config := filepath.Join(run, "config.json")
+	if err := os.WriteFile(config, []byte("protected"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, HomeRead: true, Write: []string{run, study}, ReadOnly: []string{config}}
+	moved := filepath.Join(study, "moved")
+	out, err := sandboxed(t, p, "mv "+shq(run)+" "+shq(moved)+" && echo changed > "+shq(filepath.Join(moved, "config.json")))
+	if err == nil {
+		t.Fatalf("moved protected run root and changed config: %s", out)
+	}
+	if b, err := os.ReadFile(config); err != nil || string(b) != "protected" {
+		t.Fatalf("protected root moved or content changed: %q %v", b, err)
+	}
+	if out, err := sandboxed(t, p, "echo own > "+shq(filepath.Join(run, "own"))+" && echo own > "+shq(filepath.Join(study, "own"))); err != nil {
+		t.Fatalf("ordinary writes broken: %v %s", err, out)
+	}
+}
+
+func TestLateReadOnlyRejectsUnsafeParents(t *testing.T) {
+	home := tempDir(t)
+	write := mkdir(t, filepath.Join(home, "write"))
+	nested := mkdir(t, filepath.Join(write, "nested"))
+	target := filepath.Join(home, "target")
+	if err := os.WriteFile(target, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(write, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(nested, "marker"), target, link, "relative", nested} {
+		if _, err := (Policy{Home: home, Write: []string{write}, LateReadOnly: []string{path}}).resolve(); err == nil {
+			t.Errorf("accepted unsafe late marker %s", path)
+		}
+	}
+	marker := filepath.Join(write, "future")
+	if _, err := (Policy{Home: home, Write: []string{write}, LateReadOnly: []string{marker}}).resolve(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("late marker created during resolve: %v", err)
 	}
 }

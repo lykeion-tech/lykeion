@@ -159,7 +159,7 @@ type Report struct {
 // and fills in agent_error for a failure that names none.
 func (r *Report) check(ok bool) error {
 	if len(r.Usage) > 32 || len(r.NamingUsage) > 64 || (r.FailureReason != "" && !slices.Contains(FailureReasons, r.FailureReason)) ||
-		!slices.Contains([]string{"", "workspace_continuity", "private"}, r.Mode) || len(r.PolicyDigest) > 128 || len(r.Model) > 200 {
+		!slices.Contains([]string{"", "workspace_continuity", "private", "sandboxed"}, r.Mode) || len(r.PolicyDigest) > 128 || len(r.Model) > 200 {
 		return ErrBadReport
 	}
 	seen := make(map[string]bool)

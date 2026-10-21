@@ -42,6 +42,9 @@ type Policy struct {
 	Home  string
 	// HomeRead makes the home readable, apart from Hidden paths.
 	HomeRead bool
+	// RestrictedRoots are ambient-read exclusions. Only explicit descendant
+	// grants are exposed, including when new siblings appear after launch.
+	RestrictedRoots []string
 	// Blocked paths inside Write cannot be changed, even when absent.
 	Blocked []string
 	// WriteData grants only in-place writes to existing regular files.
@@ -56,9 +59,13 @@ type Policy struct {
 	// process may read but not write, remove, rename or replace. Each must
 	// already exist and be no link.
 	ReadOnly []string
+	// LateReadOnly names direct-child files published by the supervisor before
+	// launch. Linux binds them strictly at start and fails if still absent.
+	LateReadOnly []string
 	// Hidden are files and folders inside a Write folder or a ReadOnly path
-	// that the process may neither read nor write. With HomeRead, paths under
-	// Home are also accepted and missing ones are skipped. Paths must be no link.
+	// that the process may neither read nor write. With HomeRead, explicit paths
+	// anywhere are accepted, with the same writable-ancestor protection; absent
+	// paths outside writable folders are skipped. Paths must be no link.
 	Hidden []string
 }
 
@@ -143,6 +150,8 @@ type resolved struct {
 	write, read, readOnly, hidden  []string
 	blocked, writeData, writeFiles []string
 	writeSQLite                    []string
+	restricted                     []string
+	lateReadOnly                   []string
 }
 
 func (p Policy) resolve() (resolved, error) {
@@ -200,12 +209,59 @@ func (p Policy) resolve() (resolved, error) {
 			}
 		}
 	}
+	for _, raw := range p.RestrictedRoots {
+		if fi, err := os.Lstat(raw); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return resolved{}, fmt.Errorf("restricted root %q is a link", raw)
+		}
+		c, err := r.policyPath(raw, h)
+		if err != nil {
+			return resolved{}, err
+		}
+		fi, err := os.Lstat(c)
+		if err != nil {
+			return resolved{}, err
+		}
+		if !fi.IsDir() || h.inside(c) {
+			return resolved{}, fmt.Errorf("sandbox restricted root %q is not a proper directory outside the home root", raw)
+		}
+		for _, grant := range slices.Concat(r.read, r.write, p.WriteData, p.WriteFiles, p.WriteSQLite) {
+			// File grants are resolved below; spelling checks still run there.
+			if isAtOrUnder(c, grant) {
+				return resolved{}, fmt.Errorf("sandbox grant %q would reopen restricted root %q", grant, raw)
+			}
+		}
+		if !slices.Contains(r.restricted, c) {
+			r.restricted = append(r.restricted, c)
+		}
+	}
 	for _, raw := range p.ReadOnly {
 		c, err := r.carve(raw, h, r.write)
 		if err != nil {
 			return resolved{}, err
 		}
 		r.readOnly = append(r.readOnly, c)
+	}
+	for _, raw := range p.LateReadOnly {
+		c, err := r.blockedPath(raw, h)
+		if err != nil {
+			return resolved{}, err
+		}
+		if !slices.Contains(r.write, filepath.Dir(c)) {
+			return resolved{}, fmt.Errorf("late read-only path %q is not directly inside a write folder", raw)
+		}
+		if fi, err := os.Lstat(c); err == nil {
+			if !fi.Mode().IsRegular() {
+				return resolved{}, fmt.Errorf("late read-only path %q is not a regular file", raw)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return resolved{}, err
+		}
+		for _, w := range r.write {
+			if isAtOrUnder(w, c) {
+				return resolved{}, fmt.Errorf("late read-only path %q holds a write folder", raw)
+			}
+		}
+		r.lateReadOnly = append(r.lateReadOnly, c)
 	}
 	for _, raw := range p.Blocked {
 		c, err := r.blockedPath(raw, h)
@@ -267,7 +323,7 @@ func (p Policy) resolve() (resolved, error) {
 				return resolved{}, err
 			}
 		}
-		for _, protected := range slices.Concat(r.blocked, r.readOnly) {
+		for _, protected := range slices.Concat(r.blocked, r.readOnly, r.lateReadOnly) {
 			if isAtOrUnder(c, protected) {
 				return resolved{}, fmt.Errorf("sandbox write-file path %q is protected", raw)
 			}
@@ -293,15 +349,27 @@ func (p Policy) resolve() (resolved, error) {
 		}
 		r.writeData = append(r.writeData, c)
 	}
+	for _, root := range r.restricted {
+		for _, grant := range slices.Concat(r.writeData, r.writeFiles, r.writeSQLite) {
+			if isAtOrUnder(root, grant) {
+				return resolved{}, fmt.Errorf("sandbox grant %q would reopen restricted root %q", grant, root)
+			}
+		}
+	}
 	for _, raw := range p.Hidden {
 		if p.HomeRead {
-			c, _, err := walk(raw, h)
+			c, err := r.policyPath(raw, h)
 			if errors.Is(err, os.ErrNotExist) {
 				missing, missingErr := r.blockedPath(raw, h)
 				if missingErr != nil {
 					return resolved{}, missingErr
 				}
-				if missing != h.path && isAtOrUnder(missing, h.path) {
+				if missing != h.path {
+					for _, w := range r.write {
+						if isAtOrUnder(missing, w) {
+							return resolved{}, fmt.Errorf("sandbox missing hidden path %q is inside a write folder", raw)
+						}
+					}
 					for _, file := range r.writeFiles {
 						if isAtOrUnder(file, missing) {
 							return resolved{}, fmt.Errorf("sandbox missing hidden path %q holds a writable file", raw)
@@ -318,7 +386,7 @@ func (p Policy) resolve() (resolved, error) {
 			if err != nil {
 				return resolved{}, err
 			}
-			if c != h.path && isAtOrUnder(c, h.path) {
+			if c != h.path {
 				for _, w := range slices.Concat(r.write, r.writeData, r.writeFiles, r.writeSQLite) {
 					if isAtOrUnder(w, c) {
 						return resolved{}, fmt.Errorf("sandbox hidden path %q holds a write path", raw)
@@ -549,4 +617,38 @@ func checkSpelling(p string) error {
 func isAtOrUnder(child, parent string) bool {
 	rel, err := filepath.Rel(parent, child)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
+}
+
+// PrepareRestrictedRoot creates only missing directory components for an
+// app-owned mask target. Existing content and permissions are preserved.
+func PrepareRestrictedRoot(homeDir, raw string) error {
+	if fi, err := os.Lstat(raw); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("restricted root %q is a link", raw)
+	}
+	h, err := findHome(homeDir)
+	if err != nil {
+		return err
+	}
+	c, err := (resolved{}).blockedPath(raw, h)
+	if err != nil {
+		return err
+	}
+	if isAtOrUnder(h.path, c) {
+		return fmt.Errorf("restricted root %q would cover the home folder", raw)
+	}
+	if err = os.MkdirAll(c, 0700); err != nil {
+		return err
+	}
+	c, _, err = walk(raw, h)
+	if err != nil {
+		return err
+	}
+	fi, err := os.Lstat(c)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("restricted root %q is not a directory", raw)
+	}
+	return nil
 }
