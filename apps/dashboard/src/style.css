@@ -183,6 +183,12 @@ select {
   font: inherit;
   color: inherit;
 }
+/* Native option menus do not consistently inherit their select's background. */
+:root[data-theme='dark'] option,
+:root[data-theme='dark'] optgroup {
+  background-color: var(--input);
+  color: var(--text);
+}
 button,
 a,
 input,
