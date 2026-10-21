@@ -32,6 +32,9 @@ const (
 	multipartSlack = 64 << 10
 	// attachmentLife is how long an upload may stay unlinked to a study.
 	attachmentLife = 24 * time.Hour
+	// textDeadline bounds reading an upload's text; a file whose text takes
+	// longer is kept as a binary.
+	textDeadline = 2 * time.Minute
 	// A study holds at most maxStudyFiles files totalling maxStudyBytes.
 	maxStudyFiles = 100
 	maxStudyBytes = 500 << 20
@@ -41,19 +44,10 @@ const (
 // study read it as pending.
 const errFileTaken = conflict("An attached file is no longer available")
 
-// studyFile is a pending upload a new study takes, with its text read.
-type studyFile struct {
-	db.Attachment
-	text    string
-	hasText bool
-}
-
 // studyFiles checks a new study's attachment ids against the caller's pending
-// uploads and the study's limits, then reads each file's text. Nothing is
-// written, so a refusal here leaves the uploads pending.
-// ponytail: every file's text is held in memory at once (at most the 500 MB a
-// study may total); stream through temp files if that proves too much.
-func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]studyFile, error) {
+// uploads and the study's limits. Nothing is written, so a refusal here leaves
+// the uploads pending.
+func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]db.Attachment, error) {
 	ids = slices.Compact(slices.SortedFunc(slices.Values(ids), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }))
 	if len(ids) == 0 {
 		return nil, nil
@@ -80,39 +74,23 @@ func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]studyFile, error) {
 	if total > maxStudyBytes {
 		return nil, cardInputError("A study's files can total at most 500 MB")
 	}
-	files := make([]studyFile, len(rows))
-	for i, a := range rows {
-		rc, err := h.Blobs.Get(r.Context(), a.BlobKey)
-		if errors.Is(err, storage.ErrNotFound) {
-			return nil, errFileTaken
-		}
-		if err != nil {
-			return nil, err
-		}
-		text, ok, err := records.ExtractText(a.Name, a.ContentType, rc)
-		rc.Close()
-		if err != nil {
-			return nil, err
-		}
-		files[i] = studyFile{a, text, ok}
-	}
-	return files, nil
+	return rows, nil
 }
 
 // linkStudyFiles records each file as a source of the new study and links its
 // upload to it, under a name unique within the study. An upload another study
-// linked first refuses this one. Text blobs written are added to textBlobs.
-func linkStudyFiles(r *http.Request, tx *store.Tx, blobs storage.Storage, card db.Card, files []studyFile, textBlobs *[]string) error {
+// linked first, or one swept since it was read, refuses this one.
+func linkStudyFiles(r *http.Request, tx *store.Tx, blobs storage.Storage, card db.Card, files []db.Attachment) error {
 	names := make([]string, len(files))
 	for i, f := range files {
 		names[i] = f.Name
 	}
 	disk := records.DiskNames(names)
 	for i, f := range files {
-		if f.hasText {
-			*textBlobs = append(*textBlobs, records.TextBlobKey(card, f.text))
+		key, err := records.RecordAttachment(r.Context(), tx, blobs, card, f)
+		if errors.Is(err, storage.ErrNotFound) {
+			return errFileTaken
 		}
-		key, err := records.RecordAttachment(r.Context(), tx, blobs, card, f.Attachment, f.text, f.hasText)
 		if err != nil {
 			return err
 		}
@@ -203,19 +181,62 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum, typ := hex.EncodeToString(hash.Sum(nil)), attachmentType(name, head[:hn])
+	textSum := ""
+	if text, ok := h.uploadText(name, typ, io.NewSectionReader(tmp, 0, n)); ok {
+		ts := sha256.Sum256([]byte(text))
+		textSum = hex.EncodeToString(ts[:])
+		if err := h.Blobs.Put(r.Context(), records.TextKey(key), strings.NewReader(text), int64(len(text))); err != nil {
+			_ = h.Blobs.Delete(context.WithoutCancel(r.Context()), key)
+			fail(w, r, err)
+			return
+		}
+	}
 	var row db.Attachment
 	err = h.Store.InWorkspace(r.Context(), ws, user(r), func(tx *store.Tx) error {
 		var err error
 		row, err = tx.Q.InsertPendingAttachment(r.Context(), db.InsertPendingAttachmentParams{
-			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key})
+			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key, TextSha256: textSum})
 		return err
 	})
 	if err != nil {
 		_ = h.Blobs.Delete(context.WithoutCancel(r.Context()), key)
+		_ = h.Blobs.Delete(context.WithoutCancel(r.Context()), records.TextKey(key))
 		fail(w, r, err)
 		return
 	}
 	writeJSON(w, 201, map[string]any{"id": row.ID, "name": row.Name, "size_bytes": row.SizeBytes, "content_type": row.ContentType, "sha256": row.Sha256})
+}
+
+// uploadText reads a stored upload's text within the deadline. A file whose
+// text cannot be read, or not in time, has none.
+func (h *H) uploadText(name, typ string, r io.Reader) (string, bool) {
+	extract, limit := h.ExtractText, h.TextDeadline
+	if extract == nil {
+		extract = records.ExtractText
+	}
+	if limit == 0 {
+		limit = textDeadline
+	}
+	type result struct {
+		text string
+		ok   bool
+	}
+	done := make(chan result, 1)
+	// ponytail: a parse past the deadline is abandoned, not stopped; its
+	// goroutine and the file's bytes (up to 100 MB) live until the library
+	// returns. A hard stop needs the parse in a subprocess.
+	go func() {
+		text, ok, err := extract(name, typ, r)
+		done <- result{text, ok && err == nil}
+	}()
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case res := <-done:
+		return res.text, res.ok
+	case <-timer.C:
+		return "", false
+	}
 }
 
 func attachmentReadErr(w http.ResponseWriter, r *http.Request, err error) {
@@ -267,5 +288,5 @@ func removePendingAttachment(ctx context.Context, st *store.Store, blobs storage
 	if err != nil || n == 0 {
 		return err
 	}
-	return blobs.Delete(ctx, key)
+	return errors.Join(blobs.Delete(ctx, key), blobs.Delete(ctx, records.TextKey(key)))
 }

@@ -742,7 +742,7 @@ func (b *Broker) CommandReceipt(ctx context.Context, run middleware.Role, id uui
 // RecordFence validates the execution receipt and returns the check that must
 // run after LockRole in the same transaction as the evidence write.
 func (b *Broker) RecordFence(ctx context.Context, run middleware.Role, ticket, server, tool string, args any, answer string) (func(*store.Tx) error, error) {
-	if server == records.AttachmentServer {
+	if strings.EqualFold(strings.TrimSpace(server), records.AttachmentServer) {
 		return nil, ErrReserved
 	}
 	var receipt callReceipt

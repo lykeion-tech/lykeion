@@ -136,6 +136,7 @@ type Attachment struct {
 	SizeBytes   int64      `json:"size_bytes"`
 	Sha256      string     `json:"sha256"`
 	BlobKey     string     `json:"blob_key"`
+	TextSha256  string     `json:"text_sha256"`
 	RecordKey   string     `json:"record_key"`
 	CreatedAt   time.Time  `json:"created_at"`
 }

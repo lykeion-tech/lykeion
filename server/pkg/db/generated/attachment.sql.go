@@ -13,7 +13,7 @@ import (
 )
 
 const cardAttachments = `-- name: CardAttachments :many
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, record_key, created_at FROM attachment WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, record_key, created_at FROM attachment WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
 `
 
 type CardAttachmentsParams struct {
@@ -41,6 +41,7 @@ func (q *Queries) CardAttachments(ctx context.Context, arg CardAttachmentsParams
 			&i.SizeBytes,
 			&i.Sha256,
 			&i.BlobKey,
+			&i.TextSha256,
 			&i.RecordKey,
 			&i.CreatedAt,
 		); err != nil {
@@ -73,9 +74,9 @@ func (q *Queries) DeletePendingAttachment(ctx context.Context, arg DeletePending
 }
 
 const insertPendingAttachment = `-- name: InsertPendingAttachment :one
-INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, record_key, created_at
+INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key, text_sha256)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, record_key, created_at
 `
 
 type InsertPendingAttachmentParams struct {
@@ -87,6 +88,7 @@ type InsertPendingAttachmentParams struct {
 	SizeBytes   int64     `json:"size_bytes"`
 	Sha256      string    `json:"sha256"`
 	BlobKey     string    `json:"blob_key"`
+	TextSha256  string    `json:"text_sha256"`
 }
 
 func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPendingAttachmentParams) (Attachment, error) {
@@ -99,6 +101,7 @@ func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPending
 		arg.SizeBytes,
 		arg.Sha256,
 		arg.BlobKey,
+		arg.TextSha256,
 	)
 	var i Attachment
 	err := row.Scan(
@@ -112,6 +115,7 @@ func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPending
 		&i.SizeBytes,
 		&i.Sha256,
 		&i.BlobKey,
+		&i.TextSha256,
 		&i.RecordKey,
 		&i.CreatedAt,
 	)
@@ -145,7 +149,7 @@ func (q *Queries) LinkAttachment(ctx context.Context, arg LinkAttachmentParams) 
 }
 
 const pendingAttachments = `-- name: PendingAttachments :many
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, record_key, created_at FROM attachment
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, record_key, created_at FROM attachment
 WHERE workspace_id = $1 AND uploader_id = $2 AND card_id IS NULL AND id = ANY($3::uuid[])
 ORDER BY created_at, id
 `
@@ -177,6 +181,7 @@ func (q *Queries) PendingAttachments(ctx context.Context, arg PendingAttachments
 			&i.SizeBytes,
 			&i.Sha256,
 			&i.BlobKey,
+			&i.TextSha256,
 			&i.RecordKey,
 			&i.CreatedAt,
 		); err != nil {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/storage"
 )
 
@@ -182,6 +183,14 @@ func TestTheSweepRemovesOnlyStalePendingUploads(t *testing.T) {
 		rc, err := s.H.Blobs.Get(t.Context(), w.ID+"/attachments/"+ids[name])
 		if err == nil {
 			rc.Close()
+		}
+		// the text read at upload goes with the file
+		tc, terr := s.H.Blobs.Get(t.Context(), records.TextKey(w.ID+"/attachments/"+ids[name]))
+		if terr == nil {
+			tc.Close()
+		}
+		if (err == nil) != (terr == nil) {
+			t.Fatalf("%s: blob %v, text %v", name, err, terr)
 		}
 		return n == 1, err == nil
 	}

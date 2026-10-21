@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -24,6 +25,7 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/flow"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -783,6 +785,27 @@ func TestAQuoteFromAnAttachedFileIsChecked(t *testing.T) {
 	if m := flow.MatchQuotes(claim("PGC1A,9.9"), own); len(m) != 1 || m[0].Matched {
 		t.Fatalf("a quote not in the file: %+v", m)
 	}
+	// a file longer than a body keeps: the body has its start, quotes are checked against all of it
+	big := strings.Repeat("gene,fold\n", 30000) + "SIRT1,3.1\n"
+	var long card
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does fasting raise SIRT1?",
+		"attachment_ids": []string{s.uploadData(t, a, w.ID, "big.csv", []byte(big))}}, &long); code != 201 {
+		t.Fatalf("create long: %d", code)
+	}
+	var body struct {
+		Answer    string
+		Truncated bool
+	}
+	var raw []byte
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT body FROM record WHERE card_id = $1 AND key = 'c1'`, long.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if json.Unmarshal(raw, &body); !body.Truncated || len(body.Answer) != records.MaxCallAnswer || !strings.HasPrefix(big, body.Answer) {
+		t.Fatalf("long body: truncated %v, %d bytes", body.Truncated, len(body.Answer))
+	}
+	if m := flow.MatchQuotes(claim("SIRT1,3.1"), s.studyCalls(t, w.ID, long.ID, "c1")); len(m) != 1 || !m[0].Matched {
+		t.Fatalf("a quote past the body's cut: %+v", m)
+	}
 	// the other study has no c1: the attached file is not its source
 	if m := flow.MatchQuotes(claim("PGC1A,2.4"), s.studyCalls(t, w.ID, other.ID, "c1")); len(m) != 1 || m[0].Matched {
 		t.Fatalf("another study's file resolved: %+v", m)
@@ -944,11 +967,75 @@ func TestAnUploadTakenMidCreateRefusesTheStudy(t *testing.T) {
 func TestARunCannotRecordAnAttachment(t *testing.T) {
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)
-	in := map[string]any{"server": "attachments", "tool": "attach", "args": map[string]any{"name": "forged.csv"}, "answer": "PGC1A,9.9"}
-	if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", in, nil); c != 403 {
-		t.Fatalf("a run recorded an attachment: %d", c)
+	for _, server := range []string{"attachments", " Attachments ", "ATTACHMENTS\t"} {
+		in := map[string]any{"server": server, "tool": "attach", "args": map[string]any{"name": "forged.csv"}, "answer": "PGC1A,9.9"}
+		if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", in, nil); c != 403 {
+			t.Fatalf("a run recorded an attachment as %q: %d", server, c)
+		}
 	}
-	if n := l.s.count(t, `SELECT count(*) FROM record WHERE kind = 'call' AND body->>'server' = 'attachments'`); n != 0 {
+	if n := l.s.count(t, `SELECT count(*) FROM record WHERE kind = 'call' AND lower(trim(body->>'server')) = 'attachments'`); n != 0 {
 		t.Fatalf("forged attachment records: %d", n)
+	}
+}
+
+func TestAnUploadRecordsItsTextHash(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	csv, png := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV)), s.uploadData(t, a, w.ID, "plot.png", tinyPNG(t))
+	sum := sha256.Sum256([]byte(attachedCSV))
+	text := func(id string) (sha, blob string) {
+		t.Helper()
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT text_sha256, blob_key FROM attachment WHERE id = $1`, id).Scan(&sha, &blob); err != nil {
+			t.Fatal(err)
+		}
+		return sha, blob
+	}
+	sha, blob := text(csv)
+	rc, err := s.H.Blobs.Get(t.Context(), records.TextKey(blob))
+	if sha != hex.EncodeToString(sum[:]) || err != nil {
+		t.Fatalf("csv text %q: %v", sha, err)
+	}
+	got, _ := io.ReadAll(rc)
+	rc.Close()
+	if string(got) != attachedCSV {
+		t.Fatalf("csv text blob %q", got)
+	}
+	sha, blob = text(png)
+	if _, err := s.H.Blobs.Get(t.Context(), records.TextKey(blob)); sha != "" || !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("png text %q: %v", sha, err)
+	}
+}
+
+func TestASlowExtractionIsRecordedAsBinary(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	stuck := make(chan struct{})
+	defer close(stuck)
+	s.H.TextDeadline = 100 * time.Millisecond
+	s.H.ExtractText = func(name, typ string, r io.Reader) (string, bool, error) {
+		<-stuck
+		return "never", true, nil
+	}
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	pdf := []byte("%PDF-1.4\nspins forever\n")
+	start := time.Now()
+	id := s.uploadData(t, a, w.ID, "slow.pdf", pdf)
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("the upload waited %v for the parse", d)
+	}
+	var c card
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": []string{id}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	sum := sha256.Sum256(pdf)
+	var answer, blob string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT body->>'answer', blob_key FROM record WHERE card_id = $1 AND key = 'c1'`, c.ID).Scan(&answer, &blob); err != nil {
+		t.Fatal(err)
+	}
+	if answer != "binary file slow.pdf, sha256 "+hex.EncodeToString(sum[:]) || blob != "" {
+		t.Fatalf("record %q blob %q", answer, blob)
 	}
 }

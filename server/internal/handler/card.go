@@ -1,10 +1,8 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -293,7 +291,6 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var c studyView
-	var textBlobs []string
 	var dup db.ActiveDuplicateRow
 	var teams map[string]uuid.UUID
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
@@ -359,7 +356,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		if err := linkStudyFiles(r, tx, h.Blobs, card, files, &textBlobs); err != nil {
+		if err := linkStudyFiles(r, tx, h.Blobs, card, files); err != nil {
 			return err
 		}
 		if c, err = viewOf(r, tx, card); err != nil {
@@ -367,14 +364,6 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		}
 		return tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title})
 	})
-	if err != nil {
-		// the study was never stored, so neither is the text kept for its files
-		for _, key := range textBlobs {
-			if e := h.Blobs.Delete(context.WithoutCancel(r.Context()), key); e != nil {
-				slog.Error("study file text", "blob_key", key, "err", e)
-			}
-		}
-	}
 	if errors.Is(err, errDuplicate) {
 		writeJSON(w, 409, map[string]any{"error": fmt.Sprintf("an active study already asks this: #%d", dup.Number),
 			"card_id": dup.ID, "number": dup.Number, "follows_allowed": from == board.Grounding && to == board.Reporting})

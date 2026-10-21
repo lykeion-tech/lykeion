@@ -102,17 +102,34 @@ func pdfText(b []byte) (text string, ok bool) {
 // only the server writes such records.
 const AttachmentServer = "attachments"
 
+// TextKey is where an attached file's text is kept, beside the file's blob.
+func TextKey(blobKey string) string { return blobKey + ".text" }
+
 // RecordAttachment records an attached file once as a source of its study: a
 // call record by the server on the study's first column, round 0, under the
-// study's next call key. A file with text answers with it and keeps the whole
-// text as the record's blob, so quotes from it are checked; a binary answers
-// with its name and sha256 only. The caller holds the card.
-func RecordAttachment(ctx context.Context, tx *store.Tx, blobs storage.Storage, card db.Card, a db.Attachment, text string, hasText bool) (key string, err error) {
-	answer := fmt.Sprintf("binary file %s, sha256 %s", a.Name, a.Sha256)
-	if hasText {
-		answer = text
+// study's next call key. A file whose text was read at upload answers with that
+// text, cut to what a body keeps, and points at the whole text as its blob, so
+// quotes from it are checked; only the cut is read here. A binary answers with
+// its name and sha256 only. The caller holds the card.
+func RecordAttachment(ctx context.Context, tx *store.Tx, blobs storage.Storage, card db.Card, a db.Attachment) (key string, err error) {
+	answer, cut, blobKey := fmt.Sprintf("binary file %s, sha256 %s", a.Name, a.Sha256), false, ""
+	if a.TextSha256 != "" {
+		blobKey = TextKey(a.BlobKey)
+		rc, err := blobs.Get(ctx, blobKey)
+		if err != nil {
+			return "", err
+		}
+		head, err := io.ReadAll(io.LimitReader(rc, MaxCallAnswer+utf8.UTFMax))
+		rc.Close()
+		if err != nil {
+			return "", err
+		}
+		answer, cut = Cut(string(head))
 	}
-	body, _ := CallBody(AttachmentServer, "attach", map[string]any{"name": a.Name, "sha256": a.Sha256, "size_bytes": a.SizeBytes, "content_type": a.ContentType}, answer, false)
+	body, _ := CallBody(AttachmentServer, "attach", map[string]any{"name": a.Name, "sha256": a.Sha256, "size_bytes": a.SizeBytes, "content_type": a.ContentType}, answer, cut)
+	if blobKey != "" {
+		body["answer_sha256"] = a.TextSha256
+	}
 	b, err := json.Marshal(body)
 	if err != nil {
 		return "", err
@@ -120,14 +137,9 @@ func RecordAttachment(ctx context.Context, tx *store.Tx, blobs storage.Storage, 
 	if key, err = NextCallKey(ctx, tx, card.ID); err != nil {
 		return "", err
 	}
-	blobKey := ""
-	if hasText {
-		blobKey = TextBlobKey(card, text)
-		if err := blobs.Put(ctx, blobKey, strings.NewReader(text), int64(len(text))); err != nil {
-			return "", err
-		}
+	if blobKey != "" {
 		if err := tx.Emit(ctx, "blob.created", &card.ID, store.System,
-			map[string]any{"blob_key": blobKey, "sha256": body["answer_sha256"], "size": int64(len(text))}); err != nil {
+			map[string]any{"blob_key": blobKey, "sha256": a.TextSha256}); err != nil {
 			return "", err
 		}
 	}
@@ -137,13 +149,6 @@ func RecordAttachment(ctx context.Context, tx *store.Tx, blobs storage.Storage, 
 		return "", err
 	}
 	return key, tx.Emit(ctx, "record.created", &card.ID, store.System, map[string]any{"record_id": rec.ID, "kind": "call", "key": key, "role": "server"})
-}
-
-// TextBlobKey is where a study's recorded text is kept: under the study, by
-// the text's hash, as fetched sources are.
-func TextBlobKey(card db.Card, text string) string {
-	sum := sha256.Sum256([]byte(text))
-	return card.WorkspaceID.String() + "/" + card.ID.String() + "/" + hex.EncodeToString(sum[:])
 }
 
 // maxDiskName keeps a file name within what file systems allow (255 bytes).
