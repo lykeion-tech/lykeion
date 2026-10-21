@@ -24,6 +24,10 @@ var ErrStartFailed = errors.New("the study cannot start")
 // createCard opens the run's study, which starts in its first column at once
 // with the Autoresearch's assignee, or the built-in Teams where it names none.
 func (s *Service) createCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r db.AutoresearchRun) error {
+	// Readying a Team takes the events lock, so the execution lock comes first.
+	if err := lockWorkspace(ctx, tx); err != nil {
+		return err
+	}
 	title, err := s.title(ctx, tx, ap, r)
 	if err != nil {
 		return err
