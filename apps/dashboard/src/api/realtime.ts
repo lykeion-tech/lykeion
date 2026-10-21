@@ -49,6 +49,7 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'card':
       return [
         keys.cards(ws),
+        keys.analytics(ws),
         keys.inboxAll(ws),
         ...own(keys.card, keys.events, keys.ratings),
         keys.researches(ws),
@@ -73,11 +74,11 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'comment':
       return own(keys.comments);
     case 'agent_run':
-      return [keys.cards(ws), keys.runtimes(ws), ...own(keys.runs, keys.card)];
+      return [keys.cards(ws), keys.runtimes(ws), keys.analytics(ws), ...own(keys.runs, keys.card)];
     case 'inbox':
       return [keys.inboxAll(ws)];
     case 'runtime':
-      return [keys.runtimes(ws)];
+      return [keys.runtimes(ws), keys.storage(ws)];
     case 'member':
       return [
         keys.members(ws),

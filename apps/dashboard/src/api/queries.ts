@@ -5,6 +5,8 @@ import { keys } from './keys';
 import { workspaceId as ws } from './session';
 import type {
   AgentDefinition,
+  StorageReport,
+  AnalyticsReport,
   Autoresearch,
   AutoresearchDetail,
   AutoresearchRun,
@@ -328,3 +330,46 @@ export const useAutoresearchRun = (id: MaybeRefOrGetter<string>) =>
 
 // Adds a Team for the caller and answers the agents it created.
 export const addTeam = (id: string) => api<AgentDefinition[]>('POST', `/api/teams/${id}/add`);
+
+export const useStorage = () => {
+  const me = useMe();
+  return useQuery({
+    queryKey: computed(() => [...keys.storage(ws.value), me.data.value?.id ?? '']),
+    queryFn: ({ queryKey, signal }) =>
+      api<StorageReport>('GET', '/api/storage', undefined, undefined, {
+        workspace: queryKey[1],
+        signal,
+      }),
+    enabled: computed(() => inWorkspace.value && Boolean(me.data.value?.id)),
+    refetchInterval: 30_000,
+  });
+};
+export const useAnalytics = (
+  scope: MaybeRefOrGetter<string>,
+  cadence: MaybeRefOrGetter<string>,
+  range: MaybeRefOrGetter<string>,
+) => {
+  const me = useMe();
+  return useQuery({
+    queryKey: computed(() => [
+      ...keys.analytics(ws.value),
+      me.data.value?.timezone ?? '',
+      toValue(scope),
+      toValue(cadence),
+      toValue(range),
+    ]),
+    queryFn: ({ queryKey, signal }) => {
+      const params = new URLSearchParams({
+        scope: queryKey[4],
+        cadence: queryKey[5],
+        range: queryKey[6],
+      });
+      return api<AnalyticsReport>('GET', `/api/analytics?${params}`, undefined, undefined, {
+        workspace: queryKey[1],
+        signal,
+      });
+    },
+    enabled: computed(() => inWorkspace.value && Boolean(me.data.value)),
+    refetchInterval: 30_000,
+  });
+};

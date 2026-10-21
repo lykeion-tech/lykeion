@@ -138,6 +138,7 @@ func NewRouter(h *H) http.Handler {
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
 		r.Post("/api/cli-token", h.cliToken)
+		r.With(personalOnly).Post("/daemon/storage", h.reportStorage)
 		r.Get("/api/tokens", h.listTokens)
 		r.Post("/api/tokens", h.createToken)
 		r.Delete("/api/tokens/{id}", h.revokeToken)
@@ -187,6 +188,8 @@ func NewRouter(h *H) http.Handler {
 			r.Put("/api/autoresearch/{id}/subscribers/{user}", h.people(false, true))
 			r.Delete("/api/autoresearch/{id}/subscribers/{user}", h.people(false, false))
 
+			r.Get("/api/storage", h.getStorage)
+			r.Get("/api/analytics", h.analytics)
 			r.Get("/api/runtimes", h.listRuntimes)
 			r.Patch("/api/runtimes/{id}", h.patchRuntime)
 			r.Delete("/api/runtimes/{id}", h.deleteRuntime)

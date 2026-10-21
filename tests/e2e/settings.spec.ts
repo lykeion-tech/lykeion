@@ -72,6 +72,7 @@ test('Profile and Preferences save to the account and the device', async ({ page
       'Profile',
       'Preferences',
       'API Tokens',
+      'Storage',
       'General',
       'Skills',
       'Connectors',

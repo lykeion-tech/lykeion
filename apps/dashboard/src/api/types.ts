@@ -468,3 +468,70 @@ export interface RuntimeSkillRequest {
   error: string;
   created_at: string;
 }
+
+export interface StorageCategory {
+  key: 'workspaces' | 'environments' | 'state';
+  path: string;
+  bytes: number;
+  complete: boolean;
+  error?: string;
+  filesystem_id?: string;
+}
+export interface StorageMachine {
+  daemon_id: string;
+  name: string;
+  online: boolean;
+  last_seen_at: string;
+  snapshot: null | {
+    measured_at: string;
+    received_at: string;
+    categories: StorageCategory[];
+    filesystems: { id: string; available_bytes: number; paths: string[] }[];
+  };
+}
+export interface StorageReport {
+  machines: StorageMachine[];
+}
+export type MetricCoverage = 'complete' | 'partial' | 'missing';
+export interface AnalyticsMetrics {
+  includes_estimates: boolean;
+  input_tokens: number;
+  ordinary_input_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  cost_reported_usd: number;
+  cost_estimated_usd: number;
+  runtime_seconds: number;
+  studies: number;
+  coverage: {
+    tokens: MetricCoverage;
+    cost: MetricCoverage;
+    time: MetricCoverage;
+    studies: MetricCoverage;
+    missing_usage_attempts: number;
+    missing_timing_attempts: number;
+  };
+}
+export interface AnalyticsReport {
+  timezone: string;
+  scope: string;
+  association_basis: 'current';
+  range: string;
+  cadence: string;
+  start: string;
+  end: string;
+  now: string;
+  summary: AnalyticsMetrics;
+  buckets: (AnalyticsMetrics & { start: string; end: string })[];
+  agents: (AnalyticsMetrics & {
+    agent_id: string | null;
+    name: string;
+    roles: string[];
+    harnesses: string[];
+  })[];
+  unassigned: Omit<AnalyticsMetrics, 'coverage' | 'runtime_seconds' | 'studies'> & {
+    attempts: number;
+  };
+}

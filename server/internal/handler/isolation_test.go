@@ -99,7 +99,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			// workspace, which membership must refuse for B's user.
 			header = wa.ID
 			path = strings.Replace(path, "{name}", "omim", 1)
-		} else if route == "/api/autoresearch" || route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
+		} else if route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
 			route == "/api/packs" || route == "/api/teams" || route == "/api/packs/catalog" || route == "/api/me/pack" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID

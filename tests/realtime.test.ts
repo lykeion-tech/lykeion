@@ -25,6 +25,7 @@ describe('event to query map', () => {
       has(type, keys.card('w1', 'c1'));
       has(type, keys.events('w1', 'c1'));
       has(type, keys.inboxAll('w1'));
+      has(type, keys.analytics('w1'));
     }
   });
   it("a column leaving refreshes the study's Team ratings", () => {
@@ -53,12 +54,27 @@ describe('event to query map', () => {
       'agent_run.completed',
       'agent_run.cancelled',
       'agent_run.failed',
+      'agent_run.usage',
     ]) {
       has(type, keys.runtimes('w1'));
+      has(type, keys.analytics('w1'));
       has(type, keys.runs('w1', 'c1'));
       has(type, keys.card('w1', 'c1'));
       has(type, keys.cards('w1'));
     }
+  });
+  it('late usage invalidates all analytics filters only in its own workspace', () => {
+    const client = new QueryClient();
+    const all = [...keys.analytics('w1'), 'UTC', 'all', 'daily', '30d'];
+    const standalone = [...keys.analytics('w1'), 'Europe/Copenhagen', 'standalone', 'weekly', '7d'];
+    const foreign = [...keys.analytics('w2'), 'UTC', 'all', 'daily', '30d'];
+    for (const key of [all, standalone, foreign]) client.setQueryData(key, {});
+    for (const queryKey of invalidationsFor('w1', ev('agent_run.usage')))
+      void client.invalidateQueries({ queryKey });
+    expect(client.getQueryState(all)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(standalone)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(foreign)?.isInvalidated).toBe(false);
+    client.clear();
   });
   it('inbox events refresh both Inbox lists', () => {
     has('inbox.read', keys.inboxAll('w1'), null);
@@ -67,6 +83,8 @@ describe('event to query map', () => {
   it('runtime events refresh the runtimes', () => {
     has('runtime.online', keys.runtimes('w1'), null);
     has('runtime.updated', keys.runtimes('w1'), null);
+    has('runtime.online', keys.storage('w1'), null);
+    has('runtime.updated', keys.storage('w1'), null);
   });
   it('member events refresh the members and the workspace list', () => {
     has('member.role_changed', keys.members('w1'), null);
@@ -366,6 +384,8 @@ describe('useRealtimeSync', () => {
       keys.inbox('w1', false),
       keys.inbox('w1', true),
       keys.runtimes('w1'),
+      keys.storage('w1'),
+      keys.analytics('w1'),
       keys.members('w1'),
       keys.invitations('w1'),
       keys.workspaces,

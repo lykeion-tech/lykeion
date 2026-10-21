@@ -854,7 +854,10 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 			if err != nil {
 				return err
 			}
-			return saveReceipt(ctx, tx, out, t.RuntimeID)
+			if err := saveReceipt(ctx, tx, out, t.RuntimeID); err != nil {
+				return err
+			}
+			return tx.Emit(ctx, "agent_run.usage_updated", out.CardID, store.System, agentRunEvent(out))
 		}
 		if err := tx.Q.DeleteAgentRunTokens(ctx, db.DeleteAgentRunTokensParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run}); err != nil {
 			return err

@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { themes } from '../theme';
 import Icon from '../components/Icon.vue';
+import StoragePanel from '../components/settings/StoragePanel.vue';
+import AnalyticsPanel from '../components/settings/AnalyticsPanel.vue';
 import SkillPanel from '../components/settings/library/SkillPanel.vue';
 import ConnectorPanel from '../components/settings/library/ConnectorPanel.vue';
 import TokenCreationForm from '../components/settings/TokenCreationForm.vue';
@@ -52,6 +54,7 @@ const groups = computed(() =>
         { id: 'profile', label: 'Profile', icon: 'users' },
         { id: 'preferences', label: 'Preferences', icon: 'filters' },
         { id: 'tokens', label: 'API Tokens', icon: 'link' },
+        { id: 'storage', label: 'Storage', icon: 'layers' },
       ],
     },
     {
@@ -71,6 +74,7 @@ const titles: Record<string, string> = {
   profile: 'Profile',
   preferences: 'Preferences',
   tokens: 'API Tokens',
+  storage: 'Storage',
   general: 'General',
   skills: 'Skills',
   connectors: 'Connectors',
@@ -354,7 +358,8 @@ async function copySlug() {
         </header>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
 
-        <SkillPanel v-if="section === 'skills'" />
+        <StoragePanel v-if="section === 'storage'" />
+        <SkillPanel v-else-if="section === 'skills'" />
         <ConnectorPanel v-else-if="section === 'connectors'" />
         <template v-else-if="section === 'profile'">
           <h3>Personal information</h3>
@@ -386,6 +391,7 @@ async function copySlug() {
               </select></label
             >
           </div>
+          <AnalyticsPanel />
         </template>
 
         <template v-else-if="section === 'preferences'">

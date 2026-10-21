@@ -5,6 +5,8 @@ export const keys = {
   me: ['me'] as const,
   workspaces: ['workspaces'] as const,
   tokens: ['tokens'] as const,
+  storage: (ws: string) => ['ws', ws, 'storage'] as const,
+  analytics: (ws: string) => ['ws', ws, 'analytics'] as const,
   ws: (ws: string) => ['ws', ws] as const,
   workspace: (ws: string) => ['ws', ws, 'workspace'] as const,
   cards: (ws: string) => ['ws', ws, 'cards'] as const,

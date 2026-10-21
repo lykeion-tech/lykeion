@@ -477,6 +477,13 @@ func TestLateReportOfACancelledRunCountsUsageOnce(t *testing.T) {
 	if _, err := f.T.Complete(ctx, f.Owner, ref, id, late); err != nil {
 		t.Fatal(err)
 	}
+	var updates int
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM event WHERE workspace_id = $1 AND type = 'agent_run.usage_updated' AND payload->>'agent_run_id' = $2", f.WS, id.String()).Scan(&updates); err != nil {
+		t.Fatal(err)
+	}
+	if updates != 1 {
+		t.Fatalf("late usage must emit one refresh event, got %d", updates)
+	}
 	var spent, cost float64
 	var rows int
 	var status string
