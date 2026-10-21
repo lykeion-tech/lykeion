@@ -39,7 +39,6 @@ const measured = (machine: StorageMachine) =>
             machine.online ? 'Online' : 'Offline'
           }}</span>
         </header>
-        <p class="description">Last seen {{ date(machine.last_seen_at) }}</p>
         <p v-if="!machine.snapshot" class="unavailable">
           This machine has not reported storage yet.
         </p>
@@ -62,12 +61,6 @@ const measured = (machine: StorageMachine) =>
               :title="`${labels[category.key]}: ${bytes(category.bytes)}`"
             ></span>
           </div>
-          <p v-else class="unavailable">
-            Incomplete measurement — category proportions unavailable.
-          </p>
-          <p class="bar-basis description">
-            Measured Lykeion files only; other disk contents are not represented.
-          </p>
           <dl class="categories">
             <div
               v-for="category in machine.snapshot.categories"
@@ -168,10 +161,6 @@ h3 {
 }
 .state {
   background: var(--selected);
-}
-.bar-basis {
-  font-size: 11px;
-  margin-top: 8px;
 }
 .categories {
   margin: 16px 0 0;
