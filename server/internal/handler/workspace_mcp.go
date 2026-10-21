@@ -250,6 +250,8 @@ func (h *H) brokerError(w http.ResponseWriter, r *http.Request, err error) {
 		writeErr(w, 404, "MCP server not found")
 	case errors.Is(err, workspacemcp.ErrTool):
 		writeErr(w, 400, err.Error())
+	case errors.Is(err, workspacemcp.ErrReserved):
+		writeErr(w, 403, err.Error())
 	default:
 		writeErr(w, 502, "workspace MCP request failed")
 	}

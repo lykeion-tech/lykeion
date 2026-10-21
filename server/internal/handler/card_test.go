@@ -1,15 +1,32 @@
 package handler
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/testutil"
+	"mime/multipart"
 	"net/http"
+	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+
+	"lykeion/server/internal/flow"
+	"lykeion/server/internal/storage"
+	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type card struct {
@@ -598,5 +615,340 @@ func TestDeletingAWorkingStudyCancelsItsRunningRun(t *testing.T) {
 	status := "/api/daemon/agent-runs/" + run.id + "/status?workspace_id=" + l.ws + "&runtime_id=" + l.rts + "&attempt=1"
 	if code := l.s.call(t, "GET", status, l.personal, "", nil, nil); code != 404 {
 		t.Fatalf("status of the deleted run: %d", code)
+	}
+}
+
+// uploadData posts one file with the given bytes and answers its upload id.
+func (s *server) uploadData(t *testing.T, tok, wsID, name string, data []byte) string {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, _ := mw.CreateFormFile("file", name)
+	part.Write(data)
+	mw.Close()
+	req, _ := http.NewRequest("POST", s.URL+"/api/attachments", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Workspace-ID", wsID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct{ ID string }
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != 201 {
+		t.Fatalf("upload %s: %d %v", name, resp.StatusCode, err)
+	}
+	return out.ID
+}
+
+func tinyPNG(t *testing.T) []byte {
+	var b bytes.Buffer
+	if err := png.Encode(&b, image.NewGray(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+const attachedCSV = "gene,fold\nPGC1A,2.4\nTFAM,1.9\n"
+
+// studyCalls is what a gate reads for a study's cites: its live call records
+// under keys, with their whole answers.
+func (s *server) studyCalls(t *testing.T, wsID, cardID string, keys ...string) map[string]flow.Call {
+	t.Helper()
+	var recs []db.Record
+	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(wsID), uuid.Nil, func(tx *store.Tx) error {
+		var err error
+		recs, err = tx.Q.LiveRecordsByKeys(t.Context(), db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(cardID), Keys: keys})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls, err := flow.LoadCalls(t.Context(), s.H.Blobs, recs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return calls
+}
+
+func TestAStudyLinksItsFilesAndRecordsThem(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	pic := tinyPNG(t)
+	csv, png := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV)), s.uploadData(t, a, w.ID, "plot.png", pic)
+	var c card
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does fasting raise PGC1A?", "attachment_ids": []string{csv, png}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	type linked struct{ disk, key string }
+	got := map[string]linked{}
+	rows, err := s.Env.Owner.Query(t.Context(), `SELECT id::text, disk_name, record_key FROM attachment WHERE card_id = $1`, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		var l linked
+		if err := rows.Scan(&id, &l.disk, &l.key); err != nil {
+			t.Fatal(err)
+		}
+		got[id] = l
+	}
+	if got[csv] != (linked{"data.csv", "c1"}) || got[png] != (linked{"plot.png", "c2"}) {
+		t.Fatalf("links %+v", got)
+	}
+	type callBody struct {
+		Server, Tool, Answer, At string
+		Args                     struct {
+			Name, Sha256 string
+			SizeBytes    int64  `json:"size_bytes"`
+			ContentType  string `json:"content_type"`
+		}
+		AnswerSHA256 string `json:"answer_sha256"`
+		Truncated    bool
+	}
+	bodies := map[string]callBody{}
+	blobs := map[string]string{}
+	recs, err := s.Env.Owner.Query(t.Context(), `SELECT key, body, blob_key FROM record
+		WHERE card_id = $1 AND kind = 'call' AND role = 'server' AND board_column = 'grounding' AND round = 0 AND agent_run_id IS NULL`, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for recs.Next() {
+		var key, blob string
+		var raw []byte
+		if err := recs.Scan(&key, &raw, &blob); err != nil {
+			t.Fatal(err)
+		}
+		var b callBody
+		if err := json.Unmarshal(raw, &b); err != nil {
+			t.Fatal(err)
+		}
+		bodies[key], blobs[key] = b, blob
+	}
+	picSum := sha256.Sum256(pic)
+	csvSum := sha256.Sum256([]byte(attachedCSV))
+	cb, pb := bodies["c1"], bodies["c2"]
+	if len(bodies) != 2 || cb.Server != "attachments" || cb.Tool != "attach" || cb.Args.Name != "data.csv" || cb.Args.SizeBytes != int64(len(attachedCSV)) ||
+		cb.Args.Sha256 != hex.EncodeToString(csvSum[:]) || cb.Args.ContentType != "text/csv" || cb.Answer != attachedCSV ||
+		cb.AnswerSHA256 != hex.EncodeToString(csvSum[:]) || cb.Truncated || cb.At == "" {
+		t.Fatalf("csv record %+v (%d records)", cb, len(bodies))
+	}
+	if want := "binary file plot.png, sha256 " + hex.EncodeToString(picSum[:]); pb.Answer != want || pb.Args.Sha256 != hex.EncodeToString(picSum[:]) || blobs["c2"] != "" {
+		t.Fatalf("png record %+v blob %q", pb, blobs["c2"])
+	}
+	rc, err := s.H.Blobs.Get(t.Context(), blobs["c1"])
+	if err != nil {
+		t.Fatalf("csv blob %q: %v", blobs["c1"], err)
+	}
+	full, _ := io.ReadAll(rc)
+	rc.Close()
+	if string(full) != attachedCSV {
+		t.Fatalf("csv blob %q", full)
+	}
+	if n := s.count(t, `SELECT count(*) FROM event WHERE card_id = $1 AND type = 'record.created'`, c.ID); n != 2 {
+		t.Fatalf("record.created events: %d", n)
+	}
+	if n := s.count(t, `SELECT count(*) FROM event WHERE card_id = $1 AND type = 'blob.created' AND payload->>'blob_key' = $2`, c.ID, blobs["c1"]); n != 1 {
+		t.Fatalf("blob.created events: %d", n)
+	}
+}
+
+func TestAQuoteFromAnAttachedFileIsChecked(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var c, other card
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does fasting raise PGC1A?",
+		"attachment_ids": []string{s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does fasting raise TFAM?"}, &other); code != 201 {
+		t.Fatalf("create other: %d", code)
+	}
+	claim := func(quote string) []db.Record {
+		b, _ := json.Marshal(map[string]any{"claims": []any{map[string]any{"text": "PGC1A rises", "quote": quote, "cites": []string{"call:c1"}}}})
+		return []db.Record{{Key: "r1", Kind: "claims", Body: b}}
+	}
+	own := s.studyCalls(t, w.ID, c.ID, "c1")
+	if m := flow.MatchQuotes(claim("PGC1A,2.4"), own); len(m) != 1 || !m[0].Matched || m[0].Call != "c1" {
+		t.Fatalf("a quote in the file: %+v", m)
+	}
+	if m := flow.MatchQuotes(claim("PGC1A,9.9"), own); len(m) != 1 || m[0].Matched {
+		t.Fatalf("a quote not in the file: %+v", m)
+	}
+	// the other study has no c1: the attached file is not its source
+	if m := flow.MatchQuotes(claim("PGC1A,2.4"), s.studyCalls(t, w.ID, other.ID, "c1")); len(m) != 1 || m[0].Matched {
+		t.Fatalf("another study's file resolved: %+v", m)
+	}
+}
+
+func TestStudyFileLimits(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var ids []string
+	for i := range 6 {
+		ids = append(ids, s.uploadData(t, a, w.ID, fmt.Sprintf("f%d.csv", i), []byte("x\n")))
+	}
+	many := slices.Clone(ids)
+	for len(many) < 101 {
+		many = append(many, uuid.NewString())
+	}
+	refused := func(ids []string, want string) {
+		t.Helper()
+		var out struct{ Error string }
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": ids}, &out); code != 400 || out.Error != want {
+			t.Fatalf("%d %q, want 400 %q", code, out.Error, want)
+		}
+		if n := s.count(t, `SELECT count(*) FROM card`); n != 0 {
+			t.Fatalf("a refused study was created: %d", n)
+		}
+		if n := s.count(t, `SELECT count(*) FROM attachment WHERE card_id IS NULL AND disk_name = '' AND record_key = ''`); n != 6 {
+			t.Fatalf("pending uploads: %d", n)
+		}
+		if n := s.count(t, `SELECT count(*) FROM record`); n != 0 {
+			t.Fatalf("records: %d", n)
+		}
+	}
+	refused(many, "A study can have at most 100 files")
+	// sizes stand in for files up to the 100 MB cap: five full ones and a byte
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE attachment SET size_bytes = CASE WHEN id = $1 THEN 1 ELSE 100 << 20 END`, ids[5]); err != nil {
+		t.Fatal(err)
+	}
+	refused(ids, "A study's files can total at most 500 MB")
+	// exactly 500 MB is allowed
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": ids[:5]}, nil); code != 201 {
+		t.Fatalf("500 MB: %d", code)
+	}
+}
+
+func TestForeignUploadsAreRefusedAsUnknown(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	c := s.signIn(t, "c@else.org")
+	wc := s.workspace(t, c, "else")
+	mine := s.uploadData(t, a, w.ID, "mine.csv", []byte("x\n"))
+	for name, id := range map[string]string{
+		"a colleague's upload":       s.uploadData(t, b, w.ID, "theirs.csv", []byte("y\n")),
+		"another workspace's upload": s.uploadData(t, c, wc.ID, "else.csv", []byte("z\n")),
+		"an id that names no upload": uuid.NewString(),
+	} {
+		var out struct{ Error string }
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": []string{mine, id}}, &out); code != 400 || out.Error != "Unknown attachment" {
+			t.Fatalf("%s: %d %q", name, code, out.Error)
+		}
+	}
+	if n := s.count(t, `SELECT count(*) FROM card`); n != 0 {
+		t.Fatalf("cards: %d", n)
+	}
+	if n := s.count(t, `SELECT count(*) FROM attachment WHERE card_id IS NULL`); n != 3 {
+		t.Fatalf("pending uploads: %d", n)
+	}
+}
+
+// gatedBlobs holds every Get until release is closed, saying when one waits.
+type gatedBlobs struct {
+	storage.Storage
+	waiting chan struct{}
+	release chan struct{}
+}
+
+func (g gatedBlobs) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	g.waiting <- struct{}{}
+	<-g.release
+	return g.Storage.Get(ctx, key)
+}
+
+func TestAnUploadLinksToOneStudyOnly(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	id := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
+	codes := make([]int, 2)
+	var wg sync.WaitGroup
+	for i := range codes {
+		wg.Go(func() {
+			codes[i] = s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": fmt.Sprintf("question %d", i), "attachment_ids": []string{id}}, nil)
+		})
+	}
+	wg.Wait()
+	slices.Sort(codes)
+	if codes[0] != 201 || (codes[1] != 409 && codes[1] != 400) {
+		t.Fatalf("codes %v", codes)
+	}
+	if n := s.count(t, `SELECT count(*) FROM card`); n != 1 {
+		t.Fatalf("cards: %d", n)
+	}
+	if n := s.count(t, `SELECT count(*) FROM record`); n != 1 {
+		t.Fatalf("records: %d", n)
+	}
+	if n := s.count(t, `SELECT count(*) FROM attachment a JOIN card c ON c.id = a.card_id WHERE a.id = $1`, id); n != 1 {
+		t.Fatalf("links: %d", n)
+	}
+}
+
+func TestAnUploadTakenMidCreateRefusesTheStudy(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	first := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
+	taken := s.uploadData(t, a, w.ID, "more.csv", []byte("gene\nSIRT1\n"))
+	local := s.H.Blobs.(storage.Local)
+	gate := gatedBlobs{local, make(chan struct{}, 2), make(chan struct{})}
+	s.H.Blobs = gate
+	code := make(chan int)
+	go func() {
+		code <- s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": []string{first, taken}}, nil)
+	}()
+	// the study has read both uploads as pending; the sweep then takes one
+	<-gate.waiting
+	if _, err := s.Env.Owner.Exec(t.Context(), `DELETE FROM attachment WHERE id = $1`, taken); err != nil {
+		t.Fatal(err)
+	}
+	close(gate.release)
+	<-gate.waiting
+	if c := <-code; c != 409 {
+		t.Fatalf("create: %d", c)
+	}
+	if n := s.count(t, `SELECT count(*) FROM card`) + s.count(t, `SELECT count(*) FROM record`); n != 0 {
+		t.Fatalf("the refused study left %d rows", n)
+	}
+	if n := s.count(t, `SELECT count(*) FROM attachment WHERE id = $1 AND card_id IS NULL AND record_key = ''`, first); n != 1 {
+		t.Fatal("the other upload is no longer pending")
+	}
+	// nor any copy of the files' text
+	texts, _ := filepath.Glob(filepath.Join(local.Dir, w.ID, "*", "*"))
+	texts = slices.DeleteFunc(texts, func(p string) bool { return uuid.Validate(filepath.Base(filepath.Dir(p))) != nil })
+	if len(texts) != 0 {
+		t.Fatalf("text blobs %v", texts)
+	}
+}
+
+func TestARunCannotRecordAnAttachment(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	in := map[string]any{"server": "attachments", "tool": "attach", "args": map[string]any{"name": "forged.csv"}, "answer": "PGC1A,9.9"}
+	if c := l.s.call(t, "POST", "/api/role/calls", leader.callToken, "", in, nil); c != 403 {
+		t.Fatalf("a run recorded an attachment: %d", c)
+	}
+	if n := l.s.count(t, `SELECT count(*) FROM record WHERE kind = 'call' AND body->>'server' = 'attachments'`); n != 0 {
+		t.Fatalf("forged attachment records: %d", n)
 	}
 }

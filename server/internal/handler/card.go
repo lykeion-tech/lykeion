@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -29,6 +31,8 @@ type newCard struct {
 	FollowsFrom []uuid.UUID `json:"follows_from"`
 	Assignee    *assigneeIn `json:"assignee"`
 	Scope       *scopeIn    `json:"scope"`
+	// AttachmentIDs are the caller's pending uploads the study takes as its files.
+	AttachmentIDs []uuid.UUID `json:"attachment_ids"`
 }
 
 // assigneeIn is Teams by column; an Autoresearch may instead name an agent, or
@@ -284,7 +288,12 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	files, err := h.studyFiles(r, in.AttachmentIDs)
+	if !answer(w, r, err) {
+		return
+	}
 	var c studyView
+	var textBlobs []string
 	var dup db.ActiveDuplicateRow
 	var teams map[string]uuid.UUID
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
@@ -350,11 +359,22 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		if err := linkStudyFiles(r, tx, h.Blobs, card, files, &textBlobs); err != nil {
+			return err
+		}
 		if c, err = viewOf(r, tx, card); err != nil {
 			return err
 		}
 		return tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title})
 	})
+	if err != nil {
+		// the study was never stored, so neither is the text kept for its files
+		for _, key := range textBlobs {
+			if e := h.Blobs.Delete(context.WithoutCancel(r.Context()), key); e != nil {
+				slog.Error("study file text", "blob_key", key, "err", e)
+			}
+		}
+	}
 	if errors.Is(err, errDuplicate) {
 		writeJSON(w, 409, map[string]any{"error": fmt.Sprintf("an active study already asks this: #%d", dup.Number),
 			"card_id": dup.ID, "number": dup.Number, "follows_allowed": from == board.Grounding && to == board.Reporting})
