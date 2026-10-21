@@ -20,7 +20,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -269,6 +271,11 @@ func (h *H) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rc.Close()
+	serveAttachment(w, r, row, rc)
+}
+
+// serveAttachment streams a file, always as a download, never shown inline.
+func serveAttachment(w http.ResponseWriter, r *http.Request, row db.Attachment, rc io.Reader) {
 	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": row.Name})
 	if disposition == "" {
 		disposition = "attachment"
@@ -286,9 +293,39 @@ func (h *H) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 		defer rcw.SetWriteDeadline(time.Time{})
 	}
 	if _, err := io.Copy(w, rc); err != nil {
-		slog.Error("attachment download failed", "attachment", aid, "err", err)
+		slog.Error("attachment download failed", "attachment", row.ID, "err", err)
 		panic(http.ErrAbortHandler)
 	}
+}
+
+// roleAttachment streams one of the run's own study's files to its daemon.
+// Any other id, another study's included, is not found.
+func (h *H) roleAttachment(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, 404, "not found")
+		return
+	}
+	var row db.Attachment
+	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+		var err error
+		row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: role.WorkspaceID, CardID: &role.CardID, ID: id})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storage.ErrNotFound
+		}
+		return err
+	})
+	if err != nil {
+		roleError(w, r, err)
+		return
+	}
+	rc, err := h.Blobs.Get(r.Context(), row.BlobKey)
+	if err != nil {
+		roleError(w, r, err)
+		return
+	}
+	defer rc.Close()
+	serveAttachment(w, r, row, roleBlobReader{r.Context(), rc})
 }
 
 func attachmentReadErr(w http.ResponseWriter, r *http.Request, err error) {

@@ -102,6 +102,8 @@ type claimed struct {
 	// Connectors are what the run may call through its tool door.
 	Connectors          []pack.Connector                  `json:"connectors"`
 	WorkspaceConnectors []service.WorkspaceConnectorClaim `json:"workspace_connectors,omitempty"`
+	// Attachments are the study's files, placed read-only in the run folder.
+	Attachments []service.ClaimedAttachment `json:"attachments"`
 }
 type daemon struct {
 	namingSlots     chan struct{}

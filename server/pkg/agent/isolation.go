@@ -43,6 +43,8 @@ var RunFolderConfig = []RunFolderPath{
 	{Name: ".agent-exit"}, {Name: ".agent-exit.tmp"},
 	// Git configuration can execute hooks and filesystem monitors.
 	{Name: ".git", Folder: true},
+	// The study's attached files, which no run may change.
+	{Name: "attachments", Folder: true},
 }
 
 // prepareScratch reserves the run folder and its daemon-owned accounting state.

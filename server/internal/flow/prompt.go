@@ -57,10 +57,19 @@ func assignment(c db.Card, note string) string {
 // leaderStep introduces the step a leader hands a member.
 const leaderStep = "Your step, from the leader:\n"
 
-func prompt(c db.Card, role string, comments []db.Comment, researchContext string) string {
+func prompt(c db.Card, role string, comments []db.Comment, researchContext string, files []db.Attachment) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the %s on Lykeion study #%d, in its %s column.\n\nWhat the researcher asked:\n%s\n",
 		role, c.Number, title(c.BoardColumn), asked(c))
+	if len(files) > 0 {
+		// Each file is named as it is in the run folder, with the record it
+		// is cited by.
+		listed := make([]string, len(files))
+		for i, f := range files {
+			listed[i] = fmt.Sprintf("%s (cite call:%s)", f.DiskName, f.RecordKey)
+		}
+		fmt.Fprintf(&b, "\nAttached files (read-only) are in ./attachments: %s\n", strings.Join(listed, ", "))
+	}
 	if strings.TrimSpace(researchContext) != "" {
 		fmt.Fprintf(&b, "\n%s\n%s\n", researchContextHeading, researchContext)
 	}

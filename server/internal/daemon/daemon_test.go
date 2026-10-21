@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -22,6 +24,7 @@ import (
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/connectors"
+	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/service"
@@ -44,6 +47,7 @@ type daemonFixture struct {
 	cfg                Config
 	rejectMessages     atomic.Bool
 	messageCalls       atomic.Int32
+	attachmentGets     atomic.Int32
 }
 
 func fixture(t *testing.T) *daemonFixture {
@@ -73,6 +77,9 @@ func fixture(t *testing.T) *daemonFixture {
 			}
 			conn.Close()
 			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/role/attachments/") {
+			f.attachmentGets.Add(1)
 		}
 		if strings.HasSuffix(r.URL.Path, "/messages") {
 			f.messageCalls.Add(1)
@@ -1260,6 +1267,147 @@ echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Not logge
 			must(t, f.env.Owner.QueryRow(t.Context(), "SELECT count(*), count(*) FILTER (WHERE content->>'message'=$2) FROM agent_run_message WHERE agent_run_id=$1 AND type='status' AND content->>'type'='sandbox'", f.id, "The CLI couldn't read your sign-in inside Lykeion's sandbox. Sign in to the CLI on this machine, then run again.").Scan(&count, &matching))
 			if count != wantNotes || matching != wantNotes {
 				t.Fatalf("sandbox notes=%d, matching=%d, want %d", count, matching, wantNotes)
+			}
+		})
+	}
+}
+
+// attach links a file to the fixture's study under diskName, as creating the
+// study with it would.
+func (f *daemonFixture) attach(t *testing.T, diskName, data string) {
+	t.Helper()
+	ctx := context.Background()
+	sum := sha256.Sum256([]byte(data))
+	id := uuid.New()
+	key := f.ws.String() + "/attachments/" + id.String()
+	must(t, f.h.Blobs.Put(ctx, key, strings.NewReader(data), int64(len(data))))
+	must(t, f.runs.Store.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
+		if _, err := tx.Q.InsertPendingAttachment(ctx, db.InsertPendingAttachmentParams{ID: id, WorkspaceID: f.ws, UploaderID: f.user, Name: diskName,
+			ContentType: "text/csv", SizeBytes: int64(len(data)), Sha256: hex.EncodeToString(sum[:]), BlobKey: key}); err != nil {
+			return err
+		}
+		_, err := tx.Q.LinkAttachment(ctx, db.LinkAttachmentParams{ID: id, CardID: &f.card, DiskName: diskName, RecordKey: "c1"})
+		return err
+	}))
+}
+
+// probingClaude is the fake CLI that first tries, from inside the run's
+// sandbox, to change the study's files or give one a second, writable name,
+// and writes what it managed to probe.txt in its run folder.
+func probingClaude(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(fakeClaude(t))
+	must(t, err)
+	// The version check runs the CLI outside any run folder; it probes nothing.
+	probe := `case "$*" in *--version*) ;; *) {
+	cat attachments/data.csv >/dev/null && echo READ
+	(printf x >> attachments/data.csv) 2>/dev/null && echo WROTE
+	(: > attachments/new.csv) 2>/dev/null && echo CREATED
+	(chmod u+w attachments/data.csv) 2>/dev/null && echo CHMOD
+	ln attachments/data.csv linked.csv 2>/dev/null && echo LINKED
+	rm -f attachments/data.csv 2>/dev/null; [ -e attachments/data.csv ] || echo REMOVED
+	(mv attachments gone) 2>/dev/null && echo MOVED
+} > probe.txt 2>&1 ;; esac
+`
+	p := filepath.Join(filepath.Dir(fakeClaude(t)), "probing-claude")
+	must(t, os.WriteFile(p, []byte(strings.Replace(string(b), "#!/bin/sh\n", "#!/bin/sh\n"+probe, 1)), 0700))
+	return p
+}
+
+func (f *daemonFixture) runFolder() string { return filepath.Join(f.cfg.Home, f.id.String()+"-1") }
+
+func TestARunGetsItsStudysFilesReadOnly(t *testing.T) {
+	if err := sandbox.Check(context.Background()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	f := fixture(t)
+	f.cfg.Harnesses["claude"] = probingClaude(t)
+	f.attach(t, "data.csv", "gene,fold\nPGC1A,2.4\n")
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	dir := f.runFolder()
+	probe, err := os.ReadFile(filepath.Join(dir, "probe.txt"))
+	must(t, err)
+	if string(probe) != "READ\n" {
+		t.Fatalf("inside the sandbox the run managed more than reading its file:\n%s", probe)
+	}
+	path := filepath.Join(dir, "attachments", "data.csv")
+	got, err := os.ReadFile(path)
+	must(t, err)
+	fi, err := os.Stat(path)
+	must(t, err)
+	if string(got) != "gene,fold\nPGC1A,2.4\n" || fi.Mode().Perm() != 0o444 {
+		t.Fatalf("the run's file: %q mode %v", got, fi.Mode())
+	}
+}
+
+func TestTheCacheIsCheckedAndReused(t *testing.T) {
+	f := fixture(t)
+	const data = "gene,fold\nTFAM,1.9\n"
+	f.attach(t, "data.csv", data)
+	cancel, done := startDaemon(t, f.cfg)
+	defer stopDaemon(t, cancel, done)
+	sum := sha256.Sum256([]byte(data))
+	cached := filepath.Join(f.cfg.StateDir, "cache", "attachments", hex.EncodeToString(sum[:]))
+	runOnce := func() string {
+		t.Helper()
+		waitFor(t, func() bool { return f.status(t) == "completed" })
+		got, err := os.ReadFile(filepath.Join(f.runFolder(), "attachments", "data.csv"))
+		must(t, err)
+		return string(got)
+	}
+	if got := runOnce(); got != data || f.attachmentGets.Load() != 1 {
+		t.Fatalf("first run: %q after %d downloads", got, f.attachmentGets.Load())
+	}
+	if b, err := os.ReadFile(cached); err != nil || string(b) != data {
+		t.Fatalf("cache: %q %v", b, err)
+	}
+	// The run's file is the cached one, linked rather than copied.
+	ci, err := os.Stat(cached)
+	must(t, err)
+	ri, err := os.Stat(filepath.Join(f.runFolder(), "attachments", "data.csv"))
+	must(t, err)
+	if !os.SameFile(ci, ri) {
+		t.Fatal("the run's file is not linked to the cache")
+	}
+	f.enqueue(t)
+	if got := runOnce(); got != data || f.attachmentGets.Load() != 1 {
+		t.Fatalf("second run: %q after %d downloads", got, f.attachmentGets.Load())
+	}
+	// A damaged cache entry is replaced, not handed to a run.
+	must(t, os.Remove(cached))
+	must(t, os.WriteFile(cached, []byte("gene,fold\nTFAM,9.9\n"), 0o444))
+	f.enqueue(t)
+	if got := runOnce(); got != data || f.attachmentGets.Load() != 2 {
+		t.Fatalf("after damage: %q after %d downloads", got, f.attachmentGets.Load())
+	}
+}
+
+func TestAnUnsafeOrMissingFileFailsTheRun(t *testing.T) {
+	for name, setup := range map[string]func(*daemonFixture){
+		"a name that leaves the folder": func(f *daemonFixture) { f.attach(t, "../escape.csv", "x") },
+		"a file that can't be fetched": func(f *daemonFixture) {
+			f.attach(t, "data.csv", "x")
+			must(t, os.RemoveAll(f.h.Blobs.(storage.Local).Dir))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fixture(t)
+			setup(f)
+			cancel, done := startDaemon(t, f.cfg)
+			waitFor(t, func() bool { return f.status(t) == "failed" })
+			stopDaemon(t, cancel, done)
+			var msg string
+			must(t, f.env.Owner.QueryRow(context.Background(), "SELECT error FROM agent_run WHERE id=$1", f.id).Scan(&msg))
+			if !strings.Contains(msg, "attached file") {
+				t.Fatalf("error %q", msg)
+			}
+			if _, err := os.Stat(filepath.Join(f.runFolder(), "..", "escape.csv")); err == nil {
+				t.Fatal("a file was written outside the run's attachments folder")
+			}
+			if b, err := os.ReadFile(filepath.Join(f.cfg.Home, ".caches", "npm", "argv")); err == nil {
+				t.Fatalf("the CLI started: %s", b)
 			}
 		})
 	}

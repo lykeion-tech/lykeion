@@ -137,6 +137,18 @@ type Claimed struct {
 	// Connectors are what the run may call through the daemon's tool door.
 	Connectors          []pack.Connector          `json:"connectors"`
 	WorkspaceConnectors []WorkspaceConnectorClaim `json:"workspace_connectors,omitempty"`
+	// Attachments are the study's files, which the daemon places in the run
+	// folder before the CLI starts.
+	Attachments []ClaimedAttachment `json:"attachments,omitempty"`
+}
+
+// ClaimedAttachment is an attached file as the daemon fetches it: by id,
+// under its sanitised name, checked against its digest and size.
+type ClaimedAttachment struct {
+	ID        uuid.UUID `json:"id"`
+	DiskName  string    `json:"disk_name"`
+	Sha256    string    `json:"sha256"`
+	SizeBytes int64     `json:"size_bytes"`
 }
 
 type Report struct {
@@ -567,7 +579,17 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if team != nil {
 						teams[t.ID] = *team
 					}
-					c = &Claimed{AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace}
+					var files []ClaimedAttachment
+					if t.CardID != nil {
+						rows, err := tx.Q.CardAttachments(ctx, db.CardAttachmentsParams{WorkspaceID: ref.WorkspaceID, CardID: t.CardID})
+						if err != nil {
+							return err
+						}
+						for _, a := range rows {
+							files = append(files, ClaimedAttachment{ID: a.ID, DiskName: a.DiskName, Sha256: a.Sha256, SizeBytes: a.SizeBytes})
+						}
+					}
+					c = &Claimed{AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {

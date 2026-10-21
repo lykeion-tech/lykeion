@@ -30,6 +30,15 @@ type roleRun struct {
 	token, id string
 	ref       map[string]any
 	personal  string
+	files     []claimedFile
+}
+
+// claimedFile is an attached file as a claim hands it to the daemon.
+type claimedFile struct {
+	ID        string `json:"id"`
+	DiskName  string `json:"disk_name"`
+	Sha256    string `json:"sha256"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 func (s *server) running(t *testing.T, jwt, ws, cardID string) roleRun {
@@ -46,7 +55,8 @@ func (s *server) running(t *testing.T, jwt, ws, cardID string) roleRun {
 			ID      string
 			Attempt int32
 		} `json:"agent_run"`
-		Token string
+		Token       string
+		Attachments []claimedFile
 	}
 	if code := s.call(t, "POST", "/api/daemon/agent-runs/claim", personal, "", map[string]any{"runtimes": []any{ref}, "slots": 1}, &claims); code != 200 || len(claims) != 1 || claims[0].AgentRun.Attempt <= 0 {
 		t.Fatalf("claim %d %+v", code, claims)
@@ -55,7 +65,7 @@ func (s *server) running(t *testing.T, jwt, ws, cardID string) roleRun {
 	if code := s.call(t, "POST", "/api/daemon/agent-runs/"+claims[0].AgentRun.ID+"/start", personal, "", ref, nil); code != 204 {
 		t.Fatalf("start %d", code)
 	}
-	return roleRun{claims[0].Token, claims[0].AgentRun.ID, ref, personal}
+	return roleRun{claims[0].Token, claims[0].AgentRun.ID, ref, personal, claims[0].Attachments}
 }
 func (s *server) roleFixture(t *testing.T) (string, string, card, roleRun) {
 	t.Helper()
@@ -757,5 +767,89 @@ func TestRoleBlobReadHonorsEarlierRequestDeadline(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 408 {
 		t.Fatalf("stalled upload %d", resp.StatusCode)
+	}
+}
+
+// studyWithFiles creates a study with the named files attached, each holding
+// its name as its bytes, and starts a run on it.
+func (s *server) studyWithFiles(t *testing.T, jwt, ws string, names ...string) (card, []string, roleRun) {
+	t.Helper()
+	ids := make([]string, len(names))
+	for i, n := range names {
+		ids[i] = s.uploadData(t, jwt, ws, n, []byte("bytes of "+n))
+		// A multipart upload keeps only a name's last element; the display
+		// name is set as given, so a hostile one reaches the study as is.
+		if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE attachment SET name = $1 WHERE id = $2`, n, ids[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var c card
+	if code := s.call(t, "POST", "/api/cards", jwt, ws, map[string]any{"question": "What do " + strings.Join(names, ", ") + " show?", "attachment_ids": ids}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	return c, ids, s.running(t, jwt, ws, c.ID)
+}
+
+func TestARunDownloadsOnlyItsStudysFiles(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	jwt := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, jwt, "lab")
+	c, ids, run := s.studyWithFiles(t, jwt, w.ID, "data.csv")
+	_, otherIDs, _ := s.studyWithFiles(t, jwt, w.ID, "other.csv")
+	if len(run.files) != 1 || run.files[0].ID != ids[0] || run.files[0].DiskName != "data.csv" || run.files[0].SizeBytes != int64(len("bytes of data.csv")) {
+		t.Fatalf("claimed files %+v", run.files)
+	}
+	if sum := sha256.Sum256([]byte("bytes of data.csv")); run.files[0].Sha256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("claimed sha256 %s", run.files[0].Sha256)
+	}
+	if code, body := s.blobRequest(t, "GET", "/api/role/attachments/"+ids[0], run.token, nil); code != 200 || string(body) != "bytes of data.csv" {
+		t.Fatalf("own file: %d %q", code, body)
+	}
+	for _, id := range []string{otherIDs[0], uuid.NewString(), "not-a-uuid"} {
+		if code, _ := s.blobRequest(t, "GET", "/api/role/attachments/"+id, run.token, nil); code != 404 {
+			t.Fatalf("file %s: %d", id, code)
+		}
+	}
+	for _, tok := range []string{jwt, run.personal, "ltk_invalid"} {
+		if code, _ := s.blobRequest(t, "GET", "/api/role/attachments/"+ids[0], tok, nil); code != 401 {
+			t.Fatalf("non-run credential: %d", code)
+		}
+	}
+	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, jwt, w.ID, nil, nil); code != 204 {
+		t.Fatalf("delete: %d", code)
+	}
+	if code, _ := s.blobRequest(t, "GET", "/api/role/attachments/"+ids[0], run.token, nil); code != 401 && code != 404 {
+		t.Fatalf("a deleted study's file: %d", code)
+	}
+}
+
+func TestAttachmentNamesAreSafeOnDisk(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	jwt := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, jwt, "lab")
+	names := []string{"../../x", "a/b.csv", "data.csv", "data.csv"}
+	c, _, run := s.studyWithFiles(t, jwt, w.ID, names...)
+	if len(run.files) != len(names) {
+		t.Fatalf("claimed %+v", run.files)
+	}
+	seen := map[string]bool{}
+	for _, f := range run.files {
+		if f.DiskName == "" || f.DiskName == "." || f.DiskName == ".." || strings.ContainsAny(f.DiskName, `/\`) || !filepath.IsLocal(f.DiskName) || seen[strings.ToLower(f.DiskName)] {
+			t.Errorf("unsafe or repeated name on disk %q", f.DiskName)
+		}
+		seen[strings.ToLower(f.DiskName)] = true
+	}
+	var v studyFilesView
+	if code := s.call(t, "GET", "/api/cards/"+c.ID, jwt, w.ID, nil, &v); code != 200 || len(v.Attachments) != len(names) {
+		t.Fatalf("view: %d %+v", code, v)
+	}
+	for i, a := range v.Attachments {
+		if a.Name != names[i] {
+			t.Errorf("display name %d = %q, want %q", i, a.Name, names[i])
+		}
 	}
 }

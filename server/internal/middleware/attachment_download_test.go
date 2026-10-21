@@ -17,6 +17,10 @@ func TestOnlyAStudyFileDownloadGetsTheLongBudget(t *testing.T) {
 		{"GET", "/api/cards/x/attachments/" + id, false},
 		{"GET", "/api/cards/" + id + "/comments", false},
 		{"GET", "/api/cards/" + id, false},
+		{"GET", "/api/role/attachments/" + id, true},
+		{"POST", "/api/role/attachments/" + id, false},
+		{"GET", "/api/role/attachments/x", false},
+		{"GET", "/api/role/blobs/" + id, false},
 	} {
 		if got := attachmentDownload(httptest.NewRequest(c.method, c.path, nil)); got != c.want {
 			t.Errorf("%s %s: %v, want %v", c.method, c.path, got, c.want)
