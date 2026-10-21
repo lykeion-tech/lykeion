@@ -216,9 +216,11 @@ func (h *H) listRecords(w http.ResponseWriter, r *http.Request) {
 		records, err = tx.Q.ListRecords(r.Context(), db.ListRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: col})
 		return err
 	})
-	if kind := r.URL.Query().Get("kind"); kind != "" {
-		records = slices.DeleteFunc(records, func(rec db.Record) bool { return rec.Kind != kind })
-	}
+	// A trigger's payload is untrusted text kept for people; no role reads it.
+	kind := r.URL.Query().Get("kind")
+	records = slices.DeleteFunc(records, func(rec db.Record) bool {
+		return rec.Kind == "trigger_payload" || (kind != "" && rec.Kind != kind)
+	})
 	if err != nil {
 		roleError(w, r, err)
 		return

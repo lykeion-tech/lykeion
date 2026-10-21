@@ -133,6 +133,18 @@ func TestAutoresearchCardStartsAtOnce(t *testing.T) {
 	})
 }
 
+func TestAMissingBuiltInFailsTheRunAndLeavesNothing(t *testing.T) {
+	f := setup(t)
+	f.s.Engine = &flow.Engine{Store: f.s.Store, AgentRuns: f.s.AgentRuns}
+	f.exec(t, `DELETE FROM field_pack WHERE id = $1`, f.builtIn(t, "reporting"))
+	ap := f.autoresearch(t, "create_card", "Weekly", "What is new?", "")
+	r := f.fire(t, ap, Admission{})
+	if reason(r) != "failed/assignee_unavailable" || r.CardID != nil || f.count(t, `SELECT count(*) FROM card`) != 0 ||
+		f.count(t, `SELECT count(*) FROM team_agent`) != 0 {
+		t.Fatalf("%s card=%v", reason(r), r.CardID)
+	}
+}
+
 func TestRunOnlyOpenedStudyRunsItsAgent(t *testing.T) {
 	f := setup(t)
 	f.s.Engine = &flow.Engine{Store: f.s.Store, AgentRuns: f.s.AgentRuns}

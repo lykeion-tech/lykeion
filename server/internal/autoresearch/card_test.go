@@ -114,9 +114,9 @@ func TestAWebhookPayloadIsARecordNeverTheQuestion(t *testing.T) {
 		AND round = 0 AND role = 'server' AND body @> '{"event":"dataset.published"}'`, c.ID); n != 1 {
 		t.Fatalf("payload records: %d", n)
 	}
-	// No attempt's round holds it.
+	// It sits outside every attempt's round, where no gate reads it, and no role lists it.
 	if f.count(t, `SELECT count(*) FROM record WHERE card_id = $1 AND round <> 0`, c.ID) != 0 {
-		t.Fatal("the payload was stored where a gate reads")
+		t.Fatal("the payload was stored in an attempt's round")
 	}
 }
 

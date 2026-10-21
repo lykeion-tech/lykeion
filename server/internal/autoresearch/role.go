@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -61,8 +62,11 @@ func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid
 	var agent *uuid.UUID
 	if ap.AssigneeType != nil {
 		a, err := s.assignedAgent(ctx, tx, ap, r.ActingUserID)
-		if err != nil {
+		if errors.Is(err, errNoAssignee) || errors.Is(err, pgx.ErrNoRows) {
 			return db.Card{}, fmt.Errorf("%w: %w", ErrStartFailed, err)
+		}
+		if err != nil {
+			return db.Card{}, err
 		}
 		agent = &a.ID
 	}
