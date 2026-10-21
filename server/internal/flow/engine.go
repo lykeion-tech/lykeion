@@ -203,14 +203,10 @@ func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role stri
 		p += "\n" + note + "\n"
 	}
 	agentID := a.ID
-	t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
+	return e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
 		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p, Agent: &agentID, Assignment: assignment(c, note),
-		Skill: strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m))})
-	if err != nil {
-		return t, err
-	}
-	return t, tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Round),
-		ID: t.ID, WorkspaceID: tx.WS})
+		ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Round),
+		Skill:           strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m))})
 }
 
 // ContinuityScope names the CLI session a run continues on its owner's

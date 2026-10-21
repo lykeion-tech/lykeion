@@ -803,6 +803,83 @@ func (q *Queries) LockAgentRunToken(ctx context.Context, arg LockAgentRunTokenPa
 	return i, err
 }
 
+const lockRemovedHarnessQueue = `-- name: LockRemovedHarnessQueue :many
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment FROM agent_run t
+LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
+WHERE t.workspace_id = $1 AND t.status = 'queued'
+ AND t.harness IN ('cursor', 'antigravity')
+ AND ((t.kind = 'role' AND c.owner_id = $2)
+   OR (t.kind = 'autoresearch' AND t.requester_id = $2))
+ORDER BY t.id FOR UPDATE OF t
+`
+
+type LockRemovedHarnessQueueParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+func (q *Queries) LockRemovedHarnessQueue(ctx context.Context, arg LockRemovedHarnessQueueParams) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, lockRemovedHarnessQueue, arg.WorkspaceID, arg.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentRun
+	for rows.Next() {
+		var i AgentRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.ResponsibleUserID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Role,
+			&i.Harness,
+			&i.Prompt,
+			&i.Skill,
+			&i.Status,
+			&i.QueueReason,
+			&i.RuntimeID,
+			&i.PrepareLeaseExpiresAt,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.SessionID,
+			&i.ContinuityScope,
+			&i.ProfileMode,
+			&i.PolicyDigest,
+			&i.Model,
+			&i.Error,
+			&i.FailureReason,
+			&i.CostUsd,
+			&i.LateUsageAt,
+			&i.CreatedAt,
+			&i.HandoffNote,
+			&i.InputLeaseExpiresAt,
+			&i.InputFetchExpiresAt,
+			&i.InputFetchID,
+			&i.InputOutcomes,
+			&i.AddonHash,
+			&i.AddonMcp,
+			&i.Kind,
+			&i.RequesterID,
+			&i.RequestedModel,
+			&i.AgentID,
+			&i.Assignment,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockWorkspaceExecution = `-- name: LockWorkspaceExecution :one
 SELECT id FROM workspace WHERE id = $1 FOR NO KEY UPDATE
 `

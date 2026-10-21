@@ -114,6 +114,8 @@ type NewAgentRun struct {
 	// Assignment is what the run was asked to do, as researchers read it:
 	// the prompt without Lykeion's own framing.
 	Assignment string
+	// ContinuityScope is computed by internal callers before any terminal snapshot.
+	ContinuityScope string `json:"-"`
 }
 
 type WorkspaceConnectorClaim struct {
@@ -256,6 +258,9 @@ func agentRunEvent(t db.AgentRun) map[string]any {
 // Enqueue adds an agent run in the caller's transaction. The owner is responsible
 // for the run, and their id rides on the event so their daemons can be woken.
 func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, n NewAgentRun) (db.AgentRun, error) {
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		return db.AgentRun{}, err
+	}
 	if n.MaxAttempts < 0 {
 		return db.AgentRun{}, ErrConflict
 	}
@@ -269,10 +274,14 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 	if card.OwnerID != owner {
 		return db.AgentRun{}, ErrNotYours
 	}
+	scope := n.ContinuityScope
+	if scope == "" {
+		scope = "card:" + n.Card.String() + "/role:" + n.Role
+	}
 	t, err := tx.Q.EnqueueAgentRun(ctx, db.EnqueueAgentRunParams{
 		WorkspaceID: tx.WS, CardID: &n.Card, ResponsibleUserID: owner, BoardColumn: n.Column, Round: n.Round, Role: n.Role,
 		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, MaxAttempts: n.MaxAttempts,
-		ContinuityScope: "card:" + n.Card.String() + "/role:" + n.Role, RequestedModel: n.Model,
+		ContinuityScope: scope, RequestedModel: n.Model,
 		AgentID: n.Agent, Assignment: n.Assignment,
 	})
 	if err != nil {
@@ -280,7 +289,30 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 	}
 	p := agentRunEvent(t)
 	p["owner_id"] = owner
-	return t, tx.Emit(ctx, "agent_run.queued", t.CardID, store.System, p)
+	if err := tx.Emit(ctx, "agent_run.queued", t.CardID, store.System, p); err != nil {
+		return t, err
+	}
+	if t.Harness == "cursor" || t.Harness == "antigravity" {
+		return failRemovedHarness(ctx, tx, t)
+	}
+	return t, nil
+}
+
+// failRemovedHarness ends queued work without inventing a dispatch or an
+// attempt receipt. Its durable settlement is delivered after the caller commits.
+func failRemovedHarness(ctx context.Context, tx *store.Tx, t db.AgentRun) (db.AgentRun, error) {
+	reason := "agent_error"
+	if err := tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{WorkspaceID: tx.WS, ID: t.ID, Status: "failed", SessionID: t.SessionID, Error: agent.ErrHarnessRemoved.Error(), FailureReason: &reason}); err != nil {
+		return t, err
+	}
+	f, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: t.ID})
+	if err != nil {
+		return f, err
+	}
+	if err := saveSettlement(ctx, tx, f); err != nil {
+		return f, err
+	}
+	return f, tx.Emit(ctx, "agent_run.failed", f.CardID, store.System, agentRunEvent(f))
 }
 
 // Register brings the daemon's runtimes online. A missing version or platform
@@ -425,6 +457,29 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 		for _, ref := range ordered {
 			if err := tx.Q.LockWorkspaceEvents(ctx, ref.WorkspaceID); err != nil {
 				return err
+			}
+		}
+		// Upgraded daemons advertise only supported harnesses. Reject old queued
+		// work before matching a runtime, under the same owner and workspace scope.
+		seen := map[uuid.UUID]bool{}
+		for _, ref := range ordered {
+			if seen[ref.WorkspaceID] {
+				continue
+			}
+			seen[ref.WorkspaceID] = true
+			if err := tx.Workspace(ctx, ref.WorkspaceID); err != nil {
+				return err
+			}
+			removed, err := tx.Q.LockRemovedHarnessQueue(ctx, db.LockRemovedHarnessQueueParams{WorkspaceID: ref.WorkspaceID, OwnerID: user})
+			if err != nil {
+				return err
+			}
+			for _, t := range removed {
+				f, err := failRemovedHarness(ctx, tx, t)
+				if err != nil {
+					return err
+				}
+				refused = append(refused, f)
 			}
 		}
 		for slots > 0 {

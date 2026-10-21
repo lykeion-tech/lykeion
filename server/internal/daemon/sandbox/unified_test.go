@@ -1,11 +1,15 @@
 package sandbox
 
 import (
+	"bufio"
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDoorPolicyUnchanged(t *testing.T) {
@@ -312,5 +316,69 @@ func TestLateReadOnlyRejectsUnsafeParents(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("late marker created during resolve: %v", err)
+	}
+}
+
+func TestHiddenCredentialsCreatedAfterLaunchStayHidden(t *testing.T) {
+	requireSandbox(t)
+	for _, name := range []string{".netrc", ".config/gh/hosts.yml", ".docker/config.json"} {
+		t.Run(name, func(t *testing.T) {
+			home := tempDir(t)
+			ordinary := filepath.Join(home, "ordinary")
+			if err := os.WriteFile(ordinary, []byte("ordinary-visible\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(home, name)
+			hidden := target
+			if strings.HasPrefix(name, ".config/") {
+				hidden = filepath.Join(home, ".config/gh")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cmd, err := (Policy{Home: home, HomeRead: true, Hidden: []string{hidden}}).Command(ctx, "sh", "-c", "cat "+shq(ordinary)+"; echo READY; read go; cat "+shq(target)+" 2>/dev/null; cat "+shq(ordinary))
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdin, err := cmd.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { cancel(); _ = cmd.Wait() })
+			reader := bufio.NewReader(stdout)
+			for _, want := range []string{"ordinary-visible\n", "READY\n"} {
+				line, err := reader.ReadString('\n')
+				if err != nil || line != want {
+					t.Fatalf("startup read = %q, %v; want %q", line, err, want)
+				}
+			}
+			// The host creates the credential while the sandboxed child waits.
+			if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(target, []byte("inert-credential-marker\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(stdin, "continue\n"); err != nil {
+				t.Fatal(err)
+			}
+			_ = stdin.Close()
+			out, err := io.ReadAll(reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Wait(); err != nil {
+				t.Fatal(err)
+			}
+			if string(out) != "ordinary-visible\n" {
+				t.Fatalf("late credential escaped or ordinary home read lost: %q", out)
+			}
+		})
 	}
 }

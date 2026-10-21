@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"bufio"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // /proc/<pid>/root of a process outside the sandbox is the whole host file
@@ -183,5 +186,94 @@ func TestLateReadOnlyRequiresPublicationAtLaunch(t *testing.T) {
 	b, err := os.ReadFile(marker)
 	if err != nil || string(b) != "published" {
 		t.Fatalf("late marker changed: %q %v", b, err)
+	}
+}
+
+func TestHiddenProjectionPreservesApprovedHomeView(t *testing.T) {
+	requireSandbox(t)
+	home := tempDir(t)
+	ordinary := filepath.Join(home, "ordinary")
+	replaced := filepath.Join(home, "replaced")
+	nested := mkdir(t, filepath.Join(home, "existing"))
+	config := mkdir(t, filepath.Join(home, ".config"))
+	for path, value := range map[string]string{ordinary: "before\n", replaced: "old-entry\n", filepath.Join(config, "ordinary"): "config-visible\n"} {
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("existing", filepath.Join(home, "ordinary-link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(".netrc", filepath.Join(home, "secret-link")); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, HomeRead: true, Hidden: []string{filepath.Join(home, ".netrc"), filepath.Join(config, "gh")}, Read: []string{config}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	script := `echo READY; read go; cat "$1/ordinary" "$1/replaced" "$1/ordinary-link/new-child" "$1/.config/ordinary"; for p in .netrc secret-link .config/gh/key new-root .config/new-sibling; do if cat "$1/$p" 2>/dev/null | grep inert; then exit 1; fi; done`
+	cmd, err := p.Command(ctx, "sh", "-c", script, "sh", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cancel(); _ = cmd.Wait() })
+	reader := bufio.NewReader(stdout)
+	if line, err := reader.ReadString('\n'); err != nil || line != "READY\n" {
+		t.Fatalf("start: %q %v", line, err)
+	}
+	if err := os.MkdirAll(filepath.Join(config, "gh"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for path, value := range map[string]string{ordinary: "in-place-visible\n", filepath.Join(home, "replacement"): "replacement-new\n", filepath.Join(nested, "new-child"): "child-visible\n", filepath.Join(home, ".netrc"): "inert-secret\n", filepath.Join(config, "gh/key"): "inert-secret\n", filepath.Join(home, "new-root"): "inert-new-root\n", filepath.Join(config, "new-sibling"): "inert-new-sibling\n"} {
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Rename(filepath.Join(home, "replacement"), replaced); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(stdin, "go\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = stdin.Close()
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("child: %v %q", err, out)
+	}
+	if string(out) != "in-place-visible\nold-entry\nchild-visible\nconfig-visible\n" {
+		t.Fatalf("projected view: %q", out)
+	}
+	if b, err := os.ReadFile(replaced); err != nil || string(b) != "replacement-new\n" {
+		t.Fatalf("host replacement changed: %q %v", b, err)
+	}
+}
+
+func TestAbsentHiddenInMaskedTempDoesNotExposeSiblings(t *testing.T) {
+	requireSandbox(t)
+	home, outside := tempDir(t), shortDir(t)
+	ordinary := filepath.Join(outside, "ordinary")
+	if err := os.WriteFile(ordinary, []byte("inert-outside\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, HomeRead: true, Hidden: []string{filepath.Join(outside, "absent-secret")}}
+	if out, err := sandboxed(t, p, "cat "+shq(ordinary)); err == nil || strings.Contains(out, "inert-outside") {
+		t.Fatalf("hidden path reopened a masked temp sibling: %v %q", err, out)
+	}
+	p.Read = []string{outside}
+	if out, err := sandboxed(t, p, "cat "+shq(ordinary)); err != nil || out != "inert-outside\n" {
+		t.Fatalf("explicit read grant lost: %v %q", err, out)
 	}
 }

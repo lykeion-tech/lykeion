@@ -166,3 +166,12 @@ SELECT EXISTS (
 -- name: AgentRunMessage :one
 SELECT * FROM agent_run_message
 WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt = @attempt AND seq = @seq;
+
+-- name: LockRemovedHarnessQueue :many
+SELECT t.* FROM agent_run t
+LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
+WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
+ AND t.harness IN ('cursor', 'antigravity')
+ AND ((t.kind = 'role' AND c.owner_id = @owner_id)
+   OR (t.kind = 'autoresearch' AND t.requester_id = @owner_id))
+ORDER BY t.id FOR UPDATE OF t;

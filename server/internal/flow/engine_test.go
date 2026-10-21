@@ -308,3 +308,43 @@ func TestTheAgentsAndJevSeeTheStudysTitle(t *testing.T) {
 		t.Fatalf("the title is repeated:\n%s", p)
 	}
 }
+
+func TestStoredRemovedHarnessAgentFailsNewStudyRun(t *testing.T) {
+	for _, harness := range []string{"cursor", "antigravity"} {
+		t.Run(harness, func(t *testing.T) {
+			l := newLab(t)
+			id := l.agent(t, "old agent", harness, "", "inert")
+			c := l.study(t, "grounding", false, &id)
+			ctx := context.Background()
+			if err := l.e.Advance(ctx, l.ws, c.ID); err != nil {
+				t.Fatal(err)
+			}
+			l.in(t, func(tx *store.Tx) error {
+				runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+				if err != nil {
+					return err
+				}
+				if len(runs) != 1 || runs[0].Status != "failed" || !strings.Contains(runs[0].Error, "no longer supported") || runs[0].Attempt != 0 || runs[0].RuntimeID != nil {
+					t.Fatalf("stored legacy agent did not visibly fail before dispatch: %+v", runs)
+				}
+				var snapshotScope string
+				if err := l.env.Owner.QueryRow(ctx, "SELECT result->>'continuity_scope' FROM agent_run_settlement WHERE agent_run_id=$1", runs[0].ID).Scan(&snapshotScope); err != nil {
+					t.Fatal(err)
+				}
+				want := ContinuityScope(c.ID, "agent", c.BoardColumn, c.Round)
+				if snapshotScope != want || runs[0].ContinuityScope != want {
+					t.Fatalf("settlement scope %q, stored scope %q, want %q", snapshotScope, runs[0].ContinuityScope, want)
+				}
+
+				a, err := tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: l.ws, ID: id})
+				if err != nil {
+					return err
+				}
+				if a.Harness != harness {
+					t.Fatal("historical agent was rewritten")
+				}
+				return nil
+			})
+		})
+	}
+}

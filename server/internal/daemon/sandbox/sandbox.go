@@ -65,7 +65,7 @@ type Policy struct {
 	// Hidden are files and folders inside a Write folder or a ReadOnly path
 	// that the process may neither read nor write. With HomeRead, explicit paths
 	// anywhere are accepted, with the same writable-ancestor protection; absent
-	// paths outside writable folders are skipped. Paths must be no link.
+	// paths outside writable folders remain protected. Paths must be no link.
 	Hidden []string
 }
 
@@ -380,6 +380,7 @@ func (p Policy) resolve() (resolved, error) {
 							return resolved{}, fmt.Errorf("sandbox missing hidden path %q overlaps SQLite state", raw)
 						}
 					}
+					r.hidden = append(r.hidden, missing)
 					continue
 				}
 			}

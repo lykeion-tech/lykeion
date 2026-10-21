@@ -176,6 +176,9 @@ func TestCLISandboxClaudeTemp(t *testing.T) {
 			scratch := t.TempDir()
 			run := filepath.Join(scratch, "run")
 			must(t, os.MkdirAll(run, 0700))
+			for _, name := range []string{".agent-owned", ".agent-lock", ".agent-process"} {
+				must(t, os.WriteFile(filepath.Join(run, name), []byte("daemon-owned"), 0600))
+			}
 			d := &daemon{cfg: Config{Home: scratch, StateDir: t.TempDir()}}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

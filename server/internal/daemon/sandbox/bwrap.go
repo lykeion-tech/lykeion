@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -40,6 +41,34 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	// A hidden file is covered by /dev/null and a hidden folder by an empty
 	// read-only tmpfs.
 	var binds []bind
+	projected, err := r.hiddenProjections()
+	if err != nil {
+		return nil, err
+	}
+	links := map[string]string{}
+	for _, parent := range projected {
+		binds = append(binds, bind{"--project", parent})
+		entries, err := os.ReadDir(parent)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			path := filepath.Join(parent, entry.Name())
+			if slices.Contains(projected, path) || slices.ContainsFunc(r.hidden, func(hidden string) bool { return isAtOrUnder(path, hidden) }) {
+				continue
+			}
+			if entry.Type()&os.ModeSymlink != 0 {
+				target, err := os.Readlink(path)
+				if err != nil {
+					return nil, err
+				}
+				links[path] = target
+				binds = append(binds, bind{"--symlink", path})
+			} else {
+				binds = append(binds, bind{"--ro-bind", path})
+			}
+		}
+	}
 	for _, root := range r.restricted {
 		binds = append(binds, bind{"--restricted", root})
 	}
@@ -50,6 +79,9 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 		binds = append(binds, bind{"--bind", file})
 	}
 	for _, dir := range r.read {
+		if slices.Contains(projected, dir) {
+			continue
+		}
 		binds = append(binds, bind{"--ro-bind", dir})
 	}
 	// A read-only path lies directly inside a write folder, so it binds after
@@ -92,7 +124,9 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	})
 	for _, b := range binds {
 		switch b.flag {
-		case "--restricted":
+		case "--symlink":
+			argv = append(argv, "--symlink", links[b.dir], b.dir)
+		case "--project", "--restricted":
 			argv = append(argv, "--tmpfs", b.dir)
 		case "--tmpfs":
 			argv = append(argv, "--tmpfs", b.dir, "--remount-ro", b.dir)
@@ -102,7 +136,7 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 			argv = append(argv, b.flag, b.dir, b.dir)
 		}
 	}
-	for _, root := range r.restricted {
+	for _, root := range slices.Concat(r.restricted, projected) {
 		argv = append(argv, "--remount-ro", root)
 	}
 	// The empty home stays read-only, so a write there fails instead of landing
@@ -133,4 +167,54 @@ func homeSockets(home string, skip []string) ([]string, error) {
 		return nil
 	})
 	return sockets, err
+}
+
+// hiddenProjections finds readable directories whose entries must be fixed for
+// this run. An absent mount target cannot be masked inside a read-only bind.
+// Reconstructing its nearest existing parent in the namespace keeps that name
+// hidden without creating placeholders in the account's home. Existing bound
+// entries stay live, but replacements and new siblings appear on the next run.
+func (r resolved) hiddenProjections() ([]string, error) {
+	var parents []string
+	for _, hidden := range r.hidden {
+		if _, err := os.Lstat(hidden); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+
+		// /tmp and /run already have empty mounts. A negative path must not
+		// restore their siblings unless a normal policy grant exposes them.
+		tempMasked := isAtOrUnder(hidden, "/tmp") || isAtOrUnder(hidden, "/run")
+		tempExposed := isAtOrUnder(hidden, r.home) || isAtOrUnder(hidden, "/run/systemd/resolve") || slices.ContainsFunc(slices.Concat(r.read, r.write), func(grant string) bool { return isAtOrUnder(hidden, grant) })
+		if tempMasked && !tempExposed {
+			continue
+		}
+		masked := slices.ContainsFunc(r.restricted, func(root string) bool { return isAtOrUnder(hidden, root) })
+		exposed := slices.ContainsFunc(r.read, func(read string) bool { return isAtOrUnder(hidden, read) })
+		if masked && !exposed {
+			continue
+		}
+		parent := filepath.Dir(hidden)
+		for {
+			fi, err := os.Lstat(parent)
+			if err == nil {
+				if !fi.IsDir() {
+					return nil, fmt.Errorf("hidden projection parent %q is not a directory", parent)
+				}
+				break
+			}
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
+			parent = filepath.Dir(parent)
+		}
+		if parent == "/" {
+			return nil, fmt.Errorf("cannot project filesystem root for hidden path %q", hidden)
+		}
+		if !slices.Contains(parents, parent) {
+			parents = append(parents, parent)
+		}
+	}
+	return parents, nil
 }
