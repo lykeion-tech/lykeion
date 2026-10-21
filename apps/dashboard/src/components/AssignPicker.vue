@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, toRaw } from 'vue';
 import Icon from './Icon.vue';
 import { useAgents, useMe, useTeams } from '../api/queries';
 import { matchesQuery } from '../lib/search';
@@ -26,6 +26,10 @@ const menu = ref('');
 const query = ref('');
 const setSlots = ref<Record<string, string>>(Object.fromEntries(stages.map((s) => [s, ''])));
 const setAgent = ref('');
+// The Team set last picked here; while it is the assignee the study runs end
+// to end, even with one Team in it.
+const setPick = ref<Picked | null>(null);
+const set = computed(() => !!assignee.value && toRaw(assignee.value) === toRaw(setPick.value));
 
 const addedTeams = computed(() =>
   (store.data.value ?? []).filter((t) => t.added || t.source === 'shipped'),
@@ -44,7 +48,7 @@ const teamColumns = computed(() =>
   assignee.value?.type === 'team' ? Object.keys(assignee.value.teams) : [],
 );
 const isSet = computed(
-  () => assignee.value?.type === 'team' && range.value.from !== range.value.to,
+  () => assignee.value?.type === 'team' && (set.value || range.value.from !== range.value.to),
 );
 // An Autoresearch must name its assignee; a study left alone gets built-in Teams.
 const name = computed(() => {
@@ -56,7 +60,7 @@ const name = computed(() => {
 });
 // A Team with no stage label has no column until the researcher picks one.
 const unstaged = computed(() => teamColumns.value.includes(''));
-defineExpose({ name, unstaged, teamColumns });
+defineExpose({ name, unstaged, teamColumns, set });
 
 const matchingTeams = computed(() =>
   addedTeams.value.filter((t) => matchesQuery(t.name, query.value)),
@@ -84,12 +88,13 @@ function closeMenu() {
   menu.value = '';
   query.value = '';
 }
-function assign(value: Picked | null, last = false) {
+function assign(value: Picked | null, last = false, isSet = false) {
   assignee.value = value;
+  setPick.value = isSet ? value : null;
   // One Team keeps its own stage; a set and any other assignee run end to end.
   const cols = value?.type === 'team' ? Object.keys(value.teams) : [];
   range.value =
-    cols.length === 1 && !(value as { agent_id?: string }).agent_id
+    !isSet && cols.length === 1
       ? { from: cols[0]!, to: cols[0]! }
       : { from: 'grounding', to: 'reporting' };
   emit('picked', last);
@@ -107,7 +112,7 @@ function useSet() {
   const teams = Object.fromEntries(
     stages.flatMap((s) => (setSlots.value[s] ? [[s, setSlots.value[s]]] : [])),
   );
-  assign({ type: 'team', teams, ...(gaps.value ? { agent_id: setAgent.value } : {}) });
+  assign({ type: 'team', teams, ...(gaps.value ? { agent_id: setAgent.value } : {}) }, false, true);
 }
 function pickColumn(col: string) {
   const a = assignee.value;
@@ -177,7 +182,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           v-if="showSets && lastSet"
           type="button"
           role="menuitem"
-          @click="assign(lastSet, true)"
+          @click="assign(lastSet, true, true)"
         >
           <Icon name="bot" :size="14" /><span>Your last set</span
           ><small>{{ Object.keys((lastSet as { teams: object }).teams).length }} Teams</small>

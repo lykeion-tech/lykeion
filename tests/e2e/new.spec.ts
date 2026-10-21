@@ -287,4 +287,35 @@ test.describe('new study', () => {
     await expect(dialog.getByRole('button', { name: 'Use this set' })).toBeEnabled();
     await page.screenshot({ path: `${shots}/team-set-editor.png` });
   });
+
+  test('a New set with one Team runs end to end, built-in Teams on the rest', async ({ page }) => {
+    const hyp = await stageTeam(page, 'ui-hyp', 'hypotheses');
+    const question = `A set of one ${Date.now()}`;
+    const dialog = await composer(page);
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
+    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+    await dialog.getByRole('menuitem', { name: 'New set…' }).click();
+    await dialog
+      .getByRole('combobox', { name: 'Hypotheses Team' })
+      .selectOption({ label: 'ui-hyp' });
+    await dialog.getByRole('button', { name: 'Use this set' }).click();
+    await expect(dialog.getByRole('button', { name: 'Assignee: Your Team set' })).toBeVisible();
+    const saved = page.waitForResponse(
+      (r) => r.url().endsWith('/api/cards') && r.request().method() === 'POST',
+    );
+    await dialog.getByRole('button', { name: /Create study/ }).click();
+    const response = await saved;
+    expect(response.status(), await response.text()).toBe(201);
+    expect(response.request().postDataJSON().scope).toEqual({ from: 'grounding', to: 'reporting' });
+    const study = await studyOf(page, question);
+    expect([study.scope_from, study.scope_to]).toEqual(['grounding', 'reporting']);
+    expect(Object.keys(study.teams).sort()).toEqual([
+      'experimentation',
+      'grounding',
+      'hypotheses',
+      'reporting',
+      'validation',
+    ]);
+    expect(study.teams.hypotheses!.pack_id).toBe(hyp);
+  });
 });

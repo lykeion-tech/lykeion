@@ -118,7 +118,8 @@ async function submit() {
   error.value = '';
   duplicate.value = null;
   // No Team picked sends no assignee, and the built-in Teams work the range;
-  // a single Team keeps its own stage, so the server takes no range for it.
+  // a single Team keeps its own stage, so the server takes no range for it,
+  // while a Team set always runs its range.
   const fields = {
     ...(props.projectId ? { research_id: props.projectId } : {}),
     title: title.value.trim(),
@@ -126,7 +127,9 @@ async function submit() {
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
     follows_from: followsFrom.value,
     ...(assignee.value ? { assignee: assignee.value } : {}),
-    ...(assignee.value && teamColumns.value.length === 1 ? {} : { scope: range.value }),
+    ...(assignee.value && teamColumns.value.length === 1 && !picker.value?.set
+      ? {}
+      : { scope: range.value }),
   };
   try {
     await api<Card>('POST', '/api/cards', fields);

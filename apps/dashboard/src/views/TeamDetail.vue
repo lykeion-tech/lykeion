@@ -182,7 +182,7 @@ function tabKey(event: KeyboardEvent, index: number) {
               class="button"
               @click="
                 copyError = '';
-                copyName = manifest.name + ' (copy)';
+                copyName = manifest.name + ' (duplicate)';
               "
             >
               Duplicate this Team</button
@@ -348,9 +348,9 @@ function tabKey(event: KeyboardEvent, index: number) {
     >
       <form class="team-copy" @submit.prevent="duplicate">
         <h2>Duplicate this Team</h2>
-        <p class="team-lede">The copy is a Team of your own that you can change.</p>
+        <p class="team-lede">The duplicate is a Team of your own that you can change.</p>
         <label
-          >Name<input v-model="copyName" aria-label="Name of the copy" :disabled="copyBusy"
+          >Name<input v-model="copyName" aria-label="Name of the duplicate" :disabled="copyBusy"
         /></label>
         <p v-if="copyError" role="alert" class="inline-error">{{ copyError }}</p>
         <footer>

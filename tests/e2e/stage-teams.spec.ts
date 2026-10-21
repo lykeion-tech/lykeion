@@ -94,7 +94,9 @@ test('a built-in Team is read-only and Duplicate this Team makes an editable cop
 
   await page.getByRole('button', { name: 'Duplicate this Team', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Duplicate this Team' });
-  await dialog.getByRole('textbox', { name: 'Name of the copy' }).fill('My grounding Team');
+  const name = dialog.getByRole('textbox', { name: 'Name of the duplicate' });
+  await expect(name).toHaveValue('Grounding Team (duplicate)');
+  await name.fill('My grounding Team');
   await dialog.getByRole('button', { name: 'Duplicate', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'My grounding Team', exact: true })).toBeVisible();
   await expect(page).not.toHaveURL(new RegExp(builtIn.id));

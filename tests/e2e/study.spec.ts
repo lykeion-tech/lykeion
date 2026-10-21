@@ -676,7 +676,9 @@ test('a real study deletion refusal remains inline on the study', async ({ page 
   });
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Delete study' }).click();
-  await expect(page.getByRole('region', { name: 'Study' }).getByRole('alert')).toHaveText(/\S/);
+  await expect(page.getByRole('region', { name: 'Study' }).getByRole('alert')).toHaveText(
+    'not found',
+  );
 });
 
 import { labFlow, labTeam, labWorkspace } from './lab';

@@ -104,6 +104,8 @@ type Node = {
   querySelector(): null;
   contains(): boolean;
   focus(): void;
+  showModal(): void;
+  value?: unknown;
 };
 function node(tag: string, text = ''): Node {
   return {
@@ -117,6 +119,7 @@ function node(tag: string, text = ''): Node {
     querySelector: () => null,
     contains: () => true,
     focus() {},
+    showModal() {},
   };
 }
 const textOf = (n: Node): string => n.text + n.children.map(textOf).join('');
@@ -172,19 +175,23 @@ async function mount(component: Component, props: () => Record<string, unknown>,
     (b!.props.onClick as () => void)();
     await nextTick();
   };
-  return { text: () => textOf(root), button, click, unmount: () => app.unmount() };
+  const input = (label: string) =>
+    all(root).find((n) => n.tag === 'input' && n.props['aria-label'] === label);
+  return { text: () => textOf(root), button, click, input, unmount: () => app.unmount() };
 }
 
-async function mountPicker(agents = false) {
+async function mountPicker(agents = false, lastSet: Picked | null = null) {
   const assignee = ref<Picked | null>(null);
   const range = ref<Range>({ from: 'grounding', to: 'reporting' });
-  return mount(AssignPicker, () => ({
+  const mounted = await mount(AssignPicker, () => ({
     modelValue: assignee.value,
     'onUpdate:modelValue': (v: Picked | null) => (assignee.value = v),
     range: range.value,
     'onUpdate:range': (v: Range) => (range.value = v),
     agents,
+    lastSet,
   }));
+  return { ...mounted, assignee, range };
 }
 
 describe('AssignPicker', () => {
@@ -217,6 +224,19 @@ describe('AssignPicker', () => {
     }
   });
 
+  it('keeps a Team set with one Team end to end', async () => {
+    const p = await mountPicker(false, { type: 'team', teams: { hypotheses: 't1' } });
+    try {
+      await p.click(/Built-in Teams/);
+      await p.click(/Your last set/);
+      expect(p.assignee.value).toEqual({ type: 'team', teams: { hypotheses: 't1' } });
+      expect(p.range.value).toEqual({ from: 'grounding', to: 'reporting' });
+      expect(p.text()).toContain('Your Team set');
+    } finally {
+      p.unmount();
+    }
+  });
+
   it('shows the Stages pill when nothing is picked', async () => {
     const p = await mountPicker();
     try {
@@ -238,6 +258,17 @@ describe('TeamDetail', () => {
       await t.click(/^Agents$/);
       expect(t.text()).toContain('scout');
       expect(t.text()).not.toContain('Edit skills');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('prefills the duplicate with the Team’s name and (duplicate)', async () => {
+    const t = await mount(TeamDetail, () => ({ id: 't1' }), '/teams/t1');
+    try {
+      await t.click(/Duplicate this Team/);
+      expect(t.input('Name of the duplicate')?.value).toBe('Hypotheses Team (duplicate)');
+      expect(t.text()).not.toMatch(/copy/i);
     } finally {
       t.unmount();
     }
