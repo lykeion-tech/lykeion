@@ -13,6 +13,30 @@ import (
 	"github.com/google/uuid"
 )
 
+const allWorkspaceIDs = `-- name: AllWorkspaceIDs :many
+SELECT id::uuid AS id FROM all_workspace_ids()
+`
+
+func (q *Queries) AllWorkspaceIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, allWorkspaceIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const approveFieldPack = `-- name: ApproveFieldPack :execrows
 INSERT INTO field_pack_approval (workspace_id, pack_id, approved_by)
 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
@@ -442,6 +466,23 @@ func (q *Queries) PackNameTaken(ctx context.Context, arg PackNameTakenParams) (b
 	return taken, err
 }
 
+const renameFieldPack = `-- name: RenameFieldPack :exec
+UPDATE field_pack SET name = $1::text, manifest = jsonb_set(manifest, '{name}', to_jsonb($1::text))
+WHERE workspace_id = $2 AND name = $3 AND source <> 'shipped'
+`
+
+type RenameFieldPackParams struct {
+	NewName     string    `json:"new_name"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+}
+
+// The name moves in the row and in the manifest the row holds.
+func (q *Queries) RenameFieldPack(ctx context.Context, arg RenameFieldPackParams) error {
+	_, err := q.db.Exec(ctx, renameFieldPack, arg.NewName, arg.WorkspaceID, arg.Name)
+	return err
+}
+
 const setCardPack = `-- name: SetCardPack :exec
 UPDATE card SET pack_id = $1 WHERE workspace_id = $2 AND id = $3
 `
@@ -455,4 +496,20 @@ type SetCardPackParams struct {
 func (q *Queries) SetCardPack(ctx context.Context, arg SetCardPackParams) error {
 	_, err := q.db.Exec(ctx, setCardPack, arg.PackID, arg.WorkspaceID, arg.CardID)
 	return err
+}
+
+const shippedPackExists = `-- name: ShippedPackExists :one
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = $1 AND name = $2 AND source = 'shipped') AS ok
+`
+
+type ShippedPackExistsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+}
+
+func (q *Queries) ShippedPackExists(ctx context.Context, arg ShippedPackExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, shippedPackExists, arg.WorkspaceID, arg.Name)
+	var ok bool
+	err := row.Scan(&ok)
+	return ok, err
 }

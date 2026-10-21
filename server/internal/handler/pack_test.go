@@ -135,9 +135,9 @@ func shipOne(ctx context.Context, tx *store.Tx, blobs storage.Storage, shipped f
 
 func TestApprovingAShippedPackIsRecordedOnce(t *testing.T) {
 	s := newServer(t)
-	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1", Description: "Demo field"}))
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1", Description: "Demo field"}))
 	wsID, ana := uuid.MustParse(w.ID), uuid.MustParse(s.userID(t, a))
 	var row db.FieldPack
 	err := s.H.Store.InWorkspace(context.Background(), wsID, ana, func(tx *store.Tx) error {

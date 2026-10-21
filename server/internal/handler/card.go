@@ -16,7 +16,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	packpkg "lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -122,7 +124,7 @@ func checkAssigneeRefs(r *http.Request, tx *store.Tx, ws, user uuid.UUID, a *ass
 		return checkAssignee(r, tx, ws, user, a.Type, *a.ID)
 	}
 	for _, pack := range a.Teams {
-		if err := checkTeamAdded(r, tx, ws, user, pack); err != nil {
+		if err := ensureTeam(r, tx, ws, user, pack); err != nil {
 			return err
 		}
 	}
@@ -156,13 +158,23 @@ func checkAssignee(r *http.Request, tx *store.Tx, ws, creator uuid.UUID, typ str
 	return nil
 }
 
-// checkTeamAdded refuses a Team the person has not added to their workspace.
-func checkTeamAdded(r *http.Request, tx *store.Tx, ws, user, pack uuid.UUID) error {
-	if _, err := tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: pack}); err != nil {
+// ensureTeam readies a Team for the person: a shipped Team gives them their
+// agents on the spot, an uploaded one must already be added.
+func ensureTeam(r *http.Request, tx *store.Tx, ws, user, pack uuid.UUID) error {
+	p, err := tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: pack})
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return cardInputError("add this Team to your workspace first")
 		}
 		return err
+	}
+	if p.Source == "shipped" {
+		var m packpkg.Manifest
+		if err := json.Unmarshal(p.Manifest, &m); err != nil {
+			return err
+		}
+		_, err := team.Add(r.Context(), tx, p, m, user)
+		return teamInput(err)
 	}
 	have, err := tx.Q.TeamAgentsFor(r.Context(), db.TeamAgentsForParams{WorkspaceID: ws, PackID: pack, UserID: user})
 	if err != nil {
@@ -382,7 +394,7 @@ func (h *H) setCardTeams(w http.ResponseWriter, r *http.Request) {
 			if c.Ending != "" || i <= board.StageIndex(c.BoardColumn) {
 				return errTeamStarted
 			}
-			if err := checkTeamAdded(r, tx, ws, c.OwnerID, pack); err != nil {
+			if err := ensureTeam(r, tx, ws, c.OwnerID, pack); err != nil {
 				return err
 			}
 			if err := tx.Q.SetCardTeam(r.Context(), db.SetCardTeamParams{WorkspaceID: ws, CardID: id, BoardColumn: col, PackID: pack}); err != nil {

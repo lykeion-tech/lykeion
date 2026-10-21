@@ -56,5 +56,16 @@ FROM field_pack p LEFT JOIN field_pack_approval a
 WHERE p.workspace_id = @workspace_id AND p.name = @name AND (p.source = 'shipped' OR p.uploaded_by = @user_id)
 ORDER BY p.created_at;
 
+-- name: AllWorkspaceIDs :many
+SELECT id::uuid AS id FROM all_workspace_ids();
+
+-- name: ShippedPackExists :one
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND source = 'shipped') AS ok;
+
+-- The name moves in the row and in the manifest the row holds.
+-- name: RenameFieldPack :exec
+UPDATE field_pack SET name = @new_name::text, manifest = jsonb_set(manifest, '{name}', to_jsonb(@new_name::text))
+WHERE workspace_id = @workspace_id AND name = @name AND source <> 'shipped';
+
 -- name: ListOwnPacks :many
 SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND uploaded_by = @user_id ORDER BY name, created_at;

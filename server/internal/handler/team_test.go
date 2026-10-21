@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"lykeion/server/internal/testutil"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type storeRow struct {
@@ -180,9 +181,9 @@ func TestAFormTeamWithTheAuditorOnTheLeadersModelIsRefused(t *testing.T) {
 
 func TestReadingTheStoreWritesNothing(t *testing.T) {
 	s := newServer(t)
-	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "bio"}))
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "bio"}))
 	if got := s.storeList(t, a, w.ID, ""); len(got) != 0 {
 		t.Fatalf("store %+v", got)
 	}
@@ -201,5 +202,40 @@ func TestAFormWithARepeatedSlotNameIsRefused(t *testing.T) {
 	var e struct{ Error string }
 	if c := s.call(t, "POST", "/api/teams", a, w.ID, f, &e); c != 400 || !strings.Contains(e.Error, `"pi"`) {
 		t.Fatalf("create: %d %q", c, e.Error)
+	}
+}
+
+func TestNewWorkspaceGetsBuiltInTeams(t *testing.T) {
+	s := newServer(t)
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "Grounding Team", Stage: "grounding"}))
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	got := s.storeList(t, a, w.ID, "")
+	if len(got) != 1 || got[0].Name != "Grounding Team" || !got[0].Added {
+		t.Fatalf("store %+v", got)
+	}
+}
+
+func TestStudyWithABuiltInTeamCreatesTheOwnersAgents(t *testing.T) {
+	s := newServer(t)
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "Grounding Team", Stage: "grounding"}))
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "ben@lab.org", "member")
+	pack := s.storeList(t, b, w.ID, "")[0].ID
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", b, w.ID, map[string]any{"question": "q",
+		"assignee": teamAssignee(map[string]string{"grounding": pack})}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	ben := uuid.MustParse(s.userID(t, b))
+	var n int
+	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(w.ID), ben, func(tx *store.Tx) error {
+		rows, err := tx.Q.TeamAgentsFor(t.Context(), db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: uuid.MustParse(pack), UserID: ben})
+		n = len(rows)
+		return err
+	})
+	if err != nil || n != 3 {
+		t.Fatalf("team agents %d, %v", n, err)
 	}
 }

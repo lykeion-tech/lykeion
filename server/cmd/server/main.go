@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -146,6 +147,18 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	blobs, err := newStorage(ctx, getenv)
 	if err != nil {
 		return err
+	}
+	ids, err := st.Global().AllWorkspaceIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("list workspaces: %w", err)
+	}
+	for _, id := range ids {
+		err := st.InWorkspace(ctx, id, uuid.Nil, func(tx *store.Tx) error {
+			return pack.InstallShipped(ctx, tx, blobs, pack.Shipped())
+		})
+		if err != nil {
+			return fmt.Errorf("install shipped Teams in %s: %w", id, err)
+		}
 	}
 	runs := &service.AgentRuns{Store: st, Blobs: blobs, MCPURL: strings.TrimRight(getenv("PUBLIC_URL"), "/") + "/mcp/sources"}
 	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}

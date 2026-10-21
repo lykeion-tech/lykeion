@@ -35,6 +35,14 @@ END $$;
 ALTER TABLE field_pack DROP CONSTRAINT field_pack_workspace_id_name_version_key;
 ALTER TABLE field_pack ADD CONSTRAINT field_pack_workspace_id_name_key UNIQUE (workspace_id, name);
 
+-- Every workspace id, for startup work that installs shipped Teams in each one.
+CREATE FUNCTION all_workspace_ids() RETURNS TABLE (id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT w.id FROM workspace w
+$$;
+REVOKE ALL ON FUNCTION all_workspace_ids() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION all_workspace_ids() TO lykeion_app;
+
 ALTER TABLE card ALTER COLUMN board_column DROP DEFAULT;
 ALTER TABLE card ADD CONSTRAINT card_board_column_check
   CHECK (board_column IN ('grounding', 'hypotheses', 'experimentation', 'validation', 'reporting', 'done'));
