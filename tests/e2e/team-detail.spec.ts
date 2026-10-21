@@ -56,8 +56,8 @@ for (const width of [1512, 1920]) {
     await expect(page.getByRole('tabpanel')).toContainText('biology');
     await expect(page.getByRole('tabpanel')).toContainText('12 steps per column');
     await expect(page.getByRole('tabpanel')).toContainText("Does it say what it couldn't do?");
-    await page.getByRole('tab', { name: 'Versions', exact: true }).click();
-    await expect(page.getByRole('table', { name: pack.name + ' versions' })).toContainText('v1');
+    await expect(page.getByRole('tab', { name: 'Versions' })).toHaveCount(0);
+    await expect(page.locator('.team-detail-page')).not.toContainText(/version/i);
     await page.getByRole('tab', { name: 'Overview', exact: true }).click();
     await page.screenshot({ path: `test-results/team-detail/overview-${width}.png` });
     if (width === 1512) {
@@ -98,8 +98,8 @@ test('Team profile tabs and roles remain readable on a narrow viewport', async (
   expect(
     await page.locator('.team-detail-page').evaluate((el) => el.scrollWidth <= el.clientWidth),
   ).toBe(true);
-  await page.getByRole('tab', { name: 'Versions', exact: true }).click();
-  await expect(page.getByRole('table', { name: pack.name + ' versions' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Scientific settings', exact: true }).click();
+  await expect(page.getByRole('tabpanel')).toContainText('12 steps per column');
   await page.getByRole('tab', { name: 'Overview', exact: true }).click();
   await page.screenshot({ path: 'test-results/team-detail/narrow.png', fullPage: true });
 });

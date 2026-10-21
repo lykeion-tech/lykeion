@@ -291,3 +291,40 @@ func TestWorkspaceMCPReferenceIsExclusiveAndConfigurationFree(t *testing.T) {
 		}
 	}
 }
+
+func TestModelsMapReplacesHarness(t *testing.T) {
+	models := map[string]string{"claude": "claude-opus-5-5", "codex": "gpt-6"}
+	if _, err := Parse(goodZip(t, func(m *Manifest) {
+		m.Members[0].Agent = AgentDef{Models: models, Instructions: "i"}
+	})); err != nil {
+		t.Fatalf("a models map was refused: %v", err)
+	}
+	for name, def := range map[string]AgentDef{
+		"both":            {Harness: "claude", Models: models},
+		"unknown harness": {Models: map[string]string{"cursor": "x"}},
+	} {
+		if _, err := Parse(goodZip(t, func(m *Manifest) { m.Members[0].Agent = def })); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestAuditorDiffersPerHarness(t *testing.T) {
+	both := func(c, x string) AgentDef { return AgentDef{Models: map[string]string{"claude": c, "codex": x}} }
+	for _, c := range []struct {
+		name            string
+		member, auditor AgentDef
+		refused         bool
+	}{
+		{"same model on one shared harness", both("a", "b"), both("a", "z"), true},
+		{"different on every shared harness", both("a", "b"), both("x", "z"), false},
+		{"map against a fixed harness", both("a", "b"), AgentDef{Harness: "claude", Model: "a"}, true},
+		{"fixed harness the map lacks", AgentDef{Models: map[string]string{"codex": "b"}}, AgentDef{Harness: "claude", Model: "b"}, false},
+	} {
+		m := goodManifest()
+		m.Leader.Agent, m.Auditor.Agent = c.member, c.auditor
+		if err := AuditorDiffers(m); (err != nil) != c.refused {
+			t.Errorf("%s: err = %v, refused should be %v", c.name, err, c.refused)
+		}
+	}
+}

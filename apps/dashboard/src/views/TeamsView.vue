@@ -118,7 +118,6 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
             <th scope="col">Domain</th>
             <th scope="col">Stage</th>
             <th scope="col">Agents</th>
-            <th scope="col">Version</th>
             <th scope="col">Availability</th>
           </tr>
         </thead>
@@ -133,8 +132,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
             <td>{{ t.domain || '—' }}</td>
             <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>
             <td>{{ t.manifest.members.length + 2 }}</td>
-            <td>{{ t.version }}</td>
-            <td>{{ t.added ? 'Added' : 'Not added' }}</td>
+            <td>{{ t.source === 'shipped' ? 'Built in' : t.added ? 'Added' : 'Not added' }}</td>
           </tr>
         </tbody>
       </table>
@@ -208,6 +206,8 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 .team-table th:last-child,
 .team-table td:last-child {
   text-align: right;
+  /* Keeps the other columns on the Agents table's lines. */
+  grid-column: -2;
 }
 .team-table-scroll {
   overflow-x: auto;

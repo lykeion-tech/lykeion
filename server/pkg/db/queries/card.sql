@@ -1,16 +1,15 @@
 -- name: NextCardNumber :one
 UPDATE workspace SET card_counter = card_counter + 1 WHERE id = @id RETURNING card_counter;
 
--- A new card goes to the top of Backlog, so WIP pull takes it next unless
--- someone reorders. NextCardNumber has already locked the workspace row, so two
--- creates never read the same minimum.
+-- A new card goes to the top of its column. NextCardNumber has already locked
+-- the workspace row, so two creates never read the same minimum.
 -- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
   scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id)
 VALUES (@workspace_id, @number, @title, @question, @owner_id, @deadline, @follows_from,
-  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = @workspace_id AND b.board_column = 'backlog'), 1) - 1,
+  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = @workspace_id AND b.board_column = @board_column::text), 1) - 1,
   COALESCE(NULLIF(@scope_from::text, ''), 'grounding'), COALESCE(NULLIF(@scope_to::text, ''), 'reporting'),
-  sqlc.narg(assignee_type), sqlc.narg(assignee_id), COALESCE(NULLIF(@board_column::text, ''), 'backlog'), @round, sqlc.narg(research_id))
+  sqlc.narg(assignee_type), sqlc.narg(assignee_id), @board_column::text, @round, sqlc.narg(research_id))
 RETURNING *;
 
 -- name: InsertCardTeam :exec
@@ -18,7 +17,7 @@ INSERT INTO card_team (workspace_id, card_id, board_column, pack_id)
 VALUES (@workspace_id, @card_id, @board_column, @pack_id);
 
 -- name: CardTeams :many
-SELECT t.board_column, t.pack_id, p.name, p.version, p.stage
+SELECT t.board_column, t.pack_id, p.name, p.stage
 FROM card_team t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id
 WHERE t.workspace_id = @workspace_id AND t.card_id = @card_id;
 
@@ -74,16 +73,8 @@ UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id;
 
--- People edit and delete a card only while it is in Backlog; the column check
--- is repeated here so a card WIP pull has started is never changed.
--- name: EditBacklogCard :one
-UPDATE card SET title = @title, question = @question, deadline = sqlc.narg(deadline),
-  follows_from = @follows_from, position = @position, version = version + 1
-WHERE id = @id AND workspace_id = @workspace_id AND board_column = 'backlog'
-RETURNING *;
-
--- name: DeleteBacklogCard :execrows
-DELETE FROM card WHERE id = @id AND workspace_id = @workspace_id AND board_column = 'backlog';
+-- name: DeleteCard :exec
+DELETE FROM card WHERE id = @id AND workspace_id = @workspace_id;
 
 -- A card's runs with what the study page shows about each: the name of the
 -- agent it was started as, the latest text of its current attempt and when

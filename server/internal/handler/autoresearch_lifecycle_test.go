@@ -2,15 +2,11 @@ package handler
 
 import "testing"
 
-func TestDeletingGeneratedBacklogCardSettlesRunAtomically(t *testing.T) {
+func TestDeletingAGeneratedStudySettlesItsRunAtomically(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "deletecard@lab.org")
 	w := s.workspace(t, a, "lab")
 	ap := s.autoresearch(t, a, w.ID, map[string]any{"title": "Delete me", "execution_mode": "create_card"})
-	// Only an unassigned study waits in Backlog, where a card can be deleted.
-	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE autoresearch SET assignee_type = NULL, assignee_id = NULL`); err != nil {
-		t.Fatal(err)
-	}
 	var run runView
 	if code := s.call(t, "POST", "/api/autoresearch/"+ap.ID+"/run", a, w.ID, nil, &run); code != 201 || run.CardID == nil {
 		t.Fatalf("run: %d %+v", code, run)

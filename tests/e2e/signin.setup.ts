@@ -1,5 +1,5 @@
 import { expect, test as setup } from '@playwright/test';
-import { EMAIL, labCode } from './lab';
+import { EMAIL, labCode, withBuiltInTeams } from './lab';
 
 // The lab allows five codes per address an hour; specs share this primary session.
 setup('sign in by email code', async ({ page }) => {
@@ -16,13 +16,16 @@ setup('sign in by email code', async ({ page }) => {
   const me = await page.request.get('/api/me');
   expect((await me.json()).email).toBe(EMAIL);
   // The person every other spec acts as has a workspace and has finished onboarding;
-  // the onboarding spec signs in as someone new.
-  const created = await page.request.post('/api/workspaces', {
-    data: { name: 'Beta-cell lab', slug: 'beta-cell-lab' },
-  });
+  // the onboarding spec signs in as someone new. Like a real workspace it has
+  // the built-in stage Teams.
+  const created = await withBuiltInTeams(() =>
+    page.request.post('/api/workspaces', {
+      data: { name: 'Beta-cell lab', slug: 'beta-cell-lab' },
+    }),
+  );
   expect(created.status()).toBe(201);
-  // Studies the lab's agent escalates stay active, so the default WIP limit of two
-  // would hold every later study in Backlog; specs that need a held Backlog lower it.
+  // Studies the lab's agent escalates stay active, so the lab lifts the default
+  // WIP limit of two.
   const settings = await page.request.patch(
     `/api/workspaces/${(await created.json()).id}/settings`,
     {

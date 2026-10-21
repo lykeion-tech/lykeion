@@ -14,6 +14,7 @@ import (
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -106,6 +107,9 @@ func (h *H) createWorkspace(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if err := tx.Q.AddMember(r.Context(), db.AddMemberParams{WorkspaceID: wsID, UserID: user, Role: "owner"}); err != nil {
+			return err
+		}
+		if err := pack.InstallShipped(r.Context(), tx, h.Blobs, h.Shipped); err != nil {
 			return err
 		}
 		return tx.Emit(r.Context(), "workspace.created", nil, store.User(user), map[string]string{"name": in.Name, "slug": in.Slug})

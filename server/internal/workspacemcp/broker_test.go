@@ -41,7 +41,7 @@ func TestWorkspaceMCPRemoteSessionsArePerRunAndCloseOnCancellation(t *testing.T)
 		{`INSERT INTO "user"(id,email) VALUES($1,'broker@lab.org')`, []any{user}},
 		{`INSERT INTO workspace(id,slug,name) VALUES($1,'broker','broker')`, []any{ws}},
 		{`INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'owner')`, []any{ws, user}},
-		{`INSERT INTO card(workspace_id,id,number,title,question,owner_id) VALUES($1,$2,1,'q','q',$3)`, []any{ws, card, user}},
+		{`INSERT INTO card(workspace_id,id,number,title,question,owner_id,board_column) VALUES($1,$2,1,'q','q',$3,'grounding')`, []any{ws, card, user}},
 	} {
 		if _, err := env.Owner.Exec(ctx, seed.sql, seed.args...); err != nil {
 			t.Fatal(err)
@@ -342,7 +342,7 @@ func TestCommandInventoryDisableFencePreservesStartedCall(t *testing.T) {
 				{`INSERT INTO "user"(id,email) VALUES($1,'fence@lab.org')`, []any{user}},
 				{`INSERT INTO workspace(id,slug,name) VALUES($1,'fence','fence')`, []any{ws}},
 				{`INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'owner')`, []any{ws, user}},
-				{`INSERT INTO card(workspace_id,id,number,title,question,owner_id) VALUES($1,$2,1,'q','q',$3)`, []any{ws, card, user}},
+				{`INSERT INTO card(workspace_id,id,number,title,question,owner_id,board_column) VALUES($1,$2,1,'q','q',$3,'grounding')`, []any{ws, card, user}},
 			} {
 				if _, err := env.Owner.Exec(ctx, seed.sql, seed.args...); err != nil {
 					t.Fatal(err)

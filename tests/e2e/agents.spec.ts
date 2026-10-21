@@ -1,23 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labFixture } from './lab';
+import { LAB, labFixture } from './lab';
 
 const artifacts = 'test-results/ui-lab/agents';
 
-// Assigns the agent to a new Backlog study of the fixture's workspace, which
-// starts it: a started study keeps its assignee.
+// Seeds a study the agent works in the fixture's workspace, as an Autoresearch
+// would open one; a researcher's studies are always worked by Teams.
 async function assignNewStudy(page: Page, headers: Record<string, string>, agentId: string) {
-  const res = await page.request.post('/api/cards', {
+  const res = await page.request.post(`${LAB}/lab/idle-study`, {
     headers,
-    data: { question: `Assigned study ${Date.now()}?` },
+    data: { question: `Assigned study ${Date.now()}?`, agent_id: agentId },
   });
   expect(res.status()).toBe(201);
-  const study = await res.json();
-  const patched = await page.request.patch(`/api/cards/${study.id}/properties`, {
-    headers,
-    data: { assignee_type: 'agent', assignee_id: agentId },
-  });
-  expect(patched.status()).toBe(200);
-  return study.id as string;
+  return ((await res.json()) as { id: string }).id;
 }
 
 async function inFixture(page: Page) {
@@ -137,53 +131,6 @@ test('New agent opens the starting-point page, and Start blank opens the form', 
   await expect(page).toHaveURL(/#\/agents$/);
 });
 
-test.describe('new study', () => {
-  test('a new study can be assigned to an agent or a colleague when it is created', async ({
-    page,
-  }) => {
-    const { headers } = await inFixture(page);
-    const agent = await (
-      await page.request.post('/api/agents', {
-        headers,
-        data: { name: 'Gap analyst', harness: 'claude' },
-      })
-    ).json();
-    const me = await (await page.request.get('/api/me')).json();
-    const create = async (question: string, pick: string | RegExp) => {
-      await page.getByRole('button', { name: 'New', exact: true }).click();
-      const dialog = page.getByRole('dialog', { name: 'New study' });
-      await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-      await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
-      await dialog.getByRole('menuitem', { name: pick }).click();
-      return dialog;
-    };
-    const cardFor = async (question: string) =>
-      (
-        (await (await page.request.get('/api/cards', { headers })).json()) as Record<
-          string,
-          string
-        >[]
-      ).find((c) => c.question === question);
-
-    await page.goto('/#/studies');
-    const q1 = `Does the analyst own this? ${Date.now()}`;
-    let dialog = await create(q1, 'Gap analyst');
-    await expect(dialog.getByRole('button', { name: 'Assignee: Gap analyst' })).toBeVisible();
-    await page.screenshot({ path: `${artifacts}/new-study-assignee.png` });
-    await dialog.getByRole('button', { name: /Create study/ }).click();
-    await expect(dialog).toHaveCount(0);
-    await expect.poll(async () => (await cardFor(q1))?.assignee_id).toBe(agent.id);
-    expect((await cardFor(q1))!.assignee_type).toBe('agent');
-
-    const q2 = `Does a colleague own this? ${Date.now()}`;
-    dialog = await create(q2, me.name || me.email);
-    await dialog.getByRole('button', { name: /Create study/ }).click();
-    await expect(dialog).toHaveCount(0);
-    await expect.poll(async () => (await cardFor(q2))?.assignee_id).toBe(me.id);
-    expect((await cardFor(q2))!.assignee_type).toBe('member');
-  });
-});
-
 test('the agent page shows its studies and edits instructions, profile and access', async ({
   page,
 }) => {
@@ -240,16 +187,10 @@ test('the agent page shows its studies and edits instructions, profile and acces
   await expect.poll(async () => (await read()).visibility).toBe('private');
   await expect(page.locator('.agent-meta')).toContainText('Personal');
 
-  await page.getByRole('button', { name: 'Assign work' }).click();
-  const dialog = page.getByRole('dialog', { name: 'New study' });
-  await expect(dialog.getByRole('button', { name: 'Assignee: Methods lead' })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Close' }).click();
-
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Agent actions' }).click();
   await page.getByRole('menuitem', { name: 'Archive agent' }).click();
   await expect(page.locator('.agent-status')).toHaveText('Archived');
-  await expect(page.getByRole('button', { name: 'Assign work' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Agent actions' })).toHaveCount(0);
 });
 

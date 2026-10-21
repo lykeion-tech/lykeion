@@ -140,9 +140,10 @@ const invalid = computed(
     (trigger.value === 'schedule' && !!scheduleError(schedule)),
 );
 
-// A single Team keeps its own stage, so the server takes no range for it.
+// A single Team keeps its own stage, so the server takes no range for it; a
+// Team set always runs its range.
 const scope = (a: Picked) =>
-  a.type === 'team' && Object.keys(a.teams).length === 1 && !a.agent_id
+  a.type === 'team' && Object.keys(a.teams).length === 1 && !a.agent_id && !picker.value?.set
     ? {}
     : { scope: range.value };
 
@@ -369,7 +370,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
         </label>
         <span class="field-label">Assign <small>Works every run</small></span>
         <div class="property-line">
-          <AssignPicker ref="picker" v-model="assignee" v-model:range="range" menu-below />
+          <AssignPicker ref="picker" v-model="assignee" v-model:range="range" agents menu-below />
         </div>
         <span class="field-label">Output</span>
         <div class="choice-row">

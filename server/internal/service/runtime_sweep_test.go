@@ -197,7 +197,7 @@ func TestRuntimeSweepNewWorkspaceCandidateIsRecoveredNextPass(t *testing.T) {
 		if err := tx.Q.AddMember(ctx, db.AddMemberParams{WorkspaceID: other.WS, UserID: other.Owner, Role: "owner"}); err != nil {
 			return err
 		}
-		card, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: other.WS, Number: 1, Title: "Later", Question: "Later", OwnerID: other.Owner, FollowsFrom: []uuid.UUID{}})
+		card, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: other.WS, Number: 1, Title: "Later", Question: "Later", OwnerID: other.Owner, FollowsFrom: []uuid.UUID{}})
 		other.Card = card.ID
 		return err
 	})

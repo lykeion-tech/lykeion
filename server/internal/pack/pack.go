@@ -50,10 +50,21 @@ var (
 	secretEnv  = regexp.MustCompile(`(?i)(key|token|secret|password)`)
 )
 
+// AgentDef names either one fixed Harness (with its Model) or Models, a model
+// per harness, from which adding the Team picks a harness the owner has.
 type AgentDef struct {
-	Harness      string `json:"harness"`
-	Model        string `json:"model"`
-	Instructions string `json:"instructions"`
+	Harness      string            `json:"harness,omitempty"`
+	Model        string            `json:"model,omitempty"`
+	Models       map[string]string `json:"models,omitempty"`
+	Instructions string            `json:"instructions"`
+}
+
+// choices is the harness-to-model pairs the agent may run as.
+func (a AgentDef) choices() map[string]string {
+	if len(a.Models) > 0 {
+		return a.Models
+	}
+	return map[string]string{a.Harness: a.Model}
 }
 
 // Connector is exactly one of a catalogue name, an HTTPS MCP URL or a local
@@ -259,7 +270,16 @@ func (p *Pack) validate() error {
 		case 1:
 			where = "auditor"
 		}
-		if _, ok := agent.Harnesses[mem.Agent.Harness]; !ok {
+		if len(mem.Agent.Models) > 0 {
+			if mem.Agent.Harness != "" || mem.Agent.Model != "" {
+				return fmt.Errorf("pack: %s %q: name either harness and model or models, not both", where, mem.Name)
+			}
+			for h := range mem.Agent.Models {
+				if _, ok := agent.Harnesses[h]; !ok {
+					return fmt.Errorf("pack: %s %q: harness %q is unknown", where, mem.Name, h)
+				}
+			}
+		} else if _, ok := agent.Harnesses[mem.Agent.Harness]; !ok {
 			return fmt.Errorf("pack: %s %q: harness %q is unknown", where, mem.Name, mem.Agent.Harness)
 		}
 		for i, s := range mem.Skills {
@@ -302,14 +322,17 @@ func (p *Pack) validate() error {
 	return nil
 }
 
-// AuditorDiffers refuses a Team whose auditor runs the same harness and model
-// as the leader or any member. An empty model is the harness default, so it
+// AuditorDiffers refuses a Team whose auditor could run the same harness and
+// model as the leader or any member: for every harness both name, the models
+// must differ. An empty model is the harness default, so it
 // equals another empty model on the same harness.
 func AuditorDiffers(m Manifest) error {
 	a := m.Auditor.Agent
 	for _, mem := range slices.Concat([]Member{m.Leader}, m.Members) {
-		if a.Harness == mem.Agent.Harness && a.Model == mem.Agent.Model {
-			return fmt.Errorf("pack: auditor shares harness and model with %q", mem.Name)
+		for h, model := range a.choices() {
+			if other, ok := mem.Agent.choices()[h]; ok && other == model {
+				return fmt.Errorf("pack: auditor shares harness and model with %q", mem.Name)
+			}
 		}
 	}
 	return nil

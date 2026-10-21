@@ -174,6 +174,7 @@ func TestProfileFields(t *testing.T) {
 
 func TestWorkspaceReadsCarryTheEventCursor(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	other := s.workspace(t, a, "other")

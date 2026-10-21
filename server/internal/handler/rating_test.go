@@ -23,6 +23,7 @@ type rated struct {
 func newRated(t *testing.T, offered bool) rated {
 	t.Helper()
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var card struct {

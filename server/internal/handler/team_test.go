@@ -3,12 +3,16 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"github.com/google/uuid"
-	"lykeion/server/internal/store"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
+	"lykeion/server/internal/pack"
+	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type storeRow struct {
@@ -73,13 +77,125 @@ func TestTheStoreFiltersByDomainAndStage(t *testing.T) {
 	}
 }
 
-func TestTheStoreShowsOnlyTheNewestVersionAndWhetherIAddedIt(t *testing.T) {
+// versionKeys lists the paths of any "version" or "versions" key in v.
+func versionKeys(v any, path string) []string {
+	var out []string
+	switch x := v.(type) {
+	case map[string]any:
+		for k, child := range x {
+			if k == "version" || k == "versions" {
+				out = append(out, path+"."+k)
+			}
+			out = append(out, versionKeys(child, path+"."+k)...)
+		}
+	case []any:
+		for _, child := range x {
+			out = append(out, versionKeys(child, path+"[]")...)
+		}
+	}
+	return out
+}
+
+func hasKey(v any, key string) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, child := range x {
+			if k == key || hasKey(child, key) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if hasKey(child, key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestNoVersionInTeamResponses(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	lead, aud, mem := s.newAgent(t, a, w.ID, "lead", "claude"), s.newAgent(t, a, w.ID, "aud", "codex"), s.newAgent(t, a, w.ID, "mem", "claude")
+	var created map[string]any
+	if c := s.call(t, "POST", "/api/teams", a, w.ID, formFor(lead, aud, mem), &created); c != 201 {
+		t.Fatalf("create: %d", c)
+	}
+	var list []any
+	var detail map[string]any
+	s.call(t, "GET", "/api/teams", a, w.ID, nil, &list)
+	s.call(t, "GET", "/api/teams/"+created["id"].(string), a, w.ID, nil, &detail)
+	var study, card map[string]any
+	if c := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &study); c != 201 {
+		t.Fatalf("study: %d", c)
+	}
+	s.call(t, "GET", "/api/cards/"+study["id"].(string), a, w.ID, nil, &card)
+	if len(card["teams"].(map[string]any)) != 5 {
+		t.Fatalf("study teams: %v", card["teams"])
+	}
+	// The card's own version counts its edits; only its Teams are checked.
+	for name, body := range map[string]any{"create": created, "list": list, "detail": detail, "study teams": card["teams"]} {
+		if keys := versionKeys(body, ""); len(keys) > 0 {
+			t.Errorf("%s returns %v", name, keys)
+		}
+	}
+	for name, body := range map[string]any{"create": created, "list": list, "detail": detail} {
+		if hasKey(body, "blob_key") {
+			t.Errorf("%s returns blob_key", name)
+		}
+	}
+	if c := s.call(t, "GET", "/api/packs?name=formteam", a, w.ID, nil, nil); c != 404 {
+		t.Errorf("version list: %d", c)
+	}
+}
+
+func TestDuplicateThisTeam(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	src := s.builtInID(t, w.ID, "grounding")
+	var made struct{ ID, Name string }
+	if c := s.call(t, "POST", "/api/teams/"+src+"/duplicate", a, w.ID, map[string]string{"name": "My grounding"}, &made); c != 201 {
+		t.Fatalf("duplicate: %d", c)
+	}
+	if made.ID == src || made.Name != "My grounding" {
+		t.Fatalf("copy %+v", made)
+	}
+	var source, copied struct{ Manifest pack.Manifest }
+	s.call(t, "GET", "/api/teams/"+src, a, w.ID, nil, &source)
+	s.call(t, "GET", "/api/teams/"+made.ID, a, w.ID, nil, &copied)
+	source.Manifest.Name = copied.Manifest.Name
+	if !reflect.DeepEqual(source.Manifest, copied.Manifest) {
+		t.Fatalf("contents differ:\n%+v\n%+v", source.Manifest, copied.Manifest)
+	}
+	if n := s.count(t, "SELECT count(*) FROM field_pack WHERE id = $1 AND source = 'uploaded' AND stage = 'grounding' AND uploaded_by IS NOT NULL", made.ID); n != 1 {
+		t.Fatal("the copy is not an uploaded grounding Team")
+	}
+	if n := s.count(t, "SELECT count(*) FROM team_agent WHERE pack_id = $1", made.ID); n != 3 {
+		t.Fatalf("copy added with %d agents", n)
+	}
+	if c, e := s.saveSkills(t, a, w.ID, made.ID, "aeon"); c != 200 {
+		t.Fatalf("edit the copy: %d %q", c, e)
+	}
+	for _, name := range []string{"My grounding", "Hypotheses Team"} {
+		if c := s.call(t, "POST", "/api/teams/"+src+"/duplicate", a, w.ID, map[string]string{"name": name}, nil); c != 409 {
+			t.Fatalf("taken name %q: %d", name, c)
+		}
+	}
+	if c := s.call(t, "POST", "/api/teams/"+src+"/duplicate", a, w.ID, map[string]string{"name": " "}, nil); c != 400 {
+		t.Fatalf("blank name: %d", c)
+	}
+}
+
+func TestTheStoreShowsWhetherIAddedIt(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	for _, v := range []string{"1", "2"} {
-		s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "mine", Version: v}), nil)
-	}
+	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "mine"}), nil)
 	got := s.storeList(t, a, w.ID, "")
 	if len(got) != 1 || got[0].Added {
 		t.Fatalf("store %+v", got)
@@ -180,9 +296,9 @@ func TestAFormTeamWithTheAuditorOnTheLeadersModelIsRefused(t *testing.T) {
 
 func TestReadingTheStoreWritesNothing(t *testing.T) {
 	s := newServer(t)
-	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "bio"}))
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "bio"}))
 	if got := s.storeList(t, a, w.ID, ""); len(got) != 0 {
 		t.Fatalf("store %+v", got)
 	}
@@ -201,5 +317,40 @@ func TestAFormWithARepeatedSlotNameIsRefused(t *testing.T) {
 	var e struct{ Error string }
 	if c := s.call(t, "POST", "/api/teams", a, w.ID, f, &e); c != 400 || !strings.Contains(e.Error, `"pi"`) {
 		t.Fatalf("create: %d %q", c, e.Error)
+	}
+}
+
+func TestNewWorkspaceGetsBuiltInTeams(t *testing.T) {
+	s := newServer(t)
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "Grounding Team", Stage: "grounding"}))
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	got := s.storeList(t, a, w.ID, "")
+	if len(got) != 1 || got[0].Name != "Grounding Team" || !got[0].Added {
+		t.Fatalf("store %+v", got)
+	}
+}
+
+func TestStudyWithABuiltInTeamCreatesTheOwnersAgents(t *testing.T) {
+	s := newServer(t)
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "Grounding Team", Stage: "grounding"}))
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "ben@lab.org", "member")
+	pack := s.storeList(t, b, w.ID, "")[0].ID
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", b, w.ID, map[string]any{"question": "q",
+		"assignee": teamAssignee(map[string]string{"grounding": pack})}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	ben := uuid.MustParse(s.userID(t, b))
+	var n int
+	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(w.ID), ben, func(tx *store.Tx) error {
+		rows, err := tx.Q.TeamAgentsFor(t.Context(), db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: uuid.MustParse(pack), UserID: ben})
+		n = len(rows)
+		return err
+	})
+	if err != nil || n != 3 {
+		t.Fatalf("team agents %d, %v", n, err)
 	}
 }

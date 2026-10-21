@@ -282,7 +282,7 @@ export function useAgent(id: MaybeRefOrGetter<string>) {
   });
 }
 
-// The store: shipped Teams and the caller's own, newest version of each name.
+// The store: built-in Teams and the caller's own.
 export const useTeams = (domain: MaybeRefOrGetter<string>, stage: MaybeRefOrGetter<string>) =>
   useQuery({
     queryKey: computed(() => keys.teams(ws.value, toValue(domain), toValue(stage))),
@@ -373,3 +373,6 @@ export const useAnalytics = (
     refetchInterval: 30_000,
   });
 };
+// Copies a Team as a new one of the caller's own, named name.
+export const duplicateTeam = (id: string, name: string) =>
+  api<{ id: string }>('POST', `/api/teams/${id}/duplicate`, { name });

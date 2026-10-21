@@ -13,16 +13,21 @@ import (
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
 )
 
-// errStartFailed marks a study whose first column could not be started. The
+// ErrStartFailed marks a study whose first column could not be started. The
 // dispatch rolls back, card included, and ends the run failed.
-var errStartFailed = errors.New("the study cannot start")
+var ErrStartFailed = errors.New("the study cannot start")
 
-// createCard opens the run's study. One assigned an agent or a Team starts in
-// its first column at once; one with no assignee waits in Backlog.
+// createCard opens the run's study, which starts in its first column at once
+// with the Autoresearch's assignee, or the built-in Teams where it names none.
 func (s *Service) createCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r db.AutoresearchRun) error {
+	// Readying a Team takes the events lock, so the execution lock comes first.
+	if err := lockWorkspace(ctx, tx); err != nil {
+		return err
+	}
 	title, err := s.title(ctx, tx, ap, r)
 	if err != nil {
 		return err
@@ -39,7 +44,11 @@ func (s *Service) createCard(ctx context.Context, tx *store.Tx, ap db.Autoresear
 		r.Status, r.Reason = "failed", "assignee_unavailable"
 		return s.setRun(ctx, tx, r)
 	}
-	c, err := s.openCard(ctx, tx, ap, r, title, question, payload, true)
+	chosen, err := chosenTeams(ctx, tx, ap)
+	if err != nil {
+		return err
+	}
+	c, err := s.openCard(ctx, tx, ap, r, title, question, payload, ap.AssigneeID, chosen)
 	if errors.Is(err, ErrAlreadyActive) {
 		r.Status, r.Reason = "skipped", "already_active"
 		return s.setRun(ctx, tx, r)
@@ -78,17 +87,18 @@ func (s *Service) title(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r
 	return strings.ReplaceAll(ap.TitleTemplate, "{{date}}", r.PlannedAt.In(loc).Format("2006-01-02")), nil
 }
 
-// openCard opens a Backlog card for an Autoresearch run. The card is owned by
-// the user the run acts as, so its agent runs run on that user's runtimes. It is
+// openCard opens an Autoresearch run's study in the Autoresearch's scope and
+// queues its first column's run in this transaction. The card is owned by the
+// user the run acts as, so its agent runs run on that user's runtimes. It is
 // refused while an active card this Autoresearch opened has the same title, and
 // the Autoresearch's first card is also refused when it duplicates any active
 // card, as a person's card would be. Each later card follows the one this
 // Autoresearch opened last, when the study is end-to-end (no other study may
-// follow). A webhook payload is kept as a record in Backlog, where no gate reads
-// it as evidence. With assign set, the study takes the Autoresearch's assignee
-// and scope and its first column's run is queued in this transaction.
-func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, run db.AutoresearchRun, title, question string, payload json.RawMessage, assign bool) (db.Card, error) {
-	assign = assign && ap.AssigneeType != nil
+// follow). A webhook payload is kept as a round 0 record, which no attempt's
+// gate reads as evidence. With agent set, the chosen Teams work their columns
+// and the agent the rest; otherwise every column has a Team, the chosen one or
+// the stage's built-in Team.
+func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, run db.AutoresearchRun, title, question string, payload json.RawMessage, agent *uuid.UUID, chosen map[string]uuid.UUID) (db.Card, error) {
 	// Two runs opening cards at once must see each other's card.
 	if err := lockWorkspace(ctx, tx); err != nil {
 		return db.Card{}, err
@@ -105,7 +115,7 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 	prev, err := tx.Q.LastOriginCard(ctx, db.LastOriginCardParams{WorkspaceID: tx.WS, Origin: origin})
 	switch {
 	case err == nil:
-		if !assign || (ap.ScopeFrom == board.Grounding && ap.ScopeTo == board.Reporting) {
+		if ap.ScopeFrom == board.Grounding && ap.ScopeTo == board.Reporting {
 			follows = append(follows, prev)
 		}
 	case !errors.Is(err, pgx.ErrNoRows):
@@ -119,29 +129,34 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 			return db.Card{}, err
 		}
 	}
+	teams := chosen
+	if agent == nil {
+		if teams, err = team.ColumnTeams(ctx, tx, ap.ScopeFrom, ap.ScopeTo, chosen); err != nil {
+			return db.Card{}, fmt.Errorf("%w: %w", ErrStartFailed, err)
+		}
+		for _, p := range teams {
+			if err := team.Ensure(ctx, tx, run.ActingUserID, p); err != nil {
+				return db.Card{}, fmt.Errorf("%w: %w", ErrStartFailed, err)
+			}
+		}
+	}
+	assignee := "agent"
+	if len(teams) > 0 {
+		assignee = "team"
+	}
 	n, err := tx.Q.NextCardNumber(ctx, tx.WS)
 	if err != nil {
 		return db.Card{}, err
 	}
-	p := db.CreateCardParams{WorkspaceID: tx.WS, Number: n, Title: title, Question: question,
-		OwnerID: run.ActingUserID, FollowsFrom: follows}
-	if assign {
-		p.AssigneeType, p.AssigneeID, p.ScopeFrom, p.ScopeTo = ap.AssigneeType, ap.AssigneeID, ap.ScopeFrom, ap.ScopeTo
-		p.BoardColumn, p.Round = ap.ScopeFrom, 1
-	}
-	c, err := tx.Q.CreateCard(ctx, p)
+	c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: tx.WS, Number: n, Title: title, Question: question,
+		OwnerID: run.ActingUserID, FollowsFrom: follows, AssigneeType: &assignee, AssigneeID: agent,
+		ScopeFrom: ap.ScopeFrom, ScopeTo: ap.ScopeTo, BoardColumn: ap.ScopeFrom, Round: 1})
 	if err != nil {
 		return db.Card{}, err
 	}
-	if assign {
-		teams, err := tx.Q.AutoresearchTeams(ctx, db.AutoresearchTeamsParams{WorkspaceID: tx.WS, AutoresearchID: ap.ID})
-		if err != nil {
+	for col, p := range teams {
+		if err := tx.Q.InsertCardTeam(ctx, db.InsertCardTeamParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: col, PackID: p}); err != nil {
 			return db.Card{}, err
-		}
-		for _, t := range teams {
-			if err := tx.Q.InsertCardTeam(ctx, db.InsertCardTeamParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: t.BoardColumn, PackID: t.PackID}); err != nil {
-				return db.Card{}, err
-			}
 		}
 	}
 	if err := tx.Q.SetCardOrigin(ctx, db.SetCardOriginParams{Origin: origin, ID: c.ID, WorkspaceID: tx.WS}); err != nil {
@@ -153,34 +168,42 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 		return db.Card{}, err
 	}
 	if payload != nil {
-		if _, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: board.Backlog,
+		if _, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn,
 			Round: 0, Kind: "trigger_payload", Role: "server", Key: run.ID.String(), Body: payload}); err != nil {
 			return db.Card{}, err
 		}
 	}
-	if assign && s.Engine != nil {
+	if s.Engine != nil {
 		if err := s.Engine.Start(ctx, tx, c); err != nil {
-			return db.Card{}, fmt.Errorf("%w: %v", errStartFailed, err)
+			return db.Card{}, fmt.Errorf("%w: %v", ErrStartFailed, err)
 		}
 	}
 	return c, s.notify(ctx, tx, ap, &c.ID, run.ID, "autoresearch_card", fmt.Sprintf("%s opened #%d %s", ap.Title, c.Number, c.Title))
 }
 
-// assigneeReady is whether the person a run acts as can still work with the
-// Autoresearch's assignee: an agent they may use, or each Team added for them.
-func (s *Service) assigneeReady(ctx context.Context, tx *store.Tx, ap db.Autoresearch, actor uuid.UUID) bool {
-	if _, err := s.assignedAgent(ctx, tx, ap, actor); err != nil {
-		return false
+// chosenTeams is the Team the Autoresearch names for each column.
+func chosenTeams(ctx context.Context, tx *store.Tx, ap db.Autoresearch) (map[string]uuid.UUID, error) {
+	rows, err := tx.Q.AutoresearchTeams(ctx, db.AutoresearchTeamsParams{WorkspaceID: tx.WS, AutoresearchID: ap.ID})
+	out := map[string]uuid.UUID{}
+	for _, t := range rows {
+		out[t.BoardColumn] = t.PackID
 	}
+	return out, err
+}
+
+// assigneeReady is whether the person a run acts as can still work with the
+// Autoresearch's assignee: an agent they may use, or each chosen Team readied for them
+// (a built-in one is added on the spot, an uploaded one must already be).
+func (s *Service) assigneeReady(ctx context.Context, tx *store.Tx, ap db.Autoresearch, actor uuid.UUID) bool {
 	teams, err := tx.Q.AutoresearchTeams(ctx, db.AutoresearchTeamsParams{WorkspaceID: tx.WS, AutoresearchID: ap.ID})
 	if err != nil {
 		return false
 	}
 	for _, t := range teams {
-		have, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: t.PackID, UserID: actor})
-		if err != nil || len(have) == 0 {
+		if team.Ensure(ctx, tx, actor, t.PackID) != nil {
 			return false
 		}
 	}
-	return true
+	_, err = s.assignedAgent(ctx, tx, ap, actor)
+	return err == nil
 }

@@ -10,6 +10,7 @@ import (
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -89,6 +90,15 @@ func (h *H) autoresearchCard(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, autoresearch.ErrAlreadyActive) {
 		writeJSON(w, 409, map[string]any{"error": fmt.Sprintf("already_active: #%d is open with this title", c.Number),
 			"card_id": c.ID, "number": c.Number})
+		return
+	}
+	var noBuiltIn team.NoBuiltInError
+	switch {
+	case errors.As(err, &noBuiltIn):
+		writeErr(w, 422, noBuiltIn.Error())
+		return
+	case errors.Is(err, autoresearch.ErrStartFailed):
+		writeErr(w, 422, autoresearch.ErrStartFailed.Error())
 		return
 	}
 	if answer(w, r, err) {

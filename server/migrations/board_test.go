@@ -27,7 +27,7 @@ func TestBoardCandidates(t *testing.T) {
 		column, flag string
 		id           *uuid.UUID
 	}{
-		{1, "backlog", "", &backlog}, {2, "grounding", "", &idle}, {3, "grounding", "", &busy}, {4, "grounding", "escalated", &flagged},
+		{1, "done", "", &backlog}, {2, "grounding", "", &idle}, {3, "grounding", "", &busy}, {4, "grounding", "escalated", &flagged},
 	} {
 		if err := env.Owner.QueryRow(ctx, ins, ws, row.number, u, row.column, row.flag).Scan(row.id); err != nil {
 			t.Fatal(err)

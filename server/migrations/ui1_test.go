@@ -57,7 +57,7 @@ func TestUI1FieldsDefaultAndAreChecked(t *testing.T) {
 		t.Fatal("unknown career stage accepted")
 	}
 	var card uuid.UUID
-	if err := env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id) VALUES ($1, 1, 't', 'q', $2) RETURNING id`, ws, u).Scan(&card); err != nil {
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id, board_column) VALUES ($1, 1, 't', 'q', $2, 'grounding') RETURNING id`, ws, u).Scan(&card); err != nil {
 		t.Fatal(err)
 	}
 	var resolved *string

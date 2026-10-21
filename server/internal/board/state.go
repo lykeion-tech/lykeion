@@ -9,7 +9,6 @@ import (
 )
 
 const (
-	Backlog         = "backlog"
 	Grounding       = "grounding"
 	Hypotheses      = "hypotheses"
 	Experimentation = "experimentation"

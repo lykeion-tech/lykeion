@@ -61,7 +61,7 @@ func TestDatabaseRefusesCrossWorkspaceRows(t *testing.T) {
 		if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace (id, slug, name) VALUES ($1, $2, 'w')`, ws, []string{"a", "b"}[i]); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := env.Owner.Exec(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id) VALUES ($1, 1, 't', 'q', $2)`, ws, u); err != nil {
+		if _, err := env.Owner.Exec(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id, board_column) VALUES ($1, 1, 't', 'q', $2, 'grounding')`, ws, u); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -88,7 +88,7 @@ func TestDatabaseRefusesCrossWorkspaceRows(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("workspace A sees %d cards, want 1", n)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id) VALUES ($1, 2, 't', 'q', $2)`, b, u); err == nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id, board_column) VALUES ($1, 2, 't', 'q', $2, 'grounding')`, b, u); err == nil {
 		t.Fatal("inserted a card into workspace B while scoped to A")
 	}
 }
@@ -111,7 +111,7 @@ func TestCardAssociationsCannotCrossWorkspaces(t *testing.T) {
 		if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace (id, slug, name) VALUES ($1, $2, 'w')`, ws, []string{"a", "b"}[i]); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := env.Owner.Exec(ctx, `INSERT INTO card (id, workspace_id, number, title, question, owner_id) VALUES ($1, $2, 1, 't', 'q', $3)`, []uuid.UUID{cardA, cardB}[i], ws, user); err != nil {
+		if _, err := env.Owner.Exec(ctx, `INSERT INTO card (id, workspace_id, number, title, question, owner_id, board_column) VALUES ($1, $2, 1, 't', 'q', $3, 'grounding')`, []uuid.UUID{cardA, cardB}[i], ws, user); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -151,7 +151,7 @@ func TestDeletingCardPreservesEventWithoutCardAssociation(t *testing.T) {
 	}{
 		{`INSERT INTO "user" (id, email) VALUES ($1, 'delete@x')`, []any{user}},
 		{`INSERT INTO workspace (id, slug, name) VALUES ($1, 'delete', 'w')`, []any{ws}},
-		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id) VALUES ($1, $2, 1, 't', 'q', $3)`, []any{card, ws, user}},
+		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id, board_column) VALUES ($1, $2, 1, 't', 'q', $3, 'grounding')`, []any{card, ws, user}},
 		{`INSERT INTO event (workspace_id, card_id, type, actor_type) VALUES ($1, $2, 'created', 'system')`, []any{ws, card}},
 		{`DELETE FROM card WHERE id = $1`, []any{card}},
 	} {

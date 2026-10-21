@@ -35,7 +35,6 @@ export const keys = {
     ['ws', ws, 'packs', 'store', domain, stage] as const,
   team: (ws: string, id: string) => ['ws', ws, 'packs', 'team', id] as const,
   packs: (ws: string) => ['ws', ws, 'packs'] as const,
-  packVersions: (ws: string, name: string) => ['ws', ws, 'packs', 'versions', name] as const,
   skills: (ws: string) => ['ws', ws, 'skills'] as const,
   skill: (ws: string, id: string) => ['ws', ws, 'skill', id] as const,
   skillFile: (ws: string, id: string, revision: number, path: string) =>

@@ -39,8 +39,7 @@ func TestRuntimesShowCLIVersionsAndActiveRuns(t *testing.T) {
 		t.Fatalf("versions: %+v", rts)
 	}
 
-	var c card
-	s.call(t, "POST", "/api/cards", jwt, w.ID, map[string]any{"question": "q"}, &c)
+	c := s.idleCard(t, jwt, w.ID, "q")
 	owner := s.userID(t, jwt)
 	for range 4 {
 		s.queue(t, w.ID, c.ID, owner, "claude")

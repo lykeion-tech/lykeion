@@ -54,14 +54,15 @@ func TestReplayThenLive(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
 	conn := dial(t, s, a, w.ID, 0)
 	m, ok := next(t, conn, 2*time.Second)
 	if !ok || m.Event.Type != "workspace.created" {
 		t.Fatalf("replay: %+v", m)
 	}
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, nil)
+	s.call(t, "POST", "/api/cards/"+c.ID+"/comments", a, w.ID, map[string]any{"body": "q"}, nil)
 	m, ok = next(t, conn, 1500*time.Millisecond) // faster than the 2 s poll: the Redis wake-up worked
-	if !ok || m.Event.Type != "card.created" {
+	if !ok || m.Event.Type != "comment.created" {
 		t.Fatalf("live: %+v", m)
 	}
 }
@@ -70,12 +71,13 @@ func TestReconnectMissesNothingUnderConcurrentWrites(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": fmt.Sprintf("q%d", i)}, nil)
+			s.call(t, "POST", "/api/cards/"+c.ID+"/comments", a, w.ID, map[string]any{"body": fmt.Sprintf("q%d", i)}, nil)
 		}()
 	}
 	wg.Wait()
@@ -94,7 +96,7 @@ func TestReconnectMissesNothingUnderConcurrentWrites(t *testing.T) {
 	}
 	conn.Close()
 	again := dial(t, s, a, w.ID, last)
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "after"}, nil)
+	s.call(t, "POST", "/api/cards/"+c.ID+"/comments", a, w.ID, map[string]any{"body": "after"}, nil)
 	if m, ok := next(t, again, 3*time.Second); !ok || m.Event.ID <= last {
 		t.Fatalf("after reconnect: %+v", m)
 	}
@@ -104,20 +106,21 @@ func TestNonMemberRefusedAndRemovedMemberCutOff(t *testing.T) {
 	s := newServer(t)
 	a, b, x := s.signIn(t, "a@lab.org"), s.signIn(t, "b@lab.org"), s.signIn(t, "x@else.org")
 	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
 	if m, _ := next(t, dial(t, s, x, w.ID, 0), 2*time.Second); m.Type != "error" {
 		t.Fatalf("stranger subscribed: %+v", m)
 	}
 	s.call(t, "POST", "/api/invitations/"+s.invite(t, a, w.ID, "b@lab.org", "member")+"/accept", b, "", nil, nil)
 	conn := dial(t, s, b, w.ID, 1<<62)
 	s.call(t, "DELETE", "/api/workspaces/"+w.ID+"/members/"+s.userID(t, b), a, "", nil, nil)
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "secret"}, nil)
+	s.call(t, "POST", "/api/cards/"+c.ID+"/comments", a, w.ID, map[string]any{"body": "secret"}, nil)
 	for {
 		m, ok := next(t, conn, 3*time.Second)
 		if !ok {
 			return // closed: good
 		}
-		if m.Event.Type == "card.created" {
-			t.Fatal("a removed member received a new card")
+		if m.Event.Type == "comment.created" {
+			t.Fatal("a removed member received a new comment")
 		}
 	}
 }
@@ -128,10 +131,11 @@ func TestWithoutRedisPollingStillDelivers(t *testing.T) {
 	s.H.Hub.Poll = 300 * time.Millisecond
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
 	conn := dial(t, s, a, w.ID, 0)
 	next(t, conn, 2*time.Second)
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, nil)
-	if m, ok := next(t, conn, 2*time.Second); !ok || m.Event.Type != "card.created" {
+	s.call(t, "POST", "/api/cards/"+c.ID+"/comments", a, w.ID, map[string]any{"body": "q"}, nil)
+	if m, ok := next(t, conn, 2*time.Second); !ok || m.Event.Type != "comment.created" {
 		t.Fatalf("%+v", m)
 	}
 }
@@ -177,6 +181,7 @@ func TestRedisOutagePollingStillDelivers(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	study := s.idleCard(t, a, w.ID, "q")
 	// A reachable endpoint which never acknowledges Redis commands catches an
 	// unbounded subscription wait, unlike a nil client or connection refusal.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -207,10 +212,10 @@ func TestRedisOutagePollingStillDelivers(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Redis subscription was not attempted")
 	}
-	if status := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "poll during outage"}, nil); status != 201 {
+	if status := s.call(t, "POST", "/api/cards/"+study.ID+"/comments", a, w.ID, map[string]any{"body": "poll during outage"}, nil); status != 201 {
 		t.Fatal(status)
 	}
-	if m, ok := next(t, c, time.Second); !ok || m.Event.Type != "card.created" {
+	if m, ok := next(t, c, time.Second); !ok || m.Event.Type != "comment.created" {
 		t.Fatalf("outage live: %+v %v", m, ok)
 	}
 }

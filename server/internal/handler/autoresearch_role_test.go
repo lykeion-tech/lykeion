@@ -96,10 +96,7 @@ func TestARunOnlyTokenOpensCardsAndNothingElse(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var other card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Someone's own question"}, &other); code != 201 {
-		t.Fatalf("request: %d", code)
-	}
+	other := s.idleCard(t, a, w.ID, "Someone's own question")
 	ap, _, ltk, complete := s.runOnly(t, a, w.ID)
 
 	var c struct {
@@ -108,7 +105,7 @@ func TestARunOnlyTokenOpensCardsAndNothingElse(t *testing.T) {
 		BoardColumn       string `json:"board_column"`
 	}
 	if code := s.call(t, "POST", "/api/role/cards", ltk, "", map[string]string{"question": "Does Z lower W in mouse liver?", "title": "Z and W"}, &c); code != 201 ||
-		c.Origin != "autoresearch:"+ap.ID || c.OwnerID != s.userID(t, a) || c.BoardColumn != "backlog" || c.Title != "Z and W" {
+		c.Origin != "autoresearch:"+ap.ID || c.OwnerID != s.userID(t, a) || c.BoardColumn != "grounding" || c.Title != "Z and W" {
 		t.Fatalf("open a card: %d %+v", code, c)
 	}
 	var dup struct {

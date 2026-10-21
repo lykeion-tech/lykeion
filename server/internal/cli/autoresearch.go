@@ -142,7 +142,7 @@ func autoresearchCmd(e *env) *cobra.Command {
 		fmt.Fprintf(e.out, "%s %s %s\n", out.ID, out.ExecutionMode, out.Title)
 		return nil
 	}}
-	create.Flags().StringVar(&mode, "mode", "", "create_card (open a Backlog card) or run_only (run one agent that reports)")
+	create.Flags().StringVar(&mode, "mode", "", "create_card (open a study) or run_only (run one agent that reports)")
 	create.Flags().StringVar(&description, "description", "", "what the Autoresearch asks for; a create_card card's question")
 	create.Flags().StringVar(&agent, "agent", "", "the assigned agent's id; with --team, the agent for the columns no Team covers")
 	create.Flags().StringArrayVar(&teams, "team", nil, "COLUMN=TEAM_ID; repeat for a Team set")

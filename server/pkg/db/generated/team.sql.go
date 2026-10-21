@@ -56,8 +56,8 @@ func (q *Queries) InsertTeamAgent(ctx context.Context, arg InsertTeamAgentParams
 }
 
 const storeTeams = `-- name: StoreTeams :many
-SELECT DISTINCT ON (p.name) p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, EXISTS (SELECT 1 FROM team_agent t
-  WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND t.user_id = $1)::bool AS added
+SELECT DISTINCT ON (p.name) p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
+  WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND t.user_id = $1))::bool AS added
 FROM field_pack p
 WHERE p.workspace_id = $2 AND (p.source = 'shipped' OR p.uploaded_by = $1)
   AND ($3::text = '' OR p.domain = $3) AND ($4::text = '' OR p.stage = $4)
@@ -87,7 +87,7 @@ type StoreTeamsRow struct {
 	Added       bool            `json:"added"`
 }
 
-// The store: shipped Teams and the user's own uploads, newest version per name.
+// The store: shipped Teams and the user's own uploads.
 func (q *Queries) StoreTeams(ctx context.Context, arg StoreTeamsParams) ([]StoreTeamsRow, error) {
 	rows, err := q.db.Query(ctx, storeTeams,
 		arg.UserID,

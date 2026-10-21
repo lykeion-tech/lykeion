@@ -13,6 +13,7 @@ type projectStudy struct {
 
 func TestCreateStudyInProject(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	token := s.signIn(t, "project-studies@lab.org")
 	workspace := s.workspace(t, token, "project-studies")
 	var project struct {
@@ -57,6 +58,7 @@ func TestCreateStudyInProject(t *testing.T) {
 
 func TestCreateStudyRejectsUnknownAndForeignProjectsAtomically(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	token := s.signIn(t, "project-studies@lab.org")
 	workspace := s.workspace(t, token, "project-studies")
 	other := s.workspace(t, token, "other-project-studies")
@@ -82,6 +84,7 @@ func TestCreateStudyRejectsUnknownAndForeignProjectsAtomically(t *testing.T) {
 
 func TestCreateProjectStudyRollsBackWhenItsEventFails(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	token := s.signIn(t, "project-studies@lab.org")
 	workspace := s.workspace(t, token, "project-studies")
 	var project struct {

@@ -19,12 +19,6 @@ VALUES (@workspace_id, @pack_id, @approved_by) ON CONFLICT DO NOTHING;
 SELECT EXISTS (SELECT 1 FROM field_pack_approval
   WHERE workspace_id = @workspace_id AND pack_id = @id AND approved_by = @user_id) AS ok;
 
--- The newest version of a pack name that the user has approved.
--- name: NewestApprovedVersion :one
-SELECT p.* FROM field_pack p JOIN field_pack_approval a ON a.workspace_id = p.workspace_id AND a.pack_id = p.id
-WHERE p.workspace_id = @workspace_id AND p.name = @name AND a.approved_by = @user_id
-ORDER BY p.created_at DESC LIMIT 1;
-
 -- name: SetCardPack :exec
 UPDATE card SET pack_id = @pack_id WHERE workspace_id = @workspace_id AND id = @card_id;
 
@@ -33,23 +27,51 @@ UPDATE card SET pack_id = @pack_id WHERE workspace_id = @workspace_id AND id = @
 SELECT DISTINCT harness FROM runtime WHERE workspace_id = @workspace_id AND owner_id = @owner_id AND status = 'online'
 ORDER BY harness;
 
--- name: GetFieldPackVersion :one
-SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND version = @version;
+-- The harnesses the owner has a runtime for, online or not.
+-- name: OwnerHarnesses :many
+SELECT DISTINCT harness FROM runtime WHERE workspace_id = @workspace_id AND owner_id = @owner_id
+ORDER BY harness;
 
 -- Whether the name belongs to a shipped pack or to someone other than the user.
 -- name: PackNameTaken :one
 SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name
   AND uploaded_by IS DISTINCT FROM @user_id::uuid) AS taken;
 
--- The versions of one pack the user may see: shipped ones and their own uploads,
--- each with the number of studies one of whose columns it works.
--- name: ListPackVersions :many
-SELECT p.*, (a.approved_by IS NOT NULL)::bool AS approvals_by_me, a.approved_at,
-  (SELECT count(DISTINCT t.card_id) FROM card_team t WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id)::int AS pinned_studies
-FROM field_pack p LEFT JOIN field_pack_approval a
-  ON a.workspace_id = p.workspace_id AND a.pack_id = p.id AND a.approved_by = @user_id
-WHERE p.workspace_id = @workspace_id AND p.name = @name AND (p.source = 'shipped' OR p.uploaded_by = @user_id)
-ORDER BY p.created_at;
+-- Saving a Team rewrites its row; the id and the stored version stay.
+-- name: ReplaceFieldPack :one
+UPDATE field_pack SET sha256 = @sha256, manifest = @manifest, blob_key = @blob_key, domain = @domain, stage = @stage
+WHERE workspace_id = @workspace_id AND id = @id
+RETURNING *;
+
+-- What still needs the Team as it is: unfinished studies with the Team on a
+-- column they have not finished (the current one included), and the
+-- Autoresearches that name it.
+-- name: TeamUses :one
+SELECT
+  (SELECT count(DISTINCT c.id) FROM card c JOIN card_team t ON t.workspace_id = c.workspace_id AND t.card_id = c.id
+   WHERE c.workspace_id = @workspace_id AND t.pack_id = @pack_id AND c.ending = '' AND c.state <> 'done'
+     AND array_position(@stages::text[], t.board_column) >= array_position(@stages::text[], c.board_column))::int AS studies,
+  (SELECT count(DISTINCT a.autoresearch_id) FROM autoresearch_team a
+   WHERE a.workspace_id = @workspace_id AND a.pack_id = @pack_id)::int AS autoresearches;
+
+-- name: AllWorkspaceIDs :many
+SELECT id::uuid AS id FROM all_workspace_ids();
+
+-- name: ShippedPackExists :one
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND source = 'shipped') AS ok;
+
+-- name: PackNameInUse :one
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name) AS used;
+
+-- The name moves in the row and in the manifest the row holds.
+-- name: RenameFieldPack :exec
+UPDATE field_pack SET name = @new_name::text, manifest = jsonb_set(manifest, '{name}', to_jsonb(@new_name::text))
+WHERE workspace_id = @workspace_id AND name = @name AND source <> 'shipped';
+
+-- The free Team of a stage: the shipped Team labelled for that stage and no field.
+-- name: BuiltInStageTeam :one
+SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND source = 'shipped' AND stage = @stage AND domain = ''
+ORDER BY created_at, id LIMIT 1;
 
 -- name: ListOwnPacks :many
 SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND uploaded_by = @user_id ORDER BY name, created_at;

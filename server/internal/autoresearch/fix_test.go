@@ -7,7 +7,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
 	db "lykeion/server/pkg/db/generated"
@@ -29,7 +31,44 @@ func setup(t *testing.T) *fix {
 	f.s = &Service{Store: st, AgentRuns: &service.AgentRuns{Store: st}, Now: func() time.Time { return f.now }}
 	f.exec(t, `INSERT INTO workspace (id, slug, name) VALUES ($1, 'w', 'w')`, f.ws)
 	f.owner = f.user(t, "a@lab.org", "owner")
+	// Every workspace holds the built-in stage Teams.
+	if err := st.InWorkspace(context.Background(), f.ws, uuid.Nil, func(tx *store.Tx) error {
+		return pack.InstallShipped(context.Background(), tx, storage.Local{Dir: t.TempDir()}, testutil.BuiltIns(t))
+	}); err != nil {
+		t.Fatal(err)
+	}
 	return f
+}
+
+// builtIn is the workspace's built-in Team for a stage.
+func (f *fix) builtIn(t *testing.T, stage string) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := f.env.Owner.QueryRow(context.Background(), `SELECT id FROM field_pack WHERE workspace_id = $1 AND source = 'shipped' AND stage = $2`,
+		f.ws, stage).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// cardTeams is each column's Team on a study.
+func (f *fix) cardTeams(t *testing.T, card uuid.UUID) map[string]uuid.UUID {
+	t.Helper()
+	rows, err := f.env.Owner.Query(context.Background(), `SELECT board_column, pack_id FROM card_team WHERE card_id = $1`, card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]uuid.UUID{}
+	for rows.Next() {
+		var col string
+		var id uuid.UUID
+		if err := rows.Scan(&col, &id); err != nil {
+			t.Fatal(err)
+		}
+		out[col] = id
+	}
+	return out
 }
 
 // user creates a user and, unless role is "", makes them a member.

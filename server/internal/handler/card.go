@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -30,8 +31,8 @@ type newCard struct {
 	Scope       *scopeIn    `json:"scope"`
 }
 
-// assigneeIn is a member, an agent, or Teams by column (with an agent for the
-// columns no Team covers).
+// assigneeIn is Teams by column; an Autoresearch may instead name an agent, or
+// an agent for the columns no Team covers.
 type assigneeIn struct {
 	Type    string               `json:"type"`
 	ID      *uuid.UUID           `json:"id"`
@@ -44,18 +45,56 @@ type scopeIn struct {
 	To   string `json:"to"`
 }
 
-// resolveScope gives the stages a study covers. A lone Team with no wider
-// scope keeps the study in its column.
+// scopeOf gives the stages a scope names, every stage when none is sent.
+func scopeOf(s *scopeIn) (from, to string, err error) {
+	if s == nil {
+		return board.Stages[0], board.Stages[len(board.Stages)-1], nil
+	}
+	if board.StageIndex(s.From) < 0 || board.StageIndex(s.To) < 0 {
+		return "", "", cardInputError("scope names a column outside the stages")
+	}
+	if board.StageIndex(s.From) > board.StageIndex(s.To) {
+		return "", "", cardInputError("scope must run from an earlier stage to a later one")
+	}
+	return s.From, s.To, nil
+}
+
+var errNotATeam = cardInputError("a study is worked by a Team")
+
+// studyScope gives the stages a researcher's study covers and the Teams they
+// chose for some of them. A lone Team with no scope keeps the study in its
+// column.
+func studyScope(in newCard) (from, to string, chosen map[string]uuid.UUID, err error) {
+	if a := in.Assignee; a != nil && (a.Type != "team" || a.ID != nil || a.AgentID != nil) {
+		return "", "", nil, errNotATeam
+	}
+	if from, to, err = scopeOf(in.Scope); err != nil || in.Assignee == nil {
+		return from, to, nil, err
+	}
+	chosen = in.Assignee.Teams
+	if len(chosen) == 0 {
+		return "", "", nil, cardInputError("a Team assignment names no Team")
+	}
+	for col := range chosen {
+		i := board.StageIndex(col)
+		switch {
+		case i < 0:
+			return "", "", nil, cardInputError("a Team is placed on a column outside the stages")
+		case len(chosen) == 1 && in.Scope == nil:
+			return col, col, chosen, nil
+		case i < board.StageIndex(from) || i > board.StageIndex(to):
+			return "", "", nil, cardInputError("a Team is placed outside the study's scope")
+		}
+	}
+	return from, to, chosen, nil
+}
+
+// resolveScope gives the stages an Autoresearch's studies cover. A lone Team
+// with no wider scope keeps the study in its column; a Team set names an agent
+// for the columns no Team covers.
 func resolveScope(in newCard) (from, to string, err error) {
-	from, to = board.Stages[0], board.Stages[len(board.Stages)-1]
-	if in.Scope != nil {
-		from, to = in.Scope.From, in.Scope.To
-		if board.StageIndex(from) < 0 || board.StageIndex(to) < 0 {
-			return "", "", cardInputError("scope names a column outside the stages")
-		}
-		if board.StageIndex(from) > board.StageIndex(to) {
-			return "", "", cardInputError("scope must run from an earlier stage to a later one")
-		}
+	if from, to, err = scopeOf(in.Scope); err != nil {
+		return "", "", err
 	}
 	a := in.Assignee
 	if a == nil || a.Type != "team" {
@@ -122,7 +161,7 @@ func checkAssigneeRefs(r *http.Request, tx *store.Tx, ws, user uuid.UUID, a *ass
 		return checkAssignee(r, tx, ws, user, a.Type, *a.ID)
 	}
 	for _, pack := range a.Teams {
-		if err := checkTeamAdded(r, tx, ws, user, pack); err != nil {
+		if err := ensureTeam(r, tx, user, pack); err != nil {
 			return err
 		}
 	}
@@ -156,29 +195,20 @@ func checkAssignee(r *http.Request, tx *store.Tx, ws, creator uuid.UUID, typ str
 	return nil
 }
 
-// checkTeamAdded refuses a Team the person has not added to their workspace.
-func checkTeamAdded(r *http.Request, tx *store.Tx, ws, user, pack uuid.UUID) error {
-	if _, err := tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: pack}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return cardInputError("add this Team to your workspace first")
-		}
-		return err
+// ensureTeam readies a Team for the person: a shipped Team gives them their
+// agents on the spot, an uploaded one must already be added.
+func ensureTeam(r *http.Request, tx *store.Tx, user, pack uuid.UUID) error {
+	err := team.Ensure(r.Context(), tx, user, pack)
+	if errors.Is(err, team.ErrNotAdded) {
+		return cardInputError(err.Error())
 	}
-	have, err := tx.Q.TeamAgentsFor(r.Context(), db.TeamAgentsForParams{WorkspaceID: ws, PackID: pack, UserID: user})
-	if err != nil {
-		return err
-	}
-	if len(have) == 0 {
-		return cardInputError("add this Team to your workspace first")
-	}
-	return nil
+	return teamInput(err)
 }
 
 type cardTeamView struct {
-	PackID  uuid.UUID `json:"pack_id"`
-	Name    string    `json:"name"`
-	Version string    `json:"version"`
-	Stage   string    `json:"stage"`
+	PackID uuid.UUID `json:"pack_id"`
+	Name   string    `json:"name"`
+	Stage  string    `json:"stage"`
 }
 
 // studyView is a card with the Team of each column and the columns whose Team
@@ -196,7 +226,7 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 		return v, err
 	}
 	for _, row := range rows {
-		v.Teams[row.BoardColumn] = cardTeamView{PackID: row.PackID, Name: row.Name, Version: row.Version, Stage: row.Stage}
+		v.Teams[row.BoardColumn] = cardTeamView{PackID: row.PackID, Name: row.Name, Stage: row.Stage}
 	}
 	for _, col := range board.Stages {
 		if t, ok := v.Teams[col]; ok && t.Stage != "" && t.Stage != col {
@@ -246,12 +276,9 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if in.FollowsFrom == nil {
 		in.FollowsFrom = []uuid.UUID{}
 	}
-	from, to, err := resolveScope(in)
+	from, to, chosen, err := studyScope(in)
 	if err == nil && len(in.FollowsFrom) > 0 && (from != board.Grounding || to != board.Reporting) {
 		err = cardInputError("only an end-to-end study can follow from another")
-	}
-	if err == nil {
-		err = checkAssigneeShape(in.Assignee)
 	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
@@ -259,6 +286,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 	var c studyView
 	var dup db.ActiveDuplicateRow
+	var teams map[string]uuid.UUID
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		if in.ResearchID != nil {
 			if _, err := tx.Q.GetResearch(r.Context(), db.GetResearchParams{WorkspaceID: ws, ID: *in.ResearchID}); err != nil {
@@ -276,22 +304,21 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		params := db.CreateCardParams{
-			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
-			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to,
+		// Every column has a Team from the start, so the study starts at once.
+		var err error
+		if teams, err = team.ColumnTeams(r.Context(), tx, from, to, chosen); err != nil {
+			return err
 		}
-		if a := in.Assignee; a != nil {
-			if err := checkAssigneeRefs(r, tx, ws, user, a); err != nil {
+		for _, col := range board.Stages[board.StageIndex(from) : board.StageIndex(to)+1] {
+			if err := ensureTeam(r, tx, user, teams[col]); err != nil {
 				return err
 			}
-			if a.Type == "team" {
-				params.AssigneeType, params.AssigneeID = &a.Type, a.AgentID
-			} else {
-				params.AssigneeType, params.AssigneeID = &a.Type, a.ID
-			}
-			if a.Type != "member" {
-				params.BoardColumn, params.Round = from, 1
-			}
+		}
+		assignee := "team"
+		params := db.CreateCardParams{
+			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
+			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
+			AssigneeType: &assignee, Round: 1,
 		}
 		// A follow-up may ask the same question again; any other card may not
 		// while an active card asks it. The workspace lock makes two identical
@@ -318,11 +345,9 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if a := in.Assignee; a != nil && a.Type == "team" {
-			for col, pack := range a.Teams {
-				if err := tx.Q.InsertCardTeam(r.Context(), db.InsertCardTeamParams{WorkspaceID: ws, CardID: card.ID, BoardColumn: col, PackID: pack}); err != nil {
-					return err
-				}
+		for col, pack := range teams {
+			if err := tx.Q.InsertCardTeam(r.Context(), db.InsertCardTeamParams{WorkspaceID: ws, CardID: card.ID, BoardColumn: col, PackID: pack}); err != nil {
+				return err
 			}
 		}
 		if c, err = viewOf(r, tx, card); err != nil {
@@ -336,14 +361,19 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var inputErr cardInputError
-	if errors.As(err, &inputErr) {
+	var noBuiltIn team.NoBuiltInError
+	switch {
+	case errors.As(err, &inputErr):
 		writeErr(w, 400, inputErr.Error())
+		return
+	case errors.As(err, &noBuiltIn):
+		writeErr(w, 422, noBuiltIn.Error())
 		return
 	}
 	if !answer(w, r, err) {
 		return
 	}
-	if h.Engine != nil && c.AssigneeType != nil && *c.AssigneeType != "member" {
+	if h.Engine != nil {
 		h.Engine.Kick(c.WorkspaceID, c.ID)
 	}
 	writeJSON(w, 201, c)
@@ -382,7 +412,7 @@ func (h *H) setCardTeams(w http.ResponseWriter, r *http.Request) {
 			if c.Ending != "" || i <= board.StageIndex(c.BoardColumn) {
 				return errTeamStarted
 			}
-			if err := checkTeamAdded(r, tx, ws, c.OwnerID, pack); err != nil {
+			if err := ensureTeam(r, tx, c.OwnerID, pack); err != nil {
 				return err
 			}
 			if err := tx.Q.SetCardTeam(r.Context(), db.SetCardTeamParams{WorkspaceID: ws, CardID: id, BoardColumn: col, PackID: pack}); err != nil {
@@ -454,8 +484,8 @@ func (h *H) getCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// The card names its Teams' versions, so a colleague who cannot see an
-	// uploaded Team still reads which ones the study runs on.
+	// The card names its Teams, so a colleague who cannot see an uploaded
+	// Team still reads which ones the study runs on.
 	var v studyView
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		c, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id})
@@ -622,121 +652,10 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-var errNotBacklog = errors.New("only a card in Backlog can be edited or deleted")
-
-// nullableTime remembers whether its key was sent, so an explicit null can
-// clear a deadline while a missing key leaves it alone.
-type nullableTime struct {
-	Set bool
-	V   *time.Time
-}
-
-func (n *nullableTime) UnmarshalJSON(b []byte) error {
-	n.Set = true
-	return json.Unmarshal(b, &n.V)
-}
-
-type cardEdit struct {
-	Title       *string      `json:"title"`
-	Question    *string      `json:"question"`
-	Deadline    nullableTime `json:"deadline"`
-	FollowsFrom *[]uuid.UUID `json:"follows_from"`
-	Position    *float64     `json:"position"`
-}
-
-// fields names the keys an edit sets, in a fixed order.
-func (e cardEdit) fields() []string {
-	var out []string
-	for _, f := range []struct {
-		name string
-		set  bool
-	}{{"title", e.Title != nil}, {"question", e.Question != nil},
-		{"deadline", e.Deadline.Set}, {"follows_from", e.FollowsFrom != nil}, {"position", e.Position != nil}} {
-		if f.set {
-			out = append(out, f.name)
-		}
-	}
-	return out
-}
-
-// editCard changes a Backlog card. Scope has locked the workspace row, which
-// WIP pull also locks before it starts a card, so the card cannot leave
-// Backlog while it is being edited.
-func (h *H) editCard(w http.ResponseWriter, r *http.Request) {
-	id, ok := cardID(w, r)
-	if !ok {
-		return
-	}
-	var in cardEdit
-	if err := readJSON(r, &in); err != nil {
-		writeErr(w, 400, "invalid card: "+err.Error())
-		return
-	}
-	fields := in.fields()
-	switch {
-	case len(fields) == 0:
-		writeErr(w, 400, "nothing to change")
-		return
-	case in.Title != nil && strings.TrimSpace(*in.Title) == "":
-		writeErr(w, 400, "title cannot be empty")
-		return
-	case in.Question != nil && strings.TrimSpace(*in.Question) == "":
-		writeErr(w, 400, "question cannot be empty")
-		return
-	}
-	var out db.Card
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: id, WorkspaceID: ws})
-		if err != nil {
-			return err
-		}
-		if c.BoardColumn != board.Backlog {
-			return errNotBacklog
-		}
-		p := db.EditBacklogCardParams{Title: c.Title, Question: c.Question, Deadline: c.Deadline,
-			FollowsFrom: c.FollowsFrom, Position: c.Position, ID: id, WorkspaceID: ws}
-		if in.Title != nil {
-			p.Title = strings.TrimSpace(*in.Title)
-		}
-		if in.Question != nil {
-			p.Question = *in.Question
-		}
-		if in.Deadline.Set {
-			p.Deadline = in.Deadline.V
-		}
-		if in.Position != nil {
-			p.Position = *in.Position
-		}
-		if in.FollowsFrom != nil {
-			p.FollowsFrom = []uuid.UUID{}
-			for _, parent := range *in.FollowsFrom {
-				if parent == id {
-					return cardInputError("a card cannot follow from itself")
-				}
-				if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: parent}); err != nil {
-					if errors.Is(err, pgx.ErrNoRows) {
-						return cardInputError("follows_from contains an unknown card")
-					}
-					return err
-				}
-				p.FollowsFrom = append(p.FollowsFrom, parent)
-			}
-		}
-		if out, err = tx.Q.EditBacklogCard(r.Context(), p); err != nil {
-			return err
-		}
-		event := "card.edited"
-		if len(fields) == 1 && fields[0] == "position" {
-			event = "card.reordered"
-		}
-		return tx.Emit(r.Context(), event, &id, store.User(user), map[string]any{"fields": fields, "position": out.Position})
-	})
-	cardEditFail(w, r, err, out)
-}
-
-// deleteCard removes a Backlog card and everything recorded on it. Its
-// events stay, with the card's id in the payload; the database clears their
-// card reference.
+// deleteCard removes a study and everything recorded on it, at any point of
+// its work; only its owner may. Its open agent runs are cancelled first, so
+// their tokens stop working. Its events stay, with the card's id in the
+// payload; the database clears their card reference and drops its runs.
 func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
 	if !ok {
@@ -753,8 +672,11 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if c.BoardColumn != board.Backlog {
-			return errNotBacklog
+		if c.OwnerID != user {
+			return forbidden("only the study's owner deletes it")
+		}
+		if err := service.CancelCardRuns(r.Context(), tx, user, id); err != nil {
+			return err
 		}
 		runs, err := tx.Q.FailRunsForDeletedCard(r.Context(), db.FailRunsForDeletedCardParams{WorkspaceID: ws, CardID: &id})
 		if err != nil {
@@ -768,30 +690,12 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		if _, err := tx.Q.DeleteBacklogCard(r.Context(), db.DeleteBacklogCardParams{ID: id, WorkspaceID: ws}); err != nil {
+		if err := tx.Q.DeleteCard(r.Context(), db.DeleteCardParams{ID: id, WorkspaceID: ws}); err != nil {
 			return err
 		}
 		return tx.Emit(r.Context(), "card.deleted", nil, store.User(user), map[string]any{"card_id": id, "number": c.Number})
 	})
-	if err != nil {
-		cardEditFail(w, r, err, nil)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// cardEditFail answers an edit or delete: 409 off Backlog, 400 for bad input,
-// otherwise the card (or the server error).
-func cardEditFail(w http.ResponseWriter, r *http.Request, err error, out any) {
-	var inputErr cardInputError
-	switch {
-	case errors.Is(err, errNotBacklog):
-		writeErr(w, 409, err.Error())
-	case errors.As(err, &inputErr):
-		writeErr(w, 400, inputErr.Error())
-	case err != nil:
-		fail(w, r, err)
-	default:
-		writeJSON(w, http.StatusOK, out)
+	if answer(w, r, err) {
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

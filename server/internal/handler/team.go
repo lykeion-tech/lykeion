@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,14 +16,32 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
+// storeTeam is a Team as the API shows it: the stored version stays inside.
 type storeTeam struct {
-	db.FieldPack
-	Manifest json.RawMessage `json:"manifest"`
-	Added    bool            `json:"added"`
+	ID          uuid.UUID       `json:"id"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	Name        string          `json:"name"`
+	Sha256      string          `json:"sha256"`
+	Manifest    json.RawMessage `json:"manifest"`
+	Source      string          `json:"source"`
+	UploadedBy  *uuid.UUID      `json:"uploaded_by"`
+	CreatedAt   time.Time       `json:"created_at"`
+	Domain      string          `json:"domain"`
+	Stage       string          `json:"stage"`
+	Added       bool            `json:"added"`
 }
 
-// listTeams is the store: shipped Teams and the caller's own uploads, the
-// newest version of each name.
+// shownManifest is a stored manifest without its version.
+func shownManifest(raw json.RawMessage) (json.RawMessage, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	delete(m, "version")
+	return json.Marshal(m)
+}
+
+// listTeams is the store: shipped Teams and the caller's own uploads.
 func (h *H) listTeams(w http.ResponseWriter, r *http.Request) {
 	out := []storeTeam{}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
@@ -32,9 +51,13 @@ func (h *H) listTeams(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		for _, p := range rows {
-			out = append(out, storeTeam{FieldPack: db.FieldPack{ID: p.ID, WorkspaceID: p.WorkspaceID, Name: p.Name,
-				Version: p.Version, Sha256: p.Sha256, Source: p.Source, UploadedBy: p.UploadedBy, Domain: p.Domain,
-				Stage: p.Stage, CreatedAt: p.CreatedAt}, Manifest: p.Manifest, Added: p.Added})
+			manifest, err := shownManifest(p.Manifest)
+			if err != nil {
+				return err
+			}
+			out = append(out, storeTeam{ID: p.ID, WorkspaceID: p.WorkspaceID, Name: p.Name, Sha256: p.Sha256,
+				Manifest: manifest, Source: p.Source, UploadedBy: p.UploadedBy, CreatedAt: p.CreatedAt,
+				Domain: p.Domain, Stage: p.Stage, Added: p.Added})
 		}
 		return nil
 	})
@@ -51,17 +74,16 @@ func (h *H) getTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out struct {
-		ID       uuid.UUID                `json:"id"`
-		Manifest json.RawMessage          `json:"manifest"`
-		Versions []db.ListPackVersionsRow `json:"versions"`
+		ID       uuid.UUID       `json:"id"`
+		Manifest json.RawMessage `json:"manifest"`
 	}
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+	err := h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) error {
 		p, err := visiblePack(r, tx, user, id)
 		if err != nil {
 			return err
 		}
-		out.ID, out.Manifest = p.ID, p.Manifest
-		out.Versions, err = tx.Q.ListPackVersions(r.Context(), db.ListPackVersionsParams{WorkspaceID: ws, Name: p.Name, UserID: user})
+		out.ID = p.ID
+		out.Manifest, err = shownManifest(p.Manifest)
 		return err
 	})
 	if err != nil {
@@ -191,13 +213,13 @@ func (h *H) createTeam(w http.ResponseWriter, r *http.Request) {
 		err = conflict(err.Error())
 	}
 	if answer(w, r, err) {
-		writeJSON(w, 201, map[string]any{"id": row.ID, "name": row.Name, "version": row.Version, "sha256": row.Sha256, "agents": agents})
+		writeJSON(w, 201, map[string]any{"id": row.ID, "name": row.Name, "sha256": row.Sha256, "agents": agents})
 	}
 }
 
 // teamInput turns the team package's input refusals into 400s.
 func teamInput(err error) error {
-	if errors.Is(err, team.ErrInvalid) {
+	if errors.Is(err, team.ErrInvalid) || errors.Is(err, team.ErrNoHarness) {
 		return cardInputError(err.Error())
 	}
 	return err

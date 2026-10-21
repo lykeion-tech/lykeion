@@ -7,6 +7,7 @@ import (
 
 func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	s.H.Engine = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
@@ -26,9 +27,6 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "How?"}, &card)
 	id, owner := card["id"].(string), card["owner_id"].(string)
 	path := "/api/cards/" + id + "/properties"
-	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"assignee_type": "member", "assignee_id": owner}, nil); code != 200 {
-		t.Fatalf("assign in Backlog: %d", code)
-	}
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column='grounding',rounds=2,spent_usd=1 WHERE id=$1`, id); err != nil {
 		t.Fatal(err)
 	}
@@ -42,8 +40,8 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT to_jsonb(r)::text FROM agent_run r WHERE card_id=$1`, id).Scan(&runBefore); err != nil {
 		t.Fatal(err)
 	}
-	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": rid, "assignee_type": nil, "assignee_id": nil}, nil); code != 409 {
-		t.Fatalf("a started study's assignee changed: %d", code)
+	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": rid, "assignee_type": nil, "assignee_id": nil}, nil); code != 400 {
+		t.Fatalf("a study's assignee changed: %d", code)
 	}
 	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": rid}, &card); code != 200 {
 		t.Fatalf("properties: %d %+v", code, card)
@@ -56,7 +54,7 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 		} else {
 			s.call(t, "GET", route, a, w.ID, nil, &card)
 		}
-		if card["research_id"] != rid || card["assignee_type"] != "member" || card["assignee_id"] != owner || card["owner_id"] != owner || card["board_column"] != "grounding" || card["rounds"] != float64(2) || card["spent_usd"] != float64(1) {
+		if card["research_id"] != rid || card["assignee_type"] != "team" || card["assignee_id"] != nil || card["owner_id"] != owner || card["board_column"] != "grounding" || card["rounds"] != float64(2) || card["spent_usd"] != float64(1) {
 			t.Fatalf("canonical/science fields: %+v", card)
 		}
 	}
@@ -73,10 +71,10 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 		}
 	}
 	s.call(t, "GET", "/api/cards/"+id, a, w.ID, nil, &card)
-	if card["research_id"] != rid || card["assignee_id"] != owner {
+	if card["research_id"] != rid || card["assignee_type"] != "team" {
 		t.Fatalf("rejected patch leaked: %+v", card)
 	}
-	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": nil}, &card); code != 200 || card["research_id"] != nil || card["assignee_id"] != owner {
+	if code := s.call(t, "PATCH", path, a, w.ID, map[string]any{"research_id": nil}, &card); code != 200 || card["research_id"] != nil || card["assignee_type"] != "team" {
 		t.Fatalf("clear: %d %+v", code, card)
 	}
 	var runs, events int
@@ -92,21 +90,19 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	if scienceBefore != scienceAfter || runBefore != runAfter {
 		t.Fatalf("science or existing role/continuity changed: %s / %s, %s / %s", scienceBefore, scienceAfter, runBefore, runAfter)
 	}
-	if runs != 1 || events != 3 {
+	if runs != 1 || events != 2 {
 		t.Fatalf("runs=%d events=%d", runs, events)
 	}
 }
 
-func TestAgentRegistryAndAssignmentIsolation(t *testing.T) {
+func TestAgentRegistryAndStudyIsolation(t *testing.T) {
 	s := newServer(t)
 	s.H.Engine = nil
 	a, b, c := s.signIn(t, "a@lab.org"), s.signIn(t, "b@lab.org"), s.signIn(t, "c@else.org")
 	wa, wc := s.workspace(t, a, "lab-a"), s.workspace(t, c, "lab-c")
 	inv := s.invite(t, a, wa.ID, "b@lab.org", "member")
 	s.call(t, "POST", "/api/invitations/"+inv+"/accept", b, "", nil, nil)
-	var card map[string]any
-	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "How?"}, &card)
-	path := "/api/cards/" + card["id"].(string) + "/properties"
+	path := "/api/cards/" + s.idleCard(t, a, wa.ID, "How?").ID + "/properties"
 	if code := s.call(t, "POST", "/api/agents", a, wa.ID, map[string]any{"name": "Ada", "description": "Methods", "instructions": "Investigate", "harness": "codex", "model": "gpt-5", "visibility": "private"}, nil); code != 201 {
 		t.Fatalf("create agent: %d, want 201", code)
 	}
@@ -132,37 +128,14 @@ func TestAgentRegistryAndAssignmentIsolation(t *testing.T) {
 	if code := s.call(t, "GET", "/api/agents/"+aid, c, wc.ID, nil, nil); code != 404 {
 		t.Fatalf("cross agent: %d", code)
 	}
-	if code := s.call(t, "PATCH", path, a, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 200 {
-		t.Fatalf("owner private assignment: %d", code)
-	}
-	if code := s.call(t, "PATCH", path, b, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 403 {
-		t.Fatalf("a colleague reassigned the study: %d", code)
-	}
-	var other map[string]any
-	s.call(t, "POST", "/api/cards", b, wa.ID, map[string]any{"question": "Other?"}, &other)
-	otherPath := "/api/cards/" + other["id"].(string) + "/properties"
-	if code := s.call(t, "PATCH", otherPath, a, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 403 {
-		t.Fatalf("different responsible person: %d", code)
-	}
 	if code := s.call(t, "PATCH", "/api/agents/"+aid, a, wa.ID, map[string]any{"visibility": "workspace", "name": "Ada Lovelace"}, &ag); code != 200 || ag["name"] != "Ada Lovelace" {
 		t.Fatalf("edit: %d %+v", code, ag)
 	}
 	if code := s.call(t, "PATCH", "/api/agents/"+aid, b, wa.ID, map[string]any{"name": "stolen"}, nil); code != 403 {
 		t.Fatalf("nonowner edit: %d", code)
 	}
-	if code := s.call(t, "PATCH", otherPath, b, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 200 {
-		t.Fatalf("workspace assignment: %d", code)
-	}
 	if code := s.call(t, "POST", "/api/agents/"+aid+"/archive", a, wa.ID, nil, nil); code != 200 {
 		t.Fatalf("archive: %d", code)
-	}
-	if code := s.call(t, "GET", "/api/cards/"+card["id"].(string), a, wa.ID, nil, &card); code != 200 || card["assignee_id"] != aid {
-		t.Fatalf("archiving lost study/history: %d %+v", code, card)
-	}
-	var fresh map[string]any
-	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "Fresh?"}, &fresh)
-	if code := s.call(t, "PATCH", "/api/cards/"+fresh["id"].(string)+"/properties", a, wa.ID, map[string]any{"assignee_type": "agent", "assignee_id": aid}, nil); code != 400 {
-		t.Fatalf("archived assignment: %d", code)
 	}
 	if code := s.call(t, "PATCH", "/api/agents/"+aid, a, wa.ID, map[string]any{"name": "revive"}, nil); code != 409 {
 		t.Fatalf("archived edit: %d", code)
@@ -177,10 +150,8 @@ func TestAgentRegistryAndAssignmentIsolation(t *testing.T) {
 			t.Fatalf("cross research %s: %d", method, code)
 		}
 	}
-	for _, bad := range []map[string]any{{"research_id": res["id"]}, {"assignee_type": "member", "assignee_id": s.userID(t, c)}} {
-		if code := s.call(t, "PATCH", "/api/cards/"+fresh["id"].(string)+"/properties", a, wa.ID, bad, nil); code != 400 {
-			t.Fatalf("cross assignment: %d", code)
-		}
+	if code := s.call(t, "PATCH", path, a, wa.ID, map[string]any{"research_id": res["id"]}, nil); code != 400 {
+		t.Fatalf("cross research: %d", code)
 	}
 	if code := s.call(t, "PATCH", path, c, wc.ID, map[string]any{"research_id": nil}, nil); code != 404 {
 		t.Fatalf("cross card: %d", code)
@@ -213,22 +184,16 @@ func TestRegistryValidationAndOwnerDeparture(t *testing.T) {
 	if code := s.call(t, "PATCH", "/api/agents/"+id, owner, w.ID, map[string]any{"description": "admin edit"}, nil); code != 200 {
 		t.Fatalf("admin private edit: %d", code)
 	}
-	var study map[string]any
-	if code := s.call(t, "POST", "/api/cards", owner, w.ID, map[string]any{"question": "Preserve on departure"}, &study); code != 201 {
-		t.Fatalf("study: %d", code)
-	}
-	studyID := study["id"].(string)
-	if code := s.call(t, "PATCH", "/api/cards/"+studyID+"/properties", owner, w.ID, map[string]any{"assignee_type": "member", "assignee_id": s.userID(t, member)}, nil); code != 200 {
-		t.Fatalf("member assignment: %d", code)
-	}
+	studyID := s.idleCard(t, owner, w.ID, "Preserve on departure").ID
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column='grounding',rounds=3,spent_usd=2 WHERE id=$1`, studyID); err != nil {
 		t.Fatal(err)
 	}
 	if code := s.call(t, "POST", "/api/workspaces/"+w.ID+"/leave", member, "", nil, nil); code != 204 {
 		t.Fatalf("leave: %d", code)
 	}
-	if code := s.call(t, "GET", "/api/cards/"+studyID, owner, w.ID, nil, &study); code != 200 || study["assignee_type"] != nil || study["assignee_id"] != nil || study["board_column"] != "grounding" || study["rounds"] != float64(3) || study["spent_usd"] != float64(2) {
-		t.Fatalf("departure must clear responsibility and preserve study: %d %+v", code, study)
+	var study map[string]any
+	if code := s.call(t, "GET", "/api/cards/"+studyID, owner, w.ID, nil, &study); code != 200 || study["board_column"] != "grounding" || study["rounds"] != float64(3) || study["spent_usd"] != float64(2) {
+		t.Fatalf("departure must preserve the study: %d %+v", code, study)
 	}
 	if code := s.call(t, "GET", "/api/agents/"+id, owner, w.ID, nil, &a); code != 200 || a["archived_at"] == nil {
 		t.Fatalf("departure archives owned agent: %d %+v", code, a)

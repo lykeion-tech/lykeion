@@ -63,7 +63,6 @@ export const stageIntro = [
 export type BoardColumn = Column | 'blocked';
 
 export const boardColumns: { id: BoardColumn; name: string }[] = [
-  { id: 'backlog', name: 'Backlog' },
   { id: 'grounding', name: 'Grounding' },
   { id: 'hypotheses', name: 'Hypotheses' },
   { id: 'experimentation', name: 'Experimentation' },
@@ -94,7 +93,7 @@ export const studyNumber = (ws: { display_prefix: string } | undefined, card: { 
   `${ws?.display_prefix || 'LYK'}-${card.number}`;
 
 export function stateLabel(card: Card): string {
-  if (card.ending || card.board_column === 'backlog') return '';
+  if (card.ending) return '';
   return (
     { working: 'Working', done: 'Done', blocked: 'Blocked', stopped: 'Stopped' }[card.state] ?? ''
   );
@@ -117,8 +116,7 @@ export function timeAgo(iso: string, now = Date.now()): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-// Each column lowest position first, then by number: the top of Backlog is the
-// study WIP pull starts next.
+// Each column lowest position first, then by number.
 export function groupByColumn(cards: Card[]): Record<BoardColumn, Card[]> {
   const out = Object.fromEntries(boardColumns.map((c) => [c.id, [] as Card[]])) as Record<
     BoardColumn,
@@ -160,17 +158,6 @@ export function matchesFilters(card: Card, filters: StudyFilters): boolean {
     const chosen = filters[category];
     return !chosen?.length || valuesOf(card, category).some((v) => chosen.includes(v));
   });
-}
-
-// Place the moved study between its new neighbours, or one past either end.
-export function positionAt(list: Card[], movedId: string, index: number): number {
-  const rest = list.filter((c) => c.id !== movedId);
-  const before = rest[index - 1];
-  const after = rest[index];
-  if (before && after) return (before.position + after.position) / 2;
-  if (after) return after.position - 1;
-  if (before) return before.position + 1;
-  return list.find((c) => c.id === movedId)?.position ?? 0;
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -253,10 +240,6 @@ export type ComposerAction = { kind: 'comment' } | { kind: 'stop' };
 export function blockedActions(card: Card, viewer: string | undefined): ComposerAction['kind'][] {
   return card.ending || card.state !== 'blocked' || card.owner_id !== viewer ? [] : ['comment'];
 }
-
-// Only a study's owner reassigns it, and only while it sits in Backlog.
-export const canReassign = (card: Card, viewer: string | undefined) =>
-  card.board_column === 'backlog' && !!viewer && card.owner_id === viewer;
 
 export function actionLabel(a: ComposerAction): string {
   return { comment: 'Comment', stop: 'Stop' }[a.kind];
@@ -374,7 +357,7 @@ export function inboxText(
 // An assignee as the picker holds it: a Team names a Team per stage, and
 // agent_id works the stages no Team covers.
 export type Picked =
-  | { type: 'member' | 'agent'; id: string }
+  | { type: 'agent'; id: string }
   | { type: 'team'; teams: Record<string, string>; agent_id?: string };
 export type Range = { from: string; to: string };
 

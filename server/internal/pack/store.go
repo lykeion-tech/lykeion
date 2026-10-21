@@ -28,21 +28,7 @@ func PutBlob(ctx context.Context, blobs storage.Storage, ws uuid.UUID, zipBytes 
 // Insert writes the row for a parsed archive whose blob PutBlob stored at key.
 // A nil uploadedBy marks a shipped pack.
 func Insert(ctx context.Context, tx *store.Tx, key string, p *Pack, uploadedBy *uuid.UUID) (db.FieldPack, error) {
-	for _, member := range append([]Member{p.Manifest.Leader, p.Manifest.Auditor}, p.Manifest.Members...) {
-		for _, c := range member.Connectors {
-			if c.Workspace == "" {
-				continue
-			}
-			id, err := uuid.Parse(c.Workspace)
-			if err != nil {
-				return db.FieldPack{}, fmt.Errorf("invalid workspace connector reference")
-			}
-			if _, err := tx.Q.GetWorkspaceMCPServer(ctx, db.GetWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id}); err != nil {
-				return db.FieldPack{}, err
-			}
-		}
-	}
-	manifest, err := json.Marshal(p.Manifest)
+	manifest, err := checkedManifest(ctx, tx, p)
 	if err != nil {
 		return db.FieldPack{}, err
 	}
@@ -53,6 +39,37 @@ func Insert(ctx context.Context, tx *store.Tx, key string, p *Pack, uploadedBy *
 	return tx.Q.InsertFieldPack(ctx, db.InsertFieldPackParams{WorkspaceID: tx.WS, Name: p.Manifest.Name,
 		Version: p.Manifest.Version, Sha256: p.SHA256, Manifest: manifest, BlobKey: key, Source: source, UploadedBy: uploadedBy,
 		Domain: p.Manifest.Domain, Stage: p.Manifest.Stage})
+}
+
+// Replace points row at a newly stored archive in place: the id, name, source
+// and stored version stay, so studies and added agents keep the Team.
+func Replace(ctx context.Context, tx *store.Tx, row db.FieldPack, key string, p *Pack) (db.FieldPack, error) {
+	manifest, err := checkedManifest(ctx, tx, p)
+	if err != nil {
+		return db.FieldPack{}, err
+	}
+	return tx.Q.ReplaceFieldPack(ctx, db.ReplaceFieldPackParams{Sha256: p.SHA256, Manifest: manifest, BlobKey: key,
+		Domain: p.Manifest.Domain, Stage: p.Manifest.Stage, WorkspaceID: tx.WS, ID: row.ID})
+}
+
+// checkedManifest refuses connector references to another workspace's
+// servers and returns the manifest as the row stores it.
+func checkedManifest(ctx context.Context, tx *store.Tx, p *Pack) ([]byte, error) {
+	for _, member := range append([]Member{p.Manifest.Leader, p.Manifest.Auditor}, p.Manifest.Members...) {
+		for _, c := range member.Connectors {
+			if c.Workspace == "" {
+				continue
+			}
+			id, err := uuid.Parse(c.Workspace)
+			if err != nil {
+				return nil, fmt.Errorf("invalid workspace connector reference")
+			}
+			if _, err := tx.Q.GetWorkspaceMCPServer(ctx, db.GetWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id}); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return json.Marshal(p.Manifest)
 }
 
 // loaded holds parsed packs by archive sha256; the same bytes always parse

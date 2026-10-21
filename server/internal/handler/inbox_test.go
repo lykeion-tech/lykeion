@@ -55,8 +55,8 @@ func TestStoppingAStudyResolvesItsItemsAskingForAPerson(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c, other card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "another"}, &other)
+	c = s.idleCard(t, a, w.ID, "q")
+	other = s.idleCard(t, a, w.ID, "another")
 	owner := s.userID(t, a)
 	s.seedInbox(t, w.ID, c.ID, owner)
 	s.seedInbox(t, w.ID, other.ID, owner)
@@ -84,8 +84,7 @@ func TestReadingAnInformationalItemResolvesIt(t *testing.T) {
 	s.H.Engine = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	c := s.idleCard(t, a, w.ID, "q")
 	ids := s.seedInbox(t, w.ID, c.ID, s.userID(t, a))
 	for _, kind := range inboxKindsSeeded {
 		if code := s.call(t, "POST", "/api/inbox/"+ids[kind]+"/read", a, w.ID, nil, nil); code != 204 {
@@ -116,10 +115,7 @@ func TestReadingResolvedBlockingItemsDoesNotResolveThemAgain(t *testing.T) {
 	if code := s.call(t, "POST", "/api/invitations/"+invitation+"/accept", recipient, "", nil, nil); code != 200 {
 		t.Fatalf("accept invitation: %d", code)
 	}
-	var c card
-	if code := s.call(t, "POST", "/api/cards", answerer, w.ID, map[string]string{"question": "q"}, &c); code != 201 {
-		t.Fatalf("create card: %d", code)
-	}
+	c := s.idleCard(t, answerer, w.ID, "q")
 	answererID := s.userID(t, answerer)
 	recipientID := s.userID(t, recipient)
 	ids := s.seedInbox(t, w.ID, c.ID, recipientID)

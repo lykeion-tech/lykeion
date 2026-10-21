@@ -332,6 +332,73 @@ func TestUILab(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// Creates a study no Team or agent works, held as a column's finished
+	// work, so fixtures can stage it without a run starting. The API always
+	// gives a new study its Teams.
+	mux.HandleFunc("POST /lab/idle-study", func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("lyk_session")
+		if err != nil {
+			http.Error(w, "sign in required", 401)
+			return
+		}
+		user, _, err := iss.Parse(cookie.Value)
+		if err != nil {
+			http.Error(w, "sign in required", 401)
+			return
+		}
+		ws, err := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+		if err != nil {
+			http.Error(w, "workspace required", 400)
+			return
+		}
+		var in struct {
+			Title, Question string
+			AgentID         *uuid.UUID  `json:"agent_id"`
+			FollowsFrom     []uuid.UUID `json:"follows_from"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Question == "" {
+			http.Error(w, "question required", 400)
+			return
+		}
+		if in.Title == "" {
+			in.Title = in.Question
+		}
+		if in.FollowsFrom == nil {
+			in.FollowsFrom = []uuid.UUID{}
+		}
+		var kind *string
+		if in.AgentID != nil {
+			agent := "agent"
+			kind = &agent
+		}
+		var c db.Card
+		err = st.InWorkspace(r.Context(), ws, user, func(tx *store.Tx) error {
+			n, err := tx.Q.NextCardNumber(r.Context(), ws)
+			if err != nil {
+				return err
+			}
+			c, err = tx.Q.CreateCard(r.Context(), db.CreateCardParams{WorkspaceID: ws, Number: n, OwnerID: user,
+				Title: in.Title, Question: in.Question, FollowsFrom: in.FollowsFrom, BoardColumn: board.Grounding,
+				ScopeFrom: board.Grounding, ScopeTo: board.Reporting, Round: 1, AssigneeType: kind, AssigneeID: in.AgentID})
+			if err != nil {
+				return err
+			}
+			s := board.FromCard(c)
+			s.State = "done"
+			if err := tx.Q.SaveCardBoard(r.Context(), s.Params(c.ID, ws)); err != nil {
+				return err
+			}
+			return tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title})
+		})
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"id": c.ID, "number": c.Number, "title": c.Title})
+	})
+
 	// Puts a study in a column and state and writes the flow's records into it,
 	// so the study page can show scores, steps and calls without running a Team.
 	mux.HandleFunc("POST /lab/flow-records/{card}", func(w http.ResponseWriter, r *http.Request) {
@@ -504,7 +571,7 @@ func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
 		if err != nil {
 			return err
 		}
-		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: n, OwnerID: u.ID, Title: "Transcript fixture", Question: "What remains unresolved in the recorded evidence?", FollowsFrom: []uuid.UUID{}})
+		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: ws, Number: n, OwnerID: u.ID, Title: "Transcript fixture", Question: "What remains unresolved in the recorded evidence?", FollowsFrom: []uuid.UUID{}})
 		if err != nil {
 			return err
 		}

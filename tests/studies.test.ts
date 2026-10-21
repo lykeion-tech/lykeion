@@ -36,7 +36,6 @@ import {
   boardColumns,
   endLabel,
   groupByColumn,
-  positionAt,
   matchesFilters,
   roleLabel,
   stateLabel,
@@ -86,9 +85,8 @@ function card(extra: Partial<Card> = {}): Card {
 }
 
 describe('board columns', () => {
-  it('orders the eight columns with Blocked between Validation and Reporting', () => {
+  it('orders the seven columns with Blocked between Validation and Reporting', () => {
     expect(boardColumns.map((c) => c.name)).toEqual([
-      'Backlog',
       'Grounding',
       'Hypotheses',
       'Experimentation',
@@ -109,12 +107,12 @@ describe('board columns', () => {
   });
   it('orders a column by position, then number', () => {
     const g = groupByColumn([
-      card({ id: 'b', board_column: 'backlog', position: 2, number: 1 }),
-      card({ id: 'a', board_column: 'backlog', position: -1, number: 5 }),
-      card({ id: 'c', board_column: 'backlog', position: 2, number: 0 }),
+      card({ id: 'b', board_column: 'hypotheses', position: 2, number: 1 }),
+      card({ id: 'a', board_column: 'hypotheses', position: -1, number: 5 }),
+      card({ id: 'c', board_column: 'hypotheses', position: 2, number: 0 }),
       card({ id: 'x', flag: 'escalated' }),
     ]);
-    expect(g.backlog.map((c) => c.id)).toEqual(['a', 'c', 'b']);
+    expect(g.hypotheses.map((c) => c.id)).toEqual(['a', 'c', 'b']);
     expect(g.blocked.map((c) => c.id)).toEqual(['x']);
     expect(g.done).toEqual([]);
   });
@@ -127,7 +125,6 @@ describe('study labels', () => {
   });
   it('names the state, the ending and the role', () => {
     expect(stateLabel(card({ state: 'done' }))).toBe('Done');
-    expect(stateLabel(card({ board_column: 'backlog' }))).toBe('');
     expect(stateLabel(card({ ending: 'released' }))).toBe('');
     expect(endLabel(card({ ending: 'stopped', end_reason: 'no usable data' }))).toBe(
       'Stopped · no usable data',
@@ -155,23 +152,6 @@ describe('study filters', () => {
     expect(matchesFilters(blocked, { Owner: ['u2'], State: ['working'] })).toBe(true);
     expect(matchesFilters(blocked, { Owner: ['u1'] })).toBe(false);
     expect(matchesFilters(blocked, {})).toBe(true);
-  });
-});
-
-describe('backlog positions', () => {
-  const list = [
-    card({ id: 'a', position: 1 }),
-    card({ id: 'b', position: 2 }),
-    card({ id: 'c', position: 4 }),
-  ];
-  it('puts a moved study between its new neighbours', () => {
-    expect(positionAt(list, 'c', 1)).toBe(1.5);
-    expect(positionAt(list, 'a', 1)).toBe(3);
-  });
-  it('goes above the top and below the bottom', () => {
-    expect(positionAt(list, 'c', 0)).toBe(0);
-    expect(positionAt(list, 'a', 2)).toBe(5);
-    expect(positionAt([card({ id: 'a', position: 7 })], 'a', 0)).toBe(7);
   });
 });
 
@@ -265,7 +245,7 @@ describe('records and transcript', () => {
   });
 });
 
-import { actionLabel, blockedActions, canReassign } from '../apps/dashboard/src/lib/studies';
+import { actionLabel, blockedActions } from '../apps/dashboard/src/lib/studies';
 
 describe('composer actions', () => {
   it('labels the chosen action', () => {
@@ -277,15 +257,6 @@ describe('composer actions', () => {
     expect(blockedActions(blocked, 'u1')).toEqual(['comment']);
     expect(blockedActions(blocked, 'u2')).toEqual([]);
     expect(blockedActions(card({ owner_id: 'u1' }), 'u1')).toEqual([]);
-  });
-});
-
-describe('reassigning', () => {
-  it('is for the owner of a Backlog study only', () => {
-    expect(canReassign(card({ board_column: 'backlog', owner_id: 'u1' }), 'u1')).toBe(true);
-    expect(canReassign(card({ board_column: 'backlog', owner_id: 'u1' }), 'u2')).toBe(false);
-    expect(canReassign(card({ board_column: 'grounding', owner_id: 'u1' }), 'u1')).toBe(false);
-    expect(canReassign(card({ board_column: 'backlog', owner_id: 'u1' }), undefined)).toBe(false);
   });
 });
 

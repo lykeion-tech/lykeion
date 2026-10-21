@@ -111,7 +111,7 @@ func TestRemovedHarnessQueueRespectsOwnerAndWorkspace(t *testing.T) {
 			if err := tx.Q.AddMember(ctx, db.AddMemberParams{WorkspaceID: scope.ws, UserID: scope.owner, Role: "owner"}); err != nil {
 				return err
 			}
-			card, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: scope.ws, Number: 2, Title: "legacy", OwnerID: scope.owner, FollowsFrom: []uuid.UUID{}})
+			card, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: scope.ws, Number: 2, Title: "legacy", OwnerID: scope.owner, FollowsFrom: []uuid.UUID{}})
 			if err != nil {
 				return err
 			}

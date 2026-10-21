@@ -68,7 +68,7 @@ export async function labTeam(request: APIRequestContext, workspaceId: string): 
 
 // Creates a study through the API, as another person's browser would. It is
 // assigned the demo Team for Grounding, so the lab's scripted agent works it;
-// pass assignee: null to leave it unassigned in Backlog.
+// pass assignee: null for a study nobody works, which the lab seeds directly.
 export async function newStudy(
   request: APIRequestContext,
   question: string,
@@ -76,8 +76,15 @@ export async function newStudy(
 ): Promise<{ id: string; number: number; title: string }> {
   const workspaceId = await labWorkspace(request);
   const data: Record<string, unknown> = { question, ...extra };
-  if (data.assignee === null) delete data.assignee;
-  else if (!data.assignee)
+  if (data.assignee === null) {
+    const res = await request.post(`${LAB}/lab/idle-study`, {
+      headers: { 'X-Workspace-ID': workspaceId },
+      data: { title: data.title ?? '', question },
+    });
+    expect(res.status()).toBe(201);
+    return res.json();
+  }
+  if (!data.assignee)
     data.assignee = {
       type: 'team',
       teams: { grounding: await labTeam(request, workspaceId) },
@@ -106,7 +113,7 @@ export const SHIPPED = resolve('test-results/ui-lab/shipped');
 
 // Copies the demo Team in fixtures/demo-pack to dir under another name and
 // version.
-function demoPackAt(
+export function demoPackAt(
   dir: string,
   name: string,
   version: string,
@@ -126,6 +133,23 @@ export function labShip(name: string, version: string) {
 
 export function labUnship(name: string) {
   rmSync(join(SHIPPED, name), { recursive: true, force: true });
+}
+
+const stageNames = ['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'];
+export const builtInTeams = stageNames.map((s) => `${s[0]!.toUpperCase()}${s.slice(1)} Team`);
+
+// Built-in Teams install when a workspace is created, so the lab ships five
+// test-only stage Teams just while create makes one; workspaces made without
+// it have no built-in Teams.
+export async function withBuiltInTeams<T>(create: () => Promise<T>): Promise<T> {
+  stageNames.forEach((stage, i) =>
+    demoPackAt(join(SHIPPED, builtInTeams[i]!), builtInTeams[i]!, '1', { domain: '', stage }),
+  );
+  try {
+    return await create();
+  } finally {
+    builtInTeams.forEach(labUnship);
+  }
 }
 
 // Installs the fixed demo Team as pre-existing lab data and approves its version.

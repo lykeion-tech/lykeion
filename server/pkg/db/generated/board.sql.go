@@ -13,18 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const activeCardCount = `-- name: ActiveCardCount :one
-SELECT count(*) FROM card WHERE workspace_id = $1 AND ending = ''
-  AND board_column NOT IN ('backlog', 'done')
-`
-
-func (q *Queries) ActiveCardCount(ctx context.Context, workspaceID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, activeCardCount, workspaceID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const activeDuplicate = `-- name: ActiveDuplicate :one
 SELECT id, number FROM card
 WHERE workspace_id = $1 AND ending = '' AND state <> 'done'
@@ -49,63 +37,6 @@ func (q *Queries) ActiveDuplicate(ctx context.Context, arg ActiveDuplicateParams
 	var i ActiveDuplicateRow
 	err := row.Scan(&i.ID, &i.Number)
 	return i, err
-}
-
-const backlogCards = `-- name: BacklogCards :many
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos FROM card WHERE workspace_id = $1 AND board_column = 'backlog' AND flag = ''
-ORDER BY position, number
-`
-
-// WIP pull takes the top of Backlog first: the lowest position, then the lowest number.
-func (q *Queries) BacklogCards(ctx context.Context, workspaceID uuid.UUID) ([]Card, error) {
-	rows, err := q.db.Query(ctx, backlogCards, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Card
-	for rows.Next() {
-		var i Card
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.Number,
-			&i.Title,
-			&i.Question,
-			&i.OwnerID,
-			&i.Deadline,
-			&i.SpentUsd,
-			&i.BoardColumn,
-			&i.State,
-			&i.Flag,
-			&i.Ending,
-			&i.EndReason,
-			&i.Rounds,
-			&i.FollowsFrom,
-			&i.Version,
-			&i.CreatedAt,
-			&i.Round,
-			&i.HandoffNote,
-			&i.GatingUntil,
-			&i.Position,
-			&i.ResearchID,
-			&i.AssigneeType,
-			&i.AssigneeID,
-			&i.Origin,
-			&i.PackID,
-			&i.BlockKind,
-			&i.ScopeFrom,
-			&i.ScopeTo,
-			&i.Redos,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const boardCandidates = `-- name: BoardCandidates :many

@@ -134,6 +134,7 @@ func NewRouter(h *H) http.Handler {
 		// Team creation reads selected folders and writes the pack blob before its transaction.
 		r.Post("/api/teams", h.createTeam)
 		r.Post("/api/teams/{id}/skills", h.saveTeamSkills)
+		r.Post("/api/teams/{id}/duplicate", h.duplicateTeam)
 
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
@@ -207,13 +208,11 @@ func NewRouter(h *H) http.Handler {
 			r.Patch("/api/cards/{id}/properties", h.updateCardProperties)
 			r.Get("/api/cards", h.listCards)
 			r.Post("/api/cards", h.createCard)
-			r.Get("/api/packs", h.packVersions)
 			r.Post("/api/packs/{id}/approve", h.approvePack)
 			r.Get("/api/teams", h.listTeams)
 			r.Get("/api/teams/{id}", h.getTeam)
 			r.Post("/api/teams/{id}/add", h.addTeam)
 			r.Get("/api/cards/{id}", h.getCard)
-			r.Patch("/api/cards/{id}", h.editCard)
 			r.Patch("/api/cards/{id}/teams", h.setCardTeams)
 			r.Delete("/api/cards/{id}", h.deleteCard)
 			r.Get("/api/cards/{id}/comments", h.listComments)

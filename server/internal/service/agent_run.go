@@ -31,7 +31,7 @@ import (
 )
 
 // Token scopes. A role run's token acts as its role on its card. An
-// autoresearch agent run's token may only post its run's report, open Backlog
+// autoresearch agent run's token may only post its run's report and open
 // cards.
 const (
 	ScopeRole       = "card:role"
@@ -982,17 +982,7 @@ func (s *AgentRuns) Cancel(ctx context.Context, ws, user, run uuid.UUID) error {
 		if terminal(t.Status) {
 			return ErrConflict
 		}
-		if err := rows(tx.Q.CancelAgentRun(ctx, db.CancelAgentRunParams{WorkspaceID: ws, ID: run})); err != nil {
-			return err
-		}
-		if err := tx.Q.DeleteAgentRunTokens(ctx, db.DeleteAgentRunTokensParams{WorkspaceID: ws, AgentRunID: run}); err != nil {
-			return err
-		}
-		t, err = tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: ws, ID: run})
-		if err != nil {
-			return err
-		}
-		if err = tx.Emit(ctx, "agent_run.cancelled", t.CardID, store.User(user), agentRunEvent(t)); err != nil {
+		if t, err = cancelLocked(ctx, tx, user, run); err != nil {
 			return err
 		}
 		return saveSettlement(ctx, tx, t)
@@ -1001,6 +991,43 @@ func (s *AgentRuns) Cancel(ctx context.Context, ws, user, run uuid.UUID) error {
 		s.deliverAfterCommit(ctx, ws, run)
 	}
 	return err
+}
+
+// cancelLocked cancels a locked open run, revokes its tokens and records it.
+func cancelLocked(ctx context.Context, tx *store.Tx, user, run uuid.UUID) (db.AgentRun, error) {
+	if err := rows(tx.Q.CancelAgentRun(ctx, db.CancelAgentRunParams{WorkspaceID: tx.WS, ID: run})); err != nil {
+		return db.AgentRun{}, err
+	}
+	if err := tx.Q.DeleteAgentRunTokens(ctx, db.DeleteAgentRunTokensParams{WorkspaceID: tx.WS, AgentRunID: run}); err != nil {
+		return db.AgentRun{}, err
+	}
+	t, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: run})
+	if err != nil {
+		return t, err
+	}
+	return t, tx.Emit(ctx, "agent_run.cancelled", t.CardID, store.User(user), agentRunEvent(t))
+}
+
+// CancelCardRuns cancels every open run of a study about to be deleted, in the
+// caller's transaction. Nothing is settled: the study and its runs go with it.
+func CancelCardRuns(ctx context.Context, tx *store.Tx, user, card uuid.UUID) error {
+	open, err := tx.Q.CardInflightAgentRuns(ctx, db.CardInflightAgentRunsParams{WorkspaceID: tx.WS, CardID: &card})
+	if err != nil {
+		return err
+	}
+	for _, run := range open {
+		t, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{WorkspaceID: tx.WS, ID: run})
+		if err != nil {
+			return err
+		}
+		if terminal(t.Status) {
+			continue
+		}
+		if _, err := cancelLocked(ctx, tx, user, run); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Sweep commits runtime status, lost attempts, receipts, events and settlement

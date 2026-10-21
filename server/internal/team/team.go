@@ -4,16 +4,19 @@ package team
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/availability"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -21,6 +24,10 @@ import (
 
 // ErrInvalid marks a refusal caused by the caller's input.
 var ErrInvalid = errors.New("invalid team")
+
+// ErrNoHarness: a member names a model per harness and the user has no runtime
+// for any of them.
+var ErrNoHarness = errors.New("Connect Claude Code or Codex first")
 
 const maxAgentName = 64
 
@@ -113,6 +120,62 @@ func FromForm(ctx context.Context, tx *store.Tx, in Form) (pack.Manifest, error)
 // same one.
 func AuditorDiffers(m pack.Manifest) error { return pack.AuditorDiffers(m) }
 
+// NoBuiltInError: a column needs its free stage Team and the workspace has none.
+type NoBuiltInError struct{ Stage string }
+
+func (e NoBuiltInError) Error() string {
+	return "No built-in Team for " + strings.ToUpper(e.Stage[:1]) + e.Stage[1:]
+}
+
+// ColumnTeams gives the Team of every column from..to: the chosen one where
+// there is one, the stage's built-in Team elsewhere.
+func ColumnTeams(ctx context.Context, tx *store.Tx, from, to string, chosen map[string]uuid.UUID) (map[string]uuid.UUID, error) {
+	out := map[string]uuid.UUID{}
+	for _, col := range board.Stages[board.StageIndex(from) : board.StageIndex(to)+1] {
+		if id, ok := chosen[col]; ok {
+			out[col] = id
+			continue
+		}
+		p, err := tx.Q.BuiltInStageTeam(ctx, db.BuiltInStageTeamParams{WorkspaceID: tx.WS, Stage: col})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, NoBuiltInError{col}
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[col] = p.ID
+	}
+	return out, nil
+}
+
+// ErrNotAdded: an uploaded Team the user has no agents for.
+var ErrNotAdded = errors.New("add this Team to your workspace first")
+
+// Ensure readies a Team for user: a shipped Team gives them their agents on
+// the spot, an uploaded one must already be added.
+func Ensure(ctx context.Context, tx *store.Tx, user, packID uuid.UUID) error {
+	p, err := tx.Q.GetFieldPack(ctx, db.GetFieldPackParams{WorkspaceID: tx.WS, ID: packID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotAdded
+	}
+	if err != nil {
+		return err
+	}
+	if p.Source == "shipped" {
+		var m pack.Manifest
+		if err := json.Unmarshal(p.Manifest, &m); err != nil {
+			return err
+		}
+		_, err := Add(ctx, tx, p, m, user)
+		return err
+	}
+	have, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: packID, UserID: user})
+	if err == nil && len(have) == 0 {
+		err = ErrNotAdded
+	}
+	return err
+}
+
 // Add records user's approval of the Team version and gives them an agent for
 // the leader, the auditor and each member: private, owned by them, named
 // "<member> · <Team>". A repeat for the same user and version changes nothing.
@@ -128,13 +191,27 @@ func Add(ctx context.Context, tx *store.Tx, p db.FieldPack, m pack.Manifest, use
 	if err != nil || len(have) > 0 {
 		return have, err
 	}
+	owned, err := tx.Q.OwnerHarnesses(ctx, db.OwnerHarnessesParams{WorkspaceID: tx.WS, OwnerID: user})
+	if err != nil {
+		return nil, err
+	}
 	for _, mem := range slices.Concat([]pack.Member{m.Leader, m.Auditor}, m.Members) {
+		harness, model := mem.Agent.Harness, mem.Agent.Model
+		if len(mem.Agent.Models) > 0 {
+			// owned is sorted, so the first match is the same on every run.
+			i := slices.IndexFunc(owned, func(h string) bool { _, ok := mem.Agent.Models[h]; return ok })
+			if i < 0 {
+				return nil, ErrNoHarness
+			}
+			harness = owned[i]
+			model = mem.Agent.Models[harness]
+		}
 		name, err := freeName(ctx, tx, mem.Name+" · "+m.Name)
 		if err != nil {
 			return nil, err
 		}
 		a, err := tx.Q.CreateAgent(ctx, db.CreateAgentParams{WorkspaceID: tx.WS, Name: name, Description: mem.Role,
-			Instructions: mem.Agent.Instructions, Harness: mem.Agent.Harness, Model: mem.Agent.Model,
+			Instructions: mem.Agent.Instructions, Harness: harness, Model: model,
 			Visibility: "private", OwnerID: user})
 		if err != nil {
 			return nil, err

@@ -281,77 +281,19 @@ func (q *Queries) ResearchStudies(ctx context.Context, arg ResearchStudiesParams
 	return items, nil
 }
 
-const startBacklogCard = `-- name: StartBacklogCard :one
-UPDATE card SET board_column = scope_from, round = 1, version = version + 1
-WHERE workspace_id = $1 AND id = $2 AND board_column = 'backlog' RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos
-`
-
-type StartBacklogCardParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	ID          uuid.UUID `json:"id"`
-}
-
-// An agent assigned to a Backlog study starts it on the first column of its
-// scope; the column check keeps a started study from being restarted.
-func (q *Queries) StartBacklogCard(ctx context.Context, arg StartBacklogCardParams) (Card, error) {
-	row := q.db.QueryRow(ctx, startBacklogCard, arg.WorkspaceID, arg.ID)
-	var i Card
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.Number,
-		&i.Title,
-		&i.Question,
-		&i.OwnerID,
-		&i.Deadline,
-		&i.SpentUsd,
-		&i.BoardColumn,
-		&i.State,
-		&i.Flag,
-		&i.Ending,
-		&i.EndReason,
-		&i.Rounds,
-		&i.FollowsFrom,
-		&i.Version,
-		&i.CreatedAt,
-		&i.Round,
-		&i.HandoffNote,
-		&i.GatingUntil,
-		&i.Position,
-		&i.ResearchID,
-		&i.AssigneeType,
-		&i.AssigneeID,
-		&i.Origin,
-		&i.PackID,
-		&i.BlockKind,
-		&i.ScopeFrom,
-		&i.ScopeTo,
-		&i.Redos,
-	)
-	return i, err
-}
-
 const updateCardProperties = `-- name: UpdateCardProperties :one
-UPDATE card SET research_id = $1, assignee_type = $2, assignee_id = $3, version = version + 1
-WHERE workspace_id = $4 AND id = $5 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos
+UPDATE card SET research_id = $1, version = version + 1
+WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos
 `
 
 type UpdateCardPropertiesParams struct {
-	ResearchID   *uuid.UUID `json:"research_id"`
-	AssigneeType *string    `json:"assignee_type"`
-	AssigneeID   *uuid.UUID `json:"assignee_id"`
-	WorkspaceID  uuid.UUID  `json:"workspace_id"`
-	ID           uuid.UUID  `json:"id"`
+	ResearchID  *uuid.UUID `json:"research_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
 }
 
 func (q *Queries) UpdateCardProperties(ctx context.Context, arg UpdateCardPropertiesParams) (Card, error) {
-	row := q.db.QueryRow(ctx, updateCardProperties,
-		arg.ResearchID,
-		arg.AssigneeType,
-		arg.AssigneeID,
-		arg.WorkspaceID,
-		arg.ID,
-	)
+	row := q.db.QueryRow(ctx, updateCardProperties, arg.ResearchID, arg.WorkspaceID, arg.ID)
 	var i Card
 	err := row.Scan(
 		&i.ID,

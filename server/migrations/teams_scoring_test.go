@@ -78,7 +78,7 @@ func TestMigrationDeletesStudiesAndPacks(t *testing.T) {
 	}{
 		{`INSERT INTO "user" (id, email) VALUES ($1, 'u@x')`, []any{u}},
 		{`INSERT INTO workspace (id, slug, name) VALUES ($1, 's', 'w')`, []any{ws}},
-		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id) VALUES ($1, $2, 1, 't', 'q', $3)`, []any{card, ws, u}},
+		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id, board_column) VALUES ($1, $2, 1, 't', 'q', $3, 'grounding')`, []any{card, ws, u}},
 		{`INSERT INTO comment (workspace_id, card_id, author_id, body) VALUES ($1, $2, $3, 'c')`, []any{ws, card, u}},
 		{`INSERT INTO record (workspace_id, card_id, board_column, round, kind, role) VALUES ($1, $2, 'grounding', 0, 'note', 'r')`, []any{ws, card}},
 		{`INSERT INTO inbox_item (workspace_id, user_id, card_id, kind, text) VALUES ($1, $2, $3, 'escalated', 't')`, []any{ws, u, card}},

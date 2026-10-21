@@ -184,7 +184,7 @@ test('a real socket reconnect refreshes without replay and workspace switching i
       })
     ).status(),
   ).toBe(204);
-  const card = await page.request.post('/api/cards', {
+  const card = await page.request.post(`${LAB}/lab/idle-study`, {
     headers: { 'X-Workspace-ID': second },
     data: {
       question: `A separate workspace question ${Date.now()}?`,
@@ -260,7 +260,7 @@ test('a real socket reconnect refreshes without replay and workspace switching i
   await expect(page).toHaveURL(/#\/studies$/);
   await expect(page.getByRole('region', { name: 'Study' })).toHaveCount(0);
   await page
-    .getByRole('region', { name: 'Backlog' })
+    .getByRole('region', { name: 'Grounding' })
     .getByRole('button', { name: /Separate workspace study/ })
     .click();
   await expect(main.getByRole('heading', { name: 'Separate workspace study' })).toBeVisible();
@@ -308,13 +308,9 @@ async function linkedStudies(page: import('@playwright/test').Page) {
     ).status(),
   ).toBe(204);
   async function create(title: string, follows: string[] = []) {
-    const response = await page.request.post('/api/cards', {
+    const response = await page.request.post(`${LAB}/lab/idle-study`, {
       headers: { 'X-Workspace-ID': ws },
-      data: {
-        title,
-        question: `${title} ${Date.now()}?`,
-        follows_from: follows,
-      },
+      data: { title, question: `${title} ${Date.now()}?`, follows_from: follows },
     });
     expect(response.status()).toBe(201);
     return (await response.json()).id as string;
@@ -498,16 +494,12 @@ for (const operation of ['comment', 'delete'] as const) {
       page,
       path,
       operation === 'delete' ? 'DELETE' : 'POST',
-      async () => {
-        if (operation === 'delete')
-          expect((await page.request.post(`${LAB}/lab/hypotheses/${a}`)).status()).toBe(204);
-        else
-          expect(
-            (
-              await page.request.delete(`/api/cards/${a}`, { headers: { 'X-Workspace-ID': ws } })
-            ).status(),
-          ).toBe(204);
-      },
+      async () =>
+        expect(
+          (
+            await page.request.delete(`/api/cards/${a}`, { headers: { 'X-Workspace-ID': ws } })
+          ).status(),
+        ).toBe(204),
     );
     try {
       const main = page.getByRole('region', { name: 'Study' });
@@ -520,14 +512,14 @@ for (const operation of ['comment', 'delete'] as const) {
         page.once('dialog', (dialog) => dialog.accept());
         await page.getByRole('button', { name: 'Delete study' }).click();
       }
-      expect(await held.accepted).toBe(operation === 'delete' ? 409 : 404);
+      expect(await held.accepted).toBe(404);
       expect(held.error).not.toBe('');
       expect(held.intent.workspace).toBe(ws);
       if (operation === 'delete') {
         await page.getByRole('button', { name: 'Back to studies' }).click();
         await expect(main).toHaveCount(0);
         await page
-          .getByRole('region', { name: 'Backlog' })
+          .getByRole('region', { name: 'Grounding' })
           .getByRole('button', { name: /Lifecycle B/ })
           .click();
       } else await studyHash(page, b, 'Lifecycle B');
@@ -670,18 +662,22 @@ test('transcript and run message refusals show retries and keep already loaded d
 });
 
 test('a real study deletion refusal remains inline on the study', async ({ page }) => {
-  const { a } = await linkedStudies(page);
+  const { a, ws } = await linkedStudies(page);
   await page.route(`**/api/cards/${a}`, async (route) => {
     if (route.request().method() !== 'DELETE') return route.continue();
-    expect((await page.request.post(`${LAB}/lab/hypotheses/${a}`)).status()).toBe(204);
+    expect(
+      (
+        await page.request.delete(`/api/cards/${a}`, { headers: { 'X-Workspace-ID': ws } })
+      ).status(),
+    ).toBe(204);
     const response = await route.fetch();
-    expect(response.status()).toBe(409);
+    expect(response.status()).toBe(404);
     await route.fulfill({ response });
   });
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Delete study' }).click();
-  await expect(page.getByRole('region', { name: 'Study' }).getByRole('alert')).toContainText(
-    'Backlog',
+  await expect(page.getByRole('region', { name: 'Study' }).getByRole('alert')).toHaveText(
+    'not found',
   );
 });
 

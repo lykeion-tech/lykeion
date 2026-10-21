@@ -103,9 +103,7 @@ func TestPinnedSkillSurvivesEditRenameDeleteAndReimport(t *testing.T) {
 	next := *l
 	next.card = card{}
 	a := l.s.newAgent(t, l.jwt, l.ws, "second-agent", "claude")
-	if code := l.s.call(t, "POST", "/api/cards", l.jwt, l.ws, map[string]any{"question": "A fresh study", "scope": map[string]string{"from": "grounding", "to": "grounding"}, "assignee": map[string]any{"type": "agent", "id": a}}, &next.card); code != 201 {
-		t.Fatalf("new scope %d", code)
-	}
+	next.card = l.s.agentCard(t, l.jwt, l.ws, a, "grounding", "grounding", "A fresh study")
 	newer := next.claim(t)
 	fresh := routedFolder(t, &next, newer.token, "renamed-method")
 	if sha256.Sum256(fresh) == first || string(folderFile(t, fresh, "SKILL.md")) != content {

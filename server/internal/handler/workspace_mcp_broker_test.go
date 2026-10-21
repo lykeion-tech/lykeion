@@ -22,10 +22,7 @@ import (
 // is minted by the server, rather than being manufactured by the test.
 func brokerRun(t *testing.T, s *server, jwt, ws string) service.Claimed {
 	t.Helper()
-	var c card
-	if code := s.call(t, "POST", "/api/cards", jwt, ws, map[string]any{"question": "q-" + uuid.NewString()}, &c); code != 201 {
-		t.Fatalf("card: %d", code)
-	}
+	c := s.idleCard(t, jwt, ws, "q-"+uuid.NewString())
 	personal := s.personalToken(t, jwt)
 	var rts []struct{ ID string }
 	if code := s.call(t, "POST", "/api/daemon/register", personal, "", map[string]any{"workspace_id": ws, "daemon_id": "broker-" + c.ID, "harnesses": []string{"claude"}}, &rts); code != 200 {

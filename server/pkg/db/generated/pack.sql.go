@@ -13,6 +13,30 @@ import (
 	"github.com/google/uuid"
 )
 
+const allWorkspaceIDs = `-- name: AllWorkspaceIDs :many
+SELECT id::uuid AS id FROM all_workspace_ids()
+`
+
+func (q *Queries) AllWorkspaceIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, allWorkspaceIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const approveFieldPack = `-- name: ApproveFieldPack :execrows
 INSERT INTO field_pack_approval (workspace_id, pack_id, approved_by)
 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
@@ -32,17 +56,19 @@ func (q *Queries) ApproveFieldPack(ctx context.Context, arg ApproveFieldPackPara
 	return result.RowsAffected(), nil
 }
 
-const getFieldPack = `-- name: GetFieldPack :one
-SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage FROM field_pack WHERE workspace_id = $1 AND id = $2
+const builtInStageTeam = `-- name: BuiltInStageTeam :one
+SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage FROM field_pack WHERE workspace_id = $1 AND source = 'shipped' AND stage = $2 AND domain = ''
+ORDER BY created_at, id LIMIT 1
 `
 
-type GetFieldPackParams struct {
+type BuiltInStageTeamParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
-	ID          uuid.UUID `json:"id"`
+	Stage       string    `json:"stage"`
 }
 
-func (q *Queries) GetFieldPack(ctx context.Context, arg GetFieldPackParams) (FieldPack, error) {
-	row := q.db.QueryRow(ctx, getFieldPack, arg.WorkspaceID, arg.ID)
+// The free Team of a stage: the shipped Team labelled for that stage and no field.
+func (q *Queries) BuiltInStageTeam(ctx context.Context, arg BuiltInStageTeamParams) (FieldPack, error) {
+	row := q.db.QueryRow(ctx, builtInStageTeam, arg.WorkspaceID, arg.Stage)
 	var i FieldPack
 	err := row.Scan(
 		&i.ID,
@@ -61,18 +87,17 @@ func (q *Queries) GetFieldPack(ctx context.Context, arg GetFieldPackParams) (Fie
 	return i, err
 }
 
-const getFieldPackVersion = `-- name: GetFieldPackVersion :one
-SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage FROM field_pack WHERE workspace_id = $1 AND name = $2 AND version = $3
+const getFieldPack = `-- name: GetFieldPack :one
+SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage FROM field_pack WHERE workspace_id = $1 AND id = $2
 `
 
-type GetFieldPackVersionParams struct {
+type GetFieldPackParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
-	Name        string    `json:"name"`
-	Version     string    `json:"version"`
+	ID          uuid.UUID `json:"id"`
 }
 
-func (q *Queries) GetFieldPackVersion(ctx context.Context, arg GetFieldPackVersionParams) (FieldPack, error) {
-	row := q.db.QueryRow(ctx, getFieldPackVersion, arg.WorkspaceID, arg.Name, arg.Version)
+func (q *Queries) GetFieldPack(ctx context.Context, arg GetFieldPackParams) (FieldPack, error) {
+	row := q.db.QueryRow(ctx, getFieldPack, arg.WorkspaceID, arg.ID)
 	var i FieldPack
 	err := row.Scan(
 		&i.ID,
@@ -257,110 +282,6 @@ func (q *Queries) ListOwnPacks(ctx context.Context, arg ListOwnPacksParams) ([]F
 	return items, nil
 }
 
-const listPackVersions = `-- name: ListPackVersions :many
-SELECT p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, (a.approved_by IS NOT NULL)::bool AS approvals_by_me, a.approved_at,
-  (SELECT count(DISTINCT t.card_id) FROM card_team t WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id)::int AS pinned_studies
-FROM field_pack p LEFT JOIN field_pack_approval a
-  ON a.workspace_id = p.workspace_id AND a.pack_id = p.id AND a.approved_by = $1
-WHERE p.workspace_id = $2 AND p.name = $3 AND (p.source = 'shipped' OR p.uploaded_by = $1)
-ORDER BY p.created_at
-`
-
-type ListPackVersionsParams struct {
-	UserID      uuid.UUID `json:"user_id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	Name        string    `json:"name"`
-}
-
-type ListPackVersionsRow struct {
-	ID            uuid.UUID       `json:"id"`
-	WorkspaceID   uuid.UUID       `json:"workspace_id"`
-	Name          string          `json:"name"`
-	Version       string          `json:"version"`
-	Sha256        string          `json:"sha256"`
-	Manifest      json.RawMessage `json:"manifest"`
-	BlobKey       string          `json:"blob_key"`
-	Source        string          `json:"source"`
-	UploadedBy    *uuid.UUID      `json:"uploaded_by"`
-	CreatedAt     time.Time       `json:"created_at"`
-	Domain        string          `json:"domain"`
-	Stage         string          `json:"stage"`
-	ApprovalsByMe bool            `json:"approvals_by_me"`
-	ApprovedAt    *time.Time      `json:"approved_at"`
-	PinnedStudies int32           `json:"pinned_studies"`
-}
-
-// The versions of one pack the user may see: shipped ones and their own uploads,
-// each with the number of studies one of whose columns it works.
-func (q *Queries) ListPackVersions(ctx context.Context, arg ListPackVersionsParams) ([]ListPackVersionsRow, error) {
-	rows, err := q.db.Query(ctx, listPackVersions, arg.UserID, arg.WorkspaceID, arg.Name)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListPackVersionsRow
-	for rows.Next() {
-		var i ListPackVersionsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.Name,
-			&i.Version,
-			&i.Sha256,
-			&i.Manifest,
-			&i.BlobKey,
-			&i.Source,
-			&i.UploadedBy,
-			&i.CreatedAt,
-			&i.Domain,
-			&i.Stage,
-			&i.ApprovalsByMe,
-			&i.ApprovedAt,
-			&i.PinnedStudies,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const newestApprovedVersion = `-- name: NewestApprovedVersion :one
-SELECT p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage FROM field_pack p JOIN field_pack_approval a ON a.workspace_id = p.workspace_id AND a.pack_id = p.id
-WHERE p.workspace_id = $1 AND p.name = $2 AND a.approved_by = $3
-ORDER BY p.created_at DESC LIMIT 1
-`
-
-type NewestApprovedVersionParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	Name        string    `json:"name"`
-	UserID      uuid.UUID `json:"user_id"`
-}
-
-// The newest version of a pack name that the user has approved.
-func (q *Queries) NewestApprovedVersion(ctx context.Context, arg NewestApprovedVersionParams) (FieldPack, error) {
-	row := q.db.QueryRow(ctx, newestApprovedVersion, arg.WorkspaceID, arg.Name, arg.UserID)
-	var i FieldPack
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.Name,
-		&i.Version,
-		&i.Sha256,
-		&i.Manifest,
-		&i.BlobKey,
-		&i.Source,
-		&i.UploadedBy,
-		&i.CreatedAt,
-		&i.Domain,
-		&i.Stage,
-	)
-	return i, err
-}
-
 const onlineHarnesses = `-- name: OnlineHarnesses :many
 SELECT DISTINCT harness FROM runtime WHERE workspace_id = $1 AND owner_id = $2 AND status = 'online'
 ORDER BY harness
@@ -392,6 +313,53 @@ func (q *Queries) OnlineHarnesses(ctx context.Context, arg OnlineHarnessesParams
 	return items, nil
 }
 
+const ownerHarnesses = `-- name: OwnerHarnesses :many
+SELECT DISTINCT harness FROM runtime WHERE workspace_id = $1 AND owner_id = $2
+ORDER BY harness
+`
+
+type OwnerHarnessesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+// The harnesses the owner has a runtime for, online or not.
+func (q *Queries) OwnerHarnesses(ctx context.Context, arg OwnerHarnessesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, ownerHarnesses, arg.WorkspaceID, arg.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var harness string
+		if err := rows.Scan(&harness); err != nil {
+			return nil, err
+		}
+		items = append(items, harness)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const packNameInUse = `-- name: PackNameInUse :one
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = $1 AND name = $2) AS used
+`
+
+type PackNameInUseParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+}
+
+func (q *Queries) PackNameInUse(ctx context.Context, arg PackNameInUseParams) (bool, error) {
+	row := q.db.QueryRow(ctx, packNameInUse, arg.WorkspaceID, arg.Name)
+	var used bool
+	err := row.Scan(&used)
+	return used, err
+}
+
 const packNameTaken = `-- name: PackNameTaken :one
 SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = $1 AND name = $2
   AND uploaded_by IS DISTINCT FROM $3::uuid) AS taken
@@ -411,6 +379,68 @@ func (q *Queries) PackNameTaken(ctx context.Context, arg PackNameTakenParams) (b
 	return taken, err
 }
 
+const renameFieldPack = `-- name: RenameFieldPack :exec
+UPDATE field_pack SET name = $1::text, manifest = jsonb_set(manifest, '{name}', to_jsonb($1::text))
+WHERE workspace_id = $2 AND name = $3 AND source <> 'shipped'
+`
+
+type RenameFieldPackParams struct {
+	NewName     string    `json:"new_name"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+}
+
+// The name moves in the row and in the manifest the row holds.
+func (q *Queries) RenameFieldPack(ctx context.Context, arg RenameFieldPackParams) error {
+	_, err := q.db.Exec(ctx, renameFieldPack, arg.NewName, arg.WorkspaceID, arg.Name)
+	return err
+}
+
+const replaceFieldPack = `-- name: ReplaceFieldPack :one
+UPDATE field_pack SET sha256 = $1, manifest = $2, blob_key = $3, domain = $4, stage = $5
+WHERE workspace_id = $6 AND id = $7
+RETURNING id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage
+`
+
+type ReplaceFieldPackParams struct {
+	Sha256      string          `json:"sha256"`
+	Manifest    json.RawMessage `json:"manifest"`
+	BlobKey     string          `json:"blob_key"`
+	Domain      string          `json:"domain"`
+	Stage       string          `json:"stage"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	ID          uuid.UUID       `json:"id"`
+}
+
+// Saving a Team rewrites its row; the id and the stored version stay.
+func (q *Queries) ReplaceFieldPack(ctx context.Context, arg ReplaceFieldPackParams) (FieldPack, error) {
+	row := q.db.QueryRow(ctx, replaceFieldPack,
+		arg.Sha256,
+		arg.Manifest,
+		arg.BlobKey,
+		arg.Domain,
+		arg.Stage,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	var i FieldPack
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Version,
+		&i.Sha256,
+		&i.Manifest,
+		&i.BlobKey,
+		&i.Source,
+		&i.UploadedBy,
+		&i.CreatedAt,
+		&i.Domain,
+		&i.Stage,
+	)
+	return i, err
+}
+
 const setCardPack = `-- name: SetCardPack :exec
 UPDATE card SET pack_id = $1 WHERE workspace_id = $2 AND id = $3
 `
@@ -424,4 +454,50 @@ type SetCardPackParams struct {
 func (q *Queries) SetCardPack(ctx context.Context, arg SetCardPackParams) error {
 	_, err := q.db.Exec(ctx, setCardPack, arg.PackID, arg.WorkspaceID, arg.CardID)
 	return err
+}
+
+const shippedPackExists = `-- name: ShippedPackExists :one
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = $1 AND name = $2 AND source = 'shipped') AS ok
+`
+
+type ShippedPackExistsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Name        string    `json:"name"`
+}
+
+func (q *Queries) ShippedPackExists(ctx context.Context, arg ShippedPackExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, shippedPackExists, arg.WorkspaceID, arg.Name)
+	var ok bool
+	err := row.Scan(&ok)
+	return ok, err
+}
+
+const teamUses = `-- name: TeamUses :one
+SELECT
+  (SELECT count(DISTINCT c.id) FROM card c JOIN card_team t ON t.workspace_id = c.workspace_id AND t.card_id = c.id
+   WHERE c.workspace_id = $1 AND t.pack_id = $2 AND c.ending = '' AND c.state <> 'done'
+     AND array_position($3::text[], t.board_column) >= array_position($3::text[], c.board_column))::int AS studies,
+  (SELECT count(DISTINCT a.autoresearch_id) FROM autoresearch_team a
+   WHERE a.workspace_id = $1 AND a.pack_id = $2)::int AS autoresearches
+`
+
+type TeamUsesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	PackID      uuid.UUID `json:"pack_id"`
+	Stages      []string  `json:"stages"`
+}
+
+type TeamUsesRow struct {
+	Studies        int32 `json:"studies"`
+	Autoresearches int32 `json:"autoresearches"`
+}
+
+// What still needs the Team as it is: unfinished studies with the Team on a
+// column they have not finished (the current one included), and the
+// Autoresearches that name it.
+func (q *Queries) TeamUses(ctx context.Context, arg TeamUsesParams) (TeamUsesRow, error) {
+	row := q.db.QueryRow(ctx, teamUses, arg.WorkspaceID, arg.PackID, arg.Stages)
+	var i TeamUsesRow
+	err := row.Scan(&i.Studies, &i.Autoresearches)
+	return i, err
 }

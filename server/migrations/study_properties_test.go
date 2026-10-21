@@ -28,7 +28,7 @@ func TestStudyPropertiesWorkspaceIntegrity(t *testing.T) {
 	if err := env.Owner.QueryRow(ctx, `INSERT INTO agent (workspace_id,name,harness,owner_id) VALUES ($1,'Ada','codex',$2) RETURNING id`, b, user).Scan(&agent); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id,number,title,question,owner_id) VALUES ($1,1,'Study','How?',$2) RETURNING id`, a, user).Scan(&card); err != nil {
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id,number,title,question,owner_id, board_column) VALUES ($1,1,'Study','How?',$2, 'grounding') RETURNING id`, a, user).Scan(&card); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []struct {

@@ -165,7 +165,7 @@ func prompt(ap db.Autoresearch, r db.AutoresearchRun, actor string, cards []db.L
 	if r.Source == "webhook" {
 		b.WriteString("\n" + fence.Untrusted("The webhook payload that started this run", string(r.Payload)))
 	}
-	b.WriteString("\nPost your result with `lyk report` (the text on stdin), and open Backlog cards with `lyk open-card`. " +
+	b.WriteString("\nPost your result with `lyk report` (the text on stdin), and open studies with `lyk open-card`. " +
 		"You cannot write records, comment or move cards. Calls through call_tool are logged but are evidence for no card.\n" +
 		"To find a skill or database tool for what you need, run `lyk tools \"what you need\"`; call the tools it names through `call_tool`.\n")
 	return b.String()

@@ -21,7 +21,6 @@ import { matchesQuery } from '../lib/search';
 import { agentConnectorIntegrationAvailable } from '../lib/agent-connectors';
 import { boardColumnOf, boardColumns, studyNumber, timeAgo } from '../lib/studies';
 import { notify } from '../state/notice';
-import { useTaskComposer } from '../state/task-composer';
 
 const props = defineProps<{ id: string }>();
 const detail = useAgent(() => props.id),
@@ -33,7 +32,6 @@ const detail = useAgent(() => props.id),
 const client = useQueryClient();
 const runtimes = useRuntimes();
 const backendDetails = ref(false);
-const { openComposer } = useTaskComposer();
 
 const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
   section = ref<'general' | 'access'>('general'),
@@ -59,13 +57,6 @@ const editable = computed(
       ['owner', 'admin'].includes(
         workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role ?? '',
       )),
-);
-// A study's owner is its creator, so only the agent's owner may assign a private agent.
-const assignable = computed(
-  () =>
-    !!agent.value &&
-    !agent.value.archived_at &&
-    (agent.value.visibility === 'workspace' || mine.value),
 );
 const owner = computed(() => {
   const m = members.data.value?.find((x) => x.user_id === agent.value?.owner_id);
@@ -187,13 +178,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             </p>
           </div>
           <div class="agent-actions">
-            <button
-              v-if="assignable"
-              class="button primary"
-              @click="openComposer(undefined, { type: 'agent', id: agent.id })"
-            >
-              <Icon name="plus" :size="14" />Assign work
-            </button>
             <div v-if="editable" class="agent-more">
               <button
                 class="icon-button"
@@ -278,10 +262,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             <div>
               <b>{{ assigned.filter((c) => boardColumnOf(c) === 'blocked').length }}</b
               ><small>blocked</small>
-            </div>
-            <div>
-              <b>{{ assigned.filter((c) => c.board_column === 'backlog').length }}</b
-              ><small>in Backlog</small>
             </div>
             <div>
               <b>{{ assigned.filter((c) => c.board_column === 'done').length }}</b

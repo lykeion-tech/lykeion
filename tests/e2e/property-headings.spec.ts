@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { labFixture } from './lab';
+import { LAB, labFixture } from './lab';
 
 test('Properties contains smaller semantic Execution log and Details headings with independent disclosures', async ({
   page,
@@ -47,7 +47,7 @@ test('a truncated workspace tab keeps its close icon centered beside its title a
   page,
 }) => {
   const fixture = await labFixture(page.request);
-  const response = await page.request.post('/api/cards', {
+  const response = await page.request.post(`${LAB}/lab/idle-study`, {
     headers: { 'X-Workspace-ID': fixture.workspace_id },
     data: {
       question: 'Can a long study title remain readable?',

@@ -15,8 +15,7 @@ func TestStopEndsAStudyAndThereIsNoResume(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	c := s.idleCard(t, a, w.ID, "q")
 	s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'validation', round = 3 WHERE id = $1`, c.ID)
 	var out struct {
 		BoardColumn string `json:"board_column"`
@@ -37,6 +36,7 @@ func TestStopEndsAStudyAndThereIsNoResume(t *testing.T) {
 
 func TestDuplicateCards(t *testing.T) {
 	s := newServer(t)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var first card
@@ -132,10 +132,7 @@ func TestSteeringCancellationFailureRemainsVisible(t *testing.T) {
 			s.H.AgentRuns.OnSettlement = nil
 			a := s.signIn(t, "a@lab.org")
 			w := s.workspace(t, a, "lab")
-			var c card
-			if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
-				t.Fatal(code)
-			}
+			c := s.idleCard(t, a, w.ID, "q")
 			s.queue(t, w.ID, c.ID, s.userID(t, a), "claude")
 			s.queue(t, w.ID, c.ID, s.userID(t, a), "codex")
 			var failedRun, laterRun string
@@ -197,10 +194,7 @@ func TestSteeringAlreadyTerminalCancellationIsBenign(t *testing.T) {
 	s.H.AgentRuns.OnSettlement = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var c card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
-		t.Fatal(code)
-	}
+	c := s.idleCard(t, a, w.ID, "q")
 	s.queue(t, w.ID, c.ID, s.userID(t, a), "claude")
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column='grounding', round=1 WHERE id=$1`, c.ID); err != nil {
 		t.Fatal(err)
@@ -235,10 +229,7 @@ func TestDuplicateLookupInfrastructureFailureIsServerError(t *testing.T) {
 	s.H.Engine = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var c card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
-		t.Fatal(code)
-	}
+	c := s.idleCard(t, a, w.ID, "q")
 	for _, number := range []int{c.Number, c.Number + 1} {
 		if code := s.call(t, "POST", "/api/cards/"+c.ID+"/stop", a, w.ID, map[string]any{"duplicate_of": number}, nil); code != 400 {
 			t.Fatalf("invalid duplicate %d: %d", number, code)
@@ -272,10 +263,7 @@ func TestExplicitSteeringCancelsInflightRunsAcrossRounds(t *testing.T) {
 			s.H.AgentRuns.OnSettlement = nil
 			a := s.signIn(t, "steer@lab.org")
 			w := s.workspace(t, a, "lab")
-			var c card
-			if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
-				t.Fatal(code)
-			}
+			c := s.idleCard(t, a, w.ID, "q")
 			for _, harness := range []string{"claude", "codex", "claude", "codex"} {
 				s.queue(t, w.ID, c.ID, s.userID(t, a), harness)
 			}

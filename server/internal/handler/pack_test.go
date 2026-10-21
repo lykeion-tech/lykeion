@@ -1,11 +1,9 @@
 package handler
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -21,49 +19,11 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-type packCard struct {
-	ID     string
-	PackID *string `json:"pack_id"`
-}
-
-type packRow struct {
-	ID            string
-	Name          string
-	Version       string
-	Sha256        string
-	Source        string
-	UploadedBy    *string `json:"uploaded_by"`
-	ApprovalsByMe bool    `json:"approvals_by_me"`
-	ApprovedAt    *string `json:"approved_at"`
-	PinnedStudies int     `json:"pinned_studies"`
-}
-
 // shippedFS unpacks archives into one folder per pack name, the layout of
 // the embedded shipped packs.
 func shippedFS(t *testing.T, zips ...[]byte) fstest.MapFS {
 	t.Helper()
-	out := fstest.MapFS{}
-	for _, z := range zips {
-		zr, err := zip.NewReader(bytes.NewReader(z), int64(len(z)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		files := map[string][]byte{}
-		for _, f := range zr.File {
-			rc, _ := f.Open()
-			b, _ := io.ReadAll(rc)
-			rc.Close()
-			files[f.Name] = b
-		}
-		var m struct{ Name string }
-		if err := json.Unmarshal(files["pack.json"], &m); err != nil {
-			t.Fatal(err)
-		}
-		for name, b := range files {
-			out[m.Name+"/"+name] = &fstest.MapFile{Data: b}
-		}
-	}
-	return out
+	return testutil.Shipped(t, zips...)
 }
 
 // installPackFixture seeds a pre-existing private Team version for API tests.
@@ -100,26 +60,6 @@ func (s *server) installPackFixture(t *testing.T, tok, wsID string, z []byte, ou
 	}
 }
 
-func (s *server) versions(t *testing.T, tok, wsID, name string) []packRow {
-	t.Helper()
-	var rows []packRow
-	if c := s.call(t, "GET", "/api/packs?name="+name, tok, wsID, nil, &rows); c != 200 {
-		t.Fatalf("versions: %d", c)
-	}
-	return rows
-}
-
-func (s *server) newCard(t *testing.T, tok, wsID string, in map[string]any) (int, packCard, string) {
-	t.Helper()
-	var raw json.RawMessage
-	code := s.call(t, "POST", "/api/cards", tok, wsID, in, &raw)
-	var c packCard
-	var e struct{ Error string }
-	json.Unmarshal(raw, &c)
-	json.Unmarshal(raw, &e)
-	return code, c, e.Error
-}
-
 // shipOne files a shipped pack the way a deployment that ships Teams would.
 func shipOne(ctx context.Context, tx *store.Tx, blobs storage.Storage, shipped fs.FS, name string) (db.FieldPack, error) {
 	z, p, err := pack.ReadShipped(shipped, name)
@@ -135,9 +75,9 @@ func shipOne(ctx context.Context, tx *store.Tx, blobs storage.Storage, shipped f
 
 func TestApprovingAShippedPackIsRecordedOnce(t *testing.T) {
 	s := newServer(t)
-	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1", Description: "Demo field"}))
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
+	s.H.Shipped = shippedFS(t, testutil.Pack(t, testutil.PackOpts{Name: "demo", Version: "1", Description: "Demo field"}))
 	wsID, ana := uuid.MustParse(w.ID), uuid.MustParse(s.userID(t, a))
 	var row db.FieldPack
 	err := s.H.Store.InWorkspace(context.Background(), wsID, ana, func(tx *store.Tx) error {
@@ -148,19 +88,22 @@ func TestApprovingAShippedPackIsRecordedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rows := s.versions(t, a, w.ID, "demo"); len(rows) != 1 || rows[0].ApprovalsByMe || rows[0].Source != "shipped" || rows[0].UploadedBy != nil {
-		t.Fatalf("versions before approval %+v", rows)
+	if row.Source != "shipped" || row.UploadedBy != nil {
+		t.Fatalf("shipped row %+v", row)
+	}
+	approvals := "SELECT count(*) FROM field_pack_approval WHERE pack_id = $1"
+	if n := s.count(t, approvals, row.ID); n != 0 {
+		t.Fatalf("%d approvals before approving", n)
 	}
 	for range 2 {
 		if c := s.call(t, "POST", "/api/packs/"+row.ID.String()+"/approve", a, w.ID, nil, nil); c != 200 {
 			t.Fatalf("approve: %d", c)
 		}
 	}
-	rows := s.versions(t, a, w.ID, "demo")
-	if len(rows) != 1 || !rows[0].ApprovalsByMe || rows[0].ApprovedAt == nil {
-		t.Fatalf("versions %+v", rows)
+	if n := s.count(t, approvals, row.ID); n != 1 {
+		t.Fatalf("%d approvals", n)
 	}
-	if n := s.count(t, "SELECT count(*) FROM event WHERE type = 'pack.approved' AND payload->>'pack_id' = $1", rows[0].ID); n != 1 {
+	if n := s.count(t, "SELECT count(*) FROM event WHERE type = 'pack.approved' AND payload->>'pack_id' = $1", row.ID.String()); n != 1 {
 		t.Fatalf("a repeated approval wrote %d events", n)
 	}
 }
@@ -181,7 +124,7 @@ func TestPackArchiveUploadIsRemoved(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusMethodNotAllowed {
+	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("archive upload: %d", resp.StatusCode)
 	}
 	if n := s.count(t, "SELECT count(*) FROM field_pack"); n != 0 {
@@ -199,11 +142,11 @@ func TestInstalledPrivatePackIsVisibleOnlyToItsOwner(t *testing.T) {
 	b := s.member(t, a, w.ID, "ben@lab.org", "member")
 	var up struct{ ID string }
 	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "ana-pack"}), &up)
-	if rows := s.versions(t, a, w.ID, "ana-pack"); len(rows) != 1 {
-		t.Fatalf("owner versions: %+v", rows)
+	if c := s.call(t, "GET", "/api/teams/"+up.ID, a, w.ID, nil, nil); c != 200 {
+		t.Fatalf("owner reads it: %d", c)
 	}
-	if rows := s.versions(t, b, w.ID, "ana-pack"); len(rows) != 0 {
-		t.Fatalf("colleague versions: %+v", rows)
+	if c := s.call(t, "GET", "/api/teams/"+up.ID, b, w.ID, nil, nil); c != 404 {
+		t.Fatalf("colleague reads it: %d", c)
 	}
 	if code := s.call(t, "POST", "/api/packs/"+up.ID+"/approve", b, w.ID, nil, nil); code != 404 {
 		t.Fatalf("colleague approval: %d", code)
@@ -245,7 +188,7 @@ func TestCardRecordsOfOneKind(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	_, c, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q"})
+	c := s.idleCard(t, a, w.ID, "q")
 	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body, superseded_at) VALUES
 		($1, $2, 'grounding', 1, 'starting_point', 'server', '0', '{}', NULL),
 		($1, $2, 'experimentation', 2, 'starting_point', 'server', '1', '{}', NULL),
@@ -264,8 +207,8 @@ func TestCardRecordById(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	_, c, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q"})
-	_, other, _ := s.newCard(t, a, w.ID, map[string]any{"question": "q2"})
+	c := s.idleCard(t, a, w.ID, "q")
+	other := s.idleCard(t, a, w.ID, "q2")
 	var live, gone, foreign string
 	for _, row := range []struct {
 		card, sup string

@@ -2,8 +2,20 @@
 import type { TeamMember } from '../api/types';
 import { backendLabel } from '../lib/backends';
 import Icon from './Icon.vue';
-defineProps<{ member: TeamMember; role?: string; card?: boolean; editableSkills?: boolean }>();
+import { computed } from 'vue';
+const props = defineProps<{
+  member: TeamMember;
+  role?: string;
+  card?: boolean;
+  editableSkills?: boolean;
+}>();
 const emit = defineEmits<{ editSkills: [] }>();
+// A member that names a model per harness runs on whichever the researcher has.
+const harnesses = computed(() =>
+  Object.keys(props.member.agent.models ?? { [props.member.agent.harness ?? '']: '' })
+    .map(backendLabel)
+    .join(' or '),
+);
 </script>
 <template>
   <article :class="['team-member-profile', { 'role-card': card }]">
@@ -16,10 +28,10 @@ const emit = defineEmits<{ editSkills: [] }>();
         <h4>
           {{ member.name }}<small v-if="!card && role" class="role-label">{{ role }}</small>
         </h4>
-        <small v-if="card" class="member-backend">{{ backendLabel(member.agent.harness) }}</small>
+        <small v-if="card" class="member-backend">{{ harnesses }}</small>
         <p v-if="!card">{{ member.role }}</p>
       </div>
-      <small v-if="!card" class="member-backend">{{ backendLabel(member.agent.harness) }}</small>
+      <small v-if="!card" class="member-backend">{{ harnesses }}</small>
     </div>
     <p v-if="card" class="member-role">{{ member.role }}</p>
     <p v-if="member.skills?.length" class="member-capabilities">

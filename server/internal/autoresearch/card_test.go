@@ -37,7 +37,7 @@ func TestAdmitRecordsARunOncePerKey(t *testing.T) {
 	}
 }
 
-func TestCreateCardOpensABacklogCardOwnedByTheActor(t *testing.T) {
+func TestCreateCardOpensAStudyOwnedByTheActor(t *testing.T) {
 	f := setup(t)
 	collab := f.user(t, "c@lab.org", "member")
 	sub := f.user(t, "s@lab.org", "member")
@@ -52,7 +52,7 @@ func TestCreateCardOpensABacklogCardOwnedByTheActor(t *testing.T) {
 		t.Fatalf("run: %+v", r)
 	}
 	c := f.card(t, *r.CardID)
-	if c.BoardColumn != "backlog" || c.OwnerID != collab || c.Origin != Origin(ap) || c.Title != "Digest 2026-10-14" ||
+	if c.BoardColumn != "grounding" || c.Round != 1 || c.OwnerID != collab || c.Origin != Origin(ap) || c.Title != "Digest 2026-10-14" ||
 		c.Question != "What changed in mouse liver lipidomics this week?" || len(c.FollowsFrom) != 0 {
 		t.Fatalf("card: %+v", c)
 	}
@@ -93,8 +93,8 @@ func TestADoneStudyLetsTheNextFiringOpenOne(t *testing.T) {
 
 func TestTheFirstCardHonoursTheBoardsDuplicateCheck(t *testing.T) {
 	f := setup(t)
-	f.exec(t, `INSERT INTO card (workspace_id, number, title, question, owner_id)
-		VALUES ($1, 1, 'Someone else''s card', 'Does X raise Y?', $2)`, f.ws, f.owner)
+	f.exec(t, `INSERT INTO card (workspace_id, number, title, question, owner_id, board_column)
+		VALUES ($1, 1, 'Someone else''s card', 'Does X raise Y?', $2, 'grounding')`, f.ws, f.owner)
 	ap := f.autoresearch(t, "create_card", "X and Y", "does X raise  y?", "")
 	if r := f.fire(t, ap, Admission{}); reason(r) != "skipped/already_active" {
 		t.Fatalf("%s", reason(r))
@@ -110,12 +110,13 @@ func TestAWebhookPayloadIsARecordNeverTheQuestion(t *testing.T) {
 	if c.Question != "Is the new dataset usable for our question?" {
 		t.Fatalf("the payload reached the question: %q", c.Question)
 	}
-	if n := f.count(t, `SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'trigger_payload' AND board_column = 'backlog'
-		AND role = 'server' AND body @> '{"event":"dataset.published"}'`, c.ID); n != 1 {
+	if n := f.count(t, `SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'trigger_payload' AND board_column = 'grounding'
+		AND round = 0 AND role = 'server' AND body @> '{"event":"dataset.published"}'`, c.ID); n != 1 {
 		t.Fatalf("payload records: %d", n)
 	}
-	if f.count(t, `SELECT count(*) FROM record WHERE card_id = $1 AND board_column <> 'backlog'`, c.ID) != 0 {
-		t.Fatal("the payload was stored where a gate reads")
+	// It sits outside every attempt's round, where no gate reads it, and no role lists it.
+	if f.count(t, `SELECT count(*) FROM record WHERE card_id = $1 AND round <> 0`, c.ID) != 0 {
+		t.Fatal("the payload was stored in an attempt's round")
 	}
 }
 

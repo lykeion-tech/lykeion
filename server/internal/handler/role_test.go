@@ -61,10 +61,7 @@ func (s *server) roleFixture(t *testing.T) (string, string, card, roleRun) {
 	t.Helper()
 	jwt := s.signIn(t, "role@lab.org")
 	w := s.workspace(t, jwt, "lab")
-	var c card
-	if code := s.call(t, "POST", "/api/cards", jwt, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
-		t.Fatalf("card %d", code)
-	}
+	c := s.idleCard(t, jwt, w.ID, "q")
 	return jwt, w.ID, c, s.running(t, jwt, w.ID, c.ID)
 }
 func (s *server) blobRequest(t *testing.T, method, path, token string, body io.Reader) (int, []byte) {
@@ -129,10 +126,7 @@ func TestRoleRecords(t *testing.T) {
 	if got := s.call(t, "GET", "/api/cards", run.token, ws, nil, nil); got != 401 {
 		t.Fatalf("people route: %d", got)
 	}
-	var c2 card
-	if got := s.call(t, "POST", "/api/cards", jwt, ws, map[string]any{"question": "q2"}, &c2); got != 201 {
-		t.Fatal(got)
-	}
+	c2 := s.idleCard(t, jwt, ws, "q2")
 	other := s.running(t, jwt, ws, c2.ID)
 	if got := s.call(t, "GET", "/api/role/records?card_id="+c.ID, other.token, "", nil, &recs); got != 200 || len(recs) != 0 {
 		t.Fatalf("cross-card list %d %+v", got, recs)
@@ -172,10 +166,7 @@ func TestRoleBlobs(t *testing.T) {
 	if code := s.call(t, "POST", "/api/role/records", run.token, "", in, nil); code != 201 {
 		t.Fatalf("reference %d", code)
 	}
-	var c2 card
-	if code := s.call(t, "POST", "/api/cards", jwt, ws, map[string]string{"question": "q2"}, &c2); code != 201 {
-		t.Fatal(code)
-	}
+	c2 := s.idleCard(t, jwt, ws, "q2")
 	other := s.running(t, jwt, ws, c2.ID)
 	if code, _ := s.blobRequest(t, "GET", "/api/role/blobs/"+blob.SHA, other.token, nil); code != 404 {
 		t.Fatalf("cross-card read %d", code)

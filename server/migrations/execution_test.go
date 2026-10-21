@@ -19,7 +19,7 @@ func TestExecutionTokenIsBoundToCurrentAttemptAndTenant(t *testing.T) {
 	}{
 		{`INSERT INTO "user" (id, email) VALUES ($1, 'attempt@x')`, []any{user}},
 		{`INSERT INTO workspace (id, slug, name) VALUES ($1, 'attempt', 'w')`, []any{ws}},
-		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id) VALUES ($1, $2, 1, 't', 'q', $3)`, []any{card, ws, user}},
+		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id, board_column) VALUES ($1, $2, 1, 't', 'q', $3, 'grounding')`, []any{card, ws, user}},
 		{`INSERT INTO agent_run (id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status, attempt)
 			VALUES ($1, $2, $3, $4, 'backlog', 1, 'reviewer', 'claude', 'p', 'running', 1)`, []any{run, ws, card, user}},
 		{`INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, expires_at)
@@ -65,7 +65,7 @@ func TestExecutionTokenIsBoundToCurrentAttemptAndTenant(t *testing.T) {
 		args  []any
 	}{
 		{`INSERT INTO workspace (id, slug, name) VALUES ($1, 'other', 'w')`, []any{otherWS}},
-		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id) VALUES ($1, $2, 1, 't', 'q', $3)`, []any{otherCard, otherWS, user}},
+		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id, board_column) VALUES ($1, $2, 1, 't', 'q', $3, 'grounding')`, []any{otherCard, otherWS, user}},
 	} {
 		if _, err := env.Owner.Exec(ctx, stmt.query, stmt.args...); err != nil {
 			t.Fatal(err)
@@ -87,7 +87,7 @@ func TestExecutionMessagesAndUsageAreAttemptScoped(t *testing.T) {
 	}{
 		{`INSERT INTO "user" (id, email) VALUES ($1, 'usage@x')`, []any{user}},
 		{`INSERT INTO workspace (id, slug, name) VALUES ($1, 'usage', 'w')`, []any{ws}},
-		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id) VALUES ($1, $2, 1, 't', 'q', $3)`, []any{card, ws, user}},
+		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id, board_column) VALUES ($1, $2, 1, 't', 'q', $3, 'grounding')`, []any{card, ws, user}},
 		{`INSERT INTO agent_run (id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt)
 			VALUES ($1, $2, $3, $4, 'backlog', 1, 'reviewer', 'claude', 'p')`, []any{run, ws, card, user}},
 	} {
@@ -136,7 +136,7 @@ func TestSweepFunctionsRunAsTheAppAndRecoverRuns(t *testing.T) {
 	}{
 		{`INSERT INTO "user" (id, email) VALUES ($1, 'sweep@x')`, []any{user}},
 		{`INSERT INTO workspace (id, slug, name) VALUES ($1, 'sweep', 'w')`, []any{ws}},
-		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id) VALUES ($1, $2, 1, 't', 'q', $3)`, []any{card, ws, user}},
+		{`INSERT INTO card (id, workspace_id, number, title, question, owner_id, board_column) VALUES ($1, $2, 1, 't', 'q', $3, 'grounding')`, []any{card, ws, user}},
 		{`INSERT INTO runtime (id, workspace_id, owner_id, daemon_id, harness, last_seen_at)
 			VALUES ($1, $2, $3, 'stale', 'claude', now() - interval '5 minutes')`, []any{runtimeStale, ws, user}},
 		{`INSERT INTO runtime (id, workspace_id, owner_id, daemon_id, harness)

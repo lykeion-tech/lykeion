@@ -191,7 +191,7 @@ func TestInputFetchTakeoverIsFenced(t *testing.T) {
 	}
 	must(`INSERT INTO "user"(id,email) VALUES($1,'fetch@lab.org')`, u)
 	must(`INSERT INTO workspace(id,slug,name) VALUES($1,'fetch','Fetch')`, ws)
-	if err := env.Owner.QueryRow(ctx, `INSERT INTO card(workspace_id,number,title,question,owner_id) VALUES($1,1,'t','q',$2) RETURNING id`, ws, u).Scan(&card); err != nil {
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO card(workspace_id,number,title,question,owner_id,board_column) VALUES($1,1,'t','q',$2,'grounding') RETURNING id`, ws, u).Scan(&card); err != nil {
 		t.Fatal(err)
 	}
 	if err := env.Owner.QueryRow(ctx, `INSERT INTO agent_run(workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt) VALUES($1,$2,$3,'grounding',1,'scoper','claude','p') RETURNING id`, ws, card, u).Scan(&ar); err != nil {
