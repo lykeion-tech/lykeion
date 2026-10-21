@@ -31,6 +31,9 @@ func (h *H) cardRatings(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []ratingView{}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id}); err != nil {
+			return err
+		}
 		rows, err := tx.Q.CardRatings(r.Context(), db.CardRatingsParams{WorkspaceID: ws, CardID: &id, UserID: user})
 		for _, row := range rows {
 			out = append(out, viewOfRating(row))
@@ -60,9 +63,12 @@ func ratingOf(r *http.Request) (*int16, bool) {
 	return &n, true
 }
 
-// ownOffer refuses a column offered to someone else; a column offered to
-// no one is not found.
+// ownOffer finds the study in the caller's workspace, then refuses a column
+// offered to someone else; a column offered to no one is not found.
 func ownOffer(r *http.Request, tx *store.Tx, ws, card, user uuid.UUID, column string) error {
+	if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: card}); err != nil {
+		return err
+	}
 	owner, err := tx.Q.RatingOwner(r.Context(), db.RatingOwnerParams{WorkspaceID: ws, CardID: &card, BoardColumn: column})
 	if err != nil {
 		return err
@@ -78,17 +84,16 @@ func (h *H) setRating(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rating, ok := ratingOf(r)
-	if !ok {
-		writeErr(w, 400, "rate from 1 to 4")
-		return
-	}
+	rating, valid := ratingOf(r)
 	column := chi.URLParam(r, "column")
 	var out ratingView
 	now := time.Now()
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		if err := ownOffer(r, tx, ws, id, user, column); err != nil {
 			return err
+		}
+		if !valid {
+			return cardInputError("rate from 1 to 4")
 		}
 		row, err := tx.Q.SetRating(r.Context(), db.SetRatingParams{Rating: rating, RatedAt: &now,
 			WorkspaceID: ws, CardID: &id, BoardColumn: column, UserID: user})
