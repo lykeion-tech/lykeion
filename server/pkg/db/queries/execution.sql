@@ -40,8 +40,8 @@ WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 DELETE FROM runtime WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 
 -- name: EnqueueAgentRun :one
-INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, run_private, requested_model, agent_id, assignment)
-VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts, @continuity_scope, @run_private, @requested_model, sqlc.narg(agent_id), @assignment)
+INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment)
+VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts, @continuity_scope, @requested_model, sqlc.narg(agent_id), @assignment)
 RETURNING *;
 
 -- name: ClaimAgentRun :one

@@ -42,6 +42,7 @@ type boardLab struct {
 	ws     uuid.UUID
 	owner  uuid.UUID
 	token  string
+	home   string
 }
 
 func buildLyk(t *testing.T) {
@@ -89,11 +90,11 @@ func fakeJev(t *testing.T) string {
 
 func newBoardLab(t *testing.T) *boardLab {
 	buildLyk(t)
-	t.Setenv("HOME", t.TempDir()) // continuity runs the CLI on HOME; keep the developer's own config out
+	t.Setenv("HOME", filepath.Dir(t.TempDir())) // Keep fixture executables readable without exposing the developer's home.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CODEX_HOME", "")
 	env := testutil.Setup(t)
-	l := &boardLab{env: env, st: &store.Store{Pool: env.App}, ws: uuid.New()}
+	l := &boardLab{env: env, st: &store.Store{Pool: env.App}, ws: uuid.New(), home: t.TempDir()}
 	hub := &realtime.Hub{Store: l.st, Redis: env.Redis}
 	l.st.Publish = hub.Publish
 	blobs := storage.Local{Dir: t.TempDir()}
@@ -149,11 +150,13 @@ func (l *boardLab) run(t *testing.T) context.CancelFunc {
 // runOn starts a daemon with one harness and the engine tick.
 func (l *boardLab) runOn(t *testing.T, harness, script string) context.CancelFunc {
 	ctx, cancel := context.WithCancel(context.Background())
-	fake, err := filepath.Abs(script)
+	source, err := os.ReadFile(script)
 	must(t, err)
+	fake := filepath.Join(t.TempDir(), harness)
+	must(t, os.WriteFile(fake, source, 0700))
 	done := make(chan error, 1)
 	go func() {
-		done <- daemon.Run(ctx, daemon.Config{Server: l.url, Token: l.token, StateDir: t.TempDir(), Home: t.TempDir(), Device: "test",
+		done <- daemon.Run(ctx, daemon.Config{Server: l.url, Token: l.token, StateDir: t.TempDir(), Home: l.home, Device: "test",
 			Harnesses: map[string]string{harness: fake}, Slots: 5, Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond})
 	}()
 	tickDone := make(chan struct{})

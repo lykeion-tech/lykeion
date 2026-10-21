@@ -362,19 +362,19 @@ func (h countHandler) Handle(_ context.Context, r slog.Record) error {
 func (h countHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h countHandler) WithGroup(string) slog.Handler      { return h }
 
-func TestTheAuditorRunsPrivateOnTeamColumnsOnly(t *testing.T) {
+func TestAuditorRunsLikeEveryRun(t *testing.T) {
 	l := newLab(t)
 	stub := l.jev(t, 200, levels(nil))
 	c := l.study(t, "hypotheses", true, nil)
 	l.done(t, c.ID)
-	var role, harness, prompt string
-	var private bool
-	if err := l.env.Owner.QueryRow(context.Background(), "SELECT role, harness, prompt, run_private FROM agent_run WHERE card_id = $1 AND role = 'auditor'", c.ID).
-		Scan(&role, &harness, &prompt, &private); err != nil {
+	var role, harness, prompt, scope string
+	var runJSON []byte
+	if err := l.env.Owner.QueryRow(context.Background(), "SELECT role, harness, prompt, continuity_scope, row_to_json(agent_run) FROM agent_run WHERE card_id = $1 AND role = 'auditor'", c.ID).
+		Scan(&role, &harness, &prompt, &scope, &runJSON); err != nil {
 		t.Fatalf("no auditor run: %v", err)
 	}
-	if !private || harness != "codex" || !strings.Contains(prompt, "The column is done; see the cited records.") {
-		t.Fatalf("auditor run: private %v harness %s prompt:\n%s", private, harness, prompt)
+	if scope != ContinuityScope(c.ID, "auditor", c.BoardColumn, c.Round) || strings.Contains(string(runJSON), `"run_private"`) || harness != "codex" || !strings.Contains(prompt, "The column is done; see the cited records.") {
+		t.Fatalf("auditor run: scope %q harness %s prompt:\n%s JSON %s", scope, harness, prompt, runJSON)
 	}
 	if n := len(stub.calls()); n != 0 {
 		t.Fatalf("Jev scored before the auditor settled: %d calls", n)

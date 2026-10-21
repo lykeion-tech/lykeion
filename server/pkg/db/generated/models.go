@@ -48,7 +48,6 @@ type AgentRun struct {
 	MaxAttempts           int32           `json:"max_attempts"`
 	SessionID             string          `json:"session_id"`
 	ContinuityScope       string          `json:"continuity_scope"`
-	RunPrivate            bool            `json:"run_private"`
 	ProfileMode           string          `json:"profile_mode"`
 	PolicyDigest          string          `json:"policy_digest"`
 	Model                 string          `json:"model"`

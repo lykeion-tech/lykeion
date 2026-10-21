@@ -15,7 +15,7 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-// The harness CHECKs must accept exactly the harnesses the daemon can run.
+// Stored rows retain legacy harnesses so an upgrade can explain why they cannot run.
 func TestEveryHarnessIsStorable(t *testing.T) {
 	env := testutil.Setup(t)
 	ctx := context.Background()
@@ -37,15 +37,27 @@ func TestEveryHarnessIsStorable(t *testing.T) {
 		"agent_run": `INSERT INTO agent_run (workspace_id,responsible_user_id,harness,card_id,board_column,round,role,prompt) VALUES ($1,$2,$3,$4,'grounding',1,'scoper','p')`,
 		"agent":     `INSERT INTO agent (workspace_id,owner_id,harness,name) VALUES ($1,$2,$3,$3)`,
 	}
+	stored := map[string]bool{"cursor": true, "antigravity": true}
+	for h := range agent.Harnesses {
+		stored[h] = true
+	}
 	for table, query := range queries {
 		t.Run(table, func(t *testing.T) {
-			for h := range agent.Harnesses {
+			for h := range stored {
 				args := []any{ws, u, h}
 				if table == "agent_run" {
 					args = append(args, card)
 				}
 				if _, err := env.Owner.Exec(ctx, query, args...); err != nil {
 					t.Errorf("%s %s: %v", table, h, err)
+				}
+
+				var readable bool
+				if err := env.Owner.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM `+table+` WHERE workspace_id=$1 AND harness=$2)`, ws, h).Scan(&readable); err != nil {
+					t.Fatal(err)
+				}
+				if !readable {
+					t.Errorf("%s %s row is unreadable", table, h)
 				}
 			}
 			args := []any{ws, u, "gemini"}
@@ -62,11 +74,11 @@ func TestEveryHarnessIsStorable(t *testing.T) {
 				t.Fatal(err)
 			}
 			names := regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(definition, -1)
-			if len(names) != len(agent.Harnesses) {
-				t.Errorf("CHECK differs from Harnesses: %s", definition)
+			if len(names) != len(stored) {
+				t.Errorf("CHECK differs from supported and historical stored harnesses: %s", definition)
 			}
 			for _, name := range names {
-				if _, ok := agent.Harnesses[name[1]]; !ok {
+				if !stored[name[1]] {
 					t.Errorf("CHECK contains unknown harness %s", name[1])
 				}
 			}

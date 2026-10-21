@@ -183,8 +183,8 @@ SELECT EXISTS (SELECT 1 FROM runtime WHERE workspace_id = @workspace_id AND owne
 -- An autoresearch agent run: no card, claimed by its requester's runtimes, paid by them.
 -- Its continuity scope stays empty: one-shot, never resumed.
 -- name: EnqueueAutoresearchAgentRun :one
-INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, run_private, requested_model)
-VALUES (@workspace_id, 'autoresearch', @requester_id::uuid, @requester_id::uuid, '', 0, 'autoresearch', @harness, @prompt, @skill, 2, @run_private, @requested_model)
+INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, requested_model)
+VALUES (@workspace_id, 'autoresearch', @requester_id::uuid, @requester_id::uuid, '', 0, 'autoresearch', @harness, @prompt, @skill, 2, @requested_model)
 RETURNING *;
 
 -- name: InsertAutoresearchInboxItem :exec

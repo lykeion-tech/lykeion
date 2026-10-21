@@ -21,6 +21,13 @@ const runtimes = useRuntimes();
 const members = useMembers();
 const daemons = computed(() => groupDaemons(runtimes.data.value ?? []));
 const machine = computed(() => daemons.value.find((d) => d.id === props.machineId));
+const sandboxFailure = computed(() => {
+  const status = machine.value?.runtimes.find((r) => r.bases?.sandbox?.startsWith('failed'))?.bases
+    .sandbox;
+  if (!status) return '';
+  const reason = status.slice('failed'.length).replace(/^:\s*/, '').trim();
+  return reason ? `Can't run agents: ${reason}` : "Can't run agents";
+});
 const menuFor = ref('');
 const backendDetails = ref('');
 const dialog = ref<'' | 'add' | 'daemon' | 'rename'>('');
@@ -256,6 +263,7 @@ function menuKey(event: KeyboardEvent) {
                 </button>
               </div>
             </div>
+            <p v-if="sandboxFailure" class="inline-error" role="alert">{{ sandboxFailure }}</p>
             <p v-if="removalError?.id === machine.id" class="inline-error" role="alert">
               {{ removalError.message }}
             </p>

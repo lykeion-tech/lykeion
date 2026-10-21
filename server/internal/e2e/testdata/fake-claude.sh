@@ -50,7 +50,7 @@ case "$role" in
 esac
 # A real Claude Code keeps its session where the daemon looks before resuming
 # one; without the file the daemon starts the next run fresh.
-d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/fake"
+d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"
 mkdir -p "$d" && : > "$d/s.jsonl"
 # Usage is cumulative per session, as Claude Code reports it, so a resumed
 # session is charged only its own turn.

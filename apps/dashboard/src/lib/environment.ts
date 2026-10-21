@@ -15,11 +15,6 @@ function baseState(value: string | undefined): { state: BaseState; reason: strin
   return { state: 'Not reported', reason: '' };
 }
 
-// The sandbox is checked once when the daemon starts, so it is never building.
-function sandboxState(value: string | undefined) {
-  return baseState(value === 'building' ? undefined : value);
-}
-
 // The record's full-precision creation time; the run's own time, kept to the
 // second, only when that doesn't parse.
 function recorded(r: StudyRecord) {
@@ -28,7 +23,7 @@ function recorded(r: StudyRecord) {
 }
 
 // What the study's runs ran on and added: each machine (one per daemon) whose
-// runtimes ran the study with the state of its language bases and sandbox, and per
+// runtimes ran the study with the state of its language bases, and per
 // language the packages the study's latest run of it had added.
 export function environmentView(runs: AgentRun[], runtimes: Runtime[], runRecords: StudyRecord[]) {
   const daemons = new Map<string, Runtime>();
@@ -38,10 +33,7 @@ export function environmentView(runs: AgentRun[], runtimes: Runtime[], runRecord
   }
   const machines = [...daemons.values()].map((rt) => ({
     name: rt.custom_name || rt.device_name,
-    bases: [
-      ...languages.map((l) => ({ language: l.name, ...baseState(rt.bases?.[l.key]) })),
-      { language: 'Sandbox', ...sandboxState(rt.bases?.sandbox) },
-    ],
+    bases: languages.map((l) => ({ language: l.name, ...baseState(rt.bases?.[l.key]) })),
   }));
   const packages = languages.flatMap((l) => {
     const latest = runRecords

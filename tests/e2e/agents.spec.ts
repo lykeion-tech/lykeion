@@ -478,7 +478,7 @@ test('agent connector edit preserves peer servers and dirty snapshots require ex
 test('supported backend selectors persist provider labels and expose truthful focused details', async ({
   page,
 }) => {
-  await inFixture(page);
+  const { headers } = await inFixture(page);
   for (const [harness, label] of [
     ['claude', 'Claude Code'],
     ['codex', 'Codex'],
@@ -503,7 +503,24 @@ test('supported backend selectors persist provider labels and expose truthful fo
       await expect(detail).not.toContainText('Private only');
       await expect(detail).toContainText(harness!);
       await expect(detail).toContainText('Harness default');
-      await expect(detail).toContainText('Not reported');
+      const response = await page.request.get('/api/runtimes', { headers });
+      expect(response.status()).toBe(200);
+      const reported = (
+        (await response.json()) as {
+          harness: string;
+          custom_name: string | null;
+          device_name: string;
+          cli_version: string;
+        }[]
+      ).filter((runtime) => runtime.harness === harness);
+      for (const runtime of reported) {
+        const report = detail.locator('.runtime-report').filter({
+          has: page.getByText(runtime.custom_name || runtime.device_name, { exact: true }),
+        });
+        await expect(report).toHaveCount(1);
+        await expect(report.locator('dd').nth(2)).toHaveText(runtime.cli_version || 'Not reported');
+      }
+      if (!reported.length) await expect(detail).toContainText('Not reported');
       const agentURL = page.url();
       const canvases: string[] = [];
       for (const palette of ['ash', 'midnight', 'dawn', 'pale']) {

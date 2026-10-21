@@ -1258,3 +1258,23 @@ func TestRuntimeOperationsCompatibleWithReportWorkspaceLocks(t *testing.T) {
 		})
 	}
 }
+
+func TestReportAcceptsSandboxedMode(t *testing.T) {
+	f := setup(t)
+	f.enqueue(t, 1, "claude")
+	ref, id := f.claimStart(t, f.runtime(t, f.Owner, "sandboxed", "claude"))
+	got, err := f.T.Complete(t.Context(), f.Owner, ref, id, Report{Mode: "sandboxed", PolicyDigest: "policy", Model: "model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProfileMode != "sandboxed" {
+		t.Fatalf("returned profile_mode %q", got.ProfileMode)
+	}
+	var mode, digest, model string
+	if err := f.Env.Owner.QueryRow(t.Context(), `SELECT profile_mode, policy_digest, model FROM agent_run WHERE id=$1`, id).Scan(&mode, &digest, &model); err != nil {
+		t.Fatal(err)
+	}
+	if mode != "sandboxed" || digest != "policy" || model != "model" {
+		t.Fatalf("stored profile: %q %q %q", mode, digest, model)
+	}
+}

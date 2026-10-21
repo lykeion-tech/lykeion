@@ -143,7 +143,7 @@ func (e *Engine) Delegate(ctx context.Context, tx *store.Tx, w service.Writer, m
 	if err != nil {
 		return db.Record{}, err
 	}
-	run, err := e.enqueue(ctx, tx, c, member, m, a, leaderStep+step, false)
+	run, err := e.enqueue(ctx, tx, c, member, m, a, leaderStep+step)
 	if err != nil {
 		return db.Record{}, err
 	}
@@ -371,7 +371,7 @@ func (e *Engine) wake(ctx context.Context, tx *store.Tx, c db.Card, note string)
 			return nil
 		}
 	}
-	_, err = e.enqueue(ctx, tx, c, role, m, a, note, false)
+	_, err = e.enqueue(ctx, tx, c, role, m, a, note)
 	return err
 }
 

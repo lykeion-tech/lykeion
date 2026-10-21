@@ -76,7 +76,7 @@ func TestRunOnlyQueuesOneCardlessAgentRunWithTheGroundingServers(t *testing.T) {
 		t.Fatal("the prompt does not tell the agent about lyk tools")
 	}
 	if tk.Kind != "autoresearch" || tk.CardID != nil || tk.RequesterID == nil || *tk.RequesterID != actor ||
-		tk.ResponsibleUserID != actor || tk.Role != Role || tk.BoardColumn != "" || tk.Round != 0 || tk.Harness != "claude" || !tk.RunPrivate || tk.ContinuityScope != "" {
+		tk.ResponsibleUserID != actor || tk.Role != Role || tk.BoardColumn != "" || tk.Round != 0 || tk.Harness != "claude" || tk.ContinuityScope != "" {
 		t.Fatalf("agent run: %+v", tk)
 	}
 	if tk.Skill == "" || tk.Skill != skills.Role(Role, "run-only") || strings.Contains(tk.Skill, "LAB TEXT") {
@@ -117,7 +117,28 @@ func TestRunOnlyRefusesABrokenAddonAndRemovedHarness(t *testing.T) {
 		t.Fatalf("a per-role harness: %s", reason(r))
 	}
 	// a manual run carries no payload: the account's own setup, never resumed
-	if tk := f.agentRun(t, *r.AgentRunID); tk.RunPrivate || tk.ContinuityScope != "" {
-		t.Fatalf("manual run: private %v scope %q", tk.RunPrivate, tk.ContinuityScope)
+	if tk := f.agentRun(t, *r.AgentRunID); tk.ContinuityScope != "" {
+		t.Fatalf("manual run: scope %q", tk.ContinuityScope)
+	}
+}
+
+func TestWebhookRunNotPrivate(t *testing.T) {
+	f := setup(t)
+	f.online(t, f.owner, "claude")
+	ap := f.autoresearch(t, "run_only", "Digest", "Summarise.", "")
+	for _, source := range []string{"webhook", "manual"} {
+		r := f.fire(t, ap, Admission{Source: source, Actor: f.owner})
+		if r.Status != "running" || r.AgentRunID == nil {
+			t.Fatalf("%s: %+v", source, r)
+		}
+		run := f.agentRun(t, *r.AgentRunID)
+		data, err := json.Marshal(run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), `"run_private"`) || run.ContinuityScope != "" || run.Kind != "autoresearch" {
+			t.Fatalf("%s run: %s", source, data)
+		}
+		f.exec(t, `UPDATE autoresearch_run SET status='completed' WHERE id=$1`, r.ID)
 	}
 }

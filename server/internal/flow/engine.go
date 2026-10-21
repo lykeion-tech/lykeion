@@ -180,16 +180,15 @@ func (e *Engine) Start(ctx context.Context, tx *store.Tx, c db.Card) error {
 	if err != nil {
 		return err
 	}
-	_, err = e.enqueue(ctx, tx, c, role, m, a, c.HandoffNote, false)
+	_, err = e.enqueue(ctx, tx, c, role, m, a, c.HandoffNote)
 	return err
 }
 
 // enqueue queues one run of role on the study's current column. The run
 // takes its harness, model and instructions from the owner's agent row, and
 // the protocol for its role is appended to them; note, when set, follows the
-// study in the prompt. A private run is isolated from its owner's own setup
-// whatever the workspace policy.
-func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role string, m *pack.Manifest, a db.Agent, note string, private bool) (db.AgentRun, error) {
+// study in the prompt.
+func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role string, m *pack.Manifest, a db.Agent, note string) (db.AgentRun, error) {
 	comments, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
 	if err != nil {
 		return db.AgentRun{}, err
@@ -205,12 +204,12 @@ func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role stri
 	}
 	agentID := a.ID
 	t, err := e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p, RunPrivate: private, Agent: &agentID, Assignment: assignment(c, note),
+		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p, Agent: &agentID, Assignment: assignment(c, note),
 		Skill: strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m))})
 	if err != nil {
 		return t, err
 	}
-	return t, tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Round), RunPrivate: private,
+	return t, tx.Q.SetAgentRunContinuity(ctx, db.SetAgentRunContinuityParams{ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Round),
 		ID: t.ID, WorkspaceID: tx.WS})
 }
 

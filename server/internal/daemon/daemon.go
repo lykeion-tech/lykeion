@@ -89,8 +89,6 @@ type claimed struct {
 		SessionID         string     `json:"session_id"`
 		// ContinuityScope keys session continuity; empty never resumes.
 		ContinuityScope string `json:"continuity_scope"`
-		// RunPrivate is decoded only for claims created before single-mode runs.
-		RunPrivate bool `json:"run_private"`
 		// RequestedModel is the agent's model; empty runs the CLI's default.
 		RequestedModel string `json:"requested_model"`
 		// CardID is the run's study; nil for a run on no card.

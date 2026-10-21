@@ -693,3 +693,39 @@ test('supported daemon-reported providers retain actual versions and unreported 
       await page.request.delete(`/api/runtimes/${r.id}`, { headers: headers(ws) });
   }
 });
+
+test('machine detail explains a failed sandbox and clears the reason after a ready heartbeat', async ({
+  page,
+}) => {
+  const ws = await labWorkspace(page.request);
+  const records = await registered(page.request, ws, 'Sandbox readiness computer');
+  const token = await (
+    await page.request.post('/api/tokens', { data: { name: 'Sandbox heartbeat browser test' } })
+  ).json();
+  const heartbeat = async (sandbox: string) => {
+    const response = await page.request.post('/api/daemon/heartbeat', {
+      headers: { Authorization: `Bearer ${token.token}` },
+      data: {
+        runtimes: records.map((r) => ({ workspace_id: ws, runtime_id: r.id })),
+        bases: { sandbox },
+      },
+    });
+    expect(response.status()).toBe(200);
+  };
+  try {
+    await page.goto(`/#/machines/${records[0]!.daemon_id}`);
+    await expect(
+      page.getByRole('heading', { name: 'Sandbox readiness computer', exact: true }),
+    ).toBeVisible();
+    const failure = page.getByRole('alert').filter({ hasText: "Can't run agents:" });
+    await expect(failure).toHaveCount(0);
+    await heartbeat('failed: install bubblewrap');
+    await expect(failure).toHaveText("Can't run agents: install bubblewrap");
+    await heartbeat('ready');
+    await expect(failure).toHaveCount(0);
+  } finally {
+    expect((await page.request.delete(`/api/tokens/${token.id}`)).status()).toBe(204);
+    for (const r of records)
+      await page.request.delete(`/api/runtimes/${r.id}`, { headers: headers(ws) });
+  }
+});

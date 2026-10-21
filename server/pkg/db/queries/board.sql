@@ -35,10 +35,9 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id AND board_column = @bo
 -- name: SetAgentRunHandoffNote :exec
 UPDATE agent_run SET handoff_note = @handoff_note WHERE id = @id AND workspace_id = @workspace_id;
 
--- Which CLI session a role run continues on its owner's daemon, and whether
--- it must run isolated whatever the workspace's mode is.
+-- Which CLI session a role run continues on its owner's daemon.
 -- name: SetAgentRunContinuity :exec
-UPDATE agent_run SET continuity_scope = @continuity_scope, run_private = @run_private WHERE id = @id AND workspace_id = @workspace_id;
+UPDATE agent_run SET continuity_scope = @continuity_scope WHERE id = @id AND workspace_id = @workspace_id;
 
 -- Sets or clears why a card's queued agent runs wait. Clearing also drops
 -- runtime_offline, which the next tick restores when it still holds.

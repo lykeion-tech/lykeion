@@ -447,7 +447,7 @@ func (q *Queries) RoundAgentRunRecords(ctx context.Context, arg RoundAgentRunRec
 }
 
 const roundAgentRuns = `-- name: RoundAgentRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4 ORDER BY created_at
 `
 
@@ -494,7 +494,6 @@ func (q *Queries) RoundAgentRuns(ctx context.Context, arg RoundAgentRunsParams) 
 			&i.MaxAttempts,
 			&i.SessionID,
 			&i.ContinuityScope,
-			&i.RunPrivate,
 			&i.ProfileMode,
 			&i.PolicyDigest,
 			&i.Model,
@@ -568,25 +567,18 @@ func (q *Queries) SaveCardBoard(ctx context.Context, arg SaveCardBoardParams) er
 }
 
 const setAgentRunContinuity = `-- name: SetAgentRunContinuity :exec
-UPDATE agent_run SET continuity_scope = $1, run_private = $2 WHERE id = $3 AND workspace_id = $4
+UPDATE agent_run SET continuity_scope = $1 WHERE id = $2 AND workspace_id = $3
 `
 
 type SetAgentRunContinuityParams struct {
 	ContinuityScope string    `json:"continuity_scope"`
-	RunPrivate      bool      `json:"run_private"`
 	ID              uuid.UUID `json:"id"`
 	WorkspaceID     uuid.UUID `json:"workspace_id"`
 }
 
-// Which CLI session a role run continues on its owner's daemon, and whether
-// it must run isolated whatever the workspace's mode is.
+// Which CLI session a role run continues on its owner's daemon.
 func (q *Queries) SetAgentRunContinuity(ctx context.Context, arg SetAgentRunContinuityParams) error {
-	_, err := q.db.Exec(ctx, setAgentRunContinuity,
-		arg.ContinuityScope,
-		arg.RunPrivate,
-		arg.ID,
-		arg.WorkspaceID,
-	)
+	_, err := q.db.Exec(ctx, setAgentRunContinuity, arg.ContinuityScope, arg.ID, arg.WorkspaceID)
 	return err
 }
 

@@ -32,7 +32,7 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column='grounding',rounds=2,spent_usd=1 WHERE id=$1`, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run (workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt,continuity_scope,run_private,policy_digest,session_id) VALUES ($1,$2,$3,'grounding',2,'writer','codex','Existing prompt','same-scope',true,'same-policy','same-session')`, w.ID, id, owner); err != nil {
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run (workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt,continuity_scope,policy_digest,session_id) VALUES ($1,$2,$3,'grounding',2,'writer','codex','Existing prompt','same-scope','same-policy','same-session')`, w.ID, id, owner); err != nil {
 		t.Fatal(err)
 	}
 	var scienceBefore, runBefore string

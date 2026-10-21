@@ -44,7 +44,7 @@ case "$prompt" in
       done
       printf '<script>window.reportExecuted = true</script>\n\n![inert image](https://example.com/tracker.png)\n\nend-of-real-daemon-report\n'
     } | lyk report >/dev/null || exit 1
-    d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/fake"
+    d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"
     mkdir -p "$d" && : > "$d/s.jsonl"
     echo '{"type":"result","is_error":false,"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"costUSD":0.01}}}'
     exit 0 ;;
@@ -68,7 +68,7 @@ case "$role:$member" in leader:demo-*|demo-*:)
     *)
       printf '{"text":"The %s note."}' "$role" | lyk record put note --content-stdin >/dev/null || exit 1 ;;
   esac
-  d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/fake"
+  d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"
   mkdir -p "$d" && : > "$d/s.jsonl"
   echo '{"type":"result","is_error":false,"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.01}}}'
   exit 0 ;;
@@ -92,6 +92,6 @@ printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_result","
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Read the card; the lab script stops here."}]}}'
 lyk result failed --reason "the lab script stops here" >/dev/null
 # The daemon looks for the session before resuming one.
-d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/fake"
+d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"
 mkdir -p "$d" && : > "$d/s.jsonl"
 echo '{"type":"result","is_error":false,"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.01}}}'

@@ -40,9 +40,10 @@ func (l *boardLab) api(t *testing.T, method, path string, in, out any) int {
 }
 
 func TestRunOnlyThroughADaemonHasOnlyItsTwoPowers(t *testing.T) {
-	capture := t.TempDir()
-	t.Setenv("LYK_TEST_CAPTURE", capture)
 	l := newBoardLab(t)
+	capture := filepath.Join(l.home, ".caches", "capture")
+	must(t, os.MkdirAll(capture, 0700))
+	t.Setenv("LYK_TEST_CAPTURE", capture)
 	ctx := context.Background()
 	if _, err := l.env.Owner.Exec(ctx, `INSERT INTO stage_addon (workspace_id, board_column, skill_md, mcp, updated_by)
 		VALUES ($1, 'grounding', 'Grounding roles only.', '[{"name":"lab-index","url":"http://127.0.0.1:9/mcp"}]', $2)`, l.ws, l.owner); err != nil {
@@ -70,14 +71,18 @@ func TestRunOnlyThroughADaemonHasOnlyItsTwoPowers(t *testing.T) {
 	waitFor(t, "the run to complete", func() bool {
 		var s string
 		must(t, l.env.Owner.QueryRow(ctx, `SELECT status FROM autoresearch_run WHERE id = $1`, run.ID).Scan(&s))
+		if s == "failed" {
+			var detail string
+			must(t, l.env.Owner.QueryRow(ctx, `SELECT error FROM agent_run WHERE id=(SELECT agent_run_id FROM autoresearch_run WHERE id=$1)`, run.ID).Scan(&detail))
+			t.Fatalf("autoresearch failed: %s", detail)
+		}
 		return s == "completed"
 	})
 
 	var scope, profile string
-	var private bool
-	must(t, l.env.Owner.QueryRow(ctx, `SELECT continuity_scope, run_private, profile_mode FROM agent_run WHERE id = (SELECT agent_run_id FROM autoresearch_run WHERE id = $1)`, run.ID).Scan(&scope, &private, &profile))
-	if scope != "" || private || profile != "workspace_continuity" {
-		t.Fatalf("run mode: scope=%q private=%v profile=%q", scope, private, profile)
+	must(t, l.env.Owner.QueryRow(ctx, `SELECT continuity_scope, profile_mode FROM agent_run WHERE id = (SELECT agent_run_id FROM autoresearch_run WHERE id = $1)`, run.ID).Scan(&scope, &profile))
+	if scope != "" || profile != "sandboxed" {
+		t.Fatalf("run mode: scope=%q profile=%q", scope, profile)
 	}
 	var report string
 	var items int

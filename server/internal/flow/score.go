@@ -146,7 +146,7 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 	}
 	note := "The leader declared the column done. Audit its summary and the records it cites:\n\n" +
 		evidence(records.Body[struct{ Text string }](summary).Text, cited, maxJevInput)
-	_, err = e.enqueue(ctx, tx, c, "auditor", m, a, note, true)
+	_, err = e.enqueue(ctx, tx, c, "auditor", m, a, note)
 	return false, err
 }
 

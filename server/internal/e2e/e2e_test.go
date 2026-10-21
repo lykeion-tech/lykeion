@@ -72,7 +72,7 @@ type lab struct {
 
 func newLab(t *testing.T) *lab {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HOME", filepath.Dir(t.TempDir()))
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("LYK_TOKEN", "lyk_fake_parent_secret")
@@ -261,18 +261,15 @@ func (l *lab) config(t *testing.T, token, script string) daemon.Config {
 	prelude := `#!/bin/sh
 case "$LYK_TOKEN" in ltk_*) ;; *) exit 41;; esac
 case "$LYK_CONFIG" in "$PWD"/*) ;; *) exit 42;; esac
-case "$HOME" in "$PWD"/*) ;; *) exit 43;; esac
-cat >/dev/null
+IFS= read -r prompt
 `
 	must(t, os.WriteFile(bin, []byte(prelude+script), 0700))
-	// These scenarios accept F2's private isolation; continuity has its own.
 	state := t.TempDir()
-	must(t, daemon.SavePolicy(state, l.ws, daemon.Policy{Mode: daemon.ModePrivate}))
 	return daemon.Config{Server: l.url, Token: token, StateDir: state, Home: t.TempDir(), Device: "acceptance", Harnesses: map[string]string{"claude": bin}, Slots: 3, Poll: 50 * time.Millisecond, Heartbeat: 75 * time.Millisecond, Flush: 50 * time.Millisecond}
 }
 func startDaemon(t *testing.T, cfg daemon.Config) func() {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HOME", filepath.Dir(t.TempDir()))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- daemon.Run(ctx, cfg) }()
@@ -344,7 +341,7 @@ func TestTwoDaemonsOfOneOwnerRunEachAgentRunOnce(t *testing.T) {
 	stop2()
 	l.accounting(t, card, ids)
 	for _, id := range ids {
-		if n := l.count(t, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1 AND attempt=1", id); n != 1 {
+		if n := l.count(t, `SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1 AND attempt=1 AND type='text' AND content='"evidence"'::jsonb`, id); n != 1 {
 			t.Fatalf("%s message executions=%d", id, n)
 		}
 	}
@@ -384,7 +381,6 @@ func TestDaemonProcess(t *testing.T) {
 	}
 	var c struct{ Server, Token, StateDir, Home, Bin string }
 	must(t, json.Unmarshal([]byte(raw), &c))
-	t.Setenv("HOME", t.TempDir())
 	must(t, daemon.Run(context.Background(), daemon.Config{Server: c.Server, Token: c.Token, StateDir: c.StateDir, Home: c.Home, Device: "kill-helper", Harnesses: map[string]string{"claude": c.Bin}, Slots: 1, Poll: 50 * time.Millisecond, Heartbeat: 75 * time.Millisecond, Flush: 50 * time.Millisecond}))
 }
 func startProcess(t *testing.T, c daemon.Config) *exec.Cmd {
@@ -458,9 +454,13 @@ func TestKilledDaemonsAgentRunIsRetriedThenFails(t *testing.T) {
 	api := &apiclient.Client{Server: l.url, Token: tok}
 	var old service.RuntimeRef
 	for attempt := int32(1); attempt <= 2; attempt++ {
-		pidFile := filepath.Join(t.TempDir(), "agent.pid")
+		cfg := l.config(t, tok, `mkdir -p "$npm_config_cache"
+echo "$LYK_TOKEN" > "$npm_config_cache/agent.pid.token"
+echo $$ > "$npm_config_cache/agent.pid"
+exec sleep 300
+`)
+		pidFile := filepath.Join(cfg.Home, ".caches", "npm", "agent.pid")
 		tokenFile := pidFile + ".token"
-		cfg := l.config(t, tok, fmt.Sprintf("echo \"$LYK_TOKEN\" > '%s'\necho $$ > '%s'\nexec sleep 300\n", tokenFile, pidFile))
 		cmd := startProcess(t, cfg)
 		// Cleanup uses the adapter's birth-verified ownership record.
 		t.Cleanup(func() {
@@ -470,6 +470,9 @@ func TestKilledDaemonsAgentRunIsRetriedThenFails(t *testing.T) {
 		})
 		waitFor(t, "owned helper running", func() bool {
 			r := l.run(t, id)
+			if r.Status == "failed" {
+				t.Fatalf("helper run failed: %+v", r)
+			}
 			_, err := os.Stat(pidFile)
 			return r.Status == "running" && r.Attempt == attempt && err == nil
 		})
@@ -769,34 +772,4 @@ exec sleep 300
 	if n := l.count(t, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id=$1", id); n != 0 {
 		t.Fatalf("invented usage: %d", n)
 	}
-}
-
-func TestCopiedSigninRemovedAfterParentSIGKILLAndCLIExit(t *testing.T) {
-	l := newLab(t)
-	owner, tok, _ := l.member(t, "credentials@lab.org")
-	_, ids := l.queue(t, owner, 1)
-	l.useAttemptScratch(t, ids[0])
-	signin := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(signin, ".credentials.json"), []byte("synthetic-signin"), 0600))
-	t.Setenv("CLAUDE_CONFIG_DIR", signin)
-	flag := filepath.Join(t.TempDir(), "finish")
-	cfg := l.config(t, tok, fmt.Sprintf("echo ready > \"$PWD/ready\"\nwhile [ ! -f '%s' ]; do sleep 0.05; done\n", flag))
-	cmd := startProcess(t, cfg)
-	dir := filepath.Join(cfg.Home, ids[0].String()+"-1")
-	waitFor(t, "CLI copied signin", func() bool {
-		_, a := os.Stat(filepath.Join(dir, "ready"))
-		_, b := os.Stat(filepath.Join(dir, ".cli-home", ".credentials.json"))
-		return a == nil && b == nil
-	})
-	must(t, cmd.Process.Kill())
-	err := cmd.Wait()
-	var killed *exec.ExitError
-	if !errors.As(err, &killed) {
-		t.Fatalf("hard death: %v", err)
-	}
-	must(t, os.WriteFile(flag, nil, 0600))
-	waitFor(t, "signin removed without daemon restart", func() bool {
-		_, e := os.Stat(filepath.Join(dir, ".cli-home", ".credentials.json"))
-		return errors.Is(e, os.ErrNotExist)
-	})
 }

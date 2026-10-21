@@ -37,6 +37,7 @@ import (
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -77,7 +78,7 @@ func TestUILab(t *testing.T) {
 		t.Fatal("LYK_UI_LAB must name a loopback IP and port")
 	}
 	buildLyk(t)
-	t.Setenv("HOME", t.TempDir()) // continuity runs the CLI on HOME; keep the developer's own config out
+	t.Setenv("HOME", filepath.Dir(t.TempDir())) // Keep fixture executables readable without exposing the developer's home.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("LYK_TOKEN", "")
@@ -418,8 +419,10 @@ func TestUILab(t *testing.T) {
 	// The daemon routes take only a personal lyk_ token, never a session.
 	var tok struct{ Token string }
 	must(t, (&apiclient.Client{Server: base, Token: jwt}).Do(ctx, "POST", "/api/tokens", map[string]string{"name": "lab daemon"}, &tok))
-	fake, err := filepath.Abs("testdata/ui-fake-claude.sh")
+	script, err := os.ReadFile("testdata/ui-fake-claude.sh")
 	must(t, err)
+	fake := filepath.Join(t.TempDir(), "ui-fake-claude")
+	must(t, os.WriteFile(fake, script, 0700))
 	uiAvailabilityFixture(t, mux, daemon.Config{Server: base, Token: tok.Token, Harnesses: map[string]string{"claude": fake}, Slots: 1, Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond}, sourceFixtureAuth)
 	daemonDone := make(chan error, 1)
 	daemonState, daemonHome := t.TempDir(), t.TempDir()
@@ -627,7 +630,9 @@ func TestUIFakeClaudeRunRecordsFailure(t *testing.T) {
 	if strings.TrimSpace(string(args)) != "result failed --reason the lab script stops here" {
 		t.Fatalf("result command %q", args)
 	}
-	_, err = os.Stat(filepath.Join(home, "claude/projects/fake/s.jsonl"))
+	cwd, err := os.Getwd()
+	must(t, err)
+	_, err = os.Stat(filepath.Join(agent.ClaudeProjectDir(filepath.Join(home, "claude"), cwd), "s.jsonl"))
 	must(t, err)
 }
 

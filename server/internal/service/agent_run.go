@@ -54,9 +54,6 @@ func Scopes(kind string) []string {
 // requester's runtimes claim it.
 type AutoresearchAgentRun struct {
 	Harness, Model, Prompt, Skill string
-	// RunPrivate makes the daemon run F2's private isolation whatever the
-	// workspace's mode: set when the prompt carries a webhook payload.
-	RunPrivate bool
 }
 
 // EnqueueAutoresearch adds an autoresearch agent run in the caller's transaction. The
@@ -67,7 +64,7 @@ func (s *AgentRuns) EnqueueAutoresearch(ctx context.Context, tx *store.Tx, reque
 		return db.AgentRun{}, err
 	}
 	t, err := tx.Q.EnqueueAutoresearchAgentRun(ctx, db.EnqueueAutoresearchAgentRunParams{WorkspaceID: tx.WS, RequesterID: requester,
-		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, RunPrivate: n.RunPrivate, RequestedModel: n.Model})
+		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, RequestedModel: n.Model})
 	if err != nil {
 		return t, err
 	}
@@ -112,8 +109,6 @@ type NewAgentRun struct {
 	// Model is the agent's model; empty runs the harness default.
 	Model       string
 	MaxAttempts int32
-	// RunPrivate forces the daemon's isolated mode whatever the workspace policy.
-	RunPrivate bool
 	// Agent is the agent the run is started as, when there is one.
 	Agent *uuid.UUID
 	// Assignment is what the run was asked to do, as researchers read it:
@@ -277,7 +272,7 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 	t, err := tx.Q.EnqueueAgentRun(ctx, db.EnqueueAgentRunParams{
 		WorkspaceID: tx.WS, CardID: &n.Card, ResponsibleUserID: owner, BoardColumn: n.Column, Round: n.Round, Role: n.Role,
 		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, MaxAttempts: n.MaxAttempts,
-		ContinuityScope: "card:" + n.Card.String() + "/role:" + n.Role, RunPrivate: n.RunPrivate, RequestedModel: n.Model,
+		ContinuityScope: "card:" + n.Card.String() + "/role:" + n.Role, RequestedModel: n.Model,
 		AgentID: n.Agent, Assignment: n.Assignment,
 	})
 	if err != nil {

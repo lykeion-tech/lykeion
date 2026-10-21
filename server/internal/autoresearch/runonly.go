@@ -78,10 +78,8 @@ func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch,
 	if strings.TrimSpace(instructions) != "" {
 		skill = strings.TrimSpace(instructions) + "\n\n" + skill
 	}
-	// Only a webhook run's prompt carries outside data; that run is isolated.
 	t, err := s.AgentRuns.EnqueueAutoresearch(ctx, tx, r.ActingUserID, service.AutoresearchAgentRun{Harness: harness, Model: model,
-		Prompt: prompt(ap, r, u.Email, cards), Skill: skill,
-		RunPrivate: r.Source == "webhook"})
+		Prompt: prompt(ap, r, u.Email, cards), Skill: skill})
 	if err != nil {
 		return err
 	}

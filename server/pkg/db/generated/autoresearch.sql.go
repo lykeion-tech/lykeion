@@ -440,9 +440,9 @@ func (q *Queries) DeleteTrigger(ctx context.Context, arg DeleteTriggerParams) (i
 }
 
 const enqueueAutoresearchAgentRun = `-- name: EnqueueAutoresearchAgentRun :one
-INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, run_private, requested_model)
-VALUES ($1, 'autoresearch', $2::uuid, $2::uuid, '', 0, 'autoresearch', $3, $4, $5, 2, $6, $7)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, run_private, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment
+INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, requested_model)
+VALUES ($1, 'autoresearch', $2::uuid, $2::uuid, '', 0, 'autoresearch', $3, $4, $5, 2, $6)
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment
 `
 
 type EnqueueAutoresearchAgentRunParams struct {
@@ -451,7 +451,6 @@ type EnqueueAutoresearchAgentRunParams struct {
 	Harness        string    `json:"harness"`
 	Prompt         string    `json:"prompt"`
 	Skill          string    `json:"skill"`
-	RunPrivate     bool      `json:"run_private"`
 	RequestedModel string    `json:"requested_model"`
 }
 
@@ -464,7 +463,6 @@ func (q *Queries) EnqueueAutoresearchAgentRun(ctx context.Context, arg EnqueueAu
 		arg.Harness,
 		arg.Prompt,
 		arg.Skill,
-		arg.RunPrivate,
 		arg.RequestedModel,
 	)
 	var i AgentRun
@@ -490,7 +488,6 @@ func (q *Queries) EnqueueAutoresearchAgentRun(ctx context.Context, arg EnqueueAu
 		&i.MaxAttempts,
 		&i.SessionID,
 		&i.ContinuityScope,
-		&i.RunPrivate,
 		&i.ProfileMode,
 		&i.PolicyDigest,
 		&i.Model,
