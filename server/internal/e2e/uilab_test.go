@@ -504,7 +504,7 @@ func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
 		if err != nil {
 			return err
 		}
-		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: n, OwnerID: u.ID, Title: "Transcript fixture", Question: "What remains unresolved in the recorded evidence?", FollowsFrom: []uuid.UUID{}})
+		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: ws, Number: n, OwnerID: u.ID, Title: "Transcript fixture", Question: "What remains unresolved in the recorded evidence?", FollowsFrom: []uuid.UUID{}})
 		if err != nil {
 			return err
 		}

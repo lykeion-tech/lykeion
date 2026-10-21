@@ -20,8 +20,8 @@ func seedWorkspace(t *testing.T, env *testutil.Env) (u, ws, card uuid.UUID) {
 	if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace (id, slug, name) VALUES ($1, 's', 'w')`, ws); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id)
-		VALUES ($1, 1, 't', 'q', $2) RETURNING id`, ws, u).Scan(&card); err != nil {
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id, board_column)
+		VALUES ($1, 1, 't', 'q', $2, 'grounding') RETURNING id`, ws, u).Scan(&card); err != nil {
 		t.Fatal(err)
 	}
 	return u, ws, card

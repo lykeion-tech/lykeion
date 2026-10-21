@@ -278,7 +278,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		}
 		params := db.CreateCardParams{
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
-			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to,
+			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
 		}
 		if a := in.Assignee; a != nil {
 			if err := checkAssigneeRefs(r, tx, ws, user, a); err != nil {

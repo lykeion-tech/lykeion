@@ -195,7 +195,7 @@ INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, fol
 VALUES ($1, $2, $3, $4, $5, $6, $7,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = 'backlog'), 1) - 1,
   COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'reporting'),
-  $10, $11, COALESCE(NULLIF($12::text, ''), 'backlog'), $13, $14)
+  $10, $11, $12::text, $13, $14)
 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos
 `
 

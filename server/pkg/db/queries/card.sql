@@ -10,7 +10,7 @@ INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, fol
 VALUES (@workspace_id, @number, @title, @question, @owner_id, @deadline, @follows_from,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = @workspace_id AND b.board_column = 'backlog'), 1) - 1,
   COALESCE(NULLIF(@scope_from::text, ''), 'grounding'), COALESCE(NULLIF(@scope_to::text, ''), 'reporting'),
-  sqlc.narg(assignee_type), sqlc.narg(assignee_id), COALESCE(NULLIF(@board_column::text, ''), 'backlog'), @round, sqlc.narg(research_id))
+  sqlc.narg(assignee_type), sqlc.narg(assignee_id), @board_column::text, @round, sqlc.narg(research_id))
 RETURNING *;
 
 -- name: InsertCardTeam :exec

@@ -93,8 +93,8 @@ func TestADoneStudyLetsTheNextFiringOpenOne(t *testing.T) {
 
 func TestTheFirstCardHonoursTheBoardsDuplicateCheck(t *testing.T) {
 	f := setup(t)
-	f.exec(t, `INSERT INTO card (workspace_id, number, title, question, owner_id)
-		VALUES ($1, 1, 'Someone else''s card', 'Does X raise Y?', $2)`, f.ws, f.owner)
+	f.exec(t, `INSERT INTO card (workspace_id, number, title, question, owner_id, board_column)
+		VALUES ($1, 1, 'Someone else''s card', 'Does X raise Y?', $2, 'grounding')`, f.ws, f.owner)
 	ap := f.autoresearch(t, "create_card", "X and Y", "does X raise  y?", "")
 	if r := f.fire(t, ap, Admission{}); reason(r) != "skipped/already_active" {
 		t.Fatalf("%s", reason(r))

@@ -239,7 +239,7 @@ func TestOnlyWorkingStudiesAreCandidates(t *testing.T) {
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 	working := l.study(t, "grounding", false, &a)
 	want := map[uuid.UUID]bool{working.ID: true}
-	for _, set := range []string{"state = 'done'", "state = 'blocked', block_kind = 'low_score'", "board_column = 'backlog', round = 0"} {
+	for _, set := range []string{"state = 'done'", "state = 'blocked', block_kind = 'low_score'", "board_column = 'done', round = 0"} {
 		c := l.study(t, "grounding", false, &a)
 		if _, err := l.env.Owner.Exec(context.Background(), "UPDATE card SET "+set+" WHERE id = $1", c.ID); err != nil {
 			t.Fatal(err)

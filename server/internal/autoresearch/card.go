@@ -124,7 +124,7 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 		return db.Card{}, err
 	}
 	p := db.CreateCardParams{WorkspaceID: tx.WS, Number: n, Title: title, Question: question,
-		OwnerID: run.ActingUserID, FollowsFrom: follows}
+		OwnerID: run.ActingUserID, FollowsFrom: follows, BoardColumn: "grounding"}
 	if assign {
 		p.AssigneeType, p.AssigneeID, p.ScopeFrom, p.ScopeTo = ap.AssigneeType, ap.AssigneeID, ap.ScopeFrom, ap.ScopeTo
 		p.BoardColumn, p.Round = ap.ScopeFrom, 1

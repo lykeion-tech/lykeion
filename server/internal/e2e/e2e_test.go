@@ -212,7 +212,7 @@ func (l *lab) queue(t *testing.T, owner uuid.UUID, n int) (uuid.UUID, []uuid.UUI
 		if err != nil {
 			return err
 		}
-		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: l.ws, Number: num, Title: "Acceptance", Question: "q", OwnerID: owner, FollowsFrom: []uuid.UUID{}})
+		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: l.ws, Number: num, Title: "Acceptance", Question: "q", OwnerID: owner, FollowsFrom: []uuid.UUID{}})
 		if err != nil {
 			return err
 		}
