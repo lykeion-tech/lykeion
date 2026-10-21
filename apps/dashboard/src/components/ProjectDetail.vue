@@ -146,7 +146,7 @@ function pickLead(event: Event) {
             <Icon name="tasks" :size="36" />
             <h2>No studies linked</h2>
             <p>Create a new study or assign existing ones to this project.</p>
-            <button class="button compact" @click="openComposer(undefined, undefined, project.id)">
+            <button class="button compact" @click="openComposer(undefined, project.id)">
               <Icon name="plus" :size="14" />New study
             </button>
           </div>

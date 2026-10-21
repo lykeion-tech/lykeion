@@ -159,7 +159,7 @@ describe('embedded Research study cache refresh', () => {
         second = keys.research('w', 'second'),
         foreign = keys.research('other', 'first');
       client.setQueryData(first, {
-        studies: [{ id: 'c', title: 'Before', board_column: 'backlog' }],
+        studies: [{ id: 'c', title: 'Before', board_column: 'grounding' }],
       });
       client.setQueryData(second, { studies: [] });
       client.setQueryData(foreign, { studies: [{ id: 'foreign' }] });

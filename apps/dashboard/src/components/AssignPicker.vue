@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import Icon from './Icon.vue';
-import { useAgents, useMe, useMembers, useTeams } from '../api/queries';
+import { useAgents, useMe, useTeams } from '../api/queries';
 import { matchesQuery } from '../lib/search';
 import { stages, type Picked, type Range } from '../lib/studies';
 
-// The Assign and Stages pills of a study or an Autoresearch. An assignee is a
-// member, an agent, a Team or a Team set; Teams are the ones the researcher has
-// added.
+// The Assign and Stages pills of a study or an Autoresearch. A study is worked
+// by a Team or a Team set, and the built-in Teams work every stage nobody
+// picked a Team for. An Autoresearch (agents) may instead name an agent.
+// Teams are the built-in ones and the ones the researcher has added.
 const props = defineProps<{
-  members?: boolean;
+  agents?: boolean;
   lastSet?: Picked | null;
   menuBelow?: boolean;
 }>();
@@ -17,9 +18,8 @@ const assignee = defineModel<Picked | null>({ required: true });
 const range = defineModel<Range>('range', { required: true });
 const emit = defineEmits<{ open: []; picked: [last: boolean] }>();
 
-const agents = useAgents();
+const agentList = useAgents();
 const me = useMe();
-const memberList = useMembers();
 const store = useTeams('', '');
 const root = ref<HTMLElement>();
 const menu = ref('');
@@ -27,14 +27,18 @@ const query = ref('');
 const setSlots = ref<Record<string, string>>(Object.fromEntries(stages.map((s) => [s, ''])));
 const setAgent = ref('');
 
-const addedTeams = computed(() => (store.data.value ?? []).filter((t) => t.added));
+const addedTeams = computed(() =>
+  (store.data.value ?? []).filter((t) => t.added || t.source === 'shipped'),
+);
 const stageName = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : '');
 // The owner of the study or Autoresearch is the researcher, so a private agent
 // is offered only to its owner.
 const assignableAgents = computed(() =>
-  (agents.data.value ?? []).filter(
-    (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
-  ),
+  props.agents
+    ? (agentList.data.value ?? []).filter(
+        (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
+      )
+    : [],
 );
 const teamColumns = computed(() =>
   assignee.value?.type === 'team' ? Object.keys(assignee.value.teams) : [],
@@ -42,14 +46,11 @@ const teamColumns = computed(() =>
 const isSet = computed(
   () => assignee.value?.type === 'team' && range.value.from !== range.value.to,
 );
+// An Autoresearch must name its assignee; a study left alone gets built-in Teams.
 const name = computed(() => {
   const a = assignee.value;
-  if (!a) return '';
-  if (!('teams' in a)) {
-    if (a.type === 'agent') return agents.data.value?.find((x) => x.id === a.id)?.name ?? 'Agent';
-    const m = memberList.data.value?.find((x) => x.user_id === a.id);
-    return m ? m.name || m.email : 'Member';
-  }
+  if (!a) return props.agents ? '' : 'Built-in Teams';
+  if (!('teams' in a)) return agentList.data.value?.find((x) => x.id === a.id)?.name ?? 'Agent';
   if (isSet.value) return 'Your Team set';
   return addedTeams.value.find((t) => t.id === a.teams[teamColumns.value[0]!])?.name ?? 'Team';
 });
@@ -57,11 +58,6 @@ const name = computed(() => {
 const unstaged = computed(() => teamColumns.value.includes(''));
 defineExpose({ name, unstaged, teamColumns });
 
-const matchingMembers = computed(() =>
-  props.members
-    ? (memberList.data.value ?? []).filter((m) => matchesQuery(`${m.name} ${m.email}`, query.value))
-    : [],
-);
 const matchingTeams = computed(() =>
   addedTeams.value.filter((t) => matchesQuery(t.name, query.value)),
 );
@@ -69,7 +65,9 @@ const matchingAgents = computed(() =>
   assignableAgents.value.filter((a) => matchesQuery(a.name, query.value)),
 );
 const showSets = computed(() => matchesQuery('team sets new set your last set', query.value));
-const gaps = computed(() => stages.some((s) => !setSlots.value[s]));
+// A study's stages with no Team in the set get built-in Teams; an
+// Autoresearch's get an agent.
+const gaps = computed(() => !!props.agents && stages.some((s) => !setSlots.value[s]));
 const setReady = computed(
   () => stages.some((s) => setSlots.value[s]) && (!gaps.value || !!setAgent.value),
 );
@@ -137,11 +135,11 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <button
         type="button"
         class="property-pill assignee-pill"
-        :aria-label="assignee ? `Assignee: ${name}` : 'Unassigned'"
+        :aria-label="name ? `Assignee: ${name}` : 'Unassigned'"
         @click="openMenu('assignee')"
       >
-        <span v-if="assignee" class="avatar">{{ name[0] }}</span
-        ><span>{{ assignee ? name : 'Unassigned' }}</span>
+        <span v-if="name" class="avatar">{{ name[0] }}</span
+        ><span>{{ name || 'Unassigned' }}</span>
       </button>
       <div
         v-if="menu === 'assignee'"
@@ -149,19 +147,8 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         role="menu"
       >
         <input v-model="query" placeholder="Assign to…" aria-label="Search assignees" />
-        <button v-if="members" type="button" role="menuitem" @click="assign(null)">
-          Unassigned
-        </button>
-        <p v-if="matchingMembers.length" class="menu-group">Members</p>
-        <button
-          v-for="m in matchingMembers"
-          :key="m.user_id"
-          type="button"
-          role="menuitem"
-          @click="assign({ type: 'member', id: m.user_id })"
-        >
-          <span class="avatar">{{ (m.name || m.email)[0] }}</span
-          ><span>{{ m.name || m.email }}</span>
+        <button v-if="!agents" type="button" role="menuitem" @click="assign(null)">
+          <Icon name="bot" :size="14" /><span>Built-in Teams</span>
         </button>
         <p v-if="matchingAgents.length" class="menu-group">Agents</p>
         <button
@@ -198,9 +185,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <button v-if="showSets" type="button" role="menuitem" @click="menu = 'set'">
           <Icon name="plus" :size="14" /><span>New set…</span>
         </button>
-        <p v-if="!matchingMembers.length && !matchingAgents.length && !matchingTeams.length">
-          No matches
-        </p>
+        <p v-if="!matchingAgents.length && !matchingTeams.length">No matches</p>
       </div>
       <div
         v-if="menu === 'set'"
@@ -211,7 +196,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <label v-for="s in stages" :key="s"
           >{{ stageName(s) }}
           <select v-model="setSlots[s]" :aria-label="`${stageName(s)} Team`">
-            <option value="">No Team</option>
+            <option value="">{{ agents ? 'No Team' : 'Built-in Team' }}</option>
             <option v-for="t in addedTeams" :key="t.id" :value="t.id">{{ t.name }}</option>
           </select>
         </label>
@@ -227,7 +212,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         </button>
       </div>
     </div>
-    <div v-if="assignee && assignee.type !== 'member'" class="property-anchor">
+    <div v-if="assignee || !agents" class="property-anchor">
       <button
         type="button"
         class="property-pill"
@@ -236,7 +221,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             ? 'Stages: choose a stage'
             : `Stages: ${stageName(range.from)}${range.from === range.to ? '' : ' → ' + stageName(range.to)}`
         "
-        :disabled="assignee.type === 'team' && !unstaged"
+        :disabled="assignee?.type === 'team' && !unstaged"
         @click="openMenu('stages')"
       >
         <Icon name="circle" :size="14" />{{

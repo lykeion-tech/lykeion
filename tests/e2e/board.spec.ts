@@ -3,11 +3,12 @@ import { LAB, labFixture, newStudy } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-13-artifacts';
 
-test('the board shows eight columns and a new study arriving live in its column', async ({ page }) => {
+test('the board shows seven columns and a new study arriving live in its column', async ({
+  page,
+}) => {
   await page.goto('/#/studies');
   const headers = page.locator('.board-column > header strong');
   await expect(headers).toHaveText([
-    'Backlog',
     'Grounding',
     'Hypotheses',
     'Experimentation',
@@ -57,8 +58,8 @@ test('the filter narrows the board to a column', async ({ page }) => {
   ).toBeVisible();
   await page.getByRole('button', { name: 'Filter' }).click();
   await page.getByRole('menuitem', { name: 'Column' }).click();
-  await page.getByRole('menuitemcheckbox', { name: /Backlog/ }).click();
-  await expect(page.locator('.filter-chip')).toHaveText(/Column: Backlog/);
+  await page.getByRole('menuitemcheckbox', { name: /Hypotheses/ }).click();
+  await expect(page.locator('.filter-chip')).toHaveText(/Column: Hypotheses/);
   await expect(page.locator(`[data-card="${fixture.card_id}"]`)).toHaveCount(0);
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
@@ -136,7 +137,9 @@ test('Display and filter keyboard paths retain focus', async ({ page }) => {
   await page.getByRole('button', { name: 'Filter', exact: true }).focus();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('menuitemcheckbox', { name: 'Backlog', exact: true })).toBeFocused();
+  await expect(
+    page.getByRole('menuitemcheckbox', { name: 'Grounding', exact: true }),
+  ).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menuitem', { name: 'Column', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
@@ -202,7 +205,7 @@ test('long board columns keep their header and cards inside the column while scr
   const fixture = await labFixture(page.request);
   const headers = { 'X-Workspace-ID': fixture.workspace_id };
   for (let index = 0; index < 10; index++) {
-    const response = await page.request.post('/api/cards', {
+    const response = await page.request.post(`${LAB}/lab/idle-study`, {
       headers,
       data: {
         title: `Long board study ${index}: a question that wraps across several lines`,
@@ -218,13 +221,13 @@ test('long board columns keep their header and cards inside the column while scr
   );
   await page.goto('/#/studies');
   const board = page.locator('.board-scroll');
-  const backlog = page.getByRole('region', { name: 'Backlog', exact: true });
-  await expect(backlog.locator('.task-card')).toHaveCount(10);
-  const headerBefore = await backlog.locator('header').boundingBox();
-  const last = backlog.locator('.task-card').last();
+  const column = page.getByRole('region', { name: 'Grounding', exact: true });
+  await expect(column.locator('.task-card')).toHaveCount(10);
+  const headerBefore = await column.locator('header').boundingBox();
+  const last = column.locator('.task-card').last();
   await last.scrollIntoViewIfNeeded();
   await expect(last).toBeInViewport();
-  const geometry = await backlog.evaluate((column) => {
+  const geometry = await column.evaluate((column) => {
     const board = column.closest('.board-scroll')!;
     const bounds = column.getBoundingClientRect();
     const header = column.querySelector('header')!.getBoundingClientRect();

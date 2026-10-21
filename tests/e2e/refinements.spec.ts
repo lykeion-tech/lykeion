@@ -1,18 +1,7 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
-import { labFixture } from './lab';
+import { expect, test } from '@playwright/test';
+import { LAB, labFixture } from './lab';
 
-// A Backlog study in the fixture's workspace: the only kind whose owner may
-// still reassign it.
-async function backlogStudy(request: APIRequestContext, headers: Record<string, string>) {
-  const res = await request.post('/api/cards', {
-    headers,
-    data: { question: `Backlog question ${Date.now()} ${Math.random()}?` },
-  });
-  expect(res.status()).toBe(201);
-  return (await res.json()) as { id: string };
-}
-
-test('inspector resize, real Project and assignment persist; disclosures and Runs use recorded data', async ({
+test('inspector resize and real Project persist; disclosures and Runs use recorded data', async ({
   page,
 }) => {
   const f = await labFixture(page.request);
@@ -21,7 +10,6 @@ test('inspector resize, real Project and assignment persist; disclosures and Run
   const research = await (
     await page.request.post('/api/researches', { headers, data: { name: 'Recorded Project' } })
   ).json();
-  const me = await (await page.request.get('/api/me')).json();
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(`/#/studies/${f.card_id}`);
   const inspector = page.getByRole('complementary', { name: 'Study details' });
@@ -31,25 +19,9 @@ test('inspector resize, real Project and assignment persist; disclosures and Run
   await page.keyboard.press('End');
   await expect(inspector).toHaveCSS('width', '480px');
   await inspector.getByRole('combobox', { name: 'Project', exact: true }).selectOption(research.id);
-  // A started study keeps its assignee: it is shown, not offered.
+  // A study's assignee is shown, not offered.
   await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveCount(0);
   await expect(inspector.locator('.property-row', { hasText: 'Assignee' })).toBeVisible();
-  const backlog = await backlogStudy(page.request, headers);
-  await page.goto(`/#/studies/${backlog.id}`);
-  await inspector
-    .getByRole('combobox', { name: 'Assignee', exact: true })
-    .selectOption(`member:${me.id}`);
-  await expect
-    .poll(
-      async () =>
-        (await (await page.request.get(`/api/cards/${backlog.id}`, { headers })).json())
-          .assignee_id,
-    )
-    .toBe(me.id);
-  await page.reload();
-  await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveValue(
-    `member:${me.id}`,
-  );
   await page.goto(`/#/studies/${f.card_id}`);
   await expect(inspector).toHaveCSS('width', '480px');
   await expect(inspector.getByRole('combobox', { name: 'Project', exact: true })).toHaveValue(
@@ -144,7 +116,7 @@ test('Execution log and Details independently disclose; Runs keeps recorded cost
   await expect(dialog).toContainText('Full attempt timing is unavailable.');
 });
 
-test('Project creation/edit and member/agent responsibility use canonical writes and old/current Project events', async ({
+test('Project creation/edit and agent profiles use canonical writes and old/current Project events', async ({
   page,
 }) => {
   const f = await labFixture(page.request),
@@ -182,7 +154,7 @@ test('Project creation/edit and member/agent responsibility use canonical writes
     .fill('Keep recorded sources traceable.');
   await agentDialog.getByRole('button', { name: 'Create agent', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Evidence curator', exact: true })).toBeVisible();
-  const agentId = page.url().split('/').pop()!;
+  await expect(page).toHaveURL(/#\/agents\/[0-9a-f-]+$/);
   await page.getByRole('tab', { name: 'Settings' }).click();
   await page.getByRole('textbox', { name: 'Agent description' }).fill('Curates recorded evidence');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
@@ -236,94 +208,6 @@ test('Project creation/edit and member/agent responsibility use canonical writes
   expect(
     await (await page.request.get(`/api/cards/${f.card_id}/runs`, { headers })).json(),
   ).toEqual(runsBefore);
-  // The owner's agent assigned in Backlog starts the study, which then
-  // shows its assignee instead of offering it.
-  const backlog = await backlogStudy(page.request, headers);
-  await page.goto(`/#/studies/${backlog.id}`);
-  await meta
-    .getByRole('combobox', { name: 'Assignee', exact: true })
-    .selectOption('agent:' + agentId);
-  await expect
-    .poll(async () => {
-      const c = await (await page.request.get(`/api/cards/${backlog.id}`, { headers })).json();
-      return [c.assignee_id, c.board_column];
-    })
-    .toEqual([agentId, 'grounding']);
-  await page.reload();
-  await expect(meta.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveCount(0);
-  await expect(meta.locator('.property-row', { hasText: 'Assignee' })).toContainText(
-    'Evidence curator',
-  );
-  await page.goto('/#/agents/' + agentId);
-  page.once('dialog', (d) => d.accept());
-  await page.getByRole('button', { name: 'Agent actions' }).click();
-  await page.getByRole('menuitem', { name: 'Archive agent' }).click();
-  await expect(page.getByText('Archived', { exact: true })).toBeVisible();
-  const privateAgent = await (
-    await page.request.post('/api/agents', {
-      headers,
-      data: { name: 'Owner private agent', harness: 'codex', visibility: 'private' },
-    })
-  ).json();
-  const another = await backlogStudy(page.request, headers);
-  await page.goto(`/#/studies/${another.id}`);
-  await expect(meta.getByRole('combobox', { name: 'Assignee', exact: true })).not.toContainText(
-    'Evidence curator',
-  );
-  await meta
-    .getByRole('combobox', { name: 'Assignee', exact: true })
-    .selectOption('agent:' + privateAgent.id);
-  await expect
-    .poll(
-      async () =>
-        (await (await page.request.get(`/api/cards/${another.id}`, { headers })).json())
-          .assignee_id,
-    )
-    .toBe(privateAgent.id);
-});
-
-test('held actual assignment refusal cannot cross study navigation', async ({ page }) => {
-  const f = await labFixture(page.request),
-    headers = { 'X-Workspace-ID': f.workspace_id };
-  await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
-  const a = await (
-    await page.request.post('/api/agents', {
-      headers,
-      data: { name: 'Refused agent', harness: 'codex' },
-    })
-  ).json();
-  const r = await (
-    await page.request.post('/api/researches', {
-      headers,
-      data: { name: 'Navigation destination' },
-    })
-  ).json();
-  const study = await backlogStudy(page.request, headers);
-  await page.goto(`/#/studies/${study.id}`);
-  await expect(page.getByRole('combobox', { name: 'Assignee', exact: true })).toContainText(a.name);
-  let release!: () => void, held!: () => void;
-  const gate = new Promise<void>((r) => (release = r)),
-    reached = new Promise<void>((r) => (held = r));
-  await page.route(`**/api/cards/${study.id}/properties`, async (route) => {
-    await page.request.post(`/api/agents/${a.id}/archive`, { headers });
-    const response = await route.fetch();
-    expect(response.status()).toBe(400);
-    held();
-    await gate;
-    await route.fulfill({ response });
-  });
-  await page.getByRole('combobox', { name: 'Assignee', exact: true }).selectOption('agent:' + a.id);
-  await reached;
-  await page.goto('/#/projects/' + r.id);
-  await expect(page.getByRole('heading', { name: r.name, exact: true })).toBeVisible();
-  release();
-  await page.waitForTimeout(150);
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  await page.goto(`/#/studies/${study.id}`);
-  await expect(page.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveValue('');
-  expect(
-    (await (await page.request.get(`/api/cards/${study.id}`, { headers })).json()).assignee_id,
-  ).toBeNull();
 });
 
 for (const kind of ['researches', 'agents'] as const) {
@@ -403,7 +287,7 @@ for (const kind of ['researches', 'agents'] as const) {
   });
 }
 
-test('open Project detail updates embedded linked studies after another client edits and deletes', async ({
+test('open Project detail updates embedded linked studies after another client links and deletes', async ({
   page,
 }) => {
   const ws = await (
@@ -419,12 +303,15 @@ test('open Project detail updates embedded linked studies after another client e
       })
     ).status(),
   ).toBe(204);
-  const study = await (
-    await page.request.post('/api/cards', {
-      headers,
-      data: { title: 'Before linked edit', question: 'Linked cache test ' + Date.now() + '?' },
-    })
-  ).json();
+  const idle = async (title: string) =>
+    (
+      await page.request.post(`${LAB}/lab/idle-study`, {
+        headers,
+        data: { title, question: `${title} ${Date.now()}?` },
+      })
+    ).json() as Promise<{ id: string }>;
+  const study = await idle('Before linked edit');
+  const later = await idle('Linked by another client');
   const research = await (
     await page.request.post('/api/researches', { headers, data: { name: 'Live linked studies' } })
   ).json();
@@ -443,16 +330,17 @@ test('open Project detail updates embedded linked studies after another client e
   );
   expect(
     (
-      await page.request.patch(`/api/cards/${study.id}`, {
+      await page.request.patch(`/api/cards/${later.id}/properties`, {
         headers,
-        data: { title: 'After linked edit' },
+        data: { research_id: research.id },
       })
     ).status(),
   ).toBe(200);
-  await expect(page.locator(`.project-board [data-card="${study.id}"]`)).toContainText(
-    'After linked edit',
+  await expect(page.locator(`.project-board [data-card="${later.id}"]`)).toContainText(
+    'Linked by another client',
   );
   expect((await page.request.delete(`/api/cards/${study.id}`, { headers })).status()).toBe(204);
   await expect(page.locator(`.project-board [data-card="${study.id}"]`)).toHaveCount(0);
+  expect((await page.request.delete(`/api/cards/${later.id}`, { headers })).status()).toBe(204);
   await expect(page.locator('.project-empty')).toContainText('No studies linked');
 });

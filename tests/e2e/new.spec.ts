@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LAB, labPack, labTeam, labWorkspace } from './lab';
+import { labPack, labTeam, labWorkspace } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-14-artifacts';
 const shots = 'test-results/teams-scoring';
@@ -26,7 +26,6 @@ test.describe('new study', () => {
     await page.getByRole('button', { name: 'New', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New study' });
     await expect(dialog.getByText('Beta-cell lab')).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'Backlog' })).toBeDisabled();
     await dialog
       .getByRole('textbox', { name: 'Study title' })
       .fill('Beta-cell ALDH1A3 in type 2 diabetes');
@@ -118,7 +117,7 @@ test.describe('new study', () => {
     const question = `One Team, one stage ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /^ui-hyp Built for/ }).click();
     await expect(
       dialog.getByText('ui-hyp will start working right after you create the study'),
@@ -137,21 +136,11 @@ test.describe('new study', () => {
     const ground = await labTeam(page.request, await labWorkspace(page.request));
     const hyp = await stageTeam(page, 'ui-hyp', 'hypotheses');
     const headers = { 'X-Workspace-ID': await labWorkspace(page.request) };
-    const agent = await (
-      await page.request.post('/api/agents', {
-        headers,
-        data: { name: `Gap filler ${Date.now()}`, harness: 'claude' },
-      })
-    ).json();
     const earlier = await page.request.post('/api/cards', {
       headers,
       data: {
         question: `The earlier set study ${Date.now()}`,
-        assignee: {
-          type: 'team',
-          teams: { grounding: ground, hypotheses: hyp },
-          agent_id: agent.id,
-        },
+        assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
         scope: { from: 'grounding', to: 'reporting' },
       },
     });
@@ -159,7 +148,7 @@ test.describe('new study', () => {
     const question = `The set again ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /Your last set/ }).click();
     await expect(
       dialog.getByText('Your Team set will start working right after you create the study'),
@@ -171,25 +160,15 @@ test.describe('new study', () => {
     await expect(dialog).toHaveCount(0);
     const study = await studyOf(page, question);
     expect([study.scope_from, study.scope_to]).toEqual(['grounding', 'reporting']);
-    expect(study.assignee_id).toBe(agent.id);
+    expect(study.assignee_id).toBeNull();
     expect(study.teams.grounding!.pack_id).toBe(ground);
     expect(study.teams.hypotheses!.pack_id).toBe(hyp);
   });
 
-  test('one agent with a Grounding → Hypotheses range', async ({ page }) => {
-    const headers = { 'X-Workspace-ID': await labWorkspace(page.request) };
-    const name = `Range agent ${Date.now()}`;
-    const agent = await (
-      await page.request.post('/api/agents', { headers, data: { name, harness: 'claude' } })
-    ).json();
-    const question = `An agent, two stages ${Date.now()}`;
+  test('built-in Teams with a Grounding → Hypotheses range', async ({ page }) => {
+    const question = `Built-in Teams, two stages ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
-    await dialog.getByRole('menuitem', { name }).click();
-    await expect(
-      dialog.getByText(`${name} will start working right after you create the study`),
-    ).toBeVisible();
     await dialog.getByRole('button', { name: 'Stages: Grounding → Reporting' }).click();
     await page.screenshot({ path: `${shots}/stages-pill.png` });
     await dialog.getByRole('combobox', { name: 'To stage' }).selectOption('hypotheses');
@@ -198,9 +177,14 @@ test.describe('new study', () => {
     ).toBeVisible();
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
-    const study = await studyOf(page, question);
+    const study = (await studyOf(page, question)) as Awaited<ReturnType<typeof studyOf>> & {
+      teams: Record<string, { name: string }>;
+    };
     expect([study.scope_from, study.scope_to]).toEqual(['grounding', 'hypotheses']);
-    expect(study.assignee_id).toBe(agent.id);
+    expect(study.assignee_id).toBeNull();
+    expect(Object.keys(study.teams).sort()).toEqual(['grounding', 'hypotheses']);
+    expect(study.teams.grounding!.name).toBe('Grounding Team');
+    expect(study.teams.hypotheses!.name).toBe('Hypotheses Team');
   });
 
   test('a Team without a stage label asks for its column', async ({ page }) => {
@@ -209,7 +193,7 @@ test.describe('new study', () => {
     const question = `A Team with no label ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     const item = dialog.getByRole('menuitem', { name: /^ui-nostage/ });
     await expect(item).not.toContainText('Built for');
     await item.click();
@@ -230,21 +214,11 @@ test.describe('new study', () => {
     const headers = { 'X-Workspace-ID': ws };
     const ground = await labTeam(page.request, ws);
     const hyp = await stageTeam(page, 'ui-hyp', 'hypotheses');
-    const agent = await (
-      await page.request.post('/api/agents', {
-        headers,
-        data: { name: `Gap filler ${Date.now()}`, harness: 'claude' },
-      })
-    ).json();
     const made = await page.request.post('/api/cards', {
       headers,
       data: {
         question: `A set study ${Date.now()}`,
-        assignee: {
-          type: 'team',
-          teams: { grounding: ground, hypotheses: hyp },
-          agent_id: agent.id,
-        },
+        assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
         scope: { from: 'grounding', to: 'reporting' },
       },
     });
@@ -253,7 +227,7 @@ test.describe('new study', () => {
     await dialog
       .getByRole('textbox', { name: 'Describe your study' })
       .fill(`Refused set ${Date.now()}`);
-    await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /Your last set/ }).click();
     await page.route('**/api/cards', (route) =>
       route.request().method() === 'POST'
@@ -270,21 +244,25 @@ test.describe('new study', () => {
     );
   });
 
-  test('an unassigned study says nobody will work on it', async ({ page }) => {
+  test('with no Team picked the built-in Teams start the study', async ({ page }) => {
     const dialog = await composer(page);
-    await expect(dialog.getByText("Nobody will work on this until it's assigned")).toBeVisible();
+    await expect(
+      dialog.getByText('Built-in Teams will start working right after you create the study'),
+    ).toBeVisible();
     await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveAttribute(
       'placeholder',
       'Describe what you want to do, in your own words',
     );
-    await expect(dialog.getByRole('button', { name: /^Stages:/ })).toHaveCount(0);
+    await expect(
+      dialog.getByRole('button', { name: 'Stages: Grounding → Reporting' }),
+    ).toBeEnabled();
   });
 
   test('the picker lists Teams and Team sets', async ({ page }) => {
     await labTeam(page.request, await labWorkspace(page.request));
     await stageTeam(page, 'ui-hyp', 'hypotheses');
     const dialog = await composer(page);
-    await dialog.getByRole('button', { name: 'Unassigned', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     const menu = dialog.getByRole('menu');
     await expect(menu.getByText('Teams', { exact: true })).toBeVisible();
     await expect(
@@ -303,113 +281,10 @@ test.describe('new study', () => {
     await dialog
       .getByRole('combobox', { name: 'Hypotheses Team' })
       .selectOption({ label: 'ui-hyp' });
-    await expect(
-      dialog.getByRole('combobox', { name: 'Agent for the other stages' }),
-    ).toBeVisible();
+    await expect(dialog.getByRole('combobox', { name: 'Agent for the other stages' })).toHaveCount(
+      0,
+    );
+    await expect(dialog.getByRole('button', { name: 'Use this set' })).toBeEnabled();
     await page.screenshot({ path: `${shots}/team-set-editor.png` });
   });
-
-  // The Backlog menu supplies the visible edit action. Exercise the exported
-  // composer interface directly while that menu is unavailable.
-});
-
-test('editing a held Backlog study persists fields and a later refusal retains the draft', async ({
-  page,
-}) => {
-  const created = await page.request.post('/api/workspaces', {
-    data: { name: 'Modal edit lab', slug: `modal-edit-${Date.now()}` },
-  });
-  expect(created.status()).toBe(201);
-  const ws = (await created.json()) as { id: string };
-  const headers = { 'X-Workspace-ID': ws.id };
-  expect(
-    (
-      await page.request.patch(`/api/workspaces/${ws.id}/settings`, {
-        data: { settings: { wip_limit: 1 } },
-      })
-    ).status(),
-  ).toBe(204);
-  const parentResponse = await page.request.post('/api/cards', {
-    headers,
-    data: {
-      question: 'An active parent for the edit fixture?',
-      assignee: { type: 'team', teams: { grounding: await labTeam(page.request, ws.id) } },
-    },
-  });
-  expect(parentResponse.status()).toBe(201);
-  const parent = (await parentResponse.json()) as { id: string };
-  await expect
-    .poll(
-      async () =>
-        (await (await page.request.get(`/api/cards/${parent.id}`, { headers })).json())
-          .board_column,
-    )
-    .not.toBe('backlog');
-  const response = await page.request.post('/api/cards', {
-    headers,
-    data: {
-      title: 'Original edit title',
-      question: 'Original edit question?',
-      deadline: '2026-11-12T23:59:59+01:00',
-      follows_from: [parent.id],
-    },
-  });
-  expect(response.status()).toBe(201);
-  const card = (await response.json()) as { id: string; board_column: string };
-  expect(card.board_column).toBe('backlog');
-  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws.id);
-  await page.goto('/#/studies');
-  await expect(page.locator(`[data-card="${card.id}"]`)).toBeVisible();
-  const openEdit = async () =>
-    page.evaluate(async (id) => {
-      const path = '/src/state/task-composer.ts';
-      const { useTaskComposer } = await import(path);
-      useTaskComposer().openComposer(id);
-    }, card.id);
-  await openEdit();
-  const dialog = page.getByRole('dialog', { name: 'Edit study' });
-  await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue(
-    'Original edit title',
-  );
-  await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue(
-    'Original edit question?',
-  );
-  await expect(dialog.getByRole('button', { name: '2026-11-12', exact: true })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: /Follows from: / })).toHaveCount(1);
-  await expect(dialog.getByRole('switch', { name: 'Create another' })).toHaveCount(0);
-  await dialog.getByRole('textbox', { name: 'Study title' }).fill('Edited study title');
-  await dialog
-    .getByRole('textbox', { name: 'Describe your study' })
-    .fill('Edited research question?');
-  await dialog.getByRole('button', { name: '2026-11-12', exact: true }).click();
-  await dialog.getByRole('button', { name: 'No due date', exact: true }).click();
-  await dialog.getByRole('button', { name: /Follows from: / }).click();
-  await page.screenshot({ path: `${artifacts}/edit-study.png`, fullPage: true });
-  await dialog.getByRole('button', { name: /Save study/ }).click();
-  await expect(dialog).toHaveCount(0);
-  const saved = await (await page.request.get(`/api/cards/${card.id}`, { headers })).json();
-  expect(saved).toMatchObject({
-    title: 'Edited study title',
-    question: 'Edited research question?',
-    deadline: null,
-    follows_from: [],
-  });
-  await openEdit();
-  await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue(
-    'Edited study title',
-  );
-  await dialog.getByRole('textbox', { name: 'Study title' }).fill('Retain this draft');
-  expect((await page.request.post(`${LAB}/lab/hypotheses/${card.id}`)).status()).toBe(204);
-  await dialog.getByRole('button', { name: /Save study/ }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Backlog');
-  await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue(
-    'Retain this draft',
-  );
-  await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue(
-    'Edited research question?',
-  );
-  await page.screenshot({ path: `${artifacts}/edit-refused.png`, fullPage: true });
-  expect((await (await page.request.get(`/api/cards/${card.id}`, { headers })).json()).title).toBe(
-    'Edited study title',
-  );
 });

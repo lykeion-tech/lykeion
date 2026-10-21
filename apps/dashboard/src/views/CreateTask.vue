@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Modal from '../components/Modal.vue';
 import ComposerCalendar from '../components/ComposerCalendar.vue';
@@ -9,14 +9,13 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import { useCard, useCards, useMe, useWorkspace } from '../api/queries';
 import type { Card } from '../api/types';
-import { dateKey } from '../lib/dates';
 import { matchesQuery } from '../lib/search';
 import { studyNumber, type Picked, type Range } from '../lib/studies';
 import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
 import AssignPicker from '../components/AssignPicker.vue';
 
-const props = defineProps<{ editId?: string; assignee?: Assignee; projectId?: string }>();
+const props = defineProps<{ assignee?: Assignee; projectId?: string }>();
 const emit = defineEmits<{ close: [] }>();
 const client = useQueryClient();
 const cards = useCards();
@@ -27,7 +26,6 @@ const title = ref('');
 const question = ref('');
 const deadline = ref('');
 const followsFrom = ref<string[]>([]);
-const originalFollowsFrom = ref<string[]>([]);
 const another = ref(false);
 const expanded = ref(false);
 const busy = ref(false);
@@ -50,11 +48,8 @@ const usedLastSet = ref(false);
 
 const teamColumns = computed(() => picker.value?.teamColumns ?? []);
 const assigneeName = computed(() => picker.value?.name ?? '');
-// Nobody starts on a study that is unassigned or held by a colleague.
-const hint = computed(() =>
-  !assignee.value || assignee.value.type === 'member'
-    ? "Nobody will work on this until it's assigned"
-    : `${assigneeName.value} will start working right after you create the study`,
+const hint = computed(
+  () => `${assigneeName.value} will start working right after you create the study`,
 );
 
 // The last set is the Teams of the creator's newest end-to-end study that had Teams.
@@ -75,35 +70,16 @@ const lastSet = computed(() => {
   const c = lastSetStudy.data.value;
   if (!c || !lastSetId.value) return null;
   const teams = Object.fromEntries(Object.entries(c.teams).map(([col, t]) => [col, t.pack_id]));
-  return Object.keys(teams).length
-    ? { type: 'team' as const, teams, ...(c.assignee_id ? { agent_id: c.assignee_id } : {}) }
-    : null;
+  return Object.keys(teams).length ? { type: 'team' as const, teams } : null;
 });
-const editing = computed(() => cards.data.value?.find((c) => c.id === props.editId));
-const heading = computed(() => (props.editId ? 'Edit study' : 'New study'));
 const number = (n: number) => studyNumber(workspace.data.value, { number: n });
 const byId = (id: string) => cards.data.value?.find((c) => c.id === id);
 const candidates = computed(() =>
   (cards.data.value ?? []).filter(
     (c) =>
-      c.id !== props.editId &&
       !followsFrom.value.includes(c.id) &&
       matchesQuery(`${number(c.number)} ${c.title}`, query.value),
   ),
-);
-
-// An edited study starts from what it holds now.
-watch(
-  editing,
-  (c: Card | undefined) => {
-    if (!c || title.value || question.value) return;
-    title.value = c.title;
-    question.value = c.question;
-    deadline.value = c.deadline ? dateKey(new Date(c.deadline)) : '';
-    followsFrom.value = [...c.follows_from];
-    originalFollowsFrom.value = [...c.follows_from];
-  },
-  { immediate: true },
 );
 
 async function openMenu(name: string) {
@@ -141,44 +117,24 @@ async function submit() {
   busy.value = true;
   error.value = '';
   duplicate.value = null;
+  // No Team picked sends no assignee, and the built-in Teams work the range;
+  // a single Team keeps its own stage, so the server takes no range for it.
   const fields = {
-    ...(!props.editId && props.projectId ? { research_id: props.projectId } : {}),
+    ...(props.projectId ? { research_id: props.projectId } : {}),
     title: title.value.trim(),
     question: question.value.trim(),
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
-    ...(!props.editId ||
-    JSON.stringify(followsFrom.value) !== JSON.stringify(originalFollowsFrom.value)
-      ? { follows_from: followsFrom.value }
-      : {}),
-    ...(!props.editId && assignee.value
-      ? {
-          assignee: assignee.value,
-          ...(assignee.value.type === 'team' &&
-          teamColumns.value.length === 1 &&
-          !assignee.value.agent_id
-            ? {}
-            : assignee.value.type === 'member'
-              ? {}
-              : { scope: range.value }),
-        }
-      : {}),
+    follows_from: followsFrom.value,
+    ...(assignee.value ? { assignee: assignee.value } : {}),
+    ...(assignee.value && teamColumns.value.length === 1 ? {} : { scope: range.value }),
   };
   try {
-    if (props.editId) await api('PATCH', `/api/cards/${props.editId}`, fields);
-    else {
-      await api<Card>('POST', '/api/cards', fields);
-      if (props.projectId)
-        await client.invalidateQueries({
-          queryKey: keys.research(workspaceId.value, props.projectId),
-        });
-    }
+    await api<Card>('POST', '/api/cards', fields);
+    if (props.projectId)
+      await client.invalidateQueries({
+        queryKey: keys.research(workspaceId.value, props.projectId),
+      });
     await client.invalidateQueries({ queryKey: keys.cards(workspaceId.value) });
-    if (props.editId) {
-      await client.invalidateQueries({ queryKey: keys.card(workspaceId.value, props.editId) });
-      notify('Study saved.');
-      emit('close');
-      return;
-    }
     notify('Study created.');
     if (another.value) {
       title.value = question.value = deadline.value = '';
@@ -202,7 +158,11 @@ onMounted(() => document.addEventListener('pointerdown', outside));
 onUnmounted(() => document.removeEventListener('pointerdown', outside));
 </script>
 <template>
-  <Modal :title="heading" :class="['task-composer', 'manual', { expanded }]" @close="emit('close')">
+  <Modal
+    title="New study"
+    :class="['task-composer', 'manual', { expanded }]"
+    @close="emit('close')"
+  >
     <!-- eslint-disable vue/use-v-on-exact -->
     <form
       ref="form"
@@ -215,7 +175,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <header class="composer-breadcrumb">
         <span>{{ workspace.data.value?.name }}</span>
         <Icon name="right" :size="12" />
-        <strong>{{ heading }}</strong>
+        <strong>New study</strong>
         <button
           type="button"
           class="icon-button push-right"
@@ -245,7 +205,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           required
         />
       </div>
-      <p v-if="!editId" class="composer-hint">{{ hint }}</p>
+      <p class="composer-hint">{{ hint }}</p>
       <p v-if="duplicate" class="composer-warning" role="status">
         An active study already asks this: {{ number(duplicate.number) }}
         <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>. Set it as
@@ -257,16 +217,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <div class="composer-properties">
         <div class="property-line">
           <div class="property-anchor">
-            <button
-              type="button"
-              class="property-pill"
-              disabled
-              title="New studies start in Backlog"
-            >
-              <Icon name="circle" :size="14" />Backlog
-            </button>
-          </div>
-          <div class="property-anchor">
             <button type="button" class="property-pill" @click="openMenu('deadline')">
               <Icon name="clock" :size="14" />{{ deadline || 'No deadline' }}</button
             ><ComposerCalendar
@@ -277,11 +227,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             />
           </div>
           <AssignPicker
-            v-if="!editId"
             ref="picker"
             v-model="assignee"
             v-model:range="range"
-            :members="true"
             :last-set="lastSet"
             @open="closeMenu"
             @picked="(last) => (usedLastSet = last)"
@@ -319,18 +267,12 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       </div>
       <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
       <footer class="composer-footer">
-        <label v-if="!editId" class="another-switch push-right">
+        <label class="another-switch push-right">
           <input v-model="another" type="checkbox" role="switch" aria-label="Create another" />
           <span class="switch-track" />Create another</label
         >
-        <button
-          type="submit"
-          class="button primary compact"
-          :class="{ 'push-right': editId }"
-          :disabled="blocked"
-        >
-          {{ busy ? 'Saving…' : editId ? 'Save study' : 'Create study'
-          }}<kbd>{{ isMac ? '⌘' : 'Ctrl' }}</kbd> <kbd>↵</kbd>
+        <button type="submit" class="button primary compact" :disabled="blocked">
+          {{ busy ? 'Saving…' : 'Create study' }}<kbd>{{ isMac ? '⌘' : 'Ctrl' }}</kbd> <kbd>↵</kbd>
         </button>
       </footer>
     </form>

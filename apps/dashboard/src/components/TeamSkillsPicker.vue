@@ -35,8 +35,8 @@ const changed = computed(
     <form @submit.prevent="emit('save', selected)">
       <h2>Skills for {{ member.name }}</h2>
       <p class="skill-help">
-        Choose the skills this agent can use. Saving creates a private Team version for future
-        studies. Existing studies keep their current version.
+        Choose the skills this agent can use. Saving changes the Team, so it can't be saved while a
+        study uses it.
       </p>
       <input
         v-model="search"
@@ -58,7 +58,7 @@ const changed = computed(
       <footer>
         <button type="button" class="button" :disabled="busy" @click="emit('close')">Cancel</button
         ><button class="button primary" :disabled="busy || !changed || !library.isSuccess.value">
-          {{ busy ? 'Saving…' : 'Save new version' }}
+          {{ busy ? 'Saving…' : 'Save' }}
         </button>
       </footer>
     </form>

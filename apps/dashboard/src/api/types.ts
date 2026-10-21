@@ -41,7 +41,7 @@ export interface Workspace {
 }
 
 export type Column =
-  'backlog' | 'grounding' | 'hypotheses' | 'experimentation' | 'validation' | 'reporting' | 'done';
+  'grounding' | 'hypotheses' | 'experimentation' | 'validation' | 'reporting' | 'done';
 
 // One column of a study offered to its owner for a Team rating.
 export interface ColumnRating {
@@ -80,10 +80,10 @@ export interface Card {
   role: string; // GET /api/cards only; '' when no run is queued, dispatched or running
   pack_id: string | null;
   block_kind: BlockKind;
-  scope_from: Exclude<Column, 'backlog' | 'done'>;
-  scope_to: Exclude<Column, 'backlog' | 'done'>;
+  scope_from: Exclude<Column, 'done'>;
+  scope_to: Exclude<Column, 'done'>;
   // The Team working each column of the scope, keyed by column.
-  teams: Record<string, { pack_id: string; name: string; version: string; stage: string }>;
+  teams: Record<string, { pack_id: string; name: string; stage: string }>;
   redos: number;
   off_label: string[];
 }
@@ -283,13 +283,18 @@ export interface AgentDefinition {
 export interface TeamMember {
   name: string;
   role: string;
-  agent: { harness: string; model: string; instructions: string };
+  // A fixed harness and model, or a model per harness Lykeion picks from.
+  agent: {
+    harness?: string;
+    model?: string;
+    models?: Record<string, string>;
+    instructions: string;
+  };
   skills?: string[];
   connectors?: { name: string; catalogue?: string; url?: string; command?: string[] }[];
 }
 export interface TeamManifest {
   name: string;
-  version: string;
   description: string;
   domain: string;
   stage: string;
@@ -300,12 +305,12 @@ export interface TeamManifest {
   steps: number;
 }
 
-// A Team in the store; added is whether the caller has added it.
+// A Team in the store; added is whether the caller has added it. A shipped
+// Team is built in: every workspace has it and it can't be changed.
 export interface StoreTeam {
   id: string;
   created_at: string;
   name: string;
-  version: string;
   source: 'shipped' | 'uploaded';
   domain: string;
   stage: string;
@@ -313,25 +318,9 @@ export interface StoreTeam {
   added: boolean;
 }
 
-// One Team with every version the caller may see, oldest first.
 export interface TeamDetail {
   id: string;
   manifest: TeamManifest;
-  versions: PackVersion[];
-}
-
-// One version of a Team the caller may see.
-export interface PackVersion {
-  id: string;
-  name: string;
-  version: string;
-  sha256: string;
-  source: 'shipped' | 'uploaded';
-  uploaded_by: string | null;
-  created_at: string;
-  approvals_by_me: boolean;
-  approved_at: string | null;
-  pinned_studies: number;
 }
 
 export type Autoresearch = {

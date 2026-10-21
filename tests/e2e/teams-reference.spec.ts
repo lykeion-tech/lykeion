@@ -21,7 +21,7 @@ test('Teams uses the reference table and opens the reference-size scientific cre
     'font-size',
     '12px',
   );
-  const columns = ['Name', 'Domain', 'Stage', 'Agents', 'Version', 'Availability'];
+  const columns = ['Name', 'Domain', 'Stage', 'Agents', 'Availability'];
   for (const [i, name] of columns.entries())
     await expect(table.getByRole('columnheader').nth(i)).toHaveAccessibleName(name);
   await expect(table.locator('thead')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
@@ -97,7 +97,7 @@ test('direct Team creation keeps the footer accessible on a narrow screen', asyn
   await expect(page).toHaveURL(/#\/teams$/);
 });
 
-test('Teams sorts by its latest version and shares Agents column positions and Projects heading style', async ({
+test('Teams sorts by creation and shares Agents column positions and Projects heading style', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -181,7 +181,9 @@ test('Teams sorts by its latest version and shares Agents column positions and P
   const agentPositions = await page
     .locator('.agent-head > span')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
-  expect(teamPositions).toEqual(agentPositions);
+  // The Teams table has one column fewer; Availability sits on the Agents
+  // table's last line.
+  expect(teamPositions).toEqual(agentPositions.filter((_, i) => i !== 4));
   const agentIcon = (await page.locator('.agent-cell > .avatar').first().boundingBox())!;
   expect(agentIcon.x + agentIcon.width / 2).toBe(teamIcon.x + teamIcon.width / 2);
   expect((await page.locator('.agent-cell > span:last-child').first().boundingBox())!.x).toBe(

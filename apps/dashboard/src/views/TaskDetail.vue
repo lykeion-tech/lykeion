@@ -29,7 +29,6 @@ import type { Card } from '../api/types';
 import {
   actionLabel,
   blockedActions,
-  canReassign,
   type ComposerAction,
   columnName,
   endLabel,
@@ -47,7 +46,6 @@ import {
 } from '../lib/studies';
 import { notify } from '../state/notice';
 import { usePins } from '../state/pins';
-import { useTaskComposer } from '../state/task-composer';
 import { readText, writeText } from '../storage';
 
 const props = defineProps<{ id: string; embedded?: boolean }>();
@@ -96,14 +94,6 @@ onMounted(() => {
 onUnmounted(() => studyObserver?.disconnect());
 const detailsOpen = ref(true);
 const propertyBusy = ref(false);
-const assigneeValue = computed(() =>
-  c.value?.assignee_id ? `${c.value.assignee_type}:${c.value.assignee_id}` : '',
-);
-const assignableAgents = computed(() =>
-  (agents.data.value ?? []).filter(
-    (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === c.value?.owner_id),
-  ),
-);
 async function saveProperty(body: Record<string, unknown>) {
   const scope = mutationScope();
   propertyBusy.value = true;
@@ -111,7 +101,7 @@ async function saveProperty(body: Record<string, unknown>) {
   try {
     const saved = await api<Card>('PATCH', `/api/cards/${scope.id}/properties`, body);
     if (!scope.current()) return;
-    // The PATCH answer lacks the Team's name and version, so keep them.
+    // The PATCH answer lacks the Teams' names, so keep them.
     client.setQueryData<Card>(keys.card(scope.workspace, scope.id), (old) => ({
       ...old,
       ...saved,
@@ -124,16 +114,11 @@ async function saveProperty(body: Record<string, unknown>) {
     if (scope.current()) propertyBusy.value = false;
   }
 }
-function assign(event: Event) {
-  const [type, id] = (event.target as HTMLSelectElement).value.split(':');
-  void saveProperty({ assignee_type: type || null, assignee_id: id || null });
-}
 
 const runtimes = useRuntimes();
 const workspace = useWorkspace();
 const me = useMe();
 const { pins, togglePin } = usePins();
-const { openComposer } = useTaskComposer();
 
 const c = computed(() => card.data.value);
 const creator = computed(
@@ -213,9 +198,6 @@ const placeholders: Record<ComposerAction['kind'], string> = {
   stop: 'Why the study stops.',
 };
 const blocked = computed(() => (c.value ? blockedActions(c.value, me.data.value?.id) : []));
-const reassignable = computed(() =>
-  c.value && c.value.assignee_type !== 'team' ? canReassign(c.value, me.data.value?.id) : false,
-);
 const assigneeName = computed(() => {
   const x = c.value;
   if (x?.assignee_type === 'team') {
@@ -355,12 +337,14 @@ function pin() {
           >
             <Icon name="tag" />
           </button>
-          <template v-if="c?.board_column === 'backlog'"
-            ><button class="icon-button" aria-label="Edit study" @click="openComposer(id)">
-              <Icon name="edit" /></button
-            ><button class="icon-button" aria-label="Delete study" @click="remove">
-              <Icon name="close" /></button
-          ></template>
+          <button
+            v-if="c && c.owner_id === me.data.value?.id"
+            class="icon-button"
+            aria-label="Delete study"
+            @click="remove"
+          >
+            <Icon name="close" />
+          </button>
           <button
             class="icon-button"
             :aria-pressed="showMeta"
@@ -605,8 +589,7 @@ function pin() {
         </div>
       </div>
       <div class="property-row">
-        <label v-if="reassignable" for="study-assignee">Assignee</label
-        ><small v-else>Assignee</small
+        <small>Assignee</small
         ><span class="avatar property-avatar property-icon">{{
           c.assignee_type === 'agent'
             ? (agents.data.value?.find((a) => a.id === c?.assignee_id)?.name[0] ?? 'A')
@@ -614,43 +597,7 @@ function pin() {
               ? name(c.assignee_id)[0]
               : '?'
         }}</span
-        ><span v-if="!reassignable" class="v">{{ assigneeName }}</span
-        ><select
-          v-else
-          id="study-assignee"
-          aria-label="Assignee"
-          :value="assigneeValue"
-          :disabled="propertyBusy || members.isPending.value || agents.isPending.value"
-          @change="assign"
-        >
-          <option value="">Unassigned</option>
-          <optgroup label="Members">
-            <option
-              v-for="m in members.data.value ?? []"
-              :key="m.user_id"
-              :value="'member:' + m.user_id"
-            >
-              {{ m.name || m.email }}
-            </option>
-          </optgroup>
-          <optgroup label="Agents">
-            <option v-for="a in assignableAgents" :key="a.id" :value="'agent:' + a.id">
-              {{ a.name }}
-            </option>
-          </optgroup>
-          <option
-            v-if="
-              c.assignee_type === 'agent' && !assignableAgents.some((a) => a.id === c?.assignee_id)
-            "
-            :value="assigneeValue"
-            disabled
-          >
-            {{
-              agents.data.value?.find((a) => a.id === c?.assignee_id)?.name ?? 'Unavailable agent'
-            }}
-            (archived or unavailable)
-          </option>
-        </select>
+        ><span class="v">{{ assigneeName }}</span>
       </div>
       <div class="property-row">
         <label for="study-research">Project</label

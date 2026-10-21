@@ -492,7 +492,6 @@ onUnmounted(() => {
     </main>
     <CreateTask
       v-if="composer.open"
-      :edit-id="composer.editId"
       :assignee="composer.assignee"
       :project-id="composer.projectId"
       @close="closeComposer()"

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api/client';
 import type { TeamMember } from '../api/types';
+import Modal from '../components/Modal.vue';
 import TeamSkillsPicker from '../components/TeamSkillsPicker.vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { addTeam, useTeam, useTeams } from '../api/queries';
+import { addTeam, duplicateTeam, useTeam, useTeams } from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import Icon from '../components/Icon.vue';
@@ -17,6 +18,7 @@ const router = useRouter();
 const skillMember = ref<TeamMember | null>(null);
 const skillsBusy = ref(false);
 const skillsError = ref('');
+// Saving replaces the Team in place; the server refuses while a study uses it.
 async function saveSkills(skills: string[]) {
   if (!skillMember.value || skillsBusy.value) return;
   const ownVisit = visit,
@@ -25,7 +27,7 @@ async function saveSkills(skills: string[]) {
   skillsBusy.value = true;
   skillsError.value = '';
   try {
-    const saved = await api<{ id: string }>(
+    await api(
       'POST',
       `/api/teams/${id}/skills`,
       { member: skillMember.value.name, skills },
@@ -36,12 +38,7 @@ async function saveSkills(skills: string[]) {
       client.invalidateQueries({ queryKey: keys.packs(ws) }),
       client.invalidateQueries({ queryKey: keys.agents(ws) }),
     ]);
-    if (ownVisit === visit) {
-      skillMember.value = null;
-      await router.push(`/teams/${saved.id}`);
-      await nextTick();
-      if (workspaceId.value === ws && props.id === saved.id) tab.value = 'Agents';
-    }
+    if (ownVisit === visit) skillMember.value = null;
   } catch (e) {
     if (ownVisit === visit) skillsError.value = (e as Error).message;
   } finally {
@@ -51,8 +48,36 @@ async function saveSkills(skills: string[]) {
 const detail = useTeam(() => props.id);
 const store = useTeams('', '');
 const manifest = computed(() => detail.data.value?.manifest);
-const added = computed(() => !!store.data.value?.find((t) => t.id === props.id)?.added);
-const version = computed(() => detail.data.value?.versions.find((v) => v.id === props.id));
+const row = computed(() => store.data.value?.find((t) => t.id === props.id));
+const added = computed(() => !!row.value?.added);
+// A built-in Team is in every workspace, works without Add and can't be changed.
+const builtIn = computed(() => row.value?.source === 'shipped');
+const availability = computed(() =>
+  builtIn.value ? 'Built in' : added.value ? 'Added' : 'Not added',
+);
+const copyName = ref<string | null>(null);
+const copyBusy = ref(false);
+const copyError = ref('');
+async function duplicate() {
+  const name = copyName.value?.trim();
+  if (!name || copyBusy.value) return;
+  const ownVisit = visit,
+    ws = workspaceId.value;
+  copyBusy.value = true;
+  copyError.value = '';
+  try {
+    const copy = await duplicateTeam(props.id, name);
+    await Promise.all([
+      client.invalidateQueries({ queryKey: keys.packs(ws) }),
+      client.invalidateQueries({ queryKey: keys.agents(ws) }),
+    ]);
+    if (ownVisit === visit) await router.push(`/teams/${copy.id}`);
+  } catch (e) {
+    if (ownVisit === visit) copyError.value = (e as Error).message;
+  } finally {
+    if (ownVisit === visit) copyBusy.value = false;
+  }
+}
 const people = computed(() =>
   manifest.value
     ? [
@@ -62,7 +87,7 @@ const people = computed(() =>
       ]
     : [],
 );
-const tabs = ['Overview', 'Agents', 'Scientific settings', 'Versions'] as const;
+const tabs = ['Overview', 'Agents', 'Scientific settings'] as const;
 const tab = ref<(typeof tabs)[number]>('Overview');
 const busy = ref(false),
   error = ref(''),
@@ -77,13 +102,13 @@ watch([workspaceId, () => props.id], () => {
   busy.value = false;
   error.value = '';
   created.value = null;
+  copyName.value = null;
+  copyBusy.value = false;
+  copyError.value = '';
 });
 const { openComposer } = useTaskComposer();
 const stage = (value: string) =>
   value ? value[0]!.toUpperCase() + value.slice(1) : 'A set of stages';
-const day = (at: string) =>
-  new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-const studies = (n: number) => `${n} ${n === 1 ? 'study' : 'studies'}`;
 async function add() {
   if (busy.value) return;
   const ws = workspaceId.value,
@@ -106,8 +131,8 @@ async function add() {
   }
 }
 function newStudy() {
-  if (manifest.value && added.value)
-    openComposer(undefined, { type: 'team', teams: { [manifest.value.stage]: props.id } });
+  if (manifest.value && (added.value || builtIn.value))
+    openComposer({ type: 'team', teams: { [manifest.value.stage]: props.id } });
 }
 function tabKey(event: KeyboardEvent, index: number) {
   let target: number;
@@ -140,20 +165,28 @@ function tabKey(event: KeyboardEvent, index: number) {
               <span
                 v-if="store.isSuccess.value"
                 class="agent-status"
-                :class="{ archived: !added }"
-                >{{ added ? 'Added' : 'Not added' }}</span
+                :class="{ archived: !added && !builtIn }"
+                >{{ availability }}</span
               >
             </div>
             <p v-if="manifest.description" class="agent-description">{{ manifest.description }}</p>
             <p class="agent-meta">
               <span><Icon name="circle" :size="13" />{{ manifest.domain || 'No domain' }}</span
               ><span><Icon name="network" :size="13" />{{ stage(manifest.stage) }}</span
-              ><span><Icon name="bot" :size="13" />{{ people.length }} agents</span
-              ><span>Version {{ manifest.version }}</span>
+              ><span><Icon name="bot" :size="13" />{{ people.length }} agents</span>
             </p>
           </div>
           <div class="agent-actions">
-            <button v-if="added" class="button primary" @click="newStudy">
+            <button
+              v-if="builtIn"
+              class="button"
+              @click="
+                copyError = '';
+                copyName = manifest.name + ' (copy)';
+              "
+            >
+              Duplicate this Team</button
+            ><button v-if="added || builtIn" class="button primary" @click="newStudy">
               <Icon name="plus" :size="14" />New study</button
             ><button
               v-else
@@ -230,20 +263,15 @@ function tabKey(event: KeyboardEvent, index: number) {
             <dt>Steps per column</dt>
             <dd>{{ manifest.steps || 12 }}</dd>
             <dt>Availability</dt>
-            <dd>{{ store.isSuccess.value ? (added ? 'Added' : 'Not added') : 'Loading…' }}</dd>
-          </dl>
-          <h3>Version</h3>
-          <dl>
-            <dt>Current</dt>
-            <dd>v{{ manifest.version }}</dd>
-            <template v-if="version"
+            <dd>{{ store.isSuccess.value ? availability : 'Loading…' }}</dd>
+            <template v-if="row"
               ><dt>Source</dt>
-              <dd>
-                {{ version.source === 'shipped' ? 'Shipped with Lykeion' : 'Uploaded by you' }}
-              </dd></template
+              <dd>{{ builtIn ? 'Built into Lykeion' : 'Uploaded by you' }}</dd></template
             >
           </dl>
-          <p class="team-note">Studies keep the Team version they started with.</p>
+          <p v-if="builtIn" class="team-note">
+            Built-in Teams can't be changed. Duplicate this Team to make one of your own.
+          </p>
         </aside>
       </div>
       <section
@@ -261,7 +289,7 @@ function tabKey(event: KeyboardEvent, index: number) {
             :key="person.role + person.member.name"
             :member="person.member"
             :role="person.role"
-            editable-skills
+            :editable-skills="!builtIn && store.isSuccess.value"
             @edit-skills="
               skillsError = '';
               skillMember = person.member;
@@ -296,41 +324,6 @@ function tabKey(event: KeyboardEvent, index: number) {
           </ol>
         </section>
       </section>
-      <section
-        v-else
-        id="team-panel-3"
-        class="agent-work"
-        role="tabpanel"
-        aria-labelledby="team-tab-3"
-      >
-        <h2>Versions</h2>
-        <p class="team-lede">The version history of this Team.</p>
-        <div class="team-version-scroll">
-          <table class="team-versions" :aria-label="manifest.name + ' versions'">
-            <thead>
-              <tr>
-                <th>Version</th>
-                <th>Fingerprint</th>
-                <th>Uploaded</th>
-                <th>Studies</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="v in [...(detail.data.value?.versions || [])].reverse()" :key="v.id">
-                <td>v{{ v.version }}</td>
-                <td>
-                  <code :title="v.sha256">{{ v.sha256.slice(0, 4) }}…{{ v.sha256.slice(-4) }}</code>
-                </td>
-                <td>
-                  {{ v.source === 'shipped' ? 'Shipped with Lykeion' : 'Uploaded by you' }} ·
-                  {{ day(v.created_at) }}
-                </td>
-                <td>{{ studies(v.pinned_studies) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
     </template>
     <div v-else class="agent-work">
       <RouterLink to="/teams" class="text-button">← Teams</RouterLink>
@@ -348,6 +341,27 @@ function tabKey(event: KeyboardEvent, index: number) {
       @close="skillMember = null"
       @save="saveSkills"
     />
+    <Modal
+      v-if="copyName !== null"
+      title="Duplicate this Team"
+      @close="!copyBusy && (copyName = null)"
+    >
+      <form class="team-copy" @submit.prevent="duplicate">
+        <h2>Duplicate this Team</h2>
+        <p class="team-lede">The copy is a Team of your own that you can change.</p>
+        <label
+          >Name<input v-model="copyName" aria-label="Name of the copy" :disabled="copyBusy"
+        /></label>
+        <p v-if="copyError" role="alert" class="inline-error">{{ copyError }}</p>
+        <footer>
+          <button type="button" class="button" :disabled="copyBusy" @click="copyName = null">
+            Cancel</button
+          ><button class="button primary" :disabled="copyBusy || !copyName.trim()">
+            {{ copyBusy ? 'Duplicating…' : 'Duplicate' }}
+          </button>
+        </footer>
+      </form>
+    </Modal>
   </section>
 </template>
 <style src="./agent-detail.css" />
@@ -397,28 +411,28 @@ function tabKey(event: KeyboardEvent, index: number) {
   font-size: 13px;
   line-height: 2;
 }
-.team-version-scroll {
-  overflow-x: auto;
+.team-copy {
+  padding: 24px;
 }
-.team-versions {
-  width: 100%;
-  border-collapse: collapse;
+.team-copy label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.team-copy input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
   font-size: 13px;
 }
-.team-versions th {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--muted);
-  text-align: left;
-  padding: 0 16px 12px 0;
-}
-.team-versions td {
-  padding: 16px 16px 16px 0;
-  border-top: 1px solid var(--border);
-  white-space: nowrap;
-}
-.team-versions code {
-  font-size: 12px;
+.team-copy footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
 }
 @media (max-width: 900px) {
   .team-role-cards {

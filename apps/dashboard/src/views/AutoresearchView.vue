@@ -369,7 +369,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
         </label>
         <span class="field-label">Assign <small>Works every run</small></span>
         <div class="property-line">
-          <AssignPicker ref="picker" v-model="assignee" v-model:range="range" menu-below />
+          <AssignPicker ref="picker" v-model="assignee" v-model:range="range" agents menu-below />
         </div>
         <span class="field-label">Output</span>
         <div class="choice-row">
