@@ -164,6 +164,49 @@ func TestCLISandboxDenies(t *testing.T) {
 	}
 }
 
+func TestCLISandboxClaudeTemp(t *testing.T) {
+	if err := sandbox.Check(context.Background()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	for _, readOnly := range []bool{false, true} {
+		t.Run(fmt.Sprintf("readOnly=%t", readOnly), func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			hostile := t.TempDir()
+			t.Setenv("CLAUDE_CODE_TMPDIR", hostile)
+			scratch := t.TempDir()
+			run := filepath.Join(scratch, "run")
+			must(t, os.MkdirAll(run, 0700))
+			d := &daemon{cfg: Config{Home: scratch, StateDir: t.TempDir()}}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			cmd, err := d.cliSandbox(run, nil, readOnly)(ctx, agent.CLIPaths{}, "/bin/sh", "-c", `test "$CLAUDE_CODE_TMPDIR" = "$TMPDIR" || exit 21
+root="$CLAUDE_CODE_TMPDIR/claude-$(id -u)"
+mkdir -m 700 "$root" && echo private > "$root/probe" && printf '%s' "$TMPDIR"`)
+			must(t, err)
+			cmd.Dir = run
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("vendor temp selection failed: %v: %s", err, out)
+			}
+			tmp := string(out)
+			if tmp == hostile || tmp == "" {
+				t.Fatalf("temp path not isolated: %q", tmp)
+			}
+			_, err = os.Stat(filepath.Join(tmp, fmt.Sprintf("claude-%d", os.Getuid()), "probe"))
+			must(t, err)
+			cancel()
+			deadline := time.Now().Add(time.Second)
+			for time.Now().Before(deadline) {
+				if _, err := os.Stat(tmp); os.IsNotExist(err) {
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+			t.Fatal("per-run temp survived lifecycle cleanup")
+		})
+	}
+}
+
 func TestNoClaimWithoutSandbox(t *testing.T) {
 	claims := 0
 	var heartbeat map[string]json.RawMessage

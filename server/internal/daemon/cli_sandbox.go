@@ -134,7 +134,7 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool) age
 			}
 		}
 		p.Write = append(p.Write, tmp)
-		envArgs := []string{"TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "npm_config_cache=" + filepath.Join(d.cacheDir(), "npm"), "UV_CACHE_DIR=" + filepath.Join(d.cacheDir(), "uv"), "UV_PYTHON_INSTALL_DIR=" + filepath.Join(d.cacheDir(), "uv-python"), "UV_TOOL_DIR=" + filepath.Join(d.cacheDir(), "uv-tools"), name}
+		envArgs := []string{"TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "CLAUDE_CODE_TMPDIR=" + tmp, "npm_config_cache=" + filepath.Join(d.cacheDir(), "npm"), "UV_CACHE_DIR=" + filepath.Join(d.cacheDir(), "uv"), "UV_PYTHON_INSTALL_DIR=" + filepath.Join(d.cacheDir(), "uv-python"), "UV_TOOL_DIR=" + filepath.Join(d.cacheDir(), "uv-tools"), name}
 		cmd, err := p.Command(ctx, "/usr/bin/env", append(envArgs, args...)...)
 		if err != nil {
 			cleanup()
