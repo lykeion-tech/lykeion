@@ -406,6 +406,20 @@ type TeamAgent struct {
 	AgentID     uuid.UUID `json:"agent_id"`
 }
 
+type TeamRating struct {
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      *uuid.UUID `json:"card_id"`
+	BoardColumn string     `json:"board_column"`
+	PackID      uuid.UUID  `json:"pack_id"`
+	UserID      uuid.UUID  `json:"user_id"`
+	Offered     bool       `json:"offered"`
+	DrawnAt     time.Time  `json:"drawn_at"`
+	Rating      *int16     `json:"rating"`
+	RatedAt     *time.Time `json:"rated_at"`
+	DismissedAt *time.Time `json:"dismissed_at"`
+}
+
 type User struct {
 	ID          uuid.UUID  `json:"id"`
 	Email       string     `json:"email"`
