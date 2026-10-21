@@ -50,7 +50,7 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
       return [
         keys.cards(ws),
         keys.inboxAll(ws),
-        ...own(keys.card, keys.events),
+        ...own(keys.card, keys.events, keys.ratings),
         keys.researches(ws),
         ...(researchIds.length
           ? researchIds.map((id) => keys.research(ws, id))

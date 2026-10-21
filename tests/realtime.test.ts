@@ -27,6 +27,9 @@ describe('event to query map', () => {
       has(type, keys.inboxAll('w1'));
     }
   });
+  it("a column leaving refreshes the study's Team ratings", () => {
+    has('card.steered', keys.ratings('w1', 'c1'));
+  });
   it('an uploaded or approved Team refreshes the Teams list', () => {
     for (const type of ['pack.uploaded', 'pack.approved', 'team.created'])
       has(type, ['ws', 'w1', 'packs'], null);

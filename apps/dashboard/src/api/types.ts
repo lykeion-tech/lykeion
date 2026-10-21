@@ -43,6 +43,13 @@ export interface Workspace {
 export type Column =
   'backlog' | 'grounding' | 'hypotheses' | 'experimentation' | 'validation' | 'reporting' | 'done';
 
+// One column of a study offered to its owner for a Team rating.
+export interface ColumnRating {
+  column: Column;
+  rating: number | null;
+  dismissed: boolean;
+}
+
 export interface Card {
   id: string;
   workspace_id: string;

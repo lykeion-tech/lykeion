@@ -13,6 +13,7 @@ import type {
   ResearchDetail,
   AgentRun,
   Card,
+  ColumnRating,
   Comment,
   InboxItem,
   Invitation,
@@ -93,6 +94,8 @@ function ofCard<T>(
 }
 export const useCard = (id: MaybeRefOrGetter<string>) =>
   ofCard<Card>(id, keys.card, (c) => `/api/cards/${c}`);
+export const useCardRatings = (id: MaybeRefOrGetter<string>) =>
+  ofCard<ColumnRating[]>(id, keys.ratings, (c) => `/api/cards/${c}/ratings`);
 export const useComments = (id: MaybeRefOrGetter<string>) =>
   ofCard<Comment[]>(id, keys.comments, (c) => `/api/cards/${c}/comments`);
 export const useCardEvents = (id: MaybeRefOrGetter<string>) =>

@@ -15,6 +15,7 @@ export const keys = {
   comments: (ws: string, id: string) => ['ws', ws, 'card', id, 'comments'] as const,
   events: (ws: string, id: string) => ['ws', ws, 'card', id, 'events'] as const,
   runs: (ws: string, id: string) => ['ws', ws, 'card', id, 'runs'] as const,
+  ratings: (ws: string, id: string) => ['ws', ws, 'card', id, 'ratings'] as const,
   runMessages: (ws: string, run: string, attempt: number) =>
     ['ws', ws, 'run', run, 'messages', attempt] as const,
   inboxAll: (ws: string) => ['ws', ws, 'inbox'] as const,

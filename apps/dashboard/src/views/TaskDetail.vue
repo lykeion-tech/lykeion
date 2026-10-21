@@ -5,6 +5,7 @@ import Icon from '../components/Icon.vue';
 import AgentRunCard from '../components/AgentRunCard.vue';
 import AgentRunDialog from '../components/AgentRunDialog.vue';
 import ExecutionLog from '../components/ExecutionLog.vue';
+import ColumnRating from '../components/ColumnRating.vue';
 import { usePaneResize } from '../lib/resize';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
@@ -14,6 +15,7 @@ import {
   useResearches,
   useCard,
   useCardEvents,
+  useCardRatings,
   useCards,
   useComments,
   useMe,
@@ -55,6 +57,8 @@ const card = useCard(() => props.id);
 const cards = useCards();
 const comments = useComments(() => props.id);
 const events = useCardEvents(() => props.id);
+const ratings = useCardRatings(() => props.id);
+const openRatings = computed(() => (ratings.data.value ?? []).filter((r) => !r.dismissed));
 const runs = useRuns(() => props.id);
 const members = useMembers();
 const agents = useAgents();
@@ -456,6 +460,7 @@ function pin() {
               </p>
             </details>
           </section>
+          <ColumnRating v-for="r in openRatings" :key="r.column" :card-id="id" :offer="r" />
           <section v-if="agentRuns.length" class="agent-cards" aria-label="Agents">
             <AgentRunCard
               v-for="(run, index) in agentRuns"
