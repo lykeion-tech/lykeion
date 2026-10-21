@@ -125,6 +125,21 @@ type AgentRunUsage struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+type Attachment struct {
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	UploaderID  uuid.UUID  `json:"uploader_id"`
+	CardID      *uuid.UUID `json:"card_id"`
+	Name        string     `json:"name"`
+	DiskName    string     `json:"disk_name"`
+	ContentType string     `json:"content_type"`
+	SizeBytes   int64      `json:"size_bytes"`
+	Sha256      string     `json:"sha256"`
+	BlobKey     string     `json:"blob_key"`
+	RecordKey   string     `json:"record_key"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
 type Autoresearch struct {
 	ID            uuid.UUID  `json:"id"`
 	WorkspaceID   uuid.UUID  `json:"workspace_id"`
