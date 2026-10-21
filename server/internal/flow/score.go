@@ -604,9 +604,15 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			next.Redos, next.Round = 1, c.Round+1
 			next.HandoffNote = fmt.Sprintf("Jev scored the last attempt at this column low on %s. Redo the column, and fix that first.", weak)
 		case verdict == "low":
+			if err := e.drawRating(ctx, tx, c); err != nil {
+				return err
+			}
 			next.State, next.BlockKind = "blocked", "low_score"
 			items = append(items, board.Item{Kind: "blocked", Text: blockedText(c.Number, c.BoardColumn, weak)})
 		default:
+			if err := e.drawRating(ctx, tx, c); err != nil {
+				return err
+			}
 			last := board.StageIndex(c.BoardColumn) >= board.StageIndex(c.ScopeTo)
 			if verdict == "middle" {
 				items = append(items, board.Item{Kind: "middle_score", Text: middleScoreText(c.Number, c.BoardColumn, weak, last)})

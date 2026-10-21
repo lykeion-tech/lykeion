@@ -31,6 +31,10 @@ type Engine struct {
 	Retry     func() *jev.Retry
 	Now       func() time.Time
 	Inline    bool // run kicks in the caller's goroutine; tests use it to stay deterministic
+
+	// RatingDraw says whether a finished Team column is offered for rating;
+	// nil draws one in ratingChance.
+	RatingDraw func() bool
 }
 
 // ErrPackUnavailable wraps a failure to load a card's Team.
