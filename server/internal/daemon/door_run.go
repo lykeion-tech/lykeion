@@ -254,7 +254,7 @@ func (d *Door) tmpEnv() []string {
 var secretNames = []string{"KEY", "SECRET", "TOKEN", "PASSWORD", "PASSWD", "CREDENTIAL"}
 
 // personEnv is the person's environment as code gets it: the connectors'
-// one, which holds none of the run's tokens, without what looks like a
+// one, without daemon settings or what looks like a
 // credential by its name (cloud accounts included) and without the person's
 // own Python, R, Julia and conda settings. The proxy and certificate
 // variables stay for the network; a proxy URL that carries a password
@@ -263,7 +263,7 @@ func (d *Door) personEnv() []string {
 	return slices.DeleteFunc(envs.Isolate(connectorEnv(d.Child(), nil)), func(e string) bool {
 		k, _, _ := strings.Cut(e, "=")
 		k = strings.ToUpper(k)
-		return slices.Contains([]string{"HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME"}, k) || strings.HasPrefix(k, "AWS_") || strings.HasPrefix(k, "AZURE_") ||
+		return strings.HasPrefix(k, "LYK_") || slices.Contains([]string{"HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME"}, k) || strings.HasPrefix(k, "AWS_") || strings.HasPrefix(k, "AZURE_") ||
 			slices.ContainsFunc(secretNames, func(s string) bool { return strings.Contains(k, s) })
 	})
 }

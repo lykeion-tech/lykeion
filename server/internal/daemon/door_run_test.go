@@ -27,6 +27,15 @@ import (
 	"lykeion/server/pkg/agent"
 )
 
+// The fake interpreter identifies itself by its bridge command, since daemon
+// settings must not survive the production environment filter.
+func init() {
+	if len(os.Args) == 3 && os.Args[1] == "-P" && strings.HasPrefix(filepath.Base(os.Args[2]), "lyk-bridge-") {
+		stubBridge()
+		os.Exit(0)
+	}
+}
+
 // stubBridge stands in for the session bridge: it answers each exec with the
 // session's cell count and the code, so two cells in one session read 1 and
 // 2, and "fail" answers as a cell that raised. A restart sets the count back
@@ -898,6 +907,8 @@ func TestTheBridgeIsNotWrittenThroughALink(t *testing.T) {
 // adds: the daemon's own settings and the person's Python setup never reach
 // a study step.
 func TestTheRunnerUsesTheRunsEnvironment(t *testing.T) {
+	t.Setenv("LYK_DAEMON_SETTING", "daemon-setting-sentinel")
+	t.Setenv("lyk_daemon_setting", "lowercase-setting-sentinel")
 	t.Setenv("CLAUDE_CONFIG_DIR", "/the/daemon/config")
 	t.Setenv("PYTHONHOME", "/the/persons/python")
 	l := newLykeion(t)
@@ -908,7 +919,7 @@ func TestTheRunnerUsesTheRunsEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := "\n" + string(out)
-	for _, bad := range []string{"/the/daemon/config", "/the/persons/python", "LYK_"} {
+	for _, bad := range []string{"/the/daemon/config", "/the/persons/python", "LYK_", "daemon-setting-sentinel", "lowercase-setting-sentinel"} {
 		if strings.Contains(env, bad) {
 			t.Errorf("%q reached the step", bad)
 		}
