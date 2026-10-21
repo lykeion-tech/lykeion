@@ -188,20 +188,18 @@ func chosenTeams(ctx context.Context, tx *store.Tx, ap db.Autoresearch) (map[str
 }
 
 // assigneeReady is whether the person a run acts as can still work with the
-// Autoresearch's assignee: an agent they may use, or each Team added for them.
+// Autoresearch's assignee: an agent they may use, or each chosen Team readied for them
+// (a built-in one is added on the spot, an uploaded one must already be).
 func (s *Service) assigneeReady(ctx context.Context, tx *store.Tx, ap db.Autoresearch, actor uuid.UUID) bool {
-	if _, err := s.assignedAgent(ctx, tx, ap, actor); err != nil {
-		return false
-	}
 	teams, err := tx.Q.AutoresearchTeams(ctx, db.AutoresearchTeamsParams{WorkspaceID: tx.WS, AutoresearchID: ap.ID})
 	if err != nil {
 		return false
 	}
 	for _, t := range teams {
-		have, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: t.PackID, UserID: actor})
-		if err != nil || len(have) == 0 {
+		if team.Ensure(ctx, tx, actor, t.PackID) != nil {
 			return false
 		}
 	}
-	return true
+	_, err = s.assignedAgent(ctx, tx, ap, actor)
+	return err == nil
 }

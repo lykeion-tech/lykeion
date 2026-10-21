@@ -107,6 +107,24 @@ func TestLockCountsOnlyUnfinishedColumns(t *testing.T) {
 	if c, _ := s.saveSkills(t, a, w.ID, r); c != 409 {
 		t.Fatalf("Team on an unreached column: %d", c)
 	}
+	for _, tc := range []struct {
+		set  string
+		want int
+	}{
+		{`state = 'blocked'`, 409},
+		{`ending = 'stopped'`, 200},
+		{`ending = '', board_column = 'done', state = 'done'`, 200},
+	} {
+		if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET `+tc.set+` WHERE id = $1`, c.ID); err != nil {
+			t.Fatal(err)
+		}
+		if got, e := s.saveSkills(t, a, w.ID, r); got != tc.want {
+			t.Fatalf("%s: %d %q", tc.set, got, e)
+		}
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET ending = '', board_column = 'hypotheses', state = 'working' WHERE id = $1`, c.ID); err != nil {
+		t.Fatal(err)
+	}
 	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"reporting": r2}, nil); code != 200 {
 		t.Fatalf("swap: %d", code)
 	}

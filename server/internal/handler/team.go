@@ -23,7 +23,6 @@ type storeTeam struct {
 	Name        string          `json:"name"`
 	Sha256      string          `json:"sha256"`
 	Manifest    json.RawMessage `json:"manifest"`
-	BlobKey     string          `json:"blob_key"`
 	Source      string          `json:"source"`
 	UploadedBy  *uuid.UUID      `json:"uploaded_by"`
 	CreatedAt   time.Time       `json:"created_at"`
@@ -57,7 +56,7 @@ func (h *H) listTeams(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			out = append(out, storeTeam{ID: p.ID, WorkspaceID: p.WorkspaceID, Name: p.Name, Sha256: p.Sha256,
-				Manifest: manifest, BlobKey: p.BlobKey, Source: p.Source, UploadedBy: p.UploadedBy, CreatedAt: p.CreatedAt,
+				Manifest: manifest, Source: p.Source, UploadedBy: p.UploadedBy, CreatedAt: p.CreatedAt,
 				Domain: p.Domain, Stage: p.Stage, Added: p.Added})
 		}
 		return nil

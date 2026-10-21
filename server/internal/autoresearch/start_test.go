@@ -105,6 +105,22 @@ func TestAutoresearchCardStartsAtOnce(t *testing.T) {
 			t.Fatalf("runs: %v", got)
 		}
 	})
+	t.Run("a chosen built-in Team the actor never used", func(t *testing.T) {
+		f := setup(t)
+		f.s.Engine = &flow.Engine{Store: f.s.Store, AgentRuns: f.s.AgentRuns}
+		collab := f.user(t, "c@lab.org", "member")
+		hyp := f.builtIn(t, "hypotheses")
+		ap := f.autoresearch(t, "create_card", "Weekly", "What is new?", "")
+		f.exec(t, `UPDATE autoresearch SET assignee_type = 'team', scope_to = 'hypotheses' WHERE id = $1`, ap)
+		f.exec(t, `INSERT INTO autoresearch_team (workspace_id, autoresearch_id, board_column, pack_id) VALUES ($1, $2, 'grounding', $3)`, f.ws, ap, hyp)
+		r := f.fire(t, ap, Admission{Actor: collab})
+		if r.CardID == nil {
+			t.Fatalf("run: %s", reason(r))
+		}
+		if n := f.count(t, `SELECT count(*) FROM team_agent WHERE user_id = $1 AND pack_id = $2`, collab, hyp); n == 0 {
+			t.Fatal("the actor has no agents for the chosen built-in Team")
+		}
+	})
 	t.Run("no assignee", func(t *testing.T) {
 		f := setup(t)
 		f.s.Engine = &flow.Engine{Store: f.s.Store, AgentRuns: f.s.AgentRuns}

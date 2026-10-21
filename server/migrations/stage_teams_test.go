@@ -69,6 +69,8 @@ func TestStageTeamsMigration(t *testing.T) {
 		VALUES ($1, $2, 'grounding', $3, $4, false, now())`, ws, teamStudy, v1, u)
 	exec(`INSERT INTO autoresearch_team (workspace_id, autoresearch_id, board_column, pack_id) VALUES ($1, $2, 'grounding', $3)`, ws, ar, v1)
 	exec(`INSERT INTO team_agent (workspace_id, pack_id, user_id, member, agent_id) VALUES ($1, $2, $3, 'm', $4)`, ws, v1, u, agent)
+	exec(`INSERT INTO team_agent (workspace_id, pack_id, user_id, member, agent_id) VALUES ($1, $2, $3, 'm', $4)`, ws, v2, u, agent)
+	exec(`INSERT INTO field_pack_approval (workspace_id, pack_id, approved_by) VALUES ($1, $2, $3)`, ws, v1, u)
 	exec(`UPDATE card SET pack_id = $2 WHERE id = $1`, teamStudy, v1)
 
 	exec(read("0020_stage_teams.up.sql"))
@@ -90,9 +92,15 @@ func TestStageTeamsMigration(t *testing.T) {
 	if packs != 1 || only != v2 {
 		t.Fatalf("%d packs left, newest kept %v", packs, only == v2)
 	}
+	for _, table := range []string{"team_agent", "field_pack_approval"} {
+		var n int
+		if err := env.Owner.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 1 {
+			t.Fatalf("%s rows after the merge: %d, %v", table, n, err)
+		}
+	}
 	for _, q := range []string{
 		`SELECT pack_id FROM card_team`, `SELECT pack_id FROM team_rating`, `SELECT pack_id FROM autoresearch_team`,
-		`SELECT pack_id FROM team_agent`, `SELECT pack_id FROM card WHERE id = '` + teamStudy.String() + `'`,
+		`SELECT pack_id FROM team_agent`, `SELECT pack_id FROM field_pack_approval`, `SELECT pack_id FROM card WHERE id = '` + teamStudy.String() + `'`,
 	} {
 		var got uuid.UUID
 		if err := env.Owner.QueryRow(ctx, q).Scan(&got); err != nil || got != v2 {

@@ -96,6 +96,24 @@ func versionKeys(v any, path string) []string {
 	return out
 }
 
+func hasKey(v any, key string) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, child := range x {
+			if k == key || hasKey(child, key) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if hasKey(child, key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestNoVersionInTeamResponses(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)
@@ -122,6 +140,11 @@ func TestNoVersionInTeamResponses(t *testing.T) {
 	for name, body := range map[string]any{"create": created, "list": list, "detail": detail, "study teams": card["teams"]} {
 		if keys := versionKeys(body, ""); len(keys) > 0 {
 			t.Errorf("%s returns %v", name, keys)
+		}
+	}
+	for name, body := range map[string]any{"create": created, "list": list, "detail": detail} {
+		if hasKey(body, "blob_key") {
+			t.Errorf("%s returns blob_key", name)
 		}
 	}
 	if c := s.call(t, "GET", "/api/packs?name=formteam", a, w.ID, nil, nil); c != 404 {
