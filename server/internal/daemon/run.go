@@ -10,7 +10,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -219,11 +221,22 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return err
 	})
 	defer func() { usage, err := namer.finish(); r.NamingUsage = usage; localErr = errors.Join(localErr, err) }()
+	sandboxNoted := false
+	sandboxNote := func(runErr error) error {
+		if runErr == nil || sandboxNoted {
+			return nil
+		}
+		if hint := sandboxHint(runErr.Error()); hint != "" {
+			sandboxNoted = true
+			return sink(agent.Message{Type: "status", Content: rawJSON(map[string]string{"type": "sandbox", "message": hint})})
+		}
+		return nil
+	}
 	// execute returns the launch error, or the result and the stream error.
 	execute := func() (res agent.Result, streamErr, launchErr error) {
 		sess, err := backend.Execute(runCtx, prompt, opts)
 		if err != nil {
-			return res, nil, err
+			return res, sandboxNote(err), err
 		}
 		for message := range sess.Messages {
 			if err := sink(message); err != nil {
@@ -235,12 +248,13 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		if !ok {
 			res.Err = errors.New("backend closed without a result")
 		}
+		streamErr = errors.Join(streamErr, sandboxNote(res.Err))
 		return res, streamErr, nil
 	}
 	res, streamErr, launchErr := execute()
 	if launchErr != nil {
 		fail(launchErr)
-		return d.abandonContinuity(cont)
+		return errors.Join(d.abandonContinuity(cont), streamErr)
 	}
 	// A refused resume did no model work, so one fresh session is safe.
 	if cont != nil && opts.Resume != "" && res.ResumeRefused && streamErr == nil && sinkErr == nil && runCtx.Err() == nil {
@@ -249,7 +263,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			if res, streamErr, launchErr = execute(); launchErr != nil {
 				fail(launchErr)
 				final.Err = launchErr
-				return nil
+				return streamErr
 			}
 		}
 	}
@@ -439,4 +453,28 @@ func (d *daemon) persistMessage(r Report, seq int32, m agent.Message) error {
 		return &oversizedMessageError{seq: seq, size: len(b)}
 	}
 	return d.messages.Put(r)
+}
+
+var sandboxDiagnosticPath = regexp.MustCompile(`"(/[^"\r\n]+)"|'(/[^'\r\n]+)'|(/[^\s:;'"<>]+)`)
+
+func sandboxHint(text string) string {
+	if strings.Contains(text, "Not logged in") {
+		return "The CLI couldn't read your sign-in inside Lykeion's sandbox. Sign in to the CLI on this machine, then run again."
+	}
+	if strings.Contains(text, "failed to initialize in-process app-server client") {
+		return "Codex couldn't write its state inside Lykeion's sandbox."
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.Contains(line, "Operation not permitted") {
+			continue
+		}
+		if match := sandboxDiagnosticPath.FindStringSubmatch(line); match != nil {
+			for _, path := range match[1:] {
+				if path != "" {
+					return "Lykeion's sandbox blocked " + path + ". A personal MCP server or hook that needs it won't work in Lykeion runs."
+				}
+			}
+		}
+	}
+	return ""
 }

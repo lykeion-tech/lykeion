@@ -1214,3 +1214,53 @@ func TestNoScopeFolders(t *testing.T) {
 		}
 	}
 }
+
+func TestSandboxHint(t *testing.T) {
+	for _, tc := range []struct{ name, text, want string }{
+		{"sign-in", "Not logged in · Please run /login", "The CLI couldn't read your sign-in inside Lykeion's sandbox. Sign in to the CLI on this machine, then run again."},
+		{"codex state", "failed to initialize in-process app-server client", "Codex couldn't write its state inside Lykeion's sandbox."},
+		{"path before", "cat: /Users/person/.config/cache: Operation not permitted", "Lykeion's sandbox blocked /Users/person/.config/cache. A personal MCP server or hook that needs it won't work in Lykeion runs."},
+		{"path after", "Operation not permitted: /Users/person/cache", "Lykeion's sandbox blocked /Users/person/cache. A personal MCP server or hook that needs it won't work in Lykeion runs."},
+		{"quoted path", "open '/Users/person/Library/Application Support/cache': Operation not permitted", "Lykeion's sandbox blocked /Users/person/Library/Application Support/cache. A personal MCP server or hook that needs it won't work in Lykeion runs."},
+		{"no path", "Operation not permitted", ""},
+		{"unrelated path", "/Users/person/cache opened\nOperation not permitted", ""},
+		{"unrelated", "provider temporarily unavailable", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sandboxHint(tc.text); got != tc.want {
+				t.Fatalf("sandboxHint(%q) = %q, want %q", tc.text, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSandboxHintRunStream(t *testing.T) {
+	for _, diagnostic := range []bool{true, false} {
+		t.Run(strconv.FormatBool(diagnostic), func(t *testing.T) {
+			f := fixture(t)
+			body := `#!/bin/sh
+IFS= read -r first
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Not logged in · Please run /login"}]}}'
+`
+			if diagnostic {
+				body += "echo 'Not logged in · Please run /login' >&2\nexit 1\n"
+			} else {
+				body += `echo '{"type":"result","is_error":false,"session_id":"s"}'
+`
+			}
+			must(t, os.WriteFile(f.cfg.Harnesses["claude"], []byte(body), 0700))
+			cancel, done := startDaemon(t, f.cfg)
+			wantStatus, wantNotes := "completed", 0
+			if diagnostic {
+				wantStatus, wantNotes = "failed", 1
+			}
+			waitFor(t, func() bool { return f.status(t) == wantStatus })
+			stopDaemon(t, cancel, done)
+			var count, matching int
+			must(t, f.env.Owner.QueryRow(t.Context(), "SELECT count(*), count(*) FILTER (WHERE content->>'message'=$2) FROM agent_run_message WHERE agent_run_id=$1 AND type='status' AND content->>'type'='sandbox'", f.id, "The CLI couldn't read your sign-in inside Lykeion's sandbox. Sign in to the CLI on this machine, then run again.").Scan(&count, &matching))
+			if count != wantNotes || matching != wantNotes {
+				t.Fatalf("sandbox notes=%d, matching=%d, want %d", count, matching, wantNotes)
+			}
+		})
+	}
+}
