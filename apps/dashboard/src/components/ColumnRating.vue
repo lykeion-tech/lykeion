@@ -57,6 +57,13 @@ const dismiss = () => send('POST', '/dismiss');
 </template>
 
 <style scoped>
+.column-rating h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  margin-bottom: 6px;
+}
 .rating-question {
   margin: 6px 0 8px;
 }
