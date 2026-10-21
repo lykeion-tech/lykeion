@@ -92,14 +92,14 @@ func uiTeamFixture(t *testing.T, mux *http.ServeMux, h *handler.H, issuer auth.I
 			if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
 				return err
 			}
-			versions, err := tx.Q.ListPackVersions(r.Context(), db.ListPackVersionsParams{WorkspaceID: ws, Name: m.Name, UserID: user})
+			own, err := tx.Q.ListOwnPacks(r.Context(), db.ListOwnPacksParams{WorkspaceID: ws, UserID: &user})
 			if err != nil {
 				return err
 			}
-			for _, version := range versions {
-				if version.Version == m.Version {
-					row, err = tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: version.ID})
-					return err
+			for _, p := range own {
+				if p.Name == m.Name {
+					row = p
+					return nil
 				}
 			}
 			row, err = pack.Insert(r.Context(), tx, key, parsed, &user)

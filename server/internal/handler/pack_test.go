@@ -19,18 +19,6 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-type packRow struct {
-	ID            string
-	Name          string
-	Version       string
-	Sha256        string
-	Source        string
-	UploadedBy    *string `json:"uploaded_by"`
-	ApprovalsByMe bool    `json:"approvals_by_me"`
-	ApprovedAt    *string `json:"approved_at"`
-	PinnedStudies int     `json:"pinned_studies"`
-}
-
 // shippedFS unpacks archives into one folder per pack name, the layout of
 // the embedded shipped packs.
 func shippedFS(t *testing.T, zips ...[]byte) fstest.MapFS {
@@ -72,15 +60,6 @@ func (s *server) installPackFixture(t *testing.T, tok, wsID string, z []byte, ou
 	}
 }
 
-func (s *server) versions(t *testing.T, tok, wsID, name string) []packRow {
-	t.Helper()
-	var rows []packRow
-	if c := s.call(t, "GET", "/api/packs?name="+name, tok, wsID, nil, &rows); c != 200 {
-		t.Fatalf("versions: %d", c)
-	}
-	return rows
-}
-
 // shipOne files a shipped pack the way a deployment that ships Teams would.
 func shipOne(ctx context.Context, tx *store.Tx, blobs storage.Storage, shipped fs.FS, name string) (db.FieldPack, error) {
 	z, p, err := pack.ReadShipped(shipped, name)
@@ -109,19 +88,22 @@ func TestApprovingAShippedPackIsRecordedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rows := s.versions(t, a, w.ID, "demo"); len(rows) != 1 || rows[0].ApprovalsByMe || rows[0].Source != "shipped" || rows[0].UploadedBy != nil {
-		t.Fatalf("versions before approval %+v", rows)
+	if row.Source != "shipped" || row.UploadedBy != nil {
+		t.Fatalf("shipped row %+v", row)
+	}
+	approvals := "SELECT count(*) FROM field_pack_approval WHERE pack_id = $1"
+	if n := s.count(t, approvals, row.ID); n != 0 {
+		t.Fatalf("%d approvals before approving", n)
 	}
 	for range 2 {
 		if c := s.call(t, "POST", "/api/packs/"+row.ID.String()+"/approve", a, w.ID, nil, nil); c != 200 {
 			t.Fatalf("approve: %d", c)
 		}
 	}
-	rows := s.versions(t, a, w.ID, "demo")
-	if len(rows) != 1 || !rows[0].ApprovalsByMe || rows[0].ApprovedAt == nil {
-		t.Fatalf("versions %+v", rows)
+	if n := s.count(t, approvals, row.ID); n != 1 {
+		t.Fatalf("%d approvals", n)
 	}
-	if n := s.count(t, "SELECT count(*) FROM event WHERE type = 'pack.approved' AND payload->>'pack_id' = $1", rows[0].ID); n != 1 {
+	if n := s.count(t, "SELECT count(*) FROM event WHERE type = 'pack.approved' AND payload->>'pack_id' = $1", row.ID.String()); n != 1 {
 		t.Fatalf("a repeated approval wrote %d events", n)
 	}
 }
@@ -142,7 +124,7 @@ func TestPackArchiveUploadIsRemoved(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusMethodNotAllowed {
+	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("archive upload: %d", resp.StatusCode)
 	}
 	if n := s.count(t, "SELECT count(*) FROM field_pack"); n != 0 {
@@ -160,11 +142,11 @@ func TestInstalledPrivatePackIsVisibleOnlyToItsOwner(t *testing.T) {
 	b := s.member(t, a, w.ID, "ben@lab.org", "member")
 	var up struct{ ID string }
 	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "ana-pack"}), &up)
-	if rows := s.versions(t, a, w.ID, "ana-pack"); len(rows) != 1 {
-		t.Fatalf("owner versions: %+v", rows)
+	if c := s.call(t, "GET", "/api/teams/"+up.ID, a, w.ID, nil, nil); c != 200 {
+		t.Fatalf("owner reads it: %d", c)
 	}
-	if rows := s.versions(t, b, w.ID, "ana-pack"); len(rows) != 0 {
-		t.Fatalf("colleague versions: %+v", rows)
+	if c := s.call(t, "GET", "/api/teams/"+up.ID, b, w.ID, nil, nil); c != 404 {
+		t.Fatalf("colleague reads it: %d", c)
 	}
 	if code := s.call(t, "POST", "/api/packs/"+up.ID+"/approve", b, w.ID, nil, nil); code != 404 {
 		t.Fatalf("colleague approval: %d", code)

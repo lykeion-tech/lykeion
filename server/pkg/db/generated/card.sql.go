@@ -145,7 +145,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 }
 
 const cardTeams = `-- name: CardTeams :many
-SELECT t.board_column, t.pack_id, p.name, p.version, p.stage
+SELECT t.board_column, t.pack_id, p.name, p.stage
 FROM card_team t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id
 WHERE t.workspace_id = $1 AND t.card_id = $2
 `
@@ -159,7 +159,6 @@ type CardTeamsRow struct {
 	BoardColumn string    `json:"board_column"`
 	PackID      uuid.UUID `json:"pack_id"`
 	Name        string    `json:"name"`
-	Version     string    `json:"version"`
 	Stage       string    `json:"stage"`
 }
 
@@ -176,7 +175,6 @@ func (q *Queries) CardTeams(ctx context.Context, arg CardTeamsParams) ([]CardTea
 			&i.BoardColumn,
 			&i.PackID,
 			&i.Name,
-			&i.Version,
 			&i.Stage,
 		); err != nil {
 			return nil, err

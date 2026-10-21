@@ -17,7 +17,7 @@ INSERT INTO card_team (workspace_id, card_id, board_column, pack_id)
 VALUES (@workspace_id, @card_id, @board_column, @pack_id);
 
 -- name: CardTeams :many
-SELECT t.board_column, t.pack_id, p.name, p.version, p.stage
+SELECT t.board_column, t.pack_id, p.name, p.stage
 FROM card_team t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id
 WHERE t.workspace_id = @workspace_id AND t.card_id = @card_id;
 

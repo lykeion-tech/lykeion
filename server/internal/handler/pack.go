@@ -30,7 +30,7 @@ func approve(r *http.Request, tx *store.Tx, user uuid.UUID, p db.FieldPack) erro
 	// Every member sees workspace events, and an uploaded pack is its
 	// uploader's alone, so only a shipped pack's event says which one.
 	if p.Source == "shipped" {
-		payload["sha256"], payload["version"] = p.Sha256, p.Version
+		payload["sha256"] = p.Sha256
 	}
 	return tx.Emit(r.Context(), "pack.approved", nil, store.User(user), payload)
 }
@@ -55,27 +55,9 @@ func (h *H) insertUpload(r *http.Request, tx *store.Tx, user uuid.UUID, key stri
 	}
 	row, err := pack.Insert(r.Context(), tx, key, p, &user)
 	if isUnique(err) {
-		return row, conflict("this version of the Team is already uploaded")
+		return row, conflict("you already have a Team with this name")
 	}
 	return row, err
-}
-
-// packVersions lists the versions of one pack the caller may see.
-func (h *H) packVersions(w http.ResponseWriter, r *http.Request) {
-	rows := []db.ListPackVersionsRow{}
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		var err error
-		rows, err = tx.Q.ListPackVersions(r.Context(), db.ListPackVersionsParams{WorkspaceID: ws, Name: r.URL.Query().Get("name"), UserID: user})
-		return err
-	})
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
-	if rows == nil {
-		rows = []db.ListPackVersionsRow{}
-	}
-	writeJSON(w, 200, rows)
 }
 
 // visiblePack loads the pack in the URL, as not found when the caller may not

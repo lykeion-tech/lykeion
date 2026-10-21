@@ -87,7 +87,7 @@ type StoreTeamsRow struct {
 	Added       bool            `json:"added"`
 }
 
-// The store: shipped Teams and the user's own uploads, newest version per name.
+// The store: shipped Teams and the user's own uploads.
 func (q *Queries) StoreTeams(ctx context.Context, arg StoreTeamsParams) ([]StoreTeamsRow, error) {
 	rows, err := q.db.Query(ctx, storeTeams,
 		arg.UserID,

@@ -206,10 +206,9 @@ func ensureTeam(r *http.Request, tx *store.Tx, user, pack uuid.UUID) error {
 }
 
 type cardTeamView struct {
-	PackID  uuid.UUID `json:"pack_id"`
-	Name    string    `json:"name"`
-	Version string    `json:"version"`
-	Stage   string    `json:"stage"`
+	PackID uuid.UUID `json:"pack_id"`
+	Name   string    `json:"name"`
+	Stage  string    `json:"stage"`
 }
 
 // studyView is a card with the Team of each column and the columns whose Team
@@ -227,7 +226,7 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 		return v, err
 	}
 	for _, row := range rows {
-		v.Teams[row.BoardColumn] = cardTeamView{PackID: row.PackID, Name: row.Name, Version: row.Version, Stage: row.Stage}
+		v.Teams[row.BoardColumn] = cardTeamView{PackID: row.PackID, Name: row.Name, Stage: row.Stage}
 	}
 	for _, col := range board.Stages {
 		if t, ok := v.Teams[col]; ok && t.Stage != "" && t.Stage != col {
@@ -485,8 +484,8 @@ func (h *H) getCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// The card names its Teams' versions, so a colleague who cannot see an
-	// uploaded Team still reads which ones the study runs on.
+	// The card names its Teams, so a colleague who cannot see an uploaded
+	// Team still reads which ones the study runs on.
 	var v studyView
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		c, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id})

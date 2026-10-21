@@ -164,10 +164,9 @@ type studyJSON struct {
 	ScopeTo     string   `json:"scope_to"`
 	OffLabel    []string `json:"off_label"`
 	Teams       map[string]struct {
-		PackID  string `json:"pack_id"`
-		Name    string
-		Version string
-		Stage   string
+		PackID string `json:"pack_id"`
+		Name   string
+		Stage  string
 	}
 }
 
@@ -362,12 +361,11 @@ func TestATeamCountsTheStudiesItWorks(t *testing.T) {
 			t.Fatalf("create: %d", code)
 		}
 	}
-	for team, want := range map[string]int{g: 2, r: 0} {
-		var rows []packRow
-		s.call(t, "GET", "/api/packs?name="+map[string]string{g: "g", r: "r"}[team], a, w.ID, nil, &rows)
-		if len(rows) != 1 || rows[0].PinnedStudies != want {
-			t.Fatalf("team %s: %+v, want %d studies", team, rows, want)
-		}
+	if c, e := s.saveSkills(t, a, w.ID, g); c != 409 || !strings.HasPrefix(e, "Used by 2 studies.") {
+		t.Fatalf("Team two studies use: %d %q", c, e)
+	}
+	if c, e := s.saveSkills(t, a, w.ID, r); c != 200 {
+		t.Fatalf("Team no study uses: %d %q", c, e)
 	}
 }
 
