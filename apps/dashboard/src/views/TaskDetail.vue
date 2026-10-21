@@ -8,6 +8,7 @@ import ExecutionLog from '../components/ExecutionLog.vue';
 import ColumnRating from '../components/ColumnRating.vue';
 import { usePaneResize } from '../lib/resize';
 import { api } from '../api/client';
+import { formatSize } from '../lib/attachments';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import {
@@ -121,6 +122,23 @@ const me = useMe();
 const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
+async function download(a: { id: string; name: string }) {
+  const blob = await api<Blob>(
+    'GET',
+    `/api/cards/${props.id}/attachments/${a.id}`,
+    undefined,
+    undefined,
+    {
+      response: 'blob',
+    },
+  );
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = a.name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 const creator = computed(
   () =>
     events.data.value?.find(
@@ -659,6 +677,15 @@ function pin() {
               >{{ cards.data.value?.find((x) => x.id === fid)?.title ?? 'Study' }}</RouterLink
             >
           </div>
+        </template>
+        <template v-if="c.attachments.length">
+          <small>Attached files</small>
+          <ul class="v attached-files" aria-label="Attached files">
+            <li v-for="a in c.attachments" :key="a.id">
+              <button type="button" class="text-button" @click="download(a)">{{ a.name }}</button>
+              <small>{{ formatSize(a.size_bytes) }}</small>
+            </li>
+          </ul>
         </template>
         <small>Created</small>
         <div class="v">{{ new Date(c.created_at).toLocaleString() }}</div>
@@ -1695,6 +1722,21 @@ function pin() {
 .details-body .v {
   font-size: 12px;
   margin: 0;
+}
+.attached-files {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.attached-files small {
+  margin-left: 6px;
+  color: var(--muted);
+}
+.attached-files .text-button {
+  font-size: 12px;
+  text-decoration: underline;
 }
 .details-body .v input {
   width: 70px;

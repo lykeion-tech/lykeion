@@ -376,3 +376,33 @@ export const useAnalytics = (
 // Copies a Team as a new one of the caller's own, named name.
 export const duplicateTeam = (id: string, name: string) =>
   api<{ id: string }>('POST', `/api/teams/${id}/duplicate`, { name });
+
+// Uploads one file for a study that does not exist yet. fetch reports no upload
+// progress, so this one request goes through XMLHttpRequest with the headers
+// api() sends.
+export function uploadAttachment(
+  file: File,
+  onProgress: (fraction: number) => void,
+): Promise<{ id: string; name: string; size_bytes: number }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/attachments');
+    xhr.withCredentials = true;
+    if (ws.value) xhr.setRequestHeader('X-Workspace-ID', ws.value);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onerror = () => reject(new Error('The upload failed'));
+    xhr.onload = () => {
+      let body: { error?: string } = {};
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        // A non-JSON reply falls through to the status text.
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as never);
+      else reject(new Error(body.error || xhr.statusText || `Request failed (${xhr.status})`));
+    };
+    const form = new FormData();
+    form.append('file', file);
+    xhr.send(form);
+  });
+}
