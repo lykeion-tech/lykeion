@@ -55,7 +55,7 @@ func RequestBounds(next http.Handler) http.Handler {
 		if rawBlob || callPost {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
 		}
-		if attachment {
+		if attachment || attachmentDownload(r) {
 			requestTimeout, bodyTimeout = AttachmentRequestTimeout, AttachmentBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
@@ -195,4 +195,11 @@ func workspaceMCPBrokerPost(r *http.Request) bool {
 	}
 	_, err := uuid.Parse(parts[4])
 	return err == nil
+}
+
+// attachmentDownload matches GET /api/cards/{id}/attachments/{aid}, which
+// streams a file of up to 100 MB and so gets the upload's budget.
+func attachmentDownload(r *http.Request) bool {
+	p := strings.Split(r.URL.Path, "/")
+	return r.Method == http.MethodGet && len(p) == 6 && p[1] == "api" && p[2] == "cards" && p[4] == "attachments"
 }

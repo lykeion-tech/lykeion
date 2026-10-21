@@ -8,14 +8,17 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"os"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/records"
@@ -236,6 +239,55 @@ func (h *H) uploadText(name, typ string, r io.Reader) (string, bool) {
 		return res.text, res.ok
 	case <-timer.C:
 		return "", false
+	}
+}
+
+// downloadAttachment streams one of a study's files. It runs outside the
+// buffering workspace scope so a 100 MB file never sits in memory, and it
+// checks membership and the file's study before reading the blob.
+func (h *H) downloadAttachment(w http.ResponseWriter, r *http.Request) {
+	ws, err := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+	card, err2 := uuid.Parse(chi.URLParam(r, "id"))
+	aid, err3 := uuid.Parse(chi.URLParam(r, "aid"))
+	if err != nil || err2 != nil || err3 != nil {
+		writeErr(w, 404, "not found")
+		return
+	}
+	var row db.Attachment
+	err = h.memberTx(r, ws, false, func(tx *store.Tx) error {
+		var err error
+		row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: ws, CardID: &card, ID: aid})
+		return err
+	})
+	if err != nil {
+		logoFail(w, r, err)
+		return
+	}
+	rc, err := h.Blobs.Get(r.Context(), row.BlobKey)
+	if err != nil {
+		logoFail(w, r, err)
+		return
+	}
+	defer rc.Close()
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": row.Name})
+	if disposition == "" {
+		disposition = "attachment"
+	}
+	hd := w.Header()
+	hd.Set("Content-Disposition", disposition)
+	hd.Set("Content-Type", row.ContentType)
+	hd.Set("X-Content-Type-Options", "nosniff")
+	hd.Set("Content-Length", strconv.FormatInt(row.SizeBytes, 10))
+	// A stalled client is cut at the request deadline, not left holding the
+	// file open.
+	if deadline, ok := r.Context().Deadline(); ok {
+		rcw := http.NewResponseController(w)
+		_ = rcw.SetWriteDeadline(deadline)
+		defer rcw.SetWriteDeadline(time.Time{})
+	}
+	if _, err := io.Copy(w, rc); err != nil {
+		slog.Error("attachment download failed", "attachment", aid, "err", err)
+		panic(http.ErrAbortHandler)
 	}
 }
 

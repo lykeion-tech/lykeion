@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -219,10 +222,26 @@ type studyView struct {
 	db.Card
 	Teams    map[string]cardTeamView `json:"teams"`
 	OffLabel []string                `json:"off_label"`
+	// Attachments are the files attached at creation, never their storage.
+	Attachments []attachmentView `json:"attachments"`
+}
+
+type attachmentView struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	SizeBytes   int64     `json:"size_bytes"`
+	ContentType string    `json:"content_type"`
 }
 
 func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
-	v := studyView{Card: c, Teams: map[string]cardTeamView{}, OffLabel: []string{}}
+	v := studyView{Card: c, Teams: map[string]cardTeamView{}, OffLabel: []string{}, Attachments: []attachmentView{}}
+	files, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})
+	if err != nil {
+		return v, err
+	}
+	for _, f := range files {
+		v.Attachments = append(v.Attachments, attachmentView{ID: f.ID, Name: f.Name, SizeBytes: f.SizeBytes, ContentType: f.ContentType})
+	}
 	rows, err := tx.Q.CardTeams(r.Context(), db.CardTeamsParams{WorkspaceID: c.WorkspaceID, CardID: c.ID})
 	if err != nil {
 		return v, err
@@ -699,9 +718,25 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		files, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: ws, CardID: &id})
+		if err != nil {
+			return err
+		}
 		if err := tx.Q.DeleteCard(r.Context(), db.DeleteCardParams{ID: id, WorkspaceID: ws}); err != nil {
 			return err
 		}
+		// The files go only once the delete has committed; one that fails to
+		// go is wasted space, not a reason to keep the study.
+		ctx := context.WithoutCancel(r.Context())
+		tx.AfterCommit(func() {
+			for _, f := range files {
+				for _, key := range []string{f.BlobKey, records.TextKey(f.BlobKey)} {
+					if err := h.Blobs.Delete(ctx, key); err != nil {
+						slog.Error("study file delete", "attachment", f.ID, "key", key, "err", err)
+					}
+				}
+			}
+		})
 		return tx.Emit(r.Context(), "card.deleted", nil, store.User(user), map[string]any{"card_id": id, "number": c.Number})
 	})
 	if answer(w, r, err) {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,5 +224,146 @@ func TestTheSweepSparesAnUploadLinkedAfterItWasListed(t *testing.T) {
 	}
 	if n != 1 || err != nil {
 		t.Fatalf("linked upload lost: row %d, blob err %v", n, err)
+	}
+}
+
+// download fetches one attached file with the workspace header set.
+func (s *server) download(t *testing.T, tok, wsID, cardID, attachmentID string) (*http.Response, []byte) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", s.URL+"/api/cards/"+cardID+"/attachments/"+attachmentID, nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Workspace-ID", wsID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp, body
+}
+
+type studyFilesView struct {
+	Attachments []struct {
+		ID          string
+		Name        string
+		SizeBytes   int64  `json:"size_bytes"`
+		ContentType string `json:"content_type"`
+	}
+}
+
+func TestAStudyListsAndServesItsFiles(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	csv := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
+	odd := s.uploadData(t, a, w.ID, "résumé \"x\".bin", []byte{0, 1, 2, 3})
+	var c card
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{csv, odd}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var v studyFilesView
+	if code := s.call(t, "GET", "/api/cards/"+c.ID, a, w.ID, nil, &v); code != 200 || len(v.Attachments) != 2 {
+		t.Fatalf("view: %d %+v", code, v)
+	}
+	if v.Attachments[0].ID != csv || v.Attachments[0].Name != "data.csv" || v.Attachments[0].SizeBytes != int64(len(attachedCSV)) || v.Attachments[0].ContentType != "text/csv" {
+		t.Fatalf("listed %+v", v.Attachments[0])
+	}
+	resp, body := s.download(t, a, w.ID, c.ID, csv)
+	if resp.StatusCode != 200 || string(body) != attachedCSV {
+		t.Fatalf("download %d %q", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Content-Disposition"); got != `attachment; filename=data.csv` && got != `attachment; filename="data.csv"` {
+		t.Fatalf("disposition %q", got)
+	}
+	if resp.Header.Get("Content-Type") != "text/csv" || resp.Header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("headers %v", resp.Header)
+	}
+	resp, body = s.download(t, a, w.ID, c.ID, odd)
+	disp := resp.Header.Get("Content-Disposition")
+	if resp.StatusCode != 200 || len(body) != 4 || !strings.HasPrefix(disp, "attachment;") || !strings.Contains(disp, "filename*=") || strings.ContainsAny(disp, "\r\n") {
+		t.Fatalf("odd name %d %q", resp.StatusCode, disp)
+	}
+	var plain card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "no files"}, &plain)
+	var raw map[string]json.RawMessage
+	s.call(t, "GET", "/api/cards/"+plain.ID, a, w.ID, nil, &raw)
+	if string(raw["attachments"]) != "[]" {
+		t.Fatalf("no files should be an empty list: %s", raw["attachments"])
+	}
+	if resp, _ := s.download(t, a, w.ID, plain.ID, csv); resp.StatusCode != 404 {
+		t.Fatalf("another study's file: %d", resp.StatusCode)
+	}
+}
+
+func TestAnotherWorkspaceCantSeeTheFiles(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@other.org")
+	wa, wb := s.workspace(t, a, "lab"), s.workspace(t, b, "other")
+	csv := s.uploadData(t, a, wa.ID, "data.csv", []byte(attachedCSV))
+	var c card
+	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q?", "attachment_ids": []string{csv}}, &c)
+	if code := s.call(t, "GET", "/api/cards/"+c.ID, b, wb.ID, nil, nil); code != 404 {
+		t.Fatalf("view: %d", code)
+	}
+	for _, ws := range []string{wb.ID, wa.ID} {
+		if resp, _ := s.download(t, b, ws, c.ID, csv); resp.StatusCode != 404 {
+			t.Fatalf("download under %s: %d", ws, resp.StatusCode)
+		}
+	}
+}
+
+func TestDeletingAStudyDeletesItsFiles(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	csv := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
+	pending := s.uploadData(t, a, w.ID, "keep.csv", []byte(attachedCSV))
+	var c card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{csv}}, &c)
+	key := w.ID + "/attachments/" + csv
+	has := func(k string) bool {
+		rc, err := s.H.Blobs.Get(t.Context(), k)
+		if err == nil {
+			rc.Close()
+		}
+		return err == nil
+	}
+	if !has(key) || !has(records.TextKey(key)) {
+		t.Fatal("fixture: the file and its text should be stored")
+	}
+	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, a, w.ID, nil, nil); code != 204 {
+		t.Fatalf("delete: %d", code)
+	}
+	if s.attachmentCount(t) != 1 || has(key) || has(records.TextKey(key)) {
+		t.Fatalf("rows %d, blob %v, text %v", s.attachmentCount(t), has(key), has(records.TextKey(key)))
+	}
+	if !has(w.ID + "/attachments/" + pending) {
+		t.Fatal("another upload's blob was deleted")
+	}
+}
+
+func TestADeleteThatRollsBackKeepsTheFiles(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	csv := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
+	var c card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{csv}}, &c)
+	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, b, w.ID, nil, nil); code != 403 {
+		t.Fatal("a non-owner deleted the study")
+	}
+	if rc, err := s.H.Blobs.Get(t.Context(), w.ID+"/attachments/"+csv); err != nil {
+		t.Fatalf("blob gone after a refused delete: %v", err)
+	} else {
+		rc.Close()
 	}
 }

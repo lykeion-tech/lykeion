@@ -57,7 +57,18 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		VALUES ($1, $2, $3, 'escalated', 'x') RETURNING id`, wa.ID, c.ID, s.userID(t, a)).Scan(&item); err != nil {
 		t.Fatal(err)
 	}
-	ids := map[string]string{"{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
+	var attached string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO attachment (workspace_id, uploader_id, card_id, name, content_type, size_bytes, sha256, blob_key)
+		VALUES ($1, $2, $3, 'a.txt', 'text/plain', 1, 'x', $4) RETURNING id`, wa.ID, s.userID(t, a), c.ID, wa.ID+"/attachments/probe").Scan(&attached); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.H.Blobs.Put(t.Context(), wa.ID+"/attachments/probe", strings.NewReader("x"), 1); err != nil {
+		t.Fatal(err)
+	}
+	if resp, body := s.download(t, a, wa.ID, c.ID, attached); resp.StatusCode != 200 || string(body) != "x" {
+		t.Fatalf("owner download: %d", resp.StatusCode)
+	}
+	ids := map[string]string{"{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
 	// Positive controls prove the probed resources resolve for their owner.
 	var ownRun struct {
 		ID     string
@@ -178,6 +189,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		{http.MethodGet, "/api/cards/" + c.ID + "/comments", nil},
 		{http.MethodPost, "/api/cards/" + c.ID + "/comments", map[string]string{"body": "probe"}},
 		{http.MethodGet, "/api/cards/" + c.ID + "/events", nil},
+		{http.MethodGet, "/api/cards/" + c.ID + "/attachments/" + attached, nil},
 		{http.MethodPost, "/api/inbox/" + item + "/read", nil},
 	} {
 		if code := s.call(t, route.method, route.path, b, wb.ID, route.body, nil); code != http.StatusNotFound {

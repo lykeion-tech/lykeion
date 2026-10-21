@@ -24,3 +24,6 @@ SELECT id::uuid AS id, workspace_id::uuid AS workspace_id, blob_key::text AS blo
 -- Zero rows means the upload was linked to a study after it was listed.
 -- name: DeletePendingAttachment :execrows
 DELETE FROM attachment WHERE workspace_id = @workspace_id AND id = @id AND card_id IS NULL;
+
+-- name: CardAttachment :one
+SELECT * FROM attachment WHERE workspace_id = @workspace_id AND card_id = @card_id AND id = @id;

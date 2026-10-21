@@ -12,6 +12,37 @@ import (
 	"github.com/google/uuid"
 )
 
+const cardAttachment = `-- name: CardAttachment :one
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, record_key, created_at FROM attachment WHERE workspace_id = $1 AND card_id = $2 AND id = $3
+`
+
+type CardAttachmentParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      *uuid.UUID `json:"card_id"`
+	ID          uuid.UUID  `json:"id"`
+}
+
+func (q *Queries) CardAttachment(ctx context.Context, arg CardAttachmentParams) (Attachment, error) {
+	row := q.db.QueryRow(ctx, cardAttachment, arg.WorkspaceID, arg.CardID, arg.ID)
+	var i Attachment
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.UploaderID,
+		&i.CardID,
+		&i.Name,
+		&i.DiskName,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.Sha256,
+		&i.BlobKey,
+		&i.TextSha256,
+		&i.RecordKey,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const cardAttachments = `-- name: CardAttachments :many
 SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, record_key, created_at FROM attachment WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
 `

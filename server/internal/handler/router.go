@@ -134,6 +134,7 @@ func NewRouter(h *H) http.Handler {
 		// Team creation reads selected folders and writes the pack blob before its transaction.
 		// The upload checks membership itself and streams its body to storage.
 		r.Post("/api/attachments", h.uploadAttachment)
+		r.Get("/api/cards/{id}/attachments/{aid}", h.downloadAttachment)
 		r.Post("/api/teams", h.createTeam)
 		r.Post("/api/teams/{id}/skills", h.saveTeamSkills)
 		r.Post("/api/teams/{id}/duplicate", h.duplicateTeam)

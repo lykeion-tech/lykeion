@@ -33,7 +33,13 @@ type Tx struct {
 	Q      *db.Queries
 	WS     uuid.UUID
 	events []db.Event
+	after  []func()
 }
+
+// AfterCommit runs fn once the transaction has committed, and never when it
+// rolls back. Side effects outside the database, such as deleting blobs,
+// belong here.
+func (t *Tx) AfterCommit(fn func()) { t.after = append(t.after, fn) }
 
 // Savepoint runs fn inside a savepoint of t: an error from fn undoes only
 // what fn wrote and leaves t usable. Events fn emits are dropped.
@@ -107,6 +113,9 @@ func (s *Store) run(ctx context.Context, ws uuid.UUID, settings map[string]strin
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+	for _, fn := range t.after {
+		fn()
 	}
 	if s.Publish != nil && len(t.events) > 0 {
 		s.Publish(ctx, t.events)
