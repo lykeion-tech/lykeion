@@ -483,49 +483,51 @@ onUnmounted(() => {
           <Icon name="plus" :size="14" />
         </button>
       </header>
-      <button
-        v-for="card in grouped[column.id]"
-        :key="card.id"
-        class="task-card"
-        :data-card="card.id"
-        :draggable="column.id === 'backlog' ? 'true' : undefined"
-        @dragstart="dragStart($event, card.id)"
-        @dragend="dragged = null"
-        @dragover="column.id === 'backlog' && $event.preventDefault()"
-        @drop.stop="column.id === 'backlog' ? dropOn($event, card) : undefined"
-        @contextmenu="openStudyMenu($event, card)"
-        @keydown.shift.f10="openStudyMenu($event, card)"
-        @click="open(card.id)"
-      >
-        <small class="card-id"
-          >{{ number(card) }}<span v-if="card.queued" class="chip chip-queued">queued</span
-          ><span
-            v-if="card.flag === 'escalated' || card.state === 'blocked'"
-            class="chip chip-escalated"
-            >{{ blockLabel(card.block_kind) || 'escalated' }}</span
-          ><span v-if="column.id === 'blocked'" class="chip">{{
-            columnName(card.board_column)
-          }}</span></small
-        ><span>{{ card.title }}</span>
-        <div class="card-metadata">
-          <span v-if="display.properties.includes('Role')"
-            ><Icon :name="card.role ? 'bot' : 'users'" :size="12" />{{
-              card.role ? roleLabel(card.role) : ownerName(card.owner_id)
+      <div class="board-cards">
+        <button
+          v-for="card in grouped[column.id]"
+          :key="card.id"
+          class="task-card"
+          :data-card="card.id"
+          :draggable="column.id === 'backlog' ? 'true' : undefined"
+          @dragstart="dragStart($event, card.id)"
+          @dragend="dragged = null"
+          @dragover="column.id === 'backlog' && $event.preventDefault()"
+          @drop.stop="column.id === 'backlog' ? dropOn($event, card) : undefined"
+          @contextmenu="openStudyMenu($event, card)"
+          @keydown.shift.f10="openStudyMenu($event, card)"
+          @click="open(card.id)"
+        >
+          <small class="card-id"
+            >{{ number(card) }}<span v-if="card.queued" class="chip chip-queued">queued</span
+            ><span
+              v-if="card.flag === 'escalated' || card.state === 'blocked'"
+              class="chip chip-escalated"
+              >{{ blockLabel(card.block_kind) || 'escalated' }}</span
+            ><span v-if="column.id === 'blocked'" class="chip">{{
+              columnName(card.board_column)
+            }}</span></small
+          ><span>{{ card.title }}</span>
+          <div class="card-metadata">
+            <span v-if="display.properties.includes('Role')"
+              ><Icon :name="card.role ? 'bot' : 'users'" :size="12" />{{
+                card.role ? roleLabel(card.role) : ownerName(card.owner_id)
+              }}</span
+            ><span
+              v-if="stateLabel(card) && column.id !== 'blocked'"
+              class="chip"
+              :class="'chip-' + card.state"
+              >{{ stateLabel(card) }}</span
+            ><span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{
+              endLabel(card)
             }}</span
-          ><span
-            v-if="stateLabel(card) && column.id !== 'blocked'"
-            class="chip"
-            :class="'chip-' + card.state"
-            >{{ stateLabel(card) }}</span
-          ><span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{
-            endLabel(card)
-          }}</span
-          ><span v-if="display.properties.includes('Updated')" class="push-right"
-            >Updated {{ timeAgo(card.updated_at) }}</span
-          >
-        </div>
-      </button>
-      <p v-if="!grouped[column.id].length" class="column-empty">No studies</p>
+            ><span v-if="display.properties.includes('Updated')" class="push-right"
+              >Updated {{ timeAgo(card.updated_at) }}</span
+            >
+          </div>
+        </button>
+        <p v-if="!grouped[column.id].length" class="column-empty">No studies</p>
+      </div>
     </section>
   </div>
   <div v-else-if="cards.data.value" class="study-list">
@@ -1278,6 +1280,26 @@ onUnmounted(() => {
 .working-control:hover .working-tooltip,
 .working-control:focus-within .working-tooltip {
   display: block;
+}
+.board-scroll {
+  overflow-y: hidden;
+}
+.board-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.board-column > header {
+  flex-shrink: 0;
+}
+.board-cards {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.board-cards::-webkit-scrollbar {
+  display: none;
 }
 .board-column.stage-backlog {
   background: color-mix(in srgb, var(--stage-grounding-bg) 55%, var(--surface));

@@ -196,3 +196,55 @@ test('initial cards refusal shows a local retry and cached studies survive a ref
   await expect(failure).toHaveCount(0);
 });
 
+test('long board columns keep their header and cards inside the column while scrolling', async ({
+  page,
+}) => {
+  const fixture = await labFixture(page.request);
+  const headers = { 'X-Workspace-ID': fixture.workspace_id };
+  for (let index = 0; index < 10; index++) {
+    const response = await page.request.post('/api/cards', {
+      headers,
+      data: {
+        title: `Long board study ${index}: a question that wraps across several lines`,
+        question: `Board scrolling regression ${fixture.workspace_id} ${index}`,
+      },
+    });
+    expect(response.status()).toBe(201);
+  }
+  await page.setViewportSize({ width: 1000, height: 600 });
+  await page.addInitScript(
+    (id) => localStorage.setItem('lykeion.workspace', id),
+    fixture.workspace_id,
+  );
+  await page.goto('/#/studies');
+  const board = page.locator('.board-scroll');
+  const backlog = page.getByRole('region', { name: 'Backlog', exact: true });
+  await expect(backlog.locator('.task-card')).toHaveCount(10);
+  const headerBefore = await backlog.locator('header').boundingBox();
+  const last = backlog.locator('.task-card').last();
+  await last.scrollIntoViewIfNeeded();
+  await expect(last).toBeInViewport();
+  const geometry = await backlog.evaluate((column) => {
+    const board = column.closest('.board-scroll')!;
+    const bounds = column.getBoundingClientRect();
+    const header = column.querySelector('header')!.getBoundingClientRect();
+    const last = column.querySelector('.task-card:last-of-type')!.getBoundingClientRect();
+    return {
+      boardTop: board.getBoundingClientRect().top,
+      headerTop: header.top,
+      columnBottom: bounds.bottom,
+      lastBottom: last.bottom,
+      boardClientHeight: board.clientHeight,
+      boardScrollHeight: board.scrollHeight,
+    };
+  });
+  expect(geometry.headerTop).toBeCloseTo(headerBefore!.y, 0);
+  expect(geometry.headerTop).toBeGreaterThanOrEqual(geometry.boardTop);
+  expect(geometry.lastBottom).toBeLessThanOrEqual(geometry.columnBottom);
+  expect(geometry.boardScrollHeight).toBeLessThanOrEqual(geometry.boardClientHeight + 1);
+  const done = page.getByRole('region', { name: 'Done', exact: true });
+  await done.scrollIntoViewIfNeeded();
+  await expect(done).toBeInViewport();
+  expect(await board.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+  await expect(done.locator('header')).toBeInViewport();
+});
