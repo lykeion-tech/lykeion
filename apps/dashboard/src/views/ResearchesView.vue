@@ -217,6 +217,7 @@ async function save() {
         </button></Teleport
       >
       <table
+        v-if="list.data.value?.length"
         class="directory-data-table directory-aligned-table projects-table"
         aria-label="Projects"
       >

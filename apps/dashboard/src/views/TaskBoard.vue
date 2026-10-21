@@ -472,7 +472,9 @@ onUnmounted(() => {
       @drop="column.id === 'backlog' && dropAtEnd($event)"
     >
       <header>
-        <span class="stage-dot" /><strong>{{ column.name }}</strong
+        <span v-if="column.id === 'blocked'" class="blocked-stage-icon" aria-hidden="true">❌</span>
+        <span v-else-if="column.id === 'done'" class="done-stage-icon" aria-hidden="true">✅</span>
+        <span v-else class="stage-dot" /><strong>{{ column.name }}</strong
         ><span>{{ grouped[column.id].length }}</span
         ><button
           v-if="column.id === 'backlog'"

@@ -54,7 +54,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
     <p v-if="teams.error.value" class="inline-error" role="alert">
       {{ teams.error.value.message }}
     </p>
-    <div class="agent-toolbar team-toolbar">
+    <div v-if="everything.data.value?.length" class="agent-toolbar team-toolbar">
       <label class="agent-search"
         ><Icon name="search" :size="14" /><input
           v-model="search"
@@ -110,7 +110,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
         <Icon :name="newestFirst ? 'down' : 'up'" :size="13" />Last updated
       </button>
     </div>
-    <div class="team-table-scroll">
+    <div v-if="everything.data.value?.length" class="team-table-scroll">
       <table class="directory-data-table directory-aligned-table team-table" aria-label="Teams">
         <thead>
           <tr>

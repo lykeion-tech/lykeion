@@ -71,8 +71,7 @@ watch(
         catalogue.refetch();
         custom.refetch();
       "
-      ><h3 v-if="scientific.length">Scientific databases</h3>
-      <p v-if="scientific.length" class="section-note">Available to agents in this workspace.</p>
+    >
       <div v-for="c in scientific" :key="'catalogue:' + c.name" class="connector-entry">
         <button
           class="connector-row"
@@ -83,7 +82,6 @@ watch(
           <div>
             <strong>{{ c.name }}</strong>
             <p>{{ c.purpose }}</p>
-            <small>{{ c.domain }} · {{ c.tier }} · {{ c.enabled ? 'Available' : c.reason }}</small>
           </div>
         </button>
         <AvailabilitySwitch
@@ -129,15 +127,16 @@ watch(
 <style scoped>
 .heading {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   margin: 0 0 14px;
   min-height: 32px;
 }
 .heading h2 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
+  line-height: 28px;
   margin: 0;
 }
 .heading .button {

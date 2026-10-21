@@ -29,9 +29,45 @@ import {
   repositoryUrl,
   validCreateFields,
 } from '../apps/dashboard/src/lib/settings';
-import { matchesQuery } from '../apps/dashboard/src/lib/search';
+import { matchesQuery, paletteEntries, rankPaletteEntries } from '../apps/dashboard/src/lib/search';
 import { environmentView } from '../apps/dashboard/src/lib/environment';
-import type { AgentRun, Runtime, StudyRecord } from '../apps/dashboard/src/api/types';
+import type {
+  AgentRun,
+  Card,
+  Research,
+  Runtime,
+  StudyRecord,
+} from '../apps/dashboard/src/api/types';
+
+describe('workspace search palette', () => {
+  const researches = [{ id: 'r1', name: 'Metabolism', updated_at: '2026-10-21' }] as Research[];
+  const studies = [
+    { id: 's1', title: 'Standalone study', number: 1, research_id: null },
+    { id: 's2', title: 'Nested study', number: 2, research_id: 'r1' },
+    { id: 's3', title: 'Other study', number: 3, research_id: 'missing' },
+  ] as Card[];
+  it('shows researches and every study on opening, including standalone studies', () => {
+    const entries = paletteEntries(researches, studies, 'LAB');
+    expect(rankPaletteEntries(entries, '').map((entry) => entry.path)).toEqual([
+      '/projects/r1',
+      '/studies/s1',
+      '/studies/s2',
+      '/studies/s3',
+    ]);
+    expect(entries.find((entry) => entry.path === '/studies/s2')?.research).toBe('Metabolism');
+    expect(entries.find((entry) => entry.path === '/studies/s1')?.research).toBeUndefined();
+  });
+  it('ranks case-insensitive code and title matches and supports subsequences', () => {
+    const entries = paletteEntries(researches, studies, 'LAB');
+    expect(rankPaletteEntries(entries, 'lab-2').map((entry) => entry.path)).toEqual([
+      '/studies/s2',
+    ]);
+    expect(rankPaletteEntries(entries, 'nstds').map((entry) => entry.path)).toEqual([
+      '/studies/s2',
+    ]);
+    expect(rankPaletteEntries(entries, 'unfindable')).toEqual([]);
+  });
+});
 
 // A zone with daylight saving, so calendar arithmetic crosses real 23- and 25-hour days.
 beforeAll(() => {

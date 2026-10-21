@@ -2,7 +2,6 @@
 import { computed, ref, watch } from 'vue';
 import { workspaceId } from '../../../api/session';
 import { useSkillLibrary } from '../../../api/library';
-import { useMe, useMembers } from '../../../api/queries';
 import { matchesQuery } from '../../../lib/search';
 import Icon from '../../Icon.vue';
 import AvailabilitySwitch from './AvailabilitySwitch.vue';
@@ -12,8 +11,6 @@ import CapabilityList from './CapabilityList.vue';
 import SkillDialog from './SkillDialog.vue';
 import AddSkillDialog from './AddSkillDialog.vue';
 const library = useSkillLibrary();
-const me = useMe();
-const members = useMembers();
 const query = ref(''),
   selected = ref(''),
   adding = ref(false),
@@ -40,11 +37,6 @@ function created(id: string) {
   editing.value = true;
   selected.value = id;
   showDetail.value = true;
-}
-function author(id: string | null) {
-  if (id === me.data.value?.id) return 'Added by you';
-  const member = members.data.value?.find((m) => m.user_id === id);
-  return member ? `Added by ${member.name || member.email}` : 'Workspace import';
 }
 </script>
 <template>
@@ -75,11 +67,7 @@ function author(id: string | null) {
           "
         >
           <strong>{{ s.name }}</strong
-          ><span>{{ s.description }}</span
-          ><small
-            >{{ s.origin === 'bundled' ? 'K-Dense · Read-only' : author(s.created_by)
-            }}<template v-if="s.contains_scripts"> · Contains scripts</template></small
-          >
+          ><span>{{ s.description }}</span>
         </button>
         <AvailabilitySwitch
           :name="s.name"
@@ -104,15 +92,16 @@ function author(id: string | null) {
 <style scoped>
 .library-heading {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   margin: 0 0 14px;
   min-height: 32px;
 }
 .library-heading h2 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
+  line-height: 28px;
   margin: 0;
 }
 .button {
@@ -146,8 +135,7 @@ function author(id: string | null) {
   font-size: 13px;
   font-weight: 500;
 }
-.skill-row span,
-.skill-row small {
+.skill-row span {
   display: block;
   font-size: 12px;
   color: var(--muted);
@@ -155,9 +143,6 @@ function author(id: string | null) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.skill-row small {
-  font-size: 11px;
 }
 .skill-row:focus-visible {
   outline: 2px solid var(--primary);

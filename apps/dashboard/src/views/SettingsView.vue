@@ -363,6 +363,7 @@ async function copySlug() {
               ><span>Name</span
               ><input
                 v-model="name"
+                class="profile-name-input"
                 aria-label="Name"
                 placeholder="Your name"
                 maxlength="120"
@@ -756,14 +757,12 @@ async function copySlug() {
   flex: 1;
   min-width: 0;
   overflow: auto;
+  scrollbar-gutter: stable both-edges;
 }
 .settings-body {
-  max-width: 888px;
+  max-width: 1016px;
   padding: 16px 16px 56px;
   margin: 0 auto;
-}
-.settings-body.wide {
-  max-width: 1016px;
 }
 .settings-heading {
   display: flex;
@@ -841,6 +840,10 @@ async function copySlug() {
   max-width: 48%;
   min-width: 192px;
 }
+.setting-row input.profile-name-input {
+  border: 0;
+  text-align: right;
+}
 .setting-row.about-row {
   align-items: flex-start;
   min-height: 114px;
@@ -879,6 +882,9 @@ async function copySlug() {
 }
 .settings-body.wide h3:not(:first-of-type) {
   margin-top: 32px;
+}
+.settings-body.wide :deep(.timezone-trigger > span) {
+  display: none;
 }
 .theme-grid {
   display: grid;
@@ -1043,7 +1049,10 @@ async function copySlug() {
   line-height: 22px;
 }
 .tokens-body {
-  margin-top: 38px;
+  margin-top: 31px;
+}
+.tokens-body h3 {
+  margin: 31px 0 12px;
 }
 .token-note {
   font-size: 12px;
@@ -1118,7 +1127,7 @@ async function copySlug() {
   font-size: 14px;
   line-height: 22px;
   color: var(--muted);
-  margin: 0 0 32px;
+  margin: 0;
 }
 .label-scope {
   width: max-content;

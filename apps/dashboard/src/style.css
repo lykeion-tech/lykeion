@@ -1412,6 +1412,21 @@ kbd {
 .stage-hypotheses .stage-dot {
   color: var(--stage-hypotheses-dot);
 }
+.board-column.stage-hypotheses > header .stage-dot {
+  background: conic-gradient(currentColor 25%, transparent 0);
+}
+.board-column.stage-experimentation > header .stage-dot {
+  background: conic-gradient(currentColor 50%, transparent 0);
+}
+.board-column.stage-validation > header .stage-dot {
+  background: conic-gradient(currentColor 75%, transparent 0);
+}
+.blocked-stage-icon,
+.done-stage-icon {
+  font-size: 12px;
+  line-height: 12px;
+  flex: none;
+}
 .stage-experimentation {
   background: var(--stage-experimentation-bg);
 }

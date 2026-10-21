@@ -7,6 +7,7 @@ import Icon from './components/Icon.vue';
 import { usePaneResize } from './lib/resize';
 import Modal from './components/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
+import CommandPalette from './components/CommandPalette.vue';
 import CreateTask from './views/CreateTask.vue';
 import { api, ApiError } from './api/client';
 import { selectWorkspace, workspaceId } from './api/session';
@@ -122,6 +123,19 @@ const helpPopup = ref<HTMLElement>();
 const workspaceTrigger = ref<HTMLButtonElement>();
 const helpTrigger = ref<HTMLButtonElement>();
 const feedback = ref(false);
+const paletteOpen = ref(false);
+function openSearch() {
+  workspaceMenu.value = false;
+  help.value = false;
+  paletteOpen.value = true;
+}
+watch(
+  workspaceId,
+  () => {
+    paletteOpen.value = false;
+  },
+  { flush: 'sync' },
+);
 const feedbackText = ref('');
 
 // The shown workspace must be one the person belongs to; otherwise the first.
@@ -271,6 +285,13 @@ function go(id: string) {
 }
 function key(event: KeyboardEvent) {
   if (event.defaultPrevented || route.meta.bare) return;
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    if (!paletteOpen.value && document.querySelector('dialog[open]')) return;
+    event.preventDefault();
+    if (paletteOpen.value) paletteOpen.value = false;
+    else openSearch();
+    return;
+  }
   const editable = (event.target as HTMLElement).closest(
     'input, textarea, select, [contenteditable="true"]',
   );
@@ -384,6 +405,14 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="quick-actions">
+        <button
+          class="nav-item palette-trigger"
+          aria-label="Search"
+          aria-keyshortcuts="Meta+K Control+K"
+          @click="openSearch"
+        >
+          <Icon name="search" />Search…<kbd class="push-right">⌘K</kbd>
+        </button>
         <button class="nav-item" aria-label="New" aria-keyshortcuts="C" @click="openCreate()">
           <Icon name="edit" />New<kbd class="push-right">C</kbd>
         </button>
@@ -522,6 +551,7 @@ onUnmounted(() => {
       <div class="shell-menu-divider" />
       <small class="shell-version">Frontend version 0.1.0</small>
     </div>
+    <CommandPalette v-if="paletteOpen" @close="paletteOpen = false" />
     <Modal v-if="feedback" title="Feedback" @close="feedback = false"
       ><form class="feedback-form" @submit.prevent="copyFeedback">
         <header>
