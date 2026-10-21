@@ -35,6 +35,20 @@ type Tx struct {
 	events []db.Event
 }
 
+// Savepoint runs fn inside a savepoint of t: an error from fn undoes only
+// what fn wrote and leaves t usable. Events fn emits are dropped.
+func (t *Tx) Savepoint(ctx context.Context, fn func(*Tx) error) error {
+	sp, err := t.raw.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	if err := fn(&Tx{Q: db.New(sp), WS: t.WS, raw: sp}); err != nil {
+		_ = sp.Rollback(ctx)
+		return err
+	}
+	return sp.Commit(ctx)
+}
+
 // Emit records an event in the same transaction as the change it describes.
 // Inserts are serialised per workspace, so event ids commit in id order and a
 // reader resuming after id N never skips a lower id that committed later.

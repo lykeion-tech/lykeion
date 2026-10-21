@@ -175,3 +175,20 @@ func TestTheDefaultDrawHitsAboutOneInFive(t *testing.T) {
 		t.Fatalf("%d hits in 10000", hits)
 	}
 }
+
+func TestAFailedDrawStillMovesTheStudy(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	l.e.RatingDraw = always(true)
+	if _, err := l.env.Owner.Exec(context.Background(), "REVOKE INSERT ON team_rating FROM lykeion_app"); err != nil {
+		t.Fatal(err)
+	}
+	c := l.study(t, "hypotheses", true, nil)
+	l.finish(t, c.ID)
+	if got := l.card(t, c.ID); got.State != "done" {
+		t.Fatalf("a failed rating draw left the study %s %s", got.BoardColumn, got.State)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'outcome'", c.ID); n != 1 {
+		t.Fatalf("%d outcome records", n)
+	}
+}

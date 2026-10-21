@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"log/slog"
 	"math/big"
 	"time"
 
@@ -56,4 +57,12 @@ func (e *Engine) drawRating(ctx context.Context, tx *store.Tx, c db.Card) error 
 	}
 	return tx.Q.InsertRatingDraw(ctx, db.InsertRatingDrawParams{WorkspaceID: tx.WS, CardID: &c.ID, BoardColumn: c.BoardColumn,
 		PackID: pack, UserID: c.OwnerID, Offered: offered, DrawnAt: now})
+}
+
+// drawRatingSafely draws in a savepoint, so a failed draw is logged and never
+// stops the study from moving on.
+func (e *Engine) drawRatingSafely(ctx context.Context, tx *store.Tx, c db.Card) {
+	if err := tx.Savepoint(ctx, func(sp *store.Tx) error { return e.drawRating(ctx, sp, c) }); err != nil {
+		slog.Warn("rating draw failed", "card", c.ID, "column", c.BoardColumn, "err", err)
+	}
 }
