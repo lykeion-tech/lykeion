@@ -25,6 +25,9 @@ const (
 	RequestTimeout      = 10 * time.Second
 	BlobBodyReadTimeout = 30 * time.Second
 	BlobRequestTimeout  = 60 * time.Second
+	// A study file may be 100 MB over a slow link.
+	AttachmentBodyReadTimeout = 10 * time.Minute
+	AttachmentRequestTimeout  = 15 * time.Minute
 	// ToolsRequestTimeout bounds lyk tools' routing: three levels of Jev
 	// requests of up to 60 s each, a level split when it is long.
 	ToolsRequestTimeout = 4 * time.Minute
@@ -45,11 +48,15 @@ func RequestBounds(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r)
+		attachment := r.Method == http.MethodPost && r.URL.Path == "/api/attachments"
+		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r) || attachment
 		callPost := r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs")
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
 		if rawBlob || callPost {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
+		}
+		if attachment {
+			requestTimeout, bodyTimeout = AttachmentRequestTimeout, AttachmentBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
 			requestTimeout = SourcesRequestTimeout

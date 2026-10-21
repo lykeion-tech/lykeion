@@ -69,12 +69,13 @@ func (q *Queries) DeleteAttachment(ctx context.Context, arg DeleteAttachmentPara
 }
 
 const insertPendingAttachment = `-- name: InsertPendingAttachment :one
-INSERT INTO attachment (workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, record_key, created_at
 `
 
 type InsertPendingAttachmentParams struct {
+	ID          uuid.UUID `json:"id"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	UploaderID  uuid.UUID `json:"uploader_id"`
 	Name        string    `json:"name"`
@@ -86,6 +87,7 @@ type InsertPendingAttachmentParams struct {
 
 func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPendingAttachmentParams) (Attachment, error) {
 	row := q.db.QueryRow(ctx, insertPendingAttachment,
+		arg.ID,
 		arg.WorkspaceID,
 		arg.UploaderID,
 		arg.Name,

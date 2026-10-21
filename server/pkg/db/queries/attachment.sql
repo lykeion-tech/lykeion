@@ -1,6 +1,6 @@
 -- name: InsertPendingAttachment :one
-INSERT INTO attachment (workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key)
-VALUES (@workspace_id, @uploader_id, @name, @content_type, @size_bytes, @sha256, @blob_key)
+INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key)
+VALUES (@id, @workspace_id, @uploader_id, @name, @content_type, @size_bytes, @sha256, @blob_key)
 RETURNING *;
 
 -- The uploader's own unlinked uploads among ids.
