@@ -19,7 +19,6 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/middleware"
-	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/toolroute"
@@ -30,9 +29,6 @@ var ErrDisabled = errors.New("workspace connector is disabled")
 
 var ErrBroker = errors.New("workspace MCP request failed")
 var ErrTool = errors.New("tool is not in this connector's current inventory")
-
-// ErrReserved is a call naming a server whose records only Lykeion writes.
-var ErrReserved = errors.New("only Lykeion records a study's attached files")
 
 type authorityKey struct{}
 
@@ -742,9 +738,6 @@ func (b *Broker) CommandReceipt(ctx context.Context, run middleware.Role, id uui
 // RecordFence validates the execution receipt and returns the check that must
 // run after LockRole in the same transaction as the evidence write.
 func (b *Broker) RecordFence(ctx context.Context, run middleware.Role, ticket, server, tool string, args any, answer string) (func(*store.Tx) error, error) {
-	if strings.EqualFold(strings.TrimSpace(server), records.AttachmentServer) {
-		return nil, ErrReserved
-	}
 	var receipt callReceipt
 	if ticket != "" {
 		sealed, err := base64.RawURLEncoding.DecodeString(ticket)

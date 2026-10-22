@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -58,8 +60,16 @@ func (h *Hosted) Record(ctx context.Context, role middleware.Role, token, kind, 
 	return err
 }
 
-// RecordCall stores a call record built by NewCall and answers its key.
+// ErrReserved is a call naming the server under which only Lykeion records a
+// study's attached files.
+var ErrReserved = errors.New("only Lykeion records a study's attached files")
+
+// RecordCall stores a call record built by NewCall and answers its key. Every
+// recorded call passes here, so none can pass for an attached file.
 func (h *Hosted) RecordCall(ctx context.Context, role middleware.Role, token string, call map[string]any, rest string, checks ...func(*store.Tx) error) (string, error) {
+	if server, _ := call["server"].(string); pack.ReservedServer(server) {
+		return "", ErrReserved
+	}
 	return h.record(ctx, role, token, "call", "", call, rest, checks...)
 }
 

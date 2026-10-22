@@ -261,3 +261,25 @@ func TestWorkspaceMCPNamesFollowSourceTrim(t *testing.T) {
 		t.Fatal("header value was normalized")
 	}
 }
+
+func TestAWorkspaceMCPCannotBeNamedAttachments(t *testing.T) {
+	s := newServer(t)
+	owner := s.signIn(t, "owner@lab.org")
+	ws := s.workspace(t, owner, "lab")
+	remote := map[string]any{"url": "https://example.org/mcp"}
+	const want = `the name "attachments" is reserved for a study's attached files`
+	for _, name := range []string{"attachments", " ATTACHMENTS\t"} {
+		var out struct{ Error string }
+		if c := s.call(t, "POST", "/api/mcp-servers", owner, ws.ID, mcpInput(name, 0, remote), &out); c != 400 || out.Error != want {
+			t.Fatalf("create %q: %d %q", name, c, out.Error)
+		}
+	}
+	var got mcpView
+	if c := s.call(t, "POST", "/api/mcp-servers", owner, ws.ID, mcpInput("remote", 0, remote), &got); c != 201 {
+		t.Fatalf("create: %d", c)
+	}
+	var out struct{ Error string }
+	if c := s.call(t, "PUT", "/api/mcp-servers/"+got.ID, owner, ws.ID, mcpInput("Attachments", 1, remote), &out); c != 400 || out.Error != want {
+		t.Fatalf("rename: %d %q", c, out.Error)
+	}
+}

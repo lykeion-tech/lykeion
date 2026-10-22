@@ -16,6 +16,7 @@ import (
 	"github.com/ledongthuc/pdf"
 	"golang.org/x/text/unicode/norm"
 
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -132,7 +133,7 @@ func pdfText(f io.ReaderAt, size int64) (text []byte, ok bool) {
 
 // AttachmentServer is the server name an attached file's call record carries;
 // only the server writes such records.
-const AttachmentServer = "attachments"
+const AttachmentServer = pack.AttachmentServer
 
 // TextKey is where an attached file's text is kept, beside the file's blob.
 func TextKey(blobKey string) string { return blobKey + ".text" }
