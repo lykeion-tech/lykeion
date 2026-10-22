@@ -189,6 +189,12 @@ select {
   background-color: var(--input);
   color: var(--text);
 }
+.hide-scrollbar {
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
 button,
 a,
 input,

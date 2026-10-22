@@ -20,6 +20,7 @@ import TeamsView from './views/TeamsView.vue';
 import TeamDetail from './views/TeamDetail.vue';
 import TeamForm from './views/TeamForm.vue';
 import SettingsView from './views/SettingsView.vue';
+import UpdatesView from './views/UpdatesView.vue';
 import SignInView from './views/SignInView.vue';
 import AcceptInvite from './views/AcceptInvite.vue';
 import OnboardingView from './views/OnboardingView.vue';
@@ -46,10 +47,9 @@ function param(route: RouteLocationNormalized, name: string) {
   return (Array.isArray(value) ? value[0] : value) || undefined;
 }
 
-// Later slices' destinations (skills, connectors, Coresearch,
-// updates) are not routed until their slice; their views stay in
-// the tree.
+// Later slices' destinations stay unrouted until their slice.
 const routes: RouteRecordRaw[] = [
+  { path: '/updates', component: UpdatesView, meta: { page: 'updates', title: 'Updates' } },
   {
     path: '/projects',
     component: ResearchesView,

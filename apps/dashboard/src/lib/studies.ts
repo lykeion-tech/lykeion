@@ -67,8 +67,8 @@ export const boardColumns: { id: BoardColumn; name: string }[] = [
   { id: 'hypotheses', name: 'Hypotheses' },
   { id: 'experimentation', name: 'Experimentation' },
   { id: 'validation', name: 'Validation' },
-  { id: 'blocked', name: 'Blocked' },
   { id: 'reporting', name: 'Reporting' },
+  { id: 'blocked', name: 'Blocked' },
   { id: 'done', name: 'Done' },
 ];
 export const stages: Column[] = [

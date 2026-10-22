@@ -536,7 +536,7 @@ onUnmounted(() => {
     </section>
   </div>
   <div
-    v-if="cards.isSuccess.value && !visible.length && (activeFilterCount || tab === 'Mine')"
+    v-if="cards.isSuccess.value && !visible.length && activeFilterCount"
     class="center-empty board-empty"
   >
     <FunnelX :size="40" :stroke-width="1.7" aria-hidden="true" /><span

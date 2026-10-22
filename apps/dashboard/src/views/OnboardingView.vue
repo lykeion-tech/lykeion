@@ -182,7 +182,10 @@ async function logOut() {
         <Aristotle still />
         <div><b>Aristotle</b><span>Your guide to scientific research</span></div>
       </header>
-      <section class="content">
+      <section
+        class="content"
+        :class="{ 'hide-scrollbar': step === 'Skills' || step === 'Connectors' }"
+      >
         <template v-if="step === 'Welcome'">
           <small class="muted">Welcome to Lykeion</small>
           <h2 class="hero">A lab for your<br />next discovery.</h2>
@@ -391,7 +394,6 @@ async function logOut() {
           <button class="text-button" @click="step = 'Skills'">Skip for now</button>
         </template>
         <template v-else-if="step === 'Skills' || step === 'Connectors'">
-          <small class="muted">Manage later in Settings.</small>
           <button class="button primary" @click="step = step === 'Skills' ? 'Connectors' : 'Ready'">
             Continue
           </button>

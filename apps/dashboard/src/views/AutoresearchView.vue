@@ -355,7 +355,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
       :run-id="selectedRunId"
       @close="selectedRunId = ''"
     />
-    <Modal v-if="editor" title="New autoresearch" @close="editor = false"
+    <Modal v-if="editor" class="hide-scrollbar" title="New autoresearch" @close="editor = false"
       ><form class="directory-form autoresearch-form" @submit.prevent="create">
         <h2>New autoresearch</h2>
         <label>Name<input v-model="name" required aria-label="Autoresearch name" /></label>

@@ -86,14 +86,14 @@ function card(extra: Partial<Card> = {}): Card {
 }
 
 describe('board columns', () => {
-  it('orders the seven columns with Blocked between Validation and Reporting', () => {
+  it('orders the seven columns with Blocked between Reporting and Done', () => {
     expect(boardColumns.map((c) => c.name)).toEqual([
       'Grounding',
       'Hypotheses',
       'Experimentation',
       'Validation',
-      'Blocked',
       'Reporting',
+      'Blocked',
       'Done',
     ]);
   });
