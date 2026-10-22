@@ -338,7 +338,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .task-composer {
   width: 578px;
   max-width: calc(100vw - 48px);
-  background: var(--fill-menu);
+  background: var(--modal);
   overflow: visible;
 }
 .task-composer.manual {

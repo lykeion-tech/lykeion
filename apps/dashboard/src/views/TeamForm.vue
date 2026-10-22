@@ -503,7 +503,7 @@ async function create() {
   width: 676px;
   max-width: calc(100vw - 32px);
   max-height: calc(100dvh - 32px);
-  background: var(--fill-menu);
+  background: var(--modal);
 }
 .team-editor-heading {
   display: flex;
@@ -632,6 +632,7 @@ textarea {
 .row > input,
 .row > select {
   flex: 1;
+  min-width: 0;
 }
 .slot {
   display: flex;
@@ -686,7 +687,7 @@ footer {
   padding: 14px 20px;
   border-top: 1px solid var(--border);
   flex: none;
-  background: var(--fill-menu);
+  background: var(--modal);
 }
 .inline-error {
   margin: 0;

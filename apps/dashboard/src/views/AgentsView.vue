@@ -316,6 +316,12 @@ async function save() {
 <style src="./directory.css" />
 
 <style scoped>
+.agent-form {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
 .agent-directory {
   padding: 4px 20px 32px;
 }

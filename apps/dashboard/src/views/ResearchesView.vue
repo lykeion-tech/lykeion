@@ -516,7 +516,7 @@ async function save() {
 .project-editor {
   width: 676px;
   max-width: calc(100vw - 48px);
-  background: var(--fill-menu);
+  background: var(--modal);
 }
 .project-create {
   display: flex;

@@ -636,6 +636,11 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
 .inline-fields input[type='number'] {
   width: 64px;
 }
+.inline-fields select,
+.inline-fields input[type='time'] {
+  width: auto;
+  min-width: 0;
+}
 @media (max-width: 800px) {
   .template-grid {
     grid-template-columns: 1fr;

@@ -282,18 +282,6 @@ const updated = computed(() =>
           </table>
         </div>
       </div>
-      <p
-        v-if="
-          analytics.data.value.summary.coverage.missing_usage_attempts ||
-          analytics.data.value.summary.coverage.missing_timing_attempts
-        "
-        class="coverage-note"
-      >
-        Coverage: {{ analytics.data.value.summary.coverage.missing_usage_attempts }} attempts
-        without complete usage;
-        {{ analytics.data.value.summary.coverage.missing_timing_attempts }} attempts without
-        complete timing.
-      </p>
       <p v-if="analytics.data.value.unassigned.attempts" class="coverage-note">
         Outside the dated total: {{ analytics.data.value.unassigned.attempts }} attempts have no
         recoverable end time. Recorded
