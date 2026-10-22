@@ -202,7 +202,11 @@ func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role stri
 	if err != nil {
 		return db.AgentRun{}, err
 	}
-	p := prompt(c, role, comments, ws.ResearchContext)
+	files, err := tx.Q.CardAttachments(ctx, db.CardAttachmentsParams{WorkspaceID: tx.WS, CardID: &c.ID})
+	if err != nil {
+		return db.AgentRun{}, err
+	}
+	p := prompt(c, role, comments, ws.ResearchContext, files)
 	if note != "" {
 		p += "\n" + note + "\n"
 	}

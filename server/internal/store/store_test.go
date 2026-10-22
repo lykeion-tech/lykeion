@@ -205,3 +205,66 @@ func TestDirectConcurrentEmitCommitsInCursorOrder(t *testing.T) {
 		t.Fatalf("resuming cursor missed second event: %+v", rows)
 	}
 }
+
+func TestAfterCommitRunsOnlyWhenTheTransactionCommits(t *testing.T) {
+	env := testutil.Setup(t)
+	s := &Store{Pool: env.App}
+	user, ws := seed(t, s)
+	ctx := context.Background()
+	ran := 0
+	if err := s.InWorkspace(ctx, ws, user, func(tx *Tx) error {
+		tx.AfterCommit(func() { ran++ })
+		return errors.New("rolled back")
+	}); err == nil {
+		t.Fatal("the failing transaction reported success")
+	}
+	if ran != 0 {
+		t.Fatalf("hook ran %d times on rollback", ran)
+	}
+	if err := s.InWorkspace(ctx, ws, user, func(tx *Tx) error {
+		tx.AfterCommit(func() { ran++ })
+		return nil
+	}); err != nil || ran != 1 {
+		t.Fatalf("commit: err %v, ran %d", err, ran)
+	}
+}
+
+func TestAfterCommitInASavepointRunsWithItsTransaction(t *testing.T) {
+	env := testutil.Setup(t)
+	s := &Store{Pool: env.App}
+	user, ws := seed(t, s)
+	ctx := context.Background()
+	var ran []string
+	if err := s.InWorkspace(ctx, ws, user, func(tx *Tx) error {
+		_ = tx.Savepoint(ctx, func(sp *Tx) error {
+			sp.AfterCommit(func() { ran = append(ran, "undone") })
+			return errors.New("undone")
+		})
+		if err := tx.Savepoint(ctx, func(sp *Tx) error {
+			sp.AfterCommit(func() { ran = append(ran, "kept") })
+			return nil
+		}); err != nil {
+			return err
+		}
+		if len(ran) != 0 {
+			t.Error("a savepoint's hook ran before its transaction committed")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ran) != 1 || ran[0] != "kept" {
+		t.Fatalf("hooks ran %v, want only the kept savepoint's", ran)
+	}
+	ran = nil
+	_ = s.InWorkspace(ctx, ws, user, func(tx *Tx) error {
+		_ = tx.Savepoint(ctx, func(sp *Tx) error {
+			sp.AfterCommit(func() { ran = append(ran, "rolled back") })
+			return nil
+		})
+		return errors.New("rolled back")
+	})
+	if len(ran) != 0 {
+		t.Fatalf("a rolled-back transaction ran %v", ran)
+	}
+}

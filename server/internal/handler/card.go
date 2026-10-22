@@ -29,6 +29,8 @@ type newCard struct {
 	FollowsFrom []uuid.UUID `json:"follows_from"`
 	Assignee    *assigneeIn `json:"assignee"`
 	Scope       *scopeIn    `json:"scope"`
+	// AttachmentIDs are the caller's pending uploads the study takes as its files.
+	AttachmentIDs []uuid.UUID `json:"attachment_ids"`
 }
 
 // assigneeIn is Teams by column; an Autoresearch may instead name an agent, or
@@ -217,10 +219,26 @@ type studyView struct {
 	db.Card
 	Teams    map[string]cardTeamView `json:"teams"`
 	OffLabel []string                `json:"off_label"`
+	// Attachments are the files attached at creation, never their storage.
+	Attachments []attachmentView `json:"attachments"`
+}
+
+type attachmentView struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	SizeBytes   int64     `json:"size_bytes"`
+	ContentType string    `json:"content_type"`
 }
 
 func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
-	v := studyView{Card: c, Teams: map[string]cardTeamView{}, OffLabel: []string{}}
+	v := studyView{Card: c, Teams: map[string]cardTeamView{}, OffLabel: []string{}, Attachments: []attachmentView{}}
+	files, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})
+	if err != nil {
+		return v, err
+	}
+	for _, f := range files {
+		v.Attachments = append(v.Attachments, attachmentView{ID: f.ID, Name: f.Name, SizeBytes: f.SizeBytes, ContentType: f.ContentType})
+	}
 	rows, err := tx.Q.CardTeams(r.Context(), db.CardTeamsParams{WorkspaceID: c.WorkspaceID, CardID: c.ID})
 	if err != nil {
 		return v, err
@@ -282,6 +300,10 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
+		return
+	}
+	files, err := h.studyFiles(r, in.AttachmentIDs)
+	if !answer(w, r, err) {
 		return
 	}
 	var c studyView
@@ -349,6 +371,9 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			if err := tx.Q.InsertCardTeam(r.Context(), db.InsertCardTeamParams{WorkspaceID: ws, CardID: card.ID, BoardColumn: col, PackID: pack}); err != nil {
 				return err
 			}
+		}
+		if err := linkStudyFiles(r, tx, h.Blobs, card, files); err != nil {
+			return err
 		}
 		if c, err = viewOf(r, tx, card); err != nil {
 			return err
@@ -690,9 +715,14 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		files, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: ws, CardID: &id})
+		if err != nil {
+			return err
+		}
 		if err := tx.Q.DeleteCard(r.Context(), db.DeleteCardParams{ID: id, WorkspaceID: ws}); err != nil {
 			return err
 		}
+		h.deleteFilesAfterCommit(r, tx, files)
 		return tx.Emit(r.Context(), "card.deleted", nil, store.User(user), map[string]any{"card_id": id, "number": c.Number})
 	})
 	if answer(w, r, err) {

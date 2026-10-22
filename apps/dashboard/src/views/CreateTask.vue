@@ -7,7 +7,8 @@ import Icon from '../components/Icon.vue';
 import { api, ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import { useCard, useCards, useMe, useWorkspace } from '../api/queries';
+import { uploadAttachment, useCard, useCards, useMe, useWorkspace } from '../api/queries';
+import { formatSize, useAttachments } from '../lib/attachments';
 import type { Card } from '../api/types';
 import { matchesQuery } from '../lib/search';
 import { studyNumber, type Picked, type Range } from '../lib/studies';
@@ -34,6 +35,13 @@ const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
 const query = ref('');
 const form = ref<HTMLFormElement>();
+const files = useAttachments(uploadAttachment);
+async function pick(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const picked = [...(input.files ?? [])];
+  input.value = '';
+  await files.add(picked);
+}
 const assignee = ref<Picked | null>(props.assignee ? { ...props.assignee } : null);
 function initialRange(): Range {
   const a = props.assignee;
@@ -110,7 +118,14 @@ function keysDown(event: KeyboardEvent) {
 
 // A Team with no stage label has no column until the researcher picks one.
 const unstaged = computed(() => picker.value?.unstaged ?? false);
-const blocked = computed(() => busy.value || !question.value.trim() || unstaged.value);
+const blocked = computed(
+  () =>
+    busy.value ||
+    !question.value.trim() ||
+    unstaged.value ||
+    files.uploading.value ||
+    files.failed.value,
+);
 
 async function submit() {
   if (blocked.value) return;
@@ -126,6 +141,7 @@ async function submit() {
     question: question.value.trim(),
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
     follows_from: followsFrom.value,
+    ...(files.ids.value.length ? { attachment_ids: files.ids.value } : {}),
     ...(assignee.value ? { assignee: assignee.value } : {}),
     ...(assignee.value && teamColumns.value.length === 1 && !picker.value?.set
       ? {}
@@ -144,6 +160,7 @@ async function submit() {
       assignee.value = props.assignee ? { ...props.assignee } : null;
       range.value = initialRange();
       followsFrom.value = [];
+      files.clear();
       await nextTick();
       form.value?.querySelector<HTMLInputElement>('.composer-title')?.focus();
     } else emit('close');
@@ -267,6 +284,41 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             </div>
           </div>
         </div>
+      </div>
+      <div class="composer-files">
+        <label class="text-button" for="composer-files-input">
+          <Icon name="link" :size="14" />Attach files
+        </label>
+        <input
+          id="composer-files-input"
+          type="file"
+          multiple
+          class="visually-hidden"
+          @change="pick"
+        />
+        <small>Up to 100 files, 100 MB each, 500 MB in all</small>
+        <ul v-if="files.items.value.length" aria-label="Files to attach">
+          <li v-for="f in files.items.value" :key="f.key" tabindex="0">
+            <span class="file-name">{{ f.name }}</span>
+            <small>{{ formatSize(f.size) }}</small>
+            <small v-if="f.error" class="composer-error" role="alert">{{ f.error }}</small>
+            <progress
+              v-else-if="!f.id"
+              max="1"
+              :value="f.progress"
+              :aria-label="`Uploading ${f.name}`"
+            />
+            <button
+              type="button"
+              class="text-button"
+              :aria-label="`Remove ${f.name}`"
+              @click="files.remove(f.key)"
+            >
+              Remove
+            </button>
+          </li>
+        </ul>
+        <p v-if="files.error.value" class="composer-error" role="alert">{{ files.error.value }}</p>
       </div>
       <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
       <footer class="composer-footer">
@@ -635,6 +687,55 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   .another-switch {
     font-size: 11px;
   }
+}
+.composer-files {
+  padding: 0 20px 8px;
+  font-size: 12px;
+}
+.composer-files > small {
+  margin-left: 8px;
+  color: var(--muted);
+}
+.composer-files label {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.composer-files ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 120px;
+  overflow: auto;
+}
+.composer-files li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.composer-files li:focus-visible {
+  outline: 2px solid var(--primary);
+}
+.composer-files .file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.composer-files .composer-error {
+  padding: 0;
+}
+.composer-files:has(input:focus-visible) label {
+  outline: 2px solid var(--primary);
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 .composer-hint {
   margin: 0;

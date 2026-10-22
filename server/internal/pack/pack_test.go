@@ -185,6 +185,7 @@ func TestParseRefuses(t *testing.T) {
 		{"unknown skill", mut(func(m *Manifest) { m.Members[0].Skills = []string{"ghost"} }), "skill"},
 		{"unknown catalogue", mut(func(m *Manifest) { m.Members[0].Connectors = []Connector{{Name: "x", Catalogue: "nope"}} }), "catalogue"},
 		{"connector named sources", mut(func(m *Manifest) { m.Members[0].Connectors[1].Name = "sources" }), "reserved"},
+		{"connector named attachments", mut(func(m *Manifest) { m.Members[0].Connectors[1].Name = "Attachments" }), `the connector name "Attachments" is reserved`},
 		{"repeated catalogue entry", mut(func(m *Manifest) {
 			m.Members[0].Connectors = []Connector{{Catalogue: "ensembl"}, {Catalogue: "ensembl"}}
 		}), "repeated"},

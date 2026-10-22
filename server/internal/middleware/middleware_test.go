@@ -136,3 +136,40 @@ func TestScopeRechecksRoleAfterConcurrentDemotion(t *testing.T) {
 		t.Fatalf("handler called=%v status=%d", called, rr.Code)
 	}
 }
+
+func TestScopeRunsAfterCommitHooksOnlyForASuccessfulResponse(t *testing.T) {
+	env := testutil.Setup(t)
+	st := &store.Store{Pool: env.App}
+	ctx := t.Context()
+	u, err := st.Global().UpsertUserByEmail(ctx, "hook@lab.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := uuid.New()
+	if _, err := env.Owner.Exec(ctx, "INSERT INTO workspace(id,slug,name) VALUES($1,'hook','Hook')", ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, "INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'owner')", ws, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	iss := auth.Issuer{Secret: []byte("test"), TTL: time.Hour}
+	tok, err := iss.Issue(u.ID, u.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran, status := 0, 204
+	handler := Auth(st, iss)(Scope(st, FromHeader)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		TxFrom(r.Context()).AfterCommit(func() { ran++ })
+		w.WriteHeader(status)
+	})))
+	for _, tc := range []struct{ status, ran int }{{409, 0}, {204, 1}} {
+		status = tc.status
+		req := httptest.NewRequest("DELETE", "/", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("X-Workspace-ID", ws.String())
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+		if ran != tc.ran {
+			t.Fatalf("after a %d response the hook has run %d times, want %d", tc.status, ran, tc.ran)
+		}
+	}
+}

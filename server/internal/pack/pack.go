@@ -297,12 +297,13 @@ func (p *Pack) validate() error {
 				return fmt.Errorf("pack: %s %q: connector %q: %w", where, mem.Name, c.Name, err)
 			}
 			// call_tool names a connector by its name, or a bare catalogue
-			// entry by its catalogue name; the door keeps "sources" for itself.
+			// entry by its catalogue name; the door keeps "sources" for itself,
+			// and only the server records calls under "attachments".
 			name := c.Name
 			if name == "" {
 				name = c.Catalogue
 			}
-			if name == "sources" {
+			if name == "sources" || ReservedServer(name) {
 				return fmt.Errorf("pack: %s %q: the connector name %q is reserved", where, mem.Name, name)
 			}
 			if names[name] {
@@ -336,6 +337,16 @@ func AuditorDiffers(m Manifest) error {
 		}
 	}
 	return nil
+}
+
+// AttachmentServer is the server name a study's attached files are recorded
+// under. Only Lykeion records calls under it, so no connector takes it.
+const AttachmentServer = "attachments"
+
+// ReservedServer reports whether a server or connector name, trimmed and in
+// any case, is AttachmentServer.
+func ReservedServer(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), AttachmentServer)
 }
 
 // ValidateConnector applies the Team connector validation to a library entry.

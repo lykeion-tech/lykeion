@@ -6,17 +6,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -60,37 +60,32 @@ func (h *Hosted) Record(ctx context.Context, role middleware.Role, token, kind, 
 	return err
 }
 
-// RecordCall stores a call record built by NewCall and answers its key.
+// ErrReserved is a call naming the server under which only Lykeion records a
+// study's attached files.
+var ErrReserved = errors.New("only Lykeion records a study's attached files")
+
+// RecordCall stores a call record built by NewCall and answers its key. Every
+// recorded call passes here, so none can pass for an attached file.
 func (h *Hosted) RecordCall(ctx context.Context, role middleware.Role, token string, call map[string]any, rest string, checks ...func(*store.Tx) error) (string, error) {
+	if server, _ := call["server"].(string); pack.ReservedServer(server) {
+		return "", ErrReserved
+	}
 	return h.record(ctx, role, token, "call", "", call, rest, checks...)
 }
 
-// NewCall builds a call record's body: the answer cut to what a body keeps,
-// and the whole answer as rest when it was cut, for the record's blob. The
-// body is truncated when it was cut here or upstream had already cut the
-// answer (upstreamCut).
+// NewCall builds a call record's body as records.CallBody does, naming the
+// run that made the call.
 func NewCall(role middleware.Role, server, tool string, args any, answer string, upstreamCut bool) (map[string]any, string) {
-	sum := sha256.Sum256([]byte(answer))
-	rest := ""
-	if kept, cut := Cut(answer); cut {
-		answer, rest = kept, answer
-	}
-	return map[string]any{"server": server, "tool": tool, "args": args, "answer_sha256": hex.EncodeToString(sum[:]),
-		"answer": answer, "truncated": upstreamCut || rest != "", "at": time.Now().UTC().Format(time.RFC3339), "agent_run_id": role.AgentRunID}, rest
+	body, rest := records.CallBody(server, tool, args, answer, upstreamCut)
+	body["agent_run_id"] = role.AgentRunID
+	return body, rest
 }
 
-// Cut is s cut to what a record body keeps, MaxCallAnswer bytes at a rune
-// boundary, and whether anything was cut.
-func Cut(s string) (string, bool) {
-	if len(s) <= MaxCallAnswer {
-		return s, false
-	}
-	n := MaxCallAnswer
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n], true
-}
+// MaxCallAnswer is records.MaxCallAnswer.
+const MaxCallAnswer = records.MaxCallAnswer
+
+// Cut is records.Cut.
+func Cut(s string) (string, bool) { return records.Cut(s) }
 
 // record is Record answering with the key the record was stored under.
 func (h *Hosted) record(ctx context.Context, role middleware.Role, token, kind, key string, body map[string]any, text string, checks ...func(*store.Tx) error) (string, error) {

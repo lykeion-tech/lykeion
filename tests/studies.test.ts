@@ -80,6 +80,7 @@ function card(extra: Partial<Card> = {}): Card {
     teams: {},
     redos: 0,
     off_label: [],
+    attachments: [],
     ...extra,
   };
 }

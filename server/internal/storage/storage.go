@@ -24,6 +24,8 @@ var ErrNotFound = errors.New("blob not found")
 type Storage interface {
 	Put(ctx context.Context, key string, r io.Reader, size int64) error
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
+	// Delete removes a blob; a key that is not there is not an error.
+	Delete(ctx context.Context, key string) error
 }
 
 type Local struct {
@@ -181,6 +183,24 @@ func (l Local) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return f, nil
 }
 
+func (l Local) Delete(ctx context.Context, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	root, p, err := l.paths(key)
+	if err != nil {
+		return err
+	}
+	if !within(root, p) {
+		return fmt.Errorf("storage key %q escapes storage directory", key)
+	}
+	// Remove unlinks a symlink itself rather than following it out of the directory.
+	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove blob: %w", err)
+	}
+	return nil
+}
+
 type S3 struct {
 	Client *s3.Client
 	Bucket string
@@ -230,4 +250,15 @@ func (s *S3) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("get S3 blob: %w", err)
 	}
 	return out.Body, nil
+}
+
+func (s *S3) Delete(ctx context.Context, key string) error {
+	if key == "" {
+		return fmt.Errorf("invalid blob key")
+	}
+	// S3 answers success for a key that is not there.
+	if _, err := s.Client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(s.Bucket), Key: aws.String(key)}); err != nil {
+		return fmt.Errorf("delete S3 blob: %w", err)
+	}
+	return nil
 }

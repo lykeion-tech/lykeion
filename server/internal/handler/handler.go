@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -45,6 +46,10 @@ type H struct {
 	Sources      http.Handler
 	PublicURL    string // where people reach the dashboard, without a trailing slash
 	Shipped      fs.FS  // the packs Lykeion ships, one folder per name; nil ships none
+	// ExtractText reads an upload's text, records.ExtractText when nil, within
+	// TextDeadline, textDeadline when zero.
+	ExtractText  func(name, contentType string, f io.ReaderAt, size int64) (*io.SectionReader, bool, error)
+	TextDeadline time.Duration
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

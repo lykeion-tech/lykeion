@@ -27,6 +27,8 @@ func workspaceMCPAnswer(w http.ResponseWriter, r *http.Request, err error) bool 
 	switch {
 	case errors.As(err, &stale):
 		writeJSON(w, 409, map[string]any{"error": stale.Error(), "code": "stale_revision", "revision": stale.Revision})
+	case errors.Is(err, workspacemcp.ErrReservedName):
+		writeErr(w, 400, err.Error())
 	case errors.Is(err, workspacemcp.ErrInvalid):
 		writeErr(w, 400, "invalid MCP name or configuration")
 	case errors.Is(err, workspacemcp.ErrForbidden):

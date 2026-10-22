@@ -226,6 +226,24 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		}
 	}()
 	defer func() { stopSweep(); <-sweepDone }()
+	attachCtx, stopAttach := context.WithCancel(ctx)
+	attachDone := make(chan struct{})
+	go func() {
+		defer close(attachDone)
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			if err := handler.SweepAttachments(attachCtx, st, blobs, time.Now); err != nil && attachCtx.Err() == nil {
+				slog.Error("attachment sweep", "err", err)
+			}
+			select {
+			case <-attachCtx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	defer func() { stopAttach(); <-attachDone }()
 	addr := getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":8080"

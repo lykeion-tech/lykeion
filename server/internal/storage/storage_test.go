@@ -108,4 +108,36 @@ func TestS3OnMinIO(t *testing.T) {
 		t.Fatal(err)
 	}
 	roundTrip(t, s)
+	if err := s.Put(ctx, "ws/gone", strings.NewReader("x"), 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete(ctx, "ws/gone"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := s.Get(ctx, "ws/gone"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("after Delete: %v", err)
+	}
+	if err := s.Delete(ctx, "ws/never-there"); err != nil {
+		t.Fatalf("deleting a missing key: %v", err)
+	}
+}
+
+func TestDeleteRemovesABlob(t *testing.T) {
+	ctx := context.Background()
+	l := Local{Dir: t.TempDir()}
+	if err := l.Put(ctx, "ws/a/b", strings.NewReader("x"), 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Delete(ctx, "ws/a/b"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Get(ctx, "ws/a/b"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("after Delete: %v", err)
+	}
+	if err := l.Delete(ctx, "ws/a/b"); err != nil {
+		t.Fatalf("deleting a missing key: %v", err)
+	}
+	if err := l.Delete(ctx, "ws/../b"); err == nil {
+		t.Fatal("Delete accepted a .. key")
+	}
 }

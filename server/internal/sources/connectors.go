@@ -21,10 +21,6 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-// MaxCallAnswer is how much of an answer a call record keeps in its body; the
-// whole answer is the record's blob when it is longer.
-const MaxCallAnswer = 256 << 10
-
 type ConnectorIn struct {
 	Connector string            `json:"connector" jsonschema:"a connector name from list_connectors"`
 	Path      string            `json:"path" jsonschema:"the API path under the connector's base URL, starting with /"`

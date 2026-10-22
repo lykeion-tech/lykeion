@@ -33,20 +33,32 @@ type Tx struct {
 	Q      *db.Queries
 	WS     uuid.UUID
 	events []db.Event
+	after  []func()
 }
 
+// AfterCommit runs fn once the transaction has committed, and never when it
+// rolls back. Side effects outside the database, such as deleting blobs,
+// belong here.
+func (t *Tx) AfterCommit(fn func()) { t.after = append(t.after, fn) }
+
 // Savepoint runs fn inside a savepoint of t: an error from fn undoes only
-// what fn wrote and leaves t usable. Events fn emits are dropped.
+// what fn wrote and leaves t usable. Events fn emits are dropped; what fn
+// leaves to AfterCommit runs once t commits, unless fn's work was undone.
 func (t *Tx) Savepoint(ctx context.Context, fn func(*Tx) error) error {
 	sp, err := t.raw.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if err := fn(&Tx{Q: db.New(sp), WS: t.WS, raw: sp}); err != nil {
+	inner := &Tx{Q: db.New(sp), WS: t.WS, raw: sp}
+	if err := fn(inner); err != nil {
 		_ = sp.Rollback(ctx)
 		return err
 	}
-	return sp.Commit(ctx)
+	if err := sp.Commit(ctx); err != nil {
+		return err
+	}
+	t.after = append(t.after, inner.after...)
+	return nil
 }
 
 // Emit records an event in the same transaction as the change it describes.
@@ -107,6 +119,9 @@ func (s *Store) run(ctx context.Context, ws uuid.UUID, settings map[string]strin
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+	for _, fn := range t.after {
+		fn()
 	}
 	if s.Publish != nil && len(t.events) > 0 {
 		s.Publish(ctx, t.events)

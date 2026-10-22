@@ -63,3 +63,21 @@ func TestRecordCallAuthorityFenceSharesEvidenceTransaction(t *testing.T) {
 		})
 	}
 }
+
+func TestOnlyTheServerRecordsAnAttachment(t *testing.T) {
+	f := newConnFix(t, ok("unused"))
+	role := f.role(f.card, "agent")
+	for _, server := range []string{"attachments", " Attachments ", "ATTACHMENTS\t"} {
+		body, rest := NewCall(role, server, "attach", nil, "PGC1A,9.9", false)
+		if _, err := f.h.RecordCall(t.Context(), role, runTok(role), body, rest); !errors.Is(err, ErrReserved) {
+			t.Fatalf("%q: %v", server, err)
+		}
+	}
+	if n := f.count(`SELECT count(*) FROM record`); n != 0 {
+		t.Fatalf("records: %d", n)
+	}
+	body, rest := NewCall(role, "attachments-lab", "attach", nil, "PGC1A,9.9", false)
+	if _, err := f.h.RecordCall(t.Context(), role, runTok(role), body, rest); err != nil {
+		t.Fatalf("a name that only starts like it: %v", err)
+	}
+}

@@ -80,6 +80,17 @@ func LoadCalls(ctx context.Context, blobs storage.Storage, recs []db.Record) (ma
 // object that has one, and so a row can cite for itself.
 func MatchQuotes(recs []db.Record, calls map[string]Call) []QuoteMatch {
 	var out []QuoteMatch
+	// Each call's answer, up to an attached file's whole text, is normalized
+	// once however many quotes cite it.
+	normalized := map[string]string{}
+	answer := func(k string, c Call) string {
+		n, ok := normalized[k]
+		if !ok {
+			n = normalize(c.Answer)
+			normalized[k] = n
+		}
+		return n
+	}
 	for _, rec := range recs {
 		var body any
 		if json.Unmarshal(rec.Body, &body) != nil {
@@ -90,7 +101,7 @@ func MatchQuotes(recs []db.Record, calls map[string]Call) []QuoteMatch {
 			if nq := normalize(q); nq != "" {
 				for _, k := range cites {
 					c, ok := calls[k]
-					if ok && strings.Contains(normalize(c.Answer), nq) {
+					if ok && strings.Contains(answer(k, c), nq) {
 						m.Matched, m.Call, m.Unchecked = true, k, ""
 						break
 					}

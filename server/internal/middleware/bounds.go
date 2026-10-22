@@ -25,6 +25,9 @@ const (
 	RequestTimeout      = 10 * time.Second
 	BlobBodyReadTimeout = 30 * time.Second
 	BlobRequestTimeout  = 60 * time.Second
+	// A study file may be 100 MB over a slow link.
+	AttachmentBodyReadTimeout = 10 * time.Minute
+	AttachmentRequestTimeout  = 15 * time.Minute
 	// ToolsRequestTimeout bounds lyk tools' routing: three levels of Jev
 	// requests of up to 60 s each, a level split when it is long.
 	ToolsRequestTimeout = 4 * time.Minute
@@ -45,11 +48,15 @@ func RequestBounds(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r)
+		attachment := r.Method == http.MethodPost && r.URL.Path == "/api/attachments"
+		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r) || attachment
 		callPost := r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs")
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
 		if rawBlob || callPost {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
+		}
+		if attachment || attachmentDownload(r) {
+			requestTimeout, bodyTimeout = AttachmentRequestTimeout, AttachmentBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
 			requestTimeout = SourcesRequestTimeout
@@ -188,4 +195,24 @@ func workspaceMCPBrokerPost(r *http.Request) bool {
 	}
 	_, err := uuid.Parse(parts[4])
 	return err == nil
+}
+
+// attachmentDownload matches GET /api/cards/{id}/attachments/{aid} and a
+// run's GET /api/role/attachments/{id}, which stream a file of up to 100 MB
+// and so get the upload's budget.
+func attachmentDownload(r *http.Request) bool {
+	p := strings.Split(r.URL.Path, "/")
+	if r.Method != http.MethodGet {
+		return false
+	}
+	if len(p) == 5 && p[1] == "api" && p[2] == "role" && p[3] == "attachments" {
+		_, err := uuid.Parse(p[4])
+		return err == nil
+	}
+	if len(p) != 6 || p[1] != "api" || p[2] != "cards" || p[4] != "attachments" {
+		return false
+	}
+	_, card := uuid.Parse(p[3])
+	_, file := uuid.Parse(p[5])
+	return card == nil && file == nil
 }

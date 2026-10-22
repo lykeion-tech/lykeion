@@ -44,6 +44,8 @@ var (
 	ErrInvalid   = errors.New("invalid MCP configuration")
 	ErrForbidden = errors.New("only workspace owners and admins may modify MCP servers")
 	ErrConflict  = errors.New("an MCP server with this name already exists")
+	// ErrReservedName is a name runs' calls could not be recorded under.
+	ErrReservedName = errors.New(`the name "attachments" is reserved for a study's attached files`)
 )
 
 type StaleRevision struct{ Revision int64 }
@@ -53,6 +55,9 @@ func (e *StaleRevision) Error() string { return "connector changed; reload its s
 func Validate(name string, c Config) (string, error) {
 	if name == "" {
 		return "", ErrInvalid
+	}
+	if pack.ReservedServer(name) {
+		return "", ErrReservedName
 	}
 	for _, r := range name {
 		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {

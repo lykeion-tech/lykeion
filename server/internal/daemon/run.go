@@ -2,11 +2,15 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +23,7 @@ import (
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/service"
 	"lykeion/server/pkg/agent"
 )
 
@@ -106,6 +111,15 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	if err = d.api.Do(ctx, "POST", base+"/start", ref, nil); err != nil {
+		fail(err)
+		if retryableControlLoss(err) {
+			r.FailureReason = agent.ReasonRuntimeOffline
+		}
+		return nil
+	}
+	// The run's token fetches the files, so this follows the start; the CLI
+	// never starts with only some of them.
+	if err = d.placeAttachments(ctx, c, dir); err != nil {
 		fail(err)
 		if retryableControlLoss(err) {
 			r.FailureReason = agent.ReasonRuntimeOffline
@@ -300,6 +314,138 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	return localErr
 }
+
+// placeAttachments puts the study's files in the run folder's attachments
+// folder, each read-only; the sandbox keeps the folder read-only too. Files
+// come through a cache in the daemon's state folder, keyed by sha256, which
+// no run can see. A cached file is checked before each use, and one that no
+// longer matches is fetched again. The run's copy is a hard link to the
+// cached file where the two share a file system: neither path is writable in
+// the sandbox, and Seatbelt refuses a link to a path it denies writing, while
+// bubblewrap's read-only mount keeps a link from leaving it, so code can't
+// reach the cached file through another name.
+func (d *daemon) placeAttachments(ctx context.Context, c claimed, dir string) error {
+	if len(c.Attachments) == 0 {
+		return nil
+	}
+	cache := filepath.Join(d.cfg.StateDir, "cache", "attachments")
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		return fmt.Errorf("attached files: %w", err)
+	}
+	into := filepath.Join(dir, "attachments")
+	if err := os.Mkdir(into, 0o700); err != nil {
+		return fmt.Errorf("attached files: %w", err)
+	}
+	// The server bounds a file's download; the daemon's client timeout would
+	// cut a large one short.
+	api := &apiclient.Client{Server: d.cfg.Server, Token: c.Token, HTTP: &http.Client{}}
+	for _, a := range c.Attachments {
+		if err := placeAttachment(ctx, api, cache, into, a); err != nil {
+			return fmt.Errorf("attached file %q: %w", a.DiskName, err)
+		}
+	}
+	return nil
+}
+
+func placeAttachment(ctx context.Context, api *apiclient.Client, cache, into string, a service.ClaimedAttachment) error {
+	// The server sanitised the name; it is checked again before it names a path.
+	if a.DiskName == "." || !filepath.IsLocal(a.DiskName) || strings.ContainsAny(a.DiskName, "/\\\x00") {
+		return errors.New("unsafe file name")
+	}
+	if sum, err := hex.DecodeString(a.Sha256); err != nil || len(sum) != sha256.Size || a.SizeBytes < 0 {
+		return errors.New("invalid digest or size")
+	}
+	cached := filepath.Join(cache, a.Sha256)
+	if !matches(cached, a) {
+		if err := fetchAttachment(ctx, api, cache, a); err != nil {
+			return err
+		}
+	}
+	dst := filepath.Join(into, a.DiskName)
+	if os.Link(cached, dst) == nil {
+		return nil
+	}
+	return copyReadOnly(cached, dst)
+}
+
+// matches reports whether path is a regular file of a's size and digest.
+func matches(path string, a service.ClaimedAttachment) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() != a.SizeBytes {
+		return false
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false
+	}
+	return hex.EncodeToString(h.Sum(nil)) == a.Sha256
+}
+
+// fetchAttachment downloads a into the cache: to a temporary file beside its
+// place, checked for size and digest, then renamed into place read-only.
+func fetchAttachment(ctx context.Context, api *apiclient.Client, cache string, a service.ClaimedAttachment) error {
+	tmp, err := os.CreateTemp(cache, a.Sha256+"-*.part")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	ctx, cancel := context.WithTimeout(ctx, middleware.AttachmentRequestTimeout)
+	defer cancel()
+	h := sha256.New()
+	w := &capWriter{w: io.MultiWriter(tmp, h), left: a.SizeBytes}
+	if err := api.Download(ctx, "/api/role/attachments/"+a.ID.String(), w); err != nil {
+		return err
+	}
+	if w.left != 0 || hex.EncodeToString(h.Sum(nil)) != a.Sha256 {
+		return errors.New("downloaded bytes don't match the file's size and sha256")
+	}
+	if err := tmp.Chmod(0o444); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), filepath.Join(cache, a.Sha256))
+}
+
+// copyReadOnly copies src to a new file dst of mode 0444.
+func copyReadOnly(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o444)
+	if err != nil {
+		return err
+	}
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// capWriter refuses bytes beyond left.
+type capWriter struct {
+	w    io.Writer
+	left int64
+}
+
+func (c *capWriter) Write(p []byte) (int, error) {
+	if int64(len(p)) > c.left {
+		return 0, errors.New("more bytes than the file's size")
+	}
+	c.left -= int64(len(p))
+	return c.w.Write(p)
+}
+
 func rawJSON(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 func messageBody(r Report) map[string]any {
 	return map[string]any{"workspace_id": r.WorkspaceID, "runtime_id": r.RuntimeID, "attempt": r.Attempt, "messages": r.Messages}

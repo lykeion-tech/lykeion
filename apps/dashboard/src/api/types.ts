@@ -86,6 +86,7 @@ export interface Card {
   teams: Record<string, { pack_id: string; name: string; stage: string }>;
   redos: number;
   off_label: string[];
+  attachments: { id: string; name: string; size_bytes: number; content_type: string }[];
 }
 
 export type BlockKind = '' | 'low_score';
