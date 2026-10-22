@@ -392,3 +392,46 @@ func TestADeleteThatRollsBackKeepsTheFiles(t *testing.T) {
 		rc.Close()
 	}
 }
+
+func TestDeletingAWorkspaceDeletesItsFiles(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@other.org")
+	wa, wb := s.workspace(t, a, "lab"), s.workspace(t, b, "other")
+	linked := s.uploadData(t, a, wa.ID, "data.csv", []byte(attachedCSV))
+	pending := s.uploadData(t, a, wa.ID, "later.csv", []byte(attachedCSV))
+	theirs := s.uploadData(t, b, wb.ID, "theirs.csv", []byte(attachedCSV))
+	if code := s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q?", "attachment_ids": []string{linked}}, nil); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	has := func(k string) bool {
+		rc, err := s.H.Blobs.Get(t.Context(), k)
+		if err == nil {
+			rc.Close()
+		}
+		return err == nil
+	}
+	keys := func(ws, id string) []string {
+		k := ws + "/attachments/" + id
+		return []string{k, records.TextKey(k)}
+	}
+	for _, k := range append(keys(wa.ID, linked), append(keys(wa.ID, pending), keys(wb.ID, theirs)...)...) {
+		if !has(k) {
+			t.Fatalf("fixture: %s is not stored", k)
+		}
+	}
+	if code := s.call(t, "DELETE", "/api/workspaces/"+wa.ID, a, "", nil, nil); code != 204 {
+		t.Fatalf("delete: %d", code)
+	}
+	for _, k := range append(keys(wa.ID, linked), keys(wa.ID, pending)...) {
+		if has(k) {
+			t.Fatalf("%s outlived its workspace", k)
+		}
+	}
+	for _, k := range keys(wb.ID, theirs) {
+		if !has(k) {
+			t.Fatalf("another workspace's %s was deleted", k)
+		}
+	}
+}

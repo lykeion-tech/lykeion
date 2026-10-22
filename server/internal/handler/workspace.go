@@ -215,7 +215,15 @@ func (h *H) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Emit(r.Context(), "workspace.deleted", nil, store.User(user), nil); err != nil {
 			return err
 		}
-		return tx.Q.DeleteWorkspace(r.Context(), ws)
+		files, err := tx.Q.WorkspaceAttachments(r.Context(), ws)
+		if err != nil {
+			return err
+		}
+		if err := tx.Q.DeleteWorkspace(r.Context(), ws); err != nil {
+			return err
+		}
+		h.deleteFilesAfterCommit(r, tx, files)
+		return nil
 	}); err != nil {
 		fail(w, r, err)
 		return

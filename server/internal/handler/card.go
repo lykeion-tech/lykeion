@@ -1,10 +1,8 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -17,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
-	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -680,9 +677,6 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// studyFileDeleteTimeout bounds deleting a removed study's file blobs.
-const studyFileDeleteTimeout = time.Minute
-
 // deleteCard removes a study and everything recorded on it, at any point of
 // its work; only its owner may. Its open agent runs are cancelled first, so
 // their tokens stop working. Its events stay, with the card's id in the
@@ -728,19 +722,7 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Q.DeleteCard(r.Context(), db.DeleteCardParams{ID: id, WorkspaceID: ws}); err != nil {
 			return err
 		}
-		// The files go only once the delete has committed; one that fails to
-		// go is wasted space, not a reason to keep the study.
-		tx.AfterCommit(func() {
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), studyFileDeleteTimeout)
-			defer cancel()
-			for _, f := range files {
-				for _, key := range []string{f.BlobKey, records.TextKey(f.BlobKey)} {
-					if err := h.Blobs.Delete(ctx, key); err != nil {
-						slog.Error("study file delete", "attachment", f.ID, "key", key, "err", err)
-					}
-				}
-			}
-		})
+		h.deleteFilesAfterCommit(r, tx, files)
 		return tx.Emit(r.Context(), "card.deleted", nil, store.User(user), map[string]any{"card_id": id, "number": c.Number})
 	})
 	if answer(w, r, err) {

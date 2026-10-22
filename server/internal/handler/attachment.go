@@ -404,3 +404,24 @@ func removePendingAttachment(ctx context.Context, st *store.Store, blobs storage
 	}
 	return errors.Join(blobs.Delete(ctx, key), blobs.Delete(ctx, records.TextKey(key)))
 }
+
+// fileDeleteTimeout bounds deleting the blobs of a removed study's or
+// workspace's files.
+const fileDeleteTimeout = time.Minute
+
+// deleteFilesAfterCommit deletes each file's blob and its text once tx has
+// committed; a blob that fails to go is wasted space, not a reason to keep
+// what was deleted.
+func (h *H) deleteFilesAfterCommit(r *http.Request, tx *store.Tx, files []db.Attachment) {
+	tx.AfterCommit(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), fileDeleteTimeout)
+		defer cancel()
+		for _, f := range files {
+			for _, key := range []string{f.BlobKey, records.TextKey(f.BlobKey)} {
+				if err := h.Blobs.Delete(ctx, key); err != nil {
+					slog.Error("attachment delete", "attachment", f.ID, "key", key, "err", err)
+				}
+			}
+		}
+	})
+}
