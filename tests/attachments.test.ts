@@ -51,5 +51,8 @@ describe('study attachments composer', () => {
     await a.add([file('x')]);
     expect(a.ids.value).toEqual([]);
     expect(a.items.value[0]!.error).toBe('x: boom');
+    expect(a.failed.value).toBe(true);
+    a.remove(a.items.value[0]!.key);
+    expect(a.failed.value).toBe(false);
   });
 });

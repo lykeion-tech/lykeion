@@ -119,7 +119,12 @@ function keysDown(event: KeyboardEvent) {
 // A Team with no stage label has no column until the researcher picks one.
 const unstaged = computed(() => picker.value?.unstaged ?? false);
 const blocked = computed(
-  () => busy.value || !question.value.trim() || unstaged.value || files.uploading.value,
+  () =>
+    busy.value ||
+    !question.value.trim() ||
+    unstaged.value ||
+    files.uploading.value ||
+    files.failed.value,
 );
 
 async function submit() {

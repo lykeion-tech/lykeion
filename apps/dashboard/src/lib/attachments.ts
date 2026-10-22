@@ -33,6 +33,7 @@ export function useAttachments(upload: Upload) {
   let next = 0;
 
   const ids = computed(() => items.value.flatMap((i) => (i.id ? [i.id] : [])));
+  const failed = computed(() => items.value.some((i) => i.error));
   const uploading = computed(() => items.value.some((i) => !i.id && !i.error));
 
   function refusal(file: File): string {
@@ -74,5 +75,5 @@ export function useAttachments(upload: Upload) {
     items.value = [];
     error.value = '';
   };
-  return { items, error, ids, uploading, add, remove, clear };
+  return { items, error, ids, uploading, failed, add, remove, clear };
 }

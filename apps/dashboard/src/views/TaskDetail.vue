@@ -123,21 +123,23 @@ const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
 async function download(a: { id: string; name: string }) {
-  const blob = await api<Blob>(
-    'GET',
-    `/api/cards/${props.id}/attachments/${a.id}`,
-    undefined,
-    undefined,
-    {
-      response: 'blob',
-    },
-  );
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = a.name;
-  link.click();
-  URL.revokeObjectURL(url);
+  try {
+    const blob = await api<Blob>(
+      'GET',
+      `/api/cards/${props.id}/attachments/${a.id}`,
+      undefined,
+      undefined,
+      { response: 'blob' },
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = a.name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    notify(`${a.name}: ${(e as Error).message}`);
+  }
 }
 const creator = computed(
   () =>
