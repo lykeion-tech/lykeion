@@ -48,7 +48,7 @@ type H struct {
 	Shipped      fs.FS  // the packs Lykeion ships, one folder per name; nil ships none
 	// ExtractText reads an upload's text, records.ExtractText when nil, within
 	// TextDeadline, textDeadline when zero.
-	ExtractText  func(name, contentType string, r io.Reader) (string, bool, error)
+	ExtractText  func(name, contentType string, f io.ReaderAt, size int64) (*io.SectionReader, bool, error)
 	TextDeadline time.Duration
 }
 

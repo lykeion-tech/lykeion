@@ -1,6 +1,6 @@
 -- name: InsertPendingAttachment :one
-INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key, text_sha256)
-VALUES (@id, @workspace_id, @uploader_id, @name, @content_type, @size_bytes, @sha256, @blob_key, @text_sha256)
+INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes)
+VALUES (@id, @workspace_id, @uploader_id, @name, @content_type, @size_bytes, @sha256, @blob_key, @text_sha256, @text_size_bytes)
 RETURNING *;
 
 -- The uploader's own unlinked uploads among ids.
@@ -14,8 +14,13 @@ ORDER BY created_at, id;
 UPDATE attachment SET card_id = @card_id, disk_name = @disk_name, record_key = @record_key
 WHERE id = @id AND card_id IS NULL;
 
+-- A study's files in the order they were attached: by record key, c2 before c10.
 -- name: CardAttachments :many
-SELECT * FROM attachment WHERE workspace_id = @workspace_id AND card_id = @card_id ORDER BY created_at, id;
+SELECT * FROM attachment WHERE workspace_id = @workspace_id AND card_id = @card_id ORDER BY length(record_key), record_key, id;
+
+-- Every upload of a workspace, linked or pending.
+-- name: WorkspaceAttachments :many
+SELECT * FROM attachment WHERE workspace_id = @workspace_id;
 
 -- Unlinked uploads of every workspace created before the cutoff.
 -- name: StalePendingAttachments :many

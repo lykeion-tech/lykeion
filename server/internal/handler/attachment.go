@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -40,6 +39,8 @@ const (
 	// textDeadline bounds reading an upload's text; a file whose text takes
 	// longer is kept as a binary.
 	textDeadline = 2 * time.Minute
+	// maxExtractions bounds how many uploads' text is read at once.
+	maxExtractions = 3
 	// A study holds at most maxStudyFiles files totalling maxStudyBytes.
 	maxStudyFiles = 100
 	maxStudyBytes = 500 << 20
@@ -50,10 +51,18 @@ const (
 const errFileTaken = conflict("An attached file is no longer available")
 
 // studyFiles checks a new study's attachment ids against the caller's pending
-// uploads and the study's limits. Nothing is written, so a refusal here leaves
+// uploads and the study's limits, and answers the uploads in the order the ids
+// name them, a repeated id once. Nothing is written, so a refusal here leaves
 // the uploads pending.
 func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]db.Attachment, error) {
-	ids = slices.Compact(slices.SortedFunc(slices.Values(ids), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }))
+	at := map[uuid.UUID]int{}
+	ids = slices.DeleteFunc(slices.Clone(ids), func(id uuid.UUID) bool {
+		_, seen := at[id]
+		if !seen {
+			at[id] = len(at)
+		}
+		return seen
+	})
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -72,6 +81,8 @@ func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]db.Attachment, error
 	if len(rows) != len(ids) {
 		return nil, cardInputError("Unknown attachment")
 	}
+	// The files are linked and keyed in the order they were attached.
+	slices.SortFunc(rows, func(a, b db.Attachment) int { return at[a.ID] - at[b.ID] })
 	var total int64
 	for _, a := range rows {
 		total += a.SizeBytes
@@ -186,21 +197,25 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum, typ := hex.EncodeToString(hash.Sum(nil)), attachmentType(name, head[:hn])
-	textSum := ""
-	if text, ok := h.uploadText(name, typ, io.NewSectionReader(tmp, 0, n)); ok {
-		ts := sha256.Sum256([]byte(text))
-		textSum = hex.EncodeToString(ts[:])
-		if err := h.Blobs.Put(r.Context(), records.TextKey(key), strings.NewReader(text), int64(len(text))); err != nil {
+	textSum, textSize := "", int64(0)
+	if text, ok := h.uploadText(name, typ, tmp, n); ok {
+		th := sha256.New()
+		if err := h.Blobs.Put(r.Context(), records.TextKey(key), io.TeeReader(text, th), text.Size()); err != nil {
 			_ = h.Blobs.Delete(context.WithoutCancel(r.Context()), key)
+			_ = h.Blobs.Delete(context.WithoutCancel(r.Context()), records.TextKey(key))
 			fail(w, r, err)
 			return
 		}
+		textSum, textSize = hex.EncodeToString(th.Sum(nil)), text.Size()
 	}
+	// Nothing reads the temp file from here on; a parse abandoned at the
+	// deadline fails its next read instead of holding the file open.
+	tmp.Close()
 	var row db.Attachment
 	err = h.Store.InWorkspace(r.Context(), ws, user(r), func(tx *store.Tx) error {
 		var err error
 		row, err = tx.Q.InsertPendingAttachment(r.Context(), db.InsertPendingAttachmentParams{
-			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key, TextSha256: textSum})
+			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key, TextSha256: textSum, TextSizeBytes: textSize})
 		return err
 	})
 	if err != nil {
@@ -212,9 +227,14 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]any{"id": row.ID, "name": row.Name, "size_bytes": row.SizeBytes, "content_type": row.ContentType, "sha256": row.Sha256})
 }
 
-// uploadText reads a stored upload's text within the deadline. A file whose
-// text cannot be read, or not in time, has none.
-func (h *H) uploadText(name, typ string, r io.Reader) (string, bool) {
+// extractions holds a slot for each text read under way, abandoned ones
+// included, so at most maxExtractions run at once.
+var extractions = make(chan struct{}, maxExtractions)
+
+// uploadText reads a stored upload's text within the deadline, waiting for a
+// free slot included. A file whose text cannot be read, or not in time, has
+// none.
+func (h *H) uploadText(name, typ string, f io.ReaderAt, size int64) (*io.SectionReader, bool) {
 	extract, limit := h.ExtractText, h.TextDeadline
 	if extract == nil {
 		extract = records.ExtractText
@@ -222,25 +242,30 @@ func (h *H) uploadText(name, typ string, r io.Reader) (string, bool) {
 	if limit == 0 {
 		limit = textDeadline
 	}
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case extractions <- struct{}{}:
+	case <-timer.C:
+		return nil, false
+	}
 	type result struct {
-		text string
+		text *io.SectionReader
 		ok   bool
 	}
 	done := make(chan result, 1)
-	// ponytail: a parse past the deadline is abandoned, not stopped; its
-	// goroutine and the file's bytes (up to 100 MB) live until the library
-	// returns. A hard stop needs the parse in a subprocess.
+	// A parse past the deadline is abandoned, not stopped: it keeps its slot
+	// until it returns, which it does once the caller closes f under it.
 	go func() {
-		text, ok, err := extract(name, typ, r)
+		defer func() { <-extractions }()
+		text, ok, err := extract(name, typ, f, size)
 		done <- result{text, ok && err == nil}
 	}()
-	timer := time.NewTimer(limit)
-	defer timer.Stop()
 	select {
 	case res := <-done:
 		return res.text, res.ok
 	case <-timer.C:
-		return "", false
+		return nil, false
 	}
 }
 

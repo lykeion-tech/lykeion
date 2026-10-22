@@ -52,50 +52,82 @@ func CallBody(server, tool string, args any, answer string, upstreamCut bool) (m
 		"answer": answer, "truncated": upstreamCut || rest != "", "at": time.Now().UTC().Format(time.RFC3339)}, rest
 }
 
-// ExtractText reads an attached file's text: text-like files as they are, PDFs
-// through their text layer. Binaries, text that is not UTF-8 and PDFs the
-// reader cannot parse have no text; only reading r fails.
-func ExtractText(name, contentType string, r io.Reader) (text string, ok bool, err error) {
+// ExtractText reads an attached file's text from f, which holds size bytes,
+// without holding the file in memory: a text-like file is its own text, read
+// back from f; a PDF's text layer is read from f as the parser needs it.
+// Binaries, text that is not UTF-8 and PDFs the reader cannot parse have no
+// text; only reading a text-like file fails.
+func ExtractText(name, contentType string, f io.ReaderAt, size int64) (text *io.SectionReader, ok bool, err error) {
 	typ := strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
 	isPDF := typ == "application/pdf" || strings.EqualFold(path.Ext(name), ".pdf")
 	if !isPDF && !strings.HasPrefix(typ, "text/") && typ != "application/json" && !strings.HasSuffix(typ, "+json") {
-		return "", false, nil
+		return nil, false, nil
 	}
-	b, err := io.ReadAll(r)
-	if err != nil {
-		return "", false, err
-	}
-	if !isPDF {
-		if !utf8.Valid(b) {
-			return "", false, nil
+	if isPDF {
+		b, ok := pdfText(f, size)
+		if !ok {
+			return nil, false, nil
 		}
-		return string(b), true, nil
+		return io.NewSectionReader(bytes.NewReader(b), 0, int64(len(b))), true, nil
 	}
-	text, ok = pdfText(b)
-	return text, ok, nil
+	if ok, err := validUTF8(io.NewSectionReader(f, 0, size)); !ok || err != nil {
+		return nil, false, err
+	}
+	return io.NewSectionReader(f, 0, size), true, nil
+}
+
+// validUTF8 reports whether r holds UTF-8, reading it a chunk at a time. A
+// rune cut by a chunk's end is carried into the next chunk.
+func validUTF8(r io.Reader) (bool, error) {
+	buf := make([]byte, 32<<10+utf8.UTFMax)
+	keep := 0
+	for {
+		n, err := r.Read(buf[keep:])
+		n += keep
+		end := n
+		if err == nil {
+			i := n - 1
+			for i > 0 && i > n-utf8.UTFMax && !utf8.RuneStart(buf[i]) {
+				i--
+			}
+			if i >= 0 && !utf8.FullRune(buf[i:n]) {
+				end = i
+			}
+		}
+		if !utf8.Valid(buf[:end]) {
+			return false, nil
+		}
+		keep = copy(buf, buf[end:n])
+		if err == io.EOF {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
 }
 
 // pdfText is a PDF's text layer. The reader panics on some malformed input,
 // which counts as no text.
-func pdfText(b []byte) (text string, ok bool) {
+func pdfText(f io.ReaderAt, size int64) (text []byte, ok bool) {
 	defer func() {
 		if recover() != nil {
-			text, ok = "", false
+			text, ok = nil, false
 		}
 	}()
-	doc, err := pdf.NewReader(bytes.NewReader(b), int64(len(b)))
+	doc, err := pdf.NewReader(f, size)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 	tr, err := doc.GetPlainText()
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 	out, err := io.ReadAll(tr)
 	if err != nil || !utf8.Valid(out) {
-		return "", false
+		return nil, false
 	}
-	return string(out), true
+	return out, true
 }
 
 // AttachmentServer is the server name an attached file's call record carries;
@@ -139,7 +171,7 @@ func RecordAttachment(ctx context.Context, tx *store.Tx, blobs storage.Storage, 
 	}
 	if blobKey != "" {
 		if err := tx.Emit(ctx, "blob.created", &card.ID, store.System,
-			map[string]any{"blob_key": blobKey, "sha256": a.TextSha256}); err != nil {
+			map[string]any{"blob_key": blobKey, "sha256": a.TextSha256, "size": a.TextSizeBytes}); err != nil {
 			return "", err
 		}
 	}

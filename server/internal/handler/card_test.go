@@ -11,14 +11,17 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"io/fs"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/testutil"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -755,8 +758,48 @@ func TestAStudyLinksItsFilesAndRecordsThem(t *testing.T) {
 	if n := s.count(t, `SELECT count(*) FROM event WHERE card_id = $1 AND type = 'record.created'`, c.ID); n != 2 {
 		t.Fatalf("record.created events: %d", n)
 	}
-	if n := s.count(t, `SELECT count(*) FROM event WHERE card_id = $1 AND type = 'blob.created' AND payload->>'blob_key' = $2`, c.ID, blobs["c1"]); n != 1 {
+	if n := s.count(t, `SELECT count(*) FROM event WHERE card_id = $1 AND type = 'blob.created' AND payload->>'blob_key' = $2
+		AND (payload->>'size')::bigint = $3`, c.ID, blobs["c1"], len(attachedCSV)); n != 1 {
 		t.Fatalf("blob.created events: %d", n)
+	}
+}
+
+func TestFilesKeepTheOrderTheyWereAttachedIn(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	// uploaded f0..f10, attached f10..f0: the order attached is the order kept
+	var ids, names []string
+	for i := range 11 {
+		ids = append([]string{s.uploadData(t, a, w.ID, fmt.Sprintf("f%d.csv", i), []byte("x\n"))}, ids...)
+		names = append([]string{fmt.Sprintf("f%d.csv", i)}, names...)
+	}
+	var c struct {
+		ID          string
+		Attachments []struct{ Name string }
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": ids}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	listed := func() []string {
+		var out []string
+		for _, f := range c.Attachments {
+			out = append(out, f.Name)
+		}
+		return out
+	}
+	if !slices.Equal(listed(), names) {
+		t.Fatalf("created study lists %v, want %v", listed(), names)
+	}
+	for i, id := range ids {
+		if n := s.count(t, `SELECT count(*) FROM attachment WHERE id = $1 AND record_key = $2`, id, fmt.Sprintf("c%d", i+1)); n != 1 {
+			t.Fatalf("%s is not c%d", names[i], i+1)
+		}
+	}
+	if code := s.call(t, "GET", "/api/cards/"+c.ID, a, w.ID, nil, &c); code != 200 || !slices.Equal(listed(), names) {
+		t.Fatalf("study page lists %v (%d), want %v", listed(), code, names)
 	}
 }
 
@@ -934,6 +977,10 @@ func TestAnUploadTakenMidCreateRefusesTheStudy(t *testing.T) {
 	first := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
 	taken := s.uploadData(t, a, w.ID, "more.csv", []byte("gene\nSIRT1\n"))
 	local := s.H.Blobs.(storage.Local)
+	before := storedBlobs(t, local.Dir)
+	if !slices.Contains(before, records.TextKey(w.ID+"/attachments/"+taken)) {
+		t.Fatalf("fixture: the uploads' text is not stored: %v", before)
+	}
 	gate := gatedBlobs{local, make(chan struct{}, 2), make(chan struct{})}
 	s.H.Blobs = gate
 	code := make(chan int)
@@ -956,12 +1003,28 @@ func TestAnUploadTakenMidCreateRefusesTheStudy(t *testing.T) {
 	if n := s.count(t, `SELECT count(*) FROM attachment WHERE id = $1 AND card_id IS NULL AND record_key = ''`, first); n != 1 {
 		t.Fatal("the other upload is no longer pending")
 	}
-	// nor any copy of the files' text
-	texts, _ := filepath.Glob(filepath.Join(local.Dir, w.ID, "*", "*"))
-	texts = slices.DeleteFunc(texts, func(p string) bool { return uuid.Validate(filepath.Base(filepath.Dir(p))) != nil })
-	if len(texts) != 0 {
-		t.Fatalf("text blobs %v", texts)
+	// storage holds just what it held before the create
+	if after := storedBlobs(t, local.Dir); !slices.Equal(after, before) {
+		t.Fatalf("stored blobs %v, before the create %v", after, before)
 	}
+}
+
+// storedBlobs lists every file under dir, sorted.
+func storedBlobs(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(dir, p)
+			out = append(out, filepath.ToSlash(rel))
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(out)
+	return out
 }
 
 func TestARunCannotRecordAnAttachment(t *testing.T) {
@@ -1005,6 +1068,22 @@ func TestAnUploadRecordsItsTextHash(t *testing.T) {
 	if _, err := s.H.Blobs.Get(t.Context(), records.TextKey(blob)); sha != "" || !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("png text %q: %v", sha, err)
 	}
+	// a PDF's text layer is read from the stored upload
+	doc, err := os.ReadFile("../records/testdata/finding.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sha, blob = text(s.uploadData(t, a, w.ID, "finding.pdf", doc))
+	rc, err = s.H.Blobs.Get(t.Context(), records.TextKey(blob))
+	if err != nil {
+		t.Fatalf("pdf text: %v", err)
+	}
+	got, _ = io.ReadAll(rc)
+	rc.Close()
+	pdfSum := sha256.Sum256(got)
+	if !strings.Contains(string(got), "Mitochondrial density rose in fasting mice.") || sha != hex.EncodeToString(pdfSum[:]) {
+		t.Fatalf("pdf text %q, sha256 %q", got, sha)
+	}
 }
 
 func TestASlowExtractionIsRecordedAsBinary(t *testing.T) {
@@ -1014,9 +1093,9 @@ func TestASlowExtractionIsRecordedAsBinary(t *testing.T) {
 	stuck := make(chan struct{})
 	defer close(stuck)
 	s.H.TextDeadline = 100 * time.Millisecond
-	s.H.ExtractText = func(name, typ string, r io.Reader) (string, bool, error) {
+	s.H.ExtractText = func(name, typ string, f io.ReaderAt, size int64) (*io.SectionReader, bool, error) {
 		<-stuck
-		return "never", true, nil
+		return io.NewSectionReader(strings.NewReader("never"), 0, 5), true, nil
 	}
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
@@ -1037,5 +1116,67 @@ func TestASlowExtractionIsRecordedAsBinary(t *testing.T) {
 	}
 	if answer != "binary file slow.pdf, sha256 "+hex.EncodeToString(sum[:]) || blob != "" {
 		t.Fatalf("record %q blob %q", answer, blob)
+	}
+}
+
+func TestAtMostThreeUploadsReadTheirTextAtOnce(t *testing.T) {
+	s := newServer(t)
+	var running, most atomic.Int32
+	s.H.ExtractText = func(name, typ string, f io.ReaderAt, size int64) (*io.SectionReader, bool, error) {
+		n := running.Add(1)
+		defer running.Add(-1)
+		for m := most.Load(); n > m && !most.CompareAndSwap(m, n); m = most.Load() {
+		}
+		time.Sleep(150 * time.Millisecond)
+		return records.ExtractText(name, typ, f, size)
+	}
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() { s.uploadData(t, a, w.ID, fmt.Sprintf("f%d.csv", i), []byte("x\n")) })
+	}
+	wg.Wait()
+	if m := most.Load(); m != maxExtractions {
+		t.Fatalf("%d text reads ran at once, want %d", m, maxExtractions)
+	}
+	if n := s.count(t, `SELECT count(*) FROM attachment WHERE text_sha256 <> ''`); n != 8 {
+		t.Fatalf("%d of 8 uploads kept their text", n)
+	}
+}
+
+func TestAnAbandonedParseEndsWhenItsFileIsClosed(t *testing.T) {
+	s := newServer(t)
+	s.H.TextDeadline = 100 * time.Millisecond
+	ended := make(chan error, 1)
+	// a parse that never finishes on its own: it reads until reading fails
+	s.H.ExtractText = func(name, typ string, f io.ReaderAt, size int64) (*io.SectionReader, bool, error) {
+		b := make([]byte, 1)
+		for {
+			if _, err := f.ReadAt(b, 0); err != nil {
+				ended <- err
+				return nil, false, err
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	s.uploadData(t, a, w.ID, "slow.pdf", []byte("%PDF-1.4\n"))
+	select {
+	case err := <-ended:
+		if !errors.Is(err, os.ErrClosed) {
+			t.Fatalf("the parse ended on %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the abandoned parse still reads its file")
+	}
+	// its slot is free again
+	deadline := time.Now().Add(5 * time.Second)
+	for len(extractions) > 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := len(extractions); n != 0 {
+		t.Fatalf("%d slots held", n)
 	}
 }

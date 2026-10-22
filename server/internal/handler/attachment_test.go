@@ -144,6 +144,31 @@ func TestAnUploadStreamsAndIsBounded(t *testing.T) {
 	}
 }
 
+func TestAnAcceptedTextUploadIsNotHeldInMemory(t *testing.T) {
+	s := newServer(t)
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "up-lab")
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	code, out := s.upload(t, tok, w.ID, "big.txt", MaxAttachmentBytes)
+	runtime.ReadMemStats(&after)
+	if code != 201 {
+		t.Fatalf("100 MB upload: %d %v", code, out)
+	}
+	// Reading the file's text whole would allocate at least its size.
+	if grown := after.TotalAlloc - before.TotalAlloc; grown > 60<<20 {
+		t.Fatalf("handler allocated %d MB for a 100 MB text upload", grown>>20)
+	}
+	var textSum string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT text_sha256 FROM attachment WHERE id=$1`, out["id"]).Scan(&textSum); err != nil {
+		t.Fatal(err)
+	}
+	if textSum != out["sha256"] {
+		t.Fatalf("the file's text was not kept: text sha256 %q, file %v", textSum, out["sha256"])
+	}
+}
+
 func TestUploadNeedsMembership(t *testing.T) {
 	s := newServer(t)
 	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@lab.org")

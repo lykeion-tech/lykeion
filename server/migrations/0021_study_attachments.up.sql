@@ -14,6 +14,7 @@ CREATE TABLE attachment (
   -- sha256 of the text read from the file at upload, kept beside the file's blob;
   -- empty for a file with no text
   text_sha256 text NOT NULL DEFAULT '',
+  text_size_bytes bigint NOT NULL DEFAULT 0,
   record_key text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (workspace_id, id),

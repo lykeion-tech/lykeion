@@ -13,7 +13,7 @@ import (
 )
 
 const cardAttachment = `-- name: CardAttachment :one
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, record_key, created_at FROM attachment WHERE workspace_id = $1 AND card_id = $2 AND id = $3
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at FROM attachment WHERE workspace_id = $1 AND card_id = $2 AND id = $3
 `
 
 type CardAttachmentParams struct {
@@ -37,6 +37,7 @@ func (q *Queries) CardAttachment(ctx context.Context, arg CardAttachmentParams) 
 		&i.Sha256,
 		&i.BlobKey,
 		&i.TextSha256,
+		&i.TextSizeBytes,
 		&i.RecordKey,
 		&i.CreatedAt,
 	)
@@ -44,7 +45,7 @@ func (q *Queries) CardAttachment(ctx context.Context, arg CardAttachmentParams) 
 }
 
 const cardAttachments = `-- name: CardAttachments :many
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, record_key, created_at FROM attachment WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at, id
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at FROM attachment WHERE workspace_id = $1 AND card_id = $2 ORDER BY length(record_key), record_key, id
 `
 
 type CardAttachmentsParams struct {
@@ -52,6 +53,7 @@ type CardAttachmentsParams struct {
 	CardID      *uuid.UUID `json:"card_id"`
 }
 
+// A study's files in the order they were attached: by record key, c2 before c10.
 func (q *Queries) CardAttachments(ctx context.Context, arg CardAttachmentsParams) ([]Attachment, error) {
 	rows, err := q.db.Query(ctx, cardAttachments, arg.WorkspaceID, arg.CardID)
 	if err != nil {
@@ -73,6 +75,7 @@ func (q *Queries) CardAttachments(ctx context.Context, arg CardAttachmentsParams
 			&i.Sha256,
 			&i.BlobKey,
 			&i.TextSha256,
+			&i.TextSizeBytes,
 			&i.RecordKey,
 			&i.CreatedAt,
 		); err != nil {
@@ -105,21 +108,22 @@ func (q *Queries) DeletePendingAttachment(ctx context.Context, arg DeletePending
 }
 
 const insertPendingAttachment = `-- name: InsertPendingAttachment :one
-INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key, text_sha256)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, record_key, created_at
+INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at
 `
 
 type InsertPendingAttachmentParams struct {
-	ID          uuid.UUID `json:"id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	UploaderID  uuid.UUID `json:"uploader_id"`
-	Name        string    `json:"name"`
-	ContentType string    `json:"content_type"`
-	SizeBytes   int64     `json:"size_bytes"`
-	Sha256      string    `json:"sha256"`
-	BlobKey     string    `json:"blob_key"`
-	TextSha256  string    `json:"text_sha256"`
+	ID            uuid.UUID `json:"id"`
+	WorkspaceID   uuid.UUID `json:"workspace_id"`
+	UploaderID    uuid.UUID `json:"uploader_id"`
+	Name          string    `json:"name"`
+	ContentType   string    `json:"content_type"`
+	SizeBytes     int64     `json:"size_bytes"`
+	Sha256        string    `json:"sha256"`
+	BlobKey       string    `json:"blob_key"`
+	TextSha256    string    `json:"text_sha256"`
+	TextSizeBytes int64     `json:"text_size_bytes"`
 }
 
 func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPendingAttachmentParams) (Attachment, error) {
@@ -133,6 +137,7 @@ func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPending
 		arg.Sha256,
 		arg.BlobKey,
 		arg.TextSha256,
+		arg.TextSizeBytes,
 	)
 	var i Attachment
 	err := row.Scan(
@@ -147,6 +152,7 @@ func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPending
 		&i.Sha256,
 		&i.BlobKey,
 		&i.TextSha256,
+		&i.TextSizeBytes,
 		&i.RecordKey,
 		&i.CreatedAt,
 	)
@@ -180,7 +186,7 @@ func (q *Queries) LinkAttachment(ctx context.Context, arg LinkAttachmentParams) 
 }
 
 const pendingAttachments = `-- name: PendingAttachments :many
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, record_key, created_at FROM attachment
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at FROM attachment
 WHERE workspace_id = $1 AND uploader_id = $2 AND card_id IS NULL AND id = ANY($3::uuid[])
 ORDER BY created_at, id
 `
@@ -213,6 +219,7 @@ func (q *Queries) PendingAttachments(ctx context.Context, arg PendingAttachments
 			&i.Sha256,
 			&i.BlobKey,
 			&i.TextSha256,
+			&i.TextSizeBytes,
 			&i.RecordKey,
 			&i.CreatedAt,
 		); err != nil {
@@ -247,6 +254,46 @@ func (q *Queries) StalePendingAttachments(ctx context.Context, before time.Time)
 	for rows.Next() {
 		var i StalePendingAttachmentsRow
 		if err := rows.Scan(&i.ID, &i.WorkspaceID, &i.BlobKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const workspaceAttachments = `-- name: WorkspaceAttachments :many
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at FROM attachment WHERE workspace_id = $1
+`
+
+// Every upload of a workspace, linked or pending.
+func (q *Queries) WorkspaceAttachments(ctx context.Context, workspaceID uuid.UUID) ([]Attachment, error) {
+	rows, err := q.db.Query(ctx, workspaceAttachments, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Attachment
+	for rows.Next() {
+		var i Attachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.UploaderID,
+			&i.CardID,
+			&i.Name,
+			&i.DiskName,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.Sha256,
+			&i.BlobKey,
+			&i.TextSha256,
+			&i.TextSizeBytes,
+			&i.RecordKey,
+			&i.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"image"
 	"image/png"
+	"io"
 	"os"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func TestExtractText(t *testing.T) {
@@ -33,8 +35,12 @@ func TestExtractText(t *testing.T) {
 		{"latin1.txt", "text/plain", []byte{'c', 'a', 'f', 0xe9}, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok, err := ExtractText(tc.name, tc.typ, bytes.NewReader(tc.data))
-			if err != nil || ok != tc.ok || (tc.ok && !strings.Contains(got, tc.want)) || (!tc.ok && got != "") {
+			text, ok, err := ExtractText(tc.name, tc.typ, bytes.NewReader(tc.data), int64(len(tc.data)))
+			var got []byte
+			if text != nil {
+				got, _ = io.ReadAll(text)
+			}
+			if err != nil || ok != tc.ok || (tc.ok && !strings.Contains(string(got), tc.want)) || (!tc.ok && text != nil) {
 				t.Fatalf("ExtractText = %q, %v, %v; want %q, %v", got, ok, err, tc.want, tc.ok)
 			}
 		})
@@ -53,5 +59,27 @@ func TestDiskNames(t *testing.T) {
 	long := got[len(got)-1]
 	if len(long) > 255 || !strings.HasSuffix(long, ".csv") || !strings.HasPrefix(long, "é") {
 		t.Errorf("long name %q (%d bytes)", long, len(long))
+	}
+}
+
+func TestValidUTF8AcrossReads(t *testing.T) {
+	long := strings.Repeat("a", 32<<10-1)
+	for _, tc := range []struct {
+		name string
+		r    io.Reader
+		want bool
+	}{
+		{"runes split by one-byte reads", iotest.OneByteReader(strings.NewReader("café ✓ 𝄞")), true},
+		{"a rune across a chunk's end", strings.NewReader(long + "é" + long + "𝄞"), true},
+		{"a cut rune at the end", iotest.OneByteReader(strings.NewReader("a\xe2\x9c")), false},
+		{"a bad byte past the first chunk", strings.NewReader(long + long + "\xff"), false},
+		{"a stray continuation byte", iotest.OneByteReader(strings.NewReader("a\x80b")), false},
+	} {
+		if ok, err := validUTF8(tc.r); ok != tc.want || err != nil {
+			t.Errorf("%s: %v, %v; want %v", tc.name, ok, err, tc.want)
+		}
+	}
+	if _, err := validUTF8(iotest.ErrReader(io.ErrUnexpectedEOF)); err == nil {
+		t.Error("a failed read is not an error")
 	}
 }
