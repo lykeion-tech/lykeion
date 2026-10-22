@@ -1725,11 +1725,12 @@ function pin() {
   font-size: 12px;
   margin: 0;
 }
-.attached-files {
+.details-body .attached-files {
   list-style: none;
   padding: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
 }
 .attached-files small {
@@ -1738,6 +1739,7 @@ function pin() {
 }
 .attached-files .text-button {
   font-size: 12px;
+  padding: 0;
   text-decoration: underline;
 }
 .details-body .v input {
