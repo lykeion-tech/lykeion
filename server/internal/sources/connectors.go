@@ -226,6 +226,9 @@ func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, 
 		body = res.Body
 		out.Status, out.ContentType, out.Truncated = res.Status, res.ContentType, res.Truncated
 	}
+	if h.Exclude.Match(string(body)) {
+		return ConnectorOut{}, fmt.Errorf("%s answered with a source that is not available on this server", e.Name)
+	}
 	out.Body = string(body)
 	if role.CardID == uuid.Nil {
 		// evidence for no card: the call is only logged, without the answer

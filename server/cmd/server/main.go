@@ -175,6 +175,11 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	runs.Keys = conn
 	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},
 		GEO: sources.GEO{Base: sources.EUtilsBase, MetadataBase: sources.GeoMetadataBase}, Store: st, Blobs: blobs}
+	if path := getenv("SOURCES_EXCLUDE_FILE"); path != "" {
+		if hosted.Exclude, err = sources.LoadExclusions(path); err != nil {
+			return fmt.Errorf("SOURCES_EXCLUDE_FILE: %w", err)
+		}
+	}
 	var mail auth.Mailer = auth.LogMailer{}
 	if addr := getenv("SMTP_ADDR"); addr != "" {
 		mail = auth.SMTPMailer{Addr: addr, From: getenv("SMTP_FROM"), User: getenv("SMTP_USER"), Pass: getenv("SMTP_PASS")}
