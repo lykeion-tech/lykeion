@@ -81,6 +81,15 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 		}
 		p.RestrictedRoots = append(p.RestrictedRoots, root)
 	}
+	// lyk is on the CLI's PATH as this executable. Running it needs no read
+	// grant, but a shell looking it up (which, command -v) stats it, so it is
+	// readable wherever the person's own reads don't already reach it.
+	if self, err := os.Executable(); err == nil {
+		if self, err = filepath.EvalSymlinks(self); err == nil && !insideStorage(home, self) &&
+			!slices.ContainsFunc(slices.Concat(p.RestrictedRoots, p.Write), func(dir string) bool { return insideStorage(dir, self) }) {
+			p.Read = append(p.Read, self)
+		}
+	}
 	if cli.Keychain && runtime.GOOS == "darwin" {
 		root := filepath.Join(home, "Library", "Keychains")
 		err = filepath.WalkDir(root, func(path string, e os.DirEntry, err error) error {
@@ -134,7 +143,7 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool) age
 			}
 		}
 		p.Write = append(p.Write, tmp)
-		envArgs := []string{"TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "CLAUDE_CODE_TMPDIR=" + tmp, "npm_config_cache=" + filepath.Join(d.cacheDir(), "npm"), "UV_CACHE_DIR=" + filepath.Join(d.cacheDir(), "uv"), "UV_PYTHON_INSTALL_DIR=" + filepath.Join(d.cacheDir(), "uv-python"), "UV_TOOL_DIR=" + filepath.Join(d.cacheDir(), "uv-tools"), name}
+		envArgs := []string{"TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "TMPPREFIX=" + filepath.Join(tmp, "zsh"), "CLAUDE_CODE_TMPDIR=" + tmp, "npm_config_cache=" + filepath.Join(d.cacheDir(), "npm"), "UV_CACHE_DIR=" + filepath.Join(d.cacheDir(), "uv"), "UV_PYTHON_INSTALL_DIR=" + filepath.Join(d.cacheDir(), "uv-python"), "UV_TOOL_DIR=" + filepath.Join(d.cacheDir(), "uv-tools"), name}
 		cmd, err := p.Command(ctx, "/usr/bin/env", append(envArgs, args...)...)
 		if err != nil {
 			cleanup()

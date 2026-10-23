@@ -495,3 +495,44 @@ echo '{"type":"result","is_error":false,"session_id":"marker-session","modelUsag
 		t.Fatal("test did not build sandbox before process record was published")
 	}
 }
+
+func TestCLISandboxFindsOwnExecutable(t *testing.T) {
+	if err := sandbox.Check(context.Background()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	scratch := t.TempDir()
+	run := filepath.Join(scratch, "run")
+	must(t, os.MkdirAll(run, 0700))
+	self, err := os.Executable()
+	must(t, err)
+	d := &daemon{cfg: Config{Home: scratch, StateDir: t.TempDir()}}
+	cmd, err := d.cliSandbox(run, nil, false)(context.Background(), agent.CLIPaths{}, "/bin/sh", "-c", "command -v "+filepath.Base(self))
+	must(t, err)
+	cmd.Dir = run
+	cmd.Env = []string{"PATH=" + filepath.Dir(self) + ":/usr/bin:/bin"}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the agent's shell cannot find the daemon's executable on PATH: %v %s", err, out)
+	}
+}
+
+func TestCLISandboxZshHeredoc(t *testing.T) {
+	if err := sandbox.Check(context.Background()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	if _, err := os.Stat("/bin/zsh"); err != nil {
+		t.Skip("no zsh")
+	}
+	t.Setenv("HOME", t.TempDir())
+	scratch := t.TempDir()
+	run := filepath.Join(scratch, "run")
+	must(t, os.MkdirAll(run, 0700))
+	d := &daemon{cfg: Config{Home: scratch, StateDir: t.TempDir()}}
+	cmd, err := d.cliSandbox(run, nil, false)(context.Background(), agent.CLIPaths{}, "/bin/zsh", "-fc", "cat <<'EOF'\nsummary\nEOF")
+	must(t, err)
+	cmd.Dir = run
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	if out, err := cmd.CombinedOutput(); err != nil || string(out) != "summary\n" {
+		t.Fatalf("zsh heredoc in the sandbox: %v %q", err, out)
+	}
+}
