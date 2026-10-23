@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"lykeion/server/internal/jev"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/science"
 )
 
@@ -283,5 +284,39 @@ func TestImportedSkillRoutesPropagateFolderFailure(t *testing.T) {
 	_, err := Route(context.Background(), j, "need", ForLibrary(nil, nil, []Skill{{Name: "wanted", Domain: "Workspace", LoadFiles: func(context.Context) (map[string][]byte, error) { return nil, failure }}}))
 	if !errors.Is(err, failure) {
 		t.Fatalf("missing folder failure: %v", err)
+	}
+}
+
+// A Team's own skills and connectors are its own field: Jev judges each of
+// them, but never whether their group is a relevant field.
+func TestRouteJudgesATeamsOwnItemsWithoutTheFieldQuestion(t *testing.T) {
+	own := teamGroup(pack.Manifest{Name: "Grounding Team"})
+	j, s := jevStub(t, []answer{{"## Use\n", 0.9}, {`tool "lookup"`, 0.9}, {`"alpha"`, 0.9}, {`"beta"`, 0.2}, {`"genes"`, 0.9}, {"\n" + own + "\n", 0.1}})
+	c := Candidates{Own: own,
+		Skills:     []Skill{skill("alpha", own, "Use"), skill("beta", own, "Use")},
+		Connectors: []Connector{{Name: "genes", Domain: own, Description: "gene lookups", Tools: []Tool{{Name: "lookup"}}}},
+	}
+	r, err := Route(context.Background(), j, "find papers", c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(r); !slices.Equal(got, []string{"alpha", "genes/lookup"}) {
+		t.Fatalf("routed %v, want alpha and genes/lookup", got)
+	}
+	for _, q := range s.asked() {
+		if strings.Contains(q, "Is this field relevant") {
+			t.Fatalf("Jev was asked whether the Team's own tools are a field: %s", q)
+		}
+	}
+}
+
+func TestTeamGroupNamesTheTeamOnce(t *testing.T) {
+	for name, want := range map[string]string{"Grounding Team": "the Grounding Team's own tools", "Docking": "the Docking Team's own tools"} {
+		if got := teamGroup(pack.Manifest{Name: name}); got != want {
+			t.Errorf("teamGroup(%q) = %q", name, got)
+		}
+	}
+	if got := teamGroup(pack.Manifest{Name: "Docking", Domain: "Chemistry"}); got != "Chemistry" {
+		t.Errorf("a Team with a domain is judged under it, got %q", got)
 	}
 }

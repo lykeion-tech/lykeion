@@ -66,6 +66,10 @@ type Connector struct {
 type Candidates struct {
 	Skills     []Skill
 	Connectors []Connector
+	// Own is the domain of a Team's own skills and connectors. It is the
+	// Team's own field, so Jev judges its items but is not asked whether it
+	// is relevant.
+	Own string
 }
 
 type RoutedSkill struct {
@@ -106,7 +110,7 @@ func teamGroup(m pack.Manifest) string {
 	if m.Domain != "" {
 		return m.Domain
 	}
-	return "the " + m.Name + " Team's own tools"
+	return "the " + strings.TrimSuffix(m.Name, " Team") + " Team's own tools"
 }
 
 // ForTeam is what a Team member's run routes to: the member's declared
@@ -114,7 +118,7 @@ func teamGroup(m pack.Manifest) string {
 // answers, by connector name.
 func ForTeam(p *pack.Pack, m pack.Member, conns []pack.Connector, tools map[string][]Tool) Candidates {
 	group := teamGroup(p.Manifest)
-	var c Candidates
+	c := Candidates{Own: group}
 	for _, name := range m.Skills {
 		if files := p.SkillFiles(m.Name, name); files["SKILL.md"] != nil {
 			desc, secs := science.ReadSkill(files["SKILL.md"])
@@ -193,6 +197,7 @@ func Route(ctx context.Context, j *jev.Client, need string, c Candidates) (Resul
 			order = append(order, k.Domain)
 		}
 	}
+	order = slices.DeleteFunc(order, func(d string) bool { return c.Own != "" && d == c.Own })
 	var qs []string
 	for _, d := range order {
 		qs = append(qs, "Is this field relevant to the need?\n"+fence.Untrusted("The field", cut(d, nameMax)))
