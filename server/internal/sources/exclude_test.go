@@ -129,3 +129,24 @@ func textOf(res *mcp.CallToolResult) string {
 	}
 	return b.String()
 }
+
+func TestExclusionsMatchPMCIDsAndCloseTitles(t *testing.T) {
+	x := excluded(t, "PMC12345", "Spatial transcriptomics of the developing mouse cortex at single cell resolution")
+	if !x.Match("europepmc:PMC12345") || !x.Match("pmc12345") || x.Match("PMC123456") || x.Match("PMC1234") {
+		t.Error("PMC ids match whole only")
+	}
+	for title, want := range map[string]bool{
+		"Spatial transcriptomics of the developing mouse cortex at single-cell resolution":                                                    true,
+		"High-resolution spatial transcriptomics of the developing mouse cortex at single cell resolution":                                    true,
+		"Spatial transcriptomics of the developing mouse cortex":                                                                              false,
+		"Spatial transcriptomics of the developing human and mouse cortex at single cell resolution, revisited":                               true,
+		"Spatial transcriptomics and proteomics of the developing mouse brain cortex in health, disease and ageing at single cell resolution": false,
+	} {
+		if got := x.Hides(Hit{Title: title}); got != want {
+			t.Errorf("Hides(%q) = %v", title, got)
+		}
+	}
+	if x.Match("the developing mouse cortex spatial transcriptomics resolution single cell at of") {
+		t.Error("a body matched a title by its words alone")
+	}
+}

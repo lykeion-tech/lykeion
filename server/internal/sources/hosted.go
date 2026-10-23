@@ -217,7 +217,7 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			if err != nil {
 				return nil, HitsOut{}, err
 			}
-			hits = slices.DeleteFunc(hits, func(hit Hit) bool { return h.Exclude.Match(hit.Title + "\n" + hit.DOI + "\n" + hit.ID) })
+			hits = slices.DeleteFunc(hits, h.Exclude.Hides)
 			for i := range hits {
 				if len(hits[i].Abstract) > 500 {
 					hits[i].Abstract = hits[i].Abstract[:500] + "…"
@@ -246,7 +246,7 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			if d.Text == "" {
 				return nil, FetchOut{}, fmt.Errorf("%s has no text to read", in.SourceID)
 			}
-			if h.Exclude.Match(d.Title + "\n" + d.DOI + "\n" + d.SourceURL) {
+			if h.Exclude.Hides(d.Hit) || h.Exclude.Match(d.SourceURL) {
 				return nil, FetchOut{}, fmt.Errorf("%s is not available on this server", in.SourceID)
 			}
 			body := map[string]any{"source_id": in.SourceID, "database": dbName, "doi": d.DOI, "full_text": d.FullText, "retracted": d.Retracted}

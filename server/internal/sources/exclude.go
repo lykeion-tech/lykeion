@@ -9,18 +9,25 @@ import (
 
 // Exclusions are sources the server keeps from agents: papers a study must
 // not read, such as the one whose result it is asked to predict. Each line of
-// the file is a DOI, an arXiv id or a title; blank lines and # comments are
-// skipped. A title shorter than minTitle could name other papers, so it is
-// ignored.
+// the file is a DOI, an arXiv id, a PubMed Central id or a title; blank lines
+// and # comments are skipped. A title shorter than minTitle could name other
+// papers, so it is ignored.
 type Exclusions struct {
-	ids    []*regexp.Regexp // DOIs and arXiv ids, whole
+	ids    []*regexp.Regexp // DOIs, arXiv and PMC ids, whole
 	titles []string
 }
 
-const minTitle = 30
+const (
+	minTitle = 30
+	// A published title may add words to the one listed, so a result's title
+	// that holds every listed word plus at most extraWords others is the same
+	// paper.
+	extraWords = 5
+)
 
 var (
 	arxivID = regexp.MustCompile(`^\d{4}\.\d{4,5}$`)
+	pmcID   = regexp.MustCompile(`^(?i)pmc\d+$`)
 	notWord = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
@@ -38,6 +45,8 @@ func LoadExclusions(path string) (*Exclusions, error) {
 		case line == "" || strings.HasPrefix(line, "#"):
 		case strings.HasPrefix(line, "10."):
 			x.ids = append(x.ids, regexp.MustCompile(regexp.QuoteMeta(strings.ToLower(line))+`($|[^a-z0-9])`))
+		case pmcID.MatchString(line):
+			x.ids = append(x.ids, regexp.MustCompile(`(^|[^a-z0-9])`+strings.ToLower(line)+`($|[^\d])`))
 		case arxivID.MatchString(line):
 			x.ids = append(x.ids, regexp.MustCompile(`(^|[^\d])`+regexp.QuoteMeta(line)+`($|[^\d])`))
 		default:
@@ -73,6 +82,33 @@ func (x *Exclusions) Match(s string) bool {
 			if strings.Contains(norm, t) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// Hides reports whether a search result or fetched paper is an excluded
+// source: by its ids, or by a title that is a listed one, perhaps with a few
+// words added.
+func (x *Exclusions) Hides(hit Hit) bool {
+	if x == nil {
+		return false
+	}
+	if x.Match(hit.Title + "\n" + hit.DOI + "\n" + hit.ID) {
+		return true
+	}
+	words := map[string]bool{}
+	for _, w := range strings.Fields(normTitle(hit.Title)) {
+		words[w] = true
+	}
+	for _, t := range x.titles {
+		listed := strings.Fields(t)
+		all := true
+		for _, w := range listed {
+			all = all && words[w]
+		}
+		if all && len(words) <= len(listed)+extraWords {
+			return true
 		}
 	}
 	return false
