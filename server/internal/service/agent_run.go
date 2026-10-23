@@ -26,6 +26,7 @@ import (
 	"lykeion/server/internal/pricing"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/toolroute"
 	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -140,6 +141,9 @@ type Claimed struct {
 	// Attachments are the study's files, which the daemon places in the run
 	// folder before the CLI starts.
 	Attachments []ClaimedAttachment `json:"attachments,omitempty"`
+	// Skills are a Team member's own skills, which the daemon places where
+	// the CLI reads skills before it starts.
+	Skills []toolroute.RoutedSkill `json:"skills,omitempty"`
 }
 
 // ClaimedAttachment is an attached file as the daemon fetches it: by id,
@@ -616,7 +620,9 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	// A Team pack is a blob, read only once the transaction is closed.
 	for i := range out {
 		if team, ok := teams[out[i].AgentRun.ID]; ok {
-			out[i].Connectors = slices.DeleteFunc(s.teamConnectors(ctx, team), func(c pack.Connector) bool { return c.Workspace != "" })
+			conns, skills := s.teamTools(ctx, team)
+			out[i].Connectors = slices.DeleteFunc(conns, func(c pack.Connector) bool { return c.Workspace != "" })
+			out[i].Skills = skills
 		}
 	}
 	return out, nil
@@ -688,19 +694,29 @@ func TeamMember(ctx context.Context, blobs storage.Storage, team TeamClaim) (*pa
 	return p, member, nil
 }
 
-// teamConnectors is the run's Team member's declared connectors. A pack that
-// cannot be read hands out none: the run is already claimed, and calling
-// nothing is safer than calling what was never checked.
-func (s *AgentRuns) teamConnectors(ctx context.Context, team TeamClaim) []pack.Connector {
+// teamTools is the run's Team member's declared connectors and its own
+// skills, each with its whole folder. A pack that cannot be read hands out
+// neither: the run is already claimed, and calling nothing is safer than
+// calling what was never checked.
+func (s *AgentRuns) teamTools(ctx context.Context, team TeamClaim) ([]pack.Connector, []toolroute.RoutedSkill) {
 	if s.Blobs == nil {
-		return []pack.Connector{}
+		return []pack.Connector{}, nil
 	}
-	_, member, err := TeamMember(ctx, s.Blobs, team)
+	p, member, err := TeamMember(ctx, s.Blobs, team)
 	if err != nil {
-		slog.Warn("team pack unreadable at claim; the run gets no connectors", "pack", team.Pack.ID, "err", err)
-		return []pack.Connector{}
+		slog.Warn("team pack unreadable at claim; the run gets no connectors or skills", "pack", team.Pack.ID, "err", err)
+		return []pack.Connector{}, nil
 	}
-	return member.Connectors
+	c := toolroute.ForTeam(p, member, nil, nil)
+	all := toolroute.Result{}
+	for _, sk := range c.Skills {
+		all.Skills = append(all.Skills, toolroute.RoutedSkill{Name: sk.Name})
+	}
+	if err := c.AttachFolders(&all); err != nil {
+		slog.Warn("team skill unreadable at claim; the run gets none of its skills", "pack", team.Pack.ID, "err", err)
+		return member.Connectors, nil
+	}
+	return member.Connectors, all.Skills
 }
 
 func (s *AgentRuns) onAgentRun(ctx context.Context, user uuid.UUID, ref RuntimeRef, fn func(tx *store.Tx) error) error {

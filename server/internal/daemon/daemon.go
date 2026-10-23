@@ -24,6 +24,7 @@ import (
 	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/toolroute"
 	"lykeion/server/pkg/agent"
 )
 
@@ -104,6 +105,8 @@ type claimed struct {
 	WorkspaceConnectors []service.WorkspaceConnectorClaim `json:"workspace_connectors,omitempty"`
 	// Attachments are the study's files, placed read-only in the run folder.
 	Attachments []service.ClaimedAttachment `json:"attachments"`
+	// Skills are a Team member's own skills, placed where its CLI reads them.
+	Skills []toolroute.RoutedSkill `json:"skills"`
 }
 type daemon struct {
 	namingSlots     chan struct{}

@@ -24,6 +24,7 @@ import (
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/toolroute"
 	"lykeion/server/pkg/agent"
 )
 
@@ -124,6 +125,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		if retryableControlLoss(err) {
 			r.FailureReason = agent.ReasonRuntimeOffline
 		}
+		return nil
+	}
+	if err = placeClaimedSkills(c.AgentRun.Harness, dir, c.Skills); err != nil {
+		fail(err)
 		return nil
 	}
 	runCtx, cancel := context.WithCancel(ctx)
@@ -623,4 +628,16 @@ func sandboxHint(text string) string {
 		}
 	}
 	return ""
+}
+
+// placeClaimedSkills writes a Team member's own skills where its CLI reads
+// skills, so the CLI finds them when it starts. Routing may later place the
+// same skill again; it replaces the copy.
+func placeClaimedSkills(harness, dir string, skills []toolroute.RoutedSkill) error {
+	for _, s := range skills {
+		if err := placeRouted(harness, dir, s); err != nil {
+			return fmt.Errorf("skill %s: %w", s.Name, err)
+		}
+	}
+	return nil
 }
