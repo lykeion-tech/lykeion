@@ -1210,3 +1210,21 @@ func TestRemovedHarnessExplainsSupportedAlternatives(t *testing.T) {
 		})
 	}
 }
+
+// Codex's built-in web search answers from OpenAI's side, past the sources
+// server, so every Codex run turns it off, fresh or resumed.
+func TestCodexRunsWithoutWebSearch(t *testing.T) {
+	for _, resume := range []string{"", "thread-1"} {
+		args := filepath.Join(t.TempDir(), "args")
+		b, _ := New("codex", script(t, `printf '%s\n' "$@" > `+args))
+		s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Resume: resume})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		a, _ := os.ReadFile(args)
+		if !strings.Contains(string(a), "-c\nweb_search=\"disabled\"\n") {
+			t.Fatalf("resume=%q: codex ran with\n%s", resume, a)
+		}
+	}
+}

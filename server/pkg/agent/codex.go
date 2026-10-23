@@ -33,7 +33,9 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		}
 	}
 	// These flags belong to exec, before the optional resume subcommand.
-	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", "danger-full-access"}
+	// Codex's own web search answers from OpenAI's side, past the sources
+	// server that every cited source must come through, so it is off.
+	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", "danger-full-access", "-c", `web_search="disabled"`}
 	args = append(args, "-m", model)
 	if clash := personalClash(personal, o); clash != "" {
 		// -c deep-merges into a personal entry of the same name, so its headers
