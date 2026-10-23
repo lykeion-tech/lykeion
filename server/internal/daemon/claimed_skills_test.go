@@ -47,3 +47,16 @@ func TestClaimedSkillsArePlacedWhereEachCLIReadsThem(t *testing.T) {
 		t.Error("a skill name that leaves the skills folder was placed")
 	}
 }
+
+// The CLI lists a staged skill as lyk-<name>, so the run is told which of
+// those is which skill its Team names.
+func TestTheRunIsToldItsSkillsByTheNamesItsCLIShows(t *testing.T) {
+	got := skillsNote([]toolroute.RoutedSkill{{Name: "claim-check"}, {Name: "evidence-brief"}})
+	want := "\n\nYour skills are installed. Load them by these names: `lyk-claim-check` (the Team calls it claim-check), `lyk-evidence-brief` (the Team calls it evidence-brief)."
+	if got != want {
+		t.Fatalf("note %q", got)
+	}
+	if skillsNote(nil) != "" {
+		t.Fatal("a run with no skills is told about skills")
+	}
+}

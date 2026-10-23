@@ -131,6 +131,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(err)
 		return nil
 	}
+	prompt += skillsNote(c.Skills)
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	watched := make(chan struct{})
@@ -640,4 +641,17 @@ func placeClaimedSkills(harness, dir string, skills []toolroute.RoutedSkill) err
 		}
 	}
 	return nil
+}
+
+// skillsNote tells the run its staged skills by the names its CLI lists them
+// under, each with the name its Team's instructions use.
+func skillsNote(skills []toolroute.RoutedSkill) string {
+	if len(skills) == 0 {
+		return ""
+	}
+	names := make([]string, len(skills))
+	for i, s := range skills {
+		names[i] = "`" + agent.PinnedName(s.Name) + "` (the Team calls it " + s.Name + ")"
+	}
+	return "\n\nYour skills are installed. Load them by these names: " + strings.Join(names, ", ") + "."
 }
