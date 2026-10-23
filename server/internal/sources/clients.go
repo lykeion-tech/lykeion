@@ -90,6 +90,17 @@ func getJSON(ctx context.Context, h *http.Client, u string, v any) error {
 type OpenAlex struct {
 	Base string
 	HTTP *http.Client
+	// Mailto is the server's contact email, sent so OpenAlex serves its
+	// requests from the polite pool; empty sends none.
+	Mailto string
+}
+
+// contact is the mailto parameter to append to a request, or "".
+func (o OpenAlex) contact(sep string) string {
+	if o.Mailto == "" {
+		return ""
+	}
+	return sep + "mailto=" + url.QueryEscape(o.Mailto)
 }
 
 type oaWork struct {
@@ -126,7 +137,7 @@ func (o OpenAlex) Search(ctx context.Context, q string) ([]Hit, error) {
 	var out struct {
 		Results []oaWork `json:"results"`
 	}
-	if err := getJSON(ctx, o.HTTP, o.Base+"/works?per-page=10&search="+url.QueryEscape(q), &out); err != nil {
+	if err := getJSON(ctx, o.HTTP, o.Base+"/works?per-page=10&search="+url.QueryEscape(q)+o.contact("&"), &out); err != nil {
 		return nil, err
 	}
 	hits := make([]Hit, len(out.Results))
@@ -139,7 +150,7 @@ func (o OpenAlex) Search(ctx context.Context, q string) ([]Hit, error) {
 // Get returns the abstract: OpenAlex holds no full text.
 func (o OpenAlex) Get(ctx context.Context, id string) (Doc, error) {
 	var w oaWork
-	if err := getJSON(ctx, o.HTTP, o.Base+"/works/"+url.PathEscape(id), &w); err != nil {
+	if err := getJSON(ctx, o.HTTP, o.Base+"/works/"+url.PathEscape(id)+o.contact("?"), &w); err != nil {
 		return Doc{}, err
 	}
 	h := w.hit()

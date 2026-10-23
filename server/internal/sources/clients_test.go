@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -57,5 +58,32 @@ func TestUpstreamCallsAreBounded(t *testing.T) {
 	start = time.Now()
 	if _, err := get(ctx, newClient(5*time.Second, 200*time.Millisecond), "https://"+ln.Addr().String()); err == nil || time.Since(start) > 2*time.Second {
 		t.Fatalf("a stalled handshake: %v after %v", err, time.Since(start))
+	}
+}
+
+func TestOpenAlexNamesItsContact(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.Query().Get("mailto"))
+		if strings.HasSuffix(r.URL.Path, "/works") {
+			w.Write([]byte(`{"results":[]}`))
+			return
+		}
+		w.Write([]byte(`{"id":"https://openalex.org/W1","title":"t"}`))
+	}))
+	defer srv.Close()
+	oa := OpenAlex{Base: srv.URL, Mailto: "lab@example.org"}
+	if _, err := oa.Search(context.Background(), "q"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oa.Get(context.Background(), "W1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "lab@example.org" || got[1] != "lab@example.org" {
+		t.Fatalf("mailto sent: %q", got)
+	}
+	got = nil
+	if _, err := (OpenAlex{Base: srv.URL}).Search(context.Background(), "q"); err != nil || got[0] != "" {
+		t.Fatalf("no contact, yet mailto %q (%v)", got, err)
 	}
 }

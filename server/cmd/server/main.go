@@ -173,7 +173,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	runs.OnSettlement = ap.OnSettlement(engine.OnSettlement)
 	conn := &connectors.Client{HTTP: connectors.Guarded(), Secret: secretKey, Contact: getenv("CONTACT_EMAIL")}
 	runs.Keys = conn
-	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},
+	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase, Mailto: conn.Contact}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},
 		GEO: sources.GEO{Base: sources.EUtilsBase, MetadataBase: sources.GeoMetadataBase}, Store: st, Blobs: blobs}
 	if path := getenv("SOURCES_EXCLUDE_FILE"); path != "" {
 		if hosted.Exclude, err = sources.LoadExclusions(path); err != nil {
