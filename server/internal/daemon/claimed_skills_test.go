@@ -52,7 +52,7 @@ func TestClaimedSkillsArePlacedWhereEachCLIReadsThem(t *testing.T) {
 // those is which skill its Team names.
 func TestTheRunIsToldItsSkillsByTheNamesItsCLIShows(t *testing.T) {
 	got := skillsNote([]toolroute.RoutedSkill{{Name: "claim-check"}, {Name: "evidence-brief"}})
-	want := "\n\nYour skills are installed. Load them by these names: `lyk-claim-check` (the Team calls it claim-check), `lyk-evidence-brief` (the Team calls it evidence-brief)."
+	want := "\n\nYour skills are installed under these names: `lyk-claim-check` (the Team calls it claim-check), `lyk-evidence-brief` (the Team calls it evidence-brief). Use one when its task comes up."
 	if got != want {
 		t.Fatalf("note %q", got)
 	}

@@ -653,5 +653,5 @@ func skillsNote(skills []toolroute.RoutedSkill) string {
 	for i, s := range skills {
 		names[i] = "`" + agent.PinnedName(s.Name) + "` (the Team calls it " + s.Name + ")"
 	}
-	return "\n\nYour skills are installed. Load them by these names: " + strings.Join(names, ", ") + "."
+	return "\n\nYour skills are installed under these names: " + strings.Join(names, ", ") + ". Use one when its task comes up."
 }
