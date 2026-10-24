@@ -24,9 +24,14 @@ func TestThePromptListsTheFiles(t *testing.T) {
 
 func TestExperimentationRunsAreToldToSaveOutputs(t *testing.T) {
 	const put = "lyk output put"
+	const install = "Install any package you need into the study's folder"
 	for _, role := range []string{"leader", "agent", "Curie"} {
-		if p := Protocol(role, "experimentation", "", nil); !strings.Contains(p, put) {
+		p := Protocol(role, "experimentation", "", nil)
+		if !strings.Contains(p, put) {
 			t.Errorf("%s on experimentation is not told to save outputs:\n%s", role, p)
+		}
+		if !strings.Contains(p, install) {
+			t.Errorf("%s on experimentation is not told it may install packages:\n%s", role, p)
 		}
 	}
 	if p := Protocol("auditor", "experimentation", "", nil); strings.Contains(p, put) {

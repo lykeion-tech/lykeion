@@ -95,8 +95,10 @@ const (
 )
 
 // saveOutputs tells an Experimentation run how to keep the files its scripts
-// wrote; the run folder is cleared when the run ends.
-const saveOutputs = "To keep a file or folder your scripts wrote, run `lyk output put <path>`; files you don't save are deleted after the run. `lyk output get KEY` fetches a saved one.\n"
+// wrote, since the run folder is cleared when the run ends, and that the
+// packages its code needs are its own to install.
+const saveOutputs = "To keep a file or folder your scripts wrote, run `lyk output put <path>`; files you don't save are deleted after the run. `lyk output get KEY` fetches a saved one.\n" +
+	"Install any package you need into the study's folder from your code runs; it needs no approval.\n"
 
 // askTools tells every role how to find the skills and database tools its
 // work may use.
