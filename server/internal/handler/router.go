@@ -69,6 +69,7 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/blobs/{sha}", h.getBlob)
 			r.Get("/attachments/{id}", h.roleAttachment)
 			r.Post("/outputs", h.uploadOutput)
+			r.Get("/outputs/{key}", h.roleOutput)
 		})
 		// Only the daemon's tool door holds a call token; the agent's cannot record.
 		r.With(middleware.RequireScope(service.ScopeCall)).Post("/calls", h.postCall)
@@ -137,6 +138,7 @@ func NewRouter(h *H) http.Handler {
 		// The upload checks membership itself and streams its body to storage.
 		r.Post("/api/attachments", h.uploadAttachment)
 		r.Get("/api/cards/{id}/attachments/{aid}", h.downloadAttachment)
+		r.Get("/api/cards/{id}/outputs/{key}", h.downloadOutput)
 		r.Post("/api/teams", h.createTeam)
 		r.Post("/api/teams/{id}/skills", h.saveTeamSkills)
 		r.Post("/api/teams/{id}/duplicate", h.duplicateTeam)

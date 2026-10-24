@@ -14,12 +14,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -176,4 +179,75 @@ func (h *H) uploadOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]any{"key": rec.Key, "name": name, "size_bytes": n, "sha256": sum, "content_type": typ})
+}
+
+// outputFile is the live output record a study holds under key. Any other
+// kind of record, or no record, is not found.
+func outputFile(ctx context.Context, tx *store.Tx, ws, card uuid.UUID, key string) (db.Record, error) {
+	rec, err := tx.Q.LiveCardRecordByKey(ctx, db.LiveCardRecordByKeyParams{WorkspaceID: ws, CardID: card, Key: key})
+	if err == nil && rec.Kind != "output" {
+		err = pgx.ErrNoRows
+	}
+	return rec, err
+}
+
+// serveOutput streams an output record's blob once the record check has passed.
+func (h *H) serveOutput(w http.ResponseWriter, r *http.Request, rec db.Record, wrap func(io.Reader) io.Reader) error {
+	var meta struct {
+		Name        string `json:"name"`
+		SizeBytes   int64  `json:"size_bytes"`
+		ContentType string `json:"content_type"`
+	}
+	if err := json.Unmarshal(rec.Body, &meta); err != nil {
+		return err
+	}
+	rc, err := h.Blobs.Get(r.Context(), rec.BlobKey)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	serveFile(w, r, meta.Name, meta.ContentType, meta.SizeBytes, wrap(rc))
+	return nil
+}
+
+// downloadOutput streams one of a study's outputs to a member. Like an
+// attachment download it runs outside the buffering workspace scope.
+func (h *H) downloadOutput(w http.ResponseWriter, r *http.Request) {
+	ws, wsErr := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+	card, cardErr := uuid.Parse(chi.URLParam(r, "id"))
+	if err := errors.Join(wsErr, cardErr); err != nil {
+		writeErr(w, 404, "not found")
+		return
+	}
+	var rec db.Record
+	err := h.memberTx(r, ws, false, func(tx *store.Tx) error {
+		var err error
+		rec, err = outputFile(r.Context(), tx, ws, card, chi.URLParam(r, "key"))
+		return err
+	})
+	if err == nil {
+		err = h.serveOutput(w, r, rec, func(rd io.Reader) io.Reader { return rd })
+	}
+	if err != nil {
+		logoFail(w, r, err)
+	}
+}
+
+// roleOutput streams one of the run's own study's outputs to its daemon.
+func (h *H) roleOutput(w http.ResponseWriter, r *http.Request) {
+	var rec db.Record
+	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+		var err error
+		rec, err = outputFile(r.Context(), tx, role.WorkspaceID, role.CardID, chi.URLParam(r, "key"))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storage.ErrNotFound
+		}
+		return err
+	})
+	if err == nil {
+		err = h.serveOutput(w, r, rec, func(rd io.Reader) io.Reader { return roleBlobReader{r.Context(), rd} })
+	}
+	if err != nil {
+		roleError(w, r, err)
+	}
 }

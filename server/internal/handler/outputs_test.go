@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -253,5 +254,128 @@ func TestAFactCannotCiteAnOutput(t *testing.T) {
 	in := map[string]any{"kind": "rival", "body": map[string]any{"cites": []string{"output:o1"}}}
 	if c := l.s.call(t, "POST", "/api/role/records", leader.token, "", in, nil); c != 400 {
 		t.Fatalf("a fact cites an output: %d", c)
+	}
+}
+
+// getOutput downloads through the member route and answers the response and body.
+func (l *teamLab) getOutput(t *testing.T, tok, ws, key string) (*http.Response, []byte) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", l.s.URL+"/api/cards/"+l.card.ID+"/outputs/"+key, nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Workspace-ID", ws)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp, body
+}
+
+func (l *teamLab) roleOutput(t *testing.T, tok, key string) (int, []byte) {
+	t.Helper()
+	return l.s.blobRequest(t, "GET", "/api/role/outputs/"+key, tok, nil)
+}
+
+func TestAMemberDownloadsAnOutput(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	name := "plots/é fig 1.png"
+	if code, out := l.postOutput(t, leader.token, name, 5000, nil); code != 201 {
+		t.Fatalf("upload %d %v", code, out)
+	}
+	resp, body := l.getOutput(t, l.jwt, l.ws, "o1")
+	sum := sha256.Sum256(body)
+	if resp.StatusCode != 200 || len(body) != 5000 || hex.EncodeToString(sum[:]) != sumOf(5000) {
+		t.Fatalf("download %d, %d bytes", resp.StatusCode, len(body))
+	}
+	disp := resp.Header.Get("Content-Disposition")
+	_, params, err := mime.ParseMediaType(disp)
+	if err != nil || !strings.HasPrefix(disp, "attachment;") || params["filename"] != name {
+		t.Fatalf("disposition %q -> %v %v", disp, params, err)
+	}
+	if resp.Header.Get("X-Content-Type-Options") != "nosniff" || resp.Header.Get("Content-Length") != "5000" {
+		t.Fatalf("headers %v", resp.Header)
+	}
+}
+
+func TestOutputsAreHiddenOutsideTheStudy(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	if code, out := l.postOutput(t, leader.token, "a.txt", 10, nil); code != 201 {
+		t.Fatalf("upload %d %v", code, out)
+	}
+	var fact struct{ Key string }
+	if c := l.s.call(t, "POST", "/api/role/records", leader.token, "", map[string]any{"kind": "rival", "body": map[string]any{"x": 1}}, &fact); c != 201 {
+		t.Fatalf("record %d", c)
+	}
+	other := l.s.signIn(t, "b@other.org")
+	wb := l.s.workspace(t, other, "other").ID
+	resp, unknown := l.getOutput(t, l.jwt, l.ws, "o99")
+	if resp.StatusCode != 404 {
+		t.Fatalf("unknown key %d", resp.StatusCode)
+	}
+	for name, c := range map[string]struct{ tok, ws, key string }{
+		"another workspace": {other, wb, "o1"},
+		"a non-member":      {other, l.ws, "o1"},
+		"a fact record":     {l.jwt, l.ws, fact.Key},
+	} {
+		resp, body := l.getOutput(t, c.tok, c.ws, c.key)
+		if resp.StatusCode != 404 || string(body) != string(unknown) {
+			t.Errorf("%s: %d %q, want 404 %q", name, resp.StatusCode, body, unknown)
+		}
+	}
+	if code, body := l.roleOutput(t, leader.token, fact.Key); code != 404 || string(body) != string(unknown) {
+		t.Errorf("role route, a fact record: %d %q", code, body)
+	}
+}
+
+func TestARunReadsItsOwnStudysOutputs(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	if code, out := l.postOutput(t, leader.token, "a.txt", 700, nil); code != 201 {
+		t.Fatalf("upload %d %v", code, out)
+	}
+	if c, _ := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "go"}); c != 201 {
+		t.Fatalf("step %d", c)
+	}
+	member := l.claim(t)
+	if code, body := l.roleOutput(t, member.token, "o1"); code != 200 || len(body) != 700 {
+		t.Fatalf("a later run: %d, %d bytes", code, len(body))
+	}
+	l.complete(t, member)
+	l.complete(t, leader)
+	// A run of another study holds the same key and must not read it.
+	var second card
+	if c := l.s.call(t, "POST", "/api/cards", l.jwt, l.ws, map[string]any{"question": "Why else?",
+		"assignee": teamAssignee(map[string]string{"hypotheses": l.team})}, &second); c != 201 {
+		t.Fatalf("second study: %d", c)
+	}
+	var secondRun teamRun
+	for i := 0; i < 3; i++ {
+		secondRun = l.claim(t)
+		if l.s.count(t, "SELECT count(*) FROM agent_run WHERE id = $1 AND card_id = $2", secondRun.id, second.ID) == 1 {
+			break
+		}
+	}
+	if l.s.count(t, "SELECT count(*) FROM agent_run WHERE id = $1 AND card_id = $2", secondRun.id, second.ID) != 1 {
+		t.Fatal("no run of the second study was claimed")
+	}
+	if code, _ := l.roleOutput(t, secondRun.token, "o1"); code != 404 {
+		t.Fatalf("another study's run: %d", code)
+	}
+}
+
+func TestTheRecordsListShowsOutputs(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	for _, n := range []string{"a.txt", "b.txt"} {
+		if code, out := l.postOutput(t, leader.token, n, 10, nil); code != 201 {
+			t.Fatalf("upload %d %v", code, out)
+		}
+	}
+	var recs []struct{ Kind, Key string }
+	if c := l.s.call(t, "GET", "/api/cards/"+l.card.ID+"/records?kind=output", l.jwt, l.ws, nil, &recs); c != 200 || len(recs) != 2 || recs[0].Key != "o1" || recs[1].Key != "o2" {
+		t.Fatalf("list %d %+v", c, recs)
 	}
 }

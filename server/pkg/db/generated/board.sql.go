@@ -275,6 +275,38 @@ func (q *Queries) LiveCardRecord(ctx context.Context, arg LiveCardRecordParams) 
 	return i, err
 }
 
+const liveCardRecordByKey = `-- name: LiveCardRecordByKey :one
+SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2 AND key = $3
+  AND superseded_at IS NULL
+`
+
+type LiveCardRecordByKeyParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Key         string    `json:"key"`
+}
+
+func (q *Queries) LiveCardRecordByKey(ctx context.Context, arg LiveCardRecordByKeyParams) (Record, error) {
+	row := q.db.QueryRow(ctx, liveCardRecordByKey, arg.WorkspaceID, arg.CardID, arg.Key)
+	var i Record
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.BoardColumn,
+		&i.Round,
+		&i.Kind,
+		&i.Role,
+		&i.Key,
+		&i.Body,
+		&i.BlobKey,
+		&i.AgentRunID,
+		&i.SupersededAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const lockCard = `-- name: LockCard :one
 SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
 `

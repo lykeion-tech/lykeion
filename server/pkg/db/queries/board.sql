@@ -93,5 +93,9 @@ SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id A
 SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND id = @id
   AND superseded_at IS NULL;
 
+-- name: LiveCardRecordByKey :one
+SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND key = @key
+  AND superseded_at IS NULL;
+
 -- name: SupersedeRecord :exec
 UPDATE record SET superseded_at = now() WHERE workspace_id = @workspace_id AND id = @id AND superseded_at IS NULL;

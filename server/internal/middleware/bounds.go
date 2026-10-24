@@ -197,22 +197,37 @@ func workspaceMCPBrokerPost(r *http.Request) bool {
 	return err == nil
 }
 
-// attachmentDownload matches GET /api/cards/{id}/attachments/{aid} and a
-// run's GET /api/role/attachments/{id}, which stream a file of up to 100 MB
-// and so get the upload's budget.
+// attachmentDownload matches GET /api/cards/{id}/attachments/{aid},
+// GET /api/cards/{id}/outputs/{key} and a run's GET /api/role/attachments/{id}
+// and GET /api/role/outputs/{key}, which stream a file of up to 100 MB and so
+// get the upload's budget.
 func attachmentDownload(r *http.Request) bool {
 	p := strings.Split(r.URL.Path, "/")
 	if r.Method != http.MethodGet {
 		return false
 	}
-	if len(p) == 5 && p[1] == "api" && p[2] == "role" && p[3] == "attachments" {
-		_, err := uuid.Parse(p[4])
-		return err == nil
-	}
-	if len(p) != 6 || p[1] != "api" || p[2] != "cards" || p[4] != "attachments" {
+	if len(p) == 5 && p[1] == "api" && p[2] == "role" {
+		switch p[3] {
+		case "attachments":
+			_, err := uuid.Parse(p[4])
+			return err == nil
+		case "outputs":
+			return p[4] != ""
+		}
 		return false
 	}
-	_, card := uuid.Parse(p[3])
-	_, file := uuid.Parse(p[5])
-	return card == nil && file == nil
+	if len(p) != 6 || p[1] != "api" || p[2] != "cards" || p[5] == "" {
+		return false
+	}
+	if _, err := uuid.Parse(p[3]); err != nil {
+		return false
+	}
+	switch p[4] {
+	case "attachments":
+		_, err := uuid.Parse(p[5])
+		return err == nil
+	case "outputs":
+		return true
+	}
+	return false
 }

@@ -296,20 +296,20 @@ func (h *H) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rc.Close()
-	serveAttachment(w, r, row, rc)
+	serveFile(w, r, row.Name, row.ContentType, row.SizeBytes, rc)
 }
 
-// serveAttachment streams a file, always as a download, never shown inline.
-func serveAttachment(w http.ResponseWriter, r *http.Request, row db.Attachment, rc io.Reader) {
-	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": row.Name})
+// serveFile streams a file, always as a download, never shown inline.
+func serveFile(w http.ResponseWriter, r *http.Request, name, contentType string, size int64, rc io.Reader) {
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": name})
 	if disposition == "" {
 		disposition = "attachment"
 	}
 	hd := w.Header()
 	hd.Set("Content-Disposition", disposition)
-	hd.Set("Content-Type", row.ContentType)
+	hd.Set("Content-Type", contentType)
 	hd.Set("X-Content-Type-Options", "nosniff")
-	hd.Set("Content-Length", strconv.FormatInt(row.SizeBytes, 10))
+	hd.Set("Content-Length", strconv.FormatInt(size, 10))
 	// A stalled client is cut at the request deadline, not left holding the
 	// file open.
 	if deadline, ok := r.Context().Deadline(); ok {
@@ -318,7 +318,7 @@ func serveAttachment(w http.ResponseWriter, r *http.Request, row db.Attachment, 
 		defer rcw.SetWriteDeadline(time.Time{})
 	}
 	if _, err := io.Copy(w, rc); err != nil {
-		slog.Error("attachment download failed", "attachment", row.ID, "err", err)
+		slog.Error("download failed", "name", name, "err", err)
 		panic(http.ErrAbortHandler)
 	}
 }
@@ -350,7 +350,7 @@ func (h *H) roleAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rc.Close()
-	serveAttachment(w, r, row, roleBlobReader{r.Context(), rc})
+	serveFile(w, r, row.Name, row.ContentType, row.SizeBytes, roleBlobReader{r.Context(), rc})
 }
 
 func attachmentReadErr(w http.ResponseWriter, r *http.Request, err error) {

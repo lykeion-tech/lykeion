@@ -24,6 +24,7 @@ type teamLab struct {
 	jwt, ws       string
 	card          card
 	personal, rts string
+	team          string
 }
 
 type teamRun struct {
@@ -48,6 +49,7 @@ func newTeamLabWith(t *testing.T, o testutil.PackOpts) *teamLab {
 	if c := s.call(t, "POST", "/api/teams/"+up.ID+"/add", l.jwt, l.ws, nil, nil); c != 200 {
 		t.Fatalf("add: %d", c)
 	}
+	l.team = up.ID
 	l.personal = s.personalToken(t, l.jwt)
 	var rts []struct{ ID string }
 	if c := s.call(t, "POST", "/api/daemon/register", l.personal, "", map[string]any{"workspace_id": l.ws, "daemon_id": "d1", "harnesses": []string{"claude"}}, &rts); c != 200 || len(rts) != 1 {
