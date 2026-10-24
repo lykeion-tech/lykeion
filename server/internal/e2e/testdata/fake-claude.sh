@@ -14,7 +14,7 @@ role=$(printf '%s' "$prompt" | grep -oE 'You are the [a-z0-9_-]+ (role|on Lykeio
 # skill, the MCP config and the command line, from the scratch folder the CLI
 # runs in.
 if [ -n "$LYK_TEST_CAPTURE" ]; then
-  cp SKILL.md "$LYK_TEST_CAPTURE/$role.skill" 2>/dev/null
+  cp CLAUDE.md "$LYK_TEST_CAPTURE/$role.skill" 2>/dev/null
   cp .lyk-mcp.json "$LYK_TEST_CAPTURE/$role.mcp" 2>/dev/null
   printf '%s\n' "$@" > "$LYK_TEST_CAPTURE/$role.args"
 fi
@@ -39,7 +39,7 @@ case "$role" in
         key=$(printf '%s' "$prompt" | grep -o -- '- r[0-9][0-9]* (' | head -n 1 | sed 's/^- //; s/ ($//')
         printf 'The members did the column.\n' | lyk team done --content-stdin ${key:+--cites "$key"} || exit 1 ;;
       *)
-        member=$(sed -n '/^Your members:/{n;s/^- \([^:]*\):.*/\1/p;}' SKILL.md)
+        member=$(sed -n '/^Your members:/{n;s/^- \([^:]*\):.*/\1/p;}' CLAUDE.md)
         lyk team step "$member" --content "Do your part of the column." || exit 1 ;;
     esac ;;
   agent)

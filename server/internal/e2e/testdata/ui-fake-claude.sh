@@ -54,7 +54,7 @@ esac
 # first member, the member writes a note, and the leader, woken with the
 # member's work, declares the column done citing it.
 role=$(printf '%s' "$prompt" | grep -oE 'You are the [a-z0-9_-]+ on Lykeion study' | head -n 1 | sed 's/^You are the //; s/ on Lykeion study$//')
-member=$(sed -n '/^Your members:/{n;s/^- \([^:]*\):.*/\1/p;}' SKILL.md 2>/dev/null)
+member=$(sed -n '/^Your members:/{n;s/^- \([^:]*\):.*/\1/p;}' CLAUDE.md 2>/dev/null)
 case "$role:$member" in leader:demo-*|demo-*:)
   case "$role" in
     leader)

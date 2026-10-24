@@ -246,7 +246,7 @@ func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 		t.Fatalf("scope %q mode %q digest %q model %q reported %v", scope, mode, digest, model, reported)
 	}
 	dir := filepath.Join(f.cfg.Home, f.id.String()+"-1")
-	skill, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	skill, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 	must(t, err)
 	if string(skill) != "# Scoper" {
 		t.Fatal(string(skill))

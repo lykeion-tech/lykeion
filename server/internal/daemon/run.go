@@ -91,11 +91,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	prompt := c.AgentRun.Prompt
 	if c.AgentRun.Skill != "" {
-		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(c.AgentRun.Skill), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, roleFile(c.AgentRun.Harness)), []byte(c.AgentRun.Skill), 0600); err != nil {
 			fail(err)
 			return nil
 		}
-		prompt = "Read and follow the skill in SKILL.md in your working directory.\n\n" + prompt
 	}
 	backend, err := d.cfg.NewBackend(c.AgentRun.Harness, d.cfg.Harnesses[c.AgentRun.Harness])
 	if err != nil {
@@ -654,4 +653,13 @@ func skillsNote(skills []toolroute.RoutedSkill) string {
 		names[i] = "`" + agent.PinnedName(s.Name) + "` (the Team calls it " + s.Name + ")"
 	}
 	return "\n\nYour skills are installed under these names: " + strings.Join(names, ", ") + ". Use one when its task comes up."
+}
+
+// roleFile is the instructions file the harness's CLI loads from its working
+// folder on its own, so a run's role reaches it before the first turn.
+func roleFile(harness string) string {
+	if harness == "claude" {
+		return "CLAUDE.md"
+	}
+	return "AGENTS.md"
 }
