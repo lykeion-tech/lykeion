@@ -71,7 +71,7 @@ func (q *Queries) BoardCandidates(ctx context.Context) ([]BoardCandidatesRow, er
 }
 
 const cardBlobKeys = `-- name: CardBlobKeys :many
-SELECT k::text AS blob_key FROM record r,
+SELECT DISTINCT k::text AS blob_key FROM record r,
   unnest(ARRAY[
     r.blob_key,
     CASE WHEN r.kind = 'run' THEN coalesce(r.body->>'error_blob', '') ELSE '' END,

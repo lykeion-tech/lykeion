@@ -8,7 +8,10 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/sources"
+	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -241,5 +244,35 @@ func TestARecordMayCiteARun(t *testing.T) {
 	}
 	if c, _ := post("run:c1"); c != 400 {
 		t.Fatalf("a call key under run: %d", c)
+	}
+}
+
+func TestCardBlobKeysListEachKeyOnce(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	in := map[string]any{"tool": "run_code", "language": "python", "code": "1", "output": "1", "exit_status": 0, "packages": "# python base\nnumpy==2.1.0\n"}
+	for range 2 {
+		if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, nil); c != 201 {
+			t.Fatalf("run %d", c)
+		}
+	}
+	var keys []string
+	err := l.s.H.Store.InWorkspace(t.Context(), uuid.MustParse(l.ws), uuid.Nil, func(tx *store.Tx) error {
+		var err error
+		keys, err = tx.Q.CardBlobKeys(t.Context(), db.CardBlobKeysParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(l.card.ID)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, k := range keys {
+		if seen[k] {
+			t.Fatalf("key %s listed twice in %v", k, keys)
+		}
+		seen[k] = true
+	}
+	if len(keys) == 0 {
+		t.Fatal("no keys")
 	}
 }

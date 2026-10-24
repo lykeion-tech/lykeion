@@ -139,7 +139,7 @@ func (h *H) uploadOutput(w http.ResponseWriter, r *http.Request) {
 	var rec db.Record
 	if err == nil {
 		err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
-			saved, err := tx.Q.RunOutputTotals(r.Context(), db.RunOutputTotalsParams{WorkspaceID: role.WorkspaceID, AgentRunID: &role.AgentRunID})
+			saved, err := tx.Q.RunOutputTotals(r.Context(), db.RunOutputTotalsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, AgentRunID: &role.AgentRunID})
 			if err != nil {
 				return err
 			}

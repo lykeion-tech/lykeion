@@ -103,7 +103,7 @@ UPDATE record SET superseded_at = now() WHERE workspace_id = @workspace_id AND i
 -- Every file a card's records keep in the blob store: a record's own blob, a
 -- run's whole stderr, and a run's package list.
 -- name: CardBlobKeys :many
-SELECT k::text AS blob_key FROM record r,
+SELECT DISTINCT k::text AS blob_key FROM record r,
   unnest(ARRAY[
     r.blob_key,
     CASE WHEN r.kind = 'run' THEN coalesce(r.body->>'error_blob', '') ELSE '' END,

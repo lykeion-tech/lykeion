@@ -59,4 +59,4 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'output' AN
 
 -- name: RunOutputTotals :one
 SELECT count(*)::int AS outputs, COALESCE(sum((body->>'size_bytes')::bigint), 0)::bigint AS bytes FROM record
-WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND kind = 'output' AND superseded_at IS NULL;
+WHERE workspace_id = @workspace_id AND card_id = @card_id AND agent_run_id = @agent_run_id AND kind = 'output' AND superseded_at IS NULL;

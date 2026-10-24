@@ -322,11 +322,12 @@ func (q *Queries) ResolveCardInboxKind(ctx context.Context, arg ResolveCardInbox
 
 const runOutputTotals = `-- name: RunOutputTotals :one
 SELECT count(*)::int AS outputs, COALESCE(sum((body->>'size_bytes')::bigint), 0)::bigint AS bytes FROM record
-WHERE workspace_id = $1 AND agent_run_id = $2 AND kind = 'output' AND superseded_at IS NULL
+WHERE workspace_id = $1 AND card_id = $2 AND agent_run_id = $3 AND kind = 'output' AND superseded_at IS NULL
 `
 
 type RunOutputTotalsParams struct {
 	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      uuid.UUID  `json:"card_id"`
 	AgentRunID  *uuid.UUID `json:"agent_run_id"`
 }
 
@@ -336,7 +337,7 @@ type RunOutputTotalsRow struct {
 }
 
 func (q *Queries) RunOutputTotals(ctx context.Context, arg RunOutputTotalsParams) (RunOutputTotalsRow, error) {
-	row := q.db.QueryRow(ctx, runOutputTotals, arg.WorkspaceID, arg.AgentRunID)
+	row := q.db.QueryRow(ctx, runOutputTotals, arg.WorkspaceID, arg.CardID, arg.AgentRunID)
 	var i RunOutputTotalsRow
 	err := row.Scan(&i.Outputs, &i.Bytes)
 	return i, err

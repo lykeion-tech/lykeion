@@ -232,7 +232,7 @@ func checkOutputName(p string) error {
 		return fmt.Errorf("%s: an output's path can be at most %d bytes", p, maxOutputName)
 	}
 	first, _, _ := strings.Cut(p, "/")
-	if slices.ContainsFunc(agent.RunFolderConfig, func(c agent.RunFolderPath) bool { return c.Name == first }) {
+	if slices.ContainsFunc(agent.RunFolderConfig, func(c agent.RunFolderPath) bool { return strings.EqualFold(c.Name, first) }) {
 		return fmt.Errorf("%s: the run folder's own configuration and study files can't be saved as outputs", p)
 	}
 	return nil
