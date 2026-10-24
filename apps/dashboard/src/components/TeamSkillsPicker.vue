@@ -48,7 +48,7 @@ const changed = computed(
       <p v-if="library.isError.value" role="alert">
         Could not load skills. <button type="button" @click="library.refetch()">Retry</button>
       </p>
-      <fieldset :disabled="busy" aria-label="Skills" class="skill-options">
+      <fieldset :disabled="busy" aria-label="Skills" class="skill-options hide-scrollbar">
         <label v-for="name in options" :key="name"
           ><input v-model="selected" type="checkbox" :value="name" />{{ name }}</label
         >

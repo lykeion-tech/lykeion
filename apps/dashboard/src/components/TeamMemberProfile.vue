@@ -31,7 +31,6 @@ const harnesses = computed(() =>
         <small v-if="card" class="member-backend">{{ harnesses }}</small>
         <p v-if="!card">{{ member.role }}</p>
       </div>
-      <small v-if="!card" class="member-backend">{{ harnesses }}</small>
     </div>
     <p v-if="card" class="member-role">{{ member.role }}</p>
     <p v-if="member.skills?.length" class="member-capabilities">
