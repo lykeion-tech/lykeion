@@ -310,19 +310,6 @@ async function send() {
     if (scope.current()) busy.value = false;
   }
 }
-async function remove() {
-  if (!c.value || !confirm(`Delete ${number.value} “${c.value.title}”? This cannot be undone.`))
-    return;
-  const scope = mutationScope();
-  try {
-    await api('DELETE', `/api/cards/${scope.id}`);
-    if (!scope.current()) return;
-    await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
-    if (scope.current()) emit('close');
-  } catch (e) {
-    if (scope.current()) error.value = (e as Error).message;
-  }
-}
 function pin() {
   if (!togglePin(props.id)) notify('The pin could not be saved on this device.');
 }
@@ -356,14 +343,6 @@ function pin() {
             @click="pin"
           >
             <Icon name="tag" />
-          </button>
-          <button
-            v-if="c && c.owner_id === me.data.value?.id"
-            class="icon-button"
-            aria-label="Delete study"
-            @click="remove"
-          >
-            <Icon name="close" />
           </button>
           <button
             class="icon-button"

@@ -20,6 +20,9 @@ const interval = setInterval(() => {
 }, 1000);
 onUnmounted(() => clearInterval(interval));
 const data = computed(() => runTimeline(props.runs, clock.value));
+const elapsedMinutes = computed(() =>
+  data.value.elapsed === null ? null : Math.floor(data.value.elapsed / 60_000),
+);
 const rows = computed(() => [
   ...data.value.runs.filter(activeRun),
   ...data.value.runs
@@ -76,9 +79,10 @@ function position(run: AgentRun) {
         ><time>{{ stamp(data.last) }}</time>
       </div>
       <p v-if="runs.length" class="execution-timing">
-        {{ durationLabel(data.agentMs) }}
-        {{ data.partial ? 'latest-attempt time' : 'agent time' }} ·
-        {{ durationLabel(data.elapsed) }} elapsed
+        <template v-if="elapsedMinutes !== null">
+          {{ elapsedMinutes }} {{ elapsedMinutes === 1 ? 'minute' : 'minutes' }} elapsed
+        </template>
+        <template v-else>{{ durationLabel(data.elapsed) }} elapsed</template>
       </p>
       <p v-else class="execution-timing">No runs yet.</p>
       <p v-if="rows.some((r) => !activeRun(r))" class="latest-label">Latest</p>

@@ -54,7 +54,7 @@ onUnmounted(() => {
   scope++;
 });
 
-function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card) {
+function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card, fromButton = false) {
   // Only a study's owner deletes it, at any time.
   if (card.owner_id !== me.data.value?.id) return;
   event.preventDefault();
@@ -63,8 +63,12 @@ function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card) {
   const rect = studyMenuTrigger.value.getBoundingClientRect();
   studyMenu.value = {
     id: card.id,
-    x: event instanceof MouseEvent ? event.clientX : rect.left + 60,
-    y: event instanceof MouseEvent ? event.clientY : rect.bottom,
+    x: fromButton
+      ? Math.min(rect.right - 200, window.innerWidth - 208)
+      : event instanceof MouseEvent
+        ? event.clientX
+        : rect.left + 60,
+    y: fromButton ? rect.bottom + 4 : event instanceof MouseEvent ? event.clientY : rect.bottom,
   };
   void nextTick(() => document.querySelector<HTMLButtonElement>('.study-menu button')?.focus());
 }
@@ -433,43 +437,53 @@ onUnmounted(() => {
         </button>
       </header>
       <div class="board-cards">
-        <button
-          v-for="card in grouped[column.id]"
-          :key="card.id"
-          class="task-card"
-          :data-card="card.id"
-          @contextmenu="openStudyMenu($event, card)"
-          @keydown.shift.f10="openStudyMenu($event, card)"
-          @click="open(card.id)"
-        >
-          <small class="card-id"
-            >{{ number(card) }}<span v-if="card.queued" class="chip chip-queued">queued</span
-            ><span
-              v-if="card.flag === 'escalated' || card.state === 'blocked'"
-              class="chip chip-escalated"
-              >{{ blockLabel(card.block_kind) || 'escalated' }}</span
-            ><span v-if="column.id === 'blocked'" class="chip">{{
-              columnName(card.board_column)
-            }}</span></small
-          ><span>{{ card.title }}</span>
-          <div class="card-metadata">
-            <span v-if="display.properties.includes('Role')"
-              ><Icon :name="card.role ? 'bot' : 'users'" :size="12" />{{
-                card.role ? roleLabel(card.role) : ownerName(card.owner_id)
+        <div v-for="card in grouped[column.id]" :key="card.id" class="study-card">
+          <button
+            class="task-card"
+            :data-card="card.id"
+            @contextmenu="openStudyMenu($event, card)"
+            @keydown.shift.f10="openStudyMenu($event, card)"
+            @click="open(card.id)"
+          >
+            <small class="card-id"
+              >{{ number(card) }}<span v-if="card.queued" class="chip chip-queued">queued</span
+              ><span
+                v-if="card.flag === 'escalated' || card.state === 'blocked'"
+                class="chip chip-escalated"
+                >{{ blockLabel(card.block_kind) || 'escalated' }}</span
+              ><span v-if="column.id === 'blocked'" class="chip">{{
+                columnName(card.board_column)
+              }}</span></small
+            ><span>{{ card.title }}</span>
+            <div class="card-metadata">
+              <span v-if="display.properties.includes('Role')"
+                ><Icon :name="card.role ? 'bot' : 'users'" :size="12" />{{
+                  card.role ? roleLabel(card.role) : ownerName(card.owner_id)
+                }}</span
+              ><span
+                v-if="stateLabel(card) && column.id !== 'blocked'"
+                class="chip"
+                :class="'chip-' + card.state"
+                >{{ stateLabel(card) }}</span
+              ><span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{
+                endLabel(card)
               }}</span
-            ><span
-              v-if="stateLabel(card) && column.id !== 'blocked'"
-              class="chip"
-              :class="'chip-' + card.state"
-              >{{ stateLabel(card) }}</span
-            ><span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{
-              endLabel(card)
-            }}</span
-            ><span v-if="display.properties.includes('Updated')" class="push-right"
-              >Updated {{ timeAgo(card.updated_at) }}</span
-            >
-          </div>
-        </button>
+              ><span v-if="display.properties.includes('Updated')" class="push-right"
+                >Updated {{ timeAgo(card.updated_at) }}</span
+              >
+            </div>
+          </button>
+          <button
+            v-if="card.owner_id === me.data.value?.id"
+            class="icon-button study-card-actions"
+            :aria-label="`Actions for ${number(card)}`"
+            aria-haspopup="menu"
+            :aria-expanded="studyMenu?.id === card.id"
+            @click.stop="openStudyMenu($event, card, true)"
+          >
+            <Icon name="more" :size="14" />
+          </button>
+        </div>
         <p v-if="!grouped[column.id].length" class="column-empty">No studies</p>
       </div>
     </section>
@@ -559,13 +573,23 @@ onUnmounted(() => {
     :style="{ left: studyMenu.x + 'px', top: studyMenu.y + 'px' }"
     @keydown="menuKeys"
   >
-    <button role="menuitem" @click="open(studyMenu.id)">Open</button>
-    <hr />
-    <button role="menuitem" class="danger-item" @click="removeStudy(studyMenu.id)">Delete…</button>
+    <button role="menuitem" class="danger-item" @click="removeStudy(studyMenu.id)">Delete</button>
   </div>
 </template>
 
 <style scoped>
+.study-card {
+  position: relative;
+}
+.study-card .card-id {
+  padding-right: 24px;
+}
+.study-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+}
+
 .board-menu {
   position: absolute;
   z-index: 40;

@@ -30,30 +30,24 @@ defineProps<{ step: ActivityStep; active?: boolean; nested?: boolean }>();
           <span class="step-detail-label">{{ step.label }}</span
           >{{ step.detail }}
         </p>
-        <details class="step-output">
+        <details v-if="step.output" class="step-output">
           <summary>
-            {{
-              step.messages[0]!.type === 'thinking'
-                ? 'Recorded reasoning'
-                : step.output
-                  ? 'Show output'
-                  : 'Show recorded details'
-            }}
+            {{ step.messages[0]!.type === 'thinking' ? 'Recorded reasoning' : 'Show output' }}
           </summary>
-          <pre v-if="step.output" tabindex="0">{{ step.output }}</pre>
-          <details
-            v-for="message in step.messages"
-            :key="`${message.attempt}:${message.seq}`"
-            class="step-payload"
-            :data-message-type="message.type"
-          >
-            <summary>
-              Full recorded message<span v-if="step.messages.length > 1" class="record-kind">
-                · {{ message.type === 'tool_result' ? 'result' : 'call' }}</span
-              >
-            </summary>
-            <pre tabindex="0">{{ recordedContent(message) }}</pre>
-          </details>
+          <pre tabindex="0">{{ step.output }}</pre>
+        </details>
+        <details
+          v-for="message in step.messages"
+          :key="`${message.attempt}:${message.seq}`"
+          class="step-payload"
+          :data-message-type="message.type"
+        >
+          <summary>
+            Full recorded message<span v-if="step.messages.length > 1" class="record-kind">
+              · {{ message.type === 'tool_result' ? 'result' : 'call' }}</span
+            >
+          </summary>
+          <pre tabindex="0">{{ recordedContent(message) }}</pre>
         </details>
       </div>
     </details>
