@@ -73,7 +73,9 @@ function shellTitle(command: string): string {
       mv: 'Move files',
       rm: 'Remove files',
     };
-    return names[executable] ?? 'Run a shell command';
+    return Object.prototype.hasOwnProperty.call(names, executable)
+      ? names[executable]!
+      : 'Run a shell command';
   }
   return 'Run a shell command';
 }
@@ -95,7 +97,9 @@ export function toolStepTitle(tool: string, input: Record<string, unknown>): str
       julia: 'a Julia',
       javascript: 'a JavaScript',
     };
-    return languages[lang] ? `Run ${languages[lang]} notebook cell` : 'Run a notebook cell';
+    return Object.prototype.hasOwnProperty.call(languages, lang)
+      ? `Run ${languages[lang]} notebook cell`
+      : 'Run a notebook cell';
   }
   const command = text(input.command) || text(input.CommandLine) || text(input.cmd);
   if (command || /^(bash|shell|run_command|exec_command|command_execution)$/i.test(name))

@@ -29,6 +29,21 @@ describe('readable action fallbacks', () => {
     expect(toolStepTitle(name as string, input as Record<string, unknown>)).toBe(title);
   });
 
+  it.each(['constructor', 'toString', '__proto__'])('ignores inherited lookup keys %s', (key) => {
+    expect(toolStepTitle('Bash', { command: key })).toBe('Run a shell command');
+  });
+
+  it.each(['constructor', 'toString', '__proto__'])(
+    'ignores inherited notebook languages %s',
+    (key) => {
+      expect(toolStepTitle('run_code', { language: key })).toBe('Run a notebook cell');
+    },
+  );
+
+  it('ignores inherited notebook language in a tool name', () => {
+    expect(toolStepTitle('execute_constructor_cell', {})).toBe('Run a notebook cell');
+  });
+
   it('retains original records, full command/output and title precedence', () => {
     const command = 'unknown_command --json {"private":"payload"}\nsecond command';
     const message: RunMessage = {
