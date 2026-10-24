@@ -410,17 +410,25 @@ func removePendingAttachment(ctx context.Context, st *store.Store, blobs storage
 const fileDeleteTimeout = time.Minute
 
 // deleteFilesAfterCommit deletes each file's blob and its text once tx has
-// committed; a blob that fails to go is wasted space, not a reason to keep
-// what was deleted.
+// committed.
 func (h *H) deleteFilesAfterCommit(r *http.Request, tx *store.Tx, files []db.Attachment) {
+	var keys []string
+	for _, f := range files {
+		keys = append(keys, f.BlobKey, records.TextKey(f.BlobKey))
+	}
+	h.deleteBlobsAfterCommit(r, tx, keys)
+}
+
+// deleteBlobsAfterCommit deletes the blobs at keys once tx has committed; a
+// blob that fails to go is wasted space, not a reason to keep what was
+// deleted.
+func (h *H) deleteBlobsAfterCommit(r *http.Request, tx *store.Tx, keys []string) {
 	tx.AfterCommit(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), fileDeleteTimeout)
 		defer cancel()
-		for _, f := range files {
-			for _, key := range []string{f.BlobKey, records.TextKey(f.BlobKey)} {
-				if err := h.Blobs.Delete(ctx, key); err != nil {
-					slog.Error("attachment delete", "attachment", f.ID, "key", key, "err", err)
-				}
+		for _, key := range keys {
+			if err := h.Blobs.Delete(ctx, key); err != nil {
+				slog.Error("blob delete", "key", key, "err", err)
 			}
 		}
 	})

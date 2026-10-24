@@ -719,10 +719,15 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		blobKeys, err := tx.Q.CardBlobKeys(r.Context(), db.CardBlobKeysParams{WorkspaceID: ws, CardID: id})
+		if err != nil {
+			return err
+		}
 		if err := tx.Q.DeleteCard(r.Context(), db.DeleteCardParams{ID: id, WorkspaceID: ws}); err != nil {
 			return err
 		}
 		h.deleteFilesAfterCommit(r, tx, files)
+		h.deleteBlobsAfterCommit(r, tx, blobKeys)
 		return tx.Emit(r.Context(), "card.deleted", nil, store.User(user), map[string]any{"card_id": id, "number": c.Number})
 	})
 	if answer(w, r, err) {

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"testing"
 
+	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 )
 
@@ -377,5 +379,73 @@ func TestTheRecordsListShowsOutputs(t *testing.T) {
 	var recs []struct{ Kind, Key string }
 	if c := l.s.call(t, "GET", "/api/cards/"+l.card.ID+"/records?kind=output", l.jwt, l.ws, nil, &recs); c != 200 || len(recs) != 2 || recs[0].Key != "o1" || recs[1].Key != "o2" {
 		t.Fatalf("list %d %+v", c, recs)
+	}
+}
+
+func (l *teamLab) stored(key string) bool {
+	rc, err := l.s.H.Blobs.Get(context.Background(), key)
+	if err == nil {
+		rc.Close()
+	}
+	return err == nil
+}
+
+func TestDeletingAStudyDeletesItsOutputs(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	if code, out := l.postOutput(t, leader.token, "result.npz", 1<<10, nil); code != 201 {
+		t.Fatalf("upload %d %v", code, out)
+	}
+	if l.outputBlobs(t) != 1 {
+		t.Fatal("fixture: the output should be stored")
+	}
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatalf("delete: %d", code)
+	}
+	if n := l.outputBlobs(t); n != 0 {
+		t.Fatalf("%d output blobs outlived their study", n)
+	}
+}
+
+func TestADeleteThatRollsBackKeepsTheOutputs(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	if code, out := l.postOutput(t, leader.token, "result.npz", 1<<10, nil); code != 201 {
+		t.Fatalf("upload %d %v", code, out)
+	}
+	member := l.s.member(t, l.jwt, l.ws, "b@lab.org", "member")
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID, member, l.ws, nil, nil); code != 403 {
+		t.Fatalf("a non-owner deleted the study: %d", code)
+	}
+	if n := l.outputBlobs(t); n != 1 {
+		t.Fatalf("%d output blobs after a refused delete", n)
+	}
+}
+
+func TestDeletingAStudyDeletesItsRunOverflow(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	long := func(c string) string { return strings.Repeat(c, sources.MaxCallAnswer+1) }
+	output, errText, packages := long("o"), long("e"), "numpy==1.26\n"
+	in := map[string]any{"tool": "run_code", "language": "python", "code": "x", "output": output, "error": errText, "packages": packages, "exit_status": 1}
+	if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, nil); c != 201 {
+		t.Fatalf("run %d", c)
+	}
+	keys := []string{}
+	for _, s := range []string{output, errText, packages} {
+		keys = append(keys, l.ws+"/"+l.card.ID+"/"+hexSHA(s))
+	}
+	for _, k := range keys {
+		if !l.stored(k) {
+			t.Fatalf("fixture: %s is not stored", k)
+		}
+	}
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatalf("delete: %d", code)
+	}
+	for _, k := range keys {
+		if l.stored(k) {
+			t.Fatalf("%s outlived its study", k)
+		}
 	}
 }

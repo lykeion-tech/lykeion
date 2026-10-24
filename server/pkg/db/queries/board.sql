@@ -99,3 +99,14 @@ SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id A
 
 -- name: SupersedeRecord :exec
 UPDATE record SET superseded_at = now() WHERE workspace_id = @workspace_id AND id = @id AND superseded_at IS NULL;
+
+-- Every file a card's records keep in the blob store: a record's own blob, a
+-- run's whole stderr, and a run's package list.
+-- name: CardBlobKeys :many
+SELECT k::text AS blob_key FROM record r,
+  unnest(ARRAY[
+    r.blob_key,
+    CASE WHEN r.kind = 'run' THEN coalesce(r.body->>'error_blob', '') ELSE '' END,
+    CASE WHEN r.kind = 'run' THEN coalesce(r.workspace_id::text || '/' || r.card_id::text || '/' || (r.body->>'packages_sha256'), '') ELSE '' END
+  ]) AS k
+WHERE r.workspace_id = @workspace_id AND r.card_id = @card_id AND k <> '';

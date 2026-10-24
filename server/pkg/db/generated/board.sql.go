@@ -70,6 +70,43 @@ func (q *Queries) BoardCandidates(ctx context.Context) ([]BoardCandidatesRow, er
 	return items, nil
 }
 
+const cardBlobKeys = `-- name: CardBlobKeys :many
+SELECT k::text AS blob_key FROM record r,
+  unnest(ARRAY[
+    r.blob_key,
+    CASE WHEN r.kind = 'run' THEN coalesce(r.body->>'error_blob', '') ELSE '' END,
+    CASE WHEN r.kind = 'run' THEN coalesce(r.workspace_id::text || '/' || r.card_id::text || '/' || (r.body->>'packages_sha256'), '') ELSE '' END
+  ]) AS k
+WHERE r.workspace_id = $1 AND r.card_id = $2 AND k <> ''
+`
+
+type CardBlobKeysParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+// Every file a card's records keep in the blob store: a record's own blob, a
+// run's whole stderr, and a run's package list.
+func (q *Queries) CardBlobKeys(ctx context.Context, arg CardBlobKeysParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, cardBlobKeys, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var blob_key string
+		if err := rows.Scan(&blob_key); err != nil {
+			return nil, err
+		}
+		items = append(items, blob_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const cardInflightAgentRuns = `-- name: CardInflightAgentRuns :many
 SELECT id FROM agent_run
 WHERE workspace_id = $1 AND card_id = $2
