@@ -28,6 +28,7 @@ type namingStep struct {
 	seq                int32
 	id, tool, evidence string
 	deferrals          int
+	attempts           int
 }
 type stepNamer struct {
 	cancel     context.CancelFunc
@@ -37,6 +38,7 @@ type stepNamer struct {
 	open       func(context.Context) (toolNamingSession, error)
 	emit       func(agent.StepTitles) error
 	queue      chan namingStep
+	capacity   chan struct{}
 	stop, done chan struct{}
 	once       sync.Once
 	mu         sync.Mutex
@@ -48,7 +50,7 @@ type stepNamer struct {
 
 func newStepNamer(ctx context.Context, open func(context.Context) (toolNamingSession, error), emit func(agent.StepTitles) error) *stepNamer {
 	ctx, cancel := context.WithCancel(ctx)
-	n := &stepNamer{ctx: ctx, cancel: cancel, open: open, emit: emit, queue: make(chan namingStep, 200), stop: make(chan struct{}), done: make(chan struct{}), seen: map[string]bool{}, latest: map[string]namingStep{}}
+	n := &stepNamer{ctx: ctx, cancel: cancel, open: open, emit: emit, queue: make(chan namingStep, 200), capacity: make(chan struct{}, 200), stop: make(chan struct{}), done: make(chan struct{}), seen: map[string]bool{}, latest: map[string]namingStep{}}
 	go n.run()
 	return n
 }
@@ -69,6 +71,10 @@ func (n *stepNamer) saw(seq int32, m agent.Message) {
 	if key == "" {
 		key = fmt.Sprintf("seq:%d", seq)
 	}
+	evidenceRunes := []rune(evidence)
+	if len(evidenceRunes) > 400 {
+		evidence = string(evidenceRunes[:400])
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.stopped || n.ctx.Err() != nil {
@@ -78,19 +84,33 @@ func (n *stepNamer) saw(seq int32, m agent.Message) {
 	// second row for the same tool identity.
 	if n.seen[key] {
 		if evidence != "" {
-			old := n.latest[key]
-			old.evidence = evidence
-			n.latest[key] = old
+			if old, pending := n.latest[key]; pending {
+				old.evidence = evidence
+				n.latest[key] = old
+			}
 		}
 		return
 	}
-	if len(n.seen) >= 200 || m.Type != "tool_use" {
+	if m.Type != "tool_use" {
+		return
+	}
+	// Bound outstanding identities, not lifetime coverage. A saturated call
+	// retains its fallback and a later snapshot can try admission again.
+	select {
+	case n.capacity <- struct{}{}:
+	default:
 		return
 	}
 	n.seen[key] = true
 	step := namingStep{seq: seq, id: id, tool: tool, evidence: evidence}
 	n.latest[key] = step
-	n.queue <- step
+	select {
+	case n.queue <- step:
+	default:
+		delete(n.seen, key)
+		delete(n.latest, key)
+		<-n.capacity
+	}
 }
 
 var numberedStep = regexp.MustCompile(`^\s*([0-9]{1,3})[.):\-–—]?\s+(.+?)\s*$`)
@@ -154,6 +174,16 @@ func (n *stepNamer) run() {
 		}
 	}
 	defer retire()
+	complete := func(step namingStep) {
+		key := step.id
+		if key == "" {
+			key = fmt.Sprintf("seq:%d", step.seq)
+		}
+		n.mu.Lock()
+		delete(n.latest, key)
+		n.mu.Unlock()
+		<-n.capacity
+	}
 	flush := func(ctx context.Context, final bool) {
 		if n.err != nil || ctx.Err() != nil {
 			pending = nil
@@ -184,6 +214,9 @@ func (n *stepNamer) run() {
 			batch := ready[:count]
 			if session == nil {
 				if openings >= 2 {
+					for _, step := range ready {
+						complete(step)
+					}
 					return
 				}
 				var err error
@@ -195,6 +228,9 @@ func (n *stepNamer) run() {
 				openings++
 				first = true
 				if err != nil {
+					for _, step := range batch {
+						complete(step)
+					}
 					ready = ready[count:]
 					continue
 				}
@@ -209,11 +245,27 @@ func (n *stepNamer) run() {
 			cancel()
 			first = false
 			contextChars += len(prompt) + len(answer)
+			accepted := map[int32]bool{}
 			if err != nil {
 				retire()
 			} else if titles := parseStepNames(answer, batch); len(titles) > 0 {
 				if n.ctx.Err() == nil {
 					n.err = n.emit(agent.StepTitles{Type: "tool_step_titles", Version: 1, Titles: titles})
+					if n.err == nil {
+						for _, title := range titles {
+							accepted[title.Seq] = true
+						}
+					}
+				}
+			}
+			// At most two actual requests per identity, including failed or
+			// invalid responses. Accepted identities are never requested twice.
+			for _, step := range batch {
+				step.attempts++
+				if !accepted[step.seq] && step.attempts < 2 && n.err == nil && ctx.Err() == nil {
+					pending = append(pending, step)
+				} else {
+					complete(step)
 				}
 			}
 			if contextChars > 200000 {

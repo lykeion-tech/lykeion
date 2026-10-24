@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"lykeion/server/pkg/agent"
 	"os"
 	"strings"
@@ -64,6 +65,9 @@ func TestLiveClaudeTranscriptNaming(t *testing.T) {
 				}
 			}
 			must(t, rows.Err())
+			var usage json.RawMessage
+			must(t, f.env.Owner.QueryRow(context.Background(), "SELECT COALESCE(jsonb_agg(jsonb_build_object('model',model,'input_tokens',input_tokens,'output_tokens',output_tokens,'cache_read_tokens',cache_read_tokens,'cache_write_tokens',cache_write_tokens,'reported_cost_usd',cost_usd,'cost_reported',cost_reported)), '[]'::jsonb) FROM agent_run_usage WHERE agent_run_id=$1", f.id).Scan(&usage))
+			t.Logf("settled research plus naming usage (provider cost is not a subscription invoice): %s", usage)
 			t.Logf("title observed before settlement: %v; %d durable title records", live, count)
 			return
 		}

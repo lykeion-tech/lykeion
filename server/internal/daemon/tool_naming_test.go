@@ -117,18 +117,23 @@ func (s *timedNaming) Ask(ctx context.Context, _ string) (string, error) {
 	return b.String(), nil
 }
 func (s *timedNaming) Close() agent.Result { return agent.Result{} }
-func TestNamingCapDoesNotDropRecordedStepsOrMisnumberLaterBatches(t *testing.T) {
-	var titles []agent.StepTitle
-	n := newStepNamer(context.Background(), func(context.Context) (toolNamingSession, error) { return &timedNaming{}, nil }, func(meta agent.StepTitles) error { titles = append(titles, meta.Titles...); return nil })
-	for seq := 1; seq <= 205; seq++ {
-		n.saw(int32(seq), agent.Message{Type: "tool_use", Tool: "Bash", Content: []byte(fmt.Sprintf(`{"id":"call-%d","input":{"command":"true"}}`, seq))})
-	}
-	if _, err := n.finish(); err != nil {
-		t.Fatal(err)
-	}
-	if len(titles) != 200 || titles[0].Seq != 1 || titles[199].Seq != 200 || titles[199].ToolUseID != "call-200" {
-		t.Fatalf("lost or misnumbered titles: count %d", len(titles))
-	}
+func TestNamingBeyondTwoHundredAcrossBatches(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var titles []agent.StepTitle
+		n := newStepNamer(context.Background(), func(context.Context) (toolNamingSession, error) { return &timedNaming{}, nil }, func(meta agent.StepTitles) error { titles = append(titles, meta.Titles...); return nil })
+		for start := 1; start <= 201; start += 100 {
+			for seq := start; seq < start+100; seq++ {
+				n.saw(int32(seq), agent.Message{Type: "tool_use", Tool: "Bash", Content: []byte(fmt.Sprintf(`{"id":"call-%d","input":{"command":"true"}}`, seq))})
+			}
+			time.Sleep(2 * stepSettle)
+		}
+		if _, err := n.finish(); err != nil {
+			t.Fatal(err)
+		}
+		if len(titles) != 300 || titles[299].Seq != 300 || titles[299].ToolUseID != "call-300" {
+			t.Fatalf("lost titles: %d", len(titles))
+		}
+	})
 }
 func TestNamingFinalDrainBoundsAnAlreadyRunningBatch(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
@@ -145,4 +150,101 @@ func TestNamingFinalDrainBoundsAnAlreadyRunningBatch(t *testing.T) {
 			t.Fatalf("final drain continued processing live batches for %v", elapsed)
 		}
 	})
+}
+
+func TestNamingRetriesMissing(t *testing.T) {
+	calls := 0
+	var titles []agent.StepTitle
+	n := newStepNamer(context.Background(), func(context.Context) (toolNamingSession, error) {
+		return &functionNaming{ask: func(context.Context, string) (string, error) {
+			calls++
+			if calls == 1 {
+				return "1. Read recorded data\n2. This title has far too many words to accept", nil
+			}
+			return "1. Inspect recorded call", nil
+		}}, nil
+	}, func(meta agent.StepTitles) error { titles = append(titles, meta.Titles...); return nil })
+	for seq := 1; seq <= 2; seq++ {
+		n.saw(int32(seq), agent.Message{Type: "tool_use", Tool: "Bash", Content: []byte(fmt.Sprintf(`{"id":"call-%d","input":{"command":"true"}}`, seq))})
+	}
+	usage, err := n.finish()
+	if err != nil || calls != 2 || len(titles) != 2 || titles[1].Seq != 2 || len(usage) != 1 {
+		t.Fatalf("calls %d titles %+v usage %+v err %v", calls, titles, usage, err)
+	}
+}
+
+type functionNaming struct {
+	ask func(context.Context, string) (string, error)
+}
+
+func (s *functionNaming) Ask(c context.Context, p string) (string, error) { return s.ask(c, p) }
+func (s *functionNaming) Close() agent.Result {
+	return agent.Result{Usage: []agent.Usage{{Model: "m", InputTokens: 2}}}
+}
+
+func TestNamingSaturationDoesNotBlockAndLaterCallsRemainEligible(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		began := make(chan struct{})
+		release := make(chan struct{})
+		session := &functionNaming{ask: func(ctx context.Context, _ string) (string, error) {
+			select {
+			case <-began:
+			default:
+				close(began)
+			}
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+			var b strings.Builder
+			for i := 1; i <= 20; i++ {
+				fmt.Fprintf(&b, "%d. Inspect recorded call\n", i)
+			}
+			return b.String(), nil
+		}}
+		var last int32
+		n := newStepNamer(context.Background(), func(context.Context) (toolNamingSession, error) { return session, nil }, func(meta agent.StepTitles) error {
+			for _, title := range meta.Titles {
+				last = title.Seq
+			}
+			return nil
+		})
+		n.saw(1, agent.Message{Type: "tool_use", Tool: "Bash", Content: []byte(`{"id":"first","input":{"command":"true"}}`)})
+		<-began
+		for seq := 2; seq <= 1000; seq++ {
+			n.saw(int32(seq), agent.Message{Type: "tool_use", Tool: "Bash", Content: []byte(fmt.Sprintf(`{"id":"call-%d","input":{"command":"true"}}`, seq))})
+		}
+		close(release)
+		time.Sleep(2 * stepSettle)
+		n.saw(1001, agent.Message{Type: "tool_use", Tool: "Bash", Content: []byte(`{"id":"later","input":{"command":"true"}}`)})
+		n.finish()
+		if last != 1001 {
+			t.Fatalf("later call lost: %d", last)
+		}
+	})
+}
+func TestNamingProviderFailureUsageIsNonfatal(t *testing.T) {
+	calls := 0
+	n := newStepNamer(context.Background(), func(context.Context) (toolNamingSession, error) {
+		calls++
+		return &scriptedNaming{err: errors.New("provider unavailable"), usage: []agent.Usage{{Model: "m", InputTokens: 3}}}, nil
+	}, func(agent.StepTitles) error { t.Fatal("invented title"); return nil })
+	n.saw(1, agent.Message{Type: "tool_use", Tool: "Bash", Content: []byte(`{"command":"true"}`)})
+	usage, err := n.finish()
+	if err != nil || calls != 2 || len(usage) != 1 || usage[0].InputTokens != 6 {
+		t.Fatalf("usage %+v calls %d err %v", usage, calls, err)
+	}
+}
+
+func TestNamingInvalidResponseRetryIsBounded(t *testing.T) {
+	calls := 0
+	n := newStepNamer(context.Background(), func(context.Context) (toolNamingSession, error) {
+		return &functionNaming{ask: func(context.Context, string) (string, error) { calls++; return "not numbered", nil }}, nil
+	}, func(agent.StepTitles) error { t.Fatal("invalid title persisted"); return nil })
+	n.saw(1, agent.Message{Type: "tool_use", Tool: "Bash", Content: []byte(`{"id":"a","input":{"command":"true"}}`)})
+	usage, err := n.finish()
+	if calls != 2 || err != nil || len(usage) != 1 {
+		t.Fatalf("calls %d usage %+v err %v", calls, usage, err)
+	}
 }
