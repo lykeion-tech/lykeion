@@ -21,3 +21,22 @@ func TestThePromptListsTheFiles(t *testing.T) {
 		t.Fatalf("a study without files mentions attachments:\n%s", p)
 	}
 }
+
+func TestExperimentationRunsAreToldToSaveOutputs(t *testing.T) {
+	const put = "lyk output put"
+	for _, role := range []string{"leader", "agent", "Curie"} {
+		if p := Protocol(role, "experimentation", "", nil); !strings.Contains(p, put) {
+			t.Errorf("%s on experimentation is not told to save outputs:\n%s", role, p)
+		}
+	}
+	if p := Protocol("auditor", "experimentation", "", nil); strings.Contains(p, put) {
+		t.Errorf("the auditor is told to save outputs:\n%s", p)
+	}
+	for _, col := range []string{"hypotheses", "validation"} {
+		for _, role := range []string{"leader", "agent", "auditor", "Curie"} {
+			if p := Protocol(role, col, "", nil); strings.Contains(p, put) {
+				t.Errorf("%s on %s is told to save outputs:\n%s", role, col, p)
+			}
+		}
+	}
+}

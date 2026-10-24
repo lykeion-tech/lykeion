@@ -94,6 +94,10 @@ const (
 		"a summary that names the record keys it relies on. Pass file contents through stdin or `--content`; do not write files for it.\n"
 )
 
+// saveOutputs tells an Experimentation run how to keep the files its scripts
+// wrote; the run folder is cleared when the run ends.
+const saveOutputs = "To keep a file or folder your scripts wrote, run `lyk output put <path>`; files you don't save are deleted after the run. `lyk output get KEY` fetches a saved one.\n"
+
 // askTools tells every role how to find the skills and database tools its
 // work may use.
 const askTools = "To find a skill or database tool for what you need, run `lyk tools \"what you need\"`; call the tools it names through `call_tool`.\n"
@@ -147,6 +151,9 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 			"`{\"text\": \"…\", \"findings\": [\"…\"]}`. You write no other records, name no members and declare nothing done.\n")
 	default:
 		b.WriteString(writeWork + "If you cannot do the step, end with `lyk result failed --content \"why\"`.\n")
+	}
+	if column == board.Experimentation && role != "auditor" {
+		b.WriteString("\n" + saveOutputs)
 	}
 	b.WriteString("\n" + askTools)
 	return b.String()
