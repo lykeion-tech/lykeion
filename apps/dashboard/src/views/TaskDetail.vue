@@ -755,6 +755,7 @@ function pin() {
   overflow: auto;
   padding: 0 8px 24px;
   font-size: 14px;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 .task-properties > header {
   height: 60px;
@@ -887,6 +888,7 @@ function pin() {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 .transcript-content {
   max-width: 1002px;
