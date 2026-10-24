@@ -1228,3 +1228,17 @@ func TestCodexRunsWithoutWebSearch(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeRunsWithoutThePersonsHooks(t *testing.T) {
+	args := filepath.Join(t.TempDir(), "args")
+	b, _ := New("claude", script(t, `printf '%s\n' "$@" > `+args))
+	s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, s)
+	a, _ := os.ReadFile(args)
+	if !strings.Contains(string(a), "--settings\n{\"disableAllHooks\":true}\n") {
+		t.Fatalf("claude ran with\n%s", a)
+	}
+}

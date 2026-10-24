@@ -111,7 +111,9 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if len(deny) > 0 {
 		tools = append(append(tools, "--disallowedTools"), deny...)
 	}
-	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg})
+	// The person's own hooks and plugin hooks stay out of runs, so how a run
+	// behaves doesn't depend on what they have installed.
+	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--settings", `{"disableAllHooks":true}`})
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
 	}
