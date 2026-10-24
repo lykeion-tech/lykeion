@@ -309,7 +309,7 @@ func mergeNamingUsage(base, added []agent.Usage) []agent.Usage {
 // namingSlot belongs to the daemon, not a workspace: three running studies
 // may name steps concurrently without forking an unbounded number of CLIs.
 func (d *daemon) openToolNamer(ctx context.Context, c claimed) (toolNamingSession, error) {
-	if c.AgentRun.Harness != "claude" && c.AgentRun.Harness != "codex" {
+	if c.AgentRun.Harness != "claude" {
 		return nil, errors.New("tool-free naming is not verified for this harness")
 	}
 	d.mu.Lock()

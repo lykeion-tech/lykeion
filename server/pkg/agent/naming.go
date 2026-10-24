@@ -12,10 +12,6 @@ import (
 // NamingSession holds a separate conversation with no tools, discovery or
 // research continuity. Only adapters with verified tool denial may open one.
 type NamingSession struct {
-	delegate interface {
-		Ask(context.Context, string) (string, error)
-		Close() Result
-	}
 	context context.Context
 	input   *os.File
 	cancel  context.CancelFunc
@@ -33,9 +29,6 @@ type namingAnswer struct {
 func OpenNamingSession(ctx context.Context, harness, bin, dir, model string, sandbox SandboxCommand) (*NamingSession, error) {
 	if sandbox == nil {
 		return nil, ErrNoSandbox
-	}
-	if harness == "codex" {
-		return openCodexNaming(ctx, bin, dir, model, sandbox)
 	}
 	if harness != "claude" {
 		return nil, errors.New("this harness has no verified tool-free naming mode")
@@ -123,9 +116,6 @@ func OpenNamingSession(ctx context.Context, harness, bin, dir, model string, san
 }
 
 func (n *NamingSession) Ask(ctx context.Context, prompt string) (string, error) {
-	if n.delegate != nil {
-		return n.delegate.Ask(ctx, prompt)
-	}
 	n.ask.Lock()
 	defer n.ask.Unlock()
 	if err := n.context.Err(); err != nil {
@@ -177,9 +167,6 @@ func (n *NamingSession) Ask(ctx context.Context, prompt string) (string, error) 
 	}
 }
 func (n *NamingSession) Close() Result {
-	if n.delegate != nil {
-		return n.delegate.Close()
-	}
 	n.close.Do(func() { n.input.Close(); n.cancel() })
 	<-n.ended
 	return n.result
