@@ -1,4 +1,5 @@
 import type { RunMessage } from '../api/types';
+import { toolStepTitle } from './tool-step-title';
 
 export interface TranscriptBlock {
   key: string;
@@ -361,13 +362,6 @@ export function activitySteps(messages: readonly RunMessage[]): ActivityStep[] {
     }
     const activity = activityStep(message);
     const tool = message.type === 'tool_use';
-    const bare = toolName(call.tool).replace(/^mcp(?:__|\.)[^.]+?(?:__|\.)/, '');
-    const named =
-      bare === 'call_tool' && typeof call.input.tool === 'string' ? call.input.tool : bare;
-    const readableTool = named.replace(/[_-]+/g, ' ');
-    const fallback = activity.detail
-      ? `${activity.label} ${command(call.input) ? activity.detail.split('\n')[0] : activity.detail}`
-      : readableTool || activity.label;
     const step: ActivityStep = {
       ...activity,
       key: `${message.attempt}:${message.seq}`,
@@ -376,9 +370,7 @@ export function activitySteps(messages: readonly RunMessage[]): ActivityStep[] {
         titles.get(`${message.attempt}:${message.seq}`) ||
         suppliedDescription(call.input) ||
         suppliedDescription(args(call.input.args ?? call.input.arguments)) ||
-        (notebookCall(call)
-          ? `Run ${notebookCall(call)!.language === 'python' ? 'Python' : notebookCall(call)!.language} notebook cell`
-          : fallback),
+        (tool ? toolStepTitle(call.tool, call.input) : activity.label),
       tool,
       notebook: tool ? notebookCall(call) : undefined,
       command: tool ? command(call.input) || undefined : undefined,
@@ -501,9 +493,8 @@ export function liveStatus(messages: readonly RunMessage[]): string {
   const last = ordered.at(-1);
   if (!last) return '';
   const describe = (message: RunMessage) => {
-    const step = activityStep(message);
-    const text = step.detail ? `${step.label}: ${step.detail}` : step.label;
-    return `${text.length > 120 ? `${text.slice(0, 119)}…` : text}…`;
+    const call = toolCall(message);
+    return `${suppliedDescription(call.input) || toolStepTitle(call.tool, call.input)}…`;
   };
   if (last.type === 'thinking') return 'Thinking…';
   // A Codex call is recorded once complete; the others wait for a result.

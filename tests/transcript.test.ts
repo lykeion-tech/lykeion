@@ -230,7 +230,7 @@ describe('reading-first recorded run', () => {
       msg(3, 'tool_use', { path: 'data.xlsx' }, 'spreadsheet_custom'),
     ]);
     expect(html).toContain('unknown-x');
-    expect(html).toMatch(/class="step-label"[^>]*>spreadsheet_custom data.xlsx</);
+    expect(html).toMatch(/class="step-label"[^>]*>Use research tool</);
     expect(html).toContain('structured text');
     expect(html).toContain('payload');
     expect(html).toContain('Full recorded message');
@@ -555,7 +555,7 @@ describe('live status line', () => {
           'Bash',
         ),
       ]),
-    ).toBe('Run command: python fit.py…');
+    ).toBe('Run a Python script…');
     expect(
       liveStatus([
         msg(
@@ -587,7 +587,7 @@ describe('live status line', () => {
           },
         }),
       ]),
-    ).toBe('Run command: pytest…');
+    ).toBe('Run tests…');
     expect(
       liveStatus([msg(1, 'log', { type: 'system', subtype: 'status', status: 'compacting' })]),
     ).toBe('Compacting…');

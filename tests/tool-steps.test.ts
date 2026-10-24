@@ -184,7 +184,7 @@ describe('logical tool steps', () => {
     expect(steps[0]!.title).toBe('Fit the survival model');
     expect(
       activitySteps([call(1, 'a', { command: 'ls', human_description: 'bad\nlabel' })])[0]!.title,
-    ).toContain('ls');
+    ).toBe('List files');
   });
   it('reads Codex MCP arguments and joins Cursor and Antigravity results', () => {
     const codex = msg(
