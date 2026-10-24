@@ -475,6 +475,27 @@ func scoringState(in scoring, quotes []QuoteMatch, values []ValueMatch, budget i
 		}
 		tail.WriteString(fence.Untrusted("The values, as the agents wrote them", list))
 	}
+	var ob strings.Builder
+	for _, r := range in.work {
+		if r.Kind != "output" {
+			continue
+		}
+		o := records.Body[struct {
+			Name        string `json:"name"`
+			SizeBytes   int64  `json:"size_bytes"`
+			SHA256      string `json:"sha256"`
+			ContentType string `json:"content_type"`
+		}](r)
+		fmt.Fprintf(&ob, "- %s: %d bytes, sha256 %s, %s\n", strconv.Quote(o.Name), o.SizeBytes, o.SHA256, o.ContentType)
+	}
+	if ob.Len() > 0 {
+		list, cut := Excerpt(ob.String(), budget/8)
+		if cut {
+			list += cutMark + "\n"
+		}
+		tail.WriteString("\nFiles the run saved, listed by name only; their content is not shown:\n")
+		tail.WriteString(fence.Untrusted("The saved files", list))
+	}
 	tail.WriteString(labelRule)
 	tail.WriteString("\nThe auditor's findings:\n")
 	if in.audit != "" {

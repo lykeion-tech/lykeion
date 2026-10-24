@@ -632,3 +632,32 @@ func TestScoringStateReportsValues(t *testing.T) {
 		}
 	}
 }
+
+func TestJevSeesOutputsAsAList(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "experimentation", "experimentation", a)
+	l.e.Kick(l.ws, c.ID)
+	l.in(t, func(tx *store.Tx) error {
+		ctx := context.Background()
+		if _, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "experimentation", Round: c.Round,
+			Kind: "output", Role: "server", Key: "o1", Body: []byte(`{"name":"results/fit.csv","size_bytes":42,"sha256":"abc123def","content_type":"text/csv","at":"t","agent_run_id":"r"}`)}); err != nil {
+			return err
+		}
+		_, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "experimentation", Round: c.Round,
+			Kind: "result", Role: "agent", Key: "r1", Body: []byte(`{"text":"done"}`)})
+		return err
+	})
+	l.done(t, c.ID, "r1")
+	calls := stub.calls()
+	if len(calls) != 1 {
+		t.Fatalf("%d Jev calls", len(calls))
+	}
+	s := calls[0].State
+	for _, want := range []string{`"results/fit.csv": 42 bytes, sha256 abc123def, text/csv`, "their content is not shown"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in the state:\n%s", want, s)
+		}
+	}
+}
