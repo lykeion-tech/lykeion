@@ -48,7 +48,7 @@ func RequestBounds(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		attachment := r.Method == http.MethodPost && r.URL.Path == "/api/attachments"
+		attachment := r.Method == http.MethodPost && (r.URL.Path == "/api/attachments" || r.URL.Path == "/api/role/outputs")
 		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r) || attachment
 		callPost := r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs")
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout

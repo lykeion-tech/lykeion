@@ -182,6 +182,13 @@ func NextRunKey(ctx context.Context, tx *store.Tx, card uuid.UUID) (string, erro
 	return fmt.Sprintf("x%d", n+1), err
 }
 
+// NextOutputKey is the key of a study's next `output` record: o1, o2, …
+// across all its columns. The caller holds the card's lock.
+func NextOutputKey(ctx context.Context, tx *store.Tx, card uuid.UUID) (string, error) {
+	n, err := tx.Q.LastOutputNumber(ctx, db.LastOutputNumberParams{WorkspaceID: tx.WS, CardID: card})
+	return fmt.Sprintf("o%d", n+1), err
+}
+
 // NextRecordKey is the key of a study's next record written through a role
 // command: r1, r2, … across all its columns. The caller holds the card's lock.
 func NextRecordKey(ctx context.Context, tx *store.Tx, card uuid.UUID) (string, error) {

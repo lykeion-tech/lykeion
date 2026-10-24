@@ -158,6 +158,23 @@ func (q *Queries) GetTeamAgent(ctx context.Context, arg GetTeamAgentParams) (Age
 	return i, err
 }
 
+const lastOutputNumber = `-- name: LastOutputNumber :one
+SELECT COALESCE(max(substr(key, 2)::int), 0)::int AS n FROM record
+WHERE workspace_id = $1 AND card_id = $2 AND kind = 'output' AND key ~ '^o[0-9]+$'
+`
+
+type LastOutputNumberParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) LastOutputNumber(ctx context.Context, arg LastOutputNumberParams) (int32, error) {
+	row := q.db.QueryRow(ctx, lastOutputNumber, arg.WorkspaceID, arg.CardID)
+	var n int32
+	err := row.Scan(&n)
+	return n, err
+}
+
 const lastRecordNumber = `-- name: LastRecordNumber :one
 SELECT COALESCE(max(substr(key, 2)::int), 0)::int AS n FROM record
 WHERE workspace_id = $1 AND card_id = $2 AND key ~ '^r[0-9]+$'
@@ -301,6 +318,28 @@ func (q *Queries) ResolveCardInboxKind(ctx context.Context, arg ResolveCardInbox
 		return nil, err
 	}
 	return items, nil
+}
+
+const runOutputTotals = `-- name: RunOutputTotals :one
+SELECT count(*)::int AS outputs, COALESCE(sum((body->>'size_bytes')::bigint), 0)::bigint AS bytes FROM record
+WHERE workspace_id = $1 AND agent_run_id = $2 AND kind = 'output' AND superseded_at IS NULL
+`
+
+type RunOutputTotalsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	AgentRunID  *uuid.UUID `json:"agent_run_id"`
+}
+
+type RunOutputTotalsRow struct {
+	Outputs int32 `json:"outputs"`
+	Bytes   int64 `json:"bytes"`
+}
+
+func (q *Queries) RunOutputTotals(ctx context.Context, arg RunOutputTotalsParams) (RunOutputTotalsRow, error) {
+	row := q.db.QueryRow(ctx, runOutputTotals, arg.WorkspaceID, arg.AgentRunID)
+	var i RunOutputTotalsRow
+	err := row.Scan(&i.Outputs, &i.Bytes)
+	return i, err
 }
 
 const saveCardFlow = `-- name: SaveCardFlow :exec
