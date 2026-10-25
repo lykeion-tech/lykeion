@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRenderer, createSSRApp, h, nextTick, ref, ssrContextKey, type Component } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -6,6 +6,8 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import AssignPicker from '../apps/dashboard/src/components/AssignPicker.vue';
 import TeamDetail from '../apps/dashboard/src/views/TeamDetail.vue';
 import TeamsView from '../apps/dashboard/src/views/TeamsView.vue';
+import CreateTask from '../apps/dashboard/src/views/CreateTask.vue';
+import TaskDetail from '../apps/dashboard/src/views/TaskDetail.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { keys } from '../apps/dashboard/src/api/keys';
 import type { Picked, Range } from '../apps/dashboard/src/lib/studies';
@@ -67,6 +69,7 @@ function client() {
 
 afterEach(() => {
   workspaceId.value = '';
+  vi.unstubAllGlobals();
 });
 
 async function ssr(component: Component, props: Record<string, unknown>, path: string) {
@@ -105,6 +108,7 @@ type Node = {
   contains(): boolean;
   focus(): void;
   showModal(): void;
+  getRootNode(): null;
   value?: unknown;
 };
 function node(tag: string, text = ''): Node {
@@ -120,6 +124,7 @@ function node(tag: string, text = ''): Node {
     contains: () => true,
     focus() {},
     showModal() {},
+    getRootNode: () => null,
   };
 }
 const textOf = (n: Node): string => n.text + n.children.map(textOf).join('');
@@ -150,10 +155,19 @@ const { createApp: createTreeApp } = createRenderer<Node, Node>({
   patchProp: (n, key, _prev, next) => (n.props[key] = next),
 });
 
-async function mount(component: Component, props: () => Record<string, unknown>, path = '/') {
+async function mount(
+  component: Component,
+  props: () => Record<string, unknown>,
+  path = '/',
+  seed?: (client: QueryClient) => void,
+) {
   const g = globalThis as { document?: unknown };
   g.document ??= { addEventListener() {}, removeEventListener() {} };
+  vi.stubGlobal('window', { innerWidth: 1512, addEventListener() {}, removeEventListener() {} });
+  vi.stubGlobal('Document', class {});
+  vi.stubGlobal('ShadowRoot', class {});
   const queryClient = client();
+  seed?.(queryClient);
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/:p(.*)*', component: TeamsView }],
@@ -168,7 +182,7 @@ async function mount(component: Component, props: () => Record<string, unknown>,
   app.mount(root);
   await nextTick();
   const button = (label: RegExp) =>
-    all(root).find((n) => n.tag === 'button' && label.test(textOf(n)));
+    all(root).find((n) => n.tag === 'button' && label.test(textOf(n).trim()));
   const click = async (label: RegExp) => {
     const b = button(label);
     expect(b, textOf(root)).toBeTruthy();
@@ -177,7 +191,29 @@ async function mount(component: Component, props: () => Record<string, unknown>,
   };
   const input = (label: string) =>
     all(root).find((n) => n.tag === 'input' && n.props['aria-label'] === label);
-  return { text: () => textOf(root), button, click, input, unmount: () => app.unmount() };
+  const fill = async (label: string, value: string) => {
+    const field = all(root).find((n) => n.props['aria-label'] === label);
+    expect(field, label).toBeTruthy();
+    (field!.props['onUpdate:modelValue'] as (value: string) => void)(value);
+    await nextTick();
+  };
+  const submit = async () => {
+    const form = all(root).find((n) => n.tag === 'form');
+    await (form!.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    await nextTick();
+  };
+  return {
+    text: () => textOf(root),
+    button,
+    click,
+    input,
+    fill,
+    submit,
+    unmount: () => {
+      app.unmount();
+      queryClient.clear();
+    },
+  };
 }
 
 async function mountPicker(agents = false, lastSet: Picked | null = null) {
@@ -295,6 +331,180 @@ describe('no versions', () => {
     ]) {
       expect(html).toContain('Team');
       expect(html).not.toMatch(/version/i);
+    }
+  });
+});
+
+function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
+  client.setQueryData(keys.workspace('w'), { name: 'Lab' });
+  client.setQueryData(keys.cards('w'), []);
+  client.setQueryData(keys.runtimes('w'), []);
+  client.setQueryData(keys.researches('w'), []);
+  for (const key of [keys.comments, keys.events, keys.runs, keys.ratings])
+    client.setQueryData(key('w', 'c'), []);
+  client.setQueryData(keys.records('w', 'c', 'grounding'), []);
+  client.setQueryData(keys.card('w', 'c'), {
+    id: 'c',
+    number: 1,
+    title: 'Study',
+    question: 'Question',
+    owner_id: 'u1',
+    board_column: 'grounding',
+    state: 'working',
+    flag: '',
+    ending: '',
+    block_kind: '',
+    scope_from: 'grounding',
+    scope_to: 'reporting',
+    round: 1,
+    redos: 0,
+    teams: {},
+    off_label: [],
+    follows_from: [],
+    attachments: [],
+    env: {},
+    services: [],
+    created_at: '2026-10-25T10:00:00Z',
+    updated_at: '2026-10-25T10:00:00Z',
+    ...extra,
+  });
+}
+
+describe('study variables and services', () => {
+  it('posts variable rows, preserves values and drops only genuinely empty rows', async () => {
+    const fetch = vi.fn(
+      async (_path: RequestInfo | URL, init?: RequestInit) =>
+        new Response(init?.method === 'POST' ? '{}' : '[]', {
+          status: init?.method === 'POST' ? 201 : 200,
+        }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      expect(t.text()).toContain(
+        'Up to 100 files, 5 GB each, 10 GB in all; archives are unpacked for the agents',
+      );
+      expect(t.text()).toContain(
+        'Visible to everyone in this study. Not for passwords or keys; use a connector.',
+      );
+      await t.fill('Describe your study', 'Question');
+      await t.click(/^Add variable$/);
+      await t.fill('Variable name 1', 'DATASET');
+      await t.fill('Variable value 1', '  study data  ');
+      await t.click(/^Add variable$/);
+      await t.fill('Variable name 2', 'EMPTY_VALUE');
+      await t.click(/^Add variable$/);
+      await t.click(/^Add variable$/);
+      await t.fill('Variable value 4', 'requires a name');
+      await t.submit();
+      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
+      expect(posted).toBeTruthy();
+      expect(JSON.parse(String(posted![1]?.body)).env).toEqual({
+        DATASET: '  study data  ',
+        EMPTY_VALUE: '',
+        '': 'requires a name',
+      });
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('shows the server secret-name refusal and keeps the inputs for correction', async () => {
+    const message =
+      "EXAMPLE_KEY looks like a secret; study variables are visible to the study's members. Use a connector for keys.";
+    const fetch = vi.fn(
+      async (_path: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ error: message }), { status: 400 }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      await t.fill('Describe your study', 'Question');
+      await t.click(/^Add variable$/);
+      await t.fill('Variable name 1', 'EXAMPLE_KEY');
+      await t.fill('Variable value 1', 'test value');
+      await t.submit();
+      expect(fetch.mock.calls.some((call) => call[0] === '/api/cards')).toBe(true);
+      expect(t.text()).toContain(message);
+      expect(t.input('Variable name 1')?.value).toBe('EXAMPLE_KEY');
+      expect(t.input('Variable value 1')?.value).toBe('test value');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('removes a variable row before posting', async () => {
+    const fetch = vi.fn(
+      async (_path: RequestInfo | URL, init?: RequestInit) =>
+        new Response(init?.method === 'POST' ? '{}' : '[]', {
+          status: init?.method === 'POST' ? 201 : 200,
+        }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      await t.fill('Describe your study', 'Question');
+      await t.click(/^Add variable$/);
+      await t.fill('Variable name 1', 'REMOVED');
+      await t.click(/^Remove$/);
+      await t.submit();
+      expect(JSON.parse(String(fetch.mock.calls[0]![1]?.body)).env).toEqual({});
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('renders variable names and values under the attachments', async () => {
+    const t = await mount(
+      TaskDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) =>
+        seedStudy(c, {
+          env: { DATASET: 'study.csv' },
+          attachments: [{ id: 'a', name: 'data.csv', size_bytes: 3 }],
+        }),
+    );
+    try {
+      expect(t.text()).toContain('Study variables');
+      expect(t.text()).toContain('DATASET');
+      expect(t.text()).toContain('study.csv');
+      expect(t.text().indexOf('Attached files')).toBeLessThan(t.text().indexOf('Study variables'));
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it.each([undefined, []])('omits the services note when services are %s', async (services) => {
+    const t = await mount(
+      TaskDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) => seedStudy(c, { services }),
+    );
+    try {
+      expect(t.text()).not.toContain('This study has hidden services:');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('names the hidden services and shows the isolation note', async () => {
+    const t = await mount(
+      TaskDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) =>
+        seedStudy(c, {
+          services: [{ name: 'grader' }, { name: 'database' }],
+        }),
+    );
+    try {
+      expect(t.text()).toContain(
+        "This study has hidden services: grader, database. Hidden services can't be fully isolated on every machine; don't use them to keep secrets.",
+      );
+    } finally {
+      t.unmount();
     }
   });
 });

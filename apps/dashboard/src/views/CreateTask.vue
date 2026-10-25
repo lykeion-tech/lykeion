@@ -35,6 +35,8 @@ const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
 const query = ref('');
 const form = ref<HTMLFormElement>();
+const variables = ref<{ key: number; name: string; value: string }[]>([]);
+let nextVariable = 0;
 const files = useAttachments(uploadAttachment);
 async function pick(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -141,6 +143,11 @@ async function submit() {
     question: question.value.trim(),
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
     follows_from: followsFrom.value,
+    env: Object.fromEntries(
+      variables.value
+        .filter((row) => row.name !== '' || row.value !== '')
+        .map((row) => [row.name, row.value]),
+    ),
     ...(files.ids.value.length ? { attachment_ids: files.ids.value } : {}),
     ...(assignee.value ? { assignee: assignee.value } : {}),
     ...(assignee.value && teamColumns.value.length === 1 && !picker.value?.set
@@ -160,6 +167,7 @@ async function submit() {
       assignee.value = props.assignee ? { ...props.assignee } : null;
       range.value = initialRange();
       followsFrom.value = [];
+      variables.value = [];
       files.clear();
       await nextTick();
       form.value?.querySelector<HTMLInputElement>('.composer-title')?.focus();
@@ -296,7 +304,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           class="visually-hidden"
           @change="pick"
         />
-        <small>Up to 100 files, 100 MB each, 500 MB in all</small>
+        <small
+          >Up to 100 files, 5 GB each, 10 GB in all; archives are unpacked for the agents</small
+        >
         <ul v-if="files.items.value.length" aria-label="Files to attach">
           <li v-for="f in files.items.value" :key="f.key" tabindex="0">
             <span class="file-name">{{ f.name }}</span>
@@ -320,6 +330,41 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         </ul>
         <p v-if="files.error.value" class="composer-error" role="alert">{{ files.error.value }}</p>
       </div>
+      <section class="composer-variables" aria-label="Study variables">
+        <div class="variables-header">
+          <span>Study variables</span>
+          <button
+            type="button"
+            class="text-button"
+            @click="variables.push({ key: nextVariable++, name: '', value: '' })"
+          >
+            Add variable
+          </button>
+        </div>
+        <p>Visible to everyone in this study. Not for passwords or keys; use a connector.</p>
+        <div class="variable-rows">
+          <div v-for="(row, index) in variables" :key="row.key" class="variable-row">
+            <input
+              v-model="row.name"
+              placeholder="Name"
+              :aria-label="`Variable name ${index + 1}`"
+            />
+            <input
+              v-model="row.value"
+              placeholder="Value"
+              :aria-label="`Variable value ${index + 1}`"
+            />
+            <button
+              type="button"
+              class="text-button"
+              :aria-label="`Remove variable ${index + 1}`"
+              @click="variables = variables.filter((v) => v.key !== row.key)"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      </section>
       <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
       <footer class="composer-footer">
         <label class="another-switch push-right">
@@ -688,9 +733,39 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
     font-size: 11px;
   }
 }
-.composer-files {
+.composer-files,
+.composer-variables {
   padding: 0 20px 8px;
   font-size: 12px;
+}
+.variables-header,
+.variable-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.variables-header {
+  justify-content: space-between;
+}
+.composer-variables > p {
+  margin: 4px 0 8px;
+  color: var(--muted);
+}
+.variable-row {
+  margin-top: 6px;
+}
+.variable-rows {
+  max-height: 120px;
+  overflow-y: auto;
+}
+.variable-row input {
+  width: 0;
+  min-width: 0;
+  flex: 1;
+  font: inherit;
+}
+.variable-row input:first-child {
+  flex: 0.7;
 }
 .composer-files > small {
   margin-left: 8px;

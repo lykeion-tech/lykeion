@@ -1,11 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_FILE, useAttachments } from '../apps/dashboard/src/lib/attachments';
+import {
+  formatSize,
+  MAX_FILE,
+  MAX_TOTAL,
+  useAttachments,
+} from '../apps/dashboard/src/lib/attachments';
 
 const file = (name: string, size = 1) => ({ name, size }) as File;
 const uploader = () =>
   vi.fn(async (f: File) => ({ id: `id-${f.name}`, name: f.name, size_bytes: f.size }));
 
 describe('study attachments composer', () => {
+  it('uses byte-safe GB limits and formats GB', () => {
+    expect(MAX_FILE).toBe(5 * 2 ** 30);
+    expect(MAX_TOTAL).toBe(10 * 2 ** 30);
+    expect(formatSize(5 * 2 ** 30)).toBe('5 GB');
+    expect(formatSize(1.5 * 2 ** 30)).toBe('1.5 GB');
+  });
   it('uploads picked files and sends their ids', async () => {
     const upload = uploader();
     const a = useAttachments(upload);
@@ -15,12 +26,12 @@ describe('study attachments composer', () => {
     expect(a.error.value).toBe('');
   });
 
-  it('refuses a file over 100 MB by name, without uploading', async () => {
+  it('refuses a file over 5 GB by name, without uploading', async () => {
     const upload = uploader();
     const a = useAttachments(upload);
-    await a.add([file('big.bin', MAX_FILE + 1)]);
+    await a.add([file('big.bin', 5 * 2 ** 30 + 1)]);
     expect(upload).not.toHaveBeenCalled();
-    expect(a.error.value).toBe('big.bin: A file can be at most 100 MB');
+    expect(a.error.value).toBe('big.bin: A file can be at most 5 GB');
   });
 
   it('refuses the 101st file without uploading it', async () => {
@@ -34,14 +45,14 @@ describe('study attachments composer', () => {
     expect(a.ids.value).toHaveLength(100);
   });
 
-  it('refuses files that would take the total over 500 MB', async () => {
+  it('accepts the 10 GB boundary and refuses a further byte', async () => {
     const upload = uploader();
     const a = useAttachments(upload);
-    await a.add(Array.from({ length: 5 }, (_, i) => file(`m${i}`, 100 << 20)));
-    expect(upload).toHaveBeenCalledTimes(5);
+    await a.add([file('a', 5 * 2 ** 30), file('b', 5 * 2 ** 30)]);
+    expect(upload).toHaveBeenCalledTimes(2);
     await a.add([file('extra', 1)]);
-    expect(upload).toHaveBeenCalledTimes(5);
-    expect(a.error.value).toBe("A study's files can total at most 500 MB");
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(a.error.value).toBe("A study's files can total at most 10 GB");
   });
 
   it('keeps a failed upload out of the ids', async () => {

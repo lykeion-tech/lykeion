@@ -81,6 +81,8 @@ function card(extra: Partial<Card> = {}): Card {
     redos: 0,
     off_label: [],
     attachments: [],
+    env: {},
+    services: [],
     ...extra,
   };
 }

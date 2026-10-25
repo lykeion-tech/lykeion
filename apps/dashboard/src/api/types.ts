@@ -87,6 +87,8 @@ export interface Card {
   redos: number;
   off_label: string[];
   attachments: { id: string; name: string; size_bytes: number; content_type: string }[];
+  env: Record<string, string>;
+  services: { name: string }[];
 }
 
 export type BlockKind = '' | 'low_score';

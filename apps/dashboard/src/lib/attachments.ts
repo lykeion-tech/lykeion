@@ -1,8 +1,8 @@
 import { computed, ref } from 'vue';
 
-export const MAX_FILE = 100 << 20;
+export const MAX_FILE = 5 * 2 ** 30;
 export const MAX_FILES = 100;
-export const MAX_TOTAL = 500 << 20;
+export const MAX_TOTAL = 10 * 2 ** 30;
 
 export interface Uploaded {
   id: string;
@@ -22,7 +22,8 @@ export interface Picked {
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1 << 20) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1 << 20)).toFixed(1)} MB`;
+  if (bytes < 2 ** 30) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
+  return `${Number((bytes / 2 ** 30).toFixed(1))} GB`;
 }
 
 // The files picked for a new study: each uploads as soon as it passes the
@@ -37,10 +38,10 @@ export function useAttachments(upload: Upload) {
   const uploading = computed(() => items.value.some((i) => !i.id && !i.error));
 
   function refusal(file: File): string {
-    if (file.size > MAX_FILE) return `${file.name}: A file can be at most 100 MB`;
+    if (file.size > MAX_FILE) return `${file.name}: A file can be at most 5 GB`;
     if (items.value.length >= MAX_FILES) return 'A study can have at most 100 files';
     if (items.value.reduce((n, i) => n + i.size, 0) + file.size > MAX_TOTAL)
-      return "A study's files can total at most 500 MB";
+      return "A study's files can total at most 10 GB";
     return '';
   }
 

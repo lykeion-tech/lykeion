@@ -122,6 +122,8 @@ const me = useMe();
 const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
+const variables = computed(() => Object.entries(c.value?.env ?? {}));
+const services = computed(() => c.value?.services ?? []);
 async function download(a: { id: string; name: string }) {
   try {
     const blob = await api<Blob>(
@@ -668,6 +670,19 @@ function pin() {
             </li>
           </ul>
         </template>
+        <template v-if="variables.length">
+          <small>Study variables</small>
+          <dl class="v study-variables" aria-label="Study variables">
+            <div v-for="[name, value] in variables" :key="name">
+              <dt>{{ name }}</dt>
+              <dd>{{ value }}</dd>
+            </div>
+          </dl>
+        </template>
+        <p v-if="services.length" class="v services-note">
+          This study has hidden services: {{ services.map((s) => s.name).join(', ') }}. Hidden
+          services can't be fully isolated on every machine; don't use them to keep secrets.
+        </p>
         <small>Created</small>
         <div class="v">{{ new Date(c.created_at).toLocaleString() }}</div>
         <small>Updated</small>
@@ -1713,6 +1728,25 @@ function pin() {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+}
+.study-variables > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+.study-variables dt {
+  font-weight: 500;
+}
+.study-variables dd {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.details-body .services-note {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .attached-files small {
   margin-left: 6px;
