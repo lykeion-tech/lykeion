@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -194,4 +196,73 @@ func (h *H) cancelAgentRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(204)
+}
+
+func (h *H) setRuntimeSharing(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	raw := middleware.FromHeader(r)
+	if raw == "" {
+		writeErr(w, 400, "X-Workspace-ID required")
+		return
+	}
+	wsID, e := uuid.Parse(raw)
+	if e != nil {
+		writeErr(w, 404, "workspace not found")
+		return
+	}
+	err := h.Store.InWorkspace(r.Context(), wsID, user(r), func(tx *store.Tx) error {
+		ws, u := wsID, user(r)
+		if _, e := tx.Q.GetMember(r.Context(), db.GetMemberParams{WorkspaceID: ws, UserID: u}); e != nil {
+			return e
+		}
+		rt, e := tx.Q.GetRuntime(r.Context(), db.GetRuntimeParams{WorkspaceID: ws, ID: id})
+		if e != nil {
+			return e
+		}
+		if rt.OwnerID != u {
+			return pgx.ErrNoRows
+		}
+		return nil
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	var in service.SharingChange
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, 400, "invalid sharing")
+		return
+	}
+	affected, err := h.AgentRuns.SetSharing(r.Context(), user(r), wsID, id, in)
+	if errors.Is(err, service.ErrSharingConfirmation) {
+		writeJSON(w, 409, map[string]any{"affected": affected})
+		return
+	}
+	if errors.Is(err, service.ErrInvalidSharing) {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if errors.Is(err, service.ErrWorkspaceSharingList) {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	var rt db.Runtime
+	err = h.Store.InWorkspace(r.Context(), wsID, user(r), func(tx *store.Tx) error {
+		ws := wsID
+		var e error
+		rt, e = tx.Q.GetRuntime(r.Context(), db.GetRuntimeParams{WorkspaceID: ws, ID: id})
+		return e
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, 200, rt)
 }

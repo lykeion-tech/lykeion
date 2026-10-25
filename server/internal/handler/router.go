@@ -115,6 +115,8 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/autoresearch/{id}/run", h.runAutoresearch)
 		r.Post("/api/cards/{id}/stop", h.stopCard)
 
+		r.Put("/api/runtimes/{id}/sharing", h.setRuntimeSharing)
+
 		// Runtime skill jobs own their transactions, including the final upload fence.
 		r.Post("/api/runtimes/{id}/local-skills", h.initiateRuntimeSkills("list"))
 		r.Post("/api/runtimes/{id}/local-skills/import", h.initiateRuntimeSkills("import"))

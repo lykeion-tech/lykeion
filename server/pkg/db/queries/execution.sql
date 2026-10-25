@@ -192,3 +192,16 @@ WHERE (SELECT count(*) FROM removed) >= 0;
 
 -- name: RuntimeShares :many
 SELECT user_id FROM runtime_share WHERE runtime_id = @runtime_id AND workspace_id = @workspace_id ORDER BY user_id;
+
+-- name: RuntimeDependentRuns :many
+SELECT t.*, c.title AS study_title, u.name AS colleague
+FROM agent_run t
+JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
+JOIN "user" u ON u.id = t.responsible_user_id
+WHERE t.workspace_id = @workspace_id AND t.status IN ('queued','dispatched','running')
+AND t.responsible_user_id <> @owner_id
+AND (t.runtime_id = @runtime_id OR (t.status = 'queued' AND t.kind = 'role' AND c.machine = @daemon_id AND t.harness = @harness))
+ORDER BY t.id FOR UPDATE OF t;
+
+-- name: SetRuntimeRevokedReason :exec
+UPDATE agent_run SET cancel_reason = 'runtime_access_revoked' WHERE workspace_id = @workspace_id AND id = @id;

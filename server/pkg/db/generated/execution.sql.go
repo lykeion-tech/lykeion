@@ -1051,6 +1051,147 @@ func (q *Queries) RoleBlobExists(ctx context.Context, arg RoleBlobExistsParams) 
 	return column_1, err
 }
 
+const runtimeDependentRuns = `-- name: RuntimeDependentRuns :many
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, c.title AS study_title, u.name AS colleague
+FROM agent_run t
+JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
+JOIN "user" u ON u.id = t.responsible_user_id
+WHERE t.workspace_id = $1 AND t.status IN ('queued','dispatched','running')
+AND t.responsible_user_id <> $2
+AND (t.runtime_id = $3 OR (t.status = 'queued' AND t.kind = 'role' AND c.machine = $4 AND t.harness = $5))
+ORDER BY t.id FOR UPDATE OF t
+`
+
+type RuntimeDependentRunsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	OwnerID     uuid.UUID  `json:"owner_id"`
+	RuntimeID   *uuid.UUID `json:"runtime_id"`
+	DaemonID    *string    `json:"daemon_id"`
+	Harness     string     `json:"harness"`
+}
+
+type RuntimeDependentRunsRow struct {
+	ID                    uuid.UUID       `json:"id"`
+	WorkspaceID           uuid.UUID       `json:"workspace_id"`
+	CardID                *uuid.UUID      `json:"card_id"`
+	ResponsibleUserID     uuid.UUID       `json:"responsible_user_id"`
+	BoardColumn           string          `json:"board_column"`
+	Round                 int32           `json:"round"`
+	Role                  string          `json:"role"`
+	Harness               string          `json:"harness"`
+	Prompt                string          `json:"prompt"`
+	Skill                 string          `json:"skill"`
+	Status                string          `json:"status"`
+	QueueReason           *string         `json:"queue_reason"`
+	RuntimeID             *uuid.UUID      `json:"runtime_id"`
+	PrepareLeaseExpiresAt *time.Time      `json:"prepare_lease_expires_at"`
+	DispatchedAt          *time.Time      `json:"dispatched_at"`
+	StartedAt             *time.Time      `json:"started_at"`
+	CompletedAt           *time.Time      `json:"completed_at"`
+	Attempt               int32           `json:"attempt"`
+	MaxAttempts           int32           `json:"max_attempts"`
+	SessionID             string          `json:"session_id"`
+	ContinuityScope       string          `json:"continuity_scope"`
+	ProfileMode           string          `json:"profile_mode"`
+	PolicyDigest          string          `json:"policy_digest"`
+	Model                 string          `json:"model"`
+	Error                 string          `json:"error"`
+	FailureReason         *string         `json:"failure_reason"`
+	CostUsd               float64         `json:"cost_usd"`
+	LateUsageAt           *time.Time      `json:"late_usage_at"`
+	CreatedAt             time.Time       `json:"created_at"`
+	HandoffNote           string          `json:"handoff_note"`
+	InputLeaseExpiresAt   *time.Time      `json:"input_lease_expires_at"`
+	InputFetchExpiresAt   *time.Time      `json:"input_fetch_expires_at"`
+	InputFetchID          *uuid.UUID      `json:"input_fetch_id"`
+	InputOutcomes         json.RawMessage `json:"input_outcomes"`
+	AddonHash             string          `json:"addon_hash"`
+	AddonMcp              json.RawMessage `json:"addon_mcp"`
+	Kind                  string          `json:"kind"`
+	RequesterID           *uuid.UUID      `json:"requester_id"`
+	RequestedModel        string          `json:"requested_model"`
+	AgentID               *uuid.UUID      `json:"agent_id"`
+	Assignment            string          `json:"assignment"`
+	CancelReason          *string         `json:"cancel_reason"`
+	MachineName           *string         `json:"machine_name"`
+	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
+	StudyTitle            string          `json:"study_title"`
+	Colleague             string          `json:"colleague"`
+}
+
+func (q *Queries) RuntimeDependentRuns(ctx context.Context, arg RuntimeDependentRunsParams) ([]RuntimeDependentRunsRow, error) {
+	rows, err := q.db.Query(ctx, runtimeDependentRuns,
+		arg.WorkspaceID,
+		arg.OwnerID,
+		arg.RuntimeID,
+		arg.DaemonID,
+		arg.Harness,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RuntimeDependentRunsRow
+	for rows.Next() {
+		var i RuntimeDependentRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.ResponsibleUserID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Role,
+			&i.Harness,
+			&i.Prompt,
+			&i.Skill,
+			&i.Status,
+			&i.QueueReason,
+			&i.RuntimeID,
+			&i.PrepareLeaseExpiresAt,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.SessionID,
+			&i.ContinuityScope,
+			&i.ProfileMode,
+			&i.PolicyDigest,
+			&i.Model,
+			&i.Error,
+			&i.FailureReason,
+			&i.CostUsd,
+			&i.LateUsageAt,
+			&i.CreatedAt,
+			&i.HandoffNote,
+			&i.InputLeaseExpiresAt,
+			&i.InputFetchExpiresAt,
+			&i.InputFetchID,
+			&i.InputOutcomes,
+			&i.AddonHash,
+			&i.AddonMcp,
+			&i.Kind,
+			&i.RequesterID,
+			&i.RequestedModel,
+			&i.AgentID,
+			&i.Assignment,
+			&i.CancelReason,
+			&i.MachineName,
+			&i.MachineOwnerID,
+			&i.StudyTitle,
+			&i.Colleague,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const runtimeShares = `-- name: RuntimeShares :many
 SELECT user_id FROM runtime_share WHERE runtime_id = $1 AND workspace_id = $2 ORDER BY user_id
 `
@@ -1153,6 +1294,20 @@ func (q *Queries) SetRuntimeName(ctx context.Context, arg SetRuntimeNameParams) 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setRuntimeRevokedReason = `-- name: SetRuntimeRevokedReason :exec
+UPDATE agent_run SET cancel_reason = 'runtime_access_revoked' WHERE workspace_id = $1 AND id = $2
+`
+
+type SetRuntimeRevokedReasonParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SetRuntimeRevokedReason(ctx context.Context, arg SetRuntimeRevokedReasonParams) error {
+	_, err := q.db.Exec(ctx, setRuntimeRevokedReason, arg.WorkspaceID, arg.ID)
+	return err
 }
 
 const setRuntimeSharing = `-- name: SetRuntimeSharing :execrows
