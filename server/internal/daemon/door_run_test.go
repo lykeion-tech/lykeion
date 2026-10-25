@@ -30,7 +30,7 @@ import (
 // The fake interpreter identifies itself by its bridge command, since daemon
 // settings must not survive the production environment filter.
 func init() {
-	if len(os.Args) == 3 && os.Args[1] == "-P" && strings.HasPrefix(filepath.Base(os.Args[2]), "lyk-bridge-") {
+	if len(os.Args) == 3 && os.Args[1] == "-I" && strings.HasPrefix(filepath.Base(os.Args[2]), "lyk-bridge-") {
 		stubBridge()
 		os.Exit(0)
 	}
@@ -41,25 +41,26 @@ func init() {
 // 2, and "fail" answers as a cell that raised. A restart sets the count back
 // to 0.
 func stubBridge() {
-	n := 0
+	counts := map[string]int{}
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
 		var req struct {
-			ID   int    `json:"id"`
-			Op   string `json:"op"`
-			Code string `json:"code"`
+			ID       int    `json:"id"`
+			Op       string `json:"op"`
+			Code     string `json:"code"`
+			Language string `json:"language"`
 		}
 		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Op == "shutdown" {
 			return
 		}
 		if req.Op == "restart" {
-			n = 0
+			counts[req.Language] = 0
 			b, _ := json.Marshal(map[string]any{"id": req.ID, "ok": true, "restarted": true})
 			os.Stdout.Write(append(b, '\n'))
 			continue
 		}
-		n++
-		r := map[string]any{"id": req.ID, "stdout": fmt.Sprintf("%d ran %s", n, req.Code), "ok": true}
+		counts[req.Language]++
+		r := map[string]any{"id": req.ID, "stdout": fmt.Sprintf("%d ran %s", counts[req.Language], req.Code), "ok": true}
 		if strings.HasPrefix(req.Code, "env:") {
 			r["stdout"] = os.Getenv(strings.TrimPrefix(req.Code, "env:"))
 		}
@@ -606,7 +607,7 @@ func TestCodeRunsInTheSandbox(t *testing.T) {
 	if !has(filepath.Join(d.Study.Bases.Dir, "python", "bin", "python"), "-m", "venv", "--system-site-packages", venv[:len(venv)-len("/bin/python")]) {
 		t.Errorf("the study's venv was not made in the sandbox: %q", commands)
 	}
-	if !has(os.Args[0], "-P", filepath.Join(d.bridgeDir, "lyk-bridge-")) {
+	if !has(os.Args[0], "-I", filepath.Join(d.bridgeDir, "lyk-bridge-")) {
 		t.Errorf("the session bridge did not start in the sandbox from the door's bridge folder: %q", commands)
 	}
 	if !has(venv, "-m", "pip", "freeze", "--local") {

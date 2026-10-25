@@ -224,6 +224,8 @@ func (d *Door) runSandboxed(ctx context.Context, env []string, dir, name string,
 	cmd.Dir, cmd.Env = dir, slices.Concat(d.personEnv(), env, d.tmpEnv())
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
+	cmd.Cancel = func() error { killGroup(cmd); return nil }
+	cmd.WaitDelay = 5 * time.Second
 	out, err := cmd.Output()
 	if err != nil {
 		return out, fmt.Errorf("%s %s: %w: %s", filepath.Base(name), strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
@@ -311,6 +313,8 @@ func (d *Door) runContext(ctx context.Context) (context.Context, context.CancelF
 }
 
 func (d *Door) runCode(ctx context.Context, _ *mcp.CallToolRequest, in runCodeIn) (*mcp.CallToolResult, any, error) {
+	d.executionMu.Lock()
+	defer d.executionMu.Unlock()
 	if _, _, err := d.interpreter(in.Language); err != nil {
 		return nil, nil, err
 	}
@@ -319,7 +323,7 @@ func (d *Door) runCode(ctx context.Context, _ *mcp.CallToolRequest, in runCodeIn
 	}
 	ctx, cancel := d.runContext(ctx)
 	defer cancel()
-	s, err := d.liveSessions()
+	s, err := d.liveSessions(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -339,6 +343,9 @@ func (d *Door) runCode(ctx context.Context, _ *mcp.CallToolRequest, in runCodeIn
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := d.Study.CheckDefaultPython(ctx); err != nil {
+		return nil, nil, err
+	}
 	// a cell has no exit status of its own: one that raised counts as 1
 	status := 0
 	if !res.OK {
@@ -354,7 +361,12 @@ func (d *Door) runCode(ctx context.Context, _ *mcp.CallToolRequest, in runCodeIn
 
 // liveSessions are the run's live sessions, started on the first cell with the
 // Python base's interpreter, which runs the bridge for every language.
-func (d *Door) liveSessions() (*kernels.Sessions, error) {
+func (d *Door) liveSessions(ctx context.Context) (*kernels.Sessions, error) {
+	if d.kernelGeneration != d.Study.PythonGeneration() {
+		if err := d.refreshPythonSession(ctx); err != nil {
+			return nil, err
+		}
+	}
 	d.mu.Lock()
 	s, closed := d.kernels, d.closed
 	d.mu.Unlock()
@@ -392,11 +404,14 @@ func (d *Door) liveSessions() (*kernels.Sessions, error) {
 		return kept, nil
 	}
 	d.kernels = s
+	d.kernelGeneration = d.Study.PythonGeneration()
 	d.mu.Unlock()
 	return s, nil
 }
 
 func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScriptIn) (*mcp.CallToolResult, any, error) {
+	d.executionMu.Lock()
+	defer d.executionMu.Unlock()
 	lang, ok := scriptLanguages[filepath.Ext(in.Path)]
 	if !ok {
 		return nil, nil, fmt.Errorf("%q is not a script run_script runs: it runs .py, .R and .jl files", in.Path)
@@ -458,6 +473,9 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 		status = -1
 		// first, so a cut to fit the record keeps it
 		errText = fmt.Sprintf("the script ran past its time limit of %s and was stopped\n", limitText(limit)) + errText
+	}
+	if err := d.Study.CheckDefaultPython(ctx); err != nil {
+		return nil, nil, err
 	}
 	return d.answerRun(ctx, map[string]any{"tool": "run_script", "language": lang, "path": in.Path, "script": string(contents),
 		"output": stdout.String(), "error": errText, "exit_status": status, "packages": packages})

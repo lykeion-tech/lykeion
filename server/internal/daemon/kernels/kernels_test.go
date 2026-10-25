@@ -169,7 +169,7 @@ func startStub(t *testing.T) *Sessions {
 }
 
 // The bridge file lives outside the run folder, so the agent never sees it,
-// and Python starts it with -P, so a study file named like a module the
+// and Python starts it with -I, so a study file named like a module the
 // bridge imports cannot stand in for it. The bridge still runs in the run
 // folder, and its file goes with Close.
 func TestTheBridgeLivesOutsideTheRunFolder(t *testing.T) {
@@ -185,7 +185,7 @@ func TestTheBridgeLivesOutsideTheRunFolder(t *testing.T) {
 	}
 	args, _ := os.ReadFile(filepath.Join(seen, "args"))
 	argv := strings.Split(strings.TrimSpace(string(args)), "\n")
-	if len(argv) != 2 || argv[0] != "-P" || strings.HasPrefix(argv[1], dir) {
+	if len(argv) != 2 || argv[0] != "-I" || strings.HasPrefix(argv[1], dir) {
 		t.Fatalf("bridge argv: %q", argv)
 	}
 	b, _ := os.ReadFile(filepath.Join(seen, "bridge"))

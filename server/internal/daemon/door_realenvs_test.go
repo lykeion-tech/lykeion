@@ -164,3 +164,69 @@ func tempIn(t *testing.T, dir, pattern string) string {
 	t.Cleanup(func() { os.RemoveAll(p) })
 	return p
 }
+
+func TestRealCondaSetup(t *testing.T) {
+	if os.Getenv("LYK_TEST_ENVS") != "1" {
+		t.Skip("set LYK_TEST_ENVS=1 and LYK_TEST_ENVS_DIR to built bases")
+	}
+	if runtime.GOOS != "darwin" {
+		t.Skip("real conda setup check runs on macOS")
+	}
+	bases := envs.NewBases(os.Getenv("LYK_TEST_ENVS_DIR"))
+	if !bases.Ready(envs.Python) {
+		t.Fatal("Python base is not ready")
+	}
+	study, run := t.TempDir(), t.TempDir()
+	must(t, os.Mkdir(filepath.Join(run, "sdk"), 0700))
+	must(t, os.WriteFile(filepath.Join(run, "sdk", "study_module.py"), []byte("value = 73\n"), 0600))
+	old := toolTimeout
+	toolTimeout = 35 * time.Minute
+	t.Cleanup(func() { toolTimeout = old })
+	l := newLykeion(t)
+	d := newRunDoor(t, l, run, func(d *Door) {
+		d.interp = nil
+		d.Study = envs.ForStudy(bases, study)
+		d.StudyEnv = map[string]string{"PYTHONPATH": "sdk"}
+	})
+	call := func(name string, args map[string]any) string {
+		t.Helper()
+		start := time.Now()
+		out, err := useTool(t, d, name, args)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		t.Logf("%s (%s):\n%s", name, time.Since(start).Round(time.Millisecond), out)
+		return out
+	}
+	first := call("run_code", map[string]any{"language": "python", "code": "import sys; before = 41; print(sys.version)"})
+	if !strings.Contains(first, "3.13.") {
+		t.Fatalf("default Python: %s", first)
+	}
+	if bases.Ready(envs.R) {
+		call("run_code", map[string]any{"language": "r", "code": "persistent_r <- 73; cat(persistent_r)"})
+	}
+	call("set_up_environment", map[string]any{"python": "3.11", "conda": []string{"ripgrep"}})
+	after := call("run_code", map[string]any{"language": "python", "code": "import sys, study_module; print(sys.version); print('old variable', 'before' in globals()); print('study import', study_module.value)"})
+	if !strings.Contains(after, "3.11.") || !strings.Contains(after, "old variable False") || !strings.Contains(after, "study import 73") {
+		t.Fatalf("live Python did not switch: %s", after)
+	}
+	if bases.Ready(envs.R) {
+		got := call("run_code", map[string]any{"language": "r", "code": "cat(persistent_r)"})
+		if !strings.HasSuffix(got, "73") {
+			t.Fatalf("R session was cleared: %s", got)
+		}
+	}
+	must(t, os.WriteFile(filepath.Join(run, "versions.py"), []byte("import subprocess\nsubprocess.run(['rg', '--version'], check=True)\nsubprocess.run(['python', '-c', 'import sys; print(sys.version)'], check=True)\n"), 0600))
+	got := call("run_script", map[string]any{"path": "versions.py"})
+	if !strings.Contains(got, "ripgrep ") || !strings.Contains(got, "3.11.") || strings.Contains(got, "[stderr]") {
+		t.Fatalf("real tools: %s", got)
+	}
+	runs, _ := l.recorded()
+	packages := fmt.Sprint(runs[len(runs)-1]["packages"])
+	if !strings.Contains(packages, "python-3.11.") || !strings.Contains(packages, "ripgrep-") {
+		t.Fatalf("conda provenance missing: %s", packages)
+	}
+	if _, err := os.Stat(filepath.Join(study, "conda", ".lyk-ready")); err != nil {
+		t.Fatal(err)
+	}
+}

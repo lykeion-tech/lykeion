@@ -50,7 +50,7 @@ func (f *fakeRun) run(_ context.Context, env []string, dir, name string, args ..
 		return nil, os.WriteFile(filepath.Join(venv, "bin", "python"), nil, 0o755)
 	case strings.Contains(line, "freeze --local"):
 		return []byte("requests==2.32.0\n"), nil
-	case name == "/bin/sh":
+	case name == "/bin/sh" || name == "/bin/cat":
 		cmd := exec.Command(name, args...)
 		cmd.Dir = dir
 		return cmd.Output()
@@ -219,7 +219,7 @@ func TestAStudyEnvNamesOnlyReadyBases(t *testing.T) {
 	if v, _ := envValue(env, "JUPYTER_PATH"); v != filepath.Join(b.Dir, "python", "share", "jupyter") {
 		t.Fatalf("JUPYTER_PATH %q", v)
 	}
-	if p := s.PathPrefix(); p != filepath.Join(s.Dir, "python", "bin")+string(os.PathListSeparator)+filepath.Join(b.Dir, "python", "bin") {
+	if p := s.PathPrefix(); p != strings.Join([]string{filepath.Join(s.Dir, "bin"), filepath.Join(s.Dir, "conda", "bin"), filepath.Join(s.Dir, "python", "bin"), filepath.Join(b.Dir, "python", "bin")}, string(os.PathListSeparator)) {
 		t.Fatalf("path %q", p)
 	}
 	_, _, err := s.Interpreter(R)
@@ -448,7 +448,7 @@ func TestAFailedVenvLeavesOnlyBaseEntries(t *testing.T) {
 	if _, ok := envValue(env, "JUPYTER_PATH"); !ok {
 		t.Fatal("base entries dropped")
 	}
-	if p := s.PathPrefix(); p != filepath.Join(b.Dir, "python", "bin") {
+	if p := s.PathPrefix(); p != strings.Join([]string{filepath.Join(s.Dir, "bin"), filepath.Join(s.Dir, "conda", "bin"), filepath.Join(b.Dir, "python", "bin")}, string(os.PathListSeparator)) {
 		t.Fatalf("path %q", p)
 	}
 }

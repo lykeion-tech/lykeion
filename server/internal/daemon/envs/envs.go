@@ -50,7 +50,8 @@ type Bases struct {
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
 	// states holds the bases being built or that failed in this process.
-	states map[string]string
+	states  map[string]string
+	studies map[string]studyState
 }
 
 func NewBases(dir string) *Bases {
@@ -448,8 +449,10 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 }
 
 type Study struct {
-	Bases *Bases
-	Dir   string
+	Bases         *Bases
+	Dir           string
+	PythonVersion string
+	PersistPython func(context.Context, string) error
 	// Run runs every step in the study's folders: making them, and the
 	// study's own interpreters, which load whatever its code installed. The
 	// code may have planted anything there, so Run must be the sandbox;
@@ -471,13 +474,41 @@ func (s *Study) prepare(ctx context.Context) error {
 		return errNoRunner
 	}
 	b := s.Bases
-	l := b.lock("study:" + s.Dir)
-	l.Lock()
-	defer l.Unlock()
+	unlock, err := s.studyLock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	s.state()
+	_, condaErr := os.Lstat(filepath.Join(s.Dir, "conda"))
+	version := s.RecordedPython()
+	needsChosen := version != "" && (version != "3.13" || !s.hasVenv())
+	// A recorded non-default choice must also replace a surviving default
+	// venv after an interrupted setup. A marker without its Python is damaged.
+	if needsChosen && s.condaReady() && !s.condaPython() {
+		if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `rm -f -- "$1/.lyk-ready"`, "sh", filepath.Join(s.Dir, "conda")); err != nil {
+			return err
+		}
+	}
+	if !s.condaReady() && (condaErr == nil || needsChosen) {
+		setupCtx, cancel := context.WithTimeout(ctx, setupLimit)
+		defer cancel()
+		if _, err := s.setUpConda(setupCtx, s.RecordedPython(), nil, ""); err != nil {
+			return err
+		}
+	}
+	if s.condaReady() && s.condaPython() && !s.hasVenv() {
+		if err := s.condaVenv(ctx); err != nil {
+			return err
+		}
+	}
 	var errs []error
 	if b.Ready(Python) {
 		venv := filepath.Join(s.Dir, "python")
 		python := filepath.Join(b.Dir, "python", "bin", "python")
+		if s.condaReady() && s.condaPython() {
+			python = filepath.Join(s.Dir, "conda", "bin", "python")
+		}
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		if _, err := os.Lstat(venv); errors.Is(err, fs.ErrNotExist) {
@@ -494,7 +525,7 @@ func (s *Study) prepare(ctx context.Context) error {
 			}
 		}
 	}
-	var steps []string
+	steps := []string{"/bin/mkdir -p bin"}
 	if b.Ready(R) {
 		steps = append(steps, `mkdir -p r/library && { [ -e r/Rprofile ] || printf '%s\n' "$1" > r/Rprofile; }`)
 	}
@@ -522,7 +553,7 @@ func (s *Study) EnvContext(ctx context.Context) []string {
 		slog.Warn("study add-on folders", "dir", s.Dir, "err", err)
 	}
 	b, sep := s.Bases, string(os.PathListSeparator)
-	var env []string
+	env := []string{"MAMBA_ROOT_PREFIX=" + filepath.Join(s.Dir, ".mamba")}
 	if b.Ready(Python) && s.hasVenv() {
 		env = append(env, "VIRTUAL_ENV="+filepath.Join(s.Dir, "python"))
 	}
@@ -543,7 +574,7 @@ func (s *Study) EnvContext(ctx context.Context) []string {
 
 func (s *Study) PathPrefix() string {
 	b := s.Bases
-	var dirs []string
+	dirs := []string{filepath.Join(s.Dir, "bin"), filepath.Join(s.Dir, "conda", "bin")}
 	if b.Ready(Python) {
 		if s.hasVenv() {
 			dirs = append(dirs, filepath.Join(s.Dir, "python", "bin"))
@@ -582,13 +613,21 @@ func (s *Study) Packages(ctx context.Context, lang string) (string, error) {
 	if _, _, err := s.Interpreter(lang); err != nil {
 		return "", err
 	}
-	lock, err := os.ReadFile(filepath.Join(s.Bases.baseDir(lang), "lock.txt"))
-	if err != nil {
-		return "", err
-	}
 	run := s.Run
 	if run == nil {
 		return "", errNoRunner
+	}
+	var lock []byte
+	var err error
+	if lang == Python && s.condaReady() && s.condaPython() {
+		// The study may replace its lock with a link. Read it only inside the
+		// sandbox, just like its own interpreters and package manifests.
+		lock, err = run(ctx, nil, s.Dir, "/bin/cat", filepath.Join(s.Dir, "conda", "lock.txt"))
+	} else {
+		lock, err = os.ReadFile(filepath.Join(s.Bases.baseDir(lang), "lock.txt"))
+	}
+	if err != nil {
+		return "", err
 	}
 	var study []byte
 	switch lang {

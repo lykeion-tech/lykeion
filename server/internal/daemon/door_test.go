@@ -89,15 +89,17 @@ func stubCommand() {
 // the sources tools.
 type lykeion struct {
 	*httptest.Server
-	mu         sync.Mutex
-	posts      []map[string]any
-	fetches    []map[string]any
-	postAuth   []string // on /api/role/calls
-	sourceAuth []string // on /mcp/sources
-	runs       []map[string]any
-	runSizes   []int // the length of every body /api/role/runs received
-	failRuns   bool  // answer /api/role/runs with 500
-	noCard     bool  // answer /api/role/runs as for a run without a card
+	mu            sync.Mutex
+	posts         []map[string]any
+	fetches       []map[string]any
+	postAuth      []string // on /api/role/calls
+	sourceAuth    []string // on /mcp/sources
+	runs          []map[string]any
+	runSizes      []int // the length of every body /api/role/runs received
+	pythonVersion string
+	pythonCalls   int
+	failRuns      bool // answer /api/role/runs with 500
+	noCard        bool // answer /api/role/runs as for a run without a card
 }
 
 func newLykeion(t *testing.T) *lykeion {
@@ -133,6 +135,25 @@ func newLykeion(t *testing.T) *lykeion {
 			l.mu.Unlock()
 			w.WriteHeader(201)
 			json.NewEncoder(w).Encode(map[string]string{"key": "c" + strconv.Itoa(n)})
+		case "/api/role/python":
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			if r.Method != "PUT" || r.Header.Get("Authorization") != "Bearer ltk_call" {
+				w.WriteHeader(403)
+				return
+			}
+			var in struct {
+				Version string `json:"version"`
+			}
+			json.NewDecoder(r.Body).Decode(&in)
+			l.pythonCalls++
+			if l.pythonVersion != "" && l.pythonVersion != in.Version {
+				w.WriteHeader(409)
+				json.NewEncoder(w).Encode(map[string]string{"error": "This study uses Python " + l.pythonVersion + "; a study keeps one Python version."})
+				return
+			}
+			l.pythonVersion = in.Version
+			w.Write([]byte("{}"))
 		case "/api/role/runs":
 			b, _ := io.ReadAll(r.Body)
 			var body map[string]any

@@ -78,7 +78,8 @@ type runtimeRef struct {
 	RuntimeID   uuid.UUID `json:"runtime_id"`
 }
 type claimed struct {
-	AgentRun struct {
+	PythonVersion string `json:"python_version"`
+	AgentRun      struct {
 		ID                uuid.UUID  `json:"id"`
 		WorkspaceID       uuid.UUID  `json:"workspace_id"`
 		ResponsibleUserID uuid.UUID  `json:"responsible_user_id"`

@@ -105,9 +105,10 @@ func Start(ctx context.Context, command Command, python string, env []string, di
 }
 
 func (s *Sessions) start() (*bridge, error) {
-	// -P keeps the script's and the working folder's own files off sys.path,
-	// so a study's queue.py or random.py cannot replace what the bridge imports.
-	cmd, err := s.command(s.python, "-P", s.script)
+	// Isolated mode keeps the bridge off the study's import paths and works
+	// with every supported Python. The research kernels inherit their own
+	// environment without this flag, including the study's PYTHONPATH.
+	cmd, err := s.command(s.python, "-I", s.script)
 	if err != nil {
 		return nil, err
 	}

@@ -202,6 +202,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			return nil
 		}
 		study = envs.ForStudy(d.bases, studyDir)
+		study.PythonVersion = c.PythonVersion
 	}
 	studyEnv := acceptedStudyEnv(c.Env)
 	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
