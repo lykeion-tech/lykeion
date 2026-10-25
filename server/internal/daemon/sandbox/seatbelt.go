@@ -38,6 +38,9 @@ var machServices = []string{
 // rule below allows it. Paths must be resolved: a (subpath "/tmp/x") never
 // matches /private/tmp/x.
 func (p Policy) seatbeltProfile() (string, error) {
+	if p.LoopbackOnly {
+		return "", ErrLoopbackOnlyUnsupported
+	}
 	r, err := p.resolve()
 	if err != nil {
 		return "", err

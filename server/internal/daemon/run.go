@@ -204,10 +204,17 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		study = envs.ForStudy(d.bases, studyDir)
 		study.PythonVersion = c.PythonVersion
 	}
+	services, err := d.startServices(runCtx, c, study)
+	if err != nil {
+		fail(err)
+		return nil
+	}
+	defer services.Stop()
 	studyEnv := acceptedStudyEnv(c.Env)
 	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path + os.Getenv("PATH"),
 	}}
+	opts.Env = append(opts.Env, services.Env()...)
 	opts.CacheDir = d.cacheDir()
 	opts.Sandbox = d.cliSandbox(dir, study, opts.ReadOnly)
 	if study != nil {
@@ -216,7 +223,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// The CLI's one MCP server; add-on servers are reached through it too. The
 	// call token stays with the door. Child reads opts when a local command
 	// starts, after any change below.
-	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, StudyEnv: studyEnv,
+	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, StudyEnv: studyEnv, ServiceEnv: services.Env(),
 		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions { return opts }}
 	if err = door.Start(); err != nil {
 		fail(err)

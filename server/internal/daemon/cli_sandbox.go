@@ -60,7 +60,7 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 		p.Hidden = append(p.Hidden, filepath.Join(home, secret))
 	}
 	if d.cfg.StateDir != "" {
-		p.Hidden = append(p.Hidden, d.cfg.StateDir)
+		p.Hidden = append(p.Hidden, d.cfg.StateDir, filepath.Join(d.cfg.StateDir, "services"))
 	}
 	cfg, err := os.UserConfigDir()
 	if err != nil {

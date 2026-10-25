@@ -8,7 +8,10 @@
 //     no secret may ever be passed in argv.
 //   - On macOS, the IORegistry (hardware identifiers) is readable, enough to
 //     fingerprint the machine.
-//   - Code may listen on every network interface, not only loopback.
+//   - On Linux, LoopbackOnly cannot constrain binding without removing the
+//     shared network: services may listen on every interface. macOS refuses
+//     LoopbackOnly policies because its localhost filter also permits other
+//     local IPv4 addresses. Same-user process inspection is a separate gap.
 //   - On Linux, abstract unix sockets stay reachable; closing them would
 //     take the network namespace, and with it the network. So does a
 //     socket inside a read-only path: a read-only mount doesn't stop a
@@ -37,9 +40,12 @@ import (
 // also readable, so they are not repeated in Read. Home is the person's home
 // folder, hidden apart from those.
 type Policy struct {
-	Write []string
-	Read  []string
-	Home  string
+	// LoopbackOnly requests strict 127.0.0.1 binding. macOS refuses this policy
+	// until that boundary can be enforced; Linux retains its documented bind gap.
+	LoopbackOnly bool
+	Write        []string
+	Read         []string
+	Home         string
 	// HomeRead makes the home readable, apart from Hidden paths.
 	HomeRead bool
 	// RestrictedRoots are ambient-read exclusions. Only explicit descendant
@@ -70,6 +76,10 @@ type Policy struct {
 }
 
 const sandboxExec = "/usr/bin/sandbox-exec"
+
+// ErrLoopbackOnlyUnsupported prevents a broader local-address rule from being
+// mistaken for an exact loopback boundary.
+var ErrLoopbackOnlyUnsupported = errors.New("macOS cannot enforce service binding only to 127.0.0.1; hidden services are blocked")
 
 // Command returns name with args wrapped in the platform's sandbox. A path
 // that cannot be expressed safely fails closed with an error.

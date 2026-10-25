@@ -310,7 +310,7 @@ func (d *Door) runEnv(ctx context.Context) ([]string, error) {
 			studyEnv[name] = value
 		}
 	}
-	return mergeEnv(append(env, "PATH="+path), studyEnv), nil
+	return mergeEnv(append(append(env, "PATH="+path), d.ServiceEnv...), studyEnv), nil
 }
 
 // runContext ends when the call's does or when the door closes.

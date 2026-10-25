@@ -3,9 +3,11 @@ package cli
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"lykeion/server/internal/apiclient"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -248,5 +250,22 @@ func TestCardNewChecksCombinedUploadCountBeforeUploading(t *testing.T) {
 				t.Fatalf("boundary uploads=%d cards=%d files=%d services=%d", uploads, cards, len(posted.AttachmentIDs), len(posted.Services))
 			}
 		})
+	}
+}
+
+func TestCardServiceClientCollisionsFailBeforeUpload(t *testing.T) {
+	for _, pair := range [][2]string{{"one/client", "two/client"}, {"one/CLIENT", "two/client"}, {"one/café", "two/cafe\u0301"}} {
+		calls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.Write([]byte(`{"id":"uploaded"}`)) }))
+		flags := cardUploadFlags{services: []string{"first=" + t.TempDir(), "second=" + t.TempDir()}, starts: []string{"first=run", "second=run"}, clients: []string{"first=" + pair[0], "second=" + pair[1]}}
+		err := flags.upload(context.Background(), &apiclient.Client{Server: srv.URL}, map[string]any{})
+		if err == nil || !strings.Contains(err.Error(), "duplicate hidden service client filename:") || calls != 0 {
+			t.Fatalf("%v: calls=%d err=%v", pair, calls, err)
+		}
+		flags.clients = []string{"first=" + pair[0], "second=two/different"}
+		if err := flags.upload(context.Background(), &apiclient.Client{Server: srv.URL}, map[string]any{}); err != nil || calls != 2 {
+			t.Fatalf("distinct: calls=%d err=%v", calls, err)
+		}
+		srv.Close()
 	}
 }

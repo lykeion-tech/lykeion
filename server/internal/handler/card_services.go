@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"golang.org/x/text/unicode/norm"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -26,6 +27,7 @@ func checkServices(services []newService, env map[string]string) error {
 		return cardInputError("a study can have at most 4 hidden services")
 	}
 	names := map[string]bool{}
+	clients := map[string]bool{}
 	ids := map[uuid.UUID]bool{}
 	for _, s := range services {
 		if !serviceName.MatchString(s.Name) {
@@ -44,6 +46,14 @@ func checkServices(services []newService, env map[string]string) error {
 		}
 		if s.Client != "" && (strings.HasPrefix(s.Client, "/") || strings.ContainsAny(s.Client, "\\\x00") || path.Clean(s.Client) == "." || hasParent(s.Client)) {
 			return cardInputError("hidden service client must be a relative file path with no .. segment")
+		}
+		if s.Client != "" {
+			name := path.Base(s.Client)
+			key := strings.ToLower(norm.NFC.String(name))
+			if clients[key] {
+				return cardInputError("duplicate hidden service client filename: " + name)
+			}
+			clients[key] = true
 		}
 		for _, name := range s.Env {
 			if _, ok := env[name]; !ok {

@@ -108,29 +108,33 @@ type claimed struct {
 	WorkspaceConnectors []service.WorkspaceConnectorClaim `json:"workspace_connectors,omitempty"`
 	// Attachments are the study's files, placed read-only in the run folder.
 	Attachments []service.ClaimedAttachment `json:"attachments"`
+	Services    []service.ClaimedService    `json:"services"`
 	// Skills are a Team member's own skills, placed where its CLI reads them.
 	Skills []toolroute.RoutedSkill `json:"skills"`
 }
 type daemon struct {
-	namingSlots     chan struct{}
-	cfg             Config
-	versions        map[string]string // harness → its CLI version, read once at start
-	platform        agent.Platform    // the machine's platform, read once at start
-	api             *apiclient.Client
-	refs            []runtimeRef
-	out, messages   *Outbox
-	wake            chan struct{}
-	failures        chan error
-	mu              sync.Mutex
-	active          map[string]bool
-	wg              sync.WaitGroup
-	rotation        int
-	id              string
-	knownWorkspaces map[uuid.UUID]bool
-	activeRefs      map[string]runtimeRef
-	activeCancels   map[string]context.CancelFunc
-	scopes          map[string]bool
-	scratches       map[string]bool
+	serviceCommand    func(sandbox.Policy, context.Context, string, ...string) (*exec.Cmd, error)
+	serviceReadyLimit time.Duration
+	serviceStopLimit  time.Duration
+	namingSlots       chan struct{}
+	cfg               Config
+	versions          map[string]string // harness → its CLI version, read once at start
+	platform          agent.Platform    // the machine's platform, read once at start
+	api               *apiclient.Client
+	refs              []runtimeRef
+	out, messages     *Outbox
+	wake              chan struct{}
+	failures          chan error
+	mu                sync.Mutex
+	active            map[string]bool
+	wg                sync.WaitGroup
+	rotation          int
+	id                string
+	knownWorkspaces   map[uuid.UUID]bool
+	activeRefs        map[string]runtimeRef
+	activeCancels     map[string]context.CancelFunc
+	scopes            map[string]bool
+	scratches         map[string]bool
 	// bases are the machine's language bases; nil when the daemon has none.
 	bases *envs.Bases
 	// sandboxErr is why the sandbox failed its check at start; analysis code

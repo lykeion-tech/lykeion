@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -70,7 +72,16 @@ func (f cardUploadFlags) upload(ctx context.Context, c *apiclient.Client, in map
 			}
 		}
 	}
+	clients := map[string]bool{}
 	for _, s := range services {
+		if s.Client != "" {
+			name := path.Base(s.Client)
+			key := strings.ToLower(norm.NFC.String(name))
+			if clients[key] {
+				return fmt.Errorf("duplicate hidden service client filename: %s", name)
+			}
+			clients[key] = true
+		}
 		if strings.TrimSpace(s.Start) == "" || strings.ContainsRune(s.Start, 0) {
 			return fmt.Errorf("hidden service start command required: %s", s.Name)
 		}

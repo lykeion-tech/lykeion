@@ -15,3 +15,6 @@ func killGroup(cmd *exec.Cmd) {
 // scriptOpen opens a script without following a link in its last place
 // or waiting on a pipe.
 const scriptOpen = 0
+
+func terminateService(cmd *exec.Cmd)       { killGroup(cmd) }
+func serviceGroupAlive(cmd *exec.Cmd) bool { return false }

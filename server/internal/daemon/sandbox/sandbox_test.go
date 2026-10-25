@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -749,5 +750,38 @@ func TestALinkInAWriteFolderIsFoundUnderAnySpelling(t *testing.T) {
 	}
 	if _, err := p.bwrapArgs("true"); err == nil {
 		t.Error("bwrap args accepted a path through a link in a write folder spelled otherwise")
+	}
+}
+
+func TestServicePolicyRefusesUnenforceableMacLoopback(t *testing.T) {
+	profile, err := (Policy{Home: tempDir(t), LoopbackOnly: true}).seatbeltProfile()
+	if !errors.Is(err, ErrLoopbackOnlyUnsupported) || profile != "" {
+		t.Fatalf("profile %q error %v", profile, err)
+	}
+}
+
+func TestDefaultPolicyKeepsItsNetworkRules(t *testing.T) {
+	profile, err := (Policy{Home: tempDir(t)}).seatbeltProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(profile, `(allow network-inbound network-bind (local ip))`) || !strings.Contains(profile, `(allow network-outbound (remote ip))`) {
+		t.Fatal(profile)
+	}
+}
+
+func TestLinuxServicePolicyKeepsDocumentedSharedNetwork(t *testing.T) {
+	p := Policy{Home: tempDir(t)}
+	before, err := p.bwrapArgs("/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.LoopbackOnly = true
+	after, err := p.bwrapArgs("/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(before, after) {
+		t.Fatalf("LoopbackOnly silently changed Linux network: %v vs %v", before, after)
 	}
 }

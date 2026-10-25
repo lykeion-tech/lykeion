@@ -57,8 +57,9 @@ type Door struct {
 	// with the environment the CLI gets.
 	Child func() agent.ExecOptions
 	// Study is the study's environment, where run_code and run_script run.
-	Study    *envs.Study
-	StudyEnv map[string]string
+	Study      *envs.Study
+	StudyEnv   map[string]string
+	ServiceEnv []string
 	// ScriptTimeout is how long a script may run; 0 means agent.ScriptLimit.
 	ScriptTimeout time.Duration
 	// SandboxErr is why the machine's sandbox failed its check; while it is
