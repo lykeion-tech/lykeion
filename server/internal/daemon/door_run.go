@@ -136,7 +136,11 @@ func (d *Door) sandboxPolicy() error {
 		return err
 	}
 	d.policy.Read = append(d.policy.Read, d.bridgeDir)
-	// ponytail: a base built after the run started is not readable until the next run
+	// Reserve the trusted root before the policy is fixed so pairs built
+	// during this run are readable without exposing other studies.
+	if err := d.Study.Bases.EnsureLeanRoot(); err != nil {
+		return err
+	}
 	for _, dir := range d.Study.Bases.Folders() {
 		if isDir(dir) {
 			d.policy.Read = append(d.policy.Read, dir)

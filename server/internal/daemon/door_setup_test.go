@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -218,5 +219,112 @@ func TestScriptsDoNotLaunchAfterCondaRecoveryFails(t *testing.T) {
 				t.Errorf("recorded %d runs after recovery failure", len(runs))
 			}
 		})
+	}
+}
+
+func TestLeanBaseIsReadOnlyToStudies(t *testing.T) {
+	d := newRunDoor(t, newLykeion(t), t.TempDir(), func(*Door) {}, envs.Python)
+	root := filepath.Join(d.Study.Bases.Dir, "lean")
+	must(t, d.sandboxReady())
+	if !slices.Contains(d.policy.Read, root) || slices.Contains(d.policy.Write, root) || slices.Contains(d.policy.Read, d.Study.Bases.Dir) {
+		t.Fatalf("Lean policy: %+v", d.policy)
+	}
+	pair := filepath.Join(root, "leanprover-lean4-v4.30.0@v4.30.0")
+	must(t, os.MkdirAll(filepath.Join(pair, "mathlib"), 0755))
+	must(t, os.WriteFile(filepath.Join(pair, "ready"), nil, 0644))
+	must(t, os.WriteFile(filepath.Join(pair, "mathlib", "lake-manifest.json"), []byte(`{"version":"1.2.0","packagesDir":".lake/packages","packages":[]}`), 0644))
+	must(t, d.Study.UseLean(context.Background(), pair))
+	if !slices.Contains(d.policy.Read, root) {
+		t.Fatal("late Lean base unreadable")
+	}
+	if _, err := d.runSandboxed(context.Background(), nil, d.Study.Dir, "/bin/sh", "-c", `cat "$1/ready" && ! touch "$1/study-write"`, "sh", pair); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLeanSetupRejectsNamesBeforeCondaRuns(t *testing.T) {
+	d := runDoor(t, newLykeion(t), t.TempDir(), envs.Python)
+	d.Study.Run = func(context.Context, []string, string, string, ...string) ([]byte, error) {
+		t.Fatal("invalid Lean name reached a study command")
+		return nil, nil
+	}
+	for _, in := range []setupIn{{Lean: "../x", Python: "3.11"}, {Mathlib: "v4.30.0"}, {Lean: "leanprover/lean4:v4.30.0", Mathlib: "main;x"}} {
+		if _, _, err := d.setUp(context.Background(), nil, in); err == nil {
+			t.Fatalf("accepted %+v", in)
+		}
+	}
+}
+
+func TestLeanProjectLinksCannotWriteOutsideTheStudy(t *testing.T) {
+	home, study := t.TempDir(), t.TempDir()
+	d := newRunDoor(t, newLykeion(t), t.TempDir(), func(d *Door) {
+		d.home = home
+		d.Study = envs.ForStudy(envs.NewBases(filepath.Join(home, "bases")), study)
+	})
+	root := filepath.Join(d.Study.Bases.Dir, "lean", "leanprover-lean4-v4.30.0@v4.30.0")
+	must(t, os.MkdirAll(filepath.Join(root, "mathlib"), 0755))
+	must(t, os.WriteFile(filepath.Join(root, "ready"), nil, 0644))
+	must(t, os.WriteFile(filepath.Join(root, "mathlib", "lake-manifest.json"), []byte(`{"version":"1.2.0","packagesDir":".lake/packages","packages":[]}`), 0644))
+	private := filepath.Join(home, "private")
+	must(t, os.MkdirAll(private, 0700))
+	must(t, os.Symlink(private, filepath.Join(study, "lean")))
+	if err := d.Study.UseLean(context.Background(), root); err == nil {
+		t.Fatal("project link escaped sandbox")
+	}
+	if _, err := os.Stat(filepath.Join(private, "lakefile.toml")); !os.IsNotExist(err) {
+		t.Fatal("private file written", err)
+	}
+}
+
+func TestLeanToolUsesReadyPairWithoutConda(t *testing.T) {
+	d := newRunDoor(t, newLykeion(t), t.TempDir(), func(*Door) {}, envs.Python)
+	pair := filepath.Join(d.Study.Bases.Dir, "lean", "leanprover-lean4-v4.30.0@v4.30.0")
+	must(t, os.MkdirAll(filepath.Join(pair, "mathlib"), 0755))
+	must(t, os.WriteFile(filepath.Join(pair, "ready"), nil, 0644))
+	must(t, os.WriteFile(filepath.Join(pair, "mathlib", "lake-manifest.json"), []byte(`{"version":"1.2.0","packagesDir":".lake/packages","packages":[]}`), 0644))
+	d.Study.Bases.Run = func(context.Context, []string, string, string, ...string) ([]byte, error) {
+		t.Fatal("ready Lean pair rebuilt")
+		return nil, nil
+	}
+	original := d.Study.Run
+	d.Study.Run = func(c context.Context, e []string, dir, n string, a ...string) ([]byte, error) {
+		if filepath.Base(n) == "micromamba" {
+			t.Fatal("Lean-only call created conda")
+		}
+		return original(c, e, dir, n, a...)
+	}
+	out, err := useTool(t, d, "set_up_environment", map[string]any{"lean": "leanprover/lean4:v4.30.0"})
+	must(t, err)
+	if !strings.Contains(out, "Lean leanprover/lean4:v4.30.0") || !strings.Contains(out, filepath.Join(d.Study.Dir, "lean")) || !strings.Contains(out, "Mathlib v4.30.0") || !strings.Contains(out, filepath.Join(pair, "elan", "bin")) {
+		t.Fatal(out)
+	}
+	e, err := d.Study.Environment(t.Context())
+	must(t, err)
+	if !slices.Contains(e, "ELAN_HOME="+filepath.Join(pair, "elan")) {
+		t.Fatal(e)
+	}
+}
+
+func TestLeanSelectionRestoresInANewDoor(t *testing.T) {
+	b := envs.NewBases(t.TempDir())
+	study := t.TempDir()
+	pair := filepath.Join(b.Dir, "lean", "leanprover-lean4-v4.30.0@v4.30.0")
+	must(t, os.MkdirAll(filepath.Join(pair, "mathlib"), 0755))
+	must(t, os.WriteFile(filepath.Join(pair, "ready"), nil, 0644))
+	must(t, os.WriteFile(filepath.Join(pair, "mathlib", "lake-manifest.json"), []byte(`{"version":"1.2.0","packagesDir":".lake/packages","packages":[]}`), 0644))
+	makeDoor := func() *Door {
+		return newRunDoor(t, newLykeion(t), t.TempDir(), func(d *Door) { d.Study = envs.ForStudy(b, study) })
+	}
+	first := makeDoor()
+	must(t, first.Study.UseLean(t.Context(), pair))
+	second := makeDoor()
+	e, err := second.runEnv(t.Context())
+	must(t, err)
+	if !slices.Contains(e, "ELAN_HOME="+filepath.Join(pair, "elan")) {
+		t.Fatal(e)
+	}
+	path, _ := lookup(e, "PATH")
+	if !strings.Contains(path, filepath.Join(pair, "elan", "bin")) {
+		t.Fatal(path)
 	}
 }

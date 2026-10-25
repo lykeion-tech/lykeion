@@ -30,3 +30,12 @@ var rPins = []string{"r-base==4.5.3", "r-tidyverse==2.0.0", "r-ggplot2==4.0.3", 
 
 // Exact versions from Julia's General registry.
 var juliaPins = [][2]string{{"IJulia", "1.34.4"}, {"DataFrames", "1.8.2"}, {"CSV", "1.1.0"}}
+
+const elanVersion = "4.2.4"
+
+var elan = map[string]download{
+	"osx-arm64":     {"https://github.com/leanprover/elan/releases/download/v4.2.4/elan-aarch64-apple-darwin.tar.gz", "7ad829861392c718dfebde3a83b5c8508df47be02af68894b094b0b3952616e5"},
+	"linux-aarch64": {"https://github.com/leanprover/elan/releases/download/v4.2.4/elan-aarch64-unknown-linux-gnu.tar.gz", "05febd124d84ebf994b2e7479922a5650b1e950c17ae3bd1ddd776b65bb72bf9"},
+	"osx-64":        {"https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-apple-darwin.tar.gz", "8a340b309d8ed2e96f930761fa223b3af57a38f5d253b53ac90293c9516f8cd4"},
+	"linux-64":      {"https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-unknown-linux-gnu.tar.gz", "42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63"},
+}

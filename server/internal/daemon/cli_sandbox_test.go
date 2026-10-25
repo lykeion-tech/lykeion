@@ -536,3 +536,38 @@ func TestCLISandboxZshHeredoc(t *testing.T) {
 		t.Fatalf("zsh heredoc in the sandbox: %v %q", err, out)
 	}
 }
+
+func TestCLIReadsLeanBuiltAfterPolicyStarts(t *testing.T) {
+	if err := sandbox.Check(t.Context()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bases := envs.NewBases(filepath.Join(home, "bases"))
+	run, study := filepath.Join(home, "run"), filepath.Join(bases.Dir, "studies", "mine")
+	for _, dir := range []string{run, study} {
+		must(t, os.MkdirAll(dir, 0700))
+	}
+	d := &daemon{cfg: Config{Home: filepath.Join(home, "daemon"), StateDir: filepath.Join(home, "state")}, bases: bases}
+	p, err := d.cliPolicy(run, envs.ForStudy(bases, study), false, agent.CLIPaths{})
+	must(t, err)
+	root := filepath.Join(bases.Dir, "lean")
+	if !slices.Contains(p.Read, root) || slices.Contains(p.Write, root) || slices.Contains(p.Read, bases.Dir) {
+		t.Fatalf("Lean policy: %+v", p)
+	}
+	ready, goFile := filepath.Join(run, "waiting"), filepath.Join(run, "go")
+	pair := filepath.Join(root, "pair")
+	cmd, err := p.Command(t.Context(), "/bin/sh", "-c", `touch "$1"; while [ ! -f "$2" ]; do sleep 0.01; done; cat "$3/ready" && ! touch "$3/mutated"`, "sh", ready, goFile, pair)
+	must(t, err)
+	must(t, cmd.Start())
+	for i := 0; i < 500; i++ {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	must(t, os.MkdirAll(pair, 0755))
+	must(t, os.WriteFile(filepath.Join(pair, "ready"), nil, 0644))
+	must(t, os.WriteFile(goFile, nil, 0600))
+	must(t, cmd.Wait())
+}

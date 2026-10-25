@@ -617,7 +617,7 @@ func TestCodeRunsInTheSandbox(t *testing.T) {
 	}
 	u, err := user.Current()
 	must(t, err)
-	want := sandbox.Policy{Write: []string{dir, d.Study.Dir, d.tmp}, Read: []string{d.bridgeDir, filepath.Join(d.Study.Bases.Dir, "python")}, Home: u.HomeDir}
+	want := sandbox.Policy{Write: []string{dir, d.Study.Dir, d.tmp}, Read: []string{d.bridgeDir, filepath.Join(d.Study.Bases.Dir, "python"), filepath.Join(d.Study.Bases.Dir, "lean")}, Home: u.HomeDir}
 	for _, p := range policies {
 		if !slices.Equal(p.Write, want.Write) || !slices.Equal(p.Read, want.Read) || p.Home != want.Home {
 			t.Fatalf("policy %+v, want %+v", p, want)

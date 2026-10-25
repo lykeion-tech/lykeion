@@ -648,7 +648,7 @@ func TestStudyFilesAreMadeByTheRunner(t *testing.T) {
 		return f.run(ctx, env, dir, name, args...)
 	}
 	s.Env()
-	if len(shells) != 1 || !strings.Contains(shells[0], "r/library") || !strings.Contains(shells[0], "julia/Project.toml") {
+	if len(shells) != 2 || !strings.Contains(shells[0], "r/library") || !strings.Contains(shells[0], "julia/Project.toml") || !strings.Contains(shells[1], "lean/.lyk-pair") {
 		t.Fatalf("shell steps %q", shells)
 	}
 }

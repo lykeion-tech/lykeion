@@ -1,10 +1,14 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -228,5 +232,82 @@ func TestRealCondaSetup(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(study, "conda", ".lyk-ready")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// This test owns both the bases and studies it removes; it never reuses a
+// personal environment directory.
+func TestRealLeanSetup(t *testing.T) {
+	if os.Getenv("LYK_TEST_ENVS") != "1" {
+		t.Skip("set LYK_TEST_ENVS=1 to build a real Lean pair")
+	}
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("Lean bases require macOS or Linux")
+	}
+	home := t.TempDir()
+	disk, err := exec.Command("df", "-Pk", home).Output()
+	must(t, err)
+	lines := strings.Split(strings.TrimSpace(string(disk)), "\n")
+	fields := strings.Fields(lines[len(lines)-1])
+	if len(fields) < 4 {
+		t.Fatalf("df output: %s", disk)
+	}
+	available, err := strconv.ParseUint(fields[3], 10, 64)
+	must(t, err)
+	if available*1024 < 15<<30 {
+		t.Skipf("Lean real check needs 15 GiB free; available %.2f GiB", float64(available)/1048576)
+	}
+	client := http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://api.github.com/repos/leanprover/elan/releases/tags/v4.2.4")
+	if err != nil {
+		t.Skipf("network unavailable: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Skipf("release network check: %s", resp.Status)
+	}
+	bases := envs.NewBases(filepath.Join(home, "bases"))
+	original := bases.Run
+	buildCalls := 0
+	bases.Run = func(ctx context.Context, e []string, dir, name string, args ...string) ([]byte, error) {
+		buildCalls++
+		return original(ctx, e, dir, name, args...)
+	}
+	old := toolTimeout
+	toolTimeout = 35 * time.Minute
+	t.Cleanup(func() { toolTimeout = old })
+	priorCalls := 0
+	for i := range 2 {
+		run, study := filepath.Join(home, fmt.Sprintf("run-%d", i)), filepath.Join(bases.Dir, "studies", fmt.Sprint(i))
+		must(t, os.MkdirAll(run, 0700))
+		must(t, os.MkdirAll(study, 0700))
+		d := newRunDoor(t, newLykeion(t), run, func(d *Door) { d.home = home; d.Study = envs.ForStudy(bases, study); d.interp = nil })
+		must(t, d.sandboxReady())
+		start := time.Now()
+		out, err := useTool(t, d, "set_up_environment", map[string]any{"lean": "leanprover/lean4:v4.30.0"})
+		must(t, err)
+		t.Logf("study %d setup %s: %s", i+1, time.Since(start).Round(time.Millisecond), out)
+		if i == 1 && buildCalls != priorCalls {
+			t.Fatalf("second study rebuilt/downloaded: calls %d -> %d", priorCalls, buildCalls)
+		}
+		priorCalls = buildCalls
+		project := filepath.Join(study, "lean")
+		_, err = d.runSandboxed(t.Context(), nil, study, "/bin/sh", "-c", `printf '%s\n' 'import Mathlib.Tactic' 'example : 1 + 1 = 2 := by norm_num' > lean/Study.lean`)
+		must(t, err)
+		e, err := d.Study.Environment(t.Context())
+		must(t, err)
+		e = append(e, "PATH="+d.Study.PathPrefix()+string(os.PathListSeparator)+os.Getenv("PATH"))
+		elanHome := ""
+		for _, v := range e {
+			if strings.HasPrefix(v, "ELAN_HOME=") {
+				elanHome = strings.TrimPrefix(v, "ELAN_HOME=")
+			}
+		}
+		start = time.Now()
+		outBytes, err := d.runSandboxed(t.Context(), e, project, filepath.Join(elanHome, "bin", "lake"), "build")
+		if err != nil {
+			t.Fatalf("read-only Mathlib build: %v\n%s", err, outBytes)
+		}
+		t.Logf("study %d lake build %s:\n%s", i+1, time.Since(start).Round(time.Millisecond), outBytes)
 	}
 }

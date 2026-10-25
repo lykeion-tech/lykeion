@@ -60,6 +60,8 @@ func NewBases(dir string) *Bases {
 
 func run(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cancelBuildTree(cmd)
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Env = env
 	cmd.Dir = dir
 	var stderr bytes.Buffer
@@ -95,7 +97,7 @@ func Isolate(env []string) []string {
 	var out []string
 	for _, e := range env {
 		k, _, _ := strings.Cut(e, "=")
-		if k == "R_HOME" || k == "VIRTUAL_ENV" || hasAnyPrefix(k, "CONDA_", "MAMBA_", "PYTHON", "R_LIBS", "R_PROFILE", "R_ENVIRON", "JULIA_", "JUPYTER") {
+		if k == "R_HOME" || k == "VIRTUAL_ENV" || hasAnyPrefix(k, "ELAN_", "LEAN_", "LAKE_", "CONDA_", "MAMBA_", "PYTHON", "R_LIBS", "R_PROFILE", "R_ENVIRON", "JULIA_", "JUPYTER") {
 			continue
 		}
 		out = append(out, e)
@@ -174,7 +176,7 @@ func platform() (string, error) {
 // Folders are the bases' own folders, which a study's code and its agent
 // may read: every language base and micromamba, built or not.
 func (b *Bases) Folders() []string {
-	return []string{filepath.Join(b.Dir, Python), filepath.Join(b.Dir, R), filepath.Join(b.Dir, Julia), filepath.Join(b.Dir, "micromamba")}
+	return []string{filepath.Join(b.Dir, Python), filepath.Join(b.Dir, R), filepath.Join(b.Dir, Julia), filepath.Join(b.Dir, "micromamba"), filepath.Join(b.Dir, "lean")}
 }
 
 // baseDir is where a base's lock.txt and ready marker live.
@@ -449,6 +451,8 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 }
 
 type Study struct {
+	leanMu        sync.Mutex
+	leanDir       string
 	Bases         *Bases
 	Dir           string
 	PythonVersion string
@@ -575,6 +579,12 @@ func (s *Study) Environment(ctx context.Context) ([]string, error) {
 			"JULIA_DEPOT_PATH="+filepath.Join(s.Dir, "julia", "depot")+sep+filepath.Join(b.Dir, "julia", "depot"),
 			"JULIA_LOAD_PATH=@"+sep+b.baseDir(Julia)+sep+"@stdlib")
 	}
+	if err := s.loadLean(ctx); err != nil {
+		return nil, err
+	}
+	if dir := s.selectedLean(); dir != "" {
+		env = append(env, "ELAN_HOME="+filepath.Join(dir, "elan"))
+	}
 	if dirs := b.jupyterDirs(); len(dirs) > 0 {
 		env = append(env, "JUPYTER_PATH="+strings.Join(dirs, sep))
 	}
@@ -584,6 +594,9 @@ func (s *Study) Environment(ctx context.Context) ([]string, error) {
 func (s *Study) PathPrefix() string {
 	b := s.Bases
 	dirs := []string{filepath.Join(s.Dir, "bin"), filepath.Join(s.Dir, "conda", "bin")}
+	if dir := s.selectedLean(); dir != "" {
+		dirs = append(dirs, filepath.Join(dir, "elan", "bin"))
+	}
 	if b.Ready(Python) {
 		if s.hasVenv() {
 			dirs = append(dirs, filepath.Join(s.Dir, "python", "bin"))

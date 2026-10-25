@@ -41,6 +41,9 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 	}
 	folders := []string{runDir}
 	if study != nil {
+		if err := study.Bases.EnsureLeanRoot(); err != nil {
+			return p, err
+		}
 		folders = append(folders, study.Dir)
 		for _, base := range study.Bases.Folders() {
 			if isDir(base) {

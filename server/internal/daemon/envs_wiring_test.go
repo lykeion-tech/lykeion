@@ -260,7 +260,7 @@ func TestTheCLIMayReadTheStudyAndTheBases(t *testing.T) {
 	waitFor(t, f.settled(t, 1))
 	stopDaemon(t, cancel, done)
 	b := f.cfg.EnvDir
-	want := []string{filepath.Join(b, "studies", f.ws.String(), f.card.String()), filepath.Join(b, "python"), filepath.Join(b, "r"), filepath.Join(b, "julia"), filepath.Join(b, "micromamba")}
+	want := []string{filepath.Join(b, "studies", f.ws.String(), f.card.String()), filepath.Join(b, "python"), filepath.Join(b, "r"), filepath.Join(b, "julia"), filepath.Join(b, "micromamba"), filepath.Join(b, "lean")}
 	if !slices.Equal(l.opts.ReadDirs, want) {
 		t.Fatalf("read folders %q, want %q", l.opts.ReadDirs, want)
 	}
