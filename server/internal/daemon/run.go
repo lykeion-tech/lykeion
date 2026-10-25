@@ -632,8 +632,16 @@ func sandboxHint(text string) string {
 
 // placeClaimedSkills writes a Team member's own skills where its CLI reads
 // skills, so the CLI finds them when it starts. Routing may later place the
-// same skill again; it replaces the copy.
+// same skill again; it replaces the copy. The folder is made even with no
+// skills: Claude Code only notices skills added to a folder it saw at start.
 func placeClaimedSkills(harness, dir string, skills []toolroute.RoutedSkill) error {
+	root, err := agent.SkillsDir(harness, dir)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return err
+	}
 	for _, s := range skills {
 		if err := placeRouted(harness, dir, s); err != nil {
 			return fmt.Errorf("skill %s: %w", s.Name, err)

@@ -48,6 +48,25 @@ func TestClaimedSkillsArePlacedWhereEachCLIReadsThem(t *testing.T) {
 	}
 }
 
+// Claude Code watches its skills folder for new skills only when the folder
+// exists as it starts, so a run with no skills of its own still gets one:
+// skills routed to it later must be loadable.
+func TestARunWithNoSkillsStillHasTheFolderItsCLIWatches(t *testing.T) {
+	for _, harness := range []string{"claude", "codex"} {
+		dir := t.TempDir()
+		if err := placeClaimedSkills(harness, dir, nil); err != nil {
+			t.Fatal(err)
+		}
+		root, err := agent.SkillsDir(harness, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
+			t.Errorf("%s: no skills folder before the CLI starts: %v", harness, err)
+		}
+	}
+}
+
 // The CLI lists a staged skill as lyk-<name>, so the run is told which of
 // those is which skill its Team names.
 func TestTheRunIsToldItsSkillsByTheNamesItsCLIShows(t *testing.T) {
