@@ -128,10 +128,8 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 	if err != nil {
 		return false, err
 	}
-	for _, r := range runs {
-		if r.Role == "auditor" {
-			return !inFlight(r.Status), nil
-		}
+	if i := latestAuditor(runs); i >= 0 {
+		return !inFlight(runs[i].Status) && !accessInterrupted(runs[i]), nil
 	}
 	a, err := teamAgent(ctx, tx, packID, c.OwnerID, m.Auditor.Name)
 	if err != nil {
@@ -307,7 +305,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 			if err != nil {
 				return err
 			}
-			i := slices.IndexFunc(runs, func(r db.AgentRun) bool { return r.Role == "auditor" })
+			i := latestAuditor(runs)
 			if i < 0 {
 				a, err := teamAgent(ctx, tx, packID, c.OwnerID, m.Auditor.Name)
 				if err != nil {
@@ -318,7 +316,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 					return err
 				}
 				in.auditNote = fmt.Sprintf("No auditor checked this column: the researcher's copy of the auditor runs the same harness and model as %s's, so it would not be an independent check.", clash)
-			} else if inFlight(runs[i].Status) {
+			} else if inFlight(runs[i].Status) || accessInterrupted(runs[i]) {
 				return nil
 			} else if in.audit == "" {
 				in.auditNote = fmt.Sprintf("The auditor's run ended %s without writing findings; this column is scored without an audit.", runs[i].Status)
@@ -702,4 +700,13 @@ func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, com
 		return false, err
 	}
 	return true, tx.Emit(ctx, "card.steered", &c.ID, store.User(author), map[string]any{"column": c.BoardColumn, "state": board.Working})
+}
+
+func latestAuditor(runs []db.AgentRun) int {
+	for i := len(runs) - 1; i >= 0; i-- {
+		if runs[i].Role == "auditor" {
+			return i
+		}
+	}
+	return -1
 }

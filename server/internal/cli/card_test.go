@@ -269,3 +269,41 @@ func TestCardServiceClientCollisionsFailBeforeUpload(t *testing.T) {
 		srv.Close()
 	}
 }
+
+func TestCardNewAndCardMachineFlags(t *testing.T) {
+	var posted map[string]any
+	var method, path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == "GET" {
+			w.Write([]byte(`[{"id":"card-id","number":1}]`))
+			return
+		}
+		method, path = r.Method, r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+			t.Error(err)
+		}
+		w.Write([]byte(`{"id":"card-id","number":1,"title":"q"}`))
+	}))
+	defer srv.Close()
+	var out bytes.Buffer
+	e := &env{cfg: Config{Server: srv.URL, Token: "ltk_run", Workspace: "w"}, out: &out}
+	for _, tc := range []struct {
+		args         []string
+		method, path string
+		machine      any
+	}{
+		{[]string{"new", "q", "--machine", "lab"}, "POST", "/api/cards", "lab"},
+		{[]string{"machine", "1", "daemon-id"}, "PATCH", "/api/cards/card-id/machine", "daemon-id"},
+		{[]string{"machine", "1", "mine"}, "PATCH", "/api/cards/card-id/machine", nil},
+	} {
+		cmd := cardCmd(e)
+		cmd.SetArgs(tc.args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		if method != tc.method || path != tc.path || posted["machine"] != tc.machine {
+			t.Fatalf("%s %s %+v", method, path, posted)
+		}
+	}
+}

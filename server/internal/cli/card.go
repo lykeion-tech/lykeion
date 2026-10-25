@@ -37,7 +37,7 @@ func byNumber(cmd *cobra.Command, e *env, arg string) (cardView, error) {
 
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
-	var title, followsFrom string
+	var title, followsFrom, machine string
 	var variables []string
 	var uploads cardUploadFlags
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
@@ -46,6 +46,9 @@ func cardCmd(e *env) *cobra.Command {
 		}
 		var out cardView
 		in := map[string]any{"question": strings.Join(a, " ")}
+		if cmd.Flags().Changed("machine") {
+			in["machine"] = machine
+		}
 		if len(variables) > 0 {
 			env := make(map[string]string, len(variables))
 			for _, pair := range variables {
@@ -81,10 +84,25 @@ func cardCmd(e *env) *cobra.Command {
 	newCmd.Flags().StringArrayVar(&uploads.starts, "service-start", nil, "hidden service NAME=COMMAND (repeatable)")
 	newCmd.Flags().StringArrayVar(&uploads.clients, "service-client", nil, "public client NAME=RELPATH (repeatable)")
 	newCmd.Flags().StringArrayVar(&uploads.variables, "service-env", nil, "service study variable NAME=VAR (repeatable)")
+	newCmd.Flags().StringVar(&machine, "machine", "", "machine name or daemon id (default: mine)")
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
 	newCmd.Flags().StringArrayVar(&variables, "env", nil, "plain study setting NAME=VALUE (repeatable)")
 	c.AddCommand(newCmd,
+		&cobra.Command{Use: "machine CARD NAME|ID|mine", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+			if err := e.inWorkspace(); err != nil {
+				return err
+			}
+			card, err := byNumber(cmd, e, args[0])
+			if err != nil {
+				return err
+			}
+			var machine any = args[1]
+			if args[1] == "mine" {
+				machine = nil
+			}
+			return e.client().Do(cmd.Context(), "PATCH", "/api/cards/"+card.ID+"/machine", map[string]any{"machine": machine}, nil)
+		}},
 		&cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := e.inWorkspace(); err != nil {
 				return err

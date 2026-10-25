@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 )
 
 type newCard struct {
+	Machine     *string     `json:"machine"`
 	ResearchID  *uuid.UUID  `json:"research_id"`
 	Title       string      `json:"title"`
 	Question    string      `json:"question"`
@@ -253,8 +255,10 @@ type cardTeamView struct {
 // is labelled for another stage.
 type studyView struct {
 	db.Card
-	Teams    map[string]cardTeamView `json:"teams"`
-	OffLabel []string                `json:"off_label"`
+	MachineLabel  string                  `json:"machine_label"`
+	MachineNotice string                  `json:"machine_notice"`
+	Teams         map[string]cardTeamView `json:"teams"`
+	OffLabel      []string                `json:"off_label"`
 	// Attachments are the files attached at creation, never their storage.
 	Attachments []attachmentView  `json:"attachments"`
 	Services    []serviceNameView `json:"services"`
@@ -298,6 +302,9 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 		if t, ok := v.Teams[col]; ok && t.Stage != "" && t.Stage != col {
 			v.OffLabel = append(v.OffLabel, col)
 		}
+	}
+	if err := machineView(r.Context(), tx, &v); err != nil {
+		return v, err
 	}
 	return v, nil
 }
@@ -406,6 +413,12 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
 			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
 			AssigneeType: &assignee, Round: 1,
+		}
+		if in.Machine != nil {
+			params.Machine, err = h.machineFor(r.Context(), tx, user, *in.Machine)
+			if err != nil {
+				return err
+			}
 		}
 		params.Env, err = json.Marshal(in.Env)
 		if err != nil {
@@ -809,5 +822,169 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 	})
 	if answer(w, r, err) {
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// machineFor resolves only runtimes the study owner may use in this workspace.
+func (h *H) machineFor(ctx context.Context, tx *store.Tx, user uuid.UUID, ref string) (*string, error) {
+	if ref == "" || ref == "mine" {
+		return nil, nil
+	}
+	rows, err := tx.Q.ListRuntimes(ctx, tx.WS)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		label := row.DeviceName
+		if row.CustomName != nil {
+			label = *row.CustomName
+		}
+		if row.DaemonID != ref && label != ref {
+			continue
+		}
+		rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: tx.WS, ID: row.ID})
+		if err != nil {
+			return nil, err
+		}
+		allowed, err := service.RuntimeAllowsUser(ctx, tx, rt, user)
+		if err != nil {
+			return nil, err
+		}
+		if allowed {
+			return &rt.DaemonID, nil
+		}
+	}
+	return nil, cardInputError("No machine named " + ref + " is shared with you")
+}
+
+func machineView(ctx context.Context, tx *store.Tx, v *studyView) error {
+	if v.Machine == nil {
+		v.MachineLabel = "My machines"
+		return nil
+	}
+	rows, err := tx.Q.ListRuntimes(ctx, tx.WS)
+	if err != nil {
+		return err
+	}
+	available := map[string]bool{}
+	allowedAny := false
+	for _, row := range rows {
+		if row.DaemonID != *v.Machine {
+			continue
+		}
+		rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: tx.WS, ID: row.ID})
+		if err != nil {
+			return err
+		}
+		if v.MachineLabel == "" {
+			label := rt.DeviceName
+			if rt.CustomName != nil {
+				label = *rt.CustomName
+			}
+			owner, err := tx.Q.GetUser(ctx, rt.OwnerID)
+			if err != nil {
+				return err
+			}
+			ownerName := owner.Name
+			if ownerName == "" {
+				ownerName = owner.Email
+			}
+			v.MachineLabel = label + " (" + ownerName + ")"
+		}
+		allowed, err := service.RuntimeAllowsUser(ctx, tx, rt, v.OwnerID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			continue
+		}
+		allowedAny = true
+		available[rt.Harness] = true
+	}
+	if v.MachineLabel == "" {
+		v.MachineLabel = *v.Machine
+	}
+	if !allowedAny {
+		v.MachineNotice = "This study's machine is no longer shared with you; choose another."
+		return nil
+	}
+	needed := map[string]bool{}
+	for _, t := range v.Teams {
+		agents, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: t.PackID, UserID: v.OwnerID})
+		if err != nil {
+			return err
+		}
+		for _, member := range agents {
+			a, err := tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: tx.WS, ID: member.AgentID})
+			if err != nil {
+				return err
+			}
+			needed[a.Harness] = true
+		}
+	}
+	for _, harness := range []struct{ key, label string }{{"claude", "Claude Code"}, {"codex", "Codex"}} {
+		if needed[harness.key] && !available[harness.key] {
+			v.MachineNotice = "This study's machine has no " + harness.label + " shared with you; choose another."
+			break
+		}
+	}
+	return nil
+}
+
+func (h *H) setCardMachine(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	var out studyView
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
+		if err := tx.Q.WaitLockCard(r.Context(), id); err != nil {
+			return err
+		}
+		c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{WorkspaceID: ws, ID: id})
+		if err != nil {
+			return err
+		}
+		if c.OwnerID != user {
+			return forbidden("only the study's owner changes its machine")
+		}
+		var in struct {
+			Machine *string `json:"machine"`
+		}
+		if err := readJSON(r, &in); err != nil {
+			return cardInputError("invalid machine: " + err.Error())
+		}
+		var machine *string
+		if in.Machine != nil {
+			machine, err = h.machineFor(r.Context(), tx, user, *in.Machine)
+			if err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Q.SetCardMachine(r.Context(), db.SetCardMachineParams{WorkspaceID: ws, ID: id, Machine: machine}); err != nil {
+			return err
+		}
+		c.Machine = machine
+		if err := tx.Emit(r.Context(), "card.machine_changed", &id, store.User(user), map[string]any{"machine": machine}); err != nil {
+			return err
+		}
+		if h.Engine != nil {
+			if err := h.Engine.Resume(r.Context(), tx, c); err != nil {
+				return err
+			}
+		}
+		out, err = viewOf(r, tx, c)
+		return err
+	})
+	var inputErr cardInputError
+	if errors.As(err, &inputErr) {
+		writeErr(w, 400, inputErr.Error())
+		return
+	}
+	if answer(w, r, err) {
+		writeJSON(w, 200, out)
 	}
 }

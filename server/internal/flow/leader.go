@@ -246,7 +246,7 @@ func lockCard(ctx context.Context, tx *store.Tx, id uuid.UUID) (db.Card, error) 
 // saying which; doing so again leaves the study working and escalates it to
 // its owner.
 func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
-	if (leads(t.Role) && t.Status == "cancelled") || (!leads(t.Role) && !isMember(t.Role)) {
+	if accessInterrupted(t) || (leads(t.Role) && t.Status == "cancelled") || (!leads(t.Role) && !isMember(t.Role)) {
 		return nil
 	}
 	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
@@ -413,4 +413,54 @@ func ptrOr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+func accessInterrupted(r db.AgentRun) bool {
+	return r.Status == "cancelled" && ptrOr(r.CancelReason) == "runtime_access_revoked" ||
+		r.Status == "failed" && ptrOr(r.FailureReason) == "runtime_access_denied"
+}
+
+// Resume restores the latest interrupted work for each role after its owner
+// chooses a machine. Later work for that role already supersedes the interruption.
+func (e *Engine) Resume(ctx context.Context, tx *store.Tx, c db.Card) error {
+	if !working(c) {
+		return nil
+	}
+	runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		if seen[r.Role] {
+			continue
+		}
+		seen[r.Role] = true
+		if !accessInterrupted(r) {
+			continue
+		}
+		var m *pack.Manifest
+		var a db.Agent
+		if leads(r.Role) {
+			_, m, a, err = e.worker(ctx, tx, c)
+		} else {
+			var packID uuid.UUID
+			packID, m, err = columnTeam(ctx, tx, c.ID, c.BoardColumn)
+			if err == nil {
+				member := r.Role
+				if r.Role == "auditor" {
+					member = m.Auditor.Name
+				}
+				a, err = teamAgent(ctx, tx, packID, c.OwnerID, member)
+			}
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := e.enqueue(ctx, tx, c, r.Role, m, a, "Resumed on another machine."); err != nil {
+			return err
+		}
+	}
+	return nil
 }
