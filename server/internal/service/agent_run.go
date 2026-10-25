@@ -88,8 +88,8 @@ var (
 
 // FailureReasons are how an attempt can end badly. The first three are the
 // machine's or the network's fault, so another attempt may succeed; the other
-// two would fail the same way again.
-var FailureReasons = []string{"runtime_offline", "timeout", "provider_network", "context_exhausted", "agent_error"}
+// reasons do not retry. Runtime access denial is recorded only by the server.
+var FailureReasons = []string{"runtime_offline", "timeout", "provider_network", "context_exhausted", "agent_error", "runtime_access_denied"}
 
 func Retryable(reason string) bool {
 	return reason == "runtime_offline" || reason == "timeout" || reason == "provider_network"
@@ -186,7 +186,7 @@ type Report struct {
 // check refuses a report that would lower spend or name an unknown reason,
 // and fills in agent_error for a failure that names none.
 func (r *Report) check(ok bool) error {
-	if len(r.Usage) > 32 || len(r.NamingUsage) > 64 || (r.FailureReason != "" && !slices.Contains(FailureReasons, r.FailureReason)) ||
+	if len(r.Usage) > 32 || len(r.NamingUsage) > 64 || (r.FailureReason != "" && (!slices.Contains(FailureReasons, r.FailureReason) || r.FailureReason == "runtime_access_denied")) ||
 		!slices.Contains([]string{"", "workspace_continuity", "private", "sandboxed"}, r.Mode) || len(r.PolicyDigest) > 128 || len(r.Model) > 200 {
 		return ErrBadReport
 	}

@@ -68,6 +68,9 @@ type AgentRun struct {
 	RequestedModel        string          `json:"requested_model"`
 	AgentID               *uuid.UUID      `json:"agent_id"`
 	Assignment            string          `json:"assignment"`
+	CancelReason          *string         `json:"cancel_reason"`
+	MachineName           *string         `json:"machine_name"`
+	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
 }
 
 type AgentRunMessage struct {
@@ -253,6 +256,7 @@ type Card struct {
 	ScopeTo      string          `json:"scope_to"`
 	Redos        int32           `json:"redos"`
 	Env          json.RawMessage `json:"env"`
+	Machine      *string         `json:"machine"`
 }
 
 type CardTeam struct {
@@ -393,6 +397,13 @@ type Runtime struct {
 	Kernel        string          `json:"kernel"`
 	Language      string          `json:"language"`
 	Bases         json.RawMessage `json:"bases"`
+	Visibility    string          `json:"visibility"`
+}
+
+type RuntimeShare struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	RuntimeID   uuid.UUID `json:"runtime_id"`
+	UserID      uuid.UUID `json:"user_id"`
 }
 
 type RuntimeSkillRequest struct {

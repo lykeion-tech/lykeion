@@ -144,7 +144,7 @@ WHERE id = (
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id
 `
 
 type ClaimAgentRunParams struct {
@@ -197,6 +197,9 @@ func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (A
 		&i.RequestedModel,
 		&i.AgentID,
 		&i.Assignment,
+		&i.CancelReason,
+		&i.MachineName,
+		&i.MachineOwnerID,
 	)
 	return i, err
 }
@@ -236,7 +239,7 @@ func (q *Queries) DeleteRuntime(ctx context.Context, arg DeleteRuntimeParams) (i
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
 INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id
 `
 
 type EnqueueAgentRunParams struct {
@@ -316,6 +319,9 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		&i.RequestedModel,
 		&i.AgentID,
 		&i.Assignment,
+		&i.CancelReason,
+		&i.MachineName,
+		&i.MachineOwnerID,
 	)
 	return i, err
 }
@@ -369,7 +375,7 @@ func (q *Queries) FinishAgentRun(ctx context.Context, arg FinishAgentRunParams) 
 }
 
 const getAgentRun = `-- name: GetAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment FROM agent_run WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id FROM agent_run WHERE id = $1 AND workspace_id = $2
 `
 
 type GetAgentRunParams struct {
@@ -422,12 +428,15 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 		&i.RequestedModel,
 		&i.AgentID,
 		&i.Assignment,
+		&i.CancelReason,
+		&i.MachineName,
+		&i.MachineOwnerID,
 	)
 	return i, err
 }
 
 const getRuntime = `-- name: GetRuntime :one
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases FROM runtime WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility FROM runtime WHERE id = $1 AND workspace_id = $2
 `
 
 type GetRuntimeParams struct {
@@ -456,6 +465,7 @@ func (q *Queries) GetRuntime(ctx context.Context, arg GetRuntimeParams) (Runtime
 		&i.Kernel,
 		&i.Language,
 		&i.Bases,
+		&i.Visibility,
 	)
 	return i, err
 }
@@ -650,8 +660,10 @@ func (q *Queries) ListRecords(ctx context.Context, arg ListRecordsParams) ([]Rec
 }
 
 const listRuntimes = `-- name: ListRuntimes :many
-SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, r.bases, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
-  AND t.status IN ('dispatched', 'running'))::int AS active_runs
+SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, r.bases, r.visibility, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
+  AND t.status IN ('dispatched', 'running'))::int AS active_runs,
+  COALESCE((SELECT array_agg(s.user_id ORDER BY s.user_id) FROM runtime_share s
+    WHERE s.runtime_id = r.id AND s.workspace_id = r.workspace_id), '{}'::uuid[])::uuid[] AS shared_with
 FROM runtime r WHERE r.workspace_id = $1 ORDER BY r.created_at
 `
 
@@ -673,7 +685,9 @@ type ListRuntimesRow struct {
 	Kernel        string          `json:"kernel"`
 	Language      string          `json:"language"`
 	Bases         json.RawMessage `json:"bases"`
+	Visibility    string          `json:"visibility"`
 	ActiveRuns    int32           `json:"active_runs"`
+	SharedWith    []uuid.UUID     `json:"shared_with"`
 }
 
 // active_runs: the runtime's agent runs that are dispatched or running.
@@ -704,7 +718,9 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 			&i.Kernel,
 			&i.Language,
 			&i.Bases,
+			&i.Visibility,
 			&i.ActiveRuns,
+			&i.SharedWith,
 		); err != nil {
 			return nil, err
 		}
@@ -717,7 +733,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 }
 
 const lockAgentRun = `-- name: LockAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
 
 type LockAgentRunParams struct {
@@ -770,6 +786,9 @@ func (q *Queries) LockAgentRun(ctx context.Context, arg LockAgentRunParams) (Age
 		&i.RequestedModel,
 		&i.AgentID,
 		&i.Assignment,
+		&i.CancelReason,
+		&i.MachineName,
+		&i.MachineOwnerID,
 	)
 	return i, err
 }
@@ -804,7 +823,7 @@ func (q *Queries) LockAgentRunToken(ctx context.Context, arg LockAgentRunTokenPa
 }
 
 const lockRemovedHarnessQueue = `-- name: LockRemovedHarnessQueue :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment FROM agent_run t
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = $1 AND t.status = 'queued'
  AND t.harness IN ('cursor', 'antigravity')
@@ -869,6 +888,9 @@ func (q *Queries) LockRemovedHarnessQueue(ctx context.Context, arg LockRemovedHa
 			&i.RequestedModel,
 			&i.AgentID,
 			&i.Assignment,
+			&i.CancelReason,
+			&i.MachineName,
+			&i.MachineOwnerID,
 		); err != nil {
 			return nil, err
 		}
@@ -964,6 +986,26 @@ func (q *Queries) RecordLateUsage(ctx context.Context, arg RecordLateUsageParams
 	return err
 }
 
+const replaceRuntimeShares = `-- name: ReplaceRuntimeShares :exec
+WITH removed AS (
+ DELETE FROM runtime_share WHERE runtime_id = $2 AND workspace_id = $1 RETURNING user_id
+)
+INSERT INTO runtime_share (workspace_id, runtime_id, user_id)
+SELECT $1, $2, u.user_id FROM unnest($3::uuid[]) AS u(user_id)
+WHERE (SELECT count(*) FROM removed) >= 0
+`
+
+type ReplaceRuntimeSharesParams struct {
+	WorkspaceID uuid.UUID   `json:"workspace_id"`
+	RuntimeID   uuid.UUID   `json:"runtime_id"`
+	UserIds     []uuid.UUID `json:"user_ids"`
+}
+
+func (q *Queries) ReplaceRuntimeShares(ctx context.Context, arg ReplaceRuntimeSharesParams) error {
+	_, err := q.db.Exec(ctx, replaceRuntimeShares, arg.WorkspaceID, arg.RuntimeID, arg.UserIds)
+	return err
+}
+
 const requeueAgentRun = `-- name: RequeueAgentRun :exec
 UPDATE agent_run SET status = 'queued', runtime_id = NULL, prepare_lease_expires_at = NULL, started_at = NULL,
   cost_usd = cost_usd + $1, error = $2, failure_reason = $3
@@ -1007,6 +1049,35 @@ func (q *Queries) RoleBlobExists(ctx context.Context, arg RoleBlobExistsParams) 
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const runtimeShares = `-- name: RuntimeShares :many
+SELECT user_id FROM runtime_share WHERE runtime_id = $1 AND workspace_id = $2 ORDER BY user_id
+`
+
+type RuntimeSharesParams struct {
+	RuntimeID   uuid.UUID `json:"runtime_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) RuntimeShares(ctx context.Context, arg RuntimeSharesParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, runtimeShares, arg.RuntimeID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var user_id uuid.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setRuntimeBases = `-- name: SetRuntimeBases :execrows
@@ -1074,6 +1145,31 @@ type SetRuntimeNameParams struct {
 func (q *Queries) SetRuntimeName(ctx context.Context, arg SetRuntimeNameParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setRuntimeName,
 		arg.CustomName,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.OwnerID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setRuntimeSharing = `-- name: SetRuntimeSharing :execrows
+UPDATE runtime SET visibility = $1
+WHERE id = $2 AND workspace_id = $3 AND owner_id = $4
+`
+
+type SetRuntimeSharingParams struct {
+	Visibility  string    `json:"visibility"`
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+func (q *Queries) SetRuntimeSharing(ctx context.Context, arg SetRuntimeSharingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setRuntimeSharing,
+		arg.Visibility,
 		arg.ID,
 		arg.WorkspaceID,
 		arg.OwnerID,
@@ -1195,7 +1291,7 @@ ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
   SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, os = EXCLUDED.os, arch = EXCLUDED.arch,
     kernel = EXCLUDED.kernel, language = EXCLUDED.language, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
-RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases
+RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility
 `
 
 type UpsertRuntimeParams struct {
@@ -1243,6 +1339,7 @@ func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (R
 		&i.Kernel,
 		&i.Language,
 		&i.Bases,
+		&i.Visibility,
 	)
 	return i, err
 }

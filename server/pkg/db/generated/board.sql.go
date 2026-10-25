@@ -210,7 +210,7 @@ func (q *Queries) CountKindRecords(ctx context.Context, arg CountKindRecordsPara
 }
 
 const getCardByNumber = `-- name: GetCardByNumber :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env FROM card WHERE workspace_id = $1 AND number = $2
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine FROM card WHERE workspace_id = $1 AND number = $2
 `
 
 type GetCardByNumberParams struct {
@@ -253,6 +253,7 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 		&i.ScopeTo,
 		&i.Redos,
 		&i.Env,
+		&i.Machine,
 	)
 	return i, err
 }
@@ -346,7 +347,7 @@ func (q *Queries) LiveCardRecordByKey(ctx context.Context, arg LiveCardRecordByK
 }
 
 const lockCard = `-- name: LockCard :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
 `
 
 type LockCardParams struct {
@@ -389,6 +390,7 @@ func (q *Queries) LockCard(ctx context.Context, arg LockCardParams) (Card, error
 		&i.ScopeTo,
 		&i.Redos,
 		&i.Env,
+		&i.Machine,
 	)
 	return i, err
 }
@@ -449,7 +451,7 @@ func (q *Queries) RoundAgentRunRecords(ctx context.Context, arg RoundAgentRunRec
 }
 
 const roundAgentRuns = `-- name: RoundAgentRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4 ORDER BY created_at
 `
 
@@ -516,6 +518,9 @@ func (q *Queries) RoundAgentRuns(ctx context.Context, arg RoundAgentRunsParams) 
 			&i.RequestedModel,
 			&i.AgentID,
 			&i.Assignment,
+			&i.CancelReason,
+			&i.MachineName,
+			&i.MachineOwnerID,
 		); err != nil {
 			return nil, err
 		}

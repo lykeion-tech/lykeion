@@ -14,7 +14,7 @@ import (
 )
 
 const cardAgentRuns = `-- name: CardAgentRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, a.name AS agent_name,
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, a.name AS agent_name,
   COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
   m.created_at AS last_activity_at
 FROM agent_run t
@@ -71,6 +71,9 @@ type CardAgentRunsRow struct {
 	RequestedModel        string          `json:"requested_model"`
 	AgentID               *uuid.UUID      `json:"agent_id"`
 	Assignment            string          `json:"assignment"`
+	CancelReason          *string         `json:"cancel_reason"`
+	MachineName           *string         `json:"machine_name"`
+	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
 	AgentName             *string         `json:"agent_name"`
 	LatestText            string          `json:"latest_text"`
 	LastActivityAt        *time.Time      `json:"last_activity_at"`
@@ -130,6 +133,9 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.RequestedModel,
 			&i.AgentID,
 			&i.Assignment,
+			&i.CancelReason,
+			&i.MachineName,
+			&i.MachineOwnerID,
 			&i.AgentName,
 			&i.LatestText,
 			&i.LastActivityAt,
@@ -189,12 +195,12 @@ func (q *Queries) CardTeams(ctx context.Context, arg CardTeamsParams) ([]CardTea
 
 const createCard = `-- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
-  scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, env)
+  scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, env, machine)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = $8::text), 1) - 1,
   COALESCE(NULLIF($9::text, ''), 'grounding'), COALESCE(NULLIF($10::text, ''), 'reporting'),
-  $11, $12, $8::text, $13, $14, COALESCE($15::jsonb, '{}'::jsonb))
-RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env
+  $11, $12, $8::text, $13, $14, COALESCE($15::jsonb, '{}'::jsonb), $16)
+RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine
 `
 
 type CreateCardParams struct {
@@ -213,6 +219,7 @@ type CreateCardParams struct {
 	Round        int32       `json:"round"`
 	ResearchID   *uuid.UUID  `json:"research_id"`
 	Env          []byte      `json:"env"`
+	Machine      *string     `json:"machine"`
 }
 
 // A new card goes to the top of its column. NextCardNumber has already locked
@@ -234,6 +241,7 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		arg.Round,
 		arg.ResearchID,
 		arg.Env,
+		arg.Machine,
 	)
 	var i Card
 	err := row.Scan(
@@ -268,6 +276,7 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		&i.ScopeTo,
 		&i.Redos,
 		&i.Env,
+		&i.Machine,
 	)
 	return i, err
 }
@@ -318,7 +327,7 @@ func (q *Queries) DeleteCard(ctx context.Context, arg DeleteCardParams) error {
 }
 
 const getCard = `-- name: GetCard :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env FROM card WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine FROM card WHERE workspace_id = $1 AND id = $2
 `
 
 type GetCardParams struct {
@@ -361,6 +370,7 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.ScopeTo,
 		&i.Redos,
 		&i.Env,
+		&i.Machine,
 	)
 	return i, err
 }
@@ -475,7 +485,7 @@ func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxPa
 }
 
 const listCards = `-- name: ListCards :many
-SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.follows_from, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.env,
+SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.follows_from, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.env, c.machine,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
     AND t.status = 'queued' AND t.queue_reason IS NOT NULL)::boolean AS queued,
   COALESCE((SELECT t.role FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
@@ -517,6 +527,7 @@ type ListCardsRow struct {
 	ScopeTo      string          `json:"scope_to"`
 	Redos        int32           `json:"redos"`
 	Env          json.RawMessage `json:"env"`
+	Machine      *string         `json:"machine"`
 	Queued       bool            `json:"queued"`
 	Role         string          `json:"role"`
 	UpdatedAt    time.Time       `json:"updated_at"`
@@ -567,6 +578,7 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.ScopeTo,
 			&i.Redos,
 			&i.Env,
+			&i.Machine,
 			&i.Queued,
 			&i.Role,
 			&i.UpdatedAt,
@@ -733,6 +745,25 @@ func (q *Queries) ResolveCardInbox(ctx context.Context, arg ResolveCardInboxPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const setCardMachine = `-- name: SetCardMachine :execrows
+UPDATE card SET machine = $1, version = version + 1
+WHERE id = $2 AND workspace_id = $3
+`
+
+type SetCardMachineParams struct {
+	Machine     *string   `json:"machine"`
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) SetCardMachine(ctx context.Context, arg SetCardMachineParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setCardMachine, arg.Machine, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setCardTeam = `-- name: SetCardTeam :exec

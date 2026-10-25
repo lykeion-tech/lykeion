@@ -13,7 +13,7 @@ import (
 
 const clearDepartedMemberAssignees = `-- name: ClearDepartedMemberAssignees :many
 UPDATE card SET assignee_type = NULL, assignee_id = NULL, version = version + 1
-WHERE workspace_id = $1 AND assignee_type = 'member' AND assignee_id = $2 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env
+WHERE workspace_id = $1 AND assignee_type = 'member' AND assignee_id = $2 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine
 `
 
 type ClearDepartedMemberAssigneesParams struct {
@@ -62,6 +62,7 @@ func (q *Queries) ClearDepartedMemberAssignees(ctx context.Context, arg ClearDep
 			&i.ScopeTo,
 			&i.Redos,
 			&i.Env,
+			&i.Machine,
 		); err != nil {
 			return nil, err
 		}
@@ -223,7 +224,7 @@ func (q *Queries) ListResearches(ctx context.Context, workspaceID uuid.UUID) ([]
 }
 
 const researchStudies = `-- name: ResearchStudies :many
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env FROM card WHERE workspace_id = $1 AND research_id = $2 ORDER BY number
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine FROM card WHERE workspace_id = $1 AND research_id = $2 ORDER BY number
 `
 
 type ResearchStudiesParams struct {
@@ -272,6 +273,7 @@ func (q *Queries) ResearchStudies(ctx context.Context, arg ResearchStudiesParams
 			&i.ScopeTo,
 			&i.Redos,
 			&i.Env,
+			&i.Machine,
 		); err != nil {
 			return nil, err
 		}
@@ -285,7 +287,7 @@ func (q *Queries) ResearchStudies(ctx context.Context, arg ResearchStudiesParams
 
 const updateCardProperties = `-- name: UpdateCardProperties :one
 UPDATE card SET research_id = $1, version = version + 1
-WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env
+WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine
 `
 
 type UpdateCardPropertiesParams struct {
@@ -329,6 +331,7 @@ func (q *Queries) UpdateCardProperties(ctx context.Context, arg UpdateCardProper
 		&i.ScopeTo,
 		&i.Redos,
 		&i.Env,
+		&i.Machine,
 	)
 	return i, err
 }

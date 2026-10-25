@@ -25,7 +25,9 @@ SELECT * FROM runtime WHERE id = @id AND workspace_id = @workspace_id;
 -- active_runs: the runtime's agent runs that are dispatched or running.
 -- name: ListRuntimes :many
 SELECT r.*, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
-  AND t.status IN ('dispatched', 'running'))::int AS active_runs
+  AND t.status IN ('dispatched', 'running'))::int AS active_runs,
+  COALESCE((SELECT array_agg(s.user_id ORDER BY s.user_id) FROM runtime_share s
+    WHERE s.runtime_id = r.id AND s.workspace_id = r.workspace_id), '{}'::uuid[])::uuid[] AS shared_with
 FROM runtime r WHERE r.workspace_id = @workspace_id ORDER BY r.created_at;
 
 -- name: SetRuntimeConcurrency :execrows
@@ -175,3 +177,18 @@ WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
  AND ((t.kind = 'role' AND c.owner_id = @owner_id)
    OR (t.kind = 'autoresearch' AND t.requester_id = @owner_id))
 ORDER BY t.id FOR UPDATE OF t;
+
+-- name: SetRuntimeSharing :execrows
+UPDATE runtime SET visibility = @visibility
+WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
+
+-- name: ReplaceRuntimeShares :exec
+WITH removed AS (
+ DELETE FROM runtime_share WHERE runtime_id = @runtime_id AND workspace_id = @workspace_id RETURNING user_id
+)
+INSERT INTO runtime_share (workspace_id, runtime_id, user_id)
+SELECT @workspace_id, @runtime_id, u.user_id FROM unnest(@user_ids::uuid[]) AS u(user_id)
+WHERE (SELECT count(*) FROM removed) >= 0;
+
+-- name: RuntimeShares :many
+SELECT user_id FROM runtime_share WHERE runtime_id = @runtime_id AND workspace_id = @workspace_id ORDER BY user_id;

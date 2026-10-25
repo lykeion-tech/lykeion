@@ -5,11 +5,11 @@ UPDATE workspace SET card_counter = card_counter + 1 WHERE id = @id RETURNING ca
 -- the workspace row, so two creates never read the same minimum.
 -- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
-  scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, env)
+  scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, env, machine)
 VALUES (@workspace_id, @number, @title, @question, @owner_id, @deadline, @follows_from,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = @workspace_id AND b.board_column = @board_column::text), 1) - 1,
   COALESCE(NULLIF(@scope_from::text, ''), 'grounding'), COALESCE(NULLIF(@scope_to::text, ''), 'reporting'),
-  sqlc.narg(assignee_type), sqlc.narg(assignee_id), @board_column::text, @round, sqlc.narg(research_id), COALESCE(sqlc.narg(env)::jsonb, '{}'::jsonb))
+  sqlc.narg(assignee_type), sqlc.narg(assignee_id), @board_column::text, @round, sqlc.narg(research_id), COALESCE(sqlc.narg(env)::jsonb, '{}'::jsonb), sqlc.narg(machine))
 RETURNING *;
 
 -- name: InsertCardTeam :exec
@@ -93,3 +93,7 @@ WHERE t.workspace_id = @workspace_id AND t.card_id = @card_id ORDER BY t.created
 -- name: ListAllRecords :many
 SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND board_column = @board_column
 ORDER BY created_at, length(key), key;
+
+-- name: SetCardMachine :execrows
+UPDATE card SET machine = sqlc.narg(machine), version = version + 1
+WHERE id = @id AND workspace_id = @workspace_id;
