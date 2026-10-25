@@ -36,6 +36,15 @@ func TestCardNewSendsEnv(t *testing.T) {
 	}
 	posted = nil
 	cmd = cardCmd(e)
+	cmd.SetArgs([]string{"new", "q", "--env", "A=first", "--env", "A=second"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"A": "second"}; !reflect.DeepEqual(posted["env"], want) {
+		t.Fatalf("repeated name posted env %#v, want %#v", posted["env"], want)
+	}
+	posted = nil
+	cmd = cardCmd(e)
 	cmd.SetArgs([]string{"new", "q", "--env", "A"})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "NAME=VALUE") {
 		t.Fatalf("missing value: %v", err)
