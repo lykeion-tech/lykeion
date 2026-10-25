@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -48,7 +49,8 @@ type Entry struct {
 	Size int64
 }
 
-// Listing counts unique extracted paths, while Entries contains regular files only.
+// Listing counts unique extracted paths. Entries describes final regular files
+// in last-occurrence order, while Bytes includes payloads overwritten later.
 type Listing struct {
 	Files   int
 	Bytes   int64
@@ -97,9 +99,19 @@ func safeName(name string) error {
 
 // List validates every logical entry and bounds the declared unpacked totals.
 func List(filename string, f Format) (Listing, error) {
+	return ListContext(context.Background(), filename, f)
+}
+
+// ListContext observes cancellation while scanning members and archive metadata.
+func ListContext(ctx context.Context, filename string, f Format) (Listing, error) {
+	if err := ctx.Err(); err != nil {
+		return Listing{}, err
+	}
 	var out Listing
 	budget := pathBudget{paths: make(map[string]struct{}), limit: maxFiles}
-	err := walk(context.Background(), filename, f, func(e Entry, dir bool, r io.Reader) error {
+	latest := make(map[string]*list.Element)
+	var order list.List
+	err := walk(ctx, filename, f, func(e Entry, dir bool, r io.Reader) error {
 		if err := budget.reserve(e.Path); err != nil {
 			return err
 		}
@@ -111,9 +123,21 @@ func List(filename string, f Format) (Listing, error) {
 			return ErrTooBig
 		}
 		out.Bytes += e.Size
-		out.Entries = append(out.Entries, e)
+		e.Path = path.Clean(e.Path)
+		if previous, exists := latest[e.Path]; exists {
+			previous.Value = e
+			order.MoveToBack(previous)
+		} else {
+			latest[e.Path] = order.PushBack(e)
+		}
 		return nil
 	})
+	if order.Len() > 0 {
+		out.Entries = make([]Entry, 0, order.Len())
+		for item := order.Front(); item != nil; item = item.Next() {
+			out.Entries = append(out.Entries, item.Value.(Entry))
+		}
+	}
 	return out, err
 }
 
@@ -214,7 +238,27 @@ func (r contextReader) Read(b []byte) (int, error) {
 	return r.r.Read(b)
 }
 
-func walk(ctx context.Context, filename string, f Format, visit func(Entry, bool, io.Reader) error) error {
+type contextReaderAt struct {
+	ctx context.Context
+	r   io.ReaderAt
+}
+
+func (r contextReaderAt) ReadAt(b []byte, offset int64) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.ReadAt(b, offset)
+}
+
+func walk(ctx context.Context, filename string, f Format, visit func(Entry, bool, io.Reader) error) (err error) {
+	defer func() {
+		if canceled := ctx.Err(); canceled != nil {
+			err = canceled
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	file, err := os.Open(filename)
 	if err != nil {
 		return err
@@ -225,7 +269,7 @@ func walk(ctx context.Context, filename string, f Format, visit func(Entry, bool
 		if err != nil {
 			return err
 		}
-		z, err := zip.NewReader(file, stat.Size())
+		z, err := zip.NewReader(contextReaderAt{ctx, file}, stat.Size())
 		if err != nil {
 			return fmt.Errorf("%w: %v", ErrUnsafe, err)
 		}
@@ -283,7 +327,7 @@ func walk(ctx context.Context, filename string, f Format, visit func(Entry, bool
 	default:
 		return ErrUnsafe
 	}
-	padding := &paddingReader{r: r}
+	padding := &paddingReader{r: contextReader{ctx, r}}
 	tr := tar.NewReader(padding)
 	for {
 		if err := ctx.Err(); err != nil {

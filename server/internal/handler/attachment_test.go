@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,15 +14,18 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/storage"
 )
@@ -765,5 +770,152 @@ func TestArchiveManifestHashMatchesItsSourceAnswer(t *testing.T) {
 	}
 	if answer != string(manifest) || answerHash != hash || blob != key {
 		t.Fatalf("source: %q %s %s", answer, answerHash, blob)
+	}
+}
+
+func TestArchiveSourceManifestMatchesFinalFiles(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	var b bytes.Buffer
+	z := zip.NewWriter(&b)
+	for _, entry := range []struct{ name, data string }{{"./nested/a.txt", "old"}, {"middle.txt", "keep"}, {"nested//a.txt", "replacement"}, {"end.txt", "tail"}, {"./middle.txt", "z"}} {
+		f, err := z.Create(entry.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(f, entry.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	id := s.uploadData(t, tok, w.ID, "duplicates.zip", b.Bytes())
+	var files int
+	var unpacked int64
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT inner_files,unpacked_bytes FROM attachment WHERE id=$1`, id).Scan(&files, &unpacked); err != nil {
+		t.Fatal(err)
+	}
+	if files != 4 || unpacked != 23 {
+		t.Fatalf("accounting: %d entries %d bytes", files, unpacked)
+	}
+	var c card
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var answer, hash string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT body->>'answer',body->>'answer_sha256' FROM record WHERE card_id=$1 AND key='c1'`, c.ID).Scan(&answer, &hash); err != nil {
+		t.Fatal(err)
+	}
+	_, manifest, ok := strings.Cut(answer, "\n")
+	if !ok || manifest != "nested/a.txt\t11 bytes\nend.txt\t4 bytes\nmiddle.txt\t1 bytes\n" {
+		t.Fatalf("final-file manifest: %q", answer)
+	}
+	sum := sha256.Sum256([]byte(answer))
+	if hash != hex.EncodeToString(sum[:]) {
+		t.Fatalf("manifest digest %s", hash)
+	}
+}
+
+type cancelDuringArchiveScan struct {
+	context.Context
+	cancel context.CancelFunc
+	armed  atomic.Bool
+	checks atomic.Int64
+}
+
+func (c *cancelDuringArchiveScan) Err() error {
+	if c.armed.Load() && c.checks.Add(1) == 512 {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+
+type armArchiveScan struct {
+	io.Reader
+	ctx *cancelDuringArchiveScan
+}
+
+func (r armArchiveScan) Read(b []byte) (int, error) {
+	n, err := r.Reader.Read(b)
+	if n > 0 {
+		r.ctx.armed.Store(true)
+	}
+	return n, err
+}
+
+type archivePutCounter struct {
+	storage.Storage
+	puts atomic.Int64
+}
+
+func (b *archivePutCounter) Put(ctx context.Context, key string, r io.Reader, size int64) error {
+	b.puts.Add(1)
+	return b.Storage.Put(ctx, key, r, size)
+}
+func TestCancelledArchiveInspectionStoresNothing(t *testing.T) {
+	s := newServer(t)
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gz)
+	for i := 0; i < 30000; i++ {
+		if err := tw.WriteHeader(&tar.Header{Name: "repeated", Mode: 0600}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("file", "repeated.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(archive.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	scanning := &cancelDuringArchiveScan{Context: ctx, cancel: cancel}
+	req := httptest.NewRequest("POST", "/api/attachments", armArchiveScan{&body, scanning}).WithContext(scanning)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Workspace-ID", w.ID)
+	original := s.H.Blobs.(storage.Local)
+	counter := &archivePutCounter{Storage: original}
+	s.H.Blobs = counter
+	response := httptest.NewRecorder()
+	middleware.Auth(s.H.Store, s.H.JWT)(http.HandlerFunc(s.H.uploadAttachment)).ServeHTTP(response, req)
+	if response.Code != 408 {
+		t.Fatalf("cancelled inspection: %d %s", response.Code, response.Body.String())
+	}
+	if counter.puts.Load() != 0 || s.attachmentCount(t) != 0 {
+		t.Fatalf("cancelled inspection stored data: puts=%d rows=%d", counter.puts.Load(), s.attachmentCount(t))
+	}
+	if checks := scanning.checks.Load(); checks < 512 || checks > 520 {
+		t.Fatalf("cancellation did not stop scan promptly: %d checks", checks)
+	}
+	if err := filepath.WalkDir(original.Dir, func(p string, e os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !e.IsDir() {
+			t.Errorf("cancelled inspection stored blob: %s", p)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

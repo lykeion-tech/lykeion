@@ -525,7 +525,7 @@ func TestArchiveCountsNormalizedPathsOnce(t *testing.T) {
 		{Name: "./a/c/", Typeflag: tar.TypeDir}, {Name: "a/c/d.txt", Size: 3},
 	}, []string{"", "", "", "one", "two", "", "", "end"})
 	listing, err := List(p, Tar)
-	want := Listing{Files: 4, Bytes: 9, Entries: []Entry{{Path: "a/b.txt", Size: 3}, {Path: "./a//b.txt", Size: 3}, {Path: "a/c/d.txt", Size: 3}}}
+	want := Listing{Files: 4, Bytes: 9, Entries: []Entry{{Path: "a/b.txt", Size: 3}, {Path: "a/c/d.txt", Size: 3}}}
 	if err != nil || !reflect.DeepEqual(listing, want) {
 		t.Fatalf("List %+v %v, want %+v", listing, err, want)
 	}
@@ -564,4 +564,160 @@ func TestArchiveEntryBudgetFailureCleansEarlierFiles(t *testing.T) {
 			t.Fatalf("partial survives: %s %v", p, err)
 		}
 	}
+}
+
+func TestArchiveManifestKeepsOnlyFinalFiles(t *testing.T) {
+	t.Run("many zero-byte duplicates", func(t *testing.T) {
+		file, err := os.CreateTemp(t.TempDir(), "repeated-*.tar.gz")
+		if err != nil {
+			t.Fatal(err)
+		}
+		gz := gzip.NewWriter(file)
+		w := tar.NewWriter(gz)
+		for i := 0; i < 30000; i++ {
+			name := "repeated"
+			if i%2 == 0 {
+				name = "./repeated"
+			}
+			if err := w.WriteHeader(&tar.Header{Name: name, Mode: 0600}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := gz.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		listing, err := List(file.Name(), TarGz)
+		want := Listing{Files: 1, Bytes: 0, Entries: []Entry{{Path: "repeated", Size: 0}}}
+		if err != nil || !reflect.DeepEqual(listing, want) {
+			t.Fatalf("List: Files=%d Bytes=%d Entries=%d error=%v", listing.Files, listing.Bytes, len(listing.Entries), err)
+		}
+		dest := filepath.Join(t.TempDir(), "out")
+		if err := Extract(t.Context(), file.Name(), TarGz, dest, 0, 1); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(filepath.Join(dest, "repeated"))
+		if err != nil || info.Size() != 0 {
+			t.Fatalf("final empty file: %+v %v", info, err)
+		}
+		children, err := os.ReadDir(dest)
+		if err != nil || len(children) != 1 {
+			t.Fatalf("final tree: %d children %v", len(children), err)
+		}
+	})
+	t.Run("last occurrence order and write budget", func(t *testing.T) {
+		p := tarFile(t, []*tar.Header{{Name: "./nested/a.txt", Size: 3}, {Name: "middle.txt", Size: 4}, {Name: "nested//a.txt", Size: 11}, {Name: "end.txt", Size: 4}, {Name: "./middle.txt", Size: 1}}, []string{"old", "keep", "replacement", "tail", "z"})
+		listing, err := List(p, Tar)
+		want := Listing{Files: 4, Bytes: 23, Entries: []Entry{{Path: "nested/a.txt", Size: 11}, {Path: "end.txt", Size: 4}, {Path: "middle.txt", Size: 1}}}
+		if err != nil || !reflect.DeepEqual(listing, want) {
+			t.Fatalf("List %+v %v, want %+v", listing, err, want)
+		}
+		dest := filepath.Join(t.TempDir(), "out")
+		if err := Extract(t.Context(), p, Tar, dest, listing.Bytes, listing.Files); err != nil {
+			t.Fatal(err)
+		}
+		for name, want := range map[string]string{"nested/a.txt": "replacement", "end.txt": "tail", "middle.txt": "z"} {
+			b, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash(name)))
+			if err != nil || string(b) != want {
+				t.Fatalf("%s: %q %v", name, b, err)
+			}
+		}
+		var finalBytes int64
+		for _, entry := range listing.Entries {
+			finalBytes += entry.Size
+		}
+		dest = filepath.Join(t.TempDir(), "insufficient")
+		if err := Extract(t.Context(), p, Tar, dest, finalBytes, listing.Files); !errors.Is(err, ErrTooBig) {
+			t.Fatalf("overwrite payloads must count toward byte budget: %v", err)
+		}
+		for _, p := range []string{dest, dest + ".part"} {
+			if _, err := os.Stat(p); !os.IsNotExist(err) {
+				t.Fatalf("partial survives: %s %v", p, err)
+			}
+		}
+	})
+}
+
+type cancelListingAfterChecks struct {
+	context.Context
+	cancel context.CancelFunc
+	checks int
+	limit  int
+}
+
+func (c *cancelListingAfterChecks) Err() error {
+	c.checks++
+	if c.checks == c.limit {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+func TestArchiveListContextCancellation(t *testing.T) {
+	t.Run("before opening", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if _, err := ListContext(ctx, filepath.Join(t.TempDir(), "absent"), Tar); !errors.Is(err, context.Canceled) {
+			t.Fatalf("pre-cancel: %v", err)
+		}
+	})
+	t.Run("while skipping PAX headers", func(t *testing.T) {
+		record := "13 comment=x\n"
+		p := tarFile(t, []*tar.Header{{Name: "pax", Size: int64(len(record)), Mode: 0600}}, []string{record})
+		block, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		block = block[:1024]
+		block[156] = tar.TypeXHeader
+		for i := 148; i < 156; i++ {
+			block[i] = ' '
+		}
+		sum := 0
+		for _, v := range block[:512] {
+			sum += int(v)
+		}
+		copy(block[148:156], fmt.Sprintf("%06o\x00 ", sum))
+		end := tarFile(t, []*tar.Header{{Name: "final", Mode: 0600}}, []string{""})
+		ending, err := os.ReadFile(end)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.CreateTemp(t.TempDir(), "metadata-*.tar.gz")
+		if err != nil {
+			t.Fatal(err)
+		}
+		gz := gzip.NewWriter(f)
+		for i := 0; i < 10000; i++ {
+			if _, err := gz.Write(block); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := gz.Write(ending); err != nil {
+			t.Fatal(err)
+		}
+		if err := gz.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		bounded := &cancelListingAfterChecks{Context: ctx, cancel: cancel, limit: 64}
+		listing, err := ListContext(bounded, f.Name(), TarGz)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("mid-scan cancellation: %+v %v, checks %d", listing, err, bounded.checks)
+		}
+		if listing.Files != 0 {
+			t.Fatalf("scanned through metadata before stopping: %+v", listing)
+		}
+		if bounded.checks > 70 {
+			t.Fatalf("continued checking after cancellation: %d", bounded.checks)
+		}
+	})
 }

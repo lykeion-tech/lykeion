@@ -198,9 +198,11 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	format := archive.Kind(head[:hn], name)
 	var listing archive.Listing
 	if format != archive.None {
-		listing, err = archive.List(tmp.Name(), format)
+		listing, err = archive.ListContext(r.Context(), tmp.Name(), format)
 		if err != nil {
-			if errors.Is(err, archive.ErrTooBig) {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				attachmentReadErr(w, r, err)
+			} else if errors.Is(err, archive.ErrTooBig) {
 				writeErr(w, 400, "An archive can contain at most 20,000 files and directories and 10 GB unpacked")
 			} else if errors.Is(err, archive.ErrUnsafe) {
 				writeErr(w, 400, "Unsafe or unreadable archive")
