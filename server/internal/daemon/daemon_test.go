@@ -245,19 +245,14 @@ func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	if scope != "card:"+f.card.String()+"/role:scoper" || mode != ModeSandboxed || digest != defaultPolicyHash || model != "m" || !reported {
 		t.Fatalf("scope %q mode %q digest %q model %q reported %v", scope, mode, digest, model, reported)
 	}
+	// a run's folder can hold gigabytes its code installed; what the run
+	// keeps it saved as outputs, so the folder goes as the run ends
 	dir := filepath.Join(f.cfg.Home, f.id.String()+"-1")
-	skill, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	must(t, err)
-	if string(skill) != "# Scoper" {
-		t.Fatal(string(skill))
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the finished run's folder is still there: %v", err)
 	}
-	// the daemon keeps its finished record in its own state folder alone:
-	// the run's code may write the run folder
-	if _, err = os.Stat(finishedRecord(f.cfg.StateDir, dir)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = os.Stat(filepath.Join(dir, ".finished")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the run folder holds a finished marker: %v", err)
+	if _, err := os.Stat(finishedRecord(f.cfg.StateDir, dir)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the removed folder's finished record is still there: %v", err)
 	}
 }
 func TestSecondRunOnTheCardAndRoleResumesWithoutDoubleCharge(t *testing.T) {
@@ -534,13 +529,16 @@ func TestStateOwnershipAndFinishedOnlyGC(t *testing.T) {
 
 	d.holdScratch("held")
 	must(t, d.gc(context.Background()))
-	for _, name := range []string{"active", "unfinished", "recent", "held"} {
+	for _, name := range []string{"active", "unfinished", "held"} {
 		if _, err := os.Stat(filepath.Join(home, name)); err != nil {
-			t.Fatal("removed live/recent scratch", name, err)
+			t.Fatal("removed live scratch", name, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(home, "finished")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("retained old finished scratch", err)
+	// an attempt's own folder goes as soon as its run is recorded finished
+	for _, name := range []string{"finished", "recent"} {
+		if _, err := os.Stat(filepath.Join(home, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("retained finished scratch", name, err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(home, "scope-kept")); err != nil {
 		t.Fatal("removed a scope folder within its retention", err)
@@ -895,12 +893,6 @@ func TestRecoveryPreservesExistingFinalAndMakesScratchGCEligible(t *testing.T) {
 			t.Fatal("declared valid final lost")
 		}
 	}
-	must(t, d.gc(t.Context()))
-	if _, err := os.Stat(dir); err != nil {
-		t.Fatal("recent recovered scratch deleted")
-	}
-	old := time.Now().Add(-25 * time.Hour)
-	must(t, os.Chtimes(finishedRecord(d.cfg.StateDir, dir), old, old))
 	must(t, d.gc(t.Context()))
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatal("recovered finished scratch never became collectible")
@@ -1316,6 +1308,33 @@ func probingClaude(t *testing.T) string {
 
 func (f *daemonFixture) runFolder() string { return filepath.Join(f.cfg.Home, f.id.String()+"-1") }
 
+// atRunEnd calls check with each run's folder once its CLI has finished and
+// before the daemon removes the folder.
+func (f *daemonFixture) atRunEnd(check func(dir string)) {
+	f.cfg.NewBackend = func(h, b string) (agent.Backend, error) {
+		real, err := agent.New(h, b)
+		if err != nil {
+			return nil, err
+		}
+		return backendFunc(func(ctx context.Context, p string, o agent.ExecOptions) (*agent.Session, error) {
+			s, err := real.Execute(ctx, p, o)
+			if err != nil {
+				return nil, err
+			}
+			done := make(chan agent.Result, 1)
+			go func() {
+				defer close(done)
+				r, ok := <-s.Done
+				check(o.Dir)
+				if ok {
+					done <- r
+				}
+			}()
+			return &agent.Session{Messages: s.Messages, Done: done}, nil
+		}), nil
+	}
+}
+
 func TestARunGetsItsStudysFilesReadOnly(t *testing.T) {
 	if err := sandbox.Check(context.Background()); err != nil {
 		t.Skipf("sandbox unavailable: %v", err)
@@ -1323,22 +1342,24 @@ func TestARunGetsItsStudysFilesReadOnly(t *testing.T) {
 	f := fixture(t)
 	f.cfg.Harnesses["claude"] = probingClaude(t)
 	f.attach(t, "data.csv", "gene,fold\nPGC1A,2.4\n")
+	var probe, got []byte
+	var mode os.FileMode
+	f.atRunEnd(func(dir string) {
+		probe, _ = os.ReadFile(filepath.Join(dir, "probe.txt"))
+		path := filepath.Join(dir, "attachments", "data.csv")
+		got, _ = os.ReadFile(path)
+		if fi, err := os.Stat(path); err == nil {
+			mode = fi.Mode().Perm()
+		}
+	})
 	cancel, done := startDaemon(t, f.cfg)
 	waitFor(t, func() bool { return f.status(t) == "completed" })
 	stopDaemon(t, cancel, done)
-	dir := f.runFolder()
-	probe, err := os.ReadFile(filepath.Join(dir, "probe.txt"))
-	must(t, err)
 	if string(probe) != "READ\n" {
 		t.Fatalf("inside the sandbox the run managed more than reading its file:\n%s", probe)
 	}
-	path := filepath.Join(dir, "attachments", "data.csv")
-	got, err := os.ReadFile(path)
-	must(t, err)
-	fi, err := os.Stat(path)
-	must(t, err)
-	if string(got) != "gene,fold\nPGC1A,2.4\n" || fi.Mode().Perm() != 0o444 {
-		t.Fatalf("the run's file: %q mode %v", got, fi.Mode())
+	if string(got) != "gene,fold\nPGC1A,2.4\n" || mode != 0o444 {
+		t.Fatalf("the run's file: %q mode %v", got, mode)
 	}
 }
 
@@ -1346,16 +1367,29 @@ func TestTheCacheIsCheckedAndReused(t *testing.T) {
 	f := fixture(t)
 	const data = "gene,fold\nTFAM,1.9\n"
 	f.attach(t, "data.csv", data)
-	cancel, done := startDaemon(t, f.cfg)
-	defer stopDaemon(t, cancel, done)
 	sum := sha256.Sum256([]byte(data))
 	cached := filepath.Join(f.cfg.StateDir, "cache", "attachments", hex.EncodeToString(sum[:]))
+	var mu sync.Mutex
+	var got string
+	var linked bool
+	f.atRunEnd(func(dir string) {
+		mu.Lock()
+		defer mu.Unlock()
+		path := filepath.Join(dir, "attachments", "data.csv")
+		b, _ := os.ReadFile(path)
+		got = string(b)
+		ri, err1 := os.Stat(path)
+		ci, err2 := os.Stat(cached)
+		linked = err1 == nil && err2 == nil && os.SameFile(ci, ri)
+	})
+	cancel, done := startDaemon(t, f.cfg)
+	defer stopDaemon(t, cancel, done)
 	runOnce := func() string {
 		t.Helper()
 		waitFor(t, func() bool { return f.status(t) == "completed" })
-		got, err := os.ReadFile(filepath.Join(f.runFolder(), "attachments", "data.csv"))
-		must(t, err)
-		return string(got)
+		mu.Lock()
+		defer mu.Unlock()
+		return got
 	}
 	if got := runOnce(); got != data || f.attachmentGets.Load() != 1 {
 		t.Fatalf("first run: %q after %d downloads", got, f.attachmentGets.Load())
@@ -1364,13 +1398,11 @@ func TestTheCacheIsCheckedAndReused(t *testing.T) {
 		t.Fatalf("cache: %q %v", b, err)
 	}
 	// The run's file is the cached one, linked rather than copied.
-	ci, err := os.Stat(cached)
-	must(t, err)
-	ri, err := os.Stat(filepath.Join(f.runFolder(), "attachments", "data.csv"))
-	must(t, err)
-	if !os.SameFile(ci, ri) {
+	mu.Lock()
+	if !linked {
 		t.Fatal("the run's file is not linked to the cache")
 	}
+	mu.Unlock()
 	f.enqueue(t)
 	if got := runOnce(); got != data || f.attachmentGets.Load() != 1 {
 		t.Fatalf("second run: %q after %d downloads", got, f.attachmentGets.Load())

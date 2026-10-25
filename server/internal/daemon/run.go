@@ -64,6 +64,11 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 				localErr = errors.Join(localErr, err)
 				return
 			}
+			// The run saved what it keeps as outputs; what its code installed
+			// here can be gigabytes. A failed removal leaves it to gc.
+			if reservation != nil && reservation.Remove() == nil {
+				localErr = errors.Join(localErr, d.unmarkFinished(dir))
+			}
 		}
 		localErr = errors.Join(localErr, d.forgetAttempt(r))
 	}()

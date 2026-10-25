@@ -62,7 +62,7 @@ echo '{"type":"result","is_error":false}'
 				must(t, f.env.Owner.QueryRow(t.Context(), "SELECT status FROM agent_run WHERE id=$1", healthyID).Scan(&status))
 				return status == "completed"
 			})
-			waitFor(t, func() bool { _, err := os.Stat(finishedRecord(f.cfg.StateDir, dir)); return err == nil })
+			waitFor(t, func() bool { _, err := os.Stat(dir); return os.IsNotExist(err) })
 			var touched time.Time
 			must(t, f.env.Owner.QueryRow(t.Context(), "SELECT last_seen_at FROM runtime WHERE workspace_id=$1", healthyWS).Scan(&touched))
 			if time.Since(touched) > time.Second {

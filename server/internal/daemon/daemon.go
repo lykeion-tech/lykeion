@@ -524,10 +524,11 @@ func (d *daemon) gc(context.Context) error {
 	return nil
 }
 
-// collectScratch deletes a folder whose finished record is old enough: a day
-// for an attempt's own folder; for a scope's folder, whose sessions later runs
-// resume, the retention its record keeps, or a day when it keeps none. The
-// record goes with the folder.
+// collectScratch deletes a folder whose finished record is old enough: at
+// once for an attempt's own folder, which its run would have removed had the
+// daemon not stopped; for a scope's folder, whose sessions later runs resume,
+// the retention its record keeps, or a day when it keeps none. The record
+// goes with the folder.
 func collectScratch(dir, record string) error {
 	reservation, err := agent.ReserveScratch(dir)
 	if errors.Is(err, agent.ErrScratchBusy) || errors.Is(err, os.ErrNotExist) {
@@ -551,8 +552,9 @@ func collectScratch(dir, record string) error {
 	if !fi.Mode().IsRegular() {
 		return nil
 	}
-	keep := 24 * time.Hour
+	var keep time.Duration
 	if strings.HasPrefix(filepath.Base(dir), "scope-") {
+		keep = 24 * time.Hour
 		var m struct {
 			RetentionDays int `json:"retention_days"`
 		}

@@ -279,32 +279,33 @@ func TestOrphanAttemptReconciledBeforeDeletion(t *testing.T) {
 }
 
 // A run's code may write its run folder, so the finished marker there is not
-// trusted: gc goes by the copy the daemon keeps in its state folder.
+// trusted: gc goes by the copy the daemon keeps in its state folder. Scope
+// folders are kept for a while, so a forged old marker would matter there.
 func TestGCTrustsOnlyTheFinishedRecordsItKeeps(t *testing.T) {
 	home, state := t.TempDir(), t.TempDir()
 	d := &daemon{cfg: Config{Home: home, StateDir: state}, active: map[string]bool{}}
 	old := time.Now().Add(-48 * time.Hour)
-	for _, name := range []string{"planted", "recorded", "forged"} {
+	for _, name := range []string{"scope-planted", "scope-recorded", "scope-forged"} {
 		dir := filepath.Join(home, name)
 		must(t, os.Mkdir(dir, 0700))
-		if name != "planted" {
+		if name != "scope-planted" {
 			must(t, d.markFinished(dir, map[string]int{"retention_days": 1}))
 		}
-		if name == "recorded" {
+		if name == "scope-recorded" {
 			must(t, os.Chtimes(finishedRecord(state, dir), old, old))
 		}
-		if name != "recorded" {
+		if name != "scope-recorded" {
 			must(t, os.WriteFile(filepath.Join(dir, ".finished"), []byte(`{"retention_days":1}`), 0600))
 			must(t, os.Chtimes(filepath.Join(dir, ".finished"), old, old))
 		}
 	}
 	must(t, d.gc(t.Context()))
-	for name, kept := range map[string]bool{"planted": true, "forged": true, "recorded": false} {
+	for name, kept := range map[string]bool{"scope-planted": true, "scope-forged": true, "scope-recorded": false} {
 		if _, err := os.Stat(filepath.Join(home, name)); (err == nil) != kept {
 			t.Errorf("%s: kept %v, want %v", name, err == nil, kept)
 		}
 	}
-	if _, err := os.Stat(finishedRecord(state, filepath.Join(home, "recorded"))); err == nil {
+	if _, err := os.Stat(finishedRecord(state, filepath.Join(home, "scope-recorded"))); err == nil {
 		t.Error("the record outlived its folder")
 	}
 }

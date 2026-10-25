@@ -413,10 +413,11 @@ func TestEveryRunResumesItsScope(t *testing.T) {
 	raw, err = json.Marshal(legacy)
 	must(t, err)
 	must(t, json.Unmarshal(raw, &c))
-	launched := false
+	launched, dir := false, ""
 	d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
 		return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
 			launched = true
+			dir = o.Dir
 			if o.Resume != "s1" || len(o.ClaudeBaseline) == 0 {
 				t.Errorf("resume=%q baseline=%s", o.Resume, o.ClaudeBaseline)
 			}
@@ -434,9 +435,12 @@ func TestEveryRunResumesItsScope(t *testing.T) {
 	if !launched || report.Kind != "complete" || report.Mode != "sandboxed" {
 		t.Fatalf("launched=%v report=%+v", launched, report)
 	}
+	if filepath.Base(dir) != scratchName(c.AgentRun.ID, c.AgentRun.Attempt) {
+		t.Fatalf("ran in %s, not the attempt's own folder", dir)
+	}
 	entries, err := os.ReadDir(d.cfg.Home)
 	must(t, err)
-	if len(entries) != 1 || entries[0].Name() != scratchName(c.AgentRun.ID, c.AgentRun.Attempt) {
-		t.Fatalf("run folders=%v", entries)
+	if len(entries) != 0 {
+		t.Fatalf("run folders left=%v", entries)
 	}
 }
