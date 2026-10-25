@@ -63,6 +63,8 @@ type Door struct {
 	// PrivatePaths are daemon-owned paths that no run may read, including
 	// paths that another run may create after this door starts.
 	PrivatePaths []string
+	// PrivateRoots expose only this run's explicitly granted descendants.
+	PrivateRoots []string
 	// ScriptTimeout is how long a script may run; 0 means agent.ScriptLimit.
 	ScriptTimeout time.Duration
 	// SandboxErr is why the machine's sandbox failed its check; while it is

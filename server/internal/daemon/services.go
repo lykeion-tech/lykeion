@@ -25,6 +25,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	studyarchive "lykeion/server/internal/archive"
+	"lykeion/server/internal/configpath"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/middleware"
@@ -175,7 +176,7 @@ func (d *daemon) startService(ctx context.Context, c claimed, study *envs.Study,
 			os.RemoveAll(tmp)
 		}
 	}()
-	policy, e := servicePolicy(code, state, tmp, study.Bases)
+	policy, e := servicePolicy(d.cfg.StateDir, d.cfg.Home, code, state, tmp, study.Bases)
 	if e != nil {
 		err = e
 		return
@@ -271,12 +272,30 @@ func (d *daemon) startService(ctx context.Context, c claimed, study *envs.Study,
 }
 
 // servicePolicy grants no study, run, personal config or daemon credential reads.
-func servicePolicy(code, state, tmp string, bases *envs.Bases) (sandbox.Policy, error) {
+func servicePolicy(stateRoot, scratchRoot, code, state, tmp string, bases *envs.Bases) (sandbox.Policy, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return sandbox.Policy{}, err
 	}
 	p := sandbox.Policy{Home: home, Read: []string{code}, Write: []string{state, tmp}, LoopbackOnly: true}
+	private, err := configpath.Private()
+	if err != nil {
+		return p, err
+	}
+	p.Hidden = private
+	for _, root := range []string{stateRoot, scratchRoot, bases.Dir} {
+		if root == "" || slices.Contains(p.RestrictedRoots, root) {
+			continue
+		}
+		if err := sandbox.PrepareRestrictedRoot(home, root); err != nil {
+			return p, err
+		}
+		p.RestrictedRoots = append(p.RestrictedRoots, root)
+	}
+	if stateRoot != "" {
+		p.Hidden = append(p.Hidden, filepath.Join(filepath.Dir(stateRoot), "daemon.log"))
+	}
+
 	if err = bases.EnsureLeanRoot(); err != nil {
 		return p, err
 	}

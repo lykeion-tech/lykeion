@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"lykeion/server/internal/configpath"
 	"os"
 	"path/filepath"
 )
@@ -17,16 +18,7 @@ type Config struct {
 	Workspace string `json:"workspace"`
 }
 
-func configPath() (string, error) {
-	if p := os.Getenv("LYK_CONFIG"); p != "" {
-		return p, nil
-	}
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "lyk", "config.json"), nil
-}
+func configPath() (string, error) { return configpath.Actual() }
 
 func LoadConfig() (Config, string, error) {
 	p, err := configPath()

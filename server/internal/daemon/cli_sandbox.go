@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"lykeion/server/internal/configpath"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/pkg/agent"
@@ -22,11 +23,15 @@ func (d *daemon) cacheDir() string { return filepath.Join(d.cfg.Home, ".caches")
 
 // privatePaths remain excluded even when this run starts no services: another
 // run can write private service state or diagnostics while this one is active.
-func (d *daemon) privatePaths() []string {
-	if d.cfg.StateDir == "" {
-		return nil
+func (d *daemon) privatePaths() ([]string, error) {
+	paths, err := configpath.Private()
+	if err != nil {
+		return nil, err
 	}
-	return []string{filepath.Join(d.cfg.StateDir, "services"), filepath.Join(filepath.Dir(d.cfg.StateDir), "daemon.log")}
+	if d.cfg.StateDir != "" {
+		paths = append([]string{filepath.Join(d.cfg.StateDir, "services"), filepath.Join(filepath.Dir(d.cfg.StateDir), "daemon.log"), d.cfg.StateDir}, paths...)
+	}
+	return paths, nil
 }
 
 func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli agent.CLIPaths) (sandbox.Policy, error) {
@@ -68,22 +73,11 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 	for _, secret := range homeSecrets {
 		p.Hidden = append(p.Hidden, filepath.Join(home, secret))
 	}
-	if d.cfg.StateDir != "" {
-		p.Hidden = append(p.Hidden, d.cfg.StateDir)
-		p.Hidden = append(p.Hidden, d.privatePaths()...)
-	}
-	cfg, err := os.UserConfigDir()
+	private, err := d.privatePaths()
 	if err != nil {
 		return p, err
 	}
-	p.Hidden = append(p.Hidden, filepath.Join(cfg, "lyk", "config.json"))
-	if actual := os.Getenv("LYK_CONFIG"); actual != "" {
-		actual, err = filepath.Abs(actual)
-		if err != nil {
-			return p, err
-		}
-		p.Hidden = append(p.Hidden, actual)
-	}
+	p.Hidden = append(p.Hidden, private...)
 	roots := []string{d.cfg.Home, filepath.Join(home, ".lyk")}
 	if d.bases != nil {
 		roots = append(roots, d.bases.Dir)

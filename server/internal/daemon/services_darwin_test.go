@@ -72,7 +72,7 @@ func TestAServiceCannotWriteOutsideItsState(t *testing.T) {
 	for _, p := range []string{code, state, tmp} {
 		must(t, os.Mkdir(p, 0700))
 	}
-	p, err := servicePolicy(code, state, tmp, &envs.Bases{Dir: filepath.Join(root, "bases")})
+	p, err := servicePolicy(root, "", code, state, tmp, &envs.Bases{Dir: filepath.Join(root, "bases")})
 	must(t, err)
 	// Exercise the actual filesystem policy independently of blocked networking.
 	p.LoopbackOnly = false
@@ -97,7 +97,7 @@ func TestAServiceCanBindOnlyToLoopback(t *testing.T) {
 	for _, p := range []string{code, state, tmp} {
 		must(t, os.Mkdir(p, 0700))
 	}
-	p, err := servicePolicy(code, state, tmp, &envs.Bases{Dir: filepath.Join(root, "bases")})
+	p, err := servicePolicy(root, "", code, state, tmp, &envs.Bases{Dir: filepath.Join(root, "bases")})
 	must(t, err)
 	addresses := []string{"127.0.0.1", "127.0.0.2", "0.0.0.0", "::", "::1"}
 	addrs, err := net.InterfaceAddrs()
@@ -185,7 +185,8 @@ func TestDoorExplicitlyHidesPrivateDaemonPaths(t *testing.T) {
 	dir := t.TempDir()
 	root := t.TempDir()
 	supervisor := &daemon{cfg: Config{StateDir: filepath.Join(root, "daemon")}}
-	private := supervisor.privatePaths()
+	private, err := supervisor.privatePaths()
+	must(t, err)
 	door := newRunDoor(t, l, dir, func(d *Door) {
 		d.PrivatePaths = private
 		d.interp = func(lang string) (string, []string, error) {

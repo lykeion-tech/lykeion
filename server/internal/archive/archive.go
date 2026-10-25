@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
-	"github.com/ulikunitz/xz"
 )
 
 type Format string
@@ -269,6 +268,9 @@ func walk(ctx context.Context, filename string, f Format, visit func(Entry, bool
 		if err != nil {
 			return err
 		}
+		if err := preflightZIP(contextReaderAt{ctx, file}, stat.Size()); err != nil {
+			return fmt.Errorf("%w: %v", ErrUnsafe, err)
+		}
 		z, err := zip.NewReader(contextReaderAt{ctx, file}, stat.Size())
 		if err != nil {
 			return fmt.Errorf("%w: %v", ErrUnsafe, err)
@@ -312,11 +314,14 @@ func walk(ctx context.Context, filename string, f Format, visit func(Entry, bool
 	case TarBz2:
 		r = bzip2.NewReader(r)
 	case TarXz:
-		xr, err := xz.NewReader(r)
+		stat, err := file.Stat()
 		if err != nil {
+			return err
+		}
+		if err := preflightXZ(contextReaderAt{ctx, file}, stat.Size()); err != nil {
 			return fmt.Errorf("%w: %v", ErrUnsafe, err)
 		}
-		r = xr
+		r = &boundedXZReader{blocks: xzBlocks{c: xzCursor{r: contextReaderAt{ctx, file}, size: stat.Size()}}}
 	case TarZst:
 		zr, err := zstd.NewReader(r, zstd.WithDecoderLowmem(true), zstd.WithDecoderConcurrency(1))
 		if err != nil {

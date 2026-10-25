@@ -963,3 +963,80 @@ func TestPrivateProjectionCannotReplaceFilesystemRoot(t *testing.T) {
 		t.Fatalf("root projection did not fail closed: %v", err)
 	}
 }
+
+func TestServicePrivateStateProjectionKeepsOnlyOwnGrants(t *testing.T) {
+	raw, err := os.MkdirTemp(".", ".service-projection-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(raw) })
+	root, err := filepath.Abs(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateRoot := mkdir(t, filepath.Join(root, "daemon"))
+	code := mkdir(t, filepath.Join(stateRoot, "services", "own", "code"))
+	state := mkdir(t, filepath.Join(stateRoot, "services", "own", "state"))
+	sibling := mkdir(t, filepath.Join(stateRoot, "services", "other"))
+	metadata := filepath.Join(stateRoot, "metadata")
+	if err := os.WriteFile(metadata, []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	xdg := mkdir(t, filepath.Join(root, "xdg", "lyk"))
+	hidden := []string{filepath.Join(root, "actual.json"), filepath.Join(xdg, "config.json"), filepath.Join(root, "daemon.log")}
+	scratch := mkdir(t, filepath.Join(root, "runs"))
+	bases := mkdir(t, filepath.Join(root, "bases"))
+	base := mkdir(t, filepath.Join(bases, "python"))
+	otherRun := mkdir(t, filepath.Join(scratch, "other"))
+	otherStudy := mkdir(t, filepath.Join(bases, "studies", "other"))
+	p := Policy{Home: tempDir(t), RestrictedRoots: []string{stateRoot, scratch, bases}, Read: []string{code, base}, Write: []string{state}, Hidden: hidden}
+	args, err := p.bwrapArgs("/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"--tmpfs " + scratch, "--tmpfs " + bases, "--ro-bind " + base + " " + base, "--tmpfs " + stateRoot, "--ro-bind " + code + " " + code, "--bind " + state + " " + state} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q: %s", want, joined)
+		}
+	}
+	for _, path := range hidden {
+		if !strings.Contains(joined, "--ro-bind /dev/null "+path) {
+			t.Fatalf("missing late config mask: %s", joined)
+		}
+	}
+	for _, path := range []string{sibling, metadata, otherRun, otherStudy} {
+		if strings.Contains(joined, "--ro-bind "+path+" ") || strings.Contains(joined, "--bind "+path+" ") {
+			t.Fatalf("private sibling rebound: %s", joined)
+		}
+	}
+	if strings.Index(joined, "--tmpfs "+stateRoot) > strings.Index(joined, "--ro-bind "+code+" ") {
+		t.Fatal("own code hidden after grant")
+	}
+
+	ownRun := mkdir(t, filepath.Join(scratch, "own"))
+	ownStudy := mkdir(t, filepath.Join(bases, "studies", "own"))
+	p.Read = []string{base}
+	p.Write = []string{ownRun, ownStudy}
+	p.Hidden = append(p.Hidden, stateRoot)
+	p.RestrictedRoots = []string{scratch, bases}
+	args, err = p.bwrapArgs("/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(args, " ")
+	for _, path := range []string{ownRun, ownStudy} {
+		if !strings.Contains(joined, "--bind "+path+" "+path) {
+			t.Fatal("Door lost own grant", joined)
+		}
+	}
+	for _, path := range []string{otherRun, otherStudy} {
+		if strings.Contains(joined, "--ro-bind "+path+" ") {
+			t.Fatal("Door reopened another run/study", joined)
+		}
+	}
+}

@@ -651,3 +651,47 @@ func TestToolsOnlyLockRequiresAUsableRecordedDefault(t *testing.T) {
 		})
 	}
 }
+
+func TestRejectedLockPreservesReadyEnvironment(t *testing.T) {
+	for _, failure := range []string{"python", "unresolvable"} {
+		t.Run(failure, func(t *testing.T) {
+			s, _ := condaStudy(t)
+			if _, err := s.SetUpConda(t.Context(), "3.11", []string{"ffmpeg"}, ""); err != nil {
+				t.Fatal(err)
+			}
+			prefix := filepath.Join(s.Dir, "conda")
+			tool := filepath.Join(prefix, "previous-dependency")
+			if err := os.WriteFile(tool, []byte("preserve installed tool"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			original := s.Run
+			s.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+				if strings.Contains(strings.Join(args, " "), "--dry-run") {
+					if failure == "unresolvable" {
+						return nil, errors.New("unresolvable lock")
+					}
+					return []byte(`{"success":true,"actions":{"LINK":[{"name":"python","version":"3.12.1"}]}}`), nil
+				}
+				return original(ctx, env, dir, name, args...)
+			}
+			_, err := s.SetUpConda(t.Context(), "", nil, filepath.Join(s.Dir, "candidate.lock"))
+			want := "This study uses Python 3.11; a study keeps one Python version."
+			if failure == "unresolvable" {
+				want = "unresolvable lock"
+			}
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("wanted %q, got %v", want, err)
+			}
+			if data, err := os.ReadFile(tool); err != nil || string(data) != "preserve installed tool" {
+				t.Fatalf("rejected lock deleted working tool: %q %v", data, err)
+			}
+			if !s.condaReady() || !s.condaPython() {
+				t.Fatal("rejected lock removed ready marker or Python")
+			}
+			plans, err := filepath.Glob(filepath.Join(s.Dir, ".conda-plan-*"))
+			if err != nil || len(plans) != 0 {
+				t.Fatalf("candidate leftovers: %v %v", plans, err)
+			}
+		})
+	}
+}

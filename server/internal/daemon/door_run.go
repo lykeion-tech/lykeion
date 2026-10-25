@@ -126,6 +126,16 @@ func (d *Door) sandboxPolicy() error {
 	}
 	dir := d.Child().Dir
 	d.policy = sandbox.Policy{Home: home, Write: []string{dir, d.Study.Dir, tmp}, Hidden: slices.Clone(d.PrivatePaths)}
+	for _, root := range append(slices.Clone(d.PrivateRoots), d.Study.Bases.Dir) {
+		if root == "" || slices.Contains(d.policy.RestrictedRoots, root) {
+			continue
+		}
+		if err := sandbox.PrepareRestrictedRoot(home, root); err != nil {
+			return err
+		}
+		d.policy.RestrictedRoots = append(d.policy.RestrictedRoots, root)
+	}
+
 	if err := protectRunFolder(&d.policy, dir, true, &d.placeholders); err != nil {
 		return err
 	}

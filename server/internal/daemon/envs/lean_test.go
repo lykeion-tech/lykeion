@@ -74,6 +74,34 @@ func TestLeanPairIsBuiltOnceAndShared(t *testing.T) {
 		if err != nil || !strings.Contains(string(body), filepath.Join(pair, "mathlib")) {
 			t.Fatalf("project: %s %v", body, err)
 		}
+		manifestBytes, err := os.ReadFile(filepath.Join(s.Dir, "lean", "lake-manifest.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest struct {
+			Packages []map[string]any `json:"packages"`
+		}
+		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if len(manifest.Packages) != len(leanFixtureDeps)+1 {
+			t.Fatalf("packages: %s", manifestBytes)
+		}
+		for i, p := range manifest.Packages {
+			name, path, config, inherited := "mathlib", filepath.Join(pair, "mathlib"), "lakefile.lean", false
+			if i < len(leanFixtureDeps) {
+				name, inherited, config = leanFixtureDeps[i][0], true, "lakefile.toml"
+				path = filepath.Join(pair, "mathlib", ".lake", "packages", name)
+			}
+			if p["name"] != name || p["type"] != "path" || p["dir"] != path || !filepath.IsAbs(path) || p["inherited"] != inherited || p["configFile"] != config || p["manifestFile"] != "lake-manifest.json" {
+				t.Fatalf("package %d: %v", i, p)
+			}
+			for _, field := range []string{"url", "rev", "inputRev", "subDir"} {
+				if _, ok := p[field]; ok {
+					t.Fatalf("git locator %s retained: %v", field, p)
+				}
+			}
+		}
 		next := newStudy(b, s.Dir)
 		e, err = next.Environment(ctx)
 		if err != nil {
@@ -138,7 +166,7 @@ var leanFixtureDeps = [][3]string{
 func leanFixtureManifest() map[string]any {
 	packages := []map[string]any{}
 	for _, p := range leanFixtureDeps {
-		packages = append(packages, map[string]any{"name": p[0], "url": "https://github.com/" + p[1], "rev": p[2], "type": "git", "subDir": nil, "configFile": "lakefile.toml", "manifestFile": "lake-manifest.json"})
+		packages = append(packages, map[string]any{"name": p[0], "url": "https://github.com/" + p[1], "rev": p[2], "type": "git", "subDir": nil, "inputRev": "main", "configFile": "lakefile.toml", "manifestFile": "lake-manifest.json"})
 	}
 	return map[string]any{"version": "1.2.0", "packagesDir": ".lake/packages", "lakeDir": ".lake", "packages": packages}
 }

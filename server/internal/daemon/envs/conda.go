@@ -168,11 +168,6 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 	if !ready || lock != "" {
 		action = "create"
 	}
-	if !ready || lock != "" {
-		if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `rm -rf -- "$1"`, "sh", prefix); err != nil {
-			return "", err
-		}
-	}
 	mm := filepath.Join(s.Bases.Dir, "micromamba", micromambaVersion, "micromamba")
 	env := []string{"MAMBA_ROOT_PREFIX=" + filepath.Join(s.Dir, ".mamba")}
 	args := []string{"--no-rc", action, "-y", "-p", prefix, "-c", "conda-forge", "-c", "bioconda", "--override-channels"}
@@ -185,8 +180,32 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 	} else {
 		args = append(args, pkgs...)
 	}
-	if output, err := s.checkCondaPlan(ctx, env, mm, args); err != nil {
+	planArgs := append([]string(nil), args...)
+	if action == "create" {
+		// Resolve against a fresh sandbox-owned prefix before touching the
+		// working environment. A refused lock must preserve its installed tools.
+		out, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `mktemp -d "$1/.conda-plan-XXXXXXXX"`, "sh", s.Dir)
+		if err != nil {
+			return "", err
+		}
+		candidate := strings.TrimSpace(string(out))
+		if filepath.Dir(candidate) != s.Dir || !strings.HasPrefix(filepath.Base(candidate), ".conda-plan-") {
+			return "", errors.New("invalid conda candidate folder")
+		}
+		defer func() {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			s.Run(cleanup, nil, s.Dir, "/bin/sh", "-c", `rm -rf -- "$1"`, "sh", candidate)
+		}()
+		planArgs[4] = filepath.Join(candidate, "env")
+	}
+	if output, err := s.checkCondaPlan(ctx, env, mm, planArgs); err != nil {
 		return output, err
+	}
+	if action == "create" {
+		if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `rm -rf -- "$1"`, "sh", prefix); err != nil {
+			return "", err
+		}
 	}
 	// Readiness is committed only after installation and compatibility checks.
 	if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `rm -f -- "$1/.lyk-ready"`, "sh", prefix); err != nil {
