@@ -20,6 +20,11 @@ var notInRunFolder = map[string]string{
 
 	".py": "a script extension", ".r": "a script extension", ".R": "a script extension", ".jl": "a script extension",
 	".json": "a file suffix", ".jsonl": "a file suffix", ".tmp": "a file suffix", ".overflow.json": "a file suffix", ".config.toml": "a file suffix",
+	".d":      "extracted attachment tree suffix in the daemon state cache",
+	".ok":     "attachment verification marker suffix in the daemon state cache",
+	".part":   "partial extraction suffix in daemon-owned attachment caches and service folders",
+	".tar.gz": "attachment archive filename suffix", ".tar.xz": "attachment archive filename suffix", ".tar.bz2": "attachment archive filename suffix", ".tar.zst": "attachment archive filename suffix",
+	".tgz": "attachment archive filename suffix", ".zip": "attachment archive filename suffix", ".tar": "attachment archive filename suffix",
 	".cache": "inside .home", ".config": "inside .home", ".local": "inside .home", ".state": "inside .home",
 	".credentials.json": "inside .cli-home", ".lyk-usage.json": "inside .cli-home", ".lyk-bin": "inside .cli-home",
 	".system_generated":        "inside the CLI's session store",
