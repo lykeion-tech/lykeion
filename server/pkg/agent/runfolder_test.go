@@ -15,8 +15,9 @@ import (
 // notInRunFolder are the dot-names the adapters and the daemon use that are
 // not paths of their own at the top of a run's folder.
 var notInRunFolder = map[string]string{
-	".lyk": "app-owned shared data under personal home",
-	".ssh": "personal home credential store", ".aws": "personal home credential store", ".gnupg": "personal home credential store", ".netrc": "personal home credential file", ".docker": "personal home credential store", ".kube": "personal home credential store", ".npmrc": "personal home credential file", ".pypirc": "personal home credential file", ".git-credentials": "personal home credential file", ".caches": "shared cache beside run folders",
+	".lyk":     "app-owned shared data under personal home",
+	".signin-": "temporary sign-in copy inside the guest CLI config home",
+	".ssh":     "personal home credential store", ".aws": "personal home credential store", ".gnupg": "personal home credential store", ".netrc": "personal home credential file", ".docker": "personal home credential store", ".kube": "personal home credential store", ".npmrc": "personal home credential file", ".pypirc": "personal home credential file", ".git-credentials": "personal home credential file", ".caches": "shared cache beside run folders",
 
 	".py": "a script extension", ".r": "a script extension", ".R": "a script extension", ".jl": "a script extension",
 	".json": "a file suffix", ".jsonl": "a file suffix", ".tmp": "a file suffix", ".overflow.json": "a file suffix", ".config.toml": "a file suffix",

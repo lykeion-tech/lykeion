@@ -32,6 +32,8 @@ type ExecOptions struct {
 	Sandbox            SandboxCommand
 	CLIPaths           CLIPaths
 	CacheDir           string
+	// ConfigHome overrides the account config home for this run.
+	ConfigHome string
 	// SkillsFrom is a folder of skill folders Lykeion staged for this run.
 	// Each time the scratch is prepared they are copied afresh into the run
 	// folder's skills folder; the account's own skills folder is never written.

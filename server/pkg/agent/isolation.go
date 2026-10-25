@@ -120,7 +120,7 @@ func prepareScratch(o *ExecOptions, harness string) (home string, cleanup scratc
 	if err = placeSkills(o, harness); err != nil {
 		return "", cleanup, err
 	}
-	o.CLIPaths, err = SandboxPaths(harness, accountHome(harness), dir, o.Resume, runtime.GOOS)
+	o.CLIPaths, err = SandboxPaths(harness, runConfigHome(harness, o.ConfigHome), dir, o.Resume, runtime.GOOS)
 	if err != nil {
 		return "", cleanup, err
 	}
@@ -245,6 +245,10 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 		if ok && inheritedEnvKey(k) {
 			values[k] = v
 		}
+	}
+	if o.ConfigHome != "" {
+		values["CODEX_HOME"] = o.ConfigHome
+		values["CLAUDE_CONFIG_DIR"] = o.ConfigHome
 	}
 	if cacheDir != "" {
 		for k, sub := range map[string]string{"npm_config_cache": "npm", "UV_CACHE_DIR": "uv", "UV_PYTHON_INSTALL_DIR": "uv-python", "UV_TOOL_DIR": "uv-tools"} {

@@ -10,11 +10,14 @@ var sessionToken = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
 
 // SessionReachable reports whether the account's CLI store holds a transcript,
 // including a session whose original working folder no longer exists.
-func SessionReachable(harness, session string) bool {
+func SessionReachable(harness, session string, configHome ...string) bool {
 	if !sessionToken.MatchString(session) {
 		return false
 	}
 	home := accountHome(harness)
+	if len(configHome) != 0 {
+		home = runConfigHome(harness, configHome[0])
+	}
 	if home == "" {
 		return false
 	}
@@ -59,4 +62,11 @@ func accountHome(harness string) string {
 		return ""
 	}
 	return filepath.Join(real, dflt)
+}
+
+func runConfigHome(harness, configHome string) string {
+	if configHome != "" {
+		return configHome
+	}
+	return accountHome(harness)
 }

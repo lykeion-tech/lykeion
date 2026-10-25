@@ -23,7 +23,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	if err != nil {
 		return nil, err
 	}
-	personal := readCodexConfig(accountHome("codex"))
+	personal := readCodexConfig(runConfigHome("codex", o.ConfigHome))
 	// Codex events name no model, so the run must know which one it chose.
 	model := o.Model
 	if model == "" {
