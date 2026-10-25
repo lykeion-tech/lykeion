@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -1488,5 +1489,56 @@ func TestStudyVariablesNeverReplaceLykeions(t *testing.T) {
 	want := []string{"PATH=/a", "VIRTUAL_ENV=/generated", "LYK_DOOR=door", "X=1", "Z=3"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("merged %#v, want %#v", got, want)
+	}
+}
+
+func TestCLIStartupControlsAreReserved(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is unavailable for the harmless preload check")
+	}
+	t.Setenv("NODE_OPTIONS", "")
+	t.Setenv("NODE_PATH", "")
+	f := fixture(t)
+	_, err := f.env.Owner.Exec(t.Context(), `UPDATE card SET env=$1 WHERE id=$2`, `{"NODE_OPTIONS":"--require ./marker.cjs","NODE_PATH":"/study/node","CODEX_CONFIG":"study-config","ANTHROPIC_BASE_URL":"http://study.invalid","CODEX_CA_CERTIFICATE":"/study/ca","PYTHONPATH":"sdk"}`, f.card)
+	must(t, err)
+	cli := f.cfg.Harnesses["claude"]
+	script, err := os.ReadFile(cli)
+	must(t, err)
+	prelude := `#!/bin/sh
+cd "$(dirname "$LYK_CONFIG")" || exit 70
+printf '%s\n' "require('fs').writeFileSync('preload-marker', 'ran')" > marker.cjs
+node -e "require('fs').writeFileSync('node-body', 'ran')" || exit 71
+[ "$PYTHONPATH" = sdk ] && : > pythonpath-seen
+[ "$NODE_PATH" = /study/node ] && : > nodepath-seen
+[ "$CODEX_CONFIG" = study-config ] && : > codexconfig-seen
+[ "$ANTHROPIC_BASE_URL" = http://study.invalid ] && : > endpoint-seen
+[ "$CODEX_CA_CERTIFICATE" = /study/ca ] && : > tls-seen
+`
+	must(t, os.WriteFile(cli, []byte(strings.Replace(string(script), "#!/bin/sh\n", prelude, 1)), 0700))
+	var body, pythonpath, preload, nodepath, config, endpoint, tls bool
+	f.atRunEnd(func(dir string) {
+		_, err := os.Stat(filepath.Join(dir, "node-body"))
+		body = err == nil
+		_, err = os.Stat(filepath.Join(dir, "pythonpath-seen"))
+		pythonpath = err == nil
+		_, err = os.Stat(filepath.Join(dir, "preload-marker"))
+		preload = err == nil
+		_, err = os.Stat(filepath.Join(dir, "nodepath-seen"))
+		nodepath = err == nil
+		_, err = os.Stat(filepath.Join(dir, "codexconfig-seen"))
+		config = err == nil
+		_, err = os.Stat(filepath.Join(dir, "endpoint-seen"))
+		endpoint = err == nil
+		_, err = os.Stat(filepath.Join(dir, "tls-seen"))
+		tls = err == nil
+	})
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	if !body || !pythonpath {
+		t.Fatalf("fake CLI body or allowed PYTHONPATH missing: body=%t pythonpath=%t", body, pythonpath)
+	}
+	if preload || nodepath || config || endpoint || tls {
+		t.Fatalf("study startup control reached CLI: preload=%t nodepath=%t config=%t endpoint=%t tls=%t", preload, nodepath, config, endpoint, tls)
 	}
 }

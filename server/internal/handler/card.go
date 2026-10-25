@@ -19,6 +19,7 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -56,11 +57,7 @@ func checkStudyEnv(env map[string]string) error {
 		if !valid {
 			return cardInputError("invalid study variable name: " + name)
 		}
-		if slices.Contains([]string{"PATH", "HOME", "TMPDIR", "SHELL", "USER"}, name) ||
-			strings.HasPrefix(name, "LD_") || strings.HasPrefix(name, "DYLD_") || strings.HasPrefix(name, "LYK_") ||
-			strings.HasPrefix(name, "VIRTUAL_ENV") || strings.HasPrefix(name, "PYTHONHOME") ||
-			strings.HasPrefix(name, "CONDA_") || strings.HasPrefix(name, "MAMBA_") || strings.HasPrefix(name, "ELAN_") ||
-			strings.HasPrefix(name, "R_") || strings.HasPrefix(name, "JULIA_") || strings.HasPrefix(name, "JUPYTER_") {
+		if agent.ReservedStudyEnvKey(name) {
 			return cardInputError("study variable name is reserved: " + name)
 		}
 		value := env[name]

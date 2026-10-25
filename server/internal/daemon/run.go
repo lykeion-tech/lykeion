@@ -200,6 +200,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		study = envs.ForStudy(d.bases, studyDir)
 	}
+	studyEnv := acceptedStudyEnv(c.Env)
 	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path + os.Getenv("PATH"),
 	}}
@@ -211,7 +212,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// The CLI's one MCP server; add-on servers are reached through it too. The
 	// call token stays with the door. Child reads opts when a local command
 	// starts, after any change below.
-	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, StudyEnv: c.Env,
+	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, StudyEnv: studyEnv,
 		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions { return opts }}
 	if err = door.Start(); err != nil {
 		fail(err)
@@ -220,7 +221,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	defer door.Close()
 	opts.DoorURL, opts.DoorToken = door.URL, door.Token
 	opts.Env = append(opts.Env, "LYK_DOOR="+door.URL, "LYK_DOOR_TOKEN="+door.Token)
-	opts.Env = mergeEnv(opts.Env, c.Env)
+	opts.Env = mergeEnv(opts.Env, studyEnv)
 	if cont, err = d.beginContinuity(c, pol); err != nil {
 		fail(err)
 		return nil
@@ -700,6 +701,16 @@ func mergeEnv(base []string, extra map[string]string) []string {
 	out := slices.Clone(base)
 	for _, name := range names {
 		out = append(out, name+"="+extra[name])
+	}
+	return out
+}
+
+func acceptedStudyEnv(extra map[string]string) map[string]string {
+	out := make(map[string]string, len(extra))
+	for name, value := range extra {
+		if !agent.ReservedStudyEnvKey(name) {
+			out[name] = value
+		}
 	}
 	return out
 }
