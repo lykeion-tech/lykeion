@@ -5,11 +5,11 @@ UPDATE workspace SET card_counter = card_counter + 1 WHERE id = @id RETURNING ca
 -- the workspace row, so two creates never read the same minimum.
 -- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
-  scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id)
+  scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, env)
 VALUES (@workspace_id, @number, @title, @question, @owner_id, @deadline, @follows_from,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = @workspace_id AND b.board_column = @board_column::text), 1) - 1,
   COALESCE(NULLIF(@scope_from::text, ''), 'grounding'), COALESCE(NULLIF(@scope_to::text, ''), 'reporting'),
-  sqlc.narg(assignee_type), sqlc.narg(assignee_id), @board_column::text, @round, sqlc.narg(research_id))
+  sqlc.narg(assignee_type), sqlc.narg(assignee_id), @board_column::text, @round, sqlc.narg(research_id), COALESCE(sqlc.narg(env)::jsonb, '{}'::jsonb))
 RETURNING *;
 
 -- name: InsertCardTeam :exec

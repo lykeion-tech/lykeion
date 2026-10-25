@@ -12,6 +12,16 @@ import (
 func TestAttachmentsMigration(t *testing.T) {
 	env := testutil.Setup(t)
 	ctx := t.Context()
+	// Exercise the original attachment migration before later schema changes.
+	for _, name := range []string{"0022_runtime_additions.down.sql"} {
+		b, err := fs.ReadFile(migrations.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := env.Owner.Exec(ctx, string(b)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	u, ws, card := seedWorkspace(t, env)
 	ins := `INSERT INTO attachment (workspace_id, uploader_id, card_id, name, content_type, size_bytes, sha256, blob_key)
 		VALUES ($1, $2, $3, 'a.csv', 'text/csv', $4, 'h', 'k')`

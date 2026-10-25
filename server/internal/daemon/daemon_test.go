@@ -1279,7 +1279,7 @@ func (f *daemonFixture) attach(t *testing.T, diskName, data string) {
 	key := f.ws.String() + "/attachments/" + id.String()
 	must(t, f.h.Blobs.Put(ctx, key, strings.NewReader(data), int64(len(data))))
 	must(t, f.runs.Store.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
-		if _, err := tx.Q.InsertPendingAttachment(ctx, db.InsertPendingAttachmentParams{ID: id, WorkspaceID: f.ws, UploaderID: f.user, Name: diskName,
+		if _, err := tx.Q.InsertPendingAttachment(ctx, db.InsertPendingAttachmentParams{ID: id, WorkspaceID: f.ws, UploaderID: f.user, Name: diskName, Kind: "file",
 			ContentType: "text/csv", SizeBytes: int64(len(data)), Sha256: hex.EncodeToString(sum[:]), BlobKey: key}); err != nil {
 			return err
 		}

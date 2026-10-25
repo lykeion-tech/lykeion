@@ -140,6 +140,13 @@ type Attachment struct {
 	TextSizeBytes int64      `json:"text_size_bytes"`
 	RecordKey     string     `json:"record_key"`
 	CreatedAt     time.Time  `json:"created_at"`
+	Kind          string     `json:"kind"`
+	ServiceName   *string    `json:"service_name"`
+	ServiceStart  *string    `json:"service_start"`
+	ServiceClient *string    `json:"service_client"`
+	ServiceEnv    []string   `json:"service_env"`
+	InnerFiles    int32      `json:"inner_files"`
+	UnpackedBytes int64      `json:"unpacked_bytes"`
 }
 
 type Autoresearch struct {
@@ -215,36 +222,37 @@ type AutoresearchTrigger struct {
 }
 
 type Card struct {
-	ID           uuid.UUID   `json:"id"`
-	WorkspaceID  uuid.UUID   `json:"workspace_id"`
-	Number       int32       `json:"number"`
-	Title        string      `json:"title"`
-	Question     string      `json:"question"`
-	OwnerID      uuid.UUID   `json:"owner_id"`
-	Deadline     *time.Time  `json:"deadline"`
-	SpentUsd     float64     `json:"spent_usd"`
-	BoardColumn  string      `json:"board_column"`
-	State        string      `json:"state"`
-	Flag         string      `json:"flag"`
-	Ending       string      `json:"ending"`
-	EndReason    string      `json:"end_reason"`
-	Rounds       int32       `json:"rounds"`
-	FollowsFrom  []uuid.UUID `json:"follows_from"`
-	Version      int64       `json:"version"`
-	CreatedAt    time.Time   `json:"created_at"`
-	Round        int32       `json:"round"`
-	HandoffNote  string      `json:"handoff_note"`
-	GatingUntil  *time.Time  `json:"gating_until"`
-	Position     float64     `json:"position"`
-	ResearchID   *uuid.UUID  `json:"research_id"`
-	AssigneeType *string     `json:"assignee_type"`
-	AssigneeID   *uuid.UUID  `json:"assignee_id"`
-	Origin       string      `json:"origin"`
-	PackID       *uuid.UUID  `json:"pack_id"`
-	BlockKind    string      `json:"block_kind"`
-	ScopeFrom    string      `json:"scope_from"`
-	ScopeTo      string      `json:"scope_to"`
-	Redos        int32       `json:"redos"`
+	ID           uuid.UUID       `json:"id"`
+	WorkspaceID  uuid.UUID       `json:"workspace_id"`
+	Number       int32           `json:"number"`
+	Title        string          `json:"title"`
+	Question     string          `json:"question"`
+	OwnerID      uuid.UUID       `json:"owner_id"`
+	Deadline     *time.Time      `json:"deadline"`
+	SpentUsd     float64         `json:"spent_usd"`
+	BoardColumn  string          `json:"board_column"`
+	State        string          `json:"state"`
+	Flag         string          `json:"flag"`
+	Ending       string          `json:"ending"`
+	EndReason    string          `json:"end_reason"`
+	Rounds       int32           `json:"rounds"`
+	FollowsFrom  []uuid.UUID     `json:"follows_from"`
+	Version      int64           `json:"version"`
+	CreatedAt    time.Time       `json:"created_at"`
+	Round        int32           `json:"round"`
+	HandoffNote  string          `json:"handoff_note"`
+	GatingUntil  *time.Time      `json:"gating_until"`
+	Position     float64         `json:"position"`
+	ResearchID   *uuid.UUID      `json:"research_id"`
+	AssigneeType *string         `json:"assignee_type"`
+	AssigneeID   *uuid.UUID      `json:"assignee_id"`
+	Origin       string          `json:"origin"`
+	PackID       *uuid.UUID      `json:"pack_id"`
+	BlockKind    string          `json:"block_kind"`
+	ScopeFrom    string          `json:"scope_from"`
+	ScopeTo      string          `json:"scope_to"`
+	Redos        int32           `json:"redos"`
+	Env          json.RawMessage `json:"env"`
 }
 
 type CardTeam struct {

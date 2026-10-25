@@ -215,7 +215,7 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	err = h.Store.InWorkspace(r.Context(), ws, user(r), func(tx *store.Tx) error {
 		var err error
 		row, err = tx.Q.InsertPendingAttachment(r.Context(), db.InsertPendingAttachmentParams{
-			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key, TextSha256: textSum, TextSizeBytes: textSize})
+			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, Kind: "file", ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key, TextSha256: textSum, TextSizeBytes: textSize})
 		return err
 	})
 	if err != nil {
