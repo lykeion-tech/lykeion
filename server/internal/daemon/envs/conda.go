@@ -152,14 +152,7 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 	if err := s.checkDefaultPython(ctx); err != nil {
 		return "", err
 	}
-	preserveVenv := false
-	if lock == "" && s.RecordedPython() != "" && s.hasVenv() {
-		version, err := s.Run(ctx, nil, s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-I", "-c", `import sys; print('%d.%d' % sys.version_info[:2])`)
-		if err != nil {
-			return "", err
-		}
-		preserveVenv = strings.TrimSpace(string(version)) == s.RecordedPython()
-	}
+	preserveVenv := lock == "" && s.RecordedPython() != ""
 	if python != "" {
 		if err := s.pin(ctx, python); err != nil {
 			return "", err
@@ -234,11 +227,28 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 			}
 		}
 		if !ready || !hadPython || !s.hasVenv() || lock != "" {
+			preserveVenv = preserveVenv && s.venvMinor(ctx) == s.RecordedPython()
 			if err := s.condaVenv(ctx, preserveVenv); err != nil {
 				return tail(string(out), 4096), err
 			}
 		}
 	}
+	if lock != "" && !s.condaPython() && s.RecordedPython() != "" {
+		version := s.RecordedPython()
+		incompatible := fmt.Errorf("the lock must provide this study's Python %s with ipykernel", version)
+		// Only the default base can supply Python independently of conda.
+		if version != "3.13" || !s.hasVenv() {
+			return tail(string(out), 4096), incompatible
+		}
+		actual, err := s.Run(ctx, env, s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-I", "-c", `import sys, ipykernel; print('%d.%d' % sys.version_info[:2])`)
+		if err != nil {
+			return tail(string(out), 4096), fmt.Errorf("%w: %v", incompatible, err)
+		}
+		if strings.TrimSpace(string(actual)) != version {
+			return tail(string(out), 4096), incompatible
+		}
+	}
+
 	exported, err := s.Run(ctx, env, s.Dir, mm, "--no-rc", "env", "export", "-p", prefix, "--explicit")
 	if err != nil {
 		return tail(string(out), 4096), err
@@ -301,6 +311,28 @@ func (s *Study) checkCondaPython(ctx context.Context, env []string) (string, err
 	}
 	version := strings.TrimSpace(string(actual))
 	return version, s.pin(ctx, version)
+}
+
+// Read the venv's metadata in the sandbox: its old executable may be broken.
+func (s *Study) venvMinor(ctx context.Context) string {
+	cfg, err := s.Run(ctx, nil, s.Dir, "/bin/cat", filepath.Join(s.Dir, "python", "pyvenv.cfg"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(cfg), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) != "version" {
+			continue
+		}
+		parts := strings.SplitN(strings.TrimSpace(value), ".", 3)
+		if len(parts) == 3 {
+			minor := parts[0] + "." + parts[1]
+			if ValidPythonVersion(minor) {
+				return minor
+			}
+		}
+	}
+	return ""
 }
 
 func (s *Study) condaVenv(ctx context.Context, preserve bool) error {

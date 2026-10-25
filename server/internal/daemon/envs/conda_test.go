@@ -23,6 +23,7 @@ func condaStudy(t *testing.T) (*Study, *[]string) {
 	}
 	calls := []string{}
 	s := ForStudy(b, t.TempDir())
+	venvVersion := "3.13"
 	s.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
 		line := name + " " + strings.Join(args, " ")
 		calls = append(calls, line)
@@ -36,10 +37,13 @@ func condaStudy(t *testing.T) (*Study, *[]string) {
 			return json.Marshal(map[string]any{"success": true, "actions": map[string]any{"LINK": []map[string]string{{"name": "python", "version": v}}}})
 		}
 		if strings.Contains(line, "sys.version_info") {
-			if name == filepath.Join(s.Dir, "python", "bin", "python") && !s.condaPython() {
-				return []byte("3.13\n"), nil
+			if name == filepath.Join(s.Dir, "python", "bin", "python") {
+				return []byte(venvVersion + "\n"), nil
 			}
 			return []byte("3.11\n"), nil
+		}
+		if name == filepath.Join(s.Dir, "conda", "bin", "python") && strings.Contains(line, "-m venv") {
+			venvVersion = "3.11"
 		}
 		if strings.Contains(line, "freeze --local") {
 			return nil, nil
@@ -49,7 +53,11 @@ func condaStudy(t *testing.T) (*Study, *[]string) {
 				t.Errorf("root %q", got)
 			}
 		}
-		return f.run(ctx, env, dir, name, args...)
+		out, err := f.run(ctx, env, dir, name, args...)
+		if err == nil && len(args) > 1 && args[0] == "-m" && args[1] == "venv" {
+			err = os.WriteFile(filepath.Join(s.Dir, "python", "pyvenv.cfg"), []byte("version = "+venvVersion+".12\n"), 0600)
+		}
+		return out, err
 	}
 	return s, &calls
 }
@@ -500,6 +508,145 @@ func TestLockAdditionsCannotChangePython(t *testing.T) {
 						t.Fatalf("installed different Python: %s", call)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestBrokenInterpreterDoesNotPreventCondaRecovery(t *testing.T) {
+	for _, automatic := range []bool{false, true} {
+		t.Run(fmt.Sprint(automatic), func(t *testing.T) {
+			s, calls := condaStudy(t)
+			if _, err := s.SetUpConda(context.Background(), "3.11", nil, ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(filepath.Join(s.Dir, "conda", ".lyk-ready")); err != nil {
+				t.Fatal(err)
+			}
+			original := s.Run
+			rebuilt := false
+			s.Run = func(c context.Context, e []string, d, n string, a ...string) ([]byte, error) {
+				args := strings.Join(a, " ")
+				if n == filepath.Join(s.Dir, "python", "bin", "python") && strings.Contains(args, "sys.version_info") {
+					return nil, errors.New("interpreter cannot load a library from the interrupted conda prefix")
+				}
+				if filepath.Base(n) == "micromamba" && strings.Contains(args, "create") && !strings.Contains(args, "--dry-run") {
+					rebuilt = true
+				}
+				return original(c, e, d, n, a...)
+			}
+			*calls = nil
+			var err error
+			if automatic {
+				err = s.prepare(context.Background())
+			} else {
+				_, err = s.SetUpConda(context.Background(), "", []string{"ffmpeg"}, "")
+			}
+			if err != nil || !rebuilt || !s.condaReady() {
+				t.Fatalf("half-made environment did not recover: %v; commands=%v", err, *calls)
+			}
+			if index(*calls, "--upgrade --system-site-packages") < 0 {
+				t.Fatalf("recovery did not preserve existing venv: %v", *calls)
+			}
+		})
+	}
+}
+
+func TestLockCannotRemoveTheChosenPython(t *testing.T) {
+	for _, state := range []string{"existing", "lost", "requested", "default-survives"} {
+		t.Run(state, func(t *testing.T) {
+			s, calls := condaStudy(t)
+			python := ""
+			if state == "existing" {
+				if _, err := s.SetUpConda(context.Background(), "3.11", nil, ""); err != nil {
+					t.Fatal(err)
+				}
+				venvPython := filepath.Join(s.Dir, "python", "bin", "python")
+				if err := os.Remove(venvPython); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(s.Dir, "conda", "bin", "python"), venvPython); err != nil {
+					t.Fatal(err)
+				}
+			} else if state == "requested" {
+				python = "3.11"
+			} else {
+				if state == "default-survives" {
+					if err := s.prepare(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := s.RememberPython("3.11"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			original := s.Run
+			s.Run = func(c context.Context, e []string, d, n string, a ...string) ([]byte, error) {
+				args := strings.Join(a, " ")
+				if filepath.Base(n) == "micromamba" && strings.Contains(args, "--file") {
+					if strings.Contains(args, "--dry-run") {
+						return []byte(`{"success":true,"actions":{"LINK":[]}}`), nil
+					}
+					return nil, os.MkdirAll(filepath.Join(s.Dir, "conda", "bin"), 0755)
+				}
+				return original(c, e, d, n, a...)
+			}
+			*calls = nil
+			_, err := s.SetUpConda(context.Background(), python, nil, "/tools-only-lock.txt")
+			if err == nil || !strings.Contains(err.Error(), "lock") || s.condaReady() {
+				t.Fatalf("lock without chosen Python accepted: err=%v ready=%v", err, s.condaReady())
+			}
+			for _, call := range *calls {
+				if strings.Contains(call, "micromamba") && strings.Contains(call, " install ") {
+					t.Fatalf("lock changed without requested additions: %s", call)
+				}
+			}
+		})
+	}
+}
+
+func TestToolsOnlyLockRequiresAUsableRecordedDefault(t *testing.T) {
+	for _, state := range []string{"compatible", "broken", "wrong-minor"} {
+		t.Run(state, func(t *testing.T) {
+			s, calls := condaStudy(t)
+			if err := s.prepare(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.RememberPython("3.13"); err != nil {
+				t.Fatal(err)
+			}
+			original := s.Run
+			checked := false
+			s.Run = func(c context.Context, e []string, d, n string, a ...string) ([]byte, error) {
+				args := strings.Join(a, " ")
+				if filepath.Base(n) == "micromamba" && strings.Contains(args, "--file") {
+					if strings.Contains(args, "--dry-run") {
+						return []byte(`{"success":true,"actions":{"LINK":[]}}`), nil
+					}
+					return nil, os.MkdirAll(filepath.Join(s.Dir, "conda", "bin"), 0755)
+				}
+				if strings.Contains(args, "import sys, ipykernel") {
+					checked = true
+					if state == "broken" {
+						return nil, errors.New("ModuleNotFoundError: ipykernel")
+					}
+					if state == "wrong-minor" {
+						return []byte("3.11"), nil
+					}
+				}
+				return original(c, e, d, n, a...)
+			}
+			*calls = nil
+			_, err := s.SetUpConda(context.Background(), "", nil, "/tools-only-lock.txt")
+			if state == "compatible" {
+				if err != nil || !s.condaReady() {
+					t.Fatalf("compatible default refused: %v", err)
+				}
+			} else if err == nil || s.condaReady() {
+				t.Fatalf("incompatible default accepted: %v", err)
+			}
+			if !checked {
+				t.Fatal("default interpreter and kernel were not checked")
 			}
 		})
 	}
