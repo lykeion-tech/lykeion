@@ -1,11 +1,16 @@
 package daemon
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"hash"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +27,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"bytes"
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/connectors"
@@ -127,6 +131,7 @@ func fixture(t *testing.T) *daemonFixture {
 	var token struct{ Token string }
 	must(t, (&apiclient.Client{Server: srv.URL, Token: jwt}).Do(ctx, "POST", "/api/tokens", map[string]string{"name": "daemon"}, &token))
 	f.cfg = Config{Server: srv.URL, Token: token.Token, StateDir: t.TempDir(), Home: t.TempDir(), Device: "test", Slots: 2, Poll: 40 * time.Millisecond, Heartbeat: 100 * time.Millisecond, Flush: 50 * time.Millisecond, Harnesses: map[string]string{"claude": fakeClaude(t)}}
+	t.Cleanup(func() { _ = agent.RemoveTree(f.cfg.StateDir) })
 	f.enqueue(t)
 	return f
 }
@@ -1290,6 +1295,232 @@ func (f *daemonFixture) attach(t *testing.T, diskName, data string) {
 	}))
 }
 
+func zipAttachment(t *testing.T, name, body string) string {
+	t.Helper()
+	var b bytes.Buffer
+	z := zip.NewWriter(&b)
+	w, err := z.Create(name)
+	must(t, err)
+	_, err = w.Write([]byte(body))
+	must(t, err)
+	must(t, z.Close())
+	return b.String()
+}
+
+func attachmentClaim(name, data string, unpacked int64, files int32) service.ClaimedAttachment {
+	sum := sha256.Sum256([]byte(data))
+	return service.ClaimedAttachment{ID: uuid.New(), DiskName: name, Sha256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(data)), UnpackedBytes: unpacked, InnerFiles: files}
+}
+
+// attachmentPlacement uses real downloads and placement without a database or CLI.
+func attachmentPlacement(t *testing.T, files []service.ClaimedAttachment, data map[uuid.UUID]string) (*daemon, func() (string, error), *atomic.Int32) {
+	t.Helper()
+	var downloads atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downloads.Add(1)
+		id, _ := uuid.Parse(strings.TrimPrefix(r.URL.Path, "/api/role/attachments/"))
+		b, ok := data[id]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(b))
+	}))
+	t.Cleanup(srv.Close)
+	d := &daemon{cfg: Config{StateDir: t.TempDir(), Server: srv.URL}}
+	t.Cleanup(func() { _ = agent.RemoveTree(d.cfg.StateDir) })
+	place := func() (string, error) {
+		dir := t.TempDir()
+		t.Cleanup(func() { _ = agent.RemoveTree(dir) })
+		c := claimed{Attachments: files}
+		c.AgentRun.Harness = "claude"
+		err := d.placeAttachments(t.Context(), c, dir)
+		return dir, err
+	}
+	return d, place, &downloads
+}
+
+func TestAnArchiveArrivesUnpackedAndReadOnly(t *testing.T) {
+	f := fixture(t)
+	body := zipAttachment(t, "a/b.txt", "research")
+	f.attach(t, "data.zip", body)
+	_, err := f.env.Owner.Exec(t.Context(), "UPDATE attachment SET unpacked_bytes=8, inner_files=2 WHERE card_id=$1", f.card)
+	must(t, err)
+	var got []byte
+	var mode os.FileMode
+	f.atRunEnd(func(dir string) {
+		path := filepath.Join(dir, "attachments", "data", "a", "b.txt")
+		got, _ = os.ReadFile(path)
+		if fi, err := os.Stat(path); err == nil {
+			mode = fi.Mode().Perm()
+		}
+	})
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" || f.status(t) == "failed" })
+	stopDaemon(t, cancel, done)
+	if string(got) != "research" || mode&0222 != 0 {
+		t.Fatalf("unpacked file=%q mode=%v status=%s", got, mode, f.status(t))
+	}
+}
+
+func TestAnArchiveIsUnpackedOnce(t *testing.T) {
+	body := zipAttachment(t, "a/b.txt", "payload")
+	a := attachmentClaim("data.zip", body, 7, 2)
+	d, place, _ := attachmentPlacement(t, []service.ClaimedAttachment{a}, map[uuid.UUID]string{a.ID: body})
+	_, err := place()
+	must(t, err)
+	path := filepath.Join(d.cfg.StateDir, "cache", "attachments", a.Sha256+".d")
+	first, err := os.Stat(path)
+	must(t, err)
+	_, err = place()
+	must(t, err)
+	second, err := os.Stat(path)
+	must(t, err)
+	if !os.SameFile(first, second) {
+		t.Fatal("unpacked cache was rebuilt")
+	}
+}
+
+func TestArchiveFoldersDoNotReplaceAttachments(t *testing.T) {
+	var tarBody bytes.Buffer
+	gz := gzip.NewWriter(&tarBody)
+	tw := tar.NewWriter(gz)
+	must(t, tw.WriteHeader(&tar.Header{Name: "value", Mode: 0600, Size: 3}))
+	_, err := tw.Write([]byte("tar"))
+	must(t, err)
+	must(t, tw.Close())
+	must(t, gz.Close())
+	names := []string{"data", "data.zip", "data.tar.gz", "bundle", "DATA (2).ZIP", "é.zip", "e\u0301.tar.gz"}
+	bodies := []string{"raw", zipAttachment(t, "value", "zip"), tarBody.String(), zipAttachment(t, "value", "extensionless"), zipAttachment(t, "value", "upper"), zipAttachment(t, "value", "accent"), zipAttachment(t, "value", "decomposed")}
+	folders := []string{"", "data (2)", "data (3)", "bundle (2)", "DATA (2) (2)", "é", "e\u0301 (2)"}
+	payloads := []string{"", "zip", "tar", "extensionless", "upper", "accent", "decomposed"}
+	var claims []service.ClaimedAttachment
+	data := map[uuid.UUID]string{}
+	for i, name := range names {
+		n := int32(1)
+		if i == 0 {
+			n = 0
+		}
+		a := attachmentClaim(name, bodies[i], int64(len(payloads[i])), n)
+		claims = append(claims, a)
+		data[a.ID] = bodies[i]
+	}
+	_, place, _ := attachmentPlacement(t, claims, data)
+	for run := 0; run < 2; run++ {
+		dir, err := place()
+		must(t, err)
+		instructions, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+		must(t, err)
+		for i, name := range names {
+			raw, err := os.ReadFile(filepath.Join(dir, "attachments", name))
+			must(t, err)
+			if string(raw) != bodies[i] {
+				t.Fatalf("raw %s replaced", name)
+			}
+			if folders[i] == "" {
+				continue
+			}
+			path := filepath.Join(dir, "attachments", folders[i], "value")
+			got, err := os.ReadFile(path)
+			must(t, err)
+			fi, err := os.Stat(path)
+			must(t, err)
+			if string(got) != payloads[i] || fi.Mode().Perm()&0222 != 0 {
+				t.Fatalf("folder %s payload=%q mode=%v", folders[i], got, fi.Mode())
+			}
+			if !strings.Contains(string(instructions), "attachments/"+name) || !strings.Contains(string(instructions), "attachments/"+folders[i]+"/") {
+				t.Fatalf("missing mapping %s -> %s: %s", name, folders[i], instructions)
+			}
+		}
+	}
+}
+
+func TestALyingArchiveFailsTheRunAndLeavesNoTree(t *testing.T) {
+	f := fixture(t)
+	body := zipAttachment(t, "a/b.txt", "research")
+	f.attach(t, "x.zip", body)
+	_, err := f.env.Owner.Exec(t.Context(), "UPDATE attachment SET unpacked_bytes=1, inner_files=2 WHERE card_id=$1", f.card)
+	must(t, err)
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "failed" || f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	var failure string
+	must(t, f.env.Owner.QueryRow(t.Context(), "SELECT error FROM agent_run WHERE id=$1", f.id).Scan(&failure))
+	if f.status(t) != "failed" || !strings.Contains(failure, `attached file "x.zip"`) {
+		t.Fatalf("status=%s error=%s", f.status(t), failure)
+	}
+	sum := sha256.Sum256([]byte(body))
+	root := filepath.Join(f.cfg.StateDir, "cache", "attachments", hex.EncodeToString(sum[:]))
+	for _, suffix := range []string{".d", ".d.part"} {
+		if _, err := os.Stat(root + suffix); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("left tree %s: %v", suffix, err)
+		}
+	}
+}
+
+func TestACompressedArchiveUsesItsUnpackedLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		bytes      int64
+		files      int32
+		ok         bool
+	}{
+		{"compressed", strings.Repeat("x", 10000), 10000, 1, true},
+		{"zero bytes", "x", 0, 1, false}, {"zero files", "", 0, 0, false}, {"empty file", "", 0, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := zipAttachment(t, "value", tc.body)
+			a := attachmentClaim("data.zip", body, tc.bytes, tc.files)
+			_, place, _ := attachmentPlacement(t, []service.ClaimedAttachment{a}, map[uuid.UUID]string{a.ID: body})
+			dir, err := place()
+			if tc.ok {
+				must(t, err)
+				got, err := os.ReadFile(filepath.Join(dir, "attachments", "data", "value"))
+				must(t, err)
+				if string(got) != tc.body {
+					t.Fatal("wrong payload")
+				}
+			} else if err == nil {
+				t.Fatal("claim limit ignored")
+			}
+		})
+	}
+}
+
+func TestAVerifiedCacheIsNotRehashed(t *testing.T) {
+	old := newAttachmentHash
+	var hashes atomic.Int32
+	newAttachmentHash = func() hash.Hash { hashes.Add(1); return old() }
+	t.Cleanup(func() { newAttachmentHash = old })
+	a := attachmentClaim("data.txt", "payload", 0, 0)
+	_, place, _ := attachmentPlacement(t, []service.ClaimedAttachment{a}, map[uuid.UUID]string{a.ID: "payload"})
+	_, err := place()
+	must(t, err)
+	_, err = place()
+	must(t, err)
+	if hashes.Load() != 1 {
+		t.Fatalf("hashed %d times, want download verification once", hashes.Load())
+	}
+}
+
+func TestATamperedCacheIsFetchedAgain(t *testing.T) {
+	a := attachmentClaim("data.txt", "payload", 0, 0)
+	d, place, gets := attachmentPlacement(t, []service.ClaimedAttachment{a}, map[uuid.UUID]string{a.ID: "payload"})
+	_, err := place()
+	must(t, err)
+	path := filepath.Join(d.cfg.StateDir, "cache", "attachments", a.Sha256)
+	must(t, os.Chmod(path, 0600))
+	must(t, os.WriteFile(path, []byte("changed"), 0444))
+	must(t, os.Chtimes(path, time.Now().Add(time.Hour), time.Now().Add(time.Hour)))
+	dir, err := place()
+	must(t, err)
+	got, err := os.ReadFile(filepath.Join(dir, "attachments", a.DiskName))
+	must(t, err)
+	if string(got) != "payload" || gets.Load() != 2 {
+		t.Fatalf("tamper got=%q downloads=%d", got, gets.Load())
+	}
+}
+
 // probingClaude is the fake CLI that first tries, from inside the run's
 // sandbox, to change the study's files or give one a second, writable name,
 // and writes what it managed to probe.txt in its run folder.
@@ -1540,5 +1771,88 @@ node -e "require('fs').writeFileSync('node-body', 'ran')" || exit 71
 	}
 	if preload || nodepath || config || endpoint || tls {
 		t.Fatalf("study startup control reached CLI: preload=%t nodepath=%t config=%t endpoint=%t tls=%t", preload, nodepath, config, endpoint, tls)
+	}
+}
+
+func TestACachedArchiveStillEnforcesEachClaimsLimits(t *testing.T) {
+	body := zipAttachment(t, "a/b.txt", "payload")
+	a := attachmentClaim("data.zip", body, 7, 2)
+	claims := []service.ClaimedAttachment{a}
+	_, place, _ := attachmentPlacement(t, claims, map[uuid.UUID]string{a.ID: body})
+	_, err := place()
+	must(t, err)
+	for _, limits := range []struct {
+		bytes int64
+		files int32
+	}{{6, 2}, {7, 1}, {0, 2}, {7, 0}} {
+		claims[0].UnpackedBytes = limits.bytes
+		claims[0].InnerFiles = limits.files
+		dir, err := place()
+		if err == nil {
+			t.Fatalf("cached archive bypassed limits %+v", limits)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "attachments", "data")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("published rejected tree: %v", err)
+		}
+	}
+}
+
+func TestConcurrentArchiveRunsBuildOneCacheTree(t *testing.T) {
+	body := zipAttachment(t, "a/b.txt", strings.Repeat("x", 10000))
+	a := attachmentClaim("data.zip", body, 10000, 2)
+	_, place, gets := attachmentPlacement(t, []service.ClaimedAttachment{a}, map[uuid.UUID]string{a.ID: body})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			dir, err := place()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			got, err := os.ReadFile(filepath.Join(dir, "attachments", "data", "a", "b.txt"))
+			if err != nil || len(got) != 10000 {
+				t.Errorf("concurrent tree bytes=%d err=%v", len(got), err)
+			}
+		})
+	}
+	wg.Wait()
+	if gets.Load() != 1 {
+		t.Fatalf("concurrent cache downloaded %d times", gets.Load())
+	}
+}
+
+func TestAnArchiveRecoversAReadOnlyPartialTree(t *testing.T) {
+	body := zipAttachment(t, "a/b.txt", "payload")
+	a := attachmentClaim("data.zip", body, 7, 2)
+	d, place, _ := attachmentPlacement(t, []service.ClaimedAttachment{a}, map[uuid.UUID]string{a.ID: body})
+	partial := filepath.Join(d.cfg.StateDir, "cache", "attachments", a.Sha256+".d.part")
+	must(t, os.MkdirAll(filepath.Join(partial, "stale"), 0700))
+	must(t, os.WriteFile(filepath.Join(partial, "stale", "old"), []byte("stale"), 0444))
+	must(t, os.Chmod(filepath.Join(partial, "stale"), 0555))
+	must(t, os.Chmod(partial, 0555))
+	dir, err := place()
+	must(t, err)
+	got, err := os.ReadFile(filepath.Join(dir, "attachments", "data", "a", "b.txt"))
+	must(t, err)
+	if string(got) != "payload" {
+		t.Fatal("wrong recovered payload")
+	}
+	if _, err := os.Stat(partial); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("left partial: %v", err)
+	}
+}
+
+func TestArchiveTreePlacementPreservesAnExistingDestination(t *testing.T) {
+	src := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(src, "value"), []byte("archive"), 0444))
+	dst := filepath.Join(t.TempDir(), "raw")
+	must(t, os.WriteFile(dst, []byte("raw file"), 0444))
+	if err := linkReadOnlyTree(src, dst); err == nil {
+		t.Fatal("existing destination replaced")
+	}
+	got, err := os.ReadFile(dst)
+	must(t, err)
+	if string(got) != "raw file" {
+		t.Fatalf("raw destination changed: %q", got)
 	}
 }

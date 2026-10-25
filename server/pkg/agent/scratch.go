@@ -183,6 +183,10 @@ func (r *ScratchReservation) Remove() error {
 	return nil
 }
 
+// RemoveTree removes an owned tree, including read-only directories, without
+// following links into other folders.
+func RemoveTree(dir string) error { return removeTree(dir) }
+
 // removeTree deletes a folder even where code left read-only folders in it,
 // as Go's module cache does, by making each folder writable first. Links are
 // not folders here, so nothing outside is changed.

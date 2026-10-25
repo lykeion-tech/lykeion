@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"math"
 	"net/http"
@@ -22,8 +23,10 @@ import (
 	"time"
 
 	"lykeion/server/internal/apiclient"
+	studyarchive "lykeion/server/internal/archive"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/toolroute"
 	"lykeion/server/pkg/agent"
@@ -335,10 +338,11 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 // placeAttachments puts the study's files in the run folder's attachments
 // folder, each read-only; the sandbox keeps the folder read-only too. Files
 // come through a cache in the daemon's state folder, keyed by sha256, which
-// no run can see. A cached file is checked before each use, and one that no
-// longer matches is fetched again. The run's copy is a hard link to the
-// cached file where the two share a file system: neither path is writable in
-// the sandbox, and Seatbelt refuses a link to a path it denies writing, while
+// no run can see. Verified size and mtime avoid hashing unchanged files.
+// A changed file is checked and fetched again if needed. The run's copy is a
+// hard link to the cached file where the two share a file system: neither
+// path is writable in the sandbox, and Seatbelt refuses a link to a path it
+// denies writing, while
 // bubblewrap's read-only mount keeps a link from leaving it, so code can't
 // reach the cached file through another name.
 func (d *daemon) placeAttachments(ctx context.Context, c claimed, dir string) error {
@@ -356,51 +360,269 @@ func (d *daemon) placeAttachments(ctx context.Context, c claimed, dir string) er
 	// The server bounds a file's download; the daemon's client timeout would
 	// cut a large one short.
 	api := &apiclient.Client{Server: d.cfg.Server, Token: c.Token, HTTP: &http.Client{}}
+	names := make([]string, len(c.Attachments))
+	for i, a := range c.Attachments {
+		names[i] = a.DiskName
+	}
+	var mappings []string
 	for _, a := range c.Attachments {
-		if err := placeAttachment(ctx, api, cache, into, a); err != nil {
+		folder, err := placeAttachment(ctx, api, cache, into, a, names)
+		if err != nil {
 			return fmt.Errorf("attached file %q: %w", a.DiskName, err)
 		}
+		if folder != "" {
+			names = append(names, folder)
+			mappings = append(mappings, fmt.Sprintf("- %q is unpacked at %q.", "attachments/"+a.DiskName, "attachments/"+folder+"/"))
+		}
+	}
+	if len(mappings) != 0 {
+		f, err := os.OpenFile(filepath.Join(dir, roleFile(c.AgentRun.Harness)), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(f, "\n\nArchive attachments (read-only):\n%s\n", strings.Join(mappings, "\n"))
+		return errors.Join(err, f.Close())
 	}
 	return nil
 }
 
-func placeAttachment(ctx context.Context, api *apiclient.Client, cache, into string, a service.ClaimedAttachment) error {
+func placeAttachment(ctx context.Context, api *apiclient.Client, cache, into string, a service.ClaimedAttachment, names []string) (string, error) {
 	// The server sanitised the name; it is checked again before it names a path.
 	if a.DiskName == "." || !filepath.IsLocal(a.DiskName) || strings.ContainsAny(a.DiskName, "/\\\x00") {
-		return errors.New("unsafe file name")
+		return "", errors.New("unsafe file name")
 	}
-	if sum, err := hex.DecodeString(a.Sha256); err != nil || len(sum) != sha256.Size || a.SizeBytes < 0 {
-		return errors.New("invalid digest or size")
+	if sum, err := hex.DecodeString(a.Sha256); err != nil || len(sum) != sha256.Size || a.SizeBytes < 0 || a.UnpackedBytes < 0 || a.InnerFiles < 0 {
+		return "", errors.New("invalid digest or size")
 	}
 	cached := filepath.Join(cache, a.Sha256)
+	release := lockAttachment(cached)
+	defer release()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if !matches(cached, a) {
 		if err := fetchAttachment(ctx, api, cache, a); err != nil {
-			return err
+			return "", err
+		}
+	}
+	f, err := os.Open(cached)
+	if err != nil {
+		return "", err
+	}
+	head := make([]byte, 512)
+	n, err := io.ReadFull(f, head)
+	f.Close()
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return "", err
+	}
+	kind := studyarchive.Kind(head[:n], a.DiskName)
+	folder := ""
+	if kind != studyarchive.None {
+		if err := unpackAttachment(ctx, cached, kind, a); err != nil {
+			return "", err
+		}
+		base := archiveFolderName(a.DiskName)
+		allocated := records.DiskNames(append(slices.Clone(names), base))
+		folder = allocated[len(allocated)-1]
+		if err := linkReadOnlyTree(cached+".d", filepath.Join(into, folder)); err != nil {
+			return "", err
 		}
 	}
 	dst := filepath.Join(into, a.DiskName)
 	if os.Link(cached, dst) == nil {
-		return nil
+		return folder, nil
 	}
-	return copyReadOnly(cached, dst)
+	return folder, copyReadOnly(cached, dst)
 }
 
-// matches reports whether path is a regular file of a's size and digest.
+// The daemon owns its state directory exclusively; concurrent runs share a
+// per-blob lock until their cache verification, extraction and placement end.
+var attachmentLocks = struct {
+	sync.Mutex
+	entries map[string]*attachmentLock
+}{entries: make(map[string]*attachmentLock)}
+
+type attachmentLock struct {
+	sync.Mutex
+	users int
+}
+
+func lockAttachment(path string) func() {
+	attachmentLocks.Lock()
+	lock := attachmentLocks.entries[path]
+	if lock == nil {
+		lock = &attachmentLock{}
+		attachmentLocks.entries[path] = lock
+	}
+	lock.users++
+	attachmentLocks.Unlock()
+	lock.Lock()
+	return func() {
+		lock.Unlock()
+		attachmentLocks.Lock()
+		lock.users--
+		if lock.users == 0 {
+			delete(attachmentLocks.entries, path)
+		}
+		attachmentLocks.Unlock()
+	}
+}
+
+type attachmentOK struct {
+	Size    int64              `json:"size"`
+	Mtime   int64              `json:"mtime"`
+	Archive *attachmentArchive `json:"archive,omitempty"`
+}
+type attachmentArchive struct {
+	Bytes int64 `json:"bytes"`
+	Files int   `json:"files"`
+}
+
+func readAttachmentOK(path string) attachmentOK {
+	var marker attachmentOK
+	b, err := os.ReadFile(path + ".ok")
+	if err == nil {
+		if json.Unmarshal(b, &marker) != nil {
+			return attachmentOK{}
+		}
+	}
+	return marker
+}
+func writeAttachmentOK(path string, extracted *attachmentArchive) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	return atomicJSON(filepath.Dir(path), filepath.Base(path)+".ok", attachmentOK{Size: fi.Size(), Mtime: fi.ModTime().UnixNano(), Archive: extracted})
+}
+
+var newAttachmentHash = sha256.New
+
+// matches trusts the verified marker while size and mtime agree, otherwise
+// verifies the digest and publishes a fresh marker without a derived tree.
 func matches(path string, a service.ClaimedAttachment) bool {
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() != a.SizeBytes {
+		return false
+	}
+	marker := readAttachmentOK(path)
+	if marker.Size == fi.Size() && marker.Mtime == fi.ModTime().UnixNano() {
+		return true
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil || !fi.Mode().IsRegular() || fi.Size() != a.SizeBytes {
-		return false
-	}
-	h := sha256.New()
+	h := newAttachmentHash()
 	if _, err := io.Copy(h, f); err != nil {
 		return false
 	}
-	return hex.EncodeToString(h.Sum(nil)) == a.Sha256
+	if hex.EncodeToString(h.Sum(nil)) != a.Sha256 {
+		return false
+	}
+	return writeAttachmentOK(path, nil) == nil
+}
+
+func archiveFolderName(name string) string {
+	lower := strings.ToLower(name)
+	for _, suffix := range []string{".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tgz", ".zip", ".tar"} {
+		if strings.HasSuffix(lower, suffix) {
+			return name[:len(name)-len(suffix)]
+		}
+	}
+	return strings.TrimSuffix(name, filepath.Ext(name))
+}
+
+func unpackAttachment(ctx context.Context, cached string, kind studyarchive.Format, a service.ClaimedAttachment) error {
+	tree := cached + ".d"
+	marker := readAttachmentOK(cached)
+	if marker.Archive != nil {
+		if marker.Archive.Bytes > a.UnpackedBytes || marker.Archive.Files > int(a.InnerFiles) {
+			return studyarchive.ErrTooBig
+		}
+		if fi, err := os.Lstat(tree); err == nil && fi.IsDir() {
+			return nil
+		}
+	}
+	// These paths are daemon-owned and derived only from a verified digest.
+	for _, path := range []string{tree + ".part", tree} {
+		if err := agent.RemoveTree(path); err != nil {
+			return err
+		}
+	}
+	if err := studyarchive.Extract(ctx, cached, kind, tree, a.UnpackedBytes, int(a.InnerFiles)); err != nil {
+		return errors.Join(err, agent.RemoveTree(tree+".part"), agent.RemoveTree(tree))
+	}
+	// Keep the validated archive totals, including overwritten members, so a
+	// later claim's stricter bounds cannot be bypassed by the derived cache.
+	listing, err := studyarchive.ListContext(ctx, cached, kind)
+	if err != nil {
+		return errors.Join(err, agent.RemoveTree(tree))
+	}
+	if listing.Bytes > a.UnpackedBytes || listing.Files > int(a.InnerFiles) {
+		return errors.Join(studyarchive.ErrTooBig, agent.RemoveTree(tree))
+	}
+	if err := makeTreeReadOnly(tree); err != nil {
+		return errors.Join(err, agent.RemoveTree(tree))
+	}
+	if err := writeAttachmentOK(cached, &attachmentArchive{Bytes: listing.Bytes, Files: listing.Files}); err != nil {
+		return errors.Join(err, agent.RemoveTree(tree))
+	}
+	return nil
+}
+
+func makeTreeReadOnly(root string) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		mode := os.FileMode(0444)
+		if entry.IsDir() {
+			mode = 0555
+		} else if !entry.Type().IsRegular() {
+			return errors.New("unsafe cached archive entry")
+		}
+		return os.Chmod(path, mode)
+	})
+}
+
+func linkReadOnlyTree(src, dst string) (err error) {
+	if err := os.Mkdir(dst, 0700); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, agent.RemoveTree(dst))
+		}
+	}()
+	err = filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if rel == "." {
+			return nil
+		}
+		if entry.IsDir() {
+			return os.Mkdir(target, 0700)
+		}
+		if !entry.Type().IsRegular() {
+			return errors.New("unsafe cached archive entry")
+		}
+		if os.Link(path, target) == nil {
+			return nil
+		}
+		return copyReadOnly(path, target)
+	})
+	if err == nil {
+		err = makeTreeReadOnly(dst)
+	}
+	return err
 }
 
 // fetchAttachment downloads a into the cache: to a temporary file beside its
@@ -414,7 +636,7 @@ func fetchAttachment(ctx context.Context, api *apiclient.Client, cache string, a
 	defer tmp.Close()
 	ctx, cancel := context.WithTimeout(ctx, middleware.AttachmentRequestTimeout)
 	defer cancel()
-	h := sha256.New()
+	h := newAttachmentHash()
 	w := &capWriter{w: io.MultiWriter(tmp, h), left: a.SizeBytes}
 	if err := api.Download(ctx, "/api/role/attachments/"+a.ID.String(), w); err != nil {
 		return err
@@ -428,7 +650,14 @@ func fetchAttachment(ctx context.Context, api *apiclient.Client, cache string, a
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(cache, a.Sha256))
+	cached := filepath.Join(cache, a.Sha256)
+	if err := os.Remove(cached + ".ok"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), cached); err != nil {
+		return err
+	}
+	return writeAttachmentOK(cached, nil)
 }
 
 // copyReadOnly copies src to a new file dst of mode 0444.
