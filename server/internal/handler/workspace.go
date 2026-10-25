@@ -332,6 +332,9 @@ func (h *H) remove(w http.ResponseWriter, r *http.Request, target uuid.UUID) {
 		if err := keepAnOwner(r.Context(), tx, ws, target); err != nil {
 			return err
 		}
+		if err := h.AgentRuns.RemoveMemberSharing(r.Context(), tx, user, target); err != nil {
+			return err
+		}
 		if _, err := tx.Q.RemoveMember(r.Context(), db.RemoveMemberParams{WorkspaceID: ws, UserID: target}); err != nil {
 			return err
 		}

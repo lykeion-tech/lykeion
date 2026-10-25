@@ -3,7 +3,11 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 	"regexp"
 	"sync"
@@ -324,5 +328,119 @@ func TestInvitationRollbackExpiryAndCrossWorkspaceRevoke(t *testing.T) {
 	}
 	if c := s.call(t, "POST", "/api/invitations/"+inv.Token+"/accept", b, "", nil, nil); c != 404 {
 		t.Fatal(c)
+	}
+}
+
+func TestALeavingMemberTakesTheirSharingWithThem(t *testing.T) {
+	for _, leave := range []bool{false, true} {
+		t.Run(map[bool]string{false: "remove", true: "leave"}[leave], func(t *testing.T) {
+			f, guest, guestID := machineStudy(t)
+			delivered := 0
+			f.s.H.AgentRuns.OnSettlement = func(ctx context.Context, event service.Settlement) error {
+				delivered++
+				if n := f.s.count(t, "SELECT count(*) FROM member WHERE workspace_id=$1 AND user_id=$2", f.ws, guestID); n != 0 {
+					t.Error("settled before membership removal committed")
+				}
+				if n := f.s.count(t, "SELECT count(*) FROM runtime WHERE workspace_id=$1 AND owner_id=$2 AND visibility<>'private'", f.ws, guestID); n != 0 {
+					t.Error("settled before sharing cleanup committed")
+				}
+				return nil
+			}
+			var runtimes []db.Runtime
+			if code := f.s.call(t, "POST", "/api/daemon/register", f.s.personalToken(t, guest), "", map[string]any{"workspace_id": f.ws, "daemon_id": "guest-daemon", "device_name": "guest", "harnesses": []string{"claude"}}, &runtimes); code != 200 {
+				t.Fatal(code)
+			}
+			gr := runtimes[0].ID.String()
+			ownerID := f.s.userID(t, f.jwt)
+			for _, rt := range []string{f.rt, gr} {
+				if _, err := f.s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET visibility='workspace' WHERE id=$1", rt); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := f.s.Env.Owner.Exec(t.Context(), "INSERT INTO runtime_share(workspace_id,runtime_id,user_id) VALUES($1,$2,$3),($1,$4,$5)", f.ws, f.rt, guestID, gr, ownerID); err != nil {
+				t.Fatal(err)
+			}
+			var runs []string
+			for i, tc := range []struct{ tok, machine, rt, status string }{{guest, "skills-daemon", f.rt, "running"}, {guest, "skills-daemon", "", "queued"}, {f.jwt, "guest-daemon", gr, "dispatched"}, {f.jwt, "guest-daemon", "", "queued"}, {guest, "", "", "queued"}, {f.jwt, "", "", "queued"}} {
+				var c card
+				in := map[string]any{"question": "departure " + uuid.NewString()}
+				if tc.machine != "" {
+					in["machine"] = tc.machine
+				}
+				if code := f.s.call(t, "POST", "/api/cards", tc.tok, f.ws, in, &c); code != 201 {
+					t.Fatal(code)
+				}
+				id := uuid.NewString()
+				runs = append(runs, id)
+				user := ownerID
+				if tc.tok == guest {
+					user = guestID
+				}
+				if _, err := f.s.Env.Owner.Exec(t.Context(), "INSERT INTO agent_run(id,workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt,status,runtime_id) VALUES($1,$2,$3,$4,'grounding',1,'leader','claude','q',$5,NULLIF($6,'')::uuid)", id, f.ws, c.ID, user, tc.status, tc.rt); err != nil {
+					t.Fatalf("run %d: %v", i, err)
+				}
+			}
+			path, method, tok := "/api/workspaces/"+f.ws+"/members/"+guestID, "DELETE", f.jwt
+			if leave {
+				path, method, tok = "/api/workspaces/"+f.ws+"/leave", "POST", guest
+			}
+			if code := f.s.call(t, method, path, tok, "", nil, nil); code != 204 {
+				t.Fatal(code)
+			}
+			if delivered != 4 {
+				t.Errorf("settlements delivered: %d", delivered)
+			}
+			if n := f.s.count(t, "SELECT count(*) FROM runtime_share WHERE workspace_id=$1", f.ws); n != 0 {
+				t.Errorf("shares left: %d", n)
+			}
+			if n := f.s.count(t, "SELECT count(*) FROM runtime WHERE id=$1 AND visibility='private'", gr); n != 1 {
+				t.Error("departed runtime still shared")
+			}
+			for i, id := range runs {
+				want := "queued"
+				if i < 4 {
+					want = "cancelled"
+				}
+				if n := f.s.count(t, "SELECT count(*) FROM agent_run WHERE id=$1 AND status=$2", id, want); n != 1 {
+					t.Errorf("run %d not %s", i, want)
+				}
+				if i < 4 {
+					if n := f.s.count(t, "SELECT count(*) FROM agent_run WHERE id=$1 AND cancel_reason='runtime_access_revoked'", id); n != 1 {
+						t.Errorf("run %d missing reason", i)
+					}
+					if n := f.s.count(t, "SELECT count(*) FROM agent_run_settlement WHERE agent_run_id=$1", id); n != 1 {
+						t.Errorf("run %d missing settlement", i)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestALeavingMembersLateRunCannotClaimWorkspaceSharing(t *testing.T) {
+	f, guest, guestID := machineStudy(t)
+	if code := f.s.call(t, "PUT", "/api/runtimes/"+f.rt+"/sharing", f.jwt, f.ws, map[string]any{"visibility": "workspace"}, nil); code != 200 {
+		t.Fatal(code)
+	}
+	var c card
+	if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"question": "late run", "machine": "skills-daemon"}, &c); code != 201 {
+		t.Fatal(code)
+	}
+	if code := f.s.call(t, "POST", "/api/workspaces/"+f.ws+"/leave", guest, "", nil, nil); code != 204 {
+		t.Fatal(code)
+	}
+	if _, err := f.s.Env.Owner.Exec(t.Context(), "INSERT INTO agent_run(workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt) VALUES($1,$2,$3,'grounding',1,'leader','claude','late work')", f.ws, c.ID, guestID); err != nil {
+		t.Fatal(err)
+	}
+	ws, rt := uuid.MustParse(f.ws), uuid.MustParse(f.rt)
+	err := f.s.H.Store.InWorkspace(t.Context(), ws, uuid.MustParse(f.s.userID(t, f.jwt)), func(tx *store.Tx) error {
+		_, err := tx.Q.ClaimAgentRun(t.Context(), db.ClaimAgentRunParams{WorkspaceID: ws, RuntimeID: &rt})
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Errorf("departed member's late run claim: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

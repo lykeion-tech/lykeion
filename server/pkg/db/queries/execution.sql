@@ -57,7 +57,8 @@ WHERE id = (
     AND t.harness = r.harness AND r.status = 'online'
     AND (
       -- role runs use the chosen machine with consent, or the card owner's runtimes
-      (t.kind = 'role' AND c.flag = '' AND c.ending = '' AND (
+      (t.kind = 'role' AND c.flag = '' AND c.ending = ''
+       AND EXISTS (SELECT 1 FROM member m WHERE m.workspace_id = t.workspace_id AND m.user_id = c.owner_id) AND (
        (c.machine IS NULL AND c.owner_id = r.owner_id)
        OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR r.visibility = 'workspace'
            OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))
@@ -216,3 +217,24 @@ RETURNING agent_run.*;
 
 -- name: UndoClaimAttempt :exec
 UPDATE agent_run SET attempt = attempt - 1 WHERE id = @id AND workspace_id = @workspace_id;
+
+-- name: DepartingMemberSharedRuns :many
+SELECT t.* FROM agent_run t
+LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
+WHERE t.workspace_id = @workspace_id AND t.status IN ('queued', 'dispatched', 'running')
+AND EXISTS (
+ SELECT 1 FROM runtime r WHERE r.workspace_id = t.workspace_id
+ AND ((t.responsible_user_id = @user_id AND r.owner_id <> @user_id)
+   OR (t.responsible_user_id <> @user_id AND r.owner_id = @user_id))
+ AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind = 'role'
+      AND c.machine = r.daemon_id AND t.harness = r.harness))
+)
+ORDER BY t.id FOR UPDATE OF t;
+
+-- name: ClearDepartingMemberRuntimeShares :exec
+DELETE FROM runtime_share s USING runtime r
+WHERE s.workspace_id = @workspace_id AND r.workspace_id = s.workspace_id
+AND r.id = s.runtime_id AND r.owner_id = @user_id;
+
+-- name: PrivatizeDepartingMemberRuntimes :exec
+UPDATE runtime SET visibility = 'private' WHERE workspace_id = @workspace_id AND owner_id = @user_id;

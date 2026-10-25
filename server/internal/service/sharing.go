@@ -123,3 +123,29 @@ func (s *AgentRuns) SetSharing(ctx context.Context, owner, ws, runtimeID uuid.UU
 	}
 	return
 }
+
+// RemoveMemberSharing revokes shared runs and owner grants in the caller's
+// workspace transaction, which must already hold the workspace mutation lock.
+func (s *AgentRuns) RemoveMemberSharing(ctx context.Context, tx *store.Tx, actor, member uuid.UUID) error {
+	runs, err := tx.Q.DepartingMemberSharedRuns(ctx, db.DepartingMemberSharedRunsParams{WorkspaceID: tx.WS, UserID: member})
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if err := tx.Q.SetRuntimeRevokedReason(ctx, db.SetRuntimeRevokedReasonParams{WorkspaceID: tx.WS, ID: run.ID}); err != nil {
+			return err
+		}
+		cancelled, err := cancelLocked(ctx, tx, actor, run.ID)
+		if err != nil {
+			return err
+		}
+		if err := saveSettlement(ctx, tx, cancelled); err != nil {
+			return err
+		}
+		tx.AfterCommit(func() { s.deliverAfterCommit(ctx, tx.WS, run.ID) })
+	}
+	if err := tx.Q.ClearDepartingMemberRuntimeShares(ctx, db.ClearDepartingMemberRuntimeSharesParams{WorkspaceID: tx.WS, UserID: member}); err != nil {
+		return err
+	}
+	return tx.Q.PrivatizeDepartingMemberRuntimes(ctx, db.PrivatizeDepartingMemberRuntimesParams{WorkspaceID: tx.WS, UserID: member})
+}

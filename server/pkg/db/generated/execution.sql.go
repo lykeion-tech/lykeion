@@ -137,7 +137,8 @@ WHERE id = (
     AND t.harness = r.harness AND r.status = 'online'
     AND (
       -- role runs use the chosen machine with consent, or the card owner's runtimes
-      (t.kind = 'role' AND c.flag = '' AND c.ending = '' AND (
+      (t.kind = 'role' AND c.flag = '' AND c.ending = ''
+       AND EXISTS (SELECT 1 FROM member m WHERE m.workspace_id = t.workspace_id AND m.user_id = c.owner_id) AND (
        (c.machine IS NULL AND c.owner_id = r.owner_id)
        OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR r.visibility = 'workspace'
            OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))
@@ -256,6 +257,22 @@ func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (C
 	return i, err
 }
 
+const clearDepartingMemberRuntimeShares = `-- name: ClearDepartingMemberRuntimeShares :exec
+DELETE FROM runtime_share s USING runtime r
+WHERE s.workspace_id = $1 AND r.workspace_id = s.workspace_id
+AND r.id = s.runtime_id AND r.owner_id = $2
+`
+
+type ClearDepartingMemberRuntimeSharesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) ClearDepartingMemberRuntimeShares(ctx context.Context, arg ClearDepartingMemberRuntimeSharesParams) error {
+	_, err := q.db.Exec(ctx, clearDepartingMemberRuntimeShares, arg.WorkspaceID, arg.UserID)
+	return err
+}
+
 const deleteAgentRunTokens = `-- name: DeleteAgentRunTokens :exec
 DELETE FROM agent_run_token WHERE agent_run_id = $1 AND workspace_id = $2
 `
@@ -286,6 +303,90 @@ func (q *Queries) DeleteRuntime(ctx context.Context, arg DeleteRuntimeParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const departingMemberSharedRuns = `-- name: DepartingMemberSharedRuns :many
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id FROM agent_run t
+LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
+WHERE t.workspace_id = $1 AND t.status IN ('queued', 'dispatched', 'running')
+AND EXISTS (
+ SELECT 1 FROM runtime r WHERE r.workspace_id = t.workspace_id
+ AND ((t.responsible_user_id = $2 AND r.owner_id <> $2)
+   OR (t.responsible_user_id <> $2 AND r.owner_id = $2))
+ AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind = 'role'
+      AND c.machine = r.daemon_id AND t.harness = r.harness))
+)
+ORDER BY t.id FOR UPDATE OF t
+`
+
+type DepartingMemberSharedRunsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) DepartingMemberSharedRuns(ctx context.Context, arg DepartingMemberSharedRunsParams) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, departingMemberSharedRuns, arg.WorkspaceID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentRun
+	for rows.Next() {
+		var i AgentRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.ResponsibleUserID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Role,
+			&i.Harness,
+			&i.Prompt,
+			&i.Skill,
+			&i.Status,
+			&i.QueueReason,
+			&i.RuntimeID,
+			&i.PrepareLeaseExpiresAt,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.SessionID,
+			&i.ContinuityScope,
+			&i.ProfileMode,
+			&i.PolicyDigest,
+			&i.Model,
+			&i.Error,
+			&i.FailureReason,
+			&i.CostUsd,
+			&i.LateUsageAt,
+			&i.CreatedAt,
+			&i.HandoffNote,
+			&i.InputLeaseExpiresAt,
+			&i.InputFetchExpiresAt,
+			&i.InputFetchID,
+			&i.InputOutcomes,
+			&i.AddonHash,
+			&i.AddonMcp,
+			&i.Kind,
+			&i.RequesterID,
+			&i.RequestedModel,
+			&i.AgentID,
+			&i.Assignment,
+			&i.CancelReason,
+			&i.MachineName,
+			&i.MachineOwnerID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
@@ -996,6 +1097,20 @@ func (q *Queries) LookupAgentRunToken(ctx context.Context, tokenHash string) (Lo
 		&i.Scopes,
 	)
 	return i, err
+}
+
+const privatizeDepartingMemberRuntimes = `-- name: PrivatizeDepartingMemberRuntimes :exec
+UPDATE runtime SET visibility = 'private' WHERE workspace_id = $1 AND owner_id = $2
+`
+
+type PrivatizeDepartingMemberRuntimesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) PrivatizeDepartingMemberRuntimes(ctx context.Context, arg PrivatizeDepartingMemberRuntimesParams) error {
+	_, err := q.db.Exec(ctx, privatizeDepartingMemberRuntimes, arg.WorkspaceID, arg.UserID)
+	return err
 }
 
 const recordAgentRunProfile = `-- name: RecordAgentRunProfile :exec
