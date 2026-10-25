@@ -41,7 +41,7 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	// A hidden file is covered by /dev/null and a hidden folder by an empty
 	// read-only tmpfs.
 	var binds []bind
-	projected, err := r.hiddenProjections()
+	projected, err := r.hiddenProjections(p.HomeRead)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +68,11 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 				binds = append(binds, bind{"--ro-bind", path})
 			}
 		}
+	}
+	// An external parent projection may bind an ancestor of the otherwise
+	// hidden home. Mask it again in depth order, before approved descendants.
+	if !p.HomeRead && slices.ContainsFunc(projected, func(parent string) bool { return isAtOrUnder(r.home, parent) }) {
+		binds = append(binds, bind{"--masked-home", r.home})
 	}
 	for _, root := range r.restricted {
 		binds = append(binds, bind{"--restricted", root})
@@ -126,7 +131,7 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 		switch b.flag {
 		case "--symlink":
 			argv = append(argv, "--symlink", links[b.dir], b.dir)
-		case "--project", "--restricted":
+		case "--project", "--restricted", "--masked-home":
 			argv = append(argv, "--tmpfs", b.dir)
 		case "--tmpfs":
 			argv = append(argv, "--tmpfs", b.dir, "--remount-ro", b.dir)
@@ -174,7 +179,7 @@ func homeSockets(home string, skip []string) ([]string, error) {
 // Reconstructing its nearest existing parent in the namespace keeps that name
 // hidden without creating placeholders in the account's home. Existing bound
 // entries stay live, but replacements and new siblings appear on the next run.
-func (r resolved) hiddenProjections() ([]string, error) {
+func (r resolved) hiddenProjections(homeRead bool) ([]string, error) {
 	var parents []string
 	for _, hidden := range r.hidden {
 		if _, err := os.Lstat(hidden); err == nil {
@@ -183,11 +188,16 @@ func (r resolved) hiddenProjections() ([]string, error) {
 			return nil, err
 		}
 
-		// /tmp and /run already have empty mounts. A negative path must not
-		// restore their siblings unless a normal policy grant exposes them.
-		tempMasked := isAtOrUnder(hidden, "/tmp") || isAtOrUnder(hidden, "/run")
-		tempExposed := isAtOrUnder(hidden, r.home) || isAtOrUnder(hidden, "/run/systemd/resolve") || slices.ContainsFunc(slices.Concat(r.read, r.write), func(grant string) bool { return isAtOrUnder(hidden, grant) })
-		if tempMasked && !tempExposed {
+		// Private paths below replacement namespaces must not restore host
+		// siblings unless an existing policy grant already exposes them.
+		namespaceMasked := slices.ContainsFunc([]string{"/tmp", "/run", "/dev", "/proc"}, func(root string) bool { return isAtOrUnder(hidden, root) })
+		namespaceExposed := isAtOrUnder(hidden, r.home) || isAtOrUnder(hidden, "/run/systemd/resolve") || slices.ContainsFunc(slices.Concat(r.read, r.write), func(grant string) bool { return isAtOrUnder(hidden, grant) })
+		if namespaceMasked && !namespaceExposed {
+			continue
+		}
+		// A private path already below the empty home mount needs no parent
+		// projection. Reconstructing the home would reveal its other files.
+		if !homeRead && isAtOrUnder(hidden, r.home) && !slices.ContainsFunc(slices.Concat(r.read, r.write), func(grant string) bool { return isAtOrUnder(hidden, grant) }) {
 			continue
 		}
 		masked := slices.ContainsFunc(r.restricted, func(root string) bool { return isAtOrUnder(hidden, root) })

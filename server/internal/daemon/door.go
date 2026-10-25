@@ -60,6 +60,9 @@ type Door struct {
 	Study      *envs.Study
 	StudyEnv   map[string]string
 	ServiceEnv []string
+	// PrivatePaths are daemon-owned paths that no run may read, including
+	// paths that another run may create after this door starts.
+	PrivatePaths []string
 	// ScriptTimeout is how long a script may run; 0 means agent.ScriptLimit.
 	ScriptTimeout time.Duration
 	// SandboxErr is why the machine's sandbox failed its check; while it is

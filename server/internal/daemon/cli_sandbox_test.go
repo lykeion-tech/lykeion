@@ -1,12 +1,14 @@
 package daemon
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"io"
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/sandbox"
@@ -570,4 +572,72 @@ func TestCLIReadsLeanBuiltAfterPolicyStarts(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(pair, "ready"), nil, 0644))
 	must(t, os.WriteFile(goFile, nil, 0600))
 	must(t, cmd.Wait())
+}
+
+func TestCLISandboxHidesManagedDaemonLog(t *testing.T) {
+	for _, late := range []bool{false, true} {
+		t.Run(fmt.Sprint(late), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			config := filepath.Join(home, "custom configuration")
+			state := filepath.Join(config, "daemon")
+			log := filepath.Join(config, "daemon.log")
+			must(t, os.MkdirAll(state, 0700))
+			sentinel := []byte("PRIVATE_EVALUATOR_DIAGNOSTIC")
+			ordinary := filepath.Join(config, "ordinary")
+			must(t, os.WriteFile(ordinary, []byte("ordinary-visible"), 0600))
+			if !late {
+				must(t, os.WriteFile(log, sentinel, 0600))
+			}
+			d := &daemon{cfg: Config{Home: t.TempDir(), StateDir: state}}
+			p, err := d.cliPolicy(t.TempDir(), nil, false, agent.CLIPaths{})
+			must(t, err)
+			var out []byte
+			if late {
+				cmd, commandErr := p.Command(t.Context(), "/bin/sh", "-c", fmt.Sprintf("echo READY; read go; cat %q", log))
+				must(t, commandErr)
+				stdout, pipeErr := cmd.StdoutPipe()
+				must(t, pipeErr)
+				stdin, pipeErr := cmd.StdinPipe()
+				must(t, pipeErr)
+				var stderr bytes.Buffer
+				cmd.Stderr = &stderr
+				must(t, cmd.Start())
+				reader := bufio.NewReader(stdout)
+				line, readErr := reader.ReadString('\n')
+				must(t, readErr)
+				if line != "READY\n" {
+					t.Fatal(line)
+				}
+				must(t, os.WriteFile(log, sentinel, 0600))
+				_, writeErr := io.WriteString(stdin, "continue\n")
+				must(t, writeErr)
+				must(t, stdin.Close())
+				out, readErr = io.ReadAll(reader)
+				must(t, readErr)
+				err = cmd.Wait()
+				out = append(out, stderr.Bytes()...)
+			} else {
+				cmd, commandErr := p.Command(t.Context(), "/bin/cat", log)
+				must(t, commandErr)
+				out, err = cmd.CombinedOutput()
+			}
+			if bytes.Contains(out, sentinel) {
+				t.Fatalf("agent read managed daemon log: %s", out)
+			}
+			if runtime.GOOS == "darwin" && (err == nil || !strings.Contains(string(out), "Operation not permitted")) {
+				t.Fatalf("expected sandbox denial: %s %v", out, err)
+			}
+			if !slices.Contains(p.Hidden, log) {
+				t.Fatal("managed log is not explicitly hidden")
+			}
+			cmd, err := p.Command(t.Context(), "/bin/cat", ordinary)
+			must(t, err)
+			public, err := cmd.Output()
+			must(t, err)
+			if string(public) != "ordinary-visible" {
+				t.Fatal("hid unrelated config sibling")
+			}
+		})
+	}
 }

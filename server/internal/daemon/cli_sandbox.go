@@ -20,6 +20,15 @@ var homeSecrets = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc", ".d
 
 func (d *daemon) cacheDir() string { return filepath.Join(d.cfg.Home, ".caches") }
 
+// privatePaths remain excluded even when this run starts no services: another
+// run can write private service state or diagnostics while this one is active.
+func (d *daemon) privatePaths() []string {
+	if d.cfg.StateDir == "" {
+		return nil
+	}
+	return []string{filepath.Join(d.cfg.StateDir, "services"), filepath.Join(filepath.Dir(d.cfg.StateDir), "daemon.log")}
+}
+
 func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli agent.CLIPaths) (sandbox.Policy, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -60,7 +69,8 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 		p.Hidden = append(p.Hidden, filepath.Join(home, secret))
 	}
 	if d.cfg.StateDir != "" {
-		p.Hidden = append(p.Hidden, d.cfg.StateDir, filepath.Join(d.cfg.StateDir, "services"))
+		p.Hidden = append(p.Hidden, d.cfg.StateDir)
+		p.Hidden = append(p.Hidden, d.privatePaths()...)
 	}
 	cfg, err := os.UserConfigDir()
 	if err != nil {

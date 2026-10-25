@@ -380,3 +380,12 @@ func TestConcurrentDaemonStartsElectOneOwner(t *testing.T) {
 		t.Fatalf("stop elected owner: %v", err)
 	}
 }
+
+func TestManagedDaemonLogPrivacyLocationContract(t *testing.T) {
+	for _, config := range []string{filepath.Join(t.TempDir(), "config.json"), filepath.Join(t.TempDir(), "custom", "settings.json")} {
+		e := &env{path: config}
+		if got, want := logFile(e), filepath.Join(filepath.Dir(stateDir(e)), "daemon.log"); got != want {
+			t.Fatalf("managed log %s differs from daemon privacy path %s", got, want)
+		}
+	}
+}

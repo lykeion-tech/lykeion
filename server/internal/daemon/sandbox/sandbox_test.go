@@ -709,8 +709,8 @@ func TestHiddenRules(t *testing.T) {
 		t.Error("a missing hidden path was accepted")
 	}
 	q.Hidden = []string{filepath.Join(p.Home, ".ssh")}
-	if _, err := q.seatbeltProfile(); err == nil {
-		t.Error("a hidden path outside the write folders was accepted")
+	if _, err := q.seatbeltProfile(); err != nil {
+		t.Errorf("external hidden path refused: %v", err)
 	}
 }
 
@@ -783,5 +783,183 @@ func TestLinuxServicePolicyKeepsDocumentedSharedNetwork(t *testing.T) {
 	}
 	if !slices.Equal(before, after) {
 		t.Fatalf("LoopbackOnly silently changed Linux network: %v vs %v", before, after)
+	}
+}
+
+func TestExternalPrivatePathsAreHiddenWithoutHomeRead(t *testing.T) {
+	home := tempDir(t)
+	outside := tempDir(t)
+	services := mkdir(t, filepath.Join(outside, "services"))
+	log := filepath.Join(outside, "daemon.log")
+	if err := os.WriteFile(log, []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, Hidden: []string{services, log}}
+	profile, err := p.seatbeltProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hidden := range p.Hidden {
+		if !strings.Contains(profile, "(deny file-read* file-write* (subpath "+sbplString(hidden)+"))") {
+			t.Fatal("missing explicit denial", hidden)
+		}
+	}
+	args, err := p.bwrapArgs("/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"--tmpfs " + services + " --remount-ro " + services, "--ro-bind /dev/null " + log} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q: %s", want, joined)
+		}
+	}
+	if strings.Index(joined, "--ro-bind / /") > strings.Index(joined, "--tmpfs "+services) {
+		t.Fatal("private mask preceded ambient filesystem")
+	}
+}
+func TestAbsentPrivatePathDoesNotReExposeHiddenHome(t *testing.T) {
+	home := tempDir(t)
+	secret := filepath.Join(home, "secret")
+	if err := os.WriteFile(secret, []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, Hidden: []string{filepath.Join(home, "daemon.log")}}
+	args, err := p.bwrapArgs("/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(args, " "), "--ro-bind "+secret+" ") {
+		t.Fatal("private mask reopened hidden home sibling")
+	}
+}
+
+func TestAbsentExternalPrivatePathsUseClosedProjection(t *testing.T) {
+	raw, err := os.MkdirTemp(".", ".private-projection-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(raw) })
+	root, err := filepath.EvalSymlinks(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isAtOrUnder(root, "/tmp") || isAtOrUnder(root, "/run") {
+		t.Skip("fixture repository is already under an automatically masked root")
+	}
+	ordinary := filepath.Join(root, "ordinary")
+	if err := os.WriteFile(ordinary, []byte("public"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	private := []string{filepath.Join(root, "services"), filepath.Join(root, "daemon.log")}
+	p := Policy{Home: tempDir(t), Hidden: private}
+	args, err := p.bwrapArgs("/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--tmpfs "+root+" ") || !strings.Contains(joined, "--remount-ro "+root) {
+		t.Fatal("missing parent projection", joined)
+	}
+	if !strings.Contains(joined, "--ro-bind "+ordinary+" "+ordinary) {
+		t.Fatal("unrelated readable sibling lost")
+	}
+	for _, hidden := range private {
+		if _, err := os.Lstat(hidden); !os.IsNotExist(err) {
+			t.Fatal("policy mutated host path", hidden, err)
+		}
+		if !strings.Contains(joined, "--ro-bind /dev/null "+hidden) {
+			t.Fatal("missing late-private mask", joined)
+		}
+		if strings.Contains(joined, "--ro-bind "+hidden+" ") {
+			t.Fatal("private path reopened", joined)
+		}
+	}
+	if err := os.Mkdir(private[0], 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(private[1], []byte("private late log"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// The fixed projection exposes only the ordinary entry, never a subsequently
+	// created private subtree through the initial read-only bind of the host.
+	r, err := p.resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.hidden) != 2 {
+		t.Fatal("normalizer dropped private paths", r.hidden)
+	}
+}
+
+func TestExternalPrivateProjectionDoesNotReopenHome(t *testing.T) {
+	raw, err := os.MkdirTemp(".", ".private-ancestor-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(raw) })
+	root, err := filepath.EvalSymlinks(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isAtOrUnder(root, "/tmp") || isAtOrUnder(root, "/run") {
+		t.Skip("fixture repository is already under an automatically masked root")
+	}
+	home := mkdir(t, filepath.Join(root, "home"))
+	run := mkdir(t, filepath.Join(home, "run"))
+	hidden := filepath.Join(root, "daemon.log")
+	p := Policy{Home: home, Write: []string{run}, Hidden: []string{hidden}}
+	args, err := p.bwrapArgs("/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	projectedHome := strings.Index(joined, "--ro-bind "+home+" "+home)
+	maskedHome := strings.LastIndex(joined, "--tmpfs "+home+" ")
+	writeGrant := strings.Index(joined, "--bind "+run+" "+run)
+	if projectedHome < 0 || maskedHome < projectedHome || writeGrant < maskedHome {
+		t.Fatalf("external private projection reopened home or lost write grant: %s", joined)
+	}
+}
+
+func TestAbsentPrivatePathsDoNotReExposeSystemNamespaces(t *testing.T) {
+	for _, root := range []string{"/dev", "/proc"} {
+		t.Run(root, func(t *testing.T) {
+			if _, err := os.Stat(root); os.IsNotExist(err) {
+				t.Skip("namespace root is absent on this host")
+			}
+			hidden := filepath.Join(root, "lyk-private-log-that-does-not-exist")
+			if _, err := os.Lstat(hidden); !os.IsNotExist(err) {
+				t.Skip("fixture negative path already exists")
+			}
+			p := Policy{Home: tempDir(t), Hidden: []string{hidden}}
+			args, err := p.bwrapArgs("/bin/true")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, arg := range args {
+				if arg == "--ro-bind" && i+1 < len(args) && isAtOrUnder(args[i+1], root) && args[i+1] != "/dev/null" {
+					t.Fatalf("private projection reopened host namespace entry %s", args[i+1])
+				}
+			}
+		})
+	}
+}
+func TestPrivateProjectionCannotReplaceFilesystemRoot(t *testing.T) {
+	hidden := "/lyk-private-log-that-does-not-exist"
+	if _, err := os.Lstat(hidden); !os.IsNotExist(err) {
+		t.Skip("fixture negative path already exists")
+	}
+	_, err := (Policy{Home: tempDir(t), Hidden: []string{hidden}}).bwrapArgs("/bin/true")
+	if err == nil || !strings.Contains(err.Error(), "cannot project filesystem root") {
+		t.Fatalf("root projection did not fail closed: %v", err)
 	}
 }

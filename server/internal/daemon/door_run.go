@@ -125,7 +125,7 @@ func (d *Door) sandboxPolicy() error {
 		return err
 	}
 	dir := d.Child().Dir
-	d.policy = sandbox.Policy{Home: home, Write: []string{dir, d.Study.Dir, tmp}}
+	d.policy = sandbox.Policy{Home: home, Write: []string{dir, d.Study.Dir, tmp}, Hidden: slices.Clone(d.PrivatePaths)}
 	if err := protectRunFolder(&d.policy, dir, true, &d.placeholders); err != nil {
 		return err
 	}

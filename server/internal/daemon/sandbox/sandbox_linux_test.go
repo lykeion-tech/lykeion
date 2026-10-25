@@ -277,3 +277,99 @@ func TestAbsentHiddenInMaskedTempDoesNotExposeSiblings(t *testing.T) {
 		t.Fatalf("explicit read grant lost: %v %q", err, out)
 	}
 }
+
+func TestLinuxPrivateServicesOutsideMaskedRootsStayHidden(t *testing.T) {
+	requireSandbox(t)
+	for _, late := range []bool{false, true} {
+		t.Run(strconv.FormatBool(late), func(t *testing.T) {
+			root, err := os.MkdirTemp("/var/tmp", "lyk-private-")
+			if err != nil {
+				t.Skipf("external fixture location unavailable: %v", err)
+			}
+			t.Cleanup(func() { os.RemoveAll(root) })
+			root, err = filepath.EvalSymlinks(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			home := mkdir(t, filepath.Join(root, "home"))
+			run := mkdir(t, filepath.Join(home, "run"))
+			homeSecret := filepath.Join(home, "personal-secret")
+			if err := os.WriteFile(homeSecret, []byte("PRIVATE_SENTINEL\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if isAtOrUnder(root, home) || isAtOrUnder(root, "/tmp") || isAtOrUnder(root, "/run") {
+				t.Fatal("fixture is automatically hidden", root)
+			}
+			services := filepath.Join(root, "services")
+			log := filepath.Join(root, "daemon.log")
+			ordinary := filepath.Join(root, "ordinary")
+			if err := os.WriteFile(ordinary, []byte("ordinary-visible\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			create := func() {
+				if err := os.MkdirAll(filepath.Join(services, "state"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				for _, p := range []string{log, filepath.Join(services, "state", "answer")} {
+					if err := os.WriteFile(p, []byte("PRIVATE_SENTINEL\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if !late {
+				create()
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			p := Policy{Home: home, Write: []string{run}, Hidden: []string{services, log}}
+			script := "cat " + shq(ordinary) + "; echo READY; read go; cat " + shq(log) + "; ls -A " + shq(services) + "; cat " + shq(filepath.Join(services, "state", "answer")) + "; cat " + shq(homeSecret) + "; echo written > " + shq(filepath.Join(run, "result")) + "; cat " + shq(ordinary)
+			cmd, err := p.Command(ctx, "/bin/sh", "-c", script)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdin, err := cmd.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			reader := bufio.NewReader(stdout)
+			var prefix strings.Builder
+			for {
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					t.Fatal(err)
+				}
+				prefix.WriteString(line)
+				if line == "READY\n" {
+					break
+				}
+			}
+			if late {
+				create()
+			}
+			io.WriteString(stdin, "continue\n")
+			stdin.Close()
+			rest, err := io.ReadAll(reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Wait(); err != nil {
+				t.Fatal(err)
+			}
+			written, err := os.ReadFile(filepath.Join(run, "result"))
+			if err != nil || string(written) != "written\n" {
+				t.Fatalf("approved write grant lost: %s %v", written, err)
+			}
+			all := prefix.String() + string(rest)
+			if strings.Contains(all, "PRIVATE_SENTINEL") || strings.Count(all, "ordinary-visible") != 2 {
+				t.Fatalf("private data or lost ordinary sibling: %s", all)
+			}
+		})
+	}
+}

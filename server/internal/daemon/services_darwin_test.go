@@ -179,3 +179,47 @@ func TestMacOSServiceActivationFailsClosed(t *testing.T) {
 		t.Fatalf("policy bypass: %v", err)
 	}
 }
+
+func TestDoorExplicitlyHidesPrivateDaemonPaths(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	root := t.TempDir()
+	supervisor := &daemon{cfg: Config{StateDir: filepath.Join(root, "daemon")}}
+	private := supervisor.privatePaths()
+	door := newRunDoor(t, l, dir, func(d *Door) {
+		d.PrivatePaths = private
+		d.interp = func(lang string) (string, []string, error) {
+			if _, _, err := d.Study.Interpreter(lang); err != nil {
+				return "", nil, err
+			}
+			return realPython(t), nil, nil
+		}
+	}, envs.Python)
+	must(t, door.sandboxReady())
+	for _, hidden := range private {
+		if !slices.Contains(door.policy.Hidden, hidden) {
+			t.Fatalf("Door missing private exclusion %s", hidden)
+		}
+	}
+	// Simulate another run creating service files and logging a private failure
+	// after this ordinary Door has already built its policy.
+	code := filepath.Join(private[0], "workspace", "card", "evaluator", "code")
+	must(t, os.MkdirAll(code, 0700))
+	secret := filepath.Join(code, "answer")
+	must(t, os.WriteFile(secret, []byte("PRIVATE_SENTINEL"), 0600))
+	must(t, os.WriteFile(private[1], []byte("PRIVATE_SENTINEL"), 0600))
+	script := fmt.Sprintf("import subprocess\nsubprocess.run(['/bin/cat', %q])\nsubprocess.run(['/bin/ls', %q])\nsubprocess.run(['/bin/cat', %q])\n", secret, private[0], private[1])
+	must(t, os.WriteFile(filepath.Join(dir, "private.py"), []byte(script), 0600))
+	got, err := useTool(t, door, "run_script", map[string]any{"path": "private.py"})
+	must(t, err)
+	if strings.Contains(got, "PRIVATE_SENTINEL") || strings.Count(got, "Operation not permitted") != 3 {
+		t.Fatalf("private Door read: %s", got)
+	}
+	for _, grant := range append(slices.Clone(door.policy.Read), door.policy.Write...) {
+		for _, hidden := range private {
+			if insideStorage(grant, hidden) || insideStorage(hidden, grant) {
+				t.Fatalf("private exclusion overlaps grant %s", grant)
+			}
+		}
+	}
+}

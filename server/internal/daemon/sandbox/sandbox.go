@@ -68,9 +68,8 @@ type Policy struct {
 	// LateReadOnly names direct-child files published by the supervisor before
 	// launch. Linux binds them strictly at start and fails if still absent.
 	LateReadOnly []string
-	// Hidden are files and folders inside a Write folder or a ReadOnly path
-	// that the process may neither read nor write. With HomeRead, explicit paths
-	// anywhere are accepted, with the same writable-ancestor protection; absent
+	// Hidden are files and folders the process may neither read nor write.
+	// Explicit paths anywhere are accepted with writable-ancestor protection; absent
 	// paths outside writable folders remain protected. Paths must be no link.
 	Hidden []string
 }
@@ -367,55 +366,53 @@ func (p Policy) resolve() (resolved, error) {
 		}
 	}
 	for _, raw := range p.Hidden {
-		if p.HomeRead {
-			c, err := r.policyPath(raw, h)
-			if errors.Is(err, os.ErrNotExist) {
-				missing, missingErr := r.blockedPath(raw, h)
-				if missingErr != nil {
-					return resolved{}, missingErr
-				}
-				if missing != h.path {
-					for _, w := range r.write {
-						if isAtOrUnder(missing, w) {
-							return resolved{}, fmt.Errorf("sandbox missing hidden path %q is inside a write folder", raw)
-						}
-					}
-					for _, file := range r.writeFiles {
-						if isAtOrUnder(file, missing) {
-							return resolved{}, fmt.Errorf("sandbox missing hidden path %q holds a writable file", raw)
-						}
-					}
-					for _, dir := range r.writeSQLite {
-						if isAtOrUnder(dir, missing) || filepath.Dir(missing) == dir {
-							return resolved{}, fmt.Errorf("sandbox missing hidden path %q overlaps SQLite state", raw)
-						}
-					}
-					r.hidden = append(r.hidden, missing)
-					continue
-				}
+		c, err := r.policyPath(raw, h)
+		if errors.Is(err, os.ErrNotExist) {
+			missing, missingErr := r.blockedPath(raw, h)
+			if missingErr != nil {
+				return resolved{}, missingErr
 			}
-			if err != nil {
-				return resolved{}, err
-			}
-			if c != h.path {
-				for _, w := range slices.Concat(r.write, r.writeData, r.writeFiles, r.writeSQLite) {
-					if isAtOrUnder(w, c) {
-						return resolved{}, fmt.Errorf("sandbox hidden path %q holds a write path", raw)
-					}
-				}
+			if missing != h.path {
 				for _, w := range r.write {
-					if isAtOrUnder(c, w) {
-						if _, err := r.carve(raw, h, slices.Concat(r.write, r.readOnly)); err != nil {
-							return resolved{}, err
-						}
-						break
+					if isAtOrUnder(missing, w) {
+						return resolved{}, fmt.Errorf("sandbox missing hidden path %q is inside a write folder", raw)
 					}
 				}
-				r.hidden = append(r.hidden, c)
+				for _, file := range r.writeFiles {
+					if isAtOrUnder(file, missing) {
+						return resolved{}, fmt.Errorf("sandbox missing hidden path %q holds a writable file", raw)
+					}
+				}
+				for _, dir := range r.writeSQLite {
+					if isAtOrUnder(dir, missing) || filepath.Dir(missing) == dir {
+						return resolved{}, fmt.Errorf("sandbox missing hidden path %q overlaps SQLite state", raw)
+					}
+				}
+				r.hidden = append(r.hidden, missing)
 				continue
 			}
 		}
-		c, err := r.carve(raw, h, slices.Concat(r.write, r.readOnly))
+		if err != nil {
+			return resolved{}, err
+		}
+		if c != h.path {
+			for _, w := range slices.Concat(r.write, r.writeData, r.writeFiles, r.writeSQLite) {
+				if isAtOrUnder(w, c) {
+					return resolved{}, fmt.Errorf("sandbox hidden path %q holds a write path", raw)
+				}
+			}
+			for _, w := range r.write {
+				if isAtOrUnder(c, w) {
+					if _, err := r.carve(raw, h, slices.Concat(r.write, r.readOnly)); err != nil {
+						return resolved{}, err
+					}
+					break
+				}
+			}
+			r.hidden = append(r.hidden, c)
+			continue
+		}
+		c, err = r.carve(raw, h, slices.Concat(r.write, r.readOnly))
 		if err != nil {
 			return resolved{}, err
 		}
