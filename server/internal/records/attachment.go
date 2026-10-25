@@ -16,6 +16,7 @@ import (
 	"github.com/ledongthuc/pdf"
 	"golang.org/x/text/unicode/norm"
 
+	"lykeion/server/internal/archive"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -140,10 +141,11 @@ func TextKey(blobKey string) string { return blobKey + ".text" }
 
 // RecordAttachment records an attached file once as a source of its study: a
 // call record by the server on the study's first column, round 0, under the
-// study's next call key. A file whose text was read at upload answers with that
-// text, cut to what a body keeps, and points at the whole text as its blob, so
+// study's next call key. A file whose text or archive manifest was read at upload
+// answers with it, cut to what a body keeps, and points at the whole as its blob, so
 // quotes from it are checked; only the cut is read here. A binary answers with
-// its name and sha256 only. The caller holds the card.
+// its name and sha256 only. An archive answers with its validated inner paths
+// and declared sizes. The caller holds the card.
 func RecordAttachment(ctx context.Context, tx *store.Tx, blobs storage.Storage, card db.Card, a db.Attachment) (key string, err error) {
 	answer, cut, blobKey := fmt.Sprintf("binary file %s, sha256 %s", a.Name, a.Sha256), false, ""
 	if a.TextSha256 != "" {
@@ -158,6 +160,7 @@ func RecordAttachment(ctx context.Context, tx *store.Tx, blobs storage.Storage, 
 			return "", err
 		}
 		answer, cut = Cut(string(head))
+
 	}
 	body, _ := CallBody(AttachmentServer, "attach", map[string]any{"name": a.Name, "sha256": a.Sha256, "size_bytes": a.SizeBytes, "content_type": a.ContentType}, answer, cut)
 	if blobKey != "" {
@@ -182,6 +185,16 @@ func RecordAttachment(ctx context.Context, tx *store.Tx, blobs storage.Storage, 
 		return "", err
 	}
 	return key, tx.Emit(ctx, "record.created", &card.ID, store.System, map[string]any{"record_id": rec.ID, "kind": "call", "key": key, "role": "server"})
+}
+
+// ArchiveManifest is an archive's source answer, built from its validated listing.
+func ArchiveManifest(name, sha256 string, listing archive.Listing) string {
+	var text strings.Builder
+	fmt.Fprintf(&text, "archive %s, sha256 %s\n", name, sha256)
+	for _, entry := range listing.Entries {
+		fmt.Fprintf(&text, "%s\t%d bytes\n", entry.Path, entry.Size)
+	}
+	return text.String()
 }
 
 // maxDiskName keeps a file name within what file systems allow (255 bytes).

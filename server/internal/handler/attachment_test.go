@@ -1,13 +1,19 @@
 package handler
 
 import (
+	"archive/zip"
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -73,7 +79,7 @@ func (s *server) attachmentCount(t *testing.T) int {
 	return n
 }
 
-func TestAnUploadStreamsAndIsBounded(t *testing.T) {
+func TestAnUploadMayBeFiveGigabytes(t *testing.T) {
 	s := newServer(t)
 	tok := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, tok, "up-lab")
@@ -82,17 +88,17 @@ func TestAnUploadStreamsAndIsBounded(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	code, out := s.upload(t, tok, w.ID, "big.txt", MaxAttachmentBytes+1)
+	code, out := s.upload(t, tok, w.ID, "big.txt", (5<<30)+1)
 	runtime.ReadMemStats(&after)
 	if code != 413 {
 		t.Fatalf("over the limit: %d %v", code, out)
 	}
-	if out["error"] != "A file can be at most 100 MB" {
+	if out["error"] != "A file can be at most 5 GB" {
 		t.Fatalf("message: %v", out)
 	}
 	// Buffering the body would allocate at least its size.
 	if grown := after.TotalAlloc - before.TotalAlloc; grown > 60<<20 {
-		t.Fatalf("handler allocated %d MB for a 100 MB upload", grown>>20)
+		t.Fatalf("handler allocated %d MB for a 5 GB upload", grown>>20)
 	}
 	if n := s.attachmentCount(t); n != 0 {
 		t.Fatalf("%d rows after a refused upload", n)
@@ -151,7 +157,7 @@ func TestAnAcceptedTextUploadIsNotHeldInMemory(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	code, out := s.upload(t, tok, w.ID, "big.txt", MaxAttachmentBytes)
+	code, out := s.upload(t, tok, w.ID, "big.txt", 100<<20)
 	runtime.ReadMemStats(&after)
 	if code != 201 {
 		t.Fatalf("100 MB upload: %d %v", code, out)
@@ -433,5 +439,331 @@ func TestDeletingAWorkspaceDeletesItsFiles(t *testing.T) {
 		if !has(k) {
 			t.Fatalf("another workspace's %s was deleted", k)
 		}
+	}
+}
+
+func archiveBytes(t *testing.T, name string, declared uint64) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	w := zip.NewWriter(&b)
+	h := &zip.FileHeader{Name: name, Method: zip.Store, UncompressedSize64: declared}
+	if declared == 0 {
+		f, err := w.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write([]byte("abc")); err != nil {
+			t.Fatal(err)
+		}
+	} else if _, err := w.CreateRaw(h); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+func TestAStudyMayHoldTenGigabytesUnpacked(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	ids := []string{s.uploadData(t, tok, w.ID, "one.zip", archiveBytes(t, "a", 6<<30)), s.uploadData(t, tok, w.ID, "two.zip", archiveBytes(t, "b", 6<<30))}
+	var out struct{ Error string }
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": ids}, &out); code != 400 || !strings.Contains(out.Error, "at most 10 GB") {
+		t.Fatalf("%d %+v", code, out)
+	}
+	if s.count(t, `SELECT count(*) FROM card`) != 0 {
+		t.Fatal("refused study was stored")
+	}
+}
+func archiveTreeBytes(t *testing.T, directories, files int, nested bool) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	w := zip.NewWriter(&b)
+	for i := 0; i < directories; i++ {
+		h := &zip.FileHeader{Name: fmt.Sprintf("directory-%d/", i)}
+		h.SetMode(os.ModeDir | 0700)
+		if _, err := w.CreateHeader(h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < files; i++ {
+		name := fmt.Sprintf("file-%d.txt", i)
+		if nested {
+			name = fmt.Sprintf("nested/parent-%d/file.txt", i)
+		}
+		f, err := w.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(f, "abc"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+func TestInnerFilesAreCappedPerStudy(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	ids := []string{s.uploadData(t, tok, w.ID, "explicit.zip", archiveTreeBytes(t, 9999, 1, false)), s.uploadData(t, tok, w.ID, "implied.zip", archiveTreeBytes(t, 0, 5000, true))}
+	for i, id := range ids {
+		var count int
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT inner_files FROM attachment WHERE id=$1`, id).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if want := 10000 + i; count != want {
+			t.Fatalf("archive %d counted %d entries, want %d", i, count, want)
+		}
+	}
+	var out struct{ Error string }
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": ids}, &out); code != 400 || out.Error != "A study can have at most 20,000 files and directories inside archives" {
+		t.Fatalf("%d %+v", code, out)
+	}
+	if s.count(t, `SELECT count(*) FROM card`) != 0 || s.count(t, `SELECT count(*) FROM record`) != 0 || s.count(t, `SELECT count(*) FROM attachment WHERE card_id IS NULL`) != 2 {
+		t.Fatal("refused study changed pending uploads or stored sources")
+	}
+	exactly := s.uploadData(t, tok, w.ID, "exact.zip", archiveTreeBytes(t, 9998, 1, false))
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{exactly, ids[1]}}, nil); code != 201 {
+		t.Fatalf("exactly 20,000 entries: %d", code)
+	}
+}
+func TestArchiveDirectoryCapRefusesUploadWithoutStorage(t *testing.T) {
+	s := newServer(t)
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	p, _ := mw.CreateFormFile("file", "directories.zip")
+	p.Write(archiveTreeBytes(t, 20001, 0, false))
+	mw.Close()
+	req, _ := http.NewRequest("POST", s.URL+"/api/attachments", &b)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Workspace-ID", w.ID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct{ Error string }
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 400 || out.Error != "An archive can contain at most 20,000 files and directories and 10 GB unpacked" {
+		t.Fatalf("%d %+v", resp.StatusCode, out)
+	}
+	if s.attachmentCount(t) != 0 {
+		t.Fatal("over-limit archive has a row")
+	}
+	if err := filepath.WalkDir(s.H.Blobs.(storage.Local).Dir, func(p string, e os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !e.IsDir() {
+			t.Errorf("over-limit archive stored: %s", p)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestAnUnsafeArchiveIsNotStored(t *testing.T) {
+	s := newServer(t)
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	p, _ := mw.CreateFormFile("file", "unsafe.zip")
+	p.Write(archiveBytes(t, "../outside", 0))
+	mw.Close()
+	req, _ := http.NewRequest("POST", s.URL+"/api/attachments", &b)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Workspace-ID", w.ID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct{ Error string }
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 400 || out.Error != "Unsafe or unreadable archive" {
+		t.Fatalf("unsafe upload: %d %+v", resp.StatusCode, out)
+	}
+	if s.attachmentCount(t) != 0 {
+		t.Fatal("unsafe archive has a row")
+	}
+	if err := filepath.WalkDir(s.H.Blobs.(storage.Local).Dir, func(p string, e os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !e.IsDir() {
+			t.Errorf("unsafe archive stored: %s", p)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestArchivesAreNotTextExtracted(t *testing.T) {
+	s := newServer(t)
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	calls := make(chan struct{}, 1)
+	s.H.ExtractText = func(string, string, io.ReaderAt, int64) (*io.SectionReader, bool, error) {
+		calls <- struct{}{}
+		return nil, false, nil
+	}
+	id := s.uploadData(t, tok, w.ID, "notes.txt", archiveBytes(t, "nested/a.txt", 0))
+	select {
+	case <-calls:
+		t.Fatal("archive was text extracted")
+	default:
+	}
+	var count int
+	var unpacked int64
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT inner_files,unpacked_bytes FROM attachment WHERE id=$1`, id).Scan(&count, &unpacked); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 || unpacked != 3 {
+		t.Fatalf("metadata: %d %d", count, unpacked)
+	}
+}
+func TestLargeFilesAreNotTextExtracted(t *testing.T) {
+	s := newServer(t)
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	calls := make(chan struct{}, 1)
+	s.H.ExtractText = func(string, string, io.ReaderAt, int64) (*io.SectionReader, bool, error) {
+		calls <- struct{}{}
+		return nil, false, nil
+	}
+	if code, out := s.upload(t, tok, w.ID, "large.txt", (100<<20)+1); code != 201 {
+		t.Fatalf("%d %v", code, out)
+	}
+	select {
+	case <-calls:
+		t.Fatal("large file was text extracted")
+	default:
+	}
+}
+func TestAnArchivesRecordListsItsInnerPaths(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	id := s.uploadData(t, tok, w.ID, "data.zip", archiveBytes(t, "nested/a.txt", 0))
+	var c card
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var answer string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT body->>'answer' FROM record WHERE card_id=$1 AND key='c1'`, c.ID).Scan(&answer); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(answer, "nested/a.txt") || !strings.Contains(answer, "3") {
+		t.Fatalf("answer: %q", answer)
+	}
+	if s.count(t, `SELECT count(*) FROM record WHERE kind='call'`) != 1 {
+		t.Fatal("archive should be one source record")
+	}
+}
+
+func TestAnEmptyArchivesRecordIsAnArchive(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	var b bytes.Buffer
+	z := zip.NewWriter(&b)
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	id := s.uploadData(t, tok, w.ID, "empty.txt", b.Bytes())
+	var c card
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var answer string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT body->>'answer' FROM record WHERE card_id=$1 AND key='c1'`, c.ID).Scan(&answer); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(answer, "archive empty.txt,") {
+		t.Fatalf("%q", answer)
+	}
+}
+
+type originalArchiveUnreadable struct {
+	storage.Storage
+	key string
+}
+
+func (b originalArchiveUnreadable) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	if key == b.key {
+		return nil, errors.New("original archive must not be read during study creation")
+	}
+	return b.Storage.Get(ctx, key)
+}
+func TestArchiveStudyCreationReadsOnlyTheManifest(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	id := s.uploadData(t, tok, w.ID, "data.zip", archiveBytes(t, "nested/a.txt", 0))
+	key := w.ID + "/attachments/" + id
+	s.H.Blobs = originalArchiveUnreadable{s.H.Blobs, key}
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, nil); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+}
+func TestArchiveManifestHashMatchesItsSourceAnswer(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	tok := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, tok, "lab")
+	id := s.uploadData(t, tok, w.ID, "data.zip", archiveBytes(t, "nested/a.txt", 0))
+	var hash string
+	var size int64
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT text_sha256,text_size_bytes FROM attachment WHERE id=$1`, id).Scan(&hash, &size); err != nil {
+		t.Fatal(err)
+	}
+	key := records.TextKey(w.ID + "/attachments/" + id)
+	rc, err := s.H.Blobs.Get(t.Context(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Close()
+	manifest, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(manifest)
+	if hash != hex.EncodeToString(digest[:]) || size != int64(len(manifest)) {
+		t.Fatalf("manifest hash/size: %q %d", hash, size)
+	}
+	var c card
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var answer, answerHash, blob string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT body->>'answer',body->>'answer_sha256',blob_key FROM record WHERE card_id=$1 AND key='c1'`, c.ID).Scan(&answer, &answerHash, &blob); err != nil {
+		t.Fatal(err)
+	}
+	if answer != string(manifest) || answerHash != hash || blob != key {
+		t.Fatalf("source: %q %s %s", answer, answerHash, blob)
 	}
 }

@@ -166,7 +166,10 @@ func TestOutputKeysAreSequentialUnderConcurrency(t *testing.T) {
 	}
 }
 
-func TestAnOutputOverTheLimitsLeavesNothing(t *testing.T) {
+func TestOutputsStayAtOneHundredMegabytes(t *testing.T) {
+	if MaxOutputBytes != 100<<20 {
+		t.Fatalf("output cap: %d", MaxOutputBytes)
+	}
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)
 	refused := func(t *testing.T, name string, size int64, want int) {
@@ -174,6 +177,8 @@ func TestAnOutputOverTheLimitsLeavesNothing(t *testing.T) {
 		recs, blobs := l.outputRecords(t), l.outputBlobs(t)
 		if code, out := l.postOutput(t, leader.token, name, size, nil); code != want {
 			t.Fatalf("%q: %d %v, want %d", name, code, out, want)
+		} else if want == 413 && out["error"] != "A file can be at most 100 MB" {
+			t.Fatalf("message: %v", out)
 		}
 		if n := l.outputRecords(t); n != recs {
 			t.Fatalf("%d output records, had %d", n, recs)
@@ -182,7 +187,7 @@ func TestAnOutputOverTheLimitsLeavesNothing(t *testing.T) {
 			t.Fatalf("%d output blobs, had %d", n, blobs)
 		}
 	}
-	t.Run("too big", func(t *testing.T) { refused(t, "big.bin", MaxAttachmentBytes+1, 413) })
+	t.Run("too big", func(t *testing.T) { refused(t, "big.bin", MaxOutputBytes+1, 413) })
 	for _, name := range []string{"../x", "/etc/x", `a\b`, strings.Repeat("a", 513), "a/../b", "", "a\x00b"} {
 		t.Run("name "+name[:min(len(name), 12)], func(t *testing.T) { refused(t, name, 10, 400) })
 	}

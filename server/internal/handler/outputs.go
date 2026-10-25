@@ -66,7 +66,7 @@ func (h *H) uploadOutput(w http.ResponseWriter, r *http.Request) {
 	}
 	// The body may be unread on a refusal; close so net/http never drains it.
 	w.Header().Set("Connection", "close")
-	r.Body = http.MaxBytesReader(w, r.Body, MaxAttachmentBytes+multipartSlack)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxOutputBytes+multipartSlack)
 	mr, err := r.MultipartReader()
 	if err != nil {
 		writeErr(w, 400, "expected a multipart upload")
@@ -77,14 +77,14 @@ func (h *H) uploadOutput(w http.ResponseWriter, r *http.Request) {
 	for part == nil {
 		p, err := mr.NextPart()
 		if err != nil {
-			attachmentReadErr(w, r, err)
+			uploadReadErr(w, r, err, "A file can be at most 100 MB")
 			return
 		}
 		switch p.FormName() {
 		case "path":
 			b, err := io.ReadAll(io.LimitReader(p, 4<<10))
 			if err != nil {
-				attachmentReadErr(w, r, err)
+				uploadReadErr(w, r, err, "A file can be at most 100 MB")
 				return
 			}
 			if name, err = cleanOutputName(string(b)); err != nil {
@@ -107,12 +107,12 @@ func (h *H) uploadOutput(w http.ResponseWriter, r *http.Request) {
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 	hash := sha256.New()
-	n, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(part, MaxAttachmentBytes+1))
-	if err == nil && n > MaxAttachmentBytes {
-		err = &http.MaxBytesError{Limit: MaxAttachmentBytes}
+	n, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(part, MaxOutputBytes+1))
+	if err == nil && n > MaxOutputBytes {
+		err = &http.MaxBytesError{Limit: MaxOutputBytes}
 	}
 	if err != nil {
-		attachmentReadErr(w, r, err)
+		uploadReadErr(w, r, err, "A file can be at most 100 MB")
 		return
 	}
 	head := make([]byte, 512)

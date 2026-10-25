@@ -25,9 +25,13 @@ const (
 	RequestTimeout      = 10 * time.Second
 	BlobBodyReadTimeout = 30 * time.Second
 	BlobRequestTimeout  = 60 * time.Second
-	// A study file may be 100 MB over a slow link.
-	AttachmentBodyReadTimeout = 10 * time.Minute
-	AttachmentRequestTimeout  = 15 * time.Minute
+	// A 5 GB study file at about 1 MB/s needs up to two hours to read,
+	// with a third hour for storage and request completion.
+	AttachmentBodyReadTimeout = 2 * time.Hour
+	AttachmentRequestTimeout  = 3 * time.Hour
+	// Outputs retain their 100 MB transfer budget.
+	OutputBodyReadTimeout = 10 * time.Minute
+	OutputRequestTimeout  = 15 * time.Minute
 	// ToolsRequestTimeout bounds lyk tools' routing: three levels of Jev
 	// requests of up to 60 s each, a level split when it is long.
 	ToolsRequestTimeout = 4 * time.Minute
@@ -48,15 +52,19 @@ func RequestBounds(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		attachment := r.Method == http.MethodPost && (r.URL.Path == "/api/attachments" || r.URL.Path == "/api/role/outputs")
-		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r) || attachment
+		attachment := r.Method == http.MethodPost && r.URL.Path == "/api/attachments"
+		output := r.Method == http.MethodPost && r.URL.Path == "/api/role/outputs"
+		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r) || attachment || output
 		callPost := r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs")
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
 		if rawBlob || callPost {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
 		}
-		if attachment || attachmentDownload(r) {
+		if attachment || attachmentDownload(r) && !outputDownload(r) {
 			requestTimeout, bodyTimeout = AttachmentRequestTimeout, AttachmentBodyReadTimeout
+		}
+		if output || outputDownload(r) {
+			requestTimeout, bodyTimeout = OutputRequestTimeout, OutputBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
 			requestTimeout = SourcesRequestTimeout
@@ -199,8 +207,7 @@ func workspaceMCPBrokerPost(r *http.Request) bool {
 
 // attachmentDownload matches GET /api/cards/{id}/attachments/{aid},
 // GET /api/cards/{id}/outputs/{key} and a run's GET /api/role/attachments/{id}
-// and GET /api/role/outputs/{key}, which stream a file of up to 100 MB and so
-// get the upload's budget.
+// and GET /api/role/outputs/{key}. Outputs receive their separate budget.
 func attachmentDownload(r *http.Request) bool {
 	p := strings.Split(r.URL.Path, "/")
 	if r.Method != http.MethodGet {
@@ -230,4 +237,12 @@ func attachmentDownload(r *http.Request) bool {
 		return true
 	}
 	return false
+}
+
+func outputDownload(r *http.Request) bool {
+	if !attachmentDownload(r) {
+		return false
+	}
+	p := strings.Split(r.URL.Path, "/")
+	return len(p) == 5 && p[3] == "outputs" || len(p) == 6 && p[4] == "outputs"
 }

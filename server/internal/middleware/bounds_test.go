@@ -314,3 +314,59 @@ func TestWorkspaceMCPBrokerTimeoutIsExactAndCancellable(t *testing.T) {
 		})
 	}
 }
+
+func TestArchiveAndOutputBoundsRemainSeparate(t *testing.T) {
+	id := "11111111-1111-1111-1111-111111111111"
+	for _, tt := range []struct {
+		method, path string
+		want         time.Duration
+	}{
+		{"POST", "/api/attachments", 3 * time.Hour},
+		{"GET", "/api/cards/" + id + "/attachments/" + id, 3 * time.Hour},
+		{"GET", "/api/role/attachments/" + id, 3 * time.Hour},
+		{"POST", "/api/role/outputs", 15 * time.Minute},
+		{"GET", "/api/cards/" + id + "/outputs/o1", 15 * time.Minute},
+		{"GET", "/api/role/outputs/o1", 15 * time.Minute},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			h := RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				d, ok := r.Context().Deadline()
+				if !ok {
+					t.Fatal("no deadline")
+				}
+				if left := time.Until(d); left > tt.want || left < tt.want-time.Second {
+					t.Fatalf("budget %v, want %v", left, tt.want)
+				}
+			}))
+			h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tt.method, tt.path, nil))
+		})
+	}
+}
+
+type readBudgetRecorder struct {
+	*httptest.ResponseRecorder
+	deadlines []time.Time
+}
+
+func (w *readBudgetRecorder) SetReadDeadline(d time.Time) error {
+	w.deadlines = append(w.deadlines, d)
+	return nil
+}
+func TestArchiveAndOutputReadBounds(t *testing.T) {
+	for _, tt := range []struct {
+		path string
+		want time.Duration
+	}{{"/api/attachments", 2 * time.Hour}, {"/api/role/outputs", 10 * time.Minute}} {
+		t.Run(tt.path, func(t *testing.T) {
+			w := &readBudgetRecorder{ResponseRecorder: httptest.NewRecorder()}
+			h := RequestBounds(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			h.ServeHTTP(w, httptest.NewRequest("POST", tt.path, strings.NewReader("body")))
+			if len(w.deadlines) == 0 {
+				t.Fatal("no read deadline")
+			}
+			if left := time.Until(w.deadlines[0]); left > tt.want || left < tt.want-time.Second {
+				t.Fatalf("read budget %v, want %v", left, tt.want)
+			}
+		})
+	}
+}

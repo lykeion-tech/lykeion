@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/archive"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/storage"
@@ -30,7 +31,9 @@ import (
 
 const (
 	// MaxAttachmentBytes is the most one attached file may hold.
-	MaxAttachmentBytes = 100 << 20
+	MaxAttachmentBytes = 5 << 30
+	// MaxOutputBytes keeps each run output within its independent file limit.
+	MaxOutputBytes = 100 << 20
 	// multipartSlack lets the body carry the multipart framing around a file
 	// of exactly the limit; the file itself is counted separately.
 	multipartSlack = 64 << 10
@@ -43,7 +46,8 @@ const (
 	maxExtractions = 3
 	// A study holds at most maxStudyFiles files totalling maxStudyBytes.
 	maxStudyFiles = 100
-	maxStudyBytes = 500 << 20
+	maxStudyBytes = 10 << 30
+	maxInnerFiles = 20000
 )
 
 // errFileTaken is an upload linked to another study, or swept, after this
@@ -84,11 +88,16 @@ func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]db.Attachment, error
 	// The files are linked and keyed in the order they were attached.
 	slices.SortFunc(rows, func(a, b db.Attachment) int { return at[a.ID] - at[b.ID] })
 	var total int64
+	var inner int64
 	for _, a := range rows {
-		total += a.SizeBytes
+		if a.SizeBytes > maxStudyBytes-total || a.UnpackedBytes > maxStudyBytes-total-a.SizeBytes {
+			return nil, cardInputError("A study's files can total at most 10 GB")
+		}
+		total += a.SizeBytes + a.UnpackedBytes
+		inner += int64(a.InnerFiles)
 	}
-	if total > maxStudyBytes {
-		return nil, cardInputError("A study's files can total at most 500 MB")
+	if inner > maxInnerFiles {
+		return nil, cardInputError("A study can have at most 20,000 files and directories inside archives")
 	}
 	return rows, nil
 }
@@ -186,6 +195,21 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	head := make([]byte, 512)
 	hn, _ := tmp.ReadAt(head, 0)
+	format := archive.Kind(head[:hn], name)
+	var listing archive.Listing
+	if format != archive.None {
+		listing, err = archive.List(tmp.Name(), format)
+		if err != nil {
+			if errors.Is(err, archive.ErrTooBig) {
+				writeErr(w, 400, "An archive can contain at most 20,000 files and directories and 10 GB unpacked")
+			} else if errors.Is(err, archive.ErrUnsafe) {
+				writeErr(w, 400, "Unsafe or unreadable archive")
+			} else {
+				fail(w, r, err)
+			}
+			return
+		}
+	}
 	id := uuid.New()
 	key := ws.String() + "/attachments/" + id.String()
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
@@ -198,15 +222,22 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	sum, typ := hex.EncodeToString(hash.Sum(nil)), attachmentType(name, head[:hn])
 	textSum, textSize := "", int64(0)
-	if text, ok := h.uploadText(name, typ, tmp, n); ok {
+	var text io.Reader
+	if format != archive.None {
+		manifest := records.ArchiveManifest(name, sum, listing)
+		text, textSize = strings.NewReader(manifest), int64(len(manifest))
+	} else if extracted, ok := h.uploadTextFile(format, name, typ, tmp, n); ok {
+		text, textSize = extracted, extracted.Size()
+	}
+	if text != nil {
 		th := sha256.New()
-		if err := h.Blobs.Put(r.Context(), records.TextKey(key), io.TeeReader(text, th), text.Size()); err != nil {
+		if err := h.Blobs.Put(r.Context(), records.TextKey(key), io.TeeReader(text, th), textSize); err != nil {
 			_ = h.Blobs.Delete(context.WithoutCancel(r.Context()), key)
 			_ = h.Blobs.Delete(context.WithoutCancel(r.Context()), records.TextKey(key))
 			fail(w, r, err)
 			return
 		}
-		textSum, textSize = hex.EncodeToString(th.Sum(nil)), text.Size()
+		textSum = hex.EncodeToString(th.Sum(nil))
 	}
 	// Nothing reads the temp file from here on; a parse abandoned at the
 	// deadline fails its next read instead of holding the file open.
@@ -215,7 +246,7 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	err = h.Store.InWorkspace(r.Context(), ws, user(r), func(tx *store.Tx) error {
 		var err error
 		row, err = tx.Q.InsertPendingAttachment(r.Context(), db.InsertPendingAttachmentParams{
-			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, Kind: "file", ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key, TextSha256: textSum, TextSizeBytes: textSize})
+			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, Kind: "file", ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key, TextSha256: textSum, TextSizeBytes: textSize, InnerFiles: int32(listing.Files), UnpackedBytes: listing.Bytes})
 		return err
 	})
 	if err != nil {
@@ -230,6 +261,13 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 // extractions holds a slot for each text read under way, abandoned ones
 // included, so at most maxExtractions run at once.
 var extractions = make(chan struct{}, maxExtractions)
+
+func (h *H) uploadTextFile(format archive.Format, name, typ string, f io.ReaderAt, size int64) (*io.SectionReader, bool) {
+	if format != archive.None || size > 100<<20 {
+		return nil, false
+	}
+	return h.uploadText(name, typ, f, size)
+}
 
 // uploadText reads a stored upload's text within the deadline, waiting for a
 // free slot included. A file whose text cannot be read, or not in time, has
@@ -270,7 +308,7 @@ func (h *H) uploadText(name, typ string, f io.ReaderAt, size int64) (*io.Section
 }
 
 // downloadAttachment streams one of a study's files. It runs outside the
-// buffering workspace scope so a 100 MB file never sits in memory, and it
+// buffering workspace scope so a 5 GB file never sits in memory, and it
 // checks membership and the file's study before reading the blob.
 func (h *H) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 	ws, wsErr := uuid.Parse(r.Header.Get("X-Workspace-ID"))
@@ -354,13 +392,17 @@ func (h *H) roleAttachment(w http.ResponseWriter, r *http.Request) {
 }
 
 func attachmentReadErr(w http.ResponseWriter, r *http.Request, err error) {
+	uploadReadErr(w, r, err, "A file can be at most 5 GB")
+}
+
+func uploadReadErr(w http.ResponseWriter, r *http.Request, err error, largeMessage string) {
 	_ = http.NewResponseController(w).SetReadDeadline(time.Now())
 	var large *http.MaxBytesError
 	var network net.Error
 	var disk *os.PathError
 	switch {
 	case errors.As(err, &large):
-		writeErr(w, 413, "A file can be at most 100 MB")
+		writeErr(w, 413, largeMessage)
 	case errors.As(err, &disk):
 		fail(w, r, err)
 	case errors.As(err, &network) && network.Timeout(), r.Context().Err() != nil:

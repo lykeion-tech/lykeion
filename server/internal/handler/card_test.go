@@ -886,14 +886,14 @@ func TestStudyFileLimits(t *testing.T) {
 		}
 	}
 	refused(many, "A study can have at most 100 files")
-	// sizes stand in for files up to the 100 MB cap: five full ones and a byte
-	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE attachment SET size_bytes = CASE WHEN id = $1 THEN 1 ELSE 100 << 20 END`, ids[5]); err != nil {
+	// Declared sizes stand in for five files totalling 10 GB and a byte.
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE attachment SET size_bytes = CASE WHEN id = $1 THEN 1 ELSE 2::bigint << 30 END`, ids[5]); err != nil {
 		t.Fatal(err)
 	}
-	refused(ids, "A study's files can total at most 500 MB")
-	// exactly 500 MB is allowed
+	refused(ids, "A study's files can total at most 10 GB")
+	// Exactly 10 GB is allowed.
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": ids[:5]}, nil); code != 201 {
-		t.Fatalf("500 MB: %d", code)
+		t.Fatalf("10 GB: %d", code)
 	}
 }
 
