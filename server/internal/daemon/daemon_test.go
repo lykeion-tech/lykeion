@@ -227,6 +227,8 @@ func stopDaemon(t *testing.T, cancel context.CancelFunc, done <-chan error) {
 }
 func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	f := fixture(t)
+	var role []byte
+	f.atRunEnd(func(dir string) { role, _ = os.ReadFile(filepath.Join(dir, "CLAUDE.md")) })
 	cancel, done := startDaemon(t, f.cfg)
 	waitFor(t, func() bool { return f.status(t) == "completed" })
 	stopDaemon(t, cancel, done)
@@ -244,6 +246,9 @@ func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT cost_reported FROM agent_run_usage WHERE agent_run_id=$1", f.id).Scan(&reported))
 	if scope != "card:"+f.card.String()+"/role:scoper" || mode != ModeSandboxed || digest != defaultPolicyHash || model != "m" || !reported {
 		t.Fatalf("scope %q mode %q digest %q model %q reported %v", scope, mode, digest, model, reported)
+	}
+	if string(role) != "# Scoper" {
+		t.Fatalf("role file %q", role)
 	}
 	// a run's folder can hold gigabytes its code installed; what the run
 	// keeps it saved as outputs, so the folder goes as the run ends
@@ -1403,6 +1408,9 @@ func TestTheCacheIsCheckedAndReused(t *testing.T) {
 		t.Fatal("the run's file is not linked to the cache")
 	}
 	mu.Unlock()
+	mu.Lock()
+	got = ""
+	mu.Unlock()
 	f.enqueue(t)
 	if got := runOnce(); got != data || f.attachmentGets.Load() != 1 {
 		t.Fatalf("second run: %q after %d downloads", got, f.attachmentGets.Load())
@@ -1410,6 +1418,9 @@ func TestTheCacheIsCheckedAndReused(t *testing.T) {
 	// A damaged cache entry is replaced, not handed to a run.
 	must(t, os.Remove(cached))
 	must(t, os.WriteFile(cached, []byte("gene,fold\nTFAM,9.9\n"), 0o444))
+	mu.Lock()
+	got = ""
+	mu.Unlock()
 	f.enqueue(t)
 	if got := runOnce(); got != data || f.attachmentGets.Load() != 2 {
 		t.Fatalf("after damage: %q after %d downloads", got, f.attachmentGets.Load())

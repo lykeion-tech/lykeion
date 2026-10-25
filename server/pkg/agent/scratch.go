@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -176,8 +177,24 @@ func (r *ScratchReservation) Remove() error {
 	if err := os.Rename(r.dir, retired); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(retired); err != nil {
+	if err := removeTree(retired); err != nil {
 		return fmt.Errorf("remove retired scratch %s: %w", retired, err)
 	}
 	return nil
+}
+
+// removeTree deletes a folder even where code left read-only folders in it,
+// as Go's module cache does, by making each folder writable first. Links are
+// not folders here, so nothing outside is changed.
+func removeTree(dir string) error {
+	if os.RemoveAll(dir) == nil {
+		return nil
+	}
+	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	return os.RemoveAll(dir)
 }
