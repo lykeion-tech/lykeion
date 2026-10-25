@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -30,7 +31,44 @@ type newCard struct {
 	Assignee    *assigneeIn `json:"assignee"`
 	Scope       *scopeIn    `json:"scope"`
 	// AttachmentIDs are the caller's pending uploads the study takes as its files.
-	AttachmentIDs []uuid.UUID `json:"attachment_ids"`
+	AttachmentIDs []uuid.UUID       `json:"attachment_ids"`
+	Env           map[string]string `json:"env"`
+}
+
+func checkStudyEnv(env map[string]string) error {
+	if len(env) > 50 {
+		return cardInputError("a study can have at most 50 variables")
+	}
+	names := make([]string, 0, len(env))
+	for name := range env {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if strings.HasSuffix(name, "_KEY") || strings.HasSuffix(name, "_TOKEN") || strings.HasSuffix(name, "_SECRET") || strings.Contains(name, "PASSWORD") {
+			return cardInputError(name + " looks like a secret; study variables are visible to the study's members. Use a connector for keys.")
+		}
+		valid := len(name) > 0 && (name[0] >= 'A' && name[0] <= 'Z' || name[0] == '_')
+		for i := 1; i < len(name) && valid; i++ {
+			c := name[i]
+			valid = c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
+		}
+		if !valid {
+			return cardInputError("invalid study variable name: " + name)
+		}
+		if slices.Contains([]string{"PATH", "HOME", "TMPDIR", "SHELL", "USER"}, name) ||
+			strings.HasPrefix(name, "LD_") || strings.HasPrefix(name, "DYLD_") || strings.HasPrefix(name, "LYK_") ||
+			strings.HasPrefix(name, "VIRTUAL_ENV") || strings.HasPrefix(name, "PYTHONHOME") ||
+			strings.HasPrefix(name, "CONDA_") || strings.HasPrefix(name, "MAMBA_") || strings.HasPrefix(name, "ELAN_") ||
+			strings.HasPrefix(name, "R_") || strings.HasPrefix(name, "JULIA_") || strings.HasPrefix(name, "JUPYTER_") {
+			return cardInputError("study variable name is reserved: " + name)
+		}
+		value := env[name]
+		if len(value) > 4096 || strings.ContainsAny(value, "\n\r\x00") {
+			return cardInputError("study variable value must be at most 4096 bytes with no newline or NUL: " + name)
+		}
+	}
+	return nil
 }
 
 // assigneeIn is Teams by column; an Autoresearch may instead name an agent, or
@@ -288,6 +326,13 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "question required")
 		return
 	}
+	if in.Env == nil {
+		in.Env = map[string]string{}
+	}
+	if err := checkStudyEnv(in.Env); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	if strings.TrimSpace(in.Title) == "" {
 		in.Title = titleFrom(in.Question)
 	}
@@ -341,6 +386,10 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
 			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
 			AssigneeType: &assignee, Round: 1,
+		}
+		params.Env, err = json.Marshal(in.Env)
+		if err != nil {
+			return err
 		}
 		// A follow-up may ask the same question again; any other card may not
 		// while an active card asks it. The workspace lock makes two identical

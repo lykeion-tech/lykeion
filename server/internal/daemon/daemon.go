@@ -93,9 +93,11 @@ type claimed struct {
 		// RequestedModel is the agent's model; empty runs the CLI's default.
 		RequestedModel string `json:"requested_model"`
 		// CardID is the run's study; nil for a run on no card.
-		CardID *uuid.UUID `json:"card_id"`
+		CardID      *uuid.UUID `json:"card_id"`
+		BoardColumn string     `json:"board_column"`
 	} `json:"agent_run"`
-	Token string `json:"token"`
+	Env   map[string]string `json:"env"`
+	Token string            `json:"token"`
 	// CallToken records the run's calls; only the door holds it.
 	CallToken string            `json:"call_token"`
 	MCPURL    string            `json:"mcp_url"`

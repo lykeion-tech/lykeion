@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -1178,5 +1179,66 @@ func TestAnAbandonedParseEndsWhenItsFileIsClosed(t *testing.T) {
 	}
 	if n := len(extractions); n != 0 {
 		t.Fatalf("%d slots held", n)
+	}
+}
+
+func TestStudyVariablesAreChecked(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "variables@lab.org")
+	w := s.workspace(t, a, "variables")
+	many := map[string]string{}
+	for i := 0; i < 51; i++ {
+		many[fmt.Sprintf("VAR_%d", i)] = "x"
+	}
+	cases := []struct {
+		name   string
+		env    map[string]string
+		status int
+	}{
+		{"plain", map[string]string{"DATA_DIR": "x", "PYTHONPATH": "sdk"}, 201}, {"empty", nil, 201}, {"too many", many, 400},
+		{"newline", map[string]string{"X": "a\nb"}, 400}, {"carriage return", map[string]string{"X": "a\rb"}, 400}, {"nul", map[string]string{"X": "a\x00b"}, 400},
+		{"too long", map[string]string{"X": strings.Repeat("x", 4097)}, 400}, {"limit", map[string]string{"X": strings.Repeat("x", 4096)}, 201},
+	}
+	for _, name := range []string{"OPENAI_API_KEY", "DB_PASSWORD_X", "ACCESS_TOKEN", "CLIENT_SECRET", "PATH", "HOME", "TMPDIR", "SHELL", "USER", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "LYK_DOOR", "VIRTUAL_ENV", "VIRTUAL_ENV_EXTRA", "PYTHONHOME", "PYTHONHOME_EXTRA", "CONDA_PREFIX", "MAMBA_ROOT_PREFIX", "ELAN_HOME", "R_HOME", "JULIA_PROJECT", "JUPYTER_PATH", "lower", "1X", ""} {
+		cases = append(cases, struct {
+			name   string
+			env    map[string]string
+			status int
+		}{name, map[string]string{name: "x"}, 400})
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out struct {
+				ID    string            `json:"id"`
+				Env   map[string]string `json:"env"`
+				Error string            `json:"error"`
+			}
+			code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": fmt.Sprintf("variables %d", i), "env": tc.env}, &out)
+			if code != tc.status {
+				t.Fatalf("status %d, want %d: %+v", code, tc.status, out)
+			}
+			if strings.HasSuffix(tc.name, "_KEY") || strings.HasSuffix(tc.name, "_TOKEN") || strings.HasSuffix(tc.name, "_SECRET") || strings.Contains(tc.name, "PASSWORD") {
+				want := tc.name + " looks like a secret; study variables are visible to the study's members. Use a connector for keys."
+				if out.Error != want {
+					t.Fatalf("error %q, want %q", out.Error, want)
+				}
+			}
+			if code == 201 {
+				if out.Env == nil || len(out.Env) != len(tc.env) {
+					t.Fatalf("created env %#v, want %#v", out.Env, tc.env)
+				}
+				var read struct {
+					Env map[string]string `json:"env"`
+				}
+				if code := s.call(t, "GET", "/api/cards/"+out.ID, a, w.ID, nil, &read); code != 200 {
+					t.Fatalf("read: %d", code)
+				}
+				if read.Env == nil || !reflect.DeepEqual(read.Env, out.Env) {
+					t.Fatalf("read env %#v, want %#v", read.Env, out.Env)
+				}
+			}
+		})
 	}
 }

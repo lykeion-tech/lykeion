@@ -38,12 +38,24 @@ func byNumber(cmd *cobra.Command, e *env, arg string) (cardView, error) {
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
 	var title, followsFrom string
+	var variables []string
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
 		}
 		var out cardView
 		in := map[string]any{"question": strings.Join(a, " ")}
+		if len(variables) > 0 {
+			env := make(map[string]string, len(variables))
+			for _, pair := range variables {
+				name, value, ok := strings.Cut(pair, "=")
+				if !ok {
+					return fmt.Errorf("--env requires NAME=VALUE")
+				}
+				env[name] = value
+			}
+			in["env"] = env
+		}
 		if title != "" {
 			in["title"] = title
 		}
@@ -62,6 +74,7 @@ func cardCmd(e *env) *cobra.Command {
 	}}
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
+	newCmd.Flags().StringArrayVar(&variables, "env", nil, "plain study setting NAME=VALUE (repeatable)")
 	c.AddCommand(newCmd,
 		&cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := e.inWorkspace(); err != nil {

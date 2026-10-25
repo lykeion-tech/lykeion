@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1453,5 +1454,36 @@ func TestAnUnsafeOrMissingFileFailsTheRun(t *testing.T) {
 				t.Fatalf("the CLI started: %s", b)
 			}
 		})
+	}
+}
+
+func TestAStudysVariablesReachTheRun(t *testing.T) {
+	f := fixture(t)
+	_, err := f.env.Owner.Exec(t.Context(), `UPDATE card SET env=$1 WHERE id=$2`, `{"PYTHONPATH":"sdk","LYK_TOKEN":"wrong","LYK_DOOR":"wrong","PATH":"/wrong"}`, f.card)
+	must(t, err)
+	cli := f.cfg.Harnesses["claude"]
+	script, err := os.ReadFile(cli)
+	must(t, err)
+	must(t, os.WriteFile(cli, []byte(strings.Replace(string(script), "#!/bin/sh\n", "#!/bin/sh\nprintf 'PYTHONPATH=%s\\nPATH=%s\\nLYK_DOOR=%s\\n' \"$PYTHONPATH\" \"$PATH\" \"$LYK_DOOR\" > \"$(dirname \"$LYK_CONFIG\")/study-env\"\n", 1)), 0700))
+	var got string
+	f.atRunEnd(func(dir string) { b, _ := os.ReadFile(filepath.Join(dir, "study-env")); got = string(b) })
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	if !strings.Contains("\n"+got, "\nPYTHONPATH=sdk\n") {
+		t.Fatal("CLI study env missing")
+	}
+	for _, wrong := range []string{"LYK_TOKEN=wrong", "LYK_DOOR=wrong", "PATH=/wrong"} {
+		if strings.Contains(got, wrong) {
+			t.Fatalf("study replaced generated env: %s", strings.SplitN(wrong, "=", 2)[0])
+		}
+	}
+}
+func TestStudyVariablesNeverReplaceLykeions(t *testing.T) {
+	base := []string{"PATH=/a", "VIRTUAL_ENV=/generated", "LYK_DOOR=door"}
+	got := mergeEnv(base, map[string]string{"PATH": "/b", "VIRTUAL_ENV": "bad", "LYK_DOOR": "bad", "Z": "3", "X": "1"})
+	want := []string{"PATH=/a", "VIRTUAL_ENV=/generated", "LYK_DOOR=door", "X=1", "Z=3"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("merged %#v, want %#v", got, want)
 	}
 }

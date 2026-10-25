@@ -128,8 +128,9 @@ type WorkspaceConnectorClaim struct {
 }
 
 type Claimed struct {
-	AgentRun db.AgentRun `json:"agent_run"`
-	Token    string      `json:"token"`
+	AgentRun db.AgentRun       `json:"agent_run"`
+	Env      map[string]string `json:"env"`
+	Token    string            `json:"token"`
 	// CallToken records the run's connector calls. The daemon keeps it from
 	// the agent, so only the door can write a call record.
 	CallToken string            `json:"call_token"`
@@ -584,7 +585,18 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						teams[t.ID] = *team
 					}
 					var files []ClaimedAttachment
+					env := map[string]string{}
 					if t.CardID != nil {
+						card, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: ref.WorkspaceID, ID: *t.CardID})
+						if err != nil {
+							return err
+						}
+						if err := json.Unmarshal(card.Env, &env); err != nil {
+							return err
+						}
+						if env == nil {
+							env = map[string]string{}
+						}
 						rows, err := tx.Q.CardAttachments(ctx, db.CardAttachmentsParams{WorkspaceID: ref.WorkspaceID, CardID: t.CardID})
 						if err != nil {
 							return err
@@ -593,7 +605,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							files = append(files, ClaimedAttachment{ID: a.ID, DiskName: a.DiskName, Sha256: a.Sha256, SizeBytes: a.SizeBytes})
 						}
 					}
-					c = &Claimed{AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files}
+					c = &Claimed{AgentRun: t, Env: env, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {

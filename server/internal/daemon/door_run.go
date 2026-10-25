@@ -253,6 +253,11 @@ func (d *Door) tmpEnv() []string {
 // credential, matched in any case.
 var secretNames = []string{"KEY", "SECRET", "TOKEN", "PASSWORD", "PASSWD", "CREDENTIAL"}
 
+func privateCodeEnvName(k string) bool {
+	k = strings.ToUpper(k)
+	return strings.HasPrefix(k, "LYK_") || slices.Contains([]string{"HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME"}, k)
+}
+
 // personEnv is the person's environment as code gets it: the connectors'
 // one, without daemon settings or what looks like a
 // credential by its name (cloud accounts included) and without the person's
@@ -262,8 +267,11 @@ var secretNames = []string{"KEY", "SECRET", "TOKEN", "PASSWORD", "PASSWD", "CRED
 func (d *Door) personEnv() []string {
 	return slices.DeleteFunc(envs.Isolate(connectorEnv(d.Child(), nil)), func(e string) bool {
 		k, _, _ := strings.Cut(e, "=")
+		if _, study := d.StudyEnv[k]; study && k != "PATH" {
+			return true
+		}
 		k = strings.ToUpper(k)
-		return strings.HasPrefix(k, "LYK_") || slices.Contains([]string{"HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CACHE_HOME", "XDG_STATE_HOME"}, k) || strings.HasPrefix(k, "AWS_") || strings.HasPrefix(k, "AZURE_") ||
+		return privateCodeEnvName(k) || strings.HasPrefix(k, "AWS_") || strings.HasPrefix(k, "AZURE_") ||
 			slices.ContainsFunc(secretNames, func(s string) bool { return strings.Contains(k, s) })
 	})
 }
@@ -284,7 +292,15 @@ func (d *Door) runEnv() []string {
 	if prefix := d.Study.PathPrefix(); prefix != "" && !strings.Contains(sep+path+sep, sep+prefix+sep) {
 		path = prefix + sep + path
 	}
-	return append(env, "PATH="+path)
+	// The door does not pass CLI-only Lykeion settings to code. A study
+	// setting with one of those names must not introduce it either.
+	studyEnv := make(map[string]string, len(d.StudyEnv))
+	for name, value := range d.StudyEnv {
+		if !privateCodeEnvName(name) {
+			studyEnv[name] = value
+		}
+	}
+	return mergeEnv(append(env, "PATH="+path), studyEnv)
 }
 
 // runContext ends when the call's does or when the door closes.

@@ -60,6 +60,9 @@ func stubBridge() {
 		}
 		n++
 		r := map[string]any{"id": req.ID, "stdout": fmt.Sprintf("%d ran %s", n, req.Code), "ok": true}
+		if strings.HasPrefix(req.Code, "env:") {
+			r["stdout"] = os.Getenv(strings.TrimPrefix(req.Code, "env:"))
+		}
 		if req.Code == "fail" {
 			r = map[string]any{"id": req.ID, "error": "boom", "ok": false}
 		}
@@ -972,5 +975,38 @@ func TestCodeGetsNoSecretsOrThePersonsSettings(t *testing.T) {
 	}
 	if !strings.Contains(script, "\nVIRTUAL_ENV="+d.Study.Dir) {
 		t.Errorf("the script lost the study's own VIRTUAL_ENV: %s", script)
+	}
+}
+
+func TestRunCodeSeesStudyVariables(t *testing.T) {
+	t.Setenv("LYK_KERNEL_STUB", "1")
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	d.StudyEnv = map[string]string{"PYTHONPATH": "sdk", "VIRTUAL_ENV": "bad", "PATH": "/bad", "LYK_DOOR": "bad", "HOME": "bad", "CODEX_HOME": "bad", "TMPDIR": "bad"}
+	child := d.Child
+	d.Child = func() agent.ExecOptions {
+		opts := child()
+		opts.Env = append(opts.Env, "PATH="+os.Getenv("PATH"), "LYK_DOOR=generated")
+		opts.Env = mergeEnv(opts.Env, d.StudyEnv)
+		return opts
+	}
+	got, err := useTool(t, d, "run_code", map[string]any{"language": "python", "code": "env:PYTHONPATH"})
+	must(t, err)
+	if !strings.HasSuffix(got, "sdk") {
+		t.Fatalf("kernel env: %q", got)
+	}
+	env := d.runEnv()
+	for _, e := range []string{"PATH=/bad", "VIRTUAL_ENV=bad", "HOME=bad", "CODEX_HOME=bad", "TMPDIR=bad", "LYK_DOOR=bad"} {
+		if slices.Contains(env, e) {
+			t.Fatalf("study replaced generated or private env: %s", strings.SplitN(e, "=", 2)[0])
+		}
+	}
+	must(t, os.WriteFile(filepath.Join(dir, "env.py"), []byte(`printf '%s' "$PYTHONPATH"`), 0600))
+	t.Setenv("LYK_KERNEL_STUB", "0")
+	got, err = useTool(t, d, "run_script", map[string]any{"path": "env.py"})
+	must(t, err)
+	if !strings.HasSuffix(got, "sdk") {
+		t.Fatalf("script env: %q", got)
 	}
 }

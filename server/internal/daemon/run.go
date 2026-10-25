@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -210,7 +211,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// The CLI's one MCP server; add-on servers are reached through it too. The
 	// call token stays with the door. Child reads opts when a local command
 	// starts, after any change below.
-	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study,
+	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, StudyEnv: c.Env,
 		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions { return opts }}
 	if err = door.Start(); err != nil {
 		fail(err)
@@ -219,6 +220,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	defer door.Close()
 	opts.DoorURL, opts.DoorToken = door.URL, door.Token
 	opts.Env = append(opts.Env, "LYK_DOOR="+door.URL, "LYK_DOOR_TOKEN="+door.Token)
+	opts.Env = mergeEnv(opts.Env, c.Env)
 	if cont, err = d.beginContinuity(c, pol); err != nil {
 		fail(err)
 		return nil
@@ -679,4 +681,25 @@ func roleFile(harness string) string {
 		return "CLAUDE.md"
 	}
 	return "AGENTS.md"
+}
+
+// mergeEnv appends study settings in name order while preserving existing values.
+func mergeEnv(base []string, extra map[string]string) []string {
+	names := make([]string, 0, len(extra))
+	present := map[string]bool{}
+	for _, entry := range base {
+		name, _, _ := strings.Cut(entry, "=")
+		present[name] = true
+	}
+	for name := range extra {
+		if !present[name] {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	out := slices.Clone(base)
+	for _, name := range names {
+		out = append(out, name+"="+extra[name])
+	}
+	return out
 }
