@@ -983,11 +983,11 @@ func TestRunCodeSeesStudyVariables(t *testing.T) {
 	l := newLykeion(t)
 	dir := t.TempDir()
 	d := runDoor(t, l, dir, envs.Python)
-	d.StudyEnv = map[string]string{"PYTHONPATH": "sdk", "VIRTUAL_ENV": "bad", "PATH": "/bad", "LYK_DOOR": "bad", "HOME": "bad", "CODEX_HOME": "bad", "TMPDIR": "bad"}
+	d.StudyEnv = map[string]string{"PYTHONPATH": "sdk", "X": "user", "VIRTUAL_ENV": "bad", "PATH": "/bad", "LYK_DOOR": "bad", "HOME": "bad", "CODEX_HOME": "bad", "TMPDIR": "bad"}
 	child := d.Child
 	d.Child = func() agent.ExecOptions {
 		opts := child()
-		opts.Env = append(opts.Env, "PATH="+os.Getenv("PATH"), "LYK_DOOR=generated")
+		opts.Env = append(opts.Env, "PATH="+os.Getenv("PATH"), "LYK_DOOR=generated", "X=generated")
 		opts.Env = mergeEnv(opts.Env, d.StudyEnv)
 		return opts
 	}
@@ -995,6 +995,11 @@ func TestRunCodeSeesStudyVariables(t *testing.T) {
 	must(t, err)
 	if !strings.HasSuffix(got, "sdk") {
 		t.Fatalf("kernel env: %q", got)
+	}
+	got, err = useTool(t, d, "run_code", map[string]any{"language": "python", "code": "env:X"})
+	must(t, err)
+	if !strings.HasSuffix(got, "generated") {
+		t.Fatalf("generated kernel env was replaced: %q", got)
 	}
 	env := d.runEnv()
 	for _, e := range []string{"PATH=/bad", "VIRTUAL_ENV=bad", "HOME=bad", "CODEX_HOME=bad", "TMPDIR=bad", "LYK_DOOR=bad"} {

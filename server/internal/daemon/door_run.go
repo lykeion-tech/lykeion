@@ -266,8 +266,8 @@ func privateCodeEnvName(k string) bool {
 // reaches the code with it.
 func (d *Door) personEnv() []string {
 	return slices.DeleteFunc(envs.Isolate(connectorEnv(d.Child(), nil)), func(e string) bool {
-		k, _, _ := strings.Cut(e, "=")
-		if _, study := d.StudyEnv[k]; study && k != "PATH" {
+		k, v, _ := strings.Cut(e, "=")
+		if studyValue, study := d.StudyEnv[k]; study && k != "PATH" && v == studyValue {
 			return true
 		}
 		k = strings.ToUpper(k)
