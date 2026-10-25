@@ -1464,7 +1464,7 @@ func TestAStudysVariablesReachTheRun(t *testing.T) {
 	cli := f.cfg.Harnesses["claude"]
 	script, err := os.ReadFile(cli)
 	must(t, err)
-	must(t, os.WriteFile(cli, []byte(strings.Replace(string(script), "#!/bin/sh\n", "#!/bin/sh\nprintf 'PYTHONPATH=%s\\nPATH=%s\\nLYK_DOOR=%s\\n' \"$PYTHONPATH\" \"$PATH\" \"$LYK_DOOR\" > \"$(dirname \"$LYK_CONFIG\")/study-env\"\n", 1)), 0700))
+	must(t, os.WriteFile(cli, []byte(strings.Replace(string(script), "#!/bin/sh\n", "#!/bin/sh\nif [ \"$LYK_TOKEN\" = wrong ]; then token_replaced=1; else token_replaced=0; fi\nprintf 'PYTHONPATH=%s\\nPATH=%s\\nLYK_DOOR=%s\\nTOKEN_REPLACED=%s\\n' \"$PYTHONPATH\" \"$PATH\" \"$LYK_DOOR\" \"$token_replaced\" > \"$(dirname \"$LYK_CONFIG\")/study-env\"\n", 1)), 0700))
 	var got string
 	f.atRunEnd(func(dir string) { b, _ := os.ReadFile(filepath.Join(dir, "study-env")); got = string(b) })
 	cancel, done := startDaemon(t, f.cfg)
@@ -1473,7 +1473,10 @@ func TestAStudysVariablesReachTheRun(t *testing.T) {
 	if !strings.Contains("\n"+got, "\nPYTHONPATH=sdk\n") {
 		t.Fatal("CLI study env missing")
 	}
-	for _, wrong := range []string{"LYK_TOKEN=wrong", "LYK_DOOR=wrong", "PATH=/wrong"} {
+	if !strings.Contains("\n"+got, "\nTOKEN_REPLACED=0\n") {
+		t.Fatal("study replaced the run token")
+	}
+	for _, wrong := range []string{"LYK_DOOR=wrong", "PATH=/wrong"} {
 		if strings.Contains(got, wrong) {
 			t.Fatalf("study replaced generated env: %s", strings.SplitN(wrong, "=", 2)[0])
 		}
