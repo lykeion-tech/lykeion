@@ -36,7 +36,7 @@ func (f cardUploadFlags) upload(ctx context.Context, c *apiclient.Client, in map
 	if len(f.services) > 4 {
 		return errors.New("a study can have at most 4 hidden services")
 	}
-	if len(f.attachments) > 100 {
+	if len(f.attachments)+len(f.services) > 100 {
 		return errors.New("a study can have at most 100 files")
 	}
 	for _, v := range f.services {

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -183,5 +184,69 @@ func TestCardNewUploadsAnAttachment(t *testing.T) {
 	}
 	if !reflect.DeepEqual(posted["attachment_ids"], []any{"file-upload"}) || uploads != 1 {
 		t.Fatalf("posted %v uploads %d", posted, uploads)
+	}
+}
+
+func TestCardNewChecksCombinedUploadCountBeforeUploading(t *testing.T) {
+	for _, ordinary := range []int{97, 96} {
+		t.Run(fmt.Sprintf("%d-files-4-services", ordinary), func(t *testing.T) {
+			folder := t.TempDir()
+			file := filepath.Join(t.TempDir(), "file.txt")
+			if err := os.WriteFile(file, []byte("public"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			uploads, cards := 0, 0
+			var posted struct {
+				AttachmentIDs []string         `json:"attachment_ids"`
+				Services      []map[string]any `json:"services"`
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/attachments":
+					uploads++
+					if _, err := io.Copy(io.Discard, r.Body); err != nil {
+						t.Error(err)
+					}
+					fmt.Fprintf(w, `{"id":"upload-%d"}`, uploads)
+				case "/api/cards":
+					cards++
+					if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+						t.Error(err)
+					}
+					w.Write([]byte(`{"number":1,"title":"q"}`))
+				default:
+					t.Errorf("unexpected path %s", r.URL.Path)
+				}
+			}))
+			defer srv.Close()
+			var out bytes.Buffer
+			e := &env{cfg: Config{Server: srv.URL, Token: "lyk_person", Workspace: "w"}, out: &out}
+			args := []string{"new", "q"}
+			for i := 0; i < ordinary; i++ {
+				args = append(args, "--attach", file)
+			}
+			for i := 0; i < 4; i++ {
+				name := fmt.Sprintf("service-%d", i)
+				args = append(args, "--service", name+"="+folder, "--service-start", name+"=python server.py")
+			}
+			cmd := cardCmd(e)
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if ordinary == 97 {
+				if err == nil || !strings.Contains(err.Error(), "at most 100 files") {
+					t.Fatalf("combined over-limit error %v (uploads=%d cards=%d)", err, uploads, cards)
+				}
+				if uploads != 0 || cards != 0 {
+					t.Fatalf("refusal sent %d uploads and %d cards", uploads, cards)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if uploads != 100 || cards != 1 || len(posted.AttachmentIDs) != 96 || len(posted.Services) != 4 {
+				t.Fatalf("boundary uploads=%d cards=%d files=%d services=%d", uploads, cards, len(posted.AttachmentIDs), len(posted.Services))
+			}
+		})
 	}
 }

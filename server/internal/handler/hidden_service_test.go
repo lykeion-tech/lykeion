@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
 	"io"
 	"lykeion/server/internal/records"
@@ -362,6 +363,38 @@ func TestForeignServiceUploadsAndCombinedLimits(t *testing.T) {
 	}
 	if got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"question": "wrong-kind", "attachment_ids": []any{mine["id"]}}, nil); got != 400 {
 		t.Fatalf("service as file %d", got)
+	}
+
+	files := []string{file}
+	for i := 1; i < 97; i++ {
+		files = append(files, s.uploadData(t, a, ws, "file.txt", []byte("x")))
+	}
+	services := []any{map[string]any{"name": "evaluator", "attachment_id": mine["id"], "start": "python server.py"}}
+	for i := 1; i < 4; i++ {
+		code, up := s.serviceUpload(t, a, ws, "service.tar", serviceTar(t), false)
+		if code != 201 {
+			t.Fatalf("upload %d %v", code, up)
+		}
+		services = append(services, map[string]any{"name": fmt.Sprintf("evaluator-%d", i), "attachment_id": up["id"], "start": "python server.py"})
+	}
+	if got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"question": "over count", "attachment_ids": files, "services": services}, nil); got != 400 {
+		t.Fatalf("97 files plus 4 services: %d", got)
+	}
+	if n := s.count(t, `SELECT count(*) FROM card`) + s.count(t, `SELECT count(*) FROM record`) + s.count(t, `SELECT count(*) FROM attachment WHERE card_id IS NOT NULL`); n != 0 {
+		t.Fatalf("count refusal left %d study/source/link rows", n)
+	}
+	// Repeating an ordinary id must not consume an additional upload slot.
+	exact := append([]string{}, files[:96]...)
+	exact = append(exact, files[0])
+	var c card
+	if got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"question": "exact count", "attachment_ids": exact, "services": services}, &c); got != 201 {
+		t.Fatalf("96 files plus 4 services with repeated file id: %d", got)
+	}
+	if n := s.count(t, `SELECT count(*) FROM attachment WHERE card_id=$1`, c.ID); n != 100 {
+		t.Fatalf("exact boundary linked %d uploads", n)
+	}
+	if n := s.count(t, `SELECT count(*) FROM attachment WHERE id=$1 AND card_id IS NULL`, files[96]); n != 1 {
+		t.Fatal("unselected file was linked")
 	}
 }
 

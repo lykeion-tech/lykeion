@@ -100,6 +100,9 @@ func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]db.Attachment, error
 }
 
 func checkStudyFileLimits(rows []db.Attachment) error {
+	if len(rows) > maxStudyFiles {
+		return cardInputError("A study can have at most 100 files")
+	}
 	var total int64
 	var inner int64
 	for _, a := range rows {
