@@ -498,7 +498,7 @@ func (s *Study) prepare(ctx context.Context) error {
 		}
 	}
 	if s.condaReady() && s.condaPython() && !s.hasVenv() {
-		if err := s.condaVenv(ctx); err != nil {
+		if err := s.condaVenv(ctx, false); err != nil {
 			return err
 		}
 	}
@@ -549,8 +549,17 @@ func (s *Study) Env() []string { return s.EnvContext(context.Background()) }
 
 // EnvContext is Env, giving up on creating the add-on folders when ctx ends.
 func (s *Study) EnvContext(ctx context.Context) []string {
-	if err := s.prepare(ctx); err != nil {
+	env, err := s.Environment(ctx)
+	if err != nil {
 		slog.Warn("study add-on folders", "dir", s.Dir, "err", err)
+	}
+	return env
+}
+
+// Environment prepares every study environment before it can be used by a process.
+func (s *Study) Environment(ctx context.Context) ([]string, error) {
+	if err := s.prepare(ctx); err != nil {
+		return nil, err
 	}
 	b, sep := s.Bases, string(os.PathListSeparator)
 	env := []string{"MAMBA_ROOT_PREFIX=" + filepath.Join(s.Dir, ".mamba")}
@@ -569,7 +578,7 @@ func (s *Study) EnvContext(ctx context.Context) []string {
 	if dirs := b.jupyterDirs(); len(dirs) > 0 {
 		env = append(env, "JUPYTER_PATH="+strings.Join(dirs, sep))
 	}
-	return env
+	return env, nil
 }
 
 func (s *Study) PathPrefix() string {
@@ -591,17 +600,21 @@ func (s *Study) PathPrefix() string {
 }
 
 func (s *Study) Interpreter(lang string) (string, []string, error) {
+	return s.interpreter(context.Background(), lang)
+}
+
+func (s *Study) interpreter(ctx context.Context, lang string) (string, []string, error) {
 	if _, ok := displayNames[lang]; !ok {
 		return "", nil, fmt.Errorf("unknown language %q", lang)
 	}
 	if !s.Bases.Ready(lang) {
 		return "", nil, notReady(lang)
 	}
+	if err := s.prepare(ctx); err != nil {
+		return "", nil, err
+	}
 	switch lang {
 	case Python:
-		if err := s.prepare(context.Background()); err != nil {
-			return "", nil, err
-		}
 		return filepath.Join(s.Dir, "python", "bin", "python"), nil, nil
 	case R:
 		return filepath.Join(s.Bases.Dir, "r", "bin", "Rscript"), nil, nil
@@ -610,7 +623,7 @@ func (s *Study) Interpreter(lang string) (string, []string, error) {
 }
 
 func (s *Study) Packages(ctx context.Context, lang string) (string, error) {
-	if _, _, err := s.Interpreter(lang); err != nil {
+	if _, _, err := s.interpreter(ctx, lang); err != nil {
 		return "", err
 	}
 	run := s.Run
@@ -629,12 +642,16 @@ func (s *Study) Packages(ctx context.Context, lang string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	env, err := s.Environment(ctx)
+	if err != nil {
+		return "", err
+	}
 	var study []byte
 	switch lang {
 	case Python:
-		study, err = run(ctx, s.Env(), s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-m", "pip", "freeze", "--local")
+		study, err = run(ctx, env, s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-m", "pip", "freeze", "--local")
 	case R:
-		study, err = run(ctx, s.Env(), s.Dir, filepath.Join(s.Bases.Dir, "r", "bin", "Rscript"), "-e",
+		study, err = run(ctx, env, s.Dir, filepath.Join(s.Bases.Dir, "r", "bin", "Rscript"), "-e",
 			`ip <- installed.packages(lib.loc=Sys.getenv("R_LIBS_USER"))[,c("Package","Version")]; write.table(ip, row.names=FALSE, col.names=FALSE, quote=FALSE)`)
 	case Julia:
 		study, err = run(ctx, nil, s.Dir, "/bin/sh", "-c", `[ -e julia/Manifest.toml ] || exit 0; head -c 1048577 julia/Manifest.toml`)

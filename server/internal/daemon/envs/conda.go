@@ -152,6 +152,14 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 	if err := s.checkDefaultPython(ctx); err != nil {
 		return "", err
 	}
+	preserveVenv := false
+	if lock == "" && s.RecordedPython() != "" && s.hasVenv() {
+		version, err := s.Run(ctx, nil, s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-I", "-c", `import sys; print('%d.%d' % sys.version_info[:2])`)
+		if err != nil {
+			return "", err
+		}
+		preserveVenv = strings.TrimSpace(string(version)) == s.RecordedPython()
+	}
 	if python != "" {
 		if err := s.pin(ctx, python); err != nil {
 			return "", err
@@ -164,10 +172,10 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 	ready := s.condaReady()
 	hadPython := s.condaPython()
 	action := "install"
-	if !ready {
+	if !ready || lock != "" {
 		action = "create"
 	}
-	if !ready {
+	if !ready || lock != "" {
 		if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `rm -rf -- "$1"`, "sh", prefix); err != nil {
 			return "", err
 		}
@@ -176,13 +184,74 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 	env := []string{"MAMBA_ROOT_PREFIX=" + filepath.Join(s.Dir, ".mamba")}
 	args := []string{"--no-rc", action, "-y", "-p", prefix, "-c", "conda-forge", "-c", "bioconda", "--override-channels"}
 	v := s.RecordedPython()
-	if v != "" {
+	if v != "" && lock == "" {
 		args = append(args, "python="+v, "ipykernel")
 	}
-	args = append(args, pkgs...)
 	if lock != "" {
 		args = append(args, "--file", lock)
+	} else {
+		args = append(args, pkgs...)
 	}
+	if output, err := s.checkCondaPlan(ctx, env, mm, args); err != nil {
+		return output, err
+	}
+	// Readiness is committed only after installation and compatibility checks.
+	if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `rm -f -- "$1/.lyk-ready"`, "sh", prefix); err != nil {
+		return "", err
+	}
+	out, err := s.Run(ctx, env, s.Dir, mm, args...)
+	if err != nil {
+		return tail(string(out), 4096), err
+	}
+	if lock != "" && len(pkgs) > 0 {
+		if _, err := s.checkCondaPython(ctx, env); err != nil {
+			return tail(string(out), 4096), err
+		}
+		additions := append([]string{"--no-rc", "install", "-y", "-p", prefix, "-c", "conda-forge", "-c", "bioconda", "--override-channels"}, pkgs...)
+		if output, err := s.checkCondaPlan(ctx, env, mm, additions); err != nil {
+			return output, err
+		}
+		extra, err := s.Run(ctx, env, s.Dir, mm, additions...)
+		out = append(out, extra...)
+		if err != nil {
+			return tail(string(out), 4096), err
+		}
+	}
+	if s.condaPython() {
+		actualVersion, err := s.checkCondaPython(ctx, env)
+		if err != nil {
+			return tail(string(out), 4096), err
+		}
+		if lock != "" {
+			if _, err := s.Run(ctx, env, s.Dir, filepath.Join(prefix, "bin", "python"), "-I", "-c", "import ipykernel"); err != nil {
+				return tail(string(out), 4096), fmt.Errorf("the lock's Python must include ipykernel for run_code: %w", err)
+			}
+		} else if v == "" {
+			extra, err := s.Run(ctx, env, s.Dir, mm, "--no-rc", "install", "-y", "-p", prefix, "-c", "conda-forge", "-c", "bioconda", "--override-channels", "python="+actualVersion, "ipykernel")
+			out = append(out, extra...)
+			if err != nil {
+				return tail(string(out), 4096), err
+			}
+		}
+		if !ready || !hadPython || !s.hasVenv() || lock != "" {
+			if err := s.condaVenv(ctx, preserveVenv); err != nil {
+				return tail(string(out), 4096), err
+			}
+		}
+	}
+	exported, err := s.Run(ctx, env, s.Dir, mm, "--no-rc", "env", "export", "-p", prefix, "--explicit")
+	if err != nil {
+		return tail(string(out), 4096), err
+	}
+	// Both files are written in the sandbox: study code may have planted links.
+	if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `printf '%s' "$2" > "$1/lock.txt" && : > "$1/.lyk-ready"`, "sh", prefix, string(exported)); err != nil {
+		return tail(string(out), 4096), err
+	}
+	return tail(string(out), 4096), nil
+}
+
+// checkCondaPlan rejects a Python version change before an install mutates the prefix.
+func (s *Study) checkCondaPlan(ctx context.Context, env []string, mm string, args []string) (string, error) {
 	plan, err := s.Run(ctx, env, s.Dir, mm, append(append([]string{}, args...), "--dry-run", "--json")...)
 	if err != nil {
 		return tail(string(plan), 4096), err
@@ -219,49 +288,33 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 			return "", err
 		}
 	}
-	// A dependency or explicit lock can supply Python without the python
-	// argument. Ensure it has the kernel after applying that exact input.
-	if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `rm -f -- "$1/.lyk-ready"`, "sh", prefix); err != nil {
+	return "", nil
+}
+
+func (s *Study) checkCondaPython(ctx context.Context, env []string) (string, error) {
+	if !s.condaPython() {
+		return "", nil
+	}
+	actual, err := s.Run(ctx, env, s.Dir, filepath.Join(s.Dir, "conda", "bin", "python"), "-I", "-c", `import sys; print('%d.%d' % sys.version_info[:2])`)
+	if err != nil {
 		return "", err
 	}
-	out, err := s.Run(ctx, env, s.Dir, mm, args...)
-	if err != nil {
-		return tail(string(out), 4096), err
-	}
-	if s.condaPython() {
-		actual, err := s.Run(ctx, env, s.Dir, filepath.Join(prefix, "bin", "python"), "-I", "-c", `import sys; print('%d.%d' % sys.version_info[:2])`)
-		if err != nil {
-			return tail(string(out), 4096), err
-		}
-		actualVersion := strings.TrimSpace(string(actual))
-		if err := s.pin(ctx, actualVersion); err != nil {
-			return "", err
-		}
-		if v == "" || lock != "" {
-			extra, err := s.Run(ctx, env, s.Dir, mm, "--no-rc", "install", "-y", "-p", prefix, "-c", "conda-forge", "-c", "bioconda", "--override-channels", "python="+actualVersion, "ipykernel")
-			out = append(out, extra...)
-			if err != nil {
-				return tail(string(out), 4096), err
-			}
-		}
-		if !ready || !hadPython || !s.hasVenv() {
-			if err := s.condaVenv(ctx); err != nil {
-				return tail(string(out), 4096), err
-			}
-		}
-	}
-	exported, err := s.Run(ctx, env, s.Dir, mm, "--no-rc", "env", "export", "-p", prefix, "--explicit")
-	if err != nil {
-		return tail(string(out), 4096), err
-	}
-	// Both files are written in the sandbox: study code may have planted links.
-	if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `printf '%s' "$2" > "$1/lock.txt" && : > "$1/.lyk-ready"`, "sh", prefix, string(exported)); err != nil {
-		return tail(string(out), 4096), err
-	}
-	return tail(string(out), 4096), nil
+	version := strings.TrimSpace(string(actual))
+	return version, s.pin(ctx, version)
 }
-func (s *Study) condaVenv(ctx context.Context) error {
-	_, err := s.Run(ctx, nil, s.Dir, filepath.Join(s.Dir, "conda", "bin", "python"), "-m", "venv", "--clear", "--system-site-packages", filepath.Join(s.Dir, "python"))
+
+func (s *Study) condaVenv(ctx context.Context, preserve bool) error {
+	venv := filepath.Join(s.Dir, "python")
+	mode := "--clear"
+	if preserve {
+		// venv's upgrade keeps local packages, but its existing interpreter
+		// links must be retargeted to the new base inside the sandbox.
+		if _, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `rm -f -- "$1/bin/python" "$1/bin/python3" "$1/bin/python$2"`, "sh", venv, s.RecordedPython()); err != nil {
+			return err
+		}
+		mode = "--upgrade"
+	}
+	_, err := s.Run(ctx, nil, s.Dir, filepath.Join(s.Dir, "conda", "bin", "python"), "-m", "venv", mode, "--system-site-packages", venv)
 	if err == nil {
 		s.Bases.mu.Lock()
 		state := s.Bases.studies[s.Dir]

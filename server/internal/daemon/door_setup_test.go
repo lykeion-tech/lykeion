@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -179,5 +180,43 @@ func TestCondaPackageInventoryCannotReadOutsideTheStudy(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Fatalf("untrusted inventory produced %d records", len(runs))
+	}
+}
+
+func TestScriptsDoNotLaunchAfterCondaRecoveryFails(t *testing.T) {
+	for _, extension := range []string{"R", "jl"} {
+		t.Run(extension, func(t *testing.T) {
+			l := newLykeion(t)
+			dir := t.TempDir()
+			d := runDoor(t, l, dir, envs.Python, envs.R, envs.Julia)
+			d.Study.Env()
+			must(t, d.Study.RememberPython("3.11"))
+			original := d.Study.Run
+			d.Study.Run = func(c context.Context, e []string, dir, n string, a ...string) ([]byte, error) {
+				if filepath.Base(n) == "micromamba" {
+					return nil, errors.New("recovery unavailable")
+				}
+				if filepath.Base(n) == "Rscript" {
+					return []byte("package 1.0"), nil
+				}
+				return original(c, e, dir, n, a...)
+			}
+			script := "a." + extension
+			must(t, os.WriteFile(filepath.Join(dir, script), []byte("touch launched"), 0600))
+			_, err := useTool(t, d, "run_script", map[string]any{"path": script})
+			if err == nil {
+				t.Error("script launched after recovery failed")
+			}
+			if _, err := os.Stat(filepath.Join(dir, "launched")); !os.IsNotExist(err) {
+				t.Errorf("script executed: %v", err)
+			}
+			if _, err := useTool(t, d, "run_code", map[string]any{"language": scriptLanguages["."+extension], "code": "1 + 1"}); err == nil {
+				t.Error("code accepted after recovery failed")
+			}
+			runs, _ := l.recorded()
+			if len(runs) != 0 {
+				t.Errorf("recorded %d runs after recovery failure", len(runs))
+			}
+		})
 	}
 }

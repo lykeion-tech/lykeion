@@ -434,19 +434,16 @@ func TestConcurrentEnsureBuildsOnce(t *testing.T) {
 	}
 }
 
-func TestAFailedVenvLeavesOnlyBaseEntries(t *testing.T) {
+func TestAFailedVenvDoesNotExportAnEnvironment(t *testing.T) {
 	b, f := fakeBases(t)
 	if err := b.Ensure(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	f.failVenv = true
 	s := newStudy(b, t.TempDir())
-	env := s.Env()
-	if v, ok := envValue(env, "VIRTUAL_ENV"); ok {
-		t.Fatalf("VIRTUAL_ENV %q without a venv", v)
-	}
-	if _, ok := envValue(env, "JUPYTER_PATH"); !ok {
-		t.Fatal("base entries dropped")
+	env, err := s.Environment(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "ensurepip failed") || len(env) != 0 {
+		t.Fatalf("failed setup exported environment: %v %v", env, err)
 	}
 	if p := s.PathPrefix(); p != strings.Join([]string{filepath.Join(s.Dir, "bin"), filepath.Join(s.Dir, "conda", "bin"), filepath.Join(b.Dir, "python", "bin")}, string(os.PathListSeparator)) {
 		t.Fatalf("path %q", p)

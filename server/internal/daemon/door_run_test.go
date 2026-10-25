@@ -566,7 +566,9 @@ func TestARunsPathKeepsOneStudyPrefix(t *testing.T) {
 	}
 	// The CLI's own PATH may lead with folders of the run's.
 	child := pathOf(agent.ChildEnv(d.Child()))
-	if path := pathOf(d.runEnv()); path != child || !strings.HasSuffix(path, "/self"+sep+prefix+sep+"/usr/bin") {
+	env, err := d.runEnv(context.Background())
+	must(t, err)
+	if path := pathOf(env); path != child || !strings.HasSuffix(path, "/self"+sep+prefix+sep+"/usr/bin") {
 		t.Fatalf("PATH %q", path)
 	}
 }
@@ -1002,7 +1004,8 @@ func TestRunCodeSeesStudyVariables(t *testing.T) {
 	if !strings.HasSuffix(got, "generated") {
 		t.Fatalf("generated kernel env was replaced: %q", got)
 	}
-	env := d.runEnv()
+	env, err := d.runEnv(context.Background())
+	must(t, err)
 	for _, e := range []string{"PATH=/bad", "VIRTUAL_ENV=bad", "HOME=bad", "CODEX_HOME=bad", "TMPDIR=bad", "LYK_DOOR=bad"} {
 		if slices.Contains(env, e) {
 			t.Fatalf("study replaced generated or private env: %s", strings.SplitN(e, "=", 2)[0])

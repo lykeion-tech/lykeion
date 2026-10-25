@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -35,6 +36,9 @@ func condaStudy(t *testing.T) (*Study, *[]string) {
 			return json.Marshal(map[string]any{"success": true, "actions": map[string]any{"LINK": []map[string]string{{"name": "python", "version": v}}}})
 		}
 		if strings.Contains(line, "sys.version_info") {
+			if name == filepath.Join(s.Dir, "python", "bin", "python") && !s.condaPython() {
+				return []byte("3.13\n"), nil
+			}
 			return []byte("3.11\n"), nil
 		}
 		if strings.Contains(line, "freeze --local") {
@@ -290,5 +294,213 @@ func TestStudyBinDoesNotDependOnPersonPath(t *testing.T) {
 	}
 	if fi, err := os.Stat(filepath.Join(s.Dir, "bin")); err != nil || !fi.IsDir() {
 		t.Fatalf("study bin missing: %v", err)
+	}
+}
+
+func TestEveryLanguageRejectsFailedCondaRecovery(t *testing.T) {
+	for _, lang := range []string{Python, R, Julia} {
+		t.Run(lang, func(t *testing.T) {
+			s, _ := condaStudy(t)
+			for _, base := range []string{R, Julia} {
+				if err := s.Bases.Ensure(context.Background(), base); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.prepare(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.RememberPython("3.11"); err != nil {
+				t.Fatal(err)
+			}
+			partial := filepath.Join(s.Dir, "conda", "bin", "partial-tool")
+			os.MkdirAll(filepath.Dir(partial), 0700)
+			os.WriteFile(partial, []byte("partial"), 0600)
+			original := s.Run
+			s.Run = func(c context.Context, e []string, d, n string, a ...string) ([]byte, error) {
+				if filepath.Base(n) == "micromamba" {
+					os.MkdirAll(filepath.Dir(partial), 0700)
+					os.WriteFile(partial, []byte("partial"), 0600)
+					return nil, errors.New("recovery unavailable")
+				}
+				return original(c, e, d, n, a...)
+			}
+			if _, err := s.Packages(context.Background(), lang); err == nil {
+				t.Fatalf("%s inventory accepted an unready conda environment", lang)
+			}
+		})
+	}
+}
+
+func TestAdditiveToolsKeepInstalledVenvPackages(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is required for the real temporary venv regression")
+	}
+	version, err := exec.Command(python, "-I", "-c", `import sys;print('%d.%d'%sys.version_info[:2])`).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := strings.TrimSpace(string(version))
+	s, _ := condaStudy(t)
+	original := s.Run
+	s.Run = func(c context.Context, e []string, d, n string, a ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(a, " "), "sys.version_info") {
+			return []byte(v), nil
+		}
+		if len(a) > 1 && a[0] == "-m" && a[1] == "venv" {
+			return exec.CommandContext(c, python, a...).CombinedOutput()
+		}
+		return original(c, e, d, n, a...)
+	}
+	if err := s.prepare(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dirs, err := filepath.Glob(filepath.Join(s.Dir, "python", "lib", "python*", "site-packages"))
+	if err != nil || len(dirs) != 1 {
+		t.Fatalf("venv sites %v %v", dirs, err)
+	}
+	installed := filepath.Join(dirs[0], "previous_install.py")
+	if err := os.WriteFile(installed, []byte("value = 73\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RememberPython(v); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetUpConda(context.Background(), "", []string{"ffmpeg"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(filepath.Join(s.Dir, "python", "bin", "python"), "-I", "-c", "import previous_install;print(previous_install.value)").CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "73" {
+		t.Fatalf("additive tools removed installed package: %s %v", out, err)
+	}
+	t.Logf("retained local module on Python %s: %s", v, out)
+}
+
+func TestLockReplacesThePrefixWithoutAnotherSolve(t *testing.T) {
+	s, calls := condaStudy(t)
+	if _, err := s.SetUpConda(context.Background(), "3.11", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(s.Dir, "conda", "old-package")
+	os.WriteFile(stale, nil, 0600)
+	lock := filepath.Join(t.TempDir(), "exact.txt")
+	os.WriteFile(lock, []byte("@EXPLICIT\n"), 0600)
+	*calls = nil
+	if _, err := s.SetUpConda(context.Background(), "3.11", nil, lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("lock retained an unrelated package")
+	}
+	mutations := 0
+	for _, call := range *calls {
+		if !strings.Contains(call, "micromamba") {
+			continue
+		}
+		if strings.Contains(call, " install ") {
+			t.Errorf("lock was re-solved: %s", call)
+		}
+		if strings.Contains(call, " create ") {
+			if strings.Contains(call, "python=") || strings.Contains(call, "ipykernel") {
+				t.Errorf("lock has additional package constraints: %s", call)
+			}
+			if !strings.Contains(call, "--dry-run") {
+				mutations++
+			}
+		}
+	}
+	if mutations != 1 {
+		t.Fatalf("expected one exact lock creation, got %d: %v", mutations, *calls)
+	}
+}
+
+func TestLockWithoutKernelFailsWithoutChangingItsPackages(t *testing.T) {
+	s, calls := condaStudy(t)
+	original := s.Run
+	s.Run = func(c context.Context, e []string, d, n string, a ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(a, " "), "import ipykernel") {
+			return nil, errors.New("ModuleNotFoundError: ipykernel")
+		}
+		return original(c, e, d, n, a...)
+	}
+	_, err := s.SetUpConda(context.Background(), "", nil, "/exact-lock.txt")
+	if err == nil || !strings.Contains(err.Error(), "lock") {
+		t.Fatalf("missing kernel accepted: %v", err)
+	}
+	for _, call := range *calls {
+		if strings.Contains(call, "micromamba") && strings.Contains(call, " install ") {
+			t.Fatalf("lock changed to add a kernel: %s", call)
+		}
+	}
+	if s.condaReady() {
+		t.Fatal("incompatible lock marked ready")
+	}
+}
+
+func TestLockAddsOnlyRequestedPackages(t *testing.T) {
+	s, calls := condaStudy(t)
+	if _, err := s.SetUpConda(context.Background(), "", []string{"ffmpeg=7"}, "/exact-lock.txt"); err != nil {
+		t.Fatal(err)
+	}
+	created, installed := false, false
+	for _, call := range *calls {
+		if !strings.Contains(call, "micromamba") || strings.Contains(call, "--dry-run") {
+			continue
+		}
+		if strings.Contains(call, " create ") {
+			created = true
+			if !strings.Contains(call, "--file /exact-lock.txt") || strings.Contains(call, "ffmpeg") || strings.Contains(call, "ipykernel") || strings.Contains(call, "python=") {
+				t.Fatalf("lock creation included additions: %s", call)
+			}
+		}
+		if strings.Contains(call, " install ") {
+			if !created || installed || !strings.HasSuffix(call, "--override-channels ffmpeg=7") {
+				t.Fatalf("unexpected additions: %s", call)
+			}
+			installed = true
+		}
+	}
+	if !created || !installed {
+		t.Fatalf("expected exact lock then requested addition: %v", *calls)
+	}
+}
+
+func TestLockAdditionsCannotChangePython(t *testing.T) {
+	for _, stage := range []string{"plan", "installed"} {
+		t.Run(stage, func(t *testing.T) {
+			s, calls := condaStudy(t)
+			original := s.Run
+			installed := false
+			s.Run = func(c context.Context, e []string, d, n string, a ...string) ([]byte, error) {
+				args := strings.Join(a, " ")
+				if strings.Contains(args, "install") {
+					if strings.Contains(args, "--dry-run") {
+						if stage == "plan" {
+							return []byte(`{"success":true,"actions":{"LINK":[{"name":"python","version":"3.12.1"}]}}`), nil
+						}
+					} else {
+						installed = true
+					}
+				}
+				if installed && strings.Contains(args, "sys.version_info") {
+					return []byte("3.12"), nil
+				}
+				return original(c, e, d, n, a...)
+			}
+			_, err := s.SetUpConda(context.Background(), "", []string{"ffmpeg"}, "/exact-lock.txt")
+			if err == nil || err.Error() != PythonConflict("3.11").Error() {
+				t.Fatalf("lock's Python changed: %v", err)
+			}
+			if s.condaReady() {
+				t.Fatal("different Python marked ready")
+			}
+			if stage == "plan" {
+				for _, call := range *calls {
+					if strings.Contains(call, " install ") && !strings.Contains(call, "--dry-run") {
+						t.Fatalf("installed different Python: %s", call)
+					}
+				}
+			}
+		})
 	}
 }

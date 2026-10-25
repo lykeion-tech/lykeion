@@ -281,8 +281,12 @@ func (d *Door) personEnv() []string {
 // runEnv is the environment code runs with: the person's, as personEnv
 // leaves it, with the study's folders and interpreters on PATH ahead of the
 // person's own, and temp files and caches in the run's temp folder.
-func (d *Door) runEnv() []string {
-	env := append(append(d.personEnv(), d.Study.Env()...), d.tmpEnv()...)
+func (d *Door) runEnv(ctx context.Context) ([]string, error) {
+	study, err := d.Study.Environment(ctx)
+	if err != nil {
+		return nil, err
+	}
+	env := append(append(d.personEnv(), study...), d.tmpEnv()...)
 	path := os.Getenv("PATH")
 	for _, e := range env {
 		if v, ok := strings.CutPrefix(e, "PATH="); ok {
@@ -302,7 +306,7 @@ func (d *Door) runEnv() []string {
 			studyEnv[name] = value
 		}
 	}
-	return mergeEnv(append(env, "PATH="+path), studyEnv)
+	return mergeEnv(append(env, "PATH="+path), studyEnv), nil
 }
 
 // runContext ends when the call's does or when the door closes.
@@ -388,7 +392,11 @@ func (d *Door) liveSessions(ctx context.Context) (*kernels.Sessions, error) {
 	command := func(name string, args ...string) (*exec.Cmd, error) {
 		return d.command(context.Background(), name, args...)
 	}
-	s, err = kernels.Start(d.ctx, command, python, d.runEnv(), d.Child().Dir, d.bridgeDir)
+	env, err := d.runEnv(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s, err = kernels.Start(d.ctx, command, python, env, d.Child().Dir, d.bridgeDir)
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +454,10 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 		return nil, nil, err
 	}
 	cmd.Dir = dir
-	cmd.Env = d.runEnv()
+	cmd.Env, err = d.runEnv(runCtx)
+	if err != nil {
+		return nil, nil, err
+	}
 	// pipes, not files: the sandbox loses some interpreters' buffered output to a file
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	// the sandbox starts the script in a session of its own, whose group killGroup ends
