@@ -370,3 +370,24 @@ func TestArchiveAndOutputReadBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestHiddenServiceDownloadHasLongExactBudget(t *testing.T) {
+	const route = "/api/daemon/runs/00000000-0000-0000-0000-000000000001/services/00000000-0000-0000-0000-000000000002"
+	for _, tc := range []struct {
+		method, path string
+		long         bool
+	}{{"GET", route, true}, {"POST", route, false}, {"GET", route + "/", false}, {"GET", strings.Replace(route, "00000000-0000-0000-0000-000000000001", "bad", 1), false}} {
+		t.Run(tc.method+tc.path, func(t *testing.T) {
+			RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				deadline, ok := r.Context().Deadline()
+				if !ok {
+					t.Fatal("missing deadline")
+				}
+				long := time.Until(deadline) > time.Hour
+				if long != tc.long {
+					t.Fatalf("long budget %v, want %v", long, tc.long)
+				}
+			})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tc.method, tc.path, nil))
+		})
+	}
+}

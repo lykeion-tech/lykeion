@@ -34,6 +34,7 @@ type newCard struct {
 	// AttachmentIDs are the caller's pending uploads the study takes as its files.
 	AttachmentIDs []uuid.UUID       `json:"attachment_ids"`
 	Env           map[string]string `json:"env"`
+	Services      []newService      `json:"services"`
 }
 
 func checkStudyEnv(env map[string]string) error {
@@ -255,7 +256,12 @@ type studyView struct {
 	Teams    map[string]cardTeamView `json:"teams"`
 	OffLabel []string                `json:"off_label"`
 	// Attachments are the files attached at creation, never their storage.
-	Attachments []attachmentView `json:"attachments"`
+	Attachments []attachmentView  `json:"attachments"`
+	Services    []serviceNameView `json:"services"`
+}
+
+type serviceNameView struct {
+	Name string `json:"name"`
 }
 
 type attachmentView struct {
@@ -266,13 +272,20 @@ type attachmentView struct {
 }
 
 func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
-	v := studyView{Card: c, Teams: map[string]cardTeamView{}, OffLabel: []string{}, Attachments: []attachmentView{}}
+	v := studyView{Card: c, Teams: map[string]cardTeamView{}, OffLabel: []string{}, Attachments: []attachmentView{}, Services: []serviceNameView{}}
 	files, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})
 	if err != nil {
 		return v, err
 	}
 	for _, f := range files {
 		v.Attachments = append(v.Attachments, attachmentView{ID: f.ID, Name: f.Name, SizeBytes: f.SizeBytes, ContentType: f.ContentType})
+	}
+	services, err := tx.Q.CardServices(r.Context(), db.CardServicesParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})
+	if err != nil {
+		return v, err
+	}
+	for _, s := range services {
+		v.Services = append(v.Services, serviceNameView{Name: *s.ServiceName})
 	}
 	rows, err := tx.Q.CardTeams(r.Context(), db.CardTeamsParams{WorkspaceID: c.WorkspaceID, CardID: c.ID})
 	if err != nil {
@@ -330,6 +343,10 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	if err := checkServices(in.Services, in.Env); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	if strings.TrimSpace(in.Title) == "" {
 		in.Title = titleFrom(in.Question)
 	}
@@ -352,6 +369,13 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	var dup db.ActiveDuplicateRow
 	var teams map[string]uuid.UUID
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		services, err := pendingServices(r, tx, ws, user, in.Services)
+		if err != nil {
+			return err
+		}
+		if err := checkStudyFileLimits(append(slices.Clone(files), services...)); err != nil {
+			return err
+		}
 		if in.ResearchID != nil {
 			if _, err := tx.Q.GetResearch(r.Context(), db.GetResearchParams{WorkspaceID: ws, ID: *in.ResearchID}); err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -369,7 +393,6 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// Every column has a Team from the start, so the study starts at once.
-		var err error
 		if teams, err = team.ColumnTeams(r.Context(), tx, from, to, chosen); err != nil {
 			return err
 		}
@@ -419,6 +442,9 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err := linkStudyFiles(r, tx, h.Blobs, card, files); err != nil {
+			return err
+		}
+		if err := linkStudyServices(r, tx, card, user, in.Services); err != nil {
 			return err
 		}
 		if c, err = viewOf(r, tx, card); err != nil {
@@ -769,6 +795,11 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		services, err := tx.Q.CardServices(r.Context(), db.CardServicesParams{WorkspaceID: ws, CardID: &id})
+		if err != nil {
+			return err
+		}
+		files = append(files, services...)
 		if err := tx.Q.DeleteCard(r.Context(), db.DeleteCardParams{ID: id, WorkspaceID: ws}); err != nil {
 			return err
 		}

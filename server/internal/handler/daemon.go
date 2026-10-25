@@ -11,10 +11,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/store"
 	"lykeion/server/pkg/agent"
+	db "lykeion/server/pkg/db/generated"
 )
 
 // Daemon routes accept only personal tokens; Auth has already checked validity.
@@ -259,4 +262,72 @@ func (h *H) daemonStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"status": st})
+}
+
+// daemonService streams hidden code only to the runtime running this study.
+func (h *H) daemonService(w http.ResponseWriter, r *http.Request) {
+	ws, e1 := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+	run, e2 := uuid.Parse(chi.URLParam(r, "run"))
+	id, e3 := uuid.Parse(chi.URLParam(r, "id"))
+	if errors.Join(e1, e2, e3) != nil {
+		writeErr(w, 404, "not found")
+		return
+	}
+	var row db.Attachment
+	err := h.memberTx(r, ws, false, func(tx *store.Tx) error {
+		a, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: ws, ID: run})
+		if err != nil {
+			return err
+		}
+		if a.Status != "running" || a.BoardColumn != "experimentation" || a.RuntimeID == nil || a.CardID == nil {
+			return pgx.ErrNoRows
+		}
+		rt, err := tx.Q.GetRuntime(r.Context(), db.GetRuntimeParams{WorkspaceID: ws, ID: *a.RuntimeID})
+		if err != nil {
+			return err
+		}
+		if rt.OwnerID != user(r) {
+			return pgx.ErrNoRows
+		}
+		row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: ws, CardID: a.CardID, ID: id})
+		if err != nil {
+			return err
+		}
+		if row.Kind != "service" {
+			return pgx.ErrNoRows
+		}
+		return nil
+	})
+	if err != nil {
+		logoFail(w, r, err)
+		return
+	}
+	rc, err := h.Blobs.Get(r.Context(), row.BlobKey)
+	if err != nil {
+		logoFail(w, r, err)
+		return
+	}
+	defer rc.Close()
+	serveFile(w, r, row.Name, row.ContentType, row.SizeBytes, rc)
+}
+
+// Hidden downloads conceal their existence from agent and browser credentials.
+type hiddenServiceResponse struct{ http.ResponseWriter }
+
+func (w hiddenServiceResponse) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w hiddenServiceResponse) WriteHeader(status int) {
+	if status == http.StatusUnauthorized {
+		status = http.StatusNotFound
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func hiddenServiceCredential(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer "+auth.PersonalPrefix) {
+			writeErr(w, 404, "not found")
+			return
+		}
+		next.ServeHTTP(hiddenServiceResponse{w}, r)
+	})
 }

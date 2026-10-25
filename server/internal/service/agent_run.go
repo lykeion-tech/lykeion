@@ -143,9 +143,20 @@ type Claimed struct {
 	// Attachments are the study's files, which the daemon places in the run
 	// folder before the CLI starts.
 	Attachments []ClaimedAttachment `json:"attachments,omitempty"`
+	Services    []ClaimedService    `json:"services,omitempty"`
 	// Skills are a Team member's own skills, which the daemon places where
 	// the CLI reads skills before it starts.
 	Skills []toolroute.RoutedSkill `json:"skills,omitempty"`
+}
+
+type ClaimedService struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Start     string    `json:"start"`
+	Client    string    `json:"client"`
+	Env       []string  `json:"env"`
+	Sha256    string    `json:"sha256"`
+	SizeBytes int64     `json:"size_bytes"`
 }
 
 // ClaimedAttachment is an attached file as the daemon fetches it: by id,
@@ -589,6 +600,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}
 					var python string
 					var files []ClaimedAttachment
+					var services []ClaimedService
 					env := map[string]string{}
 					if t.CardID != nil {
 						python, err = StudyPython(ctx, tx, *t.CardID)
@@ -609,11 +621,24 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						if err != nil {
 							return err
 						}
+						if t.BoardColumn == "experimentation" {
+							rows, err := tx.Q.CardServices(ctx, db.CardServicesParams{WorkspaceID: ref.WorkspaceID, CardID: t.CardID})
+							if err != nil {
+								return err
+							}
+							for _, s := range rows {
+								client := ""
+								if s.ServiceClient != nil {
+									client = *s.ServiceClient
+								}
+								services = append(services, ClaimedService{ID: s.ID, Name: *s.ServiceName, Start: *s.ServiceStart, Client: client, Env: s.ServiceEnv, Sha256: s.Sha256, SizeBytes: s.SizeBytes})
+							}
+						}
 						for _, a := range rows {
 							files = append(files, ClaimedAttachment{ID: a.ID, DiskName: a.DiskName, Sha256: a.Sha256, SizeBytes: a.SizeBytes, UnpackedBytes: a.UnpackedBytes, InnerFiles: a.InnerFiles})
 						}
 					}
-					c = &Claimed{PythonVersion: python, AgentRun: t, Env: env, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files}
+					c = &Claimed{PythonVersion: python, AgentRun: t, Env: env, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {

@@ -213,6 +213,11 @@ func attachmentDownload(r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return false
 	}
+	if len(p) == 7 && p[1] == "api" && p[2] == "daemon" && p[3] == "runs" && p[5] == "services" {
+		_, e1 := uuid.Parse(p[4])
+		_, e2 := uuid.Parse(p[6])
+		return e1 == nil && e2 == nil
+	}
 	if len(p) == 5 && p[1] == "api" && p[2] == "role" {
 		switch p[3] {
 		case "attachments":

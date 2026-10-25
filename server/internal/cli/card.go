@@ -39,6 +39,7 @@ func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
 	var title, followsFrom string
 	var variables []string
+	var uploads cardUploadFlags
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
@@ -66,12 +67,20 @@ func cardCmd(e *env) *cobra.Command {
 			}
 			in["follows_from"] = []string{previous.ID}
 		}
+		if err := uploads.upload(cmd.Context(), e.client(), in); err != nil {
+			return err
+		}
 		if err := e.client().Do(cmd.Context(), "POST", "/api/cards", in, &out); err != nil {
 			return err
 		}
 		fmt.Fprintf(e.out, "#%d %s\n", out.Number, out.Title)
 		return nil
 	}}
+	newCmd.Flags().StringArrayVar(&uploads.attachments, "attach", nil, "file to attach (repeatable)")
+	newCmd.Flags().StringArrayVar(&uploads.services, "service", nil, "hidden service NAME=DIR (repeatable)")
+	newCmd.Flags().StringArrayVar(&uploads.starts, "service-start", nil, "hidden service NAME=COMMAND (repeatable)")
+	newCmd.Flags().StringArrayVar(&uploads.clients, "service-client", nil, "public client NAME=RELPATH (repeatable)")
+	newCmd.Flags().StringArrayVar(&uploads.variables, "service-env", nil, "service study variable NAME=VAR (repeatable)")
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
 	newCmd.Flags().StringArrayVar(&variables, "env", nil, "plain study setting NAME=VALUE (repeatable)")

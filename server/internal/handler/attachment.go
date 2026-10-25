@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"os"
@@ -87,19 +88,31 @@ func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]db.Attachment, error
 	}
 	// The files are linked and keyed in the order they were attached.
 	slices.SortFunc(rows, func(a, b db.Attachment) int { return at[a.ID] - at[b.ID] })
+	for _, a := range rows {
+		if a.Kind != "file" {
+			return nil, cardInputError("Unknown attachment")
+		}
+	}
+	if err := checkStudyFileLimits(rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func checkStudyFileLimits(rows []db.Attachment) error {
 	var total int64
 	var inner int64
 	for _, a := range rows {
 		if a.SizeBytes > maxStudyBytes-total || a.UnpackedBytes > maxStudyBytes-total-a.SizeBytes {
-			return nil, cardInputError("A study's files can total at most 10 GB")
+			return cardInputError("A study's files can total at most 10 GB")
 		}
 		total += a.SizeBytes + a.UnpackedBytes
 		inner += int64(a.InnerFiles)
 	}
 	if inner > maxInnerFiles {
-		return nil, cardInputError("A study can have at most 20,000 files and directories inside archives")
+		return cardInputError("A study can have at most 20,000 files and directories inside archives")
 	}
-	return rows, nil
+	return nil
 }
 
 // linkStudyFiles records each file as a source of the new study and links its
@@ -166,10 +179,34 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	var part io.Reader
 	var name string
+	kind := "file"
+	seenKind := false
+	readField := func(p *multipart.Part) error {
+		if p.FormName() != "kind" {
+			return nil
+		}
+		if seenKind {
+			return errors.New("repeated upload kind")
+		}
+		seenKind = true
+		b, err := io.ReadAll(io.LimitReader(p, 32))
+		if err != nil {
+			return err
+		}
+		kind = string(b)
+		if kind != "file" && kind != "service" {
+			return errors.New("upload kind must be file or service")
+		}
+		return nil
+	}
 	for {
 		p, err := mr.NextPart()
 		if err != nil {
 			attachmentReadErr(w, r, err)
+			return
+		}
+		if err := readField(p); err != nil {
+			writeErr(w, 400, err.Error())
 			return
 		}
 		if p.FormName() == "file" && p.FileName() != "" {
@@ -193,9 +230,31 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		attachmentReadErr(w, r, err)
 		return
 	}
+	for {
+		p, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			attachmentReadErr(w, r, err)
+			return
+		}
+		if p.FormName() == "file" {
+			writeErr(w, 400, "expected one file in the upload")
+			return
+		}
+		if err := readField(p); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
+	}
 	head := make([]byte, 512)
 	hn, _ := tmp.ReadAt(head, 0)
 	format := archive.Kind(head[:hn], name)
+	if kind == "service" && format != archive.Tar && format != archive.TarGz {
+		writeErr(w, 400, "a service must be a tar or tar.gz archive")
+		return
+	}
 	var listing archive.Listing
 	if format != archive.None {
 		listing, err = archive.ListContext(r.Context(), tmp.Name(), format)
@@ -225,11 +284,13 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	sum, typ := hex.EncodeToString(hash.Sum(nil)), attachmentType(name, head[:hn])
 	textSum, textSize := "", int64(0)
 	var text io.Reader
-	if format != archive.None {
+	if kind == "file" && format != archive.None {
 		manifest := records.ArchiveManifest(name, sum, listing)
 		text, textSize = strings.NewReader(manifest), int64(len(manifest))
-	} else if extracted, ok := h.uploadTextFile(format, name, typ, tmp, n); ok {
-		text, textSize = extracted, extracted.Size()
+	} else if kind == "file" {
+		if extracted, ok := h.uploadTextFile(format, name, typ, tmp, n); ok {
+			text, textSize = extracted, extracted.Size()
+		}
 	}
 	if text != nil {
 		th := sha256.New()
@@ -248,7 +309,7 @@ func (h *H) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	err = h.Store.InWorkspace(r.Context(), ws, user(r), func(tx *store.Tx) error {
 		var err error
 		row, err = tx.Q.InsertPendingAttachment(r.Context(), db.InsertPendingAttachmentParams{
-			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, Kind: "file", ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key, TextSha256: textSum, TextSizeBytes: textSize, InnerFiles: int32(listing.Files), UnpackedBytes: listing.Bytes})
+			ID: id, WorkspaceID: ws, UploaderID: user(r), Name: name, Kind: kind, ContentType: typ, SizeBytes: n, Sha256: sum, BlobKey: key, TextSha256: textSum, TextSizeBytes: textSize, InnerFiles: int32(listing.Files), UnpackedBytes: listing.Bytes})
 		return err
 	})
 	if err != nil {
@@ -324,6 +385,9 @@ func (h *H) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 	err := h.memberTx(r, ws, false, func(tx *store.Tx) error {
 		var err error
 		row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: ws, CardID: &card, ID: aid})
+		if err == nil && row.Kind != "file" {
+			return pgx.ErrNoRows
+		}
 		return err
 	})
 	if err != nil {
@@ -375,7 +439,7 @@ func (h *H) roleAttachment(w http.ResponseWriter, r *http.Request) {
 	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
 		var err error
 		row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: role.WorkspaceID, CardID: &role.CardID, ID: id})
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && row.Kind != "file" {
 			return storage.ErrNotFound
 		}
 		return err
