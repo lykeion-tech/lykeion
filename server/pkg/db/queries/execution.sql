@@ -56,15 +56,18 @@ WHERE id = (
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
     AND t.harness = r.harness AND r.status = 'online'
     AND (
-      -- a role run runs on its card owner's runtimes while the card is clear
-      (t.kind = 'role' AND c.owner_id = r.owner_id AND c.flag = '' AND c.ending = '')
+      -- role runs use the chosen machine with consent, or the card owner's runtimes
+      (t.kind = 'role' AND c.flag = '' AND c.ending = '' AND (
+       (c.machine IS NULL AND c.owner_id = r.owner_id)
+       OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR r.visibility = 'workspace'
+           OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))
       -- an autoresearch agent run has no card and runs on its requester's runtimes
       OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id))
   ORDER BY t.created_at
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING *;
+RETURNING *, (SELECT machine FROM card WHERE id = agent_run.card_id) AS claimed_machine;
 
 -- name: InsertAgentRunToken :exec
 INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, scopes, expires_at)
@@ -205,3 +208,11 @@ ORDER BY t.id FOR UPDATE OF t;
 
 -- name: SetRuntimeRevokedReason :exec
 UPDATE agent_run SET cancel_reason = 'runtime_access_revoked' WHERE workspace_id = @workspace_id AND id = @id;
+
+-- name: SetRunMachine :one
+UPDATE agent_run SET machine_name = COALESCE(r.custom_name, r.device_name), machine_owner_id = r.owner_id
+FROM runtime r WHERE agent_run.id = @id AND agent_run.workspace_id = @workspace_id AND r.id = agent_run.runtime_id
+RETURNING agent_run.*;
+
+-- name: UndoClaimAttempt :exec
+UPDATE agent_run SET attempt = attempt - 1 WHERE id = @id AND workspace_id = @workspace_id;

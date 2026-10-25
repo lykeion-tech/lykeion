@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -1283,5 +1284,184 @@ func TestReportAcceptsSandboxedMode(t *testing.T) {
 	}
 	if mode != "sandboxed" || digest != "policy" || model != "model" {
 		t.Fatalf("stored profile: %q %q %q", mode, digest, model)
+	}
+}
+
+func sharedClaimFixture(t *testing.T, share bool) (*fixture, uuid.UUID, RuntimeRef) {
+	t.Helper()
+	f := setup(t)
+	ctx := context.Background()
+	other, err := f.T.Store.Global().UpsertUserByEmail(ctx, "machine@lab.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.T.Store.InWorkspace(ctx, f.WS, f.Owner, func(tx *store.Tx) error {
+		return tx.Q.AddMember(ctx, db.AddMemberParams{WorkspaceID: f.WS, UserID: other.ID, Role: "member"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ref := f.runtime(t, other.ID, "shared", "codex")
+	if _, err = f.Env.Owner.Exec(ctx, "UPDATE card SET machine='shared' WHERE id=$1", f.Card); err != nil {
+		t.Fatal(err)
+	}
+	if share {
+		if _, err = f.Env.Owner.Exec(ctx, "INSERT INTO runtime_share(workspace_id,runtime_id,user_id) VALUES($1,$2,$3)", f.WS, ref.RuntimeID, f.Owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.enqueue(t, 1, "codex")
+	return f, other.ID, ref
+}
+func TestASharedMachineRunsAColleaguesStudy(t *testing.T) {
+	f, owner, ref := sharedClaimFixture(t, true)
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("claims=%d", len(got))
+	}
+	if got[0].AgentRun.ResponsibleUserID != f.Owner {
+		t.Fatal("responsibility changed")
+	}
+	if got[0].AgentRun.MachineName == nil || *got[0].AgentRun.MachineName != "laptop" || got[0].AgentRun.MachineOwnerID == nil || *got[0].AgentRun.MachineOwnerID != owner {
+		t.Fatal("machine snapshot missing")
+	}
+	if _, err = f.Env.Owner.Exec(t.Context(), "DELETE FROM runtime WHERE id=$1", ref.RuntimeID); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	var id uuid.UUID
+	if err = f.Env.Owner.QueryRow(t.Context(), "SELECT machine_name,machine_owner_id FROM agent_run WHERE id=$1", got[0].AgentRun.ID).Scan(&name, &id); err != nil {
+		t.Fatal(err)
+	}
+	if name != "laptop" || id != owner {
+		t.Fatal("snapshot lost")
+	}
+}
+func TestAMachineNotSharedNeverClaims(t *testing.T) {
+	f, owner, ref := sharedClaimFixture(t, false)
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatal("unshared claim")
+	}
+}
+func TestAPinnedStudyIgnoresTheOwnersOtherMachines(t *testing.T) {
+	f, _, _ := sharedClaimFixture(t, true)
+	own := f.runtime(t, f.Owner, "own", "codex")
+	got, err := f.T.Claim(t.Context(), f.Owner, []RuntimeRef{own}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatal("wrong machine claimed")
+	}
+}
+func TestOnlyTheSharedCLIClaims(t *testing.T) {
+	f, owner, _ := sharedClaimFixture(t, true)
+	f.enqueue(t, 1, "claude")
+	ref := f.runtime(t, owner, "shared", "claude")
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatal("unshared CLI claimed")
+	}
+}
+
+func TestARevokeBetweenSelectAndDeliveryDenies(t *testing.T) {
+	for _, workspace := range []bool{false, true} {
+		t.Run(fmt.Sprint(workspace), func(t *testing.T) {
+			f, owner, ref := sharedClaimFixture(t, true)
+			if workspace {
+				if _, err := f.Env.Owner.Exec(t.Context(), "UPDATE runtime SET visibility='workspace' WHERE id=$1", ref.RuntimeID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.T.afterClaim = func(ctx context.Context, tx *store.Tx, run db.AgentRun) error {
+				if err := tx.Q.ReplaceRuntimeShares(ctx, db.ReplaceRuntimeSharesParams{WorkspaceID: f.WS, RuntimeID: ref.RuntimeID, UserIds: []uuid.UUID{}}); err != nil {
+					return err
+				}
+				_, err := tx.Q.SetRuntimeSharing(ctx, db.SetRuntimeSharingParams{WorkspaceID: f.WS, ID: ref.RuntimeID, OwnerID: owner, Visibility: "private"})
+				return err
+			}
+			got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 0 {
+				t.Fatal("revoked delivery")
+			}
+			var status, reason, message string
+			var attempt, tokens int
+			if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,failure_reason,error,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &reason, &message, &attempt, &tokens); err != nil {
+				t.Fatal(err)
+			}
+			var receipts, settlements, events int
+			if err := f.Env.Owner.QueryRow(t.Context(), "SELECT (SELECT count(*) FROM agent_run_receipt WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_settlement WHERE agent_run_id=r.id),(SELECT count(*) FROM event WHERE workspace_id=$2 AND type='agent_run.failed') FROM agent_run r WHERE card_id=$1", f.Card, f.WS).Scan(&receipts, &settlements, &events); err != nil {
+				t.Fatal(err)
+			}
+			if receipts != 0 || settlements != 1 || events != 1 {
+				t.Fatalf("receipts=%d settlements=%d events=%d", receipts, settlements, events)
+			}
+			if status != "failed" || reason != "runtime_access_denied" || message != "This machine is no longer shared with you; choose another for this study." || attempt != 0 || tokens != 0 {
+				t.Fatalf("%s %s %q attempt=%d tokens=%d", status, reason, message, attempt, tokens)
+			}
+		})
+	}
+}
+
+func TestAChangedMachineRequeuesWithoutAnAttempt(t *testing.T) {
+	f, owner, ref := sharedClaimFixture(t, true)
+	f.T.afterClaim = func(ctx context.Context, tx *store.Tx, run db.AgentRun) error {
+		machine := "another"
+		_, err := tx.Q.SetCardMachine(ctx, db.SetCardMachineParams{WorkspaceID: f.WS, ID: f.Card, Machine: &machine})
+		return err
+	}
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatal("changed machine delivered")
+	}
+	var status string
+	var attempt, tokens int
+	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &attempt, &tokens); err != nil {
+		t.Fatal(err)
+	}
+	if status != "queued" || attempt != 0 || tokens != 0 {
+		t.Fatalf("%s attempt=%d tokens=%d", status, attempt, tokens)
+	}
+}
+func TestAutoresearchStaysOnTheRequestersMachines(t *testing.T) {
+	f, owner, ref := sharedClaimFixture(t, true)
+	if _, err := f.Env.Owner.Exec(t.Context(), "DELETE FROM agent_run WHERE card_id=$1", f.Card); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.T.Store.InWorkspace(t.Context(), f.WS, f.Owner, func(tx *store.Tx) error {
+		_, err := tx.Q.EnqueueAutoresearchAgentRun(t.Context(), db.EnqueueAutoresearchAgentRunParams{WorkspaceID: f.WS, RequesterID: f.Owner, Harness: "codex", Prompt: "p"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatal("guest autoresearch delivered")
+	}
+	own := f.runtime(t, f.Owner, "own", "codex")
+	got, err = f.T.Claim(t.Context(), f.Owner, []RuntimeRef{own}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].AgentRun.ResponsibleUserID != f.Owner {
+		t.Fatal("requester autoresearch missing")
 	}
 }

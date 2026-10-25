@@ -104,7 +104,7 @@ func TestDaemonProtocolOverHTTP(t *testing.T) {
 	if got := s.call(t, "GET", statusPath+"&attempt=1", tok, "", nil, &status); got != 200 || status.Status != "running" {
 		t.Fatalf("status: %d %+v", got, status)
 	}
-	for _, bad := range []map[string]any{{"failure_reason": "solar_flare"}, {"usage": []map[string]any{{"model": "m", "cost_usd": -1}}}} {
+	for _, bad := range []map[string]any{{"failure_reason": "runtime_access_denied"}, {"failure_reason": "solar_flare"}, {"usage": []map[string]any{{"model": "m", "cost_usd": -1}}}} {
 		bad["workspace_id"], bad["runtime_id"], bad["attempt"] = w.ID, rts[0].ID, claimed[0].AgentRun.Attempt
 		if got := s.call(t, "POST", path+"/fail", tok, "", bad, nil); got != 400 {
 			t.Fatalf("bad report %v: %d", bad, got)
@@ -534,5 +534,62 @@ func TestAHeartbeatRecordsBaseStates(t *testing.T) {
 	}
 	if got := listed(jwt, w.ID); !maps.Equal(got, map[string]string{"r": "failed: " + strings.Repeat("x", 200), "sandbox": "failed: sandbox-exec missing"}) {
 		t.Fatalf("bases after edge heartbeat: %v", got)
+	}
+}
+
+func TestDaemonsCannotReportAccessDenied(t *testing.T) {
+	s := newServer(t)
+	jwt := s.signIn(t, "denial@lab.org")
+	tok := s.personalToken(t, jwt)
+	ws := s.workspace(t, jwt, "denial").ID
+	c := s.idleCard(t, jwt, ws, "q")
+	var rts []struct{ ID string }
+	if got := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": ws, "daemon_id": "d", "device_name": "laptop", "harnesses": []string{"codex"}}, &rts); got != 200 {
+		t.Fatal(got)
+	}
+	s.queue(t, ws, c.ID, s.userID(t, jwt), "codex")
+	ref := map[string]any{"workspace_id": ws, "runtime_id": rts[0].ID}
+	var claims []struct {
+		AgentRun struct {
+			ID      string
+			Attempt int32
+		} `json:"agent_run"`
+	}
+	if got := s.call(t, "POST", "/api/daemon/agent-runs/claim", tok, "", map[string]any{"runtimes": []any{ref}, "slots": 1}, &claims); got != 200 || len(claims) != 1 {
+		t.Fatalf("claim %d %+v", got, claims)
+	}
+	ref["attempt"] = claims[0].AgentRun.Attempt
+	ref["failure_reason"] = "runtime_access_denied"
+	if got := s.call(t, "POST", "/api/daemon/agent-runs/"+claims[0].AgentRun.ID+"/fail", tok, "", ref, nil); got != 400 {
+		t.Fatalf("daemon reported denial: %d", got)
+	}
+}
+func TestEachRunKeepsItsMachine(t *testing.T) {
+	s := newServer(t)
+	jwt := s.signIn(t, "snapshot@lab.org")
+	tok := s.personalToken(t, jwt)
+	ws := s.workspace(t, jwt, "snapshot").ID
+	c := s.idleCard(t, jwt, ws, "q")
+	var rts []struct{ ID string }
+	if got := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": ws, "daemon_id": "d", "device_name": "laptop", "harnesses": []string{"codex"}}, &rts); got != 200 {
+		t.Fatal(got)
+	}
+	s.queue(t, ws, c.ID, s.userID(t, jwt), "codex")
+	ref := map[string]any{"workspace_id": ws, "runtime_id": rts[0].ID}
+	var claims []struct {
+		AgentRun struct{ ID string } `json:"agent_run"`
+	}
+	if got := s.call(t, "POST", "/api/daemon/agent-runs/claim", tok, "", map[string]any{"runtimes": []any{ref}, "slots": 1}, &claims); got != 200 || len(claims) != 1 {
+		t.Fatalf("claim %d %+v", got, claims)
+	}
+	if got := s.call(t, "DELETE", "/api/runtimes/"+rts[0].ID, jwt, ws, nil, nil); got != 204 {
+		t.Fatalf("delete %d", got)
+	}
+	var name, owner string
+	if err := s.Env.Owner.QueryRow(t.Context(), "SELECT machine_name,machine_owner_id::text FROM agent_run WHERE id=$1", claims[0].AgentRun.ID).Scan(&name, &owner); err != nil {
+		t.Fatal(err)
+	}
+	if name != "laptop" || owner != s.userID(t, jwt) {
+		t.Fatalf("machine snapshot %q %s", name, owner)
 	}
 }

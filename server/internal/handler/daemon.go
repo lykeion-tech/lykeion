@@ -289,6 +289,17 @@ func (h *H) daemonService(w http.ResponseWriter, r *http.Request) {
 		if rt.OwnerID != user(r) {
 			return pgx.ErrNoRows
 		}
+		card, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: *a.CardID})
+		if err != nil {
+			return err
+		}
+		allowed, err := service.RuntimeAllowsUser(r.Context(), tx, rt, card.OwnerID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return pgx.ErrNoRows
+		}
 		row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: ws, CardID: a.CardID, ID: id})
 		if err != nil {
 			return err

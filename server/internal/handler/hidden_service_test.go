@@ -13,6 +13,7 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -178,7 +179,8 @@ func testServiceVisibility(t *testing.T, download bool) {
 }
 func TestOnlyExperimentationRunsClaimServices(t *testing.T)  { testServiceRun(t, "grounding") }
 func TestTheDaemonRouteServesOnlyItsRunningRun(t *testing.T) { testServiceRun(t, "experimentation") }
-func testServiceRun(t *testing.T, col string) {
+func TestHiddenServicesFollowSharing(t *testing.T)           { testServiceRun(t, "experimentation", true) }
+func testServiceRun(t *testing.T, col string, shared ...bool) {
 	s := newServer(t)
 	s.builtIns(t)
 	s.H.Engine = nil
@@ -259,6 +261,30 @@ func testServiceRun(t *testing.T, col string) {
 	}
 	if got := get(tok, path); got != 200 {
 		t.Fatalf("own %d", got)
+	}
+	if len(shared) > 0 {
+		colleagueJWT := s.signIn(t, "colleague@lab.org")
+		colleague := uuid.MustParse(s.userID(t, colleagueJWT))
+		if err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(ws), uuid.MustParse(s.userID(t, jwt)), func(tx *store.Tx) error {
+			return tx.Q.AddMember(t.Context(), db.AddMemberParams{WorkspaceID: uuid.MustParse(ws), UserID: colleague, Role: "member"})
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE card SET owner_id=$1 WHERE id=$2", colleague, c.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Env.Owner.Exec(t.Context(), "INSERT INTO runtime_share(workspace_id,runtime_id,user_id) VALUES($1,$2,$3)", ws, rts[0].ID, colleague); err != nil {
+			t.Fatal(err)
+		}
+		if got := get(tok, path); got != 200 {
+			t.Fatalf("shared %d", got)
+		}
+		if _, err := s.Env.Owner.Exec(t.Context(), "DELETE FROM runtime_share WHERE runtime_id=$1", rts[0].ID); err != nil {
+			t.Fatal(err)
+		}
+		if got := get(tok, path); got != 404 {
+			t.Fatalf("revoked %d", got)
+		}
 	}
 	var ltk string
 	json.Unmarshal(claims[0]["token"], &ltk)

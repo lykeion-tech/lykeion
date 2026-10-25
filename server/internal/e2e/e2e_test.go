@@ -773,3 +773,29 @@ exec sleep 300
 		t.Fatalf("invented usage: %d", n)
 	}
 }
+
+func TestAColleaguesStudyRunsOnASharedMachine(t *testing.T) {
+	l := newLab(t)
+	researcher, _, _ := l.member(t, "researcher@lab.org")
+	machineOwner, tok, _ := l.member(t, "machine@lab.org")
+	card, ids := l.queue(t, researcher, 1)
+	cfg := l.config(t, tok, quick)
+	machine := uuid.NewString()
+	raw, err := json.Marshal(map[string]string{"server": l.url, "daemon_id": machine})
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(cfg.StateDir, "daemon.json"), raw, 0600))
+	runtimes, err := l.runs.Register(t.Context(), machineOwner, l.ws, machine, "shared", []string{"claude"}, nil, agent.Platform{})
+	must(t, err)
+	_, err = l.env.Owner.Exec(t.Context(), "UPDATE card SET machine=$1 WHERE id=$2", machine, card)
+	must(t, err)
+	_, err = l.env.Owner.Exec(t.Context(), "INSERT INTO runtime_share(workspace_id,runtime_id,user_id) VALUES($1,$2,$3)", l.ws, runtimes[0].ID, researcher)
+	must(t, err)
+	stop := startDaemon(t, cfg)
+	waitFor(t, "colleague study completion", func() bool { return l.run(t, ids[0]).Status == "completed" })
+	l.settled(t, ids)
+	stop()
+	l.accounting(t, card, ids)
+	if run := l.run(t, ids[0]); run.ResponsibleUserID != researcher || run.MachineOwnerID == nil || *run.MachineOwnerID != machineOwner {
+		t.Fatalf("ownership changed: %+v", run)
+	}
+}

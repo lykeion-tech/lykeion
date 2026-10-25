@@ -136,15 +136,18 @@ WHERE id = (
   WHERE t.workspace_id = $2 AND t.status = 'queued'
     AND t.harness = r.harness AND r.status = 'online'
     AND (
-      -- a role run runs on its card owner's runtimes while the card is clear
-      (t.kind = 'role' AND c.owner_id = r.owner_id AND c.flag = '' AND c.ending = '')
+      -- role runs use the chosen machine with consent, or the card owner's runtimes
+      (t.kind = 'role' AND c.flag = '' AND c.ending = '' AND (
+       (c.machine IS NULL AND c.owner_id = r.owner_id)
+       OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR r.visibility = 'workspace'
+           OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))
       -- an autoresearch agent run has no card and runs on its requester's runtimes
       OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id))
   ORDER BY t.created_at
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, (SELECT machine FROM card WHERE id = agent_run.card_id) AS claimed_machine
 `
 
 type ClaimAgentRunParams struct {
@@ -152,9 +155,57 @@ type ClaimAgentRunParams struct {
 	WorkspaceID uuid.UUID  `json:"workspace_id"`
 }
 
-func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (AgentRun, error) {
+type ClaimAgentRunRow struct {
+	ID                    uuid.UUID       `json:"id"`
+	WorkspaceID           uuid.UUID       `json:"workspace_id"`
+	CardID                *uuid.UUID      `json:"card_id"`
+	ResponsibleUserID     uuid.UUID       `json:"responsible_user_id"`
+	BoardColumn           string          `json:"board_column"`
+	Round                 int32           `json:"round"`
+	Role                  string          `json:"role"`
+	Harness               string          `json:"harness"`
+	Prompt                string          `json:"prompt"`
+	Skill                 string          `json:"skill"`
+	Status                string          `json:"status"`
+	QueueReason           *string         `json:"queue_reason"`
+	RuntimeID             *uuid.UUID      `json:"runtime_id"`
+	PrepareLeaseExpiresAt *time.Time      `json:"prepare_lease_expires_at"`
+	DispatchedAt          *time.Time      `json:"dispatched_at"`
+	StartedAt             *time.Time      `json:"started_at"`
+	CompletedAt           *time.Time      `json:"completed_at"`
+	Attempt               int32           `json:"attempt"`
+	MaxAttempts           int32           `json:"max_attempts"`
+	SessionID             string          `json:"session_id"`
+	ContinuityScope       string          `json:"continuity_scope"`
+	ProfileMode           string          `json:"profile_mode"`
+	PolicyDigest          string          `json:"policy_digest"`
+	Model                 string          `json:"model"`
+	Error                 string          `json:"error"`
+	FailureReason         *string         `json:"failure_reason"`
+	CostUsd               float64         `json:"cost_usd"`
+	LateUsageAt           *time.Time      `json:"late_usage_at"`
+	CreatedAt             time.Time       `json:"created_at"`
+	HandoffNote           string          `json:"handoff_note"`
+	InputLeaseExpiresAt   *time.Time      `json:"input_lease_expires_at"`
+	InputFetchExpiresAt   *time.Time      `json:"input_fetch_expires_at"`
+	InputFetchID          *uuid.UUID      `json:"input_fetch_id"`
+	InputOutcomes         json.RawMessage `json:"input_outcomes"`
+	AddonHash             string          `json:"addon_hash"`
+	AddonMcp              json.RawMessage `json:"addon_mcp"`
+	Kind                  string          `json:"kind"`
+	RequesterID           *uuid.UUID      `json:"requester_id"`
+	RequestedModel        string          `json:"requested_model"`
+	AgentID               *uuid.UUID      `json:"agent_id"`
+	Assignment            string          `json:"assignment"`
+	CancelReason          *string         `json:"cancel_reason"`
+	MachineName           *string         `json:"machine_name"`
+	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
+	ClaimedMachine        *string         `json:"claimed_machine"`
+}
+
+func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (ClaimAgentRunRow, error) {
 	row := q.db.QueryRow(ctx, claimAgentRun, arg.RuntimeID, arg.WorkspaceID)
-	var i AgentRun
+	var i ClaimAgentRunRow
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
@@ -200,6 +251,7 @@ func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (A
 		&i.CancelReason,
 		&i.MachineName,
 		&i.MachineOwnerID,
+		&i.ClaimedMachine,
 	)
 	return i, err
 }
@@ -1221,6 +1273,69 @@ func (q *Queries) RuntimeShares(ctx context.Context, arg RuntimeSharesParams) ([
 	return items, nil
 }
 
+const setRunMachine = `-- name: SetRunMachine :one
+UPDATE agent_run SET machine_name = COALESCE(r.custom_name, r.device_name), machine_owner_id = r.owner_id
+FROM runtime r WHERE agent_run.id = $1 AND agent_run.workspace_id = $2 AND r.id = agent_run.runtime_id
+RETURNING agent_run.id, agent_run.workspace_id, agent_run.card_id, agent_run.responsible_user_id, agent_run.board_column, agent_run.round, agent_run.role, agent_run.harness, agent_run.prompt, agent_run.skill, agent_run.status, agent_run.queue_reason, agent_run.runtime_id, agent_run.prepare_lease_expires_at, agent_run.dispatched_at, agent_run.started_at, agent_run.completed_at, agent_run.attempt, agent_run.max_attempts, agent_run.session_id, agent_run.continuity_scope, agent_run.profile_mode, agent_run.policy_digest, agent_run.model, agent_run.error, agent_run.failure_reason, agent_run.cost_usd, agent_run.late_usage_at, agent_run.created_at, agent_run.handoff_note, agent_run.input_lease_expires_at, agent_run.input_fetch_expires_at, agent_run.input_fetch_id, agent_run.input_outcomes, agent_run.addon_hash, agent_run.addon_mcp, agent_run.kind, agent_run.requester_id, agent_run.requested_model, agent_run.agent_id, agent_run.assignment, agent_run.cancel_reason, agent_run.machine_name, agent_run.machine_owner_id
+`
+
+type SetRunMachineParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) SetRunMachine(ctx context.Context, arg SetRunMachineParams) (AgentRun, error) {
+	row := q.db.QueryRow(ctx, setRunMachine, arg.ID, arg.WorkspaceID)
+	var i AgentRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.ResponsibleUserID,
+		&i.BoardColumn,
+		&i.Round,
+		&i.Role,
+		&i.Harness,
+		&i.Prompt,
+		&i.Skill,
+		&i.Status,
+		&i.QueueReason,
+		&i.RuntimeID,
+		&i.PrepareLeaseExpiresAt,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.SessionID,
+		&i.ContinuityScope,
+		&i.ProfileMode,
+		&i.PolicyDigest,
+		&i.Model,
+		&i.Error,
+		&i.FailureReason,
+		&i.CostUsd,
+		&i.LateUsageAt,
+		&i.CreatedAt,
+		&i.HandoffNote,
+		&i.InputLeaseExpiresAt,
+		&i.InputFetchExpiresAt,
+		&i.InputFetchID,
+		&i.InputOutcomes,
+		&i.AddonHash,
+		&i.AddonMcp,
+		&i.Kind,
+		&i.RequesterID,
+		&i.RequestedModel,
+		&i.AgentID,
+		&i.Assignment,
+		&i.CancelReason,
+		&i.MachineName,
+		&i.MachineOwnerID,
+	)
+	return i, err
+}
+
 const setRuntimeBases = `-- name: SetRuntimeBases :execrows
 UPDATE runtime SET bases = $1
 WHERE id = $2 AND workspace_id = $3 AND owner_id = $4 AND bases IS DISTINCT FROM $1
@@ -1437,6 +1552,20 @@ func (q *Queries) TouchRuntime(ctx context.Context, arg TouchRuntimeParams) (int
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const undoClaimAttempt = `-- name: UndoClaimAttempt :exec
+UPDATE agent_run SET attempt = attempt - 1 WHERE id = $1 AND workspace_id = $2
+`
+
+type UndoClaimAttemptParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) UndoClaimAttempt(ctx context.Context, arg UndoClaimAttemptParams) error {
+	_, err := q.db.Exec(ctx, undoClaimAttempt, arg.ID, arg.WorkspaceID)
+	return err
 }
 
 const upsertRuntime = `-- name: UpsertRuntime :one

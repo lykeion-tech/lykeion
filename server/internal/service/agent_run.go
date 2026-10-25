@@ -279,6 +279,7 @@ type AgentRuns struct {
 	// OnAttemptEnded releases transient resources after a committed attempt end.
 	// Replayed receipts do not invoke it.
 	OnAttemptEnded func(workspace, run uuid.UUID, attempt int32)
+	afterClaim     func(context.Context, *store.Tx, db.AgentRun) error
 	Stale          time.Duration // a runtime silent this long is offline; default 60 s
 }
 
@@ -538,14 +539,60 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if active >= int64(runtime.MaxConcurrent) {
 						return nil
 					}
-					t, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID})
+					claim, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID})
 					if errors.Is(err, pgx.ErrNoRows) {
 						return nil
 					}
 					if err != nil {
 						return err
 					}
+					t, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: claim.ID})
+					if err != nil {
+						return err
+					}
+					if s.afterClaim != nil {
+						if err := s.afterClaim(ctx, tx, t); err != nil {
+							return err
+						}
+					}
+					var accessErr error
+					if t.CardID != nil {
+						card, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: ref.WorkspaceID, ID: *t.CardID})
+						if err != nil {
+							return err
+						}
+						current, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
+						if err != nil {
+							return err
+						}
+						changed := (card.Machine == nil) != (claim.ClaimedMachine == nil) || (card.Machine != nil && claim.ClaimedMachine != nil && *card.Machine != *claim.ClaimedMachine)
+						if changed {
+							if err := tx.Q.RequeueAgentRun(ctx, db.RequeueAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: t.ID}); err != nil {
+								return err
+							}
+							return tx.Q.UndoClaimAttempt(ctx, db.UndoClaimAttemptParams{WorkspaceID: ref.WorkspaceID, ID: t.ID})
+						}
+						if card.Machine != nil {
+							allowed, err := RuntimeAllowsUser(ctx, tx, current, card.OwnerID)
+							if err != nil {
+								return err
+							}
+							if !allowed {
+								accessErr = errors.New("This machine is no longer shared with you; choose another for this study.")
+								if err := tx.Q.UndoClaimAttempt(ctx, db.UndoClaimAttemptParams{WorkspaceID: ref.WorkspaceID, ID: t.ID}); err != nil {
+									return err
+								}
+							}
+						}
+					}
+					t, err = tx.Q.SetRunMachine(ctx, db.SetRunMachineParams{WorkspaceID: ref.WorkspaceID, ID: t.ID})
+					if err != nil {
+						return err
+					}
 					mcp, err := addon.Servers(t.AddonMcp)
+					if accessErr != nil {
+						err = accessErr
+					}
 					var conns []pack.Connector
 					var team *TeamClaim
 					var workspace []WorkspaceConnectorClaim
@@ -561,19 +608,26 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						err = claimConnectorNames(conns, team, workspace, mcp)
 					}
 					if err != nil {
-						// No token is issued; the attempt ends here, with its receipt
-						// and the settlement every terminal run gets.
+						// No token is issued. Access refusals settle without an execution
+						// receipt because the CLI never launched.
 						reason := "agent_error"
+						message := "refused at claim: " + err.Error()
+						if accessErr != nil {
+							reason = "runtime_access_denied"
+							message = accessErr.Error()
+						}
 						if err := tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{Status: "failed", SessionID: t.SessionID,
-							Error: "refused at claim: " + err.Error(), FailureReason: &reason, ID: t.ID, WorkspaceID: ref.WorkspaceID}); err != nil {
+							Error: message, FailureReason: &reason, ID: t.ID, WorkspaceID: ref.WorkspaceID}); err != nil {
 							return err
 						}
 						f, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{ID: t.ID, WorkspaceID: ref.WorkspaceID})
 						if err != nil {
 							return err
 						}
-						if err := saveReceipt(ctx, tx, f, &ref.RuntimeID); err != nil {
-							return err
+						if accessErr == nil {
+							if err := saveReceipt(ctx, tx, f, &ref.RuntimeID); err != nil {
+								return err
+							}
 						}
 						if err := saveSettlement(ctx, tx, f); err != nil {
 							return err
