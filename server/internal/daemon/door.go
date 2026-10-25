@@ -146,10 +146,10 @@ func (d *Door) Start() error {
 	if d.Study != nil {
 		// The study's own interpreters load what its code installed, so
 		// listing its packages runs in the sandbox too.
-		study := *d.Study
+		study := d.Study.ForRun()
 		study.Run = d.runSandboxed
 		study.PersistPython = d.setPython
-		d.Study = &study
+		d.Study = study
 	}
 	d.sessions = map[string]*mcp.ClientSession{}
 	d.sessionCommands = map[string]*exec.Cmd{}

@@ -467,6 +467,14 @@ type Study struct {
 
 func ForStudy(b *Bases, dir string) *Study { return &Study{Bases: b, Dir: dir} }
 
+// ForRun makes an independent view for run-specific callbacks. The selected
+// Lean pair is snapshotted under its lock; shared study version/setup state
+// remains with Bases. A run never copies the original view's mutex.
+func (s *Study) ForRun() *Study {
+	return &Study{Bases: s.Bases, Dir: s.Dir, PythonVersion: s.PythonVersion,
+		PersistPython: s.PersistPython, Run: s.Run, leanDir: s.selectedLean()}
+}
+
 var errNoRunner = errors.New("the study's folders can only be used in a sandbox, and this study has none")
 
 // prepare creates the add-on folders for the ready bases that lack them,

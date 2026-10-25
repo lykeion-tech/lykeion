@@ -712,3 +712,66 @@ func TestTheRunnerGetsOnlyTheStudysEnvironment(t *testing.T) {
 		}
 	}
 }
+
+func TestStudyRunViewPreservesStateAndOwnsCallbacks(t *testing.T) {
+	original := ForStudy(&Bases{}, t.TempDir())
+	original.PythonVersion = "3.11"
+	original.rememberLean("trusted-pair")
+	original.Run = func(context.Context, []string, string, string, ...string) ([]byte, error) {
+		return []byte("original"), nil
+	}
+	persisted := ""
+	original.PersistPython = func(_ context.Context, version string) error { persisted = version; return nil }
+	view := original.ForRun()
+	if view == original || view.Bases != original.Bases || view.Dir != original.Dir || view.PythonVersion != original.PythonVersion || view.selectedLean() != "trusted-pair" {
+		t.Fatal("run view lost study identity or selected toolchain")
+	}
+	out, err := view.Run(t.Context(), nil, "", "")
+	if err != nil || string(out) != "original" {
+		t.Fatalf("runner not retained: %s %v", out, err)
+	}
+	if err := view.PersistPython(t.Context(), "3.11"); err != nil || persisted != "3.11" {
+		t.Fatalf("persistence callback not retained: %s %v", persisted, err)
+	}
+	view.Run = func(context.Context, []string, string, string, ...string) ([]byte, error) { return []byte("run"), nil }
+	view.PersistPython = func(context.Context, string) error { return errors.New("run callback") }
+	view.rememberLean("run-selection")
+	out, err = original.Run(t.Context(), nil, "", "")
+	if err != nil || string(out) != "original" || original.selectedLean() != "trusted-pair" {
+		t.Fatal("run-specific changes mutated original study")
+	}
+	if err := original.PersistPython(t.Context(), "unchanged"); err != nil || persisted != "unchanged" {
+		t.Fatal("run replaced original persistence callback")
+	}
+	if err := view.RememberPython("3.11"); err != nil {
+		t.Fatal(err)
+	}
+	if original.RecordedPython() != "3.11" {
+		t.Fatal("run lost shared study version state")
+	}
+}
+
+func TestStudyRunViewSnapshotsConcurrentLeanSelection(t *testing.T) {
+	original := ForStudy(&Bases{}, t.TempDir())
+	original.rememberLean("first")
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 1000 {
+			original.rememberLean("second")
+			original.rememberLean("first")
+		}
+	}()
+	for range 1000 {
+		view := original.ForRun()
+		if selected := view.selectedLean(); selected != "first" && selected != "second" {
+			t.Errorf("invalid snapshot %q", selected)
+		}
+		view.rememberLean("independent")
+	}
+	wg.Wait()
+	if original.selectedLean() != "first" {
+		t.Fatal("view changed the original selection")
+	}
+}
