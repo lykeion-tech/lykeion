@@ -16,7 +16,9 @@ import (
 )
 
 // WithBlob coordinates a content-addressed upload across server processes. Save
-// must open and commit its own transaction before returning. Blob I/O happens
+// must open and commit its own transaction before returning, acquiring the
+// workspace mutation lock before authorization, project, and file locks, in
+// the same order as scoped writes. Blob I/O happens
 // outside that transaction. All new person and run uploads must use this wrapper;
 // restores reuse an already referenced blob and need no upload lock.
 // The cleanup helper currently authorizes workspace members; run-token callers

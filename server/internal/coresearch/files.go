@@ -38,8 +38,10 @@ type SaveIn struct {
 	RestoredFrom          *int32
 }
 
-// SaveVersion records a blob already stored by WithBlob. The project lock also
-// serializes quota checks for saves to different files and project archiving.
+// SaveVersion records a blob already stored by WithBlob. Callers must acquire
+// the workspace mutation lock before their authorization locks and this call.
+// The project lock serializes quota checks for saves to different files and
+// project archiving.
 func SaveVersion(ctx context.Context, tx *store.Tx, in SaveIn) (db.CoresearchFileVersion, error) {
 	var zero db.CoresearchFileVersion
 	project, err := tx.Q.LockCoresearchProject(ctx, db.LockCoresearchProjectParams{WorkspaceID: in.Workspace, ID: in.Project})

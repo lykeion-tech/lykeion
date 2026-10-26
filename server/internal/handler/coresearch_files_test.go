@@ -14,8 +14,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/storage"
@@ -256,5 +258,77 @@ func TestForceAtHeadRecordsOverriddenVersion(t *testing.T) {
 	c, v := csUpload(t, s, a, ws, p.ID, "a.txt", 1, true, []byte("2"))
 	if c != 201 || v.Overrode == nil || *v.Overrode != 1 {
 		t.Fatalf("forced save %d %+v", c, v)
+	}
+}
+
+func TestCoresearchUploadAndScopedWriteLockOrder(t *testing.T) {
+	s, a, b, _, ws, p := csFixture(t)
+	if code := csAdd(t, s, a, b, ws, p.ID, "member"); code != 201 {
+		t.Fatal(code)
+	}
+	blocker, err := s.Env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(context.Background())
+	if _, err = blocker.Exec(t.Context(), `SELECT id FROM coresearch_project WHERE id=$1 FOR UPDATE`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Queue the upload at the project first. Its final transaction must already
+	// own the workspace lock before a scoped rename can acquire that lock.
+	upload := make(chan int, 1)
+	go func() {
+		code, _ := csUpload(t, s, b, ws, p.ID, "member.txt", 0, false, []byte("member save"))
+		upload <- code
+	}()
+	uploadPID := waitCoresearchLock(t, s, 0, "LockCoresearchProject")
+	rename := make(chan int, 1)
+	go func() {
+		rename <- s.call(t, "PATCH", csProjects+"/"+p.ID, a, ws, map[string]string{"name": "Renamed"}, nil)
+	}()
+	waitCoresearchLock(t, s, uploadPID, "")
+	if err = blocker.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var uploadCode, renameCode int
+	select {
+	case uploadCode = <-upload:
+	case <-time.After(8 * time.Second):
+		t.Fatal("upload did not finish")
+	}
+	select {
+	case renameCode = <-rename:
+	case <-time.After(8 * time.Second):
+		t.Fatal("rename did not finish")
+	}
+	if uploadCode != 201 || renameCode != 200 {
+		t.Fatalf("competing member upload / owner rename: %d / %d", uploadCode, renameCode)
+	}
+	var files []coresearchFileView
+	if code := s.call(t, "GET", csProjects+"/"+p.ID+"/files", b, ws, nil, &files); code != 200 || len(files) != 1 || files[0].Path != "member.txt" {
+		t.Fatalf("member's committed file: %d %+v", code, files)
+	}
+}
+
+func waitCoresearchLock(t *testing.T, s *server, except int, query string) int {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var pid int
+		err := s.Env.Owner.QueryRow(ctx, `SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND usename='lykeion_app' AND wait_event_type='Lock' AND pid<>$1 AND query LIKE $2 ORDER BY backend_start LIMIT 1`, except, "%"+query+"%").Scan(&pid)
+		if err == nil {
+			return pid
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("observe transaction lock: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("no blocked transaction matching %q: %v", query, ctx.Err())
+		case <-ticker.C:
+		}
 	}
 }

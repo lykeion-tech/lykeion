@@ -105,6 +105,23 @@ func (h *H) restoreCoresearchFile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 201, out)
 	}
 }
+
+// coresearchSaveTx follows Scope's workspace -> member -> project -> file lock
+// order without requiring a workspace admin. Only the final database save runs
+// here; upload spooling and blob storage stay outside the transaction.
+func (h *H) coresearchSaveTx(r *http.Request, ws uuid.UUID, save func(*store.Tx) error) error {
+	who := user(r)
+	return h.Store.InWorkspace(r.Context(), ws, who, func(tx *store.Tx) error {
+		if _, err := tx.Q.LockWorkspaceForMutation(r.Context(), ws); err != nil {
+			return err
+		}
+		if _, err := tx.Q.LockMember(r.Context(), db.LockMemberParams{WorkspaceID: ws, UserID: who}); err != nil {
+			return err
+		}
+		return save(tx)
+	})
+}
+
 func (h *H) uploadCoresearchFile(w http.ResponseWriter, r *http.Request) {
 	ws, err := uuid.Parse(r.Header.Get("X-Workspace-ID"))
 	if err != nil {
@@ -218,7 +235,7 @@ func (h *H) uploadCoresearchFile(w http.ResponseWriter, r *http.Request) {
 	sum := hex.EncodeToString(hash.Sum(nil))
 	var out db.CoresearchFileVersion
 	err = coresearch.WithBlob(r.Context(), h.Store, h.Blobs, ws, who, sum, tmp, size, func() error {
-		return h.memberTx(r, ws, false, func(tx *store.Tx) error {
+		return h.coresearchSaveTx(r, ws, func(tx *store.Tx) error {
 			var err error
 			out, err = coresearch.SaveVersion(r.Context(), tx, coresearch.SaveIn{Workspace: ws, Project: project.ID, Path: clean, Sha256: sum, Size: size, Base: base, Force: force, Author: &who})
 			return err
