@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
@@ -15,6 +17,56 @@ import (
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
+
+type machineUsagePeriod struct {
+	Tokens  int64   `json:"tokens"`
+	CostUSD float64 `json:"cost_usd"`
+}
+
+type machineColleagueTotal struct {
+	Colleague  string             `json:"colleague"`
+	Last7Days  machineUsagePeriod `json:"last_7_days"`
+	Last30Days machineUsagePeriod `json:"last_30_days"`
+}
+
+func (h *H) machineColleagues(w http.ResponseWriter, r *http.Request) {
+	var out struct {
+		Runs   []db.MachineGuestRunsRow `json:"runs"`
+		Totals []machineColleagueTotal  `json:"totals"`
+	}
+	out.Runs = []db.MachineGuestRunsRow{}
+	out.Totals = []machineColleagueTotal{}
+	err := h.inWS(r, func(tx *store.Tx, ws, owner uuid.UUID) error {
+		daemon := chi.URLParam(r, "daemon_id")
+		if _, err := tx.Q.MachineOwnedRuntime(r.Context(), db.MachineOwnedRuntimeParams{WorkspaceID: ws, DaemonID: daemon, OwnerID: owner}); err != nil {
+			return err
+		}
+		runs, err := tx.Q.MachineGuestRuns(r.Context(), db.MachineGuestRunsParams{WorkspaceID: ws, DaemonID: daemon, OwnerID: owner})
+		if err != nil {
+			return err
+		}
+		usage, err := tx.Q.MachineGuestUsage(r.Context(), db.MachineGuestUsageParams{WorkspaceID: ws, DaemonID: daemon, OwnerID: owner, AsOf: time.Now().UTC()})
+		if err != nil {
+			return err
+		}
+		if runs != nil {
+			out.Runs = runs
+		}
+		for _, row := range usage {
+			out.Totals = append(out.Totals, machineColleagueTotal{
+				Colleague:  row.Colleague,
+				Last7Days:  machineUsagePeriod{Tokens: row.Tokens7Days, CostUSD: row.Cost7Days},
+				Last30Days: machineUsagePeriod{Tokens: row.Tokens30Days, CostUSD: row.Cost30Days},
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, 200, out)
+}
 
 func (h *H) listRuntimes(w http.ResponseWriter, r *http.Request) {
 	var out []db.ListRuntimesRow

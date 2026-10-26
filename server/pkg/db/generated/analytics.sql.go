@@ -241,3 +241,167 @@ func (q *Queries) AnalyticsUsage(ctx context.Context, arg AnalyticsUsageParams) 
 	}
 	return items, nil
 }
+
+const machineGuestRuns = `-- name: MachineGuestRuns :many
+WITH recent AS (
+ SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.harness,
+        r.started_at, r.status, r.created_at
+ FROM agent_run r
+ JOIN runtime rt ON rt.id = r.runtime_id AND rt.workspace_id = r.workspace_id
+ WHERE r.workspace_id = $1 AND rt.daemon_id = $2
+   AND rt.owner_id = $3 AND r.responsible_user_id <> $3
+ ORDER BY COALESCE(r.started_at, r.created_at) DESC, r.id DESC
+ LIMIT 200
+)
+SELECT r.id AS run_id, COALESCE(NULLIF(person.name, ''), person.email)::text AS colleague,
+       COALESCE(c.title, '')::text AS study_title, r.harness, r.started_at, r.status,
+       COALESCE(usage.input_tokens, 0)::bigint AS input_tokens,
+       COALESCE(usage.output_tokens, 0)::bigint AS output_tokens,
+       COALESCE(usage.cost_usd, 0)::double precision AS cost_usd
+FROM recent r
+JOIN "user" person ON person.id = r.responsible_user_id
+LEFT JOIN card c ON c.id = r.card_id AND c.workspace_id = r.workspace_id
+LEFT JOIN LATERAL (
+ SELECT sum(u.input_tokens + u.cache_read_tokens + u.cache_write_tokens)::bigint AS input_tokens,
+        sum(u.output_tokens)::bigint AS output_tokens, sum(u.cost_usd)::double precision AS cost_usd
+ FROM agent_run_usage u WHERE u.agent_run_id = r.id AND u.workspace_id = r.workspace_id
+) usage ON true
+ORDER BY COALESCE(r.started_at, r.created_at) DESC, r.id DESC
+`
+
+type MachineGuestRunsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	DaemonID    string    `json:"daemon_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+type MachineGuestRunsRow struct {
+	RunID        uuid.UUID  `json:"run_id"`
+	Colleague    string     `json:"colleague"`
+	StudyTitle   string     `json:"study_title"`
+	Harness      string     `json:"harness"`
+	StartedAt    *time.Time `json:"started_at"`
+	Status       string     `json:"status"`
+	InputTokens  int64      `json:"input_tokens"`
+	OutputTokens int64      `json:"output_tokens"`
+	CostUsd      float64    `json:"cost_usd"`
+}
+
+func (q *Queries) MachineGuestRuns(ctx context.Context, arg MachineGuestRunsParams) ([]MachineGuestRunsRow, error) {
+	rows, err := q.db.Query(ctx, machineGuestRuns, arg.WorkspaceID, arg.DaemonID, arg.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MachineGuestRunsRow
+	for rows.Next() {
+		var i MachineGuestRunsRow
+		if err := rows.Scan(
+			&i.RunID,
+			&i.Colleague,
+			&i.StudyTitle,
+			&i.Harness,
+			&i.StartedAt,
+			&i.Status,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const machineGuestUsage = `-- name: MachineGuestUsage :many
+SELECT r.responsible_user_id,
+       COALESCE(NULLIF(person.name, ''), person.email)::text AS colleague,
+       COALESCE(sum(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens)
+         FILTER (WHERE u.created_at >= $1::timestamptz - interval '7 days'), 0)::bigint AS tokens_7_days,
+       COALESCE(sum(u.cost_usd)
+         FILTER (WHERE u.created_at >= $1::timestamptz - interval '7 days'), 0)::double precision AS cost_7_days,
+       COALESCE(sum(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens), 0)::bigint AS tokens_30_days,
+       COALESCE(sum(u.cost_usd), 0)::double precision AS cost_30_days
+FROM agent_run r
+JOIN runtime rt ON rt.id = r.runtime_id AND rt.workspace_id = r.workspace_id
+JOIN "user" person ON person.id = r.responsible_user_id
+LEFT JOIN agent_run_usage u ON u.agent_run_id = r.id AND u.workspace_id = r.workspace_id
+  AND u.created_at >= $1::timestamptz - interval '30 days' AND u.created_at < $1::timestamptz
+WHERE r.workspace_id = $2 AND rt.daemon_id = $3
+  AND rt.owner_id = $4 AND r.responsible_user_id <> $4
+GROUP BY r.responsible_user_id, person.name, person.email
+ORDER BY colleague, r.responsible_user_id
+`
+
+type MachineGuestUsageParams struct {
+	AsOf        time.Time `json:"as_of"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	DaemonID    string    `json:"daemon_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+type MachineGuestUsageRow struct {
+	ResponsibleUserID uuid.UUID `json:"responsible_user_id"`
+	Colleague         string    `json:"colleague"`
+	Tokens7Days       int64     `json:"tokens_7_days"`
+	Cost7Days         float64   `json:"cost_7_days"`
+	Tokens30Days      int64     `json:"tokens_30_days"`
+	Cost30Days        float64   `json:"cost_30_days"`
+}
+
+// Windows follow usage receipt time, independent of run age and the display limit.
+func (q *Queries) MachineGuestUsage(ctx context.Context, arg MachineGuestUsageParams) ([]MachineGuestUsageRow, error) {
+	rows, err := q.db.Query(ctx, machineGuestUsage,
+		arg.AsOf,
+		arg.WorkspaceID,
+		arg.DaemonID,
+		arg.OwnerID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MachineGuestUsageRow
+	for rows.Next() {
+		var i MachineGuestUsageRow
+		if err := rows.Scan(
+			&i.ResponsibleUserID,
+			&i.Colleague,
+			&i.Tokens7Days,
+			&i.Cost7Days,
+			&i.Tokens30Days,
+			&i.Cost30Days,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const machineOwnedRuntime = `-- name: MachineOwnedRuntime :one
+SELECT id FROM runtime
+WHERE workspace_id = $1 AND daemon_id = $2 AND owner_id = $3
+LIMIT 1
+`
+
+type MachineOwnedRuntimeParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	DaemonID    string    `json:"daemon_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+// Authorization precedes either usage query, including for an empty machine.
+func (q *Queries) MachineOwnedRuntime(ctx context.Context, arg MachineOwnedRuntimeParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, machineOwnedRuntime, arg.WorkspaceID, arg.DaemonID, arg.OwnerID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}

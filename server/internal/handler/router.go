@@ -202,6 +202,7 @@ func NewRouter(h *H) http.Handler {
 
 			r.Get("/api/storage", h.getStorage)
 			r.Get("/api/analytics", h.analytics)
+			r.Get("/api/machines/{daemon_id}/colleagues", h.machineColleagues)
 			r.Get("/api/runtimes", h.listRuntimes)
 			r.Patch("/api/runtimes/{id}", h.patchRuntime)
 			r.Delete("/api/runtimes/{id}", h.deleteRuntime)
