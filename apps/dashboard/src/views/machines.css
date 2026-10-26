@@ -256,6 +256,7 @@
   text-align: left;
 }
 .machine-runtime-table th {
+  text-align: left;
   font-size: 12px;
   font-weight: 400;
   color: var(--muted);
@@ -267,7 +268,6 @@
 }
 .machine-runtime-table th:first-child,
 .machine-runtime-table td:first-child {
-  padding-left: 32px;
   width: 56%;
 }
 .machine-runtime-table td {
@@ -292,6 +292,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.runtime-name .harness-icon {
+  text-align: left;
 }
 .harness-icon {
   font-size: 24px;
