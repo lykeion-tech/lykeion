@@ -28,7 +28,9 @@ import {
 import { readJSON, writeJSON } from '../storage';
 import { notify } from '../state/notice';
 import { useTaskComposer } from '../state/task-composer';
-const props = defineProps<{ projectId?: string }>();
+const props = withDefaults(defineProps<{ projectId?: string; scope?: 'workspace' | 'mine' }>(), {
+  scope: 'workspace',
+});
 defineEmits<{ create: [] }>();
 const router = useRouter();
 const cards = useCards();
@@ -40,18 +42,18 @@ const client = useQueryClient();
 const actionError = ref('');
 const studyMenuTrigger = ref<HTMLElement>();
 const studyMenu = ref<{ id: string; x: number; y: number } | null>(null);
-let scope = 0;
+let workspaceGeneration = 0;
 watch(
   workspaceId,
   () => {
-    scope++;
+    workspaceGeneration++;
     actionError.value = '';
     studyMenu.value = null;
   },
   { flush: 'sync' },
 );
 onUnmounted(() => {
-  scope++;
+  workspaceGeneration++;
 });
 
 function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card, fromButton = false) {
@@ -77,9 +79,9 @@ async function removeStudy(id: string) {
   const card = all.value.find((c) => c.id === id);
   if (!card || !confirm(`Delete ${number(card)} “${card.title}”? This cannot be undone.`)) return;
   const workspace = workspaceId.value;
-  const ownScope = scope;
+  const ownScope = workspaceGeneration;
   const key = keys.cards(workspace);
-  const current = () => scope === ownScope && workspaceId.value === workspace;
+  const current = () => workspaceGeneration === ownScope && workspaceId.value === workspace;
   actionError.value = '';
   try {
     await api('DELETE', `/api/cards/${id}`);
@@ -105,10 +107,8 @@ watch(
   { deep: true },
 );
 
-const tab = ref<'All' | 'Mine' | 'Members' | 'Agents'>('All');
-const actorTabs = computed(() =>
-  props.projectId ? (['All', 'Members', 'Agents'] as const) : (['All', 'Mine'] as const),
-);
+const tab = ref<'All' | 'Members' | 'Agents'>('All');
+const actorTabs = computed(() => (props.projectId ? (['All', 'Members', 'Agents'] as const) : []));
 const popup = ref('');
 const submenu = ref<Category | null>(null);
 const filters = ref<StudyFilters>({});
@@ -121,7 +121,12 @@ const categoryIcons: Record<Category, string> = {
   Owner: 'users',
 };
 const all = computed(() =>
-  (cards.data.value ?? []).filter((c) => !props.projectId || c.research_id === props.projectId),
+  (cards.data.value ?? []).filter(
+    (c) =>
+      (!props.projectId || c.research_id === props.projectId) &&
+      (props.scope === 'workspace' ||
+        (Boolean(me.data.value?.id) && c.owner_id === me.data.value?.id)),
+  ),
 );
 const number = (c: Card) => studyNumber(workspace.data.value, c);
 function ownerName(id: string) {
@@ -135,8 +140,8 @@ const options = (category: Category) =>
 const visible = computed(() =>
   all.value.filter(
     (c) =>
-      (tab.value === 'All' ||
-        (tab.value === 'Mine' && c.owner_id === me.data.value?.id) ||
+      (!props.projectId ||
+        tab.value === 'All' ||
         (tab.value === 'Members' && c.assignee_type === 'member') ||
         (tab.value === 'Agents' && (c.assignee_type === 'agent' || c.assignee_type === 'team'))) &&
       matchesFilters(c, filters.value),
@@ -180,7 +185,7 @@ function toggleProperty(name: string) {
 }
 function open(id: string) {
   studyMenu.value = null;
-  void router.push('/studies/' + id);
+  void router.push((props.scope === 'mine' ? '/my-studies/' : '/studies/') + id);
 }
 function closeMenus() {
   popup.value = '';
@@ -262,7 +267,7 @@ onUnmounted(() => {
 </script>
 <template>
   <div class="task-toolbar">
-    <div class="toolbar-group">
+    <div v-if="actorTabs.length" class="toolbar-group">
       <button
         v-for="name in actorTabs"
         :key="name"
