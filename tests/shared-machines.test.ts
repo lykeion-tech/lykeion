@@ -393,7 +393,7 @@ describe('Shared machines', () => {
       expect(t.text()).not.toContain('Colleagues’ runs');
       expect(f.mock.calls.some(([path]) => String(path).includes('/colleagues'))).toBe(false);
       await t.click(/^Details$/);
-      expect(t.text()).toContain('Choose who can run agents on this machine.');
+      expect(t.text()).not.toContain('Choose who can run agents on this machine.');
       expect(
         t
           .all()

@@ -173,9 +173,9 @@ function cancel() {
     <p v-if="hideHeading && unsupported" class="sharing-platform-intro type-caption">
       Shared runs require Linux. On a Mac, register a Linux VM as a separate machine.
     </p>
-    <div class="runtime-heading">
+    <div v-if="!hideHeading" class="runtime-heading">
       <div>
-        <h2 v-if="!hideHeading">Shared machines</h2>
+        <h2>Shared machines</h2>
         <p>Choose who can run agents on this machine.</p>
       </div>
     </div>
