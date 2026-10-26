@@ -71,6 +71,7 @@ type AgentRun struct {
 	CancelReason          *string         `json:"cancel_reason"`
 	MachineName           *string         `json:"machine_name"`
 	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
+	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
 }
 
 type AgentRunMachineAttempt struct {
@@ -295,6 +296,124 @@ type ConnectorFetch struct {
 	ContentType   string    `json:"content_type"`
 	Truncated     bool      `json:"truncated"`
 	FetchedAt     time.Time `json:"fetched_at"`
+}
+
+type CoresearchCell struct {
+	ID             uuid.UUID  `json:"id"`
+	WorkspaceID    uuid.UUID  `json:"workspace_id"`
+	ChatID         uuid.UUID  `json:"chat_id"`
+	Seq            int32      `json:"seq"`
+	AuthorUserID   *uuid.UUID `json:"author_user_id"`
+	AgentRunID     *uuid.UUID `json:"agent_run_id"`
+	Kernel         string     `json:"kernel"`
+	Source         string     `json:"source"`
+	Status         string     `json:"status"`
+	ExecutionCount *int32     `json:"execution_count"`
+	Outputs        []byte     `json:"outputs"`
+	OutputsBlob    *string    `json:"outputs_blob"`
+	CreatedAt      time.Time  `json:"created_at"`
+	StartedAt      *time.Time `json:"started_at"`
+	FinishedAt     *time.Time `json:"finished_at"`
+}
+
+type CoresearchChat struct {
+	ID               uuid.UUID  `json:"id"`
+	WorkspaceID      uuid.UUID  `json:"workspace_id"`
+	ProjectID        uuid.UUID  `json:"project_id"`
+	OwnerID          uuid.UUID  `json:"owner_id"`
+	Mode             string     `json:"mode"`
+	Cli              string     `json:"cli"`
+	DaemonID         *string    `json:"daemon_id"`
+	KernelRequest    *string    `json:"kernel_request"`
+	KernelRequestSeq int64      `json:"kernel_request_seq"`
+	KernelState      string     `json:"kernel_state"`
+	KernelSeenAt     *time.Time `json:"kernel_seen_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+}
+
+type CoresearchFile struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	Path        string    `json:"path"`
+}
+
+type CoresearchFileVersion struct {
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	FileID       uuid.UUID  `json:"file_id"`
+	N            int32      `json:"n"`
+	Sha256       string     `json:"sha256"`
+	Size         int64      `json:"size"`
+	BlobKey      string     `json:"blob_key"`
+	AuthorUserID *uuid.UUID `json:"author_user_id"`
+	AgentRunID   *uuid.UUID `json:"agent_run_id"`
+	RunID        *uuid.UUID `json:"run_id"`
+	Overrode     *int32     `json:"overrode"`
+	RestoredFrom *int32     `json:"restored_from"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+type CoresearchMember struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Role        string    `json:"role"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type CoresearchMessage struct {
+	ID           uuid.UUID  `json:"id"`
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	ChatID       uuid.UUID  `json:"chat_id"`
+	Kind         string     `json:"kind"`
+	AuthorUserID *uuid.UUID `json:"author_user_id"`
+	AgentRunID   *uuid.UUID `json:"agent_run_id"`
+	Body         string     `json:"body"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+type CoresearchProject struct {
+	ID            uuid.UUID  `json:"id"`
+	WorkspaceID   uuid.UUID  `json:"workspace_id"`
+	Name          string     `json:"name"`
+	PythonVersion *string    `json:"python_version"`
+	CreatedBy     uuid.UUID  `json:"created_by"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ArchivedAt    *time.Time `json:"archived_at"`
+}
+
+type CoresearchRun struct {
+	ID           uuid.UUID       `json:"id"`
+	WorkspaceID  uuid.UUID       `json:"workspace_id"`
+	ProjectID    uuid.UUID       `json:"project_id"`
+	Key          string          `json:"key"`
+	ChatID       uuid.UUID       `json:"chat_id"`
+	ScriptFileID uuid.UUID       `json:"script_file_id"`
+	ScriptN      int32           `json:"script_n"`
+	Inputs       json.RawMessage `json:"inputs"`
+	Seed         int64           `json:"seed"`
+	EnvSha       *string         `json:"env_sha"`
+	Status       string          `json:"status"`
+	Facts        []byte          `json:"facts"`
+	RerunOf      *uuid.UUID      `json:"rerun_of"`
+	RequestedBy  uuid.UUID       `json:"requested_by"`
+	AgentRunID   *uuid.UUID      `json:"agent_run_id"`
+	CreatedAt    time.Time       `json:"created_at"`
+	FinishedAt   *time.Time      `json:"finished_at"`
+}
+
+type CoresearchSetup struct {
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ProjectID   uuid.UUID  `json:"project_id"`
+	ChatID      uuid.UUID  `json:"chat_id"`
+	Python      *string    `json:"python"`
+	Conda       []string   `json:"conda"`
+	Status      string     `json:"status"`
+	Log         string     `json:"log"`
+	RequestedBy uuid.UUID  `json:"requested_by"`
+	CreatedAt   time.Time  `json:"created_at"`
+	FinishedAt  *time.Time `json:"finished_at"`
 }
 
 type Event struct {

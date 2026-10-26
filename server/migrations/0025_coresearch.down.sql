@@ -1,0 +1,12 @@
+DELETE FROM agent_run WHERE kind = 'coresearch';
+ALTER TABLE agent_run
+  DROP CONSTRAINT agent_run_kind_shape,
+  DROP CONSTRAINT agent_run_kind_check,
+  DROP COLUMN coresearch_chat_id,
+  ADD CONSTRAINT agent_run_kind_check CHECK (kind IN ('role', 'autoresearch')),
+  ADD CONSTRAINT agent_run_kind_shape CHECK (
+    (kind = 'role' AND card_id IS NOT NULL)
+    OR (kind = 'autoresearch' AND card_id IS NULL AND requester_id IS NOT NULL));
+DROP TABLE coresearch_setup, coresearch_run, coresearch_cell, coresearch_message, coresearch_chat,
+  coresearch_file_version, coresearch_file, coresearch_member, coresearch_project;
+DROP FUNCTION coresearch_file_project(uuid), coresearch_chat_project(uuid), coresearch_can_see(uuid);
