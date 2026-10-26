@@ -92,7 +92,19 @@ const routes: RouteRecordRaw[] = [
     path: '/studies/:cardId?',
     components: { default: TaskBoard, detail: TaskDetail },
     meta: { page: 'studies', title: 'Studies' },
-    props: { default: false, detail: (route) => ({ id: param(route, 'cardId') ?? '' }) },
+    props: {
+      default: { scope: 'workspace' },
+      detail: (route) => ({ id: param(route, 'cardId') ?? '' }),
+    },
+  },
+  {
+    path: '/my-studies/:cardId?',
+    components: { default: TaskBoard, detail: TaskDetail },
+    meta: { page: 'my-studies', title: 'My Studies' },
+    props: {
+      default: { scope: 'mine' },
+      detail: (route) => ({ id: param(route, 'cardId') ?? '' }),
+    },
   },
   {
     path: '/inbox/:itemId?',
