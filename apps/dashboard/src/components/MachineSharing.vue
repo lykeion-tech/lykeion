@@ -54,6 +54,10 @@ watch(
 onUnmounted(() => generation++);
 const supported = computed(() => owned.value.some((r) => r.os === 'linux'));
 const unsupported = computed(() => owned.value.some((r) => r.os !== 'linux'));
+const unsupportedSelected = computed(() =>
+  owned.value.some((r) => r.os !== 'linux' && selected.value.includes(r.id)),
+);
+const clearOnly = computed(() => mode.value !== 'private' && unsupportedSelected.value);
 const warnings = computed(
   () => owned.value.some(shared) || (mode.value !== 'private' && selected.value.length > 0),
 );
@@ -68,7 +72,7 @@ function chooseMode() {
 async function save(confirm?: string[]) {
   if (busy.value || !owned.value.length) return;
   if (!confirm) {
-    if (affected.value) return;
+    if (affected.value || clearOnly.value) return;
     pending = owned.value.map((r) => ({
       id: r.id,
       visibility:
@@ -164,7 +168,7 @@ function cancel() {
           {{ backendLabel(runtime.harness) }}
         </label>
       </fieldset>
-      <fieldset :disabled="locked || mode !== 'chosen'">
+      <fieldset :disabled="locked || mode !== 'chosen' || clearOnly">
         <legend class="type-caption">Colleagues</legend>
         <label v-for="member in people" :key="member.user_id" class="sharing-check">
           <input
@@ -172,7 +176,7 @@ function cancel() {
             type="checkbox"
             :value="member.user_id"
             :aria-label="`Share with ${member.name || member.email}`"
-            :disabled="locked || mode !== 'chosen'"
+            :disabled="locked || mode !== 'chosen' || clearOnly"
           />
           {{ member.name || member.email }}
         </label>
@@ -193,7 +197,7 @@ function cancel() {
       </p>
     </div>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-    <button class="button" :disabled="locked" @click="save()">
+    <button class="button" :disabled="locked || clearOnly" @click="save()">
       {{ busy ? 'Saving…' : 'Save sharing' }}
     </button>
     <Modal v-if="affected" title="Stop sharing" @close="cancel">

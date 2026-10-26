@@ -294,6 +294,70 @@ describe('Shared machines', () => {
       }
     },
   );
+  it.each(['darwin', ''])(
+    'prevents adding colleagues to an existing private share on %s and confirms clearing',
+    async (os) => {
+      let puts = 0;
+      const f = vi.fn(async (_path, init) => {
+        if (init?.method === 'PUT' && ++puts === 1)
+          return new Response(
+            JSON.stringify({
+              affected: [
+                {
+                  run_id: 'existing',
+                  card_id: 'c',
+                  study_title: 'Existing study',
+                  colleague: 'Ada',
+                },
+              ],
+            }),
+            { status: 409 },
+          );
+        return new Response(init?.method === 'GET' ? '[]' : '{}');
+      });
+      vi.stubGlobal('fetch', f);
+      const t = await mount(
+        MachinesView,
+        () => ({ machineId: 'd1' }),
+        '/',
+        (c) => {
+          c.setQueryData(keys.runtimes('w'), [
+            runtime({ os, visibility: 'private', shared_with: ['u2'] }),
+          ]);
+          c.setQueryData(keys.members('w'), [
+            { user_id: 'u1', name: 'Owner' },
+            { user_id: 'u2', name: 'Ada' },
+            { user_id: 'u3', name: 'Bea' },
+          ]);
+        },
+      );
+      try {
+        expect(t.text()).toContain(platform);
+        expect(t.text()).toContain(signIn);
+        expect(t.text()).toContain(files);
+        expect(t.input('Share with Bea')?.props.disabled).toBe(true);
+        expect(t.button(/^Save sharing$/)?.props.disabled).toBe(true);
+        await t.click(/^Save sharing$/);
+        expect(bodies(f)).toHaveLength(0);
+        await change(t, 'Share', 'private');
+        expect(t.button(/^Save sharing$/)?.props.disabled).toBe(false);
+        await t.click(/^Save sharing$/);
+        await vi.waitFor(() => expect(t.text()).toContain('Existing study'));
+        expect(t.text()).toContain(revoke);
+        expect(bodies(f)[0]?.body).toEqual({ visibility: 'private', shared_with: [] });
+        await t.click(/^Confirm stop sharing$/);
+        await vi.waitFor(() =>
+          expect(bodies(f)[1]?.body).toEqual({
+            visibility: 'private',
+            shared_with: [],
+            confirm: ['existing'],
+          }),
+        );
+      } finally {
+        t.unmount();
+      }
+    },
+  );
   it('replaces a refreshed revoke list and confirms exactly the latest run ids', async () => {
     let put = 0;
     const f = vi.fn(async (_p, init) =>
