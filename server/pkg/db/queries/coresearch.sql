@@ -65,3 +65,50 @@ WHERE f.workspace_id = @workspace_id AND f.project_id = @project_id AND v.sha256
 -- name: InsertCoresearchVersion :one
 INSERT INTO coresearch_file_version(workspace_id,file_id,n,sha256,size,blob_key,author_user_id,agent_run_id,run_id,overrode,restored_from)
 VALUES(@workspace_id,@file_id,@n,@sha256,@size,@blob_key,sqlc.narg(author_user_id),sqlc.narg(agent_run_id),sqlc.narg(run_id),sqlc.narg(overrode),sqlc.narg(restored_from)) RETURNING *;
+
+-- name: CreateCoresearchChat :one
+INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES(@workspace_id,@project_id,@owner_id,'experiment',@cli) RETURNING *;
+
+-- name: GetCoresearchChat :one
+SELECT * FROM coresearch_chat WHERE workspace_id= @workspace_id AND project_id= @project_id AND id= @id;
+
+-- name: LockCoresearchChat :one
+SELECT * FROM coresearch_chat WHERE workspace_id= @workspace_id AND id= @id FOR UPDATE;
+
+-- name: ListCoresearchChats :many
+SELECT c.*, (SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1)::text AS machine_name
+FROM coresearch_chat c WHERE c.workspace_id= @workspace_id AND c.project_id= @project_id ORDER BY c.created_at,c.id;
+
+-- name: BindCoresearchChat :exec
+UPDATE coresearch_chat SET daemon_id= @daemon_id WHERE workspace_id= @workspace_id AND id= @id AND daemon_id IS NULL;
+
+-- name: ReleaseCoresearchChat :exec
+UPDATE coresearch_chat SET daemon_id=NULL,kernel_state='stopped',kernel_seen_at=NULL WHERE workspace_id= @workspace_id AND id= @id;
+
+-- name: CoresearchChatTurnBusy :one
+SELECT EXISTS(SELECT 1 FROM agent_run WHERE workspace_id= @workspace_id AND coresearch_chat_id= @chat_id AND status IN ('queued','dispatched','running'))::boolean;
+
+-- name: CoresearchChatBusy :one
+SELECT (EXISTS(SELECT 1 FROM agent_run a WHERE a.workspace_id= @workspace_id AND a.coresearch_chat_id= @chat_id::uuid AND a.status IN ('queued','dispatched','running'))
+OR EXISTS(SELECT 1 FROM coresearch_cell c WHERE c.workspace_id= @workspace_id AND c.chat_id= @chat_id::uuid AND c.status IN ('queued','running'))
+OR EXISTS(SELECT 1 FROM coresearch_run r WHERE r.workspace_id= @workspace_id AND r.chat_id= @chat_id::uuid AND r.status IN ('queued','running'))
+OR EXISTS(SELECT 1 FROM coresearch_setup e WHERE e.workspace_id= @workspace_id AND e.chat_id= @chat_id::uuid AND e.status IN ('queued','running')))::boolean AS busy;
+
+-- name: InsertCoresearchMessage :one
+INSERT INTO coresearch_message(workspace_id,chat_id,kind,author_user_id,agent_run_id,body) VALUES(@workspace_id,@chat_id,@kind,sqlc.narg(author_user_id),sqlc.narg(agent_run_id),@body) RETURNING *;
+
+-- name: AttachCoresearchTurn :exec
+UPDATE coresearch_message SET agent_run_id= @agent_run_id WHERE workspace_id= @workspace_id AND id= @id;
+
+-- name: ListCoresearchMessages :many
+SELECT m.*,r.status,r.failure_reason FROM coresearch_message m LEFT JOIN agent_run r ON r.workspace_id=m.workspace_id AND r.id=m.agent_run_id WHERE m.workspace_id= @workspace_id AND m.chat_id= @chat_id ORDER BY m.created_at,m.id;
+
+-- name: CoresearchHistory :many
+SELECT * FROM (SELECT * FROM coresearch_message WHERE workspace_id= @workspace_id AND chat_id= @chat_id ORDER BY created_at DESC,id DESC LIMIT 20) history ORDER BY created_at,id;
+
+-- name: EnqueueCoresearchAgentRun :one
+INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,board_column,round,role,harness,prompt,skill,max_attempts,requested_model,continuity_scope,coresearch_chat_id)
+VALUES(@workspace_id,'coresearch',@owner_id::uuid,@owner_id::uuid,'',0,'coresearch',@harness,@prompt,'',2,'',@continuity_scope,@coresearch_chat_id) RETURNING *;
+
+-- name: SettleCoresearch :many
+SELECT project_id::uuid,chat_id::uuid,message_id::uuid FROM public.coresearch_settle(@run_id::uuid);

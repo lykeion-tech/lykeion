@@ -24,6 +24,7 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/connectors"
+	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/jev"
@@ -170,7 +171,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		return err
 	}
 	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Engine: engine, Key: secretKey}
-	runs.OnSettlement = ap.OnSettlement(engine.OnSettlement)
+	runs.OnSettlement = (&coresearch.Service{Store: st}).OnSettlement(ap.OnSettlement(engine.OnSettlement))
 	conn := &connectors.Client{HTTP: connectors.Guarded(), Secret: secretKey, Contact: getenv("CONTACT_EMAIL")}
 	runs.Keys = conn
 	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase, Mailto: conn.Contact}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},

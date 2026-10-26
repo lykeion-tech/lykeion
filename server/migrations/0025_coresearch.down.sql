@@ -1,6 +1,9 @@
+DROP FUNCTION public.coresearch_settle(uuid);
 DROP FUNCTION public.coresearch_blob_referenced(text);
 DROP FUNCTION public.coresearch_create_project(text);
 DELETE FROM agent_run WHERE kind = 'coresearch';
+ALTER TABLE agent_run DROP CONSTRAINT agent_run_failure_reason_check,
+ADD CONSTRAINT agent_run_failure_reason_check CHECK (failure_reason IN ('runtime_offline','timeout','provider_network','context_exhausted','agent_error','runtime_access_denied'));
 ALTER TABLE agent_run
   DROP CONSTRAINT agent_run_kind_shape,
   DROP CONSTRAINT agent_run_kind_check,

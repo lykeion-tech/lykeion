@@ -53,6 +53,8 @@ WHERE id = (
   SELECT t.id FROM agent_run t
   JOIN runtime r ON r.id = @runtime_id AND r.workspace_id = t.workspace_id
   LEFT JOIN card c ON c.id = t.card_id
+  LEFT JOIN coresearch_chat cc ON cc.id=t.coresearch_chat_id AND cc.workspace_id=t.workspace_id
+  LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
     AND t.harness = r.harness AND r.status = 'online'
     AND (t.responsible_user_id = r.owner_id OR (@guest_isolation::boolean AND r.os = 'linux'))
@@ -64,7 +66,10 @@ WHERE id = (
        OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR (@guest_isolation::boolean AND r.os = 'linux' AND (r.visibility = 'workspace'
            OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))))
       -- an autoresearch agent run has no card and runs on its requester's runtimes
-      OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id))
+      OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id)
+      OR (t.kind='coresearch' AND t.responsible_user_id=r.owner_id AND cc.owner_id=r.owner_id AND cc.cli=r.harness
+          AND (cc.daemon_id IS NULL OR cc.daemon_id=r.daemon_id) AND cp.archived_at IS NULL
+          AND EXISTS(SELECT 1 FROM coresearch_member cm WHERE cm.workspace_id=t.workspace_id AND cm.project_id=cc.project_id AND cm.user_id=cc.owner_id)))
   ORDER BY t.created_at
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
@@ -180,7 +185,7 @@ LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
  AND t.harness IN ('cursor', 'antigravity')
  AND ((t.kind = 'role' AND c.owner_id = @owner_id)
-   OR (t.kind = 'autoresearch' AND t.requester_id = @owner_id))
+   OR (t.kind IN ('autoresearch','coresearch') AND t.requester_id = @owner_id))
 ORDER BY t.id FOR UPDATE OF t;
 
 -- name: SetRuntimeSharing :execrows
@@ -204,7 +209,7 @@ FROM agent_run t
 JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 JOIN "user" u ON u.id = t.responsible_user_id
 WHERE t.workspace_id = @workspace_id AND t.status IN ('queued','dispatched','running')
-AND t.responsible_user_id <> @owner_id
+AND t.kind <> 'coresearch' AND t.responsible_user_id <> @owner_id
 AND (t.runtime_id = @runtime_id OR (t.status = 'queued' AND t.kind = 'role' AND c.machine = @daemon_id AND t.harness = @harness))
 ORDER BY t.id FOR UPDATE OF t;
 
@@ -223,6 +228,7 @@ UPDATE agent_run SET attempt = attempt - 1 WHERE id = @id AND workspace_id = @wo
 SELECT t.* FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = @workspace_id AND t.status IN ('queued', 'dispatched', 'running')
+AND t.kind <> 'coresearch'
 AND EXISTS (
  SELECT 1 FROM runtime r WHERE r.workspace_id = t.workspace_id
  AND ((t.responsible_user_id = @user_id AND r.owner_id <> @user_id)

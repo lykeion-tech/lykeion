@@ -19,6 +19,7 @@ import (
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -107,8 +108,22 @@ func (h *Hosted) record(ctx context.Context, role middleware.Role, token, kind, 
 					return err
 				}
 			}
-			return tx.Emit(ctx, "sources.called", nil, store.Actor{Type: "role", ID: role.AgentRunID},
-				map[string]any{"agent_run_id": role.AgentRunID, "kind": kind, "key": key, "body": body})
+			payload := map[string]any{"agent_run_id": role.AgentRunID, "kind": kind, "key": key, "body": body}
+			if slices.Contains(role.Scopes, service.ScopeCoresearch) {
+				run, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: role.AgentRunID})
+				if err != nil {
+					return err
+				}
+				if run.Kind != "coresearch" || run.CoresearchChatID == nil {
+					return middleware.ErrRoleUnauthorized
+				}
+				chat, err := tx.Q.LockCoresearchChat(ctx, db.LockCoresearchChatParams{WorkspaceID: tx.WS, ID: *run.CoresearchChatID})
+				if err != nil {
+					return err
+				}
+				payload = map[string]any{"agent_run_id": run.ID, "project_id": chat.ProjectID, "chat_id": chat.ID}
+			}
+			return tx.Emit(ctx, "sources.called", nil, store.Actor{Type: "role", ID: role.AgentRunID}, payload)
 		})
 	}
 	blobKey, hexsum := "", ""
@@ -281,7 +296,7 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			}
 			return nil, OpenOut{Accession: in.Accession, Structure: doc.Structure, MetadataSources: doc.MetadataSources}, h.Record(ctx, role, runToken(req), "open_dataset", in.Accession, map[string]any{"accession": in.Accession, "metadata_sources": doc.MetadataSources}, doc.Structure)
 		})
-	if h.Conn != nil {
+	if h.Conn != nil && !slices.Contains(role.Scopes, service.ScopeCoresearch) {
 		mcp.AddTool(srv, &mcp.Tool{Name: "list_connectors", Description: "List the data connectors this run can fetch from: name, domain, purpose, base URL, and the variables of a connector that takes a fixed POST body."},
 			func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ConnectorsOut, error) {
 				cs, err := h.Connectors(ctx, role)

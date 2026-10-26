@@ -35,6 +35,7 @@ import (
 // autoresearch agent run's token may only post its run's report and open
 // cards.
 const (
+	ScopeCoresearch = "coresearch:chat"
 	ScopeRole       = "card:role"
 	ScopeReport     = "report:write"
 	ScopeCardCreate = "card:create"
@@ -45,6 +46,9 @@ const (
 
 // Scopes are the powers an agent run's token carries, by the agent run's kind.
 func Scopes(kind string) []string {
+	if kind == "coresearch" {
+		return []string{ScopeCoresearch}
+	}
 	if kind == "autoresearch" {
 		return []string{ScopeReport, ScopeCardCreate}
 	}
@@ -89,7 +93,7 @@ var (
 // FailureReasons are how an attempt can end badly. The first three are the
 // machine's or the network's fault, so another attempt may succeed; the other
 // reasons do not retry. Runtime access denial is recorded only by the server.
-var FailureReasons = []string{"runtime_offline", "timeout", "provider_network", "context_exhausted", "agent_error", "runtime_access_denied"}
+var FailureReasons = []string{"runtime_offline", "timeout", "provider_network", "context_exhausted", "agent_error", "runtime_access_denied", "coresearch_access_revoked"}
 
 func Retryable(reason string) bool {
 	return reason == "runtime_offline" || reason == "timeout" || reason == "provider_network"
@@ -127,11 +131,18 @@ type WorkspaceConnectorClaim struct {
 	Env       map[string]string `json:"env,omitempty"`
 }
 
+type ClaimedCoresearch struct {
+	ChatID        uuid.UUID `json:"chat_id"`
+	ProjectID     uuid.UUID `json:"project_id"`
+	PythonVersion string    `json:"python_version"`
+}
+
 type Claimed struct {
-	PythonVersion string            `json:"python_version,omitempty"`
-	AgentRun      db.AgentRun       `json:"agent_run"`
-	Env           map[string]string `json:"env"`
-	Token         string            `json:"token"`
+	Coresearch    *ClaimedCoresearch `json:"coresearch,omitempty"`
+	PythonVersion string             `json:"python_version,omitempty"`
+	AgentRun      db.AgentRun        `json:"agent_run"`
+	Env           map[string]string  `json:"env"`
+	Token         string             `json:"token"`
 	// CallToken records the run's connector calls. The daemon keeps it from
 	// the agent, so only the door can write a call record.
 	CallToken string            `json:"call_token"`
@@ -186,7 +197,7 @@ type Report struct {
 // check refuses a report that would lower spend or name an unknown reason,
 // and fills in agent_error for a failure that names none.
 func (r *Report) check(ok bool) error {
-	if len(r.Usage) > 32 || len(r.NamingUsage) > 64 || (r.FailureReason != "" && (!slices.Contains(FailureReasons, r.FailureReason) || r.FailureReason == "runtime_access_denied")) ||
+	if len(r.Usage) > 32 || len(r.NamingUsage) > 64 || (r.FailureReason != "" && (!slices.Contains(FailureReasons, r.FailureReason) || (r.FailureReason == "runtime_access_denied" || r.FailureReason == "coresearch_access_revoked"))) ||
 		!slices.Contains([]string{"", "workspace_continuity", "private", "sandboxed"}, r.Mode) || len(r.PolicyDigest) > 128 || len(r.Model) > 200 {
 		return ErrBadReport
 	}
@@ -569,6 +580,39 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						denied = t.RequesterID == nil || *t.RequesterID != current.OwnerID || t.ResponsibleUserID != current.OwnerID
 					}
 					var accessErr error
+					var core *ClaimedCoresearch
+					if t.Kind == "coresearch" {
+						denied = true
+						if t.CoresearchChatID != nil {
+							chat, e := tx.Q.LockCoresearchChat(ctx, db.LockCoresearchChatParams{WorkspaceID: tx.WS, ID: *t.CoresearchChatID})
+							if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+								return e
+							}
+							if e == nil {
+								project, e := tx.Q.GetCoresearchProject(ctx, db.GetCoresearchProjectParams{WorkspaceID: tx.WS, ID: chat.ProjectID})
+								if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+									return e
+								}
+								if e == nil {
+									_, memberErr := tx.Q.CoresearchMember(ctx, db.CoresearchMemberParams{WorkspaceID: tx.WS, ProjectID: project.ID, UserID: chat.OwnerID})
+									if memberErr != nil && !errors.Is(memberErr, pgx.ErrNoRows) {
+										return memberErr
+									}
+									denied = memberErr != nil || project.ArchivedAt != nil || chat.OwnerID != current.OwnerID || t.ResponsibleUserID != current.OwnerID || t.RequesterID == nil || *t.RequesterID != current.OwnerID || chat.Cli != current.Harness || t.Harness != current.Harness || (chat.DaemonID != nil && *chat.DaemonID != current.DaemonID)
+									if !denied {
+										python := ""
+										if project.PythonVersion != nil {
+											python = *project.PythonVersion
+										}
+										core = &ClaimedCoresearch{ChatID: chat.ID, ProjectID: project.ID, PythonVersion: python}
+										if err := tx.Q.BindCoresearchChat(ctx, db.BindCoresearchChatParams{WorkspaceID: tx.WS, ID: chat.ID, DaemonID: &current.DaemonID}); err != nil {
+											return err
+										}
+									}
+								}
+							}
+						}
+					}
 					if t.CardID != nil {
 						card, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: ref.WorkspaceID, ID: *t.CardID})
 						if err != nil {
@@ -592,6 +636,9 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}
 					if denied {
 						accessErr = errors.New("This machine is no longer shared with you; choose another for this study.")
+						if t.Kind == "coresearch" {
+							accessErr = errors.New("coresearch_access_revoked")
+						}
 						if err := tx.Q.UndoClaimAttempt(ctx, db.UndoClaimAttemptParams{WorkspaceID: ref.WorkspaceID, ID: t.ID}); err != nil {
 							return err
 						}
@@ -600,14 +647,17 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if err != nil {
 						return err
 					}
-					mcp, err := addon.Servers(t.AddonMcp)
+					var mcp []agent.MCPServer
+					if t.Kind != "coresearch" {
+						mcp, err = addon.Servers(t.AddonMcp)
+					}
 					if accessErr != nil {
 						err = accessErr
 					}
 					var conns []pack.Connector
 					var team *TeamClaim
 					var workspace []WorkspaceConnectorClaim
-					if err == nil {
+					if err == nil && t.Kind != "coresearch" {
 						conns, team, err = ClaimConnectors(ctx, tx, t)
 						if err != nil {
 							return err
@@ -625,6 +675,9 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						message := "refused at claim: " + err.Error()
 						if accessErr != nil {
 							reason = "runtime_access_denied"
+							if t.Kind == "coresearch" {
+								reason = "coresearch_access_revoked"
+							}
 							message = accessErr.Error()
 						}
 						if err := tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{Status: "failed", SessionID: t.SessionID,
@@ -662,10 +715,14 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: Scopes(t.Kind), ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
 						return err
 					}
-					callPlain, callHash, _ := auth.NewToken(AgentRunPrefix)
-					if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: callHash, WorkspaceID: ref.WorkspaceID,
-						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: []string{ScopeCall}, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
-						return err
+					callPlain := ""
+					if t.Kind != "coresearch" {
+						var callHash string
+						callPlain, callHash, _ = auth.NewToken(AgentRunPrefix)
+						if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: callHash, WorkspaceID: ref.WorkspaceID,
+							AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: []string{ScopeCall}, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
+							return err
+						}
 					}
 					if team != nil {
 						teams[t.ID] = *team
@@ -710,7 +767,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							files = append(files, ClaimedAttachment{ID: a.ID, DiskName: a.DiskName, Sha256: a.Sha256, SizeBytes: a.SizeBytes, UnpackedBytes: a.UnpackedBytes, InnerFiles: a.InnerFiles})
 						}
 					}
-					c = &Claimed{PythonVersion: python, AgentRun: t, Env: env, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
+					c = &Claimed{Coresearch: core, PythonVersion: python, AgentRun: t, Env: env, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {
@@ -1594,4 +1651,21 @@ func CommandFingerprint(command []string, env map[string]string) string {
 	}{command, env})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+// CancelInTx settles a run in the caller's authorized workspace transaction.
+// The caller must hold the workspace and resource locks before invoking it.
+func (s *AgentRuns) CancelInTx(ctx context.Context, tx *store.Tx, user uuid.UUID, t db.AgentRun) error {
+	if terminal(t.Status) {
+		return ErrConflict
+	}
+	done, err := cancelLocked(ctx, tx, user, t.ID)
+	if err != nil {
+		return err
+	}
+	if err = saveSettlement(ctx, tx, done); err != nil {
+		return err
+	}
+	tx.AfterCommit(func() { s.deliverAfterCommit(context.WithoutCancel(ctx), tx.WS, t.ID) })
+	return nil
 }

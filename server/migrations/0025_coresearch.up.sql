@@ -249,3 +249,39 @@ END
 $$;
 REVOKE ALL ON FUNCTION public.coresearch_blob_referenced(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.coresearch_blob_referenced(text) TO lykeion_app;
+
+CREATE FUNCTION public.coresearch_settle(run_id uuid)
+RETURNS TABLE(project_id uuid,chat_id uuid,message_id uuid)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE r public.agent_run; c public.coresearch_chat; message_kind text; message_body text; inserted uuid;
+BEGIN
+  IF public.app_user() IS DISTINCT FROM '00000000-0000-0000-0000-000000000000'::uuid THEN
+    RAISE EXCEPTION 'maintenance identity required' USING ERRCODE = '42501';
+  END IF;
+  SELECT a.* INTO r FROM public.agent_run a
+    JOIN public.agent_run_settlement s ON s.workspace_id=a.workspace_id AND s.agent_run_id=a.id
+    WHERE a.workspace_id=public.app_workspace() AND a.id=run_id AND a.kind='coresearch'
+      AND a.status IN ('completed','failed','cancelled');
+  IF NOT FOUND THEN RAISE EXCEPTION 'terminal Coresearch settlement required' USING ERRCODE = '42501'; END IF;
+  SELECT x.* INTO STRICT c FROM public.coresearch_chat x WHERE x.workspace_id=r.workspace_id AND x.id=r.coresearch_chat_id;
+  IF r.status='completed' THEN
+    message_kind := 'reply';
+    SELECT m.content #>> '{}' INTO message_body FROM public.agent_run_message m WHERE m.workspace_id=r.workspace_id
+      AND m.agent_run_id=r.id AND m.attempt=r.attempt AND m.type='text' ORDER BY m.seq DESC LIMIT 1;
+    message_body := coalesce(message_body,'(no reply)');
+  ELSE
+    message_kind := 'failure';
+    message_body := coalesce(r.failure_reason,r.status) || CASE WHEN r.error='' THEN '' ELSE ': ' || r.error END;
+  END IF;
+  IF octet_length(message_body)>262144 THEN message_body:=left(message_body,65535)||'…'; END IF;
+  INSERT INTO public.coresearch_message(workspace_id,chat_id,kind,agent_run_id,body)
+    VALUES(r.workspace_id,c.id,message_kind,r.id,message_body)
+    ON CONFLICT (agent_run_id,kind) WHERE kind IN ('reply','failure') DO NOTHING RETURNING id INTO inserted;
+  IF inserted IS NOT NULL THEN RETURN QUERY SELECT c.project_id,c.id,inserted; END IF;
+END
+$$;
+REVOKE ALL ON FUNCTION public.coresearch_settle(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.coresearch_settle(uuid) TO lykeion_app;
+
+ALTER TABLE agent_run DROP CONSTRAINT agent_run_failure_reason_check,
+ADD CONSTRAINT agent_run_failure_reason_check CHECK (failure_reason IN ('runtime_offline','timeout','provider_network','context_exhausted','agent_error','runtime_access_denied','coresearch_access_revoked'));

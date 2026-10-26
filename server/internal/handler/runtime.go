@@ -172,6 +172,9 @@ func (h *H) getAgentRun(w http.ResponseWriter, r *http.Request) {
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		var err error
 		t, err = tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{ID: id, WorkspaceID: ws})
+		if err == nil && t.Kind == "coresearch" {
+			return pgx.ErrNoRows
+		}
 		return err
 	})
 	if err != nil {
@@ -192,6 +195,9 @@ func (h *H) agentRunMessages(w http.ResponseWriter, r *http.Request) {
 		run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{ID: id, WorkspaceID: ws})
 		if err != nil {
 			return err
+		}
+		if run.Kind == "coresearch" {
+			return pgx.ErrNoRows
 		}
 		q := r.URL.Query()
 		after := int64(0)
@@ -241,6 +247,22 @@ func (h *H) cancelAgentRun(w http.ResponseWriter, r *http.Request) {
 	ws, err := uuid.Parse(raw)
 	if err != nil {
 		writeErr(w, 404, "workspace not found")
+		return
+	}
+	if err := h.Store.InWorkspace(r.Context(), ws, user(r), func(tx *store.Tx) error {
+		if _, err := tx.Q.GetMember(r.Context(), db.GetMemberParams{WorkspaceID: ws, UserID: user(r)}); err != nil {
+			return err
+		}
+		run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: ws, ID: id})
+		if err != nil {
+			return err
+		}
+		if run.Kind == "coresearch" {
+			return pgx.ErrNoRows
+		}
+		return nil
+	}); err != nil {
+		fail(w, r, err)
 		return
 	}
 	if err := h.AgentRuns.Cancel(r.Context(), ws, user(r), id); err != nil {

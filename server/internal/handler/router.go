@@ -53,7 +53,7 @@ func NewRouter(h *H) http.Handler {
 	r.Get("/auth/google/callback", h.googleCallback)
 
 	if h.Sources != nil {
-		r.With(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Handle("/mcp/sources", h.Sources)
+		r.With(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeRole, service.ScopeReport, service.ScopeCoresearch)).Handle("/mcp/sources", h.Sources)
 	}
 
 	r.Route("/api/role", func(r chi.Router) {
@@ -196,6 +196,15 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/coresearch/projects/{project}/files", h.listCoresearchFiles)
 			r.Get("/api/coresearch/projects/{project}/files/{file}/versions", h.coresearchVersions)
 			r.Post("/api/coresearch/projects/{project}/files/{file}/restore", h.restoreCoresearchFile)
+			r.Get("/api/coresearch/projects/{project}/chats", h.listCoresearchChats)
+			r.Post("/api/coresearch/projects/{project}/chats", h.createCoresearchChat)
+			r.Get("/api/coresearch/projects/{project}/chats/{chat}/messages", h.coresearchMessages)
+			r.Get("/api/coresearch/projects/{project}/chats/{chat}/turns/{run}/steps", h.coresearchSteps)
+			r.Post("/api/coresearch/projects/{project}/chats/{chat}/turns", h.coresearchTurn)
+			r.Post("/api/coresearch/projects/{project}/chats/{chat}/turns/{run}/cancel", h.cancelCoresearchTurn)
+			r.Post("/api/coresearch/projects/{project}/chats/{chat}/comments", h.coresearchComment)
+			r.Post("/api/coresearch/projects/{project}/chats/{chat}/release", h.releaseCoresearchChat)
+
 			r.Get("/api/autoresearch", h.listAutoresearches)
 			r.Post("/api/autoresearch", h.createAutoresearch)
 			r.Get("/api/autoresearch/{id}", h.getAutoresearch)

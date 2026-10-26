@@ -162,6 +162,8 @@ WHERE id = (
   SELECT t.id FROM agent_run t
   JOIN runtime r ON r.id = $1 AND r.workspace_id = t.workspace_id
   LEFT JOIN card c ON c.id = t.card_id
+  LEFT JOIN coresearch_chat cc ON cc.id=t.coresearch_chat_id AND cc.workspace_id=t.workspace_id
+  LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   WHERE t.workspace_id = $2 AND t.status = 'queued'
     AND t.harness = r.harness AND r.status = 'online'
     AND (t.responsible_user_id = r.owner_id OR ($3::boolean AND r.os = 'linux'))
@@ -173,7 +175,10 @@ WHERE id = (
        OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR ($3::boolean AND r.os = 'linux' AND (r.visibility = 'workspace'
            OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))))
       -- an autoresearch agent run has no card and runs on its requester's runtimes
-      OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id))
+      OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id)
+      OR (t.kind='coresearch' AND t.responsible_user_id=r.owner_id AND cc.owner_id=r.owner_id AND cc.cli=r.harness
+          AND (cc.daemon_id IS NULL OR cc.daemon_id=r.daemon_id) AND cp.archived_at IS NULL
+          AND EXISTS(SELECT 1 FROM coresearch_member cm WHERE cm.workspace_id=t.workspace_id AND cm.project_id=cc.project_id AND cm.user_id=cc.owner_id)))
   ORDER BY t.created_at
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
@@ -342,6 +347,7 @@ const departingMemberSharedRuns = `-- name: DepartingMemberSharedRuns :many
 SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = $1 AND t.status IN ('queued', 'dispatched', 'running')
+AND t.kind <> 'coresearch'
 AND EXISTS (
  SELECT 1 FROM runtime r WHERE r.workspace_id = t.workspace_id
  AND ((t.responsible_user_id = $2 AND r.owner_id <> $2)
@@ -1018,7 +1024,7 @@ LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = $1 AND t.status = 'queued'
  AND t.harness IN ('cursor', 'antigravity')
  AND ((t.kind = 'role' AND c.owner_id = $2)
-   OR (t.kind = 'autoresearch' AND t.requester_id = $2))
+   OR (t.kind IN ('autoresearch','coresearch') AND t.requester_id = $2))
 ORDER BY t.id FOR UPDATE OF t
 `
 
@@ -1262,7 +1268,7 @@ FROM agent_run t
 JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 JOIN "user" u ON u.id = t.responsible_user_id
 WHERE t.workspace_id = $1 AND t.status IN ('queued','dispatched','running')
-AND t.responsible_user_id <> $2
+AND t.kind <> 'coresearch' AND t.responsible_user_id <> $2
 AND (t.runtime_id = $3 OR (t.status = 'queued' AND t.kind = 'role' AND c.machine = $4 AND t.harness = $5))
 ORDER BY t.id FOR UPDATE OF t
 `

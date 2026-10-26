@@ -37,6 +37,71 @@ func (q *Queries) ArchiveCoresearchProject(ctx context.Context, arg ArchiveCores
 	return i, err
 }
 
+const attachCoresearchTurn = `-- name: AttachCoresearchTurn :exec
+UPDATE coresearch_message SET agent_run_id= $1 WHERE workspace_id= $2 AND id= $3
+`
+
+type AttachCoresearchTurnParams struct {
+	AgentRunID  *uuid.UUID `json:"agent_run_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+}
+
+func (q *Queries) AttachCoresearchTurn(ctx context.Context, arg AttachCoresearchTurnParams) error {
+	_, err := q.db.Exec(ctx, attachCoresearchTurn, arg.AgentRunID, arg.WorkspaceID, arg.ID)
+	return err
+}
+
+const bindCoresearchChat = `-- name: BindCoresearchChat :exec
+UPDATE coresearch_chat SET daemon_id= $1 WHERE workspace_id= $2 AND id= $3 AND daemon_id IS NULL
+`
+
+type BindCoresearchChatParams struct {
+	DaemonID    *string   `json:"daemon_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) BindCoresearchChat(ctx context.Context, arg BindCoresearchChatParams) error {
+	_, err := q.db.Exec(ctx, bindCoresearchChat, arg.DaemonID, arg.WorkspaceID, arg.ID)
+	return err
+}
+
+const coresearchChatBusy = `-- name: CoresearchChatBusy :one
+SELECT (EXISTS(SELECT 1 FROM agent_run a WHERE a.workspace_id= $1 AND a.coresearch_chat_id= $2::uuid AND a.status IN ('queued','dispatched','running'))
+OR EXISTS(SELECT 1 FROM coresearch_cell c WHERE c.workspace_id= $1 AND c.chat_id= $2::uuid AND c.status IN ('queued','running'))
+OR EXISTS(SELECT 1 FROM coresearch_run r WHERE r.workspace_id= $1 AND r.chat_id= $2::uuid AND r.status IN ('queued','running'))
+OR EXISTS(SELECT 1 FROM coresearch_setup e WHERE e.workspace_id= $1 AND e.chat_id= $2::uuid AND e.status IN ('queued','running')))::boolean AS busy
+`
+
+type CoresearchChatBusyParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ChatID      uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) CoresearchChatBusy(ctx context.Context, arg CoresearchChatBusyParams) (bool, error) {
+	row := q.db.QueryRow(ctx, coresearchChatBusy, arg.WorkspaceID, arg.ChatID)
+	var busy bool
+	err := row.Scan(&busy)
+	return busy, err
+}
+
+const coresearchChatTurnBusy = `-- name: CoresearchChatTurnBusy :one
+SELECT EXISTS(SELECT 1 FROM agent_run WHERE workspace_id= $1 AND coresearch_chat_id= $2 AND status IN ('queued','dispatched','running'))::boolean
+`
+
+type CoresearchChatTurnBusyParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ChatID      *uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) CoresearchChatTurnBusy(ctx context.Context, arg CoresearchChatTurnBusyParams) (bool, error) {
+	row := q.db.QueryRow(ctx, coresearchChatTurnBusy, arg.WorkspaceID, arg.ChatID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const coresearchFileHead = `-- name: CoresearchFileHead :one
 SELECT workspace_id, file_id, n, sha256, size, blob_key, author_user_id, agent_run_id, run_id, overrode, restored_from, created_at FROM coresearch_file_version WHERE workspace_id = $1 AND file_id = $2 ORDER BY n DESC LIMIT 1
 `
@@ -94,6 +159,44 @@ func (q *Queries) CoresearchFileVersion(ctx context.Context, arg CoresearchFileV
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const coresearchHistory = `-- name: CoresearchHistory :many
+SELECT id, workspace_id, chat_id, kind, author_user_id, agent_run_id, body, created_at FROM (SELECT id, workspace_id, chat_id, kind, author_user_id, agent_run_id, body, created_at FROM coresearch_message WHERE workspace_id= $1 AND chat_id= $2 ORDER BY created_at DESC,id DESC LIMIT 20) history ORDER BY created_at,id
+`
+
+type CoresearchHistoryParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ChatID      uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) CoresearchHistory(ctx context.Context, arg CoresearchHistoryParams) ([]CoresearchMessage, error) {
+	rows, err := q.db.Query(ctx, coresearchHistory, arg.WorkspaceID, arg.ChatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CoresearchMessage
+	for rows.Next() {
+		var i CoresearchMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ChatID,
+			&i.Kind,
+			&i.AuthorUserID,
+			&i.AgentRunID,
+			&i.Body,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const coresearchMember = `-- name: CoresearchMember :one
@@ -154,6 +257,42 @@ func (q *Queries) CountCoresearchOwners(ctx context.Context, arg CountCoresearch
 	return count, err
 }
 
+const createCoresearchChat = `-- name: CreateCoresearchChat :one
+INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES($1,$2,$3,'experiment',$4) RETURNING id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at
+`
+
+type CreateCoresearchChatParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	Cli         string    `json:"cli"`
+}
+
+func (q *Queries) CreateCoresearchChat(ctx context.Context, arg CreateCoresearchChatParams) (CoresearchChat, error) {
+	row := q.db.QueryRow(ctx, createCoresearchChat,
+		arg.WorkspaceID,
+		arg.ProjectID,
+		arg.OwnerID,
+		arg.Cli,
+	)
+	var i CoresearchChat
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.OwnerID,
+		&i.Mode,
+		&i.Cli,
+		&i.DaemonID,
+		&i.KernelRequest,
+		&i.KernelRequestSeq,
+		&i.KernelState,
+		&i.KernelSeenAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createCoresearchProject = `-- name: CreateCoresearchProject :one
 SELECT public.coresearch_create_project($1::text)::uuid AS id
 `
@@ -180,6 +319,80 @@ func (q *Queries) DeleteCoresearchMember(ctx context.Context, arg DeleteCoresear
 	return err
 }
 
+const enqueueCoresearchAgentRun = `-- name: EnqueueCoresearchAgentRun :one
+INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,board_column,round,role,harness,prompt,skill,max_attempts,requested_model,continuity_scope,coresearch_chat_id)
+VALUES($1,'coresearch',$2::uuid,$2::uuid,'',0,'coresearch',$3,$4,'',2,'',$5,$6) RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id
+`
+
+type EnqueueCoresearchAgentRunParams struct {
+	WorkspaceID      uuid.UUID  `json:"workspace_id"`
+	OwnerID          uuid.UUID  `json:"owner_id"`
+	Harness          string     `json:"harness"`
+	Prompt           string     `json:"prompt"`
+	ContinuityScope  string     `json:"continuity_scope"`
+	CoresearchChatID *uuid.UUID `json:"coresearch_chat_id"`
+}
+
+func (q *Queries) EnqueueCoresearchAgentRun(ctx context.Context, arg EnqueueCoresearchAgentRunParams) (AgentRun, error) {
+	row := q.db.QueryRow(ctx, enqueueCoresearchAgentRun,
+		arg.WorkspaceID,
+		arg.OwnerID,
+		arg.Harness,
+		arg.Prompt,
+		arg.ContinuityScope,
+		arg.CoresearchChatID,
+	)
+	var i AgentRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.ResponsibleUserID,
+		&i.BoardColumn,
+		&i.Round,
+		&i.Role,
+		&i.Harness,
+		&i.Prompt,
+		&i.Skill,
+		&i.Status,
+		&i.QueueReason,
+		&i.RuntimeID,
+		&i.PrepareLeaseExpiresAt,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.SessionID,
+		&i.ContinuityScope,
+		&i.ProfileMode,
+		&i.PolicyDigest,
+		&i.Model,
+		&i.Error,
+		&i.FailureReason,
+		&i.CostUsd,
+		&i.LateUsageAt,
+		&i.CreatedAt,
+		&i.HandoffNote,
+		&i.InputLeaseExpiresAt,
+		&i.InputFetchExpiresAt,
+		&i.InputFetchID,
+		&i.InputOutcomes,
+		&i.AddonHash,
+		&i.AddonMcp,
+		&i.Kind,
+		&i.RequesterID,
+		&i.RequestedModel,
+		&i.AgentID,
+		&i.Assignment,
+		&i.CancelReason,
+		&i.MachineName,
+		&i.MachineOwnerID,
+		&i.CoresearchChatID,
+	)
+	return i, err
+}
+
 const ensureCoresearchFile = `-- name: EnsureCoresearchFile :exec
 INSERT INTO coresearch_file(workspace_id,project_id,path) VALUES($1,$2,$3) ON CONFLICT(project_id,path) DO NOTHING
 `
@@ -193,6 +406,36 @@ type EnsureCoresearchFileParams struct {
 func (q *Queries) EnsureCoresearchFile(ctx context.Context, arg EnsureCoresearchFileParams) error {
 	_, err := q.db.Exec(ctx, ensureCoresearchFile, arg.WorkspaceID, arg.ProjectID, arg.Path)
 	return err
+}
+
+const getCoresearchChat = `-- name: GetCoresearchChat :one
+SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at FROM coresearch_chat WHERE workspace_id= $1 AND project_id= $2 AND id= $3
+`
+
+type GetCoresearchChatParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) GetCoresearchChat(ctx context.Context, arg GetCoresearchChatParams) (CoresearchChat, error) {
+	row := q.db.QueryRow(ctx, getCoresearchChat, arg.WorkspaceID, arg.ProjectID, arg.ID)
+	var i CoresearchChat
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.OwnerID,
+		&i.Mode,
+		&i.Cli,
+		&i.DaemonID,
+		&i.KernelRequest,
+		&i.KernelRequestSeq,
+		&i.KernelState,
+		&i.KernelSeenAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getCoresearchFile = `-- name: GetCoresearchFile :one
@@ -238,6 +481,42 @@ func (q *Queries) GetCoresearchProject(ctx context.Context, arg GetCoresearchPro
 		&i.CreatedAt,
 		&i.ArchivedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertCoresearchMessage = `-- name: InsertCoresearchMessage :one
+INSERT INTO coresearch_message(workspace_id,chat_id,kind,author_user_id,agent_run_id,body) VALUES($1,$2,$3,$4,$5,$6) RETURNING id, workspace_id, chat_id, kind, author_user_id, agent_run_id, body, created_at
+`
+
+type InsertCoresearchMessageParams struct {
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	ChatID       uuid.UUID  `json:"chat_id"`
+	Kind         string     `json:"kind"`
+	AuthorUserID *uuid.UUID `json:"author_user_id"`
+	AgentRunID   *uuid.UUID `json:"agent_run_id"`
+	Body         string     `json:"body"`
+}
+
+func (q *Queries) InsertCoresearchMessage(ctx context.Context, arg InsertCoresearchMessageParams) (CoresearchMessage, error) {
+	row := q.db.QueryRow(ctx, insertCoresearchMessage,
+		arg.WorkspaceID,
+		arg.ChatID,
+		arg.Kind,
+		arg.AuthorUserID,
+		arg.AgentRunID,
+		arg.Body,
+	)
+	var i CoresearchMessage
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ChatID,
+		&i.Kind,
+		&i.AuthorUserID,
+		&i.AgentRunID,
+		&i.Body,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -291,6 +570,66 @@ func (q *Queries) InsertCoresearchVersion(ctx context.Context, arg InsertCoresea
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listCoresearchChats = `-- name: ListCoresearchChats :many
+SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, (SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1)::text AS machine_name
+FROM coresearch_chat c WHERE c.workspace_id= $1 AND c.project_id= $2 ORDER BY c.created_at,c.id
+`
+
+type ListCoresearchChatsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+}
+
+type ListCoresearchChatsRow struct {
+	ID               uuid.UUID  `json:"id"`
+	WorkspaceID      uuid.UUID  `json:"workspace_id"`
+	ProjectID        uuid.UUID  `json:"project_id"`
+	OwnerID          uuid.UUID  `json:"owner_id"`
+	Mode             string     `json:"mode"`
+	Cli              string     `json:"cli"`
+	DaemonID         *string    `json:"daemon_id"`
+	KernelRequest    *string    `json:"kernel_request"`
+	KernelRequestSeq int64      `json:"kernel_request_seq"`
+	KernelState      string     `json:"kernel_state"`
+	KernelSeenAt     *time.Time `json:"kernel_seen_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	MachineName      string     `json:"machine_name"`
+}
+
+func (q *Queries) ListCoresearchChats(ctx context.Context, arg ListCoresearchChatsParams) ([]ListCoresearchChatsRow, error) {
+	rows, err := q.db.Query(ctx, listCoresearchChats, arg.WorkspaceID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCoresearchChatsRow
+	for rows.Next() {
+		var i ListCoresearchChatsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ProjectID,
+			&i.OwnerID,
+			&i.Mode,
+			&i.Cli,
+			&i.DaemonID,
+			&i.KernelRequest,
+			&i.KernelRequestSeq,
+			&i.KernelState,
+			&i.KernelSeenAt,
+			&i.CreatedAt,
+			&i.MachineName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCoresearchFileVersions = `-- name: ListCoresearchFileVersions :many
@@ -404,6 +743,59 @@ func (q *Queries) ListCoresearchMembers(ctx context.Context, arg ListCoresearchM
 	return items, nil
 }
 
+const listCoresearchMessages = `-- name: ListCoresearchMessages :many
+SELECT m.id, m.workspace_id, m.chat_id, m.kind, m.author_user_id, m.agent_run_id, m.body, m.created_at,r.status,r.failure_reason FROM coresearch_message m LEFT JOIN agent_run r ON r.workspace_id=m.workspace_id AND r.id=m.agent_run_id WHERE m.workspace_id= $1 AND m.chat_id= $2 ORDER BY m.created_at,m.id
+`
+
+type ListCoresearchMessagesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ChatID      uuid.UUID `json:"chat_id"`
+}
+
+type ListCoresearchMessagesRow struct {
+	ID            uuid.UUID  `json:"id"`
+	WorkspaceID   uuid.UUID  `json:"workspace_id"`
+	ChatID        uuid.UUID  `json:"chat_id"`
+	Kind          string     `json:"kind"`
+	AuthorUserID  *uuid.UUID `json:"author_user_id"`
+	AgentRunID    *uuid.UUID `json:"agent_run_id"`
+	Body          string     `json:"body"`
+	CreatedAt     time.Time  `json:"created_at"`
+	Status        *string    `json:"status"`
+	FailureReason *string    `json:"failure_reason"`
+}
+
+func (q *Queries) ListCoresearchMessages(ctx context.Context, arg ListCoresearchMessagesParams) ([]ListCoresearchMessagesRow, error) {
+	rows, err := q.db.Query(ctx, listCoresearchMessages, arg.WorkspaceID, arg.ChatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCoresearchMessagesRow
+	for rows.Next() {
+		var i ListCoresearchMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ChatID,
+			&i.Kind,
+			&i.AuthorUserID,
+			&i.AgentRunID,
+			&i.Body,
+			&i.CreatedAt,
+			&i.Status,
+			&i.FailureReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCoresearchProjects = `-- name: ListCoresearchProjects :many
 SELECT p.id, p.workspace_id, p.name, p.python_version, p.created_by, p.created_at, p.archived_at, p.updated_at, m.role FROM coresearch_project p JOIN coresearch_member m ON m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id=app_user()
 WHERE p.workspace_id = $1 ORDER BY p.updated_at DESC,p.id
@@ -451,6 +843,35 @@ func (q *Queries) ListCoresearchProjects(ctx context.Context, workspaceID uuid.U
 	return items, nil
 }
 
+const lockCoresearchChat = `-- name: LockCoresearchChat :one
+SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at FROM coresearch_chat WHERE workspace_id= $1 AND id= $2 FOR UPDATE
+`
+
+type LockCoresearchChatParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) LockCoresearchChat(ctx context.Context, arg LockCoresearchChatParams) (CoresearchChat, error) {
+	row := q.db.QueryRow(ctx, lockCoresearchChat, arg.WorkspaceID, arg.ID)
+	var i CoresearchChat
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.OwnerID,
+		&i.Mode,
+		&i.Cli,
+		&i.DaemonID,
+		&i.KernelRequest,
+		&i.KernelRequestSeq,
+		&i.KernelState,
+		&i.KernelSeenAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const lockCoresearchFile = `-- name: LockCoresearchFile :one
 SELECT id, workspace_id, project_id, path FROM coresearch_file WHERE workspace_id = $1 AND project_id = $2 AND path = $3 FOR UPDATE
 `
@@ -496,6 +917,20 @@ func (q *Queries) LockCoresearchProject(ctx context.Context, arg LockCoresearchP
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const releaseCoresearchChat = `-- name: ReleaseCoresearchChat :exec
+UPDATE coresearch_chat SET daemon_id=NULL,kernel_state='stopped',kernel_seen_at=NULL WHERE workspace_id= $1 AND id= $2
+`
+
+type ReleaseCoresearchChatParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) ReleaseCoresearchChat(ctx context.Context, arg ReleaseCoresearchChatParams) error {
+	_, err := q.db.Exec(ctx, releaseCoresearchChat, arg.WorkspaceID, arg.ID)
+	return err
 }
 
 const renameCoresearchProject = `-- name: RenameCoresearchProject :one
@@ -552,6 +987,36 @@ func (q *Queries) SetCoresearchMember(ctx context.Context, arg SetCoresearchMemb
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const settleCoresearch = `-- name: SettleCoresearch :many
+SELECT project_id::uuid,chat_id::uuid,message_id::uuid FROM public.coresearch_settle($1::uuid)
+`
+
+type SettleCoresearchRow struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	ChatID    uuid.UUID `json:"chat_id"`
+	MessageID uuid.UUID `json:"message_id"`
+}
+
+func (q *Queries) SettleCoresearch(ctx context.Context, runID uuid.UUID) ([]SettleCoresearchRow, error) {
+	rows, err := q.db.Query(ctx, settleCoresearch, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SettleCoresearchRow
+	for rows.Next() {
+		var i SettleCoresearchRow
+		if err := rows.Scan(&i.ProjectID, &i.ChatID, &i.MessageID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const touchCoresearchProject = `-- name: TouchCoresearchProject :exec

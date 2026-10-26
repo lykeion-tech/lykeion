@@ -12,6 +12,7 @@ import (
 
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -30,6 +31,8 @@ func coresearchAnswer(w http.ResponseWriter, r *http.Request, err error) bool {
 	switch {
 	case errors.As(err, &stale):
 		writeJSON(w, 409, map[string]any{"error": "stale_base", "base": stale.Base, "current": stale.Current})
+	case errors.Is(err, service.ErrConflict):
+		writeErr(w, 409, err.Error())
 	case errors.Is(err, coresearch.ErrArchived):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, coresearch.ErrQuota):
