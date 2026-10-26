@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -132,5 +133,118 @@ func TestDaemonJSONReportsOnlyVerifiedLiveDiagnostics(t *testing.T) {
 	}
 	if !strings.Contains(out, `"status":"stopped"`) {
 		t.Fatalf("other profile adopted daemon: %s", out)
+	}
+}
+
+func TestDaemonJSONCannotCallAnOrphanStartupStopped(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LYK_CONFIG", filepath.Join(dir, "config.json"))
+	t.Setenv("LYK_DAEMON_PROFILE", "desktop-orphan")
+	state := filepath.Join(dir, "daemon")
+	if err := os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(state, "daemon.lock")
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, health := range []string{"", `{"port":1,"pid":1,"started":"stale","nonce":"wrong","profile":"other","server_url":"https://other","daemon_id":"other"}`} {
+		if health != "" {
+			if err := os.WriteFile(filepath.Join(dir, "daemon.health.json"), []byte(health), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, err := commandResult("daemon", "status", "--json")
+		if err == nil || out != "" {
+			t.Fatalf("live lock reported stopped: %s %v", out, err)
+		}
+	}
+	after, err := os.Stat(path)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("lock inode changed: %v", err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	out, err := commandResult("daemon", "status", "--json")
+	if err != nil || !strings.Contains(out, `"status":"stopped"`) {
+		t.Fatalf("free lock not stopped: %s %v", out, err)
+	}
+}
+
+func TestDaemonJSONRejectsUnsafeStateLocksWithoutChangingThem(t *testing.T) {
+	for _, kind := range []string{"symlink", "directory", "state-symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("LYK_CONFIG", filepath.Join(dir, "config.json"))
+			state := filepath.Join(dir, "daemon")
+			if kind == "state-symlink" {
+				if err := os.Symlink(t.TempDir(), state); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.Mkdir(state, 0700); err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(state, "daemon.lock")
+				if kind == "directory" {
+					if err := os.Mkdir(path, 0700); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					target := filepath.Join(t.TempDir(), "lock")
+					if err := os.WriteFile(target, nil, 0600); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(target, path); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			out, err := commandResult("daemon", "status", "--json")
+			if err == nil || out != "" {
+				t.Fatalf("unsafe lock trusted: %s %v", out, err)
+			}
+		})
+	}
+}
+
+func TestDaemonJSONDoesNotCreateMissingStateLocks(t *testing.T) {
+	for _, directoryExists := range []bool{false, true} {
+		t.Run(fmt.Sprint(directoryExists), func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("LYK_CONFIG", filepath.Join(dir, "config.json"))
+			state := filepath.Join(dir, "daemon")
+			if directoryExists {
+				if err := os.Mkdir(state, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out, err := commandResult("daemon", "status", "--json")
+			if err != nil || !strings.Contains(out, `"status":"stopped"`) {
+				t.Fatalf("absent lock: %s %v", out, err)
+			}
+			if _, err := os.Lstat(filepath.Join(state, "daemon.lock")); !os.IsNotExist(err) {
+				t.Fatalf("status created lock: %v", err)
+			}
+			info, err := os.Lstat(state)
+			if directoryExists {
+				if err != nil || info.Mode().Perm() != 0755 {
+					t.Fatalf("state mode changed: %v %v", info, err)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("status created state directory: %v", err)
+			}
+		})
 	}
 }

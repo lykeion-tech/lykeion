@@ -14,3 +14,5 @@ func detach(*exec.Cmd) error                              { return errDaemonPlat
 func terminate(int) error                                 { return errDaemonPlatform }
 func ownedPrivateDir(string) error                        { return errDaemonPlatform }
 func clearStoppedOwner(string, string, daemonOwner) error { return errDaemonPlatform }
+
+func stateLockIdle(string) bool { return false }

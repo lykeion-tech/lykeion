@@ -285,6 +285,9 @@ func daemonCmd(e *env) *cobra.Command {
 		if statusJSON {
 			live, err := daemon.ProbeHealth(cmd.Context(), healthFile(e), os.Getenv("LYK_DAEMON_PROFILE"), e.cfg.Server)
 			if err != nil {
+				if !stateLockIdle(stateDir(e)) {
+					return errors.New("daemon health cannot be verified while the state lock may be held")
+				}
 				return json.NewEncoder(e.out).Encode(map[string]string{"status": "stopped", "profile": os.Getenv("LYK_DAEMON_PROFILE")})
 			}
 			return json.NewEncoder(e.out).Encode(live)
