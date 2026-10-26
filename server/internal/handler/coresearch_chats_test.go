@@ -47,7 +47,7 @@ func csRegister(t *testing.T, s *server, a, ws, daemon, harness string) service.
 }
 func csClaim(t *testing.T, s *server, a string, ref service.RuntimeRef) []service.Claimed {
 	t.Helper()
-	out, e := s.H.AgentRuns.Claim(t.Context(), uuid.MustParse(s.userID(t, a)), []service.RuntimeRef{ref}, 1, service.ClaimOptions{GuestIsolation: "os_sandbox"})
+	out, e := s.H.AgentRuns.Claim(t.Context(), uuid.MustParse(s.userID(t, a)), []service.RuntimeRef{ref}, 1, service.ClaimOptions{GuestIsolation: "os_sandbox", CoresearchOnly: true})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -438,5 +438,30 @@ func TestCoresearchChatListMachineNames(t *testing.T) {
 				t.Fatalf("list %s: want machine %q, got %+v", state, wantName, chats)
 			}
 		})
+	}
+}
+
+func TestCoresearchTurnClaimRequiresExplicitMode(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	csTurn(t, s, a, ws, path)
+	ref := csRegister(t, s, a, ws, "mode", "claude")
+	var got []service.Claimed
+	body := map[string]any{"runtimes": []service.RuntimeRef{ref}, "slots": 1}
+	tok := s.personalToken(t, a)
+	if code := s.call(t, "POST", "/api/daemon/agent-runs/claim", tok, "", body, &got); code != 200 || len(got) != 0 {
+		t.Fatalf("default claim consumed Coresearch: %d %+v", code, got)
+	}
+	body["coresearch_only"] = true
+	if code := s.call(t, "POST", "/api/daemon/agent-runs/claim", tok, "", body, &got); code != 200 || len(got) != 1 {
+		t.Fatalf("explicit claim: %d %+v", code, got)
+	}
+	path, _ = csChat(t, s, a, ws, p.ID)
+	csTurn(t, s, a, ws, path)
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET max_concurrent=1 WHERE id=$1", ref.RuntimeID); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "POST", "/api/daemon/agent-runs/claim", tok, "", body, &got); code != 200 || len(got) != 1 {
+		t.Fatalf("second chat blocked by runtime slots: %d %+v", code, got)
 	}
 }

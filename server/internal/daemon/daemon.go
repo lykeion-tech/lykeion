@@ -116,6 +116,11 @@ type claimed struct {
 	Skills []toolroute.RoutedSkill `json:"skills"`
 }
 type daemon struct {
+	chatsMu    sync.Mutex
+	chats      map[uuid.UUID]*chatHost
+	coreActive map[string]bool
+	coreWork   map[uuid.UUID]bool
+
 	serviceCommand    func(sandbox.Policy, context.Context, string, ...string) (*exec.Cmd, error)
 	serviceReadyLimit time.Duration
 	serviceStopLimit  time.Duration
@@ -238,6 +243,7 @@ func Run(ctx context.Context, cfg Config) error {
 	background(func() { d.every(ctx, cfg.Flush, func(ctx context.Context) { d.fatal(d.flush(ctx)) }) })
 	background(func() { d.every(ctx, time.Hour, func(ctx context.Context) { d.fatal(d.gc(ctx)) }) })
 	background(func() { d.hints(ctx) })
+	background(func() { d.every(ctx, min(time.Second, chatIdle/2), d.reapChats) })
 	background(func() { d.storageLoop(ctx) })
 	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
 	if d.bases != nil {
@@ -274,6 +280,7 @@ loop:
 	}
 	cancel()
 	d.wg.Wait()
+	d.stopChats()
 	// A concurrent child storage failure must not disappear during shutdown.
 	select {
 	case err := <-d.failures:
@@ -371,20 +378,29 @@ func (d *daemon) claim(ctx context.Context) {
 	if d.sandboxErr != nil {
 		return
 	}
+	refs := d.references()
+	if len(refs) == 0 {
+		return
+	}
+	d.claimCoresearchWork(ctx, refs)
+	d.claimTurns(ctx, refs, 64, true)
 	d.mu.Lock()
-	free := d.cfg.Slots - len(d.active)
+	free := d.cfg.Slots - (len(d.active) - len(d.coreActive))
 	d.mu.Unlock()
-	currentRefs := d.references()
+	d.claimTurns(ctx, refs, free, false)
+}
+func (d *daemon) claimTurns(ctx context.Context, currentRefs []runtimeRef, free int, coreOnly bool) {
 	if free <= 0 || len(currentRefs) == 0 {
 		return
 	}
+
 	// Rotate the first batch so a busy early workspace cannot starve later ones.
 	d.rotation %= len(currentRefs)
 	refs := append(append([]runtimeRef{}, currentRefs[d.rotation:]...), currentRefs[:d.rotation]...)
 	d.rotation = (d.rotation + 64) % len(currentRefs)
 	for i := 0; i < len(refs) && free > 0 && ctx.Err() == nil; i += 64 {
 		var got []claimed
-		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))], "slots": free}
+		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))], "slots": free, "coresearch_only": coreOnly}
 		if runtime.GOOS == "linux" {
 			body["guest_isolation"] = agent.GuestIsolationProtocol
 		}
@@ -403,6 +419,10 @@ func (d *daemon) claim(ctx context.Context) {
 			return
 		}
 		for _, c := range got {
+			if (c.Coresearch != nil) != coreOnly {
+				d.fatal(errors.New("server returned a run outside requested claim mode"))
+				return
+			}
 			if c.AgentRun.RuntimeID == nil || c.AgentRun.Attempt <= 0 || !strings.HasPrefix(c.Token, "ltk_") {
 				d.fatal(errors.New("invalid claimed run identity or role token"))
 				return
@@ -411,6 +431,12 @@ func (d *daemon) claim(ctx context.Context) {
 			d.mu.Lock()
 			duplicate := d.active[key]
 			d.active[key] = true
+			if coreOnly {
+				if d.coreActive == nil {
+					d.coreActive = map[string]bool{}
+				}
+				d.coreActive[key] = true
+			}
 			d.mu.Unlock()
 			if duplicate {
 				d.fatal(errors.New("duplicate claimed attempt"))
@@ -433,6 +459,7 @@ func (d *daemon) claim(ctx context.Context) {
 				defer func() {
 					d.mu.Lock()
 					delete(d.active, key)
+					delete(d.coreActive, key)
 					delete(d.activeRefs, key)
 					delete(d.activeCancels, key)
 					d.mu.Unlock()
@@ -469,7 +496,7 @@ func (d *daemon) hints(ctx context.Context) {
 				if err = c.ReadJSON(&msg); err != nil {
 					break
 				}
-				if msg.Type == "ready" || msg.Type == "agent_run_available" {
+				if msg.Type == "ready" || msg.Type == "agent_run_available" || msg.Type == "coresearch.work.queued" {
 					d.signal()
 				}
 			}
@@ -532,6 +559,9 @@ func (d *daemon) releaseScratch(name string) {
 
 // Only a finished record written after child exit starts the deletion clock.
 func (d *daemon) gc(context.Context) error {
+	if err := d.gcChats(); err != nil {
+		return err
+	}
 	es, err := os.ReadDir(d.cfg.Home)
 	if err != nil {
 		return err

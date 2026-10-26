@@ -69,7 +69,7 @@ func (q *Queries) ClaimSettlement(ctx context.Context, arg ClaimSettlementParams
 
 const countRuntimeActive = `-- name: CountRuntimeActive :one
 SELECT count(*) FROM agent_run WHERE workspace_id = $1 AND runtime_id = $2
- AND status IN ('dispatched', 'running')
+ AND status IN ('dispatched', 'running') AND kind IN ('role','autoresearch')
 `
 
 type CountRuntimeActiveParams struct {

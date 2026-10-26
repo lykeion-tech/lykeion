@@ -56,6 +56,7 @@ WHERE id = (
   LEFT JOIN coresearch_chat cc ON cc.id=t.coresearch_chat_id AND cc.workspace_id=t.workspace_id
   LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
+ AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch')))
     AND t.harness = r.harness AND r.status = 'online'
     AND (t.responsible_user_id = r.owner_id OR (@guest_isolation::boolean AND r.os = 'linux'))
     AND (
@@ -183,6 +184,7 @@ WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt 
 SELECT t.* FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
+ AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch')))
  AND t.harness IN ('cursor', 'antigravity')
  AND ((t.kind = 'role' AND c.owner_id = @owner_id)
    OR (t.kind IN ('autoresearch','coresearch') AND t.requester_id = @owner_id))

@@ -153,6 +153,12 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool, gue
 		guest = guests[0]
 	}
 	return func(ctx context.Context, cli agent.CLIPaths, name string, args ...string) (*exec.Cmd, error) {
+		chat := d.hostForFolder(runDir)
+		if chat != nil {
+			if err := d.checkChat(ctx, chat.work); err != nil {
+				return nil, err
+			}
+		}
 		if d.sandboxErr != nil {
 			return nil, fmt.Errorf("CLI sandbox unavailable: %w", d.sandboxErr)
 		}
@@ -205,6 +211,9 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool, gue
 				cleanup()
 				return nil, err
 			}
+		}
+		if !readOnly && chat != nil {
+			protectChatCLI(&p, runDir)
 		}
 		p.Write = append(p.Write, tmp)
 		envArgs := []string{"TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "TMPPREFIX=" + filepath.Join(tmp, "zsh"), "CLAUDE_CODE_TMPDIR=" + tmp, "npm_config_cache=" + filepath.Join(d.runCacheDir(guest), "npm"), "UV_CACHE_DIR=" + filepath.Join(d.runCacheDir(guest), "uv"), "UV_PYTHON_INSTALL_DIR=" + filepath.Join(d.runCacheDir(guest), "uv-python"), "UV_TOOL_DIR=" + filepath.Join(d.runCacheDir(guest), "uv-tools"), name}

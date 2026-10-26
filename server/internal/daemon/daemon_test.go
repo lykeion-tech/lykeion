@@ -588,14 +588,23 @@ func TestDaemonRuntimeBatchingAndFreeSlots(t *testing.T) {
 	slots := []int{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Runtimes []runtimeRef `json:"runtimes"`
-			Slots    int          `json:"slots"`
+			Runtimes       []runtimeRef `json:"runtimes"`
+			Slots          int          `json:"slots"`
+			CoresearchOnly bool         `json:"coresearch_only"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
 		if len(body.Runtimes) > 64 || len(body.Runtimes) == 0 {
 			t.Error("bad reference batch", len(body.Runtimes))
+		}
+		if r.URL.Path == "/api/daemon/coresearch/claim" {
+			w.Write([]byte(`{"cells":[],"runs":[],"setups":[],"controls":[]}`))
+			return
+		}
+		if body.CoresearchOnly {
+			w.Write([]byte(`[]`))
+			return
 		}
 		if strings.HasSuffix(r.URL.Path, "heartbeat") {
 			heartbeat = append(heartbeat, body.Runtimes)

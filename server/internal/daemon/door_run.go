@@ -125,7 +125,8 @@ func (d *Door) sandboxPolicy() error {
 		return err
 	}
 	dir := d.Child().Dir
-	d.policy = sandbox.Policy{StrictRead: d.Guest, Home: home, Write: []string{dir, d.Study.Dir, tmp}, Hidden: slices.Clone(d.PrivatePaths)}
+	d.policy = codePolicy(home, dir, d.Study, tmp, d.PrivatePaths, nil)
+	d.policy.StrictRead = d.Guest
 	if d.Guest {
 		for _, path := range []string{filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json"), filepath.Join(home, ".codex"), agent.AccountHome("claude"), agent.AccountHome("codex")} {
 			if path != "" && !slices.Contains(d.policy.Hidden, path) {
@@ -158,11 +159,9 @@ func (d *Door) sandboxPolicy() error {
 	if err := d.Study.Bases.EnsureLeanRoot(); err != nil {
 		return err
 	}
-	for _, dir := range d.Study.Bases.Folders() {
-		if isDir(dir) {
-			d.policy.Read = append(d.policy.Read, dir)
-		}
-	}
+	// Refresh the base grants after reserving Lean, preserving the door's
+	// bridge-first read layout.
+	d.policy.Read = append([]string{d.bridgeDir}, codePolicy(home, dir, d.Study, tmp, d.PrivatePaths, nil).Read...)
 	return nil
 }
 

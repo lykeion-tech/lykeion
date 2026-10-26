@@ -165,14 +165,15 @@ WHERE id = (
   LEFT JOIN coresearch_chat cc ON cc.id=t.coresearch_chat_id AND cc.workspace_id=t.workspace_id
   LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   WHERE t.workspace_id = $2 AND t.status = 'queued'
+ AND (($3::boolean AND t.kind='coresearch') OR (NOT $3::boolean AND t.kind IN ('role','autoresearch')))
     AND t.harness = r.harness AND r.status = 'online'
-    AND (t.responsible_user_id = r.owner_id OR ($3::boolean AND r.os = 'linux'))
+    AND (t.responsible_user_id = r.owner_id OR ($4::boolean AND r.os = 'linux'))
     AND (
       -- role runs use the chosen machine with consent, or the card owner's runtimes
       (t.kind = 'role' AND t.responsible_user_id = c.owner_id AND c.flag = '' AND c.ending = ''
        AND EXISTS (SELECT 1 FROM member m WHERE m.workspace_id = t.workspace_id AND m.user_id = c.owner_id) AND (
        (c.machine IS NULL AND c.owner_id = r.owner_id)
-       OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR ($3::boolean AND r.os = 'linux' AND (r.visibility = 'workspace'
+       OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR ($4::boolean AND r.os = 'linux' AND (r.visibility = 'workspace'
            OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))))
       -- an autoresearch agent run has no card and runs on its requester's runtimes
       OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id)
@@ -189,6 +190,7 @@ RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, r
 type ClaimAgentRunParams struct {
 	RuntimeID      *uuid.UUID `json:"runtime_id"`
 	WorkspaceID    uuid.UUID  `json:"workspace_id"`
+	CoresearchOnly bool       `json:"coresearch_only"`
 	GuestIsolation bool       `json:"guest_isolation"`
 }
 
@@ -242,7 +244,12 @@ type ClaimAgentRunRow struct {
 }
 
 func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (ClaimAgentRunRow, error) {
-	row := q.db.QueryRow(ctx, claimAgentRun, arg.RuntimeID, arg.WorkspaceID, arg.GuestIsolation)
+	row := q.db.QueryRow(ctx, claimAgentRun,
+		arg.RuntimeID,
+		arg.WorkspaceID,
+		arg.CoresearchOnly,
+		arg.GuestIsolation,
+	)
 	var i ClaimAgentRunRow
 	err := row.Scan(
 		&i.ID,
@@ -1022,19 +1029,21 @@ const lockRemovedHarnessQueue = `-- name: LockRemovedHarnessQueue :many
 SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = $1 AND t.status = 'queued'
+ AND (($2::boolean AND t.kind='coresearch') OR (NOT $2::boolean AND t.kind IN ('role','autoresearch')))
  AND t.harness IN ('cursor', 'antigravity')
- AND ((t.kind = 'role' AND c.owner_id = $2)
-   OR (t.kind IN ('autoresearch','coresearch') AND t.requester_id = $2))
+ AND ((t.kind = 'role' AND c.owner_id = $3)
+   OR (t.kind IN ('autoresearch','coresearch') AND t.requester_id = $3))
 ORDER BY t.id FOR UPDATE OF t
 `
 
 type LockRemovedHarnessQueueParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	OwnerID     uuid.UUID `json:"owner_id"`
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	CoresearchOnly bool      `json:"coresearch_only"`
+	OwnerID        uuid.UUID `json:"owner_id"`
 }
 
 func (q *Queries) LockRemovedHarnessQueue(ctx context.Context, arg LockRemovedHarnessQueueParams) ([]AgentRun, error) {
-	rows, err := q.db.Query(ctx, lockRemovedHarnessQueue, arg.WorkspaceID, arg.OwnerID)
+	rows, err := q.db.Query(ctx, lockRemovedHarnessQueue, arg.WorkspaceID, arg.CoresearchOnly, arg.OwnerID)
 	if err != nil {
 		return nil, err
 	}

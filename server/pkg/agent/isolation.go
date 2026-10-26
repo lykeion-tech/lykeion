@@ -213,7 +213,7 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {
 		k, v, ok := strings.Cut(entry, "=")
-		if ok && !filteredEnvKey(k) && (!o.Guest || guestAmbientEnvKey(k)) {
+		if ok && !filteredEnvKey(k) && (!o.Guest || guestAmbientEnvKey(k)) && (!o.Coresearch || !strings.HasPrefix(strings.ToUpper(k), "LYK_")) {
 			values[k] = v
 		}
 	}

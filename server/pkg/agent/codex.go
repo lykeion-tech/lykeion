@@ -26,7 +26,12 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	personal := readCodexConfig(runConfigHome("codex", o.ConfigHome))
 	// Codex events name no model, so the run must know which one it chose.
 	model := o.Model
-	if model == "" {
+	if o.Coresearch {
+		// Exec events do not identify the provider-selected model. Keep its
+		// tokens reportable without guessing a model or injecting a selection.
+		model = "unknown"
+	}
+	if model == "" && !o.Coresearch {
 		if model, err = codexModel(ctx, bin, o, personal.Model); err != nil {
 			cleanup(true)
 			return nil, err
@@ -40,8 +45,16 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		// Login profiles replace the trusted run PATH before shell tools run.
 		args = append(args, "-c", "allow_login_shell=false")
 	}
-	args = append(args, "-m", model)
-	if clash := personalClash(personal, o); clash != "" {
+	if !o.Coresearch {
+		args = append(args, "-m", model)
+	}
+	if o.Coresearch {
+		args = append(args, "--ignore-user-config")
+		if o.SourcesURL != "" {
+			args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_sources.url=%s", raw(o.SourcesURL)), "-c", `mcp_servers.lyk_sources.bearer_token_env_var="LYK_TOKEN"`)
+		}
+	}
+	if clash := personalClash(personal, o); !o.Coresearch && clash != "" {
 		// -c deep-merges into a personal entry of the same name, so its headers
 		// would reach Lykeion's server. Only ignoring config.toml lets ours win.
 		// Personal servers are not re-supplied: their secrets would sit in argv.
@@ -53,13 +66,15 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 				return nil, err
 			}
 		}
-	} else if override, err := codexMCPCacheOverride(personal, o.CacheDir); err != nil {
-		cleanup(true)
-		return nil, err
-	} else if override != "" {
-		args = append(args, "-c", override)
+	} else if !o.Coresearch {
+		if override, err := codexMCPCacheOverride(personal, o.CacheDir); err != nil {
+			cleanup(true)
+			return nil, err
+		} else if override != "" {
+			args = append(args, "-c", override)
+		}
 	}
-	if o.DoorURL != "" {
+	if o.DoorURL != "" && !o.Coresearch {
 		// The door's token stays out of argv: Codex reads it from the env.
 		args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_door.url=%s", raw(o.DoorURL)), "-c", `mcp_servers.lyk_door.bearer_token_env_var="LYK_DOOR_TOKEN"`,
 			"-c", fmt.Sprintf("mcp_servers.lyk_door.tool_timeout_sec=%d", int(doorCallTimeout.Seconds())))

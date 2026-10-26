@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"slices"
@@ -42,6 +43,9 @@ func init() {
 // to 0.
 func stubBridge() {
 	counts := map[string]int{}
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, syscall.SIGUSR1)
+	fmt.Println(`{"ready":true}`)
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
 		var req struct {
@@ -49,9 +53,29 @@ func stubBridge() {
 			Op       string `json:"op"`
 			Code     string `json:"code"`
 			Language string `json:"language"`
+			CellID   string `json:"cell_id"`
 		}
 		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Op == "shutdown" {
 			return
+		}
+		if req.Op == "cell" {
+			fmt.Printf("{\"id\":%d,\"cell_ready\":true}\n", req.ID)
+			cwd, _ := os.Getwd()
+			data, _ := json.Marshal(map[string]string{"Dir": cwd, "Token": os.Getenv("LYK_TOKEN"), "CellID": req.CellID, "PID": strconv.Itoa(os.Getpid())})
+			os.WriteFile("cell-host.json", data, 0600)
+			interrupted := false
+			if req.Code == "wait" {
+				os.WriteFile("cell-wait", nil, 0600)
+				<-interrupts
+				interrupted = true
+			}
+			b, _ := json.Marshal(map[string]any{"id": req.ID, "cell_id": req.CellID, "ok": !interrupted, "interrupted": interrupted, "execution_count": 1, "outputs": []any{}})
+			fmt.Println(string(b))
+			continue
+		}
+		if req.Op == "restart_kernel" {
+			fmt.Printf("{\"id\":%d,\"ok\":true}\n", req.ID)
+			continue
 		}
 		if req.Op == "restart" {
 			counts[req.Language] = 0

@@ -23,6 +23,9 @@ func CleanPath(p string) (string, error) {
 		return refuse("paths can be at most 1024 bytes")
 	}
 	for _, s := range strings.Split(p, "/") {
+		if strings.EqualFold(s, ".git") {
+			return refuse("git metadata is forbidden")
+		}
 		if s == ".." {
 			return refuse("parent segments are forbidden")
 		}
@@ -34,7 +37,7 @@ func CleanPath(p string) (string, error) {
 	if clean == "." {
 		return refuse("a file path is required")
 	}
-	switch strings.Split(clean, "/")[0] {
+	switch strings.ToLower(strings.Split(clean, "/")[0]) {
 	case ".claude", ".codex", ".cursor", ".agents", ".cli-home", ".mcp.json", ".lyk-mcp.json", ".venv", ".lyk", ".lyk-skills", ".no-lyk-config":
 		return refuse("the first segment is reserved")
 	}

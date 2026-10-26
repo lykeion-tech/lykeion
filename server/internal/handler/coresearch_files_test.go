@@ -332,3 +332,16 @@ func waitCoresearchLock(t *testing.T, s *server, except int, query string) int {
 		}
 	}
 }
+
+func TestRestoreRefusesOldProtectedPaths(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	for _, path := range []string{".CLAUDE/settings.json", "a/.Git/config"} {
+		_, v := csUpload(t, s, a, ws, p.ID, "safe.txt", 0, false, []byte("x"))
+		if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_file SET path=$1 WHERE id=$2", path, v.FileID); err != nil {
+			t.Fatal(err)
+		}
+		if code := s.call(t, "POST", csProjects+"/"+p.ID+"/files/"+v.FileID.String()+"/restore", a, ws, map[string]int{"n": 1, "base": 1}, nil); code != 400 {
+			t.Fatalf("restored %s: %d", path, code)
+		}
+	}
+}

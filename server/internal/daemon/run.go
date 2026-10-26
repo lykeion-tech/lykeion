@@ -36,6 +36,9 @@ import (
 )
 
 func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
+	if c.Coresearch != nil {
+		return d.runCoresearchTurn(ctx, c)
+	}
 	var runtimeID uuid.UUID
 	if c.AgentRun.RuntimeID != nil {
 		runtimeID = *c.AgentRun.RuntimeID

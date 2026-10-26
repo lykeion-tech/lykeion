@@ -47,3 +47,16 @@ func TestErrStaleMessage(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestCleanPathProtectsCaseAliasesAndGit(t *testing.T) {
+	for _, p := range []string{".CLAUDE/settings.json", ".LyK/config.json", "./.CoDeX/config", ".GiT", "data/.GIT/config", "a/.git"} {
+		if _, err := CleanPath(p); err == nil {
+			t.Errorf("accepted protected path %q", p)
+		}
+	}
+	for _, p := range []string{".gitignore", ".github/workflows/test.yml", "data/science.csv"} {
+		if _, err := CleanPath(p); err != nil {
+			t.Errorf("rejected safe path %q: %v", p, err)
+		}
+	}
+}

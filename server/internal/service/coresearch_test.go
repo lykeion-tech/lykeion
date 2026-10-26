@@ -31,7 +31,7 @@ func TestCoresearchClaimRechecksMembership(t *testing.T) {
 	f.T.afterClaim = func(ctx context.Context, tx *store.Tx, r db.AgentRun) error {
 		return tx.Q.DeleteCoresearchMember(ctx, db.DeleteCoresearchMemberParams{WorkspaceID: f.WS, ProjectID: chat.ProjectID, UserID: f.Owner})
 	}
-	claimed, e := f.T.Claim(t.Context(), f.Owner, []RuntimeRef{ref}, 1)
+	claimed, e := f.T.Claim(t.Context(), f.Owner, []RuntimeRef{ref}, 1, ClaimOptions{CoresearchOnly: true})
 	if e != nil || len(claimed) != 0 {
 		t.Fatalf("%+v %v", claimed, e)
 	}

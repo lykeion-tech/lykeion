@@ -214,6 +214,10 @@ func TestGuestIsolationCapabilityRequest(t *testing.T) {
 		logs.Reset()
 		calls := 0
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/daemon/coresearch/claim" {
+				fmt.Fprint(w, `{"cells":[],"runs":[],"setups":[],"controls":[]}`)
+				return
+			}
 			calls++
 			var body map[string]any
 			must(t, json.NewDecoder(r.Body).Decode(&body))
@@ -238,8 +242,8 @@ func TestGuestIsolationCapabilityRequest(t *testing.T) {
 		if status == 400 && (!strings.Contains(logs.String(), "claim failed") || !strings.Contains(logs.String(), "unsupported protocol")) {
 			t.Fatalf("missing expected protocol refusal warning: %s", logs.String())
 		}
-		if calls != 1 {
-			t.Fatalf("claim retried without guest isolation: %d", calls)
+		if calls != 2 {
+			t.Fatalf("expected one request for each claim mode, got %d", calls)
 		}
 	}
 }

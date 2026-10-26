@@ -99,6 +99,9 @@ func (h *H) restoreCoresearchFile(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		if _, e := coresearch.CleanPath(f.Path); e != nil {
+			return cardInputError(e.Error())
+		}
 		out, err = coresearch.SaveVersion(r.Context(), tx, coresearch.SaveIn{Workspace: ws, Project: p.ID, Path: f.Path, Sha256: v.Sha256, Size: v.Size, Base: *in.Base, Author: &who, RestoredFrom: &in.N})
 		return err
 	})

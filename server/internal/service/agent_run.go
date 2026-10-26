@@ -485,6 +485,8 @@ func owned(ctx context.Context, tx *store.Tx, user uuid.UUID, ref RuntimeRef) er
 }
 
 type ClaimOptions struct {
+	CoresearchOnly bool
+
 	GuestIsolation string
 }
 
@@ -494,6 +496,7 @@ type ClaimOptions struct {
 // are checked once more before they reach a daemon, and an agent run that fails
 // is settled failed instead of handed out.
 func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef, slots int, options ...ClaimOptions) ([]Claimed, error) {
+	coresearchOnly := len(options) > 0 && options[0].CoresearchOnly
 	guestIsolation := len(options) > 0 && options[0].GuestIsolation == agent.GuestIsolationProtocol
 	var out []Claimed
 	var refused []db.AgentRun
@@ -552,10 +555,10 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if err != nil {
 						return err
 					}
-					if active >= int64(runtime.MaxConcurrent) {
+					if !coresearchOnly && active >= int64(runtime.MaxConcurrent) {
 						return nil
 					}
-					claim, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID, GuestIsolation: guestIsolation})
+					claim, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID, GuestIsolation: guestIsolation, CoresearchOnly: coresearchOnly})
 					if errors.Is(err, pgx.ErrNoRows) {
 						return nil
 					}

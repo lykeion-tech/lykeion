@@ -31,6 +31,9 @@ const ScriptLimit = 2 * time.Hour
 const doorCallTimeout = ScriptLimit + 5*time.Minute
 
 func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
+	if o.Coresearch {
+		o.Model = ""
+	}
 	home, cleanup, err := prepareScratch(&o, "claude")
 	if err != nil {
 		return nil, err
@@ -75,6 +78,9 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	// own rules, or are refused in an isolated run. The CLI's own homes in the
 	// run folder are its alone: it uses them, its file tools may not.
 	tools := []string{claudeTools}
+	if o.Coresearch {
+		tools = []string{"Read,Edit,Write,Bash,Glob,Grep,mcp__lyk_sources"}
+	}
 	var deny []string
 	if o.ReadOnly {
 		// Plan mode would read any path, so a read-only run asks nothing and
@@ -114,7 +120,10 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	// The person's own hooks and plugin hooks stay out of runs, so how a run
 	// behaves doesn't depend on what they have installed.
 	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--settings", `{"disableAllHooks":true}`})
-	if o.Model != "" {
+	if o.Coresearch {
+		args = append(args, "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands")
+	}
+	if o.Model != "" && !o.Coresearch {
 		args = append(args, "--model", o.Model)
 	}
 	if o.Resume != "" {
@@ -183,7 +192,10 @@ func claudeRule(tool, dir, sub string) string {
 // claudeMCP names the daemon's tool door and nothing else.
 func claudeMCP(o ExecOptions) []byte {
 	servers := map[string]any{}
-	if o.DoorURL != "" {
+	if o.Coresearch && o.SourcesURL != "" {
+		servers["lyk_sources"] = map[string]any{"type": "http", "url": o.SourcesURL, "headers": map[string]string{"Authorization": "Bearer ${LYK_TOKEN}"}}
+	}
+	if o.DoorURL != "" && !o.Coresearch {
 		servers["lyk_door"] = map[string]any{"type": "http", "url": o.DoorURL, "headers": map[string]string{"Authorization": "Bearer " + o.DoorToken}, "timeout": doorCallTimeout.Milliseconds()}
 	}
 	return raw(map[string]any{"mcpServers": servers})

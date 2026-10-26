@@ -3,7 +3,7 @@ SELECT * FROM runtime WHERE id = @id AND workspace_id = @workspace_id FOR UPDATE
 
 -- name: CountRuntimeActive :one
 SELECT count(*) FROM agent_run WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id
- AND status IN ('dispatched', 'running');
+ AND status IN ('dispatched', 'running') AND kind IN ('role','autoresearch');
 
 -- name: GetAttemptReceipt :one
 SELECT * FROM agent_run_receipt WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt = @attempt;

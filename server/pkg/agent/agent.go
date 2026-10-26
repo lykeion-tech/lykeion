@@ -19,6 +19,10 @@ type Message struct {
 	Content json.RawMessage `json:"content"`
 }
 type ExecOptions struct {
+	// Coresearch uses provider defaults and only the scoped sources server.
+	Coresearch bool
+	SourcesURL string
+
 	// Guest excludes ambient account settings and credentials from child processes.
 	Guest bool
 	// ScratchReservation is a parent-owned lock borrowed for this execution.

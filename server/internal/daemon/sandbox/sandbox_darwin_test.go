@@ -202,3 +202,21 @@ func TestKeychainServicesOnlyWhenAsked(t *testing.T) {
 	p.Keychain = false
 	refused(t, p, "security list-keychains")
 }
+
+func TestWriteDataUnderWritableParentKeepsItsInode(t *testing.T) {
+	requireSandbox(t)
+	home := tempDir(t)
+	root := mkdir(t, filepath.Join(home, "run"))
+	dir := mkdir(t, filepath.Join(root, "metadata"))
+	f := filepath.Join(dir, "fill.lock")
+	if err := os.WriteFile(f, []byte("lock"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := Policy{Home: home, Write: []string{root, dir}, WriteData: []string{f}}
+	if out, e := sandboxed(t, p, "printf data > "+shq(f)); e != nil {
+		t.Fatalf("in place write: %v %s", e, out)
+	}
+	for _, script := range []string{"rm " + shq(f), "mv " + shq(f) + " " + shq(f+".old"), "printf replacement > " + shq(dir+"/tmp") + "; mv " + shq(dir+"/tmp") + " " + shq(f), "mv " + shq(dir) + " " + shq(dir+".old")} {
+		refused(t, p, script)
+	}
+}

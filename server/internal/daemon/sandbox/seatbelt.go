@@ -110,6 +110,7 @@ func (p Policy) seatbeltProfile() (string, error) {
 	for _, file := range r.writeData {
 		rule("allow file-read* (literal " + sbplString(file) + ")")
 		rule("allow file-write-data (literal " + sbplString(file) + ")")
+		rule("deny file-write-unlink (literal " + sbplString(file) + ")")
 	}
 	// The package managers keep the person's own data (databases, service
 	// state) under var; the rest of their trees stays readable.
@@ -164,7 +165,7 @@ func (p Policy) seatbeltProfile() (string, error) {
 	// No writable ancestor, including a granted root, may carry protected
 	// children into another write grant and change their policy paths.
 	guarded := map[string]bool{}
-	for _, c := range slices.Concat(r.readOnly, r.lateReadOnly, r.blocked, r.hidden) {
+	for _, c := range slices.Concat(r.readOnly, r.lateReadOnly, r.blocked, r.hidden, r.writeData) {
 		for a := filepath.Dir(c); a != "/"; a = filepath.Dir(a) {
 			if !guarded[a] && slices.ContainsFunc(r.write, func(w string) bool { return isAtOrUnder(a, w) }) {
 				rule("deny file-write-unlink (literal " + sbplString(a) + ")")
