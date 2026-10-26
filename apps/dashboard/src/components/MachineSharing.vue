@@ -13,7 +13,7 @@ const me = useMe();
 const members = useMembers();
 const client = useQueryClient();
 const owned = computed(() => props.runtimes.filter((r) => r.owner_id === me.data.value?.id));
-const mode = ref<'private' | 'chosen' | 'workspace' | 'mixed'>('private');
+const mode = ref<'chosen' | 'workspace' | 'mixed'>('chosen');
 const selected = ref<string[]>([]);
 const colleagues = ref<string[]>([]);
 const busy = ref(false);
@@ -22,7 +22,8 @@ const affected = ref<AffectedMachineRun[] | null>(null);
 type Change = { id: string; visibility: 'private' | 'workspace'; shared_with: string[] };
 let pending: Change[] = [];
 let generation = 0;
-const shared = (r: Runtime) => r.visibility === 'workspace' || !!r.shared_with?.length;
+const shared = (r: Pick<Runtime, 'visibility' | 'shared_with'>) =>
+  r.visibility === 'workspace' || !!r.shared_with?.length;
 function grantKey(r: { visibility?: string; shared_with?: string[] }) {
   return JSON.stringify([r.visibility ?? 'private', [...(r.shared_with ?? [])].sort()]);
 }
@@ -35,13 +36,7 @@ function reset() {
   const active = owned.value.filter(shared);
   const grants = new Set(active.map(grantKey));
   mode.value =
-    grants.size > 1
-      ? 'mixed'
-      : active[0]?.visibility === 'workspace'
-        ? 'workspace'
-        : active.length
-          ? 'chosen'
-          : 'private';
+    grants.size > 1 ? 'mixed' : active[0]?.visibility === 'workspace' ? 'workspace' : 'chosen';
   selected.value = active.map((r) => r.id);
   colleagues.value = mode.value === 'chosen' ? [...(active[0]?.shared_with ?? [])] : [];
 }
@@ -64,44 +59,59 @@ const unsupported = computed(() => owned.value.some((r) => r.os !== 'linux'));
 const unsupportedSelected = computed(() =>
   owned.value.some((r) => r.os !== 'linux' && selected.value.includes(r.id)),
 );
-const clearOnly = computed(() => mode.value !== 'private' && unsupportedSelected.value);
-const warnings = computed(
-  () => owned.value.some(shared) || (mode.value !== 'private' && selected.value.length > 0),
-);
+const clearOnly = computed(() => unsupportedSelected.value);
+const warnings = computed(() => owned.value.some(shared) || selected.value.length > 0);
 const locked = computed(() => busy.value || affected.value !== null);
 defineExpose({ canClose: () => !locked.value });
 const people = computed(() =>
   (members.data.value ?? []).filter((m) => m.user_id !== me.data.value?.id),
 );
 function chooseMode() {
-  if (mode.value !== 'private' && selected.value.length === 0)
+  if (selected.value.length === 0)
     selected.value = owned.value.filter((r) => r.os === 'linux').map((r) => r.id);
 }
-async function save(confirm?: string[]) {
-  if (busy.value || !owned.value.length) return;
-  if (!confirm) {
-    if (affected.value || clearOnly.value) return;
-    pending = owned.value
-      .map((r): Change => {
-        if (mode.value === 'mixed' && selected.value.includes(r.id))
-          return {
-            id: r.id,
-            visibility: r.visibility ?? 'private',
-            shared_with: [...(r.shared_with ?? [])],
-          };
+const changes = computed(() =>
+  owned.value
+    .map((r): Change => {
+      if (mode.value === 'mixed' && selected.value.includes(r.id))
         return {
           id: r.id,
-          visibility:
-            mode.value === 'workspace' && selected.value.includes(r.id) ? 'workspace' : 'private',
-          shared_with:
-            mode.value === 'chosen' && selected.value.includes(r.id)
-              ? colleagues.value.filter((id) => id !== me.data.value?.id)
-              : [],
+          visibility: r.visibility ?? 'private',
+          shared_with: [...(r.shared_with ?? [])],
         };
-      })
-      .filter(
-        (change) => grantKey(change) !== grantKey(owned.value.find((r) => r.id === change.id)!),
-      );
+      return {
+        id: r.id,
+        visibility:
+          mode.value === 'workspace' && selected.value.includes(r.id) ? 'workspace' : 'private',
+        shared_with:
+          mode.value === 'chosen' && selected.value.includes(r.id)
+            ? colleagues.value.filter((id) => id !== me.data.value?.id)
+            : [],
+      };
+    })
+    .filter(
+      (change) => grantKey(change) !== grantKey(owned.value.find((r) => r.id === change.id)!),
+    ),
+);
+const hasSharing = computed(() => owned.value.some(shared));
+const stopping = computed(
+  () =>
+    hasSharing.value &&
+    (changes.value.length === 0 ||
+      owned.value.every((r) => {
+        const next = changes.value.find((c) => c.id === r.id) ?? r;
+        return !shared(next);
+      })),
+);
+async function save(confirm?: string[], stop = false) {
+  if (busy.value || !owned.value.length) return;
+  if (!confirm) {
+    if (affected.value || (clearOnly.value && !stop)) return;
+    pending = stop
+      ? owned.value
+          .filter(shared)
+          .map((r) => ({ id: r.id, visibility: 'private' as const, shared_with: [] }))
+      : [...changes.value];
     if (!pending.length) return;
   }
   const workspace = workspaceId.value;
@@ -144,6 +154,7 @@ async function save(confirm?: string[]) {
     await client.invalidateQueries({ queryKey: keys.runtimes(workspace) });
     if (current())
       await client.invalidateQueries({ queryKey: keys.machineColleagues(workspace, machine) });
+    if (current() && client.getQueryState(keys.runtimes(workspace))?.status === 'success') reset();
   } catch (e) {
     if (current()) error.value = (e as Error).message;
   } finally {
@@ -175,12 +186,11 @@ function cancel() {
           <option v-if="mode === 'mixed'" value="mixed" disabled>
             Different permissions per CLI
           </option>
-          <option value="private">Only me</option>
-          <option value="chosen" :disabled="!supported">Chosen colleagues</option>
+          <option value="chosen" :disabled="!supported">Choose colleagues</option>
           <option value="workspace" :disabled="!supported">Everyone in the workspace</option>
         </select>
       </label>
-      <fieldset :disabled="locked || mode === 'private'">
+      <fieldset :disabled="locked">
         <legend class="type-caption">Agent CLIs</legend>
         <label v-for="runtime in owned" :key="runtime.id" class="sharing-check">
           <input
@@ -232,10 +242,10 @@ function cancel() {
       <button
         class="button"
         :class="{ primary: hideHeading }"
-        :disabled="locked || clearOnly"
-        @click="save()"
+        :disabled="locked || (clearOnly && !stopping)"
+        @click="save(undefined, stopping)"
       >
-        {{ busy ? 'Saving…' : 'Save sharing' }}
+        {{ busy ? 'Saving…' : stopping ? 'Stop sharing' : 'Save sharing' }}
       </button>
     </div>
     <Modal v-if="affected" title="Stop sharing" @close="cancel">

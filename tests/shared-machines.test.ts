@@ -238,6 +238,103 @@ async function change(t: Awaited<ReturnType<typeof mount>>, label: string, value
 }
 
 describe('Shared machines', () => {
+  it('can retry saving after the runtime refresh fails', async () => {
+    const f = vi.fn(async (_path: string, init?: RequestInit) =>
+      init?.method === 'GET'
+        ? new Response('{"error":"Refresh failed"}', { status: 500 })
+        : new Response('{}'),
+    );
+    vi.stubGlobal('fetch', f);
+    const t = await mount(MachinesView, () => ({ machineId: 'd1' }));
+    try {
+      await change(t, 'Share Claude Code', ['r1']);
+      await change(t, 'Share with Ada', ['u2']);
+      await t.click(/^Save sharing$/);
+      await vi.waitFor(() => expect(t.button(/^Save sharing$/)?.props.disabled).toBe(false));
+      await t.click(/^Save sharing$/);
+      await vi.waitFor(() => expect(bodies(f)).toHaveLength(2));
+    } finally {
+      t.unmount();
+    }
+  });
+  it('returns to an unshared draft after saving and stopping sharing', async () => {
+    let rows = [runtime()];
+    const f = vi.fn(async (path: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') rows = [{ ...rows[0]!, ...JSON.parse(String(init.body)) }];
+      return new Response(
+        init?.method === 'GET' ? JSON.stringify(path === '/api/runtimes' ? rows : []) : '{}',
+      );
+    });
+    vi.stubGlobal('fetch', f);
+    const t = await mount(MachinesView, () => ({ machineId: 'd1' }));
+    try {
+      await change(t, 'Share Claude Code', ['r1']);
+      await change(t, 'Share with Ada', ['u2']);
+      await t.click(/^Save sharing$/);
+      await vi.waitFor(() => expect(t.button(/^Stop sharing$/)?.props.disabled).toBe(false));
+      await t.click(/^Stop sharing$/);
+      await vi.waitFor(() => expect(t.button(/^Save sharing$/)?.props.disabled).toBe(false));
+      const count = bodies(f).length;
+      await t.click(/^Save sharing$/);
+      expect(bodies(f)).toHaveLength(count);
+      expect(rows[0]?.shared_with).toEqual([]);
+    } finally {
+      t.unmount();
+    }
+  });
+  it.each(['colleagues', 'runtimes'])(
+    'stops sharing when all selected %s are cleared',
+    async (field) => {
+      const f = fetching();
+      const t = await mount(
+        MachinesView,
+        () => ({ machineId: 'd1' }),
+        '/',
+        (c) => c.setQueryData(keys.runtimes('w'), [runtime({ shared_with: ['u2'] })]),
+      );
+      try {
+        await change(t, 'Share', 'workspace');
+        expect(t.button(/^Save sharing$/)).toBeTruthy();
+        expect(t.button(/^Stop sharing$/)).toBeUndefined();
+        await change(t, 'Share', 'chosen');
+        await change(t, field === 'colleagues' ? 'Share with Ada' : 'Share Claude Code', []);
+        expect(t.button(/^Stop sharing$/)).toBeTruthy();
+        await t.click(/^Stop sharing$/);
+        await vi.waitFor(() =>
+          expect(bodies(f)[0]?.body).toEqual({ visibility: 'private', shared_with: [] }),
+        );
+      } finally {
+        t.unmount();
+      }
+    },
+  );
+  it('offers two audiences and only switches to Stop sharing for saved grants', async () => {
+    const f = fetching();
+    const t = await mount(MachinesView, () => ({ machineId: 'd1' }));
+    try {
+      expect(
+        t
+          .all()
+          .filter((n) => n.tag === 'option')
+          .map(textOf),
+      ).toEqual(['Choose colleagues', 'Everyone in the workspace']);
+      expect(t.button(/^Save sharing$/)).toBeTruthy();
+      expect(t.button(/^Stop sharing$/)).toBeUndefined();
+      await change(t, 'Share Claude Code', ['r1']);
+      await change(t, 'Share with Ada', ['u2']);
+      expect(t.button(/^Save sharing$/)).toBeTruthy();
+      expect(t.button(/^Stop sharing$/)).toBeUndefined();
+      t.queryClient.setQueryData(keys.runtimes('w'), [runtime({ shared_with: ['u2'] })]);
+      await nextTick();
+      expect(t.button(/^Stop sharing$/)).toBeTruthy();
+      await t.click(/^Stop sharing$/);
+      await vi.waitFor(() =>
+        expect(bodies(f)[0]?.body).toEqual({ visibility: 'private', shared_with: [] }),
+      );
+    } finally {
+      t.unmount();
+    }
+  });
   it('keeps the dialog open until a multi-CLI save completes', async () => {
     let finish!: (response: Response) => void;
     const f = vi.fn((path: string, init?: RequestInit) =>
@@ -275,9 +372,9 @@ describe('Shared machines', () => {
       expect(t.button(/^Saving…$/)).toBeTruthy();
       finish(new Response('{}'));
       await vi.waitFor(() => expect(bodies(f)).toHaveLength(2));
-      await vi.waitFor(() => expect(t.button(/^Save sharing$/)?.props.disabled).toBe(false));
+      await vi.waitFor(() => expect(t.button(/^Stop sharing$/)?.props.disabled).toBe(false));
       await t.click(/^Close$/);
-      expect(t.button(/^Save sharing$/)).toBeUndefined();
+      expect(t.button(/^Stop sharing$/)).toBeUndefined();
     } finally {
       t.unmount();
     }
@@ -324,7 +421,7 @@ describe('Shared machines', () => {
       runtime({ shared_with: ['u2'] }),
       runtime({ id: 'r2', harness: 'codex', shared_with: ['u3'] }),
     ],
-  ])('preserves mixed grants on no-op and only clears the unchecked CLI', async (first, second) => {
+  ])('preserves mixed grants on open and only clears the unchecked CLI', async (first, second) => {
     const f = fetching();
     const t = await mount(
       MachinesView,
@@ -334,7 +431,7 @@ describe('Shared machines', () => {
     );
     try {
       expect(t.text()).toContain('Different permissions per CLI');
-      await t.click(/^Save sharing$/);
+      expect(t.button(/^Stop sharing$/)).toBeTruthy();
       expect(bodies(f)).toHaveLength(0);
       await change(t, 'Share Claude Code', ['r2']);
       await t.click(/^Save sharing$/);
@@ -384,7 +481,7 @@ describe('Shared machines', () => {
       await nextTick();
       expect(t.text()).toContain('Different permissions per CLI');
       const before = bodies(f).length;
-      await t.click(/^Save sharing$/);
+      expect(t.button(/^Stop sharing$/)).toBeTruthy();
       expect(bodies(f)).toHaveLength(before);
       fail = false;
       await change(t, 'Share', 'workspace');
@@ -498,8 +595,7 @@ describe('Shared machines', () => {
         expect(
           t.all().find((n) => n.tag === 'option' && n.props.value === 'workspace')?.props.disabled,
         ).toBe(true);
-        await change(t, 'Share', 'private');
-        await t.click(/^Save sharing$/);
+        await t.click(/^Stop sharing$/);
         await vi.waitFor(() =>
           expect(bodies(f)[0]?.body).toEqual({ visibility: 'private', shared_with: [] }),
         );
@@ -550,12 +646,9 @@ describe('Shared machines', () => {
         expect(t.text()).toContain(signIn);
         expect(t.text()).toContain(files);
         expect(t.input('Share with Bea')?.props.disabled).toBe(true);
-        expect(t.button(/^Save sharing$/)?.props.disabled).toBe(true);
-        await t.click(/^Save sharing$/);
+        expect(t.button(/^Stop sharing$/)?.props.disabled).toBe(false);
         expect(bodies(f)).toHaveLength(0);
-        await change(t, 'Share', 'private');
-        expect(t.button(/^Save sharing$/)?.props.disabled).toBe(false);
-        await t.click(/^Save sharing$/);
+        await t.click(/^Stop sharing$/);
         await vi.waitFor(() => expect(t.text()).toContain('Existing study'));
         expect(t.text()).toContain(revoke);
         expect(bodies(f)[0]?.body).toEqual({ visibility: 'private', shared_with: [] });
@@ -599,8 +692,7 @@ describe('Shared machines', () => {
       (c) => c.setQueryData(keys.runtimes('w'), [runtime({ visibility: 'workspace' })]),
     );
     try {
-      await change(t, 'Share', 'private');
-      await t.click(/^Save sharing$/);
+      await t.click(/^Stop sharing$/);
       await vi.waitFor(() => expect(t.text()).toContain('Old study'));
       expect(t.text()).toContain(revoke);
       expect(t.text()).toContain('Ada');
