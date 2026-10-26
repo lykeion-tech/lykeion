@@ -119,3 +119,39 @@ func TestManifestRefusesInvalidPinsAndTrailingJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestTargetCreateNeverClobbersConcurrentCreation(t *testing.T) {
+	dir := t.TempDir()
+	folder, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer folder.Close()
+	target, err := folder.Prepare("new.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	err = target.Create(func(w io.Writer) error {
+		if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("local"), 0600); err != nil {
+			return err
+		}
+		_, err := io.WriteString(w, "remote")
+		return err
+	})
+	if !errors.Is(err, os.ErrExist) {
+		t.Fatalf("expected no-clobber conflict, got %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "new.txt"))
+	if err != nil || string(b) != "local" {
+		t.Fatalf("local creation lost: %q %v", b, err)
+	}
+	other, err := folder.Prepare("safe.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if err := other.Create(func(w io.Writer) error { _, err := io.WriteString(w, "remote"); return err }); err != nil {
+		t.Fatal(err)
+	}
+}

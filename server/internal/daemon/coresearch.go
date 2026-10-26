@@ -32,16 +32,22 @@ var chatIdle = 30 * time.Minute
 var coresearchPoll = time.Second
 
 type chatHost struct {
-	cellMu         sync.Mutex
-	mu             sync.Mutex
-	work           coresearch.WorkContext
-	dir            string
-	study          *envs.Study
-	sessions       *kernels.Sessions
-	lastUsed       time.Time
-	users          int
-	tmp, bridgeDir string
-	kernel         string
+	// filesMu orders final fill commits against the first writer launch. The
+	// durable marker stays conservative across retirement and daemon restart.
+	filesMu          sync.Mutex
+	writerLaunched   bool
+	kernelPython     string
+	kernelGeneration uint64
+	cellMu           sync.Mutex
+	mu               sync.Mutex
+	work             coresearch.WorkContext
+	dir              string
+	study            *envs.Study
+	sessions         *kernels.Sessions
+	lastUsed         time.Time
+	users            int
+	tmp, bridgeDir   string
+	kernel           string
 }
 
 func (d *daemon) corePath(path string) string {
@@ -91,8 +97,13 @@ func (d *daemon) chat(ctx context.Context, w coresearch.WorkContext) (*chatHost,
 		}
 		h.mu.Lock()
 		h.lastUsed = time.Now()
+		err := h.acceptPython(w.PythonVersion)
 		h.mu.Unlock()
-		return h, nil
+		return h, err
+	}
+	_, prior := os.Lstat(d.chatFolder(w.ChatID))
+	if prior != nil && !errors.Is(prior, os.ErrNotExist) {
+		return nil, prior
 	}
 	for _, dir := range []string{filepath.Join(d.cfg.Home, "coresearch"), d.chatFolder(w.ChatID)} {
 		if err := privateDir(dir); err != nil {
@@ -100,6 +111,19 @@ func (d *daemon) chat(ctx context.Context, w coresearch.WorkContext) (*chatHost,
 		}
 	}
 	h := &chatHost{work: w, dir: d.chatFolder(w.ChatID), lastUsed: time.Now()}
+	if _, err := os.Lstat(d.chatWriterRecord(h)); err == nil {
+		h.writerLaunched = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	// An existing folder may predate the durable guard or belong to an
+	// execution interrupted before this daemon acquired it. Do not assume
+	// that its writer descendants disappeared when the daemon did.
+	if prior == nil && !h.writerLaunched {
+		if err := d.markChatWriter(h); err != nil {
+			return nil, err
+		}
+	}
 	if err := prepareChatMetadata(ctx, h.dir); err != nil {
 		return nil, err
 	}
@@ -112,8 +136,8 @@ func (d *daemon) chat(ctx context.Context, w coresearch.WorkContext) (*chatHost,
 			}
 		}
 		h.study = envs.ForStudy(d.bases, dir)
-		if w.PythonVersion != nil {
-			h.study.PythonVersion = *w.PythonVersion
+		if err := h.acceptPython(w.PythonVersion); err != nil {
+			return nil, err
 		}
 	}
 	if d.chats == nil {
@@ -122,6 +146,45 @@ func (d *daemon) chat(ctx context.Context, w coresearch.WorkContext) (*chatHost,
 	d.chats[w.ChatID] = h
 	return h, nil
 }
+
+// acceptPython is called with h.mu held (or before the host is published).
+// Views already handed to a run remain immutable; shared selection is kept by
+// Bases, so sibling chats and later unpinned claims see the authoritative pin.
+func (h *chatHost) acceptPython(version *string) error {
+	if h.study == nil {
+		return nil
+	}
+	if version != nil && *version != "" {
+		if err := h.study.RememberPython(*version); err != nil {
+			return err
+		}
+	}
+	selected := h.study.RecordedPython()
+	if h.study.PythonVersion != selected {
+		view := h.study.ForRun()
+		view.PythonVersion = selected
+		h.study = view
+	}
+	return nil
+}
+
+func (d *daemon) chatWriterRecord(h *chatHost) string {
+	return filepath.Join(d.cfg.StateDir, "coresearch-writers", h.work.ChatID.String())
+}
+func (d *daemon) markChatWriter(h *chatHost) error {
+	h.filesMu.Lock()
+	defer h.filesMu.Unlock()
+	if h.writerLaunched {
+		return nil
+	}
+	path := d.chatWriterRecord(h)
+	if err := atomicJSON(filepath.Dir(path), filepath.Base(path), map[string]bool{"writer_launched": true}); err != nil {
+		return err
+	}
+	h.writerLaunched = true
+	return nil
+}
+
 func (h *chatHost) use() func() {
 	h.mu.Lock()
 	h.users++
@@ -259,6 +322,9 @@ func coreJupyterEnv(study *envs.Study, env []string) []string {
 
 // startKernel is called with h.mu held. Its bridge outlives individual cells.
 func (d *daemon) startKernel(ctx context.Context, h *chatHost) error {
+	if err := d.retireChangedKernel(ctx, h); err != nil {
+		return err
+	}
 	if h.sessions != nil {
 		return nil
 	}
@@ -266,6 +332,9 @@ func (d *daemon) startKernel(ctx context.Context, h *chatHost) error {
 		return errors.New("Coresearch has no project environment")
 	}
 	if err := d.checkChat(ctx, h.work); err != nil {
+		return err
+	}
+	if err := d.markChatWriter(h); err != nil {
 		return err
 	}
 	tmp, err := os.MkdirTemp("", "lyk-coresearch-")
@@ -327,10 +396,21 @@ func (d *daemon) startKernel(ctx context.Context, h *chatHost) error {
 		cmd.WaitDelay = 5 * time.Second
 		return cmd.CombinedOutput()
 	}
+	preparedPython := study.RecordedPython()
 	env, err := study.Environment(ctx)
 	if err != nil {
 		return err
 	}
+	// A sibling can reserve the previously empty project pin while this
+	// view prepares. Reprepare for that immutable choice before launching.
+	if selected := study.RecordedPython(); selected != preparedPython {
+		preparedPython = selected
+		env, err = study.Environment(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	preparedGeneration := study.PythonGeneration()
 	env = coreJupyterEnv(study, env)
 	python, _, err := study.Interpreter(envs.Python)
 	if err != nil {
@@ -350,8 +430,23 @@ func (d *daemon) startKernel(ctx context.Context, h *chatHost) error {
 	if err = d.kernelState(ctx, h, "idle", 0); err != nil {
 		return err
 	}
+	// A later pin must not relabel this already-prepared environment. It
+	// will cause retirement at the next cell boundary instead.
+	h.kernelPython, h.kernelGeneration = preparedPython, preparedGeneration
 	success = true
 	return nil
+}
+
+// The caller holds h.mu. Changing the project pin or rebuilding its
+// interpreter retires variables from the earlier environment before reuse.
+func (d *daemon) retireChangedKernel(ctx context.Context, h *chatHost) error {
+	if h.sessions == nil || h.study == nil || (h.kernelPython == h.study.RecordedPython() && h.kernelGeneration == h.study.PythonGeneration()) {
+		return nil
+	}
+	if err := h.closeLocked(); err != nil {
+		return err
+	}
+	return d.kernelState(ctx, h, "stopped", 0)
 }
 func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) error {
 	h, err := d.chat(ctx, c.WorkContext)
@@ -387,7 +482,13 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) error {
 	if err = api.Do(ctx, "POST", d.corePath(base+"/start"), nil, nil); err != nil {
 		return err
 	}
-	if _, err = d.fill(ctx, c.ChatID, c.ProjectID); err == nil {
+	h.mu.Lock()
+	err = d.retireChangedKernel(ctx, h)
+	h.mu.Unlock()
+	if err == nil {
+		_, err = d.fill(ctx, c.ChatID, c.ProjectID)
+	}
+	if err == nil {
 		h.mu.Lock()
 		err = d.startKernel(ctx, h)
 		s := h.sessions
@@ -422,19 +523,19 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) error {
 	return errors.Join(err, finish)
 }
 func (d *daemon) controlChat(ctx context.Context, c coresearch.ClaimedControl) error {
-	if err := d.checkChat(ctx, c.WorkContext); err != nil {
+	h, err := d.chat(ctx, c.WorkContext)
+	if err != nil {
 		return err
-	}
-	d.chatsMu.Lock()
-	h := d.chats[c.ChatID]
-	d.chatsMu.Unlock()
-	if h == nil {
-		h = &chatHost{work: c.WorkContext}
-		return d.kernelState(ctx, h, "stopped", c.Seq)
 	}
 	done := d.useChat(h)
 	defer done()
 	h.mu.Lock()
+	if c.Op == "restart" {
+		if err := d.retireChangedKernel(ctx, h); err != nil {
+			h.mu.Unlock()
+			return err
+		}
+	}
 	s, kernel := h.sessions, h.kernel
 	h.mu.Unlock()
 	state := "stopped"
@@ -536,14 +637,17 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 	go func() { defer watch.Done(); d.watchCoresearch(runCtx, cancel, work, "", uuid.Nil) }()
 	go func(ref Report) { defer watch.Done(); d.watchCancel(runCtx, cancel, base, ref) }(r)
 	defer func() { cancel(); watch.Wait() }()
-	unsaved, err := d.fill(runCtx, work.ChatID, work.ProjectID)
+	changes, err := d.fillChanges(runCtx, work.ChatID, work.ProjectID)
 	if err != nil {
 		fail(err)
 		return nil
 	}
 	prompt := c.AgentRun.Prompt
-	if len(unsaved) > 0 {
-		prompt += "\nUnsaved local changes: " + strings.Join(unsaved, ", ")
+	if len(changes.Unsaved) > 0 {
+		prompt += "\nUnsaved local changes: " + strings.Join(changes.Unsaved, ", ")
+	}
+	if len(changes.Deferred) > 0 {
+		prompt += "\nRemote file updates deferred because prior chat writers may still be active: " + strings.Join(changes.Deferred, ", ") + ". Use lyk file get for an intentional refresh."
 	}
 	backend, err := d.cfg.NewBackend(c.AgentRun.Harness, d.cfg.Harnesses[c.AgentRun.Harness])
 	if err != nil {
@@ -568,12 +672,15 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 		seq++
 		return d.persistMessage(r, seq, m)
 	}
-	opts := agent.ExecOptions{Coresearch: true, SourcesURL: c.MCPURL, Dir: h.dir, ScratchReservation: reservation, Sandbox: d.cliSandbox(h.dir, h.study, false), MCPToken: c.Token, CacheDir: d.cacheDir(), OnMessage: sink, Env: []string{"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(h.dir, ".lyk", "config.json")}}
+	h.mu.Lock()
+	study := h.study
+	h.mu.Unlock()
+	opts := agent.ExecOptions{Coresearch: true, SourcesURL: c.MCPURL, Dir: h.dir, ScratchReservation: reservation, Sandbox: d.cliSandbox(h.dir, study, false), MCPToken: c.Token, CacheDir: d.cacheDir(), OnMessage: sink, Env: []string{"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(h.dir, ".lyk", "config.json")}}
 	if exe, e := os.Executable(); e == nil {
 		opts.Env = append(opts.Env, "PATH="+filepath.Dir(exe)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
-	if h.study != nil {
-		opts.ReadDirs = append([]string{h.study.Dir}, h.study.Bases.Folders()...)
+	if study != nil {
+		opts.ReadDirs = append([]string{study.Dir}, study.Bases.Folders()...)
 	}
 	if cont, err = d.beginContinuity(c, pol); err != nil {
 		fail(err)
@@ -588,6 +695,9 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 	}
 	execute := func() (agent.Result, error) {
 		if err := d.checkChat(runCtx, work); err != nil {
+			return agent.Result{}, err
+		}
+		if err := d.markChatWriter(h); err != nil {
 			return agent.Result{}, err
 		}
 		session, e := backend.Execute(runCtx, prompt, opts)

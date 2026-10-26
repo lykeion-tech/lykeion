@@ -747,3 +747,326 @@ func TestCoresearchProjectJupyterPathsPrecedeBases(t *testing.T) {
 		t.Fatal("duplicate path values", out)
 	}
 }
+
+// Pause the HTTP response before any bytes are returned, so the destination
+// edit is deterministically inside the old read/download/rename window.
+type coreRoundTrip func(*http.Request) (*http.Response, error)
+
+func (f coreRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestFillKeepsEditDuringDownload(t *testing.T) {
+	for _, existing := range []bool{true, false} {
+		t.Run(strconv.FormatBool(existing), func(t *testing.T) {
+			f := newCoreFixture(t)
+			if existing {
+				f.saved("a.txt", "first", 1)
+				_, err := f.d.fill(t.Context(), f.work.ChatID, f.work.ProjectID)
+				must(t, err)
+			}
+			f.saved("a.txt", "second", 2)
+			started, release := make(chan struct{}), make(chan struct{})
+			f.d.api.HTTP = &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+				if strings.Contains(r.URL.Path, "/blobs/") {
+					close(started)
+					<-release
+				}
+				return http.DefaultTransport.RoundTrip(r)
+			})}
+			type result struct {
+				unsaved []string
+				err     error
+			}
+			done := make(chan result, 1)
+			go func() { u, err := f.d.fill(t.Context(), f.work.ChatID, f.work.ProjectID); done <- result{u, err} }()
+			<-started
+			must(t, os.WriteFile(filepath.Join(f.dir(), "a.txt"), []byte("local-edit-during-download"), 0600))
+			close(release)
+			r := <-done
+			must(t, r.err)
+			data, err := os.ReadFile(filepath.Join(f.dir(), "a.txt"))
+			must(t, err)
+			if string(data) != "local-edit-during-download" || !reflect.DeepEqual(r.unsaved, []string{"a.txt"}) {
+				t.Fatalf("concurrent local edit lost: bytes=%q unsaved=%v", data, r.unsaved)
+			}
+			folder, err := localfiles.Open(f.dir())
+			must(t, err)
+			defer folder.Close()
+			m, err := folder.LockManifest(t.Context())
+			must(t, err)
+			defer m.Close()
+			want := 0
+			if existing {
+				want = 1
+			}
+			if m.Entries["a.txt"].N != want {
+				t.Fatalf("advanced conflicting pin: %v", m.Entries)
+			}
+		})
+	}
+}
+
+func TestCoresearchCachedHostAcceptsClaimedPython(t *testing.T) {
+	f := newCoreFixture(t)
+	f.d.bases = fakeStudy(t).Bases
+	delete(f.d.chats, f.work.ChatID)
+	h, err := f.d.chat(t.Context(), f.work)
+	must(t, err)
+	other := f.work
+	other.ChatID = uuid.New()
+	sibling, err := f.d.chat(t.Context(), other)
+	must(t, err)
+	if h.study.RecordedPython() != "" || sibling.study.RecordedPython() != "" {
+		t.Fatal("fixture already pinned")
+	}
+	version := "3.12"
+	updated := f.work
+	updated.PythonVersion = &version
+	got, err := f.d.chat(t.Context(), updated)
+	must(t, err)
+	if got != h || h.study.PythonVersion != version || h.study.RecordedPython() != version || sibling.study.RecordedPython() != version {
+		t.Fatalf("claim was not reconciled with cached/shared Study: field=%q shared=%q sibling=%q", h.study.PythonVersion, h.study.RecordedPython(), sibling.study.RecordedPython())
+	}
+	_, err = f.d.chat(t.Context(), f.work)
+	must(t, err)
+	if h.study.PythonVersion != version {
+		t.Fatal("older unpinned claim cleared current selection")
+	}
+}
+
+func TestCoresearchClaimedPythonRetiresCachedSession(t *testing.T) {
+	f := coreKernelFixture(t)
+	cell := coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "host"}
+	must(t, f.d.runCell(t.Context(), cell))
+	h := f.d.chats[f.work.ChatID]
+	old := h.sessions
+	version := "3.13"
+	cell.PythonVersion = &version
+	cell.ID = uuid.New()
+	must(t, f.d.runCell(t.Context(), cell))
+	if h.sessions == old {
+		t.Fatal("incompatible cached session was reused")
+	}
+	if _, err := old.CellWithID(t.Context(), uuid.NewString(), "python3", "host"); err == nil {
+		t.Fatal("old session was not retired")
+	}
+}
+
+func TestFillDefersAfterWriterLaunchAndReload(t *testing.T) {
+	f := newCoreFixture(t)
+	f.saved("a.txt", "first", 1)
+	_, err := f.d.fill(t.Context(), f.work.ChatID, f.work.ProjectID)
+	must(t, err)
+	must(t, f.d.markChatWriter(f.d.chats[f.work.ChatID]))
+	f.saved("a.txt", "second", 2)
+	for _, reload := range []bool{false, true} {
+		if reload {
+			f.d.chats = nil
+			_, err = f.d.chat(t.Context(), f.work)
+			must(t, err)
+		}
+		changes, err := f.d.fillChanges(t.Context(), f.work.ChatID, f.work.ProjectID)
+		must(t, err)
+		if len(changes.Unsaved) != 0 || !reflect.DeepEqual(changes.Deferred, []string{"a.txt"}) {
+			t.Fatalf("untruthful deferral: %+v", changes)
+		}
+		b, err := os.ReadFile(filepath.Join(f.dir(), "a.txt"))
+		must(t, err)
+		if string(b) != "first" {
+			t.Fatalf("deferred bytes replaced: %q", b)
+		}
+		folder, err := localfiles.Open(f.dir())
+		must(t, err)
+		m, err := folder.LockManifest(t.Context())
+		must(t, err)
+		if m.Entries["a.txt"].N != 1 {
+			t.Fatal("deferred pin advanced", m.Entries)
+		}
+		m.Close()
+		folder.Close()
+	}
+	f.saved("new.txt", "new", 1)
+	changes, err := f.d.fillChanges(t.Context(), f.work.ChatID, f.work.ProjectID)
+	must(t, err)
+	if len(changes.Unsaved)+len(changes.Deferred) != 0 {
+		t.Fatal(changes)
+	}
+	data, err := os.ReadFile(filepath.Join(f.dir(), "new.txt"))
+	must(t, err)
+	if string(data) != "new" {
+		t.Fatal(string(data))
+	}
+}
+
+func TestFillDefersWriterLaunchedDuringDownload(t *testing.T) {
+	f := newCoreFixture(t)
+	f.saved("a.txt", "first", 1)
+	_, err := f.d.fill(t.Context(), f.work.ChatID, f.work.ProjectID)
+	must(t, err)
+	f.saved("a.txt", "second", 2)
+	started, release := make(chan struct{}), make(chan struct{})
+	f.d.api.HTTP = &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Path, "/blobs/") {
+			close(started)
+			<-release
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	type result struct {
+		changes fillChanges
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() { c, e := f.d.fillChanges(t.Context(), f.work.ChatID, f.work.ProjectID); done <- result{c, e} }()
+	<-started
+	must(t, f.d.markChatWriter(f.d.chats[f.work.ChatID]))
+	close(release)
+	r := <-done
+	must(t, r.err)
+	if !reflect.DeepEqual(r.changes.Deferred, []string{"a.txt"}) || len(r.changes.Unsaved) != 0 {
+		t.Fatal(r.changes)
+	}
+	b, err := os.ReadFile(filepath.Join(f.dir(), "a.txt"))
+	must(t, err)
+	if string(b) != "first" {
+		t.Fatal("launch gate failed", string(b))
+	}
+}
+
+func TestTurnReportsDeferredFilesSeparately(t *testing.T) {
+	f := newCoreFixture(t)
+	f.saved("a.txt", "first", 1)
+	_, err := f.d.fill(t.Context(), f.work.ChatID, f.work.ProjectID)
+	must(t, err)
+	c := coreTurn(t, f)
+	f.d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+		return backendFunc(func(context.Context, string, agent.ExecOptions) (*agent.Session, error) {
+			return finishedSession(agent.Result{}), nil
+		}), nil
+	}
+	must(t, f.d.runAgentRun(t.Context(), c))
+	f.saved("a.txt", "second", 2)
+	c = coreTurn(t, f)
+	called := false
+	f.d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+		return backendFunc(func(_ context.Context, prompt string, _ agent.ExecOptions) (*agent.Session, error) {
+			called = true
+			if !strings.Contains(prompt, "Remote file updates deferred") || !strings.Contains(prompt, "lyk file get") || strings.Contains(prompt, "Unsaved local changes") {
+				t.Fatal(prompt)
+			}
+			return finishedSession(agent.Result{}), nil
+		}), nil
+	}
+	must(t, f.d.runAgentRun(t.Context(), c))
+	if !called {
+		t.Fatal("turn never launched")
+	}
+}
+
+func TestCoresearchRetiredKernelDoesNotProveWriterAbsence(t *testing.T) {
+	f := coreKernelFixture(t)
+	f.saved("a.txt", "first", 1)
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	f.d.stopChats()
+	f.saved("a.txt", "second", 2)
+	changes, err := f.d.fillChanges(t.Context(), f.work.ChatID, f.work.ProjectID)
+	must(t, err)
+	if !reflect.DeepEqual(changes.Deferred, []string{"a.txt"}) {
+		t.Fatal("retirement incorrectly reset writer history", changes)
+	}
+}
+
+func TestCoresearchSharedPythonRetiresSiblingSession(t *testing.T) {
+	f := coreKernelFixture(t)
+	h := f.d.chats[f.work.ChatID]
+	other := f.work
+	other.ChatID = uuid.New()
+	sibling, err := f.d.chat(t.Context(), other)
+	must(t, err)
+	sibling.study = h.study.ForRun()
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: other, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	old := sibling.sessions
+	oldView := sibling.study
+	version := "3.13"
+	updated := f.work
+	updated.PythonVersion = &version
+	_, err = f.d.chat(t.Context(), updated)
+	must(t, err)
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: other, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	if sibling.sessions == old || sibling.study.PythonVersion != version || oldView.PythonVersion != "" {
+		t.Fatal("shared selection did not retire session with immutable run views")
+	}
+	if _, err := old.CellWithID(t.Context(), uuid.NewString(), "python3", "host"); err == nil {
+		t.Fatal("sibling old session still usable")
+	}
+}
+
+func TestCoresearchVersionReconciliationConcurrentWithCell(t *testing.T) {
+	f := coreKernelFixture(t)
+	done := make(chan error, 1)
+	go func() {
+		done <- f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "wait"})
+	}()
+	waitCoreFile(t, filepath.Join(f.dir(), "cell-wait"))
+	version := "3.13"
+	updated := f.work
+	updated.PythonVersion = &version
+	_, err := f.d.chat(t.Context(), updated)
+	must(t, err)
+	must(t, f.d.controlChat(t.Context(), coresearch.ClaimedControl{WorkContext: f.work, Op: "interrupt", Seq: 1}))
+	must(t, <-done)
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: updated, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	bad := "3.12"
+	updated.PythonVersion = &bad
+	if _, err := f.d.chat(t.Context(), updated); err == nil {
+		t.Fatal("silently changed an existing authoritative pin")
+	}
+}
+
+func TestCoresearchPinArrivingDuringBridgeLaunchRetiresEarlierEnvironment(t *testing.T) {
+	f := coreKernelFixture(t)
+	h := f.d.chats[f.work.ChatID]
+	study := h.study
+	var pinned atomic.Bool
+	// The persistent bridge's authorization recheck uses its independent
+	// lifetime, after Environment has completed. Cell/preparation requests
+	// retain a cancellable context. Pin at exactly the bridge boundary.
+	f.d.api.HTTP = &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/status") && r.Context().Done() == nil {
+			if err := study.RememberPython("3.13"); err != nil {
+				return nil, err
+			}
+			pinned.Store(true)
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	if !pinned.Load() {
+		t.Fatal("did not exercise the launch boundary")
+	}
+	old := h.sessions
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	if h.sessions == old {
+		t.Fatal("late pin relabeled and reused an earlier prepared environment")
+	}
+}
+
+func TestCoresearchRestartHonorsClaimedPython(t *testing.T) {
+	f := coreKernelFixture(t)
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	h := f.d.chats[f.work.ChatID]
+	old := h.sessions
+	version := "3.13"
+	updated := f.work
+	updated.PythonVersion = &version
+	must(t, f.d.controlChat(t.Context(), coresearch.ClaimedControl{WorkContext: updated, Op: "restart", Seq: 7}))
+	if h.sessions != nil || h.study.RecordedPython() != version {
+		t.Fatal("restart reused the old environment despite its claimed pin")
+	}
+	if _, err := old.CellWithID(t.Context(), uuid.NewString(), "python3", "host"); err == nil {
+		t.Fatal("restarted old session remains usable")
+	}
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	if h.kernelPython != version {
+		t.Fatal("next cell lost restart's authoritative pin")
+	}
+}

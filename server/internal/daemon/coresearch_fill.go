@@ -45,87 +45,153 @@ func prepareChatMetadata(ctx context.Context, dir string) error {
 	return m.Save()
 }
 
+type fillChanges struct {
+	Unsaved  []string
+	Deferred []string
+}
+
 func (d *daemon) fill(ctx context.Context, chat, project uuid.UUID) ([]string, error) {
+	changes, err := d.fillChanges(ctx, chat, project)
+	return changes.Unsaved, err
+}
+func (d *daemon) fillChanges(ctx context.Context, chat, project uuid.UUID) (fillChanges, error) {
+	var changes fillChanges
 	d.chatsMu.Lock()
 	h := d.chats[chat]
 	d.chatsMu.Unlock()
 	if h == nil || h.work.ProjectID != project {
-		return nil, errors.New("unknown chat project")
+		return changes, errors.New("unknown chat project")
 	}
 	if err := d.checkChat(ctx, h.work); err != nil {
-		return nil, err
+		return changes, err
 	}
 	f, err := localfiles.Open(h.dir)
 	if err != nil {
-		return nil, err
+		return changes, err
 	}
 	defer f.Close()
 	// The shared lock spans the remote snapshot, local read/write and pin update.
+	// Ordinary code does not use it; filesMu plus the durable launch guard
+	// prevent automatic replacement once such writers may have existed.
 	m, err := f.LockManifest(ctx)
 	if err != nil {
-		return nil, err
+		return changes, err
 	}
 	defer m.Close()
 	var refs []coresearch.FileRef
 	api := d.coreAPI(h.work.WorkspaceID)
 	if err = api.Do(ctx, "GET", d.corePath("chats/"+chat.String()+"/files"), nil, &refs); err != nil {
-		return nil, err
+		return changes, err
 	}
-	var unsaved []string
 	for _, ref := range refs {
 		name, e := coresearch.CleanPath(ref.Path)
 		if e != nil || name != ref.Path {
-			return nil, fmt.Errorf("invalid saved path %q", ref.Path)
+			return changes, fmt.Errorf("invalid saved path %q", ref.Path)
 		}
 		digest, e := hex.DecodeString(ref.SHA256)
 		if e != nil || len(digest) != sha256.Size || ref.N <= 0 || ref.Size < 0 || ref.Size > 50<<20 {
-			return nil, errors.New("invalid saved file reference")
+			return changes, errors.New("invalid saved file reference")
 		}
-		file, e := f.Read(name)
-		local := ""
-		if e == nil {
-			hash := sha256.New()
-			_, e = io.Copy(hash, file)
-			file.Close()
-			if e != nil {
-				return nil, e
-			}
-			local = hex.EncodeToString(hash.Sum(nil))
-		} else if !errors.Is(e, os.ErrNotExist) {
-			return nil, e
+		local, e := fillDigest(f, name)
+		if e != nil {
+			return changes, e
 		}
 		pin := m.Entries[name]
 		if local != "" && local != ref.SHA256 && (pin.SHA256 == "" || local != pin.SHA256) {
-			unsaved = append(unsaved, name)
+			changes.Unsaved = append(changes.Unsaved, name)
 			continue
 		}
-		if local != ref.SHA256 {
+		if local == ref.SHA256 {
+			m.Entries[name] = localfiles.Pin{N: int(ref.N), SHA256: ref.SHA256}
+			continue
+		}
+		h.filesMu.Lock()
+		deferred := local != "" && h.writerLaunched
+		h.filesMu.Unlock()
+		if deferred {
+			changes.Deferred = append(changes.Deferred, name)
+			continue
+		}
+		// Download outside the launch gate. Network latency must not suspend
+		// a CLI waiting for a cell, nor leave a stale pre-download comparison.
+		stage, e := os.CreateTemp("", "lyk-coresearch-fill-")
+		if e != nil {
+			return changes, e
+		}
+		e = func() error {
+			defer os.Remove(stage.Name())
+			defer stage.Close()
+			hash := sha256.New()
+			bounded := &fillWriter{w: io.MultiWriter(stage, hash), left: ref.Size}
+			if e := api.Download(ctx, d.corePath("blobs/"+ref.SHA256), bounded); e != nil {
+				return e
+			}
+			if bounded.left != 0 || hex.EncodeToString(hash.Sum(nil)) != ref.SHA256 {
+				return errors.New("saved blob size or SHA256 mismatch")
+			}
+			if _, e := stage.Seek(0, io.SeekStart); e != nil {
+				return e
+			}
+			h.filesMu.Lock()
+			defer h.filesMu.Unlock()
+			current, e := fillDigest(f, name)
+			if e != nil {
+				return e
+			}
+			if current != local {
+				changes.Unsaved = append(changes.Unsaved, name)
+				return nil
+			}
+			if current != "" && h.writerLaunched {
+				changes.Deferred = append(changes.Deferred, name)
+				return nil
+			}
 			target, e := f.Prepare(name)
 			if e != nil {
-				return nil, e
+				return e
 			}
-			e = target.Replace(func(w io.Writer) error {
-				hash := sha256.New()
-				bounded := &fillWriter{w: io.MultiWriter(w, hash), left: ref.Size}
-				if e := api.Download(ctx, d.corePath("blobs/"+ref.SHA256), bounded); e != nil {
-					return e
-				}
-				if bounded.left != 0 || hex.EncodeToString(hash.Sum(nil)) != ref.SHA256 {
-					return errors.New("saved blob size or SHA256 mismatch")
-				}
+			defer target.Close()
+			write := func(w io.Writer) error { _, e := io.Copy(w, stage); return e }
+			if current == "" {
+				// The final atomic link, unlike rename, cannot replace a file
+				// created by an uncooperative writer after the comparison.
+				e = target.Create(write)
+			} else {
+				e = target.Replace(write)
+			}
+			if errors.Is(e, os.ErrExist) {
+				changes.Unsaved = append(changes.Unsaved, name)
 				return nil
-			})
-			target.Close()
-			if e != nil {
-				return nil, e
 			}
+			if e != nil {
+				return e
+			}
+			m.Entries[name] = localfiles.Pin{N: int(ref.N), SHA256: ref.SHA256}
+			return nil
+		}()
+		if e != nil {
+			return changes, e
 		}
-		m.Entries[name] = localfiles.Pin{N: int(ref.N), SHA256: ref.SHA256}
 	}
 	if err = m.Save(); err != nil {
-		return nil, err
+		return changes, err
 	}
-	return unsaved, nil
+	return changes, nil
+}
+func fillDigest(f *localfiles.Folder, name string) (string, error) {
+	file, err := f.Read(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 type fillWriter struct {

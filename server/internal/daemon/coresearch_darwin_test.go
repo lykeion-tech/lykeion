@@ -212,3 +212,134 @@ func TestCoresearchCLIFileSaveInsideSandbox(t *testing.T) {
 		t.Fatal(m.Entries)
 	}
 }
+
+func TestCoresearchWriterGuardCannotBeResetByCLI(t *testing.T) {
+	if err := sandbox.Check(t.Context()); err != nil {
+		t.Skip(err)
+	}
+	f := newCoreFixture(t)
+	h := f.d.chats[f.work.ChatID]
+	must(t, f.d.markChatWriter(h))
+	path := f.d.chatWriterRecord(h)
+	command := f.d.cliSandbox(h.dir, nil, false)
+	for _, script := range []string{
+		`printf false > "$1"`,
+		`rm "$1"`,
+		`printf false > temp; mv temp "$1"`,
+		`mv "$2" moved-state`,
+	} {
+		cmd, err := command(t.Context(), agent.CLIPaths{}, "/bin/sh", "-c", script, "sh", path, f.d.cfg.StateDir)
+		must(t, err)
+		cmd.Dir = h.dir
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("writer guard tampering allowed: %s %s", script, output)
+		}
+		data, err := os.ReadFile(path)
+		must(t, err)
+		if !strings.Contains(string(data), `"writer_launched":true`) {
+			t.Fatalf("writer guard changed: %s", data)
+		}
+	}
+}
+
+func TestCoresearchClaimedPythonSelectsRealInterpreter(t *testing.T) {
+	if os.Getenv("LYK_TEST_ENVS") != "1" {
+		t.Skip("set LYK_TEST_ENVS=1 for the real cached-version test")
+	}
+	python := os.Getenv("LYK_TEST_CELL_PYTHON")
+	if python == "" {
+		t.Skip("set LYK_TEST_CELL_PYTHON to a read-only Jupyter interpreter")
+	}
+	if err := sandbox.Check(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := exec.Command(python, "-I", "-c", `import sys; print('%d.%d' % sys.version_info[:2])`).Output()
+	must(t, err)
+	version := strings.TrimSpace(string(actual))
+	f := newCoreFixture(t)
+	study := fakeStudy(t, "python")
+	h := f.d.chats[f.work.ChatID]
+	h.study = study
+	for _, name := range []string{"python", "conda"} {
+		dir := filepath.Join(study.Dir, name, "bin")
+		must(t, os.MkdirAll(dir, 0700))
+		must(t, os.Symlink(python, filepath.Join(dir, "python")))
+	}
+	must(t, os.WriteFile(filepath.Join(study.Dir, "conda", ".lyk-ready"), nil, 0600))
+	specDir := filepath.Join(study.Dir, "conda", "share", "jupyter", "kernels", "selected")
+	must(t, os.MkdirAll(specDir, 0700))
+	selected := filepath.Join(study.Dir, "python", "bin", "python")
+	spec := map[string]any{"argv": []string{selected, "-m", "ipykernel_launcher", "-f", "{connection_file}"}, "display_name": "Selected", "language": "python"}
+	must(t, os.WriteFile(filepath.Join(specDir, "kernel.json"), mustJSON(spec), 0600))
+	tmp, bridge := t.TempDir(), t.TempDir()
+	p := codePolicy(t.TempDir(), h.dir, study, tmp, []string{f.d.cfg.StateDir}, nil)
+	p.Read = append(p.Read, bridge, filepath.Dir(filepath.Dir(python)))
+	p.ReadOnly = append(p.ReadOnly, filepath.Join(h.dir, ".lyk"))
+	command := func(name string, args ...string) (*exec.Cmd, error) {
+		return p.Command(context.Background(), name, args...)
+	}
+	start := func() *kernels.Sessions {
+		view := h.study.ForRun()
+		view.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+			cmd, err := p.Command(ctx, name, args...)
+			if err != nil {
+				return nil, err
+			}
+			cmd.Env = append(corePersonEnv(), env...)
+			cmd.Dir = dir
+			return cmd.CombinedOutput()
+		}
+		env, err := view.Environment(t.Context())
+		must(t, err)
+		env = coreJupyterEnv(view, env)
+		env = append(append(corePersonEnv(), env...), coreTmpEnv(tmp)...)
+		interpreter, _, err := view.Interpreter("python")
+		must(t, err)
+		if interpreter != selected {
+			t.Fatalf("wrong selected interpreter %q", interpreter)
+		}
+		sessions, err := kernels.Start(t.Context(), command, interpreter, env, h.dir, bridge)
+		must(t, err)
+		h.sessions = sessions
+		h.kernelPython, h.kernelGeneration = view.RecordedPython(), view.PythonGeneration()
+		return sessions
+	}
+	must(t, f.d.markChatWriter(h))
+	old := start()
+	result, err := old.CellWithID(t.Context(), "before-pin", "selected", "old_variable = 1")
+	must(t, err)
+	if !result.OK {
+		t.Fatal(result)
+	}
+	updated := f.work
+	updated.PythonVersion = &version
+	_, err = f.d.chat(t.Context(), updated)
+	must(t, err)
+	h.mu.Lock()
+	err = f.d.retireChangedKernel(t.Context(), h)
+	h.mu.Unlock()
+	must(t, err)
+	if h.sessions != nil {
+		t.Fatal("old real session was not retired")
+	}
+	next := start()
+	code := `import sys, os
+assert 'old_variable' not in globals()
+assert '%d.%d' % sys.version_info[:2] == ` + string(mustJSON(version)) + `
+assert os.path.realpath(sys.executable) == os.path.realpath(` + string(mustJSON(python)) + `)
+try:
+    open(` + string(mustJSON(f.d.chatWriterRecord(h))) + `, 'w').write('false')
+except PermissionError:
+    pass
+else:
+    raise AssertionError('writer guard was writable')`
+	result, err = next.CellWithID(t.Context(), "after-pin", "selected", code)
+	must(t, err)
+	if !result.OK {
+		t.Fatal(result)
+	}
+	if h.study.PythonVersion != version || h.kernelPython != version {
+		t.Fatal("real session lost claimed selection")
+	}
+}

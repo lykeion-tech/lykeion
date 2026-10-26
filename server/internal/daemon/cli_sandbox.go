@@ -158,6 +158,9 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool, gue
 			if err := d.checkChat(ctx, chat.work); err != nil {
 				return nil, err
 			}
+			if err := d.markChatWriter(chat); err != nil {
+				return nil, err
+			}
 		}
 		if d.sandboxErr != nil {
 			return nil, fmt.Errorf("CLI sandbox unavailable: %w", d.sandboxErr)

@@ -114,6 +114,15 @@ func (f *Folder) Prepare(name string) (*Target, error) {
 }
 func (t *Target) Close() error { return t.dir.Close() }
 func (t *Target) Replace(write func(io.Writer) error) error {
+	return t.write(write, false)
+}
+
+// Create publishes a complete file only if the destination is still absent.
+// A concurrent creator wins without losing its bytes or following its link.
+func (t *Target) Create(write func(io.Writer) error) error {
+	return t.write(write, true)
+}
+func (t *Target) write(write func(io.Writer) error, noClobber bool) error {
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
 		return err
@@ -134,6 +143,9 @@ func (t *Target) Replace(write func(io.Writer) error) error {
 	}
 	if err != nil {
 		return err
+	}
+	if noClobber {
+		return unix.Linkat(int(t.dir.Fd()), temp, int(t.dir.Fd()), t.name, 0)
 	}
 	return unix.Renameat(int(t.dir.Fd()), temp, int(t.dir.Fd()), t.name)
 }
