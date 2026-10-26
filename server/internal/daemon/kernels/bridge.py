@@ -41,6 +41,7 @@ sessions = {}
 named_session = None
 active_kernel = None
 cell_interrupted = False
+pending_interrupt = False
 CELL_CAP = 20 << 20
 CELL_CUT = {"type": "text", "text": "(output cut at 20 MiB)"}
 
@@ -293,8 +294,10 @@ def named_kernel(name):
 
 
 def interrupt_cell(*_):
-    global cell_interrupted
-    if active_kernel is not None:
+    global cell_interrupted, pending_interrupt
+    if active_kernel is None:
+        pending_interrupt = True
+    else:
         cell_interrupted = True
         try:
             active_kernel.interrupt_kernel()
@@ -303,12 +306,19 @@ def interrupt_cell(*_):
 
 
 def run_cell(name, code, timeout):
-    global active_kernel, cell_interrupted
+    global active_kernel, cell_interrupted, pending_interrupt
     outputs = CellOutputs()
     count, failed = 0, False
+    cell_interrupted = False
+    if pending_interrupt:
+        pending_interrupt = False
+        return [], 0, False, True
     km, kc = named_kernel(name)
-    active_kernel, cell_interrupted = km, False
+    active_kernel = km
     try:
+        if pending_interrupt or cell_interrupted:
+            pending_interrupt = False
+            return [], 0, False, True
         msg_id = kc.execute(code, allow_stdin=False)
         deadline = time.monotonic() + timeout
         while True:
@@ -357,9 +367,14 @@ def shutdown(*_):
 
 
 def main():
+    global pending_interrupt
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGHUP, shutdown)
     signal.signal(signal.SIGUSR1, interrupt_cell)
+    # Cells wait for this frame before submission. Queued signals are now safe
+    # and remain pending until a cell can consume them.
+    replies.write(json.dumps({"ready": True}) + "\n")
+    replies.flush()
     try:
         for line in sys.stdin:
             req = json.loads(line)
@@ -377,6 +392,7 @@ def main():
                         raise RuntimeError('no Jupyter kernel named "%s" is installed' % name)
                     retire_named()
                     named_kernel(name)
+                    pending_interrupt = False
                     reply.update(ok=True)
                 elif req.get("op") == "restart":
                     # A language with no session yet has nothing to restart.

@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -48,6 +50,9 @@ func stub() {
 		out.Lock()
 		os.Stdout.Write(append(b, '\n'))
 		out.Unlock()
+	}
+	if os.Getenv("LYK_BRIDGE_NO_READY") != "1" {
+		write(map[string]any{"ready": true})
 	}
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
@@ -856,5 +861,208 @@ func TestCloseStopsAnUnresponsiveBridge(t *testing.T) {
 		s.process.Load().Kill()
 		<-done
 		t.Fatal("Close never escalated a stuck active bridge")
+	}
+}
+
+// The wrapper blocks before importing the embedded bridge. Pipes, rather than
+// startup sleeps, establish that signals arrive before its handlers exist.
+func TestCellControlDuringBridgeInitialization(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is needed to exercise POSIX startup signals")
+	}
+	for _, replacement := range []bool{false, true} {
+		for _, action := range []string{"interrupt", "restart", "cancel", "interrupt-cancel"} {
+			t.Run(fmt.Sprintf("replacement=%v/%s", replacement, action), func(t *testing.T) {
+				type gate struct{ ready, release *os.File }
+				gates := make(chan gate, 2)
+				command := func(_ string, args ...string) (*exec.Cmd, error) {
+					readyR, readyW, e := os.Pipe()
+					if e != nil {
+						return nil, e
+					}
+					releaseR, releaseW, e := os.Pipe()
+					if e != nil {
+						return nil, e
+					}
+					for _, f := range []*os.File{readyR, readyW, releaseR, releaseW} {
+						t.Cleanup(func() { f.Close() })
+					}
+					cmd := exec.Command(python, "-I", "-c", initializingBridgePython, args[len(args)-1])
+					cmd.ExtraFiles = []*os.File{readyW, releaseR}
+					gates <- gate{readyR, releaseW}
+					return cmd, nil
+				}
+				s, err := Start(context.Background(), command, python, []string{"JUPYTER_PATH=/unused"}, t.TempDir(), "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { s.Close() })
+				awaitGate := func() gate {
+					t.Helper()
+					g := <-gates
+					started := make(chan error, 1)
+					go func() { var b [1]byte; _, e := io.ReadFull(g.ready, b[:]); started <- e }()
+					select {
+					case e := <-started:
+						if e != nil {
+							t.Fatal(e)
+						}
+					case <-time.After(3 * time.Second):
+						t.Fatal("wrapper did not reach initialization gate")
+					}
+					return g
+				}
+				g := awaitGate()
+				if replacement {
+					g.release.Write([]byte{1})
+					if _, err := s.Exec(context.Background(), "python", "warmup"); err != nil {
+						t.Fatal(err)
+					}
+					s.process.Load().Kill()
+					<-s.b.done
+					if _, err := s.Exec(context.Background(), "python", "dead"); err == nil {
+						t.Fatal("expected failure clearing dead bridge")
+					}
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				type answer struct {
+					r   CellResult
+					err error
+				}
+				done := make(chan answer, 1)
+				go func() { r, e := s.Cell(ctx, "test", "work"); done <- answer{r, e} }()
+				if replacement {
+					g = awaitGate()
+				}
+				deadline := time.Now().Add(3 * time.Second)
+				for s.mu.TryLock() {
+					s.mu.Unlock()
+					if time.Now().After(deadline) {
+						t.Fatal("cell did not acquire call lock")
+					}
+					runtime.Gosched()
+				}
+				var restarted chan error
+				switch action {
+				case "interrupt":
+					if err := s.Interrupt(); err != nil {
+						t.Fatal(err)
+					}
+				case "restart":
+					restarted = make(chan error, 1)
+					restartCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+					defer stop()
+					go func() { restarted <- s.RestartKernel(restartCtx, "test") }()
+					// Wait for RestartKernel itself to queue its stop before
+					// releasing initialization; no scheduling sleep is needed.
+					b := s.interruptBridge.Load()
+					for {
+						b.signalMu.Lock()
+						pending := b.pendingInterrupt
+						b.signalMu.Unlock()
+						if pending {
+							break
+						}
+						if time.Now().After(deadline) {
+							t.Fatal("restart did not queue a startup interrupt")
+						}
+						runtime.Gosched()
+					}
+				case "cancel", "interrupt-cancel":
+					if action == "interrupt-cancel" {
+						if err := s.Interrupt(); err != nil {
+							t.Fatal(err)
+						}
+					}
+					cancel()
+					select {
+					case a := <-done:
+						if !errors.Is(a.err, context.Canceled) {
+							t.Fatalf("cancel: %v", a.err)
+						}
+					case <-time.After(2 * time.Second):
+						t.Fatal("cancel blocked during initialization")
+					}
+				}
+				g.release.Write([]byte{1})
+				if action != "cancel" && action != "interrupt-cancel" {
+					select {
+					case a := <-done:
+						if a.err != nil || !a.r.Interrupted || a.r.OK {
+							t.Fatalf("startup cell: %+v %v", a.r, a.err)
+						}
+					case <-time.After(5 * time.Second):
+						t.Fatal("pending interrupt was lost")
+					}
+				}
+				if restarted != nil {
+					select {
+					case e := <-restarted:
+						if e != nil {
+							t.Fatalf("early restart: %v", e)
+						}
+					case <-time.After(5 * time.Second):
+						t.Fatal("restart blocked")
+					}
+				}
+				r, e := s.Cell(context.Background(), "test", "after")
+				if e != nil || !r.OK {
+					t.Fatalf("bridge did not survive startup control: %+v %v", r, e)
+				}
+			})
+		}
+	}
+}
+
+const initializingBridgePython = `
+import os, sys, types, runpy
+os.write(3, b"1")
+os.close(3)
+os.read(4, 1)
+os.close(4)
+# Only kernel management is replaced. The real bridge parsing, handlers,
+# startup protocol, pending interruption and output loop run unchanged.
+class Client:
+    def start_channels(self): pass
+    def stop_channels(self): pass
+    def wait_for_ready(self, timeout): pass
+    def execute(self, code, allow_stdin): return "request"
+    def get_iopub_msg(self, timeout): return {"parent_header":{"msg_id":"request"},"msg_type":"status","content":{"execution_state":"idle"}}
+    def get_shell_msg(self, timeout): return {"parent_header":{"msg_id":"request"},"content":{"status":"ok"}}
+class Manager:
+    def __init__(self, **kw): self.kernel_spec=types.SimpleNamespace(argv=[sys.executable],env={})
+    def start_kernel(self, **kw): pass
+    def client(self): return Client()
+    def interrupt_kernel(self): pass
+    def shutdown_kernel(self, **kw): pass
+    def is_alive(self): return True
+class Specs:
+    def __init__(self, **kw): pass
+    def find_kernel_specs(self): return {"test":"/unused"}
+j=types.ModuleType("jupyter_client")
+j.KernelManager=Manager
+k=types.ModuleType("jupyter_client.kernelspec")
+k.KernelSpecManager=Specs
+sys.modules["jupyter_client"]=j
+sys.modules["jupyter_client.kernelspec"]=k
+runpy.run_path(sys.argv[1],run_name="__main__")
+`
+
+func TestLegacyExecDoesNotRequireReadiness(t *testing.T) {
+	s, err := Start(context.Background(), plain, os.Args[0], append(os.Environ(), "LYK_BRIDGE_STUB=1", "LYK_BRIDGE_NO_READY=1"), t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	r, err := s.Exec(ctx, "python", "legacy")
+	if err != nil || r != (Result{Stdout: "ran legacy", OK: true}) {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if err := s.Restart(ctx, "python"); err != nil {
+		t.Fatal(err)
 	}
 }
