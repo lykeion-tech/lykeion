@@ -4,7 +4,7 @@ import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 import RunTurn from './RunTurn.vue';
 import StudyEnvironment from './StudyEnvironment.vue';
-import { useRunMessages } from '../api/queries';
+import { useMembers, useRunMessages } from '../api/queries';
 import type { AgentRun, Runtime } from '../api/types';
 import { backendLabel } from '../lib/backends';
 import { executionCells, notebookJson, recordedCode } from '../lib/run-transcript';
@@ -50,6 +50,7 @@ function moveTab(event: KeyboardEvent) {
   void nextTick(() => tabList.value?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus());
 }
 
+const members = useMembers();
 const messages = useRunMessages(run, true);
 const code = computed(() => recordedCode(messages.data.value ?? []));
 const cells = computed(() => executionCells(messages.data.value ?? []));
@@ -57,10 +58,16 @@ const cells = computed(() => executionCells(messages.data.value ?? []));
 const environment = computed(() => {
   const r = run.value;
   const machine = props.runtime(r.runtime_id);
+  const owner = members.data.value?.find((m) => m.user_id === r.machine_owner_id);
+  const ownerName = owner?.name || owner?.email || r.machine_owner_id;
+  const snapshot = r.machine_name ? `${r.machine_name}${ownerName ? ` (${ownerName})` : ''}` : '';
   return [
     { key: 'Runtime', value: backendLabel(r.harness) },
     { key: 'Model', value: r.model },
-    { key: 'Machine', value: machine ? machine.custom_name || machine.device_name : '' },
+    {
+      key: 'Machine',
+      value: machine ? machine.custom_name || machine.device_name : snapshot,
+    },
     { key: 'Language', value: machine?.language ?? '' },
     {
       key: 'Platform',

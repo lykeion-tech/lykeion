@@ -406,3 +406,21 @@ export function uploadAttachment(
     xhr.send(form);
   });
 }
+
+export const useMachineColleagues = (
+  id: MaybeRefOrGetter<string>,
+  owner: MaybeRefOrGetter<boolean>,
+) =>
+  useQuery({
+    queryKey: computed(() => keys.machineColleagues(ws.value, toValue(id))),
+    queryFn: ({ queryKey, signal }) =>
+      api<import('./types').MachineColleagues>(
+        'GET',
+        `/api/machines/${encodeURIComponent(queryKey[3])}/colleagues`,
+        undefined,
+        undefined,
+        { workspace: queryKey[1], signal },
+      ),
+    enabled: computed(() => inWorkspace.value && !!toValue(id) && toValue(owner)),
+    refetchInterval: 30_000,
+  });

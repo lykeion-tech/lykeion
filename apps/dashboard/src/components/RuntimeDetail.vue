@@ -3,6 +3,10 @@ import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { state, notify } from '../services/workspace';
 import Icon from './Icon.vue';
+import MachineSharing from './MachineSharing.vue';
+import { useRuntimes } from '../api/queries';
+const connectedRuntimes = useRuntimes();
+const connected = computed(() => connectedRuntimes.data.value?.find((r) => r.id === props.id));
 const props = defineProps<{ id: string }>();
 const router = useRouter();
 const runtime = computed(() => state.data?.runtimes.find((x) => x.id === props.id));
@@ -86,19 +90,11 @@ const agents = computed(() => state.data?.agents.filter((x) => x.runtimeId === p
         <section>
           <header>Diagnostics</header>
           <div class="runtime-diagnostics">
-            <small>VISIBILITY</small>
-            <div class="visibility-toggle">
-              <button
-                @click="notify('Runtime visibility requires the control plane access adapter.')"
-              >
-                <Icon name="shield" :size="12" />Private
-              </button>
-              <button
-                @click="notify('Runtime visibility requires the control plane access adapter.')"
-              >
-                <Icon name="network" :size="12" />Public
-              </button>
-            </div>
+            <MachineSharing
+              v-if="connected"
+              :machine-id="connected.daemon_id"
+              :runtimes="[connected]"
+            />
             <button
               class="delete-runtime"
               @click="

@@ -51,6 +51,9 @@ export interface ColumnRating {
 }
 
 export interface Card {
+  machine?: string | null;
+  machine_label?: string;
+  machine_notice?: string;
   id: string;
   workspace_id: string;
   number: number;
@@ -129,6 +132,9 @@ export interface StudyRecord {
 }
 
 export interface AgentRun {
+  machine_name?: string;
+  machine_owner_id?: string | null;
+  cancel_reason?: string | null;
   id: string;
   workspace_id: string;
   card_id: string;
@@ -196,6 +202,8 @@ export interface InboxItem {
 }
 
 export interface Runtime {
+  visibility?: 'private' | 'workspace';
+  shared_with?: string[];
   id: string;
   workspace_id: string;
   owner_id: string;
@@ -526,4 +534,29 @@ export interface AnalyticsReport {
   unassigned: Omit<AnalyticsMetrics, 'coverage' | 'runtime_seconds' | 'studies'> & {
     attempts: number;
   };
+}
+
+export interface AffectedMachineRun {
+  run_id: string;
+  card_id: string;
+  study_title: string;
+  colleague: string;
+}
+export interface MachineColleagues {
+  runs: {
+    run_id: string;
+    colleague: string;
+    study_title: string;
+    harness: string;
+    started_at: string | null;
+    status: string;
+    input_tokens: number;
+    output_tokens: number;
+    cost_usd: number;
+  }[];
+  totals: {
+    colleague: string;
+    last_7_days: { tokens: number; cost_usd: number };
+    last_30_days: { tokens: number; cost_usd: number };
+  }[];
 }

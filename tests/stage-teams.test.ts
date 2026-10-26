@@ -110,11 +110,19 @@ type Node = {
   showModal(): void;
   getRootNode(): null;
   value?: unknown;
+  readonly options: Node[];
+  readonly tagName: string;
 };
 function node(tag: string, text = ''): Node {
   return {
     tag,
     text,
+    get options() {
+      return this.children.filter((n) => n.tag === 'option');
+    },
+    get tagName() {
+      return tag.toUpperCase();
+    },
     props: {},
     children: [],
     parent: null,

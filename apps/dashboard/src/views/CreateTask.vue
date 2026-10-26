@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Modal from '../components/Modal.vue';
 import ComposerCalendar from '../components/ComposerCalendar.vue';
@@ -15,6 +15,7 @@ import { studyNumber, type Picked, type Range } from '../lib/studies';
 import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
 import AssignPicker from '../components/AssignPicker.vue';
+import MachinePicker from '../components/MachinePicker.vue';
 
 const props = defineProps<{ assignee?: Assignee; projectId?: string }>();
 const emit = defineEmits<{ close: [] }>();
@@ -23,6 +24,19 @@ const cards = useCards();
 const workspace = useWorkspace();
 const me = useMe();
 const isMac = navigator.platform.includes('Mac');
+const machine = ref('');
+let generation = 0;
+watch(
+  workspaceId,
+  () => {
+    generation++;
+    machine.value = '';
+    busy.value = false;
+    error.value = '';
+  },
+  { flush: 'sync' },
+);
+onUnmounted(() => generation++);
 const title = ref('');
 const question = ref('');
 const deadline = ref('');
@@ -131,6 +145,9 @@ const blocked = computed(
 
 async function submit() {
   if (blocked.value) return;
+  const workspace = workspaceId.value;
+  const visit = generation;
+  const current = () => generation === visit && workspaceId.value === workspace;
   busy.value = true;
   error.value = '';
   duplicate.value = null;
@@ -138,6 +155,7 @@ async function submit() {
   // a single Team keeps its own stage, so the server takes no range for it,
   // while a Team set always runs its range.
   const fields = {
+    ...(machine.value ? { machine: machine.value } : {}),
     ...(props.projectId ? { research_id: props.projectId } : {}),
     title: title.value.trim(),
     question: question.value.trim(),
@@ -155,15 +173,17 @@ async function submit() {
       : { scope: range.value }),
   };
   try {
-    await api<Card>('POST', '/api/cards', fields);
+    await api<Card>('POST', '/api/cards', fields, undefined, { workspace });
+    if (!current()) return;
     if (props.projectId)
       await client.invalidateQueries({
-        queryKey: keys.research(workspaceId.value, props.projectId),
+        queryKey: keys.research(workspace, props.projectId),
       });
-    await client.invalidateQueries({ queryKey: keys.cards(workspaceId.value) });
+    await client.invalidateQueries({ queryKey: keys.cards(workspace) });
+    if (!current()) return;
     notify('Study created.');
     if (another.value) {
-      title.value = question.value = deadline.value = '';
+      title.value = question.value = deadline.value = machine.value = '';
       assignee.value = props.assignee ? { ...props.assignee } : null;
       range.value = initialRange();
       followsFrom.value = [];
@@ -173,13 +193,14 @@ async function submit() {
       form.value?.querySelector<HTMLInputElement>('.composer-title')?.focus();
     } else emit('close');
   } catch (e) {
+    if (!current()) return;
     if (e instanceof ApiError && e.status === 409 && typeof e.body.card_id === 'string')
       duplicate.value = { id: e.body.card_id, number: Number(e.body.number) };
     else if (usedLastSet.value && /add this Team/.test((e as Error).message))
       error.value = "A Team in your last set isn't in your workspace any more";
     else error.value = (e as Error).message;
   } finally {
-    busy.value = false;
+    if (current()) busy.value = false;
   }
 }
 onMounted(() => document.addEventListener('pointerdown', outside));
@@ -244,6 +265,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       </p>
       <div class="composer-properties">
         <div class="property-line">
+          <MachinePicker v-model="machine" :disabled="busy" />
           <div class="property-anchor">
             <button type="button" class="property-pill" @click="openMenu('deadline')">
               <Icon name="clock" :size="14" />{{ deadline || 'No deadline' }}</button

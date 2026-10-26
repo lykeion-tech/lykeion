@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
+import MachinePicker from '../components/MachinePicker.vue';
 import AgentRunCard from '../components/AgentRunCard.vue';
 import AgentRunDialog from '../components/AgentRunDialog.vue';
 import ExecutionLog from '../components/ExecutionLog.vue';
@@ -275,6 +276,38 @@ function mutationScope() {
   };
 }
 
+const machineBusy = ref(false);
+watch(
+  [workspaceId, () => props.id],
+  () => {
+    machineBusy.value = false;
+  },
+  { flush: 'sync' },
+);
+async function pickMachine(value: string) {
+  if (machineBusy.value) return;
+  const scope = mutationScope();
+  machineBusy.value = true;
+  error.value = '';
+  try {
+    await api(
+      'PATCH',
+      `/api/cards/${encodeURIComponent(scope.id)}/machine`,
+      { machine: value || null },
+      undefined,
+      { workspace: scope.workspace },
+    );
+    if (!scope.current()) return;
+    await client.invalidateQueries({ queryKey: keys.card(scope.workspace, scope.id) });
+    if (!scope.current()) return;
+    await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
+  } catch (e) {
+    if (scope.current()) error.value = (e as Error).message;
+  } finally {
+    if (scope.current()) machineBusy.value = false;
+  }
+}
+
 function name(userId: string) {
   const m = members.data.value?.find((x) => x.user_id === userId);
   return m ? m.name || m.email : 'Former member';
@@ -356,6 +389,18 @@ function pin() {
           </button>
         </div>
       </header>
+      <div v-if="c" class="study-machine type-caption">
+        <span
+          >Runs on:
+          {{ c.machine_label || (c.machine ? 'Unavailable machine' : 'My machines') }}</span
+        >
+        <p v-if="c.machine_notice" role="status">{{ c.machine_notice }}</p>
+        <MachinePicker
+          :model-value="c.machine || ''"
+          :disabled="machineBusy"
+          @update:model-value="pickMachine"
+        />
+      </div>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
       <div v-if="c" class="transcript-scroll">
         <div class="transcript-content study-content">
@@ -1769,5 +1814,22 @@ function pin() {
   .task-splitter {
     display: none;
   }
+}
+</style>
+
+<style scoped>
+.study-machine {
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.study-machine p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--error-text);
 }
 </style>

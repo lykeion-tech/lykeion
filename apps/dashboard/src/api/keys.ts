@@ -23,6 +23,7 @@ export const keys = {
   inboxAll: (ws: string) => ['ws', ws, 'inbox'] as const,
   inbox: (ws: string, archived: boolean) =>
     ['ws', ws, 'inbox', archived ? 'archived' : 'open'] as const,
+  machineColleagues: (ws: string, id: string) => ['ws', ws, 'machine-colleagues', id] as const,
   runtimes: (ws: string) => ['ws', ws, 'runtimes'] as const,
   researches: (ws: string) => ['ws', ws, 'researches'] as const,
   researchDetails: (ws: string) => ['ws', ws, 'research'] as const,
