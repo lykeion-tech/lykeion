@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { MessageCircle } from '@lucide/vue';
@@ -19,6 +19,8 @@ import { notice, notify } from './state/notice';
 import { readText, writeText } from './storage';
 import { usePins } from './state/pins';
 import { useTaskComposer } from './state/task-composer';
+import { createDaemonSession, daemonSessionKey } from './lib/daemon-session';
+import { keys } from './api/keys';
 const route = useRoute();
 const router = useRouter();
 const client = useQueryClient();
@@ -32,6 +34,27 @@ const unauthorized = computed(() =>
     (error) => error instanceof ApiError && error.status === 401,
   ),
 );
+const desktopSession = createDaemonSession({
+  bridge: window.lykeionDesktop?.daemon,
+  // eslint-disable-next-line no-undef -- injected by the dashboard Vite configuration
+  apiOrigin: __LYK_PUBLIC_API_ORIGIN__,
+  token: () => api<{ token: string }>('POST', '/api/cli-token'),
+  reportError: notify,
+  onConfigured: () => {
+    if (workspaceId.value)
+      void client.invalidateQueries({ queryKey: keys.runtimes(workspaceId.value) });
+  },
+});
+provide(daemonSessionKey, desktopSession);
+watch(
+  [() => me.data.value?.id, unauthorized, me.dataUpdatedAt],
+  ([id, signedOut]) => {
+    void desktopSession.update(id, signedOut);
+  },
+  { immediate: true, flush: 'sync' },
+);
+onUnmounted(desktopSession.dispose);
+
 // A cached refusal still protects navigation after the request has settled.
 watch(
   [() => route.fullPath, unauthorized],
@@ -191,6 +214,11 @@ async function chooseWorkspace(id: string) {
 async function logOut() {
   if (
     !(await guardResourceDrafts(async () => {
+      try {
+        await desktopSession.clear();
+      } catch {
+        return false;
+      }
       try {
         await api('POST', '/auth/logout');
       } catch {

@@ -1,4 +1,5 @@
 import { workspaceId } from './session';
+import { authenticationEpoch, authenticationLost } from './auth-loss';
 
 // A refused request: the HTTP status, the server's "error" text and the whole
 // JSON body, which some refusals extend (a duplicate names the card it matched).
@@ -21,6 +22,7 @@ export async function api<T = void>(
   raw?: { data: Blob; type: string },
   options: { workspace?: string; signal?: AbortSignal; response?: 'blob' } = {},
 ): Promise<T> {
+  const requestEpoch = authenticationEpoch();
   const headers: Record<string, string> = {};
   const workspace = options.workspace ?? workspaceId.value;
   if (workspace && path.startsWith('/api/')) headers['X-Workspace-ID'] = workspace;
@@ -41,6 +43,7 @@ export async function api<T = void>(
     credentials: 'same-origin',
     signal: options.signal,
   });
+  if (res.status === 401) authenticationLost(requestEpoch);
   if (res.status === 204) return undefined as T;
   if (res.ok && options.response === 'blob') return (await res.blob()) as T;
   const text = await res.text();

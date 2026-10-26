@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
 import MachineSharing from '../components/MachineSharing.vue';
+import DaemonSettings from '../components/DaemonSettings.vue';
 import { useMe } from '../api/queries';
 import { backendLabel } from '../lib/backends';
 import AddComputerDialog from '../components/AddComputerDialog.vue';
@@ -35,6 +36,7 @@ const sandboxFailure = computed(() => {
   const reason = status.slice('failed'.length).replace(/^:\s*/, '').trim();
   return reason ? `Can't run agents: ${reason}` : "Can't run agents";
 });
+const daemonSettings = ref<InstanceType<typeof DaemonSettings>>();
 const sharingDetails = ref(false);
 const sharingForm = ref<InstanceType<typeof MachineSharing>>();
 const dialog = ref<'' | 'add' | 'daemon' | 'rename'>('');
@@ -208,15 +210,25 @@ async function remove(d: Daemon) {
                 </button>
                 <button
                   class="button"
-                  disabled
-                  title="Restart on the computer using Daemon instructions"
+                  :disabled="!daemonSettings?.canControl"
+                  :title="
+                    daemonSettings?.canControl
+                      ? undefined
+                      : 'Restart on the computer using Daemon instructions'
+                  "
+                  @click="daemonSettings?.restart()"
                 >
                   <Icon name="refresh" :size="14" />Restart
                 </button>
                 <button
                   class="button stop-machine"
-                  disabled
-                  title="Stop on the computer using Daemon instructions"
+                  :disabled="!daemonSettings?.canControl || daemonSettings?.stopped"
+                  :title="
+                    daemonSettings?.canControl
+                      ? undefined
+                      : 'Stop on the computer using Daemon instructions'
+                  "
+                  @click="daemonSettings?.stop()"
                 >
                   <Icon name="archive" :size="14" />Stop
                 </button>
@@ -303,13 +315,17 @@ async function remove(d: Daemon) {
           </div>
           <div class="remote-limit">
             <p>
-              Remote controls and custom runtimes are unavailable. Use Daemon instructions on the
-              computer.
+              {{
+                daemonSettings?.managed
+                  ? 'Custom runtimes are unavailable. Use Daemon instructions for terminal commands.'
+                  : 'Remote controls and custom runtimes are unavailable. Use Daemon instructions on the computer.'
+              }}
             </p>
             <button class="button" @click="dialog = 'daemon'">
               <Icon name="network" :size="14" />Daemon instructions
             </button>
           </div>
+          <DaemonSettings ref="daemonSettings" :machine-id="machine.id" :is-owner="isOwner" />
         </div>
       </template>
       <div v-else class="small-empty">

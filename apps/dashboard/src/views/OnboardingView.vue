@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import Aristotle from '../components/Aristotle.vue';
@@ -8,12 +8,14 @@ import CapabilityList from '../components/settings/library/CapabilityList.vue';
 import { useSkillLibrary, useConnectorLibrary, useWorkspaceMCPServers } from '../api/library';
 import { backendLabel } from '../lib/backends';
 import { api } from '../api/client';
+import { daemonSessionKey } from '../lib/daemon-session';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import { useRuntimes, useWorkspaces } from '../api/queries';
 import type { Workspace } from '../api/types';
 import { prefixFromSlug, randomWorkspaceName, slugFrom, stageIntro } from '../lib/studies';
 
+const desktopSession = inject(daemonSessionKey, null);
 const route = useRoute();
 const router = useRouter();
 const client = useQueryClient();
@@ -138,6 +140,12 @@ const finish = () =>
 
 async function logOut() {
   visit++;
+  try {
+    await desktopSession?.clear();
+  } catch (e) {
+    error.value = (e as Error).message;
+    return;
+  }
   try {
     await api('POST', '/auth/logout');
   } catch {

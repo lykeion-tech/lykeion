@@ -3,6 +3,7 @@ import { nextTick, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../api/client';
+import { authenticationRestored } from '../api/auth-loss';
 import { workspaceId } from '../api/session';
 import { readText, writeText } from '../storage';
 
@@ -57,6 +58,7 @@ async function verify() {
     await client.cancelQueries();
     workspaceId.value = '';
     await nextTick();
+    authenticationRestored();
     await client.resetQueries();
     const invite = readText('lykeion.invite', 'session');
     if (invite) {
