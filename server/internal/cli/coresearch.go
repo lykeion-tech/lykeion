@@ -284,6 +284,11 @@ func coresearchFileCmd(e *env) *cobra.Command {
 			return err
 		}
 		defer folder.Close()
+		manifest, err := folder.LockManifest(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer manifest.Close()
 		file, err := folder.Read(name)
 		if err != nil {
 			return err
@@ -301,11 +306,6 @@ func coresearchFileCmd(e *env) *cobra.Command {
 		if coresearch.IsText(head[:n]) && info.Size() > coresearch.MaxTextBytes {
 			return errors.New("a text file can be at most 1 MiB")
 		}
-		manifest, err := folder.LockManifest(cmd.Context())
-		if err != nil {
-			return err
-		}
-		defer manifest.Close()
 		chosenBase := base
 		if !cmd.Flags().Changed("base") {
 			chosenBase = manifest.Entries[name].N

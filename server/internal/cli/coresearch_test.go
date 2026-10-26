@@ -11,8 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func coresearchServer(t *testing.T, h http.HandlerFunc) string {
@@ -451,5 +455,122 @@ func TestFileGetPinsHeadAndPreservesOnHashMismatch(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
 	if string(b) != "original" {
 		t.Fatalf("file replaced: %q", b)
+	}
+}
+
+func TestFileSaveWaitsForGetBeforeReadingSourceAndBase(t *testing.T) {
+	downloadStarted := make(chan struct{})
+	allowDownload := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(allowDownload) }) }
+	defer release()
+	type upload struct{ bytes, base string }
+	uploaded := make(chan upload, 1)
+	dir := coresearchServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			if r.URL.Query().Get("n") != "2" {
+				t.Errorf("download version: %s", r.URL)
+			}
+			close(downloadStarted)
+			<-allowDownload
+			fmt.Fprint(w, "new bytes")
+			return
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Error(err)
+			return
+		}
+		defer r.MultipartForm.RemoveAll()
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer file.Close()
+		bytes, err := io.ReadAll(file)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		uploaded <- upload{string(bytes), r.FormValue("base")}
+		w.WriteHeader(201)
+		fmt.Fprint(w, `{"n":3,"sha256":"saved"}`)
+	})
+	writeFile(t, filepath.Join(dir, "a.txt"), "old bytes")
+	writeFile(t, filepath.Join(dir, ".lyk/fill.json"), `{"a.txt":{"n":1,"sha256":"old"}}`)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	execute := func(args ...string) error {
+		var out strings.Builder
+		cmd := Root(strings.NewReader(""), &out)
+		cmd.SetArgs(args)
+		cmd.SetContext(ctx)
+		return cmd.Execute()
+	}
+	got := make(chan error, 1)
+	go func() { got <- execute("file", "get", "a.txt", "--version", "2") }()
+	select {
+	case <-downloadStarted:
+	case <-ctx.Done():
+		t.Fatal("get did not start downloading")
+	}
+	lockInfo, err := os.Stat(filepath.Join(dir, ".lyk/fill.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockStat := lockInfo.Sys().(*syscall.Stat_t)
+	saved := make(chan error, 1)
+	go func() { saved <- execute("file", "save", "a.txt") }()
+	// Both commands open the stable lock inode before acquiring its flock. Seeing
+	// the second descriptor means save reached the held lock; no sleep decides
+	// whether source bytes were opened before or after get's replacement.
+	for {
+		descriptors := 0
+		for fd := 0; fd < 1024; fd++ {
+			var stat unix.Stat_t
+			if unix.Fstat(fd, &stat) == nil && stat.Dev == lockStat.Dev && stat.Ino == lockStat.Ino {
+				descriptors++
+			}
+		}
+		if descriptors >= 2 {
+			break
+		}
+		select {
+		case err := <-saved:
+			release()
+			t.Fatalf("save finished before get released the lock: %v", err)
+		case <-ctx.Done():
+			release()
+			t.Fatal("save did not reach the held manifest lock")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	release()
+	if err := <-got; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-saved; err != nil {
+		t.Fatal(err)
+	}
+	actual := <-uploaded
+	if actual.bytes != "new bytes" || actual.base != "2" {
+		t.Fatalf("incoherent save: uploaded=%q base=%q", actual.bytes, actual.base)
+	}
+	local, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if err != nil || string(local) != actual.bytes {
+		t.Fatalf("local=%q upload=%q err=%v", local, actual.bytes, err)
+	}
+	manifest, err := os.ReadFile(filepath.Join(dir, ".lyk/fill.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pins map[string]struct {
+		N int `json:"n"`
+	}
+	if err := json.Unmarshal(manifest, &pins); err != nil {
+		t.Fatal(err)
+	}
+	if pins["a.txt"].N != 3 {
+		t.Fatalf("final manifest %s", manifest)
 	}
 }
