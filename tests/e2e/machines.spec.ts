@@ -568,8 +568,8 @@ test('computer setup offers supported platform commands, real clipboard, and det
     await dialog.getByRole('link', { name: 'View computer' }).click();
     await expect(page).toHaveURL(new RegExp('tab=machines&machine=' + records[0]!.daemon_id + '$'));
     await page
-      .getByRole('navigation', { name: 'Machine breadcrumb' })
-      .getByRole('link', { name: 'Machines', exact: true })
+      .getByRole('navigation', { name: 'Settings', exact: true })
+      .getByRole('button', { name: 'Machines', exact: true })
       .click();
     await trigger.click();
     await expect(dialog.locator('.connection-status')).toHaveText('Waiting for your computer');
@@ -641,8 +641,8 @@ test('machine detail uses actual versions, canonical rename, keyboard links and 
     await expect(table.getByRole('row')).toHaveCount(2);
     await expect(table).not.toContainText('1.2.3');
     await page
-      .getByRole('navigation', { name: 'Machine breadcrumb' })
-      .getByRole('link', { name: 'Machines', exact: true })
+      .getByRole('navigation', { name: 'Settings', exact: true })
+      .getByRole('button', { name: 'Machines', exact: true })
       .click();
     await expect(
       page.getByRole('listitem').filter({ hasText: 'Renamed detail computer' }),

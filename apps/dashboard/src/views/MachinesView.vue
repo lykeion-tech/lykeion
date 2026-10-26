@@ -173,11 +173,6 @@ async function remove(d: Daemon) {
       <template v-if="machine">
         <header class="machine-detail-header">
           <div class="machine-rail">
-            <nav class="machine-breadcrumb" aria-label="Machine breadcrumb">
-              <RouterLink :to="{ path: '/settings', query: { tab: 'machines' } }"
-                >Machines</RouterLink
-              ><span aria-hidden="true">/</span><span>{{ machine.name }}</span>
-            </nav>
             <div class="machine-heading-row">
               <span class="machine-icon"><Icon name="monitor" :size="24" /></span>
               <div class="machine-heading-copy">

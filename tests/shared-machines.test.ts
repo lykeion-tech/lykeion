@@ -278,6 +278,7 @@ describe('Shared machines', () => {
       expect(t.text()).toContain('Runtimes');
       expect(t.text()).not.toContain('All idle');
       expect(t.all().find((n) => n.tag === 'time')).toBeUndefined();
+      expect(t.all().find((n) => n.props['aria-label'] === 'Machine breadcrumb')).toBeUndefined();
       expect(t.all().find((n) => n.props['aria-label'] === 'Machine actions')).toBeUndefined();
     } finally {
       t.unmount();

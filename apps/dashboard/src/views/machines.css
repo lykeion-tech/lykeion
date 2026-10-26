@@ -21,6 +21,10 @@
 }
 .settings-machines .machine-heading-row {
   flex-wrap: wrap;
+  margin-top: 0;
+}
+.settings-machines .machine-detail-header {
+  padding-top: 0;
 }
 .machine-row {
   display: flex;
@@ -137,16 +141,6 @@
   width: min(100%, 1448px);
   padding: 0 20px;
   margin: 0 auto;
-}
-.machine-breadcrumb {
-  display: flex;
-  gap: 7px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 18px;
-}
-.machine-breadcrumb a:hover {
-  color: var(--text);
 }
 .machine-heading-row {
   display: flex;
