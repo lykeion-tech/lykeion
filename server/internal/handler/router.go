@@ -56,6 +56,18 @@ func NewRouter(h *H) http.Handler {
 		r.With(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeRole, service.ScopeReport, service.ScopeCoresearch)).Handle("/mcp/sources", h.Sources)
 	}
 
+	r.Route("/api/run/coresearch", func(r chi.Router) {
+		r.Use(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeCoresearch))
+		r.Post("/cells", h.coresearchCells)
+		r.Get("/cells/{id}", h.coresearchCells)
+		r.Post("/runs", h.coresearchRuns)
+		r.Get("/runs/{key}", h.coresearchRuns)
+		r.Post("/environment", h.coresearchEnvironment)
+		r.Get("/environment/{id}", h.coresearchEnvironment)
+		r.Get("/files", h.coresearchRunFiles)
+		r.Get("/files/content", h.coresearchRunFiles)
+		r.Post("/files", h.uploadCoresearchFile)
+	})
 	r.Route("/api/role", func(r chi.Router) {
 		r.Use(middleware.AgentRunAuth(h.Store))
 		r.Group(func(r chi.Router) {
@@ -95,6 +107,16 @@ func NewRouter(h *H) http.Handler {
 			if h.Hub != nil {
 				r.Get("/ws", h.Hub.ServeDaemonWS)
 			}
+			r.Post("/coresearch/claim", h.daemonCoresearchClaim)
+			r.Post("/coresearch/cells/{id}/start", h.daemonCoresearchCell)
+			r.Post("/coresearch/cells/{id}/finish", h.daemonCoresearchCell)
+			r.Post("/coresearch/runs/{id}/finish", h.daemonCoresearchRunFinish)
+			r.Post("/coresearch/setups/{id}/finish", h.daemonCoresearchSetup)
+			r.Post("/coresearch/chats/{chat}/kernel", h.daemonCoresearchKernel)
+			r.Get("/coresearch/chats/{chat}/files", h.daemonCoresearchFiles)
+			r.Get("/coresearch/chats/{chat}/status", h.daemonCoresearchChatStatus)
+			r.Get("/coresearch/blobs/{sha}", h.daemonCoresearchBlob)
+			r.Get("/coresearch/{kind}/{id}/status", h.daemonCoresearchStatus)
 			r.Post("/register", h.daemonRegister)
 			r.Post("/heartbeat", h.daemonHeartbeat)
 			r.Post("/runtimes/{id}/local-skills", h.claimRuntimeSkills("list"))
@@ -196,6 +218,15 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/coresearch/projects/{project}/files", h.listCoresearchFiles)
 			r.Get("/api/coresearch/projects/{project}/files/{file}/versions", h.coresearchVersions)
 			r.Post("/api/coresearch/projects/{project}/files/{file}/restore", h.restoreCoresearchFile)
+			r.Post("/api/coresearch/projects/{project}/chats/{chat}/cells", h.coresearchCells)
+			r.Get("/api/coresearch/projects/{project}/chats/{chat}/cells", h.coresearchCells)
+			r.Post("/api/coresearch/projects/{project}/chats/{chat}/kernel", h.coresearchKernel)
+			r.Post("/api/coresearch/projects/{project}/runs", h.coresearchRuns)
+			r.Get("/api/coresearch/projects/{project}/runs", h.coresearchRuns)
+			r.Get("/api/coresearch/projects/{project}/runs/{key}", h.coresearchRuns)
+			r.Post("/api/coresearch/projects/{project}/runs/{key}/rerun", h.coresearchRuns)
+			r.Get("/api/coresearch/projects/{project}/environment", h.coresearchEnvironment)
+			r.Post("/api/coresearch/projects/{project}/environment", h.coresearchEnvironment)
 			r.Get("/api/coresearch/projects/{project}/chats", h.listCoresearchChats)
 			r.Post("/api/coresearch/projects/{project}/chats", h.createCoresearchChat)
 			r.Get("/api/coresearch/projects/{project}/chats/{chat}/messages", h.coresearchMessages)

@@ -299,21 +299,23 @@ type ConnectorFetch struct {
 }
 
 type CoresearchCell struct {
-	ID             uuid.UUID  `json:"id"`
-	WorkspaceID    uuid.UUID  `json:"workspace_id"`
-	ChatID         uuid.UUID  `json:"chat_id"`
-	Seq            int32      `json:"seq"`
-	AuthorUserID   *uuid.UUID `json:"author_user_id"`
-	AgentRunID     *uuid.UUID `json:"agent_run_id"`
-	Kernel         string     `json:"kernel"`
-	Source         string     `json:"source"`
-	Status         string     `json:"status"`
-	ExecutionCount *int32     `json:"execution_count"`
-	Outputs        []byte     `json:"outputs"`
-	OutputsBlob    *string    `json:"outputs_blob"`
-	CreatedAt      time.Time  `json:"created_at"`
-	StartedAt      *time.Time `json:"started_at"`
-	FinishedAt     *time.Time `json:"finished_at"`
+	ID              uuid.UUID       `json:"id"`
+	WorkspaceID     uuid.UUID       `json:"workspace_id"`
+	ChatID          uuid.UUID       `json:"chat_id"`
+	Seq             int32           `json:"seq"`
+	AuthorUserID    *uuid.UUID      `json:"author_user_id"`
+	AgentRunID      *uuid.UUID      `json:"agent_run_id"`
+	Kernel          string          `json:"kernel"`
+	Source          string          `json:"source"`
+	Status          string          `json:"status"`
+	ExecutionCount  *int32          `json:"execution_count"`
+	Outputs         json.RawMessage `json:"outputs"`
+	OutputsBlob     *string         `json:"outputs_blob"`
+	CreatedAt       time.Time       `json:"created_at"`
+	StartedAt       *time.Time      `json:"started_at"`
+	FinishedAt      *time.Time      `json:"finished_at"`
+	FailureReason   *string         `json:"failure_reason"`
+	ClaimedDaemonID *string         `json:"claimed_daemon_id"`
 }
 
 type CoresearchChat struct {
@@ -384,37 +386,42 @@ type CoresearchProject struct {
 }
 
 type CoresearchRun struct {
-	ID           uuid.UUID       `json:"id"`
-	WorkspaceID  uuid.UUID       `json:"workspace_id"`
-	ProjectID    uuid.UUID       `json:"project_id"`
-	Key          string          `json:"key"`
-	ChatID       uuid.UUID       `json:"chat_id"`
-	ScriptFileID uuid.UUID       `json:"script_file_id"`
-	ScriptN      int32           `json:"script_n"`
-	Inputs       json.RawMessage `json:"inputs"`
-	Seed         int64           `json:"seed"`
-	EnvSha       *string         `json:"env_sha"`
-	Status       string          `json:"status"`
-	Facts        []byte          `json:"facts"`
-	RerunOf      *uuid.UUID      `json:"rerun_of"`
-	RequestedBy  uuid.UUID       `json:"requested_by"`
-	AgentRunID   *uuid.UUID      `json:"agent_run_id"`
-	CreatedAt    time.Time       `json:"created_at"`
-	FinishedAt   *time.Time      `json:"finished_at"`
+	ID              uuid.UUID       `json:"id"`
+	WorkspaceID     uuid.UUID       `json:"workspace_id"`
+	ProjectID       uuid.UUID       `json:"project_id"`
+	Key             string          `json:"key"`
+	ChatID          uuid.UUID       `json:"chat_id"`
+	ScriptFileID    uuid.UUID       `json:"script_file_id"`
+	ScriptN         int32           `json:"script_n"`
+	Inputs          json.RawMessage `json:"inputs"`
+	Seed            int64           `json:"seed"`
+	EnvSha          *string         `json:"env_sha"`
+	Status          string          `json:"status"`
+	Facts           json.RawMessage `json:"facts"`
+	RerunOf         *uuid.UUID      `json:"rerun_of"`
+	RequestedBy     uuid.UUID       `json:"requested_by"`
+	AgentRunID      *uuid.UUID      `json:"agent_run_id"`
+	CreatedAt       time.Time       `json:"created_at"`
+	FinishedAt      *time.Time      `json:"finished_at"`
+	FailureReason   *string         `json:"failure_reason"`
+	ClaimedDaemonID *string         `json:"claimed_daemon_id"`
+	ExpectedEnvSha  *string         `json:"expected_env_sha"`
 }
 
 type CoresearchSetup struct {
-	ID          uuid.UUID  `json:"id"`
-	WorkspaceID uuid.UUID  `json:"workspace_id"`
-	ProjectID   uuid.UUID  `json:"project_id"`
-	ChatID      uuid.UUID  `json:"chat_id"`
-	Python      *string    `json:"python"`
-	Conda       []string   `json:"conda"`
-	Status      string     `json:"status"`
-	Log         string     `json:"log"`
-	RequestedBy uuid.UUID  `json:"requested_by"`
-	CreatedAt   time.Time  `json:"created_at"`
-	FinishedAt  *time.Time `json:"finished_at"`
+	ID              uuid.UUID  `json:"id"`
+	WorkspaceID     uuid.UUID  `json:"workspace_id"`
+	ProjectID       uuid.UUID  `json:"project_id"`
+	ChatID          uuid.UUID  `json:"chat_id"`
+	Python          *string    `json:"python"`
+	Conda           []string   `json:"conda"`
+	Status          string     `json:"status"`
+	Log             string     `json:"log"`
+	RequestedBy     uuid.UUID  `json:"requested_by"`
+	CreatedAt       time.Time  `json:"created_at"`
+	FinishedAt      *time.Time `json:"finished_at"`
+	FailureReason   *string    `json:"failure_reason"`
+	ClaimedDaemonID *string    `json:"claimed_daemon_id"`
 }
 
 type Event struct {

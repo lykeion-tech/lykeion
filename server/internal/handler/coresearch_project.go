@@ -277,6 +277,9 @@ func (h *H) deleteCoresearchMember(w http.ResponseWriter, r *http.Request) {
 		if err = tx.Q.TouchCoresearchProject(r.Context(), db.TouchCoresearchProjectParams{WorkspaceID: ws, ID: p.ID}); err != nil {
 			return err
 		}
+		if err = h.AgentRuns.RevokeCoresearchWork(r.Context(), tx, who, target, &p.ID); err != nil {
+			return err
+		}
 		if err = tx.Q.DeleteCoresearchMember(r.Context(), db.DeleteCoresearchMemberParams{WorkspaceID: ws, ProjectID: p.ID, UserID: target}); err != nil {
 			return err
 		}

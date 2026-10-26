@@ -1,3 +1,4 @@
+DROP FUNCTION IF EXISTS public.coresearch_revoke(uuid,uuid);
 DROP FUNCTION public.coresearch_settle(uuid);
 DROP FUNCTION public.coresearch_blob_referenced(text);
 DROP FUNCTION public.coresearch_create_project(text);

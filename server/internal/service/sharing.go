@@ -137,6 +137,9 @@ func (s *AgentRuns) SetSharing(ctx context.Context, owner, ws, runtimeID uuid.UU
 // RemoveMemberSharing revokes shared runs and owner grants in the caller's
 // workspace transaction, which must already hold the workspace mutation lock.
 func (s *AgentRuns) RemoveMemberSharing(ctx context.Context, tx *store.Tx, actor, member uuid.UUID) error {
+	if err := s.RevokeCoresearchWork(ctx, tx, actor, member, nil); err != nil {
+		return err
+	}
 	runs, err := tx.Q.DepartingMemberSharedRuns(ctx, db.DepartingMemberSharedRunsParams{WorkspaceID: tx.WS, UserID: member})
 	if err != nil {
 		return err
@@ -158,4 +161,35 @@ func (s *AgentRuns) RemoveMemberSharing(ctx context.Context, tx *store.Tx, actor
 		return err
 	}
 	return tx.Q.PrivatizeDepartingMemberRuntimes(ctx, db.PrivatizeDepartingMemberRuntimesParams{WorkspaceID: tx.WS, UserID: member})
+}
+
+// RevokeCoresearchWork settles queued and active work before membership is removed.
+func (s *AgentRuns) RevokeCoresearchWork(ctx context.Context, tx *store.Tx, actor, member uuid.UUID, project *uuid.UUID) error {
+	rows, err := tx.Q.RevokeCoresearchWork(ctx, db.RevokeCoresearchWorkParams{Target: member, Project: project})
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Kind == "turn" {
+			if err = tx.Q.SetCoresearchRevokedReason(ctx, db.SetCoresearchRevokedReasonParams{WorkspaceID: tx.WS, ID: row.WorkID}); err != nil {
+				return err
+			}
+			run, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: row.WorkID})
+			if err != nil {
+				return err
+			}
+			if err = s.CancelInTx(ctx, tx, actor, run); err != nil {
+				return err
+			}
+		} else {
+			payload := map[string]any{"project_id": row.ProjectID, row.Kind + "_id": row.WorkID}
+			if row.Kind == "cell" {
+				payload["chat_id"] = row.ChatID
+			}
+			if err = tx.Emit(ctx, "coresearch."+row.Kind+".changed", nil, store.System, payload); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

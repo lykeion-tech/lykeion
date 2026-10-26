@@ -28,3 +28,7 @@ sql:
               pointer: true
           - db_type: jsonb
             go_type: encoding/json.RawMessage
+          - column: coresearch_cell.outputs
+            go_type: encoding/json.RawMessage
+          - column: coresearch_run.facts
+            go_type: encoding/json.RawMessage

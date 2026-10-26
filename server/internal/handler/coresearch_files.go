@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/coresearch"
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -123,21 +124,32 @@ func (h *H) coresearchSaveTx(r *http.Request, ws uuid.UUID, save func(*store.Tx)
 }
 
 func (h *H) uploadCoresearchFile(w http.ResponseWriter, r *http.Request) {
+	role := middleware.RoleFrom(r.Context())
 	ws, err := uuid.Parse(r.Header.Get("X-Workspace-ID"))
-	if err != nil {
-		coresearchAnswer(w, r, pgx.ErrNoRows)
-		return
-	}
 	who := user(r)
+	var agent *uuid.UUID
 	var project db.CoresearchProject
-	err = h.memberTx(r, ws, false, func(tx *store.Tx) error {
-		var err error
-		project, err = coresearchProject(r, tx, ws, who, false, false)
-		if err == nil && project.ArchivedAt != nil {
-			return coresearch.ErrArchived
-		}
-		return err
-	})
+	if role.AgentRunID != uuid.Nil {
+		ws = role.WorkspaceID
+		who = role.AgentRunID
+		agent = &role.AgentRunID
+		err = h.coresearchRunTx(r, true, func(tx *store.Tx, c db.CoresearchChat, _ uuid.UUID) error {
+			var e error
+			project, e = tx.Q.GetCoresearchProject(r.Context(), db.GetCoresearchProjectParams{WorkspaceID: ws, ID: c.ProjectID})
+			return e
+		})
+	} else if err == nil {
+		err = h.memberTx(r, ws, false, func(tx *store.Tx) error {
+			var e error
+			project, e = coresearchProject(r, tx, ws, who, false, false)
+			if e == nil && project.ArchivedAt != nil {
+				return coresearch.ErrArchived
+			}
+			return e
+		})
+	} else {
+		err = pgx.ErrNoRows
+	}
 	if !coresearchAnswer(w, r, err) {
 		return
 	}
@@ -235,11 +247,19 @@ func (h *H) uploadCoresearchFile(w http.ResponseWriter, r *http.Request) {
 	sum := hex.EncodeToString(hash.Sum(nil))
 	var out db.CoresearchFileVersion
 	err = coresearch.WithBlob(r.Context(), h.Store, h.Blobs, ws, who, sum, tmp, size, func() error {
-		return h.coresearchSaveTx(r, ws, func(tx *store.Tx) error {
-			var err error
-			out, err = coresearch.SaveVersion(r.Context(), tx, coresearch.SaveIn{Workspace: ws, Project: project.ID, Path: clean, Sha256: sum, Size: size, Base: base, Force: force, Author: &who})
-			return err
-		})
+		save := func(tx *store.Tx) error {
+			var author *uuid.UUID
+			if agent == nil {
+				author = &who
+			}
+			var e error
+			out, e = coresearch.SaveVersion(r.Context(), tx, coresearch.SaveIn{Workspace: ws, Project: project.ID, Path: clean, Sha256: sum, Size: size, Base: base, Force: force, Author: author, AgentRun: agent})
+			return e
+		}
+		if agent != nil {
+			return h.coresearchRunTx(r, true, func(tx *store.Tx, _ db.CoresearchChat, _ uuid.UUID) error { return save(tx) })
+		}
+		return h.coresearchSaveTx(r, ws, save)
 	})
 	if coresearchAnswer(w, r, err) {
 		writeJSON(w, 201, out)

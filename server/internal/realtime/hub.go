@@ -52,7 +52,7 @@ func (h *Hub) Publish(ctx context.Context, evs []db.Event) {
 	done := map[string]bool{}
 	for _, e := range evs {
 		chans := []string{channel(e.WorkspaceID)}
-		if e.Type == "agent_run.queued" {
+		if e.Type == "agent_run.queued" || e.Type == "coresearch.work.queued" {
 			var payload struct {
 				OwnerID uuid.UUID `json:"owner_id"`
 			}

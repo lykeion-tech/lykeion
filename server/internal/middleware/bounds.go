@@ -55,17 +55,17 @@ func RequestBounds(next http.Handler) http.Handler {
 		}
 		attachment := r.Method == http.MethodPost && r.URL.Path == "/api/attachments"
 		output := r.Method == http.MethodPost && r.URL.Path == "/api/role/outputs"
-		coresearchUpload := coresearchFileTransfer(r, true)
+		coresearchUpload := coresearchFileTransfer(r, true) || coresearchWorkTransfer(r, true)
 		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r) || attachment || output || coresearchUpload
 		callPost := r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs")
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
-		if rawBlob || callPost {
+		if rawBlob || callPost || r.Method == http.MethodPost && coresearchDaemonRoute(r, "cells", "finish") {
 			requestTimeout, bodyTimeout = BlobRequestTimeout, BlobBodyReadTimeout
 		}
 		if attachment || attachmentDownload(r) && !outputDownload(r) {
 			requestTimeout, bodyTimeout = AttachmentRequestTimeout, AttachmentBodyReadTimeout
 		}
-		if output || outputDownload(r) || coresearchUpload || coresearchFileTransfer(r, false) {
+		if output || outputDownload(r) || coresearchUpload || coresearchFileTransfer(r, false) || coresearchWorkTransfer(r, false) {
 			requestTimeout, bodyTimeout = OutputRequestTimeout, OutputBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
@@ -139,6 +139,9 @@ func daemonMessagePost(r *http.Request) bool {
 
 // JSONBodyLimit is shared by pre-transaction buffering and strict decoding.
 func JSONBodyLimit(r *http.Request) int64 {
+	if coresearchDaemonRoute(r, "cells", "finish") && r.Method == http.MethodPost {
+		return 21 << 20
+	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/skills/import" {
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err == nil && mediaType == "multipart/form-data" {
@@ -274,4 +277,26 @@ func coresearchFileTransfer(r *http.Request, upload bool) bool {
 	}
 	n, err := strconv.ParseInt(p[8], 10, 32)
 	return err == nil && n > 0
+}
+
+func coresearchDaemonRoute(r *http.Request, kind, action string) bool {
+	p := strings.Split(r.URL.Path, "/")
+	if len(p) != 7 || p[1] != "api" || p[2] != "daemon" || p[3] != "coresearch" || p[4] != kind || p[6] != action {
+		return false
+	}
+	_, e := uuid.Parse(p[5])
+	return e == nil
+}
+func coresearchWorkTransfer(r *http.Request, upload bool) bool {
+	if upload {
+		return r.Method == http.MethodPost && (r.URL.Path == "/api/run/coresearch/files" || coresearchDaemonRoute(r, "runs", "finish"))
+	}
+	if r.Method != http.MethodGet {
+		return false
+	}
+	if r.URL.Path == "/api/run/coresearch/files/content" {
+		return true
+	}
+	p := strings.Split(r.URL.Path, "/")
+	return len(p) == 6 && p[1] == "api" && p[2] == "daemon" && p[3] == "coresearch" && p[4] == "blobs" && len(p[5]) == 64
 }
