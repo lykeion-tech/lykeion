@@ -423,6 +423,18 @@ code {
   margin-top: 0;
   padding-top: 0;
 }
+.sharing-platform-intro {
+  margin: 0 0 24px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.machine-sharing-dialog :deep(.sharing-save) {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
 .sharing-fields {
   display: flex;
   flex-wrap: wrap;

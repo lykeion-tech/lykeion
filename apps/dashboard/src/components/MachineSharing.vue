@@ -159,6 +159,9 @@ function cancel() {
 </script>
 <template>
   <section v-if="owned.length" class="machine-sharing type-body" aria-label="Shared machines">
+    <p v-if="hideHeading && unsupported" class="sharing-platform-intro type-caption">
+      Shared runs require Linux. On a Mac, register a Linux VM as a separate machine.
+    </p>
     <div class="runtime-heading">
       <div>
         <h2 v-if="!hideHeading">Shared machines</h2>
@@ -211,7 +214,7 @@ function cancel() {
       Each CLI keeps its current permissions. Uncheck a CLI to stop sharing it, or choose a sharing
       option to apply the same permissions to all checked CLIs.
     </p>
-    <p v-if="unsupported" class="sharing-note type-caption">
+    <p v-if="unsupported && !hideHeading" class="sharing-note type-caption">
       Shared runs require Linux. On a Mac, register a Linux VM as a separate machine.
     </p>
     <div v-if="warnings" class="sharing-warnings type-caption">
@@ -225,9 +228,16 @@ function cancel() {
       </p>
     </div>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-    <button class="button" :disabled="locked || clearOnly" @click="save()">
-      {{ busy ? 'Saving…' : 'Save sharing' }}
-    </button>
+    <div class="sharing-save">
+      <button
+        class="button"
+        :class="{ primary: hideHeading }"
+        :disabled="locked || clearOnly"
+        @click="save()"
+      >
+        {{ busy ? 'Saving…' : 'Save sharing' }}
+      </button>
+    </div>
     <Modal v-if="affected" title="Stop sharing" @close="cancel">
       <div class="resource-form">
         <h2>Stop sharing</h2>
