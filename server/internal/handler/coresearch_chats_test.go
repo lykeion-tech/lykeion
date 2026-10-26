@@ -398,3 +398,45 @@ func TestCoresearchTranscriptAndSettlement(t *testing.T) {
 		t.Fatalf("%d %+v", code, messages)
 	}
 }
+
+func TestCoresearchChatListMachineNames(t *testing.T) {
+	for _, state := range []string{"new", "bound", "released", "missing-runtime"} {
+		t.Run(state, func(t *testing.T) {
+			s, a, _, _, ws, p := csFixture(t)
+			path, chat := csChat(t, s, a, ws, p.ID)
+			wantName := ""
+			if state != "new" {
+				run := csTurn(t, s, a, ws, path)
+				ref := csRegister(t, s, a, ws, "chat-machine", "claude")
+				if claimed := csClaim(t, s, a, ref); len(claimed) != 1 {
+					t.Fatalf("claim: %+v", claimed)
+				}
+				wantName = "chat-machine"
+				if state != "bound" {
+					if code := s.call(t, "POST", path+"/turns/"+run.ID.String()+"/cancel", a, ws, nil, nil); code != 204 {
+						t.Fatalf("cancel: %d", code)
+					}
+					if state == "released" {
+						if code := s.call(t, "POST", path+"/release", a, ws, nil, nil); code != 204 {
+							t.Fatalf("release: %d", code)
+						}
+					} else if code := s.call(t, "DELETE", "/api/runtimes/"+ref.RuntimeID.String(), a, ws, nil, nil); code != 204 {
+						t.Fatalf("delete runtime: %d", code)
+					}
+					wantName = ""
+				}
+			}
+			var raw json.RawMessage
+			if code := s.call(t, "GET", csProjects+"/"+p.ID+"/chats", a, ws, nil, &raw); code != 200 {
+				t.Fatalf("list %s: HTTP %d: %s", state, code, raw)
+			}
+			var chats []db.ListCoresearchChatsRow
+			if err := json.Unmarshal(raw, &chats); err != nil {
+				t.Fatal(err)
+			}
+			if len(chats) != 1 || chats[0].ID != chat.ID || chats[0].MachineName != wantName {
+				t.Fatalf("list %s: want machine %q, got %+v", state, wantName, chats)
+			}
+		})
+	}
+}

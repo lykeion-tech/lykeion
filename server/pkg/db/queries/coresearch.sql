@@ -76,7 +76,7 @@ SELECT * FROM coresearch_chat WHERE workspace_id= @workspace_id AND project_id= 
 SELECT * FROM coresearch_chat WHERE workspace_id= @workspace_id AND id= @id FOR UPDATE;
 
 -- name: ListCoresearchChats :many
-SELECT c.*, (SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1)::text AS machine_name
+SELECT c.*, coalesce((SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1), '')::text AS machine_name
 FROM coresearch_chat c WHERE c.workspace_id= @workspace_id AND c.project_id= @project_id ORDER BY c.created_at,c.id;
 
 -- name: BindCoresearchChat :exec

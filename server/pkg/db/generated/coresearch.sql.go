@@ -573,7 +573,7 @@ func (q *Queries) InsertCoresearchVersion(ctx context.Context, arg InsertCoresea
 }
 
 const listCoresearchChats = `-- name: ListCoresearchChats :many
-SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, (SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1)::text AS machine_name
+SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, coalesce((SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1), '')::text AS machine_name
 FROM coresearch_chat c WHERE c.workspace_id= $1 AND c.project_id= $2 ORDER BY c.created_at,c.id
 `
 
