@@ -3,6 +3,7 @@ import { createRenderer, h, nextTick, ref, ssrContextKey, type Component } from 
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import MachinesView from '../apps/dashboard/src/views/MachinesView.vue';
+import SettingsView from '../apps/dashboard/src/views/SettingsView.vue';
 import CreateTask from '../apps/dashboard/src/views/CreateTask.vue';
 import TaskDetail from '../apps/dashboard/src/views/TaskDetail.vue';
 import AgentRunDialog from '../apps/dashboard/src/components/AgentRunDialog.vue';
@@ -29,7 +30,7 @@ function seedClient() {
   const c = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
   });
-  c.setQueryData(keys.me, { id: 'u1' });
+  c.setQueryData(keys.me, { id: 'u1', email: 'owner@lab.test' });
   c.setQueryData(keys.runtimes('w'), [runtime()]);
   c.setQueryData(keys.members('w'), [
     { user_id: 'u1', name: 'Owner' },
@@ -238,6 +239,50 @@ async function change(t: Awaited<ReturnType<typeof mount>>, label: string, value
 }
 
 describe('Shared machines', () => {
+  it('links Settings machine rows to their details without an actions menu', async () => {
+    fetching();
+    const t = await mount(SettingsView, () => ({ section: 'machines' }));
+    try {
+      const link = t.all().find((n) => n.tag === 'a' && n.props.class === 'machine-link');
+      expect(link?.props.href).toBe('/settings?tab=machines&machine=d1');
+      expect(textOf(link!)).not.toContain('daemon');
+      expect(t.all().find((n) => n.props['aria-label'] === 'Machine actions')).toBeUndefined();
+      expect(t.button(/^Add a machine$/)).toBeTruthy();
+      await t.click(/^Add a machine$/);
+      expect(t.all().find((n) => n.tag === 'dialog')?.props['aria-label']).toBe('Add a machine');
+    } finally {
+      t.unmount();
+    }
+  });
+  it('places Machines and Updates after Storage in Personal settings', async () => {
+    fetching();
+    const t = await mount(SettingsView, () => ({ section: 'updates' }));
+    try {
+      const nav = t.all().find((n) => n.tag === 'nav' && n.props['aria-label'] === 'Settings')!;
+      const personal = nav.children.find((n) => n.tag === 'section')!;
+      expect(
+        all(personal)
+          .filter((n) => n.tag === 'button')
+          .map(textOf),
+      ).toEqual(['Profile', 'Preferences', 'API Tokens', 'Storage', 'Machines', 'Updates']);
+      expect(t.text()).toContain('Current version');
+    } finally {
+      t.unmount();
+    }
+  });
+  it('renders machines within Settings without row actions or detail idle timestamps', async () => {
+    fetching();
+    const t = await mount(SettingsView, () => ({ section: 'machines', machineId: 'd1' }));
+    try {
+      expect(t.text()).toContain('Bench');
+      expect(t.text()).toContain('Runtimes');
+      expect(t.text()).not.toContain('All idle');
+      expect(t.all().find((n) => n.tag === 'time')).toBeUndefined();
+      expect(t.all().find((n) => n.props['aria-label'] === 'Machine actions')).toBeUndefined();
+    } finally {
+      t.unmount();
+    }
+  });
   it('can retry saving after the runtime refresh fails', async () => {
     const f = vi.fn(async (_path: string, init?: RequestInit) =>
       init?.method === 'GET'

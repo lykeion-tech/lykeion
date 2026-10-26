@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
@@ -15,7 +15,7 @@ import { useMembers, useRuntimes } from '../api/queries';
 import { groupDaemons, type Daemon } from '../lib/machines';
 import { timeAgo } from '../lib/studies';
 
-const props = defineProps<{ machineId?: string }>();
+const props = defineProps<{ machineId?: string; embedded?: boolean }>();
 const router = useRouter();
 const client = useQueryClient();
 const runtimes = useRuntimes();
@@ -35,10 +35,14 @@ const sandboxFailure = computed(() => {
   const reason = status.slice('failed'.length).replace(/^:\s*/, '').trim();
   return reason ? `Can't run agents: ${reason}` : "Can't run agents";
 });
-const menuFor = ref('');
 const sharingDetails = ref(false);
 const sharingForm = ref<InstanceType<typeof MachineSharing>>();
 const dialog = ref<'' | 'add' | 'daemon' | 'rename'>('');
+defineExpose({
+  openAdd: () => {
+    dialog.value = 'add';
+  },
+});
 const renaming = ref<Daemon | null>(null);
 const draft = ref('');
 const error = ref('');
@@ -49,7 +53,6 @@ watch(
   [workspaceId, () => props.machineId],
   () => {
     generation++;
-    menuFor.value = '';
     sharingDetails.value = false;
     dialog.value = '';
     renaming.value = null;
@@ -67,13 +70,6 @@ watch(
     error.value = '';
     removalError.value = null;
     busy.value = false;
-  },
-  { flush: 'sync' },
-);
-watch(
-  menuFor,
-  () => {
-    removalError.value = null;
   },
   { flush: 'sync' },
 );
@@ -109,7 +105,6 @@ function startRename(d: Daemon) {
     ?.closest('.menu-anchor')
     ?.querySelector<HTMLButtonElement>('[aria-haspopup]')
     ?.focus();
-  menuFor.value = '';
   renaming.value = d;
   draft.value = d.name;
   error.value = '';
@@ -140,7 +135,6 @@ async function rename() {
 }
 async function remove(d: Daemon) {
   if (busy.value || d.online) return;
-  menuFor.value = '';
   const own = scope(d);
   if (!confirm(`Remove ${d.name}? Its daemon registers again the next time it starts.`)) return;
   busy.value = true;
@@ -151,7 +145,8 @@ async function remove(d: Daemon) {
     }
     if (!own.current()) return;
     await refresh(own.workspace);
-    if (own.current() && props.machineId === own.id) await router.push('/machines');
+    if (own.current() && props.machineId === own.id)
+      await router.push({ path: '/settings', query: { tab: 'machines' } });
   } catch (e) {
     if (!own.current()) return;
     removalError.value = { id: own.id, message: message(e, 'remove') };
@@ -160,37 +155,13 @@ async function remove(d: Daemon) {
     if (own.current()) busy.value = false;
   }
 }
-async function toggleMenu(d: Daemon, event: MouseEvent) {
-  const anchor = (event.currentTarget as HTMLElement).parentElement;
-  menuFor.value = menuFor.value === d.id ? '' : d.id;
-  if (menuFor.value) {
-    await nextTick();
-    anchor?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-  }
-}
-function menuKey(event: KeyboardEvent) {
-  const anchor = event.currentTarget as HTMLElement;
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    menuFor.value = '';
-    anchor.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus();
-  } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-    event.preventDefault();
-    const items = [...anchor.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
-    const index =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? items.length - 1
-          : (current + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
-    items[index]?.focus();
-  }
-}
 </script>
 <template>
-  <section class="resources resource-machines" :class="{ 'machine-detail': machineId }">
-    <div v-if="!machineId" class="resource-header-actions">
+  <section
+    class="resources resource-machines"
+    :class="{ 'machine-detail': machineId, 'settings-machines': embedded }"
+  >
+    <div v-if="!machineId && !embedded" class="resource-header-actions">
       <button class="button primary" @click="dialog = 'add'">
         <Icon name="plus" />Add a machine
       </button>
@@ -203,8 +174,9 @@ function menuKey(event: KeyboardEvent) {
         <header class="machine-detail-header">
           <div class="machine-rail">
             <nav class="machine-breadcrumb" aria-label="Machine breadcrumb">
-              <RouterLink to="/machines">Machines</RouterLink><span aria-hidden="true">/</span
-              ><span>{{ machine.name }}</span>
+              <RouterLink :to="{ path: '/settings', query: { tab: 'machines' } }"
+                >Machines</RouterLink
+              ><span aria-hidden="true">/</span><span>{{ machine.name }}</span>
             </nav>
             <div class="machine-heading-row">
               <span class="machine-icon"><Icon name="monitor" :size="24" /></span>
@@ -222,17 +194,10 @@ function menuKey(event: KeyboardEvent) {
                     >{{ machine.runtimes.length }} runtime{{
                       machine.runtimes.length === 1 ? '' : 's'
                     }}</span
-                  ><span>{{
-                    machine.online
-                      ? machine.activeRuns
-                        ? `${machine.activeRuns} active run${machine.activeRuns === 1 ? '' : 's'}`
-                        : 'All idle'
-                      : '—'
-                  }}</span
-                  ><span v-if="owner(machine.ownerId)">{{ owner(machine.ownerId) }}</span
-                  ><time :datetime="machine.lastSeen" :title="machine.lastSeen">{{
-                    timeAgo(machine.lastSeen)
-                  }}</time>
+                  ><span v-if="owner(machine.ownerId)">{{ owner(machine.ownerId) }}</span>
+                  <span v-if="machine.online && machine.activeRuns">
+                    {{ machine.activeRuns }} active run{{ machine.activeRuns === 1 ? '' : 's' }}
+                  </span>
                 </div>
               </div>
               <div class="machine-actions">
@@ -355,21 +320,22 @@ function menuKey(event: KeyboardEvent) {
       <div v-else class="small-empty">
         <Icon name="monitor" :size="28" />
         <p>{{ runtimes.isPending.value ? 'Loading computer…' : 'Computer not found' }}</p>
-        <RouterLink class="button" to="/machines">Back to Machines</RouterLink>
+        <RouterLink class="button" :to="{ path: '/settings', query: { tab: 'machines' } }"
+          >Back to Machines</RouterLink
+        >
       </div>
     </template>
     <div v-else class="inset-content">
       <ul v-if="daemons.length" class="machine-rows">
         <li v-for="d in daemons" :key="d.id" class="machine-row" :class="{ offline: !d.online }">
-          <RouterLink class="machine-link" :to="'/machines/' + encodeURIComponent(d.id)">
+          <RouterLink
+            class="machine-link"
+            :to="{ path: '/settings', query: { tab: 'machines', machine: d.id } }"
+          >
             <span class="square-icon"><Icon name="monitor" /></span>
             <div class="name">
               <b>{{ d.name }}</b
-              ><small
-                >daemon {{ d.id.slice(0, 8) }}…<template v-if="owner(d.ownerId)">
-                  · {{ owner(d.ownerId) }}</template
-                ></small
-              >
+              ><small v-if="owner(d.ownerId)">{{ owner(d.ownerId) }}</small>
               <p v-if="removalError?.id === d.id" class="inline-error" role="alert">
                 {{ removalError.message }}
               </p>
@@ -394,23 +360,6 @@ function menuKey(event: KeyboardEvent) {
             }}</small
             ><small class="seen">{{ timeAgo(d.lastSeen) }}</small>
           </RouterLink>
-          <span class="menu-anchor" @keydown="menuKey"
-            ><button
-              class="icon-button"
-              :disabled="busy"
-              aria-label="Machine actions"
-              aria-haspopup="menu"
-              :aria-expanded="menuFor === d.id"
-              @click="toggleMenu(d, $event)"
-            >
-              <Icon name="more" /></button
-            ><span v-if="menuFor === d.id" class="row-menu" role="menu" aria-label="Machine actions"
-              ><button role="menuitem" @click="startRename(d)">Rename…</button
-              ><button v-if="!d.online" role="menuitem" class="danger" @click="remove(d)">
-                Remove
-              </button></span
-            ></span
-          >
         </li>
       </ul>
       <div v-else-if="runtimes.isSuccess.value" class="small-empty">

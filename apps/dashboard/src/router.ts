@@ -13,14 +13,12 @@ import AutoresearchView from './views/AutoresearchView.vue';
 import AgentsView from './views/AgentsView.vue';
 import AgentDetail from './views/AgentDetail.vue';
 import TaskDetail from './views/TaskDetail.vue';
-import MachinesView from './views/MachinesView.vue';
 import InboxView from './views/InboxView.vue';
 import ColleaguesView from './views/ColleaguesView.vue';
 import TeamsView from './views/TeamsView.vue';
 import TeamDetail from './views/TeamDetail.vue';
 import TeamForm from './views/TeamForm.vue';
 import SettingsView from './views/SettingsView.vue';
-import UpdatesView from './views/UpdatesView.vue';
 import SignInView from './views/SignInView.vue';
 import AcceptInvite from './views/AcceptInvite.vue';
 import OnboardingView from './views/OnboardingView.vue';
@@ -42,14 +40,14 @@ declare module 'vue-router' {
   }
 }
 
-function param(route: RouteLocationNormalized, name: string) {
+function param(route: Pick<RouteLocationNormalized, 'params'>, name: string) {
   const value = route.params[name];
   return (Array.isArray(value) ? value[0] : value) || undefined;
 }
 
 // Later slices' destinations stay unrouted until their slice.
 const routes: RouteRecordRaw[] = [
-  { path: '/updates', component: UpdatesView, meta: { page: 'updates', title: 'Updates' } },
+  { path: '/updates', redirect: { path: '/settings', query: { tab: 'updates' } } },
   {
     path: '/projects',
     component: ResearchesView,
@@ -126,9 +124,13 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/machines/:machineId?',
-    props: true,
-    component: MachinesView,
-    meta: { page: 'machines', title: 'Machines' },
+    redirect: (route) => ({
+      path: '/settings',
+      query: {
+        tab: 'machines',
+        ...(param(route, 'machineId') ? { machine: param(route, 'machineId') } : {}),
+      },
+    }),
   },
   {
     path: '/settings/:section?',
@@ -136,6 +138,7 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'settings', title: 'Settings' },
     props: (route) => ({
       section: String(route.query.tab || param(route, 'section') || 'profile'),
+      machineId: typeof route.query.machine === 'string' ? route.query.machine : undefined,
     }),
   },
   { path: '/:pathMatch(.*)*', redirect: '/studies' },

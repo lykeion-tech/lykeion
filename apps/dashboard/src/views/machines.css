@@ -4,6 +4,24 @@
   margin: 0 auto;
   max-width: 1408px;
 }
+.settings-machines {
+  overflow: visible;
+}
+.settings-machines .inset-content,
+.settings-machines .machine-rail {
+  width: 100%;
+  margin: 0;
+  padding-inline: 0;
+}
+.settings-machines .machine-rows {
+  padding-top: 0;
+}
+.settings-machines .machine-row:first-child {
+  margin-top: 0;
+}
+.settings-machines .machine-heading-row {
+  flex-wrap: wrap;
+}
 .machine-row {
   display: flex;
   align-items: center;

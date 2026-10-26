@@ -83,13 +83,11 @@ const groups = [
       { id: 'teams', name: 'Teams', icon: 'network' },
       { id: 'agents', name: 'Agents', icon: 'bot' },
       { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
-      { id: 'machines', name: 'Machines', icon: 'monitor' },
     ],
   },
 ];
 const destinations = [
   ...groups.flatMap((g) => g.items),
-  { id: 'updates', name: 'Updates', icon: 'download' },
   { id: 'settings', name: 'Settings', icon: 'settings' },
 ];
 const workspaceName = computed(() => workspace.data.value?.name ?? 'Lykeion');
@@ -461,13 +459,6 @@ onUnmounted(() => {
         >
       </nav>
       <div class="sidebar-bottom">
-        <RouterLink
-          to="/updates"
-          class="nav-item"
-          :class="{ selected: current === 'updates' }"
-          :aria-current="current === 'updates' ? 'page' : undefined"
-          ><Icon name="download" />Updates</RouterLink
-        >
         <div class="settings-line">
           <RouterLink to="/settings" class="nav-item" :class="{ selected: current === 'settings' }"
             ><Icon name="settings" />Settings</RouterLink

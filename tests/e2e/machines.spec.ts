@@ -10,14 +10,15 @@ test('the lab daemon is listed and can be renamed', async ({ page }) => {
   await expect(row).toContainText(/All idle|\d+ runs?/);
   await expect(row).toContainText('Ana Ruiz');
   try {
-    await row.getByRole('button', { name: 'Machine actions' }).click();
+    await expect(row.getByRole('button', { name: 'Machine actions' })).toHaveCount(0);
+    await row.getByRole('link').click();
     // An online machine cannot be removed.
-    await expect(page.getByRole('menuitem', { name: 'Remove' })).toHaveCount(0);
-    await page.getByRole('menuitem', { name: 'Rename…' }).click();
+    await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Rename machine', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Rename machine' });
     await dialog.getByRole('textbox', { name: 'Name' }).fill('Lab workstation');
     await dialog.getByRole('button', { name: 'Save' }).click();
-    await expect(page.getByRole('listitem').filter({ hasText: 'Lab workstation' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Lab workstation', exact: true })).toBeVisible();
   } finally {
     // Later specs name the machine by its device name.
     const ws = await labWorkspace(page.request);
@@ -85,13 +86,13 @@ async function runtimeList(page: import('@playwright/test').Page, ws: string) {
   expect(response.status()).toBe(200);
   return (await response.json()) as MachineRuntime[];
 }
+async function openMachine(page: import('@playwright/test').Page, name: string) {
+  await page.goto('/#/settings?tab=machines');
+  await page.getByRole('listitem').filter({ hasText: name }).getByRole('link').click();
+}
 async function edit(page: import('@playwright/test').Page, name: string, draft: string) {
-  await page
-    .getByRole('listitem')
-    .filter({ hasText: name })
-    .getByRole('button', { name: 'Machine actions' })
-    .click();
-  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  await openMachine(page, name);
+  await page.getByRole('button', { name: 'Rename machine', exact: true }).click();
   await page.getByRole('textbox', { name: 'Name' }).fill(draft);
 }
 
@@ -119,15 +120,12 @@ test('two real runtimes group into one machine with versions, rename together, a
         .filter((r) => records.some((x) => x.id === r.id))
         .map((r) => r.custom_name),
     ).toEqual(['Renamed two CLI computer', 'Renamed two CLI computer']);
-    await expect(
-      page
-        .getByRole('listitem')
-        .filter({ hasText: 'Renamed two CLI computer' })
-        .getByRole('button', { name: 'Machine actions' }),
-    ).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Rename machine', exact: true })).toBeFocused();
     await edit(page, 'Renamed two CLI computer', '');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(row).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Two CLI computer', exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(
       (await runtimeList(page, ws))
@@ -185,16 +183,19 @@ test('another owner gets real rename/remove refusals; offline own machines can b
       )
       .toBe(true);
     await page.reload();
-    const colleague = page.getByRole('listitem').filter({ hasText: 'Colleague computer' });
+    const colleague = page.locator('.resource-machines');
+    await expect(
+      page.getByRole('heading', { name: 'Colleague computer', exact: true }),
+    ).toBeVisible();
     await expect(colleague).toContainText('Offline');
     await page.screenshot({ path: `${artifacts}/offline.png`, fullPage: true });
-    await colleague.getByRole('button', { name: 'Machine actions' }).click();
+    await openMachine(page, 'Colleague computer');
     await page.screenshot({ path: `${artifacts}/offline-open-menu.png`, fullPage: true });
     page.once('dialog', (dialog) => dialog.accept());
     const refusedDelete = page.waitForResponse(
       (r) => r.request().method() === 'DELETE' && r.url().includes('/api/runtimes/'),
     );
-    await page.getByRole('menuitem', { name: 'Remove' }).click();
+    await page.getByRole('button', { name: 'Remove', exact: true }).click();
     expect((await refusedDelete).status()).toBe(404);
     await expect(colleague.getByRole('alert')).toHaveText(
       'Only the machine’s owner can remove it.',
@@ -224,11 +225,12 @@ test('another owner gets real rename/remove refusals; offline own machines can b
       }
     });
     try {
-      await colleague.getByRole('button', { name: 'Machine actions' }).click();
+      await openMachine(page, 'Colleague computer');
       await expect(colleague.getByRole('alert')).toHaveCount(0);
       page.once('dialog', (dialog) => dialog.accept());
-      await page.getByRole('menuitem', { name: 'Remove' }).click();
+      await page.getByRole('button', { name: 'Remove', exact: true }).click();
       expect(await heldRefusal).toBe(404);
+      await page.goto('/#/settings?tab=machines');
       await page.getByRole('button', { name: 'Add a machine', exact: true }).click();
       await expect(page.getByRole('dialog', { name: 'Add a machine' })).toBeVisible();
       await page.keyboard.press('Escape');
@@ -274,13 +276,9 @@ test('another owner gets real rename/remove refusals; offline own machines can b
       }
     });
     try {
-      await page
-        .getByRole('listitem')
-        .filter({ hasText: 'Offline owned computer' })
-        .getByRole('button', { name: 'Machine actions' })
-        .click();
+      await openMachine(page, 'Offline owned computer');
       page.once('dialog', (dialog) => dialog.accept());
-      await page.getByRole('menuitem', { name: 'Remove' }).click();
+      await page.getByRole('button', { name: 'Remove', exact: true }).click();
       expect(await deleteAccepted).toBe(204);
       await page.goto('/#/inbox');
       await expect(page.getByRole('navigation', { name: 'Inbox items' })).toBeVisible();
@@ -304,11 +302,14 @@ test('another owner gets real rename/remove refusals; offline own machines can b
       await page.unroute('**/api/runtimes/*');
     }
     // The first removal reaches the list by a realtime event; a stale list resends it.
+    await page.goto('/#/settings?tab=machines');
     const remaining = page.getByRole('listitem').filter({ hasText: 'Offline owned computer' });
     await expect(remaining).toContainText('1 runtime');
-    await remaining.getByRole('button', { name: 'Machine actions' }).click();
+    await remaining.getByRole('link').click();
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByRole('menuitem', { name: 'Remove' }).click();
+    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(page).toHaveURL(/#\/settings\?tab=machines$/);
+    await expect(page.getByRole('button', { name: 'Add a machine', exact: true })).toBeVisible();
     await expect(
       page.getByRole('listitem').filter({ hasText: 'Offline owned computer' }),
     ).toHaveCount(0);
@@ -565,7 +566,7 @@ test('computer setup offers supported platform commands, real clipboard, and det
       'Connected: Freshly connected computer',
     );
     await dialog.getByRole('link', { name: 'View computer' }).click();
-    await expect(page).toHaveURL(new RegExp('#/machines/' + records[0]!.daemon_id + '$'));
+    await expect(page).toHaveURL(new RegExp('tab=machines&machine=' + records[0]!.daemon_id + '$'));
     await page
       .getByRole('navigation', { name: 'Machine breadcrumb' })
       .getByRole('link', { name: 'Machines', exact: true })
@@ -592,7 +593,7 @@ test('machine detail uses actual versions, canonical rename, keyboard links and 
     await expect(link).toBeVisible();
     await link.focus();
     await page.keyboard.press('Enter');
-    await expect(page).toHaveURL(new RegExp('#/machines/' + records[0]!.daemon_id + '$'));
+    await expect(page).toHaveURL(new RegExp('tab=machines&machine=' + records[0]!.daemon_id + '$'));
     await expect(page.getByRole('heading', { name: 'Detail computer', exact: true })).toBeVisible();
     const table = page.getByRole('table', { name: 'Runtimes' });
     await expect(table.getByRole('row')).toHaveCount(3);

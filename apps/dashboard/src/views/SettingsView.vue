@@ -5,6 +5,8 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { themes } from '../theme';
 import Icon from '../components/Icon.vue';
 import StoragePanel from '../components/settings/StoragePanel.vue';
+import MachinesView from './MachinesView.vue';
+import UpdatesView from './UpdatesView.vue';
 import AnalyticsPanel from '../components/settings/AnalyticsPanel.vue';
 import SkillPanel from '../components/settings/library/SkillPanel.vue';
 import ConnectorPanel from '../components/settings/library/ConnectorPanel.vue';
@@ -21,7 +23,8 @@ import { notify } from '../state/notice';
 import { usePreferences } from '../state/preferences';
 
 const router = useRouter();
-const props = defineProps<{ section: string }>();
+const props = defineProps<{ section: string; machineId?: string }>();
+const machinePanel = ref<InstanceType<typeof MachinesView>>();
 const client = useQueryClient();
 const me = useMe();
 const workspace = useWorkspace();
@@ -55,6 +58,8 @@ const groups = computed(() =>
         { id: 'preferences', label: 'Preferences', icon: 'filters' },
         { id: 'tokens', label: 'API Tokens', icon: 'link' },
         { id: 'storage', label: 'Storage', icon: 'layers' },
+        { id: 'machines', label: 'Machines', icon: 'monitor' },
+        { id: 'updates', label: 'Updates', icon: 'download' },
       ],
     },
     {
@@ -75,6 +80,8 @@ const titles: Record<string, string> = {
   preferences: 'Preferences',
   tokens: 'API Tokens',
   storage: 'Storage',
+  machines: 'Machines',
+  updates: 'Updates',
   general: 'General',
   skills: 'Skills',
   connectors: 'Connectors',
@@ -352,6 +359,13 @@ async function copySlug() {
       >
         <header v-if="section !== 'skills' && section !== 'connectors'" class="settings-heading">
           <h2>{{ titles[section] ?? 'Settings' }}</h2>
+          <button
+            v-if="section === 'machines' && !machineId"
+            class="button primary settings-heading-action"
+            @click="machinePanel?.openAdd()"
+          >
+            <Icon name="plus" />Add a machine
+          </button>
           <span v-if="section === 'general'" class="scope-badge"
             ><Icon name="users" :size="11" />{{ workspace.data.value?.name }} workspace</span
           >
@@ -359,6 +373,13 @@ async function copySlug() {
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
 
         <StoragePanel v-if="section === 'storage'" />
+        <MachinesView
+          v-else-if="section === 'machines'"
+          ref="machinePanel"
+          :machine-id="machineId"
+          embedded
+        />
+        <UpdatesView v-else-if="section === 'updates'" />
         <SkillPanel v-else-if="section === 'skills'" />
         <ConnectorPanel v-else-if="section === 'connectors'" />
         <template v-else-if="section === 'profile'">
@@ -770,6 +791,12 @@ async function copySlug() {
   padding: 16px 16px 56px;
   margin: 0 auto;
 }
+.settings-body :deep(.updates-page) {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
 .settings-heading {
   display: flex;
   align-items: center;
@@ -781,6 +808,9 @@ async function copySlug() {
   font-size: 20px;
   font-weight: 600;
   line-height: 28px;
+}
+.settings-heading-action {
+  margin-left: auto;
 }
 .scope-badge {
   font-size: 12px;
