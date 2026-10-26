@@ -8,7 +8,7 @@ import { useMe, useMembers } from '../api/queries';
 import type { AffectedMachineRun, Runtime } from '../api/types';
 import { backendLabel } from '../lib/backends';
 import Modal from './Modal.vue';
-const props = defineProps<{ machineId: string; runtimes: Runtime[] }>();
+const props = defineProps<{ machineId: string; runtimes: Runtime[]; hideHeading?: boolean }>();
 const me = useMe();
 const members = useMembers();
 const client = useQueryClient();
@@ -69,6 +69,7 @@ const warnings = computed(
   () => owned.value.some(shared) || (mode.value !== 'private' && selected.value.length > 0),
 );
 const locked = computed(() => busy.value || affected.value !== null);
+defineExpose({ canClose: () => !locked.value });
 const people = computed(() =>
   (members.data.value ?? []).filter((m) => m.user_id !== me.data.value?.id),
 );
@@ -160,7 +161,7 @@ function cancel() {
   <section v-if="owned.length" class="machine-sharing type-body" aria-label="Shared machines">
     <div class="runtime-heading">
       <div>
-        <h2>Shared machines</h2>
+        <h2 v-if="!hideHeading">Shared machines</h2>
         <p>Choose who can run agents on this machine.</p>
       </div>
     </div>

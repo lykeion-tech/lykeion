@@ -148,6 +148,7 @@ async function mount(
   props: () => Record<string, unknown>,
   path = '/',
   seed?: (client: QueryClient) => void,
+  openSharing = true,
 ) {
   const g = globalThis as { document?: unknown };
   g.document ??= { addEventListener() {}, removeEventListener() {} };
@@ -170,7 +171,11 @@ async function mount(
   app.mount(root);
   await nextTick();
   const button = (label: RegExp) =>
-    all(root).find((n) => n.tag === 'button' && label.test(textOf(n).trim()));
+    all(root).find(
+      (n) =>
+        n.tag === 'button' &&
+        (label.test(textOf(n).trim()) || label.test(String(n.props['aria-label'] ?? ''))),
+    );
   const click = async (label: RegExp) => {
     const b = button(label);
     expect(b, textOf(root)).toBeTruthy();
@@ -190,6 +195,8 @@ async function mount(
     await (form!.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
     await nextTick();
   };
+  if (openSharing && component === MachinesView && !button(/^Details$/)?.props.disabled)
+    await click(/^Details$/);
   return {
     text: () => textOf(root),
     all: () => all(root),
@@ -231,6 +238,83 @@ async function change(t: Awaited<ReturnType<typeof mount>>, label: string, value
 }
 
 describe('Shared machines', () => {
+  it('keeps the dialog open until a multi-CLI save completes', async () => {
+    let finish!: (response: Response) => void;
+    const f = vi.fn((path: string, init?: RequestInit) =>
+      path === '/api/runtimes/r1/sharing' && init?.method === 'PUT'
+        ? new Promise<Response>((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve(
+            new Response(
+              path === '/api/runtimes'
+                ? JSON.stringify([
+                    runtime({ visibility: 'workspace' }),
+                    runtime({ id: 'r2', harness: 'codex', visibility: 'workspace' }),
+                  ])
+                : init?.method === 'GET'
+                  ? '[]'
+                  : '{}',
+            ),
+          ),
+    );
+    vi.stubGlobal('fetch', f);
+    const t = await mount(
+      MachinesView,
+      () => ({ machineId: 'd1' }),
+      '/',
+      (c) =>
+        c.setQueryData(keys.runtimes('w'), [runtime(), runtime({ id: 'r2', harness: 'codex' })]),
+    );
+    try {
+      await change(t, 'Share', 'workspace');
+      await change(t, 'Share Claude Code', ['r1', 'r2']);
+      await t.click(/^Save sharing$/);
+      await vi.waitFor(() => expect(bodies(f)).toHaveLength(1));
+      await t.click(/^Close$/);
+      expect(t.button(/^Saving…$/)).toBeTruthy();
+      finish(new Response('{}'));
+      await vi.waitFor(() => expect(bodies(f)).toHaveLength(2));
+      await vi.waitFor(() => expect(t.button(/^Save sharing$/)?.props.disabled).toBe(false));
+      await t.click(/^Close$/);
+      expect(t.button(/^Save sharing$/)).toBeUndefined();
+    } finally {
+      t.unmount();
+    }
+  });
+  it('opens sharing from Colleagues Details without inline sharing or usage requests', async () => {
+    const f = fetching();
+    const t = await mount(MachinesView, () => ({ machineId: 'd1' }), '/', undefined, false);
+    try {
+      expect(
+        t
+          .all()
+          .filter((n) => n.tag === 'th')
+          .map(textOf),
+      ).toEqual(['Runtime', 'Health', 'Active runs', 'CLI', 'Colleagues']);
+      expect(t.text()).not.toContain('Choose who can run agents');
+      expect(t.text()).not.toContain('Colleagues’ runs');
+      expect(f.mock.calls.some(([path]) => String(path).includes('/colleagues'))).toBe(false);
+      await t.click(/^Details$/);
+      expect(t.text()).toContain('Choose who can run agents on this machine.');
+      expect(
+        t
+          .all()
+          .filter((n) => n.tag === 'h2')
+          .map(textOf),
+      ).not.toContain('Shared machines');
+      expect(t.all().find((n) => n.tag === 'dialog')?.props['aria-label']).toBe('Details');
+      expect(t.text()).not.toContain('Adapter capabilities');
+      expect(t.button(/^Save sharing$/)).toBeTruthy();
+      await t.click(/^Close$/);
+      expect(t.button(/^Save sharing$/)).toBeUndefined();
+      await t.click(/^Details$/);
+      expect(t.button(/^Save sharing$/)).toBeTruthy();
+      expect(bodies(f)).toHaveLength(0);
+    } finally {
+      t.unmount();
+    }
+  });
   it.each([
     [
       runtime({ visibility: 'workspace' }),
@@ -751,51 +835,23 @@ describe('Shared machines', () => {
       t.unmount();
     }
   });
-  it('renders usage without merging colleagues with identical display names', async () => {
-    const data = {
-      runs: [
-        {
-          run_id: 'guest',
-          colleague: 'Ada',
-          study_title: 'Guest study',
-          harness: 'codex',
-          started_at: null,
-          status: 'queued',
-          input_tokens: 12,
-          output_tokens: 5,
-          cost_usd: 0.5,
-        },
-      ],
-      totals: [
-        {
-          colleague: 'Ada',
-          last_7_days: { tokens: 17, cost_usd: 0.5 },
-          last_30_days: { tokens: 100, cost_usd: 2 },
-        },
-        {
-          colleague: 'Ada',
-          last_7_days: { tokens: 3, cost_usd: 0.1 },
-          last_30_days: { tokens: 70, cost_usd: 1 },
-        },
-      ],
-    };
-    const f = vi.fn(async (_path: string) => new Response(JSON.stringify(data)));
-    vi.stubGlobal('fetch', f);
-    const t = await mount(MachinesView, () => ({ machineId: 'd1' }));
+  it('renders the server count for all active runtime runs', async () => {
+    const f = fetching();
+    const t = await mount(
+      MachinesView,
+      () => ({ machineId: 'd1' }),
+      '/',
+      (c) => c.setQueryData(keys.runtimes('w'), [runtime({ active_runs: 3 })]),
+      false,
+    );
     try {
-      await vi.waitFor(() => expect(t.text()).toContain('Guest study'));
-      expect(t.text()).toContain('Not started');
-      const table = t
+      const row = t
         .all()
-        .find((n) => n.tag === 'table' && n.props['aria-label'] === 'Colleagues’ usage')!;
-      expect(
-        all(table)
-          .filter((n) => n.tag === 'tbody')[0]!
-          .children.filter((n) => n.tag === 'tr'),
-      ).toHaveLength(2);
-      expect(textOf(table)).toContain('100');
-      expect(textOf(table)).toContain('70');
-      expect(f.mock.calls[0]?.[0]).toBe('/api/machines/d1/colleagues');
+        .find((n) => n.tag === 'tbody')!
+        .children.find((n) => n.tag === 'tr')!;
+      expect(textOf(row.children[2]!)).toBe('3');
+      expect(t.text()).not.toContain('Colleagues’ runs');
+      expect(f.mock.calls.some(([path]) => String(path).includes('/colleagues'))).toBe(false);
     } finally {
       t.unmount();
     }

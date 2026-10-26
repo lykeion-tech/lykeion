@@ -5,8 +5,7 @@ import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
 import MachineSharing from '../components/MachineSharing.vue';
-import { useMe, useMachineColleagues } from '../api/queries';
-import BackendDetailsDialog from '../components/BackendDetailsDialog.vue';
+import { useMe } from '../api/queries';
 import { backendLabel } from '../lib/backends';
 import AddComputerDialog from '../components/AddComputerDialog.vue';
 import { api, ApiError } from '../api/client';
@@ -25,13 +24,6 @@ const members = useMembers();
 const daemons = computed(() => groupDaemons(runtimes.data.value ?? []));
 const machine = computed(() => daemons.value.find((d) => d.id === props.machineId));
 const isOwner = computed(() => !!me.data.value?.id && machine.value?.ownerId === me.data.value.id);
-const usage = useMachineColleagues(() => props.machineId ?? '', isOwner);
-const money = (value: number) =>
-  new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 4,
-  }).format(value);
 const sandboxFailure = computed(() => {
   const current = machine.value;
   if (!current) return '';
@@ -44,7 +36,8 @@ const sandboxFailure = computed(() => {
   return reason ? `Can't run agents: ${reason}` : "Can't run agents";
 });
 const menuFor = ref('');
-const backendDetails = ref('');
+const sharingDetails = ref(false);
+const sharingForm = ref<InstanceType<typeof MachineSharing>>();
 const dialog = ref<'' | 'add' | 'daemon' | 'rename'>('');
 const renaming = ref<Daemon | null>(null);
 const draft = ref('');
@@ -57,7 +50,7 @@ watch(
   () => {
     generation++;
     menuFor.value = '';
-    backendDetails.value = '';
+    sharingDetails.value = false;
     dialog.value = '';
     renaming.value = null;
     draft.value = '';
@@ -305,9 +298,8 @@ function menuKey(event: KeyboardEvent) {
                   <th>Runtime</th>
                   <th>Health</th>
                   <th>Active runs</th>
-                  <th>Cost · 7d</th>
                   <th>CLI</th>
-                  <th><span class="sr-only">Details</span></th>
+                  <th>Colleagues</th>
                 </tr>
               </thead>
               <tbody>
@@ -332,15 +324,16 @@ function menuKey(event: KeyboardEvent) {
                     >
                   </td>
                   <td>{{ r.active_runs ?? 'Not reported' }}</td>
-                  <td class="unknown-metric" title="Seven-day runtime cost is not recorded">—</td>
                   <td class="runtime-version" :title="r.cli_version || 'Version not reported'">
                     {{ r.cli_version || 'Not reported' }}
                   </td>
                   <td>
                     <button
                       class="text-button"
-                      aria-label="Backend details"
-                      @click="backendDetails = r.harness"
+                      :aria-label="`Sharing details for ${cliName(r.harness)}`"
+                      :disabled="!isOwner"
+                      :title="isOwner ? undefined : 'Only the machine owner can change sharing'"
+                      @click="sharingDetails = true"
                     >
                       Details
                     </button>
@@ -349,78 +342,6 @@ function menuKey(event: KeyboardEvent) {
               </tbody>
             </table>
           </div>
-          <MachineSharing :machine-id="machine.id" :runtimes="machine.runtimes" />
-          <section v-if="isOwner" class="machine-colleagues" aria-label="Colleagues’ runs">
-            <div class="runtime-heading">
-              <div>
-                <h2>Colleagues’ runs</h2>
-                <p>Usage from colleagues on this machine.</p>
-              </div>
-            </div>
-            <p v-if="usage.error.value" class="inline-error" role="alert">
-              {{ usage.error.value.message }}
-              <button class="text-button" @click="usage.refetch()">Retry</button>
-            </p>
-            <p v-else-if="usage.isPending.value" class="type-caption">Loading colleagues’ runs…</p>
-            <template v-else-if="usage.data.value">
-              <div v-if="usage.data.value.totals?.length" class="runtime-table-scroll">
-                <table class="machine-runtime-table" aria-label="Colleagues’ usage">
-                  <thead>
-                    <tr>
-                      <th>Colleague</th>
-                      <th>Tokens · 7d</th>
-                      <th>Cost · 7d</th>
-                      <th>Tokens · 30d</th>
-                      <th>Cost · 30d</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(total, index) in usage.data.value.totals" :key="index">
-                      <td>{{ total.colleague }}</td>
-                      <td>{{ total.last_7_days.tokens.toLocaleString() }}</td>
-                      <td>{{ money(total.last_7_days.cost_usd) }}</td>
-                      <td>{{ total.last_30_days.tokens.toLocaleString() }}</td>
-                      <td>{{ money(total.last_30_days.cost_usd) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div v-if="usage.data.value.runs?.length" class="runtime-table-scroll">
-                <table class="machine-runtime-table" aria-label="Colleagues’ runs">
-                  <thead>
-                    <tr>
-                      <th>Study</th>
-                      <th>Colleague</th>
-                      <th>CLI</th>
-                      <th>Started</th>
-                      <th>Status</th>
-                      <th>Input tokens</th>
-                      <th>Output tokens</th>
-                      <th>Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="run in usage.data.value.runs" :key="run.run_id">
-                      <td>{{ run.study_title || 'No study' }}</td>
-                      <td>{{ run.colleague }}</td>
-                      <td>{{ cliName(run.harness) }}</td>
-                      <td>
-                        <time v-if="run.started_at" :datetime="run.started_at">{{
-                          timeAgo(run.started_at)
-                        }}</time
-                        ><span v-else>Not started</span>
-                      </td>
-                      <td>{{ run.status }}</td>
-                      <td>{{ run.input_tokens.toLocaleString() }}</td>
-                      <td>{{ run.output_tokens.toLocaleString() }}</td>
-                      <td>{{ money(run.cost_usd) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p v-else class="type-caption">No colleagues’ runs yet.</p>
-            </template>
-          </section>
           <div class="remote-limit">
             <p>
               Remote controls and custom runtimes are unavailable. Use Daemon instructions on the
@@ -531,13 +452,28 @@ function menuKey(event: KeyboardEvent) {
       <button class="button primary" :disabled="busy">Save</button>
     </form></Modal
   >
-  <BackendDetailsDialog
-    v-if="backendDetails"
-    :key="workspaceId + backendDetails"
-    :harness="backendDetails"
-    :runtimes="machine?.runtimes"
-    @close="backendDetails = ''"
-  />
+  <Modal
+    v-if="sharingDetails && machine && isOwner"
+    v-slot="{ close }"
+    title="Details"
+    :before-close="() => sharingForm?.canClose() ?? true"
+    @close="sharingDetails = false"
+  >
+    <div class="machine-sharing-dialog">
+      <header class="runtime-heading">
+        <h2>Details</h2>
+        <button class="icon-button" aria-label="Close" @click="close">
+          <Icon name="close" />
+        </button>
+      </header>
+      <MachineSharing
+        ref="sharingForm"
+        :machine-id="machine.id"
+        :runtimes="machine.runtimes"
+        hide-heading
+      />
+    </div>
+  </Modal>
 </template>
 <style scoped src="./resources.css"></style>
 <style scoped src="./machines.css"></style>
