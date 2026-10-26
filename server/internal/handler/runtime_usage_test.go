@@ -45,11 +45,22 @@ func machineUsageRun(t *testing.T, f runtimeSkillFixture, ws, rt, jwt, title str
 	if _, err := f.s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run(id,workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt,status,runtime_id,started_at,created_at) VALUES($1,$2,$3,$4,'grounding',1,'leader','claude','private prompt sentinel','completed',$5,$6,COALESCE($6,now()))`, id, ws, c.ID, f.s.userID(t, jwt), rt, started); err != nil {
 		t.Fatal(err)
 	}
+	machineUsageAttempt(t, f, ws, id, 1)
 	return id
+}
+
+// Synthetic analytics fixtures explicitly model accepted execution provenance.
+func machineUsageAttempt(t *testing.T, f runtimeSkillFixture, ws, run string, attempt int) {
+	t.Helper()
+	if _, err := f.s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run_machine_attempt(workspace_id,agent_run_id,attempt,runtime_id,daemon_id,owner_id,responsible_user_id,accepted_at,started_at)
+      SELECT r.workspace_id,r.id,$3,rt.id,rt.daemon_id,rt.owner_id,r.responsible_user_id,r.created_at,r.started_at FROM agent_run r JOIN runtime rt ON rt.id=r.runtime_id AND rt.workspace_id=r.workspace_id WHERE r.workspace_id=$1 AND r.id=$2 ON CONFLICT DO NOTHING`, ws, run, attempt); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func machineUsageRow(t *testing.T, f runtimeSkillFixture, ws, run string, attempt int, at time.Time, input, output, read, write int64, cost float64) {
 	t.Helper()
+	machineUsageAttempt(t, f, ws, run, attempt)
 	if _, err := f.s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run_usage(workspace_id,agent_run_id,attempt,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,created_at) VALUES($1,$2,$3,'model',$4,$5,$6,$7,$8,$9)`, ws, run, attempt, input, output, read, write, cost, at); err != nil {
 		t.Fatal(err)
 	}
@@ -179,6 +190,10 @@ func TestMachineUsageIncludesHistoricalRunsAndLimitsOnlyTheList(t *testing.T) {
 	if _, err := f.s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run(workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt,status,runtime_id,started_at) SELECT $1,$2,$3,'grounding',1,'leader','claude','private','completed',$4,$5::timestamptz - n*interval '1 second' FROM generate_series(1,201) n`, f.ws, cardID, f.s.userID(t, guest), f.rt, now); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := f.s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run_machine_attempt(workspace_id,agent_run_id,attempt,runtime_id,daemon_id,owner_id,responsible_user_id,accepted_at,started_at)
+      SELECT r.workspace_id,r.id,1,rt.id,rt.daemon_id,rt.owner_id,r.responsible_user_id,r.started_at,r.started_at FROM agent_run r JOIN runtime rt ON rt.id=r.runtime_id AND rt.workspace_id=r.workspace_id WHERE r.workspace_id=$1 ON CONFLICT DO NOTHING`, f.ws); err != nil {
+		t.Fatal(err)
+	}
 	// A separate owner of a different harness with the same daemon id is excluded.
 	var otherRT string
 	if err := f.s.Env.Owner.QueryRow(t.Context(), `INSERT INTO runtime(workspace_id,owner_id,daemon_id,harness) VALUES($1,$2,'skills-daemon','codex') RETURNING id`, f.ws, f.s.userID(t, guest)).Scan(&otherRT); err != nil {
@@ -248,5 +263,35 @@ func TestMachineUsageRollingWindows(t *testing.T) {
 	}
 	if len(got.Runs) != 1 || got.Runs[0].InputTokens != 33333 || got.Runs[0].OutputTokens != 11111 || got.Runs[0].CostUSD != 31 {
 		t.Fatalf("all-time run usage: %s", fmt.Sprint(got.Runs))
+	}
+}
+
+func TestMachineUsageEndpointRetainsDeletedRuntimeHistory(t *testing.T) {
+	f := runtimeSkillSetup(t)
+	guest := f.s.member(t, f.jwt, f.ws, "retained@lab.org", "member")
+	now := time.Now().Add(-time.Minute)
+	run := machineUsageRun(t, f, f.ws, f.rt, guest, "Retained title", &now)
+	machineUsageRow(t, f, f.ws, run, 1, now, 8, 2, 0, 0, 1)
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := f.s.Env.Owner.Exec(t.Context(), sql, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO runtime(workspace_id,owner_id,daemon_id,harness) VALUES($1,$2,'skills-daemon','codex')`, f.ws, f.s.userID(t, f.jwt))
+	exec(`DELETE FROM runtime WHERE id=$1`, f.rt)
+	check := func() {
+		t.Helper()
+		got := machineUsageRead(t, f, f.ws)
+		if len(got.Runs) != 1 || got.Runs[0].RunID != run || got.Runs[0].CostUSD != 1 || len(got.Totals) != 1 || got.Totals[0].Last7Days != (machineUsageWindow{10, 1}) {
+			t.Fatalf("retained history: %+v", got)
+		}
+	}
+	check()
+	exec(`INSERT INTO runtime(workspace_id,owner_id,daemon_id,harness) VALUES($1,$2,'skills-daemon','claude')`, f.ws, f.s.userID(t, f.jwt))
+	check()
+	// Surviving historical attribution does not grant endpoint ownership to guests.
+	if code := f.s.call(t, "GET", "/api/machines/skills-daemon/colleagues", guest, f.ws, nil, nil); code != 404 {
+		t.Fatalf("guest got history: %d", code)
 	}
 }

@@ -73,6 +73,18 @@ type AgentRun struct {
 	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
 }
 
+type AgentRunMachineAttempt struct {
+	WorkspaceID       uuid.UUID  `json:"workspace_id"`
+	AgentRunID        uuid.UUID  `json:"agent_run_id"`
+	Attempt           int32      `json:"attempt"`
+	RuntimeID         uuid.UUID  `json:"runtime_id"`
+	DaemonID          string     `json:"daemon_id"`
+	OwnerID           uuid.UUID  `json:"owner_id"`
+	ResponsibleUserID uuid.UUID  `json:"responsible_user_id"`
+	AcceptedAt        time.Time  `json:"accepted_at"`
+	StartedAt         *time.Time `json:"started_at"`
+}
+
 type AgentRunMessage struct {
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
 	AgentRunID  uuid.UUID       `json:"agent_run_id"`

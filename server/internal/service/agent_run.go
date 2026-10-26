@@ -650,6 +650,13 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if mcp == nil {
 						mcp = []agent.MCPServer{}
 					}
+					if err := tx.Q.AcceptMachineAttempt(ctx, db.AcceptMachineAttemptParams{
+						WorkspaceID: ref.WorkspaceID, AgentRunID: t.ID, Attempt: t.Attempt,
+						RuntimeID: current.ID, DaemonID: current.DaemonID, OwnerID: current.OwnerID,
+						ResponsibleUserID: t.ResponsibleUserID,
+					}); err != nil {
+						return err
+					}
 					plain, hash, _ := auth.NewToken(AgentRunPrefix)
 					if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: hash, WorkspaceID: ref.WorkspaceID,
 						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: Scopes(t.Kind), ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
@@ -871,6 +878,9 @@ func (s *AgentRuns) Start(ctx context.Context, user uuid.UUID, ref RuntimeRef, r
 		}
 		t, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{ID: run, WorkspaceID: ref.WorkspaceID})
 		if err != nil {
+			return err
+		}
+		if err := tx.Q.StartMachineAttempt(ctx, db.StartMachineAttemptParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run, Attempt: ref.Attempt, RuntimeID: ref.RuntimeID}); err != nil {
 			return err
 		}
 		return tx.Emit(ctx, "agent_run.started", t.CardID, store.System, agentRunEvent(t))

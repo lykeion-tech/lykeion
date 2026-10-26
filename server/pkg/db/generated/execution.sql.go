@@ -14,6 +14,35 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acceptMachineAttempt = `-- name: AcceptMachineAttempt :exec
+INSERT INTO agent_run_machine_attempt (workspace_id, agent_run_id, attempt, runtime_id, daemon_id, owner_id, responsible_user_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+`
+
+type AcceptMachineAttemptParams struct {
+	WorkspaceID       uuid.UUID `json:"workspace_id"`
+	AgentRunID        uuid.UUID `json:"agent_run_id"`
+	Attempt           int32     `json:"attempt"`
+	RuntimeID         uuid.UUID `json:"runtime_id"`
+	DaemonID          string    `json:"daemon_id"`
+	OwnerID           uuid.UUID `json:"owner_id"`
+	ResponsibleUserID uuid.UUID `json:"responsible_user_id"`
+}
+
+// Called after delivery validation, atomically with attempt token issuance.
+func (q *Queries) AcceptMachineAttempt(ctx context.Context, arg AcceptMachineAttemptParams) error {
+	_, err := q.db.Exec(ctx, acceptMachineAttempt,
+		arg.WorkspaceID,
+		arg.AgentRunID,
+		arg.Attempt,
+		arg.RuntimeID,
+		arg.DaemonID,
+		arg.OwnerID,
+		arg.ResponsibleUserID,
+	)
+	return err
+}
+
 const addCardSpend = `-- name: AddCardSpend :exec
 UPDATE card SET spent_usd = spent_usd + $1, version = version + 1 WHERE id = $2 AND workspace_id = $3
 `
@@ -1585,6 +1614,28 @@ func (q *Queries) StartAgentRun(ctx context.Context, arg StartAgentRunParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const startMachineAttempt = `-- name: StartMachineAttempt :exec
+UPDATE agent_run_machine_attempt SET started_at = now()
+WHERE workspace_id = $1 AND agent_run_id = $2 AND attempt = $3 AND runtime_id = $4
+`
+
+type StartMachineAttemptParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	Attempt     int32     `json:"attempt"`
+	RuntimeID   uuid.UUID `json:"runtime_id"`
+}
+
+func (q *Queries) StartMachineAttempt(ctx context.Context, arg StartMachineAttemptParams) error {
+	_, err := q.db.Exec(ctx, startMachineAttempt,
+		arg.WorkspaceID,
+		arg.AgentRunID,
+		arg.Attempt,
+		arg.RuntimeID,
+	)
+	return err
 }
 
 const supersedeRoleRecords = `-- name: SupersedeRoleRecords :exec

@@ -1397,8 +1397,8 @@ func TestARevokeBetweenSelectAndDeliveryDenies(t *testing.T) {
 				t.Fatal("revoked delivery")
 			}
 			var status, reason, message string
-			var attempt, tokens int
-			if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,failure_reason,error,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &reason, &message, &attempt, &tokens); err != nil {
+			var attempt, tokens, machineAttempts int
+			if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,failure_reason,error,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_machine_attempt WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &reason, &message, &attempt, &tokens, &machineAttempts); err != nil {
 				t.Fatal(err)
 			}
 			var receipts, settlements, events int
@@ -1408,7 +1408,7 @@ func TestARevokeBetweenSelectAndDeliveryDenies(t *testing.T) {
 			if receipts != 0 || settlements != 1 || events != 1 {
 				t.Fatalf("receipts=%d settlements=%d events=%d", receipts, settlements, events)
 			}
-			if status != "failed" || reason != "runtime_access_denied" || message != "This machine is no longer shared with you; choose another for this study." || attempt != 0 || tokens != 0 {
+			if status != "failed" || reason != "runtime_access_denied" || message != "This machine is no longer shared with you; choose another for this study." || attempt != 0 || tokens != 0 || machineAttempts != 0 {
 				t.Fatalf("%s %s %q attempt=%d tokens=%d", status, reason, message, attempt, tokens)
 			}
 		})
@@ -1430,11 +1430,11 @@ func TestAChangedMachineRequeuesWithoutAnAttempt(t *testing.T) {
 		t.Fatal("changed machine delivered")
 	}
 	var status string
-	var attempt, tokens int
-	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &attempt, &tokens); err != nil {
+	var attempt, tokens, machineAttempts int
+	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_machine_attempt WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &attempt, &tokens, &machineAttempts); err != nil {
 		t.Fatal(err)
 	}
-	if status != "queued" || attempt != 0 || tokens != 0 {
+	if status != "queued" || attempt != 0 || tokens != 0 || machineAttempts != 0 {
 		t.Fatalf("%s attempt=%d tokens=%d", status, attempt, tokens)
 	}
 }
@@ -1486,11 +1486,11 @@ func TestUnsupportedRuntimeNeverClaimsAGuest(t *testing.T) {
 					t.Fatal("unsupported runtime delivered guest")
 				}
 				var status string
-				var attempt, tokens int
-				if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &attempt, &tokens); err != nil {
+				var attempt, tokens, machineAttempts int
+				if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_machine_attempt WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &attempt, &tokens, &machineAttempts); err != nil {
 					t.Fatal(err)
 				}
-				if status != "queued" || attempt != 0 || tokens != 0 {
+				if status != "queued" || attempt != 0 || tokens != 0 || machineAttempts != 0 {
 					t.Fatalf("status=%s attempt=%d tokens=%d", status, attempt, tokens)
 				}
 			})
@@ -1511,11 +1511,11 @@ func TestPlatformChangeBeforeDeliveryDeniesGuest(t *testing.T) {
 		t.Fatal("platform changed but guest delivered")
 	}
 	var status, reason string
-	var attempt, tokens int
-	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,failure_reason,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &reason, &attempt, &tokens); err != nil {
+	var attempt, tokens, machineAttempts int
+	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,failure_reason,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_machine_attempt WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &reason, &attempt, &tokens, &machineAttempts); err != nil {
 		t.Fatal(err)
 	}
-	if status != "failed" || reason != "runtime_access_denied" || attempt != 0 || tokens != 0 {
+	if status != "failed" || reason != "runtime_access_denied" || attempt != 0 || tokens != 0 || machineAttempts != 0 {
 		t.Fatalf("status=%s reason=%s attempt=%d tokens=%d", status, reason, attempt, tokens)
 	}
 }
@@ -1529,11 +1529,11 @@ func TestGuestClaimsRequireIsolationCapability(t *testing.T) {
 	if len(claims) != 0 {
 		t.Fatal("legacy Linux daemon received guest claim")
 	}
-	var attempt, tokens int
-	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&attempt, &tokens); err != nil {
+	var attempt, tokens, machineAttempts int
+	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_machine_attempt WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&attempt, &tokens, &machineAttempts); err != nil {
 		t.Fatal(err)
 	}
-	if attempt != 0 || tokens != 0 {
+	if attempt != 0 || tokens != 0 || machineAttempts != 0 {
 		t.Fatalf("legacy claim consumed attempt=%d tokens=%d", attempt, tokens)
 	}
 	claims, err = f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: "unknown"})
@@ -1561,11 +1561,11 @@ func TestGuestClaimRequiresConsistentRoleActor(t *testing.T) {
 				t.Fatal("mismatched role actor delivered")
 			}
 			var status string
-			var attempt, tokens int
-			if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &attempt, &tokens); err != nil {
+			var attempt, tokens, machineAttempts int
+			if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_machine_attempt WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &attempt, &tokens, &machineAttempts); err != nil {
 				t.Fatal(err)
 			}
-			if status != "queued" || attempt != 0 || tokens != 0 {
+			if status != "queued" || attempt != 0 || tokens != 0 || machineAttempts != 0 {
 				t.Fatalf("identity refusal status=%s attempt=%d tokens=%d", status, attempt, tokens)
 			}
 		})
@@ -1587,11 +1587,11 @@ func TestGuestActorChangeBeforeDeliveryIsRefused(t *testing.T) {
 		t.Fatal("changed role actor delivered")
 	}
 	var reason string
-	var attempt, tokens int
-	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT failure_reason,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&reason, &attempt, &tokens); err != nil {
+	var attempt, tokens, machineAttempts int
+	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT failure_reason,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_machine_attempt WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&reason, &attempt, &tokens, &machineAttempts); err != nil {
 		t.Fatal(err)
 	}
-	if reason != "runtime_access_denied" || attempt != 0 || tokens != 0 {
+	if reason != "runtime_access_denied" || attempt != 0 || tokens != 0 || machineAttempts != 0 {
 		t.Fatalf("reason=%s attempt=%d tokens=%d", reason, attempt, tokens)
 	}
 }

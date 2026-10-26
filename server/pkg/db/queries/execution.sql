@@ -239,3 +239,12 @@ AND r.id = s.runtime_id AND r.owner_id = @user_id;
 
 -- name: PrivatizeDepartingMemberRuntimes :exec
 UPDATE runtime SET visibility = 'private' WHERE workspace_id = @workspace_id AND owner_id = @user_id;
+
+-- name: AcceptMachineAttempt :exec
+-- Called after delivery validation, atomically with attempt token issuance.
+INSERT INTO agent_run_machine_attempt (workspace_id, agent_run_id, attempt, runtime_id, daemon_id, owner_id, responsible_user_id)
+VALUES (@workspace_id, @agent_run_id, @attempt, @runtime_id, @daemon_id, @owner_id, @responsible_user_id);
+
+-- name: StartMachineAttempt :exec
+UPDATE agent_run_machine_attempt SET started_at = now()
+WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt = @attempt AND runtime_id = @runtime_id;
