@@ -193,26 +193,40 @@ func (e *Engine) Start(ctx context.Context, tx *store.Tx, c db.Card) error {
 // the protocol for its role is appended to them; note, when set, follows the
 // study in the prompt.
 func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role string, m *pack.Manifest, a db.Agent, note string) (db.AgentRun, error) {
-	comments, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
+	p, err := e.runPrompt(ctx, tx, c, role, note)
 	if err != nil {
 		return db.AgentRun{}, err
+	}
+	return e.enqueueWithInput(ctx, tx, c, role, m, a, p, assignment(c, note))
+}
+
+func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, note string) (string, error) {
+	comments, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
+	if err != nil {
+		return "", err
 	}
 	// Read at start, so a change to the research context reaches the next run.
 	ws, err := tx.Q.GetWorkspace(ctx, tx.WS)
 	if err != nil {
-		return db.AgentRun{}, err
+		return "", err
 	}
 	files, err := tx.Q.CardAttachments(ctx, db.CardAttachmentsParams{WorkspaceID: tx.WS, CardID: &c.ID})
 	if err != nil {
-		return db.AgentRun{}, err
+		return "", err
 	}
 	p := prompt(c, role, comments, ws.ResearchContext, files)
 	if note != "" {
 		p += "\n" + note + "\n"
 	}
+	return p, nil
+}
+
+// enqueueWithInput accepts only research inputs from an interrupted run. Agent
+// instructions and role protocol are current; execution state is minted anew.
+func (e *Engine) enqueueWithInput(ctx context.Context, tx *store.Tx, c db.Card, role string, m *pack.Manifest, a db.Agent, runPrompt, runAssignment string) (db.AgentRun, error) {
 	agentID := a.ID
 	return e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-		Role: role, Harness: a.Harness, Model: a.Model, Prompt: p, Agent: &agentID, Assignment: assignment(c, note),
+		Role: role, Harness: a.Harness, Model: a.Model, Prompt: runPrompt, Agent: &agentID, Assignment: runAssignment,
 		ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Round),
 		Skill:           strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m))})
 }

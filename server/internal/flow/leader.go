@@ -458,7 +458,21 @@ func (e *Engine) Resume(ctx context.Context, tx *store.Tx, c db.Card) error {
 		if err != nil {
 			return err
 		}
-		if _, err := e.enqueue(ctx, tx, c, r.Role, m, a, "Resumed on another machine."); err != nil {
+		p := r.Prompt
+		if p == "" {
+			// Legacy runs may lack a prompt snapshot. Rebuild card context and
+			// include any saved assignment without parsing human-facing text.
+			p, err = e.runPrompt(ctx, tx, c, r.Role, r.Assignment)
+			if err != nil {
+				return err
+			}
+		}
+		runAssignment := r.Assignment
+		if runAssignment == "" {
+			runAssignment = assignment(c, "")
+		}
+		p += "\nResumed on another machine.\n"
+		if _, err := e.enqueueWithInput(ctx, tx, c, r.Role, m, a, p, runAssignment); err != nil {
 			return err
 		}
 	}
