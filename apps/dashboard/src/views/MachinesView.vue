@@ -217,7 +217,6 @@ function menuKey(event: KeyboardEvent) {
                     }}</span
                   >
                 </div>
-                <p class="daemon-id" :title="machine.id">daemon {{ machine.id }}</p>
                 <div class="machine-metadata">
                   <span
                     >{{ machine.runtimes.length }} runtime{{
@@ -309,7 +308,7 @@ function menuKey(event: KeyboardEvent) {
                       ><i class="harness-icon" :class="r.harness" aria-hidden="true">{{
                         cli(r.harness)
                       }}</i
-                      >{{ cliName(r.harness) }}<small>Built-in</small></span
+                      >{{ cliName(r.harness) }}</span
                     >
                   </td>
                   <td>
