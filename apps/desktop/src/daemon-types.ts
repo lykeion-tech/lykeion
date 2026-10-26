@@ -8,6 +8,7 @@ export interface DaemonSession {
   sessionToken: string;
 }
 export interface DaemonSnapshot {
+  authenticatedUserID: string | null;
   status: 'running' | 'starting' | 'stopped' | 'unknown';
   availability: 'available' | 'unavailable';
   cliAvailable: boolean;

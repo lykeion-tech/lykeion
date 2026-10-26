@@ -13,7 +13,15 @@ import { api, ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import { useMembers, useRuntimes } from '../api/queries';
-import { groupDaemons, type Daemon } from '../lib/machines';
+import {
+  desktopMachineID,
+  desktopProfileMachine,
+  desktopProfileReady,
+  groupDaemons,
+  localPlaceholderID,
+  type Daemon,
+} from '../lib/machines';
+import type { DaemonSnapshot } from '../../../desktop/src/daemon-types';
 import { timeAgo } from '../lib/studies';
 
 const props = defineProps<{ machineId?: string; embedded?: boolean }>();
@@ -22,8 +30,72 @@ const client = useQueryClient();
 const runtimes = useRuntimes();
 const me = useMe();
 const members = useMembers();
-const daemons = computed(() => groupDaemons(runtimes.data.value ?? []));
-const machine = computed(() => daemons.value.find((d) => d.id === props.machineId));
+const nativeSnapshot = ref<DaemonSnapshot | null>(null);
+const bridge = typeof window !== 'undefined' ? window.lykeionDesktop?.daemon : undefined;
+let active = true;
+let revision = 0;
+const acceptSnapshot = (value: DaemonSnapshot) => {
+  if (!active) return;
+  revision++;
+  nativeSnapshot.value = value;
+};
+const unsubscribe = bridge?.onStatusChange(acceptSnapshot);
+if (bridge) {
+  const initialRevision = revision;
+  void bridge
+    .getSnapshot()
+    .then((value) => {
+      if (revision === initialRevision) acceptSnapshot(value);
+    })
+    .catch(() => {});
+}
+onUnmounted(() => {
+  active = false;
+  unsubscribe?.();
+});
+const registeredDaemons = computed(() => groupDaemons(runtimes.data.value ?? []));
+const registeredLocal = computed(() =>
+  desktopProfileReady(nativeSnapshot.value, me.data.value?.id)
+    ? registeredDaemons.value.find(
+        (d) => d.id === nativeSnapshot.value?.daemonID && d.ownerId === me.data.value?.id,
+      )
+    : undefined,
+);
+const localProfile = computed(() =>
+  desktopProfileMachine(registeredDaemons.value, nativeSnapshot.value, me.data.value?.id),
+);
+const daemons = computed(() =>
+  localProfile.value ? [localProfile.value, ...registeredDaemons.value] : registeredDaemons.value,
+);
+const localRoute = computed(
+  () =>
+    router.currentRoute.value.query.desktopProfile === '1' &&
+    !!nativeSnapshot.value &&
+    desktopProfileReady(nativeSnapshot.value, me.data.value?.id) &&
+    (props.machineId === localPlaceholderID ||
+      props.machineId === desktopMachineID(nativeSnapshot.value)),
+);
+const machine = computed(() =>
+  localRoute.value
+    ? (registeredLocal.value ?? localProfile.value)
+    : registeredDaemons.value.find((d) => d.id === props.machineId),
+);
+watch(
+  [registeredLocal, localRoute],
+  ([local, selected]) => {
+    if (local && selected)
+      void router.replace({
+        path: '/settings',
+        query: {
+          ...router.currentRoute.value.query,
+          tab: 'machines',
+          machine: local.id,
+          desktopProfile: undefined,
+        },
+      });
+  },
+  { immediate: true },
+);
 const isOwner = computed(() => !!me.data.value?.id && machine.value?.ownerId === me.data.value.id);
 const sandboxFailure = computed(() => {
   const current = machine.value;
@@ -52,7 +124,7 @@ const removalError = ref<{ id: string; message: string } | null>(null);
 const busy = ref(false);
 let generation = 0;
 watch(
-  [workspaceId, () => props.machineId],
+  [workspaceId, () => props.machineId, () => router.currentRoute.value.query.desktopProfile],
   () => {
     generation++;
     sharingDetails.value = false;
@@ -182,12 +254,12 @@ async function remove(d: Daemon) {
                   <h1>{{ machine.name }}</h1>
                   <span class="machine-health" :class="{ online: machine.online }"
                     ><Icon name="network" :size="12" />{{
-                      machine.online ? 'Online' : 'Offline'
+                      machine.localProfile ? '—' : machine.online ? 'Online' : 'Offline'
                     }}</span
                   >
                 </div>
                 <div class="machine-metadata">
-                  <span
+                  <span v-if="!machine.localProfile"
                     >{{ machine.runtimes.length }} runtime{{
                       machine.runtimes.length === 1 ? '' : 's'
                     }}</span
@@ -198,7 +270,7 @@ async function remove(d: Daemon) {
                 </div>
               </div>
               <div class="machine-actions">
-                <button class="button" @click="startRename(machine)">
+                <button v-if="!machine.localProfile" class="button" @click="startRename(machine)">
                   <Icon name="edit" :size="14" />Rename machine
                 </button>
                 <button
@@ -216,9 +288,16 @@ async function remove(d: Daemon) {
                       ? undefined
                       : 'Restart on the computer using Daemon instructions'
                   "
-                  @click="daemonSettings?.restart()"
+                  @click="
+                    machine.localProfile && daemonSettings?.stopped
+                      ? daemonSettings?.start()
+                      : daemonSettings?.restart()
+                  "
                 >
-                  <Icon name="refresh" :size="14" />Restart
+                  <Icon
+                    :name="machine.localProfile && daemonSettings?.stopped ? 'play' : 'refresh'"
+                    :size="14"
+                  />{{ machine.localProfile && daemonSettings?.stopped ? 'Start' : 'Restart' }}
                 </button>
                 <button
                   class="button stop-machine"
@@ -233,7 +312,7 @@ async function remove(d: Daemon) {
                   <Icon name="archive" :size="14" />Stop
                 </button>
                 <button
-                  v-if="!machine.online"
+                  v-if="!machine.localProfile && !machine.online"
                   class="button"
                   :disabled="busy"
                   @click="remove(machine)"
@@ -325,7 +404,13 @@ async function remove(d: Daemon) {
               <Icon name="network" :size="14" />Daemon instructions
             </button>
           </div>
-          <DaemonSettings ref="daemonSettings" :machine-id="machine.id" :is-owner="isOwner" />
+          <DaemonSettings
+            ref="daemonSettings"
+            :machine-id="machine.id"
+            :is-owner="isOwner"
+            :account-id="me.data.value?.id"
+            :local-profile="machine.localProfile"
+          />
         </div>
       </template>
       <div v-else class="small-empty">
@@ -338,10 +423,22 @@ async function remove(d: Daemon) {
     </template>
     <div v-else class="inset-content">
       <ul v-if="daemons.length" class="machine-rows">
-        <li v-for="d in daemons" :key="d.id" class="machine-row" :class="{ offline: !d.online }">
+        <li
+          v-for="d in daemons"
+          :key="`${d.localProfile ? 'desktop' : 'registered'}:${d.id}`"
+          class="machine-row"
+          :class="{ offline: !d.online }"
+        >
           <RouterLink
             class="machine-link"
-            :to="{ path: '/settings', query: { tab: 'machines', machine: d.id } }"
+            :to="{
+              path: '/settings',
+              query: {
+                tab: 'machines',
+                machine: d.id,
+                ...(d.localProfile ? { desktopProfile: '1' } : {}),
+              },
+            }"
           >
             <span class="square-icon"><Icon name="monitor" /></span>
             <div class="name">
@@ -351,9 +448,11 @@ async function remove(d: Daemon) {
                 {{ removalError.message }}
               </p>
             </div>
-            <span class="status">{{ d.online ? 'Online' : 'Offline' }}</span>
+            <span class="status">{{ d.localProfile ? '—' : d.online ? 'Online' : 'Offline' }}</span>
             <span class="clis"
-              ><small>{{ d.runtimes.length }} runtime{{ d.runtimes.length === 1 ? '' : 's' }}</small
+              ><small v-if="d.localProfile">—</small
+              ><small v-else
+                >{{ d.runtimes.length }} runtime{{ d.runtimes.length === 1 ? '' : 's' }}</small
               ><i
                 v-for="r in d.runtimes"
                 :key="r.id"
@@ -369,7 +468,7 @@ async function remove(d: Daemon) {
                   ? `${d.activeRuns} run${d.activeRuns === 1 ? '' : 's'}`
                   : 'All idle'
             }}</small
-            ><small class="seen">{{ timeAgo(d.lastSeen) }}</small>
+            ><small class="seen">{{ d.localProfile ? '—' : timeAgo(d.lastSeen) }}</small>
           </RouterLink>
         </li>
       </ul>

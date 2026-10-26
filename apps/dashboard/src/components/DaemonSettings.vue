@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { desktopMachineID, desktopProfileReady, localPlaceholderID } from '../lib/machines';
 import type { DaemonPreferences, DaemonSnapshot } from '../../../desktop/src/daemon-types';
 
-const props = defineProps<{ machineId: string; isOwner: boolean }>();
+const props = defineProps<{
+  machineId: string;
+  isOwner: boolean;
+  accountId?: string;
+  localProfile?: boolean;
+}>();
 const bridge = typeof window !== 'undefined' ? window.lykeionDesktop?.daemon : undefined;
 const snapshot = ref<DaemonSnapshot | null>(null);
 const preferences = ref<DaemonPreferences | null>(null);
@@ -11,7 +17,15 @@ const busy = ref(false);
 let generation = 0;
 let unsubscribe: (() => void) | undefined;
 const matches = computed(
-  () => !!bridge && props.isOwner && snapshot.value?.daemonID === props.machineId,
+  () =>
+    !!bridge &&
+    props.isOwner &&
+    desktopProfileReady(snapshot.value, props.accountId) &&
+    !!snapshot.value &&
+    (props.localProfile
+      ? props.machineId === localPlaceholderID ||
+        props.machineId === desktopMachineID(snapshot.value)
+      : snapshot.value.daemonID === props.machineId),
 );
 const available = computed(() => matches.value && snapshot.value?.availability === 'available');
 const managed = computed(() => available.value && !!snapshot.value?.cliAvailable);
@@ -36,7 +50,7 @@ const explanation = computed(() => {
 });
 
 watch(
-  [() => props.machineId, () => props.isOwner],
+  [() => props.machineId, () => props.isOwner, () => props.accountId, () => props.localProfile],
   (_, __, onCleanup) => {
     const visit = ++generation;
     let revision = 0;
@@ -63,6 +77,9 @@ watch(
           })
           .catch(() => {
             if (current() && matches.value) error.value = 'Daemon preferences could not be loaded.';
+          })
+          .finally(() => {
+            loadingPreferences = false;
           });
       }
     };
@@ -115,7 +132,7 @@ async function toggle(key: keyof DaemonPreferences) {
     if (visit === generation) busy.value = false;
   }
 }
-async function lifecycle(action: 'restart' | 'stop') {
+async function lifecycle(action: 'start' | 'restart' | 'stop') {
   if (!bridge || !canControl.value || (action === 'stop' && stopped.value)) return;
   const visit = generation;
   busy.value = true;
@@ -125,7 +142,7 @@ async function lifecycle(action: 'restart' | 'stop') {
     if (visit === generation) snapshot.value = value;
   } catch {
     if (visit === generation)
-      error.value = `The desktop daemon could not ${action === 'stop' ? 'be stopped' : 'be restarted'}. Try again.`;
+      error.value = `The desktop daemon could not ${action === 'stop' ? 'be stopped' : action === 'start' ? 'be started' : 'be restarted'}. Try again.`;
   } finally {
     if (visit === generation) busy.value = false;
   }
@@ -163,6 +180,7 @@ defineExpose({
   managed,
   canControl,
   stopped,
+  start: () => lifecycle('start'),
   restart: () => lifecycle('restart'),
   stop: () => lifecycle('stop'),
 });

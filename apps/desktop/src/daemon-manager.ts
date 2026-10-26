@@ -221,6 +221,7 @@ export class DaemonManager {
     });
   }
   private emit(snapshot: DaemonSnapshot): DaemonSnapshot {
+    snapshot.authenticatedUserID = this.options.supported ? (this.session?.userID ?? null) : null;
     for (const listener of this.listeners) {
       try {
         listener({ ...snapshot });
@@ -239,6 +240,7 @@ export class DaemonManager {
   private async snapshot(): Promise<DaemonSnapshot> {
     const cliAvailable = await this.available();
     const snapshot: DaemonSnapshot = {
+      authenticatedUserID: null,
       status: 'unknown',
       availability: this.options.supported ? 'available' : 'unavailable',
       cliAvailable,
@@ -342,12 +344,15 @@ export class DaemonManager {
   configureSession(input: DaemonSession): Promise<DaemonSnapshot> {
     if (!validSession(input) || input.apiOrigin !== this.apiOrigin)
       return Promise.reject(new Error('Invalid desktop session target'));
+    if (!this.options.supported)
+      return Promise.reject(
+        new Error('Daemon controls require the macOS or Linux development preview'),
+      );
     const value = { ...input };
     const version = ++this.generation;
     this.session = null;
     return this.enqueue(async () => {
       if (!this.fresh(version)) return this.snapshot();
-      await this.requireCLI();
       await this.prepare();
       const ownerFile = path.join(this.directory, 'owner.json');
       const owner = await readJSON(ownerFile);

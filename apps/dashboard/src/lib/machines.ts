@@ -1,7 +1,9 @@
 import type { Runtime } from '../api/types';
+import type { DaemonSnapshot } from '../../../desktop/src/daemon-types';
 
 export type Daemon = {
   id: string;
+  localProfile?: boolean;
   name: string;
   ownerId: string;
   online: boolean;
@@ -31,6 +33,38 @@ export function groupDaemons(runtimes: Runtime[]): Daemon[] {
       };
     })
     .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
+}
+
+export const localPlaceholderID = 'local:placeholder';
+
+export function desktopProfileReady(snapshot: DaemonSnapshot | null, userID: string | undefined) {
+  return (
+    !!userID && snapshot?.availability === 'available' && snapshot.authenticatedUserID === userID
+  );
+}
+
+export function desktopMachineID(snapshot: DaemonSnapshot) {
+  return snapshot.daemonID ? `local:${snapshot.daemonID}` : localPlaceholderID;
+}
+
+export function desktopProfileMachine(
+  machines: Daemon[],
+  snapshot: DaemonSnapshot | null,
+  userID: string | undefined,
+): Daemon | null {
+  if (!snapshot || !desktopProfileReady(snapshot, userID)) return null;
+  if (machines.some((machine) => machine.id === snapshot.daemonID && machine.ownerId === userID))
+    return null;
+  return {
+    id: desktopMachineID(snapshot),
+    localProfile: true,
+    name: snapshot.deviceName || 'This machine',
+    ownerId: userID!,
+    online: false,
+    runtimes: [],
+    lastSeen: '',
+    activeRuns: 0,
+  };
 }
 
 export function computerStartCommands(server: string, platform: 'unix' | 'windows') {

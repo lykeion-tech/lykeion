@@ -137,6 +137,51 @@ describe('desktop daemon manager', () => {
     });
     expect((await new DaemonManager(f.options).getSnapshot()).daemonID).toBe('daemon-alice');
   });
+  it('exposes only the verified account for recovery after a stopped account switch', async () => {
+    const f = await fixture();
+    expect((await f.manager.getSnapshot()).authenticatedUserID).toBeNull();
+    await f.manager.configureSession(session);
+    await f.manager.setPreferences({ autoStart: false, autoStop: false });
+    const switched = await f.manager.configureSession({
+      ...session,
+      userID: 'bob',
+      sessionToken: 'jwt-bob',
+    });
+    expect(switched).toMatchObject({
+      authenticatedUserID: 'bob',
+      status: 'stopped',
+      daemonID: null,
+    });
+    expect(f.calls.filter((call) => call === 'daemon start')).toHaveLength(1);
+    expect(await new DaemonManager(f.options).getSnapshot()).toMatchObject({
+      authenticatedUserID: null,
+      daemonID: null,
+    });
+    expect(await f.manager.start()).toMatchObject({
+      authenticatedUserID: 'bob',
+      daemonID: 'daemon-bob',
+      status: 'running',
+    });
+    expect((await f.manager.clearSession()).authenticatedUserID).toBeNull();
+  });
+  it('revokes verified ownership synchronously while a status read is pending', async () => {
+    const f = await fixture();
+    await f.manager.configureSession(session);
+    const gate = deferred<void>();
+    const execute = f.execute.getMockImplementation()!;
+    let reading = false;
+    f.execute.mockImplementationOnce(async (...args) => {
+      reading = true;
+      await gate.promise;
+      return execute(...args);
+    });
+    const pending = f.manager.getSnapshot();
+    await vi.waitFor(() => expect(reading).toBe(true));
+    const clear = f.manager.clearSession();
+    gate.resolve();
+    expect((await pending).authenticatedUserID).toBeNull();
+    expect((await clear).authenticatedUserID).toBeNull();
+  });
   it('reuses only a cached token whose account was independently verified', async () => {
     const f = await fixture();
     await f.manager.configureSession(session);
@@ -393,6 +438,63 @@ describe('desktop daemon manager', () => {
       daemonID: 'daemon-alice',
     });
   });
+  it('retains verified same-account diagnostics when automatic start lacks the CLI', async () => {
+    const f = await fixture();
+    await f.manager.configureSession(session);
+    f.calls.length = 0;
+    const missing = new DaemonManager({ ...f.options, cliAvailable: async () => false });
+    await expect(missing.configureSession(session)).rejects.toThrow('Development lyk is missing');
+    const value = await missing.getSnapshot();
+    expect(value).toMatchObject({
+      authenticatedUserID: 'alice',
+      daemonID: 'daemon-alice',
+      cliAvailable: false,
+      status: 'unknown',
+      error: expect.stringContaining('desktop:dev'),
+    });
+    expect(f.calls).toEqual([]);
+    expect(f.request.mock.calls.filter((call) => call[1].token === 'lyk_alice')).toHaveLength(1);
+  });
+  it('verifies a fresh stopped profile without a CLI when auto-start is disabled', async () => {
+    const f = await fixture();
+    await f.manager.setPreferences({ autoStart: false, autoStop: false });
+    const missing = new DaemonManager({ ...f.options, cliAvailable: async () => false });
+    const value = await missing.configureSession(session);
+    expect(value).toMatchObject({
+      authenticatedUserID: 'alice',
+      daemonID: null,
+      cliAvailable: false,
+    });
+    const config = path.join(f.root, 'profiles', value.profile!, 'config.json');
+    expect(JSON.parse(await readFile(config, 'utf8'))).toEqual({
+      server: origin,
+      token: 'lyk_alice',
+      workspace: '',
+    });
+    expect((await stat(config)).mode & 0o777).toBe(0o600);
+    expect(JSON.stringify(value)).not.toContain('lyk_alice');
+    expect(f.calls).toEqual([]);
+  });
+  it('fails closed on missing-CLI account turnover and cached-token replacement', async () => {
+    const f = await fixture();
+    const previous = await f.manager.configureSession(session);
+    const config = path.join(f.root, 'profiles', previous.profile!, 'config.json');
+    f.request.mockClear();
+    const missing = new DaemonManager({ ...f.options, cliAvailable: async () => false });
+    await expect(
+      missing.configureSession({ ...session, userID: 'bob', sessionToken: 'jwt-bob' }),
+    ).rejects.toThrow('Development lyk is missing');
+    expect(f.request).not.toHaveBeenCalled();
+    expect((await missing.getSnapshot()).authenticatedUserID).toBeNull();
+    expect(JSON.parse(await readFile(config, 'utf8')).token).toBe('lyk_alice');
+    await writeFile(config, JSON.stringify({ server: origin, token: 'lyk_bob', workspace: '' }), {
+      mode: 0o600,
+    });
+    await expect(missing.configureSession(session)).rejects.toThrow('Development lyk is missing');
+    expect((await missing.getSnapshot()).authenticatedUserID).toBeNull();
+    expect(JSON.parse(await readFile(config, 'utf8')).token).toBe('lyk_bob');
+    expect(f.request.mock.calls.filter((call) => call[1].method === 'POST')).toHaveLength(0);
+  });
   it('shows unavailable native and missing CLI states explicitly', async () => {
     const f = await fixture();
     const missing = new DaemonManager({ ...f.options, cliAvailable: async () => false });
@@ -404,6 +506,9 @@ describe('desktop daemon manager', () => {
     const unsupported = new DaemonManager({ ...f.options, supported: false });
     expect(await unsupported.getSnapshot()).toMatchObject({ availability: 'unavailable' });
     await expect(unsupported.start()).rejects.toThrow();
+    f.request.mockClear();
+    await expect(unsupported.configureSession(session)).rejects.toThrow('Daemon controls require');
+    expect(f.request).not.toHaveBeenCalled();
   });
 });
 
