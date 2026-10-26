@@ -9,10 +9,12 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -37,6 +39,8 @@ func TestMain(m *testing.M) {
 }
 
 func stub() {
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, syscall.SIGUSR1)
 	var out sync.Mutex
 	var inFlight atomic.Int32
 	write := func(v any) {
@@ -49,6 +53,8 @@ func stub() {
 	for sc.Scan() {
 		var req struct {
 			ID       int     `json:"id"`
+			CellID   string  `json:"cell_id"`
+			Kernel   string  `json:"kernel"`
 			Op       string  `json:"op"`
 			Language string  `json:"language"`
 			Code     string  `json:"code"`
@@ -56,6 +62,44 @@ func stub() {
 		}
 		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Op == "shutdown" {
 			return
+		}
+		if req.Op == "restart_kernel" {
+			write(map[string]any{"id": req.ID, "ok": true})
+			continue
+		}
+		if req.Op == "cell" {
+			go func() {
+				r := map[string]any{"id": req.ID, "cell_id": req.CellID, "ok": true, "execution_count": 7, "outputs": []map[string]any{}}
+				outputs := []map[string]any{}
+				switch {
+				case req.Kernel == "missing":
+					r["ok"] = false
+					outputs = append(outputs, map[string]any{"type": "error", "ename": "RuntimeError", "evalue": `no Jupyter kernel named "missing" is installed`})
+				case strings.HasPrefix(req.Code, "ignore-term:"):
+					signal.Ignore(syscall.SIGTERM)
+					os.WriteFile(strings.TrimPrefix(req.Code, "ignore-term:"), []byte("ready"), 0600)
+					select {}
+				case strings.HasPrefix(req.Code, "wait:"):
+					os.WriteFile(strings.TrimPrefix(req.Code, "wait:"), []byte("ready"), 0600)
+					<-interrupts
+					r["ok"], r["interrupted"] = false, true
+				case req.Code == "images":
+					outputs = append(outputs, map[string]any{"type": "image", "mime": "image/png", "data": []byte{137, 80, 78, 71}}, map[string]any{"type": "image", "mime": "image/svg+xml", "data": []byte("<svg/>")})
+				case req.Code == "other":
+					outputs = append(outputs, map[string]any{"type": "text", "text": "fallback (text/html shown as text)"})
+				case req.Code == "large-text":
+					outputs = append(outputs, map[string]any{"type": "stream", "name": "stdout", "text": strings.Repeat("<>&", 2<<20)})
+				case req.Code == "large-image":
+					outputs = append(outputs, map[string]any{"type": "image", "mime": "image/png", "data": make([]byte, 16<<20)})
+				case req.Code == "wrong-id":
+					r["cell_id"] = "another-cell"
+				default:
+					outputs = append(outputs, map[string]any{"type": "text", "text": req.Kernel + ":" + req.Code})
+				}
+				r["outputs"] = outputs
+				write(r)
+			}()
+			continue
 		}
 		if req.Op == "restart" {
 			if req.Language == "cobol" {
@@ -490,4 +534,327 @@ func kernelProcesses(t *testing.T) map[string]string {
 		}
 	}
 	return found
+}
+
+func TestCellKeepsImages(t *testing.T) {
+	s := startStub(t)
+	r, err := s.Cell(context.Background(), "python3", "images")
+	if err != nil || !r.OK || r.ExecutionCount != 7 || len(r.Outputs) != 2 {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if r.Outputs[0].MIME != "image/png" || string(r.Outputs[0].Data) != string([]byte{137, 80, 78, 71}) || string(r.Outputs[1].Data) != "<svg/>" {
+		t.Fatalf("%+v", r)
+	}
+	wire, _ := json.Marshal(r.Outputs)
+	if !strings.Contains(string(wire), `"type":"image"`) || !strings.Contains(string(wire), `"data":"PHN2Zy8+"`) || strings.Contains(string(wire), `"Type"`) {
+		t.Fatalf("wire: %s", wire)
+	}
+}
+
+func TestCellOtherMimeAsText(t *testing.T) {
+	r, err := startStub(t).Cell(context.Background(), "python3", "other")
+	if err != nil || len(r.Outputs) != 1 || r.Outputs[0].Type != "text" || r.Outputs[0].Text != "fallback (text/html shown as text)" {
+		t.Fatalf("%+v %v", r, err)
+	}
+}
+
+func TestCellUnknownKernelIsAnErrorOutput(t *testing.T) {
+	r, err := startStub(t).Cell(context.Background(), "missing", "")
+	if err != nil || r.OK || len(r.Outputs) != 1 || r.Outputs[0].Type != "error" || r.Outputs[0].Evalue != `no Jupyter kernel named "missing" is installed` {
+		t.Fatalf("%+v %v", r, err)
+	}
+}
+
+func TestCellCutAt20MiB(t *testing.T) {
+	for _, code := range []string{"large-text", "large-image"} {
+		t.Run(code, func(t *testing.T) {
+			r, err := startStub(t).Cell(context.Background(), "python3", code)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := json.Marshal(r.Outputs)
+			if err != nil || len(b) > 20<<20 {
+				t.Fatalf("serialized outputs = %d: %v", len(b), err)
+			}
+			if len(r.Outputs) == 0 || r.Outputs[len(r.Outputs)-1].Text != "(output cut at 20 MiB)" {
+				t.Fatal("missing cut note")
+			}
+			if code == "large-image" && len(r.Outputs) != 1 {
+				t.Fatal("oversized image was retained or corrupted")
+			}
+		})
+	}
+}
+
+func TestCellServerIDRoundTrip(t *testing.T) {
+	s := startStub(t)
+	if _, err := s.CellWithID(context.Background(), "65be5728-a41c-42db-8e86-9c8c2c71e77b", "custom-kernel", "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CellWithID(context.Background(), "65be5728-a41c-42db-8e86-9c8c2c71e77b", "custom-kernel", "wrong-id"); err == nil {
+		t.Fatal("accepted mismatched server cell id")
+	}
+}
+
+func runningStubCell(t *testing.T, s *Sessions) <-chan CellResult {
+	t.Helper()
+	ready := filepath.Join(t.TempDir(), "ready")
+	done := make(chan CellResult, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	go func() { r, _ := s.Cell(ctx, "python3", "wait:"+ready); done <- r }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("cell did not start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return done
+}
+
+func TestInterruptDoesNotWaitForTheLock(t *testing.T) {
+	s := startStub(t)
+	done := runningStubCell(t, s)
+	interrupted := make(chan error, 1)
+	go func() { interrupted <- s.Interrupt() }()
+	select {
+	case err := <-interrupted:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Interrupt waited for cell lock")
+	}
+	select {
+	case r := <-done:
+		if !r.Interrupted || r.OK {
+			t.Fatalf("%+v", r)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cell did not interrupt")
+	}
+}
+
+func TestRestartKernelDuringCell(t *testing.T) {
+	s := startStub(t)
+	done := runningStubCell(t, s)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := s.RestartKernel(ctx, "python3"); err != nil {
+		t.Fatal(err)
+	}
+	if r := <-done; !r.Interrupted {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestCloseDuringCell(t *testing.T) {
+	s := startStub(t)
+	runningStubCell(t, s)
+	done := make(chan error, 1)
+	go func() { done <- s.Close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close waited for cell timeout")
+	}
+}
+
+func TestExecUnchanged(t *testing.T) {
+	r, err := startStub(t).Exec(context.Background(), "python", "images")
+	if err != nil || r != (Result{Stdout: "ran images", OK: true}) {
+		t.Fatalf("%+v %v", r, err)
+	}
+}
+
+// This runs the real bridge and ipykernel in the OS sandbox. The supplied
+// interpreter is read-only; all specs, caches and runtime files are task-owned.
+func TestRealCellPlotPNG(t *testing.T) {
+	if os.Getenv("LYK_TEST_ENVS") != "1" {
+		t.Skip("set LYK_TEST_ENVS=1 and LYK_TEST_CELL_PYTHON to an interpreter with jupyter_client, ipykernel and matplotlib")
+	}
+	python := os.Getenv("LYK_TEST_CELL_PYTHON")
+	if python == "" {
+		t.Skip("LYK_TEST_CELL_PYTHON is not configured")
+	}
+	root := t.TempDir()
+	for _, name := range []string{"python3", "custom-science"} {
+		dir := filepath.Join(root, "jupyter", "kernels", name)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		spec, _ := json.Marshal(map[string]any{"argv": []string{python, "-m", "ipykernel_launcher", "-f", "{connection_file}"}, "display_name": name, "language": "python", "env": map[string]string{"LYK_SPEC_SECRET": "must-not-leak", "SPEC_ALLOWED": "kept"}})
+		if err := os.WriteFile(filepath.Join(dir, "kernel.json"), spec, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home, _ := os.UserHomeDir()
+	policy := sandbox.Policy{Home: home, Write: []string{root}, Read: []string{filepath.Dir(filepath.Dir(python))}}
+	command := func(name string, args ...string) (*exec.Cmd, error) {
+		return policy.Command(context.Background(), name, args...)
+	}
+	env := []string{"PATH=" + filepath.Dir(python) + ":/usr/bin:/bin", "HOME=" + root, "TMPDIR=" + root, "JUPYTER_PATH=" + filepath.Join(root, "jupyter"), "JUPYTER_RUNTIME_DIR=" + root, "JUPYTER_DATA_DIR=" + root, "IPYTHONDIR=" + filepath.Join(root, "ipython"), "MPLCONFIGDIR=" + filepath.Join(root, "matplotlib"), "XDG_CACHE_HOME=" + filepath.Join(root, "cache"), "LYK_PARENT_SECRET=must-not-leak"}
+	s, err := Start(context.Background(), command, python, env, root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cell := func(kernel, code string) CellResult {
+		t.Helper()
+		r, err := s.CellWithID(ctx, "65be5728-a41c-42db-8e86-9c8c2c71e77b", kernel, code)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	r := cell("python3", "%matplotlib inline\nimport matplotlib.pyplot as plt\nplt.plot([1,2]); plt.show()")
+	images := 0
+	for _, o := range r.Outputs {
+		if o.Type == "image" && o.MIME == "image/png" && len(o.Data) > 8 && string(o.Data[:8]) == "\x89PNG\r\n\x1a\n" {
+			images++
+		}
+	}
+	if !r.OK || r.ExecutionCount != 1 || images != 1 {
+		t.Fatalf("plot: ok=%v images=%d outputs=%+v", r.OK, images, r.Outputs)
+	}
+	t.Log("real sandboxed matplotlib plot produced one PNG")
+	r = cell("python3", "from IPython.display import display, HTML, SVG\ndisplay(HTML('<b>hello</b>'))\ndisplay(SVG('<svg xmlns=\"http://www.w3.org/2000/svg\"/>'))")
+	if !r.OK || len(r.Outputs) != 2 || r.Outputs[0].Type != "text" || !strings.Contains(r.Outputs[0].Text, "(text/html shown as text)") || r.Outputs[1].MIME != "image/svg+xml" || !strings.Contains(string(r.Outputs[1].Data), "<svg") {
+		t.Fatalf("rich: %+v", r)
+	}
+	r = cell("python3", "import os\nassert not any(k.startswith('LYK_') for k in os.environ)\nassert os.environ['SPEC_ALLOWED'] == 'kept'\nx=42\nprint(os.getpid())")
+	if !r.OK {
+		t.Fatalf("environment: %+v", r)
+	}
+	var firstPID int
+	for _, o := range r.Outputs {
+		if o.Type == "stream" {
+			fmt.Sscanf(o.Text, "%d", &firstPID)
+		}
+	}
+	if firstPID == 0 {
+		t.Fatal("no kernel pid")
+	}
+	r = cell("custom-science", "print('custom kernel ready')")
+	if !r.OK {
+		t.Fatalf("custom: %+v", r)
+	}
+	if syscall.Kill(firstPID, 0) == nil {
+		t.Fatal("former named kernel survived switch")
+	}
+	r = cell("python3", "print(x)")
+	if r.OK || len(r.Outputs) == 0 || r.Outputs[0].Ename != "NameError" {
+		t.Fatalf("kernel switch kept variables: %+v", r)
+	}
+	r = cell("missing", "")
+	if r.OK || len(r.Outputs) != 1 || r.Outputs[0].Evalue != `no Jupyter kernel named "missing" is installed` {
+		t.Fatalf("unknown kernel: %+v", r)
+	}
+	for _, code := range []string{"print('<>&' * (4 << 20))", "from IPython.display import display\nimport base64\ndisplay({'image/png': base64.b64encode(b'x' * (16 << 20)).decode('ascii')}, raw=True)"} {
+		r = cell("python3", code)
+		b, _ := json.Marshal(r.Outputs)
+		if len(b) > 20<<20 || len(r.Outputs) == 0 || r.Outputs[len(r.Outputs)-1].Text != "(output cut at 20 MiB)" {
+			t.Fatalf("real cap: %d bytes", len(b))
+		}
+	}
+	ready := filepath.Join(root, "ready")
+	done := make(chan CellResult, 1)
+	go func() {
+		r, _ := s.Cell(ctx, "python3", fmt.Sprintf("import time\nopen(%q,'w').close()\ntime.sleep(60)", ready))
+		done <- r
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("real cell did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := s.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-done:
+		if !r.Interrupted || r.OK {
+			t.Fatalf("interrupt: %+v", r)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("real interrupt did not finish within 2 seconds")
+	}
+	if err := s.RestartKernel(ctx, "python3"); err != nil {
+		t.Fatal(err)
+	}
+	r = cell("python3", "import os\nprint(os.getpid())")
+	var lastPID int
+	for _, o := range r.Outputs {
+		if o.Type == "stream" {
+			fmt.Sscanf(o.Text, "%d", &lastPID)
+		}
+	}
+	if !r.OK || lastPID == 0 {
+		t.Fatalf("restart: %+v", r)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if syscall.Kill(lastPID, 0) == nil {
+		t.Fatal("named kernel survived Close")
+	}
+	// A native ipykernel outside JUPYTER_PATH must not be discovered implicitly.
+	empty := filepath.Join(root, "empty")
+	if err := os.MkdirAll(empty, 0700); err != nil {
+		t.Fatal(err)
+	}
+	env = append(env, "JUPYTER_PATH="+empty)
+	other, err := Start(ctx, command, python, env, root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	r, err = other.Cell(ctx, "python3", "print('unlisted native kernel')")
+	if err != nil || r.OK || len(r.Outputs) != 1 || r.Outputs[0].Evalue != `no Jupyter kernel named "python3" is installed` {
+		t.Fatalf("native kernel escaped JUPYTER_PATH boundary: %+v %v", r, err)
+	}
+}
+
+func TestCloseStopsAnUnresponsiveBridge(t *testing.T) {
+	s := startStub(t)
+	ready := filepath.Join(t.TempDir(), "ready")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Cell(ctx, "python3", "ignore-term:"+ready)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("cell did not start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.Close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(7 * time.Second):
+		s.process.Load().Kill()
+		<-done
+		t.Fatal("Close never escalated a stuck active bridge")
+	}
 }

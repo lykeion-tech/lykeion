@@ -17,8 +17,10 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 //go:embed bridge.py
@@ -35,6 +37,29 @@ const restartGrace = 5 * time.Minute
 // at 32 MiB each, measured as their JSON encoding, so a reply is those two
 // plus a cut note apiece and a few short fields.
 const maxLine = 2*(32<<20) + 1<<20
+
+const MaxCellOutputBytes = 20 << 20
+
+const cellCutNote = "(output cut at 20 MiB)"
+
+// Output is the common cell wire format. Image Data is base64 in JSON.
+type Output struct {
+	Type      string   `json:"type"`
+	Name      string   `json:"name,omitempty"`
+	Text      string   `json:"text,omitempty"`
+	MIME      string   `json:"mime,omitempty"`
+	Data      []byte   `json:"data,omitempty"`
+	Ename     string   `json:"ename,omitempty"`
+	Evalue    string   `json:"evalue,omitempty"`
+	Traceback []string `json:"traceback,omitempty"`
+}
+
+type CellResult struct {
+	Outputs        []Output `json:"outputs"`
+	ExecutionCount int      `json:"execution_count"`
+	OK             bool     `json:"ok"`
+	Interrupted    bool     `json:"interrupted"`
+}
 
 type Result struct {
 	Stdout, Error string
@@ -55,14 +80,22 @@ type Sessions struct {
 	b      *bridge
 	nextID int
 	closed bool
+	// The process handle is published independently of the serial call lock.
+	// os.Process supports concurrent Signal and Wait calls.
+	process atomic.Pointer[os.Process]
+	closing atomic.Bool
 }
 
 type reply struct {
-	ID        int    `json:"id"`
-	Stdout    string `json:"stdout"`
-	Error     string `json:"error"`
-	OK        bool   `json:"ok"`
-	Restarted bool   `json:"restarted"`
+	ID             int      `json:"id"`
+	CellID         string   `json:"cell_id"`
+	Outputs        []Output `json:"outputs"`
+	ExecutionCount int      `json:"execution_count"`
+	Interrupted    bool     `json:"interrupted"`
+	Stdout         string   `json:"stdout"`
+	Error          string   `json:"error"`
+	OK             bool     `json:"ok"`
+	Restarted      bool     `json:"restarted"`
 }
 
 type bridge struct {
@@ -101,6 +134,7 @@ func Start(ctx context.Context, command Command, python string, env []string, di
 		return nil, err
 	}
 	s.b = b
+	s.process.Store(b.cmd.Process)
 	return s, nil
 }
 
@@ -165,6 +199,105 @@ func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) 
 	return Result{Stdout: r.Stdout, Error: r.Error, OK: r.OK}, err
 }
 
+// Cell executes code in the named Jupyter kernel. Switching names retires the
+// previous named kernel; legacy Exec sessions retain their own cache.
+func (s *Sessions) Cell(ctx context.Context, kernel, code string) (CellResult, error) {
+	return s.CellWithID(ctx, "", kernel, code)
+}
+
+// CellWithID preserves the cell ID already assigned by the server. The integer
+// request ID remains the bridge transport correlation, including for Exec.
+func (s *Sessions) CellWithID(ctx context.Context, cellID, kernel, code string) (CellResult, error) {
+	r, err := s.call(ctx, map[string]any{"op": "cell", "cell_id": cellID, "kernel": kernel, "code": code, "timeout": CellTimeout.Seconds()})
+	if err == nil && r.CellID != cellID {
+		err = errors.New("the session bridge replied with a different cell_id")
+	}
+	return CellResult{Outputs: capCellOutputs(r.Outputs), ExecutionCount: r.ExecutionCount, OK: r.OK, Interrupted: r.Interrupted}, err
+}
+
+// Interrupt never acquires the call lock, which a running cell holds.
+func (s *Sessions) Interrupt() error {
+	if p := s.process.Load(); p != nil {
+		if err := p.Signal(syscall.SIGUSR1); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return err
+		}
+	}
+	return nil
+}
+
+// RestartKernel interrupts an active cell before waiting to send the restart.
+// Repeated signals also cover the gap between submitting and executing a cell.
+func (s *Sessions) RestartKernel(ctx context.Context, kernel string) error {
+	for !s.mu.TryLock() {
+		if err := s.Interrupt(); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	defer s.mu.Unlock()
+	r, err := s.callLocked(ctx, map[string]any{"op": "restart_kernel", "kernel": kernel})
+	if err == nil && !r.OK {
+		err = errors.New(cmp.Or(r.Error, "the "+kernel+" kernel could not be restarted"))
+	}
+	return err
+}
+
+// capCellOutputs measures encoding/json's actual wire size, including HTML
+// escaping, image base64, separators and the final cut note. Images are atomic.
+func capCellOutputs(outputs []Output) []Output {
+	if outputs == nil {
+		return []Output{}
+	}
+	encoded, _ := json.Marshal(outputs)
+	if len(encoded) <= MaxCellOutputBytes {
+		return outputs
+	}
+	note := Output{Type: "text", Text: cellCutNote}
+	noteJSON, _ := json.Marshal(note)
+	budget := MaxCellOutputBytes - len(noteJSON) - 1
+	used := 2
+	kept := make([]Output, 0, len(outputs)+1)
+	for _, o := range outputs {
+		b, _ := json.Marshal(o)
+		sep := 0
+		if len(kept) > 0 {
+			sep = 1
+		}
+		if used+sep+len(b) <= budget {
+			kept = append(kept, o)
+			used += sep + len(b)
+			continue
+		}
+		if o.Type == "stream" || o.Type == "text" {
+			text := o.Text
+			lo, hi := 0, len(text)
+			for lo < hi {
+				mid := (lo + hi + 1) / 2
+				o.Text = text[:mid]
+				b, _ = json.Marshal(o)
+				if used+sep+len(b) <= budget {
+					lo = mid
+				} else {
+					hi = mid - 1
+				}
+			}
+			for lo > 0 && !utf8.ValidString(text[:lo]) {
+				lo--
+			}
+			if lo > 0 {
+				o.Text = text[:lo]
+				kept = append(kept, o)
+			}
+		}
+		break
+	}
+	return append(kept, note)
+}
+
 // Restart restarts lang's session, dropping its variables; a language with
 // no session yet has nothing to restart.
 func (s *Sessions) Restart(ctx context.Context, lang string) error {
@@ -179,7 +312,14 @@ func (s *Sessions) Restart(ctx context.Context, lang string) error {
 func (s *Sessions) call(ctx context.Context, req map[string]any) (reply, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
+	return s.callLocked(ctx, req)
+}
+
+func (s *Sessions) callLocked(ctx context.Context, req map[string]any) (reply, error) {
+	if err := ctx.Err(); err != nil {
+		return reply{}, err
+	}
+	if s.closed || s.closing.Load() {
 		return reply{}, errors.New("the run's sessions are closed")
 	}
 	if s.b == nil {
@@ -188,6 +328,7 @@ func (s *Sessions) call(ctx context.Context, req map[string]any) (reply, error) 
 			return reply{}, err
 		}
 		s.b = b
+		s.process.Store(b.cmd.Process)
 	}
 	b := s.b
 	s.nextID++
@@ -198,6 +339,7 @@ func (s *Sessions) call(ctx context.Context, req map[string]any) (reply, error) 
 		return reply{}, err
 	}
 	gone := func() (reply, error) {
+		s.process.CompareAndSwap(b.cmd.Process, nil)
 		s.b = nil
 		return reply{}, errors.New("the session bridge stopped; its sessions and their variables are gone")
 	}
@@ -219,6 +361,7 @@ func (s *Sessions) call(ctx context.Context, req map[string]any) (reply, error) 
 			case r := <-b.replies:
 				if r.ID == id {
 					s.b = nil
+					s.process.CompareAndSwap(b.cmd.Process, nil)
 					return r, nil
 				}
 			default:
@@ -228,6 +371,9 @@ func (s *Sessions) call(ctx context.Context, req map[string]any) (reply, error) 
 			stop(b)
 			return gone()
 		case <-ctx.Done():
+			if req["op"] == "cell" {
+				s.Interrupt()
+			}
 			return reply{}, ctx.Err()
 		}
 	}
@@ -235,10 +381,28 @@ func (s *Sessions) call(ctx context.Context, req map[string]any) (reply, error) 
 
 // Close shuts the kernels down through the bridge. A bridge that doesn't exit
 // is told to stop, which it also handles by shutting its kernels down, and is
-// killed last. Close waits for a running Exec to return, so a caller cancels
-// that Exec's context first. A later Exec is refused.
+// killed last. Close signals before acquiring the call lock so active cells
+// cannot delay shutdown until their timeout. Later calls are refused.
 func (s *Sessions) Close() error {
-	s.mu.Lock()
+	s.closing.Store(true)
+	var pending *os.Process
+	var force *time.Timer
+	// Escalation must run before taking mu: a bridge that ignores SIGTERM can
+	// otherwise keep the call lock until the full cell timeout expires.
+	for !s.mu.TryLock() {
+		if p := s.process.Load(); p != nil && p != pending {
+			p.Signal(syscall.SIGTERM)
+			pending = p
+			if force != nil {
+				force.Stop()
+			}
+			force = time.AfterFunc(5*time.Second, func() { p.Kill() })
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if force != nil {
+		defer force.Stop()
+	}
 	defer s.mu.Unlock()
 	if !s.closed {
 		defer os.Remove(s.script)
@@ -249,6 +413,7 @@ func (s *Sessions) Close() error {
 	}
 	b := s.b
 	s.b = nil
+	s.process.CompareAndSwap(b.cmd.Process, nil)
 	b.in.Write([]byte(`{"op":"shutdown"}` + "\n"))
 	b.in.Close()
 	if !exited(b, 10*time.Second) {
