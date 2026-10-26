@@ -449,7 +449,9 @@ function menuKey(event: KeyboardEvent) {
       <h2>Rename machine</h2>
       <label>Name<input v-model="draft" aria-label="Name" maxlength="64" autofocus /></label>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-      <button class="button primary" :disabled="busy">Save</button>
+      <div class="machine-rename-actions">
+        <button class="button primary" :disabled="busy">Save</button>
+      </div>
     </form></Modal
   >
   <Modal

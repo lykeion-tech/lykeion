@@ -411,6 +411,10 @@ code {
 .machine-sharing-dialog {
   padding: 24px;
 }
+.machine-rename-actions {
+  display: flex;
+  justify-content: flex-end;
+}
 .machine-sharing-dialog > .runtime-heading {
   justify-content: space-between;
 }
