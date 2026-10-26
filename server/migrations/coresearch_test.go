@@ -145,3 +145,64 @@ func TestCoresearchMigration(t *testing.T) {
 		refuse(`INSERT INTO coresearch_message (workspace_id,chat_id,kind,agent_run_id,body) VALUES ($1,$2,$3,$4,'duplicate')`, "23505", ws, chats[0], kind, agent)
 	}
 }
+
+func TestCoresearchHelpersRejectTemporaryTables(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	user, ws, _ := seedWorkspace(t, env)
+	ownProject, hiddenProject, ownChat, hiddenChat, hiddenFile, agent, outsider := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, seed := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO member (workspace_id,user_id,role) VALUES ($1,$2,'owner')`, []any{ws, user}},
+		{`INSERT INTO coresearch_project (id,workspace_id,name,created_by) VALUES ($1,$3,'own',$4),($2,$3,'hidden',$4)`, []any{ownProject, hiddenProject, ws, user}},
+		{`INSERT INTO coresearch_member (workspace_id,project_id,user_id,role) VALUES ($1,$2,$3,'owner')`, []any{ws, ownProject, user}},
+		{`INSERT INTO coresearch_chat (id,workspace_id,project_id,owner_id,mode,cli) VALUES ($1,$3,$4,$6,'experiment','claude'),($2,$3,$5,$6,'experiment','claude')`, []any{ownChat, hiddenChat, ws, ownProject, hiddenProject, user}},
+		{`INSERT INTO coresearch_file (id,workspace_id,project_id,path) VALUES ($1,$2,$3,'secret.py')`, []any{hiddenFile, ws, hiddenProject}},
+		{`INSERT INTO agent_run (id,workspace_id,kind,requester_id,responsible_user_id,coresearch_chat_id,board_column,round,role,harness,prompt,status) VALUES ($1,$2,'coresearch',$3,$3,$4,'',0,'coresearch','claude','p','running')`, []any{agent, ws, user, ownChat}},
+	} {
+		if _, err := env.Owner.Exec(ctx, seed.sql, seed.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name     string
+		identity uuid.UUID
+		shadow   string
+		args     []any
+		probe    string
+		target   uuid.UUID
+	}{
+		{"membership", outsider, `CREATE TEMP TABLE coresearch_member AS SELECT $1::uuid AS workspace_id,$2::uuid AS project_id,$3::uuid AS user_id`, []any{ws, hiddenProject, outsider}, `SELECT public.coresearch_can_see($1)`, hiddenProject},
+		{"agent run", outsider, `CREATE TEMP TABLE agent_run AS SELECT $1::uuid AS workspace_id,$2::uuid AS id,$3::uuid AS coresearch_chat_id,'running'::text AS status`, []any{ws, outsider, hiddenChat}, `SELECT public.coresearch_can_see($1)`, hiddenProject},
+		{"agent chat", agent, `CREATE TEMP TABLE coresearch_chat AS SELECT $1::uuid AS workspace_id,$2::uuid AS id,$3::uuid AS project_id`, []any{ws, ownChat, hiddenProject}, `SELECT public.coresearch_can_see($1)`, hiddenProject},
+		{"chat lookup", user, `CREATE TEMP TABLE coresearch_chat AS SELECT $1::uuid AS workspace_id,$2::uuid AS id,$3::uuid AS project_id`, []any{ws, hiddenChat, ownProject}, `SELECT public.coresearch_chat_project($1) IS NOT NULL`, hiddenChat},
+		{"file lookup", user, `CREATE TEMP TABLE coresearch_file AS SELECT $1::uuid AS workspace_id,$2::uuid AS id,$3::uuid AS project_id`, []any{ws, hiddenFile, ownProject}, `SELECT public.coresearch_file_project($1) IS NOT NULL`, hiddenFile},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, err := env.App.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id',$1,true),set_config('app.user_id',$2,true)`, ws.String(), tc.identity.String()); err != nil {
+				t.Fatal(err)
+			}
+			var allowed bool
+			if err := tx.QueryRow(ctx, tc.probe, tc.target).Scan(&allowed); err != nil || allowed {
+				t.Fatalf("before shadow: allowed=%v, err=%v", allowed, err)
+			}
+			if _, err := tx.Exec(ctx, tc.shadow, tc.args...); err != nil {
+				t.Fatal(err)
+			}
+			if err := tx.QueryRow(ctx, tc.probe, tc.target).Scan(&allowed); err != nil || allowed {
+				t.Fatalf("after shadow: allowed=%v, err=%v", allowed, err)
+			}
+			var visible int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.coresearch_project WHERE id=$1`, hiddenProject).Scan(&visible); err != nil || visible != 0 {
+				t.Fatalf("hidden project rows=%d, err=%v", visible, err)
+			}
+		})
+	}
+}

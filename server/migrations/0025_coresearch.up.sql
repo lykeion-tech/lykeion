@@ -166,25 +166,25 @@ CREATE TABLE coresearch_setup (
 CREATE FUNCTION coresearch_can_see(project uuid) RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT EXISTS (
-    SELECT 1 FROM coresearch_member m
-    WHERE m.workspace_id = app_workspace() AND m.project_id = project AND m.user_id = app_user()
+    SELECT 1 FROM public.coresearch_member m
+    WHERE m.workspace_id = public.app_workspace() AND m.project_id = project AND m.user_id = public.app_user()
   ) OR EXISTS (
-    SELECT 1 FROM agent_run r JOIN coresearch_chat c
+    SELECT 1 FROM public.agent_run r JOIN public.coresearch_chat c
       ON c.workspace_id = r.workspace_id AND c.id = r.coresearch_chat_id
-    WHERE r.workspace_id = app_workspace() AND r.id = app_user() AND r.status = 'running' AND c.project_id = project
+    WHERE r.workspace_id = public.app_workspace() AND r.id = public.app_user() AND r.status = 'running' AND c.project_id = project
   )
 $$;
 
 CREATE FUNCTION coresearch_chat_project(chat uuid) RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT project_id FROM coresearch_chat
-  WHERE workspace_id = app_workspace() AND id = chat AND coresearch_can_see(project_id)
+  SELECT project_id FROM public.coresearch_chat
+  WHERE workspace_id = public.app_workspace() AND id = chat AND public.coresearch_can_see(project_id)
 $$;
 
 CREATE FUNCTION coresearch_file_project(file uuid) RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT project_id FROM coresearch_file
-  WHERE workspace_id = app_workspace() AND id = file AND coresearch_can_see(project_id)
+  SELECT project_id FROM public.coresearch_file
+  WHERE workspace_id = public.app_workspace() AND id = file AND public.coresearch_can_see(project_id)
 $$;
 
 REVOKE ALL ON FUNCTION coresearch_can_see(uuid), coresearch_chat_project(uuid), coresearch_file_project(uuid) FROM PUBLIC;
