@@ -45,6 +45,8 @@ import (
 // fetch, which records the call itself; everything else through the call
 // token, which only the door holds.
 type Door struct {
+	// Guest confines local connectors to this run rather than the owner account.
+	Guest               bool
 	WorkspaceConnectors []service.WorkspaceConnectorClaim
 	Server              string            // Lykeion's server, where calls are recorded
 	Sources             string            // the server's sources endpoint
@@ -435,10 +437,19 @@ func (d *Door) sessionContext(request context.Context, t target) (*mcp.ClientSes
 		// (python -m's modules, npm's .npmrc and node_modules, a relative
 		// path); its environment is the CLI's.
 		o := d.Child()
-		cmd = exec.Command(t.c.Command[0], t.c.Command[1:]...)
+		if d.Guest {
+			var err error
+			cmd, err = d.guestConnectorCommand(d.ctx, t.c.Command[0], t.c.Command[1:]...)
+			if err != nil {
+				return nil, err
+			}
+			cmd.Env = d.guestConnectorEnv(t.c.Env)
+		} else {
+			cmd = exec.Command(t.c.Command[0], t.c.Command[1:]...)
+			cmd.Env = connectorEnv(o, t.c.Env)
+			ownGroup(cmd)
+		}
 		cmd.Dir = d.connectorDir
-		cmd.Env = connectorEnv(o, t.c.Env)
-		ownGroup(cmd)
 		// The door kills the command's group when the run ends; a command that
 		// fails to start is given half a second to stop on its own.
 		tr = &mcp.CommandTransport{Command: cmd, TerminateDuration: 500 * time.Millisecond}

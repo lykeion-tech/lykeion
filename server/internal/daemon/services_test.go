@@ -61,6 +61,7 @@ func main(){
 	must(t, tw.Close())
 	c := claimed{Token: "ltk_agent", Env: map[string]string{"DATASET": "allowed", "OMITTED": "no", "LYK_SERVICE_PORT": "1", "NODE_OPTIONS": "bad"}}
 	c.AgentRun.ID = uuid.New()
+	c.AgentRun.ResponsibleUserID = uuid.New()
 	c.AgentRun.WorkspaceID = uuid.New()
 	card := uuid.New()
 	c.AgentRun.CardID = &card
@@ -366,6 +367,7 @@ func TestServicesStopAfterWholeRunCompletion(t *testing.T) {
 			return &agent.Session{Messages: messages, Done: done}, nil
 		}), nil
 	}
+	d.ownerOf = map[uuid.UUID]uuid.UUID{*c.AgentRun.RuntimeID: c.AgentRun.ResponsibleUserID}
 	must(t, d.runAgentRun(t.Context(), c))
 	report, err := readReport(d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}))
 	must(t, err)
@@ -417,6 +419,7 @@ func TestServicesStopAfterWholeRunLaunchFailure(t *testing.T) {
 			return nil, fmt.Errorf("owned backend failed after services started")
 		}), nil
 	}
+	d.ownerOf = map[uuid.UUID]uuid.UUID{*c.AgentRun.RuntimeID: c.AgentRun.ResponsibleUserID}
 	must(t, d.runAgentRun(t.Context(), c))
 	report, err := readReport(d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}))
 	must(t, err)
@@ -443,6 +446,7 @@ func TestServiceFailureReportContainsNoPrivateDiagnostics(t *testing.T) {
 			return nil, fmt.Errorf("unexpected launch")
 		}), nil
 	}
+	d.ownerOf = map[uuid.UUID]uuid.UUID{*c.AgentRun.RuntimeID: c.AgentRun.ResponsibleUserID}
 	must(t, d.runAgentRun(t.Context(), c))
 	report, err := readReport(d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}))
 	must(t, err)

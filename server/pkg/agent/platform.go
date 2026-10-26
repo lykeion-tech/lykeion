@@ -5,6 +5,9 @@ import (
 	"runtime"
 )
 
+// GuestIsolationProtocol identifies the enforced Linux guest launch boundary.
+const GuestIsolationProtocol = "linux-v1"
+
 // Platform is what a daemon reports about the machine its runtimes run on,
 // for people reading a run. An empty field was not detected; none is guessed.
 type Platform struct {

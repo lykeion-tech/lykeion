@@ -193,7 +193,7 @@ func testServiceRun(t *testing.T, col string, shared ...bool) {
 		t.Fatalf("create %d", got)
 	}
 	var rts []struct{ ID string }
-	s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": ws, "daemon_id": "d", "harnesses": []string{"claude"}}, &rts)
+	s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": ws, "daemon_id": "d", "platform": map[string]string{"os": "linux"}, "harnesses": []string{"claude"}}, &rts)
 	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(ws), uuid.MustParse(s.userID(t, jwt)), func(tx *store.Tx) error {
 		_, err := s.H.AgentRuns.Enqueue(t.Context(), tx, uuid.MustParse(s.userID(t, jwt)), service.NewAgentRun{Card: uuid.MustParse(c.ID), Column: col, Round: 1, Role: "scoper", Harness: "claude", Prompt: "q"})
 		return err
@@ -278,6 +278,15 @@ func testServiceRun(t *testing.T, col string, shared ...bool) {
 		}
 		if got := get(tok, path); got != 200 {
 			t.Fatalf("shared %d", got)
+		}
+		if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET os='darwin' WHERE id=$1", rts[0].ID); err != nil {
+			t.Fatal(err)
+		}
+		if got := get(tok, path); got != 404 {
+			t.Fatalf("unsupported shared service %d", got)
+		}
+		if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET os='linux' WHERE id=$1", rts[0].ID); err != nil {
+			t.Fatal(err)
 		}
 		if _, err := s.Env.Owner.Exec(t.Context(), "DELETE FROM runtime_share WHERE runtime_id=$1", rts[0].ID); err != nil {
 			t.Fatal(err)

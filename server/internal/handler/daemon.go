@@ -133,8 +133,9 @@ func validBaseState(lang, state string) bool {
 
 func (h *H) daemonClaim(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Runtimes []service.RuntimeRef `json:"runtimes"`
-		Slots    int                  `json:"slots"`
+		Runtimes       []service.RuntimeRef `json:"runtimes"`
+		Slots          int                  `json:"slots"`
+		GuestIsolation string               `json:"guest_isolation"`
 	}
 	if err := readJSON(r, &in); err != nil || len(in.Runtimes) == 0 || len(in.Runtimes) > 64 || in.Slots < 1 || in.Slots > 64 {
 		writeErr(w, 400, "runtimes and slots (1-64) required")
@@ -146,7 +147,7 @@ func (h *H) daemonClaim(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	got, err := h.AgentRuns.Claim(r.Context(), user(r), in.Runtimes, in.Slots)
+	got, err := h.AgentRuns.Claim(r.Context(), user(r), in.Runtimes, in.Slots, service.ClaimOptions{GuestIsolation: in.GuestIsolation})
 	if err != nil {
 		agentRunFail(w, r, err)
 		return

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -61,8 +62,11 @@ func fixture(t *testing.T) *daemonFixture {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if runtime.GOOS == "linux" {
+		must(t, os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".credentials.json"), []byte("test-signin-fixture"), 0600))
+	}
 	t.Setenv("LYK_TOKEN", "lyk_owner_must_never_leak")
-	t.Setenv("LYK_CONFIG", "/private/owner/config")
+	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "config"))
 	f := &daemonFixture{env: testutil.Setup(t), ws: uuid.New()}
 	ctx := context.Background()
 	st := &store.Store{Pool: f.env.App}
@@ -566,6 +570,12 @@ func TestStateOwnershipAndFinishedOnlyGC(t *testing.T) {
 }
 func TestDaemonOwnerHintWakesWithoutPoll(t *testing.T) {
 	f := fixture(t)
+	defer func() {
+		var status, detail string
+		if err := f.env.Owner.QueryRow(t.Context(), "SELECT status,error FROM agent_run WHERE id=$1", f.id).Scan(&status, &detail); err == nil && status != "completed" {
+			t.Logf("owner fixture state=%s error=%s", status, detail)
+		}
+	}()
 	f.cfg.Poll = time.Hour
 	cancel, done := startDaemon(t, f.cfg)
 	waitFor(t, func() bool { return f.status(t) == "completed" })
@@ -968,6 +978,7 @@ func TestPrepareConnectionRefusalAndTimeoutAreRetryable(t *testing.T) {
 			d := &daemon{cfg: f.cfg, api: &apiclient.Client{Server: endpoint.URL, Token: f.cfg.Token, HTTP: &http.Client{Timeout: 40 * time.Millisecond}}}
 			d.messages = &Outbox{Dir: filepath.Join(f.cfg.StateDir, "messages"), Send: d.sendMessages}
 			d.out = &Outbox{Dir: filepath.Join(f.cfg.StateDir, "outbox"), Send: d.send}
+			d.ownerOf = map[uuid.UUID]uuid.UUID{*c.AgentRun.RuntimeID: c.AgentRun.ResponsibleUserID}
 			must(t, d.runAgentRun(t.Context(), c))
 			r, err := readReport(d.out.file(Report{AgentRunID: f.id, Attempt: 1}))
 			must(t, err)
@@ -1204,6 +1215,7 @@ func TestRemovedHarnessRunFails(t *testing.T) {
 				return nil, errors.New("unexpected backend launch")
 			}}}
 			d.out = &Outbox{Dir: filepath.Join(state, "outbox")}
+			d.ownerOf = map[uuid.UUID]uuid.UUID{*c.AgentRun.RuntimeID: c.AgentRun.ResponsibleUserID}
 			must(t, d.runAgentRun(t.Context(), c))
 			report, err := readReport(d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}))
 			must(t, err)

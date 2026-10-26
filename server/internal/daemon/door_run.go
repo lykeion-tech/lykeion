@@ -125,7 +125,14 @@ func (d *Door) sandboxPolicy() error {
 		return err
 	}
 	dir := d.Child().Dir
-	d.policy = sandbox.Policy{Home: home, Write: []string{dir, d.Study.Dir, tmp}, Hidden: slices.Clone(d.PrivatePaths)}
+	d.policy = sandbox.Policy{StrictRead: d.Guest, Home: home, Write: []string{dir, d.Study.Dir, tmp}, Hidden: slices.Clone(d.PrivatePaths)}
+	if d.Guest {
+		for _, path := range []string{filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json"), filepath.Join(home, ".codex"), agent.AccountHome("claude"), agent.AccountHome("codex")} {
+			if path != "" && !slices.Contains(d.policy.Hidden, path) {
+				d.policy.Hidden = append(d.policy.Hidden, path)
+			}
+		}
+	}
 	for _, root := range append(slices.Clone(d.PrivateRoots), d.Study.Bases.Dir) {
 		if root == "" || slices.Contains(d.policy.RestrictedRoots, root) {
 			continue
@@ -281,7 +288,11 @@ func privateCodeEnvName(k string) bool {
 // variables stay for the network; a proxy URL that carries a password
 // reaches the code with it.
 func (d *Door) personEnv() []string {
-	return slices.DeleteFunc(envs.Isolate(connectorEnv(d.Child(), nil)), func(e string) bool {
+	opts := d.Child()
+	if d.Guest {
+		opts.Guest = true
+	}
+	return slices.DeleteFunc(envs.Isolate(connectorEnv(opts, nil)), func(e string) bool {
 		k, v, _ := strings.Cut(e, "=")
 		if studyValue, study := d.StudyEnv[k]; study && k != "PATH" && v == studyValue {
 			return true

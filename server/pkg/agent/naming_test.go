@@ -92,3 +92,23 @@ echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"bad","n
 		t.Fatal("tool request accepted in naming session")
 	}
 }
+
+func TestGuestNamingUsesGuestConfigAndCredentialEnvironment(t *testing.T) {
+	t.Setenv("CUSTOM_PERSONAL_VALUE", "owner-ambient-fixture")
+	guest, cache := t.TempDir(), t.TempDir()
+	bin := script(t, `while IFS= read -r prompt; do
+ [ "$CLAUDE_CODE_OAUTH_TOKEN" = "guest-access-fixture" ] || exit 51
+ [ -z "$CUSTOM_PERSONAL_VALUE" ] || exit 52
+ printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%s|%s"}]}}\n' "$CLAUDE_CONFIG_DIR" "$npm_config_cache"
+ echo '{"type":"result","subtype":"success","session_id":"naming-only","modelUsage":{"m":{"inputTokens":1,"outputTokens":1}}}'
+done`)
+	n, err := OpenNamingSession(t.Context(), "claude", bin, t.TempDir(), "m", testSandbox, ExecOptions{Guest: true, ConfigHome: guest, CacheDir: cache, Env: []string{"CLAUDE_CODE_OAUTH_TOKEN=guest-access-fixture"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.Close()
+	got, err := n.Ask(t.Context(), "name")
+	if err != nil || got != guest+"|"+filepath.Join(cache, "npm") {
+		t.Fatalf("naming guest environment: %q %v", got, err)
+	}
+}

@@ -347,7 +347,7 @@ func TestALeavingMemberTakesTheirSharingWithThem(t *testing.T) {
 				return nil
 			}
 			var runtimes []db.Runtime
-			if code := f.s.call(t, "POST", "/api/daemon/register", f.s.personalToken(t, guest), "", map[string]any{"workspace_id": f.ws, "daemon_id": "guest-daemon", "device_name": "guest", "harnesses": []string{"claude"}}, &runtimes); code != 200 {
+			if code := f.s.call(t, "POST", "/api/daemon/register", f.s.personalToken(t, guest), "", map[string]any{"workspace_id": f.ws, "daemon_id": "guest-daemon", "device_name": "guest", "platform": map[string]string{"os": "linux"}, "harnesses": []string{"claude"}}, &runtimes); code != 200 {
 				t.Fatal(code)
 			}
 			gr := runtimes[0].ID.String()

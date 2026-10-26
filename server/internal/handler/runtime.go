@@ -245,7 +245,7 @@ func (h *H) setRuntimeSharing(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if errors.Is(err, service.ErrWorkspaceSharingList) {
+	if errors.Is(err, service.ErrWorkspaceSharingList) || errors.Is(err, service.ErrSharedRunsRequireLinux) {
 		writeErr(w, 400, err.Error())
 		return
 	}

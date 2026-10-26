@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -122,6 +123,7 @@ type daemon struct {
 	platform          agent.Platform    // the machine's platform, read once at start
 	api               *apiclient.Client
 	refs              []runtimeRef
+	ownerOf           map[uuid.UUID]uuid.UUID
 	out, messages     *Outbox
 	wake              chan struct{}
 	failures          chan error
@@ -310,15 +312,22 @@ func (d *daemon) register(ctx context.Context, id string) error {
 	sort.Strings(harnesses)
 	for _, ws := range workspaces {
 		var runtimes []struct {
-			ID uuid.UUID `json:"id"`
+			ID      uuid.UUID `json:"id"`
+			OwnerID uuid.UUID `json:"owner_id"`
 		}
 		if err := d.api.Do(ctx, "POST", "/api/daemon/register", map[string]any{"workspace_id": ws.ID, "daemon_id": id, "device_name": d.cfg.Device, "harnesses": harnesses, "versions": d.versions, "platform": d.platform}, &runtimes); err != nil {
 			return err
 		}
+		d.mu.Lock()
+		if d.ownerOf == nil {
+			d.ownerOf = make(map[uuid.UUID]uuid.UUID)
+		}
 		d.knownWorkspaces[ws.ID] = true
 		for _, r := range runtimes {
+			d.ownerOf[r.ID] = r.OwnerID
 			d.refs = append(d.refs, runtimeRef{WorkspaceID: ws.ID, RuntimeID: r.ID})
 		}
+		d.mu.Unlock()
 	}
 	return nil
 }
@@ -362,7 +371,11 @@ func (d *daemon) claim(ctx context.Context) {
 	d.rotation = (d.rotation + 64) % len(currentRefs)
 	for i := 0; i < len(refs) && free > 0 && ctx.Err() == nil; i += 64 {
 		var got []claimed
-		if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/claim", map[string]any{"runtimes": refs[i:min(i+64, len(refs))], "slots": free}, &got); err != nil {
+		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))], "slots": free}
+		if runtime.GOOS == "linux" {
+			body["guest_isolation"] = agent.GuestIsolationProtocol
+		}
+		if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/claim", body, &got); err != nil {
 			slog.Warn("claim failed", "err", err)
 			var he *apiclient.HTTPError
 			if errors.As(err, &he) && he.Status == 404 {

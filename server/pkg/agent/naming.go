@@ -26,7 +26,7 @@ type namingAnswer struct {
 	err  error
 }
 
-func OpenNamingSession(ctx context.Context, harness, bin, dir, model string, sandbox SandboxCommand) (*NamingSession, error) {
+func OpenNamingSession(ctx context.Context, harness, bin, dir, model string, sandbox SandboxCommand, guest ...ExecOptions) (*NamingSession, error) {
 	if sandbox == nil {
 		return nil, ErrNoSandbox
 	}
@@ -35,6 +35,10 @@ func OpenNamingSession(ctx context.Context, harness, bin, dir, model string, san
 	}
 	processCtx, cancel := context.WithCancel(ctx)
 	opts := ExecOptions{Dir: dir, Model: model, Sandbox: sandbox}
+	if len(guest) > 0 {
+		opts.Guest = guest[0].Guest
+		opts.ConfigHome, opts.CacheDir, opts.Env = guest[0].ConfigHome, guest[0].CacheDir, guest[0].Env
+	}
 	home, cleanup, err := prepareScratch(&opts, "claude")
 	if err != nil {
 		cancel()

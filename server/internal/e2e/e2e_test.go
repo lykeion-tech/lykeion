@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,8 +76,11 @@ func newLab(t *testing.T) *lab {
 	t.Setenv("HOME", filepath.Dir(t.TempDir()))
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if runtime.GOOS == "linux" {
+		must(t, os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".credentials.json"), []byte("test-signin-fixture"), 0600))
+	}
 	t.Setenv("LYK_TOKEN", "lyk_fake_parent_secret")
-	t.Setenv("LYK_CONFIG", "/fake/parent/config")
+	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "config"))
 	l := &lab{env: testutil.Setup(t), ws: uuid.New(), issuer: auth.Issuer{Secret: []byte("test"), TTL: time.Hour}, blobs: t.TempDir(), calls: map[uuid.UUID]int{}, connections: map[net.Conn]bool{}}
 	l.st = &store.Store{Pool: l.env.App}
 	l.runs = l.service()
@@ -480,6 +484,7 @@ exec sleep 300
 		must(t, err)
 		pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 		must(t, err)
+		pid = ownedFixtureAgentPID(t, filepath.Join(cfg.Home, fmt.Sprintf("%s-%d", id, attempt)), pid)
 		pgid, err := syscall.Getpgid(pid)
 		must(t, err)
 		if pid <= 1 || pgid <= 1 {
@@ -729,6 +734,7 @@ exec sleep 300
 		must(t, err)
 		pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 		must(t, err)
+		pid = ownedFixtureAgentPID(t, dir, pid)
 		group, err := syscall.Getpgid(pid)
 		must(t, err)
 		t.Cleanup(func() {
@@ -784,13 +790,29 @@ func TestAColleaguesStudyRunsOnASharedMachine(t *testing.T) {
 	raw, err := json.Marshal(map[string]string{"server": l.url, "daemon_id": machine})
 	must(t, err)
 	must(t, os.WriteFile(filepath.Join(cfg.StateDir, "daemon.json"), raw, 0600))
-	runtimes, err := l.runs.Register(t.Context(), machineOwner, l.ws, machine, "shared", []string{"claude"}, nil, agent.Platform{})
+	runtimes, err := l.runs.Register(t.Context(), machineOwner, l.ws, machine, "shared", []string{"claude"}, nil, agent.Platform{OS: runtime.GOOS})
 	must(t, err)
 	_, err = l.env.Owner.Exec(t.Context(), "UPDATE card SET machine=$1 WHERE id=$2", machine, card)
 	must(t, err)
 	_, err = l.env.Owner.Exec(t.Context(), "INSERT INTO runtime_share(workspace_id,runtime_id,user_id) VALUES($1,$2,$3)", l.ws, runtimes[0].ID, researcher)
 	must(t, err)
+	if runtime.GOOS == "linux" {
+		must(t, os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".credentials.json"), []byte("guest-signin-fixture"), 0600))
+	}
 	stop := startDaemon(t, cfg)
+	if runtime.GOOS != "linux" {
+		waitFor(t, "native runtime registration", func() bool {
+			return l.count(t, "SELECT count(*) FROM runtime WHERE id=$1 AND os=$2", runtimes[0].ID, runtime.GOOS) == 1
+		})
+		claims, err := l.runs.Claim(t.Context(), machineOwner, []service.RuntimeRef{{WorkspaceID: l.ws, RuntimeID: runtimes[0].ID}}, 1)
+		must(t, err)
+		if len(claims) != 0 || l.run(t, ids[0]).Status != "queued" || l.run(t, ids[0]).Attempt != 0 || l.count(t, "SELECT count(*) FROM agent_run_token WHERE agent_run_id=$1", ids[0]) != 0 {
+			t.Fatal("unsupported native daemon claimed colleague study")
+		}
+		stop()
+		t.Log("native unsupported machine remains queued without attempt or tokens")
+		return
+	}
 	waitFor(t, "colleague study completion", func() bool { return l.run(t, ids[0]).Status == "completed" })
 	l.settled(t, ids)
 	stop()
@@ -798,4 +820,17 @@ func TestAColleaguesStudyRunsOnASharedMachine(t *testing.T) {
 	if run := l.run(t, ids[0]); run.ResponsibleUserID != researcher || run.MachineOwnerID == nil || *run.MachineOwnerID != machineOwner {
 		t.Fatalf("ownership changed: %+v", run)
 	}
+}
+
+func ownedFixtureAgentPID(t *testing.T, dir string, reported int) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, ".agent-process"))
+	must(t, err)
+	var owner struct {
+		PID int `json:"pid"`
+	}
+	must(t, json.Unmarshal(data, &owner))
+	host, err := testutil.OwnedFixtureHostPID(owner.PID, reported)
+	must(t, err)
+	return host
 }

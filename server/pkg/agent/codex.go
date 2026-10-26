@@ -36,6 +36,10 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	// Codex's own web search answers from OpenAI's side, past the sources
 	// server that every cited source must come through, so it is off.
 	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", "danger-full-access", "-c", `web_search="disabled"`}
+	if o.Guest {
+		// Login profiles replace the trusted run PATH before shell tools run.
+		args = append(args, "-c", "allow_login_shell=false")
+	}
 	args = append(args, "-m", model)
 	if clash := personalClash(personal, o); clash != "" {
 		// -c deep-merges into a personal entry of the same name, so its headers

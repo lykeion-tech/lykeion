@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -12,6 +13,15 @@ func TestConfigHomeOverridesTheAccountHome(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "/y")
 	env := childEnv(ExecOptions{ConfigHome: "/x"}, "")
 	for _, key := range []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR"} {
+		count := 0
+		for _, entry := range env {
+			if strings.HasPrefix(entry, key+"=") {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("%s has %d entries", key, count)
+		}
 		if !slices.Contains(env, key+"=/x") {
 			t.Errorf("%s did not use run config home", key)
 		}

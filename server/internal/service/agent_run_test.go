@@ -86,7 +86,7 @@ func (f *fixture) enqueue(t *testing.T, n int, harness string) {
 
 func (f *fixture) runtime(t *testing.T, user uuid.UUID, daemon, harness string) RuntimeRef {
 	t.Helper()
-	rs, err := f.T.Register(context.Background(), user, f.WS, daemon, "laptop", []string{harness}, nil, agent.Platform{})
+	rs, err := f.T.Register(context.Background(), user, f.WS, daemon, "laptop", []string{harness}, nil, agent.Platform{OS: "linux"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1314,7 +1314,7 @@ func sharedClaimFixture(t *testing.T, share bool) (*fixture, uuid.UUID, RuntimeR
 }
 func TestASharedMachineRunsAColleaguesStudy(t *testing.T) {
 	f, owner, ref := sharedClaimFixture(t, true)
-	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1341,7 +1341,7 @@ func TestASharedMachineRunsAColleaguesStudy(t *testing.T) {
 }
 func TestAMachineNotSharedNeverClaims(t *testing.T) {
 	f, owner, ref := sharedClaimFixture(t, false)
-	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1352,7 +1352,7 @@ func TestAMachineNotSharedNeverClaims(t *testing.T) {
 func TestAPinnedStudyIgnoresTheOwnersOtherMachines(t *testing.T) {
 	f, _, _ := sharedClaimFixture(t, true)
 	own := f.runtime(t, f.Owner, "own", "codex")
-	got, err := f.T.Claim(t.Context(), f.Owner, []RuntimeRef{own}, 1)
+	got, err := f.T.Claim(t.Context(), f.Owner, []RuntimeRef{own}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1364,7 +1364,7 @@ func TestOnlyTheSharedCLIClaims(t *testing.T) {
 	f, owner, _ := sharedClaimFixture(t, true)
 	f.enqueue(t, 1, "claude")
 	ref := f.runtime(t, owner, "shared", "claude")
-	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1389,7 +1389,7 @@ func TestARevokeBetweenSelectAndDeliveryDenies(t *testing.T) {
 				_, err := tx.Q.SetRuntimeSharing(ctx, db.SetRuntimeSharingParams{WorkspaceID: f.WS, ID: ref.RuntimeID, OwnerID: owner, Visibility: "private"})
 				return err
 			}
-			got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+			got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1422,7 +1422,7 @@ func TestAChangedMachineRequeuesWithoutAnAttempt(t *testing.T) {
 		_, err := tx.Q.SetCardMachine(ctx, db.SetCardMachineParams{WorkspaceID: f.WS, ID: f.Card, Machine: &machine})
 		return err
 	}
-	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1449,7 +1449,7 @@ func TestAutoresearchStaysOnTheRequestersMachines(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1457,11 +1457,164 @@ func TestAutoresearchStaysOnTheRequestersMachines(t *testing.T) {
 		t.Fatal("guest autoresearch delivered")
 	}
 	own := f.runtime(t, f.Owner, "own", "codex")
-	got, err = f.T.Claim(t.Context(), f.Owner, []RuntimeRef{own}, 1)
+	got, err = f.T.Claim(t.Context(), f.Owner, []RuntimeRef{own}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].AgentRun.ResponsibleUserID != f.Owner {
 		t.Fatal("requester autoresearch missing")
+	}
+}
+
+func TestUnsupportedRuntimeNeverClaimsAGuest(t *testing.T) {
+	for _, platform := range []string{"darwin", "", "windows"} {
+		for _, workspace := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%t", platform, workspace), func(t *testing.T) {
+				f, owner, ref := sharedClaimFixture(t, true)
+				visibility := "private"
+				if workspace {
+					visibility = "workspace"
+				}
+				if _, err := f.Env.Owner.Exec(t.Context(), "UPDATE runtime SET os=$1,visibility=$2 WHERE id=$3", platform, visibility, ref.RuntimeID); err != nil {
+					t.Fatal(err)
+				}
+				got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(got) != 0 {
+					t.Fatal("unsupported runtime delivered guest")
+				}
+				var status string
+				var attempt, tokens int
+				if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &attempt, &tokens); err != nil {
+					t.Fatal(err)
+				}
+				if status != "queued" || attempt != 0 || tokens != 0 {
+					t.Fatalf("status=%s attempt=%d tokens=%d", status, attempt, tokens)
+				}
+			})
+		}
+	}
+}
+func TestPlatformChangeBeforeDeliveryDeniesGuest(t *testing.T) {
+	f, owner, ref := sharedClaimFixture(t, true)
+	f.T.afterClaim = func(ctx context.Context, tx *store.Tx, run db.AgentRun) error {
+		_, err := tx.Q.UpsertRuntime(ctx, db.UpsertRuntimeParams{WorkspaceID: f.WS, OwnerID: owner, DaemonID: "shared", Harness: "codex", DeviceName: "laptop", Os: "darwin"})
+		return err
+	}
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatal("platform changed but guest delivered")
+	}
+	var status, reason string
+	var attempt, tokens int
+	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,failure_reason,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &reason, &attempt, &tokens); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || reason != "runtime_access_denied" || attempt != 0 || tokens != 0 {
+		t.Fatalf("status=%s reason=%s attempt=%d tokens=%d", status, reason, attempt, tokens)
+	}
+}
+
+func TestGuestClaimsRequireIsolationCapability(t *testing.T) {
+	f, owner, ref := sharedClaimFixture(t, true)
+	claims, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claims) != 0 {
+		t.Fatal("legacy Linux daemon received guest claim")
+	}
+	var attempt, tokens int
+	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&attempt, &tokens); err != nil {
+		t.Fatal(err)
+	}
+	if attempt != 0 || tokens != 0 {
+		t.Fatalf("legacy claim consumed attempt=%d tokens=%d", attempt, tokens)
+	}
+	claims, err = f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: "unknown"})
+	if err != nil || len(claims) != 0 {
+		t.Fatalf("unknown capability delivered: %d %v", len(claims), err)
+	}
+	claims, err = f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
+	if err != nil || len(claims) != 1 {
+		t.Fatalf("updated daemon cannot claim: %d %v", len(claims), err)
+	}
+}
+
+func TestGuestClaimRequiresConsistentRoleActor(t *testing.T) {
+	for _, protocol := range []string{"", agent.GuestIsolationProtocol} {
+		t.Run(protocol, func(t *testing.T) {
+			f, owner, ref := sharedClaimFixture(t, true)
+			if _, err := f.Env.Owner.Exec(t.Context(), "UPDATE card SET owner_id=$1 WHERE id=$2", owner, f.Card); err != nil {
+				t.Fatal(err)
+			}
+			got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: protocol})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 0 {
+				t.Fatal("mismatched role actor delivered")
+			}
+			var status string
+			var attempt, tokens int
+			if err := f.Env.Owner.QueryRow(t.Context(), "SELECT status,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&status, &attempt, &tokens); err != nil {
+				t.Fatal(err)
+			}
+			if status != "queued" || attempt != 0 || tokens != 0 {
+				t.Fatalf("identity refusal status=%s attempt=%d tokens=%d", status, attempt, tokens)
+			}
+		})
+	}
+}
+func TestGuestActorChangeBeforeDeliveryIsRefused(t *testing.T) {
+	f, owner, ref := sharedClaimFixture(t, true)
+	f.T.afterClaim = func(ctx context.Context, tx *store.Tx, run db.AgentRun) error {
+		mutation, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		_, err := f.Env.Owner.Exec(mutation, "UPDATE card SET owner_id=$1 WHERE id=$2", owner, f.Card)
+		return err
+	}
+	got, err := f.T.Claim(t.Context(), owner, []RuntimeRef{ref}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatal("changed role actor delivered")
+	}
+	var reason string
+	var attempt, tokens int
+	if err := f.Env.Owner.QueryRow(t.Context(), "SELECT failure_reason,attempt,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE card_id=$1", f.Card).Scan(&reason, &attempt, &tokens); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "runtime_access_denied" || attempt != 0 || tokens != 0 {
+		t.Fatalf("reason=%s attempt=%d tokens=%d", reason, attempt, tokens)
+	}
+}
+func TestGuestAutoresearchRequiresRequesterIdentity(t *testing.T) {
+	f, other, _ := sharedClaimFixture(t, true)
+	if _, err := f.Env.Owner.Exec(t.Context(), "DELETE FROM agent_run WHERE card_id=$1", f.Card); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.T.Store.InWorkspace(t.Context(), f.WS, f.Owner, func(tx *store.Tx) error {
+		_, err := tx.Q.EnqueueAutoresearchAgentRun(t.Context(), db.EnqueueAutoresearchAgentRunParams{WorkspaceID: f.WS, RequesterID: f.Owner, Harness: "codex", Prompt: "p"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET responsible_user_id=$1 WHERE workspace_id=$2", other, f.WS); err != nil {
+		t.Fatal(err)
+	}
+	own := f.runtime(t, f.Owner, "own", "codex")
+	got, err := f.T.Claim(t.Context(), f.Owner, []RuntimeRef{own}, 1, ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatal("autoresearch ran as a different responsible user")
 	}
 }

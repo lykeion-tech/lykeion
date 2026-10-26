@@ -16,11 +16,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"lykeion/server/internal/apiclient"
 	studyarchive "lykeion/server/internal/archive"
@@ -33,7 +36,11 @@ import (
 )
 
 func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
-	r := Report{AgentRunID: c.AgentRun.ID, WorkspaceID: c.AgentRun.WorkspaceID, RuntimeID: *c.AgentRun.RuntimeID, Attempt: c.AgentRun.Attempt, Kind: "complete"}
+	var runtimeID uuid.UUID
+	if c.AgentRun.RuntimeID != nil {
+		runtimeID = *c.AgentRun.RuntimeID
+	}
+	r := Report{AgentRunID: c.AgentRun.ID, WorkspaceID: c.AgentRun.WorkspaceID, RuntimeID: runtimeID, Attempt: c.AgentRun.Attempt, Kind: "complete"}
 	dir := filepath.Join(d.cfg.Home, scratchName(r.AgentRunID, r.Attempt))
 	created := false
 	var cont *continuity
@@ -80,8 +87,27 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		localErr = errors.Join(localErr, d.forgetAttempt(r))
 	}()
+	d.mu.Lock()
+	owner, knownOwner := d.ownerOf[r.RuntimeID]
+	d.mu.Unlock()
+	if !knownOwner || owner == uuid.Nil {
+		fail(errors.New("unknown runtime owner"))
+		return nil
+	}
 	if c.AgentRun.Harness == "cursor" || c.AgentRun.Harness == "antigravity" {
 		fail(agent.ErrHarnessRemoved)
+		return nil
+	}
+	guest := ""
+	if c.AgentRun.ResponsibleUserID != owner {
+		guest = c.AgentRun.ResponsibleUserID.String()
+	}
+	if guest != "" && runtime.GOOS != "linux" {
+		message := "shared runs require Linux: process environment isolation is not enforced"
+		if runtime.GOOS == "darwin" {
+			message = "shared runs are unavailable on macOS: process environment isolation is not enforced"
+		}
+		fail(errors.New(message))
 		return nil
 	}
 	// The attempt keeps this snapshot even if the policy file changes later.
@@ -204,19 +230,32 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		study = envs.ForStudy(d.bases, studyDir)
 		study.PythonVersion = c.PythonVersion
 	}
-	services, err := d.startServices(runCtx, c, study)
+	services, err := d.startServices(runCtx, c, study, guest != "")
 	if err != nil {
 		fail(err)
 		return nil
 	}
 	defer services.Stop()
 	studyEnv := acceptedStudyEnv(c.Env)
-	opts := agent.ExecOptions{ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
+	opts := agent.ExecOptions{Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path + os.Getenv("PATH"),
 	}}
 	opts.Env = append(opts.Env, services.Env()...)
-	opts.CacheDir = d.cacheDir()
-	opts.Sandbox = d.cliSandbox(dir, study, opts.ReadOnly)
+	opts.CacheDir = d.runCacheDir(guest)
+	if guest != "" {
+		opts.ConfigHome = filepath.Join(d.cfg.StateDir, "guests", guest, c.AgentRun.Harness)
+		if err = agent.PrepareGuestHome(c.AgentRun.Harness, agent.AccountHome(c.AgentRun.Harness), opts.ConfigHome); err != nil {
+			fail(err)
+			return nil
+		}
+		auth, authErr := agent.GuestAuthEnv(runCtx, c.AgentRun.Harness)
+		if authErr != nil {
+			fail(authErr)
+			return nil
+		}
+		opts.Env = append(opts.Env, auth...)
+	}
+	opts.Sandbox = d.cliSandbox(dir, study, opts.ReadOnly, guest)
 	if study != nil {
 		opts.ReadDirs = append([]string{study.Dir}, d.bases.Folders()...)
 	}
@@ -228,8 +267,13 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(err)
 		return nil
 	}
-	door := &Door{Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, StudyEnv: studyEnv, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
-		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions { return opts }}
+	door := &Door{Guest: guest != "", Server: d.cfg.Server, Sources: c.MCPURL, RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, StudyEnv: studyEnv, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
+		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions {
+			if guest != "" {
+				return guestDoorOptions(opts)
+			}
+			return opts
+		}}
 	if err = door.Start(); err != nil {
 		fail(err)
 		return nil
@@ -255,7 +299,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 	}
 	// Resume only what this run's CLI can find; otherwise continue fresh.
-	if opts.Resume != "" && !agent.SessionReachable(c.AgentRun.Harness, opts.Resume) {
+	if opts.Resume != "" && !agent.SessionReachable(c.AgentRun.Harness, opts.Resume, opts.ConfigHome) {
 		if err = note("session " + opts.Resume + " is not in the CLI's session store; starting a fresh session"); err != nil {
 			fail(err)
 			return errors.Join(err, d.abandonContinuity(cont))
@@ -263,7 +307,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		opts.Resume, opts.ClaudeBaseline = "", nil
 	}
 
-	namer = newStepNamer(runCtx, func(ctx context.Context) (toolNamingSession, error) { return d.openToolNamer(ctx, c) }, func(titles agent.StepTitles) error {
+	namer = newStepNamer(runCtx, func(ctx context.Context) (toolNamingSession, error) { return d.openToolNamer(ctx, c, opts) }, func(titles agent.StepTitles) error {
 		_, err := appendMessage(agent.Message{Type: "status", Content: rawJSON(titles)})
 		return err
 	})
@@ -955,4 +999,13 @@ func acceptedStudyEnv(extra map[string]string) map[string]string {
 		}
 	}
 	return out
+}
+
+// guestDoorOptions excludes CLI-only authentication from connectors and code.
+// An empty override also prevents inheritance from the daemon environment.
+func guestDoorOptions(opts agent.ExecOptions) agent.ExecOptions {
+	opts.Guest = true
+	opts.Env = slices.DeleteFunc(slices.Clone(opts.Env), func(entry string) bool { return strings.HasPrefix(entry, "CLAUDE_CODE_OAUTH_TOKEN=") })
+	opts.Env = append(opts.Env, "CLAUDE_CODE_OAUTH_TOKEN=")
+	return opts
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -52,10 +53,10 @@ func TestRuntimeAllowsUserRules(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestNarrowingWithColleagueRunsAsksFirst(t *testing.T)  { testSharingRevocation(t, false) }
-func TestAConfirmedRevokeCancelsColleagueRuns(t *testing.T) { testSharingRevocation(t, true) }
-func TestAStaleConfirmIsRefused(t *testing.T)               { testSharingRevocation(t, true) }
-func testSharingRevocation(t *testing.T, confirm bool) {
+func TestNarrowingWithColleagueRunsAsksFirst(t *testing.T)  { testSharingRevocation(t, false, "linux") }
+func TestAConfirmedRevokeCancelsColleagueRuns(t *testing.T) { testSharingRevocation(t, true, "linux") }
+func TestAStaleConfirmIsRefused(t *testing.T)               { testSharingRevocation(t, true, "linux") }
+func testSharingRevocation(t *testing.T, confirm bool, platform string) {
 	f := setup(t)
 	ctx := context.Background()
 	ref := f.runtime(t, f.Owner, "shared-machine", "claude")
@@ -92,6 +93,11 @@ func testSharingRevocation(t *testing.T, confirm bool) {
 	}
 	if _, e = f.T.SetSharing(ctx, f.Owner, f.WS, ref.RuntimeID, SharingChange{Visibility: "workspace"}); e != nil {
 		t.Fatal(e)
+	}
+	if platform != "linux" {
+		if _, err := f.Env.Owner.Exec(ctx, "UPDATE runtime SET os=$1 WHERE id=$2", platform, ref.RuntimeID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	affected, e := f.T.SetSharing(ctx, f.Owner, f.WS, ref.RuntimeID, SharingChange{Visibility: "private"})
 	if !errors.Is(e, ErrSharingConfirmation) || len(affected) != 1 || affected[0].RunID != run || affected[0].StudyTitle != "t" || affected[0].Colleague != "Colleague" {
@@ -183,3 +189,42 @@ func TestSharingDropsOwnerAndDuplicateMembers(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestOnlyLinuxRuntimesCanBeShared(t *testing.T) {
+	for _, platform := range []string{"linux", "darwin", "", "windows"} {
+		t.Run(platform, func(t *testing.T) {
+			f := setup(t)
+			ref := f.runtime(t, f.Owner, "platform", "codex")
+			if _, err := f.Env.Owner.Exec(t.Context(), "UPDATE runtime SET os=$1 WHERE id=$2", platform, ref.RuntimeID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.T.SetSharing(t.Context(), uuid.New(), f.WS, ref.RuntimeID, SharingChange{Visibility: "workspace"}); !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatalf("owner authorization: %v", err)
+			}
+			_, err := f.T.SetSharing(t.Context(), f.Owner, f.WS, ref.RuntimeID, SharingChange{Visibility: "workspace"})
+			if platform == "linux" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || err.Error() != "Shared runs require Linux. On a Mac, register a Linux VM as a separate machine." {
+				t.Fatalf("unsupported sharing: %v", err)
+			}
+		})
+	}
+}
+func TestOwnerAccessDoesNotRequireLinux(t *testing.T) {
+	for _, platform := range []string{"linux", "darwin", "", "windows"} {
+		rt := db.Runtime{OwnerID: uuid.New(), Os: platform, Visibility: "workspace"}
+		got, err := RuntimeAllowsUser(t.Context(), nil, rt, rt.OwnerID)
+		if err != nil || !got {
+			t.Fatalf("owner %s: %t %v", platform, got, err)
+		}
+		if platform != "linux" {
+			got, err = RuntimeAllowsUser(t.Context(), nil, rt, uuid.New())
+			if err != nil || got {
+				t.Fatalf("guest %s: %t %v", platform, got, err)
+			}
+		}
+	}
+}
+func TestUnsupportedSharingCanBeCleared(t *testing.T) { testSharingRevocation(t, true, "darwin") }

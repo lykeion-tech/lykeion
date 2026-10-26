@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
@@ -798,4 +799,62 @@ func waitExitMarker(t *testing.T, dir, nonce string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("supervisor never published its exit witness")
+}
+
+func TestOwnedShutdownRetiresStoppedVforkChildBeforeWaitingForParent(t *testing.T) {
+	const leader, parent, child = 101, 102, 103
+	live := map[int]bool{leader: true, parent: true, child: true}
+	stopped := map[int]bool{}
+	scans := 0
+	var killedOrder []int
+	ops := groupOperations{
+		same:  func(p processOwner) (bool, error) { return live[p.PID] && p.Started == "birth", nil },
+		group: func(int) (int, error) { return leader, nil },
+		members: func(int) ([]groupMember, error) {
+			scans++
+			if scans > 8 {
+				return nil, errors.New("vfork parent cannot acknowledge stop while stopped child survives")
+			}
+			var snapshot []groupMember
+			for pid := range live {
+				snapshot = append(snapshot, groupMember{owner: processOwner{PID: pid, Started: "birth"}, stopped: stopped[pid]})
+			}
+			return snapshot, nil
+		},
+		signal: func(target int, sig syscall.Signal) error {
+			if sig == syscall.SIGSTOP {
+				for pid := range live {
+					stopped[pid] = pid != parent || !live[child]
+				}
+				return nil
+			}
+			if sig != syscall.SIGKILL {
+				t.Fatalf("unexpected signal: %v", sig)
+			}
+			if target == -leader {
+				if len(live) != 1 || !live[leader] {
+					t.Fatal("witness retired before descendants")
+				}
+				delete(live, leader)
+				killedOrder = append(killedOrder, leader)
+				return nil
+			}
+			if !live[leader] || !stopped[leader] || !stopped[target] {
+				t.Fatal("retired process without stopped witness and child")
+			}
+			if target == parent && live[child] {
+				t.Fatal("retired vfork parent before child")
+			}
+			delete(live, target)
+			killedOrder = append(killedOrder, target)
+			return nil
+		},
+	}
+	killed, err := signalOwnedWith(processOwner{PID: leader, Started: "birth", Nonce: "attempt"}, ops)
+	if err != nil || !killed {
+		t.Fatalf("vfork shutdown: killed=%t error=%v", killed, err)
+	}
+	if !reflect.DeepEqual(killedOrder, []int{child, parent, leader}) {
+		t.Fatalf("retirement order: %v", killedOrder)
+	}
 }

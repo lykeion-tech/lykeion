@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +93,9 @@ func newBoardLab(t *testing.T) *boardLab {
 	buildLyk(t)
 	t.Setenv("HOME", filepath.Dir(t.TempDir())) // Keep fixture executables readable without exposing the developer's home.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if runtime.GOOS == "linux" {
+		must(t, os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".credentials.json"), []byte("test-signin-fixture"), 0600))
+	}
 	t.Setenv("CODEX_HOME", "")
 	env := testutil.Setup(t)
 	l := &boardLab{env: env, st: &store.Store{Pool: env.App}, ws: uuid.New(), home: t.TempDir()}

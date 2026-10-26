@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -8,6 +9,9 @@ import (
 
 func TestSharingIsCheckedAndCleaned(t *testing.T) {
 	f := runtimeSkillSetup(t)
+	if _, err := f.s.Env.Owner.Exec(context.Background(), "UPDATE runtime SET os='linux' WHERE id=$1", f.rt); err != nil {
+		t.Fatal(err)
+	}
 	path := "/api/runtimes/" + f.rt + "/sharing"
 	for _, tc := range []struct {
 		v string
@@ -43,6 +47,24 @@ func TestOnlyTheOwnerShares(t *testing.T) {
 		}
 		if got := f.s.call(t, "PUT", "/api/runtimes/"+f.rt+"/sharing", jwt, f.ws, map[string]any{"visibility": "invalid"}, nil); got != 404 {
 			t.Fatalf("%s: %d", role, got)
+		}
+	}
+}
+
+func TestOnlyLinuxSharingHasPlatformError(t *testing.T) {
+	f := runtimeSkillSetup(t)
+	for _, platform := range []string{"darwin", "", "windows", "linux"} {
+		if _, err := f.s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET os=$1 WHERE id=$2", platform, f.rt); err != nil {
+			t.Fatal(err)
+		}
+		var body map[string]any
+		got := f.s.call(t, "PUT", "/api/runtimes/"+f.rt+"/sharing", f.jwt, f.ws, map[string]any{"visibility": "workspace"}, &body)
+		want := 400
+		if platform == "linux" {
+			want = 200
+		}
+		if got != want || (want == 400 && body["error"] != "Shared runs require Linux. On a Mac, register a Linux VM as a separate machine.") {
+			t.Fatalf("%s: %d %+v", platform, got, body)
 		}
 	}
 }

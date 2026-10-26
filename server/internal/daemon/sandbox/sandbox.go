@@ -40,6 +40,8 @@ import (
 // also readable, so they are not repeated in Read. Home is the person's home
 // folder, hidden apart from those.
 type Policy struct {
+	// StrictRead exposes only system paths and explicit grants on Linux.
+	StrictRead bool
 	// LoopbackOnly requests strict 127.0.0.1 binding. macOS refuses this policy
 	// until that boundary can be enforced; Linux retains its documented bind gap.
 	LoopbackOnly bool

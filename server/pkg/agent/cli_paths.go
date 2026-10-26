@@ -10,8 +10,10 @@ import (
 
 // CLIPaths are the person's own CLI files a run may change.
 type CLIPaths struct {
-	Write     []string
-	WriteData []string
+	// ConfigHome identifies the account store behind these state grants.
+	ConfigHome string
+	Write      []string
+	WriteData  []string
 	// WriteFiles permits creation and replacement of these exact filenames.
 	WriteFiles []string
 	// WriteSQLite permits numeric-version SQLite stores and their side files.
@@ -32,7 +34,7 @@ func ClaudeProjectDir(home, cwd string) string {
 
 // SandboxPaths selects state paths without creating empty CLI state files.
 func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) {
-	p := CLIPaths{Keychain: goos == "darwin"}
+	p := CLIPaths{ConfigHome: home, Keychain: goos == "darwin"}
 	if goos != "darwin" && goos != "linux" {
 		return p, fmt.Errorf("no CLI sandbox paths on %s", goos)
 	}

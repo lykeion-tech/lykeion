@@ -37,7 +37,8 @@ func (d *daemon) refreshReferences(ctx context.Context) error {
 		d.mu.Unlock()
 		if !known {
 			var rs []struct {
-				ID uuid.UUID `json:"id"`
+				ID      uuid.UUID `json:"id"`
+				OwnerID uuid.UUID `json:"owner_id"`
 			}
 			var harnesses []string
 			for h := range d.cfg.Harnesses {
@@ -49,6 +50,12 @@ func (d *daemon) refreshReferences(ctx context.Context) error {
 				continue
 			}
 			d.mu.Lock()
+			if d.ownerOf == nil {
+				d.ownerOf = make(map[uuid.UUID]uuid.UUID)
+			}
+			for _, r := range rs {
+				d.ownerOf[r.ID] = r.OwnerID
+			}
 			d.knownWorkspaces[ws.ID] = true
 			d.mu.Unlock()
 			for _, r := range rs {
@@ -58,6 +65,7 @@ func (d *daemon) refreshReferences(ctx context.Context) error {
 		}
 		var rs []struct {
 			ID       uuid.UUID `json:"id"`
+			OwnerID  uuid.UUID `json:"owner_id"`
 			DaemonID string    `json:"daemon_id"`
 			Harness  string    `json:"harness"`
 		}
@@ -78,6 +86,12 @@ func (d *daemon) refreshReferences(ctx context.Context) error {
 		for _, r := range rs {
 			if r.DaemonID == d.id && d.cfg.Harnesses[r.Harness] != "" {
 				next = append(next, runtimeRef{ws.ID, r.ID})
+				d.mu.Lock()
+				if d.ownerOf == nil {
+					d.ownerOf = make(map[uuid.UUID]uuid.UUID)
+				}
+				d.ownerOf[r.ID] = r.OwnerID
+				d.mu.Unlock()
 			}
 		}
 	}

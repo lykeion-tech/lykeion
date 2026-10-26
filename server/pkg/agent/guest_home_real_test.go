@@ -2,9 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +22,9 @@ var realGuestEnv = func() map[string]string {
 }()
 
 func TestRealGuestCLIStarts(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("shared CLI execution requires Linux")
+	}
 	if os.Getenv("LYK_REAL_CLI") != "1" {
 		t.Skip("set LYK_REAL_CLI=1 to run signed-in CLIs")
 	}
@@ -80,7 +80,7 @@ func TestRealGuestCLIStarts(t *testing.T) {
 				backend = Codex{Bin: bin}
 			}
 			var transcript strings.Builder
-			options := ExecOptions{Dir: run, ConfigHome: guest, Env: []string{"TMPDIR=" + run, "CLAUDE_CODE_TMPDIR=" + run}, OnMessage: func(m Message) error {
+			options := ExecOptions{Guest: true, Dir: run, ConfigHome: guest, Env: []string{"TMPDIR=" + run, "CLAUDE_CODE_TMPDIR=" + run}, OnMessage: func(m Message) error {
 				if m.Type == "text" {
 					transcript.Write(m.Content)
 					transcript.WriteByte('\n')
@@ -88,28 +88,18 @@ func TestRealGuestCLIStarts(t *testing.T) {
 				return nil
 			}}
 
-			if harness == "claude" && runtime.GOOS == "darwin" && os.Getenv("LYK_REAL_CLI_CLAUDE_ENV_AUTH") == "1" {
-				service := "Claude Code-credentials"
-				if configured := realGuestEnv["CLAUDE_CONFIG_DIR"]; configured != "" {
-					sum := sha256.Sum256([]byte(configured))
-					service += fmt.Sprintf("-%x", sum[:4])
-				}
-				data, err := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", service, "-w").Output()
+			envAuth := harness == "claude" && runtime.GOOS == "darwin" && os.Getenv("LYK_REAL_CLI_CLAUDE_ENV_AUTH") == "1"
+			if envAuth {
+				auth, err := GuestAuthEnv(ctx, harness)
 				if err != nil {
-					t.Fatal("owner Claude Keychain sign-in unavailable")
+					t.Fatal(err)
 				}
-				var credential struct {
-					ClaudeAiOauth struct {
-						AccessToken string `json:"accessToken"`
-					} `json:"claudeAiOauth"`
-				}
-				if err := json.Unmarshal(data, &credential); err != nil || credential.ClaudeAiOauth.AccessToken == "" {
-					t.Fatal("owner Claude Keychain sign-in has no OAuth access token")
-				}
-				options.Env = append(options.Env, "CLAUDE_CODE_OAUTH_TOKEN="+credential.ClaudeAiOauth.AccessToken)
+				options.Env = append(options.Env, auth...)
 			}
+			keychain := runtime.GOOS == "darwin" && harness == "claude" && !envAuth
+			securityServer := runtime.GOOS == "darwin" && harness == "codex"
 			options.Sandbox = func(ctx context.Context, paths CLIPaths, name string, args ...string) (*exec.Cmd, error) {
-				policy := sandbox.Policy{Home: home, HomeRead: false, Read: []string{filepath.Dir(bin)}, Write: []string{run, guest}, Keychain: paths.Keychain}
+				policy := sandbox.Policy{Home: home, HomeRead: false, Read: []string{filepath.Dir(bin)}, Write: []string{run, guest}, Keychain: paths.Keychain && keychain}
 				return policy.Command(ctx, name, args...)
 			}
 			session, err := backend.Execute(ctx, "Reply with the word ok", options)
@@ -119,7 +109,7 @@ func TestRealGuestCLIStarts(t *testing.T) {
 			for range session.Messages {
 			}
 			result := <-session.Done
-			t.Logf("CLI %s; HomeRead=false; reply: %s", harness, transcript.String())
+			t.Logf("CLI %s; HomeRead=false; Keychain=%t; SecurityServer=%t; reply: %s", harness, keychain, securityServer, transcript.String())
 			if result.Err != nil {
 				t.Fatalf("guest CLI: %v", result.Err)
 			}

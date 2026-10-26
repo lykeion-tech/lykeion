@@ -1242,3 +1242,40 @@ func TestClaudeRunsWithoutThePersonsHooks(t *testing.T) {
 		t.Fatalf("claude ran with\n%s", a)
 	}
 }
+
+func TestCodexGuestShellPreservesTrustedPath(t *testing.T) {
+	for _, guest := range []bool{false, true} {
+		for _, resume := range []string{"", "thread-1"} {
+			t.Run(fmt.Sprintf("guest=%t/resume=%t", guest, resume != ""), func(t *testing.T) {
+				args := filepath.Join(t.TempDir(), "args")
+				backend := Codex{Bin: script(t, `printf '%s\n' "$@" > '`+args+`'
+echo '{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}'`)}
+				session, err := backend.Execute(t.Context(), "p", ExecOptions{Guest: guest, Sandbox: testSandbox, Dir: t.TempDir(), Model: "gpt-5.6-sol", Resume: resume})
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, result := collect(t, session)
+				if result.Err != nil {
+					t.Fatal(result.Err)
+				}
+				data, err := os.ReadFile(args)
+				if err != nil {
+					t.Fatal(err)
+				}
+				argv := string(data)
+				const override = "-c\nallow_login_shell=false\n"
+				if strings.Contains(argv, override) != guest {
+					t.Fatalf("guest=%t: unexpected login shell policy: %s", guest, argv)
+				}
+				if resume != "" {
+					if !strings.Contains(argv, "resume\nthread-1\n-\n") {
+						t.Fatalf("resume arguments lost: %s", argv)
+					}
+					if guest && strings.Index(argv, override) > strings.Index(argv, "resume\n") {
+						t.Fatal("guest shell policy must precede resume subcommand")
+					}
+				}
+			})
+		}
+	}
+}

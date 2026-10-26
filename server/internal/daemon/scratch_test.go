@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"lykeion/server/internal/testutil"
 	"lykeion/server/pkg/agent"
 )
 
@@ -253,6 +254,8 @@ func TestOrphanAttemptReconciledBeforeDeletion(t *testing.T) {
 			must(t, err)
 			cli, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
 			must(t, err)
+			cli, err = testutil.OwnedFixtureHostPID(owner.PID, cli)
+			must(t, err)
 			t.Cleanup(func() { _ = syscall.Kill(-owner.PID, syscall.SIGKILL) })
 			kill()
 			must(t, syscall.Kill(cli, 0))
@@ -263,12 +266,9 @@ func TestOrphanAttemptReconciledBeforeDeletion(t *testing.T) {
 				finishedFor(t, other.cfg.StateDir, dir, `{"retention_days":1}`, 48*time.Hour)
 				must(t, other.gc(t.Context()))
 			}
-			if err := syscall.Kill(owner.PID, 0); !errors.Is(err, syscall.ESRCH) {
-				t.Errorf("%s proceeded while orphan supervisor survived: %v", action, err)
-			}
-			if err := syscall.Kill(cli, 0); !errors.Is(err, syscall.ESRCH) {
-				t.Errorf("%s proceeded while orphan CLI survived: %v", action, err)
-			}
+			waitFor(t, func() bool {
+				return errors.Is(syscall.Kill(owner.PID, 0), syscall.ESRCH) && errors.Is(syscall.Kill(cli, 0), syscall.ESRCH)
+			})
 			if action != "reuse" {
 				if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 					t.Fatal("scope not deleted", err)

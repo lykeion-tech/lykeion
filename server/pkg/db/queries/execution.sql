@@ -55,15 +55,16 @@ WHERE id = (
   LEFT JOIN card c ON c.id = t.card_id
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
     AND t.harness = r.harness AND r.status = 'online'
+    AND (t.responsible_user_id = r.owner_id OR (@guest_isolation::boolean AND r.os = 'linux'))
     AND (
       -- role runs use the chosen machine with consent, or the card owner's runtimes
-      (t.kind = 'role' AND c.flag = '' AND c.ending = ''
+      (t.kind = 'role' AND t.responsible_user_id = c.owner_id AND c.flag = '' AND c.ending = ''
        AND EXISTS (SELECT 1 FROM member m WHERE m.workspace_id = t.workspace_id AND m.user_id = c.owner_id) AND (
        (c.machine IS NULL AND c.owner_id = r.owner_id)
-       OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR r.visibility = 'workspace'
-           OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))
+       OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR (@guest_isolation::boolean AND r.os = 'linux' AND (r.visibility = 'workspace'
+           OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))))
       -- an autoresearch agent run has no card and runs on its requester's runtimes
-      OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id))
+      OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id))
   ORDER BY t.created_at
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1

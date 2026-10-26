@@ -56,6 +56,23 @@ func stubCommand() {
 	}
 	os.WriteFile("stub.pid", []byte(strconv.Itoa(os.Getpid())+" "+strconv.Itoa(child.Process.Pid)), 0600)
 	os.WriteFile("stub.env", []byte("LYK_TOKEN="+os.Getenv("LYK_TOKEN")+" LYK_DOOR_TOKEN="+os.Getenv("LYK_DOOR_TOKEN")), 0600)
+	if os.Getenv("GUEST_CONNECTOR_PROBE") == "1" {
+		privateHome, _ := filepath.EvalSymlinks(os.Getenv("HOME"))
+		working, _ := os.Getwd()
+		result := struct {
+			Readable      []string
+			HasCLIAuth    bool
+			HasCLIConfig  bool
+			HomeIsPrivate bool
+		}{HasCLIAuth: os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") != "", HasCLIConfig: os.Getenv("CODEX_HOME") != "" || os.Getenv("CLAUDE_CONFIG_DIR") != "", HomeIsPrivate: filepath.Dir(privateHome) == working}
+		for _, path := range filepath.SplitList(os.Getenv("GUEST_PROBE_PATHS")) {
+			if _, err := os.ReadFile(path); err == nil {
+				result.Readable = append(result.Readable, path)
+			}
+		}
+		data, _ := json.Marshal(result)
+		os.WriteFile("stub.guest", data, 0600)
+	}
 	if os.Getenv("LYK_DOOR_STUB_BLOCK_INIT") == "1" {
 		for {
 			time.Sleep(time.Hour)

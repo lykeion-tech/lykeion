@@ -94,7 +94,7 @@ func (s *runningServices) Stop() {
 	})
 }
 
-func (d *daemon) startServices(ctx context.Context, c claimed, study *envs.Study) (out *runningServices, err error) {
+func (d *daemon) startServices(ctx context.Context, c claimed, study *envs.Study, guests ...bool) (out *runningServices, err error) {
 	out = &runningServices{stopLimit: 10 * time.Second}
 	if d.serviceStopLimit > 0 {
 		out.stopLimit = d.serviceStopLimit
@@ -127,7 +127,7 @@ func (d *daemon) startServices(ctx context.Context, c claimed, study *envs.Study
 	}
 	for _, spec := range c.Services {
 		failure := fmt.Errorf("hidden service %s did not start; see the daemon log", spec.Name)
-		child, url, startErr := d.startService(ctx, c, study, spec)
+		child, url, startErr := d.startService(ctx, c, study, spec, len(guests) > 0 && guests[0])
 		if child != nil {
 			out.children = append(out.children, child)
 		}
@@ -145,7 +145,7 @@ func (d *daemon) startServices(ctx context.Context, c claimed, study *envs.Study
 	return out, nil
 }
 
-func (d *daemon) startService(ctx context.Context, c claimed, study *envs.Study, spec service.ClaimedService) (child *runningService, url string, err error) {
+func (d *daemon) startService(ctx context.Context, c claimed, study *envs.Study, spec service.ClaimedService, guests ...bool) (child *runningService, url string, err error) {
 	if runtime.GOOS == "darwin" && d.serviceCommand == nil {
 		return nil, "", sandbox.ErrLoopbackOnlyUnsupported
 	}
@@ -181,6 +181,7 @@ func (d *daemon) startService(ctx context.Context, c claimed, study *envs.Study,
 		err = e
 		return
 	}
+	policy.StrictRead = len(guests) > 0 && guests[0]
 	listener, e := net.Listen("tcp4", "127.0.0.1:0")
 	if e != nil {
 		err = e

@@ -19,6 +19,8 @@ type Message struct {
 	Content json.RawMessage `json:"content"`
 }
 type ExecOptions struct {
+	// Guest excludes ambient account settings and credentials from child processes.
+	Guest bool
 	// ScratchReservation is a parent-owned lock borrowed for this execution.
 	// With nil, the adapter acquires and releases its own reservation.
 	ScratchReservation *ScratchReservation

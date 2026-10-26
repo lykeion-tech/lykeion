@@ -13,6 +13,7 @@ import (
 )
 
 var ErrSharingConfirmation = errors.New("sharing confirmation required")
+var ErrSharedRunsRequireLinux = errors.New("Shared runs require Linux. On a Mac, register a Linux VM as a separate machine.")
 var ErrInvalidSharing = errors.New("invalid sharing")
 var ErrWorkspaceSharingList = errors.New("A machine shared with everyone has no list of colleagues")
 
@@ -29,7 +30,13 @@ type AffectedRun struct {
 }
 
 func RuntimeAllowsUser(ctx context.Context, tx *store.Tx, rt db.Runtime, user uuid.UUID) (bool, error) {
-	if rt.OwnerID == user || rt.Visibility == "workspace" {
+	if rt.OwnerID == user {
+		return true, nil
+	}
+	if rt.Os != "linux" {
+		return false, nil
+	}
+	if rt.Visibility == "workspace" {
 		return true, nil
 	}
 	ids, err := tx.Q.RuntimeShares(ctx, db.RuntimeSharesParams{WorkspaceID: rt.WorkspaceID, RuntimeID: rt.ID})
@@ -68,6 +75,9 @@ func (s *AgentRuns) SetSharing(ctx context.Context, owner, ws, runtimeID uuid.UU
 				return e
 			}
 			shares = append(shares, id)
+		}
+		if rt.Os != "linux" && (c.Visibility == "workspace" || len(shares) > 0) {
+			return ErrSharedRunsRequireLinux
 		}
 		old, e := tx.Q.RuntimeShares(ctx, db.RuntimeSharesParams{WorkspaceID: ws, RuntimeID: runtimeID})
 		if e != nil {

@@ -593,3 +593,45 @@ func TestEachRunKeepsItsMachine(t *testing.T) {
 		t.Fatalf("machine snapshot %q %s", name, owner)
 	}
 }
+
+func TestGuestClaimsRequireUpdatedDaemonProtocol(t *testing.T) {
+	for _, capability := range []string{"", "unknown-protocol"} {
+		for _, guestRun := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/guest_%t", capability, guestRun), func(t *testing.T) {
+				f, guest, guestID := machineStudy(t)
+				jwt, ownerID := f.jwt, f.s.userID(t, f.jwt)
+				if guestRun {
+					jwt, ownerID = guest, guestID
+				}
+				c := f.s.idleCard(t, jwt, f.ws, "protocol")
+				if guestRun {
+					if _, err := f.s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET visibility='workspace' WHERE id=$1", f.rt); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, err := f.s.Env.Owner.Exec(t.Context(), "UPDATE card SET machine='skills-daemon' WHERE id=$1", c.ID); err != nil {
+					t.Fatal(err)
+				}
+				f.s.queue(t, f.ws, c.ID, ownerID, "claude")
+				body := map[string]any{"runtimes": []any{map[string]string{"workspace_id": f.ws, "runtime_id": f.rt}}, "slots": 1}
+				if capability != "" {
+					body["guest_isolation"] = capability
+				}
+				var claims []service.Claimed
+				if code := f.s.call(t, "POST", "/api/daemon/agent-runs/claim", f.token, "", body, &claims); code != 200 {
+					t.Fatalf("claim status %d", code)
+				}
+				want := 1
+				if guestRun {
+					want = 0
+				}
+				if len(claims) != want {
+					t.Fatalf("claims=%d want=%d", len(claims), want)
+				}
+				if guestRun && (f.s.count(t, "SELECT count(*) FROM agent_run WHERE card_id=$1 AND status='queued' AND attempt=0", c.ID) != 1 || f.s.count(t, "SELECT count(*) FROM agent_run_token WHERE card_id=$1", c.ID) != 0) {
+					t.Fatal("guest consumed attempt or token")
+				}
+			})
+		}
+	}
+}

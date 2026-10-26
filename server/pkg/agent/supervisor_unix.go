@@ -223,13 +223,15 @@ func signalOwnedWith(owner processOwner, ops groupOperations) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		stopped, descendants := true, false
+		stopped, descendants, witness := true, false, false
 		acknowledged := make(map[int]string, len(members))
 		for _, member := range members {
 			stopped = stopped && (member.stopped || member.exited)
 			acknowledged[member.owner.PID] = member.owner.Started
+			witness = witness || (member.owner.PID == owner.PID && member.owner.Started == owner.Started && member.stopped && !member.exited)
 		}
 		stopped = stopped && acknowledged[owner.PID] == owner.Started
+		partial := !stopped
 		if stopped {
 			// Enumeration can collect PIDs before reading their stopped states.
 			// Reconcile after acknowledgments: every live identity in this later
@@ -242,7 +244,7 @@ func signalOwnedWith(owner processOwner, ops groupOperations) (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			witness := false
+			witness = false
 			for _, member := range members {
 				stopped = stopped && (member.stopped || member.exited) && acknowledged[member.owner.PID] == member.owner.Started
 				witness = witness || (member.owner.PID == owner.PID && member.owner.Started == owner.Started && member.stopped && !member.exited)
@@ -250,11 +252,14 @@ func signalOwnedWith(owner processOwner, ops groupOperations) (bool, error) {
 			}
 			stopped = stopped && witness
 		}
-		if stopped {
+		// A vfork parent cannot acknowledge SIGSTOP until its child exits.
+		// Retire already-stopped, verified children while the stopped witness
+		// remains alive, then observe the group again before retiring it.
+		if stopped || (partial && witness) {
 			// Keep the supervisor alive while retiring descendants. Losing the group
 			// leader first can resume stopped members through orphan-group signals.
 			for _, member := range members {
-				if member.owner.PID == owner.PID || member.exited {
+				if member.owner.PID == owner.PID || member.exited || !member.stopped {
 					continue
 				}
 				alive, err := ownedGroupAlive(owner, ops)
@@ -286,7 +291,7 @@ func signalOwnedWith(owner processOwner, ops groupOperations) (bool, error) {
 					return false, err
 				}
 			}
-			if !descendants {
+			if stopped && !descendants {
 				alive, err := ownedGroupAlive(owner, ops)
 				if err != nil || !alive {
 					return false, err

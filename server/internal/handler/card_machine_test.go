@@ -17,7 +17,7 @@ func machineStudy(t *testing.T) (runtimeSkillFixture, string, string) {
 	ws := s.workspace(t, jwt, "lab")
 	token := s.personalToken(t, jwt)
 	var runtimes []struct{ ID string }
-	if code := s.call(t, "POST", "/api/daemon/register", token, "", map[string]any{"workspace_id": ws.ID, "daemon_id": "skills-daemon", "device_name": "laptop", "harnesses": []string{"claude"}}, &runtimes); code != 200 {
+	if code := s.call(t, "POST", "/api/daemon/register", token, "", map[string]any{"workspace_id": ws.ID, "daemon_id": "skills-daemon", "device_name": "laptop", "platform": map[string]string{"os": "linux"}, "harnesses": []string{"claude"}}, &runtimes); code != 200 {
 		t.Fatal(code)
 	}
 	f := runtimeSkillFixture{s, jwt, token, ws.ID, runtimes[0].ID}
@@ -169,5 +169,18 @@ func TestAStudyDefaultsToMyMachines(t *testing.T) {
 	}
 	if out["machine"] != nil || out["machine_label"] != "My machines" || out["machine_notice"] != "" {
 		t.Fatalf("default machine %+v", out)
+	}
+}
+
+func TestUnsupportedRuntimeCannotBeSelectedForStudy(t *testing.T) {
+	f, guest, _ := machineStudy(t)
+	for _, platform := range []string{"darwin", "", "windows"} {
+		if _, err := f.s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET os=$1,visibility='workspace' WHERE id=$2", platform, f.rt); err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]any
+		if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"question": "unsupported", "machine": "skills-daemon"}, &out); code != 400 || out["error"] != "No machine named skills-daemon is shared with you" {
+			t.Fatalf("%s: %d %+v", platform, code, out)
+		}
 	}
 }

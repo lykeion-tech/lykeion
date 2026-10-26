@@ -373,3 +373,23 @@ func TestLinuxPrivateServicesOutsideMaskedRootsStayHidden(t *testing.T) {
 		})
 	}
 }
+
+func TestNestedHiddenAncestorNeedsNoChildMountTarget(t *testing.T) {
+	home, state := t.TempDir(), t.TempDir()
+	planted := filepath.Join(state, "private")
+	if err := os.WriteFile(planted, []byte("nested-hidden-fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(planted); err != nil || string(data) != "nested-hidden-fixture" {
+		t.Fatal("unobservable hidden-file control")
+	}
+	p := Policy{Home: home, HomeRead: true, Hidden: []string{state, filepath.Join(state, "future-service")}}
+	cmd, err := p.Command(t.Context(), "/bin/sh", "-c", `if cat "$1" 2>/dev/null; then exit 71; fi; echo SANDBOX_STARTED`, "sh", planted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(output)) != "SANDBOX_STARTED" {
+		t.Fatalf("redundant hidden child blocked sandbox startup: %v %s", err, output)
+	}
+}

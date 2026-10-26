@@ -429,6 +429,7 @@ func TestEveryRunResumesItsScope(t *testing.T) {
 			return &agent.Session{Messages: messages, Done: done}, nil
 		}), nil
 	}
+	d.ownerOf = map[uuid.UUID]uuid.UUID{*c.AgentRun.RuntimeID: c.AgentRun.ResponsibleUserID}
 	must(t, d.runAgentRun(t.Context(), c))
 	report, err := readReport(d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}))
 	must(t, err)

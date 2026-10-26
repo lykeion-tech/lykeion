@@ -360,7 +360,7 @@ func mergeNamingUsage(base, added []agent.Usage) []agent.Usage {
 
 // namingSlot belongs to the daemon, not a workspace: three running studies
 // may name steps concurrently without forking an unbounded number of CLIs.
-func (d *daemon) openToolNamer(ctx context.Context, c claimed) (toolNamingSession, error) {
+func (d *daemon) openToolNamer(ctx context.Context, c claimed, options ...agent.ExecOptions) (toolNamingSession, error) {
 	if c.AgentRun.Harness != "claude" {
 		return nil, errors.New("tool-free naming is not verified for this harness")
 	}
@@ -381,7 +381,20 @@ func (d *daemon) openToolNamer(ctx context.Context, c claimed) (toolNamingSessio
 		return nil, err
 	}
 	namingCtx, cancelNaming := context.WithCancel(ctx)
-	sess, err := agent.OpenNamingSession(namingCtx, c.AgentRun.Harness, d.cfg.Harnesses[c.AgentRun.Harness], dir, c.AgentRun.RequestedModel, d.cliSandbox(dir, nil, true))
+	var guest agent.ExecOptions
+	user := ""
+	if len(options) > 0 && options[0].Guest {
+		guest = agent.ExecOptions{Guest: true, ConfigHome: options[0].ConfigHome, CacheDir: options[0].CacheDir}
+		for _, entry := range options[0].Env {
+			if strings.HasPrefix(entry, "CLAUDE_CODE_OAUTH_TOKEN=") {
+				guest.Env = append(guest.Env, entry)
+			}
+		}
+		user = c.AgentRun.ResponsibleUserID.String()
+	}
+	// A guest's private temp lives in this disposable scratch. Naming still
+	// disables every tool and retains no research session.
+	sess, err := agent.OpenNamingSession(namingCtx, c.AgentRun.Harness, d.cfg.Harnesses[c.AgentRun.Harness], dir, c.AgentRun.RequestedModel, d.cliSandbox(dir, nil, user == "", user), guest)
 	if err != nil {
 		cancelNaming()
 		os.RemoveAll(dir)

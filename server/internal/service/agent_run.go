@@ -473,12 +473,17 @@ func owned(ctx context.Context, tx *store.Tx, user uuid.UUID, ref RuntimeRef) er
 	return nil
 }
 
+type ClaimOptions struct {
+	GuestIsolation string
+}
+
 // Claim fills up to slots agent runs across the caller's runtimes, one run per
 // runtime per pass, until nothing more can be claimed. An agent run's add-on
 // servers were checked when the owner saved them and when it was queued; they
 // are checked once more before they reach a daemon, and an agent run that fails
 // is settled failed instead of handed out.
-func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef, slots int) ([]Claimed, error) {
+func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef, slots int, options ...ClaimOptions) ([]Claimed, error) {
+	guestIsolation := len(options) > 0 && options[0].GuestIsolation == agent.GuestIsolationProtocol
 	var out []Claimed
 	var refused []db.AgentRun
 	teams := map[uuid.UUID]TeamClaim{}
@@ -539,7 +544,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if active >= int64(runtime.MaxConcurrent) {
 						return nil
 					}
-					claim, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID})
+					claim, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID, GuestIsolation: guestIsolation})
 					if errors.Is(err, pgx.ErrNoRows) {
 						return nil
 					}
@@ -555,13 +560,17 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							return err
 						}
 					}
+					current, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
+					if err != nil {
+						return err
+					}
+					denied := current.OwnerID != t.ResponsibleUserID && (!guestIsolation || current.Os != "linux")
+					if t.Kind == "autoresearch" {
+						denied = t.RequesterID == nil || *t.RequesterID != current.OwnerID || t.ResponsibleUserID != current.OwnerID
+					}
 					var accessErr error
 					if t.CardID != nil {
 						card, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: ref.WorkspaceID, ID: *t.CardID})
-						if err != nil {
-							return err
-						}
-						current, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
 						if err != nil {
 							return err
 						}
@@ -572,17 +581,19 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							}
 							return tx.Q.UndoClaimAttempt(ctx, db.UndoClaimAttemptParams{WorkspaceID: ref.WorkspaceID, ID: t.ID})
 						}
+						denied = denied || t.ResponsibleUserID != card.OwnerID
 						if card.Machine != nil {
 							allowed, err := RuntimeAllowsUser(ctx, tx, current, card.OwnerID)
 							if err != nil {
 								return err
 							}
-							if !allowed {
-								accessErr = errors.New("This machine is no longer shared with you; choose another for this study.")
-								if err := tx.Q.UndoClaimAttempt(ctx, db.UndoClaimAttemptParams{WorkspaceID: ref.WorkspaceID, ID: t.ID}); err != nil {
-									return err
-								}
-							}
+							denied = denied || !allowed
+						}
+					}
+					if denied {
+						accessErr = errors.New("This machine is no longer shared with you; choose another for this study.")
+						if err := tx.Q.UndoClaimAttempt(ctx, db.UndoClaimAttemptParams{WorkspaceID: ref.WorkspaceID, ID: t.ID}); err != nil {
+							return err
 						}
 					}
 					t, err = tx.Q.SetRunMachine(ctx, db.SetRunMachineParams{WorkspaceID: ref.WorkspaceID, ID: t.ID})

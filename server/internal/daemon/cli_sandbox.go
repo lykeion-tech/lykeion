@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -34,23 +35,35 @@ func (d *daemon) privatePaths() ([]string, error) {
 	return paths, nil
 }
 
-func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli agent.CLIPaths) (sandbox.Policy, error) {
+func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli agent.CLIPaths, guests ...string) (sandbox.Policy, error) {
+	guest := ""
+	if len(guests) > 0 {
+		guest = guests[0]
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return sandbox.Policy{}, err
 	}
 	p := sandbox.Policy{Home: home, HomeRead: true, Write: append([]string{d.cacheDir()}, cli.Write...), WriteData: cli.WriteData, WriteFiles: cli.WriteFiles, WriteSQLite: cli.WriteSQLite, Blocked: cli.Blocked, Keychain: cli.Keychain}
-	if err = os.MkdirAll(d.cacheDir(), 0700); err != nil {
+	cache := d.runCacheDir(guest)
+	if guest != "" {
+		harness := filepath.Base(cli.ConfigHome)
+		if d.cfg.StateDir == "" || (harness != "claude" && harness != "codex") || cli.ConfigHome != filepath.Join(d.cfg.StateDir, "guests", guest, harness) {
+			return p, errors.New("guest CLI home does not match responsible user")
+		}
+		p = sandbox.Policy{StrictRead: true, Home: home, Write: []string{cache, cli.ConfigHome}, Blocked: cli.Blocked}
+	}
+	if err = os.MkdirAll(cache, 0700); err != nil {
 		return p, err
 	}
-	fi, err := os.Lstat(d.cacheDir())
+	fi, err := os.Lstat(cache)
 	if err != nil {
 		return p, err
 	}
 	if !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
 		return p, errors.New("cache folder is not a real directory")
 	}
-	if err = os.Chmod(d.cacheDir(), 0700); err != nil {
+	if err = os.Chmod(cache, 0700); err != nil {
 		return p, err
 	}
 	folders := []string{runDir}
@@ -77,8 +90,17 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 	if err != nil {
 		return p, err
 	}
-	p.Hidden = append(p.Hidden, private...)
 	roots := []string{d.cfg.Home, filepath.Join(home, ".lyk")}
+	if guest != "" {
+		private = slices.DeleteFunc(private, func(path string) bool { return path == d.cfg.StateDir })
+		roots = append(roots, d.cfg.StateDir, d.cacheDir())
+		for _, path := range []string{filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json"), filepath.Join(home, ".codex"), agent.AccountHome("claude"), agent.AccountHome("codex")} {
+			if path != "" && !slices.Contains(p.Hidden, path) {
+				p.Hidden = append(p.Hidden, path)
+			}
+		}
+	}
+	p.Hidden = append(p.Hidden, private...)
 	if d.bases != nil {
 		roots = append(roots, d.bases.Dir)
 	}
@@ -92,12 +114,12 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 	// grant, but a shell looking it up (which, command -v) stats it, so it is
 	// readable wherever the person's own reads don't already reach it.
 	if self, err := os.Executable(); err == nil {
-		if self, err = filepath.EvalSymlinks(self); err == nil && !insideStorage(home, self) &&
-			!slices.ContainsFunc(slices.Concat(p.RestrictedRoots, p.Write), func(dir string) bool { return insideStorage(dir, self) }) {
+		if self, err = filepath.EvalSymlinks(self); err == nil && ((guest != "" && !slices.ContainsFunc(p.Write, func(dir string) bool { return insideStorage(dir, self) })) || (guest == "" && !insideStorage(home, self) &&
+			!slices.ContainsFunc(slices.Concat(p.RestrictedRoots, p.Write), func(dir string) bool { return insideStorage(dir, self) }))) {
 			p.Read = append(p.Read, self)
 		}
 	}
-	if cli.Keychain && runtime.GOOS == "darwin" {
+	if p.Keychain && runtime.GOOS == "darwin" {
 		root := filepath.Join(home, "Library", "Keychains")
 		err = filepath.WalkDir(root, func(path string, e os.DirEntry, err error) error {
 			if errors.Is(err, os.ErrNotExist) {
@@ -118,12 +140,23 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 	return p, nil
 }
 
-func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool) agent.SandboxCommand {
+func (d *daemon) runCacheDir(guest string) string {
+	if guest != "" {
+		return filepath.Join(d.cacheDir(), "guests", guest)
+	}
+	return d.cacheDir()
+}
+
+func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool, guests ...string) agent.SandboxCommand {
+	guest := ""
+	if len(guests) > 0 {
+		guest = guests[0]
+	}
 	return func(ctx context.Context, cli agent.CLIPaths, name string, args ...string) (*exec.Cmd, error) {
 		if d.sandboxErr != nil {
 			return nil, fmt.Errorf("CLI sandbox unavailable: %w", d.sandboxErr)
 		}
-		p, err := d.cliPolicy(runDir, study, readOnly, cli)
+		p, err := d.cliPolicy(runDir, study, readOnly, cli, guest)
 		if err != nil {
 			return nil, err
 		}
@@ -132,14 +165,38 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool) age
 				return nil, err
 			}
 		}
-		tmp, err := os.MkdirTemp("", "lyk-cli-")
+		tempRoot := ""
+		if guest != "" {
+			bin, err := exec.LookPath(name)
+			if err != nil {
+				return nil, err
+			}
+			bin, err = filepath.EvalSymlinks(bin)
+			if err != nil {
+				return nil, err
+			}
+			p.Read = append(p.Read, bin)
+			code, err := guestCLIPackagePaths(cli, bin)
+			if err != nil {
+				return nil, err
+			}
+			p.Read = append(p.Read, code...)
+			name = bin
+			tempRoot = runDir
+		}
+		tmp, err := os.MkdirTemp(tempRoot, "lyk-cli-")
 		if err != nil {
 			return nil, err
 		}
 		var placeholders []placeholder
 		cleanup := func() {
-			for _, ph := range placeholders {
-				ph.remove()
+			// Guest helpers share the run's immutable configuration guards.
+			// Retain them until scratch retirement so an earlier helper's
+			// canceled context cannot remove a later launch's bind targets.
+			if guest == "" {
+				for _, ph := range placeholders {
+					ph.remove()
+				}
 			}
 			os.RemoveAll(tmp)
 		}
@@ -150,7 +207,7 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool) age
 			}
 		}
 		p.Write = append(p.Write, tmp)
-		envArgs := []string{"TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "TMPPREFIX=" + filepath.Join(tmp, "zsh"), "CLAUDE_CODE_TMPDIR=" + tmp, "npm_config_cache=" + filepath.Join(d.cacheDir(), "npm"), "UV_CACHE_DIR=" + filepath.Join(d.cacheDir(), "uv"), "UV_PYTHON_INSTALL_DIR=" + filepath.Join(d.cacheDir(), "uv-python"), "UV_TOOL_DIR=" + filepath.Join(d.cacheDir(), "uv-tools"), name}
+		envArgs := []string{"TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "TMPPREFIX=" + filepath.Join(tmp, "zsh"), "CLAUDE_CODE_TMPDIR=" + tmp, "npm_config_cache=" + filepath.Join(d.runCacheDir(guest), "npm"), "UV_CACHE_DIR=" + filepath.Join(d.runCacheDir(guest), "uv"), "UV_PYTHON_INSTALL_DIR=" + filepath.Join(d.runCacheDir(guest), "uv-python"), "UV_TOOL_DIR=" + filepath.Join(d.runCacheDir(guest), "uv-tools"), name}
 		cmd, err := p.Command(ctx, "/usr/bin/env", append(envArgs, args...)...)
 		if err != nil {
 			cleanup()
@@ -197,4 +254,54 @@ func protectCLIExecutable(p *sandbox.Policy, cli agent.CLIPaths, name string) er
 		}
 	}
 	return nil
+}
+
+// Codex's npm wrapper resolves a separate platform package at runtime. Grant
+// those verified code packages individually, never their node_modules parent.
+func guestCLIPackagePaths(cli agent.CLIPaths, bin string) ([]string, error) {
+	if runtime.GOOS != "linux" || filepath.Base(cli.ConfigHome) != "codex" || filepath.Base(bin) != "codex.js" || filepath.Base(filepath.Dir(bin)) != "bin" {
+		return nil, nil
+	}
+	root := filepath.Dir(filepath.Dir(bin))
+	if filepath.Base(root) != "codex" || filepath.Base(filepath.Dir(root)) != "@openai" {
+		return nil, nil
+	}
+	arch := ""
+	switch runtime.GOARCH {
+	case "amd64":
+		arch = "x64"
+	case "arm64":
+		arch = "arm64"
+	default:
+		return nil, errors.New("unsupported Codex platform package")
+	}
+	native := filepath.Join(filepath.Dir(root), "codex-linux-"+arch)
+	for path, name := range map[string]string{root: "@openai/codex", native: "@openai/codex"} {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil, fmt.Errorf("CLI code package: %w", err)
+		}
+		if resolved != path {
+			return nil, errors.New("CLI code package must not be redirected")
+		}
+		manifest := filepath.Join(path, "package.json")
+		info, err := os.Lstat(manifest)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+			return nil, errors.New("invalid CLI code package manifest")
+		}
+		data, err := os.ReadFile(manifest)
+		if err != nil {
+			return nil, err
+		}
+		var pkg struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(data, &pkg) != nil || pkg.Name != name {
+			return nil, errors.New("unexpected CLI code package")
+		}
+	}
+	return []string{root, native}, nil
 }

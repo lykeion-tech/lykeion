@@ -511,6 +511,7 @@ func TestCLISandboxFindsOwnExecutable(t *testing.T) {
 	d := &daemon{cfg: Config{Home: scratch, StateDir: t.TempDir()}}
 	cmd, err := d.cliSandbox(run, nil, false)(context.Background(), agent.CLIPaths{}, "/bin/sh", "-c", "command -v "+filepath.Base(self))
 	must(t, err)
+	must(t, os.WriteFile(filepath.Join(run, ".agent-process"), []byte("test-owned-process-marker"), 0600))
 	cmd.Dir = run
 	cmd.Env = []string{"PATH=" + filepath.Dir(self) + ":/usr/bin:/bin"}
 	if out, err := cmd.CombinedOutput(); err != nil {

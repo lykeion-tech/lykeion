@@ -213,7 +213,7 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {
 		k, v, ok := strings.Cut(entry, "=")
-		if ok && !filteredEnvKey(k) {
+		if ok && !filteredEnvKey(k) && (!o.Guest || guestAmbientEnvKey(k)) {
 			values[k] = v
 		}
 	}
@@ -242,7 +242,7 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 	}
 	for _, entry := range os.Environ() {
 		k, v, ok := strings.Cut(entry, "=")
-		if ok && inheritedEnvKey(k) {
+		if ok && !o.Guest && inheritedEnvKey(k) {
 			values[k] = v
 		}
 	}
@@ -250,12 +250,32 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 		values["CODEX_HOME"] = o.ConfigHome
 		values["CLAUDE_CONFIG_DIR"] = o.ConfigHome
 	}
+	if o.Guest {
+		home := o.ConfigHome
+		if home == "" {
+			home = filepath.Join(o.Dir, ".cli-home")
+		}
+		values["HOME"] = home
+		for key, sub := range map[string]string{"XDG_CONFIG_HOME": ".config", "XDG_DATA_HOME": ".local/share", "XDG_STATE_HOME": ".local/state"} {
+			values[key] = filepath.Join(home, sub)
+		}
+		values["XDG_CACHE_HOME"] = cacheDir
+	}
 	if cacheDir != "" {
 		for k, sub := range map[string]string{"npm_config_cache": "npm", "UV_CACHE_DIR": "uv", "UV_PYTHON_INSTALL_DIR": "uv-python", "UV_TOOL_DIR": "uv-tools"} {
 			values[k] = filepath.Join(cacheDir, sub)
 		}
 	}
 	return envList(values)
+}
+
+// guestAmbientEnvKey keeps presentation and executable discovery settings only.
+func guestAmbientEnvKey(k string) bool {
+	switch k {
+	case "PATH", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME", "TZ", "TERM", "COLORTERM":
+		return true
+	}
+	return false
 }
 
 // inheritedEnvKey names the account locations a continuity run keeps as-is.

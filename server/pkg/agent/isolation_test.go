@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +50,39 @@ func TestTrustedNodeOptionsRemainInChildEnv(t *testing.T) {
 	} {
 		if !slices.Contains(child, entry) {
 			t.Errorf("the person's trusted setting %q was removed", entry)
+		}
+	}
+}
+
+func TestGuestChildEnvKeepsOnlyApprovedAmbientSettings(t *testing.T) {
+	names := []string{"AWS_SECRET_ACCESS_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN", "CUSTOM_PERSONAL_VALUE", "SSH_AUTH_SOCK", "NODE_OPTIONS", "HTTP_PROXY", "CLAUDE_CODE_OAUTH_TOKEN"}
+	for _, name := range names {
+		t.Setenv(name, "ambient-fixture-"+name)
+	}
+	t.Setenv("LANG", "C.UTF-8")
+	dir, config := t.TempDir(), t.TempDir()
+	var err error
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guest := ChildEnv(ExecOptions{Guest: true, Dir: dir, ConfigHome: config, CacheDir: t.TempDir(), Env: []string{"RUN_OPTION=explicit", "LYK_TOKEN=ltk_guest", "LYK_CONFIG=" + filepath.Join(dir, "config.json")}})
+	for _, entry := range guest {
+		for _, name := range names {
+			if strings.HasPrefix(entry, name+"=") {
+				t.Fatalf("guest inherited ambient account setting %s", name)
+			}
+		}
+	}
+	for _, want := range []string{"LANG=C.UTF-8", "RUN_OPTION=explicit", "LYK_TOKEN=ltk_guest", "HOME=" + config, "CODEX_HOME=" + config, "CLAUDE_CONFIG_DIR=" + config, "LYK_CONFIG=" + filepath.Join(dir, "config.json")} {
+		if !slices.Contains(guest, want) {
+			t.Errorf("guest lost trusted/private environment %s", want)
+		}
+	}
+	owner := ChildEnv(ExecOptions{ConfigHome: config})
+	for _, name := range names {
+		if !slices.Contains(owner, name+"=ambient-fixture-"+name) {
+			t.Errorf("owner setting changed: %s", name)
 		}
 	}
 }
