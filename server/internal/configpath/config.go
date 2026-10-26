@@ -30,19 +30,25 @@ func Private() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	paths := []string{def}
+	paths := []string{def, filepath.Join(filepath.Dir(def), "profiles")}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	if runtime.GOOS == "linux" {
-		paths = append(paths, filepath.Join(home, ".config", "lyk", "config.json"))
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+		paths = append(paths, filepath.Join(home, ".config", "lyk", "config.json"), filepath.Join(home, ".config", "lyk", "profiles"))
 	}
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		paths = append(paths, filepath.Join(xdg, "lyk", "config.json"))
+		paths = append(paths, filepath.Join(xdg, "lyk", "config.json"), filepath.Join(xdg, "lyk", "profiles"))
 	}
 	if actual := os.Getenv("LYK_CONFIG"); actual != "" {
 		paths = append(paths, actual)
+		for parent := filepath.Dir(actual); parent != "." && parent != string(filepath.Separator); parent = filepath.Dir(parent) {
+			if filepath.Base(parent) == "profiles" {
+				paths = append(paths, parent)
+				break
+			}
+		}
 	}
 	var absolute []string
 	for _, path := range paths {

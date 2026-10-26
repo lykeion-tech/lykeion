@@ -28,9 +28,10 @@ type daemonOwner struct {
 	Nonce   string `json:"nonce"`
 }
 
-func stateDir(e *env) string { return filepath.Join(filepath.Dir(e.path), "daemon") }
-func pidFile(e *env) string  { return filepath.Join(filepath.Dir(e.path), "daemon.pid") }
-func logFile(e *env) string  { return filepath.Join(filepath.Dir(e.path), "daemon.log") }
+func stateDir(e *env) string   { return filepath.Join(filepath.Dir(e.path), "daemon") }
+func pidFile(e *env) string    { return filepath.Join(filepath.Dir(e.path), "daemon.pid") }
+func healthFile(e *env) string { return filepath.Join(filepath.Dir(e.path), "daemon.health.json") }
+func logFile(e *env) string    { return filepath.Join(filepath.Dir(e.path), "daemon.log") }
 
 // envDir holds the language bases in a hidden folder in the home folder, not
 // the state folder, because macOS puts that under "Application Support" and
@@ -222,7 +223,7 @@ func daemonCmd(e *env) *cobra.Command {
 			return err
 		}
 		cfg := daemon.Config{Server: e.cfg.Server, Token: e.cfg.Token, StateDir: stateDir(e),
-			Home: home, Device: host, Harnesses: h, Slots: slots, EnvDir: envs}
+			Home: home, Device: host, Harnesses: h, Slots: slots, EnvDir: envs, Profile: os.Getenv("LYK_DAEMON_PROFILE"), HealthPath: healthFile(e)}
 		if ownerNonce != "" {
 			cfg.Ready = func() error { return writeOwner(pidFile(e), owner) }
 			cfg.OnExit = func() {
@@ -279,7 +280,15 @@ func daemonCmd(e *env) *cobra.Command {
 		fmt.Fprintln(e.out, "Daemon stopped")
 		return nil
 	}}
-	status := &cobra.Command{Use: "status", RunE: func(_ *cobra.Command, _ []string) error {
+	var statusJSON bool
+	status := &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, _ []string) error {
+		if statusJSON {
+			live, err := daemon.ProbeHealth(cmd.Context(), healthFile(e), os.Getenv("LYK_DAEMON_PROFILE"), e.cfg.Server)
+			if err != nil {
+				return json.NewEncoder(e.out).Encode(map[string]string{"status": "stopped", "profile": os.Getenv("LYK_DAEMON_PROFILE")})
+			}
+			return json.NewEncoder(e.out).Encode(live)
+		}
 		owner, err := readOwner(pidFile(e))
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintln(e.out, "not running")
@@ -295,6 +304,7 @@ func daemonCmd(e *env) *cobra.Command {
 		}
 		return nil
 	}}
+	status.Flags().BoolVar(&statusJSON, "json", false, "print verified live diagnostics as JSON")
 	logs := &cobra.Command{Use: "logs", RunE: func(_ *cobra.Command, _ []string) error {
 		if err := checkLogFile(logFile(e)); err != nil {
 			return err

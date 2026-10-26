@@ -29,6 +29,9 @@ func (d *daemon) refreshReferences(ctx context.Context) error {
 	if err := d.api.Do(ctx, "GET", "/api/daemon/workspaces", nil, &workspaces); err != nil {
 		return err
 	}
+	d.mu.Lock()
+	d.workspaceCount = len(workspaces)
+	d.mu.Unlock()
 	prior := d.references()
 	var next []runtimeRef
 	for _, ws := range workspaces {

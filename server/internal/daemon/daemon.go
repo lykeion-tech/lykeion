@@ -31,6 +31,7 @@ import (
 
 type Config struct {
 	Server, Token, StateDir, Home, Device string
+	Profile, HealthPath                   string
 	Harnesses                             map[string]string
 	Slots                                 int
 	Poll, Heartbeat, Flush                time.Duration
@@ -133,6 +134,7 @@ type daemon struct {
 	rotation          int
 	id                string
 	knownWorkspaces   map[uuid.UUID]bool
+	workspaceCount    int
 	activeRefs        map[string]runtimeRef
 	activeCancels     map[string]context.CancelFunc
 	scopes            map[string]bool
@@ -214,6 +216,13 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	if err = d.flush(ctx); err != nil {
 		return err
+	}
+	if cfg.HealthPath != "" {
+		closeHealth, err := d.startHealth()
+		if err != nil {
+			return fmt.Errorf("start daemon health: %w", err)
+		}
+		defer closeHealth()
 	}
 	if cfg.Ready != nil {
 		if err = cfg.Ready(); err != nil {
@@ -305,6 +314,9 @@ func (d *daemon) register(ctx context.Context, id string) error {
 	if err := d.api.Do(ctx, "GET", "/api/daemon/workspaces", nil, &workspaces); err != nil {
 		return err
 	}
+	d.mu.Lock()
+	d.workspaceCount = len(workspaces)
+	d.mu.Unlock()
 	var harnesses []string
 	for h := range d.cfg.Harnesses {
 		harnesses = append(harnesses, h)
