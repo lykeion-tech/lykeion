@@ -200,7 +200,7 @@ describe('Daemon settings mounted section', () => {
     const find = (label: string) =>
       all(t.root).find((n) => n.tag === 'button' && textOf(n).trim() === label)!;
     expect(find('Start').props.disabled).toBe(false);
-    expect(find('Rename machine')).toBeUndefined();
+    expect(find('Rename')).toBeUndefined();
     expect(find('Remove')).toBeUndefined();
     await (t.button('Auto-start on launch').props.onClick as () => Promise<void>)();
     expect(t.bridge.setPreferences).toHaveBeenCalledExactlyOnceWith({
@@ -256,6 +256,20 @@ describe('Daemon settings mounted section', () => {
       expect(t.bridge.start).not.toHaveBeenCalled();
     },
   );
+  it('explains an unavailable desktop platform before considering machine ownership', async () => {
+    const t = await mount({
+      snapshot: snapshot({
+        availability: 'unavailable',
+        authenticatedUserID: null,
+        daemonID: null,
+      }),
+    });
+    expect(t.text()).toContain(
+      'Daemon controls require the macOS or Linux desktop development preview.',
+    );
+    expect(t.text()).not.toContain('This machine is remote');
+    expect(t.bridge.getPreferences).not.toHaveBeenCalled();
+  });
   it('revokes the previous account row before exposing the newly verified stopped profile', async () => {
     const t = await mount({ machine: true, empty: true, collection: true });
     expect(t.text()).toContain('Bench');

@@ -14,7 +14,7 @@ test('the lab daemon is listed and can be renamed', async ({ page }) => {
     await row.getByRole('link').click();
     // An online machine cannot be removed.
     await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
-    await page.getByRole('button', { name: 'Rename machine', exact: true }).click();
+    await page.getByRole('button', { name: 'Rename', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Rename machine' });
     await dialog.getByRole('textbox', { name: 'Name' }).fill('Lab workstation');
     await dialog.getByRole('button', { name: 'Save' }).click();
@@ -92,7 +92,7 @@ async function openMachine(page: import('@playwright/test').Page, name: string) 
 }
 async function edit(page: import('@playwright/test').Page, name: string, draft: string) {
   await openMachine(page, name);
-  await page.getByRole('button', { name: 'Rename machine', exact: true }).click();
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
   await page.getByRole('textbox', { name: 'Name' }).fill(draft);
 }
 
@@ -120,7 +120,7 @@ test('two real runtimes group into one machine with versions, rename together, a
         .filter((r) => records.some((x) => x.id === r.id))
         .map((r) => r.custom_name),
     ).toEqual(['Renamed two CLI computer', 'Renamed two CLI computer']);
-    await expect(page.getByRole('button', { name: 'Rename machine', exact: true })).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Rename', exact: true })).toBeFocused();
     await edit(page, 'Renamed two CLI computer', '');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(
@@ -400,7 +400,7 @@ for (const outcome of ['accepted', 'refused'] as const) {
               (r) => !records.some((x) => x.id === r.id),
             )!;
             await page.goto('/#/machines/' + target.daemon_id);
-            await page.getByRole('button', { name: 'Rename machine', exact: true }).click();
+            await page.getByRole('button', { name: 'Rename', exact: true }).click();
             await page.getByRole('textbox', { name: 'Name' }).fill('Current draft');
           } else if (destination === 'same machine after return') {
             await page.goto('/#/inbox');
@@ -622,7 +622,7 @@ test('machine detail uses actual versions, canonical rename, keyboard links and 
     ).toBe(true);
     await page.screenshot({ path: `${refinementArtifacts}/detail-narrow.png` });
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await page.getByRole('button', { name: 'Rename machine', exact: true }).click();
+    await page.getByRole('button', { name: 'Rename', exact: true }).click();
     await page.getByRole('textbox', { name: 'Name' }).fill('Renamed detail computer');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);

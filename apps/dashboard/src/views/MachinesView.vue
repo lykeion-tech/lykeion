@@ -271,7 +271,7 @@ async function remove(d: Daemon) {
               </div>
               <div class="machine-actions">
                 <button v-if="!machine.localProfile" class="button" @click="startRename(machine)">
-                  <Icon name="edit" :size="14" />Rename machine
+                  <Icon name="edit" :size="14" />Rename
                 </button>
                 <button
                   class="button"

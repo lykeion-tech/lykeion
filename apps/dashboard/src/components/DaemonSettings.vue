@@ -38,12 +38,11 @@ const canControl = computed(
 );
 const stopped = computed(() => matches.value && snapshot.value?.status === 'stopped');
 const explanation = computed(() => {
-  if (!bridge)
-    return 'Daemon controls are available in the macOS or Linux desktop development preview. Use Daemon instructions on this computer.';
+  if (!bridge) return '';
+  if (snapshot.value?.availability === 'unavailable')
+    return 'Daemon controls require the macOS or Linux desktop development preview.';
   if (!matches.value)
     return 'This machine is remote or managed outside this desktop app. Use Daemon instructions on that computer.';
-  if (!available.value)
-    return 'Daemon controls require the macOS or Linux desktop development preview.';
   if (!snapshot.value?.cliAvailable)
     return 'Development lyk is missing. Run npm run desktop:dev to build it.';
   return '';
@@ -245,8 +244,6 @@ defineExpose({
 <style scoped>
 .daemon-settings {
   margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border);
 }
 h2 {
   font-size: 14px;
