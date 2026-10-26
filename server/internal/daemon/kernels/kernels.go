@@ -259,7 +259,9 @@ func (s *Sessions) Exec(ctx context.Context, lang, code string) (Result, error) 
 }
 
 // Cell executes code in the named Jupyter kernel. Switching names retires the
-// previous named kernel; legacy Exec sessions retain their own cache.
+// previous named kernel; legacy Exec sessions retain their own cache. Canceling
+// a submitted cell's context retires the bridge and its variables before any
+// later cell may run. Interrupt stops execution without retiring the bridge.
 func (s *Sessions) Cell(ctx context.Context, kernel, code string) (CellResult, error) {
 	return s.CellWithID(ctx, "", kernel, code)
 }
@@ -463,7 +465,19 @@ func (s *Sessions) callLocked(ctx context.Context, req map[string]any) (reply, e
 			return gone()
 		case <-ctx.Done():
 			if req["op"] == "cell" {
-				s.Interrupt()
+				// SIGUSR1 carries no request ID. Keep the call lock until
+				// this physical bridge and its reader are fully retired,
+				// including any delayed acknowledgements for this cell.
+				stop(b)
+				for {
+					select {
+					case <-b.done:
+						gone()
+						return reply{}, ctx.Err()
+					case <-b.replies:
+						// Keep the reader moving until process completion.
+					}
+				}
 			}
 			return reply{}, ctx.Err()
 		}

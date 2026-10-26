@@ -815,6 +815,49 @@ func TestRealCellPlotPNG(t *testing.T) {
 	if !r.OK || lastPID == 0 {
 		t.Fatalf("restart: %+v", r)
 	}
+	// Submitted context cancellation retires the physical bridge before
+	// another cell can run; explicit Interrupt above preserves the kernel.
+	cancelReady := filepath.Join(root, "cancel-ready")
+	cancelCtx, cancelCell := context.WithCancel(ctx)
+	canceled := make(chan error, 1)
+	go func() {
+		_, err := s.Cell(cancelCtx, "python3", fmt.Sprintf("import time\nopen(%q,'w').close()\ntime.sleep(60)", cancelReady))
+		canceled <- err
+	}()
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(cancelReady); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancelCell()
+			t.Fatal("real cancellation cell did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancelCell()
+	select {
+	case err := <-canceled:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("real cancellation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("real submitted cancellation did not finish")
+	}
+	if syscall.Kill(lastPID, 0) == nil {
+		t.Fatal("canceled real kernel outlived its physical bridge")
+	}
+	r = cell("python3", "import os\nprint(os.getpid())")
+	previousPID := lastPID
+	lastPID = 0
+	for _, o := range r.Outputs {
+		if o.Type == "stream" {
+			fmt.Sscanf(o.Text, "%d", &lastPID)
+		}
+	}
+	if !r.OK || lastPID == 0 || lastPID == previousPID {
+		t.Fatalf("replacement after cancellation: %+v", r)
+	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -1183,5 +1226,137 @@ def observe_interrupt(*args):
     os.write(5, b"1")
 shared["run_cell"] = boundary_run
 shared["interrupt_cell"] = observe_interrupt
+shared["main"]()
+`
+
+func TestSubmittedCancellationDrainsOldBridgeBeforeReplacement(t *testing.T) {
+	for _, queuedStop := range []bool{false, true} {
+		t.Run(fmt.Sprintf("queued-stop=%v", queuedStop), func(t *testing.T) { submittedCancellationDrainsOldBridge(t, queuedStop) })
+	}
+}
+
+func submittedCancellationDrainsOldBridge(t *testing.T, queuedStop bool) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is needed for the bridge protocol test")
+	}
+	completedR, completedW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer completedR.Close()
+	defer completedW.Close()
+	base := strings.Replace(initializingBridgePython, "os.write(3, b\"1\")\nos.close(3)\nos.read(4, 1)\nos.close(4)", "", 1)
+	delayed := strings.Replace(base, `runpy.run_path(sys.argv[1],run_name="__main__")`, delayedCancellationAckPython, 1)
+	starts := 0
+	command := func(_ string, args ...string) (*exec.Cmd, error) {
+		script := base
+		if starts == 0 {
+			script = delayed
+		}
+		starts++
+		cmd := exec.Command(python, "-I", "-c", script, args[len(args)-1])
+		if starts == 1 {
+			cmd.ExtraFiles = []*os.File{completedW}
+		}
+		return cmd, nil
+	}
+	s, err := Start(context.Background(), command, python, []string{"JUPYTER_PATH=/unused"}, t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	old := s.b
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := s.Cell(ctx, "test", "first"); done <- err }()
+	submitted := make(chan error, 1)
+	go func() { var b [1]byte; _, err := io.ReadFull(completedR, b[:]); submitted <- err }()
+	select {
+	case err := <-submitted:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cell was not physically submitted")
+	}
+	control := s.cell.Load()
+	if control == nil {
+		t.Fatal("submitted cell lost its control before a reply")
+	}
+	control.mu.Lock()
+	ready := control.ready
+	control.mu.Unlock()
+	if ready {
+		t.Fatal("test did not withhold the old cell acknowledgement")
+	}
+	if queuedStop {
+		if err := s.Interrupt(); err != nil {
+			t.Fatal(err)
+		}
+		control.mu.Lock()
+		pending := control.pending
+		control.mu.Unlock()
+		if !pending {
+			t.Fatal("old acknowledgement has no pending stop to deliver")
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancel: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("submitted cancellation did not retire the cooperative bridge")
+	}
+	// The cancellation result is a synchronization point: later cells may now
+	// enter, so the old process and reader must already be fully finished.
+	select {
+	case <-old.done:
+	default:
+		t.Fatal("submitted cancellation released the bridge before its physical execution boundary")
+	}
+	control.mu.Lock()
+	ready, finished := control.ready, control.finished
+	control.mu.Unlock()
+	if !ready || !finished {
+		t.Fatal("the delayed old acknowledgement and final reply were not drained")
+	}
+	nextCtx, stop := context.WithTimeout(context.Background(), 3*time.Second)
+	defer stop()
+	r, err := s.Cell(nextCtx, "test", "second")
+	if err != nil || !r.OK || r.Interrupted {
+		t.Fatalf("old acknowledgement stopped replacement cell: %+v %v", r, err)
+	}
+	if starts != 2 || s.b == old || s.b.cmd.Process.Pid == old.cmd.Process.Pid {
+		t.Fatal("next cell reused the canceled physical bridge")
+	}
+}
+
+const delayedCancellationAckPython = `
+g = runpy.run_path(sys.argv[1], run_name="bridge_under_test")
+shared = g["run_cell"].__globals__
+sink = shared["replies"]
+original_shutdown = shared["shutdown"]
+class DelayedReplies:
+    def __init__(self): self.held=[]
+    def write(self, text):
+        frame = __import__("json").loads(text)
+        if frame.get("id") == 1 and (frame.get("cell_ready") or "outputs" in frame):
+            self.held.append(text)
+            if "outputs" in frame: os.write(3, b"1")
+            return len(text)
+        return sink.write(text)
+    def flush(self): sink.flush()
+writer = DelayedReplies()
+def release_on_shutdown(*args):
+    held, writer.held = writer.held, []
+    for text in held: sink.write(text)
+    sink.flush()
+    original_shutdown(*args)
+shared["replies"] = writer
+shared["shutdown"] = release_on_shutdown
 shared["main"]()
 `
