@@ -13,7 +13,7 @@ const me = useMe();
 const members = useMembers();
 const client = useQueryClient();
 const owned = computed(() => props.runtimes.filter((r) => r.owner_id === me.data.value?.id));
-const mode = ref<'private' | 'chosen' | 'workspace'>('private');
+const mode = ref<'private' | 'chosen' | 'workspace' | 'mixed'>('private');
 const selected = ref<string[]>([]);
 const colleagues = ref<string[]>([]);
 const busy = ref(false);
@@ -23,6 +23,9 @@ type Change = { id: string; visibility: 'private' | 'workspace'; shared_with: st
 let pending: Change[] = [];
 let generation = 0;
 const shared = (r: Runtime) => r.visibility === 'workspace' || !!r.shared_with?.length;
+function grantKey(r: { visibility?: string; shared_with?: string[] }) {
+  return JSON.stringify([r.visibility ?? 'private', [...(r.shared_with ?? [])].sort()]);
+}
 function reset() {
   generation++;
   pending = [];
@@ -30,13 +33,17 @@ function reset() {
   error.value = '';
   busy.value = false;
   const active = owned.value.filter(shared);
-  mode.value = active.some((r) => r.visibility === 'workspace')
-    ? 'workspace'
-    : active.length
-      ? 'chosen'
-      : 'private';
+  const grants = new Set(active.map(grantKey));
+  mode.value =
+    grants.size > 1
+      ? 'mixed'
+      : active[0]?.visibility === 'workspace'
+        ? 'workspace'
+        : active.length
+          ? 'chosen'
+          : 'private';
   selected.value = active.map((r) => r.id);
-  colleagues.value = [...new Set(active.flatMap((r) => r.shared_with ?? []))];
+  colleagues.value = mode.value === 'chosen' ? [...(active[0]?.shared_with ?? [])] : [];
 }
 watch([workspaceId, () => props.machineId, () => me.data.value?.id], reset, {
   immediate: true,
@@ -73,17 +80,28 @@ async function save(confirm?: string[]) {
   if (busy.value || !owned.value.length) return;
   if (!confirm) {
     if (affected.value || clearOnly.value) return;
-    pending = owned.value.map((r) => ({
-      id: r.id,
-      visibility:
-        mode.value !== 'private' && selected.value.includes(r.id) && mode.value === 'workspace'
-          ? 'workspace'
-          : 'private',
-      shared_with:
-        mode.value === 'chosen' && selected.value.includes(r.id)
-          ? colleagues.value.filter((id) => id !== me.data.value?.id)
-          : [],
-    }));
+    pending = owned.value
+      .map((r): Change => {
+        if (mode.value === 'mixed' && selected.value.includes(r.id))
+          return {
+            id: r.id,
+            visibility: r.visibility ?? 'private',
+            shared_with: [...(r.shared_with ?? [])],
+          };
+        return {
+          id: r.id,
+          visibility:
+            mode.value === 'workspace' && selected.value.includes(r.id) ? 'workspace' : 'private',
+          shared_with:
+            mode.value === 'chosen' && selected.value.includes(r.id)
+              ? colleagues.value.filter((id) => id !== me.data.value?.id)
+              : [],
+        };
+      })
+      .filter(
+        (change) => grantKey(change) !== grantKey(owned.value.find((r) => r.id === change.id)!),
+      );
+    if (!pending.length) return;
   }
   const workspace = workspaceId.value;
   const machine = props.machineId;
@@ -150,6 +168,9 @@ function cancel() {
       <label
         >Share
         <select v-model="mode" aria-label="Share" :disabled="locked" @change="chooseMode">
+          <option v-if="mode === 'mixed'" value="mixed" disabled>
+            Different permissions per CLI
+          </option>
           <option value="private">Only me</option>
           <option value="chosen" :disabled="!supported">Chosen colleagues</option>
           <option value="workspace" :disabled="!supported">Everyone in the workspace</option>
@@ -163,7 +184,9 @@ function cancel() {
             type="checkbox"
             :value="runtime.id"
             :aria-label="`Share ${backendLabel(runtime.harness)}`"
-            :disabled="runtime.os !== 'linux' && !selected.includes(runtime.id)"
+            :disabled="
+              (runtime.os !== 'linux' || mode === 'mixed') && !selected.includes(runtime.id)
+            "
           />
           {{ backendLabel(runtime.harness) }}
         </label>
@@ -183,6 +206,10 @@ function cancel() {
         <p v-if="!people.length" class="type-caption">No other workspace members.</p>
       </fieldset>
     </div>
+    <p v-if="mode === 'mixed'" class="sharing-note type-caption">
+      Each CLI keeps its current permissions. Uncheck a CLI to stop sharing it, or choose a sharing
+      option to apply the same permissions to all checked CLIs.
+    </p>
     <p v-if="unsupported" class="sharing-note type-caption">
       Shared runs require Linux. On a Mac, register a Linux VM as a separate machine.
     </p>

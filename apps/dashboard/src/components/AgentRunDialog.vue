@@ -58,15 +58,17 @@ const cells = computed(() => executionCells(messages.data.value ?? []));
 const environment = computed(() => {
   const r = run.value;
   const machine = props.runtime(r.runtime_id);
-  const owner = members.data.value?.find((m) => m.user_id === r.machine_owner_id);
-  const ownerName = owner?.name || owner?.email || r.machine_owner_id;
-  const snapshot = r.machine_name ? `${r.machine_name}${ownerName ? ` (${ownerName})` : ''}` : '';
+  const ownerId = r.machine_owner_id || machine?.owner_id;
+  const owner = members.data.value?.find((m) => m.user_id === ownerId);
+  const ownerName = owner?.name || owner?.email || (ownerId ? 'Former member' : '');
+  const machineName = machine ? machine.custom_name || machine.device_name : r.machine_name;
+  const machineLabel = machineName ? `${machineName}${ownerName ? ` (${ownerName})` : ''}` : '';
   return [
     { key: 'Runtime', value: backendLabel(r.harness) },
     { key: 'Model', value: r.model },
     {
       key: 'Machine',
-      value: machine ? machine.custom_name || machine.device_name : snapshot,
+      value: machineLabel,
     },
     { key: 'Language', value: machine?.language ?? '' },
     {

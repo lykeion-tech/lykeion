@@ -396,6 +396,7 @@ function pin() {
         >
         <p v-if="c.machine_notice" role="status">{{ c.machine_notice }}</p>
         <MachinePicker
+          v-if="c.owner_id === me.data.value?.id"
           :model-value="c.machine || ''"
           :disabled="machineBusy"
           @update:model-value="pickMachine"

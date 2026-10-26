@@ -8,7 +8,7 @@ import TaskDetail from '../apps/dashboard/src/views/TaskDetail.vue';
 import AgentRunDialog from '../apps/dashboard/src/components/AgentRunDialog.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { keys } from '../apps/dashboard/src/api/keys';
-import type { AgentRun } from '../apps/dashboard/src/api/types';
+import type { AgentRun, Runtime } from '../apps/dashboard/src/api/types';
 const runtime = (extra: Record<string, unknown> = {}) => ({
   id: 'r1',
   daemon_id: 'd1',
@@ -231,6 +231,136 @@ async function change(t: Awaited<ReturnType<typeof mount>>, label: string, value
 }
 
 describe('Shared machines', () => {
+  it.each([
+    [
+      runtime({ visibility: 'workspace' }),
+      runtime({ id: 'r2', harness: 'codex', shared_with: ['u2'] }),
+    ],
+    [
+      runtime({ shared_with: ['u2'] }),
+      runtime({ id: 'r2', harness: 'codex', shared_with: ['u3'] }),
+    ],
+  ])('preserves mixed grants on no-op and only clears the unchecked CLI', async (first, second) => {
+    const f = fetching();
+    const t = await mount(
+      MachinesView,
+      () => ({ machineId: 'd1' }),
+      '/',
+      (c) => c.setQueryData(keys.runtimes('w'), [first, second]),
+    );
+    try {
+      expect(t.text()).toContain('Different permissions per CLI');
+      await t.click(/^Save sharing$/);
+      expect(bodies(f)).toHaveLength(0);
+      await change(t, 'Share Claude Code', ['r2']);
+      await t.click(/^Save sharing$/);
+      await vi.waitFor(() =>
+        expect(bodies(f)).toEqual([
+          {
+            path: '/api/runtimes/r1/sharing',
+            body: { visibility: 'private', shared_with: [] },
+            workspace: 'w',
+          },
+        ]),
+      );
+    } finally {
+      t.unmount();
+    }
+  });
+  it('requires deliberate harmonization again after a partial save and refresh', async () => {
+    let rows = [
+      runtime({ shared_with: ['u2'] }),
+      runtime({ id: 'r2', harness: 'codex', shared_with: ['u3'] }),
+    ];
+    let fail = true;
+    const f = vi.fn(async (path, init) => {
+      if (init?.method === 'GET')
+        return new Response(JSON.stringify(path === '/api/runtimes' ? rows : []));
+      if (path === '/api/runtimes/r2/sharing' && fail)
+        return new Response(JSON.stringify({ error: 'Try again' }), { status: 500 });
+      if (init?.method === 'PUT')
+        rows = rows.map((r) =>
+          path === `/api/runtimes/${r.id}/sharing` ? { ...r, ...JSON.parse(init.body) } : r,
+        );
+      return new Response('{}');
+    });
+    vi.stubGlobal('fetch', f);
+    const t = await mount(
+      MachinesView,
+      () => ({ machineId: 'd1' }),
+      '/',
+      (c) => c.setQueryData(keys.runtimes('w'), rows),
+    );
+    try {
+      await change(t, 'Share', 'workspace');
+      await t.click(/^Save sharing$/);
+      await vi.waitFor(() => expect(t.text()).toContain('Try again'));
+      t.queryClient.setQueryData(keys.runtimes('w'), [...rows]);
+      await nextTick();
+      await nextTick();
+      expect(t.text()).toContain('Different permissions per CLI');
+      const before = bodies(f).length;
+      await t.click(/^Save sharing$/);
+      expect(bodies(f)).toHaveLength(before);
+      fail = false;
+      await change(t, 'Share', 'workspace');
+      await t.click(/^Save sharing$/);
+      await vi.waitFor(() => expect(bodies(f).length).toBe(before + 1));
+      expect(bodies(f).at(-1)?.path).toBe('/api/runtimes/r2/sharing');
+    } finally {
+      t.unmount();
+    }
+  });
+  it('shows the study machine label and notice but no editor to nonowners', async () => {
+    const f = fetching();
+    const t = await mount(
+      TaskDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) => c.setQueryData(keys.me, { id: 'u2' }),
+    );
+    try {
+      expect(t.text()).toContain('Runs on: Bench');
+      expect(t.text()).toContain('no longer shared');
+      expect(t.all().some((n) => n.props['aria-label'] === 'Machine')).toBe(false);
+      expect(bodies(f)).toHaveLength(0);
+    } finally {
+      t.unmount();
+    }
+  });
+  it.each([
+    ['u2', 'Ada'],
+    ['former', 'Former member'],
+    [null, 'Owner'],
+  ])('shows recorded or current owner for a live runtime (%s)', async (owner, label) => {
+    fetching();
+    const t = await mount(AgentRunDialog, () => ({
+      runs: [
+        {
+          id: 'run',
+          assignment: '',
+          board_column: 'grounding',
+          runtime_id: 'r1',
+          machine_name: 'Old bench',
+          machine_owner_id: owner,
+          role: 'leader',
+          harness: 'claude',
+          attempt: 1,
+          max_attempts: 1,
+          status: 'completed',
+        } as AgentRun,
+      ],
+      runtime: () => runtime() as unknown as Runtime,
+      studyId: 'c',
+      modelValue: 'run',
+    }));
+    try {
+      await t.click(/^Environment$/);
+      expect(t.text()).toContain(`Bench (${label})`);
+    } finally {
+      t.unmount();
+    }
+  });
   it('hides owner sharing and usage from colleagues', async () => {
     fetching();
     const t = await mount(
@@ -605,6 +735,8 @@ describe('Shared machines', () => {
         c.setQueryData(keys.runtimes('w'), [runtime(), runtime({ id: 'r2', harness: 'codex' })]),
     );
     try {
+      await change(t, 'Share', 'workspace');
+      await change(t, 'Share Claude Code', ['r1', 'r2']);
       await t.click(/^Save sharing$/);
       await vi.waitFor(() => expect(bodies(f)).toHaveLength(1));
       workspaceId.value = 'other';
