@@ -33,7 +33,7 @@ UPDATE coresearch_run SET status='running',claimed_daemon_id= @daemon_id WHERE i
 -- name: FinishCoresearchRun :one
 UPDATE coresearch_run SET status= @status,env_sha=sqlc.narg(env_sha),facts= @facts,finished_at=now() WHERE workspace_id= @workspace_id AND id= @id AND status='running' RETURNING *;
 -- name: CoresearchRunOutputs :many
-SELECT f.path,v.sha256 FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id WHERE v.workspace_id= @workspace_id AND v.run_id= @run_id;
+SELECT f.path,f.id AS file_id,v.n,v.sha256,v.size FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id WHERE v.workspace_id= @workspace_id AND v.run_id= @run_id ORDER BY f.path,v.n;
 -- name: EnqueueCoresearchSetup :one
 INSERT INTO coresearch_setup(workspace_id,project_id,chat_id,python,conda,status,requested_by) VALUES( @workspace_id, @project_id, @chat_id,sqlc.narg(python), @conda,'queued', @requested_by) RETURNING *;
 -- name: ListCoresearchSetups :many

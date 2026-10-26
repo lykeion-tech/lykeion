@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"github.com/go-chi/chi/v5"
@@ -229,7 +230,10 @@ func (h *H) coresearchRuns(w http.ResponseWriter, r *http.Request) {
 			if e == nil && row.ChatID != c.ID {
 				return pgx.ErrNoRows
 			}
-			out = row
+			if e != nil {
+				return e
+			}
+			out, e = coresearchRunWithOutputs(r.Context(), tx, row)
 			return e
 		})
 	} else {
@@ -239,7 +243,11 @@ func (h *H) coresearchRuns(w http.ResponseWriter, r *http.Request) {
 				return e
 			}
 			if key := chi.URLParam(r, "key"); key != "" {
-				out, e = tx.Q.GetCoresearchRunKey(r.Context(), db.GetCoresearchRunKeyParams{WorkspaceID: ws, ProjectID: p.ID, Key: key})
+				row, err := tx.Q.GetCoresearchRunKey(r.Context(), db.GetCoresearchRunKeyParams{WorkspaceID: ws, ProjectID: p.ID, Key: key})
+				if err != nil {
+					return err
+				}
+				out, e = coresearchRunWithOutputs(r.Context(), tx, row)
 				return e
 			}
 			rows, e := tx.Q.ListCoresearchRuns(r.Context(), db.ListCoresearchRunsParams{WorkspaceID: ws, ProjectID: p.ID})
@@ -668,4 +676,19 @@ func (h *H) daemonCoresearchChatStatus(w http.ResponseWriter, r *http.Request) {
 	if coresearchAnswer(w, r, e) {
 		writeJSON(w, 200, map[string]string{"status": "active"})
 	}
+}
+
+func coresearchRunWithOutputs(ctx context.Context, tx *store.Tx, run db.CoresearchRun) (any, error) {
+	rows, err := tx.Q.CoresearchRunOutputs(ctx, db.CoresearchRunOutputsParams{WorkspaceID: tx.WS, RunID: &run.ID})
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]coresearch.FileRef, 0, len(rows))
+	for _, row := range rows {
+		refs = append(refs, coresearch.FileRef{Path: row.Path, FileID: row.FileID, N: row.N, SHA256: row.Sha256, Size: row.Size})
+	}
+	return struct {
+		db.CoresearchRun
+		Outputs []coresearch.FileRef `json:"outputs"`
+	}{run, refs}, nil
 }

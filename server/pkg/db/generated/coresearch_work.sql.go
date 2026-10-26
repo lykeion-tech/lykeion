@@ -304,7 +304,7 @@ func (q *Queries) CoresearchOwnedDaemon(ctx context.Context, arg CoresearchOwned
 }
 
 const coresearchRunOutputs = `-- name: CoresearchRunOutputs :many
-SELECT f.path,v.sha256 FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id WHERE v.workspace_id= $1 AND v.run_id= $2
+SELECT f.path,f.id AS file_id,v.n,v.sha256,v.size FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id WHERE v.workspace_id= $1 AND v.run_id= $2 ORDER BY f.path,v.n
 `
 
 type CoresearchRunOutputsParams struct {
@@ -313,8 +313,11 @@ type CoresearchRunOutputsParams struct {
 }
 
 type CoresearchRunOutputsRow struct {
-	Path   string `json:"path"`
-	Sha256 string `json:"sha256"`
+	Path   string    `json:"path"`
+	FileID uuid.UUID `json:"file_id"`
+	N      int32     `json:"n"`
+	Sha256 string    `json:"sha256"`
+	Size   int64     `json:"size"`
 }
 
 func (q *Queries) CoresearchRunOutputs(ctx context.Context, arg CoresearchRunOutputsParams) ([]CoresearchRunOutputsRow, error) {
@@ -326,7 +329,13 @@ func (q *Queries) CoresearchRunOutputs(ctx context.Context, arg CoresearchRunOut
 	var items []CoresearchRunOutputsRow
 	for rows.Next() {
 		var i CoresearchRunOutputsRow
-		if err := rows.Scan(&i.Path, &i.Sha256); err != nil {
+		if err := rows.Scan(
+			&i.Path,
+			&i.FileID,
+			&i.N,
+			&i.Sha256,
+			&i.Size,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

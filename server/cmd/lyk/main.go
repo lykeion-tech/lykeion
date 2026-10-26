@@ -11,6 +11,6 @@ import (
 func main() {
 	if err := cli.Root(os.Stdin, os.Stdout).Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "lyk:", err)
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }
