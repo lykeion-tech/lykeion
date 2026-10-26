@@ -63,6 +63,8 @@ func TestRealGuestDaemonCLIStarts(t *testing.T) {
 			opts := agent.ExecOptions{Guest: true, Dir: run, ConfigHome: config, CacheDir: d.runCacheDir(guest), MCPToken: runCredential, Env: auth, Sandbox: d.cliSandbox(run, nil, false, guest)}
 			var transcript strings.Builder
 			helperSucceeded := false
+			self, err := os.Executable()
+			must(t, err)
 			opts.OnMessage = func(m agent.Message) error {
 				if harness == "codex" && m.Type == "tool_use" {
 					var event struct {
@@ -71,11 +73,9 @@ func TestRealGuestDaemonCLIStarts(t *testing.T) {
 							ExitCode *int   `json:"exit_code"`
 						} `json:"item"`
 					}
-					if json.Unmarshal(m.Content, &event) == nil && strings.Contains(event.Item.Command, "TestGuestShellPathHelper") {
-						if event.Item.ExitCode != nil {
-							t.Logf("trusted PATH helper shell: %s; exit=%d", event.Item.Command, *event.Item.ExitCode)
-							helperSucceeded = *event.Item.ExitCode == 0
-						}
+					if json.Unmarshal(m.Content, &event) == nil && guestPathHelperSucceeded(event.Item.Command, filepath.Base(self), event.Item.ExitCode) {
+						t.Logf("trusted PATH helper shell: %s; exit=%d", event.Item.Command, *event.Item.ExitCode)
+						helperSucceeded = true
 					}
 				}
 				if m.Type == "text" {
@@ -90,8 +90,6 @@ func TestRealGuestDaemonCLIStarts(t *testing.T) {
 			marker := "guest-memory-" + uuid.NewString()
 			helperPrompt := ""
 			if harness == "codex" {
-				self, err := os.Executable()
-				must(t, err)
 				// The production policy already grants the daemon executable.
 				// Discover it by name, as a real run discovers lyk on trusted PATH.
 				opts.Env = append(opts.Env, "PATH="+filepath.Dir(self)+":"+os.Getenv("PATH"), "GUEST_SHELL_PATH_HELPER="+marker)
@@ -259,4 +257,51 @@ func TestGuestShellPathHelper(t *testing.T) {
 		return
 	}
 	must(t, os.WriteFile("guest-helper-proof", []byte(marker), 0600))
+}
+
+// Codex serializes the actual shell argv with quotes. Accept only the intended
+// by-name command, optionally inside its non-login bash wrapper. No prefixes,
+// PATH assignments, absolute helper path, extra commands or shell repair count.
+func guestPathHelperSucceeded(command, helper string, exit *int) bool {
+	if exit == nil || *exit != 0 || helper == "" || filepath.Base(helper) != helper {
+		return false
+	}
+	normalized := strings.NewReplacer("'", "", "\"", "").Replace(strings.TrimSpace(command))
+	expected := helper + " -test.run=^TestGuestShellPathHelper$"
+	return normalized == expected || normalized == "/bin/bash -c "+expected
+}
+
+func TestGuestPathHelperCommandEvidence(t *testing.T) {
+	zero, failure := 0, 1
+	for _, command := range []string{
+		"daemon.test -test.run=^TestGuestShellPathHelper$",
+		"/bin/bash -c 'daemon.test -test.run='' ^TestGuestShellPathHelper$'",
+		"/bin/bash -c 'daemon.test -test.run=''^TestGuestShellPathHelper$'",
+	} {
+		// Whitespace within a flag is not the requested command.
+		want := !strings.Contains(command, "'' ^")
+		if got := guestPathHelperSucceeded(command, "daemon.test", &zero); got != want {
+			t.Errorf("%q: %t want %t", command, got, want)
+		}
+	}
+	for _, command := range []string{
+		"/tmp/daemon.test -test.run=^TestGuestShellPathHelper$",
+		"./daemon.test -test.run=^TestGuestShellPathHelper$",
+		"PATH=/tmp:$PATH daemon.test -test.run=^TestGuestShellPathHelper$",
+		"export PATH=/tmp:$PATH; daemon.test -test.run=^TestGuestShellPathHelper$",
+		"/bin/bash -lc 'daemon.test -test.run=^TestGuestShellPathHelper$'",
+		"/bin/bash -c 'PATH=/tmp daemon.test -test.run=^TestGuestShellPathHelper$'",
+		"echo TestGuestShellPathHelper",
+		"daemon.test -test.run=^TestGuestShellPathHelper$; true",
+		"env daemon.test -test.run=^TestGuestShellPathHelper$",
+	} {
+		if guestPathHelperSucceeded(command, "daemon.test", &zero) {
+			t.Errorf("workaround accepted: %q", command)
+		}
+	}
+	for _, exit := range []*int{nil, &failure} {
+		if guestPathHelperSucceeded("daemon.test -test.run=^TestGuestShellPathHelper$", "daemon.test", exit) {
+			t.Fatal("missing/failed exit accepted")
+		}
+	}
 }

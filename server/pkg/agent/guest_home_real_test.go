@@ -88,18 +88,8 @@ func TestRealGuestCLIStarts(t *testing.T) {
 				return nil
 			}}
 
-			envAuth := harness == "claude" && runtime.GOOS == "darwin" && os.Getenv("LYK_REAL_CLI_CLAUDE_ENV_AUTH") == "1"
-			if envAuth {
-				auth, err := GuestAuthEnv(ctx, harness)
-				if err != nil {
-					t.Fatal(err)
-				}
-				options.Env = append(options.Env, auth...)
-			}
-			keychain := runtime.GOOS == "darwin" && harness == "claude" && !envAuth
-			securityServer := runtime.GOOS == "darwin" && harness == "codex"
 			options.Sandbox = func(ctx context.Context, paths CLIPaths, name string, args ...string) (*exec.Cmd, error) {
-				policy := sandbox.Policy{Home: home, HomeRead: false, Read: []string{filepath.Dir(bin)}, Write: []string{run, guest}, Keychain: paths.Keychain && keychain}
+				policy := sandbox.Policy{Home: home, HomeRead: false, Read: []string{filepath.Dir(bin)}, Write: []string{run, guest}}
 				return policy.Command(ctx, name, args...)
 			}
 			session, err := backend.Execute(ctx, "Reply with the word ok", options)
@@ -109,7 +99,7 @@ func TestRealGuestCLIStarts(t *testing.T) {
 			for range session.Messages {
 			}
 			result := <-session.Done
-			t.Logf("CLI %s; HomeRead=false; Keychain=%t; SecurityServer=%t; reply: %s", harness, keychain, securityServer, transcript.String())
+			t.Logf("CLI %s; HomeRead=false; reply: %s", harness, transcript.String())
 			if result.Err != nil {
 				t.Fatalf("guest CLI: %v", result.Err)
 			}

@@ -256,7 +256,13 @@ func TestOrphanAttemptReconciledBeforeDeletion(t *testing.T) {
 			must(t, err)
 			cli, err = testutil.OwnedFixtureHostPID(owner.PID, cli)
 			must(t, err)
-			t.Cleanup(func() { _ = syscall.Kill(-owner.PID, syscall.SIGKILL) })
+			// Recover only the journalled birth/group identity. Once gc removes the
+			// journal this is a no-op, including if the numeric PID was reused.
+			t.Cleanup(func() {
+				if err := agent.RecoverScratch(dir); err != nil {
+					t.Errorf("recover fixture: %v", err)
+				}
+			})
 			kill()
 			must(t, syscall.Kill(cli, 0))
 			must(t, syscall.Kill(owner.PID, 0))
