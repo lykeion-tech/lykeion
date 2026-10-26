@@ -141,6 +141,8 @@ func NewRouter(h *H) http.Handler {
 		// Team creation reads selected folders and writes the pack blob before its transaction.
 		// The upload checks membership itself and streams its body to storage.
 		r.Post("/api/attachments", h.uploadAttachment)
+		r.Post("/api/coresearch/projects/{project}/files", h.uploadCoresearchFile)
+		r.Get("/api/coresearch/projects/{project}/files/{file}/versions/{n}/content", h.downloadCoresearchFile)
 		r.Get("/api/cards/{id}/attachments/{aid}", h.downloadAttachment)
 		r.Get("/api/cards/{id}/outputs/{key}", h.downloadOutput)
 		r.Post("/api/teams", h.createTeam)
@@ -183,6 +185,17 @@ func NewRouter(h *H) http.Handler {
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Scope(h.Store, middleware.FromHeader))
+			r.Get("/api/coresearch/projects", h.listCoresearchProjects)
+			r.Post("/api/coresearch/projects", h.createCoresearchProject)
+			r.Get("/api/coresearch/projects/{project}", h.getCoresearchProject)
+			r.Patch("/api/coresearch/projects/{project}", h.renameCoresearchProject)
+			r.Post("/api/coresearch/projects/{project}/archive", h.archiveCoresearchProject)
+			r.Get("/api/coresearch/projects/{project}/members", h.listCoresearchMembers)
+			r.Post("/api/coresearch/projects/{project}/members", h.setCoresearchMember)
+			r.Delete("/api/coresearch/projects/{project}/members/{user}", h.deleteCoresearchMember)
+			r.Get("/api/coresearch/projects/{project}/files", h.listCoresearchFiles)
+			r.Get("/api/coresearch/projects/{project}/files/{file}/versions", h.coresearchVersions)
+			r.Post("/api/coresearch/projects/{project}/files/{file}/restore", h.restoreCoresearchFile)
 			r.Get("/api/autoresearch", h.listAutoresearches)
 			r.Post("/api/autoresearch", h.createAutoresearch)
 			r.Get("/api/autoresearch/{id}", h.getAutoresearch)

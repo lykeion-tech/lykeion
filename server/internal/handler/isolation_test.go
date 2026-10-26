@@ -68,7 +68,15 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if resp, body := s.download(t, a, wa.ID, c.ID, attached); resp.StatusCode != 200 || string(body) != "x" {
 		t.Fatalf("owner download: %d", resp.StatusCode)
 	}
-	ids := map[string]string{"{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
+	var cs csProject
+	if code := s.call(t, "POST", csProjects, a, wa.ID, map[string]string{"name": "Isolation Coresearch"}, &cs); code != 201 {
+		t.Fatalf("Coresearch fixture: %d", code)
+	}
+	code, version := csUpload(t, s, a, wa.ID, cs.ID, "fixture.txt", 0, false, []byte("fixture"))
+	if code != 201 {
+		t.Fatalf("Coresearch file fixture: %d", code)
+	}
+	ids := map[string]string{"{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
 	// Positive controls prove the probed resources resolve for their owner.
 	var ownRun struct {
 		ID     string
@@ -107,7 +115,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			// workspace, which membership must refuse for B's user.
 			header = wa.ID
 			path = strings.Replace(path, "{name}", "omim", 1)
-		} else if route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
+		} else if route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
 			route == "/api/attachments" || route == "/api/packs" || route == "/api/teams" || route == "/api/packs/catalog" || route == "/api/me/pack" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID
@@ -137,6 +145,12 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		case strings.HasSuffix(route, "/settings"):
 			body = map[string]any{"settings": map[string]any{}}
 
+		case route == "/api/coresearch/projects" || route == "/api/coresearch/projects/{project}":
+			body = map[string]string{"name": "outsider"}
+		case route == "/api/coresearch/projects/{project}/members":
+			body = map[string]string{"user_id": s.userID(t, b), "role": "member"}
+		case strings.HasSuffix(route, "/restore"):
+			body = map[string]int{"n": 1, "base": 1}
 		case route == "/api/researches" || route == "/api/researches/{id}":
 			body = map[string]string{"name": "outsider research"}
 		case route == "/api/agents" || route == "/api/agents/{id}":

@@ -1,3 +1,5 @@
+DROP FUNCTION public.coresearch_blob_referenced(text);
+DROP FUNCTION public.coresearch_create_project(text);
 DELETE FROM agent_run WHERE kind = 'coresearch';
 ALTER TABLE agent_run
   DROP CONSTRAINT agent_run_kind_shape,

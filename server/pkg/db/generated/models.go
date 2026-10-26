@@ -380,6 +380,7 @@ type CoresearchProject struct {
 	CreatedBy     uuid.UUID  `json:"created_by"`
 	CreatedAt     time.Time  `json:"created_at"`
 	ArchivedAt    *time.Time `json:"archived_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 type CoresearchRun struct {

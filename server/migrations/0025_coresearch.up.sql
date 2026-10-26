@@ -6,6 +6,7 @@ CREATE TABLE coresearch_project (
   created_by uuid NOT NULL REFERENCES "user",
   created_at timestamptz NOT NULL DEFAULT now(),
   archived_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (workspace_id, id)
 );
 
@@ -219,3 +220,32 @@ CREATE POLICY tenant ON coresearch_setup USING (workspace_id = app_workspace()) 
 CREATE POLICY members ON coresearch_setup AS RESTRICTIVE USING (coresearch_can_see(project_id));
 GRANT SELECT, INSERT, UPDATE, DELETE ON coresearch_project, coresearch_member, coresearch_file,
   coresearch_file_version, coresearch_chat, coresearch_message, coresearch_cell, coresearch_run, coresearch_setup TO lykeion_app;
+
+CREATE FUNCTION public.coresearch_create_project(project_name text) RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE project_id uuid;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.member m WHERE m.workspace_id = public.app_workspace() AND m.user_id = public.app_user()) THEN
+    RAISE EXCEPTION 'workspace membership required' USING ERRCODE = '42501';
+  END IF;
+  INSERT INTO public.coresearch_project (workspace_id, name, created_by)
+    VALUES (public.app_workspace(), project_name, public.app_user()) RETURNING id INTO project_id;
+  INSERT INTO public.coresearch_member (workspace_id, project_id, user_id, role)
+    VALUES (public.app_workspace(), project_id, public.app_user(), 'owner');
+  RETURN project_id;
+END
+$$;
+REVOKE ALL ON FUNCTION public.coresearch_create_project(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.coresearch_create_project(text) TO lykeion_app;
+
+CREATE FUNCTION public.coresearch_blob_referenced(sha text) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.member m WHERE m.workspace_id = public.app_workspace() AND m.user_id = public.app_user()) THEN
+    RAISE EXCEPTION 'workspace membership required' USING ERRCODE = '42501';
+  END IF;
+  RETURN EXISTS (SELECT 1 FROM public.coresearch_file_version v WHERE v.workspace_id = public.app_workspace() AND v.sha256 = sha);
+END
+$$;
+REVOKE ALL ON FUNCTION public.coresearch_blob_referenced(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.coresearch_blob_referenced(text) TO lykeion_app;

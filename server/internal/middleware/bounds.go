@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,7 +55,8 @@ func RequestBounds(next http.Handler) http.Handler {
 		}
 		attachment := r.Method == http.MethodPost && r.URL.Path == "/api/attachments"
 		output := r.Method == http.MethodPost && r.URL.Path == "/api/role/outputs"
-		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r) || attachment || output
+		coresearchUpload := coresearchFileTransfer(r, true)
+		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r) || attachment || output || coresearchUpload
 		callPost := r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs")
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout
 		if rawBlob || callPost {
@@ -63,7 +65,7 @@ func RequestBounds(next http.Handler) http.Handler {
 		if attachment || attachmentDownload(r) && !outputDownload(r) {
 			requestTimeout, bodyTimeout = AttachmentRequestTimeout, AttachmentBodyReadTimeout
 		}
-		if output || outputDownload(r) {
+		if output || outputDownload(r) || coresearchUpload || coresearchFileTransfer(r, false) {
 			requestTimeout, bodyTimeout = OutputRequestTimeout, OutputBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
@@ -250,4 +252,26 @@ func outputDownload(r *http.Request) bool {
 	}
 	p := strings.Split(r.URL.Path, "/")
 	return len(p) == 5 && p[3] == "outputs" || len(p) == 6 && p[4] == "outputs"
+}
+
+// coresearchFileTransfer matches only the two streaming file routes.
+func coresearchFileTransfer(r *http.Request, upload bool) bool {
+	p := strings.Split(r.URL.Path, "/")
+	if len(p) < 6 || p[1] != "api" || p[2] != "coresearch" || p[3] != "projects" || p[5] != "files" {
+		return false
+	}
+	if _, err := uuid.Parse(p[4]); err != nil {
+		return false
+	}
+	if upload {
+		return r.Method == http.MethodPost && len(p) == 6
+	}
+	if r.Method != http.MethodGet || len(p) != 10 || p[7] != "versions" || p[9] != "content" {
+		return false
+	}
+	if _, err := uuid.Parse(p[6]); err != nil {
+		return false
+	}
+	n, err := strconv.ParseInt(p[8], 10, 32)
+	return err == nil && n > 0
 }
