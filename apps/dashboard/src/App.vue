@@ -68,11 +68,16 @@ const cardId = computed(() =>
   current.value === 'studies' ? String(route.params.cardId || '') : '',
 );
 const groups = [
-  { name: '', items: [{ id: 'inbox', name: 'Inbox', icon: 'inbox' }] },
+  {
+    name: '',
+    items: [
+      { id: 'inbox', name: 'Inbox', icon: 'inbox' },
+      { id: 'studies', name: 'Studies', icon: 'tasks' },
+    ],
+  },
   {
     name: 'Laboratory',
     items: [
-      { id: 'studies', name: 'Studies', icon: 'tasks' },
       { id: 'projects', name: 'Projects', icon: 'folder' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
@@ -81,8 +86,8 @@ const groups = [
     name: 'IT Department',
     items: [
       { id: 'teams', name: 'Teams', icon: 'network' },
-      { id: 'agents', name: 'Agents', icon: 'bot' },
       { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
+      { id: 'agents', name: 'Agents', icon: 'bot' },
     ],
   },
 ];
