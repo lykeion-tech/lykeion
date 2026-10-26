@@ -41,7 +41,7 @@ sessions = {}
 named_session = None
 active_kernel = None
 cell_interrupted = False
-pending_interrupt = False
+active_cell = None
 CELL_CAP = 20 << 20
 CELL_CUT = {"type": "text", "text": "(output cut at 20 MiB)"}
 
@@ -294,11 +294,11 @@ def named_kernel(name):
 
 
 def interrupt_cell(*_):
-    global cell_interrupted, pending_interrupt
-    if active_kernel is None:
-        pending_interrupt = True
-    else:
-        cell_interrupted = True
+    global cell_interrupted
+    if active_cell is None:
+        return
+    cell_interrupted = True
+    if active_kernel is not None:
         try:
             active_kernel.interrupt_kernel()
         except Exception:
@@ -306,18 +306,15 @@ def interrupt_cell(*_):
 
 
 def run_cell(name, code, timeout):
-    global active_kernel, cell_interrupted, pending_interrupt
+    global active_kernel, cell_interrupted
     outputs = CellOutputs()
     count, failed = 0, False
-    cell_interrupted = False
-    if pending_interrupt:
-        pending_interrupt = False
+    if cell_interrupted:
         return [], 0, False, True
     km, kc = named_kernel(name)
     active_kernel = km
     try:
-        if pending_interrupt or cell_interrupted:
-            pending_interrupt = False
+        if cell_interrupted:
             return [], 0, False, True
         msg_id = kc.execute(code, allow_stdin=False)
         deadline = time.monotonic() + timeout
@@ -367,12 +364,12 @@ def shutdown(*_):
 
 
 def main():
-    global pending_interrupt
+    global active_cell, cell_interrupted
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGHUP, shutdown)
     signal.signal(signal.SIGUSR1, interrupt_cell)
-    # Cells wait for this frame before submission. Queued signals are now safe
-    # and remain pending until a cell can consume them.
+    # Cells wait for this frame before submission. A separate acknowledgement
+    # identifies when a particular cell can receive signals.
     replies.write(json.dumps({"ready": True}) + "\n")
     replies.flush()
     try:
@@ -384,15 +381,21 @@ def main():
             try:
                 if req.get("op") == "cell":
                     reply.update(cell_id=req.get("cell_id", ""), outputs=[], execution_count=0, interrupted=False)
-                    out, count, ok, interrupted = run_cell(req.get("kernel"), req.get("code", ""), float(req.get("timeout", 600)))
-                    reply.update(outputs=out, execution_count=count, ok=ok, interrupted=interrupted)
+                    cell_interrupted = bool(req.get("interrupted", False))
+                    active_cell = req.get("id")
+                    try:
+                        replies.write(json.dumps({"id": active_cell, "cell_ready": True}) + "\n")
+                        replies.flush()
+                        out, count, ok, interrupted = run_cell(req.get("kernel"), req.get("code", ""), float(req.get("timeout", 600)))
+                        reply.update(outputs=out, execution_count=count, ok=ok, interrupted=interrupted)
+                    finally:
+                        active_cell = None
                 elif req.get("op") == "restart_kernel":
                     name = req.get("kernel")
                     if not _dirs or name not in named_specs.find_kernel_specs():
                         raise RuntimeError('no Jupyter kernel named "%s" is installed' % name)
                     retire_named()
                     named_kernel(name)
-                    pending_interrupt = False
                     reply.update(ok=True)
                 elif req.get("op") == "restart":
                     # A language with no session yet has nothing to restart.

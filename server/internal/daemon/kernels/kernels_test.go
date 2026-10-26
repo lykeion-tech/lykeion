@@ -57,13 +57,14 @@ func stub() {
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
 		var req struct {
-			ID       int     `json:"id"`
-			CellID   string  `json:"cell_id"`
-			Kernel   string  `json:"kernel"`
-			Op       string  `json:"op"`
-			Language string  `json:"language"`
-			Code     string  `json:"code"`
-			Timeout  float64 `json:"timeout"`
+			ID          int     `json:"id"`
+			CellID      string  `json:"cell_id"`
+			Kernel      string  `json:"kernel"`
+			Op          string  `json:"op"`
+			Language    string  `json:"language"`
+			Code        string  `json:"code"`
+			Timeout     float64 `json:"timeout"`
+			Interrupted bool    `json:"interrupted"`
 		}
 		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Op == "shutdown" {
 			return
@@ -73,10 +74,13 @@ func stub() {
 			continue
 		}
 		if req.Op == "cell" {
+			write(map[string]any{"id": req.ID, "cell_ready": true})
 			go func() {
 				r := map[string]any{"id": req.ID, "cell_id": req.CellID, "ok": true, "execution_count": 7, "outputs": []map[string]any{}}
 				outputs := []map[string]any{}
 				switch {
+				case req.Interrupted:
+					r["ok"], r["interrupted"] = false, true
 				case req.Kernel == "missing":
 					r["ok"] = false
 					outputs = append(outputs, map[string]any{"type": "error", "ename": "RuntimeError", "evalue": `no Jupyter kernel named "missing" is installed`})
@@ -937,8 +941,7 @@ func TestCellControlDuringBridgeInitialization(t *testing.T) {
 					g = awaitGate()
 				}
 				deadline := time.Now().Add(3 * time.Second)
-				for s.mu.TryLock() {
-					s.mu.Unlock()
+				for s.cell.Load() == nil {
 					if time.Now().After(deadline) {
 						t.Fatal("cell did not acquire call lock")
 					}
@@ -957,11 +960,11 @@ func TestCellControlDuringBridgeInitialization(t *testing.T) {
 					go func() { restarted <- s.RestartKernel(restartCtx, "test") }()
 					// Wait for RestartKernel itself to queue its stop before
 					// releasing initialization; no scheduling sleep is needed.
-					b := s.interruptBridge.Load()
+					c := s.cell.Load()
 					for {
-						b.signalMu.Lock()
-						pending := b.pendingInterrupt
-						b.signalMu.Unlock()
+						c.mu.Lock()
+						pending := c.pending
+						c.mu.Unlock()
 						if pending {
 							break
 						}
@@ -1066,3 +1069,119 @@ func TestLegacyExecDoesNotRequireReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestInterruptAfterCompletedCellDoesNotStopNextCell(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is needed for the bridge protocol test")
+	}
+	script := strings.Replace(initializingBridgePython, "os.write(3, b\"1\")\nos.close(3)\nos.read(4, 1)\nos.close(4)", "", 1)
+	command := func(_ string, args ...string) (*exec.Cmd, error) {
+		return exec.Command(python, "-I", "-c", script, args[len(args)-1]), nil
+	}
+	s, err := Start(context.Background(), command, python, []string{"JUPYTER_PATH=/unused"}, t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if r, e := s.Cell(ctx, "test", "first"); e != nil || !r.OK {
+		t.Fatalf("first cell: %+v %v", r, e)
+	}
+	if err := s.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if r, e := s.Cell(ctx, "test", "second"); e != nil || !r.OK || r.Interrupted {
+		t.Fatalf("idle stop leaked to next cell: %+v %v", r, e)
+	}
+}
+
+func TestInterruptAfterExecutionBeforeReplyDoesNotStopNextCell(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is needed for the bridge protocol test")
+	}
+	pipe := func() (*os.File, *os.File) {
+		t.Helper()
+		r, w, e := os.Pipe()
+		if e != nil {
+			t.Fatal(e)
+		}
+		t.Cleanup(func() { r.Close(); w.Close() })
+		return r, w
+	}
+	completedR, completedW := pipe()
+	releaseR, releaseW := pipe()
+	signalR, signalW := pipe()
+	script := strings.Replace(initializingBridgePython, "os.write(3, b\"1\")\nos.close(3)\nos.read(4, 1)\nos.close(4)", "", 1)
+	script = strings.Replace(script, `runpy.run_path(sys.argv[1],run_name="__main__")`, completionBoundaryPython, 1)
+	command := func(_ string, args ...string) (*exec.Cmd, error) {
+		cmd := exec.Command(python, "-I", "-c", script, args[len(args)-1])
+		cmd.ExtraFiles = []*os.File{completedW, releaseR, signalW}
+		return cmd, nil
+	}
+	s, err := Start(context.Background(), command, python, []string{"JUPYTER_PATH=/unused"}, t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		r, e := s.Cell(ctx, "test", "first")
+		if e == nil && !r.OK {
+			e = fmt.Errorf("first cell: %+v", r)
+		}
+		done <- e
+	}()
+	readByte := func(r *os.File) {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { var b [1]byte; _, e := io.ReadFull(r, b[:]); done <- e }()
+		select {
+		case e := <-done:
+			if e != nil {
+				t.Fatal(e)
+			}
+		case <-ctx.Done():
+			t.Fatal("bridge did not reach the expected pipe boundary")
+		}
+	}
+	readByte(completedR)
+	if err := s.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	// The actual handler has consumed the signal while the completed cell's
+	// reply is withheld. Only then may this bridge accept the next cell.
+	readByte(signalR)
+	if _, err := releaseW.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if r, e := s.Cell(ctx, "test", "second"); e != nil || !r.OK || r.Interrupted {
+		t.Fatalf("completion-boundary stop leaked to next cell: %+v %v", r, e)
+	}
+}
+
+const completionBoundaryPython = `
+g = runpy.run_path(sys.argv[1], run_name="bridge_under_test")
+shared = g["run_cell"].__globals__
+original_run = g["run_cell"]
+original_interrupt = g["interrupt_cell"]
+def boundary_run(name, code, timeout):
+    result = original_run(name, code, timeout)
+    if code == "first":
+        os.write(3, b"1")
+        os.read(4, 1)
+    return result
+def observe_interrupt(*args):
+    original_interrupt(*args)
+    os.write(5, b"1")
+shared["run_cell"] = boundary_run
+shared["interrupt_cell"] = observe_interrupt
+shared["main"]()
+`

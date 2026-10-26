@@ -82,14 +82,15 @@ type Sessions struct {
 	closed bool
 	// The process handle is published independently of the serial call lock.
 	// os.Process supports concurrent Signal and Wait calls.
-	process         atomic.Pointer[os.Process]
-	interruptBridge atomic.Pointer[bridge]
-	closing         atomic.Bool
+	process atomic.Pointer[os.Process]
+	cell    atomic.Pointer[cellControl]
+	closing atomic.Bool
 }
 
 type reply struct {
 	ID             int      `json:"id"`
 	Ready          bool     `json:"ready"`
+	CellReady      bool     `json:"cell_ready"`
 	CellID         string   `json:"cell_id"`
 	Outputs        []Output `json:"outputs"`
 	ExecutionCount int      `json:"execution_count"`
@@ -101,15 +102,38 @@ type reply struct {
 }
 
 type bridge struct {
-	cmd              *exec.Cmd
-	in               io.WriteCloser
-	replies          chan reply
-	done             chan struct{}
-	ready            chan struct{}
-	signalMu         sync.Mutex
-	signalReady      bool
-	pendingInterrupt bool
-	cellSubmitted    bool
+	cmd     *exec.Cmd
+	in      io.WriteCloser
+	replies chan reply
+	done    chan struct{}
+	ready   chan struct{}
+	// Submitted cells remain addressable after caller cancellation until their
+	// reply arrives, so their queued stop cannot be reassigned to another cell.
+	cells sync.Map
+}
+
+type cellControl struct {
+	mu       sync.Mutex
+	bridge   *bridge
+	pending  bool
+	ready    bool
+	finished bool
+}
+
+func (c *cellControl) interrupt() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.finished {
+		return nil
+	}
+	if !c.ready {
+		c.pending = true
+		return nil
+	}
+	if err := c.bridge.cmd.Process.Signal(syscall.SIGUSR1); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	return nil
 }
 
 // Start writes the bridge to a file in tmp ("" for the system's temp
@@ -170,7 +194,6 @@ func (s *Sessions) start() (*bridge, error) {
 		return nil, fmt.Errorf("starting the session bridge: %w", err)
 	}
 	b := &bridge{cmd: cmd, in: in, replies: make(chan reply, 1), done: make(chan struct{}), ready: make(chan struct{})}
-	s.interruptBridge.Store(b)
 	go func() {
 		// A bridge that breaks the protocol is told to stop, which shuts its
 		// kernels down, and killed if it hasn't exited after 5 seconds.
@@ -179,6 +202,7 @@ func (s *Sessions) start() (*bridge, error) {
 			cmd.Process.Signal(syscall.SIGTERM)
 			time.AfterFunc(5*time.Second, func() { cmd.Process.Kill() })
 		}
+		ready := false
 		sc := bufio.NewScanner(out)
 		sc.Buffer(nil, maxLine)
 		for sc.Scan() {
@@ -188,13 +212,31 @@ func (s *Sessions) start() (*bridge, error) {
 				break
 			}
 			if r.Ready {
-				b.signalMu.Lock()
-				if !b.signalReady {
-					b.signalReady = true
+				if !ready {
+					ready = true
 					close(b.ready)
 				}
-				b.signalMu.Unlock()
 				continue
+			}
+			if r.CellReady {
+				if value, ok := b.cells.Load(r.ID); ok {
+					c := value.(*cellControl)
+					c.mu.Lock()
+					c.ready = true
+					if c.pending && !c.finished {
+						b.cmd.Process.Signal(syscall.SIGUSR1)
+						c.pending = false
+					}
+					c.mu.Unlock()
+				}
+				continue
+			}
+			if value, ok := b.cells.LoadAndDelete(r.ID); ok {
+				c := value.(*cellControl)
+				c.mu.Lock()
+				c.finished = true
+				c.mu.Unlock()
+				s.cell.CompareAndSwap(c, nil)
 			}
 			b.replies <- r
 		}
@@ -234,18 +276,8 @@ func (s *Sessions) CellWithID(ctx context.Context, cellID, kernel, code string) 
 
 // Interrupt never acquires the call lock, which a running cell holds.
 func (s *Sessions) Interrupt() error {
-	b := s.interruptBridge.Load()
-	if b == nil {
-		return nil
-	}
-	b.signalMu.Lock()
-	defer b.signalMu.Unlock()
-	if !b.signalReady || !b.cellSubmitted {
-		b.pendingInterrupt = true
-		return nil
-	}
-	if err := b.cmd.Process.Signal(syscall.SIGUSR1); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
+	if c := s.cell.Load(); c != nil {
+		return c.interrupt()
 	}
 	return nil
 }
@@ -341,14 +373,13 @@ func (s *Sessions) call(ctx context.Context, req map[string]any) (reply, error) 
 }
 
 func (s *Sessions) callLocked(ctx context.Context, req map[string]any) (reply, error) {
+	var control *cellControl
+	if req["op"] == "cell" {
+		control = &cellControl{}
+		s.cell.Store(control)
+		defer s.cell.CompareAndSwap(control, nil)
+	}
 	if err := ctx.Err(); err != nil {
-		if req["op"] == "cell" {
-			if b := s.interruptBridge.Load(); b != nil {
-				b.signalMu.Lock()
-				b.pendingInterrupt = false
-				b.signalMu.Unlock()
-			}
-		}
 		return reply{}, err
 	}
 	if s.closed || s.closing.Load() {
@@ -366,13 +397,8 @@ func (s *Sessions) callLocked(ctx context.Context, req map[string]any) (reply, e
 	s.nextID++
 	id := s.nextID
 	req["id"] = id
-	line, err := json.Marshal(req)
-	if err != nil {
-		return reply{}, err
-	}
 	gone := func() (reply, error) {
 		s.process.CompareAndSwap(b.cmd.Process, nil)
-		s.interruptBridge.CompareAndSwap(b, nil)
 		s.b = nil
 		return reply{}, errors.New("the session bridge stopped; its sessions and their variables are gone")
 	}
@@ -381,12 +407,6 @@ func (s *Sessions) callLocked(ctx context.Context, req map[string]any) (reply, e
 	// Only the new controls require handler readiness. Legacy Exec/restart
 	// commands and existing command adapters retain their original protocol.
 	if req["op"] == "cell" || req["op"] == "restart_kernel" {
-		defer func() {
-			b.signalMu.Lock()
-			b.pendingInterrupt = false
-			b.cellSubmitted = false
-			b.signalMu.Unlock()
-		}()
 		select {
 		case <-b.ready:
 		case <-b.done:
@@ -397,21 +417,24 @@ func (s *Sessions) callLocked(ctx context.Context, req map[string]any) (reply, e
 			stop(b)
 			return gone()
 		}
-		// Deliver a queued stop only when its cell will actually be sent.
-		// A canceled, unsent cell must not interrupt the next submission.
-		b.signalMu.Lock()
 		if err := ctx.Err(); err != nil {
-			b.signalMu.Unlock()
 			return reply{}, err
 		}
-		if req["op"] == "cell" {
-			b.cellSubmitted = true
-			if b.pendingInterrupt {
-				b.cmd.Process.Signal(syscall.SIGUSR1)
-			}
-		}
-		b.pendingInterrupt = false
-		b.signalMu.Unlock()
+	}
+	if control != nil {
+		control.mu.Lock()
+		control.bridge = b
+		// Stops queued before submission belong to this request, not to a
+		// signal that could arrive before Python has selected its target.
+		req["interrupted"] = control.pending
+		control.pending = false
+		control.mu.Unlock()
+		b.cells.Store(id, control)
+	}
+	line, err := json.Marshal(req)
+	if err != nil {
+		b.cells.Delete(id)
+		return reply{}, err
 	}
 	if _, err := b.in.Write(append(line, '\n')); err != nil {
 		stop(b)
@@ -430,7 +453,6 @@ func (s *Sessions) callLocked(ctx context.Context, req map[string]any) (reply, e
 				if r.ID == id {
 					s.b = nil
 					s.process.CompareAndSwap(b.cmd.Process, nil)
-					s.interruptBridge.CompareAndSwap(b, nil)
 					return r, nil
 				}
 			default:
@@ -483,7 +505,6 @@ func (s *Sessions) Close() error {
 	b := s.b
 	s.b = nil
 	s.process.CompareAndSwap(b.cmd.Process, nil)
-	s.interruptBridge.CompareAndSwap(b, nil)
 	b.in.Write([]byte(`{"op":"shutdown"}` + "\n"))
 	b.in.Close()
 	if !exited(b, 10*time.Second) {
