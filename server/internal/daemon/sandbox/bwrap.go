@@ -22,6 +22,9 @@ var linuxSystemRoots = []string{"/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc
 // root daemon's code unable to unmount what hides the home folder.
 // --die-with-parent ends the sandbox if the door dies.
 func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
+	if err := p.validateNetwork(); err != nil {
+		return nil, err
+	}
 	if len(p.WriteFiles) != 0 || len(p.WriteSQLite) != 0 {
 		return nil, fmt.Errorf("exact file lifecycle grants are unsupported on Linux")
 	}
@@ -182,7 +185,11 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	if p.StrictRead {
 		argv = append(argv, "--remount-ro", "/")
 	}
-	argv = append(argv, "--remount-ro", r.home, "--unshare-pid", "--unshare-ipc", "--cap-drop", "ALL", "--share-net", "--die-with-parent", "--", name)
+	network := "--share-net"
+	if p.NoNetwork {
+		network = "--unshare-net"
+	}
+	argv = append(argv, "--remount-ro", r.home, "--unshare-pid", "--unshare-ipc", "--cap-drop", "ALL", network, "--die-with-parent", "--", name)
 	return append(argv, args...), nil
 }
 

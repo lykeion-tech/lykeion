@@ -38,6 +38,9 @@ var machServices = []string{
 // rule below allows it. Paths must be resolved: a (subpath "/tmp/x") never
 // matches /private/tmp/x.
 func (p Policy) seatbeltProfile() (string, error) {
+	if err := p.validateNetwork(); err != nil {
+		return "", err
+	}
 	if p.LoopbackOnly {
 		return "", ErrLoopbackOnlyUnsupported
 	}
@@ -128,16 +131,20 @@ func (p Policy) seatbeltProfile() (string, error) {
 	}
 	rule(services...)
 
-	// The network is open over IP. Unix sockets are reachable only for name
-	// lookups and inside the write folders: anywhere else they lead to
+	// Unless disabled, the network is open over IP. Unix sockets are reachable
+	// only for name lookups and inside the write folders: anywhere else they lead to
 	// agents and daemons running as the person (ssh-agent, docker).
-	rule("allow system-socket")
-	rule("allow network-outbound (remote ip)")
-	rule("allow network-inbound network-bind (local ip)")
-	rule(`allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder"))`)
-	for _, dir := range r.write {
-		rule("allow network-outbound (remote unix-socket (subpath " + sbplString(dir) + "))")
-		rule("allow network-inbound network-bind (local unix-socket (subpath " + sbplString(dir) + "))")
+	if p.NoNetwork {
+		rule("deny network*")
+	} else {
+		rule("allow system-socket")
+		rule("allow network-outbound (remote ip)")
+		rule("allow network-inbound network-bind (local ip)")
+		rule(`allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder"))`)
+		for _, dir := range r.write {
+			rule("allow network-outbound (remote unix-socket (subpath " + sbplString(dir) + "))")
+			rule("allow network-inbound network-bind (local unix-socket (subpath " + sbplString(dir) + "))")
+		}
 	}
 	// Read-only paths inside the write folders come last, so their denials
 	// win. A denied write covers removing, renaming and replacing the path,

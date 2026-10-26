@@ -1,7 +1,8 @@
 // Package sandbox confines the processes the door starts: they may write only
 // the policy's Write folders, may read nothing under the person's home but the
-// policy's Read and Write folders, and keep the network. Children inherit the
-// confinement. macOS uses Seatbelt (sandbox-exec), Linux uses bubblewrap.
+// policy's Read and Write folders, and keep the network unless NoNetwork is set.
+// Children inherit the confinement. macOS uses Seatbelt (sandbox-exec), Linux
+// uses bubblewrap.
 //
 // What the sandbox leaves open:
 //   - On macOS, sandboxed code can read other processes' command lines, so
@@ -12,8 +13,8 @@
 //     shared network: services may listen on every interface. macOS refuses
 //     LoopbackOnly policies because its localhost filter also permits other
 //     local IPv4 addresses. Same-user process inspection is a separate gap.
-//   - On Linux, abstract unix sockets stay reachable; closing them would
-//     take the network namespace, and with it the network. So does a
+//   - On Linux, with the default network policy, abstract unix sockets stay
+//     reachable; closing them would take the network namespace. So does a
 //     socket inside a read-only path: a read-only mount doesn't stop a
 //     connect.
 //   - bwrap binds a folder by path after the policy has checked it, so a link
@@ -42,6 +43,8 @@ import (
 type Policy struct {
 	// StrictRead exposes only system paths and explicit grants on Linux.
 	StrictRead bool
+	// NoNetwork denies all network access, including DNS lookups.
+	NoNetwork bool
 	// LoopbackOnly requests strict 127.0.0.1 binding. macOS refuses this policy
 	// until that boundary can be enforced; Linux retains its documented bind gap.
 	LoopbackOnly bool
@@ -92,6 +95,9 @@ var ErrLoopbackOnlyUnsupported = errors.New("macOS cannot enforce service bindin
 // the process group a kill(-pid) reaches. Setting Setpgid on top of it would
 // make the start fail.
 func (p Policy) Command(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+	if err := p.validateNetwork(); err != nil {
+		return nil, err
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -115,6 +121,13 @@ func (p Policy) Command(ctx context.Context, name string, args ...string) (*exec
 	}
 	newSession(cmd)
 	return cmd, nil
+}
+
+func (p Policy) validateNetwork() error {
+	if p.NoNetwork && p.LoopbackOnly {
+		return errors.New("sandbox: NoNetwork and LoopbackOnly are exclusive")
+	}
+	return nil
 }
 
 // Check proves the sandbox both starts and confines on this machine: true
