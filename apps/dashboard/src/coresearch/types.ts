@@ -26,3 +26,27 @@ export interface ChatRow {
   // Supplied by the chat-list route; absent on chat creation.
   machine_name?: string;
 }
+
+export interface MessageRow {
+  id: string;
+  workspace_id: string;
+  chat_id: string;
+  kind: 'turn' | 'reply' | 'comment' | 'failure';
+  author_user_id: string | null;
+  agent_run_id: string | null;
+  body: string;
+  created_at: string;
+  status: string | null;
+  failure_reason: string | null;
+}
+export interface ProjectMember {
+  user_id: string;
+  role: 'owner' | 'member';
+  project_id: string;
+  workspace_id: string;
+}
+export interface FileRow {
+  id: string;
+  path: string;
+  head: { n: number; size: number; sha256: string; created_at: string };
+}

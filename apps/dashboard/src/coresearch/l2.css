@@ -1507,6 +1507,12 @@
   margin-block-start: calc(calc(var(--spacing, 4px) * 1.5) * var(--tw-space-y-reverse));
   margin-block-end: calc(calc(var(--spacing, 4px) * 1.5) * calc(1 - var(--tw-space-y-reverse)));
 }
+.coresearch:where(.space-y-2 > :not(:last-child)),
+.coresearch :where(.space-y-2 > :not(:last-child)) {
+  --tw-space-y-reverse: 0;
+  margin-block-start: calc(calc(var(--spacing, 4px) * 2) * var(--tw-space-y-reverse));
+  margin-block-end: calc(calc(var(--spacing, 4px) * 2) * calc(1 - var(--tw-space-y-reverse)));
+}
 .coresearch:where(.space-y-3 > :not(:last-child)),
 .coresearch :where(.space-y-3 > :not(:last-child)) {
   --tw-space-y-reverse: 0;
@@ -2904,6 +2910,74 @@
   text-rendering: optimizeLegibility;
   user-select: none;
   cursor: default;
+}
+.coresearch.agenda-chip--history:hover,
+.coresearch .agenda-chip--history:hover {
+  background: var(--surface-2);
+}
+.coresearch.agenda-chip--event,
+.coresearch .agenda-chip--event {
+  background: var(--link);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--link) 18%, transparent);
+  }
+}
+.coresearch.agenda-chip--allday,
+.coresearch .agenda-chip--allday {
+  background: var(--link);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--link) 34%, transparent);
+  }
+}
+.coresearch.agenda-chip--deadline,
+.coresearch .agenda-chip--deadline {
+  background: var(--warn);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--warn) 18%, transparent);
+  }
+}
+.coresearch.agenda-chip--overdue,
+.coresearch .agenda-chip--overdue {
+  background: var(--danger);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--danger) 22%, transparent);
+  }
+}
+.coresearch.agenda-chip:focus-visible,
+.coresearch .agenda-chip:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: -2px;
+}
+.coresearch {
+  --status-todo: var(--ink-subtle);
+  --status-progress: #f2c94c;
+  --status-review: #9d7bd8;
+  --status-done: var(--success);
+  --priority-urgent: #fc7840;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --row-h: 36px;
+  --scrollbar-w: 10px;
+}
+.coresearch::selection,
+.coresearch ::selection {
+  background: var(--surface-4);
+  color: var(--ink);
+}
+.coresearch::-webkit-scrollbar,
+.coresearch ::-webkit-scrollbar {
+  width: var(--scrollbar-w);
+  height: var(--scrollbar-w);
+}
+.coresearch::-webkit-scrollbar-thumb,
+.coresearch ::-webkit-scrollbar-thumb {
+  background: var(--hairline-strong);
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: content-box;
+}
+.coresearch::-webkit-scrollbar-track,
+.coresearch ::-webkit-scrollbar-track {
+  background: transparent;
 }
 .coresearch.task-screen,
 .coresearch .task-screen {

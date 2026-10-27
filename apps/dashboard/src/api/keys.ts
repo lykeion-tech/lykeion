@@ -7,6 +7,9 @@ export const keys = {
   coresearchChats: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'chats'] as const,
   coresearchMessages: (ws: string, id: string, chat: string) =>
     ['ws', ws, 'coresearch', id, 'messages', chat] as const,
+  coresearchMembers: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'members'] as const,
+  coresearchSteps: (ws: string, id: string, chat: string, run: string) =>
+    ['ws', ws, 'coresearch', id, 'steps', chat, run] as const,
   coresearchCells: (ws: string, id: string, chat: string) =>
     ['ws', ws, 'coresearch', id, 'cells', chat] as const,
   coresearchFiles: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'files'] as const,
