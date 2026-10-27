@@ -103,6 +103,7 @@ const groups = [
     items: [
       { id: 'studies', name: 'Studies', icon: 'tasks' },
       { id: 'projects', name: 'Projects', icon: 'folder' },
+      { id: 'coresearch', name: 'Coresearch', icon: 'flask' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
   },
@@ -142,7 +143,11 @@ const pinnedCards = computed(() =>
     .filter((c): c is NonNullable<typeof c> => !!c),
 );
 watch(pinnedExpanded, (value) => writeText('lykeion.pinned-expanded', String(value)));
-const { composer, openComposer: openCreate, closeComposer } = useTaskComposer();
+const { composer, openComposer: openTaskCreate, closeComposer } = useTaskComposer();
+function openCreate() {
+  if (current.value === 'coresearch') void router.push('/coresearch/new');
+  else openTaskCreate();
+}
 const workspaceMenu = ref(false);
 const help = ref(false);
 const desktop = Boolean(window.lykeionDesktop);

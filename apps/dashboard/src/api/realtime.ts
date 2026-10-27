@@ -17,6 +17,13 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
   );
   const parent = typeof e.payload.autoresearch_id === 'string' ? e.payload.autoresearch_id : '';
   switch (e.type.split('.')[0]) {
+    case 'coresearch': {
+      const project = e.payload.project_id;
+      if (typeof project !== 'string') return [];
+      // Invalidate the project prefix, including every chat and detail pane.
+      // Events carry identifiers only; all data is read through membership routes.
+      return [keys.coresearchProjects(ws), ['ws', ws, 'coresearch', project]];
+    }
     case 'skill':
       return [
         keys.skills(ws),

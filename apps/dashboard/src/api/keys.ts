@@ -2,6 +2,17 @@
 // workspace can drop it in one call, and everything a card owns sits under
 // ['ws', id, 'card', cardId].
 export const keys = {
+  coresearchProjects: (ws: string) => ['ws', ws, 'coresearch-projects'] as const,
+  coresearchProject: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'detail'] as const,
+  coresearchChats: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'chats'] as const,
+  coresearchMessages: (ws: string, id: string, chat: string) =>
+    ['ws', ws, 'coresearch', id, 'messages', chat] as const,
+  coresearchCells: (ws: string, id: string, chat: string) =>
+    ['ws', ws, 'coresearch', id, 'cells', chat] as const,
+  coresearchFiles: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'files'] as const,
+  coresearchRuns: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'runs'] as const,
+  coresearchEnvironment: (ws: string, id: string) =>
+    ['ws', ws, 'coresearch', id, 'environment'] as const,
   me: ['me'] as const,
   workspaces: ['workspaces'] as const,
   tokens: ['tokens'] as const,

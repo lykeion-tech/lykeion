@@ -13,6 +13,7 @@ test('the sidebar shows the implemented workspace destinations only', async ({ p
     'Projects',
     'Autoresearch',
     'Agents',
+    'Coresearch',
     'Colleagues',
     'Settings',
   ])
@@ -21,11 +22,16 @@ test('the sidebar shows the implemented workspace destinations only', async ({ p
         .getByRole('link', { name, exact: true })
         .or(nav.getByRole('button', { name, exact: true })),
     ).toBeVisible();
-  for (const name of ['Coresearch', 'Skills', 'Connectors', 'Machines', 'Updates', 'Search...'])
+  for (const name of ['Skills', 'Connectors', 'Machines', 'Updates', 'Search...'])
     await expect(nav.getByText(name, { exact: true })).toHaveCount(0);
   const groups = nav.locator('.nav-group');
-  await expect(groups.nth(0).getByRole('link')).toHaveText(['Inbox', 'Studies']);
-  await expect(groups.nth(1).getByRole('link')).toHaveText(['Projects', 'Colleagues']);
+  await expect(groups.nth(0).getByRole('link')).toHaveText(['Inbox', 'My Studies']);
+  await expect(groups.nth(1).getByRole('link')).toHaveText([
+    'Studies',
+    'Projects',
+    'Coresearch',
+    'Colleagues',
+  ]);
   await expect(groups.nth(2).getByRole('link')).toHaveText(['Teams', 'Autoresearch', 'Agents']);
   await expect(page.getByRole('button', { name: 'Open Aristotle' })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/ui-lab/task11-shell.png', fullPage: true });

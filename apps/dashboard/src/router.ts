@@ -7,6 +7,9 @@ import {
 } from 'vue-router';
 
 // The board is the landing route and loads eagerly.
+import CoresearchList from './views/CoresearchList.vue';
+import CoresearchStarter from './coresearch/CoresearchStarter.vue';
+import CoresearchProject from './views/CoresearchProject.vue';
 import TaskBoard from './views/TaskBoard.vue';
 import ResearchesView from './views/ResearchesView.vue';
 import AutoresearchView from './views/AutoresearchView.vue';
@@ -47,6 +50,22 @@ function param(route: Pick<RouteLocationNormalized, 'params'>, name: string) {
 
 // Later slices' destinations stay unrouted until their slice.
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/coresearch',
+    component: CoresearchList,
+    meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true },
+  },
+  {
+    path: '/coresearch/new',
+    component: CoresearchStarter,
+    meta: { page: 'coresearch', title: 'New', ownHeader: true },
+  },
+  {
+    path: '/coresearch/:projectId/:chatId?',
+    component: CoresearchProject,
+    props: true,
+    meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true },
+  },
   { path: '/updates', redirect: { path: '/settings', query: { tab: 'updates' } } },
   {
     path: '/projects',
