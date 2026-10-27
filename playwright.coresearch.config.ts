@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 const port = process.env.LYK_UI_RENDERER_PORT || '1437';
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: 'coresearch-markdown.spec.ts',
+  testMatch: ['coresearch-markdown.spec.ts', 'coresearch-notebook.spec.ts'],
   workers: 1,
   retries: 0,
   reporter: 'list',

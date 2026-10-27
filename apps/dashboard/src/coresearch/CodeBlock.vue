@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 import type { highlightToolCode } from '../lib/tool-code';
 import CopyButton from './CopyButton.vue';
-const props = defineProps<{ code: string; lang?: string; live?: boolean }>();
+const props = defineProps<{ code: string; lang?: string; live?: boolean; lineNumbers?: boolean }>();
 const lines = ref<Awaited<ReturnType<typeof highlightToolCode>>>();
 watch(
   () => [props.code, props.lang, props.live],
@@ -28,9 +28,10 @@ watch(
 );
 </script>
 <template>
-  <div class="code-block">
+  <div class="code-block" :class="{ 'code-block--numbered': lineNumbers }">
     <div class="code-block-head">
-      <span v-if="lang" class="code-block-lang">{{ lang }}</span
+      <slot name="meta"
+        ><span v-if="lang" class="code-block-lang">{{ lang }}</span></slot
       ><CopyButton :text="code" code />
     </div>
     <div v-if="lines" class="code-block-pre" data-testid="code-block-pre">
@@ -38,6 +39,10 @@ watch(
         style="background-color: #24292e; color: #e1e4e8"
       ><code><template v-for="(line,i) in lines" :key="i"><span class="line"><span v-for="(token,j) in line" :key="j" :style="{color:token.color}">{{ token.content }}</span></span>{{ i < lines.length - 1 ? '\n' : '' }}</template></code></pre>
     </div>
-    <pre v-else class="code-block-pre" data-testid="code-block-pre"><code>{{ code }}</code></pre>
+    <pre
+      v-else
+      class="code-block-pre"
+      data-testid="code-block-pre"
+    ><code v-if="lineNumbers"><span v-for="(line,i) in code.replace(/\n$/, '').split('\n')" :key="i" class="line">{{ line }}{{ '\n' }}</span></code><code v-else>{{ code }}</code></pre>
   </div>
 </template>

@@ -18,6 +18,8 @@ import ChatComposer from '../coresearch/ChatComposer.vue';
 import RightPaneTabs from '../coresearch/RightPaneTabs.vue';
 import MembersDialog from '../coresearch/MembersDialog.vue';
 import NewChatDialog from '../coresearch/NewChatDialog.vue';
+import NotebookPane from '../coresearch/NotebookPane.vue';
+import ComputePane from '../coresearch/ComputePane.vue';
 import '../coresearch/l2.css';
 const props = defineProps<{ projectId: string; chatId?: string }>();
 const router = useRouter(),
@@ -247,7 +249,22 @@ function openFile(file: FileRow) {
               @close-pane="paneMode = 'closed'"
             />
             <div class="task-rightpane-card">
+              <NotebookPane
+                v-if="activePane === 'notebook' && chat"
+                :key="`${workspaceId}:${projectId}:${chat.id}:notebook`"
+                :project="project.data.value"
+                :chat="chat"
+                :owner="owner"
+              />
+              <ComputePane
+                v-else-if="activePane === 'compute' && chat"
+                :key="`${workspaceId}:${projectId}:${chat.id}:compute`"
+                :project="project.data.value"
+                :chat="chat"
+                :owner="owner"
+              />
               <div
+                v-else
                 role="tabpanel"
                 :aria-label="PANE_TABS.find((t) => t.id === activePane)?.label"
                 class="p-5 type-body text-fg-subtle"

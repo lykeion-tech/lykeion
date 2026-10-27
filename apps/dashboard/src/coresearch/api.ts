@@ -4,7 +4,16 @@ import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import type { Runtime, RunMessage } from '../api/types';
-import type { ChatRow, Cli, ProjectRow, MessageRow, ProjectMember, FileRow } from './types';
+import type {
+  ChatRow,
+  Cli,
+  ProjectRow,
+  MessageRow,
+  ProjectMember,
+  FileRow,
+  CellRow,
+  EnvironmentRow,
+} from './types';
 export { keys };
 export const projectPath = (id: string) => `/api/coresearch/projects/${encodeURIComponent(id)}`;
 export const chatPath = (id: string, chat: string) =>
@@ -137,5 +146,32 @@ export function useCoresearchSteps(
         { signal, workspace: workspaceId.value },
       )) ?? [],
     refetchInterval: computed(() => (toValue(active) ? 1000 : false)),
+  });
+}
+export function useCoresearchCells(id: MaybeRefOrGetter<string>, chat: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: computed(() => keys.coresearchCells(workspaceId.value, toValue(id), toValue(chat))),
+    enabled: computed(() => !!workspaceId.value && !!toValue(id) && !!toValue(chat)),
+    queryFn: async ({ signal }) =>
+      (await api<CellRow[] | null>(
+        'GET',
+        `${chatPath(toValue(id), toValue(chat))}/cells`,
+        undefined,
+        undefined,
+        { signal, workspace: workspaceId.value },
+      )) ?? [],
+    refetchInterval: 1500,
+  });
+}
+export function useCoresearchEnvironment(id: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: computed(() => keys.coresearchEnvironment(workspaceId.value, toValue(id))),
+    enabled: computed(() => !!workspaceId.value && !!toValue(id)),
+    queryFn: ({ signal }) =>
+      api<EnvironmentRow>('GET', `${projectPath(toValue(id))}/environment`, undefined, undefined, {
+        signal,
+        workspace: workspaceId.value,
+      }),
+    refetchInterval: 1500,
   });
 }

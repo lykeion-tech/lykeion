@@ -1104,6 +1104,10 @@
 .coresearch .w-24 {
   width: calc(var(--spacing, 4px) * 24);
 }
+.coresearch.w-28,
+.coresearch .w-28 {
+  width: calc(var(--spacing, 4px) * 28);
+}
 .coresearch.w-44,
 .coresearch .w-44 {
   width: calc(var(--spacing, 4px) * 44);
@@ -1666,6 +1670,11 @@
   border-style: var(--tw-border-style);
   border-width: 1px;
 }
+.coresearch.border-0,
+.coresearch .border-0 {
+  border-style: var(--tw-border-style);
+  border-width: 0px;
+}
 .coresearch.border-x,
 .coresearch .border-x {
   border-inline-style: var(--tw-border-style);
@@ -2137,6 +2146,10 @@
   font-weight: 400;
   line-height: 1.55;
   letter-spacing: 0;
+}
+.coresearch.font-mono,
+.coresearch .font-mono {
+  font-family: var(--font-mono);
 }
 .coresearch.type-meta,
 .coresearch .type-meta {

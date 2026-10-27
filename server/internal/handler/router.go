@@ -165,6 +165,7 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/attachments", h.uploadAttachment)
 		r.Post("/api/coresearch/projects/{project}/files", h.uploadCoresearchFile)
 		r.Get("/api/coresearch/projects/{project}/files/{file}/versions/{n}/content", h.downloadCoresearchFile)
+		r.Get("/api/coresearch/projects/{project}/chats/{chat}/cells/{cell}/outputs", h.coresearchCellOutputs)
 		r.Get("/api/cards/{id}/attachments/{aid}", h.downloadAttachment)
 		r.Get("/api/cards/{id}/outputs/{key}", h.downloadOutput)
 		r.Post("/api/teams", h.createTeam)

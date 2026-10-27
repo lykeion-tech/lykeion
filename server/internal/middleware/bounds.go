@@ -65,7 +65,7 @@ func RequestBounds(next http.Handler) http.Handler {
 		if attachment || attachmentDownload(r) && !outputDownload(r) {
 			requestTimeout, bodyTimeout = AttachmentRequestTimeout, AttachmentBodyReadTimeout
 		}
-		if output || outputDownload(r) || coresearchUpload || coresearchFileTransfer(r, false) || coresearchWorkTransfer(r, false) {
+		if output || outputDownload(r) || coresearchUpload || coresearchFileTransfer(r, false) || coresearchWorkTransfer(r, false) || coresearchCellOutputDownload(r) {
 			requestTimeout, bodyTimeout = OutputRequestTimeout, OutputBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
@@ -299,4 +299,18 @@ func coresearchWorkTransfer(r *http.Request, upload bool) bool {
 	}
 	p := strings.Split(r.URL.Path, "/")
 	return len(p) == 6 && p[1] == "api" && p[2] == "daemon" && p[3] == "coresearch" && p[4] == "blobs" && len(p[5]) == 64
+}
+
+// coresearchCellOutputDownload is an exact person output download, not an upload.
+func coresearchCellOutputDownload(r *http.Request) bool {
+	p := strings.Split(r.URL.Path, "/")
+	if r.Method != http.MethodGet || len(p) != 10 || p[1] != "api" || p[2] != "coresearch" || p[3] != "projects" || p[5] != "chats" || p[7] != "cells" || p[9] != "outputs" {
+		return false
+	}
+	for _, at := range []int{4, 6, 8} {
+		if _, err := uuid.Parse(p[at]); err != nil {
+			return false
+		}
+	}
+	return true
 }

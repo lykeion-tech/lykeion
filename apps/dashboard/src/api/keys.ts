@@ -12,6 +12,8 @@ export const keys = {
     ['ws', ws, 'coresearch', id, 'steps', chat, run] as const,
   coresearchCells: (ws: string, id: string, chat: string) =>
     ['ws', ws, 'coresearch', id, 'cells', chat] as const,
+  coresearchCellOutputs: (ws: string, id: string, chat: string, cell: string) =>
+    ['ws', ws, 'coresearch', id, 'cell-outputs', chat, cell] as const,
   coresearchFiles: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'files'] as const,
   coresearchRuns: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'runs'] as const,
   coresearchEnvironment: (ws: string, id: string) =>

@@ -391,3 +391,42 @@ func TestHiddenServiceDownloadHasLongExactBudget(t *testing.T) {
 		})
 	}
 }
+
+func TestPersonCellOutputExactBounds(t *testing.T) {
+	const id = "00000000-0000-0000-0000-000000000001"
+	const route = "/api/coresearch/projects/" + id + "/chats/" + id + "/cells/" + id + "/outputs"
+	cases := []struct {
+		method, path string
+		long         bool
+	}{{"GET", route, true}, {"POST", route, false}, {"GET", route + "/", false}, {"GET", route + "/extra", false}, {"GET", strings.Replace(route, "/cells/", "/files/", 1), false}}
+	for _, part := range []string{"projects", "chats", "cells"} {
+		cases = append(cases, struct {
+			method, path string
+			long         bool
+		}{"GET", strings.Replace(route, "/"+part+"/"+id, "/"+part+"/bad", 1), false})
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+tc.path, func(t *testing.T) {
+			RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				d, ok := r.Context().Deadline()
+				if !ok {
+					t.Fatal("missing deadline")
+				}
+				long := time.Until(d) > 14*time.Minute
+				if long != tc.long {
+					t.Fatalf("long=%v want %v", long, tc.long)
+				}
+				if tc.long && time.Until(d) > 15*time.Minute {
+					t.Fatal("overlong")
+				}
+			})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tc.method, tc.path, nil))
+		})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Context().Err() != context.Canceled {
+			t.Fatal("lost cancellation")
+		}
+	})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", route, nil).WithContext(ctx))
+}
