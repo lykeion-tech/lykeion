@@ -33,10 +33,13 @@ func pidFile(e *env) string    { return filepath.Join(filepath.Dir(e.path), "dae
 func healthFile(e *env) string { return filepath.Join(filepath.Dir(e.path), "daemon.health.json") }
 func logFile(e *env) string    { return filepath.Join(filepath.Dir(e.path), "daemon.log") }
 
-// envDir holds the language bases in a hidden folder in the home folder, not
-// the state folder, because macOS puts that under "Application Support" and
-// the bases' own scripts break on a path with spaces.
+// envDir defaults to a hidden folder in the home folder, not the state folder,
+// because macOS puts that under "Application Support" and the bases' own scripts
+// break on a path with spaces. LYK_ENV_DIR can isolate the language bases.
 func envDir() (string, error) {
+	if root := os.Getenv("LYK_ENV_DIR"); root != "" {
+		return filepath.Abs(root)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

@@ -37,6 +37,7 @@ func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("LYK_DAEMON_HOME", scratch)
+	t.Setenv("LYK_ENV_DIR", t.TempDir())
 	// Bases already marked ready, so the daemon builds none from the network.
 	envs, err := envDir()
 	if err != nil {
@@ -81,15 +82,94 @@ func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 }
 
 func TestTheEnvironmentsFolderAvoidsASpacedStateFolder(t *testing.T) {
+	for _, unset := range []bool{true, false} {
+		t.Run(fmt.Sprintf("unset=%t", unset), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("LYK_CONFIG", filepath.Join(home, "Library", "Application Support", "lyk", "config.json"))
+			t.Setenv("LYK_ENV_DIR", "")
+			if unset {
+				if err := os.Unsetenv("LYK_ENV_DIR"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			dir, err := envDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := filepath.Join(home, ".lyk", "envs"); dir != want {
+				t.Fatalf("envDir = %q, want %q", dir, want)
+			}
+			entries, err := os.ReadDir(home)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("default lookup wrote into HOME: %v, %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestEnvDirOverrideResolvesAbsoluteCleanPathWithoutWrites(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("HOME", "")
+	for _, tt := range []struct{ name, override string }{
+		{"absolute", root + "/discard/../bases"},
+		{"relative", "discard/../bases"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("LYK_ENV_DIR", tt.override)
+			got, err := envDir()
+			if want := filepath.Join(root, "bases"); err != nil || got != want {
+				t.Fatalf("envDir = %q, %v; want %q", got, err, want)
+			}
+			entries, err := os.ReadDir(root)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("override lookup wrote directories: %v, %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestEnvDirPropagatesMissingHomeError(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("LYK_ENV_DIR", "")
+	if _, err := envDir(); err == nil {
+		t.Fatal("default lookup without HOME succeeded")
+	}
+}
+
+func TestDaemonConfigScratchAndBasesCanBeIsolatedIndependently(t *testing.T) {
+	root := t.TempDir()
 	home := t.TempDir()
+	config := filepath.Join(root, "A", "config.json")
+	scratch := filepath.Join(root, "scratch-A")
+	bases := filepath.Join(root, "bases-A")
 	t.Setenv("HOME", home)
-	t.Setenv("LYK_CONFIG", filepath.Join(home, "Library", "Application Support", "lyk", "config.json"))
-	dir, err := envDir()
-	if err != nil {
+	t.Setenv("LYK_CONFIG", config)
+	t.Setenv("LYK_DAEMON_HOME", scratch)
+	t.Setenv("LYK_ENV_DIR", bases)
+	wantConfig := Config{Server: "http://unused", Token: "lyk_test", Workspace: "task-workspace"}
+	if err := SaveConfig(config, wantConfig); err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(home, ".lyk", "envs"); dir != want {
-		t.Fatalf("envDir = %q, want %q", dir, want)
+	gotConfig, configPath, err := LoadConfig()
+	if err != nil || gotConfig != wantConfig || configPath != config {
+		t.Fatalf("isolated config: %+v, %q, %v", gotConfig, configPath, err)
+	}
+	e := &env{path: configPath}
+	if got, want := stateDir(e), filepath.Join(root, "A", "daemon"); got != want {
+		t.Fatalf("stateDir = %q, want %q", got, want)
+	}
+	if got, err := scratchHome(); err != nil || got != scratch {
+		t.Fatalf("scratchHome = %q, %v; want %q", got, err, scratch)
+	}
+	if got, err := envDir(); err != nil || got != bases {
+		t.Fatalf("envDir = %q, %v; want %q", got, err, bases)
+	}
+	for _, path := range []string{bases, stateDir(e), pidFile(e), healthFile(e), logFile(e), filepath.Join(home, ".lyk")} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("path lookup created %q: %v", path, err)
+		}
 	}
 }
 
