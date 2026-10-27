@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMe, useMembers } from '../api/queries';
 import { workspaceId } from '../api/session';
+import { guardResourceDrafts } from '../state/resource-draft';
 import {
   isActiveTurn,
   useCoresearchProject,
@@ -53,7 +54,6 @@ const tabs = ref([...PANE_TABS]),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
   activeFile = ref<FileRow>(),
   activeFileN = ref<number>(),
-  fileDirty = ref(false),
   fileSelection = ref(0);
 const stream = ref<HTMLElement>(),
   atBottom = ref(true);
@@ -64,7 +64,6 @@ watch(
     newChat.value = false;
     activeFile.value = undefined;
     activeFileN.value = undefined;
-    fileDirty.value = false;
     tabs.value = [...PANE_TABS];
     paneMode.value = 'closed';
     sidebarOpen.value = false;
@@ -105,21 +104,19 @@ function openChat(id: string) {
   sidebarOpen.value = false;
   void router.push(`/coresearch/${props.projectId}/${id}`);
 }
-function discardFile() {
-  if (fileDirty.value && !window.confirm('Discard unsaved file changes?')) return false;
-  fileDirty.value = false;
-  return true;
+async function discardFile() {
+  return guardResourceDrafts();
 }
-function selectPane(id: string) {
-  if (activePane.value === 'files' && id !== 'files' && !discardFile()) return;
+async function selectPane(id: string) {
+  if (activePane.value === 'files' && id !== 'files' && !(await discardFile())) return;
   activePane.value = id;
 }
-function closePane() {
-  if (activePane.value === 'files' && !discardFile()) return;
+async function closePane() {
+  if (activePane.value === 'files' && !(await discardFile())) return;
   paneMode.value = 'closed';
 }
-function openPane(id: string) {
-  if (activePane.value === 'files' && id !== 'files' && !discardFile()) return;
+async function openPane(id: string) {
+  if (activePane.value === 'files' && id !== 'files' && !(await discardFile())) return;
   if (!tabs.value.some((t) => t.id === id)) {
     tabs.value = PANE_TABS.filter(
       (t) => t.id === id || tabs.value.some((open) => open.id === t.id),
@@ -129,8 +126,8 @@ function openPane(id: string) {
   paneMode.value = 'split';
   sidebarOpen.value = false;
 }
-function closeTab(id: string) {
-  if (id === 'files' && !discardFile()) return;
+async function closeTab(id: string) {
+  if (id === 'files' && !(await discardFile())) return;
   if (activePane.value === id) {
     const next = tabAfterClose(tabs.value, id);
     if (next) activePane.value = next;
@@ -138,9 +135,8 @@ function closeTab(id: string) {
   }
   tabs.value = tabs.value.filter((t) => t.id !== id);
 }
-function openFile(file: FileRow, n?: number) {
-  if (fileDirty.value && !window.confirm('Discard unsaved file changes?')) return;
-  fileDirty.value = false;
+async function openFile(file: FileRow, n?: number) {
+  if (!(await discardFile())) return;
   fileSelection.value++;
   activeFileN.value = n;
   activeFile.value = file;
@@ -299,7 +295,6 @@ function openOutput(output: FileRef) {
                 :project="project.data.value"
                 :file="activeFile"
                 :selected-n="activeFileN"
-                @dirty-change="fileDirty = $event"
               />
               <RunsPane
                 v-else-if="activePane === 'runs'"

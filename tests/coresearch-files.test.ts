@@ -5,6 +5,11 @@ import FilesPane from '../apps/dashboard/src/coresearch/FilesPane.vue';
 import RunsPane from '../apps/dashboard/src/coresearch/RunsPane.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
+import {
+  guardResourceDrafts,
+  discardDialog,
+  resolveDiscard,
+} from '../apps/dashboard/src/state/resource-draft';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
 vi.hoisted(() =>
   Object.defineProperty(globalThis, 'localStorage', {
@@ -14,6 +19,7 @@ vi.hoisted(() =>
 );
 const cleanups: (() => void)[] = [];
 afterEach(() => {
+  resolveDiscard(false);
   cleanups.splice(0).forEach((f) => f());
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -350,5 +356,31 @@ describe('Coresearch files and runs', () => {
     (button(root, 'Show changes')!.props.onClick as () => void)();
     await settle();
     expect(textOf(root)).toContain('These versions cannot be compared as text.');
+  });
+  it('registered file draft shares navigation refusal and accepted discard without advancing base', async () => {
+    const { root, client, settle } = await mount(FilesPane);
+    (button(root, 'Edit content')!.props.onClick as () => void)();
+    await settle();
+    const bytes = 'navigation draft\n';
+    const area = all(root).find((n) => n.tag === 'textarea')!;
+    (area.props['onUpdate:modelValue'] as (v: string) => void)(bytes);
+    await settle();
+    client.setQueryData(keys.coresearchVersions('lab', 'p', 'f'), [version(2), version(1)]);
+    await settle();
+    const declined = guardResourceDrafts();
+    expect(discardDialog.value).toBe(true);
+    resolveDiscard(false);
+    expect(await declined).toBe(false);
+    await settle();
+    expect(all(root).find((n) => n.tag === 'textarea')!.value).toBe(bytes);
+    expect(textOf(root)).toContain('v1 (old)');
+    const accepted = guardResourceDrafts();
+    expect(discardDialog.value).toBe(true);
+    resolveDiscard(true);
+    expect(await accepted).toBe(true);
+    await settle();
+    expect(all(root).filter((n) => n.tag === 'textarea')).toHaveLength(0);
+    expect(await guardResourceDrafts()).toBe(true);
+    expect(discardDialog.value).toBe(false);
   });
 });

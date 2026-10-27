@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../api/client';
 import { workspaceId } from '../api/session';
+import { registerDraftVisit } from '../state/resource-draft';
 import {
   keys,
   filePath,
@@ -18,7 +19,6 @@ import ArtifactViewer from './viewers/ArtifactViewer.vue';
 import CodeBlock from './CodeBlock.vue';
 import ProvenancePanel from './ProvenancePanel.vue';
 const props = defineProps<{ project: ProjectRow; file?: FileRow; selectedN?: number }>();
-const emit = defineEmits<{ dirtyChange: [dirty: boolean] }>();
 const client = useQueryClient(),
   files = useCoresearchFiles(() => props.project.id);
 const versions = useCoresearchVersions(
@@ -81,7 +81,11 @@ const compareContent = useCoresearchContent(
   () => comparison.value?.n ?? 0,
 );
 const dirty = computed(() => editing.value && draft.value !== initial.value);
-watch(dirty, (value) => emit('dirtyChange', value), { immediate: true });
+registerDraftVisit({
+  dirty: () => dirty.value,
+  discard: cancel,
+  identity: () => `${workspaceId.value}:${props.project.id}:${props.file?.id}:${editBase.value}`,
+});
 watch(
   () => props.selectedN,
   (n) => {

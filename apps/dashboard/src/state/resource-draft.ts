@@ -4,6 +4,17 @@ import type { Router } from 'vue-router';
 type Saved<T> = { revision: number; value: T };
 type DraftVisit = { dirty: () => boolean; discard: () => void; identity: () => string };
 const visits = new Set<DraftVisit>();
+
+// Editors with their own save semantics share the same guarded exit decision.
+export function registerDraftVisit(visit: DraftVisit) {
+  visits.add(visit);
+  const unregister = () => {
+    visits.delete(visit);
+  };
+  if (getCurrentScope()) onScopeDispose(unregister);
+  return unregister;
+}
+
 const showingDiscard = ref(false);
 export const discardDialog = readonly(showingDiscard);
 let pendingDiscard: Promise<boolean> | undefined;
@@ -167,11 +178,10 @@ export function useResourceDraft<T>(identity: Ref<string>, saved: Ref<Saved<T> |
     };
   }
   const visit: DraftVisit = { dirty: () => dirty.value, discard, identity: () => identity.value };
-  visits.add(visit);
+  registerDraftVisit(visit);
   if (getCurrentScope())
     onScopeDispose(() => {
       generation++;
-      visits.delete(visit);
     });
   return { draft, dirty, stale, baseRevision, reset, adopt, canSave };
 }

@@ -123,3 +123,89 @@ test('version diff uses visible highlighted exact saved bytes and comparison pic
   await pane.getByRole('button', { name: 'Hide changes' }).click();
   await expect(pane.getByTestId('artifact-diff')).toHaveCount(0);
 });
+
+for (const destination of ['global route', 'workspace']) {
+  test(`dirty Files draft guards declined and accepted ${destination} exit`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    const fixture = await installFilesFixture(page, { head: 1 });
+    await page.goto('/#/coresearch/p/selected');
+    await openSavedFile(page, 'residuals.csv');
+    const pane = page.getByTestId('artifact-pane'),
+      draft = `exact ${destination} draft\n\n`;
+    await pane.getByRole('button', { name: 'Edit content', exact: true }).click();
+    await pane.getByRole('textbox', { name: 'File content' }).fill(draft);
+    fixture.remoteHead(2);
+    await expect(pane).toContainText('v1 (old)');
+    const exit = async () => {
+      if (destination === 'global route')
+        await page.getByRole('link', { name: 'Coresearch', exact: true }).click();
+      else {
+        if (!(await page.getByRole('menu', { name: 'Workspace', exact: true }).isVisible()))
+          await page.locator('.workspace-switch').click();
+        await page.getByRole('menuitem', { name: /Second lab/ }).click();
+      }
+    };
+    await exit();
+    const dialog = page.getByRole('dialog', { name: 'Discard unsaved changes?', exact: true });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Keep editing', exact: true }).click();
+    await expect(page).toHaveURL(/#\/coresearch\/p\/selected$/);
+    expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe('lab');
+    await expect(pane.getByRole('textbox', { name: 'File content' })).toHaveValue(draft);
+    await expect(pane).toContainText('v1 (old)');
+    if (destination === 'workspace') await page.locator('.workspace-switch').click();
+    await pane.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(pane.getByRole('alert')).toContainText('version 1 is not the latest (2 is)');
+    expect(fixture.writes[0]?.workspace).toBe('lab');
+    expect(fixture.writes[0]?.body).toContain('name="base"\r\n\r\n1');
+    expect(fixture.writes[0]?.body).toContain(draft);
+    await exit();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Discard changes', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page).toHaveURL(destination === 'workspace' ? /#\/studies$/ : /#\/coresearch$/);
+    expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe(
+      destination === 'workspace' ? 'second' : 'lab',
+    );
+    await expect(page.getByRole('textbox', { name: 'File content' })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}
+
+test('local pane exits share the application discard dialog without native or repeated prompts', async ({
+  page,
+}) => {
+  await installFilesFixture(page, { head: 1 });
+  let nativePrompts = 0;
+  page.on('dialog', async (dialog) => {
+    nativePrompts++;
+    await dialog.dismiss();
+  });
+  await page.goto('/#/coresearch/p/selected');
+  await openSavedFile(page, 'residuals.csv');
+  const pane = page.getByTestId('artifact-pane'),
+    draft = 'local pane draft\n';
+  await pane.getByRole('button', { name: 'Edit content', exact: true }).click();
+  await pane.getByRole('textbox', { name: 'File content' }).fill(draft);
+  const runs = page.getByRole('tab', { name: 'Runs', exact: true }),
+    discard = page.getByRole('dialog', { name: 'Discard unsaved changes?', exact: true });
+  await runs.click();
+  await expect(discard).toHaveCount(1);
+  await discard.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(pane.getByRole('textbox')).toHaveValue(draft);
+  await runs.click();
+  await expect(discard).toHaveCount(1);
+  await discard.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(page.getByRole('tabpanel', { name: 'Runs', exact: true })).toBeVisible();
+  await expect(discard).toHaveCount(0);
+  await openSavedFile(page, 'residuals.csv');
+  await expect(pane.getByRole('button', { name: 'Edit content', exact: true })).toBeVisible();
+  await expect(pane.getByRole('textbox', { name: 'File content' })).toHaveCount(0);
+  await page
+    .locator('.task-rightpane')
+    .getByRole('button', { name: 'Close panel', exact: true })
+    .click();
+  await expect(discard).toHaveCount(0);
+  expect(nativePrompts).toBe(0);
+});

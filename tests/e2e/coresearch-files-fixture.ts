@@ -134,9 +134,14 @@ export async function installFilesFixture(
       reads.push(path);
       if (path === '/api/me') data = { id: user, name: 'Ada Lovelace', onboarded_at: '2026-01-01' };
       else if (path === '/api/workspaces')
-        data = [{ id: 'lab', name: 'Fixture lab', role: 'owner' }];
+        data = [
+          { id: 'lab', name: 'Fixture lab', role: 'owner' },
+          { id: 'second', name: 'Second lab', role: 'owner' },
+        ];
       else if (path === '/api/workspaces/lab')
         data = { id: 'lab', name: 'Fixture lab', role: 'owner', event_cursor: 0 };
+      else if (path === '/api/workspaces/second')
+        data = { id: 'second', name: 'Second lab', role: 'owner', event_cursor: 0 };
       else if (path === '/api/workspaces/lab/members')
         data = [{ user_id: 'me', name: 'Ada Lovelace', role: 'owner' }];
       else if (path === '/api/coresearch/projects/p')
