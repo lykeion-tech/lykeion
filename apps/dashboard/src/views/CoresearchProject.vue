@@ -10,7 +10,7 @@ import {
   useCoresearchMessages,
   useCoresearchFiles,
 } from '../coresearch/api';
-import type { FileRow } from '../coresearch/types';
+import type { FileRow, FileRef } from '../coresearch/types';
 import { PANE_TABS, tabAfterClose } from '../coresearch/pane-tabs';
 import ProjectSidebar from '../coresearch/ProjectSidebar.vue';
 import ChatTranscript from '../coresearch/ChatTranscript.vue';
@@ -20,6 +20,8 @@ import MembersDialog from '../coresearch/MembersDialog.vue';
 import NewChatDialog from '../coresearch/NewChatDialog.vue';
 import NotebookPane from '../coresearch/NotebookPane.vue';
 import ComputePane from '../coresearch/ComputePane.vue';
+import FilesPane from '../coresearch/FilesPane.vue';
+import RunsPane from '../coresearch/RunsPane.vue';
 import '../coresearch/l2.css';
 const props = defineProps<{ projectId: string; chatId?: string }>();
 const router = useRouter(),
@@ -49,7 +51,10 @@ const membersOpen = ref(false),
 const tabs = ref([...PANE_TABS]),
   activePane = ref('notebook'),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
-  activeFile = ref<FileRow>();
+  activeFile = ref<FileRow>(),
+  activeFileN = ref<number>(),
+  fileDirty = ref(false),
+  fileSelection = ref(0);
 const stream = ref<HTMLElement>(),
   atBottom = ref(true);
 watch(
@@ -58,6 +63,8 @@ watch(
     membersOpen.value = false;
     newChat.value = false;
     activeFile.value = undefined;
+    activeFileN.value = undefined;
+    fileDirty.value = false;
     tabs.value = [...PANE_TABS];
     paneMode.value = 'closed';
     sidebarOpen.value = false;
@@ -98,7 +105,21 @@ function openChat(id: string) {
   sidebarOpen.value = false;
   void router.push(`/coresearch/${props.projectId}/${id}`);
 }
+function discardFile() {
+  if (fileDirty.value && !window.confirm('Discard unsaved file changes?')) return false;
+  fileDirty.value = false;
+  return true;
+}
+function selectPane(id: string) {
+  if (activePane.value === 'files' && id !== 'files' && !discardFile()) return;
+  activePane.value = id;
+}
+function closePane() {
+  if (activePane.value === 'files' && !discardFile()) return;
+  paneMode.value = 'closed';
+}
 function openPane(id: string) {
+  if (activePane.value === 'files' && id !== 'files' && !discardFile()) return;
   if (!tabs.value.some((t) => t.id === id)) {
     tabs.value = PANE_TABS.filter(
       (t) => t.id === id || tabs.value.some((open) => open.id === t.id),
@@ -109,6 +130,7 @@ function openPane(id: string) {
   sidebarOpen.value = false;
 }
 function closeTab(id: string) {
+  if (id === 'files' && !discardFile()) return;
   if (activePane.value === id) {
     const next = tabAfterClose(tabs.value, id);
     if (next) activePane.value = next;
@@ -116,9 +138,17 @@ function closeTab(id: string) {
   }
   tabs.value = tabs.value.filter((t) => t.id !== id);
 }
-function openFile(file: FileRow) {
+function openFile(file: FileRow, n?: number) {
+  if (fileDirty.value && !window.confirm('Discard unsaved file changes?')) return;
+  fileDirty.value = false;
+  fileSelection.value++;
+  activeFileN.value = n;
   activeFile.value = file;
   openPane('files');
+}
+function openOutput(output: FileRef) {
+  const file = files.data.value?.find((f) => f.id === output.file_id);
+  if (file) openFile(file, output.n);
 }
 </script>
 <template>
@@ -236,17 +266,17 @@ function openFile(file: FileRow) {
             type="button"
             class="task-pane-scrim"
             aria-label="Close panel"
-            @click="paneMode = 'closed'"
+            @click="closePane"
           />
           <div v-if="paneMode !== 'closed'" class="task-rightpane">
             <RightPaneTabs
               :tabs="tabs"
               :active-id="activePane"
               :pane-mode="paneMode"
-              @select="activePane = $event"
+              @select="selectPane"
               @close-tab="closeTab"
               @toggle-focus="paneMode = paneMode === 'focus' ? 'split' : 'focus'"
-              @close-pane="paneMode = 'closed'"
+              @close-pane="closePane"
             />
             <div class="task-rightpane-card">
               <NotebookPane
@@ -262,6 +292,22 @@ function openFile(file: FileRow) {
                 :project="project.data.value"
                 :chat="chat"
                 :owner="owner"
+              />
+              <FilesPane
+                v-else-if="activePane === 'files'"
+                :key="`${workspaceId}:${projectId}:${activeFile?.id}:${activeFileN ?? 'head'}:${fileSelection}`"
+                :project="project.data.value"
+                :file="activeFile"
+                :selected-n="activeFileN"
+                @dirty-change="fileDirty = $event"
+              />
+              <RunsPane
+                v-else-if="activePane === 'runs'"
+                :key="`${workspaceId}:${projectId}:runs`"
+                :project="project.data.value"
+                :chat="chat"
+                :user-id="me.data.value?.id"
+                @open-file="openOutput"
               />
               <div
                 v-else

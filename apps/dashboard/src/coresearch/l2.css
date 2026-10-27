@@ -1236,6 +1236,10 @@
 .coresearch .max-w-\[900px\] {
   max-width: 900px;
 }
+.coresearch.max-w-full,
+.coresearch .max-w-full {
+  max-width: 100%;
+}
 .coresearch.max-w-none,
 .coresearch .max-w-none {
   max-width: none;

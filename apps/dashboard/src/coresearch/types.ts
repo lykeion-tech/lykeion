@@ -48,7 +48,7 @@ export interface ProjectMember {
 export interface FileRow {
   id: string;
   path: string;
-  head: { n: number; size: number; sha256: string; created_at: string };
+  head: FileVersion;
 }
 export interface CellOutput {
   type: 'stream' | 'text' | 'image' | 'error';
@@ -97,4 +97,44 @@ export interface SetupRow {
 export interface EnvironmentRow {
   python_version: string | null;
   setups: SetupRow[];
+}
+
+export interface FileVersion {
+  workspace_id?: string;
+  file_id?: string;
+  n: number;
+  size: number;
+  sha256: string;
+  blob_key?: string;
+  author_user_id?: string | null;
+  agent_run_id?: string | null;
+  run_id?: string | null;
+  overrode?: number | null;
+  restored_from?: number | null;
+  created_at: string;
+}
+export interface FileRef {
+  path: string;
+  file_id: string;
+  n: number;
+  sha256: string;
+  size: number;
+}
+export interface RecordedRun {
+  id: string;
+  key: string;
+  chat_id: string;
+  script_file_id: string;
+  script_n: number;
+  inputs: FileRef[] | null;
+  seed?: number;
+  env_sha: string | null;
+  status: string;
+  facts: { stdout_tail?: string; stderr_tail?: string; matches_original?: boolean } | null;
+  rerun_of: string | null;
+  finished_at: string | null;
+  failure_reason?: string | null;
+}
+export interface RecordedRunDetail extends RecordedRun {
+  outputs: FileRef[];
 }

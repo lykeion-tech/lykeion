@@ -15,6 +15,14 @@ export const keys = {
   coresearchCellOutputs: (ws: string, id: string, chat: string, cell: string) =>
     ['ws', ws, 'coresearch', id, 'cell-outputs', chat, cell] as const,
   coresearchFiles: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'files'] as const,
+  coresearchVersions: (ws: string, id: string, file: string) =>
+    ['ws', ws, 'coresearch', id, 'versions', file] as const,
+  coresearchContent: (ws: string, id: string, file: string, n: number) =>
+    ['ws', ws, 'coresearch', id, 'content', file, n] as const,
+  coresearchRun: (ws: string, id: string, key: string) =>
+    ['ws', ws, 'coresearch', id, 'run', key] as const,
+  coresearchProducingTurn: (ws: string, id: string, run: string) =>
+    ['ws', ws, 'coresearch', id, 'producing-turn', run] as const,
   coresearchRuns: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'runs'] as const,
   coresearchEnvironment: (ws: string, id: string) =>
     ['ws', ws, 'coresearch', id, 'environment'] as const,
