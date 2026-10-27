@@ -1,15 +1,12 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
-	"mime/multipart"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -797,54 +794,6 @@ func (d *daemon) claimCoresearchWork(ctx context.Context, refs []runtimeRef) {
 			start(key, func(ctx context.Context) error { return d.controlChat(ctx, control) })
 		}
 	}
-}
-
-// These dispatch seams fail visibly until the corresponding executor is wired.
-// They never acknowledge claimed work as successful without running it.
-func (d *daemon) dispatchCoresearchRun(ctx context.Context, c coresearch.ClaimedRun) error {
-	if err := d.checkChat(ctx, c.WorkContext); err != nil {
-		return err
-	}
-	reason := "Coresearch recorded-run executor is not installed"
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("facts", string(mustMarshal(map[string]any{"status": "failed", "error": reason}))); err != nil {
-		return err
-	}
-	if err := writer.Close(); err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(d.api.Server, "/")+d.corePath("runs/"+c.ID.String()+"/finish"), &body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+d.api.Token)
-	req.Header.Set("X-Workspace-ID", c.WorkspaceID.String())
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	client := http.Client{Timeout: 30 * time.Second}
-	if d.api.HTTP != nil {
-		client = *d.api.HTTP
-	}
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 204 {
-		return fmt.Errorf("recorded-run failure settlement: HTTP %d", resp.StatusCode)
-	}
-	return errors.New(reason)
-}
-func (d *daemon) dispatchCoresearchSetup(ctx context.Context, c coresearch.ClaimedSetup) error {
-	if err := d.checkChat(ctx, c.WorkContext); err != nil {
-		return err
-	}
-	reason := "Coresearch environment executor is not installed"
-	if err := d.coreAPI(c.WorkspaceID).Do(ctx, "POST", d.corePath("setups/"+c.ID.String()+"/finish"), map[string]string{"status": "failed", "log": reason}, nil); err != nil {
-		return err
-	}
-	return errors.New(reason)
 }
 
 func mustMarshal(v any) []byte { b, _ := json.Marshal(v); return b }

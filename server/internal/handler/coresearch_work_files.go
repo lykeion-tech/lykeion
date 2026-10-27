@@ -230,7 +230,7 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 					return e
 				}
 			}
-			if run.RerunOf != nil {
+			if status == "ok" && run.RerunOf != nil && run.ExpectedEnvSha != nil && env == *run.ExpectedEnvSha {
 				rows, e := tx.Q.CoresearchRunOutputs(r.Context(), db.CoresearchRunOutputsParams{WorkspaceID: tx.WS, RunID: run.RerunOf})
 				if e != nil {
 					return e

@@ -605,3 +605,40 @@ func TestCoresearchRunRejectsAliasedOutputs(t *testing.T) {
 		t.Fatalf("%d %v", count, e)
 	}
 }
+
+func TestFailedRerunNeverMatchesOriginal(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	_, chat := csChat(t, s, a, ws, p.ID)
+	csUpload(t, s, a, ws, p.ID, "main.py", 0, false, []byte("pass"))
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var original db.CoresearchRun
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/runs", a, ws, map[string]any{"chat_id": chat.ID, "script": "main.py"}, &original); code != 201 {
+		t.Fatal(code)
+	}
+	csWork(t, s, a, "work", ref)
+	env := strings.Repeat("a", 64)
+	if code := csFinishRun(t, s, s.personalToken(t, a), ws, original.ID.String(), map[string]any{"status": "ok", "env_sha": env}, nil); code != 204 {
+		t.Fatal(code)
+	}
+	for _, actual := range []string{strings.Repeat("b", 64), env, ""} {
+		var rerun db.CoresearchRun
+		if code := s.call(t, "POST", csProjects+"/"+p.ID+"/runs/"+original.Key+"/rerun", a, ws, nil, &rerun); code != 201 {
+			t.Fatal(code)
+		}
+		csWork(t, s, a, "work", ref)
+		if code := csFinishRun(t, s, s.personalToken(t, a), ws, rerun.ID.String(), map[string]any{"status": "failed", "env_sha": actual, "error": "the original run environment is unavailable; restore it before rerunning", "matches_original": true}, nil); code != 204 {
+			t.Fatal(code)
+		}
+		var stored db.CoresearchRun
+		if code := s.call(t, "GET", csProjects+"/"+p.ID+"/runs/"+rerun.Key, a, ws, nil, &stored); code != 200 {
+			t.Fatal(code)
+		}
+		var facts map[string]any
+		if e := json.Unmarshal(stored.Facts, &facts); e != nil {
+			t.Fatal(e)
+		}
+		if _, present := facts["matches_original"]; present {
+			t.Fatalf("failed rerun acquired badge with env %q: %v", actual, facts)
+		}
+	}
+}

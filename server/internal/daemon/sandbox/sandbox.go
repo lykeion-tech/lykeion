@@ -94,6 +94,7 @@ var ErrLoopbackOnlyUnsupported = errors.New("macOS cannot enforce service bindin
 // starts a new session (no controlling terminal), which also makes its pid
 // the process group a kill(-pid) reaches. Setting Setpgid on top of it would
 // make the start fail.
+// A successful command must be paired with defer CloseCommand(cmd).
 func (p Policy) Command(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
 	if err := p.validateNetwork(); err != nil {
 		return nil, err
@@ -116,6 +117,11 @@ func (p Policy) Command(ctx context.Context, name string, args ...string) (*exec
 			return nil, err
 		}
 		cmd = exec.CommandContext(ctx, bwrap, argv...)
+		if p.NoNetwork {
+			if err := attachNoNetworkFilter(cmd); err != nil {
+				return nil, err
+			}
+		}
 	default:
 		return nil, fmt.Errorf("no sandbox on %s", runtime.GOOS)
 	}

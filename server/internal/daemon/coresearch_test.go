@@ -67,7 +67,11 @@ func newCoreFixture(t *testing.T) *coreFixture {
 				json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]string{"status": "active"})
+			status := "active"
+			if strings.Contains(r.URL.Path, "/runs/") || strings.Contains(r.URL.Path, "/setups/") {
+				status = "running"
+			}
+			json.NewEncoder(w).Encode(map[string]string{"status": status})
 		case strings.HasSuffix(r.URL.Path, "/kernel"):
 			var state struct{ State string }
 			json.NewDecoder(r.Body).Decode(&state)

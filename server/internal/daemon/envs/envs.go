@@ -451,6 +451,8 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 }
 
 type Study struct {
+	// ReadOnly refuses implicit preparation or repair for recorded execution.
+	ReadOnly      bool
 	leanMu        sync.Mutex
 	leanDir       string
 	Bases         *Bases
@@ -472,7 +474,7 @@ func ForStudy(b *Bases, dir string) *Study { return &Study{Bases: b, Dir: dir} }
 // remains with Bases. A run never copies the original view's mutex.
 func (s *Study) ForRun() *Study {
 	return &Study{Bases: s.Bases, Dir: s.Dir, PythonVersion: s.PythonVersion,
-		PersistPython: s.PersistPython, Run: s.Run, leanDir: s.selectedLean()}
+		PersistPython: s.PersistPython, Run: s.Run, leanDir: s.selectedLean(), ReadOnly: s.ReadOnly}
 }
 
 var errNoRunner = errors.New("the study's folders can only be used in a sandbox, and this study has none")
@@ -485,6 +487,9 @@ func (s *Study) prepare(ctx context.Context) error {
 	if s.Run == nil {
 		return errNoRunner
 	}
+	if s.ReadOnly {
+		return s.Ready(Python)
+	}
 	b := s.Bases
 	unlock, err := s.studyLock(ctx)
 	if err != nil {
@@ -494,7 +499,7 @@ func (s *Study) prepare(ctx context.Context) error {
 	s.state()
 	_, condaErr := os.Lstat(filepath.Join(s.Dir, "conda"))
 	version := s.RecordedPython()
-	needsChosen := version != "" && (version != "3.13" || !s.hasVenv())
+	needsChosen := version != "" && (version != DefaultPythonVersion || !s.hasVenv())
 	// A recorded non-default choice must also replace a surviving default
 	// venv after an interrupted setup. A marker without its Python is damaged.
 	if needsChosen && s.condaReady() && !s.condaPython() {
@@ -625,6 +630,11 @@ func (s *Study) Interpreter(lang string) (string, []string, error) {
 }
 
 func (s *Study) interpreter(ctx context.Context, lang string) (string, []string, error) {
+	if s.ReadOnly {
+		if err := s.Ready(lang); err != nil {
+			return "", nil, err
+		}
+	}
 	if _, ok := displayNames[lang]; !ok {
 		return "", nil, fmt.Errorf("unknown language %q", lang)
 	}

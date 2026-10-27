@@ -12,6 +12,9 @@ import (
 	"time"
 )
 
+// DefaultPythonVersion is the minor version supplied by the shared Python base.
+const DefaultPythonVersion = "3.13"
+
 var setupLimit = 30 * time.Minute
 var pythonVersionPattern = regexp.MustCompile(`^3\.(9|1[0-4])$`)
 
@@ -107,7 +110,7 @@ func (s *Study) checkDefaultPython(ctx context.Context) error {
 		return err
 	}
 	if strings.TrimSpace(string(out)) != "" {
-		return s.pin(ctx, "3.13")
+		return s.pin(ctx, DefaultPythonVersion)
 	}
 	return nil
 }
@@ -256,7 +259,7 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 		version := s.RecordedPython()
 		incompatible := fmt.Errorf("the lock must provide this study's Python %s with ipykernel", version)
 		// Only the default base can supply Python independently of conda.
-		if version != "3.13" || !s.hasVenv() {
+		if version != DefaultPythonVersion || !s.hasVenv() {
 			return tail(string(out), 4096), incompatible
 		}
 		actual, err := s.Run(ctx, env, s.Dir, filepath.Join(s.Dir, "python", "bin", "python"), "-I", "-c", `import sys, ipykernel; print('%d.%d' % sys.version_info[:2])`)

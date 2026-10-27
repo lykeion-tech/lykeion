@@ -22,7 +22,7 @@ var julia = map[string]download{
 
 // Exact versions from conda-forge, each solved for every platform above.
 var pythonPins = []string{
-	"python==3.13.16", "numpy==2.5.4", "pandas==3.0.6", "scipy==1.18.1", "matplotlib==3.11.2",
+	"python==" + DefaultPythonVersion + ".16", "numpy==2.5.4", "pandas==3.0.6", "scipy==1.18.1", "matplotlib==3.11.2",
 	"statsmodels==0.15.0", "ipykernel==7.4.0", "jupyter_client==8.10.0",
 }
 
