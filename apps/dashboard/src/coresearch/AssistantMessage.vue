@@ -1,61 +1,70 @@
-<script setup lang="ts">
-import { computed } from 'vue';
-import { renderMarkdown } from '../lib/markdown';
+<script lang="ts">
+import { defineComponent, h, type VNode } from 'vue';
+import { parseMarkdownBlocks } from '../lib/markdown';
 import CodeBlock from './CodeBlock.vue';
-const props = defineProps<{ text: string; prose?: boolean; live?: boolean }>();
-// Split only the trusted fence markup produced by the shared html:false renderer.
-// Raw HTML from the message remains escaped in every prose fragment.
-const parts = computed(() => {
-  const rendered = renderMarkdown(props.text),
-    parts: { html?: string; code?: string; lang?: string }[] = [];
-  const fence =
-    /<div class="markdown-code"><div class="code-toolbar"><span>(.*?)<\/span><button type="button" data-copy-code="(\d+)">Copy code<\/button><\/div><pre tabindex="0"><code>[\s\S]*?<\/code><\/pre><\/div>\n/g;
-  let start = 0;
-  for (const match of rendered.html.matchAll(fence)) {
-    parts.push({ html: rendered.html.slice(start, match.index) });
-    parts.push({
-      code: rendered.codes[Number(match[2])],
-      lang: match[1] === 'Code' ? undefined : match[1],
-    });
-    start = match.index! + match[0].length;
-  }
-  parts.push({ html: rendered.html.slice(start) });
-  return parts;
+
+export default defineComponent({
+  props: {
+    text: { type: String, required: true },
+    prose: Boolean,
+    live: Boolean,
+  },
+  setup(props) {
+    return () => {
+      const tokens = parseMarkdownBlocks(props.text);
+      let index = 0;
+      function children(): VNode[] {
+        const nodes: VNode[] = [];
+        while (index < tokens.length) {
+          const token = tokens[index++]!;
+          if (token.nesting === -1) break;
+          if (token.type === 'fence' || token.type === 'code_block') {
+            nodes.push(
+              h(CodeBlock, {
+                code: token.content.replace(/\n$/, ''),
+                lang: token.type === 'fence' ? token.info.trim().split(/\s+/)[0] : undefined,
+                live: props.live,
+              }),
+            );
+          } else if (token.type === 'inline') {
+            // Only tight-list paragraphs need this neutral inline wrapper.
+            nodes.push(h('span', { innerHTML: token.html }));
+          } else {
+            const attrs = Object.fromEntries(token.attrs ?? []);
+            const inline = tokens[index];
+            let node: VNode;
+            if (
+              token.nesting === 1 &&
+              inline?.type === 'inline' &&
+              tokens[index + 1]?.nesting === -1
+            ) {
+              // A whole inline fragment is balanced within its block. Never
+              // split rendered HTML across component or container boundaries.
+              index += 2;
+              node = h(token.hidden ? 'span' : token.tag, { ...attrs, innerHTML: inline.html });
+            } else {
+              node = h(token.tag, attrs, token.nesting === 1 ? children() : undefined);
+            }
+            if (token.type === 'table_open') {
+              node = h(
+                'div',
+                { class: 'markdown-table', tabindex: 0, role: 'region', 'aria-label': 'Table' },
+                [node],
+              );
+            }
+            nodes.push(node);
+          }
+        }
+        return nodes;
+      }
+      return h('div', { class: props.prose ? 'md-prose' : 'msg msg--assistant' }, children());
+    };
+  },
 });
 </script>
-<template>
-  <div :class="prose ? 'md-prose' : 'msg msg--assistant'">
-    <template v-for="(part, i) in parts" :key="i"
-      ><CodeBlock
-        v-if="part.code !== undefined"
-        :code="part.code.replace(/\n$/, '')"
-        :lang="part.lang"
-        :live="live" /><!-- Shared Markdown renderer escapes untrusted HTML. -->
-      <!-- eslint-disable-next-line vue/no-v-html -- shared html:false renderer escapes all untrusted content -->
-      <div v-else class="coresearch-prose-fragment" v-html="part.html"
-    /></template>
-  </div>
-</template>
 <style scoped>
-.coresearch-prose-fragment:empty {
-  display: none;
-}
-.coresearch-prose-fragment {
-  display: contents;
-}
 :deep(.markdown-table) {
   overflow-x: auto;
   max-width: 100%;
-}
-/* Splitting fences into Vue components must not turn each prose fragment into
-   a separate first/last paragraph for the source spacing rules. */
-.coresearch-prose-fragment:not(:last-child) :deep(> :is(p, ul, ol, blockquote):last-child) {
-  margin-bottom: 6px;
-}
-.coresearch-prose-fragment:not(:first-child) :deep(> :is(p, ul, ol, blockquote):first-child) {
-  margin-top: 6px;
-}
-.coresearch-prose-fragment:not(:first-child) :deep(> :is(h1, h2, h3):first-child) {
-  margin-top: 12px;
 }
 </style>

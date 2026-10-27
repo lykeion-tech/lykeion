@@ -355,6 +355,23 @@ describe('Coresearch workspace', () => {
     expect(textOf(root)).toContain('print("safe")');
     expect(button(root, 'Copy')).toBeTruthy();
   });
+  it('keeps fenced code and continuation paragraphs inside their Markdown containers', async () => {
+    const { root } = await mount(AssistantMessage, {
+      text: '3. First item\n\n   ```python\n   print(1)\n   ```\n\n   Continued within item\n\n4. Second item\n\n> Quote\n>\n> ```python\n> print(2)\n> ```\n>\n> After quote code',
+    });
+    const list = all(root).find((n) => n.tag === 'ol');
+    expect(list).toBeTruthy();
+    expect(String(list!.props.start)).toBe('3');
+    const items = all(list!).filter((n) => n.tag === 'li');
+    expect(items).toHaveLength(2);
+    expect(all(items[0]!).filter((n) => n.props.class === 'code-block')).toHaveLength(1);
+    expect(
+      all(items[0]!).some((n) => String(n.props.innerHTML).includes('Continued within item')),
+    ).toBe(true);
+    const quote = all(root).find((n) => n.tag === 'blockquote');
+    expect(quote).toBeTruthy();
+    expect(all(quote!).filter((n) => n.props.class === 'code-block')).toHaveLength(1);
+  });
   it('thinking stays prose and is excluded from the copied assistant reply', async () => {
     const copied: string[] = [];
     vi.stubGlobal('navigator', {

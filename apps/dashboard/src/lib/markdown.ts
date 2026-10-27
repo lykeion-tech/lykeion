@@ -31,3 +31,21 @@ export function renderMarkdown(content: string) {
   // Raw HTML is disabled; all text, code and attributes are escaped by the parser.
   return { html: markdown.render(content, env), codes: env.codes };
 }
+
+// Block structure for component renderers. Inline HTML uses exactly the same
+// escaping, URL validation, link and image rules as renderMarkdown above.
+export function parseMarkdownBlocks(content: string) {
+  return markdown.parse(content, {}).map((token) => ({
+    type: token.type,
+    tag: token.tag,
+    nesting: token.nesting,
+    hidden: token.hidden,
+    attrs: token.attrs,
+    content: token.content,
+    info: token.info,
+    html:
+      token.type === 'inline'
+        ? markdown.renderer.renderInline(token.children ?? [], markdown.options, {})
+        : undefined,
+  }));
+}
