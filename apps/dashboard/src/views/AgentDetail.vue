@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
+import Aristotle from '../components/Aristotle.vue';
+import { defaultStarters, type Starter } from '../coresearch/aristotle';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../api/client';
@@ -23,6 +26,25 @@ import { boardColumnOf, boardColumns, studyNumber, timeAgo } from '../lib/studie
 import { notify } from '../state/notice';
 
 const props = defineProps<{ id: string }>();
+const route = useRoute();
+const starters = ref<Starter[]>([]);
+const builtin = computed(() => agent.value?.built_in_key === 'aristotle');
+const validStarters = computed(
+  () =>
+    starters.value.length <= 12 &&
+    starters.value.every(
+      (s) =>
+        !!s.label.trim() &&
+        [...s.label].length <= 120 &&
+        !!s.prompt.trim() &&
+        new TextEncoder().encode(s.prompt).length <= 16384 &&
+        !s.label.includes('\0') &&
+        !s.prompt.includes('\0'),
+    ),
+);
+function requestedTab() {
+  return route.query.tab === 'settings' ? 'settings' : 'overview';
+}
 const detail = useAgent(() => props.id),
   me = useMe(),
   members = useMembers(),
@@ -97,31 +119,45 @@ watch(
     };
     visibility.value = a.visibility;
     instructions.value = a.instructions;
+    starters.value = (a.conversation_starters ?? []).map((s) => ({ ...s }));
   },
   { immediate: true },
 );
 watch([workspaceId, () => props.id], () => {
-  tab.value = 'overview';
+  tab.value = requestedTab();
   error.value = '';
   menu.value = false;
   backendDetails.value = false;
 });
 
+watch(
+  () => route.query.tab,
+  () => {
+    tab.value = requestedTab();
+  },
+  { immediate: true },
+);
+
 async function patch(body: Record<string, unknown>) {
   const ws = workspaceId.value,
-    id = props.id;
+    id = props.id,
+    member = me.data.value?.id;
   busy.value = true;
   error.value = '';
   try {
-    const saved = await api<AgentDefinition>('PATCH', `/api/agents/${id}`, body);
-    if (ws !== workspaceId.value || id !== props.id) return;
+    const saved = await api<AgentDefinition>('PATCH', `/api/agents/${id}`, body, undefined, {
+      workspace: ws,
+    });
+    if (ws !== workspaceId.value || id !== props.id || member !== me.data.value?.id) return;
     client.setQueryData(keys.agent(ws, id), saved);
     await client.invalidateQueries({ queryKey: keys.agents(ws) });
     notify('Agent saved.');
   } catch (e) {
-    if (ws === workspaceId.value && id === props.id) error.value = (e as Error).message;
+    if (ws === workspaceId.value && id === props.id && member === me.data.value?.id)
+      error.value = (e as Error).message;
   } finally {
-    busy.value = false;
+    if (ws === workspaceId.value && id === props.id && member === me.data.value?.id)
+      busy.value = false;
   }
 }
 async function archive() {
@@ -158,7 +194,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           ><span aria-current="page">{{ agent.name }}</span>
         </nav>
         <div class="agent-identity">
-          <span class="agent-avatar"><Icon name="bot" :size="26" /></span>
+          <span class="agent-avatar"
+            ><Aristotle v-if="builtin" still /><Icon v-else name="bot" :size="26"
+          /></span>
           <div>
             <div class="agent-title">
               <h1>{{ agent.name }}</h1>
@@ -178,7 +216,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             </p>
           </div>
           <div class="agent-actions">
-            <div v-if="editable" class="agent-more">
+            <div v-if="editable && !builtin" class="agent-more">
               <button
                 class="icon-button"
                 aria-label="Agent actions"
@@ -348,7 +386,10 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <form
           v-else-if="section === 'general'"
           class="agent-pane"
-          @submit.prevent="patch({ ...general })"
+          @submit.prevent="
+            validStarters &&
+            patch({ ...general, ...(builtin ? { conversation_starters: starters } : {}) })
+          "
         >
           <h2>General</h2>
           <h3>Profile</h3>
@@ -412,8 +453,64 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               }}
             </p>
           </div>
+          <template v-if="builtin"
+            ><h3>Conversation starters</h3>
+            <p class="agent-hint">
+              Settings apply to new conversations. Leave this list empty to use the defaults.
+            </p>
+            <div
+              v-for="(starter, index) in starters"
+              :key="index"
+              class="starter-editor agent-card"
+            >
+              <label
+                >Label<input
+                  v-model="starter.label"
+                  :aria-label="`Starter ${index + 1} label`"
+                  maxlength="120"
+                  :readonly="!editable"
+                  required /></label
+              ><label
+                >Prompt<textarea
+                  v-model="starter.prompt"
+                  :aria-label="`Starter ${index + 1} prompt`"
+                  :readonly="!editable"
+                  required
+                /></label
+              ><button
+                v-if="editable"
+                type="button"
+                class="text-button"
+                :aria-label="`Remove starter ${index + 1}`"
+                @click="starters.splice(index, 1)"
+              >
+                Remove
+              </button>
+            </div>
+            <button
+              v-if="editable"
+              type="button"
+              class="button"
+              :disabled="starters.length >= 12"
+              @click="starters.push({ label: '', prompt: '' })"
+            >
+              Add starter
+            </button>
+            <div v-if="!starters.length" class="default-starters">
+              <p v-for="starter in defaultStarters" :key="starter.label">
+                <b>{{ starter.label }}</b
+                ><small>{{ starter.prompt }}</small>
+              </p>
+            </div>
+            <p v-if="!validStarters" role="alert">
+              Each starter needs a label (up to 120 characters) and a prompt (up to 16 KiB).
+            </p></template
+          >
           <footer v-if="editable">
-            <button class="button primary" :disabled="busy || !general.name.trim()">
+            <button
+              class="button primary"
+              :disabled="busy || !general.name.trim() || (builtin && !validStarters)"
+            >
               Save changes
             </button>
           </footer>
@@ -427,7 +524,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
                 v-model="visibility"
                 type="radio"
                 value="private"
-                :disabled="!editable"
+                :disabled="!editable || builtin"
               /><span
                 ><b>{{ mine ? 'Only me' : 'Only the owner' }}</b
                 ><small>{{
@@ -439,7 +536,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
                 v-model="visibility"
                 type="radio"
                 value="workspace"
-                :disabled="!editable"
+                :disabled="!editable || builtin"
               /><span
                 ><b>Entire workspace</b
                 ><small>Every workspace member can assign this agent.</small></span
@@ -467,3 +564,49 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   />
 </template>
 <style src="./agent-detail.css" />
+
+<style scoped>
+.agent-avatar :deep(.aristotle-art) {
+  width: 44px;
+  height: 48px;
+}
+.agent-avatar :deep(.aristotle-art > span) {
+  width: 119px;
+  height: 166px;
+  transform: translate(-29px, -6px);
+}
+.starter-editor {
+  padding: 16px;
+  margin-bottom: 10px;
+  display: grid;
+  gap: 10px;
+}
+.starter-editor label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.starter-editor input,
+.starter-editor textarea {
+  border: 1px solid var(--border);
+  background: var(--input);
+  border-radius: 5px;
+  padding: 8px;
+  font: inherit;
+}
+.starter-editor textarea {
+  min-height: 80px;
+}
+.default-starters {
+  margin-top: 16px;
+}
+.default-starters p {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.default-starters small {
+  display: block;
+  color: var(--muted);
+  line-height: 20px;
+}
+</style>

@@ -277,6 +277,7 @@ describe('Coresearch API wiring', () => {
       } as LykEvent;
       expect(invalidationsFor('lab', event)).toEqual([
         keys.coresearchProjects('lab'),
+        keys.coresearchConversations('lab'),
         ['ws', 'lab', 'coresearch', 'p'],
       ]);
       expect(invalidationsFor('other', event)).toEqual([]);

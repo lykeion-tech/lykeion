@@ -22,7 +22,11 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
       if (typeof project !== 'string') return [];
       // Invalidate the project prefix, including every chat and detail pane.
       // Events carry identifiers only; all data is read through membership routes.
-      return [keys.coresearchProjects(ws), ['ws', ws, 'coresearch', project]];
+      return [
+        keys.coresearchProjects(ws),
+        keys.coresearchConversations(ws),
+        ['ws', ws, 'coresearch', project],
+      ];
     }
     case 'skill':
       return [
@@ -89,6 +93,7 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'member':
       return [
         keys.coresearchProjects(ws),
+        keys.coresearchConversations(ws),
         ['ws', ws, 'coresearch'],
         keys.members(ws),
         keys.workspaces,

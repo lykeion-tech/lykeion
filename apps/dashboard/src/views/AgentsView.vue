@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Aristotle from '../components/Aristotle.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
@@ -232,7 +233,10 @@ async function save() {
           class="agent-row"
           role="row"
           ><span class="agent-cell" role="cell"
-            ><span class="avatar">{{ a.name[0] }}</span
+            ><span class="avatar"
+              ><Aristotle v-if="a.built_in_key === 'aristotle'" still /><template v-else>{{
+                a.name[0]
+              }}</template></span
             ><span
               ><b
                 >{{ a.name }}<Icon v-if="a.visibility === 'private'" name="shield" :size="12" /><i
@@ -372,5 +376,17 @@ async function save() {
   margin-left: auto;
   color: var(--muted);
   font-size: 12px;
+}
+</style>
+
+<style scoped>
+.avatar :deep(.aristotle-art) {
+  width: 28px;
+  height: 30px;
+}
+.avatar :deep(.aristotle-art > span) {
+  width: 76px;
+  height: 106px;
+  transform: translate(-18px, -4px);
 }
 </style>

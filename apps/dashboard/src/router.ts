@@ -8,7 +8,7 @@ import {
 
 // The board is the landing route and loads eagerly.
 import CoresearchList from './views/CoresearchList.vue';
-import CoresearchStarter from './coresearch/CoresearchStarter.vue';
+import AristotleChat from './coresearch/AristotleChat.vue';
 import CoresearchProject from './views/CoresearchProject.vue';
 import TaskBoard from './views/TaskBoard.vue';
 import ResearchesView from './views/ResearchesView.vue';
@@ -52,13 +52,23 @@ function param(route: Pick<RouteLocationNormalized, 'params'>, name: string) {
 const routes: RouteRecordRaw[] = [
   {
     path: '/coresearch',
-    component: CoresearchList,
+    component: AristotleChat,
     meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true },
   },
   {
     path: '/coresearch/new',
-    component: CoresearchStarter,
+    component: AristotleChat,
     meta: { page: 'coresearch', title: 'New', ownHeader: true },
+  },
+  {
+    path: '/coresearch/projects',
+    component: CoresearchList,
+    meta: { page: 'coresearch', title: 'Projects', ownHeader: true },
+  },
+  {
+    path: '/coresearch/conversations/:conversationId',
+    component: AristotleChat,
+    meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true },
   },
   {
     path: '/coresearch/:projectId/:chatId?',

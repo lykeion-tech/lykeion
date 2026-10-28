@@ -21,10 +21,33 @@ import { usePins } from './state/pins';
 import { useTaskComposer } from './state/task-composer';
 import { createDaemonSession, daemonSessionKey } from './lib/daemon-session';
 import { keys } from './api/keys';
+import { useAristotle } from './coresearch/aristotle';
+import ConversationRail from './coresearch/ConversationRail.vue';
+import RailFabs from './coresearch/RailFabs.vue';
 const route = useRoute();
 const router = useRouter();
 const client = useQueryClient();
 const me = useMe();
+const aristotle = useAristotle();
+const aristotleShell = computed(
+  () =>
+    route.path === '/coresearch' ||
+    route.path === '/coresearch/new' ||
+    route.path.startsWith('/coresearch/conversations/'),
+);
+const railView = ref<'nav' | 'context'>('context');
+watch(
+  aristotle.scope,
+  (scope) => {
+    railView.value = readText(`lykeion.aristotle.rail:${scope}`) === 'nav' ? 'nav' : 'context';
+  },
+  { immediate: true },
+);
+function changeRail(view: 'nav' | 'context') {
+  railView.value = view;
+  collapsed.value = false;
+  writeText(`lykeion.aristotle.rail:${aristotle.scope.value}`, view);
+}
 const workspaces = useWorkspaces();
 const workspace = useWorkspace();
 const cards = useCards();
@@ -379,7 +402,12 @@ onUnmounted(() => {
   <div
     v-else-if="!unauthorized && !onboardingTarget"
     class="application"
-    :class="{ 'sidebar-hidden': collapsed, desktop, 'task-detail-open': Boolean(cardId) }"
+    :class="{
+      'sidebar-hidden': collapsed,
+      'aristotle-shell': aristotleShell,
+      desktop,
+      'task-detail-open': Boolean(cardId),
+    }"
     :style="{ '--rail-width': rail.width.value + 'px' }"
   >
     <WorkspaceTabs
@@ -388,7 +416,13 @@ onUnmounted(() => {
       :collapsed="collapsed"
       @toggle="collapsed = !collapsed"
     />
-    <aside class="sidebar" aria-label="Workspace navigation">
+    <ConversationRail v-if="aristotleShell && railView === 'context'" />
+    <RailFabs v-if="aristotleShell" :view="railView" @change="changeRail" />
+    <aside
+      v-if="!aristotleShell || railView === 'nav'"
+      class="sidebar"
+      aria-label="Workspace navigation"
+    >
       <button
         ref="workspaceTrigger"
         class="workspace-switch nav-item"
@@ -552,6 +586,14 @@ onUnmounted(() => {
         <Icon name="refresh" :size="28" /><span>Loading workspace…</span>
       </div>
       <template v-else>
+        <p
+          v-if="aristotle.bootstrap.error.value && !aristotleShell"
+          class="bootstrap-error"
+          role="alert"
+        >
+          {{ aristotle.bootstrap.error.value.message }}
+          <button @click="aristotle.bootstrap.refetch()">Try again</button>
+        </p>
         <RouterView />
         <RouterView v-if="cardId" name="detail" @close="go(current ?? 'studies')" />
       </template>
@@ -859,5 +901,48 @@ onUnmounted(() => {
   position: absolute;
   top: 12px;
   left: 12px;
+}
+</style>
+
+<style>
+@media (max-width: 760px) {
+  .application.aristotle-shell:not(.sidebar-hidden) .sidebar {
+    display: flex;
+    flex-direction: column;
+    width: 200px;
+    flex-basis: 200px;
+  }
+  .application.aristotle-shell:not(.sidebar-hidden) .main-pane {
+    min-width: 0;
+  }
+  .aristotle-shell .rail-fabs {
+    left: 8px;
+  }
+}
+.bootstrap-error {
+  padding: 10px 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+</style>
+
+<style>
+@media (max-width: 700px) {
+  .application.aristotle-shell:not(.sidebar-hidden) .sidebar {
+    position: fixed;
+    left: 0;
+    top: 62px;
+    bottom: 8px;
+    width: 224px;
+    z-index: 25;
+    background: var(--canvas);
+    border-right: 1px solid var(--border);
+  }
+  .application.aristotle-shell .main-pane {
+    width: 100%;
+  }
+  .application.aristotle-shell .rail-fabs {
+    z-index: 30;
+  }
 }
 </style>

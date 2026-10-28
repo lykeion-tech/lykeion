@@ -16,7 +16,10 @@ onMounted(() => {
     renderer: 'svg',
     loop: !props.still,
     autoplay: !props.still && !matchMedia('(prefers-reduced-motion: reduce)').matches,
-    path: new URL('brand/aristotle-idle.json', document.baseURI).href,
+    path: new URL(
+      props.portrait ? 'brand/aristotle-portrait.json' : 'brand/aristotle-idle.json',
+      document.baseURI,
+    ).href,
   });
 });
 onUnmounted(() => animation?.destroy());

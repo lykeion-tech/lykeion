@@ -276,6 +276,8 @@ export interface ResearchDetail extends Research {
   studies: Card[];
 }
 export interface AgentDefinition {
+  built_in_key?: string;
+  conversation_starters?: { label: string; prompt: string }[];
   id: string;
   workspace_id: string;
   name: string;
