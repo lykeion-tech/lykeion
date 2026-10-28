@@ -16,6 +16,8 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
+const EnvironmentFingerprintVersion = "coresearch-env-v1"
+
 const MaxCellOutputBytes = 20 << 20
 const InlineCellOutputBytes = 1 << 20
 
@@ -31,6 +33,7 @@ type WorkContext struct {
 	ProjectID     uuid.UUID `json:"project_id"`
 	WorkspaceID   uuid.UUID `json:"workspace_id"`
 	PythonVersion *string   `json:"python_version"`
+	ClaimToken    uuid.UUID `json:"claim_token,omitempty"`
 }
 type ClaimedCell struct {
 	WorkContext
@@ -40,12 +43,13 @@ type ClaimedCell struct {
 }
 type ClaimedRun struct {
 	WorkContext
-	ID             uuid.UUID `json:"id"`
-	Key            string    `json:"key"`
-	Script         FileRef   `json:"script"`
-	Inputs         []FileRef `json:"inputs"`
-	Seed           int64     `json:"seed"`
-	ExpectedEnvSHA *string   `json:"expected_env_sha"`
+	ID                 uuid.UUID `json:"id"`
+	Key                string    `json:"key"`
+	Script             FileRef   `json:"script"`
+	Inputs             []FileRef `json:"inputs"`
+	Seed               int64     `json:"seed"`
+	ExpectedEnvSHA     *string   `json:"expected_env_sha"`
+	ExpectedEnvVersion string    `json:"expected_env_version,omitempty"`
 }
 type ClaimedSetup struct {
 	WorkContext
@@ -145,6 +149,12 @@ func EnqueueRun(ctx context.Context, tx *store.Tx, chat db.CoresearchChat, reque
 		if rerunOf.Status != "ok" || rerunOf.EnvSha == nil || *rerunOf.EnvSha == "" || rerunOf.ChatID != chat.ID || rerunOf.ProjectID != chat.ProjectID {
 			return zero, errors.New("only a successful run in this chat with a recorded environment can be rerun")
 		}
+		var facts struct {
+			Version string `json:"env_fingerprint_version"`
+		}
+		if json.Unmarshal(rerunOf.Facts, &facts) != nil || facts.Version != EnvironmentFingerprintVersion {
+			return zero, errors.New("the original run environment fingerprint is incompatible; create a new recorded run")
+		}
 		in.ScriptFileID = rerunOf.ScriptFileID
 		in.ScriptN = rerunOf.ScriptN
 		in.Inputs = rerunOf.Inputs
@@ -193,6 +203,9 @@ func EnqueueRun(ctx context.Context, tx *store.Tx, chat db.CoresearchChat, reque
 // Claim runs under the same workspace lock as turn claims and membership changes.
 func Claim(ctx context.Context, tx *store.Tx, who uuid.UUID, daemon string, runtimes []uuid.UUID) (Work, error) {
 	out := EmptyWork()
+	if err := Expire(ctx, tx); err != nil {
+		return out, err
+	}
 	chats, e := tx.Q.CoresearchClaimChats(ctx, db.CoresearchClaimChatsParams{WorkspaceID: tx.WS, OwnerID: who, DaemonID: &daemon, RuntimeIds: runtimes})
 	if e != nil {
 		return out, e
@@ -202,13 +215,14 @@ func Claim(ctx context.Context, tx *store.Tx, who uuid.UUID, daemon string, runt
 		if e != nil {
 			return out, e
 		}
-		wc := WorkContext{c.ID, c.ProjectID, tx.WS, p.PythonVersion}
+		wc := WorkContext{ChatID: c.ID, ProjectID: c.ProjectID, WorkspaceID: tx.WS, PythonVersion: p.PythonVersion}
 		claimed := false
 		cell, e := tx.Q.ClaimCoresearchCell(ctx, db.ClaimCoresearchCellParams{WorkspaceID: tx.WS, ChatID: c.ID, DaemonID: &daemon})
 		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 			return out, e
 		}
 		if e == nil {
+			wc.ClaimToken = *cell.ClaimToken
 			out.Cells = append(out.Cells, ClaimedCell{wc, cell.ID, cell.Kernel, cell.Source})
 			claimed = true
 			if e = Changed(ctx, tx, "cell", c, cell.ID); e != nil {
@@ -232,7 +246,20 @@ func Claim(ctx context.Context, tx *store.Tx, who uuid.UUID, daemon string, runt
 			if e = json.Unmarshal(r.Inputs, &refs); e != nil {
 				return out, e
 			}
-			out.Runs = append(out.Runs, ClaimedRun{wc, r.ID, r.Key, FileRef{f.Path, f.ID, v.N, v.Sha256, v.Size}, refs, r.Seed, r.ExpectedEnvSha})
+			version := ""
+			if r.RerunOf != nil {
+				original, err := tx.Q.GetCoresearchRun(ctx, db.GetCoresearchRunParams{WorkspaceID: tx.WS, ID: *r.RerunOf})
+				if err != nil {
+					return out, err
+				}
+				var facts struct {
+					Version string `json:"env_fingerprint_version"`
+				}
+				_ = json.Unmarshal(original.Facts, &facts)
+				version = facts.Version
+			}
+			wc.ClaimToken = *r.ClaimToken
+			out.Runs = append(out.Runs, ClaimedRun{wc, r.ID, r.Key, FileRef{f.Path, f.ID, v.N, v.Sha256, v.Size}, refs, r.Seed, r.ExpectedEnvSha, version})
 			claimed = true
 			if e = Changed(ctx, tx, "run", c, r.ID); e != nil {
 				return out, e
@@ -243,6 +270,7 @@ func Claim(ctx context.Context, tx *store.Tx, who uuid.UUID, daemon string, runt
 			return out, e
 		}
 		for _, s := range setups {
+			wc.ClaimToken = *s.ClaimToken
 			out.Setups = append(out.Setups, ClaimedSetup{wc, s.ID, s.Python, s.Conda})
 			claimed = true
 			if e = Changed(ctx, tx, "setup", c, s.ID); e != nil {
@@ -250,6 +278,7 @@ func Claim(ctx context.Context, tx *store.Tx, who uuid.UUID, daemon string, runt
 			}
 		}
 		if c.KernelRequest != nil {
+			wc.ClaimToken = uuid.Nil
 			out.Controls = append(out.Controls, ClaimedControl{wc, *c.KernelRequest, c.KernelRequestSeq})
 			claimed = true
 		}

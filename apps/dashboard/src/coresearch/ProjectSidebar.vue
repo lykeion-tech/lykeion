@@ -27,7 +27,10 @@ const emit = defineEmits<{
 const tab = ref<'files' | 'chats'>('chats'),
   allFiles = ref(false);
 const SIDEBAR_FILES_LIMIT = 10;
-const person = (id: string) => props.members.find((m) => m.user_id === id)?.name ?? id;
+const person = (id: string) => {
+  const member = props.members.find((m) => m.user_id === id);
+  return member?.name?.trim() || member?.email?.trim() || id;
+};
 const row = 'flex h-8 items-center gap-2.5 mx-0.5 rounded-lg px-2 type-body';
 function switchTab(event: KeyboardEvent) {
   if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;

@@ -102,6 +102,17 @@ func (q *Queries) CoresearchChatTurnBusy(ctx context.Context, arg CoresearchChat
 	return column_1, err
 }
 
+const coresearchDepart = `-- name: CoresearchDepart :one
+SELECT public.coresearch_depart($1::uuid)::boolean
+`
+
+func (q *Queries) CoresearchDepart(ctx context.Context, target uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, coresearchDepart, target)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const coresearchFileHead = `-- name: CoresearchFileHead :one
 SELECT workspace_id, file_id, n, sha256, size, blob_key, author_user_id, agent_run_id, run_id, overrode, restored_from, created_at FROM coresearch_file_version WHERE workspace_id = $1 AND file_id = $2 ORDER BY n DESC LIMIT 1
 `
@@ -220,6 +231,26 @@ func (q *Queries) CoresearchMember(ctx context.Context, arg CoresearchMemberPara
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const coresearchProjectBusy = `-- name: CoresearchProjectBusy :one
+SELECT EXISTS(SELECT 1 FROM coresearch_chat c WHERE c.workspace_id= $1 AND c.project_id= $2 AND (
+ EXISTS(SELECT 1 FROM agent_run a WHERE a.workspace_id=c.workspace_id AND a.coresearch_chat_id=c.id AND a.status IN ('queued','dispatched','running'))
+ OR EXISTS(SELECT 1 FROM coresearch_cell x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))
+ OR EXISTS(SELECT 1 FROM coresearch_run x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))
+ OR EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))))::boolean
+`
+
+type CoresearchProjectBusyParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+}
+
+func (q *Queries) CoresearchProjectBusy(ctx context.Context, arg CoresearchProjectBusyParams) (bool, error) {
+	row := q.db.QueryRow(ctx, coresearchProjectBusy, arg.WorkspaceID, arg.ProjectID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const coresearchProjectBytes = `-- name: CoresearchProjectBytes :one

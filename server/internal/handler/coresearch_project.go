@@ -180,6 +180,13 @@ func (h *H) archiveCoresearchProject(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		busy, err := tx.Q.CoresearchProjectBusy(r.Context(), db.CoresearchProjectBusyParams{WorkspaceID: ws, ProjectID: p.ID})
+		if err != nil {
+			return err
+		}
+		if busy {
+			return conflict("project has queued or running work")
+		}
 		out, err = tx.Q.ArchiveCoresearchProject(r.Context(), db.ArchiveCoresearchProjectParams{WorkspaceID: ws, ID: p.ID})
 		if err != nil {
 			return err

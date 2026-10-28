@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/sandbox"
@@ -108,7 +109,7 @@ func (d *daemon) checkRecorded(ctx context.Context, w coresearch.WorkContext, ki
 	var status struct {
 		Status string `json:"status"`
 	}
-	if err := d.coreAPI(w.WorkspaceID).Do(ctx, "GET", d.corePath(kind+"/"+id.String()+"/status"), nil, &status); err != nil {
+	if err := d.coreAPI(w.WorkspaceID).Do(ctx, "GET", d.coreWorkPath(w, kind+"/"+id.String()+"/status"), nil, &status); err != nil {
 		return err
 	}
 	if status.Status != "running" {
@@ -169,24 +170,7 @@ func (d *daemon) recordedRunner(w coresearch.WorkContext, kind string, id uuid.U
 		return []byte(tail.String()), err
 	}
 }
-func recordedEnvSHA(ctx context.Context, s *envs.Study) (string, error) {
-	lock, err := s.Run(ctx, nil, s.Dir, "/bin/sh", "-c", `if [ -e conda/lock.txt ]; then head -c 4194305 conda/lock.txt; fi`)
-	if err != nil {
-		return "", err
-	}
-	if len(lock) > 4<<20 {
-		return "", errors.New("environment lock exceeds 4 MiB")
-	}
-	packages, err := s.Packages(ctx, envs.Python)
-	if err != nil {
-		return "", err
-	}
-	h := sha256.New()
-	h.Write(lock)
-	h.Write([]byte{0})
-	h.Write([]byte(packages))
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
+func recordedEnvSHA(ctx context.Context, s *envs.Study) (string, error) { return s.Fingerprint(ctx) }
 func (d *daemon) restoreRecorded(ctx context.Context, c coresearch.ClaimedRun, dir string) error {
 	refs := append([]coresearch.FileRef{c.Script}, c.Inputs...)
 	seen := map[string]bool{}
@@ -235,13 +219,13 @@ func (d *daemon) restoreRecorded(ctx context.Context, c coresearch.ClaimedRun, d
 
 type recordedOutput struct {
 	path, sha string
-	file      *os.File
+	file      string
+	size      int64
 }
 
 func closeRecordedOutputs(outputs []recordedOutput) {
 	for _, o := range outputs {
-		o.file.Close()
-		os.Remove(o.file.Name())
+		os.Remove(o.file)
 	}
 }
 func collectRecordedOutputs(dir string) (outputs []recordedOutput, skipped map[string]string, err error) {
@@ -336,12 +320,12 @@ func collectRecordedOutputs(dir string) (outputs []recordedOutput, skipped map[s
 				}
 				continue
 			}
-			if _, e = spool.Seek(0, io.SeekStart); e != nil {
+			if e = spool.Close(); e != nil {
 				spool.Close()
 				os.Remove(spool.Name())
 				return e
 			}
-			outputs = append(outputs, recordedOutput{path, hex.EncodeToString(hash.Sum(nil)), spool})
+			outputs = append(outputs, recordedOutput{path, hex.EncodeToString(hash.Sum(nil)), spool.Name(), n})
 		}
 		return nil
 	}
@@ -355,9 +339,6 @@ func collectRecordedOutputs(dir string) (outputs []recordedOutput, skipped map[s
 }
 
 func (d *daemon) finishRecorded(ctx context.Context, c coresearch.ClaimedRun, facts map[string]any, outputs []recordedOutput) error {
-	if err := d.checkRecorded(ctx, c.WorkContext, "runs", c.ID); err != nil {
-		return err
-	}
 	reader, writer := io.Pipe()
 	form := multipart.NewWriter(writer)
 	done := make(chan error, 1)
@@ -370,7 +351,12 @@ func (d *daemon) finishRecorded(ctx context.Context, c coresearch.ClaimedRun, fa
 			var part io.Writer
 			part, err = form.CreateFormFile("out/"+out.path, filepath.Base(out.path))
 			if err == nil {
-				_, err = io.Copy(part, out.file)
+				var snapshot *os.File
+				snapshot, err = coresearch.OpenSnapshot(out.file, out.size, out.sha)
+				if err == nil {
+					_, err = io.Copy(part, snapshot)
+					err = errors.Join(err, snapshot.Close())
+				}
 			}
 		}
 		if err == nil {
@@ -379,7 +365,7 @@ func (d *daemon) finishRecorded(ctx context.Context, c coresearch.ClaimedRun, fa
 		writer.CloseWithError(err)
 		done <- err
 	}()
-	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(d.api.Server, "/")+d.corePath("runs/"+c.ID.String()+"/finish"), reader)
+	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(d.api.Server, "/")+d.coreWorkPath(c.WorkContext, "runs/"+c.ID.String()+"/finish"), reader)
 	if err != nil {
 		reader.CloseWithError(err)
 		<-done
@@ -402,25 +388,32 @@ func (d *daemon) finishRecorded(ctx context.Context, c coresearch.ClaimedRun, fa
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 204 {
-		return fmt.Errorf("recorded-run settlement: HTTP %d", resp.StatusCode)
+		return &apiclient.HTTPError{Status: resp.StatusCode, Msg: "recorded-run settlement refused"}
 	}
 	return writeErr
 }
 
 func (d *daemon) dispatchCoresearchRun(parent context.Context, c coresearch.ClaimedRun) (result error) {
-	if err := d.checkRecorded(parent, c.WorkContext, "runs", c.ID); err != nil {
+	if err := d.journalCoresearch(c.WorkContext, "runs", c.ID); err != nil {
 		return err
+	}
+	if err := d.checkRecorded(parent, c.WorkContext, "runs", c.ID); err != nil {
+		_, sendErr := d.queueCoresearch(c.WorkContext, "runs", c.ID, coreFailure("runs", err), nil)
+		return errors.Join(err, sendErr)
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	watched := make(chan struct{})
 	go func() { defer close(watched); d.watchCoresearch(ctx, cancel, c.WorkContext, "runs", c.ID) }()
 	defer func() { cancel(); <-watched }()
-	facts := map[string]any{"status": "failed", "exit_status": -1, "wall_ms": int64(0), "stdout_tail": "", "stderr_tail": "", "outputs": map[string]string{}}
+	facts := map[string]any{"status": "failed", "exit_status": -1, "wall_ms": int64(0), "stdout_tail": "", "stderr_tail": "", "outputs": map[string]string{}, "env_fingerprint_version": envs.FingerprintVersion}
 	var outputs []recordedOutput
 	var runDir string
+	durable := true
 	defer func() {
-		closeRecordedOutputs(outputs)
+		if durable {
+			closeRecordedOutputs(outputs)
+		}
 		if runDir != "" {
 			_ = os.RemoveAll(runDir)
 		}
@@ -429,10 +422,13 @@ func (d *daemon) dispatchCoresearchRun(parent context.Context, c coresearch.Clai
 		if result != nil {
 			facts["error"] = result.Error()
 		}
-		if ctx.Err() == nil {
-			result = errors.Join(result, d.finishRecorded(ctx, c, facts, outputs))
-		}
+		var err error
+		durable, err = d.queueCoresearch(c.WorkContext, "runs", c.ID, facts, outputs)
+		result = errors.Join(result, err)
 	}()
+	if c.ExpectedEnvSHA != nil && c.ExpectedEnvVersion != envs.FingerprintVersion {
+		return errors.New(recordedChanged + " (incompatible fingerprint format)")
+	}
 	lang, err := recordedLang(c.Script.Path)
 	if err != nil {
 		return err
@@ -544,8 +540,12 @@ func (d *daemon) dispatchCoresearchRun(parent context.Context, c coresearch.Clai
 }
 
 func (d *daemon) dispatchCoresearchSetup(parent context.Context, c coresearch.ClaimedSetup) (result error) {
-	if err := d.checkRecorded(parent, c.WorkContext, "setups", c.ID); err != nil {
+	if err := d.journalCoresearch(c.WorkContext, "setups", c.ID); err != nil {
 		return err
+	}
+	if err := d.checkRecorded(parent, c.WorkContext, "setups", c.ID); err != nil {
+		_, sendErr := d.queueCoresearch(c.WorkContext, "setups", c.ID, coreFailure("setups", err), nil)
+		return errors.Join(err, sendErr)
 	}
 	ctx, cancel := context.WithCancel(parent)
 	setupCtx, stop := context.WithTimeout(ctx, recordedSetupLimit)
@@ -560,13 +560,6 @@ func (d *daemon) dispatchCoresearchSetup(parent context.Context, c coresearch.Cl
 		if result != nil {
 			log.Write([]byte("\n" + result.Error()))
 		}
-		if ctx.Err() != nil {
-			return
-		}
-		if err := d.checkRecorded(ctx, c.WorkContext, "setups", c.ID); err != nil {
-			result = errors.Join(result, err)
-			return
-		}
 		body := map[string]string{"status": "ok", "log": log.String()}
 		if result != nil {
 			body["status"] = "failed"
@@ -574,7 +567,8 @@ func (d *daemon) dispatchCoresearchSetup(parent context.Context, c coresearch.Cl
 		if version != "" {
 			body["python_version"] = version
 		}
-		result = errors.Join(result, d.coreAPI(c.WorkspaceID).Do(ctx, "POST", d.corePath("setups/"+c.ID.String()+"/finish"), body, nil))
+		_, err := d.queueCoresearch(c.WorkContext, "setups", c.ID, body, nil)
+		result = errors.Join(result, err)
 	}()
 	s, err := d.recordedStudy(setupCtx, c.WorkContext)
 	if err != nil {
@@ -590,7 +584,7 @@ func (d *daemon) dispatchCoresearchSetup(parent context.Context, c coresearch.Cl
 		if err := d.checkRecorded(ctx, c.WorkContext, "setups", c.ID); err != nil {
 			return err
 		}
-		if err := d.coreAPI(c.WorkspaceID).Do(ctx, "POST", d.corePath("setups/"+c.ID.String()+"/finish"), map[string]string{"status": "running", "python_version": v}, nil); err != nil {
+		if err := d.coreAPI(c.WorkspaceID).Do(ctx, "POST", d.coreWorkPath(c.WorkContext, "setups/"+c.ID.String()+"/finish"), map[string]string{"status": "running", "python_version": v}, nil); err != nil {
 			return err
 		}
 		version = v

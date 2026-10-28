@@ -8,6 +8,7 @@ export default defineConfig({
     'coresearch-markdown.spec.ts',
     'coresearch-notebook.spec.ts',
     'coresearch-files.spec.ts',
+    'coresearch-final.spec.ts',
   ],
   workers: 1,
   retries: 0,

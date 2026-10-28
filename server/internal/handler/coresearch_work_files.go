@@ -69,7 +69,7 @@ func (h *H) coresearchRunFiles(w http.ResponseWriter, r *http.Request) {
 type coresearchOutput struct {
 	path, sha string
 	size      int64
-	file      *os.File
+	file      string
 }
 
 func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
@@ -92,10 +92,7 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 		if run.ClaimedDaemonID == nil || *run.ClaimedDaemonID != d {
 			return pgx.ErrNoRows
 		}
-		if run.Status != "running" {
-			return service.ErrConflict
-		}
-		return nil
+		return coresearchClaim(r, run.ClaimToken, run.LeaseExpiresAt, run.Status, run.ReceiptSha, true)
 	}
 	if e = h.coresearchDaemonTx(r, check); !coresearchAnswer(w, r, e) {
 		return
@@ -110,8 +107,7 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 	outputs := []coresearchOutput{}
 	defer func() {
 		for _, out := range outputs {
-			out.file.Close()
-			os.Remove(out.file.Name())
+			os.Remove(out.file)
 		}
 	}()
 	var facts map[string]json.RawMessage
@@ -166,10 +162,11 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 			fail(w, r, e)
 			return
 		}
-		outputs = append(outputs, coresearchOutput{path: clean, file: tmp})
+		outputs = append(outputs, coresearchOutput{path: clean, file: tmp.Name()})
 		out := &outputs[len(outputs)-1]
 		hash := sha256.New()
 		out.size, e = io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(part, coresearch.MaxFileBytes+1))
+		e = errors.Join(e, tmp.Close())
 		if e != nil {
 			uploadReadErr(w, r, e, "output file exceeds 50 MiB")
 			return
@@ -184,10 +181,6 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out.sha = hex.EncodeToString(hash.Sum(nil))
-		if _, e = tmp.Seek(0, io.SeekStart); e != nil {
-			fail(w, r, e)
-			return
-		}
 	}
 	if facts == nil {
 		writeErr(w, 400, "facts required")
@@ -204,6 +197,11 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var format string
+	if status == "ok" && (json.Unmarshal(facts["env_fingerprint_version"], &format) != nil || format != coresearch.EnvironmentFingerprintVersion) {
+		writeErr(w, 400, "successful run requires current environment fingerprint format")
+		return
+	}
 	if status == "ok" && env == "" {
 		writeErr(w, 400, "successful run requires env_sha")
 		return
@@ -216,14 +214,29 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 	blobs := []coresearch.UploadBlob{}
 	for _, out := range outputs {
 		hashes[out.path] = out.sha
-		blobs = append(blobs, coresearch.UploadBlob{SHA256: out.sha, Body: out.file, Size: out.size})
+		blobs = append(blobs, coresearch.UploadBlob{SHA256: out.sha, Size: out.size, Open: func() (io.ReadCloser, error) { return coresearch.OpenSnapshot(out.file, out.size, out.sha) }})
 	}
 	facts["outputs"], _ = json.Marshal(hashes)
 	delete(facts, "matches_original")
+	digest := coresearchReceipt(facts)
+	if run.ReceiptSha != nil {
+		if *run.ReceiptSha != digest {
+			coresearchAnswer(w, r, service.ErrConflict)
+			return
+		}
+		w.WriteHeader(204)
+		return
+	}
 	e = coresearch.WithBlobs(r.Context(), h.Store, h.Blobs, run.WorkspaceID, user(r), blobs, func() error {
 		return h.coresearchDaemonTx(r, func(tx *store.Tx, d string) error {
 			if e := check(tx, d); e != nil {
 				return e
+			}
+			if run.ReceiptSha != nil {
+				if *run.ReceiptSha != digest {
+					return service.ErrConflict
+				}
+				return nil
 			}
 			for _, out := range outputs {
 				if _, e := coresearch.SaveVersion(r.Context(), tx, coresearch.SaveIn{Workspace: tx.WS, Project: c.ProjectID, Path: out.path, Sha256: out.sha, Size: out.size, Force: true, Run: &run.ID}); e != nil {
@@ -249,7 +262,7 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 			if env != "" {
 				envptr = &env
 			}
-			if _, e = tx.Q.FinishCoresearchRun(r.Context(), db.FinishCoresearchRunParams{WorkspaceID: tx.WS, ID: run.ID, Status: status, EnvSha: envptr, Facts: b}); e != nil {
+			if _, e = tx.Q.FinishCoresearchRun(r.Context(), db.FinishCoresearchRunParams{WorkspaceID: tx.WS, ID: run.ID, Status: status, EnvSha: envptr, Facts: b, ReceiptSha: &digest}); e != nil {
 				return e
 			}
 			return coresearch.Changed(r.Context(), tx, "run", c, run.ID)

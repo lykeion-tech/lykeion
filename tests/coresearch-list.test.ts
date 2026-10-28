@@ -97,7 +97,9 @@ describe('Coresearch foundation', () => {
     );
   });
   it('starter disables send without own online runtime', async () => {
-    const { root } = await mount(
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const { root, settle } = await mount(
       true,
       [],
       [
@@ -105,7 +107,16 @@ describe('Coresearch foundation', () => {
         { owner_id: 'me', status: 'offline', harness: 'codex' },
       ],
     );
-    expect(all(root).find((n) => n.props['aria-label'] === 'Send')?.props.disabled).toBe(true);
+    (
+      all(root).find((n) => n.tag === 'textarea')!.props['onUpdate:modelValue'] as (
+        s: string,
+      ) => void
+    )('A valid research question');
+    await settle();
+    const send = all(root).find((n) => n.props['aria-label'] === 'Send')!;
+    expect(send.props.disabled).toBe(true);
+    await (send.props.onClick as () => Promise<void>)();
+    expect(fetch).not.toHaveBeenCalled();
     expect(textOf(root)).toContain('No machine of yours is connected to this lab.');
   });
   it("starter offers only the caller's own CLIs, deduplicated and supported", async () => {
@@ -275,4 +286,13 @@ describe('Coresearch API wiring', () => {
     expect(titleFromPrompt('  ' + 'x'.repeat(79) + ' ' + 'tail  ')).toBe('x'.repeat(79));
     expect(ownOnlineClis([], undefined)).toEqual([]);
   });
+});
+
+it('loads the scoped full stylesheet without a later resetting token import', () => {
+  for (const file of [
+    'apps/dashboard/src/coresearch/CoresearchStarter.vue',
+    'apps/dashboard/src/views/CoresearchList.vue',
+  ]) {
+    expect(readFileSync(file, 'utf8')).not.toContain('l2-tokens.css');
+  }
 });

@@ -18,6 +18,7 @@ const client = useQueryClient(),
   runs = useCoresearchRuns(() => props.project.id),
   files = useCoresearchFiles(() => props.project.id),
   chats = useCoresearchChats(() => props.project.id);
+const logRun = ref('');
 const selected = ref(''),
   form = ref(false),
   script = ref(''),
@@ -125,7 +126,24 @@ async function start(original?: RecordedRun) {
                 >
                   · matches original</span
                 >
-                <p v-if="run.failure_reason">{{ run.failure_reason }}</p>
+                <p v-if="run.failure_reason || run.facts?.error" class="run-error">
+                  {{ run.failure_reason || run.facts?.error }}
+                </p>
+                <button
+                  type="button"
+                  class="quiet-action"
+                  :aria-label="`Execution log ${run.key}`"
+                  @click="logRun = logRun === run.key ? '' : run.key"
+                >
+                  Execution log
+                </button>
+                <div v-if="logRun === run.key" class="run-log" :aria-label="`Log ${run.key}`">
+                  <pre v-if="run.facts?.stdout_tail">{{ run.facts.stdout_tail.slice(-16384) }}</pre>
+                  <pre v-if="run.facts?.stderr_tail">{{ run.facts.stderr_tail.slice(-16384) }}</pre>
+                  <p v-if="!run.facts?.stdout_tail && !run.facts?.stderr_tail" class="viz-meta">
+                    No execution output
+                  </p>
+                </div>
               </td>
               <td>{{ path(run.script_file_id) }} v{{ run.script_n }}</td>
               <td>
@@ -185,6 +203,15 @@ async function start(original?: RecordedRun) {
   </section>
 </template>
 <style scoped>
+.run-error,
+.run-log {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 36rem;
+}
+.run-log pre {
+  white-space: pre-wrap;
+}
 th,
 td {
   padding: 12px 16px;

@@ -267,8 +267,10 @@ func keepAnOwner(ctx context.Context, tx *store.Tx, ws, target uuid.UUID) error 
 	return nil
 }
 
+var errProjectOwnerDeparture = errors.New("transfer project ownership to another member before leaving the workspace")
+
 func memberFail(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, errLastOwner) {
+	if errors.Is(err, errLastOwner) || errors.Is(err, errProjectOwnerDeparture) {
 		writeErr(w, 409, err.Error())
 		return
 	}
@@ -331,6 +333,13 @@ func (h *H) remove(w http.ResponseWriter, r *http.Request, target uuid.UUID) {
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		if err := keepAnOwner(r.Context(), tx, ws, target); err != nil {
 			return err
+		}
+		allowed, err := tx.Q.CoresearchDepart(r.Context(), target)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return errProjectOwnerDeparture
 		}
 		if err := h.AgentRuns.RemoveMemberSharing(r.Context(), tx, user, target); err != nil {
 			return err

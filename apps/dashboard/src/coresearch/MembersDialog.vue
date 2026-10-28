@@ -19,7 +19,10 @@ const candidates = computed(() =>
     (m) => !members.data.value?.some((p) => p.user_id === m.user_id),
   ),
 );
-const name = (id: string) => workspaceMembers.data.value?.find((m) => m.user_id === id)?.name ?? id;
+const name = (id: string) => {
+  const member = workspaceMembers.data.value?.find((m) => m.user_id === id);
+  return member?.name?.trim() || member?.email?.trim() || id;
+};
 const lastOwner = (id: string) =>
   members.data.value?.find((m) => m.user_id === id)?.role === 'owner' &&
   members.data.value.filter((m) => m.role === 'owner').length === 1;
@@ -110,7 +113,7 @@ async function change(id: string, remove = false) {
                 :key="candidate.user_id"
                 :value="candidate.user_id"
               >
-                {{ candidate.name }}
+                {{ name(candidate.user_id) }}
               </option></select
             ><button
               type="button"

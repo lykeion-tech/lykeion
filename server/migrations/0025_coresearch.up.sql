@@ -324,3 +324,60 @@ END
 $$;
 REVOKE ALL ON FUNCTION public.coresearch_revoke(uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.coresearch_revoke(uuid,uuid) TO lykeion_app;
+
+CREATE FUNCTION public.coresearch_depart(target uuid) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE p public.coresearch_project; successor uuid;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.member m WHERE m.workspace_id=public.app_workspace() AND m.user_id=public.app_user() AND (m.user_id=target OR m.role IN ('owner','admin'))) THEN
+  RAISE EXCEPTION 'workspace membership removal authority required' USING ERRCODE='42501';
+ END IF;
+ FOR p IN SELECT x.* FROM public.coresearch_project x JOIN public.coresearch_member m ON m.workspace_id=x.workspace_id AND m.project_id=x.id
+ WHERE x.workspace_id=public.app_workspace() AND m.user_id=target ORDER BY x.id FOR UPDATE OF x LOOP
+  successor := NULL;
+  SELECT m.user_id INTO successor FROM public.coresearch_member m WHERE m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id<>target ORDER BY m.created_at,m.user_id LIMIT 1;
+  IF successor IS NULL THEN
+   UPDATE public.coresearch_project SET archived_at=coalesce(archived_at,now()),updated_at=now() WHERE workspace_id=p.workspace_id AND id=p.id;
+  ELSIF NOT EXISTS(SELECT 1 FROM public.coresearch_member m WHERE m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id<>target AND m.role='owner') THEN
+   IF public.app_user()=target THEN RETURN false; END IF;
+   UPDATE public.coresearch_member SET role='owner' WHERE workspace_id=p.workspace_id AND project_id=p.id AND user_id=successor;
+  END IF;
+ END LOOP;
+ RETURN true;
+END
+$$;
+REVOKE ALL ON FUNCTION public.coresearch_depart(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.coresearch_depart(uuid) TO lykeion_app;
+
+ALTER TABLE coresearch_cell ADD COLUMN claim_token uuid, ADD COLUMN lease_expires_at timestamptz, ADD COLUMN receipt_sha text;
+
+ALTER TABLE coresearch_run ADD COLUMN claim_token uuid, ADD COLUMN lease_expires_at timestamptz, ADD COLUMN receipt_sha text;
+
+ALTER TABLE coresearch_setup ADD COLUMN claim_token uuid, ADD COLUMN lease_expires_at timestamptz, ADD COLUMN receipt_sha text;
+
+CREATE FUNCTION public.coresearch_expired_workspaces() RETURNS SETOF uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ IF public.app_user() IS DISTINCT FROM '00000000-0000-0000-0000-000000000000'::uuid THEN RAISE EXCEPTION 'maintenance identity required' USING ERRCODE='42501'; END IF;
+ RETURN QUERY SELECT workspace_id FROM public.coresearch_cell WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now())
+ UNION SELECT workspace_id FROM public.coresearch_run WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now())
+ UNION SELECT workspace_id FROM public.coresearch_setup WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now()) ORDER BY 1;
+END $$;
+REVOKE ALL ON FUNCTION public.coresearch_expired_workspaces() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.coresearch_expired_workspaces() TO lykeion_app;
+CREATE FUNCTION public.coresearch_expire() RETURNS TABLE(kind text,project_id uuid,chat_id uuid,work_id uuid)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE c public.coresearch_chat; item uuid;
+BEGIN
+ IF public.app_user()<>'00000000-0000-0000-0000-000000000000'::uuid AND NOT EXISTS(SELECT 1 FROM public.member m WHERE m.workspace_id=public.app_workspace() AND m.user_id=public.app_user()) THEN RAISE EXCEPTION 'workspace authority required' USING ERRCODE='42501'; END IF;
+ FOR c IN SELECT x.* FROM public.coresearch_chat x WHERE x.workspace_id=public.app_workspace() AND (public.app_user()='00000000-0000-0000-0000-000000000000'::uuid OR public.coresearch_can_see(x.project_id)) ORDER BY x.project_id,x.id FOR UPDATE LOOP
+ FOR item IN UPDATE public.coresearch_cell q SET status='interrupted',failure_reason='runtime_lost',finished_at=now(),outputs='[{"type":"error","ename":"RuntimeLost","evalue":"execution lease expired; code was not replayed"}]'::jsonb WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status='running' AND (q.lease_expires_at IS NULL OR q.lease_expires_at<=now()) RETURNING q.id LOOP
+ RETURN QUERY SELECT 'cell'::text,c.project_id,c.id,item; END LOOP;
+ FOR item IN UPDATE public.coresearch_run q SET status='failed',failure_reason='runtime_lost',finished_at=now(),facts=jsonb_build_object('error','execution lease expired; code was not replayed') WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status='running' AND (q.lease_expires_at IS NULL OR q.lease_expires_at<=now()) RETURNING q.id LOOP
+ RETURN QUERY SELECT 'run'::text,c.project_id,c.id,item; END LOOP;
+ FOR item IN UPDATE public.coresearch_setup q SET status='failed',failure_reason='runtime_lost',finished_at=now(),log='execution lease expired; setup was not replayed' WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status='running' AND (q.lease_expires_at IS NULL OR q.lease_expires_at<=now()) RETURNING q.id LOOP
+ RETURN QUERY SELECT 'setup'::text,c.project_id,c.id,item; END LOOP;
+ END LOOP;
+END $$;
+REVOKE ALL ON FUNCTION public.coresearch_expire() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.coresearch_expire() TO lykeion_app;

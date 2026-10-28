@@ -9,7 +9,6 @@ import type { ChatRow, ProjectRow } from '../coresearch/types';
 import CliIcon from '../coresearch/CliIcon.vue';
 import { backendLabel } from '../lib/backends';
 import '../coresearch/l2.css';
-import '../coresearch/l2-tokens.css';
 const projects = useCoresearchProjects();
 const members = useMembers();
 const client = useQueryClient();

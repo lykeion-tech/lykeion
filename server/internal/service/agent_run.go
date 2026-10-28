@@ -295,6 +295,13 @@ type AgentRuns struct {
 }
 
 func agentRunEvent(t db.AgentRun) map[string]any {
+	if t.Kind == "coresearch" {
+		event := map[string]any{"agent_run_id": t.ID}
+		if t.CoresearchChatID != nil {
+			event["chat_id"] = *t.CoresearchChatID
+		}
+		return event
+	}
 	return map[string]any{"agent_run_id": t.ID, "role": t.Role, "column": t.BoardColumn, "round": t.Round, "status": t.Status, "attempt": t.Attempt}
 }
 

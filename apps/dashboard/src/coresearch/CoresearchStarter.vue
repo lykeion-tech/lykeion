@@ -10,7 +10,6 @@ import { chatPath, keys, NO_MACHINE, ownOnlineClis, projectPath, titleFromPrompt
 import type { ChatRow, Cli, ProjectRow } from './types';
 import CliIcon from './CliIcon.vue';
 import './l2.css';
-import './l2-tokens.css';
 const me = useMe();
 const runtimes = useRuntimes();
 const router = useRouter();

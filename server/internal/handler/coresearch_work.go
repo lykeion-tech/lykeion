@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -434,6 +435,7 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 	}
 	finish := strings.HasSuffix(r.URL.Path, "/finish")
 	var blob *string
+	var receipt *string
 	var c db.CoresearchChat
 	check := func(tx *store.Tx, daemon string) error {
 		cell, e := tx.Q.GetCoresearchCell(r.Context(), db.GetCoresearchCellParams{WorkspaceID: tx.WS, ID: id})
@@ -447,10 +449,8 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 		if cell.ClaimedDaemonID == nil || *cell.ClaimedDaemonID != daemon {
 			return pgx.ErrNoRows
 		}
-		if cell.Status != "running" {
-			return service.ErrConflict
-		}
-		return nil
+		receipt = cell.ReceiptSha
+		return coresearchClaim(r, cell.ClaimToken, cell.LeaseExpiresAt, cell.Status, cell.ReceiptSha, finish)
 	}
 	e = h.coresearchDaemonTx(r, check)
 	if !coresearchAnswer(w, r, e) {
@@ -466,9 +466,24 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	digest := coresearchReceipt(in)
+	if receipt != nil {
+		if *receipt != digest {
+			coresearchAnswer(w, r, service.ErrConflict)
+			return
+		}
+		w.WriteHeader(204)
+		return
+	}
 	finishCell := func() error {
 		if e := h.coresearchDaemonTx(r, check); e != nil {
 			return e
+		}
+		if receipt != nil {
+			if *receipt != digest {
+				return service.ErrConflict
+			}
+			return nil
 		}
 		if finish && len(in.Outputs) > coresearch.InlineCellOutputBytes {
 			key := c.WorkspaceID.String() + "/coresearch/cells/" + id.String() + ".json"
@@ -481,6 +496,12 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 			if e := check(tx, daemon); e != nil {
 				return e
 			}
+			if receipt != nil {
+				if *receipt != digest {
+					return service.ErrConflict
+				}
+				return nil
+			}
 			if !finish {
 				return tx.Q.StartCoresearchCell(r.Context(), db.StartCoresearchCellParams{WorkspaceID: tx.WS, ID: id})
 			}
@@ -488,7 +509,7 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 			if blob != nil {
 				outputs = nil
 			}
-			if _, e := tx.Q.FinishCoresearchCell(r.Context(), db.FinishCoresearchCellParams{WorkspaceID: tx.WS, ID: id, Status: in.Status, ExecutionCount: in.ExecutionCount, Outputs: outputs, OutputsBlob: blob}); e != nil {
+			if _, e := tx.Q.FinishCoresearchCell(r.Context(), db.FinishCoresearchCellParams{WorkspaceID: tx.WS, ID: id, Status: in.Status, ExecutionCount: in.ExecutionCount, Outputs: outputs, OutputsBlob: blob, ReceiptSha: &digest}); e != nil {
 				return e
 			}
 			return coresearch.Changed(r.Context(), tx, "cell", c, id)
@@ -526,11 +547,18 @@ func (h *H) daemonCoresearchSetup(w http.ResponseWriter, r *http.Request) {
 		if s.ClaimedDaemonID == nil || *s.ClaimedDaemonID != d {
 			return pgx.ErrNoRows
 		}
-		if s.Status != "running" {
-			return service.ErrConflict
+		if e = coresearchClaim(r, s.ClaimToken, s.LeaseExpiresAt, s.Status, s.ReceiptSha, true); e != nil {
+			return e
 		}
 		if readJSON(r, &in) != nil || !slices.Contains([]string{"running", "ok", "failed"}, in.Status) || len(in.Log) > 262144 || in.PythonVersion != "" && !service.ValidPythonVersion(in.PythonVersion) || in.Status != "failed" && in.PythonVersion == "" {
 			return cardInputError("invalid setup result")
+		}
+		digest := coresearchReceipt(in)
+		if s.ReceiptSha != nil {
+			if in.Status == "running" || *s.ReceiptSha != digest {
+				return service.ErrConflict
+			}
+			return nil
 		}
 		if in.PythonVersion != "" {
 			p, e := tx.Q.GetCoresearchProject(r.Context(), db.GetCoresearchProjectParams{WorkspaceID: tx.WS, ID: c.ProjectID})
@@ -547,7 +575,7 @@ func (h *H) daemonCoresearchSetup(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if in.Status != "running" {
-			if _, e = tx.Q.FinishCoresearchSetup(r.Context(), db.FinishCoresearchSetupParams{WorkspaceID: tx.WS, ID: id, Status: in.Status, Log: in.Log}); e != nil {
+			if _, e = tx.Q.FinishCoresearchSetup(r.Context(), db.FinishCoresearchSetupParams{WorkspaceID: tx.WS, ID: id, Status: in.Status, Log: in.Log, ReceiptSha: &digest}); e != nil {
 				return e
 			}
 		}
@@ -592,33 +620,65 @@ func (h *H) daemonCoresearchStatus(w http.ResponseWriter, r *http.Request) {
 	e = h.coresearchDaemonTx(r, func(tx *store.Tx, d string) error {
 		var chat uuid.UUID
 		var claimed *string
-		switch chi.URLParam(r, "kind") {
+		var token *uuid.UUID
+		var expires *time.Time
+		kind := chi.URLParam(r, "kind")
+		switch kind {
 		case "cells":
 			row, e := tx.Q.GetCoresearchCell(r.Context(), db.GetCoresearchCellParams{WorkspaceID: tx.WS, ID: id})
 			if e != nil {
 				return e
 			}
 			chat, status, claimed = row.ChatID, row.Status, row.ClaimedDaemonID
+			token, expires = row.ClaimToken, row.LeaseExpiresAt
 		case "runs":
 			row, e := tx.Q.GetCoresearchRun(r.Context(), db.GetCoresearchRunParams{WorkspaceID: tx.WS, ID: id})
 			if e != nil {
 				return e
 			}
 			chat, status, claimed = row.ChatID, row.Status, row.ClaimedDaemonID
+			token, expires = row.ClaimToken, row.LeaseExpiresAt
 		case "setups":
 			row, e := tx.Q.GetCoresearchSetup(r.Context(), db.GetCoresearchSetupParams{WorkspaceID: tx.WS, ID: id})
 			if e != nil {
 				return e
 			}
 			chat, status, claimed = row.ChatID, row.Status, row.ClaimedDaemonID
+			token, expires = row.ClaimToken, row.LeaseExpiresAt
 		default:
 			return pgx.ErrNoRows
 		}
 		if claimed == nil || *claimed != d {
 			return pgx.ErrNoRows
 		}
-		_, e := daemonCoresearchChat(r, tx, chat, d)
-		return e
+		if _, e := daemonCoresearchChat(r, tx, chat, d); e != nil {
+			return e
+		}
+		supplied, err := uuid.Parse(r.URL.Query().Get("claim_token"))
+		if err != nil || token == nil || supplied != *token {
+			return service.ErrConflict
+		}
+		if r.Method == "POST" {
+			if e := coresearchClaim(r, token, expires, status, nil, false); e != nil {
+				return e
+			}
+			var n int64
+			switch kind {
+			case "cells":
+				n, err = tx.Q.HeartbeatCoresearchCell(r.Context(), db.HeartbeatCoresearchCellParams{WorkspaceID: tx.WS, ID: id, ClaimToken: token})
+			case "runs":
+				n, err = tx.Q.HeartbeatCoresearchRun(r.Context(), db.HeartbeatCoresearchRunParams{WorkspaceID: tx.WS, ID: id, ClaimToken: token})
+			case "setups":
+				n, err = tx.Q.HeartbeatCoresearchSetup(r.Context(), db.HeartbeatCoresearchSetupParams{WorkspaceID: tx.WS, ID: id, ClaimToken: token})
+			}
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				return service.ErrConflict
+			}
+		}
+		return nil
 	})
 	if coresearchAnswer(w, r, e) {
 		writeJSON(w, 200, map[string]string{"status": status})

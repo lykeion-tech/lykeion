@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,12 +11,16 @@ import (
 	"io"
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 	"mime/multipart"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func csWork(t *testing.T, s *server, a, daemon string, ref service.RuntimeRef) coresearch.Work {
@@ -326,6 +331,9 @@ func TestRemovedMemberWorkIsCancelled(t *testing.T) {
 	}
 }
 func csFinishRun(t *testing.T, s *server, token, ws, id string, facts map[string]any, files map[string][]byte) int {
+	if _, ok := facts["env_fingerprint_version"]; !ok {
+		facts["env_fingerprint_version"] = coresearch.EnvironmentFingerprintVersion
+	}
 	t.Helper()
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -342,7 +350,7 @@ func csFinishRun(t *testing.T, s *server, token, ws, id string, facts map[string
 		f.Write(data)
 	}
 	mw.Close()
-	req, e := http.NewRequest("POST", s.URL+"/api/daemon/coresearch/runs/"+id+"/finish?daemon_id=work", &body)
+	req, e := http.NewRequest("POST", s.URL+csContinuation(t, s, "/api/daemon/coresearch/runs/"+id+"/finish?daemon_id=work"), &body)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -374,6 +382,11 @@ func TestOutputsBecomeResultVersions(t *testing.T) {
 	if code := csFinishRun(t, s, s.personalToken(t, a), ws, original.ID.String(), map[string]any{"status": "ok", "env_sha": env, "outputs": map[string]string{"results/fig.png": "forged"}, "matches_original": true}, map[string][]byte{"fig.png": {0, 1, 2}}); code != 204 {
 		t.Fatal(code)
 	}
+	// Simulate a lost HTTP acknowledgement: the same generation and receipt
+	// must acknowledge without creating a second output version.
+	if code := csFinishRun(t, s, s.personalToken(t, a), ws, original.ID.String(), map[string]any{"status": "ok", "env_sha": env}, map[string][]byte{"fig.png": {0, 1, 2}}); code != 204 {
+		t.Fatal(code)
+	}
 	var files []coresearchFileView
 	s.call(t, "GET", csProjects+"/"+p.ID+"/files", a, ws, nil, &files)
 	var output coresearchFileView
@@ -382,7 +395,7 @@ func TestOutputsBecomeResultVersions(t *testing.T) {
 			output = f
 		}
 	}
-	if output.Head.RunID == nil || *output.Head.RunID != original.ID {
+	if output.Head.N != 1 || output.Head.RunID == nil || *output.Head.RunID != original.ID {
 		t.Fatalf("%+v", output)
 	}
 	var stored db.CoresearchRun
@@ -640,5 +653,222 @@ func TestFailedRerunNeverMatchesOriginal(t *testing.T) {
 		if _, present := facts["matches_original"]; present {
 			t.Fatalf("failed rerun acquired badge with env %q: %v", actual, facts)
 		}
+	}
+}
+
+type coreFDStorage struct {
+	storage.Storage
+	baseline int
+	t        *testing.T
+}
+
+func coreFDCount(t *testing.T) int {
+	f, e := os.Open("/dev/fd")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer f.Close()
+	names, e := f.Readdirnames(-1)
+	if e != nil {
+		t.Fatal(e)
+	}
+	return len(names)
+}
+func (s *coreFDStorage) Put(ctx context.Context, key string, r io.Reader, n int64) error {
+	if delta := coreFDCount(s.t) - s.baseline; delta > 32 {
+		return fmt.Errorf("retained %d output descriptors", delta)
+	}
+	return s.Storage.Put(ctx, key, r, n)
+}
+func TestRunFinishManyOutputsKeepsDescriptorsBounded(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	_, chat := csChat(t, s, a, ws, p.ID)
+	csUpload(t, s, a, ws, p.ID, "main.py", 0, false, []byte("1"))
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var run db.CoresearchRun
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/runs", a, ws, map[string]any{"chat_id": chat.ID, "script": "main.py"}, &run); code != 201 {
+		t.Fatal(code)
+	}
+	csWork(t, s, a, "work", ref)
+	s.H.Blobs = &coreFDStorage{Storage: s.H.Blobs, baseline: coreFDCount(t), t: t}
+	files := map[string][]byte{}
+	for i := 0; i < 240; i++ {
+		files[fmt.Sprint(i)] = nil
+	}
+	if code := csFinishRun(t, s, s.personalToken(t, a), ws, run.ID.String(), map[string]any{"status": "ok", "env_sha": strings.Repeat("a", 64)}, files); code != 204 {
+		t.Fatalf("many outputs finish %d", code)
+	}
+}
+
+func TestRerunRejectsHistoricalInventoryFormat(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	_, chat := csChat(t, s, a, ws, p.ID)
+	csUpload(t, s, a, ws, p.ID, "main.py", 0, false, []byte("1"))
+	var run db.CoresearchRun
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/runs", a, ws, map[string]any{"chat_id": chat.ID, "script": "main.py"}, &run); code != 201 {
+		t.Fatal(code)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_run SET status='ok',env_sha=$1,facts='{}' WHERE id=$2", strings.Repeat("a", 64), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/runs/"+run.Key+"/rerun", a, ws, nil, nil); code != 400 {
+		t.Fatalf("historic environment rerun accepted %d", code)
+	}
+}
+
+func TestCoresearchClaimLeaseFencesAndRecoversLostClaim(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	for i := 0; i < 2; i++ {
+		if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "1"}, nil); code != 201 {
+			t.Fatal(code)
+		}
+	}
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var raw struct {
+		Cells []map[string]any `json:"cells"`
+	}
+	if code := s.call(t, "POST", "/api/daemon/coresearch/claim", s.personalToken(t, a), "", map[string]any{"daemon_id": "work", "runtimes": []service.RuntimeRef{ref}}, &raw); code != 200 {
+		t.Fatal(code)
+	}
+	if len(raw.Cells) != 1 || raw.Cells[0]["claim_token"] == nil {
+		t.Fatalf("claim missing generation: %+v", raw)
+	}
+	id := raw.Cells[0]["id"].(string)
+	token := raw.Cells[0]["claim_token"].(string)
+	url := "/api/daemon/coresearch/cells/" + id + "/start?daemon_id=work&claim_token="
+	if code := s.call(t, "POST", url+uuid.NewString(), s.personalToken(t, a), ws, nil, nil); code != 409 {
+		t.Fatalf("stale generation accepted %d", code)
+	}
+	if code := s.call(t, "POST", url+token, s.personalToken(t, a), ws, nil, nil); code != 204 {
+		t.Fatal(code)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=now()-interval '1 second' WHERE id=$1", id); err != nil {
+		t.Fatal(err)
+	}
+	next := csWork(t, s, a, "work", ref)
+	if len(next.Cells) != 1 || next.Cells[0].ID.String() == id {
+		t.Fatalf("lost claim blocks successor: %+v", next)
+	}
+	if code := s.call(t, "POST", url+token, s.personalToken(t, a), ws, nil, nil); code != 409 {
+		t.Fatalf("expired generation accepted %d", code)
+	}
+}
+func TestCoresearchCellFinishAcknowledgesIdenticalReceipt(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "1"}, nil)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var raw struct {
+		Cells []map[string]any `json:"cells"`
+	}
+	s.call(t, "POST", "/api/daemon/coresearch/claim", s.personalToken(t, a), "", map[string]any{"daemon_id": "work", "runtimes": []service.RuntimeRef{ref}}, &raw)
+	if len(raw.Cells) != 1 || raw.Cells[0]["claim_token"] == nil {
+		t.Fatal("claim has no fencing token")
+	}
+	url := "/api/daemon/coresearch/cells/" + raw.Cells[0]["id"].(string) + "/finish?daemon_id=work&claim_token=" + raw.Cells[0]["claim_token"].(string)
+	result := map[string]any{"status": "ok", "outputs": []any{}}
+	for i := 0; i < 2; i++ {
+		if code := s.call(t, "POST", url, s.personalToken(t, a), ws, result, nil); code != 204 {
+			t.Fatalf("receipt attempt %d: %d", i, code)
+		}
+	}
+	result["status"] = "error"
+	if code := s.call(t, "POST", url, s.personalToken(t, a), ws, result, nil); code != 409 {
+		t.Fatalf("conflicting receipt accepted %d", code)
+	}
+}
+
+// Existing API fixtures supply the generation obtained by their claimed work.
+// Explicit claim_token (including empty) always wins for negative coverage.
+func csContinuation(t *testing.T, s *server, path string) string {
+	u, e := url.Parse(path)
+	if e != nil || u.Query().Has("claim_token") {
+		return path
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) != 6 || parts[0] != "api" || parts[1] != "daemon" || parts[2] != "coresearch" {
+		return path
+	}
+	table := ""
+	switch parts[3] {
+	case "cells":
+		table = "coresearch_cell"
+	case "runs":
+		table = "coresearch_run"
+	case "setups":
+		table = "coresearch_setup"
+	default:
+		return path
+	}
+	id, e := uuid.Parse(parts[4])
+	if e != nil {
+		return path
+	}
+	var token *uuid.UUID
+	if e = s.Env.Owner.QueryRow(t.Context(), "SELECT claim_token FROM "+table+" WHERE id=$1", id).Scan(&token); e != nil || token == nil {
+		return path
+	}
+	q := u.Query()
+	q.Set("claim_token", token.String())
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func TestExpiredSetupClaimsUnblockSuccessorAndRelease(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, chat := csChat(t, s, a, ws, p.ID)
+	for i := 0; i < 2; i++ {
+		if code := s.call(t, "POST", csProjects+"/"+p.ID+"/environment", a, ws, map[string]any{"chat_id": chat.ID, "python": "3.13"}, nil); code != 201 {
+			t.Fatal(code)
+		}
+	}
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	first := csWork(t, s, a, "work", ref)
+	if len(first.Setups) != 1 {
+		t.Fatal(first)
+	}
+	if _, e := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_setup SET lease_expires_at=now()-interval '1 second' WHERE id=$1", first.Setups[0].ID); e != nil {
+		t.Fatal(e)
+	}
+	second := csWork(t, s, a, "work", ref)
+	if len(second.Setups) != 1 || first.Setups[0].ID == second.Setups[0].ID {
+		t.Fatal(second)
+	}
+	if _, e := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_setup SET lease_expires_at=now()-interval '1 second' WHERE id=$1", second.Setups[0].ID); e != nil {
+		t.Fatal(e)
+	}
+	if e := coresearch.Sweep(t.Context(), s.H.Store); e != nil {
+		t.Fatal(e)
+	}
+	if code := s.call(t, "POST", path+"/release", a, ws, nil, nil); code != 204 {
+		t.Fatalf("expired setup prevented release %d", code)
+	}
+}
+func TestCoresearchHeartbeatKeepsOwnerAndTokenBoundary(t *testing.T) {
+	s, a, b, c, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "1"}, nil)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	work := csWork(t, s, a, "work", ref)
+	cell := work.Cells[0]
+	url := "/api/daemon/coresearch/cells/" + cell.ID.String() + "/heartbeat?daemon_id=work&claim_token=" + cell.ClaimToken.String()
+	for _, tok := range []string{b, c} {
+		if code := s.call(t, "POST", url, s.personalToken(t, tok), ws, nil, nil); code != 404 {
+			t.Fatalf("foreign heartbeat %d", code)
+		}
+	}
+	if code := s.call(t, "POST", strings.Replace(url, cell.ClaimToken.String(), "", 1), s.personalToken(t, a), ws, nil, nil); code != 409 {
+		t.Fatalf("missing token heartbeat %d", code)
+	}
+	if _, e := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=now()+interval '1 second' WHERE id=$1", cell.ID); e != nil {
+		t.Fatal(e)
+	}
+	if code := s.call(t, "POST", url, s.personalToken(t, a), ws, nil, nil); code != 200 {
+		t.Fatal(code)
+	}
+	var expiry time.Time
+	if e := s.Env.Owner.QueryRow(t.Context(), "SELECT lease_expires_at FROM coresearch_cell WHERE id=$1", cell.ID).Scan(&expiry); e != nil || expiry.Before(time.Now().Add(time.Minute)) {
+		t.Fatal(expiry, e)
 	}
 }

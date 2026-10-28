@@ -88,6 +88,8 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
       return [keys.runtimes(ws), keys.storage(ws)];
     case 'member':
       return [
+        keys.coresearchProjects(ws),
+        ['ws', ws, 'coresearch'],
         keys.members(ws),
         keys.workspaces,
         keys.agents(ws),

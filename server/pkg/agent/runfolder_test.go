@@ -31,6 +31,7 @@ var notInRunFolder = map[string]string{
 	".system_generated":        "inside the CLI's session store",
 	".sqlite-maintenance.lock": "inside the account's Codex home, not the run folder",
 	".scratch-retired-":        "beside the run folders, not in one",
+	".ack-":                    "acknowledged Coresearch receipt directory inside protected StateDir/coresearch-receipts, never a run folder",
 }
 
 // Every name the adapters and the daemon keep at the top of a run's folder

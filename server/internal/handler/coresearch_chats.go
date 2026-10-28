@@ -220,6 +220,9 @@ func (h *H) releaseCoresearchChat(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			return e
 		}
+		if e := coresearch.Expire(r.Context(), tx); e != nil {
+			return e
+		}
 		busy, e := tx.Q.CoresearchChatBusy(r.Context(), db.CoresearchChatBusyParams{WorkspaceID: ws, ChatID: c.ID})
 		if e != nil {
 			return e

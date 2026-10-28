@@ -316,6 +316,9 @@ type CoresearchCell struct {
 	FinishedAt      *time.Time      `json:"finished_at"`
 	FailureReason   *string         `json:"failure_reason"`
 	ClaimedDaemonID *string         `json:"claimed_daemon_id"`
+	ClaimToken      *uuid.UUID      `json:"claim_token"`
+	LeaseExpiresAt  *time.Time      `json:"lease_expires_at"`
+	ReceiptSha      *string         `json:"receipt_sha"`
 }
 
 type CoresearchChat struct {
@@ -406,6 +409,9 @@ type CoresearchRun struct {
 	FailureReason   *string         `json:"failure_reason"`
 	ClaimedDaemonID *string         `json:"claimed_daemon_id"`
 	ExpectedEnvSha  *string         `json:"expected_env_sha"`
+	ClaimToken      *uuid.UUID      `json:"claim_token"`
+	LeaseExpiresAt  *time.Time      `json:"lease_expires_at"`
+	ReceiptSha      *string         `json:"receipt_sha"`
 }
 
 type CoresearchSetup struct {
@@ -422,6 +428,9 @@ type CoresearchSetup struct {
 	FinishedAt      *time.Time `json:"finished_at"`
 	FailureReason   *string    `json:"failure_reason"`
 	ClaimedDaemonID *string    `json:"claimed_daemon_id"`
+	ClaimToken      *uuid.UUID `json:"claim_token"`
+	LeaseExpiresAt  *time.Time `json:"lease_expires_at"`
+	ReceiptSha      *string    `json:"receipt_sha"`
 }
 
 type Event struct {

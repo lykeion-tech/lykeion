@@ -1,3 +1,6 @@
+DROP FUNCTION IF EXISTS public.coresearch_expire();
+DROP FUNCTION IF EXISTS public.coresearch_expired_workspaces();
+DROP FUNCTION IF EXISTS public.coresearch_depart(uuid);
 DROP FUNCTION IF EXISTS public.coresearch_revoke(uuid,uuid);
 DROP FUNCTION public.coresearch_settle(uuid);
 DROP FUNCTION public.coresearch_blob_referenced(text);

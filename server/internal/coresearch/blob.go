@@ -20,11 +20,12 @@ type UploadBlob struct {
 	SHA256 string
 	Body   io.Reader
 	Size   int64
+	Open   func() (io.ReadCloser, error)
 }
 
 // WithBlob coordinates content-addressed storage outside the save transaction.
 func WithBlob(ctx context.Context, st *store.Store, blobs storage.Storage, ws, user uuid.UUID, sha string, body io.Reader, size int64, save func() error) error {
-	return WithBlobs(ctx, st, blobs, ws, user, []UploadBlob{{sha, body, size}}, save)
+	return WithBlobs(ctx, st, blobs, ws, user, []UploadBlob{{SHA256: sha, Body: body, Size: size}}, save)
 }
 
 // WithBlobs holds sorted workspace/blob locks on one dedicated connection until
@@ -87,7 +88,20 @@ func WithBlobs(ctx context.Context, st *store.Store, blobs storage.Storage, ws, 
 			return e
 		}
 		fresh = append(fresh, up.SHA256)
-		if e = blobs.Put(ctx, key, up.Body, up.Size); e != nil {
+		body := up.Body
+		var closer io.ReadCloser
+		if up.Open != nil {
+			closer, e = up.Open()
+			if e != nil {
+				return e
+			}
+			body = closer
+		}
+		e = blobs.Put(ctx, key, body, up.Size)
+		if closer != nil {
+			e = errors.Join(e, closer.Close())
+		}
+		if e != nil {
 			return e
 		}
 	}

@@ -125,6 +125,7 @@ func (s *server) seedCard(t *testing.T, tok, wsID, question string, agent *uuid.
 // call sends a JSON request with an optional bearer token and workspace, and
 // decodes the JSON answer into out when out is not nil.
 func (s *server) call(t *testing.T, method, path, token, ws string, in, out any) int {
+	path = csContinuation(t, s, path)
 	t.Helper()
 	var body io.Reader
 	if in != nil {

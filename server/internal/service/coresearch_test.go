@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"testing"
 
 	"lykeion/server/internal/store"
@@ -50,5 +51,18 @@ func TestCoresearchRevocationReasonIsServerOnly(t *testing.T) {
 	r := Report{FailureReason: "coresearch_access_revoked"}
 	if e := r.check(false); e != ErrBadReport {
 		t.Fatal(e)
+	}
+}
+
+func TestCoresearchLifecyclePayloadContainsOnlyIdentifiers(t *testing.T) {
+	id, chat := uuid.New(), uuid.New()
+	event := agentRunEvent(db.AgentRun{ID: id, Kind: "coresearch", CoresearchChatID: &chat, Role: "coresearch", Status: "running", Attempt: 2})
+	for key := range event {
+		if key != "agent_run_id" && key != "chat_id" {
+			t.Fatalf("metadata leaked: %s=%v", key, event[key])
+		}
+	}
+	if event["agent_run_id"] != id || event["chat_id"] != chat {
+		t.Fatal(event)
 	}
 }

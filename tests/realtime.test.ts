@@ -92,7 +92,14 @@ describe('event to query map', () => {
   });
   it('membership changes refresh capability permissions on both summaries and open details', () => {
     const client = new QueryClient();
-    const resources = [keys.skills('w1'), keys.skill('w1', 's1'), keys.workspaceMCP('w1')];
+    const resources = [
+      keys.skills('w1'),
+      keys.skill('w1', 's1'),
+      keys.workspaceMCP('w1'),
+      keys.coresearchProjects('w1'),
+      keys.coresearchProject('w1', 'p'),
+      keys.coresearchMembers('w1', 'p'),
+    ];
     resources.forEach((key) => client.setQueryData(key, ['old permissions']));
     client.setQueryData(keys.skill('w2', 's1'), ['other']);
     for (const queryKey of invalidationsFor('w1', ev('member.role_changed', null)))

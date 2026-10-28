@@ -465,3 +465,63 @@ func TestCoresearchTurnClaimRequiresExplicitMode(t *testing.T) {
 		t.Fatalf("second chat blocked by runtime slots: %d %+v", code, got)
 	}
 }
+
+func TestCoresearchLifecycleReplayOutsideProjectHasOnlyIdentifiers(t *testing.T) {
+	s, a, b, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	run := csTurn(t, s, a, ws, path)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	owner := uuid.MustParse(s.userID(t, a))
+	first := csClaim(t, s, a, ref)
+	if len(first) != 1 {
+		t.Fatal(first)
+	}
+	ref.Attempt = first[0].AgentRun.Attempt
+	if e := s.H.AgentRuns.Start(t.Context(), owner, ref, run.ID); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.H.AgentRuns.Fail(t.Context(), owner, ref, run.ID, service.Report{Error: "temporary", FailureReason: "provider_network"}); e != nil {
+		t.Fatal(e)
+	}
+	second := csClaim(t, s, a, ref)
+	if len(second) != 1 {
+		t.Fatal(second)
+	}
+	ref.Attempt = second[0].AgentRun.Attempt
+	if e := s.H.AgentRuns.Start(t.Context(), owner, ref, run.ID); e != nil {
+		t.Fatal(e)
+	}
+	if code := s.call(t, "POST", path+"/turns/"+run.ID.String()+"/cancel", a, ws, nil, nil); code != 204 {
+		t.Fatal(code)
+	}
+	conn := dial(t, s, b, ws, 0)
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	seen := map[string]int{}
+	for {
+		var msg struct {
+			Event struct {
+				Type    string
+				Payload map[string]any
+			}
+		}
+		if e := conn.ReadJSON(&msg); e != nil {
+			t.Fatal(e)
+		}
+		if !strings.HasPrefix(msg.Event.Type, "agent_run.") {
+			continue
+		}
+		for key := range msg.Event.Payload {
+			if !strings.HasSuffix(key, "_id") {
+				t.Fatalf("lifecycle replay leaked %s: %+v", key, msg.Event)
+			}
+		}
+		seen[msg.Event.Type]++
+		if msg.Event.Type == "agent_run.cancelled" {
+			break
+		}
+	}
+	if seen["agent_run.dispatched"] != 2 || seen["agent_run.started"] != 2 {
+		t.Fatalf("missing retry replay: %+v", seen)
+	}
+}

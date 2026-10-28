@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -55,5 +56,11 @@ func (s *Study) ExecutionLease(ctx context.Context) (func(), error) {
 		lock.Unlock()
 		return nil, err
 	}
-	return lock.Unlock, nil
+	release, err := projectFileLease(ctx, s.Bases.Dir, s.Dir)
+	if err != nil {
+		lock.Unlock()
+		return nil, err
+	}
+	var once sync.Once
+	return func() { once.Do(func() { release(); lock.Unlock() }) }, nil
 }

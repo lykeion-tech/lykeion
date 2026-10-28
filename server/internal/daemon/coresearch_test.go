@@ -45,7 +45,7 @@ type coreFixture struct {
 
 func newCoreFixture(t *testing.T) *coreFixture {
 	t.Helper()
-	f := &coreFixture{work: coresearch.WorkContext{ChatID: uuid.New(), ProjectID: uuid.New(), WorkspaceID: uuid.New()}, blobs: map[string]string{}}
+	f := &coreFixture{work: coresearch.WorkContext{ChatID: uuid.New(), ProjectID: uuid.New(), WorkspaceID: uuid.New(), ClaimToken: uuid.New()}, blobs: map[string]string{}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -58,7 +58,7 @@ func newCoreFixture(t *testing.T) *coreFixture {
 			return
 		}
 		switch {
-		case strings.HasSuffix(r.URL.Path, "/status"):
+		case strings.HasSuffix(r.URL.Path, "/status") || strings.HasSuffix(r.URL.Path, "/heartbeat"):
 			if f.revoked.Load() {
 				http.Error(w, "revoked", 404)
 				return
@@ -68,7 +68,7 @@ func newCoreFixture(t *testing.T) *coreFixture {
 				return
 			}
 			status := "active"
-			if strings.Contains(r.URL.Path, "/runs/") || strings.Contains(r.URL.Path, "/setups/") {
+			if strings.Contains(r.URL.Path, "/runs/") || strings.Contains(r.URL.Path, "/setups/") || strings.Contains(r.URL.Path, "/cells/") {
 				status = "running"
 			}
 			json.NewEncoder(w).Encode(map[string]string{"status": status})
@@ -83,6 +83,14 @@ func newCoreFixture(t *testing.T) *coreFixture {
 			_, _ = w.Write([]byte(f.blobs[filepath.Base(r.URL.Path)]))
 		default:
 			if strings.HasSuffix(r.URL.Path, "/finish") {
+				if f.revoked.Load() {
+					http.Error(w, "revoked", 404)
+					return
+				}
+				if f.cancelled.Load() {
+					http.Error(w, "cancelled", 409)
+					return
+				}
 				f.finishes.Add(1)
 				if strings.Contains(r.URL.Path, "/cells/") {
 					f.finishedPath = r.URL.Path
@@ -990,7 +998,27 @@ func TestCoresearchSharedPythonRetiresSiblingSession(t *testing.T) {
 	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: other, ID: uuid.New(), Kernel: "python3", Source: "host"}))
 	old := sibling.sessions
 	oldView := sibling.study
-	version := "3.13"
+	version := "3.12" // An explicit pin may replace unpinned default 3.13 scratch.
+	// Exercise the supported setup path with the existing fake installer.
+	// The test binary supplies the kernel bridge on both sides of the switch.
+	installer := strings.ReplaceAll(recordedSetupStub, "3.13", version)
+	installer = strings.Replace(installer, `mkdir -p "$dest/bin"`, `mkdir -p "$dest/bin"; rm -f "$dest/bin/python"`, 1)
+	installRecordedSetupStub(t, h.study, installer)
+	setup := h.study.ForRun()
+	setup.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+		// The bridge helper is not a Python CLI; model its initially empty local package inventory.
+		if name == filepath.Join(setup.Dir, "python/bin/python") && slices.Equal(args, []string{"-m", "pip", "freeze", "--local"}) {
+			return nil, nil
+		}
+		return setup.Bases.Run(ctx, env, dir, name, args...)
+	}
+	_, err = setup.SetUpConda(t.Context(), version, nil, "")
+	must(t, err)
+	exe, err := os.Executable()
+	must(t, err)
+	python := filepath.Join(h.study.Dir, "python", "bin", "python")
+	must(t, os.Remove(python))
+	must(t, os.Symlink(exe, python))
 	updated := f.work
 	updated.PythonVersion = &version
 	_, err = f.d.chat(t.Context(), updated)
@@ -1072,5 +1100,113 @@ func TestCoresearchRestartHonorsClaimedPython(t *testing.T) {
 	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "host"}))
 	if h.kernelPython != version {
 		t.Fatal("next cell lost restart's authoritative pin")
+	}
+}
+
+func TestCoresearchCellRetainsFailedFinishReceipt(t *testing.T) {
+	f := coreKernelFixture(t)
+	original := http.DefaultTransport
+	f.d.api.HTTP = &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/finish") {
+			return &http.Response{StatusCode: 503, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("temporary"))}, nil
+		}
+		return original.RoundTrip(r)
+	})}
+	c := coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "custom", Source: "host"}
+	if err := f.d.runCell(t.Context(), c); err == nil {
+		t.Fatal("finish failure disappeared")
+	}
+	entries, err := os.ReadDir(filepath.Join(f.d.cfg.StateDir, "coresearch-receipts"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("terminal result was discarded: %v %v", entries, err)
+	}
+}
+
+func TestCoresearchRecoveryRetriesReceiptWithoutExecutingCell(t *testing.T) {
+	f := coreKernelFixture(t)
+	original := http.DefaultTransport
+	fail := true
+	starts := 0
+	f.d.api.HTTP = &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/start") {
+			starts++
+		}
+		if fail && strings.HasSuffix(r.URL.Path, "/finish") {
+			return &http.Response{StatusCode: 503, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("temporary"))}, nil
+		}
+		return original.RoundTrip(r)
+	})}
+	c := coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "custom", Source: "host"}
+	if err := f.d.runCell(t.Context(), c); err == nil {
+		t.Fatal("missing failed finish")
+	}
+	f.d.stopChats()
+	fail = false
+	must(t, f.d.recoverCoresearch())
+	must(t, f.d.flushCoresearch(t.Context()))
+	if starts != 1 || f.finishes.Load() != 1 {
+		t.Fatalf("recovery starts=%d finishes=%d", starts, f.finishes.Load())
+	}
+	entries, e := os.ReadDir(filepath.Join(f.d.cfg.StateDir, "coresearch-receipts"))
+	must(t, e)
+	if len(entries) != 0 {
+		t.Fatal(entries)
+	}
+}
+func TestCoresearchRecoveryFailsUnfinishedClaimsWithoutExecution(t *testing.T) {
+	f := newCoreFixture(t)
+	id := uuid.New()
+	must(t, f.d.journalCoresearch(f.work, "cells", id))
+	must(t, f.d.recoverCoresearch())
+	must(t, f.d.flushCoresearch(t.Context()))
+	if f.finishedCell["status"] != "interrupted" || f.finishes.Load() != 1 {
+		t.Fatal(f.finishedCell)
+	}
+}
+func TestCoresearchMonitorFailureCancelsAndReportsCell(t *testing.T) {
+	f := coreKernelFixture(t)
+	original := http.DefaultTransport
+	f.d.api.HTTP = &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/heartbeat") {
+			return &http.Response{StatusCode: 503, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("temporary"))}, nil
+		}
+		return original.RoundTrip(r)
+	})}
+	done := make(chan error, 1)
+	go func() {
+		done <- f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "custom", Source: "wait"})
+	}()
+	waitCoreFile(t, filepath.Join(f.dir(), "cell-wait"))
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("offline cell continued")
+	}
+	if f.finishes.Load() != 1 || f.finishedCell["status"] != "interrupted" {
+		t.Fatalf("lost terminal receipt: %+v", f.finishedCell)
+	}
+}
+
+func TestCoresearchTransientReceiptFlushRetainsAndRetries(t *testing.T) {
+	f := newCoreFixture(t)
+	id := uuid.New()
+	must(t, f.d.journalCoresearch(f.work, "cells", id))
+	must(t, f.d.recoverCoresearch())
+	f.d.api.HTTP = &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 503, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("temporary"))}, nil
+	})}
+	must(t, f.d.flushCoresearch(t.Context()))
+	entries, e := os.ReadDir(filepath.Join(f.d.cfg.StateDir, "coresearch-receipts"))
+	must(t, e)
+	if len(entries) != 1 {
+		t.Fatal("transient flush discarded evidence")
+	}
+	f.d.api.HTTP = &http.Client{}
+	must(t, f.d.flushCoresearch(t.Context()))
+	if f.finishes.Load() != 1 {
+		t.Fatal("receipt did not retry")
 	}
 }

@@ -130,8 +130,7 @@ func TestEnvShaStable(t *testing.T) {
 	must(t, e)
 	b, e := recordedEnvSHA(t.Context(), s)
 	must(t, e)
-	sum := sha256.Sum256([]byte("\x00# python base\nbase\n# python study\nnumpy==1\n"))
-	if a != b || a != hex.EncodeToString(sum[:]) {
+	if a != b || len(a) != 64 {
 		t.Fatal(a, b)
 	}
 }
@@ -144,10 +143,11 @@ func newRecordedFixture(t *testing.T, script string) (*coreFixture, coresearch.C
 	f := newCoreFixture(t)
 	s := fakeStudy(t, envs.Python)
 	f.d.bases = s.Bases
+	must(t, os.WriteFile(filepath.Join(s.Bases.Dir, "python/bin/python"), []byte("#!/bin/sh\necho base-inventory\n"), 0700))
 	s, e := f.d.recordedStudy(t.Context(), f.work)
 	must(t, e)
 	must(t, os.MkdirAll(filepath.Join(s.Dir, "python/bin"), 0700))
-	must(t, os.WriteFile(filepath.Join(s.Dir, "python/bin/python"), []byte("#!/bin/sh\nif [ \"$1\" = -m ]; then echo 'numpy==1'; exit; fi\nexec /bin/sh \"$@\"\n"), 0700))
+	must(t, os.WriteFile(filepath.Join(s.Dir, "python/bin/python"), []byte("#!/bin/sh\nif [ \"$1\" = -m ] || [ \"$1\" = -c ]; then echo 'numpy==1'; exit; fi\nexec /bin/sh \"$@\"\n"), 0700))
 	f.saved("script.py", script, 1)
 	c := coresearch.ClaimedRun{WorkContext: f.work, ID: uuid.New(), Script: f.files[0], Seed: 42}
 	facts := map[string]any{}
@@ -171,6 +171,7 @@ func TestRerunRefusesChangedEnvironment(t *testing.T) {
 	f, c, _, facts := newRecordedFixture(t, "echo executed; echo result > out/result")
 	expected := strings.Repeat("0", 64)
 	c.ExpectedEnvSHA = &expected
+	c.ExpectedEnvVersion = envs.FingerprintVersion
 	e := f.d.dispatchCoresearchRun(t.Context(), c)
 	if e == nil || !strings.Contains(e.Error(), recordedChanged) || (*facts)["stdout_tail"] != "" || (*facts)["status"] != "failed" {
 		t.Fatal(e, *facts)
@@ -213,7 +214,10 @@ func TestRunRevocationStopsProcess(t *testing.T) {
 			previous := f.d.api.HTTP.Transport
 			var lost atomic.Bool
 			f.d.api.HTTP.Transport = coreRoundTrip(func(r *http.Request) (*http.Response, error) {
-				if lost.Load() && strings.Contains(r.URL.Path, "/runs/") && strings.HasSuffix(r.URL.Path, "/status") {
+				if lost.Load() && strings.Contains(r.URL.Path, "/runs/") && strings.HasSuffix(r.URL.Path, "/finish") {
+					return &http.Response{StatusCode: 404, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("revoked"))}, nil
+				}
+				if lost.Load() && strings.Contains(r.URL.Path, "/runs/") && (strings.HasSuffix(r.URL.Path, "/status") || strings.HasSuffix(r.URL.Path, "/heartbeat")) {
 					code, body := 200, `{"status":"cancelled"}`
 					if status == "revoked" {
 						code, body = 404, ""
@@ -470,6 +474,9 @@ func TestSetupRevocationStopsProcess(t *testing.T) {
 			previous := f.d.api.HTTP.Transport
 			f.d.api.HTTP.Transport = coreRoundTrip(func(r *http.Request) (*http.Response, error) {
 				if strings.Contains(r.URL.Path, "/setups/") {
+					if lost.Load() && strings.HasSuffix(r.URL.Path, "/finish") {
+						return &http.Response{StatusCode: 404, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("revoked"))}, nil
+					}
 					if strings.HasSuffix(r.URL.Path, "/finish") {
 						var body map[string]string
 						json.NewDecoder(r.Body).Decode(&body)
@@ -478,7 +485,7 @@ func TestSetupRevocationStopsProcess(t *testing.T) {
 						}
 						return &http.Response{StatusCode: 204, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{}}, nil
 					}
-					if strings.HasSuffix(r.URL.Path, "/status") && lost.Load() {
+					if (strings.HasSuffix(r.URL.Path, "/status") || strings.HasSuffix(r.URL.Path, "/heartbeat")) && lost.Load() {
 						code, body := 200, `{"status":"cancelled"}`
 						if revoke {
 							code, body = 404, ""
@@ -627,7 +634,10 @@ func TestRunOutputsAreImmutableSnapshots(t *testing.T) {
 	must(t, e)
 	defer closeRecordedOutputs(outputs)
 	must(t, os.WriteFile(path, []byte("changed after collection"), 0600))
-	b, e := io.ReadAll(outputs[0].file)
+	snapshot, e := coresearch.OpenSnapshot(outputs[0].file, outputs[0].size, outputs[0].sha)
+	must(t, e)
+	defer snapshot.Close()
+	b, e := io.ReadAll(snapshot)
 	must(t, e)
 	sum := sha256.Sum256(b)
 	if string(b) != "original" || outputs[0].sha != hex.EncodeToString(sum[:]) {
@@ -650,5 +660,191 @@ func TestRunRejectsBadBlobBeforeExecute(t *testing.T) {
 	e := f.d.dispatchCoresearchRun(t.Context(), c)
 	if e == nil || (*facts)["status"] != "failed" || (*facts)["stdout_tail"] != "" {
 		t.Fatal(e, *facts)
+	}
+}
+
+func TestRecordedOutputSnapshotsDoNotRetainDescriptors(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 240; i++ {
+		must(t, os.WriteFile(filepath.Join(dir, strconv.Itoa(i)), nil, 0600))
+	}
+	count := func() int {
+		f, e := os.Open("/dev/fd")
+		must(t, e)
+		defer f.Close()
+		names, e := f.Readdirnames(-1)
+		must(t, e)
+		return len(names)
+	}
+	before := count()
+	outputs, _, err := collectRecordedOutputs(dir)
+	must(t, err)
+	defer closeRecordedOutputs(outputs)
+	after := count()
+	if len(outputs) != 240 || after > before+8 {
+		t.Fatalf("outputs=%d retained descriptors=%d", len(outputs), after-before)
+	}
+}
+
+func TestRecordedInventoryIncludesReachableRAndJulia(t *testing.T) {
+	for _, lang := range []string{envs.R, envs.Julia} {
+		t.Run(lang, func(t *testing.T) {
+			s := envs.ForStudy(envs.NewBases(t.TempDir()), t.TempDir())
+			s.ReadOnly = true
+			for _, dir := range []string{filepath.Join(s.Bases.Dir, "python"), filepath.Join(s.Bases.Dir, "r"), filepath.Join(s.Bases.Dir, "julia/base"), filepath.Join(s.Dir, "python/bin"), filepath.Join(s.Dir, "r/library"), filepath.Join(s.Dir, "julia")} {
+				must(t, os.MkdirAll(dir, 0700))
+			}
+			for _, path := range []string{filepath.Join(s.Bases.Dir, "python/ready"), filepath.Join(s.Bases.Dir, "python/lock.txt"), filepath.Join(s.Bases.Dir, "r/ready"), filepath.Join(s.Bases.Dir, "julia/base/ready"), filepath.Join(s.Dir, "python/bin/python"), filepath.Join(s.Dir, "r/Rprofile"), filepath.Join(s.Dir, "julia/Project.toml")} {
+				must(t, os.WriteFile(path, nil, 0700))
+			}
+			version := "v1"
+			s.Run = func(_ context.Context, _ []string, _ string, name string, args ...string) ([]byte, error) {
+				if name == "/bin/sh" {
+					return nil, nil
+				}
+				if lang == envs.R && strings.Contains(name, "Rscript") || lang == envs.Julia && filepath.Base(name) == "julia" {
+					return []byte(version), nil
+				}
+				return []byte("stable"), nil
+			}
+			a, e := recordedEnvSHA(t.Context(), s)
+			must(t, e)
+			version = "v2"
+			b, e := recordedEnvSHA(t.Context(), s)
+			must(t, e)
+			if a == b {
+				t.Fatal("changed reachable language inventory did not change environment SHA")
+			}
+		})
+	}
+}
+
+func TestRecordedInventoryRealOwnedRuntime(t *testing.T) {
+	base, project := os.Getenv("LYK_CORESEARCH_INVENTORY_BASES"), os.Getenv("LYK_CORESEARCH_INVENTORY_PROJECT")
+	if base == "" || project == "" {
+		t.Skip("explicit task-owned runtime paths required")
+	}
+	if !strings.HasPrefix(base, "/tmp/lyk-test/coresearch-live-") || !strings.HasPrefix(project, base+"/coresearch/") {
+		t.Fatal("requires task-owned live runtime")
+	}
+	f := newCoreFixture(t)
+	s := envs.ForStudy(envs.NewBases(base), project)
+	if os.Getenv("LYK_CORESEARCH_INVENTORY_INSTALL_JULIA") == "1" {
+		must(t, s.Bases.Ensure(t.Context(), envs.Julia))
+		tmp := t.TempDir()
+		must(t, os.Mkdir(filepath.Join(tmp, "home"), 0700))
+		policy, err := f.d.recordedPolicy(s, s.Dir, tmp, true)
+		must(t, err)
+		s.Run = f.d.recordedRunner(f.work, "setups", uuid.New(), s, policy, tmp, 0, nil)
+		_, err = s.Environment(t.Context())
+		must(t, err)
+	}
+	s.ReadOnly = true
+	dir := t.TempDir()
+	tmp := filepath.Join(dir, "tmp")
+	for _, name := range []string{"tmp/home", "out", "in", "script"} {
+		must(t, os.MkdirAll(filepath.Join(dir, name), 0700))
+	}
+	policy, err := f.d.recordedPolicy(s, dir, tmp, false)
+	must(t, err)
+	runner := f.d.recordedRunner(f.work, "runs", uuid.New(), s, policy, tmp, 0, nil)
+	s.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+		out, err := runner(ctx, env, dir, name, args...)
+		if err != nil {
+			t.Logf("inventory process %s: %s", name, out)
+		}
+		return out, err
+	}
+	first, err := s.Fingerprint(t.Context())
+	must(t, err)
+	second, err := s.Fingerprint(t.Context())
+	must(t, err)
+	if first != second {
+		t.Fatalf("nondeterministic live inventory %s != %s", first, second)
+	}
+	t.Logf("actual sandbox inventories: Python=%v R=%v Julia=%v SHA=%s", s.Bases.Ready(envs.Python), s.Bases.Ready(envs.R), s.Bases.Ready(envs.Julia), first)
+}
+
+func TestRecordedReceiptRecoveryUsesDurableOutputs(t *testing.T) {
+	f, c, _, _ := newRecordedFixture(t, "echo original > out/result; echo finished")
+	previous := f.d.api.HTTP.Transport
+	f.d.api.HTTP.Transport = coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/finish") {
+			return &http.Response{StatusCode: 503, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("temporary"))}, nil
+		}
+		return previous.RoundTrip(r)
+	})
+	if e := f.d.dispatchCoresearchRun(t.Context(), c); e == nil {
+		t.Fatal("expected lost finish")
+	}
+	if _, e := os.Stat(filepath.Join(f.d.cfg.Home, "coresearch-runs", c.ID.String())); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("execution scratch survived", e)
+	}
+	must(t, f.d.recoverCoresearch())
+	var received string
+	f.d.api.HTTP.Transport = coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/finish") {
+			reader, e := r.MultipartReader()
+			if e != nil {
+				return nil, e
+			}
+			for {
+				part, e := reader.NextPart()
+				if e == io.EOF {
+					break
+				}
+				if e != nil {
+					return nil, e
+				}
+				b, e := io.ReadAll(part)
+				if e != nil {
+					return nil, e
+				}
+				if part.FileName() != "" {
+					received = string(b)
+				}
+			}
+			return &http.Response{StatusCode: 204, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+		return previous.RoundTrip(r)
+	})
+	must(t, f.d.flushCoresearch(t.Context()))
+	if received != "original\n" {
+		t.Fatalf("recovered bytes %q", received)
+	}
+}
+
+func TestRecordedInventoryFailsClosedAndSortsPackages(t *testing.T) {
+	f, _, s, _ := newRecordedFixture(t, ":")
+	defer f.d.stopChats()
+	mode := "forward"
+	s.ReadOnly = true
+	s.Run = func(_ context.Context, _ []string, _ string, name string, _ ...string) ([]byte, error) {
+		if name == "/bin/sh" {
+			return nil, nil
+		}
+		switch mode {
+		case "failure":
+			return nil, errors.New("broken inventory")
+		case "oversized":
+			return make([]byte, (4<<20)+1), nil
+		case "reverse":
+			return []byte("b==2\na==1\n"), nil
+		}
+		return []byte("a==1\nb==2\n"), nil
+	}
+	a, e := s.Fingerprint(t.Context())
+	must(t, e)
+	mode = "reverse"
+	b, e := s.Fingerprint(t.Context())
+	must(t, e)
+	if a != b {
+		t.Fatal("package order changes inventory")
+	}
+	for _, v := range []string{"failure", "oversized"} {
+		mode = v
+		if sha, e := s.Fingerprint(t.Context()); e == nil || sha != "" {
+			t.Fatal("inventory did not fail closed", v, e)
+		}
 	}
 }

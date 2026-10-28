@@ -130,7 +130,13 @@ export interface RecordedRun {
   seed?: number;
   env_sha: string | null;
   status: string;
-  facts: { stdout_tail?: string; stderr_tail?: string; matches_original?: boolean } | null;
+  facts: {
+    error?: string;
+    env_fingerprint_version?: string;
+    stdout_tail?: string;
+    stderr_tail?: string;
+    matches_original?: boolean;
+  } | null;
   rerun_of: string | null;
   finished_at: string | null;
   failure_reason?: string | null;

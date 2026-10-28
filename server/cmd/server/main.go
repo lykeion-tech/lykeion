@@ -225,6 +225,9 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			case <-sweepCtx.Done():
 				return
 			case <-ticker.C:
+				if err := coresearch.Sweep(sweepCtx, st); err != nil && sweepCtx.Err() == nil {
+					slog.Error("Coresearch sweep", "err", err)
+				}
 				if err := runs.Sweep(sweepCtx); err != nil && sweepCtx.Err() == nil {
 					slog.Error("sweep", "err", err)
 				}

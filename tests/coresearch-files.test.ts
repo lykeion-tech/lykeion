@@ -384,3 +384,23 @@ describe('Coresearch files and runs', () => {
     expect(discardDialog.value).toBe(false);
   });
 });
+
+it.each([
+  'set up the project environment first (lyk env set-up)',
+  'the original run environment is unavailable; restore it before rerunning',
+])('shows zero-output run failure and logs: %s', async (error) => {
+  const failed = run({
+    status: 'failed',
+    facts: { error, stdout_tail: 'before failure', stderr_tail: '<script>unsafe()</script>' },
+  });
+  const { root, settle } = await mount(RunsPane, {}, (c) => {
+    c.setQueryData(keys.coresearchRuns('lab', 'p'), [failed]);
+    c.setQueryData(keys.coresearchRun('lab', 'p', 'R1'), { ...failed, outputs: [] });
+  });
+  expect(textOf(root)).toContain(error);
+  (button(root, 'Execution log R1')!.props.onClick as () => void)();
+  await settle();
+  expect(textOf(root)).toContain('before failure');
+  expect(textOf(root)).toContain('<script>unsafe()</script>');
+  expect(all(root).some((n) => n.props.innerHTML)).toBe(false);
+});

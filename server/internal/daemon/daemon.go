@@ -116,10 +116,11 @@ type claimed struct {
 	Skills []toolroute.RoutedSkill `json:"skills"`
 }
 type daemon struct {
-	chatsMu    sync.Mutex
-	chats      map[uuid.UUID]*chatHost
-	coreActive map[string]bool
-	coreWork   map[uuid.UUID]bool
+	chatsMu       sync.Mutex
+	chats         map[uuid.UUID]*chatHost
+	coreActive    map[string]bool
+	coreWork      map[uuid.UUID]bool
+	coreReceiptMu sync.Mutex
 
 	serviceCommand    func(sandbox.Policy, context.Context, string, ...string) (*exec.Cmd, error)
 	serviceReadyLimit time.Duration
@@ -206,6 +207,9 @@ func Run(ctx context.Context, cfg Config) error {
 	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}, bases: cfg.Bases}
 	d.messages = &Outbox{Dir: filepath.Join(cfg.StateDir, "messages"), Send: d.sendMessages}
 	d.out = &Outbox{Dir: filepath.Join(cfg.StateDir, "outbox"), Send: d.send}
+	if err = d.recoverCoresearch(); err != nil {
+		return err
+	}
 	if err = d.recoverAttempts(ctx); err != nil {
 		return err
 	}
@@ -511,6 +515,9 @@ func (d *daemon) hints(ctx context.Context) {
 	}
 }
 func (d *daemon) flush(ctx context.Context) error {
+	if err := d.flushCoresearch(ctx); err != nil {
+		return err
+	}
 	if err := d.messages.Flush(ctx); err != nil {
 		return err
 	}

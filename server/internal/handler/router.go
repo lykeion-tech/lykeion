@@ -117,6 +117,7 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/coresearch/chats/{chat}/status", h.daemonCoresearchChatStatus)
 			r.Get("/coresearch/blobs/{sha}", h.daemonCoresearchBlob)
 			r.Get("/coresearch/{kind}/{id}/status", h.daemonCoresearchStatus)
+			r.Post("/coresearch/{kind}/{id}/heartbeat", h.daemonCoresearchStatus)
 			r.Post("/register", h.daemonRegister)
 			r.Post("/heartbeat", h.daemonHeartbeat)
 			r.Post("/runtimes/{id}/local-skills", h.claimRuntimeSkills("list"))

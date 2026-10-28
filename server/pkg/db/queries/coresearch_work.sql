@@ -6,11 +6,11 @@ SELECT * FROM coresearch_cell WHERE workspace_id= @workspace_id AND chat_id= @ch
 -- name: GetCoresearchCell :one
 SELECT * FROM coresearch_cell WHERE workspace_id= @workspace_id AND id= @id;
 -- name: ClaimCoresearchCell :one
-UPDATE coresearch_cell SET status='running',claimed_daemon_id= @daemon_id WHERE id=(SELECT c.id FROM coresearch_cell c WHERE c.workspace_id= @workspace_id AND c.chat_id= @chat_id AND c.status='queued' AND NOT EXISTS(SELECT 1 FROM coresearch_cell x WHERE x.chat_id=c.chat_id AND x.status='running') ORDER BY c.seq LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *;
+UPDATE coresearch_cell SET status='running',claimed_daemon_id= @daemon_id,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id=(SELECT c.id FROM coresearch_cell c WHERE c.workspace_id= @workspace_id AND c.chat_id= @chat_id AND c.status='queued' AND NOT EXISTS(SELECT 1 FROM coresearch_cell x WHERE x.chat_id=c.chat_id AND x.status='running') ORDER BY c.seq LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *;
 -- name: StartCoresearchCell :exec
 UPDATE coresearch_cell SET started_at=coalesce(started_at,now()) WHERE workspace_id= @workspace_id AND id= @id AND status='running';
 -- name: FinishCoresearchCell :one
-UPDATE coresearch_cell SET status= @status,execution_count=sqlc.narg(execution_count),outputs=sqlc.narg(outputs),outputs_blob=sqlc.narg(outputs_blob),finished_at=now() WHERE workspace_id= @workspace_id AND id= @id AND status='running' RETURNING *;
+UPDATE coresearch_cell SET status= @status,execution_count=sqlc.narg(execution_count),outputs=sqlc.narg(outputs),outputs_blob=sqlc.narg(outputs_blob),finished_at=now(),receipt_sha= @receipt_sha WHERE workspace_id= @workspace_id AND id= @id AND status='running' RETURNING *;
 -- name: RequestCoresearchKernel :exec
 UPDATE coresearch_chat SET kernel_request= @op,kernel_request_seq=kernel_request_seq+1 WHERE workspace_id= @workspace_id AND id= @id;
 -- name: ReportCoresearchKernel :exec
@@ -29,9 +29,9 @@ SELECT * FROM coresearch_run WHERE workspace_id= @workspace_id AND project_id= @
 -- name: GetCoresearchRun :one
 SELECT * FROM coresearch_run WHERE workspace_id= @workspace_id AND id= @id;
 -- name: ClaimCoresearchRuns :many
-UPDATE coresearch_run SET status='running',claimed_daemon_id= @daemon_id WHERE id IN(SELECT q.id FROM coresearch_run q WHERE q.workspace_id= @workspace_id AND q.chat_id= @chat_id AND q.status='queued' ORDER BY q.created_at LIMIT 8 FOR UPDATE SKIP LOCKED) RETURNING *;
+WITH candidates AS MATERIALIZED (SELECT q.id FROM coresearch_run q WHERE q.workspace_id= @workspace_id AND q.chat_id= @chat_id AND q.status='queued' ORDER BY q.created_at,q.id LIMIT 8 FOR UPDATE SKIP LOCKED) UPDATE coresearch_run SET status='running',claimed_daemon_id= @daemon_id,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING *;
 -- name: FinishCoresearchRun :one
-UPDATE coresearch_run SET status= @status,env_sha=sqlc.narg(env_sha),facts= @facts,finished_at=now() WHERE workspace_id= @workspace_id AND id= @id AND status='running' RETURNING *;
+UPDATE coresearch_run SET status= @status,env_sha=sqlc.narg(env_sha),facts= @facts,finished_at=now(),receipt_sha= @receipt_sha WHERE workspace_id= @workspace_id AND id= @id AND status='running' RETURNING *;
 -- name: CoresearchRunOutputs :many
 SELECT f.path,f.id AS file_id,v.n,v.sha256,v.size FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id WHERE v.workspace_id= @workspace_id AND v.run_id= @run_id ORDER BY f.path,v.n;
 -- name: EnqueueCoresearchSetup :one
@@ -41,9 +41,9 @@ SELECT * FROM coresearch_setup WHERE workspace_id= @workspace_id AND project_id=
 -- name: GetCoresearchSetup :one
 SELECT * FROM coresearch_setup WHERE workspace_id= @workspace_id AND id= @id;
 -- name: ClaimCoresearchSetups :many
-UPDATE coresearch_setup SET status='running',claimed_daemon_id= @daemon_id WHERE id IN(SELECT s.id FROM coresearch_setup s WHERE s.workspace_id= @workspace_id AND s.chat_id= @chat_id AND s.status='queued' AND NOT EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.project_id=s.project_id AND x.status='running') ORDER BY s.created_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *;
+WITH candidates AS MATERIALIZED (SELECT s.id FROM coresearch_setup s WHERE s.workspace_id= @workspace_id AND s.chat_id= @chat_id AND s.status='queued' AND NOT EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.project_id=s.project_id AND x.status='running') ORDER BY s.created_at,s.id LIMIT 1 FOR UPDATE SKIP LOCKED) UPDATE coresearch_setup SET status='running',claimed_daemon_id= @daemon_id,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING *;
 -- name: FinishCoresearchSetup :one
-UPDATE coresearch_setup SET status= @status,log= @log,finished_at=now() WHERE workspace_id= @workspace_id AND id= @id AND status='running' RETURNING *;
+UPDATE coresearch_setup SET status= @status,log= @log,finished_at=now(),receipt_sha= @receipt_sha WHERE workspace_id= @workspace_id AND id= @id AND status='running' RETURNING *;
 -- name: SetCoresearchPython :exec
 UPDATE coresearch_project SET python_version= @python_version WHERE workspace_id= @workspace_id AND id= @id;
 -- name: CoresearchClaimChats :many
@@ -66,3 +66,17 @@ UPDATE agent_run SET failure_reason='coresearch_access_revoked' WHERE workspace_
 SELECT kind::text,project_id::uuid,chat_id::uuid,work_id::uuid FROM public.coresearch_revoke(@target::uuid,sqlc.narg(project)::uuid);
 -- name: CoresearchChatByID :one
 SELECT * FROM coresearch_chat WHERE workspace_id= @workspace_id AND id= @id;
+
+-- name: HeartbeatCoresearchCell :execrows
+UPDATE coresearch_cell SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= @workspace_id AND id= @id AND claim_token= @claim_token AND status='running' AND lease_expires_at>now();
+
+-- name: HeartbeatCoresearchRun :execrows
+UPDATE coresearch_run SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= @workspace_id AND id= @id AND claim_token= @claim_token AND status='running' AND lease_expires_at>now();
+
+-- name: HeartbeatCoresearchSetup :execrows
+UPDATE coresearch_setup SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= @workspace_id AND id= @id AND claim_token= @claim_token AND status='running' AND lease_expires_at>now();
+
+-- name: CoresearchExpiredWorkspaces :many
+SELECT public.coresearch_expired_workspaces()::uuid AS workspace_id;
+-- name: ExpireCoresearchWork :many
+SELECT kind::text,project_id::uuid,chat_id::uuid,work_id::uuid FROM public.coresearch_expire();

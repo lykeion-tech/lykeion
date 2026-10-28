@@ -267,9 +267,14 @@ func (d *daemon) watchCoresearch(ctx context.Context, cancel context.CancelFunc,
 			var status struct {
 				Status string `json:"status"`
 			}
-			err := d.coreAPI(w.WorkspaceID).Do(ctx, "GET", d.corePath(path), nil, &status)
+			method, url := "GET", d.corePath(path)
+			if kind != "" {
+				method = "POST"
+				url = d.coreWorkPath(w, kind+"/"+id.String()+"/heartbeat")
+			}
+			err := d.coreAPI(w.WorkspaceID).Do(ctx, method, url, nil, &status)
 			// Fail closed when authority cannot be revalidated; never continue offline.
-			if err != nil || status.Status == "cancelled" {
+			if err != nil || (kind != "" && status.Status != "running") || (kind == "" && status.Status != "active") {
 				cancel()
 				return
 			}
@@ -445,7 +450,19 @@ func (d *daemon) retireChangedKernel(ctx context.Context, h *chatHost) error {
 	}
 	return d.kernelState(ctx, h, "stopped", 0)
 }
-func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) error {
+func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) (resultErr error) {
+	if err := d.journalCoresearch(c.WorkContext, "cells", c.ID); err != nil {
+		return err
+	}
+	var receipt any
+	defer func() {
+		if receipt == nil {
+			receipt = coreFailure("cells", resultErr)
+		}
+		_, err := d.queueCoresearch(c.WorkContext, "cells", c.ID, receipt, nil)
+		resultErr = errors.Join(resultErr, err)
+	}()
+
 	h, err := d.chat(ctx, c.WorkContext)
 	if err != nil {
 		return err
@@ -476,7 +493,7 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) error {
 	}()
 	api := d.coreAPI(c.WorkspaceID)
 	base := "cells/" + c.ID.String()
-	if err = api.Do(ctx, "POST", d.corePath(base+"/start"), nil, nil); err != nil {
+	if err = api.Do(ctx, "POST", d.coreWorkPath(c.WorkContext, base+"/start"), nil, nil); err != nil {
 		return err
 	}
 	h.mu.Lock()
@@ -505,7 +522,7 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) error {
 					} else if !result.OK {
 						status = "error"
 					}
-					err = api.Do(ctx, "POST", d.corePath(base+"/finish"), map[string]any{"status": status, "outputs": result.Outputs, "execution_count": result.ExecutionCount}, nil)
+					receipt = map[string]any{"status": status, "outputs": result.Outputs, "execution_count": result.ExecutionCount}
 					stateErr := d.kernelState(ctx, h, "idle", 0)
 					return errors.Join(err, stateErr)
 				}
@@ -515,9 +532,9 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	finish := api.Do(ctx, "POST", d.corePath(base+"/finish"), map[string]any{"status": "error", "outputs": []kernels.Output{{Type: "error", Ename: "HostError", Evalue: err.Error()}}}, nil)
+	receipt = map[string]any{"status": "error", "outputs": []kernels.Output{{Type: "error", Ename: "HostError", Evalue: err.Error()}}}
 	_ = d.kernelState(ctx, h, "stopped", 0)
-	return errors.Join(err, finish)
+	return err
 }
 func (d *daemon) controlChat(ctx context.Context, c coresearch.ClaimedControl) error {
 	h, err := d.chat(ctx, c.WorkContext)

@@ -6,6 +6,7 @@ import CoresearchProject from '../apps/dashboard/src/views/CoresearchProject.vue
 import ChatComposer from '../apps/dashboard/src/coresearch/ChatComposer.vue';
 import ChatTranscript from '../apps/dashboard/src/coresearch/ChatTranscript.vue';
 import MembersDialog from '../apps/dashboard/src/coresearch/MembersDialog.vue';
+import ProjectSidebar from '../apps/dashboard/src/coresearch/ProjectSidebar.vue';
 import SidebarFiles from '../apps/dashboard/src/coresearch/SidebarFiles.vue';
 import AssistantMessage from '../apps/dashboard/src/coresearch/AssistantMessage.vue';
 import RightPaneTabs from '../apps/dashboard/src/coresearch/RightPaneTabs.vue';
@@ -417,4 +418,31 @@ describe('Coresearch workspace', () => {
       .join('');
     expect(html.split('The residuals are stable.')).toHaveLength(2);
   });
+});
+
+it.each(['', '   '])('uses email or ID when owner name is blank: %j', async (name) => {
+  const members = [
+    { user_id: 'me', name, email: 'ada@example.org' },
+    { user_id: 'other', name, email: ' ' },
+  ];
+  const sidebar = await mount(ProjectSidebar, {
+    name: 'Project',
+    files: [],
+    chats: [chat, { ...chat, id: 'other-chat', owner_id: 'other' }],
+    members,
+  });
+  expect(textOf(sidebar.root)).toContain('ada@example.org');
+  expect(textOf(sidebar.root)).toContain('other');
+  expect(all(sidebar.root).some((n) => n.props['aria-label'] === 'Owner: ada@example.org')).toBe(
+    true,
+  );
+  const dialog = await mount(MembersDialog, { projectId: 'p', editable: true }, (c) => {
+    c.setQueryData(keys.members('lab'), members);
+    c.setQueryData(keys.coresearchMembers('lab', 'p'), [
+      { user_id: 'me', role: 'owner' },
+      { user_id: 'other', role: 'member' },
+    ]);
+  });
+  expect(button(dialog.root, 'Remove ada@example.org')).toBeTruthy();
+  expect(button(dialog.root, 'Remove other')).toBeTruthy();
 });
