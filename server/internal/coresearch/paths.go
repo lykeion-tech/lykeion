@@ -26,6 +26,10 @@ func CleanPath(p string) (string, error) {
 		if strings.EqualFold(s, ".git") {
 			return refuse("git metadata is forbidden")
 		}
+		switch strings.ToLower(s) {
+		case ".claude", ".codex", ".agents":
+			return refuse("CLI configuration folders are reserved")
+		}
 		if s == ".." {
 			return refuse("parent segments are forbidden")
 		}

@@ -56,6 +56,9 @@ type Policy struct {
 	// RestrictedRoots are ambient-read exclusions. Only explicit descendant
 	// grants are exposed, including when new siblings appear after launch.
 	RestrictedRoots []string
+	// CarvedRoots opt in to an isolated subtree beneath ambient or ancestor
+	// grants. Only explicit descendant grants expose its contents.
+	CarvedRoots []string
 	// Blocked paths inside Write cannot be changed, even when absent.
 	Blocked []string
 	// WriteData grants only in-place writes to existing regular files.
@@ -181,6 +184,7 @@ type resolved struct {
 	blocked, writeData, writeFiles []string
 	writeSQLite                    []string
 	restricted                     []string
+	carved                         []string
 	lateReadOnly                   []string
 }
 
@@ -230,11 +234,40 @@ func (p Policy) resolve() (resolved, error) {
 			}
 		}
 	}
+
+	for _, raw := range p.CarvedRoots {
+		if fi, err := os.Lstat(raw); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return resolved{}, fmt.Errorf("carved root %q is a link", raw)
+		}
+		c, err := r.policyPath(raw, h)
+		if err != nil {
+			return resolved{}, err
+		}
+		fi, err := os.Lstat(c)
+		if err != nil {
+			return resolved{}, err
+		}
+		if !fi.IsDir() || h.inside(c) {
+			return resolved{}, fmt.Errorf("sandbox carved root %q is not a proper directory", raw)
+		}
+		if slices.Contains(r.write, c) || slices.Contains(r.read, c) {
+			return resolved{}, fmt.Errorf("carved root %q cannot itself be an explicit grant", raw)
+		}
+		if !slices.Contains(r.carved, c) {
+			r.carved = append(r.carved, c)
+			r.restricted = append(r.restricted, c)
+		}
+	}
 	// Seatbelt and bwrap disagree on a read folder inside a write folder (or
 	// the reverse), so the two never overlap.
 	for _, w := range r.write {
 		for _, rd := range r.read {
 			if isAtOrUnder(w, rd) || isAtOrUnder(rd, w) {
+				if slices.ContainsFunc(r.carved, func(root string) bool {
+					return (isAtOrUnder(root, rd) && isAtOrUnder(w, root)) || (isAtOrUnder(root, w) && isAtOrUnder(rd, root))
+				}) {
+					continue
+				}
 				return resolved{}, fmt.Errorf("sandbox read folder %q overlaps write folder %q", rd, w)
 			}
 		}
@@ -380,6 +413,9 @@ func (p Policy) resolve() (resolved, error) {
 		r.writeData = append(r.writeData, c)
 	}
 	for _, root := range r.restricted {
+		if slices.Contains(r.carved, root) {
+			continue
+		}
 		for _, grant := range slices.Concat(r.writeData, r.writeFiles, r.writeSQLite) {
 			if isAtOrUnder(root, grant) {
 				return resolved{}, fmt.Errorf("sandbox grant %q would reopen restricted root %q", grant, root)

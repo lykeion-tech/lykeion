@@ -100,16 +100,24 @@ func (s *Service) CandidatesForScope(ctx context.Context, ws uuid.UUID, scope Sc
 			return err
 		}
 		ids := map[uuid.UUID]bool{}
+		pinnedNames := map[string]bool{}
 		for _, v := range pins {
-			snap.versions[v.Name] = v
+			p, err := availability.Get(ctx, tx, "skill", v.SkillID.String())
+			if err != nil {
+				return err
+			}
 			ids[v.SkillID] = true
+			pinnedNames[v.Name] = true
+			if p.Enabled {
+				snap.versions[v.Name] = v
+			}
 		}
 		active, err := activeVersions(ctx, tx)
 		if err != nil {
 			return err
 		}
 		for _, v := range active {
-			if _, taken := snap.versions[v.Name]; !taken && !ids[v.SkillID] {
+			if !pinnedNames[v.Name] && !ids[v.SkillID] {
 				p, err := availability.Get(ctx, tx, "skill", v.SkillID.String())
 				if err != nil {
 					return err
@@ -214,6 +222,13 @@ func (s *Service) ResolveForScope(ctx context.Context, ws uuid.UUID, scope Scope
 			}
 		}
 		for _, v := range versions {
+			p, err := availability.Get(ctx, tx, "skill", v.SkillID.String())
+			if err != nil {
+				return err
+			}
+			if !p.Enabled {
+				return ErrRoutingChanged
+			}
 			pinned := false
 			for _, p := range pins {
 				if p.SkillID == v.SkillID || p.Name == v.Name {
@@ -225,13 +240,6 @@ func (s *Service) ResolveForScope(ctx context.Context, ws uuid.UUID, scope Scope
 			}
 			if pinned {
 				continue
-			}
-			p, err := availability.Get(ctx, tx, "skill", v.SkillID.String())
-			if err != nil {
-				return err
-			}
-			if !p.Enabled {
-				return ErrRoutingChanged
 			}
 			current, err := tx.Q.GetWorkspaceSkill(ctx, db.GetWorkspaceSkillParams{WorkspaceID: ws, ID: v.SkillID})
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -346,4 +354,57 @@ func (s TeamSelection) Fence(ctx context.Context, tx *store.Tx, user uuid.UUID) 
 		}
 	}
 	return nil
+}
+
+// EnabledFolders snapshots current workspace availability for a chat turn.
+// Immutable folder blobs are loaded only after the metadata transaction closes.
+func (s *Service) EnabledFolders(ctx context.Context, ws, user uuid.UUID) ([]toolroute.RoutedSkill, error) {
+	var versions []db.WorkspaceSkillVersion
+	candidates := toolroute.Candidates{}
+	err := s.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
+		if _, err := member(ctx, tx, user, false); err != nil {
+			return err
+		}
+		for _, b := range science.Skills() {
+			p, err := availability.Get(ctx, tx, "skill", "bundle:"+b.Name)
+			if err != nil {
+				return err
+			}
+			if p.Enabled {
+				candidates.Skills = append(candidates.Skills, toolroute.Skill{Name: b.Name})
+			}
+		}
+		active, err := activeVersions(ctx, tx)
+		if err != nil {
+			return err
+		}
+		for _, v := range active {
+			p, err := availability.Get(ctx, tx, "skill", v.SkillID.String())
+			if err != nil {
+				return err
+			}
+			if p.Enabled {
+				versions = append(versions, v)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range versions {
+		b, err := s.loadVersion(ctx, v)
+		if err != nil {
+			return nil, err
+		}
+		candidates.Skills = append(candidates.Skills, toolroute.Skill{Name: v.Name, Files: b.Files})
+	}
+	result := toolroute.Result{}
+	for _, s := range candidates.Skills {
+		result.Skills = append(result.Skills, toolroute.RoutedSkill{Name: s.Name})
+	}
+	if err = candidates.AttachFolders(&result); err != nil {
+		return nil, err
+	}
+	return result.Skills, nil
 }

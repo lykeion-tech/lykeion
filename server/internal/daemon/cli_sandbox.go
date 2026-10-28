@@ -218,6 +218,12 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool, gue
 		if !readOnly && chat != nil {
 			protectChatCLI(&p, runDir)
 		}
+		if cli.ManagedSkills != "" {
+			if err = protectCoresearchSkills(&p, runDir, cli, &placeholders); err != nil {
+				cleanup()
+				return nil, err
+			}
+		}
 		p.Write = append(p.Write, tmp)
 		envArgs := []string{"TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "TMPPREFIX=" + filepath.Join(tmp, "zsh"), "CLAUDE_CODE_TMPDIR=" + tmp, "npm_config_cache=" + filepath.Join(d.runCacheDir(guest), "npm"), "UV_CACHE_DIR=" + filepath.Join(d.runCacheDir(guest), "uv"), "UV_PYTHON_INSTALL_DIR=" + filepath.Join(d.runCacheDir(guest), "uv-python"), "UV_TOOL_DIR=" + filepath.Join(d.runCacheDir(guest), "uv-tools"), name}
 		cmd, err := p.Command(ctx, "/usr/bin/env", append(envArgs, args...)...)
@@ -316,4 +322,161 @@ func guestCLIPackagePaths(cli agent.CLIPaths, bin string) ([]string, error) {
 		}
 	}
 	return []string{root, native}, nil
+}
+
+// protectCoresearchSkills exposes the managed skill folder without exposing
+// project settings or customizations from the account and ancestor folders.
+func protectCoresearchSkills(p *sandbox.Policy, run string, cli agent.CLIPaths, placeholders *[]placeholder) error {
+	run, err := filepath.EvalSymlinks(run)
+	if err != nil {
+		return err
+	}
+	configHome, err := filepath.EvalSymlinks(cli.ConfigHome)
+	if err != nil {
+		return err
+	}
+	claude, codex := filepath.Join(run, ".claude", "skills"), filepath.Join(run, ".agents", "skills")
+	if cli.ManagedSkills != claude && cli.ManagedSkills != codex {
+		return errors.New("managed skills must belong to the chat folder")
+	}
+
+	hide := func(path string) {
+		if !slices.Contains(p.Hidden, path) {
+			p.Hidden = append(p.Hidden, path)
+		}
+	}
+	// The managed configuration parent is read-only already. Mask every
+	// existing sibling of skills; no new sibling can be planted by the run.
+	for _, name := range []string{".claude", ".codex", ".agents"} {
+		path := filepath.Join(run, name)
+		if name == ".codex" && cli.ManagedSkills == codex {
+			// Configuration itself stays unreadable; the separate agent-definition
+			// directory uses an empty projection for CLI discovery.
+			config := filepath.Join(path, "config.toml")
+			if _, err := os.Lstat(config); err == nil {
+				hide(config)
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			continue
+		}
+		if !insideStorage(path, cli.ManagedSkills) {
+			hide(path)
+			continue
+		}
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if entry.Name() != "skills" {
+				hide(filepath.Join(path, entry.Name()))
+			}
+		}
+	}
+	accountEntries := []string{"settings.json", "settings.local.json", "commands", "agents", "hooks", "rules", "output-styles", "workflows", "CLAUDE.md", "AGENTS.md"}
+	// exec's --ignore-user-config suppresses Codex's config.toml. Leaving the
+	// account file readable preserves auth and config-loader compatibility.
+	if cli.ManagedSkills == claude {
+		accountEntries = append(accountEntries, "config.toml", "plugins", "skills")
+	}
+	accountWritable := slices.Contains(p.Write, cli.ConfigHome) || slices.Contains(p.WriteSQLite, cli.ConfigHome)
+	for _, entry := range accountEntries {
+		if cli.ManagedSkills == codex && entry == "agents" {
+			continue
+		}
+		target := filepath.Join(configHome, entry)
+		if accountWritable {
+			if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+				ph, err := makePlaceholder(target, filepath.Ext(entry) == "")
+				if err != nil {
+					return err
+				}
+				*placeholders = append(*placeholders, ph)
+			} else if err != nil {
+				return err
+			}
+		}
+		hide(target)
+	}
+
+	if cli.ManagedSkills == codex {
+		// Project the whole customization sources so newly created siblings stay
+		// excluded. Native bundled skills are excluded too; only the existing
+		// plugin runtime cache keeps its state grant.
+
+		skills := filepath.Join(configHome, "skills")
+		if err := agent.PrepareCLIStateDir(configHome, skills); err != nil {
+			return err
+		}
+		p.CarvedRoots = append(p.CarvedRoots, skills)
+		p.Blocked = slices.DeleteFunc(p.Blocked, func(path string) bool {
+			canonical, err := filepath.EvalSymlinks(path)
+			return err == nil && canonical == skills
+		})
+		plugins := filepath.Join(configHome, "plugins")
+		cache := filepath.Join(plugins, "cache")
+		if err := agent.PrepareCLIStateDir(configHome, cache); err != nil {
+			return err
+		}
+		p.CarvedRoots = append(p.CarvedRoots, plugins)
+		if !slices.Contains(p.Write, cache) {
+			p.Write = append(p.Write, cache)
+		}
+
+		agents := filepath.Join(configHome, "agents")
+		if err := agent.PrepareCLIStateDir(configHome, agents); err != nil {
+			return err
+		}
+		p.CarvedRoots = append(p.CarvedRoots, agents)
+		p.Blocked = slices.DeleteFunc(p.Blocked, func(path string) bool {
+			canonical, err := filepath.EvalSymlinks(path)
+			return err == nil && canonical == agents
+		})
+		root, err := os.OpenRoot(run)
+		if err != nil {
+			return err
+		}
+		err = root.MkdirAll(filepath.Join(".codex", "agents"), 0700)
+		root.Close()
+		if err != nil {
+			return err
+		}
+		p.CarvedRoots = append(p.CarvedRoots, filepath.Join(run, ".codex", "agents"))
+	}
+
+	maskParent := func(dir string) {
+		for _, name := range []string{".claude", ".codex", ".agents"} {
+			path := filepath.Join(dir, name)
+			if path == configHome {
+				continue
+			}
+			if name == ".agents" {
+				hide(path)
+				continue
+			}
+			// CLI installations can live inside the account's .codex or .claude
+			// folder. Hide configuration entries without masking installed code.
+			for _, entry := range append(accountEntries, "config.toml", "CLAUDE.md", "skills") {
+
+				hide(filepath.Join(path, entry))
+			}
+		}
+		for _, name := range []string{"CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "AGENTS.override.md", ".mcp.json"} {
+			hide(filepath.Join(dir, name))
+		}
+	}
+
+	for dir := filepath.Dir(run); ; dir = filepath.Dir(dir) {
+		maskParent(dir)
+		if dir == filepath.Dir(dir) {
+			break
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	maskParent(home)
+	return nil
 }

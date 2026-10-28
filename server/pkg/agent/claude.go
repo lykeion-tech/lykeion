@@ -79,7 +79,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	// run folder are its alone: it uses them, its file tools may not.
 	tools := []string{claudeTools}
 	if o.Coresearch {
-		tools = []string{"Read,Edit,Write,Bash,Glob,Grep,mcp__lyk_sources"}
+		tools = []string{"Skill,Read,Edit,Write,Bash,Glob,Grep,mcp__lyk_sources"}
 	}
 	var deny []string
 	if o.ReadOnly {
@@ -121,7 +121,12 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	// behaves doesn't depend on what they have installed.
 	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--settings", `{"disableAllHooks":true}`})
 	if o.Coresearch {
-		args = append(args, "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands")
+		args = append(args, "--strict-mcp-config", "--setting-sources", "project")
+		o.CLIPaths.ManagedSkills, err = SkillsDir("claude", o.Dir)
+		if err != nil {
+			cleanup(true)
+			return nil, err
+		}
 	}
 	if o.Model != "" && (!o.Coresearch || o.Aristotle) {
 		args = append(args, "--model", o.Model)

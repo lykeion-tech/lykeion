@@ -79,7 +79,7 @@ func (p Policy) seatbeltProfile() (string, error) {
 	meta := []string{"allow file-read-metadata", `(literal "/etc")`, `(literal "/tmp")`, `(literal "/var")`}
 	seen := map[string]bool{}
 	dirs := []string{"/opt/homebrew", "/private/var/db/timezone", "/private/var/select/sh"}
-	paths := slices.Concat(dirs, r.read, r.write, r.writeData, r.writeFiles, r.writeSQLite)
+	paths := slices.Concat(dirs, r.read, r.write, r.writeData, r.writeFiles, r.writeSQLite, r.carved)
 	if p.HomeRead {
 		paths = append(paths, r.home)
 	}
@@ -93,12 +93,32 @@ func (p Policy) seatbeltProfile() (string, error) {
 	if p.HomeRead {
 		ambientRead("(subpath " + sbplString(r.home) + ")")
 	}
+
+	explicitGrant := func(operations, path string) {
+		terms := []string{"(subpath " + sbplString(path) + ")"}
+		for _, root := range r.carved {
+			if isAtOrUnder(root, path) {
+				terms = append(terms, "(require-not (subpath "+sbplString(root)+"))")
+			}
+		}
+		if len(terms) == 1 {
+			rule(operations, terms[0])
+		} else {
+			rule(operations, "(require-all "+strings.Join(terms, " ")+")")
+		}
+	}
 	for _, dir := range r.read {
-		rule("allow file-read* (subpath " + sbplString(dir) + ")")
+		explicitGrant("allow file-read*", dir)
 	}
 	for _, dir := range r.write {
-		rule("allow file-read* file-write* (subpath " + sbplString(dir) + ")")
+		explicitGrant("allow file-read* file-write*", dir)
 	}
+	// Listing the projection root lets a CLI find its declared state folder;
+	// contents below other children remain unreadable, including late entries.
+	for _, root := range r.carved {
+		rule("allow file-read-metadata file-read-data (literal " + sbplString(root) + ")")
+	}
+
 	// Regex literals preserve regex backslashes; ordinary SBPL string quoting does not.
 	for _, dir := range r.writeSQLite {
 		pattern := "^" + regexp.QuoteMeta(dir) + "/[A-Za-z][A-Za-z0-9_]*_[0-9]+[.]sqlite(-wal|-shm|-journal)?$"

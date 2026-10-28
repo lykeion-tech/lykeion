@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,7 @@ import (
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/coresearch/localfiles"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/toolroute"
 	"lykeion/server/pkg/agent"
 )
 
@@ -342,11 +344,19 @@ func TestTurnUsesChatFolderAndNoDoor(t *testing.T) {
 	f := newCoreFixture(t)
 	c := coreTurn(t, f)
 	called := false
+	c.Skills = []toolroute.RoutedSkill{{Name: "claim-check", Folder: skillFolder(t, map[string]string{"SKILL.md": "---\nname: claim-check\ndescription: Check claims\n---\nCheck."})}}
 	c.AgentRun.Skill = "do not inject"
 	c.AgentRun.RequestedModel = "do not choose"
 	f.d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
 		return backendFunc(func(ctx context.Context, p string, o agent.ExecOptions) (*agent.Session, error) {
 			called = true
+			root, e := agent.SkillsDir(c.AgentRun.Harness, o.Dir)
+			must(t, e)
+			data, e := os.ReadFile(filepath.Join(root, "lyk-claim-check", "SKILL.md"))
+			must(t, e)
+			if !strings.Contains(string(data), "name: lyk-claim-check") {
+				t.Fatal(string(data))
+			}
 			if o.Dir != f.dir() || o.DoorURL != "" || o.DoorToken != "" || !o.Coresearch || o.SourcesURL != c.MCPURL || o.Model != "" || strings.Contains(p, "do not inject") {
 				t.Fatalf("unexpected turn: %+v %s", o, p)
 			}
@@ -1320,5 +1330,74 @@ func TestStopKernel(t *testing.T) {
 	defer f.mu.Unlock()
 	if f.states[len(f.states)-1] != "stopped" {
 		t.Fatal(f.states)
+	}
+}
+
+func TestDisabledSkillRemovedNextTurn(t *testing.T) {
+	for _, harness := range []string{"claude", "codex"} {
+		t.Run(harness, func(t *testing.T) {
+			f := newCoreFixture(t)
+			c := coreTurn(t, f)
+			c.AgentRun.Harness = harness
+			c.Skills = []toolroute.RoutedSkill{{Name: "claim-check", Folder: skillFolder(t, map[string]string{"SKILL.md": "---\nname: claim-check\ndescription: Check claims\n---\nCheck."})}}
+			calls := 0
+			f.d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+				return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
+					calls++
+					root, e := agent.SkillsDir(harness, o.Dir)
+					must(t, e)
+					_, e = os.Stat(filepath.Join(root, "lyk-claim-check", "SKILL.md"))
+					if calls == 1 {
+						must(t, e)
+					} else if !errors.Is(e, os.ErrNotExist) {
+						t.Fatalf("disabled skill remains: %v", e)
+					}
+					return finishedSession(agent.Result{}), nil
+				}), nil
+			}
+			must(t, f.d.runAgentRun(t.Context(), c))
+			c.Skills = nil
+			c.AgentRun.ID = uuid.New()
+			must(t, f.d.runAgentRun(t.Context(), c))
+			if calls != 2 {
+				t.Fatal(calls)
+			}
+		})
+	}
+}
+
+func TestCoresearchRefusesRedirectedSkillFolders(t *testing.T) {
+	for _, harness := range []string{"claude", "codex"} {
+		for _, linkSkills := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/skills-link=%v", harness, linkSkills), func(t *testing.T) {
+				f := newCoreFixture(t)
+				c := coreTurn(t, f)
+				c.AgentRun.Harness = harness
+				outside := t.TempDir()
+				marker := filepath.Join(outside, "keep")
+				must(t, os.WriteFile(marker, []byte("unrelated"), 0600))
+				config := ".claude"
+				if harness == "codex" {
+					config = ".agents"
+				}
+				target := filepath.Join(f.dir(), config)
+				must(t, os.MkdirAll(f.dir(), 0700))
+				if linkSkills {
+					must(t, os.MkdirAll(target, 0700))
+					target = filepath.Join(target, "skills")
+				}
+				must(t, os.Symlink(outside, target))
+				called := false
+				f.d.cfg.NewBackend = func(string, string) (agent.Backend, error) { called = true; return nil, errors.New("must refuse link") }
+				must(t, f.d.runAgentRun(t.Context(), c))
+				report, err := readReport(f.d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: 1}))
+				must(t, err)
+				data, err := os.ReadFile(marker)
+				must(t, err)
+				if called || report.Kind != "fail" || !strings.Contains(report.Error, "link") || string(data) != "unrelated" {
+					t.Fatalf("redirected skills accepted: called=%v report=%+v", called, report)
+				}
+			})
+		}
 	}
 }

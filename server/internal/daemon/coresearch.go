@@ -683,6 +683,10 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 		fail(err)
 		return nil
 	}
+	if err = placeClaimedSkills(c.AgentRun.Harness, h.dir, c.Skills); err != nil {
+		fail(err)
+		return nil
+	}
 	prompt := c.AgentRun.Prompt
 	for _, path := range changes.Discarded {
 		prompt += "\ndiscarded local edit to " + path

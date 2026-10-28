@@ -17,7 +17,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -599,25 +598,37 @@ func placeRouted(harness, dir string, s toolroute.RoutedSkill) error {
 	if !agent.ValidSkillName(s.Name) {
 		return fmt.Errorf("%q is not a skill name", s.Name)
 	}
-	root, err := agent.SkillsDir(harness, dir)
+
+	root, err := agent.OpenSkillsRoot(harness, dir, false)
 	if err != nil {
 		return err
 	}
+	defer root.Close()
+	return placeRoutedRoot(root, s)
+}
+
+func placeRoutedRoot(root *os.Root, s toolroute.RoutedSkill) error {
+	if !agent.ValidSkillName(s.Name) {
+		return fmt.Errorf("%q is not a skill name", s.Name)
+	}
 	name := agent.PinnedName(s.Name)
-	dst := filepath.Join(root, name)
-	if err := os.RemoveAll(dst); err != nil {
+	if err := root.RemoveAll(name); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dst, 0o700); err != nil {
+	if err := root.MkdirAll(name, 0700); err != nil {
 		return err
 	}
-	if err := agent.Untar(bytes.NewReader(s.Folder), dst); err != nil {
-		os.RemoveAll(dst)
+	dst, err := root.OpenRoot(name)
+	if err != nil {
 		return err
 	}
-	// A SKILL.md with no frontmatter keeps its text; only the name in a
-	// frontmatter must match the folder.
-	agent.RenameSkill(dst, s.Name, name)
+	defer dst.Close()
+	if err = agent.UntarRoot(bytes.NewReader(s.Folder), dst); err != nil {
+		root.RemoveAll(name)
+		return err
+	}
+	// Skills without frontmatter keep their text.
+	agent.RenameSkillRoot(dst, s.Name, name)
 	return nil
 }
 

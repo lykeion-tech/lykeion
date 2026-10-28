@@ -14,7 +14,7 @@ func TestCleanPath(t *testing.T) {
 			t.Errorf("%q: %q %v", p, got, e)
 		}
 	}
-	for _, p := range []string{"", ".", "../x", "/etc/x", "a/../../b", ".claude/settings.json", ".mcp.json", ".venv/bin/python", "a\\b", "x\x00y", strings.Repeat("a", 256), strings.Repeat("a/", 512) + "x", "./.codex/config"} {
+	for _, p := range []string{"", ".", "../x", "/etc/x", "a/../../b", ".claude/settings.json", "sections/.claude/skills/evil/SKILL.md", "sections/.agents/skills/evil/SKILL.md", "sections/.codex/config.toml", ".mcp.json", ".venv/bin/python", "a\\b", "x\x00y", strings.Repeat("a", 256), strings.Repeat("a/", 512) + "x", "./.codex/config"} {
 		if _, e := CleanPath(p); e == nil || !strings.HasPrefix(e.Error(), "path ") {
 			t.Errorf("accepted %q: %v", p, e)
 		}

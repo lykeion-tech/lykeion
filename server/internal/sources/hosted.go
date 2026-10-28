@@ -296,7 +296,7 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			}
 			return nil, OpenOut{Accession: in.Accession, Structure: doc.Structure, MetadataSources: doc.MetadataSources}, h.Record(ctx, role, runToken(req), "open_dataset", in.Accession, map[string]any{"accession": in.Accession, "metadata_sources": doc.MetadataSources}, doc.Structure)
 		})
-	if h.Conn != nil && !slices.Contains(role.Scopes, service.ScopeCoresearch) {
+	if h.Conn != nil {
 		mcp.AddTool(srv, &mcp.Tool{Name: "list_connectors", Description: "List the data connectors this run can fetch from: name, domain, purpose, base URL, and the variables of a connector that takes a fixed POST body."},
 			func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ConnectorsOut, error) {
 				cs, err := h.Connectors(ctx, role)

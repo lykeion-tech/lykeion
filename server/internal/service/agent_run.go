@@ -24,6 +24,7 @@ import (
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/pricing"
+	"lykeion/server/internal/skill"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/toolroute"
@@ -822,7 +823,14 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	}
 	// A Team pack is a blob, read only once the transaction is closed.
 	for i := range out {
-		if team, ok := teams[out[i].AgentRun.ID]; ok {
+		if out[i].Coresearch != nil {
+			library := skill.Service{Store: s.Store, Blobs: s.Blobs}
+			skills, err := library.EnabledFolders(ctx, out[i].AgentRun.WorkspaceID, out[i].AgentRun.ResponsibleUserID)
+			if err != nil {
+				return nil, err
+			}
+			out[i].Skills = skills
+		} else if team, ok := teams[out[i].AgentRun.ID]; ok {
 			conns, skills := s.teamTools(ctx, team)
 			out[i].Connectors = slices.DeleteFunc(conns, func(c pack.Connector) bool { return c.Workspace != "" })
 			out[i].Skills = skills

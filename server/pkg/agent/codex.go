@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"lykeion/server/internal/pricing"
 )
@@ -22,6 +25,12 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	_, cleanup, err := prepareScratch(&o, "codex")
 	if err != nil {
 		return nil, err
+	}
+	if o.Coresearch {
+		if err = prepareCoresearchCodexProject(o.Dir, o.CLIPaths.ConfigHome); err != nil {
+			cleanup(true)
+			return nil, err
+		}
 	}
 	personal := readCodexConfig(runConfigHome("codex", o.ConfigHome))
 	// Codex events name no model, so the run must know which one it chose.
@@ -49,7 +58,13 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		args = append(args, "-m", model)
 	}
 	if o.Coresearch {
-		args = append(args, "--ignore-user-config")
+		args = append(args, "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins", "--disable", "remote_plugin", "--disable", "multi_agent", "--disable", "skill_mcp_dependency_install")
+		args = append(args, "-c", `project_root_markers=[".agent-owned"]`, "-c", `skills.bundled.enabled=false`)
+		o.CLIPaths.ManagedSkills, err = SkillsDir("codex", o.Dir)
+		if err != nil {
+			cleanup(true)
+			return nil, err
+		}
 		if o.SourcesURL != "" {
 			args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_sources.url=%s", raw(o.SourcesURL)), "-c", `mcp_servers.lyk_sources.bearer_token_env_var="LYK_TOKEN"`)
 		}
@@ -188,4 +203,52 @@ func parseCodex(model string) parser {
 		}
 		return false, nil
 	}
+}
+
+// Project configuration is a reserved daemon-owned tree in a chat. Replacing
+// it through the pinned chat root prevents stale local settings from reaching
+// the CLI without touching account authentication or session state.
+func prepareCoresearchCodexProject(dir, account string) error {
+	project := filepath.Join(dir, ".codex")
+	rel, err := filepath.Rel(project, account)
+	if err != nil || rel == "." || (!strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != "..") {
+		return errors.New("Coresearch account home overlaps managed project configuration")
+	}
+	canonical, err := filepath.EvalSymlinks(account)
+	if err != nil {
+		return err
+	}
+	rel, err = filepath.Rel(project, canonical)
+	if err != nil || rel == "." || (!strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != "..") {
+		return errors.New("Coresearch account home overlaps managed project configuration")
+	}
+	// Filesystem identity also covers case-insensitive aliases that lexical
+	// relative paths cannot recognize.
+	projectInfo, statErr := os.Lstat(project)
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	if statErr == nil && projectInfo.IsDir() {
+		for current := canonical; ; current = filepath.Dir(current) {
+			info, err := os.Stat(current)
+			if err != nil {
+				return err
+			}
+			if os.SameFile(projectInfo, info) {
+				return errors.New("Coresearch account home overlaps managed project configuration")
+			}
+			if current == filepath.Dir(current) {
+				break
+			}
+		}
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if err = root.RemoveAll(".codex"); err != nil {
+		return err
+	}
+	return root.MkdirAll(".codex", 0700)
 }

@@ -109,8 +109,17 @@ func placeSkills(o *ExecOptions, harness string) error {
 // RenameSkill sets the name in a skill's SKILL.md frontmatter, which the
 // Agent Skills format requires to match the skill's folder.
 func RenameSkill(folder, from, to string) error {
-	p := filepath.Join(folder, "SKILL.md")
-	b, err := os.ReadFile(p)
+	root, err := os.OpenRoot(folder)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return RenameSkillRoot(root, from, to)
+}
+
+// RenameSkillRoot rewrites frontmatter through the already pinned skill folder.
+func RenameSkillRoot(root *os.Root, from, to string) error {
+	b, err := root.ReadFile("SKILL.md")
 	if err != nil {
 		return err
 	}
@@ -133,7 +142,7 @@ func RenameSkill(folder, from, to string) error {
 	if !found {
 		return fmt.Errorf("SKILL.md does not name %q", from)
 	}
-	return os.WriteFile(p, []byte("---\n"+strings.Join(head, "\n")+s[4+end:]), 0o644)
+	return root.WriteFile("SKILL.md", []byte("---\n"+strings.Join(head, "\n")+s[4+end:]), 0o644)
 }
 
 var skillName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,59}$`)
@@ -148,6 +157,20 @@ const maxSkillBytes = 64 << 20
 // written, every path must stay inside dst, and the whole is capped, so a
 // tar from a broken or hostile server cannot write anywhere else.
 func Untar(r io.Reader, dst string) error {
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(dst)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return UntarRoot(r, root)
+}
+
+// UntarRoot extracts through a pinned directory even if an enclosing chat
+// folder is renamed or replaced while the archive is being read.
+func UntarRoot(r io.Reader, root *os.Root) error {
 	tr := tar.NewReader(r)
 	var total int64
 	for {
@@ -162,10 +185,10 @@ func Untar(r io.Reader, dst string) error {
 		if !filepath.IsLocal(name) {
 			return fmt.Errorf("%q leaves the skill's folder", h.Name)
 		}
-		target := filepath.Join(dst, name)
+		target := name
 		switch h.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := root.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg:
@@ -173,10 +196,10 @@ func Untar(r io.Reader, dst string) error {
 			if h.Size < 0 || total > maxSkillBytes {
 				return errors.New("the skill is over 64 MiB")
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			f, err := root.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 			if err != nil {
 				return err
 			}
@@ -191,4 +214,27 @@ func Untar(r io.Reader, dst string) error {
 			return fmt.Errorf("%q is not a file or a folder", h.Name)
 		}
 	}
+}
+
+// OpenSkillsRoot pins all creation and removal beneath the chat directory.
+// reset replaces the prior turn's skills without following a swapped parent.
+func OpenSkillsRoot(harness, dir string, reset bool) (*os.Root, error) {
+	if _, err := SkillsDir(harness, dir); err != nil {
+		return nil, err
+	}
+	chat, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer chat.Close()
+	rel := filepath.FromSlash(skillFolders[harness])
+	if reset {
+		if err = chat.RemoveAll(rel); err != nil {
+			return nil, err
+		}
+	}
+	if err = chat.MkdirAll(rel, 0700); err != nil {
+		return nil, err
+	}
+	return chat.OpenRoot(rel)
 }

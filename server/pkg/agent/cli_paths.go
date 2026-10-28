@@ -10,6 +10,9 @@ import (
 
 // CLIPaths are the person's own CLI files a run may change.
 type CLIPaths struct {
+	// ManagedSkills limits Coresearch customizations to this chat skill folder.
+	// Discovery probes leave it empty.
+	ManagedSkills string
 	// Scratch identifies the temporary discovery folder for a sandbox factory.
 	Scratch string
 	// ConfigHome identifies the account store behind these state grants.
@@ -91,7 +94,7 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 		return p, fmt.Errorf("unsupported CLI %q", harness)
 	}
 	for _, dir := range p.Write {
-		if err := makeCLIStateDir(home, dir); err != nil {
+		if err := PrepareCLIStateDir(home, dir); err != nil {
 			return p, err
 		}
 	}
@@ -129,8 +132,8 @@ func PlaceBlocked(p CLIPaths) error {
 	return nil
 }
 
-// makeCLIStateDir refuses redirected state directories before creating children.
-func makeCLIStateDir(home, dir string) error {
+// PrepareCLIStateDir refuses redirected state directories before creating children.
+func PrepareCLIStateDir(home, dir string) error {
 	if strings.ContainsFunc(home, func(r rune) bool { return r < 0x20 || r == 0x7f }) || slices.Contains(strings.Split(home, string(filepath.Separator)), "..") {
 		return fmt.Errorf("invalid CLI home")
 	}
