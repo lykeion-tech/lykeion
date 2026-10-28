@@ -1,22 +1,24 @@
 import { expect, test } from '@playwright/test';
+import { installAristotleFixture } from './aristotle-fixture';
 import { installFilesFixture, recorded } from './coresearch-files-fixture';
 
 test('sidebar New opens the study composer even from Coresearch', async ({ page }) => {
-  await installFilesFixture(page);
+  await installAristotleFixture(page);
   await page.goto('/#/coresearch');
+  await page.getByRole('button', { name: 'Show navigation' }).click();
   await page
     .getByRole('complementary', { name: 'Workspace navigation' })
     .getByRole('button', { name: 'New', exact: true })
     .click();
   const composer = page.getByRole('dialog');
   await expect(composer.getByRole('textbox', { name: 'Study title', exact: true })).toBeVisible();
-  await expect(page).toHaveURL(/#\/coresearch$/);
+  await expect(page).toHaveURL(/#\/coresearch\/conversations\/welcome$/);
   await expect(composer.locator('.composer-hint')).toHaveCount(0);
 });
 
 for (const theme of ['ash', 'midnight']) {
   test(`${theme}: starter and rename retain source focus styles`, async ({ page }) => {
-    await installFilesFixture(page);
+    await installAristotleFixture(page);
     await page.addInitScript(
       (theme) => localStorage.setItem('lykeion.preferences', JSON.stringify({ theme })),
       theme,
@@ -35,12 +37,12 @@ for (const theme of ['ash', 'midnight']) {
       }),
     );
     await page.goto('/#/coresearch/new');
-    const composer = page.getByRole('textbox', { name: 'Message the agent' });
+    const composer = page.getByRole('textbox', { name: 'Message Aristotle' });
     await composer.fill('A nonempty draft without a runtime');
     await composer.focus();
     await expect(composer).toHaveCSS('outline-style', 'none');
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-    await page.goto('/#/coresearch');
+    await page.goto('/#/coresearch/projects');
     await page.getByRole('button', { name: 'Rename Focus project' }).click();
     const rename = page.getByRole('textbox', { name: 'Rename Focus project' });
     await expect(rename).toBeFocused();

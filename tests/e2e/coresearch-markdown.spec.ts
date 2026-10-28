@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { bootstrapRecord } from './coresearch-files-fixture';
 
 const reply = [
   '3. First item',
@@ -38,7 +39,8 @@ test('nested Markdown fences preserve list numbering, quote structure, copy and 
   await page.route(`${baseURL}/api/**`, async (route) => {
     const path = new URL(route.request().url()).pathname;
     let data: unknown = [];
-    if (path === '/api/me') data = { id: 'me', name: 'Ada', onboarded_at: '2026-01-01' };
+    if (path === '/api/coresearch/bootstrap') data = bootstrapRecord();
+    else if (path === '/api/me') data = { id: 'me', name: 'Ada', onboarded_at: '2026-01-01' };
     else if (path === '/api/workspaces') data = [{ id: 'lab', name: 'Fixture lab', role: 'owner' }];
     else if (path === '/api/workspaces/lab')
       data = { id: 'lab', name: 'Fixture lab', role: 'owner', event_cursor: 0 };

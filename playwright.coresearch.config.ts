@@ -9,6 +9,7 @@ export default defineConfig({
     'coresearch-notebook.spec.ts',
     'coresearch-files.spec.ts',
     'coresearch-final.spec.ts',
+    'aristotle.spec.ts',
   ],
   workers: 1,
   retries: 0,

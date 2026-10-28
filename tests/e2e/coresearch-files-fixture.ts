@@ -1,4 +1,22 @@
 import type { Page, WebSocketRoute } from '@playwright/test';
+export const bootstrapRecord = (user = 'me') => ({
+  agent: {
+    id: 'aristotle',
+    owner_id: user,
+    workspace_id: 'lab',
+    name: 'Aristotle',
+    harness: 'claude',
+    conversation_starters: [],
+  },
+  conversation: {
+    id: 'welcome',
+    owner_id: user,
+    workspace_id: 'lab',
+    is_welcome: true,
+    project_id: 'private-project',
+    chat_id: 'welcome-chat',
+  },
+});
 export const scriptText = 'print("original script v1")\n';
 export const texts = [
   'time,residual\n1,0.02\n2,-0.01\n',
@@ -67,6 +85,10 @@ export async function installFilesFixture(
       const req = route.request(),
         path = new URL(req.url()).pathname;
       let data: unknown = [];
+      if (path === '/api/coresearch/bootstrap') {
+        await route.fulfill({ status: 201, json: bootstrapRecord(user) });
+        return;
+      }
       if (req.method() !== 'GET') {
         writes.push({
           path,

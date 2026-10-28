@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { bootstrapRecord } from './coresearch-files-fixture';
 
 const png =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
@@ -50,6 +51,10 @@ for (const owner of [true, false]) {
       async (route) => {
         const req = route.request(),
           path = new URL(req.url()).pathname;
+        if (path === '/api/coresearch/bootstrap') {
+          await route.fulfill({ status: 201, json: bootstrapRecord(owner ? 'alice' : 'bob') });
+          return;
+        }
         if (req.method() !== 'GET') {
           writes.push({
             path,
