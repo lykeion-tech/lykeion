@@ -29,3 +29,76 @@ for (let i = 0; i < 500; i++) {
     maps: Array.from({length: doc.length + 1}, (_, pos) => [-1, 1].map(assoc => [pos, assoc, changes.mapPos(pos, assoc)])).flat()});
 }
 writeFileSync(new URL('../server/internal/coresearch/doc/testdata/changesets.json', import.meta.url), '[\n' + cases.map(c => JSON.stringify(c)).join(',\n') + '\n]\n');
+
+// Keep a real outstanding edit for each independently observed client. Only
+// the selected client receives server steps and rebases its draft after 409.
+seed = 782;
+const initial = 'a😀\r\nβ🧪 paper\r\nend';
+const draftFor = (source, forced) => {
+  const points = boundaries(source);
+  let kind = forced?.kind ?? ['insert', 'delete', 'replace'][random(3)];
+  let left = forced?.left ?? random(points.length);
+  if (left === points.length - 1) kind = 'insert';
+  const right = kind === 'insert' ? left : left + 1 + random(Math.min(6, points.length - left - 1));
+  const spec = {from: points[left], to: points[right], insert: kind === 'delete' ? '' : text(1 + random(7))};
+  if (forced) Object.assign(spec, forced.spec);
+  return {kind, ...spec, changes: ChangeSet.of({...spec, insert: Text.of(spec.insert.split('\n'))}, source.length)};
+};
+const clients = [
+  {version: 0, text: initial, draft: draftFor(initial, {kind:'insert',left:0,spec:{from:0,to:0,insert:'😀\r\n'}})},
+  {version: 0, text: initial, draft: draftFor(initial, {kind:'delete',left:0,spec:{from:0,to:1,insert:''}})},
+  {version: 0, text: initial, draft: draftFor(initial, {kind:'replace',left:0,spec:{from:0,to:3,insert:'β🧪\r\n'}})},
+];
+const plainDraft = d => ({kind:d.kind, from:d.from, to:d.to, insert:d.insert, changes:d.changes.toJSON()});
+const initialClients = clients.map(c => plainDraft(c.draft));
+let serverText = Text.of(initial.split('\n'));
+const journal = [], trace = [], tracked = [];
+let rangeID = 0;
+const stats = {staleAttempts:0, changedRebases:0, overlappingRebases:0, insert:0, delete:0, replace:0};
+const overlaps = (change, range) => {
+  let touched = false;
+  change.iterChangedRanges((from,to) => {
+    if (range.from === range.to) touched ||= from < range.from && to > range.to;
+    else touched ||= (from === to && from > range.from && from < range.to) || (from < range.to && to > range.from);
+  });
+  return touched;
+};
+for (let round = 0; round < 100; round++) {
+  const order = [0,1,2]; // Deterministic Fisher-Yates order after the first overlap.
+  if (round !== 0) for (let n = order.length - 1; n > 0; n--) {const j=random(n+1);[order[n],order[j]]=[order[j],order[n]];}
+  for (const writer of order) {
+    const client = clients[writer], beforeVersion = journal.length;
+    stats[client.draft.kind]++;
+    let mapped = client.draft.changes, observed = Text.of(client.text.split('\n'));
+    const rebases = [];
+    if (client.version !== beforeVersion) stats.staleAttempts++;
+    for (let version = client.version; version < beforeVersion; version++) {
+      const remote = journal[version];
+      mapped.iterChangedRanges((from,to) => {if (remote.touchesRange(from,to)) stats.overlappingRebases++;});
+      const previous = JSON.stringify(mapped.toJSON());
+      mapped = mapped.map(remote);
+      if (JSON.stringify(mapped.toJSON()) !== previous) stats.changedRebases++;
+      observed = remote.apply(observed);
+      rebases.push({version:version+1, remote:remote.toJSON(), changes:mapped.toJSON(), observed:observed.toString(), localResult:mapped.apply(observed).toString()});
+    }
+    if (observed.toString() !== serverText.toString()) throw new Error('client did not catch up');
+    const source = serverText;
+    for (const range of tracked) {
+      if (overlaps(mapped,range)) range.status='stale';
+      range.from=mapped.mapPos(range.from,1);
+      range.to=Math.max(range.from,mapped.mapPos(range.to,-1));
+    }
+    serverText=mapped.apply(serverText);
+    const added=[];
+    if (writer===2) mapped.iterChanges((fromA,toA,fromB,toB,insert) => {
+      const range={id:rangeID++,from:fromB,to:toB,inserted:insert.toString(),removed:source.sliceString(fromA,toA),status:'pending'};
+      tracked.push(range);added.push({...range});
+    });
+    for(const range of tracked) if(range.status==='pending' && serverText.sliceString(range.from,range.to)!==range.inserted) throw new Error('pending reference range drifted');
+    journal.push(mapped);
+    const nextDraft=draftFor(serverText.toString());
+    trace.push({writer,base:client.version,observed:client.text,draft:plainDraft(client.draft),rebases,accepted:mapped.toJSON(),result:serverText.toString(),added,ranges:tracked.map(({id,from,to,status})=>({id,from,to,status})),nextDraft:plainDraft(nextDraft)});
+    client.version=journal.length;client.text=serverText.toString();client.draft=nextDraft;
+  }
+}
+writeFileSync(new URL('../server/internal/coresearch/doc/testdata/interleavings.json',import.meta.url), JSON.stringify({seed:782,initial,initialClients,stats,trace})+'\n');

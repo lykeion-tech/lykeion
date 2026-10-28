@@ -13,7 +13,7 @@ INSERT INTO coresearch_doc_step(workspace_id,file_id,version,author_user_id,agen
 -- name: ListCoresearchDocSteps :many
 SELECT * FROM coresearch_doc_step WHERE workspace_id= @workspace_id AND file_id= @file_id AND version> @after_version AND version<= @through_version ORDER BY version LIMIT 500;
 -- name: ListCoresearchPendingRanges :many
-SELECT * FROM coresearch_change WHERE workspace_id= @workspace_id AND file_id= @file_id AND status='pending' ORDER BY id FOR UPDATE;
+SELECT * FROM coresearch_change WHERE workspace_id= @workspace_id AND file_id= @file_id AND status IN ('pending','stale') ORDER BY id FOR UPDATE;
 -- name: MapCoresearchChange :exec
 UPDATE coresearch_change SET from_pos= @from_pos,to_pos= @to_pos,status= @status WHERE workspace_id= @workspace_id AND id= @id;
 -- name: ListCoresearchCommentRanges :many

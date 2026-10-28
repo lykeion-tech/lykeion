@@ -237,7 +237,7 @@ func (q *Queries) ListCoresearchDocSteps(ctx context.Context, arg ListCoresearch
 }
 
 const listCoresearchPendingRanges = `-- name: ListCoresearchPendingRanges :many
-SELECT id, workspace_id, proposal_id, file_id, from_pos, to_pos, removed_text, status, decided_by, decided_at, created_at FROM coresearch_change WHERE workspace_id= $1 AND file_id= $2 AND status='pending' ORDER BY id FOR UPDATE
+SELECT id, workspace_id, proposal_id, file_id, from_pos, to_pos, removed_text, status, decided_by, decided_at, created_at FROM coresearch_change WHERE workspace_id= $1 AND file_id= $2 AND status IN ('pending','stale') ORDER BY id FOR UPDATE
 `
 
 type ListCoresearchPendingRangesParams struct {

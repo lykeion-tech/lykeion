@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -255,5 +256,52 @@ func TestDocOpenRetriesChangedSourceOutsideLocks(t *testing.T) {
 	var d doc.Doc
 	if c := s.call(t, "GET", csProjects+"/"+p.ID+"/docs/"+f, a, ws, nil, &d); c != 200 || d.Text != "new head😀" || d.Version != 0 {
 		t.Fatalf("retry %d %+v", c, d)
+	}
+}
+
+func TestDocStepsMapStaleRanges(t *testing.T) {
+	for _, sameBatch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("same_batch_%t", sameBatch), func(t *testing.T) {
+			s, a, _, ws, p, f := paperFixture(t)
+			url := csProjects + "/" + p.ID + "/docs/" + f
+			if code := s.call(t, "GET", url, a, ws, nil, nil); code != 200 {
+				t.Fatal(code)
+			}
+			proposal, change := uuid.New(), uuid.New()
+			if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO coresearch_proposal(id,workspace_id,project_id) VALUES($1,$2,$3)`, proposal, ws, p.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO coresearch_change(id,workspace_id,proposal_id,file_id,from_pos,to_pos,removed_text,status) VALUES($1,$2,$3,$4,1,3,'old','pending')`, change, ws, proposal, f); err != nil {
+				t.Fatal(err)
+			}
+			steps := []doc.ChangeSet{doc.Replace(1, 3, "z", 6), doc.Replace(0, 0, "😀\r\n", 5), doc.Replace(0, 2, "", 9)}
+			batches := [][]doc.ChangeSet{steps}
+			if !sameBatch {
+				batches = [][]doc.ChangeSet{{steps[0]}, {steps[1]}, {steps[2]}}
+			}
+			base := 0
+			for _, batch := range batches {
+				if code := s.call(t, "POST", url+"/steps", a, ws, map[string]any{"base": base, "client_id": "a", "steps": batch}, nil); code != 200 {
+					t.Fatal(code)
+				}
+				base += len(batch)
+			}
+			var from, to int
+			var status string
+			if err := s.Env.Owner.QueryRow(t.Context(), `SELECT from_pos,to_pos,status FROM coresearch_change WHERE id=$1`, change).Scan(&from, &to, &status); err != nil {
+				t.Fatal(err)
+			}
+			if from != 3 || to != 4 || status != "stale" {
+				t.Fatalf("stale range lost after prefix edits: [%d,%d) %s; want [3,4) stale", from, to, status)
+			}
+			var d doc.Doc
+			if code := s.call(t, "GET", url, a, ws, nil, &d); code != 200 {
+				t.Fatal(code)
+			}
+			got, err := doc.Slice(d.Text, from, to)
+			if err != nil || got != "z" {
+				t.Fatalf("stale Undo target %q, %v", got, err)
+			}
+		})
 	}
 }
