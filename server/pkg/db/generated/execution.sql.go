@@ -638,7 +638,7 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 }
 
 const getRuntime = `-- name: GetRuntime :one
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility FROM runtime WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics FROM runtime WHERE id = $1 AND workspace_id = $2
 `
 
 type GetRuntimeParams struct {
@@ -668,6 +668,8 @@ func (q *Queries) GetRuntime(ctx context.Context, arg GetRuntimeParams) (Runtime
 		&i.Language,
 		&i.Bases,
 		&i.Visibility,
+		&i.Models,
+		&i.Metrics,
 	)
 	return i, err
 }
@@ -862,7 +864,7 @@ func (q *Queries) ListRecords(ctx context.Context, arg ListRecordsParams) ([]Rec
 }
 
 const listRuntimes = `-- name: ListRuntimes :many
-SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, r.bases, r.visibility, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
+SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, r.bases, r.visibility, r.models, r.metrics, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
   AND t.status IN ('dispatched', 'running'))::int AS active_runs,
   COALESCE((SELECT array_agg(s.user_id ORDER BY s.user_id) FROM runtime_share s
     WHERE s.runtime_id = r.id AND s.workspace_id = r.workspace_id), '{}'::uuid[])::uuid[] AS shared_with
@@ -888,6 +890,8 @@ type ListRuntimesRow struct {
 	Language      string          `json:"language"`
 	Bases         json.RawMessage `json:"bases"`
 	Visibility    string          `json:"visibility"`
+	Models        json.RawMessage `json:"models"`
+	Metrics       []byte          `json:"metrics"`
 	ActiveRuns    int32           `json:"active_runs"`
 	SharedWith    []uuid.UUID     `json:"shared_with"`
 }
@@ -921,6 +925,8 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 			&i.Language,
 			&i.Bases,
 			&i.Visibility,
+			&i.Models,
+			&i.Metrics,
 			&i.ActiveRuns,
 			&i.SharedWith,
 		); err != nil {
@@ -1768,7 +1774,7 @@ ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
   SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, os = EXCLUDED.os, arch = EXCLUDED.arch,
     kernel = EXCLUDED.kernel, language = EXCLUDED.language, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
-RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility
+RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics
 `
 
 type UpsertRuntimeParams struct {
@@ -1817,6 +1823,8 @@ func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (R
 		&i.Language,
 		&i.Bases,
 		&i.Visibility,
+		&i.Models,
+		&i.Metrics,
 	)
 	return i, err
 }

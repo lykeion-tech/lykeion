@@ -7,13 +7,14 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 const archiveCoresearchProject = `-- name: ArchiveCoresearchProject :one
-UPDATE coresearch_project SET archived_at=now(),updated_at=now() WHERE workspace_id = $1 AND id = $2 RETURNING id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id
+UPDATE coresearch_project SET archived_at=now(),updated_at=now() WHERE workspace_id = $1 AND id = $2 RETURNING id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id, mode
 `
 
 type ArchiveCoresearchProjectParams struct {
@@ -34,6 +35,7 @@ func (q *Queries) ArchiveCoresearchProject(ctx context.Context, arg ArchiveCores
 		&i.ArchivedAt,
 		&i.UpdatedAt,
 		&i.ConversationOwnerID,
+		&i.Mode,
 	)
 	return i, err
 }
@@ -290,7 +292,7 @@ func (q *Queries) CountCoresearchOwners(ctx context.Context, arg CountCoresearch
 }
 
 const createCoresearchChat = `-- name: CreateCoresearchChat :one
-INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES($1,$2,$3,'experiment',$4) RETURNING id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at
+INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES($1,$2,$3,'experiment',$4) RETURNING id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics
 `
 
 type CreateCoresearchChatParams struct {
@@ -321,6 +323,7 @@ func (q *Queries) CreateCoresearchChat(ctx context.Context, arg CreateCoresearch
 		&i.KernelState,
 		&i.KernelSeenAt,
 		&i.CreatedAt,
+		&i.KernelMetrics,
 	)
 	return i, err
 }
@@ -441,7 +444,7 @@ func (q *Queries) EnsureCoresearchFile(ctx context.Context, arg EnsureCoresearch
 }
 
 const getCoresearchChat = `-- name: GetCoresearchChat :one
-SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at FROM coresearch_chat WHERE workspace_id= $1 AND project_id= $2 AND id= $3
+SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics FROM coresearch_chat WHERE workspace_id= $1 AND project_id= $2 AND id= $3
 `
 
 type GetCoresearchChatParams struct {
@@ -466,6 +469,7 @@ func (q *Queries) GetCoresearchChat(ctx context.Context, arg GetCoresearchChatPa
 		&i.KernelState,
 		&i.KernelSeenAt,
 		&i.CreatedAt,
+		&i.KernelMetrics,
 	)
 	return i, err
 }
@@ -493,7 +497,7 @@ func (q *Queries) GetCoresearchFile(ctx context.Context, arg GetCoresearchFilePa
 }
 
 const getCoresearchProject = `-- name: GetCoresearchProject :one
-SELECT id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id FROM coresearch_project WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id, mode FROM coresearch_project WHERE workspace_id = $1 AND id = $2
 `
 
 type GetCoresearchProjectParams struct {
@@ -514,6 +518,7 @@ func (q *Queries) GetCoresearchProject(ctx context.Context, arg GetCoresearchPro
 		&i.ArchivedAt,
 		&i.UpdatedAt,
 		&i.ConversationOwnerID,
+		&i.Mode,
 	)
 	return i, err
 }
@@ -606,7 +611,7 @@ func (q *Queries) InsertCoresearchVersion(ctx context.Context, arg InsertCoresea
 }
 
 const listCoresearchChats = `-- name: ListCoresearchChats :many
-SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, coalesce((SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1), '')::text AS machine_name
+SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, c.kernel_metrics, coalesce((SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1), '')::text AS machine_name
 FROM coresearch_chat c WHERE c.workspace_id= $1 AND c.project_id= $2 ORDER BY c.created_at,c.id
 `
 
@@ -616,19 +621,20 @@ type ListCoresearchChatsParams struct {
 }
 
 type ListCoresearchChatsRow struct {
-	ID               uuid.UUID  `json:"id"`
-	WorkspaceID      uuid.UUID  `json:"workspace_id"`
-	ProjectID        uuid.UUID  `json:"project_id"`
-	OwnerID          uuid.UUID  `json:"owner_id"`
-	Mode             string     `json:"mode"`
-	Cli              string     `json:"cli"`
-	DaemonID         *string    `json:"daemon_id"`
-	KernelRequest    *string    `json:"kernel_request"`
-	KernelRequestSeq int64      `json:"kernel_request_seq"`
-	KernelState      string     `json:"kernel_state"`
-	KernelSeenAt     *time.Time `json:"kernel_seen_at"`
-	CreatedAt        time.Time  `json:"created_at"`
-	MachineName      string     `json:"machine_name"`
+	ID               uuid.UUID       `json:"id"`
+	WorkspaceID      uuid.UUID       `json:"workspace_id"`
+	ProjectID        uuid.UUID       `json:"project_id"`
+	OwnerID          uuid.UUID       `json:"owner_id"`
+	Mode             string          `json:"mode"`
+	Cli              string          `json:"cli"`
+	DaemonID         *string         `json:"daemon_id"`
+	KernelRequest    *string         `json:"kernel_request"`
+	KernelRequestSeq int64           `json:"kernel_request_seq"`
+	KernelState      string          `json:"kernel_state"`
+	KernelSeenAt     *time.Time      `json:"kernel_seen_at"`
+	CreatedAt        time.Time       `json:"created_at"`
+	KernelMetrics    json.RawMessage `json:"kernel_metrics"`
+	MachineName      string          `json:"machine_name"`
 }
 
 func (q *Queries) ListCoresearchChats(ctx context.Context, arg ListCoresearchChatsParams) ([]ListCoresearchChatsRow, error) {
@@ -653,6 +659,7 @@ func (q *Queries) ListCoresearchChats(ctx context.Context, arg ListCoresearchCha
 			&i.KernelState,
 			&i.KernelSeenAt,
 			&i.CreatedAt,
+			&i.KernelMetrics,
 			&i.MachineName,
 		); err != nil {
 			return nil, err
@@ -830,7 +837,7 @@ func (q *Queries) ListCoresearchMessages(ctx context.Context, arg ListCoresearch
 }
 
 const listCoresearchProjects = `-- name: ListCoresearchProjects :many
-SELECT p.id, p.workspace_id, p.name, p.python_version, p.created_by, p.created_at, p.archived_at, p.updated_at, p.conversation_owner_id, m.role FROM coresearch_project p JOIN coresearch_member m ON m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id=app_user()
+SELECT p.id, p.workspace_id, p.name, p.python_version, p.created_by, p.created_at, p.archived_at, p.updated_at, p.conversation_owner_id, p.mode, m.role FROM coresearch_project p JOIN coresearch_member m ON m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id=app_user()
 WHERE p.workspace_id = $1 AND p.conversation_owner_id IS NULL ORDER BY p.updated_at DESC,p.id
 `
 
@@ -844,6 +851,7 @@ type ListCoresearchProjectsRow struct {
 	ArchivedAt          *time.Time `json:"archived_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 	ConversationOwnerID *uuid.UUID `json:"conversation_owner_id"`
+	Mode                string     `json:"mode"`
 	Role                string     `json:"role"`
 }
 
@@ -866,6 +874,7 @@ func (q *Queries) ListCoresearchProjects(ctx context.Context, workspaceID uuid.U
 			&i.ArchivedAt,
 			&i.UpdatedAt,
 			&i.ConversationOwnerID,
+			&i.Mode,
 			&i.Role,
 		); err != nil {
 			return nil, err
@@ -879,7 +888,7 @@ func (q *Queries) ListCoresearchProjects(ctx context.Context, workspaceID uuid.U
 }
 
 const lockCoresearchChat = `-- name: LockCoresearchChat :one
-SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at FROM coresearch_chat WHERE workspace_id= $1 AND id= $2 FOR UPDATE
+SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics FROM coresearch_chat WHERE workspace_id= $1 AND id= $2 FOR UPDATE
 `
 
 type LockCoresearchChatParams struct {
@@ -903,6 +912,7 @@ func (q *Queries) LockCoresearchChat(ctx context.Context, arg LockCoresearchChat
 		&i.KernelState,
 		&i.KernelSeenAt,
 		&i.CreatedAt,
+		&i.KernelMetrics,
 	)
 	return i, err
 }
@@ -930,7 +940,7 @@ func (q *Queries) LockCoresearchFile(ctx context.Context, arg LockCoresearchFile
 }
 
 const lockCoresearchProject = `-- name: LockCoresearchProject :one
-SELECT id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id FROM coresearch_project WHERE workspace_id = $1 AND id = $2 FOR UPDATE
+SELECT id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id, mode FROM coresearch_project WHERE workspace_id = $1 AND id = $2 FOR UPDATE
 `
 
 type LockCoresearchProjectParams struct {
@@ -951,6 +961,7 @@ func (q *Queries) LockCoresearchProject(ctx context.Context, arg LockCoresearchP
 		&i.ArchivedAt,
 		&i.UpdatedAt,
 		&i.ConversationOwnerID,
+		&i.Mode,
 	)
 	return i, err
 }
@@ -970,7 +981,7 @@ func (q *Queries) ReleaseCoresearchChat(ctx context.Context, arg ReleaseCoresear
 }
 
 const renameCoresearchProject = `-- name: RenameCoresearchProject :one
-UPDATE coresearch_project SET name = $1,updated_at=now() WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id
+UPDATE coresearch_project SET name = $1,updated_at=now() WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id, mode
 `
 
 type RenameCoresearchProjectParams struct {
@@ -992,6 +1003,7 @@ func (q *Queries) RenameCoresearchProject(ctx context.Context, arg RenameCoresea
 		&i.ArchivedAt,
 		&i.UpdatedAt,
 		&i.ConversationOwnerID,
+		&i.Mode,
 	)
 	return i, err
 }

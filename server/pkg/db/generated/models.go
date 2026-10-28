@@ -300,6 +300,29 @@ type ConnectorFetch struct {
 	FetchedAt     time.Time `json:"fetched_at"`
 }
 
+type CoresearchBuild struct {
+	ID              uuid.UUID       `json:"id"`
+	WorkspaceID     uuid.UUID       `json:"workspace_id"`
+	ProjectID       uuid.UUID       `json:"project_id"`
+	Seq             int32           `json:"seq"`
+	RequestedBy     uuid.UUID       `json:"requested_by"`
+	DaemonID        *string         `json:"daemon_id"`
+	Status          string          `json:"status"`
+	Sources         json.RawMessage `json:"sources"`
+	PdfBlob         *string         `json:"pdf_blob"`
+	LogBlob         *string         `json:"log_blob"`
+	SynctexBlob     *string         `json:"synctex_blob"`
+	Pages           *int32          `json:"pages"`
+	FailureReason   *string         `json:"failure_reason"`
+	ClaimedDaemonID *string         `json:"claimed_daemon_id"`
+	ClaimToken      *uuid.UUID      `json:"claim_token"`
+	LeaseExpiresAt  *time.Time      `json:"lease_expires_at"`
+	ReceiptSha      *string         `json:"receipt_sha"`
+	CreatedAt       time.Time       `json:"created_at"`
+	StartedAt       *time.Time      `json:"started_at"`
+	FinishedAt      *time.Time      `json:"finished_at"`
+}
+
 type CoresearchCell struct {
 	ID              uuid.UUID       `json:"id"`
 	WorkspaceID     uuid.UUID       `json:"workspace_id"`
@@ -323,19 +346,50 @@ type CoresearchCell struct {
 	ReceiptSha      *string         `json:"receipt_sha"`
 }
 
+type CoresearchChange struct {
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ProposalID  uuid.UUID  `json:"proposal_id"`
+	FileID      uuid.UUID  `json:"file_id"`
+	FromPos     int32      `json:"from_pos"`
+	ToPos       int32      `json:"to_pos"`
+	RemovedText string     `json:"removed_text"`
+	Status      string     `json:"status"`
+	DecidedBy   *uuid.UUID `json:"decided_by"`
+	DecidedAt   *time.Time `json:"decided_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
 type CoresearchChat struct {
-	ID               uuid.UUID  `json:"id"`
-	WorkspaceID      uuid.UUID  `json:"workspace_id"`
-	ProjectID        uuid.UUID  `json:"project_id"`
-	OwnerID          uuid.UUID  `json:"owner_id"`
-	Mode             string     `json:"mode"`
-	Cli              string     `json:"cli"`
-	DaemonID         *string    `json:"daemon_id"`
-	KernelRequest    *string    `json:"kernel_request"`
-	KernelRequestSeq int64      `json:"kernel_request_seq"`
-	KernelState      string     `json:"kernel_state"`
-	KernelSeenAt     *time.Time `json:"kernel_seen_at"`
-	CreatedAt        time.Time  `json:"created_at"`
+	ID               uuid.UUID       `json:"id"`
+	WorkspaceID      uuid.UUID       `json:"workspace_id"`
+	ProjectID        uuid.UUID       `json:"project_id"`
+	OwnerID          uuid.UUID       `json:"owner_id"`
+	Mode             string          `json:"mode"`
+	Cli              string          `json:"cli"`
+	DaemonID         *string         `json:"daemon_id"`
+	KernelRequest    *string         `json:"kernel_request"`
+	KernelRequestSeq int64           `json:"kernel_request_seq"`
+	KernelState      string          `json:"kernel_state"`
+	KernelSeenAt     *time.Time      `json:"kernel_seen_at"`
+	CreatedAt        time.Time       `json:"created_at"`
+	KernelMetrics    json.RawMessage `json:"kernel_metrics"`
+}
+
+type CoresearchComment struct {
+	ID           uuid.UUID   `json:"id"`
+	WorkspaceID  uuid.UUID   `json:"workspace_id"`
+	FileID       uuid.UUID   `json:"file_id"`
+	FromPos      int32       `json:"from_pos"`
+	ToPos        int32       `json:"to_pos"`
+	Quote        string      `json:"quote"`
+	Line         int32       `json:"line"`
+	AuthorUserID uuid.UUID   `json:"author_user_id"`
+	Body         string      `json:"body"`
+	Mentions     []uuid.UUID `json:"mentions"`
+	ResolvedBy   *uuid.UUID  `json:"resolved_by"`
+	ResolvedAt   *time.Time  `json:"resolved_at"`
+	CreatedAt    time.Time   `json:"created_at"`
 }
 
 type CoresearchConversation struct {
@@ -352,6 +406,26 @@ type CoresearchConversation struct {
 	SnapshotInstructions *string   `json:"snapshot_instructions"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+type CoresearchDoc struct {
+	WorkspaceID       uuid.UUID `json:"workspace_id"`
+	FileID            uuid.UUID `json:"file_id"`
+	Version           int64     `json:"version"`
+	CheckpointText    string    `json:"checkpoint_text"`
+	CheckpointVersion int64     `json:"checkpoint_version"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type CoresearchDocStep struct {
+	WorkspaceID  uuid.UUID       `json:"workspace_id"`
+	FileID       uuid.UUID       `json:"file_id"`
+	Version      int64           `json:"version"`
+	AuthorUserID *uuid.UUID      `json:"author_user_id"`
+	AgentRunID   *uuid.UUID      `json:"agent_run_id"`
+	ClientID     string          `json:"client_id"`
+	Changes      json.RawMessage `json:"changes"`
+	CreatedAt    time.Time       `json:"created_at"`
 }
 
 type CoresearchFile struct {
@@ -405,6 +479,18 @@ type CoresearchProject struct {
 	ArchivedAt          *time.Time `json:"archived_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 	ConversationOwnerID *uuid.UUID `json:"conversation_owner_id"`
+	Mode                string     `json:"mode"`
+}
+
+type CoresearchProposal struct {
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ProjectID   uuid.UUID  `json:"project_id"`
+	ChatID      *uuid.UUID `json:"chat_id"`
+	AgentRunID  *uuid.UUID `json:"agent_run_id"`
+	RestoreOf   *int32     `json:"restore_of"`
+	CreatedBy   *uuid.UUID `json:"created_by"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 type CoresearchRun struct {
@@ -459,6 +545,18 @@ type CoresearchTurnReceipt struct {
 	Target      string          `json:"target"`
 	Body        string          `json:"body"`
 	Response    json.RawMessage `json:"response"`
+}
+
+type CoresearchVersion struct {
+	ID          uuid.UUID       `json:"id"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	ProjectID   uuid.UUID       `json:"project_id"`
+	Seq         int32           `json:"seq"`
+	Title       string          `json:"title"`
+	ByUserID    *uuid.UUID      `json:"by_user_id"`
+	BuildID     *uuid.UUID      `json:"build_id"`
+	Files       json.RawMessage `json:"files"`
+	CreatedAt   time.Time       `json:"created_at"`
 }
 
 type Event struct {
@@ -574,6 +672,8 @@ type Runtime struct {
 	Language      string          `json:"language"`
 	Bases         json.RawMessage `json:"bases"`
 	Visibility    string          `json:"visibility"`
+	Models        json.RawMessage `json:"models"`
+	Metrics       []byte          `json:"metrics"`
 }
 
 type RuntimeShare struct {

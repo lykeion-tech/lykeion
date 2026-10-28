@@ -188,7 +188,7 @@ func (q *Queries) CoresearchBlobForOwner(ctx context.Context, arg CoresearchBlob
 }
 
 const coresearchChatByID = `-- name: CoresearchChatByID :one
-SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at FROM coresearch_chat WHERE workspace_id= $1 AND id= $2
+SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics FROM coresearch_chat WHERE workspace_id= $1 AND id= $2
 `
 
 type CoresearchChatByIDParams struct {
@@ -212,12 +212,13 @@ func (q *Queries) CoresearchChatByID(ctx context.Context, arg CoresearchChatByID
 		&i.KernelState,
 		&i.KernelSeenAt,
 		&i.CreatedAt,
+		&i.KernelMetrics,
 	)
 	return i, err
 }
 
 const coresearchClaimChats = `-- name: CoresearchClaimChats :many
-SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at FROM coresearch_chat c JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
+SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, c.kernel_metrics FROM coresearch_chat c JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
 WHERE c.workspace_id= $1 AND c.owner_id= $2 AND p.archived_at IS NULL AND (c.daemon_id IS NULL OR c.daemon_id= $3)
 AND EXISTS(SELECT 1 FROM coresearch_member m WHERE m.workspace_id=c.workspace_id AND m.project_id=c.project_id AND m.user_id=c.owner_id)
 AND EXISTS(SELECT 1 FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.id=ANY( $4::uuid[]) AND r.daemon_id= $3 AND r.owner_id=c.owner_id AND r.harness=c.cli)
@@ -262,6 +263,7 @@ func (q *Queries) CoresearchClaimChats(ctx context.Context, arg CoresearchClaimC
 			&i.KernelState,
 			&i.KernelSeenAt,
 			&i.CreatedAt,
+			&i.KernelMetrics,
 		); err != nil {
 			return nil, err
 		}

@@ -40,9 +40,9 @@ func TestEveryTenantTableHasAPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 26 before 0012, plus card_team, team_agent, autoresearch_team,
-	// workspace_connector and connector_fetch, plus five UI library tables, workspace availability and team_rating, then attachment, runtime_share, agent_run_machine_attempt and nine Coresearch tables and personal conversations and turn receipts.
-	if n != 52 {
-		t.Fatalf("found %d tenant tables, want 52", n)
+	// workspace_connector and connector_fetch, plus five UI library tables, workspace availability and team_rating, then attachment, runtime_share, agent_run_machine_attempt and nine Coresearch tables and personal conversations and turn receipts, then seven Cowrite tables.
+	if n != 59 {
+		t.Fatalf("found %d tenant tables, want 59", n)
 	}
 }
 

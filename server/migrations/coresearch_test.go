@@ -43,6 +43,13 @@ func TestCoresearchMigration(t *testing.T) {
 	exec(`INSERT INTO coresearch_project (workspace_id,name,created_by) VALUES ($1,'probe',$2)`, ws, u)
 	exec(`DELETE FROM coresearch_project`)
 	original := kindCheck()
+	for _, name := range []string{"0028_cowrite.down.sql", "0027_aristotle_turns.down.sql"} {
+		b, err := fs.ReadFile(migrations.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(string(b))
+	}
 	aristotleDown, err := fs.ReadFile(migrations.FS, "0026_aristotle.down.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -68,6 +75,13 @@ func TestCoresearchMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	exec(string(aristotleUp))
+	for _, name := range []string{"0027_aristotle_turns.up.sql", "0028_cowrite.up.sql"} {
+		b, err := fs.ReadFile(migrations.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(string(b))
+	}
 	outsider := uuid.New()
 	exec(`INSERT INTO "user" (id,email) VALUES ($1,'outsider@x')`, outsider)
 	exec(`INSERT INTO member (workspace_id,user_id,role) VALUES ($1,$2,'owner'),($1,$3,'member')`, ws, u, outsider)
@@ -144,7 +158,7 @@ func TestCoresearchMigration(t *testing.T) {
 	refuse(`UPDATE agent_run SET kind='role',card_id=$2 WHERE id=$1`, "23514", agent, card)
 	refuse(`UPDATE agent_run SET kind='autoresearch' WHERE id=$1`, "23514", agent)
 	refuse(`UPDATE agent_run SET requester_id=NULL WHERE id=$1`, "23514", agent)
-	refuse(`UPDATE coresearch_chat SET mode='cowrite' WHERE id=$1`, "23514", chats[0])
+	refuse(`UPDATE coresearch_chat SET mode='cowrite' WHERE id=$1`, "23503", chats[0])
 	refuse(`UPDATE coresearch_file_version SET sha256='x' WHERE file_id=$1`, "23514", files[0])
 	otherWS := uuid.New()
 	exec(`INSERT INTO workspace (id,slug,name) VALUES ($1,'other','other')`, otherWS)

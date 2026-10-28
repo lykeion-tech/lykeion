@@ -1,0 +1,70 @@
+-- Restore the pre-Cowrite maintenance functions before removing their table.
+CREATE OR REPLACE FUNCTION public.coresearch_revoke(target uuid, project uuid)
+RETURNS TABLE(kind text, project_id uuid, chat_id uuid, work_id uuid)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE c public.coresearch_chat; item uuid;
+BEGIN
+  IF project IS NULL THEN
+    IF NOT EXISTS(SELECT 1 FROM public.member m WHERE m.workspace_id=public.app_workspace() AND m.user_id=public.app_user() AND (m.user_id=target OR m.role IN ('owner','admin'))) THEN
+      RAISE EXCEPTION 'workspace membership removal authority required' USING ERRCODE='42501';
+    END IF;
+  ELSIF NOT EXISTS(SELECT 1 FROM public.coresearch_member m JOIN public.member w ON w.workspace_id=m.workspace_id AND w.user_id=m.user_id WHERE m.workspace_id=public.app_workspace() AND m.project_id=project AND m.user_id=public.app_user() AND m.role='owner') THEN
+    RAISE EXCEPTION 'project ownership required' USING ERRCODE='42501';
+  END IF;
+  FOR c IN SELECT x.* FROM public.coresearch_chat x WHERE x.workspace_id=public.app_workspace() AND x.owner_id=target AND (project IS NULL OR x.project_id=project) ORDER BY x.project_id,x.id FOR UPDATE LOOP
+    FOR item IN UPDATE public.coresearch_cell q SET status='cancelled',failure_reason='coresearch_access_revoked',finished_at=now() WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status IN ('queued','running') RETURNING q.id LOOP
+      RETURN QUERY SELECT 'cell'::text,c.project_id,c.id,item;
+    END LOOP;
+    FOR item IN UPDATE public.coresearch_run q SET status='cancelled',failure_reason='coresearch_access_revoked',finished_at=now() WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status IN ('queued','running') RETURNING q.id LOOP
+      RETURN QUERY SELECT 'run'::text,c.project_id,c.id,item;
+    END LOOP;
+    FOR item IN UPDATE public.coresearch_setup q SET status='cancelled',failure_reason='coresearch_access_revoked',finished_at=now() WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status IN ('queued','running') RETURNING q.id LOOP
+      RETURN QUERY SELECT 'setup'::text,c.project_id,c.id,item;
+    END LOOP;
+    UPDATE public.coresearch_chat x SET kernel_request=NULL,kernel_state='stopped' WHERE x.workspace_id=c.workspace_id AND x.id=c.id;
+    RETURN QUERY SELECT 'chat'::text,c.project_id,c.id,c.id;
+    FOR item IN SELECT a.id FROM public.agent_run a WHERE a.workspace_id=c.workspace_id AND a.coresearch_chat_id=c.id AND a.kind='coresearch' AND a.status IN ('queued','dispatched','running') FOR UPDATE LOOP
+      RETURN QUERY SELECT 'turn'::text,c.project_id,c.id,item;
+    END LOOP;
+  END LOOP;
+END
+$$;
+REVOKE ALL ON FUNCTION public.coresearch_revoke(uuid,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.coresearch_revoke(uuid,uuid) TO lykeion_app;
+
+CREATE OR REPLACE FUNCTION public.coresearch_depart(target uuid) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE p public.coresearch_project; successor uuid;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.member m WHERE m.workspace_id=public.app_workspace() AND m.user_id=public.app_user() AND (m.user_id=target OR m.role IN ('owner','admin'))) THEN
+  RAISE EXCEPTION 'workspace membership removal authority required' USING ERRCODE='42501';
+ END IF;
+ FOR p IN SELECT x.* FROM public.coresearch_project x JOIN public.coresearch_member m ON m.workspace_id=x.workspace_id AND m.project_id=x.id
+ WHERE x.workspace_id=public.app_workspace() AND m.user_id=target ORDER BY x.id FOR UPDATE OF x LOOP
+  successor := NULL;
+  SELECT m.user_id INTO successor FROM public.coresearch_member m WHERE m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id<>target ORDER BY m.created_at,m.user_id LIMIT 1;
+  IF successor IS NULL THEN
+   UPDATE public.coresearch_project SET archived_at=coalesce(archived_at,now()),updated_at=now() WHERE workspace_id=p.workspace_id AND id=p.id;
+  ELSIF NOT EXISTS(SELECT 1 FROM public.coresearch_member m WHERE m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id<>target AND m.role='owner') THEN
+   IF public.app_user()=target THEN RETURN false; END IF;
+   UPDATE public.coresearch_member SET role='owner' WHERE workspace_id=p.workspace_id AND project_id=p.id AND user_id=successor;
+  END IF;
+ END LOOP;
+ RETURN true;
+END
+$$;
+REVOKE ALL ON FUNCTION public.coresearch_depart(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.coresearch_depart(uuid) TO lykeion_app;
+
+
+DROP TABLE coresearch_version,coresearch_build,coresearch_comment,coresearch_change,coresearch_proposal,coresearch_doc_step,coresearch_doc;
+DROP FUNCTION refuse_coresearch_doc_step_update();
+ALTER TABLE runtime DROP COLUMN models,DROP COLUMN metrics;
+ALTER TABLE coresearch_chat
+  DROP CONSTRAINT coresearch_chat_project_mode_fkey,
+  DROP CONSTRAINT coresearch_chat_mode_check,
+  ADD CONSTRAINT coresearch_chat_mode_check CHECK (mode IN ('experiment')),
+  DROP CONSTRAINT coresearch_chat_kernel_request_check,
+  ADD CONSTRAINT coresearch_chat_kernel_request_check CHECK (kernel_request IN ('interrupt','restart')),
+  DROP COLUMN kernel_metrics;
+ALTER TABLE coresearch_project DROP CONSTRAINT coresearch_project_workspace_id_id_mode_key,DROP COLUMN mode;
