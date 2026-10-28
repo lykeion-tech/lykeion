@@ -2,6 +2,8 @@
 
 **Goal:** Deliver the user-approved personal Aristotle chat experience alongside existing project chats.
 **Authority:** User-approved plan pasted in the conversation on 2026-10-28. This document records its requirements and executable task boundaries.
+**User clarification (2026-10-28):** Coresearch and the product Projects feature are independent. Remove the Projects section/query from the conversation rail; retain the main navigation Projects feature unchanged. Coresearch execution backing rows remain internal implementation details. Existing direct Coresearch project URLs remain compatible. This supersedes earlier rail Projects-section requirements.
+
 **Architecture:** Personal agents and conversations use existing Go/PostgreSQL Coresearch execution; Vue provides welcome/starter UI and L2 rail swapping.
 
 ## Global Constraints
@@ -53,3 +55,10 @@ Own focused e2e tests and task-owned evidence; fixes assigned back to relevant i
 - Add browser tests for bootstrap first welcome, + unsaved draft, starter send/retry, starter settings save/reflection, reload/last chat, FAB switching, existing project access, global New, no-machine blocker, light/dark/narrow layout.
 - Run typecheck, lint/format exact changed files, frontend suites, focused Playwright, affected backend packages sequentially; widen only for changes/failures. Real browser verify actual Local Lab at 1431/1430, update backend preview only after protecting lab state and applying migration.
 - Whole-branch spec/security/quality review, fix real findings, retain evidence and report honest live/runtime limitations. Leave preview accessible. No merge or push.
+
+### Task 5: Keep Coresearch independent from Projects (user clarification)
+Own ConversationRail.vue and one focused unit regression only; no backend changes.
+- Remove Projects header, folder/manage links, project listing and useCoresearchProjects query from conversation rail.
+- Accessible rail name becomes Conversations. Keep conversation history, +, Settings and FAB behavior.
+- Main navigation Projects entry and actual Projects feature remain unchanged; existing direct legacy Coresearch URLs remain supported.
+- Prove rail has no Projects links/content and does not fetch ordinary Coresearch project list; prove conversation links/+ remain. Task4 acceptance updates corresponding assertions and verifies main navigation Projects still goes to /projects.
