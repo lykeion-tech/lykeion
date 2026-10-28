@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/compute"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -75,8 +76,10 @@ func (h *H) daemonRegister(w http.ResponseWriter, r *http.Request) {
 
 func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Runtimes []service.RuntimeRef `json:"runtimes"`
-		Bases    json.RawMessage      `json:"bases"`
+		Runtimes []service.RuntimeRef       `json:"runtimes"`
+		Bases    json.RawMessage            `json:"bases"`
+		Metrics  json.RawMessage            `json:"metrics"`
+		Models   map[string]json.RawMessage `json:"models"`
 	}
 	if err := readJSON(r, &in); err != nil || len(in.Runtimes) == 0 || len(in.Runtimes) > 64 {
 		writeErr(w, 400, "runtimes required (1-64)")
@@ -102,7 +105,24 @@ func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	n, err := h.AgentRuns.Heartbeat(r.Context(), user(r), in.Runtimes, bases)
+	telemetry := service.RuntimeTelemetry{Models: map[string]json.RawMessage{}}
+	var metrics compute.MachineSample
+	if json.Unmarshal(in.Metrics, &metrics) == nil && metrics.Valid() {
+		telemetry.Metrics, _ = json.Marshal(metrics)
+	}
+	for harness, raw := range in.Models {
+		if _, ok := agent.Harnesses[harness]; !ok {
+			continue
+		}
+		var models []agent.Model
+		if json.Unmarshal(raw, &models) == nil && agent.ValidModels(models) {
+			if models == nil {
+				models = []agent.Model{}
+			}
+			telemetry.Models[harness], _ = json.Marshal(models)
+		}
+	}
+	n, err := h.AgentRuns.Heartbeat(r.Context(), user(r), in.Runtimes, bases, telemetry)
 	if err != nil {
 		agentRunFail(w, r, err)
 		return

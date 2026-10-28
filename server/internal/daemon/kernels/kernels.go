@@ -82,6 +82,7 @@ type Sessions struct {
 	closed bool
 	// The process handle is published independently of the serial call lock.
 	// os.Process supports concurrent Signal and Wait calls.
+	current atomic.Pointer[bridge]
 	process atomic.Pointer[os.Process]
 	cell    atomic.Pointer[cellControl]
 	closing atomic.Bool
@@ -89,6 +90,10 @@ type Sessions struct {
 
 type reply struct {
 	ID             int      `json:"id"`
+	BridgePID      int      `json:"bridge_pid"`
+	Kernel         string   `json:"kernel"`
+	PIDState       bool     `json:"pid_state"`
+	PIDs           []int    `json:"pids"`
 	Ready          bool     `json:"ready"`
 	CellReady      bool     `json:"cell_ready"`
 	CellID         string   `json:"cell_id"`
@@ -102,11 +107,13 @@ type reply struct {
 }
 
 type bridge struct {
-	cmd     *exec.Cmd
-	in      io.WriteCloser
-	replies chan reply
-	done    chan struct{}
-	ready   chan struct{}
+	start    string
+	pidState atomic.Pointer[pidState]
+	cmd      *exec.Cmd
+	in       io.WriteCloser
+	replies  chan reply
+	done     chan struct{}
+	ready    chan struct{}
 	// Submitted cells remain addressable after caller cancellation until their
 	// reply arrives, so their queued stop cannot be reassigned to another cell.
 	cells sync.Map
@@ -130,7 +137,7 @@ func (c *cellControl) interrupt() error {
 		c.pending = true
 		return nil
 	}
-	if err := c.bridge.cmd.Process.Signal(syscall.SIGUSR1); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if err := c.bridge.signal(syscall.SIGUSR1); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
 	return nil
@@ -166,6 +173,7 @@ func Start(ctx context.Context, command Command, python string, env []string, di
 	}
 	s.b = b
 	s.process.Store(b.cmd.Process)
+	s.current.Store(b)
 	return s, nil
 }
 
@@ -193,7 +201,7 @@ func (s *Sessions) start() (*bridge, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting the session bridge: %w", err)
 	}
-	b := &bridge{cmd: cmd, in: in, replies: make(chan reply, 1), done: make(chan struct{}), ready: make(chan struct{})}
+	b := &bridge{start: processStart(cmd.Process.Pid), cmd: cmd, in: in, replies: make(chan reply, 1), done: make(chan struct{}), ready: make(chan struct{})}
 	go func() {
 		// A bridge that breaks the protocol is told to stop, which shuts its
 		// kernels down, and killed if it hasn't exited after 5 seconds.
@@ -211,6 +219,12 @@ func (s *Sessions) start() (*bridge, error) {
 				halt("the session bridge wrote a line that isn't a reply; stopping it", err)
 				break
 			}
+			if r.BridgePID > 0 {
+				b.pidState.Store(&pidState{bridge: r.BridgePID, pids: r.PIDs, kernel: r.Kernel})
+			}
+			if r.PIDState {
+				continue
+			}
 			if r.Ready {
 				if !ready {
 					ready = true
@@ -224,7 +238,7 @@ func (s *Sessions) start() (*bridge, error) {
 					c.mu.Lock()
 					c.ready = true
 					if c.pending && !c.finished {
-						b.cmd.Process.Signal(syscall.SIGUSR1)
+						b.signal(syscall.SIGUSR1)
 						c.pending = false
 					}
 					c.mu.Unlock()
@@ -394,6 +408,7 @@ func (s *Sessions) callLocked(ctx context.Context, req map[string]any) (reply, e
 		}
 		s.b = b
 		s.process.Store(b.cmd.Process)
+		s.current.Store(b)
 	}
 	b := s.b
 	s.nextID++
@@ -496,7 +511,11 @@ func (s *Sessions) Close() error {
 	// otherwise keep the call lock until the full cell timeout expires.
 	for !s.mu.TryLock() {
 		if p := s.process.Load(); p != nil && p != pending {
-			p.Signal(syscall.SIGTERM)
+			if b := s.current.Load(); b != nil {
+				_ = b.signal(syscall.SIGTERM)
+			} else {
+				p.Signal(syscall.SIGTERM)
+			}
 			pending = p
 			if force != nil {
 				force.Stop()
@@ -528,7 +547,7 @@ func (s *Sessions) Close() error {
 }
 
 func stop(b *bridge) {
-	b.cmd.Process.Signal(syscall.SIGTERM)
+	b.signal(syscall.SIGTERM)
 	if !exited(b, 5*time.Second) {
 		b.cmd.Process.Kill()
 		exited(b, 10*time.Second)

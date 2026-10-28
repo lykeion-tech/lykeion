@@ -256,3 +256,7 @@ VALUES (@workspace_id, @agent_run_id, @attempt, @runtime_id, @daemon_id, @owner_
 -- name: StartMachineAttempt :exec
 UPDATE agent_run_machine_attempt SET started_at = now()
 WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt = @attempt AND runtime_id = @runtime_id;
+
+-- name: SetRuntimeCompute :exec
+UPDATE runtime SET metrics=sqlc.narg(metrics),models=coalesce(sqlc.narg(models)::jsonb,models)
+WHERE id= @id AND workspace_id= @workspace_id AND owner_id= @owner_id;

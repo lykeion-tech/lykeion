@@ -595,7 +595,7 @@ func TestTheCallTokenNeverReachesTheCLI(t *testing.T) {
 	must(t, os.MkdirAll(seen, 0700))
 	wrapper := filepath.Join(os.Getenv("HOME"), "token-wrapper")
 	// the CLI waits while its run's tokens are checked: they go when it ends
-	must(t, os.WriteFile(wrapper, []byte("#!/bin/sh\ncase \"$*\" in *--mcp-config*) ;; *) exec "+f.cfg.Harnesses["claude"]+" \"$@\";; esac\nprev=\nfor a in \"$@\"; do [ \"$prev\" = --mcp-config ] && cat \"$a\" > "+seen+"/mcp; prev=$a; done\nenv > "+seen+"/env.tmp && mv "+seen+"/env.tmp "+seen+"/env\n"+
+	must(t, os.WriteFile(wrapper, []byte("#!/bin/sh\ncase \"$*\" in *--no-session-persistence*) exec "+f.cfg.Harnesses["claude"]+" \"$@\";; *--mcp-config*) ;; *) exec "+f.cfg.Harnesses["claude"]+" \"$@\";; esac\nprev=\nfor a in \"$@\"; do [ \"$prev\" = --mcp-config ] && cat \"$a\" > "+seen+"/mcp; prev=$a; done\nenv > "+seen+"/env.tmp && mv "+seen+"/env.tmp "+seen+"/env\n"+
 		"while [ ! -f "+seen+"/go ]; do sleep 0.05; done\nexec "+f.cfg.Harnesses["claude"]+" \"$@\"\n"), 0700))
 	f.cfg.Harnesses["claude"] = wrapper
 	cancel, done := startDaemon(t, f.cfg)

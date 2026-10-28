@@ -14,7 +14,7 @@ UPDATE coresearch_cell SET status= @status,execution_count=sqlc.narg(execution_c
 -- name: RequestCoresearchKernel :exec
 UPDATE coresearch_chat SET kernel_request= @op,kernel_request_seq=kernel_request_seq+1 WHERE workspace_id= @workspace_id AND id= @id;
 -- name: ReportCoresearchKernel :exec
-UPDATE coresearch_chat SET kernel_state= @state,kernel_seen_at=now(),kernel_request=CASE WHEN kernel_request_seq= @seq_done THEN NULL ELSE kernel_request END WHERE workspace_id= @workspace_id AND id= @id;
+UPDATE coresearch_chat SET kernel_state= @state,kernel_name=CASE WHEN @state='stopped' THEN '' ELSE coalesce(sqlc.narg(kernel_name)::text,kernel_name) END,kernel_seen_at=now(),kernel_request=CASE WHEN kernel_request_seq= @seq_done THEN NULL ELSE kernel_request END WHERE workspace_id= @workspace_id AND id= @id;
 -- name: CoresearchFileByPath :one
 SELECT * FROM coresearch_file WHERE workspace_id= @workspace_id AND project_id= @project_id AND path= @path AND deleted_at IS NULL;
 -- name: NextCoresearchRunKey :one
@@ -123,3 +123,16 @@ UPDATE agent_run SET coresearch_build_id= @build_id WHERE workspace_id= @workspa
 SELECT c.* FROM coresearch_chat c JOIN agent_run r ON r.workspace_id=c.workspace_id AND r.coresearch_chat_id=c.id WHERE r.workspace_id= @workspace_id AND r.id= @id AND c.mode='cowrite' AND r.status IN ('completed','failed','cancelled') AND EXISTS(SELECT 1 FROM coresearch_doc_step d WHERE d.workspace_id=r.workspace_id AND d.agent_run_id=r.id);
 -- name: GetCoresearchBuildSeq :one
 SELECT * FROM coresearch_build WHERE workspace_id= @workspace_id AND project_id= @project_id AND seq= @seq;
+
+-- name: ListOwnCoresearchKernels :many
+SELECT c.id AS chat_id,c.kernel_name AS kernel,
+ c.kernel_state AS state,r.id AS runtime_id,coalesce(r.custom_name,r.device_name)::text AS device_name,c.kernel_metrics AS samples
+FROM coresearch_chat c JOIN runtime r ON r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.harness=c.cli AND r.owner_id=c.owner_id
+WHERE c.workspace_id= @workspace_id AND c.project_id= @project_id AND c.owner_id= @owner_id AND c.kernel_name<>'' ORDER BY c.created_at;
+
+-- name: ListOwnComputeMachines :many
+SELECT id AS runtime_id,coalesce(custom_name,device_name)::text AS device_name,metrics FROM runtime WHERE workspace_id= @workspace_id AND owner_id= @owner_id ORDER BY created_at;
+
+-- name: AppendCoresearchKernelSample :exec
+UPDATE coresearch_chat SET kernel_seen_at=now(),kernel_name=coalesce(sqlc.narg(kernel_name)::text,kernel_name),kernel_metrics=(SELECT coalesce(jsonb_agg(value ORDER BY ord),'[]'::jsonb) FROM jsonb_array_elements(kernel_metrics||jsonb_build_array(@sample::jsonb)) WITH ORDINALITY a(value,ord) WHERE ord>jsonb_array_length(kernel_metrics)+1-60)
+WHERE workspace_id= @workspace_id AND id= @id;

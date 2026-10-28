@@ -159,6 +159,9 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			t.Fatalf("owner build download %d", code)
 		}
 	}
+	if code := s.call(t, "GET", csProjects+"/"+cs.ID+"/compute", a, wa.ID, nil, nil); code != 200 {
+		t.Fatalf("owner compute %d", code)
+	}
 	var welcome struct{ Conversation struct{ ID string } }
 	if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, wa.ID, nil, &welcome); code != 200 || welcome.Conversation.ID == "" {
 		t.Fatalf("conversation fixture %d", code)

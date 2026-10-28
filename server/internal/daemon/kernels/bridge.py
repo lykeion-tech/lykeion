@@ -47,6 +47,32 @@ CELL_CUT = {"type": "text", "text": "(output cut at 20 MiB)"}
 
 
 
+def kernel_pids():
+    managers = [value[0] for value in sessions.values()]
+    if named_session is not None:
+        managers.append(named_session[1])
+    pids = []
+    for km in managers:
+        provisioner = getattr(km, "provisioner", None)
+        pid = getattr(provisioner, "pid", None)
+        if isinstance(pid, int) and pid > 0:
+            pids.append(pid)
+    return pids
+
+
+def active_kernel_name():
+    if named_session is not None:
+        return named_session[1].kernel_name
+    if len(sessions) == 1:
+        return next(iter(sessions.values()))[0].kernel_name
+    return ""
+
+
+def publish_pids():
+    replies.write(json.dumps({"pid_state": True, "bridge_pid": os.getpid(), "pids": kernel_pids(), "kernel": active_kernel_name()}) + "\n")
+    replies.flush()
+
+
 def kernel_name(language):
     if not _dirs:
         raise RuntimeError("no kernels are installed for this study")
@@ -97,6 +123,7 @@ def restart(language):
     km, kc = sessions[language]
     try:
         km.restart_kernel(now=True)
+        publish_pids()
         kc.wait_for_ready(timeout=START_TIMEOUT)
     except Exception:
         del sessions[language]
@@ -106,6 +133,7 @@ def restart(language):
 def run(language, code, timeout):
     if language not in sessions:
         sessions[language] = start(language)
+        publish_pids()
     km, kc = sessions[language]
     msg_id = kc.execute(code, allow_stdin=False)
     out, err, failed = Capped(), Capped(), False
@@ -263,6 +291,7 @@ def retire_named():
     if previous is not None:
         _, km, kc = previous
         stop(km, kc)
+    publish_pids()
 
 
 def named_kernel(name):
@@ -285,6 +314,7 @@ def named_kernel(name):
         km.start_kernel(cwd=cwd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         kc = km.client()
         named_session = (name, km, kc)
+        publish_pids()
         kc.start_channels()
         kc.wait_for_ready(timeout=START_TIMEOUT)
     except Exception:
@@ -370,7 +400,7 @@ def main():
     signal.signal(signal.SIGUSR1, interrupt_cell)
     # Cells wait for this frame before submission. A separate acknowledgement
     # identifies when a particular cell can receive signals.
-    replies.write(json.dumps({"ready": True}) + "\n")
+    replies.write(json.dumps({"ready": True, "bridge_pid": os.getpid(), "pids": []}) + "\n")
     replies.flush()
     try:
         for line in sys.stdin:
@@ -390,6 +420,8 @@ def main():
                         reply.update(outputs=out, execution_count=count, ok=ok, interrupted=interrupted)
                     finally:
                         active_cell = None
+                elif req.get("op") == "pids":
+                    reply.update(ok=True, bridge_pid=os.getpid(), pids=kernel_pids(), kernel=active_kernel_name())
                 elif req.get("op") == "restart_kernel":
                     name = req.get("kernel")
                     if not _dirs or name not in named_specs.find_kernel_specs():

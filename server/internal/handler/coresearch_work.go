@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"io"
+	"lykeion/server/internal/compute"
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
@@ -147,10 +148,20 @@ func (h *H) coresearchCells(w http.ResponseWriter, r *http.Request) {
 func (h *H) coresearchKernel(w http.ResponseWriter, r *http.Request) {
 	e := h.coresearchWorkTx(r, true, uuid.Nil, func(tx *store.Tx, c db.CoresearchChat, _ *uuid.UUID) error {
 		var in struct {
-			Op string `json:"op"`
+			Op     string `json:"op"`
+			Reason string `json:"reason"`
 		}
-		if readJSON(r, &in) != nil || !slices.Contains([]string{"interrupt", "restart"}, in.Op) {
-			return cardInputError("op must be interrupt or restart")
+		if readJSON(r, &in) != nil || !slices.Contains([]string{"interrupt", "restart", "stop"}, in.Op) {
+			return cardInputError("op must be interrupt, restart or stop")
+		}
+		if in.Op == "stop" {
+			in.Reason = strings.TrimSpace(in.Reason)
+			if in.Reason == "" || len(in.Reason) > 1000 || strings.ContainsRune(in.Reason, 0) {
+				return cardInputError("stop reason required (1-1000 bytes)")
+			}
+			if _, e := tx.Q.InsertCoresearchMessage(r.Context(), db.InsertCoresearchMessageParams{WorkspaceID: tx.WS, ChatID: c.ID, Kind: "comment", AuthorUserID: &c.OwnerID, Body: "Stopped the kernel: " + in.Reason}); e != nil {
+				return e
+			}
 		}
 		if e := tx.Q.RequestCoresearchKernel(r.Context(), db.RequestCoresearchKernelParams{WorkspaceID: tx.WS, ID: c.ID, Op: &in.Op}); e != nil {
 			return e
@@ -597,14 +608,37 @@ func (h *H) daemonCoresearchKernel(w http.ResponseWriter, r *http.Request) {
 			return e
 		}
 		var in struct {
-			State   string `json:"state"`
-			SeqDone int64  `json:"seq_done"`
+			State   string          `json:"state"`
+			SeqDone int64           `json:"seq_done"`
+			Sample  *compute.Sample `json:"sample"`
+			Kernel  *string         `json:"kernel"`
 		}
-		if readJSON(r, &in) != nil || !slices.Contains([]string{"stopped", "idle", "busy"}, in.State) || in.SeqDone < 0 {
+		if readJSON(r, &in) != nil || (!slices.Contains([]string{"stopped", "idle", "busy"}, in.State) && !(in.State == "" && in.Sample != nil && in.SeqDone == 0)) || in.SeqDone < 0 {
 			return cardInputError("invalid kernel state")
 		}
-		if e = tx.Q.ReportCoresearchKernel(r.Context(), db.ReportCoresearchKernelParams{WorkspaceID: tx.WS, ID: id, State: in.State, SeqDone: in.SeqDone}); e != nil {
-			return e
+		if in.Kernel != nil && (utf8.RuneCountInString(*in.Kernel) > 128 || strings.ContainsRune(*in.Kernel, 0)) {
+			return cardInputError("invalid kernel name")
+		}
+		// An in-flight periodic sample cannot resurrect a stopped kernel.
+		if in.State == "" && c.KernelState == "stopped" {
+			return nil
+		}
+		if in.Sample != nil {
+			if !in.Sample.Valid() {
+				return cardInputError("invalid kernel sample")
+			}
+			sample, _ := json.Marshal(struct {
+				compute.Sample
+				At time.Time `json:"at"`
+			}{*in.Sample, time.Now().UTC()})
+			if e = tx.Q.AppendCoresearchKernelSample(r.Context(), db.AppendCoresearchKernelSampleParams{WorkspaceID: tx.WS, ID: id, Sample: sample, KernelName: in.Kernel}); e != nil {
+				return e
+			}
+		}
+		if in.State != "" {
+			if e = tx.Q.ReportCoresearchKernel(r.Context(), db.ReportCoresearchKernelParams{WorkspaceID: tx.WS, ID: id, State: in.State, SeqDone: in.SeqDone, KernelName: in.Kernel}); e != nil {
+				return e
+			}
 		}
 		return coresearch.Changed(r.Context(), tx, "chat", c, id)
 	})

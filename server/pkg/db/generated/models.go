@@ -379,6 +379,7 @@ type CoresearchChat struct {
 	KernelSeenAt     *time.Time      `json:"kernel_seen_at"`
 	CreatedAt        time.Time       `json:"created_at"`
 	KernelMetrics    json.RawMessage `json:"kernel_metrics"`
+	KernelName       string          `json:"kernel_name"`
 }
 
 type CoresearchComment struct {
@@ -680,7 +681,7 @@ type Runtime struct {
 	Bases         json.RawMessage `json:"bases"`
 	Visibility    string          `json:"visibility"`
 	Models        json.RawMessage `json:"models"`
-	Metrics       []byte          `json:"metrics"`
+	Metrics       json.RawMessage `json:"metrics"`
 }
 
 type RuntimeShare struct {

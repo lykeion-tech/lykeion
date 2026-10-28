@@ -841,6 +841,7 @@ func TestRealAdapterCancellationBacklogIsDurable(t *testing.T) {
 	must(t, os.WriteFile(bin, []byte(`#!/bin/sh
 [ "$1" = --version ] && exit 0
 IFS= read -r first
+case "$first" in *'"subtype":"initialize"'*) echo '{"type":"control_response","response":{"subtype":"success","request_id":"models-init","response":{"models":[]}}}'; exit 0;; esac
 i=0; while [ "$i" -lt 200 ]; do echo '{"type":"log","message":"evidence"}';i=$((i+1));done
 echo ready > '`+ready+`'
 sleep 300

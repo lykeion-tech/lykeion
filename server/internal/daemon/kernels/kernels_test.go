@@ -52,7 +52,7 @@ func stub() {
 		out.Unlock()
 	}
 	if os.Getenv("LYK_BRIDGE_NO_READY") != "1" {
-		write(map[string]any{"ready": true})
+		write(map[string]any{"ready": true,"bridge_pid":os.Getpid(),"pids":[]int{}})
 	}
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
@@ -1078,7 +1078,7 @@ class Client:
     def get_iopub_msg(self, timeout): return {"parent_header":{"msg_id":"request"},"msg_type":"status","content":{"execution_state":"idle"}}
     def get_shell_msg(self, timeout): return {"parent_header":{"msg_id":"request"},"content":{"status":"ok"}}
 class Manager:
-    def __init__(self, **kw): self.kernel_spec=types.SimpleNamespace(argv=[sys.executable],env={})
+    def __init__(self, **kw): self.kernel_name=kw["kernel_name"]; self.kernel_spec=types.SimpleNamespace(argv=[sys.executable],env={})
     def start_kernel(self, **kw): pass
     def client(self): return Client()
     def interrupt_kernel(self): pass

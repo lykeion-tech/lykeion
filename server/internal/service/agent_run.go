@@ -435,7 +435,12 @@ func (s *AgentRuns) runtimeBatch(ctx context.Context, user uuid.UUID, refs []Run
 // Heartbeat marks the runtimes online. A non-nil bases replaces each one's
 // language base states, and each workspace whose states changed gets one
 // runtime.updated event.
-func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []RuntimeRef, bases map[string]string) (int, error) {
+type RuntimeTelemetry struct {
+	Metrics json.RawMessage
+	Models  map[string]json.RawMessage
+}
+
+func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []RuntimeRef, bases map[string]string, telemetry ...RuntimeTelemetry) (int, error) {
 	var states json.RawMessage
 	if bases != nil {
 		var err error
@@ -453,6 +458,15 @@ func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []Runtim
 			k, err := tx.Q.TouchRuntime(ctx, db.TouchRuntimeParams{ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID, OwnerID: user})
 			if err != nil {
 				return err
+			}
+			if len(telemetry) > 0 {
+				rt, e := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
+				if e != nil {
+					return e
+				}
+				if e = tx.Q.SetRuntimeCompute(ctx, db.SetRuntimeComputeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID, OwnerID: user, Metrics: telemetry[0].Metrics, Models: telemetry[0].Models[rt.Harness]}); e != nil {
+					return e
+				}
 			}
 			n += int(k)
 			if states == nil {

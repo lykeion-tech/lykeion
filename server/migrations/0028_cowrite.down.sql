@@ -101,7 +101,7 @@ ALTER TABLE coresearch_chat
   ADD CONSTRAINT coresearch_chat_mode_check CHECK (mode IN ('experiment')),
   DROP CONSTRAINT coresearch_chat_kernel_request_check,
   ADD CONSTRAINT coresearch_chat_kernel_request_check CHECK (kernel_request IN ('interrupt','restart')),
-  DROP COLUMN kernel_metrics;
+  DROP COLUMN kernel_metrics,DROP COLUMN kernel_name;
 ALTER TABLE coresearch_project DROP CONSTRAINT coresearch_project_workspace_id_id_mode_key,DROP COLUMN mode;
 
 ALTER TABLE coresearch_conversation ADD CONSTRAINT coresearch_conversation_project_id_key UNIQUE (project_id);

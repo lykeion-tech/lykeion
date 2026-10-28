@@ -32,3 +32,5 @@ sql:
             go_type: encoding/json.RawMessage
           - column: coresearch_run.facts
             go_type: encoding/json.RawMessage
+          - column: runtime.metrics
+            go_type: encoding/json.RawMessage

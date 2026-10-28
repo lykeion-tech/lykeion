@@ -103,7 +103,7 @@ func TestAttemptReservationProtectsAllMutations(t *testing.T) {
 	must(t, os.MkdirAll(control, 0700))
 	ready, release, launches := filepath.Join(control, "ready"), filepath.Join(control, "release"), filepath.Join(control, "launches")
 	bin := filepath.Join(control, "claude")
-	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\nIFS= read -r first || exit 46\necho launched >> " + strconv.Quote(launches) + "\necho active-data > \"$PWD/active-data.txt\"\necho \"$PWD\" > " + strconv.Quote(ready) + "\nwhile [ ! -f " + strconv.Quote(release) + " ]; do sleep 0.05; done\necho '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"s\"}'\n"
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\nIFS= read -r first || exit 46\ncase \"$first\" in *'\"subtype\":\"initialize\"'*) echo '{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"models-init\",\"response\":{\"models\":[]}}}'; exit 0;; esac\necho launched >> " + strconv.Quote(launches) + "\necho active-data > \"$PWD/active-data.txt\"\necho \"$PWD\" > " + strconv.Quote(ready) + "\nwhile [ ! -f " + strconv.Quote(release) + " ]; do sleep 0.05; done\necho '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"s\"}'\n"
 	must(t, os.WriteFile(bin, []byte(script), 0700))
 	f.cfg.Harnesses = map[string]string{"claude": bin}
 	f.cfg.Slots = 1
@@ -235,7 +235,7 @@ func TestOrphanAttemptReconciledBeforeDeletion(t *testing.T) {
 			ready, again := filepath.Join(control, "ready"), filepath.Join(control, "again")
 			violation := filepath.Join(control, "overlap")
 			bin := filepath.Join(control, "claude")
-			body := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\nIFS= read -r first || exit 46\nif [ -f " + strconv.Quote(ready) + " ]; then if kill -0 \"$(cat " + strconv.Quote(ready) + ")\" 2>/dev/null; then echo overlap > " + strconv.Quote(violation) + "; fi; echo relaunched > " + strconv.Quote(again) + "; echo '{\"type\":\"result\",\"result\":\"done\"}'; exit 0; fi\necho $$ > " + strconv.Quote(ready) + "\nwhile :; do sleep 0.05; done\n"
+			body := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo claude-test; exit 0; fi\nIFS= read -r first || exit 46\ncase \"$first\" in *'\"subtype\":\"initialize\"'*) echo '{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"models-init\",\"response\":{\"models\":[]}}}'; exit 0;; esac\nif [ -f " + strconv.Quote(ready) + " ]; then if kill -0 \"$(cat " + strconv.Quote(ready) + ")\" 2>/dev/null; then echo overlap > " + strconv.Quote(violation) + "; fi; echo relaunched > " + strconv.Quote(again) + "; echo '{\"type\":\"result\",\"result\":\"done\"}'; exit 0; fi\necho $$ > " + strconv.Quote(ready) + "\nwhile :; do sleep 0.05; done\n"
 			must(t, os.WriteFile(bin, []byte(body), 0700))
 			f.cfg.Harnesses = map[string]string{"claude": bin}
 			f.cfg.Slots = 1

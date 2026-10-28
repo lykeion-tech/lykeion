@@ -116,6 +116,8 @@ type claimed struct {
 	Skills []toolroute.RoutedSkill `json:"skills"`
 }
 type daemon struct {
+	modelProbeMu       sync.Mutex
+	models             map[string][]agent.Model
 	chatsMu            sync.Mutex
 	chats              map[uuid.UUID]*chatHost
 	coreActive         map[string]bool
@@ -253,10 +255,12 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	background := func(fn func()) { d.wg.Add(1); go func() { defer d.wg.Done(); fn() }() }
 	background(func() { d.every(ctx, cfg.Heartbeat, d.heartbeat) })
+	background(func() { d.probeModels(ctx); d.every(ctx, time.Hour, d.probeModels) })
 	background(func() { d.every(ctx, cfg.Flush, func(ctx context.Context) { d.fatal(d.flush(ctx)) }) })
 	background(func() { d.every(ctx, time.Hour, func(ctx context.Context) { d.fatal(d.gc(ctx)) }) })
 	background(func() { d.hints(ctx) })
 	background(func() { d.every(ctx, min(time.Second, chatIdle/2), d.reapChats) })
+	background(func() { d.every(ctx, 5*time.Second, d.sampleKernels) })
 	background(func() { d.storageLoop(ctx) })
 	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
 	if d.bases != nil {
@@ -370,6 +374,10 @@ func (d *daemon) heartbeat(ctx context.Context) {
 		slog.Warn("runtime refresh pending", "err", err)
 	}
 	refs := d.references()
+	metrics, metricsErr := Machine(ctx, d.cfg.Home)
+	d.mu.Lock()
+	models := d.models
+	d.mu.Unlock()
 	bases := map[string]string{}
 	if d.bases != nil {
 		bases = d.bases.States()
@@ -379,7 +387,10 @@ func (d *daemon) heartbeat(ctx context.Context) {
 		bases["sandbox"] = envs.Failed(d.sandboxErr)
 	}
 	for i := 0; i < len(refs); i += 64 {
-		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))]}
+		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))], "models": models}
+		if metricsErr == nil {
+			body["metrics"] = metrics
+		}
 		if bases != nil {
 			body["bases"] = bases
 		}

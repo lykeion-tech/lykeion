@@ -313,7 +313,7 @@ func (q *Queries) CountCoresearchOwners(ctx context.Context, arg CountCoresearch
 }
 
 const createCoresearchChat = `-- name: CreateCoresearchChat :one
-INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES($1,$2,$3,coalesce(nullif($4::text,''),'experiment'),$5) RETURNING id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics
+INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES($1,$2,$3,coalesce(nullif($4::text,''),'experiment'),$5) RETURNING id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics, kernel_name
 `
 
 type CreateCoresearchChatParams struct {
@@ -347,6 +347,7 @@ func (q *Queries) CreateCoresearchChat(ctx context.Context, arg CreateCoresearch
 		&i.KernelSeenAt,
 		&i.CreatedAt,
 		&i.KernelMetrics,
+		&i.KernelName,
 	)
 	return i, err
 }
@@ -468,7 +469,7 @@ func (q *Queries) EnsureCoresearchFile(ctx context.Context, arg EnsureCoresearch
 }
 
 const getCoresearchChat = `-- name: GetCoresearchChat :one
-SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics FROM coresearch_chat WHERE workspace_id= $1 AND project_id= $2 AND id= $3
+SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics, kernel_name FROM coresearch_chat WHERE workspace_id= $1 AND project_id= $2 AND id= $3
 `
 
 type GetCoresearchChatParams struct {
@@ -494,6 +495,7 @@ func (q *Queries) GetCoresearchChat(ctx context.Context, arg GetCoresearchChatPa
 		&i.KernelSeenAt,
 		&i.CreatedAt,
 		&i.KernelMetrics,
+		&i.KernelName,
 	)
 	return i, err
 }
@@ -636,7 +638,7 @@ func (q *Queries) InsertCoresearchVersion(ctx context.Context, arg InsertCoresea
 }
 
 const listCoresearchChats = `-- name: ListCoresearchChats :many
-SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, c.kernel_metrics, coalesce((SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1), '')::text AS machine_name
+SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, c.kernel_metrics, c.kernel_name, coalesce((SELECT coalesce(r.custom_name,r.device_name) FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.owner_id=c.owner_id AND r.harness=c.cli LIMIT 1), '')::text AS machine_name
 FROM coresearch_chat c WHERE c.workspace_id= $1 AND c.project_id= $2 ORDER BY c.created_at,c.id
 `
 
@@ -659,6 +661,7 @@ type ListCoresearchChatsRow struct {
 	KernelSeenAt     *time.Time      `json:"kernel_seen_at"`
 	CreatedAt        time.Time       `json:"created_at"`
 	KernelMetrics    json.RawMessage `json:"kernel_metrics"`
+	KernelName       string          `json:"kernel_name"`
 	MachineName      string          `json:"machine_name"`
 }
 
@@ -685,6 +688,7 @@ func (q *Queries) ListCoresearchChats(ctx context.Context, arg ListCoresearchCha
 			&i.KernelSeenAt,
 			&i.CreatedAt,
 			&i.KernelMetrics,
+			&i.KernelName,
 			&i.MachineName,
 		); err != nil {
 			return nil, err
@@ -914,7 +918,7 @@ func (q *Queries) ListCoresearchProjects(ctx context.Context, workspaceID uuid.U
 }
 
 const lockCoresearchChat = `-- name: LockCoresearchChat :one
-SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics FROM coresearch_chat WHERE workspace_id= $1 AND id= $2 FOR UPDATE
+SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics, kernel_name FROM coresearch_chat WHERE workspace_id= $1 AND id= $2 FOR UPDATE
 `
 
 type LockCoresearchChatParams struct {
@@ -939,6 +943,7 @@ func (q *Queries) LockCoresearchChat(ctx context.Context, arg LockCoresearchChat
 		&i.KernelSeenAt,
 		&i.CreatedAt,
 		&i.KernelMetrics,
+		&i.KernelName,
 	)
 	return i, err
 }
@@ -994,7 +999,7 @@ func (q *Queries) LockCoresearchProject(ctx context.Context, arg LockCoresearchP
 }
 
 const releaseCoresearchChat = `-- name: ReleaseCoresearchChat :exec
-UPDATE coresearch_chat SET daemon_id=NULL,kernel_state='stopped',kernel_seen_at=NULL WHERE workspace_id= $1 AND id= $2
+UPDATE coresearch_chat SET daemon_id=NULL,kernel_state='stopped',kernel_name='',kernel_seen_at=NULL WHERE workspace_id= $1 AND id= $2
 `
 
 type ReleaseCoresearchChatParams struct {

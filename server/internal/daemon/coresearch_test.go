@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/compute"
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/coresearch/localfiles"
 	"lykeion/server/internal/service"
@@ -41,6 +42,8 @@ type coreFixture struct {
 	finishedPath string
 	finishedCell map[string]any
 	states       []string
+	samples      []compute.Sample
+	kernelNames  []string
 }
 
 func newCoreFixture(t *testing.T) *coreFixture {
@@ -73,9 +76,17 @@ func newCoreFixture(t *testing.T) *coreFixture {
 			}
 			json.NewEncoder(w).Encode(map[string]string{"status": status})
 		case strings.HasSuffix(r.URL.Path, "/kernel"):
-			var state struct{ State string }
+			var state struct {
+				State  string
+				Kernel string          `json:"kernel"`
+				Sample *compute.Sample `json:"sample"`
+			}
 			json.NewDecoder(r.Body).Decode(&state)
 			f.states = append(f.states, state.State)
+			f.kernelNames = append(f.kernelNames, state.Kernel)
+			if state.Sample != nil {
+				f.samples = append(f.samples, *state.Sample)
+			}
 			w.WriteHeader(204)
 		case strings.HasSuffix(r.URL.Path, "/files"):
 			json.NewEncoder(w).Encode(f.files)
@@ -1290,5 +1301,24 @@ func TestFillLiveDocDiscardNoticeInPrompt(t *testing.T) {
 	must(t, f.d.runAgentRun(t.Context(), coreTurn(t, f)))
 	if !called {
 		t.Fatal("turn never launched")
+	}
+}
+
+func TestStopKernel(t *testing.T) {
+	f := coreKernelFixture(t)
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	h := f.d.chats[f.work.ChatID]
+	old := h.sessions
+	must(t, f.d.controlChat(t.Context(), coresearch.ClaimedControl{WorkContext: f.work, Op: "stop", Seq: 1}))
+	if h.sessions != nil {
+		t.Fatal("stop retained sessions")
+	}
+	if _, e := old.Cell(t.Context(), "python3", "1"); e == nil {
+		t.Fatal("closed session still executes")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.states[len(f.states)-1] != "stopped" {
+		t.Fatal(f.states)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,20 +32,21 @@ var coresearchPoll = time.Second
 type chatHost struct {
 	// filesMu orders final fill commits against the first writer launch. The
 	// durable marker stays conservative across retirement and daemon restart.
-	filesMu          sync.Mutex
-	writerLaunched   bool
-	kernelPython     string
-	kernelGeneration uint64
-	cellMu           sync.Mutex
-	mu               sync.Mutex
-	work             coresearch.WorkContext
-	dir              string
-	study            *envs.Study
-	sessions         *kernels.Sessions
-	lastUsed         time.Time
-	users            int
-	tmp, bridgeDir   string
-	kernel           string
+	filesMu           sync.Mutex
+	writerLaunched    bool
+	kernelPython      string
+	kernelGeneration  uint64
+	cellMu            sync.Mutex
+	mu                sync.Mutex
+	work              coresearch.WorkContext
+	dir               string
+	study             *envs.Study
+	sessions          *kernels.Sessions
+	publishedSessions atomic.Pointer[kernels.Sessions]
+	lastUsed          time.Time
+	users             int
+	tmp, bridgeDir    string
+	kernel            string
 }
 
 func (d *daemon) corePath(path string) string {
@@ -190,6 +192,7 @@ func (h *chatHost) use() func() {
 	return func() { h.mu.Lock(); h.users--; h.lastUsed = time.Now(); h.mu.Unlock() }
 }
 func (h *chatHost) closeLocked() error {
+	h.publishedSessions.Store(nil)
 	var err error
 	if h.sessions != nil {
 		err = h.sessions.Close()
@@ -224,7 +227,11 @@ func (d *daemon) stopChats() {
 }
 
 func (d *daemon) kernelState(ctx context.Context, h *chatHost, state string, seq int64) error {
-	return d.coreAPI(h.work.WorkspaceID).Do(ctx, "POST", d.corePath("chats/"+h.work.ChatID.String()+"/kernel"), map[string]any{"state": state, "seq_done": seq}, nil)
+	kernel := ""
+	if s := h.publishedSessions.Load(); s != nil && state != "stopped" {
+		kernel = s.KernelName()
+	}
+	return d.coreAPI(h.work.WorkspaceID).Do(ctx, "POST", d.corePath("chats/"+h.work.ChatID.String()+"/kernel"), map[string]any{"state": state, "seq_done": seq, "kernel": kernel}, nil)
 }
 func (d *daemon) reapChats(ctx context.Context) {
 	d.chatsMu.Lock()
@@ -246,10 +253,10 @@ func (d *daemon) reapChats(ctx context.Context) {
 		if idle || revoked {
 			_ = h.closeLocked()
 		}
-		h.mu.Unlock()
 		if idle && !revoked {
 			_ = d.kernelState(ctx, h, "stopped", 0)
 		}
+		h.mu.Unlock()
 	}
 }
 func (d *daemon) watchCoresearch(ctx context.Context, cancel context.CancelFunc, w coresearch.WorkContext, kind string, id uuid.UUID) {
@@ -429,6 +436,7 @@ func (d *daemon) startKernel(ctx context.Context, h *chatHost) error {
 	if err != nil {
 		return err
 	}
+	h.publishedSessions.Store(h.sessions)
 	if err = d.kernelState(ctx, h, "idle", 0); err != nil {
 		return err
 	}
@@ -509,7 +517,14 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) (resultE
 		h.kernel = c.Kernel
 		h.mu.Unlock()
 		if err == nil {
-			if err = d.kernelState(ctx, h, "busy", 0); err == nil {
+			h.mu.Lock()
+			if h.sessions != s {
+				err = errors.New("the kernel was stopped")
+			} else {
+				err = d.kernelState(ctx, h, "busy", 0)
+			}
+			h.mu.Unlock()
+			if err == nil {
 				result, e := s.CellWithID(ctx, c.ID.String(), c.Kernel, c.Source)
 				err = e
 				if ctx.Err() != nil {
@@ -523,7 +538,12 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) (resultE
 						status = "error"
 					}
 					receipt = map[string]any{"status": status, "outputs": result.Outputs, "execution_count": result.ExecutionCount}
-					stateErr := d.kernelState(ctx, h, "idle", 0)
+					h.mu.Lock()
+					var stateErr error
+					if h.sessions == s {
+						stateErr = d.kernelState(ctx, h, "idle", 0)
+					}
+					h.mu.Unlock()
 					return errors.Join(err, stateErr)
 				}
 			}
@@ -544,6 +564,13 @@ func (d *daemon) controlChat(ctx context.Context, c coresearch.ClaimedControl) e
 	done := d.useChat(h)
 	defer done()
 	h.mu.Lock()
+	if c.Op == "stop" {
+		defer h.mu.Unlock()
+		if err := h.closeLocked(); err != nil {
+			return err
+		}
+		return d.kernelState(ctx, h, "stopped", c.Seq)
+	}
 	if c.Op == "restart" {
 		if err := d.retireChangedKernel(ctx, h); err != nil {
 			h.mu.Unlock()

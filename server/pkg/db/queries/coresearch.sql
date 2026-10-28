@@ -88,7 +88,7 @@ FROM coresearch_chat c WHERE c.workspace_id= @workspace_id AND c.project_id= @pr
 UPDATE coresearch_chat SET daemon_id= @daemon_id WHERE workspace_id= @workspace_id AND id= @id AND daemon_id IS NULL;
 
 -- name: ReleaseCoresearchChat :exec
-UPDATE coresearch_chat SET daemon_id=NULL,kernel_state='stopped',kernel_seen_at=NULL WHERE workspace_id= @workspace_id AND id= @id;
+UPDATE coresearch_chat SET daemon_id=NULL,kernel_state='stopped',kernel_name='',kernel_seen_at=NULL WHERE workspace_id= @workspace_id AND id= @id;
 
 -- name: CoresearchChatTurnBusy :one
 SELECT EXISTS(SELECT 1 FROM agent_run WHERE workspace_id= @workspace_id AND coresearch_chat_id= @chat_id AND status IN ('queued','dispatched','running'))::boolean;

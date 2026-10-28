@@ -896,7 +896,7 @@ type ListRuntimesRow struct {
 	Bases         json.RawMessage `json:"bases"`
 	Visibility    string          `json:"visibility"`
 	Models        json.RawMessage `json:"models"`
-	Metrics       []byte          `json:"metrics"`
+	Metrics       json.RawMessage `json:"metrics"`
 	ActiveRuns    int32           `json:"active_runs"`
 	SharedWith    []uuid.UUID     `json:"shared_with"`
 }
@@ -1546,6 +1546,30 @@ func (q *Queries) SetRuntimeBases(ctx context.Context, arg SetRuntimeBasesParams
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setRuntimeCompute = `-- name: SetRuntimeCompute :exec
+UPDATE runtime SET metrics=$1,models=coalesce($2::jsonb,models)
+WHERE id= $3 AND workspace_id= $4 AND owner_id= $5
+`
+
+type SetRuntimeComputeParams struct {
+	Metrics     json.RawMessage `json:"metrics"`
+	Models      []byte          `json:"models"`
+	ID          uuid.UUID       `json:"id"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	OwnerID     uuid.UUID       `json:"owner_id"`
+}
+
+func (q *Queries) SetRuntimeCompute(ctx context.Context, arg SetRuntimeComputeParams) error {
+	_, err := q.db.Exec(ctx, setRuntimeCompute,
+		arg.Metrics,
+		arg.Models,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.OwnerID,
+	)
+	return err
 }
 
 const setRuntimeConcurrency = `-- name: SetRuntimeConcurrency :execrows

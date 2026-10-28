@@ -12,6 +12,7 @@ ALTER TABLE coresearch_chat
   DROP CONSTRAINT coresearch_chat_kernel_request_check,
   ADD CONSTRAINT coresearch_chat_kernel_request_check CHECK (kernel_request IN ('interrupt','restart','stop')),
   ADD COLUMN kernel_metrics jsonb NOT NULL DEFAULT '[]',
+  ADD COLUMN kernel_name text NOT NULL DEFAULT '' CHECK (length(kernel_name)<=128),
   ADD CONSTRAINT coresearch_chat_project_mode_fkey FOREIGN KEY (workspace_id,project_id,mode)
     REFERENCES coresearch_project (workspace_id,id,mode) ON DELETE CASCADE;
 ALTER TABLE runtime
@@ -199,7 +200,7 @@ BEGIN
     FOR item IN UPDATE public.coresearch_setup q SET status='cancelled',failure_reason='coresearch_access_revoked',finished_at=now() WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status IN ('queued','running') RETURNING q.id LOOP
       RETURN QUERY SELECT 'setup'::text,c.project_id,c.id,item;
     END LOOP;
-    UPDATE public.coresearch_chat x SET kernel_request=NULL,kernel_state='stopped' WHERE x.workspace_id=c.workspace_id AND x.id=c.id;
+    UPDATE public.coresearch_chat x SET kernel_request=NULL,kernel_state='stopped',kernel_name='' WHERE x.workspace_id=c.workspace_id AND x.id=c.id;
     RETURN QUERY SELECT 'chat'::text,c.project_id,c.id,c.id;
     FOR item IN SELECT a.id FROM public.agent_run a WHERE a.workspace_id=c.workspace_id AND a.coresearch_chat_id=c.id AND a.kind='coresearch' AND a.status IN ('queued','dispatched','running') FOR UPDATE LOOP
       RETURN QUERY SELECT 'turn'::text,c.project_id,c.id,item;

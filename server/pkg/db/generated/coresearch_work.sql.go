@@ -12,6 +12,28 @@ import (
 	"github.com/google/uuid"
 )
 
+const appendCoresearchKernelSample = `-- name: AppendCoresearchKernelSample :exec
+UPDATE coresearch_chat SET kernel_seen_at=now(),kernel_name=coalesce($1::text,kernel_name),kernel_metrics=(SELECT coalesce(jsonb_agg(value ORDER BY ord),'[]'::jsonb) FROM jsonb_array_elements(kernel_metrics||jsonb_build_array($2::jsonb)) WITH ORDINALITY a(value,ord) WHERE ord>jsonb_array_length(kernel_metrics)+1-60)
+WHERE workspace_id= $3 AND id= $4
+`
+
+type AppendCoresearchKernelSampleParams struct {
+	KernelName  *string         `json:"kernel_name"`
+	Sample      json.RawMessage `json:"sample"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	ID          uuid.UUID       `json:"id"`
+}
+
+func (q *Queries) AppendCoresearchKernelSample(ctx context.Context, arg AppendCoresearchKernelSampleParams) error {
+	_, err := q.db.Exec(ctx, appendCoresearchKernelSample,
+		arg.KernelName,
+		arg.Sample,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	return err
+}
+
 const claimCoresearchBuilds = `-- name: ClaimCoresearchBuilds :many
 WITH candidates AS MATERIALIZED (
  SELECT b.id FROM coresearch_build b JOIN coresearch_project p ON p.workspace_id=b.workspace_id AND p.id=b.project_id
@@ -294,7 +316,7 @@ func (q *Queries) CoresearchBuildBlob(ctx context.Context, arg CoresearchBuildBl
 }
 
 const coresearchChatByID = `-- name: CoresearchChatByID :one
-SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics FROM coresearch_chat WHERE workspace_id= $1 AND id= $2
+SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics, kernel_name FROM coresearch_chat WHERE workspace_id= $1 AND id= $2
 `
 
 type CoresearchChatByIDParams struct {
@@ -319,12 +341,13 @@ func (q *Queries) CoresearchChatByID(ctx context.Context, arg CoresearchChatByID
 		&i.KernelSeenAt,
 		&i.CreatedAt,
 		&i.KernelMetrics,
+		&i.KernelName,
 	)
 	return i, err
 }
 
 const coresearchClaimChats = `-- name: CoresearchClaimChats :many
-SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, c.kernel_metrics FROM coresearch_chat c JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
+SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, c.kernel_metrics, c.kernel_name FROM coresearch_chat c JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
 WHERE c.workspace_id= $1 AND c.owner_id= $2 AND p.archived_at IS NULL AND (c.daemon_id IS NULL OR c.daemon_id= $3)
 AND EXISTS(SELECT 1 FROM coresearch_member m WHERE m.workspace_id=c.workspace_id AND m.project_id=c.project_id AND m.user_id=c.owner_id)
 AND EXISTS(SELECT 1 FROM runtime r WHERE r.workspace_id=c.workspace_id AND r.id=ANY( $4::uuid[]) AND r.daemon_id= $3 AND r.owner_id=c.owner_id AND r.harness=c.cli)
@@ -370,6 +393,7 @@ func (q *Queries) CoresearchClaimChats(ctx context.Context, arg CoresearchClaimC
 			&i.KernelSeenAt,
 			&i.CreatedAt,
 			&i.KernelMetrics,
+			&i.KernelName,
 		); err != nil {
 			return nil, err
 		}
@@ -505,7 +529,7 @@ func (q *Queries) CoresearchRunOutputs(ctx context.Context, arg CoresearchRunOut
 }
 
 const coresearchSettlementBuildChat = `-- name: CoresearchSettlementBuildChat :one
-SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, c.kernel_metrics FROM coresearch_chat c JOIN agent_run r ON r.workspace_id=c.workspace_id AND r.coresearch_chat_id=c.id WHERE r.workspace_id= $1 AND r.id= $2 AND c.mode='cowrite' AND r.status IN ('completed','failed','cancelled') AND EXISTS(SELECT 1 FROM coresearch_doc_step d WHERE d.workspace_id=r.workspace_id AND d.agent_run_id=r.id)
+SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, c.kernel_metrics, c.kernel_name FROM coresearch_chat c JOIN agent_run r ON r.workspace_id=c.workspace_id AND r.coresearch_chat_id=c.id WHERE r.workspace_id= $1 AND r.id= $2 AND c.mode='cowrite' AND r.status IN ('completed','failed','cancelled') AND EXISTS(SELECT 1 FROM coresearch_doc_step d WHERE d.workspace_id=r.workspace_id AND d.agent_run_id=r.id)
 `
 
 type CoresearchSettlementBuildChatParams struct {
@@ -530,6 +554,7 @@ func (q *Queries) CoresearchSettlementBuildChat(ctx context.Context, arg Coresea
 		&i.KernelSeenAt,
 		&i.CreatedAt,
 		&i.KernelMetrics,
+		&i.KernelName,
 	)
 	return i, err
 }
@@ -1526,6 +1551,90 @@ func (q *Queries) ListCoresearchSetups(ctx context.Context, arg ListCoresearchSe
 	return items, nil
 }
 
+const listOwnComputeMachines = `-- name: ListOwnComputeMachines :many
+SELECT id AS runtime_id,coalesce(custom_name,device_name)::text AS device_name,metrics FROM runtime WHERE workspace_id= $1 AND owner_id= $2 ORDER BY created_at
+`
+
+type ListOwnComputeMachinesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+type ListOwnComputeMachinesRow struct {
+	RuntimeID  uuid.UUID       `json:"runtime_id"`
+	DeviceName string          `json:"device_name"`
+	Metrics    json.RawMessage `json:"metrics"`
+}
+
+func (q *Queries) ListOwnComputeMachines(ctx context.Context, arg ListOwnComputeMachinesParams) ([]ListOwnComputeMachinesRow, error) {
+	rows, err := q.db.Query(ctx, listOwnComputeMachines, arg.WorkspaceID, arg.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOwnComputeMachinesRow
+	for rows.Next() {
+		var i ListOwnComputeMachinesRow
+		if err := rows.Scan(&i.RuntimeID, &i.DeviceName, &i.Metrics); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOwnCoresearchKernels = `-- name: ListOwnCoresearchKernels :many
+SELECT c.id AS chat_id,c.kernel_name AS kernel,
+ c.kernel_state AS state,r.id AS runtime_id,coalesce(r.custom_name,r.device_name)::text AS device_name,c.kernel_metrics AS samples
+FROM coresearch_chat c JOIN runtime r ON r.workspace_id=c.workspace_id AND r.daemon_id=c.daemon_id AND r.harness=c.cli AND r.owner_id=c.owner_id
+WHERE c.workspace_id= $1 AND c.project_id= $2 AND c.owner_id= $3 AND c.kernel_name<>'' ORDER BY c.created_at
+`
+
+type ListOwnCoresearchKernelsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+type ListOwnCoresearchKernelsRow struct {
+	ChatID     uuid.UUID       `json:"chat_id"`
+	Kernel     string          `json:"kernel"`
+	State      string          `json:"state"`
+	RuntimeID  uuid.UUID       `json:"runtime_id"`
+	DeviceName string          `json:"device_name"`
+	Samples    json.RawMessage `json:"samples"`
+}
+
+func (q *Queries) ListOwnCoresearchKernels(ctx context.Context, arg ListOwnCoresearchKernelsParams) ([]ListOwnCoresearchKernelsRow, error) {
+	rows, err := q.db.Query(ctx, listOwnCoresearchKernels, arg.WorkspaceID, arg.ProjectID, arg.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOwnCoresearchKernelsRow
+	for rows.Next() {
+		var i ListOwnCoresearchKernelsRow
+		if err := rows.Scan(
+			&i.ChatID,
+			&i.Kernel,
+			&i.State,
+			&i.RuntimeID,
+			&i.DeviceName,
+			&i.Samples,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nextCoresearchRunKey = `-- name: NextCoresearchRunKey :one
 SELECT ('R'||(coalesce(max(substring(key from 2)::bigint),0)+1))::text AS key FROM coresearch_run WHERE workspace_id= $1 AND project_id= $2
 `
@@ -1584,11 +1693,12 @@ func (q *Queries) QueuedCoresearchBuild(ctx context.Context, arg QueuedCoresearc
 }
 
 const reportCoresearchKernel = `-- name: ReportCoresearchKernel :exec
-UPDATE coresearch_chat SET kernel_state= $1,kernel_seen_at=now(),kernel_request=CASE WHEN kernel_request_seq= $2 THEN NULL ELSE kernel_request END WHERE workspace_id= $3 AND id= $4
+UPDATE coresearch_chat SET kernel_state= $1,kernel_name=CASE WHEN $1='stopped' THEN '' ELSE coalesce($2::text,kernel_name) END,kernel_seen_at=now(),kernel_request=CASE WHEN kernel_request_seq= $3 THEN NULL ELSE kernel_request END WHERE workspace_id= $4 AND id= $5
 `
 
 type ReportCoresearchKernelParams struct {
 	State       string    `json:"state"`
+	KernelName  *string   `json:"kernel_name"`
 	SeqDone     int64     `json:"seq_done"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	ID          uuid.UUID `json:"id"`
@@ -1597,6 +1707,7 @@ type ReportCoresearchKernelParams struct {
 func (q *Queries) ReportCoresearchKernel(ctx context.Context, arg ReportCoresearchKernelParams) error {
 	_, err := q.db.Exec(ctx, reportCoresearchKernel,
 		arg.State,
+		arg.KernelName,
 		arg.SeqDone,
 		arg.WorkspaceID,
 		arg.ID,

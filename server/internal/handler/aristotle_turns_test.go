@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/google/uuid"
+	"lykeion/server/internal/service"
 	db "lykeion/server/pkg/db/generated"
 	"reflect"
 	"strings"
@@ -97,6 +98,11 @@ func TestAristotleAcceptedReceiptSnapshotAndPrivacy(t *testing.T) {
 		t.Fatal(e)
 	}
 	csRegister(t, s, a, ws, "aristotle", "claude")
+	for _, catalog := range []any{[]any{}, []map[string]string{{"value": "new-cli-model", "label": "New CLI model", "description": "New catalog"}}} {
+		if code := s.call(t, "POST", "/api/daemon/heartbeat", s.personalToken(t, a), "", map[string]any{"runtimes": []service.RuntimeRef{ref}, "models": map[string]any{"claude": catalog}}, nil); code != 200 {
+			t.Fatalf("model refresh %d", code)
+		}
+	}
 	next := map[string]string{"body": "Continue", "request_id": uuid.NewString()}
 	if code := s.call(t, "POST", send, a, ws, next, &again); code != 201 {
 		t.Fatalf("frozen followup %d", code)

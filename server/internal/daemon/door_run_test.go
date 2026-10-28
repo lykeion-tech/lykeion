@@ -45,7 +45,7 @@ func stubBridge() {
 	counts := map[string]int{}
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, syscall.SIGUSR1)
-	fmt.Println(`{"ready":true}`)
+	fmt.Printf("{\"ready\":true,\"bridge_pid\":%d,\"pids\":[]}\n", os.Getpid())
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
 		var req struct {

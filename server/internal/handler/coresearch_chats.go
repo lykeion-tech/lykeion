@@ -55,6 +55,7 @@ func (h *H) listCoresearchChats(w http.ResponseWriter, r *http.Request) {
 		for i := range out {
 			if out[i].OwnerID != who {
 				out[i].KernelMetrics = nil
+				out[i].KernelName = ""
 			}
 		}
 		return e

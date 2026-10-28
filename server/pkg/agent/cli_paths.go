@@ -10,6 +10,8 @@ import (
 
 // CLIPaths are the person's own CLI files a run may change.
 type CLIPaths struct {
+	// Scratch identifies the temporary discovery folder for a sandbox factory.
+	Scratch string
 	// ConfigHome identifies the account store behind these state grants.
 	ConfigHome string
 	Write      []string
