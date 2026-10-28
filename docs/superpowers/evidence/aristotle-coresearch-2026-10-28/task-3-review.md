@@ -1,0 +1,33 @@
+# Task 3 review
+
+Spec verdict: CHANGES REQUIRED. Core routes, research prompts, unsaved-first-send behavior, scoped bootstrap/list state, frozen harness blocker, actual Settings query handling, receipt retention, and legacy project-route separation are present. Recoverable failure handling is incomplete for the required live agent-profile fetch.
+
+Quality verdict: CHANGES REQUIRED. Three actionable P2 findings below. Read-only inspection of the supplied diff and changed files; the only outside-diff inspection was the named `useAgent` integration needed to verify profile-fetch error handling. No git commands, test reruns, services, or browser actions. Existing worker test results and parent visual observations are reported evidence, not independently reproduced. Task 4 still owns live light/dark/narrow and end-to-end acceptance.
+
+1. **[P2] Give the live profile query a recoverable error state** — `apps/dashboard/src/coresearch/AristotleChat.vue:183-185`. After bootstrap succeeds, `useAristotle` deliberately fetches the current agent through `useAgent`. If that GET fails without cached data (for example, network loss or a 500), the template checks only bootstrap/conversation errors and renders `Loading Aristotle…` indefinitely. There is no retry for the failed profile query, so both welcome and new chat remain unusable after query retries finish. Add an agent-error branch with `state.agent.refetch()` before the loading branch, and cover successful bootstrap plus failed/retried agent GET.
+
+2. **[P2] Invalidate old send callbacks when a route/scope session changes** — `apps/dashboard/src/coresearch/AristotleChat.vue:108` (effects at 131-139). `current()` compares only current scope/path strings while the watcher at 72-76 clears local draft/busy/pending whenever either changes. Start a slow send on `/coresearch/new`, navigate to a conversation and back to `/coresearch/new` (the routes reuse the same component), then type a second draft or start its send. The first response now passes `current()`, erases the newer draft/pending request, navigates away, and can clear the newer request's busy state. A lab switch away and back has the same issue. Capture a monotonically increasing view/request generation and require it for local mutations, while continuing to persist acceptance receipt IDs under the captured original scope. Cover away-and-back navigation with an outstanding send.
+
+3. **[P2] Reset Settings busy state when switching the edited agent** — `apps/dashboard/src/views/AgentDetail.vue:158-160` (scope watcher at 126-131). The changed `finally` clears busy only if the original workspace/id/member is still active, but the workspace/id watcher never resets busy. Start a slow save for agent A, then navigate directly to agent B so Vue reuses `AgentDetail`; when A completes, B remains permanently busy and its Save buttons stay disabled. Reset busy for the new editing session and use a request/session token so A cannot clear a later B save. Cover agent or lab change during a pending save.
+
+## Scoped re-review: bfc741ca..37daa31
+
+Spec verdict: PASS for Task 3 code review. Quality verdict: PASS for the scoped fixes. All original three P2 findings are ADDRESSED; no outstanding finding remains from this review. Task 4 live acceptance boundaries remain unchanged.
+
+1. **ADDRESSED — live profile GET recovery.** A `state.agent.error` alert and actual `state.agent.refetch()` retry precede loading. The added regression verifies bootstrap success plus uncached agent GET500, then GET200 recovery to the draft UI.
+2. **ADDRESSED — stale chat acceptance callbacks.** A captured monotonic generation is checked alongside scope/path, incremented synchronously on scope/path change, new send, and unmount. Old completions still persist their original-scope receipts but cannot navigate, clear newer draft/pending state, or reset a newer send's busy flag. Added regressions cover both component reuse and actual unmount/remount, with a newer send pending when the old one completes.
+3. **ADDRESSED — Settings editing-session busy/reset guard.** The id/workspace/member watcher synchronously advances generation and resets busy. Request start and unmount also advance generation, and save cache mutation, error, notification and finally paths check the captured session. The regression exercises A -> B -> A with overlapping old/new saves and verifies B is enabled and old A cannot clear new A busy.
+
+Evidence boundary: inspected only the supplied fix diff and appended task report. Reported clean RED four-failure baseline, GREEN 13 mounted tests, typecheck, exact lint/format and diff-check were not rerun. No broad review, source mutations, git operations, or agents used for this re-review.
+
+## Scoped integration re-review: 37daa31c..56ca4c9
+
+Finding: **ADDRESSED**. Quality verdict: **PASS** for this integration fix. Welcome iterates the fixed three `defaultStarters`, preserving their labels and matching prompt dispatch; the separate draft iterator continues using live configured starters. The regression sets a single custom starter, verifies all three fixed welcome labels and absence of the custom label, submits the exact first fixed research prompt, then verifies the draft contains only the custom starter. This directly covers the observed expected-three/actual-one failure and guards the configurable-draft distinction.
+
+Evidence boundary: inspected only the supplied fix diff and appended task report. Reported focused RED (13 passed/1 failed) and GREEN (14 passed), exact lint/format and diff-check were not rerun. No broad review, source mutations, agents, or changes to acceptance-owned files.
+
+## Scoped mobile integration re-review: 56ca4c96..7e9c560
+
+Finding: **ADDRESSED**. Quality verdict: **PASS** for the mobile overlap fix. The max-width 700px shell reserves the same 64px height consumed by the fixed FAB dock, and the narrow contextual sidebar ends above that dock. The composer remains in the normal content flow above the reserved area; its mobile textarea overrides the fixed single-line height with content sizing and a 200px cap. These overrides are confined to narrow widths, so the diff does not alter desktop composer or FAB geometry. The shell reservation applies only to Aristotle routes.
+
+Evidence boundary: inspected only the supplied three-file diff and appended report. The reported clean RED 63-square-pixel overlap and ash/midnight GREEN 2/2 checks include one/four-line intersection, hit-testing, machine notice and overflow; parent also approved the updated narrow screenshot. These live checks were not independently rerun. No broad checks or source/acceptance-file changes. The separate Projects-rail clarification is outside this review.

@@ -1,0 +1,59 @@
+
+> lykeion@0.1.0 build
+> vue-tsc --noEmit && vite build --config apps/dashboard/vite.config.ts && tsc -p apps/desktop/tsconfig.json
+
+vite v8.3.4 building client environment for production...
+transforming...
+✓ 2429 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/dashboard/index.html                                                     0.47 kB │ gzip:   0.29 kB
+dist/dashboard/assets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2    7.50 kB
+dist/dashboard/assets/jetbrains-mono-greek-wght-normal-Bw9x6K1M.woff2         9.00 kB
+dist/dashboard/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2            10.25 kB
+dist/dashboard/assets/inter-vietnamese-wght-italic-K3WlGtc8.woff2            10.59 kB
+dist/dashboard/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2             11.23 kB
+dist/dashboard/assets/inter-greek-ext-wght-italic-DcOpz6Lw.woff2             12.09 kB
+dist/dashboard/assets/jetbrains-mono-cyrillic-wght-normal-D73BlboJ.woff2     12.10 kB
+dist/dashboard/assets/jetbrains-mono-latin-ext-wght-normal-DBQx-q_a.woff2    15.19 kB
+dist/dashboard/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2              18.74 kB
+dist/dashboard/assets/inter-greek-wght-normal-CkhJZR-_.woff2                 18.99 kB
+dist/dashboard/assets/inter-cyrillic-wght-italic-DzZdc28x.woff2              19.98 kB
+dist/dashboard/assets/inter-greek-wght-italic-CILZdfAp.woff2                 20.48 kB
+dist/dashboard/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2          25.96 kB
+dist/dashboard/assets/inter-cyrillic-ext-wght-italic-B5xAaiFk.woff2          27.38 kB
+dist/dashboard/assets/jetbrains-mono-latin-wght-normal-B9CIFXIH.woff2        40.40 kB
+dist/dashboard/assets/inter-latin-wght-normal-Dx4kXJAl.woff2                 48.25 kB
+dist/dashboard/assets/inter-latin-wght-italic-DpCbqKDY.woff2                 51.83 kB
+dist/dashboard/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2             85.06 kB
+dist/dashboard/assets/inter-latin-ext-wght-italic-0pjOp8NU.woff2             91.90 kB
+dist/dashboard/assets/RecordedMarkdown-aXM8UhbW.css                           2.06 kB │ gzip:   0.72 kB
+dist/dashboard/assets/index-DnxZzYP0.css                                    564.32 kB │ gzip:  86.71 kB
+dist/dashboard/assets/r-0-PKtS6J.js                                           0.04 kB │ gzip:   0.06 kB
+dist/dashboard/assets/sql-DOnR2rig.js                                         0.04 kB │ gzip:   0.06 kB
+dist/dashboard/assets/python-C5TF47hQ.js                                      0.04 kB │ gzip:   0.06 kB
+dist/dashboard/assets/javascript-CpIGwZ_Y.js                                  0.05 kB │ gzip:   0.07 kB
+dist/dashboard/assets/rolldown-runtime-hePW80VL.js                            0.71 kB │ gzip:   0.42 kB
+dist/dashboard/assets/RecordedMarkdown-kUlOFca4.js                            0.78 kB │ gzip:   0.50 kB
+dist/dashboard/assets/tool-code-BUs2X5R-.js                                   1.74 kB │ gzip:   0.77 kB
+dist/dashboard/assets/diff-woXpYk--.js                                        2.56 kB │ gzip:   0.68 kB
+dist/dashboard/assets/json-qhed-kSA.js                                        2.81 kB │ gzip:   0.77 kB
+dist/dashboard/assets/r-xhMMgMz3.js                                           6.52 kB │ gzip:   1.77 kB
+dist/dashboard/assets/github-dark-C-LZuMrd.js                                11.40 kB │ gzip:   2.53 kB
+dist/dashboard/assets/sql-CP0rg-5b.js                                        23.41 kB │ gzip:   7.45 kB
+dist/dashboard/assets/bash-CLZ0U2zV.js                                       41.47 kB │ gzip:   6.07 kB
+dist/dashboard/assets/engine-javascript-DVXv3PWy.js                          57.61 kB │ gzip:  20.17 kB
+dist/dashboard/assets/markdown-BYOwaDjH.js                                   59.32 kB │ gzip:   5.66 kB
+dist/dashboard/assets/python-CzFU0dpx.js                                     69.93 kB │ gzip:   9.09 kB
+dist/dashboard/assets/core-BSh-1M44.js                                      112.12 kB │ gzip:  35.79 kB
+dist/dashboard/assets/javascript-BzbQS41l.js                                174.81 kB │ gzip:  16.62 kB
+dist/dashboard/assets/typescript-bsJCZSQ-.js                                181.07 kB │ gzip:  16.23 kB
+dist/dashboard/assets/julia-iueIKrY_.js                                     740.51 kB │ gzip:  64.41 kB
+dist/dashboard/assets/index-CNYosLFk.js                                     917.74 kB │ gzip: 292.26 kB
+
+✓ built in 653ms
+[plugin builtin:vite-reporter]
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

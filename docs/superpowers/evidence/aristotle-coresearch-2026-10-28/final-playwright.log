@@ -1,0 +1,44 @@
+[WebServer] (node:62187) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:62202) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 21 tests using 1 worker
+
+(node:62203) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/e2e/aristotle.spec.ts:5:3 › ash: first welcome, unsaved draft and no-machine blocker (1.0s)
+  ✓   2 tests/e2e/aristotle.spec.ts:5:3 › midnight: first welcome, unsaved draft and no-machine blocker (590ms)
+  ✓   3 tests/e2e/aristotle.spec.ts:79:1 › starter settings deep-link saves and reflects in draft; Agents-first bootstrap (466ms)
+  ✓   4 tests/e2e/aristotle.spec.ts:116:1 › accepted IDs route to current transcript and Stop cancels current run (770ms)
+  ✓   5 tests/e2e/aristotle.spec.ts:146:1 › transport loss retains draft and retry UUID; edited payload allocates new UUID (467ms)
+  ✓   6 tests/e2e/aristotle.spec.ts:168:1 › stale and other-scope pointers fall back; rail switches persist without duplicate rails (729ms)
+  ✓   7 tests/e2e/aristotle.spec.ts:209:1 › lost acceptance response replays the same UUID and receipt without a second acceptance (430ms)
+  ✓   8 tests/e2e/coresearch-files.spec.ts:3:1 › run outputs open original v1 through parent selection with exact script and run provenance (832ms)
+  ✓   9 tests/e2e/coresearch-files.spec.ts:44:1 › typing before remote head update preserves draft and base through stale and force saves; intentional reload replaces edits (1.1s)
+  ✓  10 tests/e2e/coresearch-files.spec.ts:78:1 › cross-chat transcript renders exact producing turn, SVG remains inert and members cannot rerun (696ms)
+  ✓  11 tests/e2e/coresearch-files.spec.ts:107:1 › version diff uses visible highlighted exact saved bytes and comparison picker (604ms)
+  ✓  12 tests/e2e/coresearch-files.spec.ts:128:3 › dirty Files draft guards declined and accepted global route exit (847ms)
+  ✓  13 tests/e2e/coresearch-files.spec.ts:128:3 › dirty Files draft guards declined and accepted workspace exit (984ms)
+  ✓  14 tests/e2e/coresearch-files.spec.ts:176:1 › local pane exits share the application discard dialog without native or repeated prompts (745ms)
+  ✓  15 tests/e2e/coresearch-final.spec.ts:5:1 › sidebar New opens the study composer even from Coresearch (436ms)
+  ✓  16 tests/e2e/coresearch-final.spec.ts:20:3 › ash: starter and rename retain source focus styles (461ms)
+  ✓  17 tests/e2e/coresearch-final.spec.ts:20:3 › midnight: starter and rename retain source focus styles (449ms)
+  ✓  18 tests/e2e/coresearch-final.spec.ts:53:1 › failed run without files exposes inert diagnostics and blank owners fall back (456ms)
+[WebServer] 11:40:16 AM [vite] ws proxy error:
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:8080
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
+  ✓  19 tests/e2e/coresearch-markdown.spec.ts:32:1 › nested Markdown fences preserve list numbering, quote structure, copy and safe content (402ms)
+[WebServer] 11:40:17 AM [vite] ws proxy error:
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:8080
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
+[WebServer] 11:40:17 AM [vite] ws proxy error:
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:8080
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
+  ✓  20 tests/e2e/coresearch-notebook.spec.ts:10:3 › notebook and compute through the actual app: owner (784ms)
+[WebServer] 11:40:17 AM [vite] ws proxy error:
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:8080
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
+  ✓  21 tests/e2e/coresearch-notebook.spec.ts:10:3 › notebook and compute through the actual app: member (649ms)
+
+  21 passed (16.1s)

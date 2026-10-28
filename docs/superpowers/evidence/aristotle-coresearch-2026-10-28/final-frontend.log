@@ -1,0 +1,21 @@
+
+> lykeion@0.1.0 test
+> vitest run tests/aristotle.test.ts apps/dashboard/src/lib/backends.test.ts tests/state.test.ts tests/lib.test.ts tests/api.test.ts tests/realtime.test.ts tests/studies.test.ts tests/mock-layer.test.ts tests/refinements.test.ts tests/transcript.test.ts tests/machines.test.ts tests/tool-steps.test.ts tests/tool-step-title.test.ts tests/drafts.test.ts tests/attachments.test.ts tests/desktop-daemon.test.ts --config apps/dashboard/vite.config.ts --root . --maxWorkers=1 && vitest run tests/aristotle-ui.test.ts tests/coresearch-files.test.ts tests/coresearch-notebook.test.ts tests/coresearch-project.test.ts tests/coresearch-list.test.ts tests/study-scope.test.ts tests/study-navigation.test.ts tests/stage-teams.test.ts tests/shared-machines.test.ts tests/daemon-settings.test.ts tests/daemon-session.test.ts --environment ./tests/client-environment.ts --config apps/dashboard/vite.config.ts --root .
+
+
+ RUN  v4.1.11 /Users/diegomarono/.codex/worktrees/coresearch-experiment/lykeion
+
+
+ Test Files  16 passed (16)
+      Tests  309 passed (309)
+   Start at  11:39:54
+   Duration  5.07s (transform 593ms, setup 0ms, import 1.10s, tests 2.87s, environment 3ms)
+
+
+ RUN  v4.1.11 /Users/diegomarono/.codex/worktrees/coresearch-experiment/lykeion
+
+
+ Test Files  11 passed (11)
+      Tests  180 passed (180)
+   Start at  11:39:59
+   Duration  2.14s (transform 4.71s, setup 0ms, import 7.74s, tests 2.79s, environment 82ms)
