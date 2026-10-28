@@ -928,11 +928,15 @@ onUnmounted(() => {
 
 <style>
 @media (max-width: 700px) {
+  .application.aristotle-shell {
+    --aristotle-mobile-dock-height: 64px;
+    padding-bottom: var(--aristotle-mobile-dock-height);
+  }
   .application.aristotle-shell:not(.sidebar-hidden) .sidebar {
     position: fixed;
     left: 0;
     top: 62px;
-    bottom: 8px;
+    bottom: var(--aristotle-mobile-dock-height);
     width: 224px;
     z-index: 25;
     background: var(--canvas);

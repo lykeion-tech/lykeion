@@ -119,3 +119,13 @@ const emit = defineEmits<{ 'update:modelValue': [string]; send: []; stop: [] }>(
   padding: 10px 12px;
 }
 </style>
+
+<style scoped>
+@media (max-width: 700px) {
+  .aristotle-composer .composer-card textarea {
+    height: auto;
+    field-sizing: content;
+    max-height: 200px;
+  }
+}
+</style>

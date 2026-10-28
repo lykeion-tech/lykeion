@@ -62,3 +62,18 @@ const emit = defineEmits<{ change: ['nav' | 'context'] }>();
   }
 }
 </style>
+
+<style scoped>
+@media (max-width: 700px) {
+  .rail-fabs {
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: var(--aristotle-mobile-dock-height, 64px);
+    box-sizing: border-box;
+    align-items: center;
+    padding: 12px 8px;
+    background: var(--canvas);
+  }
+}
+</style>
