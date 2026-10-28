@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 
 var agentModelPattern = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._:/@-]{0,199})?$`)
 var errAgentArchived = errors.New("agent is archived")
+var errAgentBuiltinArchive = errors.New("built-in agents cannot be archived")
 var errAgentForbidden = errors.New("only the owner or an admin can edit this agent")
 
 func agentAdmin(r *http.Request) bool {
@@ -47,6 +49,9 @@ func validateAgent(a db.Agent) error {
 	if a.Visibility != "workspace" && a.Visibility != "private" {
 		return cardInputError("visibility must be workspace or private")
 	}
+	if len(a.ConversationStarters) > 0 {
+		return validateConversationStarters(a.ConversationStarters)
+	}
 	return nil
 }
 
@@ -55,7 +60,7 @@ func agentFail(w http.ResponseWriter, r *http.Request, err error, out any, statu
 	switch {
 	case errors.Is(err, errAgentForbidden):
 		writeErr(w, 403, err.Error())
-	case errors.Is(err, errAgentArchived):
+	case errors.Is(err, errAgentArchived), errors.Is(err, errAgentBuiltinArchive):
 		writeErr(w, 409, err.Error())
 	case isUnique(err):
 		writeErr(w, 409, "a live agent already has this name")
@@ -83,21 +88,36 @@ func (h *H) listAgents(w http.ResponseWriter, r *http.Request) {
 
 func (h *H) createAgent(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name         string `json:"name"`
-		Description  string `json:"description"`
-		Instructions string `json:"instructions"`
-		Harness      string `json:"harness"`
-		Model        string `json:"model"`
-		Visibility   string `json:"visibility"`
+		Name                 string          `json:"name"`
+		Description          string          `json:"description"`
+		Instructions         string          `json:"instructions"`
+		Harness              string          `json:"harness"`
+		Model                string          `json:"model"`
+		Visibility           string          `json:"visibility"`
+		BuiltInKey           string          `json:"built_in_key"`
+		ConversationStarters json.RawMessage `json:"conversation_starters"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid agent: "+err.Error())
 		return
 	}
+	if in.BuiltInKey != "" {
+		writeErr(w, 400, "built-in identity cannot be created")
+		return
+	}
+	if len(in.ConversationStarters) > 0 {
+		if err := validateConversationStarters(in.ConversationStarters); err != nil {
+			agentFail(w, r, err, nil, 201)
+			return
+		}
+	}
 	if in.Visibility == "" {
 		in.Visibility = "workspace"
 	}
-	a := db.Agent{Name: strings.TrimSpace(in.Name), Description: in.Description, Instructions: in.Instructions, Harness: in.Harness, Model: in.Model, Visibility: in.Visibility}
+	if len(in.ConversationStarters) == 0 {
+		in.ConversationStarters = json.RawMessage(`[]`)
+	}
+	a := db.Agent{ConversationStarters: in.ConversationStarters, Name: strings.TrimSpace(in.Name), Description: in.Description, Instructions: in.Instructions, Harness: in.Harness, Model: in.Model, Visibility: in.Visibility}
 	if err := validateAgent(a); err != nil {
 		agentFail(w, r, err, nil, 201)
 		return
@@ -105,7 +125,7 @@ func (h *H) createAgent(w http.ResponseWriter, r *http.Request) {
 	var out db.Agent
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
-		out, err = tx.Q.CreateAgent(r.Context(), db.CreateAgentParams{WorkspaceID: ws, OwnerID: user, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility})
+		out, err = tx.Q.CreateAgent(r.Context(), db.CreateAgentParams{WorkspaceID: ws, OwnerID: user, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, ConversationStarters: a.ConversationStarters})
 		if err != nil {
 			return err
 		}
@@ -137,18 +157,24 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name         *string `json:"name"`
-		Description  *string `json:"description"`
-		Instructions *string `json:"instructions"`
-		Harness      *string `json:"harness"`
-		Model        *string `json:"model"`
-		Visibility   *string `json:"visibility"`
+		Name                 *string         `json:"name"`
+		Description          *string         `json:"description"`
+		Instructions         *string         `json:"instructions"`
+		Harness              *string         `json:"harness"`
+		Model                *string         `json:"model"`
+		Visibility           *string         `json:"visibility"`
+		BuiltInKey           *string         `json:"built_in_key"`
+		ConversationStarters json.RawMessage `json:"conversation_starters"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid agent: "+err.Error())
 		return
 	}
-	if in.Name == nil && in.Description == nil && in.Instructions == nil && in.Harness == nil && in.Model == nil && in.Visibility == nil {
+	if in.BuiltInKey != nil {
+		writeErr(w, 400, "built-in identity is immutable")
+		return
+	}
+	if in.Name == nil && in.Description == nil && in.Instructions == nil && in.Harness == nil && in.Model == nil && in.Visibility == nil && len(in.ConversationStarters) == 0 {
 		writeErr(w, 400, "nothing to change")
 		return
 	}
@@ -166,6 +192,12 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.ArchivedAt != nil {
 			return errAgentArchived
+		}
+		if a.BuiltInKey != "" && in.Visibility != nil && *in.Visibility != "private" {
+			return cardInputError("built-in agents remain private")
+		}
+		if len(in.ConversationStarters) > 0 {
+			a.ConversationStarters = in.ConversationStarters
 		}
 		if in.Name != nil {
 			a.Name = strings.TrimSpace(*in.Name)
@@ -188,7 +220,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		if err := validateAgent(a); err != nil {
 			return err
 		}
-		out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: id, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility})
+		out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: id, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, ConversationStarters: a.ConversationStarters})
 		if err != nil {
 			return err
 		}
@@ -213,6 +245,9 @@ func (h *H) archiveAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.OwnerID != user && !agentAdmin(r) {
 			return errAgentForbidden
+		}
+		if a.BuiltInKey != "" {
+			return errAgentBuiltinArchive
 		}
 		if a.ArchivedAt != nil {
 			return errAgentArchived

@@ -43,6 +43,11 @@ func TestCoresearchMigration(t *testing.T) {
 	exec(`INSERT INTO coresearch_project (workspace_id,name,created_by) VALUES ($1,'probe',$2)`, ws, u)
 	exec(`DELETE FROM coresearch_project`)
 	original := kindCheck()
+	aristotleDown, err := fs.ReadFile(migrations.FS, "0026_aristotle.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(string(aristotleDown))
 	for _, direction := range []string{"down", "up"} {
 		b, err := fs.ReadFile(migrations.FS, "0025_coresearch."+direction+".sql")
 		if err != nil {
@@ -58,6 +63,11 @@ func TestCoresearchMigration(t *testing.T) {
 	if got := kindCheck(); got != original {
 		t.Fatalf("kind check after up/down/up: %q, want %q", got, original)
 	}
+	aristotleUp, err := fs.ReadFile(migrations.FS, "0026_aristotle.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(string(aristotleUp))
 	outsider := uuid.New()
 	exec(`INSERT INTO "user" (id,email) VALUES ($1,'outsider@x')`, outsider)
 	exec(`INSERT INTO member (workspace_id,user_id,role) VALUES ($1,$2,'owner'),($1,$3,'member')`, ws, u, outsider)

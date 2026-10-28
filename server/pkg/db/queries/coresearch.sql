@@ -3,7 +3,7 @@ SELECT public.coresearch_create_project(@name::text)::uuid AS id;
 
 -- name: ListCoresearchProjects :many
 SELECT p.*, m.role FROM coresearch_project p JOIN coresearch_member m ON m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id=app_user()
-WHERE p.workspace_id = @workspace_id ORDER BY p.updated_at DESC,p.id;
+WHERE p.workspace_id = @workspace_id AND p.conversation_owner_id IS NULL ORDER BY p.updated_at DESC,p.id;
 
 -- name: GetCoresearchProject :one
 SELECT * FROM coresearch_project WHERE workspace_id = @workspace_id AND id = @id;

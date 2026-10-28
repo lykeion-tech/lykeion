@@ -12,18 +12,20 @@ import (
 )
 
 type Agent struct {
-	ID           uuid.UUID  `json:"id"`
-	WorkspaceID  uuid.UUID  `json:"workspace_id"`
-	Name         string     `json:"name"`
-	Description  string     `json:"description"`
-	Instructions string     `json:"instructions"`
-	Harness      string     `json:"harness"`
-	Model        string     `json:"model"`
-	Visibility   string     `json:"visibility"`
-	OwnerID      uuid.UUID  `json:"owner_id"`
-	ArchivedAt   *time.Time `json:"archived_at"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID                   uuid.UUID       `json:"id"`
+	WorkspaceID          uuid.UUID       `json:"workspace_id"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	Instructions         string          `json:"instructions"`
+	Harness              string          `json:"harness"`
+	Model                string          `json:"model"`
+	Visibility           string          `json:"visibility"`
+	OwnerID              uuid.UUID       `json:"owner_id"`
+	ArchivedAt           *time.Time      `json:"archived_at"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
+	BuiltInKey           string          `json:"built_in_key"`
+	ConversationStarters json.RawMessage `json:"conversation_starters"`
 }
 
 type AgentRun struct {
@@ -336,6 +338,22 @@ type CoresearchChat struct {
 	CreatedAt        time.Time  `json:"created_at"`
 }
 
+type CoresearchConversation struct {
+	ID                   uuid.UUID `json:"id"`
+	WorkspaceID          uuid.UUID `json:"workspace_id"`
+	OwnerID              uuid.UUID `json:"owner_id"`
+	AgentID              uuid.UUID `json:"agent_id"`
+	ProjectID            uuid.UUID `json:"project_id"`
+	ChatID               uuid.UUID `json:"chat_id"`
+	Title                string    `json:"title"`
+	IsWelcome            bool      `json:"is_welcome"`
+	SnapshotHarness      *string   `json:"snapshot_harness"`
+	SnapshotModel        *string   `json:"snapshot_model"`
+	SnapshotInstructions *string   `json:"snapshot_instructions"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
 type CoresearchFile struct {
 	ID          uuid.UUID `json:"id"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
@@ -378,14 +396,15 @@ type CoresearchMessage struct {
 }
 
 type CoresearchProject struct {
-	ID            uuid.UUID  `json:"id"`
-	WorkspaceID   uuid.UUID  `json:"workspace_id"`
-	Name          string     `json:"name"`
-	PythonVersion *string    `json:"python_version"`
-	CreatedBy     uuid.UUID  `json:"created_by"`
-	CreatedAt     time.Time  `json:"created_at"`
-	ArchivedAt    *time.Time `json:"archived_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID                  uuid.UUID  `json:"id"`
+	WorkspaceID         uuid.UUID  `json:"workspace_id"`
+	Name                string     `json:"name"`
+	PythonVersion       *string    `json:"python_version"`
+	CreatedBy           uuid.UUID  `json:"created_by"`
+	CreatedAt           time.Time  `json:"created_at"`
+	ArchivedAt          *time.Time `json:"archived_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	ConversationOwnerID *uuid.UUID `json:"conversation_owner_id"`
 }
 
 type CoresearchRun struct {

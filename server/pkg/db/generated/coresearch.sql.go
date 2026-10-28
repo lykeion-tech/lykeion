@@ -13,7 +13,7 @@ import (
 )
 
 const archiveCoresearchProject = `-- name: ArchiveCoresearchProject :one
-UPDATE coresearch_project SET archived_at=now(),updated_at=now() WHERE workspace_id = $1 AND id = $2 RETURNING id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at
+UPDATE coresearch_project SET archived_at=now(),updated_at=now() WHERE workspace_id = $1 AND id = $2 RETURNING id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id
 `
 
 type ArchiveCoresearchProjectParams struct {
@@ -33,6 +33,7 @@ func (q *Queries) ArchiveCoresearchProject(ctx context.Context, arg ArchiveCores
 		&i.CreatedAt,
 		&i.ArchivedAt,
 		&i.UpdatedAt,
+		&i.ConversationOwnerID,
 	)
 	return i, err
 }
@@ -492,7 +493,7 @@ func (q *Queries) GetCoresearchFile(ctx context.Context, arg GetCoresearchFilePa
 }
 
 const getCoresearchProject = `-- name: GetCoresearchProject :one
-SELECT id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at FROM coresearch_project WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id FROM coresearch_project WHERE workspace_id = $1 AND id = $2
 `
 
 type GetCoresearchProjectParams struct {
@@ -512,6 +513,7 @@ func (q *Queries) GetCoresearchProject(ctx context.Context, arg GetCoresearchPro
 		&i.CreatedAt,
 		&i.ArchivedAt,
 		&i.UpdatedAt,
+		&i.ConversationOwnerID,
 	)
 	return i, err
 }
@@ -828,20 +830,21 @@ func (q *Queries) ListCoresearchMessages(ctx context.Context, arg ListCoresearch
 }
 
 const listCoresearchProjects = `-- name: ListCoresearchProjects :many
-SELECT p.id, p.workspace_id, p.name, p.python_version, p.created_by, p.created_at, p.archived_at, p.updated_at, m.role FROM coresearch_project p JOIN coresearch_member m ON m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id=app_user()
-WHERE p.workspace_id = $1 ORDER BY p.updated_at DESC,p.id
+SELECT p.id, p.workspace_id, p.name, p.python_version, p.created_by, p.created_at, p.archived_at, p.updated_at, p.conversation_owner_id, m.role FROM coresearch_project p JOIN coresearch_member m ON m.workspace_id=p.workspace_id AND m.project_id=p.id AND m.user_id=app_user()
+WHERE p.workspace_id = $1 AND p.conversation_owner_id IS NULL ORDER BY p.updated_at DESC,p.id
 `
 
 type ListCoresearchProjectsRow struct {
-	ID            uuid.UUID  `json:"id"`
-	WorkspaceID   uuid.UUID  `json:"workspace_id"`
-	Name          string     `json:"name"`
-	PythonVersion *string    `json:"python_version"`
-	CreatedBy     uuid.UUID  `json:"created_by"`
-	CreatedAt     time.Time  `json:"created_at"`
-	ArchivedAt    *time.Time `json:"archived_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	Role          string     `json:"role"`
+	ID                  uuid.UUID  `json:"id"`
+	WorkspaceID         uuid.UUID  `json:"workspace_id"`
+	Name                string     `json:"name"`
+	PythonVersion       *string    `json:"python_version"`
+	CreatedBy           uuid.UUID  `json:"created_by"`
+	CreatedAt           time.Time  `json:"created_at"`
+	ArchivedAt          *time.Time `json:"archived_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	ConversationOwnerID *uuid.UUID `json:"conversation_owner_id"`
+	Role                string     `json:"role"`
 }
 
 func (q *Queries) ListCoresearchProjects(ctx context.Context, workspaceID uuid.UUID) ([]ListCoresearchProjectsRow, error) {
@@ -862,6 +865,7 @@ func (q *Queries) ListCoresearchProjects(ctx context.Context, workspaceID uuid.U
 			&i.CreatedAt,
 			&i.ArchivedAt,
 			&i.UpdatedAt,
+			&i.ConversationOwnerID,
 			&i.Role,
 		); err != nil {
 			return nil, err
@@ -926,7 +930,7 @@ func (q *Queries) LockCoresearchFile(ctx context.Context, arg LockCoresearchFile
 }
 
 const lockCoresearchProject = `-- name: LockCoresearchProject :one
-SELECT id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at FROM coresearch_project WHERE workspace_id = $1 AND id = $2 FOR UPDATE
+SELECT id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id FROM coresearch_project WHERE workspace_id = $1 AND id = $2 FOR UPDATE
 `
 
 type LockCoresearchProjectParams struct {
@@ -946,6 +950,7 @@ func (q *Queries) LockCoresearchProject(ctx context.Context, arg LockCoresearchP
 		&i.CreatedAt,
 		&i.ArchivedAt,
 		&i.UpdatedAt,
+		&i.ConversationOwnerID,
 	)
 	return i, err
 }
@@ -965,7 +970,7 @@ func (q *Queries) ReleaseCoresearchChat(ctx context.Context, arg ReleaseCoresear
 }
 
 const renameCoresearchProject = `-- name: RenameCoresearchProject :one
-UPDATE coresearch_project SET name = $1,updated_at=now() WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at
+UPDATE coresearch_project SET name = $1,updated_at=now() WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id
 `
 
 type RenameCoresearchProjectParams struct {
@@ -986,6 +991,7 @@ func (q *Queries) RenameCoresearchProject(ctx context.Context, arg RenameCoresea
 		&i.CreatedAt,
 		&i.ArchivedAt,
 		&i.UpdatedAt,
+		&i.ConversationOwnerID,
 	)
 	return i, err
 }

@@ -72,6 +72,14 @@ func coresearchProject(r *http.Request, tx *store.Tx, ws, who uuid.UUID, write, 
 	if err != nil {
 		return p, err
 	}
+	if p.ConversationOwnerID != nil {
+		if *p.ConversationOwnerID != who {
+			return p, pgx.ErrNoRows
+		}
+		if write && owner {
+			return p, middleware.ErrForbidden
+		}
+	}
 	if write && p.ArchivedAt != nil {
 		return p, coresearch.ErrArchived
 	}

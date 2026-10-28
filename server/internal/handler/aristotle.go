@@ -1,0 +1,88 @@
+package handler
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
+)
+
+type ConversationStarter struct {
+	Label  string `json:"label"`
+	Prompt string `json:"prompt"`
+}
+
+func validateConversationStarters(raw json.RawMessage) error {
+	var starters []ConversationStarter
+	if err := json.Unmarshal(raw, &starters); err != nil || starters == nil || !utf8.Valid(raw) {
+		return cardInputError("conversation_starters must be an array")
+	}
+	if len(starters) > 12 {
+		return cardInputError("at most 12 conversation starters")
+	}
+	for _, s := range starters {
+		if strings.TrimSpace(s.Label) == "" || strings.TrimSpace(s.Prompt) == "" || utf8.RuneCountInString(s.Label) > 120 || len(s.Prompt) > 16384 || !utf8.ValidString(s.Label) || !utf8.ValidString(s.Prompt) || strings.ContainsRune(s.Label, 0) || strings.ContainsRune(s.Prompt, 0) {
+			return cardInputError("invalid conversation starter label or prompt")
+		}
+	}
+	return nil
+}
+func (h *H) bootstrapAristotle(w http.ResponseWriter, r *http.Request) {
+	var a db.Agent
+	var c db.CoresearchConversation
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		ctx := r.Context()
+		if err := tx.Q.LockAristotleOwner(ctx); err != nil {
+			return err
+		}
+		var err error
+		a, err = tx.Q.EnsureAristotle(ctx)
+		if err != nil {
+			return err
+		}
+		c, err = tx.Q.GetWelcomeConversation(ctx)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		p, err := tx.Q.CreateCoresearchProject(ctx, "Welcome to Aristotle")
+		if err != nil {
+			return err
+		}
+		if err = tx.Q.MarkConversationProject(ctx, p); err != nil {
+			return err
+		}
+		chat, err := tx.Q.CreateCoresearchChat(ctx, db.CreateCoresearchChatParams{WorkspaceID: ws, ProjectID: p, OwnerID: user, Cli: "claude"})
+		if err != nil {
+			return err
+		}
+		c, err = tx.Q.CreateWelcomeConversation(ctx, db.CreateWelcomeConversationParams{AgentID: a.ID, ProjectID: p, ChatID: chat.ID})
+		return err
+	})
+	if coresearchAnswer(w, r, err) {
+		writeJSON(w, 200, map[string]any{"agent": a, "conversation": c})
+	}
+}
+func (h *H) listCoresearchConversations(w http.ResponseWriter, r *http.Request) {
+	out := []db.ListCoresearchConversationsRow{}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		var err error
+		out, err = tx.Q.ListCoresearchConversations(r.Context())
+		return err
+	})
+	if out == nil {
+		out = []db.ListCoresearchConversationsRow{}
+	}
+	if coresearchAnswer(w, r, err) {
+		writeJSON(w, 200, out)
+	}
+}
