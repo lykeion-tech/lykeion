@@ -2,6 +2,24 @@
 // workspace can drop it in one call, and everything a card owns sits under
 // ['ws', id, 'card', cardId].
 export const keys = {
+  cowriteDoc: (ws: string, project: string, file: string) =>
+    ['ws', ws, 'coresearch', project, 'cowrite', 'doc', file] as const,
+  cowriteChanges: (ws: string, project: string, file: string) =>
+    ['ws', ws, 'coresearch', project, 'cowrite', 'changes', file] as const,
+  cowriteComments: (ws: string, project: string, file: string) =>
+    ['ws', ws, 'coresearch', project, 'cowrite', 'comments', file] as const,
+  cowritePresence: (ws: string, project: string, file: string) =>
+    ['ws', ws, 'coresearch', project, 'cowrite', 'presence', file] as const,
+  cowriteBuilds: (ws: string, project: string) =>
+    ['ws', ws, 'coresearch', project, 'cowrite', 'builds'] as const,
+  cowriteVersions: (ws: string, project: string) =>
+    ['ws', ws, 'coresearch', project, 'cowrite', 'versions'] as const,
+  cowriteCompute: (ws: string, project: string) =>
+    ['ws', ws, 'coresearch', project, 'cowrite', 'compute'] as const,
+  cowriteTemplates: (ws: string, project: string) =>
+    ['ws', ws, 'coresearch', project, 'cowrite', 'templates'] as const,
+  cowriteDocSteps: (ws: string, project: string, file: string, after: number) =>
+    ['ws', ws, 'coresearch', project, 'cowrite', 'doc-steps', file, after] as const,
   coresearchConversations: (ws: string) => ['ws', ws, 'coresearch-conversations'] as const,
   coresearchProjects: (ws: string) => ['ws', ws, 'coresearch-projects'] as const,
   coresearchProject: (ws: string, id: string) => ['ws', ws, 'coresearch', id, 'detail'] as const,

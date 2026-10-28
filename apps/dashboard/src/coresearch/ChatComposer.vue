@@ -80,6 +80,7 @@ function resize(el: HTMLTextAreaElement) {
 </script>
 <template>
   <div class="composer-card composer-card--docked">
+    <div v-if="$slots.top" class="composer-top-row"><slot name="top" /></div>
     <p v-if="error" class="composer-blocker" role="alert">{{ error }}</p>
     <textarea
       ref="textarea"

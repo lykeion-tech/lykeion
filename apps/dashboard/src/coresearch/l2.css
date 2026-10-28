@@ -2363,6 +2363,10 @@
 .coresearch .uppercase {
   text-transform: uppercase;
 }
+.coresearch.italic,
+.coresearch .italic {
+  font-style: italic;
+}
 .coresearch.ordinal,
 .coresearch .ordinal {
   --tw-ordinal: ordinal;
@@ -8461,6 +8465,1871 @@
 .coresearch.ms-pane-head > .ms-tools,
 .coresearch .ms-pane-head > .ms-tools {
   margin-left: auto;
+}
+.coresearch.ms-files,
+.coresearch .ms-files {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 6px;
+}
+.coresearch.ms-file-from,
+.coresearch .ms-file-from {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-tertiary);
+}
+.coresearch.ms-outline,
+.coresearch .ms-outline {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8px;
+}
+.coresearch.ms-files + .ms-outline,
+.coresearch .ms-files + .ms-outline {
+  margin-top: calc(14px + 3cm);
+}
+.coresearch.ms-outline-row,
+.coresearch .ms-outline-row {
+  display: block;
+  margin: 0 2px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-subtle);
+  font-size: var(--type-body);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: text;
+}
+.coresearch.ms-outline-row:hover,
+.coresearch .ms-outline-row:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.coresearch.ms-outline-row.is-current,
+.coresearch .ms-outline-row.is-current {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.coresearch.ms-outline-row[data-level='0'],
+.coresearch .ms-outline-row[data-level='0'] {
+  padding-left: 8px;
+  font-size: var(--type-body);
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+.coresearch.ms-outline-row[data-level='1'],
+.coresearch .ms-outline-row[data-level='1'] {
+  padding-left: 8px;
+  font-size: var(--type-body);
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+.coresearch.ms-outline-row[data-level='2'],
+.coresearch .ms-outline-row[data-level='2'] {
+  padding-left: 14px;
+}
+.coresearch.ms-outline-row[data-level='3'],
+.coresearch .ms-outline-row[data-level='3'] {
+  padding-left: 26px;
+}
+.coresearch.ms-outline-row[data-level='4'],
+.coresearch .ms-outline-row[data-level='4'] {
+  padding-left: 38px;
+}
+.coresearch.ms-pane,
+.coresearch .ms-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--sidebar);
+}
+.coresearch.ms-pane-head,
+.coresearch .ms-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--chrome-row-h);
+  flex-shrink: 0;
+  padding: 0 12px;
+}
+.coresearch.ms-pane-state,
+.coresearch .ms-pane-state {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  color: var(--ink-subtle);
+  user-select: text;
+}
+.coresearch.ms-pane-action,
+.coresearch .ms-pane-action {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.coresearch.ms-pane-action:hover,
+.coresearch .ms-pane-action:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.coresearch.ms-view,
+.coresearch .ms-view {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.coresearch.ms-view-step,
+.coresearch .ms-view-step {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+.coresearch.ms-view-step:hover:not(:disabled),
+.coresearch .ms-view-step:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.coresearch.ms-view-step:disabled,
+.coresearch .ms-view-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.coresearch.ms-view-fit,
+.coresearch .ms-view-fit {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.coresearch.ms-view-fit:hover:not(:disabled),
+.coresearch .ms-view-fit:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.coresearch.ms-view-fit:disabled,
+.coresearch .ms-view-fit:disabled {
+  cursor: default;
+}
+.coresearch.ms-view-rule,
+.coresearch .ms-view-rule {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--hairline);
+}
+.coresearch.ms-pane-note,
+.coresearch .ms-pane-note {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-muted);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  user-select: text;
+}
+.coresearch.ms-pane-note.is-empty,
+.coresearch .ms-pane-note.is-empty {
+  padding: 0;
+  border-bottom: none;
+}
+.coresearch.ms-pane-empty,
+.coresearch .ms-pane-empty {
+  padding: 16px 12px;
+  color: var(--ink-tertiary);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+.coresearch.ms-compile,
+.coresearch .ms-compile {
+  display: flex;
+  flex: 0 0 auto;
+}
+.coresearch.ms-compile-run,
+.coresearch .ms-compile-run {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--chrome-pill-h);
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.coresearch.ms-compile-run:hover,
+.coresearch .ms-compile-run:hover {
+  background: var(--surface-3);
+}
+.coresearch.ms-pdf-body,
+.coresearch .ms-pdf-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.coresearch.ms-pdf-body .artifact-pdf,
+.coresearch .ms-pdf-body .artifact-pdf {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.coresearch.ms-pdf-body .pdf-stage,
+.coresearch .ms-pdf-body .pdf-stage {
+  border: 0;
+  border-radius: 0;
+  background: var(--sidebar);
+}
+.coresearch.ms-pdf-body .pdf-pager,
+.coresearch .ms-pdf-body .pdf-pager {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  margin: 0;
+  transform: translateX(-50%);
+}
+.coresearch.ms-page,
+.coresearch .ms-page {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-right: 8px;
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.coresearch.ms-page-field,
+.coresearch .ms-page-field {
+  width: 2.2em;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px solid var(--hairline-strong);
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: center;
+  outline: none;
+  user-select: text;
+}
+.coresearch.ms-page-field:focus,
+.coresearch .ms-page-field:focus {
+  border-bottom-color: var(--accent);
+}
+.coresearch.ms-page-of,
+.coresearch .ms-page-of {
+  color: var(--ink-tertiary);
+}
+.coresearch.ms-zoom,
+.coresearch .ms-zoom {
+  position: relative;
+}
+.coresearch.ms-zoom-head,
+.coresearch .ms-zoom-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--chrome-pill-h);
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.coresearch.ms-zoom-head:hover,
+.coresearch .ms-zoom-head:hover,
+.coresearch.ms-zoom-head[aria-expanded='true'],
+.coresearch .ms-zoom-head[aria-expanded='true'] {
+  background: var(--surface-3);
+}
+.coresearch.ms-zoom-chev,
+.coresearch .ms-zoom-chev {
+  transition: transform 120ms ease;
+}
+.coresearch.ms-zoom-chev.is-open,
+.coresearch .ms-zoom-chev.is-open {
+  transform: rotate(180deg);
+}
+.coresearch.ms-zoom-menu,
+.coresearch .ms-zoom-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+}
+.coresearch.ms-zoom-item,
+.coresearch .ms-zoom-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--type-body);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.coresearch.ms-zoom-item:hover:not(:disabled),
+.coresearch .ms-zoom-item:hover:not(:disabled),
+.coresearch.ms-zoom-item[aria-checked='true'],
+.coresearch .ms-zoom-item[aria-checked='true'] {
+  background: var(--surface-3);
+}
+.coresearch.ms-zoom-item:disabled,
+.coresearch .ms-zoom-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.coresearch.ms-zoom-item kbd,
+.coresearch .ms-zoom-item kbd {
+  font-family: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--ink-tertiary);
+}
+.coresearch.ms-zoom-sep,
+.coresearch .ms-zoom-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hairline);
+}
+.coresearch.ms-view-icon,
+.coresearch .ms-view-icon {
+  width: 30px;
+  height: 30px;
+  margin-left: 4px;
+  border-radius: 999px;
+}
+.coresearch.ms-view-picker,
+.coresearch .ms-view-picker {
+  position: relative;
+  margin-bottom: 12px;
+}
+.coresearch.ms-view-picker-head,
+.coresearch .ms-view-picker-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.coresearch.ms-view-picker-title,
+.coresearch .ms-view-picker-title {
+  margin: 0;
+  font-size: var(--type-read);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+.coresearch.art-header .ms-view-picker,
+.coresearch .art-header .ms-view-picker {
+  margin-bottom: 0;
+}
+.coresearch.art-header .ms-view-picker-head,
+.coresearch .art-header .ms-view-picker-head {
+  color: var(--ink-subtle);
+}
+.coresearch.art-header .ms-view-picker-title,
+.coresearch .art-header .ms-view-picker-title {
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+.coresearch.ms-view-picker-menu,
+.coresearch .ms-view-picker-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+}
+.coresearch.ms-view-picker-item,
+.coresearch .ms-view-picker-item {
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-subtle);
+  font-size: var(--type-body);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.coresearch.ms-view-picker-item:hover,
+.coresearch .ms-view-picker-item:hover,
+.coresearch.ms-view-picker-item[aria-checked='true'],
+.coresearch .ms-view-picker-item[aria-checked='true'] {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.coresearch.ms-log-body,
+.coresearch .ms-log-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+.coresearch.ms-log-error,
+.coresearch .ms-log-error {
+  margin-bottom: 10px;
+}
+.coresearch.ms-log-where,
+.coresearch .ms-log-where {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--link-fg);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.coresearch.ms-log-where:hover,
+.coresearch .ms-log-where:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+.coresearch.ms-log-where--nowhere,
+.coresearch .ms-log-where--nowhere {
+  color: var(--ink-tertiary);
+  cursor: default;
+}
+.coresearch.ms-log-message,
+.coresearch .ms-log-message {
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  user-select: text;
+}
+.coresearch.ms-log-warnings,
+.coresearch .ms-log-warnings {
+  margin-top: 4px;
+  color: var(--ink-tertiary);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+.coresearch.ms-log-text,
+.coresearch .ms-log-text {
+  margin-top: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+.coresearch.ms-version-list,
+.coresearch .ms-version-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+.coresearch.ms-version-day,
+.coresearch .ms-version-day {
+  margin-bottom: 18px;
+}
+.coresearch.ms-version-dayhead,
+.coresearch .ms-version-dayhead {
+  margin: 0 0 8px;
+  font-size: var(--type-meta);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--ink-subtle);
+}
+.coresearch.ms-version-card,
+.coresearch .ms-version-card {
+  border-radius: 10px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.coresearch.ms-version,
+.coresearch .ms-version {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 0 0;
+}
+.coresearch.ms-version + .ms-version,
+.coresearch .ms-version + .ms-version {
+  border-top: 1px solid var(--hairline);
+}
+.coresearch.ms-version-body,
+.coresearch .ms-version-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 0 11px 14px;
+}
+.coresearch.ms-version-chip,
+.coresearch .ms-version-chip {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--ink-subtle);
+  font-size: var(--type-meta);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.coresearch.ms-version-title,
+.coresearch .ms-version-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-body);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+.coresearch.ms-version-lines,
+.coresearch .ms-version-lines {
+  flex: 0 0 auto;
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.coresearch.ms-version-added,
+.coresearch .ms-version-added {
+  color: var(--success);
+}
+.coresearch.ms-version-removed,
+.coresearch .ms-version-removed {
+  color: var(--danger);
+}
+.coresearch.ms-version-meta,
+.coresearch .ms-version-meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-tertiary);
+}
+.coresearch.ms-version-more,
+.coresearch .ms-version-more {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-subtle);
+  cursor: pointer;
+}
+.coresearch.ms-version-more:hover,
+.coresearch .ms-version-more:hover,
+.coresearch.ms-version-more[aria-expanded='true'],
+.coresearch .ms-version-more[aria-expanded='true'] {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.coresearch.ms-version-count,
+.coresearch .ms-version-count {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 10px 24px 14px;
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-tertiary);
+}
+.coresearch.cm-ins-line,
+.coresearch .cm-ins-line {
+  background: var(--success);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+  }
+}
+.coresearch.cm-del-line,
+.coresearch .cm-del-line {
+  background: var(--danger);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+  }
+  text-decoration: line-through;
+}
+.coresearch.cm-ins,
+.coresearch .cm-ins {
+  background: var(--success);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--success) 18%, transparent);
+  }
+}
+.coresearch.cm-del,
+.coresearch .cm-del {
+  background: var(--danger);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
+  }
+  text-decoration: line-through;
+}
+.coresearch.cm-settle,
+.coresearch .cm-settle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 2px 10px 4px;
+}
+.coresearch.cm-settle-stale,
+.coresearch .cm-settle-stale {
+  margin-right: auto;
+  color: var(--ink-tertiary);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.coresearch.cm-settle-undo,
+.coresearch .cm-settle-undo,
+.coresearch.cm-settle-keep,
+.coresearch .cm-settle-keep {
+  padding: 1px 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.coresearch.cm-settle-undo:hover,
+.coresearch .cm-settle-undo:hover,
+.coresearch.cm-settle-keep:hover,
+.coresearch .cm-settle-keep:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.coresearch.cm-oldnew-gutter,
+.coresearch .cm-oldnew-gutter {
+  padding: 0 4px;
+  color: var(--ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  line-height: inherit;
+}
+.coresearch.cm-gutter-new,
+.coresearch .cm-gutter-new {
+  color: var(--success);
+  @supports (color: color-mix(in lab, red, red)) {
+    color: color-mix(in srgb, var(--success) 65%, var(--ink-tertiary));
+  }
+}
+.coresearch.cm-gutter-old,
+.coresearch .cm-gutter-old {
+  color: var(--danger);
+  @supports (color: color-mix(in lab, red, red)) {
+    color: color-mix(in srgb, var(--danger) 65%, var(--ink-tertiary));
+  }
+}
+.coresearch.manuscript-pane,
+.coresearch .manuscript-pane {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+.coresearch.manuscript-editor,
+.coresearch .manuscript-editor {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  user-select: text;
+}
+.coresearch.manuscript-editor .cm-editor,
+.coresearch .manuscript-editor .cm-editor {
+  height: 100%;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--type-body);
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0;
+}
+.coresearch.manuscript-editor .cm-scroller,
+.coresearch .manuscript-editor .cm-scroller {
+  font-family: var(--font-mono);
+  font-size: var(--type-body);
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0;
+}
+.coresearch.manuscript-editor .cm-content,
+.coresearch .manuscript-editor .cm-content {
+  padding: 12px 0 40vh;
+  caret-color: var(--ink);
+}
+.coresearch.manuscript-editor .cm-gutters,
+.coresearch .manuscript-editor .cm-gutters {
+  border-right: 0;
+  background: var(--canvas);
+  color: var(--ink-tertiary);
+}
+.coresearch.manuscript-editor .cm-activeLine,
+.coresearch .manuscript-editor .cm-activeLine {
+  background: var(--ink);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--ink) 4%, transparent);
+  }
+}
+.coresearch.manuscript-editor .cm-selectionBackground,
+.coresearch .manuscript-editor .cm-selectionBackground,
+.coresearch.manuscript-editor .cm-content ::selection,
+.coresearch .manuscript-editor .cm-content ::selection {
+  background: var(--accent);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+}
+.coresearch.manuscript-editor .cm-error-gutter,
+.coresearch .manuscript-editor .cm-error-gutter {
+  width: 14px;
+  padding: 0 2px;
+}
+.coresearch.manuscript-editor .cm-error,
+.coresearch .manuscript-editor .cm-error {
+  color: var(--danger);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.coresearch.manuscript-editor .cm-finding-gutter,
+.coresearch .manuscript-editor .cm-finding-gutter {
+  width: 14px;
+  padding: 0 2px;
+}
+.coresearch.manuscript-editor .cm-finding,
+.coresearch .manuscript-editor .cm-finding {
+  position: relative;
+  color: var(--warn);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.coresearch.manuscript-editor .cm-finding-cards,
+.coresearch .manuscript-editor .cm-finding-cards {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  left: 100%;
+  display: flex;
+  width: max-content;
+  max-width: 340px;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 8px;
+}
+.coresearch.manuscript-editor .cm-finding-card,
+.coresearch .manuscript-editor .cm-finding-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-left: 2px solid var(--warn);
+  border-radius: 8px;
+  background: var(--surface-1);
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+  user-select: text;
+}
+.coresearch.manuscript-editor .cm-finding-class,
+.coresearch .manuscript-editor .cm-finding-class {
+  color: var(--ink);
+  font-size: var(--type-meta);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.coresearch.manuscript-editor .cm-finding-claim,
+.coresearch .manuscript-editor .cm-finding-claim {
+  color: var(--ink-muted);
+}
+.coresearch.manuscript-editor .cm-finding-evidence,
+.coresearch .manuscript-editor .cm-finding-evidence {
+  color: var(--ink-tertiary);
+}
+.coresearch.manuscript-editor .cm-finding-ask,
+.coresearch .manuscript-editor .cm-finding-ask {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.coresearch.manuscript-editor .cm-no-entry,
+.coresearch .manuscript-editor .cm-no-entry {
+  text-decoration: underline wavy var(--danger);
+  text-underline-offset: 3px;
+}
+.coresearch.manuscript-editor .cm-cite-card,
+.coresearch .manuscript-editor .cm-cite-card {
+  display: flex;
+  max-width: 320px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--surface-1);
+  user-select: text;
+}
+.coresearch.manuscript-editor .cm-cite-open,
+.coresearch .manuscript-editor .cm-cite-open {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--link-fg);
+  font-family: var(--font-sans);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+}
+.coresearch.manuscript-editor .cm-cite-open:hover,
+.coresearch .manuscript-editor .cm-cite-open:hover {
+  color: var(--link-hover);
+}
+.coresearch.manuscript-editor .cm-cite-title,
+.coresearch .manuscript-editor .cm-cite-title {
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+.coresearch.manuscript-editor .cm-cite-meta,
+.coresearch .manuscript-editor .cm-cite-meta {
+  color: var(--ink-tertiary);
+  font-family: var(--font-sans);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.coresearch.ms-sel,
+.coresearch .ms-sel {
+  position: fixed;
+  z-index: 80;
+  transform: translateX(-50%);
+}
+.coresearch.ms-sel-tools,
+.coresearch .ms-sel-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--surface-1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.coresearch.ms-sel-tool,
+.coresearch .ms-sel-tool {
+  height: 26px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.coresearch.ms-sel-tool:hover,
+.coresearch .ms-sel-tool:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.coresearch.ms-sel-editor,
+.coresearch .ms-sel-editor {
+  display: flex;
+  width: 340px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--surface-1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.coresearch.ms-sel-quote,
+.coresearch .ms-sel-quote {
+  overflow: hidden;
+  color: var(--ink-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.coresearch.ms-sel-chips,
+.coresearch .ms-sel-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.coresearch.ms-sel-chip,
+.coresearch .ms-sel-chip {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: var(--type-meta);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.coresearch.ms-sel-chip:hover,
+.coresearch .ms-sel-chip:hover {
+  border-color: var(--hairline-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.coresearch.ms-sel-field,
+.coresearch .ms-sel-field {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--type-body);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  user-select: text;
+}
+.coresearch.manuscript-editor .cm-note,
+.coresearch .manuscript-editor .cm-note {
+  background: var(--warn);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+  }
+  border-bottom: 1px solid var(--warn);
+  @supports (color: color-mix(in lab, red, red)) {
+    border-bottom: 1px solid color-mix(in srgb, var(--warn) 70%, transparent);
+  }
+}
+.coresearch.home-chat,
+.coresearch .home-chat {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 3;
+  display: flex;
+  height: var(--home-chat-share);
+  min-height: 0;
+  flex-direction: column;
+  border-radius: 16px;
+  background: var(--sidebar);
+  box-shadow: 0 -6px 28px rgb(0 0 0 / 35%);
+}
+.coresearch.manuscript-reading,
+.coresearch .manuscript-reading {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.coresearch.manuscript-reading .cm-scroller,
+.coresearch .manuscript-reading .cm-scroller {
+  padding-bottom: 88px;
+}
+.coresearch.home-chat--shut,
+.coresearch .home-chat--shut {
+  height: auto;
+  background: transparent;
+  box-shadow: none;
+}
+.coresearch.home-chat-seam,
+.coresearch .home-chat-seam {
+  position: relative;
+  height: 14px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  outline: none;
+}
+.coresearch.home-chat-seam::before,
+.coresearch .home-chat-seam::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--hairline-strong);
+  transform: translateX(-50%);
+}
+.coresearch.home-chat-seam:hover::before,
+.coresearch .home-chat-seam:hover::before,
+.coresearch.home-chat-seam:focus-visible::before,
+.coresearch .home-chat-seam:focus-visible::before {
+  background: var(--ink-tertiary);
+}
+.coresearch.home-chat-bar,
+.coresearch .home-chat-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 0 12px 4px;
+}
+.coresearch.home-chat-collapse,
+.coresearch .home-chat-collapse {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-subtle);
+  cursor: pointer;
+}
+.coresearch.home-chat-collapse:hover,
+.coresearch .home-chat-collapse:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.coresearch.home-chat-composer,
+.coresearch .home-chat-composer {
+  position: relative;
+  flex-shrink: 0;
+  padding: 6px 8px 8px;
+}
+.coresearch.home-chat--shut .home-chat-composer,
+.coresearch .home-chat--shut .home-chat-composer {
+  padding: 0;
+}
+.coresearch.home-chat .composer-card,
+.coresearch .home-chat .composer-card {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  padding: 8px;
+  border: none;
+  border-radius: 16px;
+  background: var(--surface-1);
+}
+.coresearch.home-chat--shut .composer-card,
+.coresearch .home-chat--shut .composer-card {
+  align-items: center;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 35%);
+}
+.coresearch.home-chat .composer-card > *,
+.coresearch .home-chat .composer-card > * {
+  flex: 1 0 100%;
+  order: -1;
+}
+.coresearch.home-chat .composer-card > .composer-toolbar,
+.coresearch .home-chat .composer-card > .composer-toolbar {
+  display: contents;
+}
+.coresearch.home-chat .composer-toolbar > .composer-tools:first-child,
+.coresearch .home-chat .composer-toolbar > .composer-tools:first-child {
+  flex: 0 0 auto;
+  order: 0;
+}
+.coresearch.home-chat .composer-card > .composer-textarea,
+.coresearch .home-chat .composer-card > .composer-textarea {
+  flex: 1 1 160px;
+  min-width: 0;
+  order: 1;
+  align-self: center;
+}
+.coresearch.home-chat--shut .composer-card > .composer-textarea,
+.coresearch .home-chat--shut .composer-card > .composer-textarea {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.coresearch.home-chat .composer-toolbar > .composer-tools:last-child,
+.coresearch .home-chat .composer-toolbar > .composer-tools:last-child {
+  flex: 0 0 auto;
+  order: 2;
+}
+.coresearch.home-chat-body,
+.coresearch .home-chat-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+  overflow-y: auto;
+  padding: 0 10px 8px;
+  user-select: text;
+}
+.coresearch.merge-changes,
+.coresearch .merge-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface-1);
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  user-select: text;
+}
+.coresearch.merge-changes-head,
+.coresearch .merge-changes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.coresearch.merge-changes-title,
+.coresearch .merge-changes-title {
+  color: var(--ink);
+}
+.coresearch.merge-changes-review,
+.coresearch .merge-changes-review {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.coresearch.merge-changes-accepted,
+.coresearch .merge-changes-accepted {
+  color: var(--ink-tertiary);
+}
+.coresearch.merge-changes-files,
+.coresearch .merge-changes-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.coresearch.merge-changes-file,
+.coresearch .merge-changes-file {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink-muted);
+}
+.coresearch.merge-changes-path,
+.coresearch .merge-changes-path {
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.coresearch.merge-changes-added,
+.coresearch .merge-changes-added {
+  color: var(--success);
+}
+.coresearch.merge-changes-removed,
+.coresearch .merge-changes-removed {
+  color: var(--danger);
+}
+.coresearch.merge-changes-status,
+.coresearch .merge-changes-status {
+  color: var(--ink-tertiary);
+}
+.coresearch.merge-modal,
+.coresearch .merge-modal {
+  display: flex;
+  width: 100%;
+  max-width: 640px;
+  max-height: 80vh;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+.coresearch.merge-modal-head,
+.coresearch .merge-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 8px;
+}
+.coresearch.merge-modal-heading,
+.coresearch .merge-modal-heading {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--type-read);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+.coresearch.merge-modal-close,
+.coresearch .merge-modal-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-tertiary);
+  cursor: pointer;
+}
+.coresearch.merge-modal-close:hover,
+.coresearch .merge-modal-close:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.coresearch.merge-modal-error,
+.coresearch .merge-modal-error {
+  margin: 0;
+  padding: 0 16px 8px;
+  color: var(--danger);
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+.coresearch.merge-modal-body,
+.coresearch .merge-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 14px;
+  user-select: text;
+}
+.coresearch.merge-modal-path,
+.coresearch .merge-modal-path {
+  margin: 10px 0 6px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.coresearch.merge-modal-waiting,
+.coresearch .merge-modal-waiting {
+  margin: 0;
+  color: var(--ink-tertiary);
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+.coresearch.merge-hunk,
+.coresearch .merge-hunk {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+}
+.coresearch.merge-hunk-old,
+.coresearch .merge-hunk-old,
+.coresearch.merge-hunk-new,
+.coresearch .merge-hunk-new {
+  margin: 0;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+.coresearch.merge-hunk .cm-editor,
+.coresearch .merge-hunk .cm-editor {
+  background: transparent;
+}
+.coresearch.merge-hunk .cm-editor.cm-focused,
+.coresearch .merge-hunk .cm-editor.cm-focused {
+  outline: none;
+}
+.coresearch.merge-hunk .cm-scroller,
+.coresearch .merge-hunk .cm-scroller {
+  font-family: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+.coresearch.merge-hunk .cm-content,
+.coresearch .merge-hunk .cm-content {
+  padding: 0;
+}
+.coresearch.merge-hunk .cm-line,
+.coresearch .merge-hunk .cm-line {
+  padding: 0;
+}
+.coresearch.merge-hunk-old,
+.coresearch .merge-hunk-old {
+  background: var(--danger);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+  color: var(--ink-muted);
+  text-decoration: line-through;
+}
+.coresearch.merge-hunk-new,
+.coresearch .merge-hunk-new {
+  background: var(--success);
+  @supports (color: color-mix(in lab, red, red)) {
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+  }
+  color: var(--ink);
+}
+.coresearch.merge-hunk-verdicts,
+.coresearch .merge-hunk-verdicts {
+  display: flex;
+  gap: 8px;
+}
+.coresearch.merge-hunk-undo,
+.coresearch .merge-hunk-undo,
+.coresearch.merge-hunk-keep,
+.coresearch .merge-hunk-keep {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.coresearch.merge-hunk-undo,
+.coresearch .merge-hunk-undo {
+  color: var(--ink-tertiary);
+}
+.coresearch.merge-hunk-undo:hover,
+.coresearch .merge-hunk-undo:hover {
+  color: var(--danger);
+}
+.coresearch.merge-hunk-keep,
+.coresearch .merge-hunk-keep {
+  color: var(--accent);
+}
+.coresearch.merge-hunk-settled,
+.coresearch .merge-hunk-settled {
+  color: var(--ink-tertiary);
+}
+.coresearch.manuscript-editor .cm-tex-command,
+.coresearch .manuscript-editor .cm-tex-command,
+.coresearch.merge-hunk .cm-tex-command,
+.coresearch .merge-hunk .cm-tex-command {
+  color: var(--accent);
+}
+.coresearch.manuscript-editor .cm-tex-arg,
+.coresearch .manuscript-editor .cm-tex-arg,
+.coresearch.merge-hunk .cm-tex-arg,
+.coresearch .merge-hunk .cm-tex-arg {
+  color: var(--link-fg);
+}
+.coresearch.manuscript-editor .cm-tex-bracket,
+.coresearch .manuscript-editor .cm-tex-bracket,
+.coresearch.merge-hunk .cm-tex-bracket,
+.coresearch .merge-hunk .cm-tex-bracket {
+  color: var(--ink-muted);
+}
+.coresearch.manuscript-editor .cm-tex-comment,
+.coresearch .manuscript-editor .cm-tex-comment,
+.coresearch.merge-hunk .cm-tex-comment,
+.coresearch .merge-hunk .cm-tex-comment {
+  color: var(--ink-tertiary);
+  font-style: italic;
+}
+.coresearch.manuscript-editor .cm-tex-number,
+.coresearch .manuscript-editor .cm-tex-number,
+.coresearch.merge-hunk .cm-tex-number,
+.coresearch .merge-hunk .cm-tex-number {
+  color: var(--warn);
+}
+.coresearch.manuscript-editor .cm-tex-builtin,
+.coresearch .manuscript-editor .cm-tex-builtin,
+.coresearch.merge-hunk .cm-tex-builtin,
+.coresearch .merge-hunk .cm-tex-builtin {
+  color: var(--link-fg);
+}
+.coresearch.manuscript-editor .cm-tex-unknown,
+.coresearch .manuscript-editor .cm-tex-unknown,
+.coresearch.merge-hunk .cm-tex-unknown,
+.coresearch .merge-hunk .cm-tex-unknown {
+  color: var(--ink-muted);
+}
+.coresearch.ms-compile-spin,
+.coresearch .ms-compile-spin {
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
+  display: inline-block;
+  vertical-align: -1px;
+  border: 2px solid currentColor;
+  @supports (color: color-mix(in lab, red, red)) {
+    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  }
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: ms-compile-turn 0.7s linear infinite;
+}
+@keyframes ms-compile-turn {
+  to {
+    transform: rotate(1turn);
+  }
+}
+.coresearch.ms-compile-run:disabled,
+.coresearch .ms-compile-run:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+@media (prefers-reduced-motion: reduce) {
+  .coresearch.ms-compile-spin,
+  .coresearch .ms-compile-spin {
+    animation-duration: 2.4s;
+  }
+}
+.coresearch.manuscript-editor-shell,
+.coresearch .manuscript-editor-shell {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.coresearch.pdf-pager-go,
+.coresearch .pdf-pager-go {
+  padding: 0 8px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.coresearch.pdf-pager-go:hover,
+.coresearch .pdf-pager-go:hover {
+  background: var(--surface-1);
+  color: var(--ink);
+}
+.coresearch.manuscript-editor .cm-cursor,
+.coresearch .manuscript-editor .cm-cursor,
+.coresearch.manuscript-editor .cm-dropCursor,
+.coresearch .manuscript-editor .cm-dropCursor {
+  border-left-color: var(--ink);
+  border-left-width: 2px;
+}
+.coresearch.manuscript-editor .cm-lineNumbers .cm-gutterElement,
+.coresearch .manuscript-editor .cm-lineNumbers .cm-gutterElement {
+  padding: 0 2px 0 calc(2px + var(--ms-marker-lane));
+  text-align: center;
+}
+.coresearch.manuscript-editor .cm-oldnew-gutter,
+.coresearch .manuscript-editor .cm-oldnew-gutter,
+.coresearch.manuscript-editor .cm-error-gutter,
+.coresearch .manuscript-editor .cm-error-gutter,
+.coresearch.manuscript-editor .cm-finding-gutter,
+.coresearch .manuscript-editor .cm-finding-gutter {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: visible;
+}
+.coresearch.manuscript-editor .cm-oldnew-gutter .cm-gutterElement,
+.coresearch .manuscript-editor .cm-oldnew-gutter .cm-gutterElement,
+.coresearch.manuscript-editor .cm-error-gutter .cm-gutterElement,
+.coresearch .manuscript-editor .cm-error-gutter .cm-gutterElement,
+.coresearch.manuscript-editor .cm-finding-gutter .cm-gutterElement,
+.coresearch .manuscript-editor .cm-finding-gutter .cm-gutterElement {
+  width: var(--ms-marker-lane);
+  padding: 0;
+  text-align: center;
+}
+.coresearch.manuscript-editor .cm-content,
+.coresearch .manuscript-editor .cm-content {
+  padding-left: var(--ms-marker-lane);
+}
+.coresearch.manuscript-editor,
+.coresearch .manuscript-editor {
+  --ms-marker-lane: 12px;
+}
+.coresearch.ms-comments-body,
+.coresearch .ms-comments-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+.coresearch.ms-comments-search,
+.coresearch .ms-comments-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  margin-bottom: 16px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-subtle);
+}
+.coresearch.ms-comments-search input,
+.coresearch .ms-comments-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--type-body);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  outline: none;
+}
+.coresearch.ms-comments-list,
+.coresearch .ms-comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.coresearch.ms-comment,
+.coresearch .ms-comment {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.coresearch.ms-comment.is-resolved,
+.coresearch .ms-comment.is-resolved {
+  opacity: 0.6;
+}
+.coresearch.ms-comment-head,
+.coresearch .ms-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.coresearch.ms-comment-author,
+.coresearch .ms-comment-author {
+  color: var(--ink-subtle);
+}
+.coresearch.ms-comment-ago,
+.coresearch .ms-comment-ago,
+.coresearch.ms-comment-state,
+.coresearch .ms-comment-state {
+  color: var(--ink-tertiary);
+}
+.coresearch.ms-comment-acts,
+.coresearch .ms-comment-acts {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.coresearch.ms-comment-act,
+.coresearch .ms-comment-act {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-subtle);
+  cursor: pointer;
+}
+.coresearch.ms-comment-act:hover,
+.coresearch .ms-comment-act:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.coresearch.ms-comment-act.is-on,
+.coresearch .ms-comment-act.is-on {
+  color: var(--success);
+}
+.coresearch.ms-comment-text,
+.coresearch .ms-comment-text {
+  margin: 8px 0 6px;
+  color: var(--ink);
+  user-select: text;
+}
+.coresearch.ms-comment-where,
+.coresearch .ms-comment-where {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.coresearch.ms-comment-where:hover,
+.coresearch .ms-comment-where:hover {
+  color: var(--link-fg);
+  text-decoration: underline;
+}
+.coresearch.ms-sel-mentions,
+.coresearch .ms-sel-mentions {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+  padding: 4px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--surface-1);
+}
+.coresearch.ms-sel-mention,
+.coresearch .ms-sel-mention {
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--type-small);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.coresearch.ms-sel-mention:hover,
+.coresearch .ms-sel-mention:hover {
+  background: var(--surface-2);
+}
+.coresearch.pinfo-grid,
+.coresearch .pinfo-grid {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  gap: 8px;
+  padding: 0 24px 24px;
+}
+.coresearch.pinfo-tile,
+.coresearch .pinfo-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  user-select: text;
+}
+.coresearch.pinfo-label,
+.coresearch .pinfo-label {
+  font-size: var(--type-meta);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--ink-subtle);
+  overflow-wrap: anywhere;
+}
+.coresearch.pinfo-value,
+.coresearch .pinfo-value {
+  font-size: var(--type-title);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 .coresearch.screen,
 .coresearch .screen {

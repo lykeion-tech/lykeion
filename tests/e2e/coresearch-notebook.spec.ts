@@ -148,7 +148,17 @@ for (const owner of [true, false]) {
       },
     );
     await page.goto('/#/coresearch/p/c');
-    if (!owner) await page.getByRole('button', { name: 'Project sidebar', exact: true }).click();
+    if (!owner) {
+      const rail = page.getByRole('complementary', { name: 'Chat', exact: true });
+      const toggle = page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).first();
+      await expect(rail).toBeVisible();
+      await toggle.click();
+      await expect(rail).toBeHidden();
+      await toggle.click();
+      await expect(rail).toBeVisible();
+      await toggle.click();
+      await expect(rail).toBeHidden();
+    }
     await page.getByRole('button', { name: 'Notebook', exact: true }).click();
     const notebook = page.getByTestId('notebook-panel');
     await expect(notebook.locator('.nbp-error')).toContainText('ValueError: bad');

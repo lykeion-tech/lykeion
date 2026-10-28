@@ -232,18 +232,7 @@ export async function installFilesFixture(
           body,
         });
         return;
-      } else if (path.endsWith('/runs'))
-        data = [
-          recorded(),
-          recorded({ id: 'r2', key: 'R2', rerun_of: 'rid', facts: { matches_original: true } }),
-          recorded({
-            id: 'r3',
-            key: 'R3',
-            status: 'error',
-            rerun_of: 'rid',
-            facts: { matches_original: true },
-          }),
-        ];
+      } else if (path.endsWith('/runs')) data = [recorded()];
       else if (path.endsWith('/runs/R1'))
         data = {
           ...recorded(),
@@ -311,18 +300,10 @@ export async function installFilesFixture(
   };
 }
 export async function openSavedFile(page: Page, name: string) {
-  await page.locator('.coresearch-sidebar-toggle').waitFor({ state: 'attached' });
-  if (!(await page.getByRole('tablist', { name: 'Sidebar', exact: true }).isVisible())) {
-    const toggle = page.getByRole('button', { name: 'Project sidebar', exact: true });
-    if (await page.locator('.task-pane-scrim').isVisible())
-      await page
-        .locator('.task-rightpane')
-        .getByRole('button', { name: 'Close panel', exact: true })
-        .click();
-    await toggle.click();
-  }
+  if (!(await page.getByRole('tablist', { name: 'Right pane', exact: true }).isVisible()))
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click();
   await page
-    .getByRole('tablist', { name: 'Sidebar', exact: true })
+    .getByRole('tablist', { name: 'Right pane', exact: true })
     .getByRole('tab', { name: 'Files', exact: true })
     .click();
   await page.getByRole('button', { name, exact: true }).click();

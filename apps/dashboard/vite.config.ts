@@ -10,6 +10,13 @@ export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   base: './',
   plugins: [vue()],
+  resolve: {
+    alias: {
+      '@lykeion/api': fileURLToPath(
+        new URL('./src/coresearch/cowrite/lib/l2-api.ts', import.meta.url),
+      ),
+    },
+  },
   server: {
     port: 1430,
     strictPort: true,

@@ -1,8 +1,11 @@
+export type SessionMode = 'experiment' | 'cowrite';
 export type Cli = 'claude' | 'codex';
 export interface ProjectRow {
   id: string;
   workspace_id: string;
   name: string;
+  mode: SessionMode;
+  conversation_owner_id: string | null;
   python_version: string | null;
   created_by: string;
   created_at: string;
@@ -15,7 +18,7 @@ export interface ChatRow {
   workspace_id: string;
   project_id: string;
   owner_id: string;
-  mode: string;
+  mode: SessionMode;
   cli: Cli;
   daemon_id: string | null;
   kernel_request: string | null;

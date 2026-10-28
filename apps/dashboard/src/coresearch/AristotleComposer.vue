@@ -16,6 +16,7 @@ const emit = defineEmits<{ 'update:modelValue': [string]; send: []; stop: [] }>(
     </p>
     <p v-if="error" role="alert">{{ error }}</p>
     <div class="composer-card">
+      <div v-if="$slots.top" class="composer-top-row"><slot name="top" /></div>
       <textarea
         :value="modelValue"
         aria-label="Message Aristotle"

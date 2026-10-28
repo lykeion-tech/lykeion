@@ -1,0 +1,13 @@
+This is XeTeX, Version 3.141592653-2.6-0.999995 (Tectonic 0.15.0)
+(./main.tex
+! LaTeX Error: File `nosuch.sty' not found.
+
+Type X to quit or <RETURN> to proceed,
+or enter new name. (Default extension: sty)
+
+Enter file name:
+! Emergency stop.
+<read *>
+
+l.4 \usepackage{nosuch}
+                       ^^M

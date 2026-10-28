@@ -1,0 +1,19 @@
+SyncTeX Version:1
+Input:1:./main.tex
+Input:2:./sections/intro.tex
+Output:pdf
+Magnification:1000
+Unit:1
+X Offset:0
+Y Offset:0
+Content:
+{1
+[1,1:0,0:0,0,0
+h1,3:4736286,5341104:19144640,655360,0
+v1,3:4736286,5341104:19144640,0,0
+x1,7:4736286,6341104
+x2,3:4736286,7341104
+]
+}
+Postamble:
+Count:5

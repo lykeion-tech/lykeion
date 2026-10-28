@@ -53,12 +53,12 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/coresearch',
     component: AristotleChat,
-    meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true },
+    meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true, conversationRail: true },
   },
   {
     path: '/coresearch/new',
     component: AristotleChat,
-    meta: { page: 'coresearch', title: 'New', ownHeader: true },
+    meta: { page: 'coresearch', title: 'New', ownHeader: true, conversationRail: true },
   },
   {
     path: '/coresearch/projects',
@@ -68,13 +68,13 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/coresearch/conversations/:conversationId',
     component: AristotleChat,
-    meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true },
+    meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true, conversationRail: true },
   },
   {
     path: '/coresearch/:projectId/:chatId?',
     component: CoresearchProject,
     props: true,
-    meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true },
+    meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true, conversationRail: true },
   },
   { path: '/updates', redirect: { path: '/settings', query: { tab: 'updates' } } },
   {

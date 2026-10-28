@@ -8,7 +8,10 @@
     "types": ["vite/client"],
     "skipLibCheck": true,
     "noEmit": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@lykeion/api": ["./apps/dashboard/src/coresearch/cowrite/lib/l2-api.ts"]
+    }
   },
   "include": [
     "apps/dashboard/**/*.ts",

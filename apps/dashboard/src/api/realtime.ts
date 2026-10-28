@@ -20,7 +20,8 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'coresearch': {
       const project = e.payload.project_id;
       if (typeof project !== 'string') return [];
-      // Invalidate the project prefix, including every chat and detail pane.
+      // The project prefix includes Cowrite docs, comments and builds.
+      // Stepped documents and changed comments/builds refetch through member routes.
       // Events carry identifiers only; all data is read through membership routes.
       return [
         keys.coresearchProjects(ws),

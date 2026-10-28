@@ -7,10 +7,9 @@ export interface RightPaneTab {
   closeLabel?: string;
 }
 export const PANE_TABS: RightPaneTab[] = [
-  { id: 'notebook', label: 'Notebook', closable: true },
-  { id: 'files', label: 'Files', closable: true },
-  { id: 'runs', label: 'Runs', closable: true },
-  { id: 'compute', label: 'Compute', closable: true },
+  { id: 'notebook', label: 'Notebook' },
+  { id: 'files', label: 'Files' },
+  { id: 'compute', label: 'Compute' },
 ];
 export function tabAfterClose(tabs: readonly RightPaneTab[], closedId: string): string | null {
   const at = tabs.findIndex((t) => t.id === closedId);

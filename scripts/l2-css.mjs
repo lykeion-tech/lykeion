@@ -28,6 +28,8 @@ const imports = [
   'styles/app.css',
   'styles/tailwind.css',
   'screens/task.css',
+  'screens/manuscript.css',
+  'screens/project-info.css',
   'screens/screens.css',
   'components/tasks/notebook.css',
   'viewers/viewers.css',
@@ -129,7 +131,7 @@ try {
   await writeFile(
     entry,
     imports.map((p) => `@import "./src/${p}";`).join('\n') +
-      `\n@source "./src";\n@source "${join(root, 'apps/dashboard/src/coresearch')}";\n@source "${join(root, 'apps/dashboard/src/views/CoresearchList.vue')}";\n@source "${join(root, 'apps/dashboard/src/views/CoresearchProject.vue')}";\n`,
+      `\n@source "./src";\n@source "${join(root, 'apps/dashboard/src/coresearch/**')}";\n@source "${join(root, 'apps/dashboard/src/views/CoresearchList.vue')}";\n@source "${join(root, 'apps/dashboard/src/views/CoresearchProject.vue')}";\n`,
   );
   execFileSync('npx', ['--yes', '@tailwindcss/cli@4.3.3', '-i', entry, '-o', compiled], {
     cwd: ui,

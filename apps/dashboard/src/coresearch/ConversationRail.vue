@@ -15,13 +15,20 @@ const state = useAristotle();
     <nav>
       <RouterLink
         v-for="c in state.conversations.data.value ?? []"
-        :key="c.id"
-        :to="`/coresearch/conversations/${c.id}`"
+        :key="c.shared ? `shared:${c.project_id}` : c.id"
+        :to="
+          c.mode === 'cowrite'
+            ? `/coresearch/${c.project_id}/${c.chat_id}`
+            : `/coresearch/conversations/${c.id}`
+        "
         class="conversation-link"
         active-class="selected"
         ><Aristotle still class="rail-portrait" /><span
           >{{ c.title
-          }}<small>{{
+          }}<small
+            >{{ c.mode === 'cowrite' ? 'Cowrite' : 'Experiment'
+            }}{{ c.shared ? ' · Shared' : '' }}</small
+          ><small>{{
             c.preview || (c.is_welcome ? 'Your research companion' : 'New conversation')
           }}</small></span
         ></RouterLink

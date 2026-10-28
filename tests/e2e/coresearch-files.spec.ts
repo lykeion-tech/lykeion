@@ -1,46 +1,5 @@
 import { expect, test } from '@playwright/test';
 import { installFilesFixture, openSavedFile, texts } from './coresearch-files-fixture';
-test('run outputs open original v1 through parent selection with exact script and run provenance', async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  const fixture = await installFilesFixture(page);
-  await page.goto('/#/coresearch/p/selected');
-  await page.getByRole('button', { name: 'Runs', exact: true }).click();
-  const runs = page.getByRole('tabpanel', { name: 'Runs' });
-  await expect(runs.getByText('matches original', { exact: false })).toHaveCount(1);
-  await expect(runs.getByRole('button', { name: 'New run' })).toHaveCount(0);
-  await expect(runs.getByRole('button', { name: 'Rerun R1' })).toBeVisible();
-  await page.getByRole('button', { name: 'Outputs R1' }).click();
-  await page.getByRole('button', { name: 'residuals.csv v1', exact: true }).click();
-  const pane = page.getByTestId('artifact-pane');
-  await expect(pane).toContainText('v1 (old)');
-  await expect(pane.locator('tbody')).toContainText('0.02');
-  await expect(pane.locator('tbody')).not.toContainText('9.99');
-  await pane.getByRole('tab', { name: 'Code', exact: true }).click();
-  await expect(pane).toContainText('analysis.py v1');
-  await expect(pane.locator('code')).toContainText('original script v1');
-  await pane.getByRole('tab', { name: 'Environment', exact: true }).click();
-  await expect(pane).toContainText('abcdef0123456789');
-  await expect(pane).toContainText('3.12.8');
-  await pane.getByRole('tab', { name: 'Execution Log', exact: true }).click();
-  await expect(pane).toContainText('Baseline stable');
-  expect(fixture.reads).toContain('/api/coresearch/projects/p/runs/R1');
-  expect(fixture.reads).toContain('/api/coresearch/projects/p/files/script/versions/1/content');
-  expect(fixture.reads).not.toContain('/api/coresearch/projects/p/runs/rid');
-  await pane.getByRole('button', { name: 'Restore this version' }).click();
-  await expect(pane).toContainText('v4');
-  await pane.getByRole('tab', { name: 'Code', exact: true }).click();
-  await expect(pane).toContainText('Restored from v1.');
-  await expect(pane).toContainText('Saved by a member.');
-  await expect(pane).toContainText('No recorded execution provenance');
-  expect(JSON.parse(fixture.writes[0]!.body)).toEqual({ n: 1, base: 3 });
-  await pane.getByRole('tab', { name: 'Preview', exact: true }).click();
-  await expect(pane.locator('tbody')).toContainText('0.02');
-  await expect(pane.locator('tbody')).not.toContainText('9.99');
-  expect(errors).toEqual([]);
-});
 test('typing before remote head update preserves draft and base through stale and force saves; intentional reload replaces edits', async ({
   page,
 }) => {
@@ -99,7 +58,6 @@ test('cross-chat transcript renders exact producing turn, SVG remains inert and 
   expect(await page.evaluate(() => Reflect.get(window, 'svgExecuted'))).toBeUndefined();
   await openSavedFile(page, 'unknown.bin');
   await expect(pane.getByRole('link', { name: 'Download' })).toHaveAttribute('href', /^blob:/);
-  await page.getByRole('tab', { name: 'Runs', exact: true }).click();
   await expect(page.getByRole('button', { name: 'New run' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Rerun R1' })).toHaveCount(0);
 });
@@ -138,9 +96,12 @@ for (const destination of ['global route', 'workspace']) {
     fixture.remoteHead(2);
     await expect(pane).toContainText('v1 (old)');
     const exit = async () => {
-      if (destination === 'global route')
+      if (destination === 'global route') {
+        await page.getByRole('button', { name: 'Show navigation', exact: true }).click();
         await page.getByRole('link', { name: 'Coresearch', exact: true }).click();
-      else {
+      } else {
+        if (!(await page.locator('.workspace-switch').isVisible()))
+          await page.getByRole('button', { name: 'Show navigation', exact: true }).click();
         if (!(await page.getByRole('menu', { name: 'Workspace', exact: true }).isVisible()))
           await page.locator('.workspace-switch').click();
         await page.getByRole('menuitem', { name: /Second lab/ }).click();
@@ -188,16 +149,16 @@ test('local pane exits share the application discard dialog without native or re
     draft = 'local pane draft\n';
   await pane.getByRole('button', { name: 'Edit content', exact: true }).click();
   await pane.getByRole('textbox', { name: 'File content' }).fill(draft);
-  const runs = page.getByRole('tab', { name: 'Runs', exact: true }),
+  const notebook = page.getByRole('tab', { name: 'Notebook', exact: true }),
     discard = page.getByRole('dialog', { name: 'Discard unsaved changes?', exact: true });
-  await runs.click();
+  await notebook.click();
   await expect(discard).toHaveCount(1);
   await discard.getByRole('button', { name: 'Keep editing', exact: true }).click();
   await expect(pane.getByRole('textbox')).toHaveValue(draft);
-  await runs.click();
+  await notebook.click();
   await expect(discard).toHaveCount(1);
   await discard.getByRole('button', { name: 'Discard changes', exact: true }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Runs', exact: true })).toBeVisible();
+  await expect(page.getByRole('tabpanel', { name: 'Notebook', exact: true })).toBeVisible();
   await expect(discard).toHaveCount(0);
   await openSavedFile(page, 'residuals.csv');
   await expect(pane.getByRole('button', { name: 'Edit content', exact: true })).toBeVisible();

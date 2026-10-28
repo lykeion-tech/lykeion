@@ -30,12 +30,7 @@ const router = useRouter();
 const client = useQueryClient();
 const me = useMe();
 const aristotle = useAristotle();
-const aristotleShell = computed(
-  () =>
-    route.path === '/coresearch' ||
-    route.path === '/coresearch/new' ||
-    route.path.startsWith('/coresearch/conversations/'),
-);
+const aristotleShell = computed(() => !!route.meta.conversationRail);
 const railView = ref<'nav' | 'context'>('context');
 watch(
   aristotle.scope,

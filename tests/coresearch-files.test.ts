@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { h, nextTick, type Component } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import FilesPane from '../apps/dashboard/src/coresearch/FilesPane.vue';
-import RunsPane from '../apps/dashboard/src/coresearch/RunsPane.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import {
@@ -106,7 +105,7 @@ const reply = (data: unknown, status = 200) => ({
   text: async () => JSON.stringify(data),
   blob: async () => new Blob([String(data)]),
 });
-describe('Coresearch files and runs', () => {
+describe('Coresearch files', () => {
   it('remote head update after typing pins draft bytes and base; stale save offers force and reload', async () => {
     const fetch = vi
       .fn()
@@ -228,48 +227,6 @@ describe('Coresearch files and runs', () => {
     expect(textOf(root)).toContain('abcdef0123456789');
     expect(textOf(root)).toContain('3.12.8');
   });
-  it('badge requires successful rerun; rerun permission belongs to original chat', async () => {
-    const { root } = await mount(RunsPane, {}, (c) => {
-      c.setQueryData(keys.coresearchRuns('lab', 'p'), [
-        run(),
-        run({ id: 'r2', key: 'R2', rerun_of: 'rid', facts: { matches_original: true } }),
-        run({
-          id: 'r3',
-          key: 'R3',
-          status: 'error',
-          rerun_of: 'rid',
-          facts: { matches_original: true },
-        }),
-      ]);
-    });
-    expect(textOf(root).match(/matches original/g)).toHaveLength(1);
-    expect(button(root, 'Rerun R1')).toBeTruthy();
-    expect(button(root, 'New run')).toBeUndefined();
-  });
-  it('members cannot start runs or rerun another owners original', async () => {
-    const { root } = await mount(RunsPane, { userId: 'member' }, (c) =>
-      c.setQueryData(keys.coresearchRuns('lab', 'p'), [run()]),
-    );
-    expect(button(root, 'New run')).toBeUndefined();
-    expect(button(root, 'Rerun R1')).toBeUndefined();
-  });
-  it('output link emits immutable v1 even when same hash v2 and different head v3', async () => {
-    const onOpenFile = vi.fn();
-    const { root, settle } = await mount(RunsPane, { onOpenFile }, (c) => {
-      c.setQueryData(keys.coresearchRuns('lab', 'p'), [run()]);
-      c.setQueryData(keys.coresearchRun('lab', 'p', 'R1'), {
-        ...run(),
-        outputs: [{ file_id: 'f', path: 'results.txt', n: 1, sha256: 'same', size: 12 }],
-      });
-      c.setQueryData(keys.coresearchFiles('lab', 'p'), [
-        { ...file, head: version(3, { sha256: 'different' }) },
-      ]);
-    });
-    (button(root, 'Outputs R1')!.props.onClick as () => void)();
-    await settle();
-    (button(root, 'results.txt v1')!.props.onClick as () => void)();
-    expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ file_id: 'f', n: 1 }));
-  });
   it('clean reads follow remote head while explicit selected versions stay pinned', async () => {
     for (const selectedN of [undefined, 1]) {
       const { root, client, settle } = await mount(FilesPane, { selectedN });
@@ -298,41 +255,6 @@ describe('Coresearch files and runs', () => {
       await settle();
       expect(textOf(root)).toContain('Too large to compare.');
     }
-  });
-  it('owner new run picks saved paths and rerun uses original R key', async () => {
-    const fetch = vi
-      .fn()
-      .mockImplementation((url: string, options: RequestInit) =>
-        Promise.resolve(reply(options.method === 'GET' ? [] : run())),
-      );
-    vi.stubGlobal('fetch', fetch);
-    const { root, settle } = await mount(
-      RunsPane,
-      { chat: { id: 'selected', owner_id: 'me' } },
-      (c) => c.setQueryData(keys.coresearchRuns('lab', 'p'), [run()]),
-    );
-    (button(root, 'Rerun R1')!.props.onClick as () => void)();
-    await settle();
-    expect(fetch.mock.calls[0]?.[0]).toBe('/api/coresearch/projects/p/runs/R1/rerun');
-    (button(root, 'New run')!.props.onClick as () => void)();
-    await settle();
-    const script = all(root).find((n) => n.tag === 'select' && n.props['aria-label'] === 'Script')!;
-    (script.props['onUpdate:modelValue'] as (v: string) => void)('analysis.py');
-    const inputs = all(root).find((n) => n.tag === 'select' && n.props['aria-label'] === 'Inputs')!;
-    (inputs.props['onUpdate:modelValue'] as (v: string[]) => void)(['results.txt']);
-    await settle();
-    (all(root).find((n) => n.tag === 'form')!.props.onSubmit as (e: unknown) => void)({
-      preventDefault() {},
-    });
-    await settle();
-    const post = fetch.mock.calls.find(
-      (c) => c[0] === '/api/coresearch/projects/p/runs' && c[1].method === 'POST',
-    );
-    expect(JSON.parse(post?.[1].body)).toEqual({
-      chat_id: 'selected',
-      script: 'analysis.py',
-      inputs: ['results.txt'],
-    });
   });
   it('existing Shiki loader highlights diff and markdown and preserves plain text', async () => {
     const { highlightToolCode } = await import('../apps/dashboard/src/lib/tool-code');
@@ -383,24 +305,4 @@ describe('Coresearch files and runs', () => {
     expect(await guardResourceDrafts()).toBe(true);
     expect(discardDialog.value).toBe(false);
   });
-});
-
-it.each([
-  'set up the project environment first (lyk env set-up)',
-  'the original run environment is unavailable; restore it before rerunning',
-])('shows zero-output run failure and logs: %s', async (error) => {
-  const failed = run({
-    status: 'failed',
-    facts: { error, stdout_tail: 'before failure', stderr_tail: '<script>unsafe()</script>' },
-  });
-  const { root, settle } = await mount(RunsPane, {}, (c) => {
-    c.setQueryData(keys.coresearchRuns('lab', 'p'), [failed]);
-    c.setQueryData(keys.coresearchRun('lab', 'p', 'R1'), { ...failed, outputs: [] });
-  });
-  expect(textOf(root)).toContain(error);
-  (button(root, 'Execution log R1')!.props.onClick as () => void)();
-  await settle();
-  expect(textOf(root)).toContain('before failure');
-  expect(textOf(root)).toContain('<script>unsafe()</script>');
-  expect(all(root).some((n) => n.props.innerHTML)).toBe(false);
 });

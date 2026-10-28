@@ -6,6 +6,7 @@ import CoresearchProject from '../apps/dashboard/src/views/CoresearchProject.vue
 import ChatComposer from '../apps/dashboard/src/coresearch/ChatComposer.vue';
 import ChatTranscript from '../apps/dashboard/src/coresearch/ChatTranscript.vue';
 import MembersDialog from '../apps/dashboard/src/coresearch/MembersDialog.vue';
+import NewChatDialog from '../apps/dashboard/src/coresearch/NewChatDialog.vue';
 import ProjectSidebar from '../apps/dashboard/src/coresearch/ProjectSidebar.vue';
 import SidebarFiles from '../apps/dashboard/src/coresearch/SidebarFiles.vue';
 import AssistantMessage from '../apps/dashboard/src/coresearch/AssistantMessage.vue';
@@ -124,7 +125,7 @@ describe('Coresearch workspace', () => {
       all(root).filter((n) => String(n.props.class).includes('run-line--failed')),
     ).toHaveLength(1);
   });
-  it('preserves Notebook Files Runs Compute order', async () => {
+  it('preserves Notebook Files Compute order', async () => {
     const { root } = await mount(RightPaneTabs, {
       tabs: PANE_TABS,
       activeId: 'notebook',
@@ -134,11 +135,11 @@ describe('Coresearch workspace', () => {
       all(root)
         .filter((n) => n.props.role === 'tab')
         .map(textOf),
-    ).toEqual(['Notebook', 'Files', 'Runs', 'Compute']);
+    ).toEqual(['Notebook', 'Files', 'Compute']);
   });
   it('tabAfterClose picks the right neighbour then the left if last', () => {
-    expect(tabAfterClose(PANE_TABS, 'files')).toBe('runs');
-    expect(tabAfterClose(PANE_TABS, 'compute')).toBe('runs');
+    expect(tabAfterClose(PANE_TABS, 'files')).toBe('compute');
+    expect(tabAfterClose(PANE_TABS, 'compute')).toBe('files');
     expect(tabAfterClose([PANE_TABS[0]!], 'notebook')).toBeNull();
     expect(tabAfterClose(PANE_TABS, 'missing')).toBeNull();
   });
@@ -150,9 +151,7 @@ describe('Coresearch workspace', () => {
     expect(button(root, 'Remove Ada')).toBeUndefined();
   });
   it('new chat offers only the callers supported online CLIs', async () => {
-    const { root, settle } = await mount(CoresearchProject, { projectId: 'p', chatId: 'c' });
-    (button(root, 'New chat')!.props.onClick as () => void)();
-    await settle();
+    const { root } = await mount(NewChatDialog, { projectId: 'p' });
     expect(
       all(root)
         .filter((n) => n.props['data-cli'])

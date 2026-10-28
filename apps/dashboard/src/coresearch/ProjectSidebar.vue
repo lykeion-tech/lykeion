@@ -50,15 +50,6 @@ function switchTab(event: KeyboardEvent) {
     </div>
     <div class="tsb-menu">
       <button
-        v-for="pane in ['Notebook', 'Files', 'Runs', 'Compute']"
-        :key="pane"
-        type="button"
-        :class="row"
-        class="text-fg-subtle hover:bg-surface hover:text-fg"
-        @click="emit('openPane', pane.toLowerCase())"
-      >
-        {{ pane }}</button
-      ><button
         type="button"
         :class="row"
         class="text-fg-subtle hover:bg-surface hover:text-fg"

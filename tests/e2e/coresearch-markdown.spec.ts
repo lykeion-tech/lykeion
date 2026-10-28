@@ -31,8 +31,10 @@ const reply = [
 
 test('nested Markdown fences preserve list numbering, quote structure, copy and safe content', async ({
   page,
+  context,
   baseURL,
 }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => localStorage.setItem('lykeion.workspace', 'lab'));

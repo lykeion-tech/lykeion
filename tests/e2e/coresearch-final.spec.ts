@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { installAristotleFixture } from './aristotle-fixture';
-import { installFilesFixture, recorded } from './coresearch-files-fixture';
+import { installFilesFixture } from './coresearch-files-fixture';
 
 test('sidebar New opens the study composer even from Coresearch', async ({ page }) => {
   await installAristotleFixture(page);
@@ -50,37 +50,29 @@ for (const theme of ['ash', 'midnight']) {
     await page.screenshot({ path: `/tmp/coresearch-final-focus-${theme}.png` });
   });
 }
-test('failed run without files exposes inert diagnostics and blank owners fall back', async ({
+test('Experiment project routes use only the conversation rail and three inspector tabs', async ({
   page,
 }) => {
   await installFilesFixture(page);
-  await page.route('**/api/workspaces/lab/members', (route) =>
-    route.fulfill({
-      json: [{ user_id: 'me', name: '  ', email: 'ada@example.test', role: 'owner' }],
-    }),
-  );
-  await page.route('**/api/coresearch/projects/p/runs', (route) =>
-    route.fulfill({
-      json: [
-        recorded({
-          status: 'failed',
-          facts: {
-            error: 'Interpreter failed',
-            stdout_tail: 'before failure',
-            stderr_tail: '<img src=x onerror="window.bad=true">',
-          },
-        }),
-      ],
-    }),
-  );
   await page.goto('/#/coresearch/p/selected');
-  await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toContainText(
-    'ada@example.test',
+  await expect(page.getByRole('complementary', { name: 'Chat', exact: true })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Notebook', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
   );
-  await page.getByRole('button', { name: 'Runs', exact: true }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Runs' })).toContainText('Interpreter failed');
-  await page.getByRole('button', { name: 'Execution log R1' }).click();
-  await expect(page.getByLabel('Log R1', { exact: true })).toContainText('before failure');
-  await expect(page.getByLabel('Log R1', { exact: true })).toContainText('<img src=x');
-  await expect(page.getByLabel('Log R1', { exact: true }).locator('img')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Notebook', exact: true }).click();
+  await expect(page.getByRole('tablist', { name: 'Right pane' }).getByRole('tab')).toHaveText([
+    'Notebook',
+    'Files',
+    'Compute',
+  ]);
+  await expect(page.getByText('Runs', { exact: true })).toHaveCount(0);
+  await page
+    .locator('.task-rightpane')
+    .getByRole('button', { name: 'Close panel', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Notebook', exact: true }).click();
+  await page.getByRole('tab', { name: 'Compute', exact: true }).click();
+  await expect(page.getByRole('tabpanel', { name: 'Compute' })).toBeVisible();
 });

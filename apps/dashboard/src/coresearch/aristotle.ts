@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { workspaceId } from '../api/session';
 import { useMe, useAgent } from '../api/queries';
 import { keys } from '../api/keys';
+import type { SessionMode } from './types';
 import type { AgentDefinition } from '../api/types';
 export interface Starter {
   label: string;
@@ -12,6 +13,8 @@ export interface Starter {
 export interface Conversation {
   id: string;
   workspace_id: string;
+  mode?: SessionMode;
+  shared?: false;
   owner_id: string;
   agent_id: string;
   project_id: string;
@@ -23,6 +26,18 @@ export interface Conversation {
   snapshot_model: string | null;
   snapshot_instructions: string | null;
 }
+export interface SharedCowriteSession {
+  shared: true;
+  mode: 'cowrite';
+  project_id: string;
+  chat_id: string;
+  title: string;
+  updated_at: string;
+  id?: never;
+  is_welcome?: false;
+  preview?: never;
+}
+export type ConversationRow = Conversation | SharedCowriteSession;
 export const defaultStarters: Starter[] = [
   {
     label: 'Ground a research question',
@@ -101,7 +116,7 @@ export function useAristotle() {
     queryKey: computed(() => conversationKey(workspaceId.value, me.data.value?.id ?? '')),
     enabled: computed(() => !!bootstrap.data.value?.conversation.id),
     queryFn: ({ signal }) =>
-      api<Conversation[]>('GET', '/api/coresearch/conversations', undefined, undefined, {
+      api<ConversationRow[]>('GET', '/api/coresearch/conversations', undefined, undefined, {
         workspace: workspaceId.value,
         signal,
       }),
