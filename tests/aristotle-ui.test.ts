@@ -129,7 +129,7 @@ function byLabel(root: ReturnType<typeof node>, label: string) {
   return all(root).find((n) => n.props['aria-label'] === label)!;
 }
 function edit(root: ReturnType<typeof node>, value: string) {
-  (byLabel(root, 'Message Aristotle').props.onInput as (e: unknown) => void)({ target: { value } });
+  (byLabel(root, 'Message the agent').props.onInput as (e: unknown) => void)({ target: { value } });
 }
 const response = (body: unknown, status = 201) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -168,7 +168,7 @@ describe('Aristotle UI', () => {
     await settle();
     expect(textOf(root)).toContain('History unavailable');
     expect(textOf(root)).not.toContain('Welcome to Coresearch');
-    expect(byLabel(root, 'Message Aristotle').props.value).toBe('Keep my draft');
+    expect(byLabel(root, 'Message the agent').props.value).toBe('Keep my draft');
     await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
     expect(fetch).toHaveBeenCalledTimes(1);
     const retry = all(root).find((n) => n.tag === 'button' && textOf(n) === 'Retry')!;
@@ -178,7 +178,7 @@ describe('Aristotle UI', () => {
     expect(all(root).some((n) => n.props.innerHTML === 'Existing research history')).toBe(true);
     expect(textOf(root)).not.toContain('History unavailable');
     expect(textOf(root)).not.toContain('Welcome to Coresearch');
-    expect(byLabel(root, 'Message Aristotle').props.value).toBe('Keep my draft');
+    expect(byLabel(root, 'Message the agent').props.value).toBe('Keep my draft');
     expect(byLabel(root, 'Send').props.disabled).toBe(false);
   });
 
@@ -220,7 +220,7 @@ describe('Aristotle UI', () => {
     await settle();
     await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
     await settle();
-    expect(byLabel(root, 'Message Aristotle').props.value).toBe('Question');
+    expect(byLabel(root, 'Message the agent').props.value).toBe('Question');
     await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
     const bodies = () => fetch.mock.calls.map((c) => JSON.parse(c[1].body));
     expect(bodies()[0].request_id).toBe(bodies()[1].request_id);
@@ -316,7 +316,7 @@ describe('Aristotle UI', () => {
     await settle();
     await settle();
     expect(router.currentRoute.value.path).toBe('/coresearch/new');
-    expect(byLabel(root, 'Message Aristotle').props.value).toBe('');
+    expect(byLabel(root, 'Message the agent').props.value).toBe('');
     expect(textOf(root)).toContain('Other Aristotle');
     expect(JSON.parse(storage.get('lykeion.aristotle.accepted:me:lab')!)).toEqual({
       conversation: 'accepted',
@@ -393,7 +393,7 @@ describe('Aristotle UI', () => {
       await settle();
       await settle();
       expect(router.currentRoute.value.path).toBe('/coresearch/new');
-      expect(byLabel(root, 'Message Aristotle').props.value).toBe('Newer question');
+      expect(byLabel(root, 'Message the agent').props.value).toBe('Newer question');
       expect(byLabel(root, 'Send').props.disabled).toBe(true);
       expect(JSON.parse(storage.get('lykeion.aristotle.accepted:me:lab')!).run).toBe('old-run');
     },

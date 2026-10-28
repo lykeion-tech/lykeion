@@ -1,16 +1,40 @@
 <script setup lang="ts">
-import { useAristotle } from './aristotle';
+import { useAristotle, newComposerDraft } from './aristotle';
+import { isNavigationFailure, NavigationFailureType, type NavigationFailure } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import Aristotle from '../components/Aristotle.vue';
 const state = useAristotle();
+async function startDraft(
+  event: MouseEvent,
+  navigate: (event: MouseEvent) => Promise<void | NavigationFailure>,
+) {
+  const plain =
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey;
+  const result = await navigate(event);
+  if (plain && (!result || isNavigationFailure(result, NavigationFailureType.duplicated)))
+    newComposerDraft();
+}
 </script>
 <template>
   <aside class="sidebar conversation-rail" aria-label="Chat">
     <header>
       <RouterLink to="/coresearch">Chat</RouterLink
-      ><RouterLink to="/coresearch/new" aria-label="New conversation" class="icon-button"
-        ><Icon name="plus" :size="16"
-      /></RouterLink>
+      ><RouterLink v-slot="{ href, navigate, isActive, isExactActive }" to="/coresearch/new" custom>
+        <a
+          :href="href"
+          aria-label="New conversation"
+          class="icon-button"
+          :class="{ 'router-link-active': isActive, 'router-link-exact-active': isExactActive }"
+          :aria-current="isExactActive ? 'page' : undefined"
+          @click="startDraft($event, navigate)"
+          ><Icon name="plus" :size="16"
+        /></a>
+      </RouterLink>
     </header>
     <nav>
       <RouterLink

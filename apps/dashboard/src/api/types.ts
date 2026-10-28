@@ -201,7 +201,13 @@ export interface InboxItem {
   created_at: string;
 }
 
+export interface RuntimeModel {
+  value: string;
+  label: string;
+  description?: string;
+}
 export interface Runtime {
+  models?: RuntimeModel[] | null;
   visibility?: 'private' | 'workspace';
   shared_with?: string[];
   id: string;

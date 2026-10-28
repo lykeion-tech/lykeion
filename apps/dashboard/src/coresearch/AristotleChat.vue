@@ -10,6 +10,11 @@ import {
   restoreConversation,
   type AcceptanceRequest,
   type Conversation,
+  type ComposerAttachment,
+  composerGeneration,
+  holdComposerContinuation,
+  takeComposerContinuation,
+  clearComposerContinuation,
 } from './aristotle';
 import { readText, writeText } from '../storage';
 import { workspaceId } from '../api/session';
@@ -17,7 +22,7 @@ import { useMe, useRuntimes } from '../api/queries';
 import { api } from '../api/client';
 import { guardResourceDrafts } from '../state/resource-draft';
 import { PANE_TABS } from './pane-tabs';
-import type { FileRow } from './types';
+import type { FileRow, SessionMode } from './types';
 import RightPaneTabs from './RightPaneTabs.vue';
 import NotebookPane from './NotebookPane.vue';
 import FilesPane from './FilesPane.vue';
@@ -116,6 +121,28 @@ const activeRun = computed(
 const harness = computed(
   () => conversation.value?.snapshot_harness ?? agent.value?.harness ?? 'claude',
 );
+const selectedRuntime = ref<string>();
+const runtime = computed(() => {
+  const own =
+    runtimes.data.value?.filter(
+      (r) =>
+        r.owner_id === me.data.value?.id && r.status === 'online' && r.harness === harness.value,
+    ) ?? [];
+  return own.find((r) => r.id === selectedRuntime.value) ?? own[0];
+});
+const models = computed(() => runtime.value?.models ?? []);
+const mode = ref<SessionMode>('experiment'),
+  template = ref('blank'),
+  selectedModel = ref<string | null>(null);
+const effectiveModel = computed(() =>
+  isDraft.value
+    ? (models.value.find((m) => m.value === selectedModel.value)?.value ??
+      models.value[0]?.value ??
+      '')
+    : (conversation.value?.snapshot_model ?? ''),
+);
+const attachments = ref<ComposerAttachment[]>([]),
+  uploading = ref(false);
 const blocker = computed(() =>
   ownOnlineClis(runtimes.data.value ?? [], me.data.value?.id).includes(harness.value)
     ? undefined
@@ -138,16 +165,57 @@ watch(
 );
 const lastKey = (scope: string) => `lykeion.aristotle.last:${scope}`;
 watch(
-  [state.scope, () => route.path],
+  [state.scope, () => route.path, composerGeneration],
   () => {
     viewGeneration++;
     draft.value = '';
     error.value = '';
     busy.value = false;
     pending = null;
+    mode.value = 'experiment';
+    template.value = 'blank';
+    selectedModel.value = null;
+    selectedRuntime.value = undefined;
+    attachments.value = [];
+    uploading.value = false;
+    if (route.path !== '/settings' && state.member.value && workspaceId.value) {
+      const held = takeComposerContinuation(state.scope.value, route.fullPath, historyPosition());
+      if (held) {
+        draft.value = held.body;
+        mode.value = held.mode;
+        template.value = held.template;
+        if (held.harness === harness.value) {
+          selectedRuntime.value = held.runtime;
+          selectedModel.value = held.model;
+        }
+        attachments.value = held.attachments;
+        pending = held.pending;
+      }
+    }
   },
-  { flush: 'sync' },
+  { flush: 'sync', immediate: true },
 );
+function historyPosition() {
+  const value = router.options.history.state.position;
+  return typeof value === 'number' ? value : undefined;
+}
+async function manageComposer(page: string) {
+  if (busy.value || uploading.value) return;
+  holdComposerContinuation({
+    scope: state.scope.value,
+    path: route.fullPath,
+    position: historyPosition(),
+    body: draft.value,
+    mode: mode.value,
+    template: template.value,
+    runtime: runtime.value?.id,
+    harness: harness.value,
+    model: effectiveModel.value,
+    attachments: attachments.value,
+    pending,
+  });
+  await router.push(`/settings?tab=${page}`);
+}
 watch(
   [() => state.conversations.data.value, () => route.path],
   ([list]) => {
@@ -174,6 +242,7 @@ async function send(prompt?: string) {
   if (
     !draft.value.trim() ||
     busy.value ||
+    uploading.value ||
     historyUnavailable.value ||
     blocker.value ||
     activeRun.value ||
@@ -186,7 +255,15 @@ async function send(prompt?: string) {
     target = conversation.value?.id ?? '',
     path = route.path;
   const generation = ++viewGeneration;
-  const request = acceptanceRequest(pending, draft.value.trim(), target);
+  const options = {
+    mode: isDraft.value ? mode.value : (conversation.value?.mode ?? 'experiment'),
+    ...(isDraft.value && mode.value === 'cowrite' ? { template: template.value } : {}),
+    ...(isDraft.value ? { model: effectiveModel.value } : {}),
+    ...(attachments.value.length
+      ? { attachments: attachments.value.map((file) => ({ ...file })) }
+      : {}),
+  };
+  const request = acceptanceRequest(pending, draft.value.trim(), target, JSON.stringify(options));
   pending = request;
   busy.value = true;
   error.value = '';
@@ -196,7 +273,7 @@ async function send(prompt?: string) {
     const accepted = await api<{ conversation: Conversation; run: { id: string } }>(
       'POST',
       target ? `/api/coresearch/conversations/${target}/turns` : '/api/coresearch/conversations',
-      { body: request.body, request_id: request.request_id },
+      { body: request.body, request_id: request.request_id, ...options },
       undefined,
       { workspace: ws },
     );
@@ -215,14 +292,57 @@ async function send(prompt?: string) {
       queryKey: ['ws', ws, 'coresearch', accepted.conversation.project_id],
     });
     if (current()) {
+      clearComposerContinuation();
       draft.value = '';
       pending = null;
-      await router.push(`/coresearch/conversations/${accepted.conversation.id}`);
+      attachments.value = [];
+      await router.push(
+        options.mode === 'cowrite'
+          ? `/coresearch/${accepted.conversation.project_id}/${accepted.conversation.chat_id}`
+          : `/coresearch/conversations/${accepted.conversation.id}`,
+      );
     }
   } catch (e) {
     if (current()) error.value = (e as Error).message;
   } finally {
     if (current()) busy.value = false;
+  }
+}
+async function uploadFiles(chosen: File[]) {
+  if (busy.value || uploading.value) return;
+  const ws = workspaceId.value,
+    scope = state.scope.value,
+    path = route.path,
+    generation = viewGeneration;
+  const current = () =>
+    ws === workspaceId.value &&
+    scope === state.scope.value &&
+    path === route.path &&
+    generation === viewGeneration;
+  uploading.value = true;
+  error.value = '';
+  const refused: string[] = [];
+  try {
+    for (const file of chosen) {
+      if (!current()) return;
+      try {
+        const form = new FormData();
+        form.append('file', file, file.name);
+        const result = await api<{ upload_id: string }>(
+          'POST',
+          '/api/coresearch/uploads',
+          form,
+          undefined,
+          { workspace: ws },
+        );
+        if (current()) attachments.value.push({ upload_id: result.upload_id, name: file.name });
+      } catch (e) {
+        refused.push(`${file.name} — ${(e as Error).message}`);
+      }
+    }
+    if (current()) error.value = refused.join('; ');
+  } finally {
+    if (current()) uploading.value = false;
   }
 }
 async function stop() {
@@ -352,15 +472,46 @@ async function stop() {
                 :messages="messages.data.value ?? []"
               />
             </div>
+            <AristotleComposer
+              v-if="isDraft"
+              v-model="draft"
+              v-model:mode="mode"
+              v-model:template="template"
+              :selected-model="effectiveModel"
+              :models="models"
+              :draft="isDraft"
+              :attachments="attachments"
+              :busy="busy || uploading"
+              :blocker="historyUnavailable ? 'Load conversation history before sending.' : blocker"
+              :error="error"
+              :active-run="activeRun ?? undefined"
+              @send="send()"
+              @stop="stop"
+              @update:selected-model="selectedModel = $event"
+              @files="uploadFiles"
+              @manage="manageComposer"
+              @remove="attachments = attachments.filter((file) => file.upload_id !== $event)"
+            />
           </div>
           <AristotleComposer
+            v-if="!isDraft"
             v-model="draft"
-            :busy="busy"
+            v-model:mode="mode"
+            v-model:template="template"
+            :selected-model="effectiveModel"
+            :models="models"
+            :draft="isDraft"
+            :attachments="attachments"
+            :busy="busy || uploading"
             :blocker="historyUnavailable ? 'Load conversation history before sending.' : blocker"
             :error="error"
             :active-run="activeRun ?? undefined"
             @send="send()"
             @stop="stop"
+            @update:selected-model="selectedModel = $event"
+            @files="uploadFiles"
+            @manage="manageComposer"
+            @remove="attachments = attachments.filter((file) => file.upload_id !== $event)"
             ><template v-if="experiment" #top>
               <button
                 type="button"

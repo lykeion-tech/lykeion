@@ -15,7 +15,7 @@ for (const theme of ['ash', 'midnight']) {
     await expect(page.locator('.aristotle-header .aristotle-art svg')).toHaveCount(1);
     await page.getByRole('link', { name: 'New conversation', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Chat with Aristotle' })).toBeVisible();
-    await page.getByRole('textbox', { name: 'Message Aristotle' }).fill('Retain my draft');
+    await page.getByRole('textbox', { name: 'Message the agent' }).fill('Retain my draft');
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
     await expect(
       page.getByText('No available own machine with claude', { exact: false }),
@@ -27,7 +27,7 @@ for (const theme of ['ash', 'midnight']) {
     );
     await page.screenshot({ path: `/tmp/aristotle-${theme}-desktop.png` });
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByRole('textbox', { name: 'Message Aristotle' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message the agent' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
@@ -38,7 +38,7 @@ for (const theme of ['ash', 'midnight']) {
     await expect(
       page.getByRole('button', { name: 'Ground a research question', exact: true }),
     ).toBeVisible();
-    const input = page.getByRole('textbox', { name: 'Message Aristotle' });
+    const input = page.getByRole('textbox', { name: 'Message the agent' });
     await input.click();
     await expect(input).toBeFocused();
     await input.fill('Narrow viewport retained draft');
@@ -149,7 +149,7 @@ test('transport loss retains draft and retry UUID; edited payload allocates new 
   const fixture = await installAristotleFixture(page, true);
   fixture.failNext(3);
   await page.goto('/#/coresearch/new');
-  const input = page.getByRole('textbox', { name: 'Message Aristotle' }),
+  const input = page.getByRole('textbox', { name: 'Message the agent' }),
     send = page.getByRole('button', { name: 'Send', exact: true });
   await input.fill('Question');
   await send.click();
@@ -227,7 +227,12 @@ test('stale and other-scope pointers fall back; rail switches persist without du
   await page.goto('/#/coresearch/projects');
   await expect(page).toHaveURL(/coresearch\/projects$/);
   await page.goto('/#/coresearch/p/selected');
-  await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
+  await expect(navigation).toBeVisible();
+  await page.getByRole('button', { name: 'Show conversations' }).click();
+  await expect(navigation).toHaveCount(0);
+  await expect(conversations).toHaveCount(1);
+  await expect(conversations).toBeVisible();
 });
 
 test('lost acceptance response replays the same UUID and receipt without a second acceptance', async ({
@@ -236,7 +241,7 @@ test('lost acceptance response replays the same UUID and receipt without a secon
   const fixture = await installAristotleFixture(page, true);
   fixture.loseNextAcceptedResponse();
   await page.goto('/#/coresearch/new');
-  const input = page.getByRole('textbox', { name: 'Message Aristotle' });
+  const input = page.getByRole('textbox', { name: 'Message the agent' });
   const send = page.getByRole('button', { name: 'Send', exact: true });
   await input.fill('Already accepted on the server');
   await send.click();

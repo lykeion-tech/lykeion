@@ -37,7 +37,7 @@ for (const theme of ['ash', 'midnight']) {
       }),
     );
     await page.goto('/#/coresearch/new');
-    const composer = page.getByRole('textbox', { name: 'Message Aristotle' });
+    const composer = page.getByRole('textbox', { name: 'Message the agent' });
     await composer.fill('A nonempty draft without a runtime');
     await composer.focus();
     await expect(composer).toHaveCSS('outline-style', 'none');

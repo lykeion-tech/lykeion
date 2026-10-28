@@ -1,9 +1,10 @@
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { api } from '../api/client';
 import { workspaceId } from '../api/session';
 import { useMe, useAgent } from '../api/queries';
 import { keys } from '../api/keys';
+import { onAuthenticationLost, onAuthenticationRestored } from '../api/auth-loss';
 import type { SessionMode } from './types';
 import type { AgentDefinition } from '../api/types';
 export interface Starter {
@@ -59,15 +60,60 @@ export interface AcceptanceRequest {
   body: string;
   target: string;
   request_id: string;
+  payload?: string;
 }
+export interface ComposerAttachment {
+  upload_id: string;
+  name: string;
+}
+export interface ComposerContinuation {
+  scope: string;
+  path: string;
+  position?: number;
+  body: string;
+  mode: SessionMode;
+  template: string;
+  runtime?: string;
+  harness: string;
+  model: string | null;
+  attachments: ComposerAttachment[];
+  pending: AcceptanceRequest | null;
+}
+let continuation: ComposerContinuation | null = null;
+export const composerGeneration = ref(0);
+export function clearComposerContinuation() {
+  continuation = null;
+}
+export function newComposerDraft() {
+  clearComposerContinuation();
+  composerGeneration.value++;
+}
+export function holdComposerContinuation(value: ComposerContinuation) {
+  continuation = {
+    ...value,
+    attachments: value.attachments.map((file) => ({ ...file })),
+    pending: value.pending ? { ...value.pending } : null,
+  };
+}
+export function takeComposerContinuation(scope: string, path: string, position?: number) {
+  const held = continuation;
+  continuation = null;
+  return held?.scope === scope && held.path === path && held.position === position ? held : null;
+}
+watch(workspaceId, clearComposerContinuation, { flush: 'sync' });
+onAuthenticationLost(clearComposerContinuation);
+onAuthenticationRestored(clearComposerContinuation);
 export function acceptanceRequest(
   previous: AcceptanceRequest | null,
   body: string,
   target: string,
+  payload = '',
 ): AcceptanceRequest {
-  return previous?.body === body && previous.target === target
+  return previous?.body === body &&
+    previous.target === target &&
+    (previous.payload ?? '') === payload
     ? previous
-    : { body, target, request_id: crypto.randomUUID() };
+    : { body, target, request_id: crypto.randomUUID(), ...(payload ? { payload } : {}) };
 }
 export function restoreConversation(
   list: { id: string; is_welcome: boolean }[],
@@ -81,6 +127,13 @@ export function useAristotle() {
   const me = useMe(),
     client = useQueryClient();
   const scope = computed(() => `${me.data.value?.id ?? ''}:${workspaceId.value}`);
+  watch(
+    () => me.data.value?.id,
+    (member, previous) => {
+      if (previous && previous !== member) clearComposerContinuation();
+    },
+    { flush: 'sync' },
+  );
   const bootstrap = useQuery({
     queryKey: computed(() => [
       'ws',
