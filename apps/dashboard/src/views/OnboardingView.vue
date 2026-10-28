@@ -502,11 +502,6 @@ async function logOut() {
   width: 48px;
   height: 62px;
 }
-.guide :deep(.aristotle-art > span) {
-  width: 129.6px;
-  height: 181.2px;
-  transform: translate(-31.2px, -7.2px);
-}
 .guide b {
   display: block;
   font-weight: 500;

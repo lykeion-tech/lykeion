@@ -14,6 +14,11 @@ onMounted(() => {
   animation = lottie.loadAnimation({
     container: host.value,
     renderer: 'svg',
+    rendererSettings: {
+      // Frame the complete portrait, including hair, ears and beard, with room for the idle motion.
+      viewBoxSize: props.portrait ? '93 21 154 219' : undefined,
+      preserveAspectRatio: 'xMidYMid meet',
+    },
     loop: !props.still,
     autoplay: !props.still && !matchMedia('(prefers-reduced-motion: reduce)').matches,
     path: new URL(
@@ -39,9 +44,8 @@ onUnmounted(() => animation?.destroy());
 }
 .aristotle-art > span {
   display: block;
-  width: 216px;
-  height: 302px;
-  transform: translate(-52px, -12px);
+  width: 100%;
+  height: 100%;
 }
 .aristotle-art.full {
   width: 140px;

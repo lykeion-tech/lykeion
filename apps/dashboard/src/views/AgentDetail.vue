@@ -584,11 +584,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   width: 44px;
   height: 48px;
 }
-.agent-avatar :deep(.aristotle-art > span) {
-  width: 119px;
-  height: 166px;
-  transform: translate(-29px, -6px);
-}
 .starter-editor {
   padding: 16px;
   margin-bottom: 10px;

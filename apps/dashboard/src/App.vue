@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { MessageCircle } from '@lucide/vue';
 import Icon from './components/Icon.vue';
+import SidebarFooter from './components/SidebarFooter.vue';
 import { usePaneResize } from './lib/resize';
 import Modal from './components/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
@@ -118,13 +119,13 @@ const groups = [
     name: '',
     items: [
       { id: 'inbox', name: 'Inbox', icon: 'inbox' },
-      { id: 'my-studies', name: 'My Studies', icon: 'flask' },
+      { id: 'my-studies', name: 'My Studies', icon: 'tasks' },
     ],
   },
   {
     name: 'Laboratory',
     items: [
-      { id: 'studies', name: 'Studies', icon: 'flask' },
+      { id: 'studies', name: 'Studies', icon: 'tasks' },
       { id: 'projects', name: 'Projects', icon: 'folder' },
       { id: 'coresearch', name: 'Coresearch', icon: 'chat' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
@@ -176,7 +177,7 @@ const desktop = Boolean(window.lykeionDesktop);
 const workspacePopup = ref<HTMLElement>();
 const helpPopup = ref<HTMLElement>();
 const workspaceTrigger = ref<HTMLButtonElement>();
-const helpTrigger = ref<HTMLButtonElement>();
+const sidebarFooter = ref<InstanceType<typeof SidebarFooter>>();
 const feedback = ref(false);
 const paletteOpen = ref(false);
 function openSearch() {
@@ -307,7 +308,7 @@ function popupKey(
       workspaceTrigger.value?.focus();
     } else {
       help.value = false;
-      helpTrigger.value?.focus();
+      sidebarFooter.value?.focusHelp();
     }
   }
   if (event.key === 'Tab') {
@@ -416,7 +417,16 @@ onUnmounted(() => {
       :collapsed="collapsed"
       @toggle="collapsed = !collapsed"
     />
-    <ConversationRail v-if="aristotleShell && railView === 'context'" />
+    <ConversationRail v-if="aristotleShell && railView === 'context'">
+      <template #footer>
+        <SidebarFooter
+          ref="sidebarFooter"
+          :selected="current === 'settings'"
+          :help-open="help"
+          @toggle-help="toggleHelp"
+        />
+      </template>
+    </ConversationRail>
     <RailFabs v-if="aristotleShell" :view="railView" @change="changeRail" />
     <aside
       v-if="!aristotleShell || railView === 'nav'"
@@ -530,25 +540,12 @@ onUnmounted(() => {
           </section></template
         >
       </nav>
-      <div class="sidebar-bottom">
-        <div class="settings-line">
-          <RouterLink to="/settings" class="nav-item" :class="{ selected: current === 'settings' }"
-            ><Icon name="settings" />Settings</RouterLink
-          ><button
-            ref="helpTrigger"
-            class="icon-button"
-            aria-label="Help"
-            data-shell-menu-trigger
-            aria-haspopup="menu"
-            :aria-expanded="help"
-            aria-controls="help-menu"
-            @click="toggleHelp"
-            @keydown.up.prevent="!help && toggleHelp()"
-          >
-            <Icon name="help" />
-          </button>
-        </div>
-      </div>
+      <SidebarFooter
+        ref="sidebarFooter"
+        :selected="current === 'settings'"
+        :help-open="help"
+        @toggle-help="toggleHelp"
+      />
     </aside>
     <button
       class="sidebar-handle"

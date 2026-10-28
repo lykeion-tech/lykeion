@@ -26,8 +26,7 @@ const emit = defineEmits<{ 'update:modelValue': [string]; send: []; stop: [] }>(
         @keydown.enter.exact.prevent="!$event.isComposing && emit('send')"
       />
       <div class="composer-toolbar">
-        <span class="muted">Aristotle</span
-        ><button
+        <button
           v-if="activeRun"
           class="composer-send"
           aria-label="Stop"
@@ -81,10 +80,7 @@ const emit = defineEmits<{ 'update:modelValue': [string]; send: []; stop: [] }>(
 .composer-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-.composer-toolbar .muted {
-  font-size: 12px;
+  justify-content: flex-end;
 }
 </style>
 

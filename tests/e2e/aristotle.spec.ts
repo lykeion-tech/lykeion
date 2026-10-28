@@ -176,8 +176,26 @@ test('stale and other-scope pointers fall back; rail switches persist without du
   });
   await page.goto('/#/coresearch');
   await expect(page).toHaveURL(/conversations\/welcome$/);
-  await expect(page.getByRole('complementary', { name: 'Conversations' })).toBeVisible();
-  const conversations = page.getByRole('complementary', { name: 'Conversations', exact: true });
+  await expect(page.getByRole('complementary', { name: 'Chat' })).toBeVisible();
+  const conversations = page.getByRole('complementary', { name: 'Chat', exact: true });
+  const settingsAppearance = async () =>
+    page
+      .getByRole('complementary')
+      .getByRole('link', { name: 'Settings', exact: true })
+      .evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const icon = element.querySelector('svg')!.getBoundingClientRect();
+        return {
+          rect: [rect.x, rect.y, rect.width, rect.height],
+          icon: [icon.x, icon.y, icon.width, icon.height],
+          font: [style.fontSize, style.fontWeight, style.lineHeight],
+          padding: style.padding,
+          color: style.color,
+          background: style.backgroundColor,
+        };
+      });
+  const chatSettings = await settingsAppearance();
   await expect(conversations.getByRole('link', { name: 'Projects', exact: true })).toHaveCount(0);
   await expect(
     conversations.getByRole('link', { name: 'Manage projects', exact: true }),
@@ -185,11 +203,12 @@ test('stale and other-scope pointers fall back; rail switches persist without du
   await page.getByRole('button', { name: 'Show navigation' }).click();
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' });
   await expect(navigation).toBeVisible();
+  expect(await settingsAppearance()).toEqual(chatSettings);
   await expect(navigation.getByRole('link', { name: 'Projects', exact: true })).toHaveAttribute(
     'href',
     '#/projects',
   );
-  await expect(page.getByRole('complementary', { name: 'Conversations' })).toHaveCount(0);
+  await expect(page.getByRole('complementary', { name: 'Chat' })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole('button', { name: 'Show navigation' })).toHaveAttribute(
     'aria-pressed',
@@ -197,6 +216,11 @@ test('stale and other-scope pointers fall back; rail switches persist without du
   );
   await page.getByRole('button', { name: 'Show conversations' }).click();
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Help', exact: true }).click();
+  const helpMenu = page.getByRole('menu', { name: 'Help', exact: true });
+  await expect(helpMenu).toBeVisible();
+  await helpMenu.press('Escape');
+  await expect(page.getByRole('button', { name: 'Help', exact: true })).toBeFocused();
   await page.getByRole('button', { name: 'Show navigation' }).click();
   await navigation.getByRole('link', { name: 'Projects', exact: true }).click();
   await expect(page).toHaveURL(/#\/projects$/);
@@ -224,4 +248,53 @@ test('lost acceptance response replays the same UUID and receipt without a secon
   expect(fixture.requests).toHaveLength(2);
   expect(fixture.requests[1]!.body).toEqual(fixture.requests[0]!.body);
   expect(fixture.receipts.size).toBe(1);
+});
+
+test('Aristotle portraits keep the full artwork inside every avatar', async ({ page }) => {
+  await installAristotleFixture(page);
+  const checkPortraits = async (selector: string) => {
+    const portraits = page.locator(selector);
+    await expect(portraits.first().locator('svg')).toBeVisible();
+    for (const portrait of await portraits.all()) {
+      await expect
+        .poll(() =>
+          portrait
+            .locator('svg')
+            .evaluate((element) => (element as SVGSVGElement).getBBox().height),
+        )
+        .toBeGreaterThan(0);
+      const bounds = await portrait.evaluate((element) => {
+        const svg = element.querySelector('svg')!;
+        const box = svg.getBBox();
+        const matrix = svg.getScreenCTM()!;
+        const a = new DOMPoint(box.x, box.y).matrixTransform(matrix);
+        const b = new DOMPoint(box.x + box.width, box.y + box.height).matrixTransform(matrix);
+        const frame = element.getBoundingClientRect();
+        return {
+          fits:
+            a.x >= frame.left - 0.5 &&
+            a.y >= frame.top - 0.5 &&
+            b.x <= frame.right + 0.5 &&
+            b.y <= frame.bottom + 0.5,
+          artwork: [a.x, a.y, b.x, b.y],
+          frame: [frame.left, frame.top, frame.right, frame.bottom],
+        };
+      });
+      expect.soft(bounds.fits, `${selector}: ${JSON.stringify(bounds)}`).toBe(true);
+    }
+  };
+  await page.goto('/#/coresearch');
+  await expect(page).toHaveURL(/conversations\/welcome$/);
+  await checkPortraits('.aristotle-header .aristotle-art');
+  await checkPortraits('.conversation-rail .aristotle-art');
+  await expect(page.getByRole('link', { name: 'Chat', exact: true })).toHaveCSS(
+    'font-weight',
+    '400',
+  );
+  await page.getByRole('link', { name: 'New conversation', exact: true }).click();
+  await checkPortraits('.aristotle-start .aristotle-art');
+  await page.goto('/#/agents');
+  await checkPortraits('.avatar .aristotle-art');
+  await page.goto('/#/agents/aristotle');
+  await checkPortraits('.agent-avatar .aristotle-art');
 });

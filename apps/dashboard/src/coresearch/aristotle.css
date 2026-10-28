@@ -17,11 +17,6 @@
   width: 32px;
   height: 34px;
 }
-.aristotle-header :deep(.aristotle-art > span) {
-  transform: translate(-21px, -5px);
-  width: 86px;
-  height: 120px;
-}
 .aristotle-header b {
   font-size: 14px;
   font-weight: 600;
@@ -143,11 +138,6 @@
 .aristotle-start :deep(.aristotle-art) {
   height: 56px;
   width: 56px;
-}
-.aristotle-start :deep(.aristotle-art > span) {
-  width: 151px;
-  height: 212px;
-  transform: translate(-36px, -8px);
 }
 .aristotle-start h1 {
   font-size: 16px;

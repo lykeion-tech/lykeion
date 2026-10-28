@@ -382,11 +382,6 @@ async function save() {
 <style scoped>
 .avatar :deep(.aristotle-art) {
   width: 28px;
-  height: 30px;
-}
-.avatar :deep(.aristotle-art > span) {
-  width: 76px;
-  height: 106px;
-  transform: translate(-18px, -4px);
+  height: 28px;
 }
 </style>

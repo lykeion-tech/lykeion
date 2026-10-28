@@ -13,7 +13,7 @@ const emit = defineEmits<{ change: ['nav' | 'context'] }>();
       :aria-pressed="view === 'nav'"
       @click="emit('change', 'nav')"
     >
-      <Icon name="sidebar" :size="20" /></button
+      <Icon name="sidebar" :size="16" /></button
     ><button
       class="rail-fab"
       :class="{ 'is-active': view === 'context' }"
@@ -21,7 +21,7 @@ const emit = defineEmits<{ change: ['nav' | 'context'] }>();
       :aria-pressed="view === 'context'"
       @click="emit('change', 'context')"
     >
-      <Icon name="chat" :size="20" />
+      <Icon name="chat" :size="16" />
     </button>
   </div>
 </template>
@@ -29,14 +29,14 @@ const emit = defineEmits<{ change: ['nav' | 'context'] }>();
 .rail-fabs {
   position: fixed;
   left: 16px;
-  bottom: 46px;
+  bottom: 68px;
   z-index: 30;
   display: flex;
   gap: 8px;
 }
 .rail-fab {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   display: grid;
   place-items: center;

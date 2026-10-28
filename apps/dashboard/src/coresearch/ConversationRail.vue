@@ -5,9 +5,9 @@ import Aristotle from '../components/Aristotle.vue';
 const state = useAristotle();
 </script>
 <template>
-  <aside class="sidebar conversation-rail" aria-label="Conversations">
+  <aside class="sidebar conversation-rail" aria-label="Chat">
     <header>
-      <RouterLink to="/coresearch">Conversations</RouterLink
+      <RouterLink to="/coresearch">Chat</RouterLink
       ><RouterLink to="/coresearch/new" aria-label="New conversation" class="icon-button"
         ><Icon name="plus" :size="16"
       /></RouterLink>
@@ -38,15 +38,13 @@ const state = useAristotle();
         Try again
       </button>
     </p>
-    <RouterLink to="/settings" class="rail-settings"
-      ><Icon name="settings" :size="16" />Settings</RouterLink
-    >
+    <slot name="footer" />
   </aside>
 </template>
 <style scoped>
 .conversation-rail {
-  padding: 16px 10px 100px;
-  overflow: auto;
+  padding: 0 10px;
+  overflow: hidden;
   position: relative;
 }
 .conversation-rail header {
@@ -55,8 +53,20 @@ const state = useAristotle();
   justify-content: space-between;
   font-size: 12px;
   color: var(--muted);
-  padding: 4px 10px;
+  height: 32px;
+  line-height: 20px;
+  flex: none;
+  padding: 0 8px;
   margin-bottom: 8px;
+}
+.conversation-rail header > a:first-child {
+  font-size: 14px;
+  font-weight: 400;
+}
+.conversation-rail > nav {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .conversation-link {
   display: flex;
@@ -84,15 +94,6 @@ const state = useAristotle();
 .conversation-link.selected {
   background: var(--hover);
 }
-.rail-settings {
-  position: absolute;
-  bottom: 12px;
-  left: 20px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 13px;
-}
 </style>
 
 <style scoped>
@@ -100,10 +101,5 @@ const state = useAristotle();
   width: 22px;
   height: 24px;
   flex: none;
-}
-.conversation-link :deep(.rail-portrait > span) {
-  width: 59px;
-  height: 83px;
-  transform: translate(-14px, -3px);
 }
 </style>

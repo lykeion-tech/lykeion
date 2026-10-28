@@ -7,6 +7,7 @@ import AristotleChat from '../apps/dashboard/src/coresearch/AristotleChat.vue';
 import AgentDetail from '../apps/dashboard/src/views/AgentDetail.vue';
 import RailFabs from '../apps/dashboard/src/coresearch/RailFabs.vue';
 import ConversationRail from '../apps/dashboard/src/coresearch/ConversationRail.vue';
+import SidebarFooter from '../apps/dashboard/src/components/SidebarFooter.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { conversationKey } from '../apps/dashboard/src/coresearch/aristotle';
@@ -102,7 +103,7 @@ async function mount(
   const app = createTreeApp({
     render: () =>
       rail
-        ? h(ConversationRail)
+        ? h(ConversationRail, null, { footer: () => h(SidebarFooter) })
         : settings
           ? h(AgentDetail, { id: router.currentRoute.value.path.split('/')[2] || 'aristotle' })
           : router.currentRoute.value.path.startsWith('/coresearch')
@@ -187,7 +188,7 @@ describe('Aristotle UI', () => {
     const { root, client } = await mount('/coresearch/new', true, false, true, true);
     expect.soft(fetch).not.toHaveBeenCalled();
     expect.soft(client.getQueryState(keys.coresearchProjects('lab'))).toBeUndefined();
-    expect.soft(byLabel(root, 'Conversations')?.tag).toBe('aside');
+    expect.soft(byLabel(root, 'Chat')?.tag).toBe('aside');
     expect.soft(textOf(root)).not.toContain('Projects');
     const links = all(root).filter((n) => n.tag === 'a');
     expect(links.map((n) => n.props.href)).toEqual([
