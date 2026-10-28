@@ -74,6 +74,7 @@ type AgentRun struct {
 	MachineName           *string         `json:"machine_name"`
 	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
 	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
+	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
 }
 
 type AgentRunMachineAttempt struct {
@@ -310,8 +311,11 @@ type CoresearchBuild struct {
 	Status          string          `json:"status"`
 	Sources         json.RawMessage `json:"sources"`
 	PdfBlob         *string         `json:"pdf_blob"`
+	PdfSize         int64           `json:"pdf_size"`
 	LogBlob         *string         `json:"log_blob"`
+	LogSize         int64           `json:"log_size"`
 	SynctexBlob     *string         `json:"synctex_blob"`
+	SynctexSize     int64           `json:"synctex_size"`
 	Pages           *int32          `json:"pages"`
 	FailureReason   *string         `json:"failure_reason"`
 	ClaimedDaemonID *string         `json:"claimed_daemon_id"`

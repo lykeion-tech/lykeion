@@ -12,6 +12,8 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
+var ErrQuota = errors.New("project files exceed the storage limit")
+
 // PreparedSnapshot is staged with coresearch.WithBlobs before Snapshot is called.
 // Version binds the staged bytes to the live document observed by the caller.
 type PreparedSnapshot struct {
@@ -60,7 +62,7 @@ func Snapshot(ctx context.Context, tx *store.Tx, f File, p PreparedSnapshot, aut
 		limit = 2 << 30
 	}
 	if int64(len(p.Text)) > limit-total {
-		return 0, errors.New("project files exceed the storage limit")
+		return 0, ErrQuota
 	}
 	row, e := tx.Q.InsertCoresearchVersion(ctx, db.InsertCoresearchVersionParams{WorkspaceID: tx.WS, FileID: f.Record.ID, N: head.N + 1, Sha256: p.SHA256, Size: int64(len(p.Text)), BlobKey: tx.WS.String() + "/coresearch/" + p.SHA256, AuthorUserID: author.UserID, AgentRunID: author.AgentRunID})
 	if e != nil {

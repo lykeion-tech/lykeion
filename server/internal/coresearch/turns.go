@@ -6,15 +6,20 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/coresearch/doc"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
 
 var ErrTurnRunning = errors.New("a turn is already running in this chat")
 
-type Service struct{ Store *store.Store }
+type Service struct {
+	Store *store.Store
+	Blobs storage.Storage
+}
 
 func EnqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body string) (db.AgentRun, error) {
 	return enqueueTurn(ctx, tx, runs, chat, user, body, "", "")
@@ -121,7 +126,7 @@ func (s *Service) OnSettlement(next func(context.Context, service.Settlement) er
 			}
 			return nil
 		}
-		return s.Store.Maintenance(ctx, func(tx *store.Tx) error {
+		err := s.Store.Maintenance(ctx, func(tx *store.Tx) error {
 			if err := tx.Workspace(ctx, n.AgentRun.WorkspaceID); err != nil {
 				return err
 			}
@@ -139,5 +144,53 @@ func (s *Service) OnSettlement(next func(context.Context, service.Settlement) er
 			}
 			return nil
 		})
+		if err != nil {
+			return err
+		}
+		var chat db.CoresearchChat
+		if n.AgentRun.RequesterID == nil {
+			return nil
+		}
+		err = s.Store.InWorkspace(ctx, n.AgentRun.WorkspaceID, *n.AgentRun.RequesterID, func(tx *store.Tx) error {
+			var e error
+			chat, e = tx.Q.CoresearchSettlementBuildChat(ctx, db.CoresearchSettlementBuildChatParams{WorkspaceID: tx.WS, ID: n.ID})
+			return e
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if s.Blobs == nil {
+			return errors.New("Coresearch build storage is unavailable")
+		}
+		transaction := func(fn func(*store.Tx, uuid.UUID, uuid.UUID) error) error {
+			return s.Store.InWorkspace(ctx, chat.WorkspaceID, chat.OwnerID, func(tx *store.Tx) error {
+				if _, e := tx.Q.LockWorkspaceForMutation(ctx, tx.WS); e != nil {
+					return e
+				}
+				if _, e := tx.Q.LockMember(ctx, db.LockMemberParams{WorkspaceID: tx.WS, UserID: chat.OwnerID}); e != nil {
+					return e
+				}
+				if _, e := tx.Q.CoresearchMember(ctx, db.CoresearchMemberParams{WorkspaceID: tx.WS, ProjectID: chat.ProjectID, UserID: chat.OwnerID}); e != nil {
+					return e
+				}
+				p, e := tx.Q.LockCoresearchProject(ctx, db.LockCoresearchProjectParams{WorkspaceID: tx.WS, ID: chat.ProjectID})
+				if e != nil {
+					return e
+				}
+				if p.ArchivedAt != nil {
+					return ErrArchived
+				}
+				return fn(tx, p.ID, chat.OwnerID)
+			})
+		}
+		_, err = QueueBuild(ctx, s.Store, s.Blobs, chat.WorkspaceID, chat.OwnerID, transaction, n.ID)
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, ErrArchived) {
+			return nil
+		}
+		return err
+
 	}
 }

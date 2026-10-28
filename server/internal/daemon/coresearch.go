@@ -802,6 +802,9 @@ func (d *daemon) claimCoresearchWork(ctx context.Context, refs []runtimeRef) {
 				}
 			}()
 		}
+		for _, build := range work.Builds {
+			start(build.ID, func(ctx context.Context) error { return d.runBuild(ctx, build.WorkContext, build) })
+		}
 		for _, cell := range work.Cells {
 			start(cell.ID, func(ctx context.Context) error { return d.runCell(ctx, cell) })
 		}

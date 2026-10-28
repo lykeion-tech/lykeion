@@ -59,8 +59,13 @@ SELECT * FROM coresearch_file_version WHERE workspace_id = @workspace_id AND fil
 
 -- name: CoresearchProjectBytes :one
 SELECT coalesce(sum(blobs.size),0)::bigint AS bytes FROM (
-SELECT v.sha256,max(v.size)::bigint AS size FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id
-WHERE f.workspace_id = @workspace_id AND f.project_id = @project_id AND v.sha256 <> @sha256 GROUP BY v.sha256) blobs;
+ SELECT blob_key,max(size)::bigint AS size FROM (
+ SELECT v.blob_key,v.size FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id WHERE f.workspace_id = @workspace_id AND f.project_id = @project_id
+ UNION ALL SELECT pdf_blob,pdf_size FROM coresearch_build WHERE workspace_id = @workspace_id AND project_id = @project_id AND pdf_blob IS NOT NULL
+ UNION ALL SELECT log_blob,log_size FROM coresearch_build WHERE workspace_id = @workspace_id AND project_id = @project_id AND log_blob IS NOT NULL
+ UNION ALL SELECT synctex_blob,synctex_size FROM coresearch_build WHERE workspace_id = @workspace_id AND project_id = @project_id AND synctex_blob IS NOT NULL
+ ) refs WHERE blob_key <> (@workspace_id::uuid)::text || '/coresearch/' || @sha256::text GROUP BY blob_key
+) blobs;
 
 -- name: InsertCoresearchVersion :one
 INSERT INTO coresearch_file_version(workspace_id,file_id,n,sha256,size,blob_key,author_user_id,agent_run_id,run_id,overrode,restored_from)

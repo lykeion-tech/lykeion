@@ -140,11 +140,30 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if code := s.call(t, "POST", csProjects+"/"+cs.ID+"/versions/1/restore", a, wa.ID, nil, nil); code != 201 {
 		t.Fatalf("owner restore %d", code)
 	}
+	var build db.CoresearchBuild
+	if code := s.call(t, "POST", csProjects+"/"+cs.ID+"/builds", a, wa.ID, nil, &build); code != 201 {
+		t.Fatalf("owner build %d", code)
+	}
+	if code := s.call(t, "GET", csProjects+"/"+cs.ID+"/builds", a, wa.ID, nil, nil); code != 200 {
+		t.Fatalf("owner builds %d", code)
+	}
+	key := "isolation-build-artifact"
+	if e := s.H.Blobs.Put(t.Context(), key, strings.NewReader("pdf"), 3); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE coresearch_build SET pdf_blob=$1,log_blob=$1,synctex_blob=$1 WHERE id=$2`, key, build.ID); e != nil {
+		t.Fatal(e)
+	}
+	for _, ext := range []string{"pdf", "log", "synctex.gz"} {
+		if code := s.call(t, "GET", csProjects+"/"+cs.ID+"/builds/1."+ext, a, wa.ID, nil, nil); code != 200 {
+			t.Fatalf("owner build download %d", code)
+		}
+	}
 	var welcome struct{ Conversation struct{ ID string } }
 	if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, wa.ID, nil, &welcome); code != 200 || welcome.Conversation.ID == "" {
 		t.Fatalf("conversation fixture %d", code)
 	}
-	ids := map[string]string{"{comment}": comment.ID.String(), "{change}": change, "{seq}": "1", "{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
+	ids := map[string]string{"{asset}": "1.pdf", "{comment}": comment.ID.String(), "{change}": change, "{seq}": "1", "{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
 	// Positive controls prove the probed resources resolve for their owner.
 	var ownRun struct {
 		ID     string

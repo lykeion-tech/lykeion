@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"lykeion/server/internal/coresearch/doc"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -64,6 +65,7 @@ type ClaimedControl struct {
 	Seq int64  `json:"seq"`
 }
 type Work struct {
+	Builds   []ClaimedBuild   `json:"builds"`
 	Cells    []ClaimedCell    `json:"cells"`
 	Runs     []ClaimedRun     `json:"runs"`
 	Setups   []ClaimedSetup   `json:"setups"`
@@ -71,7 +73,7 @@ type Work struct {
 }
 
 func EmptyWork() Work {
-	return Work{Cells: []ClaimedCell{}, Runs: []ClaimedRun{}, Setups: []ClaimedSetup{}, Controls: []ClaimedControl{}}
+	return Work{Builds: []ClaimedBuild{}, Cells: []ClaimedCell{}, Runs: []ClaimedRun{}, Setups: []ClaimedSetup{}, Controls: []ClaimedControl{}}
 }
 func OutputsMatch(a, b map[string]string) bool { return maps.Equal(a, b) }
 func Changed(ctx context.Context, tx *store.Tx, kind string, c db.CoresearchChat, id uuid.UUID) error {
@@ -206,6 +208,35 @@ func Claim(ctx context.Context, tx *store.Tx, who uuid.UUID, daemon string, runt
 	out := EmptyWork()
 	if err := Expire(ctx, tx); err != nil {
 		return out, err
+	}
+	builds, e := tx.Q.ClaimCoresearchBuilds(ctx, db.ClaimCoresearchBuildsParams{WorkspaceID: tx.WS, OwnerID: who, DaemonID: &daemon, RuntimeIds: runtimes})
+	if e != nil {
+		return out, e
+	}
+	for _, b := range builds {
+		var refs []FileRef
+		if e = json.Unmarshal(b.Sources, &refs); e != nil {
+			return out, e
+		}
+		texts := []DocText{}
+		for _, ref := range refs {
+			if ref.DocVersion == nil {
+				continue
+			}
+			f, e := tx.Q.GetCoresearchRetainedFile(ctx, db.GetCoresearchRetainedFileParams{WorkspaceID: tx.WS, ProjectID: b.ProjectID, ID: ref.FileID})
+			if e != nil {
+				return out, e
+			}
+			d, e := doc.AtVersion(ctx, tx, doc.File{Record: f}, *ref.DocVersion)
+			if e != nil {
+				return out, e
+			}
+			texts = append(texts, DocText{Path: ref.Path, FileID: ref.FileID, Version: d.Version, Text: d.Text})
+		}
+		out.Builds = append(out.Builds, ClaimedBuild{WorkContext: WorkContext{WorkspaceID: tx.WS, ProjectID: b.ProjectID, ClaimToken: *b.ClaimToken}, ID: b.ID, Seq: b.Seq, Sources: refs, Docs: texts})
+		if e = BuildChanged(ctx, tx, b); e != nil {
+			return out, e
+		}
 	}
 	chats, e := tx.Q.CoresearchClaimChats(ctx, db.CoresearchClaimChatsParams{WorkspaceID: tx.WS, OwnerID: who, DaemonID: &daemon, RuntimeIds: runtimes})
 	if e != nil {

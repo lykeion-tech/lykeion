@@ -1,3 +1,38 @@
+CREATE OR REPLACE FUNCTION public.coresearch_expired_workspaces() RETURNS SETOF uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ IF public.app_user() IS DISTINCT FROM '00000000-0000-0000-0000-000000000000'::uuid THEN RAISE EXCEPTION 'maintenance identity required' USING ERRCODE='42501'; END IF;
+ RETURN QUERY SELECT workspace_id FROM public.coresearch_cell WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now())
+ UNION SELECT workspace_id FROM public.coresearch_run WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now())
+ UNION SELECT workspace_id FROM public.coresearch_setup WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now()) ORDER BY 1;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.coresearch_expire() RETURNS TABLE(kind text,project_id uuid,chat_id uuid,work_id uuid)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE c public.coresearch_chat; item uuid;
+BEGIN
+ IF public.app_user()<>'00000000-0000-0000-0000-000000000000'::uuid AND NOT EXISTS(SELECT 1 FROM public.member m WHERE m.workspace_id=public.app_workspace() AND m.user_id=public.app_user()) THEN RAISE EXCEPTION 'workspace authority required' USING ERRCODE='42501'; END IF;
+ FOR c IN SELECT x.* FROM public.coresearch_chat x WHERE x.workspace_id=public.app_workspace() AND (public.app_user()='00000000-0000-0000-0000-000000000000'::uuid OR public.coresearch_can_see(x.project_id)) ORDER BY x.project_id,x.id FOR UPDATE LOOP
+ FOR item IN UPDATE public.coresearch_cell q SET status='interrupted',failure_reason='runtime_lost',finished_at=now(),outputs='[{"type":"error","ename":"RuntimeLost","evalue":"execution lease expired; code was not replayed"}]'::jsonb WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status='running' AND (q.lease_expires_at IS NULL OR q.lease_expires_at<=now()) RETURNING q.id LOOP
+ RETURN QUERY SELECT 'cell'::text,c.project_id,c.id,item; END LOOP;
+ FOR item IN UPDATE public.coresearch_run q SET status='failed',failure_reason='runtime_lost',finished_at=now(),facts=jsonb_build_object('error','execution lease expired; code was not replayed') WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status='running' AND (q.lease_expires_at IS NULL OR q.lease_expires_at<=now()) RETURNING q.id LOOP
+ RETURN QUERY SELECT 'run'::text,c.project_id,c.id,item; END LOOP;
+ FOR item IN UPDATE public.coresearch_setup q SET status='failed',failure_reason='runtime_lost',finished_at=now(),log='execution lease expired; setup was not replayed' WHERE q.workspace_id=c.workspace_id AND q.chat_id=c.id AND q.status='running' AND (q.lease_expires_at IS NULL OR q.lease_expires_at<=now()) RETURNING q.id LOOP
+ RETURN QUERY SELECT 'setup'::text,c.project_id,c.id,item; END LOOP;
+ END LOOP;
+END $$;
+
+ALTER TABLE agent_run DROP COLUMN coresearch_build_id;
+CREATE OR REPLACE FUNCTION public.coresearch_blob_referenced(sha text) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.member m WHERE m.workspace_id = public.app_workspace() AND m.user_id = public.app_user()) AND NOT EXISTS (SELECT 1 FROM public.agent_run r JOIN public.coresearch_chat c ON c.workspace_id=r.workspace_id AND c.id=r.coresearch_chat_id JOIN public.coresearch_member m ON m.workspace_id=c.workspace_id AND m.project_id=c.project_id AND m.user_id=c.owner_id JOIN public.member w ON w.workspace_id=m.workspace_id AND w.user_id=m.user_id WHERE r.workspace_id=public.app_workspace() AND r.id=public.app_user() AND r.kind='coresearch' AND r.status='running') THEN
+    RAISE EXCEPTION 'workspace membership required' USING ERRCODE = '42501';
+  END IF;
+  RETURN EXISTS (SELECT 1 FROM public.coresearch_file_version v WHERE v.workspace_id = public.app_workspace() AND v.sha256 = sha);
+END
+$$;
+
 -- Restore the pre-Cowrite maintenance functions before removing their table.
 CREATE OR REPLACE FUNCTION public.coresearch_revoke(target uuid, project uuid)
 RETURNS TABLE(kind text, project_id uuid, chat_id uuid, work_id uuid)

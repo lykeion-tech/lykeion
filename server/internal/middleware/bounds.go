@@ -65,7 +65,7 @@ func RequestBounds(next http.Handler) http.Handler {
 		if attachment || attachmentDownload(r) && !outputDownload(r) {
 			requestTimeout, bodyTimeout = AttachmentRequestTimeout, AttachmentBodyReadTimeout
 		}
-		if output || outputDownload(r) || coresearchUpload || coresearchFileTransfer(r, false) || coresearchWorkTransfer(r, false) || coresearchCellOutputDownload(r) || coresearchPaperTransfer(r) {
+		if output || outputDownload(r) || coresearchUpload || coresearchFileTransfer(r, false) || coresearchWorkTransfer(r, false) || coresearchCellOutputDownload(r) || coresearchPaperTransfer(r) || coresearchBuildDownload(r) {
 			requestTimeout, bodyTimeout = OutputRequestTimeout, OutputBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
@@ -304,7 +304,7 @@ func coresearchDaemonRoute(r *http.Request, kind, action string) bool {
 }
 func coresearchWorkTransfer(r *http.Request, upload bool) bool {
 	if upload {
-		return r.Method == http.MethodPost && (r.URL.Path == "/api/run/coresearch/files" || coresearchDaemonRoute(r, "runs", "finish"))
+		return r.Method == http.MethodPost && (r.URL.Path == "/api/run/coresearch/files" || coresearchDaemonRoute(r, "runs", "finish") || coresearchDaemonRoute(r, "builds", "finish"))
 	}
 	if r.Method != http.MethodGet {
 		return false
@@ -341,4 +341,15 @@ func coresearchPaperTransfer(r *http.Request) bool {
 		return e == nil && ne == nil && n > 0
 	}
 	return false
+}
+
+func coresearchBuildDownload(r *http.Request) bool {
+	p := strings.Split(r.URL.Path, "/")
+	if r.Method != "GET" || len(p) != 7 || p[1] != "api" || p[2] != "coresearch" || p[3] != "projects" || p[5] != "builds" {
+		return false
+	}
+	if _, e := uuid.Parse(p[4]); e != nil {
+		return false
+	}
+	return strings.HasSuffix(p[6], ".pdf") || strings.HasSuffix(p[6], ".log") || strings.HasSuffix(p[6], ".synctex.gz")
 }

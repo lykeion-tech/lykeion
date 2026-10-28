@@ -171,7 +171,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		return err
 	}
 	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Engine: engine, Key: secretKey}
-	runs.OnSettlement = (&coresearch.Service{Store: st}).OnSettlement(ap.OnSettlement(engine.OnSettlement))
+	runs.OnSettlement = (&coresearch.Service{Store: st, Blobs: blobs}).OnSettlement(ap.OnSettlement(engine.OnSettlement))
 	conn := &connectors.Client{HTTP: connectors.Guarded(), Secret: secretKey, Contact: getenv("CONTACT_EMAIL")}
 	runs.Keys = conn
 	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase, Mailto: conn.Contact}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},

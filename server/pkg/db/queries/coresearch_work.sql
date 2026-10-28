@@ -63,7 +63,7 @@ SELECT v.* FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_
 -- name: SetCoresearchRevokedReason :exec
 UPDATE agent_run SET failure_reason='coresearch_access_revoked' WHERE workspace_id= @workspace_id AND id= @id;
 -- name: RevokeCoresearchWork :many
-SELECT kind::text,project_id::uuid,chat_id::uuid,work_id::uuid FROM public.coresearch_revoke(@target::uuid,sqlc.narg(project)::uuid);
+SELECT kind::text,project_id::uuid,chat_id::uuid,work_id::uuid FROM public.coresearch_revoke( @target::uuid,sqlc.narg(project)::uuid);
 -- name: CoresearchChatByID :one
 SELECT * FROM coresearch_chat WHERE workspace_id= @workspace_id AND id= @id;
 
@@ -80,3 +80,46 @@ UPDATE coresearch_setup SET lease_expires_at=now()+interval '2 minutes' WHERE wo
 SELECT public.coresearch_expired_workspaces()::uuid AS workspace_id;
 -- name: ExpireCoresearchWork :many
 SELECT kind::text,project_id::uuid,chat_id::uuid,work_id::uuid FROM public.coresearch_expire();
+
+-- name: EnqueueCoresearchBuild :one
+INSERT INTO coresearch_build(workspace_id,project_id,seq,requested_by,status,sources)
+VALUES( @workspace_id, @project_id,(SELECT coalesce(max(seq),0)+1 FROM coresearch_build WHERE project_id= @project_id), @requested_by,'queued', @sources) RETURNING *;
+-- name: QueuedCoresearchBuild :one
+SELECT * FROM coresearch_build WHERE workspace_id= @workspace_id AND project_id= @project_id AND requested_by= @requested_by AND status='queued' FOR UPDATE;
+-- name: SupersedeCoresearchBuild :one
+UPDATE coresearch_build SET status='aborted',failure_reason='superseded',finished_at=now() WHERE workspace_id= @workspace_id AND id= @id AND status='queued' RETURNING *;
+-- name: GetCoresearchBuild :one
+SELECT * FROM coresearch_build WHERE workspace_id= @workspace_id AND id= @id;
+-- name: ListCoresearchBuilds :many
+SELECT * FROM coresearch_build WHERE workspace_id= @workspace_id AND project_id= @project_id ORDER BY seq DESC LIMIT @row_limit;
+-- name: ClaimCoresearchBuilds :many
+WITH candidates AS MATERIALIZED (
+ SELECT b.id FROM coresearch_build b JOIN coresearch_project p ON p.workspace_id=b.workspace_id AND p.id=b.project_id
+ WHERE b.workspace_id= @workspace_id AND b.requested_by= @owner_id AND b.status='queued' AND p.archived_at IS NULL
+ AND EXISTS(SELECT 1 FROM coresearch_member m WHERE m.workspace_id=b.workspace_id AND m.project_id=b.project_id AND m.user_id=b.requested_by)
+ AND EXISTS(SELECT 1 FROM runtime r WHERE r.workspace_id=b.workspace_id AND r.id=ANY( @runtime_ids::uuid[]) AND r.daemon_id= @daemon_id AND r.owner_id=b.requested_by)
+ AND NOT EXISTS(SELECT 1 FROM coresearch_build x WHERE x.project_id=b.project_id AND x.requested_by=b.requested_by AND x.status='running')
+ ORDER BY b.created_at,b.id LIMIT 8 FOR UPDATE OF b SKIP LOCKED)
+UPDATE coresearch_build SET status='running',daemon_id= @daemon_id,claimed_daemon_id= @daemon_id,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING *;
+-- name: StartCoresearchBuild :exec
+UPDATE coresearch_build SET started_at=coalesce(started_at,now()) WHERE workspace_id= @workspace_id AND id= @id AND status='running';
+-- name: HeartbeatCoresearchBuild :execrows
+UPDATE coresearch_build SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= @workspace_id AND id= @id AND claim_token= @claim_token AND status='running' AND lease_expires_at>now();
+-- name: FinishCoresearchBuild :one
+UPDATE coresearch_build SET status= @status,pdf_blob=sqlc.narg(pdf_blob),pdf_size= @pdf_size,log_size= @log_size,synctex_size= @synctex_size,log_blob=sqlc.narg(log_blob),synctex_blob=sqlc.narg(synctex_blob),pages=sqlc.narg(pages),failure_reason=sqlc.narg(failure_reason),receipt_sha= @receipt_sha,finished_at=now() WHERE workspace_id= @workspace_id AND id= @id AND status='running' RETURNING *;
+-- name: InsertBuildVersion :one
+INSERT INTO coresearch_version(workspace_id,project_id,seq,title,by_user_id,build_id,files)
+VALUES( @workspace_id, @project_id,(SELECT coalesce(max(seq),0)+1 FROM coresearch_version WHERE project_id= @project_id), @title, @by_user_id, @build_id, @files) RETURNING *;
+-- name: CoresearchBuildBlob :one
+SELECT v.* FROM coresearch_file_version v WHERE v.workspace_id= @workspace_id AND v.sha256= @sha256 AND EXISTS(
+ SELECT 1 FROM coresearch_build b JOIN coresearch_member m ON m.workspace_id=b.workspace_id AND m.project_id=b.project_id AND m.user_id=b.requested_by
+ WHERE b.workspace_id=v.workspace_id AND b.requested_by= @owner_id AND b.claimed_daemon_id= @daemon_id AND b.status='running' AND b.lease_expires_at>now()
+ AND EXISTS(SELECT 1 FROM jsonb_array_elements(b.sources) x WHERE (x->>'file_id')::uuid=v.file_id AND (x->>'n')::int=v.n)) LIMIT 1;
+-- name: CoresearchRunBuild :one
+SELECT coresearch_build_id FROM agent_run WHERE workspace_id= @workspace_id AND id= @id;
+-- name: SetCoresearchRunBuild :exec
+UPDATE agent_run SET coresearch_build_id= @build_id WHERE workspace_id= @workspace_id AND id= @id AND coresearch_build_id IS NULL;
+-- name: CoresearchSettlementBuildChat :one
+SELECT c.* FROM coresearch_chat c JOIN agent_run r ON r.workspace_id=c.workspace_id AND r.coresearch_chat_id=c.id WHERE r.workspace_id= @workspace_id AND r.id= @id AND c.mode='cowrite' AND r.status IN ('completed','failed','cancelled') AND EXISTS(SELECT 1 FROM coresearch_doc_step d WHERE d.workspace_id=r.workspace_id AND d.agent_run_id=r.id);
+-- name: GetCoresearchBuildSeq :one
+SELECT * FROM coresearch_build WHERE workspace_id= @workspace_id AND project_id= @project_id AND seq= @seq;

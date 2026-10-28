@@ -274,8 +274,13 @@ func (q *Queries) CoresearchProjectBusy(ctx context.Context, arg CoresearchProje
 
 const coresearchProjectBytes = `-- name: CoresearchProjectBytes :one
 SELECT coalesce(sum(blobs.size),0)::bigint AS bytes FROM (
-SELECT v.sha256,max(v.size)::bigint AS size FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id
-WHERE f.workspace_id = $1 AND f.project_id = $2 AND v.sha256 <> $3 GROUP BY v.sha256) blobs
+ SELECT blob_key,max(size)::bigint AS size FROM (
+ SELECT v.blob_key,v.size FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id WHERE f.workspace_id = $1 AND f.project_id = $2
+ UNION ALL SELECT pdf_blob,pdf_size FROM coresearch_build WHERE workspace_id = $1 AND project_id = $2 AND pdf_blob IS NOT NULL
+ UNION ALL SELECT log_blob,log_size FROM coresearch_build WHERE workspace_id = $1 AND project_id = $2 AND log_blob IS NOT NULL
+ UNION ALL SELECT synctex_blob,synctex_size FROM coresearch_build WHERE workspace_id = $1 AND project_id = $2 AND synctex_blob IS NOT NULL
+ ) refs WHERE blob_key <> ($1::uuid)::text || '/coresearch/' || $3::text GROUP BY blob_key
+) blobs
 `
 
 type CoresearchProjectBytesParams struct {
@@ -374,7 +379,7 @@ func (q *Queries) DeleteCoresearchMember(ctx context.Context, arg DeleteCoresear
 
 const enqueueCoresearchAgentRun = `-- name: EnqueueCoresearchAgentRun :one
 INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,board_column,round,role,harness,prompt,skill,max_attempts,requested_model,continuity_scope,coresearch_chat_id)
-VALUES($1,'coresearch',$2::uuid,$2::uuid,'',0,'coresearch',$3,$4,'',2,'',$5,$6) RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id
+VALUES($1,'coresearch',$2::uuid,$2::uuid,'',0,'coresearch',$3,$4,'',2,'',$5,$6) RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id
 `
 
 type EnqueueCoresearchAgentRunParams struct {
@@ -442,6 +447,7 @@ func (q *Queries) EnqueueCoresearchAgentRun(ctx context.Context, arg EnqueueCore
 		&i.MachineName,
 		&i.MachineOwnerID,
 		&i.CoresearchChatID,
+		&i.CoresearchBuildID,
 	)
 	return i, err
 }

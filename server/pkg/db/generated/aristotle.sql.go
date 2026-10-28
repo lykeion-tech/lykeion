@@ -396,7 +396,7 @@ func (q *Queries) MarkConversationProject(ctx context.Context, id uuid.UUID) err
 }
 
 const setAristotleRunModel = `-- name: SetAristotleRunModel :one
-UPDATE agent_run SET requested_model= $1 WHERE workspace_id=app_workspace() AND id= $2 AND kind='coresearch' RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id
+UPDATE agent_run SET requested_model= $1 WHERE workspace_id=app_workspace() AND id= $2 AND kind='coresearch' RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id
 `
 
 type SetAristotleRunModelParams struct {
@@ -453,6 +453,7 @@ func (q *Queries) SetAristotleRunModel(ctx context.Context, arg SetAristotleRunM
 		&i.MachineName,
 		&i.MachineOwnerID,
 		&i.CoresearchChatID,
+		&i.CoresearchBuildID,
 	)
 	return i, err
 }

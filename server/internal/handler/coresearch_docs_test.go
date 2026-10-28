@@ -87,9 +87,23 @@ func TestRemovedMemberLosesPaper(t *testing.T) {
 	if c := s.call(t, "POST", url+"/comments", b, ws, commentInput, &comment); c != 201 {
 		t.Fatalf("member comment %d", c)
 	}
+	var queued db.CoresearchBuild
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/builds", b, ws, nil, &queued); code != 201 {
+		t.Fatal(code)
+	}
 	commentURL := csProjects + "/" + p.ID + "/comments/" + comment.ID.String()
 	if c := s.call(t, "DELETE", csProjects+"/"+p.ID+"/members/"+s.userID(t, b), a, ws, nil, nil); c != 204 {
 		t.Fatal(c)
+	}
+	var buildStatus, buildReason string
+	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT status,failure_reason FROM coresearch_build WHERE id=$1`, queued.ID).Scan(&buildStatus, &buildReason); e != nil {
+		t.Fatal(e)
+	}
+	if buildStatus != "aborted" || buildReason != "coresearch_access_revoked" {
+		t.Fatalf("removed queued build %s %s", buildStatus, buildReason)
+	}
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/builds", b, ws, nil, nil); code != 404 {
+		t.Fatal(code)
 	}
 	for _, r := range []struct {
 		method, suffix string

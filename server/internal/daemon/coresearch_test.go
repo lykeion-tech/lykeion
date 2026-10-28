@@ -68,7 +68,7 @@ func newCoreFixture(t *testing.T) *coreFixture {
 				return
 			}
 			status := "active"
-			if strings.Contains(r.URL.Path, "/runs/") || strings.Contains(r.URL.Path, "/setups/") || strings.Contains(r.URL.Path, "/cells/") {
+			if strings.Contains(r.URL.Path, "/builds/") || strings.Contains(r.URL.Path, "/runs/") || strings.Contains(r.URL.Path, "/setups/") || strings.Contains(r.URL.Path, "/cells/") {
 				status = "running"
 			}
 			json.NewEncoder(w).Encode(map[string]string{"status": status})

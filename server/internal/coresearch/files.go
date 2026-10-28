@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/coresearch/doc"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -21,7 +22,7 @@ const MaxTextBytes int64 = 1 << 20
 var ErrLiveDocument = errors.New("live document")
 
 var ErrArchived = errors.New("project is archived")
-var ErrQuota = errors.New("project files exceed the storage limit")
+var ErrQuota = doc.ErrQuota
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type ErrStale struct{ Base, Current int }

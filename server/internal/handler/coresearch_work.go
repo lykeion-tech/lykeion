@@ -370,6 +370,7 @@ func (h *H) daemonCoresearchClaim(w http.ResponseWriter, r *http.Request) {
 				return e
 			}
 			got, e := coresearch.Claim(r.Context(), tx, user(r), in.DaemonID, ids)
+			out.Builds = append(out.Builds, got.Builds...)
 			out.Cells = append(out.Cells, got.Cells...)
 			out.Runs = append(out.Runs, got.Runs...)
 			out.Setups = append(out.Setups, got.Setups...)
@@ -696,6 +697,9 @@ func (h *H) daemonCoresearchBlob(w http.ResponseWriter, r *http.Request) {
 	e := h.coresearchDaemonTx(r, func(tx *store.Tx, d string) error {
 		var e error
 		v, e = tx.Q.CoresearchBlobForOwner(r.Context(), db.CoresearchBlobForOwnerParams{WorkspaceID: tx.WS, OwnerID: user(r), DaemonID: &d, Sha256: chi.URLParam(r, "sha")})
+		if errors.Is(e, pgx.ErrNoRows) {
+			v, e = tx.Q.CoresearchBuildBlob(r.Context(), db.CoresearchBuildBlobParams{WorkspaceID: tx.WS, OwnerID: user(r), DaemonID: &d, Sha256: chi.URLParam(r, "sha")})
+		}
 		return e
 	})
 	if !coresearchAnswer(w, r, e) {

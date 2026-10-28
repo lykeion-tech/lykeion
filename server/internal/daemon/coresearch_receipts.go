@@ -124,6 +124,8 @@ func coreFailure(kind string, err error) map[string]any {
 	switch kind {
 	case "cells":
 		return map[string]any{"status": "interrupted", "outputs": []map[string]string{{"type": "error", "ename": "RuntimeLost", "evalue": reason}}}
+	case "builds":
+		return map[string]any{"status": "failed", "reason": reason, "pages": 0}
 	case "setups":
 		return map[string]any{"status": "failed", "log": reason}
 	default:
@@ -205,7 +207,7 @@ func readCoreReceipt(path string) (coreReceipt, error) {
 	if err = json.Unmarshal(b, &r); err != nil {
 		return r, err
 	}
-	if r.ID == uuid.Nil || r.Work.ClaimToken == uuid.Nil || r.Work.WorkspaceID == uuid.Nil || r.Work.ChatID == uuid.Nil || r.Work.ProjectID == uuid.Nil || (r.Kind != "cells" && r.Kind != "runs" && r.Kind != "setups") {
+	if r.ID == uuid.Nil || r.Work.ClaimToken == uuid.Nil || r.Work.WorkspaceID == uuid.Nil || (r.Work.ChatID == uuid.Nil && r.Kind != "builds") || r.Work.ProjectID == uuid.Nil || (r.Kind != "cells" && r.Kind != "runs" && r.Kind != "setups" && r.Kind != "builds") {
 		return r, errors.New("invalid Coresearch receipt identity")
 	}
 	for i, out := range r.Outputs {
@@ -221,7 +223,7 @@ func (d *daemon) sendCoreReceipt(ctx context.Context, r coreReceipt) error {
 	}
 	dir := d.coreReceiptDir(r)
 	var err error
-	if r.Kind == "runs" {
+	if r.Kind == "runs" || r.Kind == "builds" {
 		var facts map[string]any
 		if err = json.Unmarshal(r.Body, &facts); err != nil {
 			return err
@@ -230,7 +232,11 @@ func (d *daemon) sendCoreReceipt(ctx context.Context, r coreReceipt) error {
 		for _, out := range r.Outputs {
 			outputs = append(outputs, recordedOutput{path: out.Path, sha: out.SHA, file: filepath.Join(dir, out.File), size: out.Size})
 		}
-		err = d.finishRecorded(ctx, coresearch.ClaimedRun{WorkContext: r.Work, ID: r.ID}, facts, outputs)
+		if r.Kind == "builds" {
+			err = d.finishBuild(ctx, r, outputs)
+		} else {
+			err = d.finishRecorded(ctx, coresearch.ClaimedRun{WorkContext: r.Work, ID: r.ID}, facts, outputs)
+		}
 	} else {
 		err = d.coreAPI(r.Work.WorkspaceID).Do(ctx, "POST", d.coreWorkPath(r.Work, r.Kind+"/"+r.ID.String()+"/finish"), r.Body, nil)
 	}

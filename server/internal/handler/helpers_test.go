@@ -75,7 +75,7 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 	h.Blobs = storage.Local{Dir: t.TempDir()}
 	h.Engine = &flow.Engine{Store: st, AgentRuns: h.AgentRuns, Blobs: h.Blobs}
 	h.Autoresearch = &autoresearch.Service{Store: st, AgentRuns: h.AgentRuns, Key: bytes.Repeat([]byte{7}, 32), Engine: h.Engine}
-	h.AgentRuns.OnSettlement = (&coresearch.Service{Store: st}).OnSettlement(h.Autoresearch.OnSettlement(h.Engine.OnSettlement))
+	h.AgentRuns.OnSettlement = (&coresearch.Service{Store: st, Blobs: h.Blobs}).OnSettlement(h.Autoresearch.OnSettlement(h.Engine.OnSettlement))
 	srv := httptest.NewServer(NewRouter(h))
 	t.Cleanup(func() { srv.Close(); h.MCPBroker.Close(); hub.Close() })
 	return &server{Server: srv, H: h, Mail: mail, Env: env}

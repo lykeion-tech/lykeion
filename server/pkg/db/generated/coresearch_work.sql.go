@@ -12,6 +12,73 @@ import (
 	"github.com/google/uuid"
 )
 
+const claimCoresearchBuilds = `-- name: ClaimCoresearchBuilds :many
+WITH candidates AS MATERIALIZED (
+ SELECT b.id FROM coresearch_build b JOIN coresearch_project p ON p.workspace_id=b.workspace_id AND p.id=b.project_id
+ WHERE b.workspace_id= $2 AND b.requested_by= $3 AND b.status='queued' AND p.archived_at IS NULL
+ AND EXISTS(SELECT 1 FROM coresearch_member m WHERE m.workspace_id=b.workspace_id AND m.project_id=b.project_id AND m.user_id=b.requested_by)
+ AND EXISTS(SELECT 1 FROM runtime r WHERE r.workspace_id=b.workspace_id AND r.id=ANY( $4::uuid[]) AND r.daemon_id= $1 AND r.owner_id=b.requested_by)
+ AND NOT EXISTS(SELECT 1 FROM coresearch_build x WHERE x.project_id=b.project_id AND x.requested_by=b.requested_by AND x.status='running')
+ ORDER BY b.created_at,b.id LIMIT 8 FOR UPDATE OF b SKIP LOCKED)
+UPDATE coresearch_build SET status='running',daemon_id= $1,claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at
+`
+
+type ClaimCoresearchBuildsParams struct {
+	DaemonID    *string     `json:"daemon_id"`
+	WorkspaceID uuid.UUID   `json:"workspace_id"`
+	OwnerID     uuid.UUID   `json:"owner_id"`
+	RuntimeIds  []uuid.UUID `json:"runtime_ids"`
+}
+
+func (q *Queries) ClaimCoresearchBuilds(ctx context.Context, arg ClaimCoresearchBuildsParams) ([]CoresearchBuild, error) {
+	rows, err := q.db.Query(ctx, claimCoresearchBuilds,
+		arg.DaemonID,
+		arg.WorkspaceID,
+		arg.OwnerID,
+		arg.RuntimeIds,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CoresearchBuild
+	for rows.Next() {
+		var i CoresearchBuild
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ProjectID,
+			&i.Seq,
+			&i.RequestedBy,
+			&i.DaemonID,
+			&i.Status,
+			&i.Sources,
+			&i.PdfBlob,
+			&i.PdfSize,
+			&i.LogBlob,
+			&i.LogSize,
+			&i.SynctexBlob,
+			&i.SynctexSize,
+			&i.Pages,
+			&i.FailureReason,
+			&i.ClaimedDaemonID,
+			&i.ClaimToken,
+			&i.LeaseExpiresAt,
+			&i.ReceiptSha,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimCoresearchCell = `-- name: ClaimCoresearchCell :one
 UPDATE coresearch_cell SET status='running',claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id=(SELECT c.id FROM coresearch_cell c WHERE c.workspace_id= $2 AND c.chat_id= $3 AND c.status='queued' AND NOT EXISTS(SELECT 1 FROM coresearch_cell x WHERE x.chat_id=c.chat_id AND x.status='running') ORDER BY c.seq LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id, workspace_id, chat_id, seq, author_user_id, agent_run_id, kernel, source, status, execution_count, outputs, outputs_blob, created_at, started_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
 `
@@ -187,6 +254,45 @@ func (q *Queries) CoresearchBlobForOwner(ctx context.Context, arg CoresearchBlob
 	return i, err
 }
 
+const coresearchBuildBlob = `-- name: CoresearchBuildBlob :one
+SELECT v.workspace_id, v.file_id, v.n, v.sha256, v.size, v.blob_key, v.author_user_id, v.agent_run_id, v.run_id, v.overrode, v.restored_from, v.created_at FROM coresearch_file_version v WHERE v.workspace_id= $1 AND v.sha256= $2 AND EXISTS(
+ SELECT 1 FROM coresearch_build b JOIN coresearch_member m ON m.workspace_id=b.workspace_id AND m.project_id=b.project_id AND m.user_id=b.requested_by
+ WHERE b.workspace_id=v.workspace_id AND b.requested_by= $3 AND b.claimed_daemon_id= $4 AND b.status='running' AND b.lease_expires_at>now()
+ AND EXISTS(SELECT 1 FROM jsonb_array_elements(b.sources) x WHERE (x->>'file_id')::uuid=v.file_id AND (x->>'n')::int=v.n)) LIMIT 1
+`
+
+type CoresearchBuildBlobParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Sha256      string    `json:"sha256"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	DaemonID    *string   `json:"daemon_id"`
+}
+
+func (q *Queries) CoresearchBuildBlob(ctx context.Context, arg CoresearchBuildBlobParams) (CoresearchFileVersion, error) {
+	row := q.db.QueryRow(ctx, coresearchBuildBlob,
+		arg.WorkspaceID,
+		arg.Sha256,
+		arg.OwnerID,
+		arg.DaemonID,
+	)
+	var i CoresearchFileVersion
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.FileID,
+		&i.N,
+		&i.Sha256,
+		&i.Size,
+		&i.BlobKey,
+		&i.AuthorUserID,
+		&i.AgentRunID,
+		&i.RunID,
+		&i.Overrode,
+		&i.RestoredFrom,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const coresearchChatByID = `-- name: CoresearchChatByID :one
 SELECT id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics FROM coresearch_chat WHERE workspace_id= $1 AND id= $2
 `
@@ -339,6 +445,22 @@ func (q *Queries) CoresearchOwnedDaemon(ctx context.Context, arg CoresearchOwned
 	return column_1, err
 }
 
+const coresearchRunBuild = `-- name: CoresearchRunBuild :one
+SELECT coresearch_build_id FROM agent_run WHERE workspace_id= $1 AND id= $2
+`
+
+type CoresearchRunBuildParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) CoresearchRunBuild(ctx context.Context, arg CoresearchRunBuildParams) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, coresearchRunBuild, arg.WorkspaceID, arg.ID)
+	var coresearch_build_id *uuid.UUID
+	err := row.Scan(&coresearch_build_id)
+	return coresearch_build_id, err
+}
+
 const coresearchRunOutputs = `-- name: CoresearchRunOutputs :many
 SELECT f.path,f.id AS file_id,v.n,v.sha256,v.size FROM coresearch_file_version v JOIN coresearch_file f ON f.workspace_id=v.workspace_id AND f.id=v.file_id WHERE v.workspace_id= $1 AND v.run_id= $2 ORDER BY f.path,v.n
 `
@@ -380,6 +502,84 @@ func (q *Queries) CoresearchRunOutputs(ctx context.Context, arg CoresearchRunOut
 		return nil, err
 	}
 	return items, nil
+}
+
+const coresearchSettlementBuildChat = `-- name: CoresearchSettlementBuildChat :one
+SELECT c.id, c.workspace_id, c.project_id, c.owner_id, c.mode, c.cli, c.daemon_id, c.kernel_request, c.kernel_request_seq, c.kernel_state, c.kernel_seen_at, c.created_at, c.kernel_metrics FROM coresearch_chat c JOIN agent_run r ON r.workspace_id=c.workspace_id AND r.coresearch_chat_id=c.id WHERE r.workspace_id= $1 AND r.id= $2 AND c.mode='cowrite' AND r.status IN ('completed','failed','cancelled') AND EXISTS(SELECT 1 FROM coresearch_doc_step d WHERE d.workspace_id=r.workspace_id AND d.agent_run_id=r.id)
+`
+
+type CoresearchSettlementBuildChatParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) CoresearchSettlementBuildChat(ctx context.Context, arg CoresearchSettlementBuildChatParams) (CoresearchChat, error) {
+	row := q.db.QueryRow(ctx, coresearchSettlementBuildChat, arg.WorkspaceID, arg.ID)
+	var i CoresearchChat
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.OwnerID,
+		&i.Mode,
+		&i.Cli,
+		&i.DaemonID,
+		&i.KernelRequest,
+		&i.KernelRequestSeq,
+		&i.KernelState,
+		&i.KernelSeenAt,
+		&i.CreatedAt,
+		&i.KernelMetrics,
+	)
+	return i, err
+}
+
+const enqueueCoresearchBuild = `-- name: EnqueueCoresearchBuild :one
+INSERT INTO coresearch_build(workspace_id,project_id,seq,requested_by,status,sources)
+VALUES( $1, $2,(SELECT coalesce(max(seq),0)+1 FROM coresearch_build WHERE project_id= $2), $3,'queued', $4) RETURNING id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at
+`
+
+type EnqueueCoresearchBuildParams struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	ProjectID   uuid.UUID       `json:"project_id"`
+	RequestedBy uuid.UUID       `json:"requested_by"`
+	Sources     json.RawMessage `json:"sources"`
+}
+
+func (q *Queries) EnqueueCoresearchBuild(ctx context.Context, arg EnqueueCoresearchBuildParams) (CoresearchBuild, error) {
+	row := q.db.QueryRow(ctx, enqueueCoresearchBuild,
+		arg.WorkspaceID,
+		arg.ProjectID,
+		arg.RequestedBy,
+		arg.Sources,
+	)
+	var i CoresearchBuild
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Seq,
+		&i.RequestedBy,
+		&i.DaemonID,
+		&i.Status,
+		&i.Sources,
+		&i.PdfBlob,
+		&i.PdfSize,
+		&i.LogBlob,
+		&i.LogSize,
+		&i.SynctexBlob,
+		&i.SynctexSize,
+		&i.Pages,
+		&i.FailureReason,
+		&i.ClaimedDaemonID,
+		&i.ClaimToken,
+		&i.LeaseExpiresAt,
+		&i.ReceiptSha,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
 }
 
 const enqueueCoresearchCell = `-- name: EnqueueCoresearchCell :one
@@ -575,6 +775,69 @@ func (q *Queries) ExpireCoresearchWork(ctx context.Context) ([]ExpireCoresearchW
 	return items, nil
 }
 
+const finishCoresearchBuild = `-- name: FinishCoresearchBuild :one
+UPDATE coresearch_build SET status= $1,pdf_blob=$2,pdf_size= $3,log_size= $4,synctex_size= $5,log_blob=$6,synctex_blob=$7,pages=$8,failure_reason=$9,receipt_sha= $10,finished_at=now() WHERE workspace_id= $11 AND id= $12 AND status='running' RETURNING id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at
+`
+
+type FinishCoresearchBuildParams struct {
+	Status        string    `json:"status"`
+	PdfBlob       *string   `json:"pdf_blob"`
+	PdfSize       int64     `json:"pdf_size"`
+	LogSize       int64     `json:"log_size"`
+	SynctexSize   int64     `json:"synctex_size"`
+	LogBlob       *string   `json:"log_blob"`
+	SynctexBlob   *string   `json:"synctex_blob"`
+	Pages         *int32    `json:"pages"`
+	FailureReason *string   `json:"failure_reason"`
+	ReceiptSha    *string   `json:"receipt_sha"`
+	WorkspaceID   uuid.UUID `json:"workspace_id"`
+	ID            uuid.UUID `json:"id"`
+}
+
+func (q *Queries) FinishCoresearchBuild(ctx context.Context, arg FinishCoresearchBuildParams) (CoresearchBuild, error) {
+	row := q.db.QueryRow(ctx, finishCoresearchBuild,
+		arg.Status,
+		arg.PdfBlob,
+		arg.PdfSize,
+		arg.LogSize,
+		arg.SynctexSize,
+		arg.LogBlob,
+		arg.SynctexBlob,
+		arg.Pages,
+		arg.FailureReason,
+		arg.ReceiptSha,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	var i CoresearchBuild
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Seq,
+		&i.RequestedBy,
+		&i.DaemonID,
+		&i.Status,
+		&i.Sources,
+		&i.PdfBlob,
+		&i.PdfSize,
+		&i.LogBlob,
+		&i.LogSize,
+		&i.SynctexBlob,
+		&i.SynctexSize,
+		&i.Pages,
+		&i.FailureReason,
+		&i.ClaimedDaemonID,
+		&i.ClaimToken,
+		&i.LeaseExpiresAt,
+		&i.ReceiptSha,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const finishCoresearchCell = `-- name: FinishCoresearchCell :one
 UPDATE coresearch_cell SET status= $1,execution_count=$2,outputs=$3,outputs_blob=$4,finished_at=now(),receipt_sha= $5 WHERE workspace_id= $6 AND id= $7 AND status='running' RETURNING id, workspace_id, chat_id, seq, author_user_id, agent_run_id, kernel, source, status, execution_count, outputs, outputs_blob, created_at, started_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
 `
@@ -714,6 +977,87 @@ func (q *Queries) FinishCoresearchSetup(ctx context.Context, arg FinishCoresearc
 		&i.ClaimToken,
 		&i.LeaseExpiresAt,
 		&i.ReceiptSha,
+	)
+	return i, err
+}
+
+const getCoresearchBuild = `-- name: GetCoresearchBuild :one
+SELECT id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at FROM coresearch_build WHERE workspace_id= $1 AND id= $2
+`
+
+type GetCoresearchBuildParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) GetCoresearchBuild(ctx context.Context, arg GetCoresearchBuildParams) (CoresearchBuild, error) {
+	row := q.db.QueryRow(ctx, getCoresearchBuild, arg.WorkspaceID, arg.ID)
+	var i CoresearchBuild
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Seq,
+		&i.RequestedBy,
+		&i.DaemonID,
+		&i.Status,
+		&i.Sources,
+		&i.PdfBlob,
+		&i.PdfSize,
+		&i.LogBlob,
+		&i.LogSize,
+		&i.SynctexBlob,
+		&i.SynctexSize,
+		&i.Pages,
+		&i.FailureReason,
+		&i.ClaimedDaemonID,
+		&i.ClaimToken,
+		&i.LeaseExpiresAt,
+		&i.ReceiptSha,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
+const getCoresearchBuildSeq = `-- name: GetCoresearchBuildSeq :one
+SELECT id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at FROM coresearch_build WHERE workspace_id= $1 AND project_id= $2 AND seq= $3
+`
+
+type GetCoresearchBuildSeqParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	Seq         int32     `json:"seq"`
+}
+
+func (q *Queries) GetCoresearchBuildSeq(ctx context.Context, arg GetCoresearchBuildSeqParams) (CoresearchBuild, error) {
+	row := q.db.QueryRow(ctx, getCoresearchBuildSeq, arg.WorkspaceID, arg.ProjectID, arg.Seq)
+	var i CoresearchBuild
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Seq,
+		&i.RequestedBy,
+		&i.DaemonID,
+		&i.Status,
+		&i.Sources,
+		&i.PdfBlob,
+		&i.PdfSize,
+		&i.LogBlob,
+		&i.LogSize,
+		&i.SynctexBlob,
+		&i.SynctexSize,
+		&i.Pages,
+		&i.FailureReason,
+		&i.ClaimedDaemonID,
+		&i.ClaimToken,
+		&i.LeaseExpiresAt,
+		&i.ReceiptSha,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
 	)
 	return i, err
 }
@@ -869,6 +1213,24 @@ func (q *Queries) GetCoresearchSetup(ctx context.Context, arg GetCoresearchSetup
 	return i, err
 }
 
+const heartbeatCoresearchBuild = `-- name: HeartbeatCoresearchBuild :execrows
+UPDATE coresearch_build SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>now()
+`
+
+type HeartbeatCoresearchBuildParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+	ClaimToken  *uuid.UUID `json:"claim_token"`
+}
+
+func (q *Queries) HeartbeatCoresearchBuild(ctx context.Context, arg HeartbeatCoresearchBuildParams) (int64, error) {
+	result, err := q.db.Exec(ctx, heartbeatCoresearchBuild, arg.WorkspaceID, arg.ID, arg.ClaimToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const heartbeatCoresearchCell = `-- name: HeartbeatCoresearchCell :execrows
 UPDATE coresearch_cell SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>now()
 `
@@ -921,6 +1283,98 @@ func (q *Queries) HeartbeatCoresearchSetup(ctx context.Context, arg HeartbeatCor
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const insertBuildVersion = `-- name: InsertBuildVersion :one
+INSERT INTO coresearch_version(workspace_id,project_id,seq,title,by_user_id,build_id,files)
+VALUES( $1, $2,(SELECT coalesce(max(seq),0)+1 FROM coresearch_version WHERE project_id= $2), $3, $4, $5, $6) RETURNING id, workspace_id, project_id, seq, title, by_user_id, build_id, files, created_at
+`
+
+type InsertBuildVersionParams struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	ProjectID   uuid.UUID       `json:"project_id"`
+	Title       string          `json:"title"`
+	ByUserID    *uuid.UUID      `json:"by_user_id"`
+	BuildID     *uuid.UUID      `json:"build_id"`
+	Files       json.RawMessage `json:"files"`
+}
+
+func (q *Queries) InsertBuildVersion(ctx context.Context, arg InsertBuildVersionParams) (CoresearchVersion, error) {
+	row := q.db.QueryRow(ctx, insertBuildVersion,
+		arg.WorkspaceID,
+		arg.ProjectID,
+		arg.Title,
+		arg.ByUserID,
+		arg.BuildID,
+		arg.Files,
+	)
+	var i CoresearchVersion
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Seq,
+		&i.Title,
+		&i.ByUserID,
+		&i.BuildID,
+		&i.Files,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listCoresearchBuilds = `-- name: ListCoresearchBuilds :many
+SELECT id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at FROM coresearch_build WHERE workspace_id= $1 AND project_id= $2 ORDER BY seq DESC LIMIT $3
+`
+
+type ListCoresearchBuildsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	RowLimit    int32     `json:"row_limit"`
+}
+
+func (q *Queries) ListCoresearchBuilds(ctx context.Context, arg ListCoresearchBuildsParams) ([]CoresearchBuild, error) {
+	rows, err := q.db.Query(ctx, listCoresearchBuilds, arg.WorkspaceID, arg.ProjectID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CoresearchBuild
+	for rows.Next() {
+		var i CoresearchBuild
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ProjectID,
+			&i.Seq,
+			&i.RequestedBy,
+			&i.DaemonID,
+			&i.Status,
+			&i.Sources,
+			&i.PdfBlob,
+			&i.PdfSize,
+			&i.LogBlob,
+			&i.LogSize,
+			&i.SynctexBlob,
+			&i.SynctexSize,
+			&i.Pages,
+			&i.FailureReason,
+			&i.ClaimedDaemonID,
+			&i.ClaimToken,
+			&i.LeaseExpiresAt,
+			&i.ReceiptSha,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCoresearchCells = `-- name: ListCoresearchCells :many
@@ -1088,6 +1542,47 @@ func (q *Queries) NextCoresearchRunKey(ctx context.Context, arg NextCoresearchRu
 	return key, err
 }
 
+const queuedCoresearchBuild = `-- name: QueuedCoresearchBuild :one
+SELECT id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at FROM coresearch_build WHERE workspace_id= $1 AND project_id= $2 AND requested_by= $3 AND status='queued' FOR UPDATE
+`
+
+type QueuedCoresearchBuildParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	RequestedBy uuid.UUID `json:"requested_by"`
+}
+
+func (q *Queries) QueuedCoresearchBuild(ctx context.Context, arg QueuedCoresearchBuildParams) (CoresearchBuild, error) {
+	row := q.db.QueryRow(ctx, queuedCoresearchBuild, arg.WorkspaceID, arg.ProjectID, arg.RequestedBy)
+	var i CoresearchBuild
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Seq,
+		&i.RequestedBy,
+		&i.DaemonID,
+		&i.Status,
+		&i.Sources,
+		&i.PdfBlob,
+		&i.PdfSize,
+		&i.LogBlob,
+		&i.LogSize,
+		&i.SynctexBlob,
+		&i.SynctexSize,
+		&i.Pages,
+		&i.FailureReason,
+		&i.ClaimedDaemonID,
+		&i.ClaimToken,
+		&i.LeaseExpiresAt,
+		&i.ReceiptSha,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const reportCoresearchKernel = `-- name: ReportCoresearchKernel :exec
 UPDATE coresearch_chat SET kernel_state= $1,kernel_seen_at=now(),kernel_request=CASE WHEN kernel_request_seq= $2 THEN NULL ELSE kernel_request END WHERE workspace_id= $3 AND id= $4
 `
@@ -1125,7 +1620,7 @@ func (q *Queries) RequestCoresearchKernel(ctx context.Context, arg RequestCorese
 }
 
 const revokeCoresearchWork = `-- name: RevokeCoresearchWork :many
-SELECT kind::text,project_id::uuid,chat_id::uuid,work_id::uuid FROM public.coresearch_revoke($1::uuid,$2::uuid)
+SELECT kind::text,project_id::uuid,chat_id::uuid,work_id::uuid FROM public.coresearch_revoke( $1::uuid,$2::uuid)
 `
 
 type RevokeCoresearchWorkParams struct {
@@ -1194,6 +1689,35 @@ func (q *Queries) SetCoresearchRevokedReason(ctx context.Context, arg SetCoresea
 	return err
 }
 
+const setCoresearchRunBuild = `-- name: SetCoresearchRunBuild :exec
+UPDATE agent_run SET coresearch_build_id= $1 WHERE workspace_id= $2 AND id= $3 AND coresearch_build_id IS NULL
+`
+
+type SetCoresearchRunBuildParams struct {
+	BuildID     *uuid.UUID `json:"build_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+}
+
+func (q *Queries) SetCoresearchRunBuild(ctx context.Context, arg SetCoresearchRunBuildParams) error {
+	_, err := q.db.Exec(ctx, setCoresearchRunBuild, arg.BuildID, arg.WorkspaceID, arg.ID)
+	return err
+}
+
+const startCoresearchBuild = `-- name: StartCoresearchBuild :exec
+UPDATE coresearch_build SET started_at=coalesce(started_at,now()) WHERE workspace_id= $1 AND id= $2 AND status='running'
+`
+
+type StartCoresearchBuildParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) StartCoresearchBuild(ctx context.Context, arg StartCoresearchBuildParams) error {
+	_, err := q.db.Exec(ctx, startCoresearchBuild, arg.WorkspaceID, arg.ID)
+	return err
+}
+
 const startCoresearchCell = `-- name: StartCoresearchCell :exec
 UPDATE coresearch_cell SET started_at=coalesce(started_at,now()) WHERE workspace_id= $1 AND id= $2 AND status='running'
 `
@@ -1206,4 +1730,44 @@ type StartCoresearchCellParams struct {
 func (q *Queries) StartCoresearchCell(ctx context.Context, arg StartCoresearchCellParams) error {
 	_, err := q.db.Exec(ctx, startCoresearchCell, arg.WorkspaceID, arg.ID)
 	return err
+}
+
+const supersedeCoresearchBuild = `-- name: SupersedeCoresearchBuild :one
+UPDATE coresearch_build SET status='aborted',failure_reason='superseded',finished_at=now() WHERE workspace_id= $1 AND id= $2 AND status='queued' RETURNING id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at
+`
+
+type SupersedeCoresearchBuildParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SupersedeCoresearchBuild(ctx context.Context, arg SupersedeCoresearchBuildParams) (CoresearchBuild, error) {
+	row := q.db.QueryRow(ctx, supersedeCoresearchBuild, arg.WorkspaceID, arg.ID)
+	var i CoresearchBuild
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Seq,
+		&i.RequestedBy,
+		&i.DaemonID,
+		&i.Status,
+		&i.Sources,
+		&i.PdfBlob,
+		&i.PdfSize,
+		&i.LogBlob,
+		&i.LogSize,
+		&i.SynctexBlob,
+		&i.SynctexSize,
+		&i.Pages,
+		&i.FailureReason,
+		&i.ClaimedDaemonID,
+		&i.ClaimToken,
+		&i.LeaseExpiresAt,
+		&i.ReceiptSha,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
 }
