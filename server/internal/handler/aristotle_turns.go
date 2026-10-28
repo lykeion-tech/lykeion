@@ -59,6 +59,33 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Attachments})
 	receiptBody := string(payload)
 	var response json.RawMessage
+	// Staging may outlive another identical request's upload claim. Only a
+	// committed owner-scoped receipt with the full same payload recovers it.
+	replayAfterError := func(original error) error {
+		recovered := false
+		lookupErr := h.memberTx(r, ws, false, func(tx *store.Tx) error {
+			receipt, e := tx.Q.GetCoresearchTurnReceipt(r.Context(), in.RequestID)
+			if errors.Is(e, pgx.ErrNoRows) {
+				return nil
+			}
+			if e != nil {
+				return e
+			}
+			if receipt.Target != target || !sameAcceptancePayload(receipt.Body, receiptBody) {
+				return conflict("request_id already accepted with a different payload")
+			}
+			response = receipt.Response
+			recovered = true
+			return nil
+		})
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if recovered {
+			return nil
+		}
+		return original
+	}
 	var existing bool
 	mode := in.Mode
 	if mode == "" {
@@ -125,7 +152,10 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	attachments, staged, textHeads, err := h.stageCoresearchAttachments(r, ws, target, mode, in.Attachments)
-	if !coresearchAnswer(w, r, err) {
+	if err != nil {
+		if coresearchAnswer(w, r, replayAfterError(err)) {
+			writeJSON(w, 201, response)
+		}
 		return
 	}
 	uploads = append(uploads, staged...)
@@ -292,6 +322,9 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		err = coresearch.WithBlobs(r.Context(), h.Store, h.Blobs, ws, who, uploads, save)
 	} else {
 		err = save()
+	}
+	if err != nil {
+		err = replayAfterError(err)
 	}
 	if coresearchAnswer(w, r, err) {
 		for _, row := range attachments {

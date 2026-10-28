@@ -3,16 +3,22 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"lykeion/server/internal/storage"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -347,4 +353,168 @@ type coresearchGetHookStorage struct {
 func (s coresearchGetHookStorage) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	s.beforeGet(key)
 	return s.Storage.Get(ctx, key)
+}
+
+func TestCowriteOverlappingAttachmentReceipt(t *testing.T) {
+	for _, boundary := range []string{"pending_metadata", "deleted_blob"} {
+		for _, outcome := range []string{"identical", "different_attachment_name", "no_receipt"} {
+			t.Run(boundary+"/"+outcome, func(t *testing.T) {
+				s, a, _, _, ws, _ := csFixture(t)
+				csRegister(t, s, a, ws, "overlapping-cowrite", "claude")
+				png := []byte{137, 80, 78, 71, 13, 10, 26, 10, 0, 1}
+				upload := uuid.New()
+				key := ws + "/coresearch-uploads/" + upload.String()
+				sum := fmt.Sprintf("%x", sha256.Sum256(png))
+				if err := s.H.Blobs.Put(t.Context(), key, bytes.NewReader(png), int64(len(png))); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO attachment(id,workspace_id,uploader_id,name,content_type,size_bytes,sha256,blob_key) VALUES($1,$2,$3,'plot.png','image/png',$4,$5,$6)`, upload, ws, s.userID(t, a), len(png), sum, key); err != nil {
+					t.Fatal(err)
+				}
+				gate := &coresearchOverlapGate{entered: make(chan struct{}), release: make(chan struct{})}
+				if boundary == "pending_metadata" {
+					original := s.H.Store.Pool
+					cfg := original.Config()
+					cfg.ConnConfig.Tracer = &coresearchReceiptBarrier{gate: gate}
+					pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+					if err != nil {
+						t.Fatal(err)
+					}
+					s.H.Store.Pool = pool
+					defer func() { s.H.Store.Pool = original; pool.Close() }()
+				} else {
+					s.H.Blobs = coresearchDeletedUploadBarrier{Storage: s.H.Blobs, key: key, gate: gate}
+				}
+				resumed := false
+				defer func() {
+					if !resumed {
+						close(gate.release)
+					}
+				}()
+				request := uuid.NewString()
+				payload := func(name string) map[string]any {
+					return map[string]any{"body": "Write this paper", "mode": "cowrite", "request_id": request, "attachments": []map[string]string{{"upload_id": upload.String(), "name": name}}}
+				}
+				delayedName := "plot.png"
+				if outcome == "different_attachment_name" {
+					delayedName = "different.png"
+				}
+				type reply struct {
+					code int
+					body map[string]any
+				}
+				delayed := make(chan reply, 1)
+				go func() {
+					var body map[string]any
+					code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, payload(delayedName), &body)
+					delayed <- reply{code, body}
+				}()
+				select {
+				case <-gate.entered:
+				case <-time.After(5 * time.Second):
+					t.Fatal("overlapping request did not reach staging boundary")
+				}
+				var accepted map[string]any
+				if outcome == "no_receipt" {
+					if _, err := s.Env.Owner.Exec(t.Context(), `DELETE FROM attachment WHERE id=$1`, upload); err != nil {
+						t.Fatal(err)
+					}
+					if err := s.H.Blobs.Delete(t.Context(), key); err != nil {
+						t.Fatal(err)
+					}
+				} else if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, payload("plot.png"), &accepted); code != 201 {
+					t.Fatalf("winning acceptance %d %+v", code, accepted)
+				}
+				close(gate.release)
+				resumed = true
+				var got reply
+				select {
+				case got = <-delayed:
+				case <-time.After(5 * time.Second):
+					t.Fatal("delayed request did not finish")
+				}
+				if boundary == "deleted_blob" && !gate.missingBlob.Load() {
+					t.Fatal("overlap did not reach the consumed upload storage error")
+				}
+				want := 201
+				if outcome == "different_attachment_name" {
+					want = 409
+				} else if outcome == "no_receipt" {
+					want = 422
+					if boundary == "deleted_blob" {
+						want = 500
+					}
+				}
+				if got.code != want {
+					t.Errorf("delayed acceptance %d want %d: %+v", got.code, want, got.body)
+				}
+				if outcome == "identical" && !reflect.DeepEqual(got.body, accepted) {
+					t.Errorf("overlap did not replay exact accepted receipt: got %+v want %+v", got.body, accepted)
+				}
+				var runs, versions int
+				if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM agent_run WHERE workspace_id=$1`, ws).Scan(&runs); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_file_version v JOIN coresearch_file f ON f.id=v.file_id AND f.workspace_id=v.workspace_id WHERE f.workspace_id=$1 AND f.path='figures/plot.png'`, ws).Scan(&versions); err != nil {
+					t.Fatal(err)
+				}
+				count := 1
+				if outcome == "no_receipt" {
+					count = 0
+				}
+				if runs != count || versions != count {
+					t.Fatalf("overlap published duplicate work: runs %d versions %d want %d", runs, versions, count)
+				}
+			})
+		}
+	}
+}
+
+type coresearchOverlapGate struct {
+	entered     chan struct{}
+	release     chan struct{}
+	paused      atomic.Bool
+	missingBlob atomic.Bool
+}
+
+func (g *coresearchOverlapGate) wait(ctx context.Context) bool {
+	if !g.paused.CompareAndSwap(false, true) {
+		return false
+	}
+	close(g.entered)
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+	}
+	return true
+}
+
+type coresearchReceiptBarrier struct{ gate *coresearchOverlapGate }
+type coresearchCommitTraceKey struct{}
+
+func (t *coresearchReceiptBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	return context.WithValue(ctx, coresearchCommitTraceKey{}, strings.EqualFold(strings.TrimSpace(data.SQL), "commit"))
+}
+func (t *coresearchReceiptBarrier) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
+	if commit, _ := ctx.Value(coresearchCommitTraceKey{}).(bool); commit && data.Err == nil {
+		t.gate.wait(ctx)
+	}
+}
+
+type coresearchDeletedUploadBarrier struct {
+	storage.Storage
+	key  string
+	gate *coresearchOverlapGate
+}
+
+func (s coresearchDeletedUploadBarrier) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	paused := false
+	if key == s.key {
+		paused = s.gate.wait(ctx)
+	}
+	rc, err := s.Storage.Get(ctx, key)
+	if paused && errors.Is(err, storage.ErrNotFound) {
+		s.gate.missingBlob.Store(true)
+	}
+	return rc, err
 }
