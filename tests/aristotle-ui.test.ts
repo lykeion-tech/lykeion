@@ -57,7 +57,7 @@ const welcome = {
   snapshot_model: null,
   snapshot_instructions: null,
 };
-async function mount(path = '/coresearch/new', online = true, settings = false) {
+async function mount(path = '/coresearch/new', online = true, settings = false, cacheAgent = true) {
   vi.stubGlobal('document', {
     activeElement: null,
     addEventListener() {},
@@ -82,7 +82,7 @@ async function mount(path = '/coresearch/new', online = true, settings = false) 
     agent,
     conversation: welcome,
   });
-  client.setQueryData(keys.agent('lab', 'aristotle'), agent);
+  if (cacheAgent) client.setQueryData(keys.agent('lab', 'aristotle'), agent);
   client.setQueryData(conversationKey('lab', 'me'), [welcome]);
   client.setQueryData(keys.coresearchMessages('lab', 'private-project', 'chat'), []);
   const router = createRouter({
@@ -91,7 +91,12 @@ async function mount(path = '/coresearch/new', online = true, settings = false) 
   });
   await router.push(path);
   const app = createTreeApp({
-    render: () => (settings ? h(AgentDetail, { id: 'aristotle' }) : h(AristotleChat)),
+    render: () =>
+      settings
+        ? h(AgentDetail, { id: router.currentRoute.value.path.split('/')[2] || 'aristotle' })
+        : router.currentRoute.value.path.startsWith('/coresearch')
+          ? h(AristotleChat)
+          : null,
   });
   app.use(VueQueryPlugin, { queryClient: client });
   app.use(router);
@@ -256,6 +261,96 @@ describe('Aristotle UI', () => {
     (button.props.onClick as () => void)();
     await settle();
     expect(JSON.parse(fetch.mock.calls[0]![1].body).body).toBe('Exact saved research prompt');
+  });
+  it('shows and retries a failed live agent GET after successful bootstrap', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ error: 'Profile temporarily unavailable' }, 500))
+      .mockResolvedValue(response(agent, 200));
+    vi.stubGlobal('fetch', fetch);
+    const { root, settle } = await mount('/coresearch/new', true, false, false);
+    await settle();
+    expect(textOf(root)).toContain('Profile temporarily unavailable');
+    expect(textOf(root)).not.toContain('Loading Aristotle');
+    const retry = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Try again')!;
+    (retry.props.onClick as () => void)();
+    await settle();
+    await settle();
+    expect(textOf(root)).toContain('Chat with Aristotle');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it.each(['/coresearch/conversations/welcome', '/agents'])(
+    'does not overwrite a newer draft after navigating away to %s and back during a send',
+    async (away) => {
+      let resolveAcceptance!: (r: Response) => void;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((_url, init) =>
+          init.method === 'GET'
+            ? Promise.resolve(
+                response(String(_url).endsWith('/conversations') ? [welcome] : [], 200),
+              )
+            : new Promise<Response>((resolve) => {
+                resolveAcceptance = resolve;
+              }),
+        ),
+      );
+      const { root, router, settle } = await mount();
+      edit(root, 'Original question');
+      await settle();
+      (byLabel(root, 'Send').props.onClick as () => void)();
+      await router.push(away);
+      await settle();
+      await router.push('/coresearch/new');
+      await settle();
+      edit(root, 'Newer question');
+      await settle();
+      const resolveOld = resolveAcceptance;
+      (byLabel(root, 'Send').props.onClick as () => void)();
+      await settle();
+      resolveOld(
+        response({ conversation: { ...welcome, id: 'accepted-old' }, run: { id: 'old-run' } }),
+      );
+      await settle();
+      await settle();
+      expect(router.currentRoute.value.path).toBe('/coresearch/new');
+      expect(byLabel(root, 'Message Aristotle').props.value).toBe('Newer question');
+      expect(byLabel(root, 'Send').props.disabled).toBe(true);
+      expect(JSON.parse(storage.get('lykeion.aristotle.accepted:me:lab')!).run).toBe('old-run');
+    },
+  );
+  it('resets agent edit sessions and prevents an old save from clearing a newer save', async () => {
+    const resolvers: ((r: Response) => void)[] = [];
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => resolvers.push(resolve)));
+    vi.stubGlobal('fetch', fetch);
+    const { root, client, router, settle } = await mount(
+      '/agents/aristotle?tab=settings',
+      true,
+      true,
+    );
+    const form = () => all(root).find((n) => n.tag === 'form' && textOf(n).includes('General'))!;
+    const save = () =>
+      all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Save changes')!;
+    (form().props.onSubmit as (e: unknown) => void)({ preventDefault() {} });
+    await settle();
+    expect(save().props.disabled).toBe(true);
+    const other = { ...agent, id: 'other-agent', name: 'Second Aristotle' };
+    client.setQueryData(keys.agent('lab', 'other-agent'), other);
+    await router.push('/agents/other-agent?tab=settings');
+    await settle();
+    expect(save().props.disabled).toBe(false);
+    await router.push('/agents/aristotle?tab=settings');
+    await settle();
+    (form().props.onSubmit as (e: unknown) => void)({ preventDefault() {} });
+    await settle();
+    expect(save().props.disabled).toBe(true);
+    resolvers[0]!(response(agent));
+    await settle();
+    expect(save().props.disabled).toBe(true);
+    resolvers[1]!(response(agent));
+    await settle();
+    expect(save().props.disabled).toBe(false);
+    expect(byLabel(root, 'Agent name').value).toBe('Aristotle');
   });
   it('provides mutually exclusive rail controls with accessible labels', () => {
     const change = vi.fn();

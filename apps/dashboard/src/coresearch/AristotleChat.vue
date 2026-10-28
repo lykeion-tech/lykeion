@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import {
@@ -61,6 +61,10 @@ const draft = ref(''),
   busy = ref(false),
   error = ref('');
 let pending: AcceptanceRequest | null = null;
+let viewGeneration = 0;
+onUnmounted(() => {
+  viewGeneration++;
+});
 watch(
   draft,
   (value) => {
@@ -69,12 +73,17 @@ watch(
   { flush: 'sync' },
 );
 const lastKey = (scope: string) => `lykeion.aristotle.last:${scope}`;
-watch([state.scope, () => route.path], () => {
-  draft.value = '';
-  error.value = '';
-  busy.value = false;
-  pending = null;
-});
+watch(
+  [state.scope, () => route.path],
+  () => {
+    viewGeneration++;
+    draft.value = '';
+    error.value = '';
+    busy.value = false;
+    pending = null;
+  },
+  { flush: 'sync' },
+);
 watch(
   [() => state.conversations.data.value, () => route.path],
   ([list]) => {
@@ -101,11 +110,13 @@ async function send(prompt?: string) {
     scope = state.scope.value,
     target = conversation.value?.id ?? '',
     path = route.path;
+  const generation = ++viewGeneration;
   const request = acceptanceRequest(pending, draft.value.trim(), target);
   pending = request;
   busy.value = true;
   error.value = '';
-  const current = () => state.scope.value === scope && route.path === path;
+  const current = () =>
+    generation === viewGeneration && state.scope.value === scope && route.path === path;
   try {
     const accepted = await api<{ conversation: Conversation; run: { id: string } }>(
       'POST',
@@ -179,6 +190,10 @@ async function stop() {
     <div v-else-if="state.conversations.error.value" class="center-empty" role="alert">
       {{ state.conversations.error.value.message
       }}<button class="button" @click="state.conversations.refetch()">Try again</button>
+    </div>
+    <div v-else-if="state.agent.error.value" class="center-empty" role="alert">
+      {{ state.agent.error.value.message
+      }}<button class="button" @click="state.agent.refetch()">Try again</button>
     </div>
     <div v-else-if="!agent || (!isDraft && !conversation)" class="center-empty" role="status">
       Loading Aristotle…

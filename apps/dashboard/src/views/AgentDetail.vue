@@ -123,12 +123,22 @@ watch(
   },
   { immediate: true },
 );
-watch([workspaceId, () => props.id], () => {
-  tab.value = requestedTab();
-  error.value = '';
-  menu.value = false;
-  backendDetails.value = false;
+let editGeneration = 0;
+onUnmounted(() => {
+  editGeneration++;
 });
+watch(
+  [workspaceId, () => props.id, () => me.data.value?.id],
+  () => {
+    editGeneration++;
+    busy.value = false;
+    tab.value = requestedTab();
+    error.value = '';
+    menu.value = false;
+    backendDetails.value = false;
+  },
+  { flush: 'sync' },
+);
 
 watch(
   () => route.query.tab,
@@ -142,22 +152,26 @@ async function patch(body: Record<string, unknown>) {
   const ws = workspaceId.value,
     id = props.id,
     member = me.data.value?.id;
+  const generation = ++editGeneration;
+  const current = () =>
+    generation === editGeneration &&
+    ws === workspaceId.value &&
+    id === props.id &&
+    member === me.data.value?.id;
   busy.value = true;
   error.value = '';
   try {
     const saved = await api<AgentDefinition>('PATCH', `/api/agents/${id}`, body, undefined, {
       workspace: ws,
     });
-    if (ws !== workspaceId.value || id !== props.id || member !== me.data.value?.id) return;
+    if (!current()) return;
     client.setQueryData(keys.agent(ws, id), saved);
     await client.invalidateQueries({ queryKey: keys.agents(ws) });
-    notify('Agent saved.');
+    if (current()) notify('Agent saved.');
   } catch (e) {
-    if (ws === workspaceId.value && id === props.id && member === me.data.value?.id)
-      error.value = (e as Error).message;
+    if (current()) error.value = (e as Error).message;
   } finally {
-    if (ws === workspaceId.value && id === props.id && member === me.data.value?.id)
-      busy.value = false;
+    if (current()) busy.value = false;
   }
 }
 async function archive() {
