@@ -1,5 +1,19 @@
 import { expect, test } from '@playwright/test';
 import { installFilesFixture, recorded } from './coresearch-files-fixture';
+
+test('sidebar New opens the study composer even from Coresearch', async ({ page }) => {
+  await installFilesFixture(page);
+  await page.goto('/#/coresearch');
+  await page
+    .getByRole('complementary', { name: 'Workspace navigation' })
+    .getByRole('button', { name: 'New', exact: true })
+    .click();
+  const composer = page.getByRole('dialog');
+  await expect(composer.getByRole('textbox', { name: 'Study title', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/#\/coresearch$/);
+  await expect(composer.locator('.composer-hint')).toHaveCount(0);
+});
+
 for (const theme of ['ash', 'midnight']) {
   test(`${theme}: starter and rename retain source focus styles`, async ({ page }) => {
     await installFilesFixture(page);

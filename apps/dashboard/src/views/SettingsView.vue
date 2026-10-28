@@ -68,7 +68,7 @@ const groups = computed(() =>
       items: [
         { id: 'general', label: 'General', icon: 'settings' },
         { id: 'skills', label: 'Skills', icon: 'book' },
-        { id: 'connectors', label: 'Connectors', icon: 'link' },
+        { id: 'connectors', label: 'Connectors', icon: 'plug' },
       ],
     },
   ]

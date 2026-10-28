@@ -71,10 +71,6 @@ const picker = ref<InstanceType<typeof AssignPicker>>();
 const usedLastSet = ref(false);
 
 const teamColumns = computed(() => picker.value?.teamColumns ?? []);
-const assigneeName = computed(() => picker.value?.name ?? '');
-const hint = computed(
-  () => `${assigneeName.value} will start working right after you create the study`,
-);
 
 // The last set is the Teams of the creator's newest end-to-end study that had Teams.
 const lastSetId = computed(
@@ -254,7 +250,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           required
         />
       </div>
-      <p class="composer-hint">{{ hint }}</p>
       <p v-if="duplicate" class="composer-warning" role="status">
         An active study already asks this: {{ number(duplicate.number) }}
         <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>. Set it as
@@ -833,12 +828,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   height: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
-}
-.composer-hint {
-  margin: 0;
-  padding: 0 20px 8px;
-  color: var(--muted);
-  font-size: 12px;
 }
 .composer-warning {
   margin: 0 20px 6px;

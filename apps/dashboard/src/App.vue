@@ -95,15 +95,15 @@ const groups = [
     name: '',
     items: [
       { id: 'inbox', name: 'Inbox', icon: 'inbox' },
-      { id: 'my-studies', name: 'My Studies', icon: 'tasks' },
+      { id: 'my-studies', name: 'My Studies', icon: 'flask' },
     ],
   },
   {
     name: 'Laboratory',
     items: [
-      { id: 'studies', name: 'Studies', icon: 'tasks' },
+      { id: 'studies', name: 'Studies', icon: 'flask' },
       { id: 'projects', name: 'Projects', icon: 'folder' },
-      { id: 'coresearch', name: 'Coresearch', icon: 'flask' },
+      { id: 'coresearch', name: 'Coresearch', icon: 'chat' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
   },
@@ -145,8 +145,7 @@ const pinnedCards = computed(() =>
 watch(pinnedExpanded, (value) => writeText('lykeion.pinned-expanded', String(value)));
 const { composer, openComposer: openTaskCreate, closeComposer } = useTaskComposer();
 function openCreate() {
-  if (current.value === 'coresearch') void router.push('/coresearch/new');
-  else openTaskCreate();
+  openTaskCreate();
 }
 const workspaceMenu = ref(false);
 const help = ref(false);
