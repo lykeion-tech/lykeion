@@ -452,6 +452,15 @@ type CoresearchSetup struct {
 	ReceiptSha      *string    `json:"receipt_sha"`
 }
 
+type CoresearchTurnReceipt struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	OwnerID     uuid.UUID       `json:"owner_id"`
+	RequestID   uuid.UUID       `json:"request_id"`
+	Target      string          `json:"target"`
+	Body        string          `json:"body"`
+	Response    json.RawMessage `json:"response"`
+}
+
 type Event struct {
 	ID          int64           `json:"id"`
 	WorkspaceID uuid.UUID       `json:"workspace_id"`

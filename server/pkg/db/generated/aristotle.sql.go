@@ -7,14 +7,69 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
 
+const aristotleRuntimeAvailable = `-- name: AristotleRuntimeAvailable :one
+SELECT EXISTS(SELECT 1 FROM runtime WHERE workspace_id=app_workspace() AND owner_id=app_user() AND harness= $1 AND status='online' AND last_seen_at>now()-interval '60 seconds' AND ($2::text IS NULL OR daemon_id=$2))::boolean
+`
+
+type AristotleRuntimeAvailableParams struct {
+	Harness  string  `json:"harness"`
+	DaemonID *string `json:"daemon_id"`
+}
+
+func (q *Queries) AristotleRuntimeAvailable(ctx context.Context, arg AristotleRuntimeAvailableParams) (bool, error) {
+	row := q.db.QueryRow(ctx, aristotleRuntimeAvailable, arg.Harness, arg.DaemonID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const createCoresearchConversation = `-- name: CreateCoresearchConversation :one
+INSERT INTO coresearch_conversation(workspace_id,owner_id,agent_id,project_id,chat_id,title)
+VALUES(app_workspace(),app_user(),$1,$2,$3,$4) RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
+`
+
+type CreateCoresearchConversationParams struct {
+	AgentID   uuid.UUID `json:"agent_id"`
+	ProjectID uuid.UUID `json:"project_id"`
+	ChatID    uuid.UUID `json:"chat_id"`
+	Title     string    `json:"title"`
+}
+
+func (q *Queries) CreateCoresearchConversation(ctx context.Context, arg CreateCoresearchConversationParams) (CoresearchConversation, error) {
+	row := q.db.QueryRow(ctx, createCoresearchConversation,
+		arg.AgentID,
+		arg.ProjectID,
+		arg.ChatID,
+		arg.Title,
+	)
+	var i CoresearchConversation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.AgentID,
+		&i.ProjectID,
+		&i.ChatID,
+		&i.Title,
+		&i.IsWelcome,
+		&i.SnapshotHarness,
+		&i.SnapshotModel,
+		&i.SnapshotInstructions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createWelcomeConversation = `-- name: CreateWelcomeConversation :one
 INSERT INTO coresearch_conversation(workspace_id,owner_id,agent_id,project_id,chat_id,title,is_welcome)
-VALUES(app_workspace(),app_user(),$1,$2,$3,'Welcome to Aristotle',true) RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
+VALUES(app_workspace(),app_user(),$1,$2,$3,'Getting started with Aristotle',true) RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
 `
 
 type CreateWelcomeConversationParams struct {
@@ -72,6 +127,49 @@ func (q *Queries) EnsureAristotle(ctx context.Context) (Agent, error) {
 	return i, err
 }
 
+const getCoresearchConversation = `-- name: GetCoresearchConversation :one
+SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $1 FOR UPDATE
+`
+
+func (q *Queries) GetCoresearchConversation(ctx context.Context, id uuid.UUID) (CoresearchConversation, error) {
+	row := q.db.QueryRow(ctx, getCoresearchConversation, id)
+	var i CoresearchConversation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.AgentID,
+		&i.ProjectID,
+		&i.ChatID,
+		&i.Title,
+		&i.IsWelcome,
+		&i.SnapshotHarness,
+		&i.SnapshotModel,
+		&i.SnapshotInstructions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getCoresearchTurnReceipt = `-- name: GetCoresearchTurnReceipt :one
+SELECT workspace_id, owner_id, request_id, target, body, response FROM coresearch_turn_receipt WHERE workspace_id=app_workspace() AND owner_id=app_user() AND request_id= $1
+`
+
+func (q *Queries) GetCoresearchTurnReceipt(ctx context.Context, requestID uuid.UUID) (CoresearchTurnReceipt, error) {
+	row := q.db.QueryRow(ctx, getCoresearchTurnReceipt, requestID)
+	var i CoresearchTurnReceipt
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.RequestID,
+		&i.Target,
+		&i.Body,
+		&i.Response,
+	)
+	return i, err
+}
+
 const getWelcomeConversation = `-- name: GetWelcomeConversation :one
 SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND is_welcome
 `
@@ -95,6 +193,27 @@ func (q *Queries) GetWelcomeConversation(ctx context.Context) (CoresearchConvers
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const insertCoresearchTurnReceipt = `-- name: InsertCoresearchTurnReceipt :exec
+INSERT INTO coresearch_turn_receipt(workspace_id,owner_id,request_id,target,body,response) VALUES(app_workspace(),app_user(),$1,$2,$3,$4)
+`
+
+type InsertCoresearchTurnReceiptParams struct {
+	RequestID uuid.UUID       `json:"request_id"`
+	Target    string          `json:"target"`
+	Body      string          `json:"body"`
+	Response  json.RawMessage `json:"response"`
+}
+
+func (q *Queries) InsertCoresearchTurnReceipt(ctx context.Context, arg InsertCoresearchTurnReceiptParams) error {
+	_, err := q.db.Exec(ctx, insertCoresearchTurnReceipt,
+		arg.RequestID,
+		arg.Target,
+		arg.Body,
+		arg.Response,
+	)
+	return err
 }
 
 const listCoresearchConversations = `-- name: ListCoresearchConversations :many
@@ -169,5 +288,127 @@ UPDATE coresearch_project SET conversation_owner_id=app_user() WHERE workspace_i
 
 func (q *Queries) MarkConversationProject(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, markConversationProject, id)
+	return err
+}
+
+const setAristotleRunModel = `-- name: SetAristotleRunModel :one
+UPDATE agent_run SET requested_model= $1 WHERE workspace_id=app_workspace() AND id= $2 AND kind='coresearch' RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id
+`
+
+type SetAristotleRunModelParams struct {
+	Model string    `json:"model"`
+	ID    uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SetAristotleRunModel(ctx context.Context, arg SetAristotleRunModelParams) (AgentRun, error) {
+	row := q.db.QueryRow(ctx, setAristotleRunModel, arg.Model, arg.ID)
+	var i AgentRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.ResponsibleUserID,
+		&i.BoardColumn,
+		&i.Round,
+		&i.Role,
+		&i.Harness,
+		&i.Prompt,
+		&i.Skill,
+		&i.Status,
+		&i.QueueReason,
+		&i.RuntimeID,
+		&i.PrepareLeaseExpiresAt,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.SessionID,
+		&i.ContinuityScope,
+		&i.ProfileMode,
+		&i.PolicyDigest,
+		&i.Model,
+		&i.Error,
+		&i.FailureReason,
+		&i.CostUsd,
+		&i.LateUsageAt,
+		&i.CreatedAt,
+		&i.HandoffNote,
+		&i.InputLeaseExpiresAt,
+		&i.InputFetchExpiresAt,
+		&i.InputFetchID,
+		&i.InputOutcomes,
+		&i.AddonHash,
+		&i.AddonMcp,
+		&i.Kind,
+		&i.RequesterID,
+		&i.RequestedModel,
+		&i.AgentID,
+		&i.Assignment,
+		&i.CancelReason,
+		&i.MachineName,
+		&i.MachineOwnerID,
+		&i.CoresearchChatID,
+	)
+	return i, err
+}
+
+const setConversationChatHarness = `-- name: SetConversationChatHarness :exec
+UPDATE coresearch_chat SET cli= $1 WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $2
+`
+
+type SetConversationChatHarnessParams struct {
+	Harness string    `json:"harness"`
+	ID      uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SetConversationChatHarness(ctx context.Context, arg SetConversationChatHarnessParams) error {
+	_, err := q.db.Exec(ctx, setConversationChatHarness, arg.Harness, arg.ID)
+	return err
+}
+
+const snapshotCoresearchConversation = `-- name: SnapshotCoresearchConversation :one
+UPDATE coresearch_conversation SET snapshot_harness= $1,snapshot_model= $2,snapshot_instructions= $3,updated_at=now() WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $4 RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
+`
+
+type SnapshotCoresearchConversationParams struct {
+	Harness      *string   `json:"harness"`
+	Model        *string   `json:"model"`
+	Instructions *string   `json:"instructions"`
+	ID           uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SnapshotCoresearchConversation(ctx context.Context, arg SnapshotCoresearchConversationParams) (CoresearchConversation, error) {
+	row := q.db.QueryRow(ctx, snapshotCoresearchConversation,
+		arg.Harness,
+		arg.Model,
+		arg.Instructions,
+		arg.ID,
+	)
+	var i CoresearchConversation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.AgentID,
+		&i.ProjectID,
+		&i.ChatID,
+		&i.Title,
+		&i.IsWelcome,
+		&i.SnapshotHarness,
+		&i.SnapshotModel,
+		&i.SnapshotInstructions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const touchCoresearchConversation = `-- name: TouchCoresearchConversation :exec
+UPDATE coresearch_conversation SET updated_at=now() WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $1
+`
+
+func (q *Queries) TouchCoresearchConversation(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, touchCoresearchConversation, id)
 	return err
 }

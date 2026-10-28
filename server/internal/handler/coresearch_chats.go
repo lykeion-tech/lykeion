@@ -66,6 +66,9 @@ func (h *H) createCoresearchChat(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			return e
 		}
+		if p.ConversationOwnerID != nil {
+			return middleware.ErrForbidden
+		}
 		var in struct {
 			Cli string `json:"cli"`
 		}
@@ -114,6 +117,13 @@ func (h *H) coresearchTurn(w http.ResponseWriter, r *http.Request) {
 		c, e := coresearchChat(r, tx, ws, who, true, true)
 		if e != nil {
 			return e
+		}
+		p, e := tx.Q.GetCoresearchProject(r.Context(), db.GetCoresearchProjectParams{WorkspaceID: ws, ID: c.ProjectID})
+		if e != nil {
+			return e
+		}
+		if p.ConversationOwnerID != nil {
+			return middleware.ErrForbidden
 		}
 		body, e := coresearchBody(r)
 		if e != nil {

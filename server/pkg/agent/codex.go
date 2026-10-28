@@ -26,7 +26,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	personal := readCodexConfig(runConfigHome("codex", o.ConfigHome))
 	// Codex events name no model, so the run must know which one it chose.
 	model := o.Model
-	if o.Coresearch {
+	if o.Coresearch && (!o.Aristotle || model == "") {
 		// Exec events do not identify the provider-selected model. Keep its
 		// tokens reportable without guessing a model or injecting a selection.
 		model = "unknown"
@@ -45,7 +45,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		// Login profiles replace the trusted run PATH before shell tools run.
 		args = append(args, "-c", "allow_login_shell=false")
 	}
-	if !o.Coresearch {
+	if !o.Coresearch || (o.Aristotle && o.Model != "") {
 		args = append(args, "-m", model)
 	}
 	if o.Coresearch {

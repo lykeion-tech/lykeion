@@ -1210,3 +1210,33 @@ func TestCoresearchTransientReceiptFlushRetainsAndRetries(t *testing.T) {
 		t.Fatal("receipt did not retry")
 	}
 }
+
+func TestAristotleTurnPropagatesFrozenModel(t *testing.T) {
+	for _, h := range []string{"claude", "codex"} {
+		t.Run(h, func(t *testing.T) {
+			f := newCoreFixture(t)
+			c := coreTurn(t, f)
+			c.Coresearch.Aristotle = true
+			c.AgentRun.Harness = h
+			c.AgentRun.RequestedModel = "frozen-model"
+			c.AgentRun.Prompt = "Frozen instructions\nresearch"
+			called := false
+			f.d.cfg.NewBackend = func(harness, bin string) (agent.Backend, error) {
+				if harness != h {
+					t.Fatalf("harness %q", harness)
+				}
+				return backendFunc(func(_ context.Context, p string, o agent.ExecOptions) (*agent.Session, error) {
+					called = true
+					if !o.Aristotle || !o.Coresearch || o.Model != "frozen-model" || !strings.Contains(p, "Frozen instructions") {
+						t.Fatalf("lost frozen config %+v %s", o, p)
+					}
+					return finishedSession(agent.Result{}), nil
+				}), nil
+			}
+			must(t, f.d.runAgentRun(t.Context(), c))
+			if !called {
+				t.Fatal("backend not launched")
+			}
+		})
+	}
+}

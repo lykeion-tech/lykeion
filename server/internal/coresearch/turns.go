@@ -16,6 +16,14 @@ var ErrTurnRunning = errors.New("a turn is already running in this chat")
 type Service struct{ Store *store.Store }
 
 func EnqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body string) (db.AgentRun, error) {
+	return enqueueTurn(ctx, tx, runs, chat, user, body, "", "")
+}
+
+func EnqueueAristotleTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string) (db.AgentRun, error) {
+	return enqueueTurn(ctx, tx, runs, chat, user, body, instructions, model)
+}
+
+func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string) (db.AgentRun, error) {
 	var zero db.AgentRun
 	if user != chat.OwnerID {
 		return zero, errors.New("chat owner required")
@@ -56,6 +64,9 @@ func EnqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 		env = "Python " + *p.PythonVersion
 	}
 	prompt := Prompt(PromptIn{ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env})
+	if instructions != "" {
+		prompt = "Aristotle instructions:\n" + instructions + "\n\n" + prompt
+	}
 	message, err := tx.Q.InsertCoresearchMessage(ctx, db.InsertCoresearchMessageParams{WorkspaceID: tx.WS, ChatID: chat.ID, Kind: "turn", AuthorUserID: &user, Body: body})
 	if err != nil {
 		return zero, err
@@ -63,6 +74,12 @@ func EnqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	r, err := tx.Q.EnqueueCoresearchAgentRun(ctx, db.EnqueueCoresearchAgentRunParams{WorkspaceID: tx.WS, OwnerID: user, Harness: chat.Cli, Prompt: prompt, ContinuityScope: "coresearch:" + chat.ID.String(), CoresearchChatID: &chat.ID})
 	if err != nil {
 		return zero, err
+	}
+	if model != "" {
+		r, err = tx.Q.SetAristotleRunModel(ctx, db.SetAristotleRunModelParams{ID: r.ID, Model: model})
+		if err != nil {
+			return zero, err
+		}
 	}
 	if err = tx.Q.AttachCoresearchTurn(ctx, db.AttachCoresearchTurnParams{WorkspaceID: tx.WS, ID: message.ID, AgentRunID: &r.ID}); err != nil {
 		return zero, err

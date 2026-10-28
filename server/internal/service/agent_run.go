@@ -132,6 +132,7 @@ type WorkspaceConnectorClaim struct {
 }
 
 type ClaimedCoresearch struct {
+	Aristotle     bool      `json:"aristotle"`
 	ChatID        uuid.UUID `json:"chat_id"`
 	ProjectID     uuid.UUID `json:"project_id"`
 	PythonVersion string    `json:"python_version"`
@@ -614,7 +615,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 										if project.PythonVersion != nil {
 											python = *project.PythonVersion
 										}
-										core = &ClaimedCoresearch{ChatID: chat.ID, ProjectID: project.ID, PythonVersion: python}
+										core = &ClaimedCoresearch{ChatID: chat.ID, ProjectID: project.ID, PythonVersion: python, Aristotle: project.ConversationOwnerID != nil}
 										if err := tx.Q.BindCoresearchChat(ctx, db.BindCoresearchChatParams{WorkspaceID: tx.WS, ID: chat.ID, DaemonID: &current.DaemonID}); err != nil {
 											return err
 										}

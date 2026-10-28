@@ -76,7 +76,11 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if code != 201 {
 		t.Fatalf("Coresearch file fixture: %d", code)
 	}
-	ids := map[string]string{"{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
+	var welcome struct{ Conversation struct{ ID string } }
+	if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, wa.ID, nil, &welcome); code != 200 || welcome.Conversation.ID == "" {
+		t.Fatalf("conversation fixture %d", code)
+	}
+	ids := map[string]string{"{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
 	// Positive controls prove the probed resources resolve for their owner.
 	var ownRun struct {
 		ID     string
@@ -145,6 +149,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		case strings.HasSuffix(route, "/settings"):
 			body = map[string]any{"settings": map[string]any{}}
 
+		case route == "/api/coresearch/conversations/{conversation}/turns":
+			body = map[string]string{"body": "outsider", "request_id": uuid.NewString()}
 		case route == "/api/coresearch/projects" || route == "/api/coresearch/projects/{project}":
 			body = map[string]string{"name": "outsider"}
 		case route == "/api/coresearch/projects/{project}/members":

@@ -70,3 +70,37 @@ echo '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}'
 		t.Fatalf("provider-default usage must retain tokens without inventing a model: %+v", r)
 	}
 }
+
+func TestAristotleCoresearchHonorsConfiguredModel(t *testing.T) {
+	for _, h := range []string{"claude", "codex"} {
+		t.Run(h, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), ".codex"))
+			args := filepath.Join(t.TempDir(), "args")
+			bin := script(t, `printf '%s\n' "$@" > `+args+`
+read -r line || true
+`)
+			var b Backend = Claude{Bin: bin}
+			if h == "codex" {
+				b = Codex{Bin: bin}
+			}
+			o := ExecOptions{Dir: t.TempDir(), Sandbox: testSandbox, Coresearch: true, Model: "aristotle-model"}
+			// This marker is set only by server-authorized conversation claims.
+			o.Aristotle = true
+			sess, e := b.Execute(t.Context(), "research", o)
+			if e != nil {
+				t.Fatal(e)
+			}
+			for range sess.Messages {
+			}
+			<-sess.Done
+			raw, e := os.ReadFile(args)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if !strings.Contains(string(raw), "\naristotle-model\n") {
+				t.Fatalf("configured model absent: %s", raw)
+			}
+		})
+	}
+}

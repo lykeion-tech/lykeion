@@ -31,7 +31,7 @@ const ScriptLimit = 2 * time.Hour
 const doorCallTimeout = ScriptLimit + 5*time.Minute
 
 func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
-	if o.Coresearch {
+	if o.Coresearch && !o.Aristotle {
 		o.Model = ""
 	}
 	home, cleanup, err := prepareScratch(&o, "claude")
@@ -123,7 +123,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if o.Coresearch {
 		args = append(args, "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands")
 	}
-	if o.Model != "" && !o.Coresearch {
+	if o.Model != "" && (!o.Coresearch || o.Aristotle) {
 		args = append(args, "--model", o.Model)
 	}
 	if o.Resume != "" {

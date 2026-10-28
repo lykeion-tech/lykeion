@@ -54,7 +54,7 @@ func (h *H) bootstrapAristotle(w http.ResponseWriter, r *http.Request) {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		p, err := tx.Q.CreateCoresearchProject(ctx, "Welcome to Aristotle")
+		p, err := tx.Q.CreateCoresearchProject(ctx, "Getting started with Aristotle")
 		if err != nil {
 			return err
 		}

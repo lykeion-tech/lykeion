@@ -211,6 +211,8 @@ func NewRouter(h *H) http.Handler {
 			r.Use(middleware.Scope(h.Store, middleware.FromHeader))
 			r.Post("/api/coresearch/bootstrap", h.bootstrapAristotle)
 			r.Get("/api/coresearch/conversations", h.listCoresearchConversations)
+			r.Post("/api/coresearch/conversations", h.acceptAristotleTurn)
+			r.Post("/api/coresearch/conversations/{conversation}/turns", h.acceptAristotleTurn)
 			r.Get("/api/coresearch/projects", h.listCoresearchProjects)
 			r.Post("/api/coresearch/projects", h.createCoresearchProject)
 			r.Get("/api/coresearch/projects/{project}", h.getCoresearchProject)

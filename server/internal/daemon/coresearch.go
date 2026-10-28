@@ -689,7 +689,10 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 	h.mu.Lock()
 	study := h.study
 	h.mu.Unlock()
-	opts := agent.ExecOptions{Coresearch: true, SourcesURL: c.MCPURL, Dir: h.dir, ScratchReservation: reservation, Sandbox: d.cliSandbox(h.dir, study, false), MCPToken: c.Token, CacheDir: d.cacheDir(), OnMessage: sink, Env: []string{"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(h.dir, ".lyk", "config.json")}}
+	opts := agent.ExecOptions{Coresearch: true, Aristotle: c.Coresearch.Aristotle, SourcesURL: c.MCPURL, Dir: h.dir, ScratchReservation: reservation, Sandbox: d.cliSandbox(h.dir, study, false), MCPToken: c.Token, CacheDir: d.cacheDir(), OnMessage: sink, Env: []string{"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(h.dir, ".lyk", "config.json")}}
+	if c.Coresearch.Aristotle {
+		opts.Model = c.AgentRun.RequestedModel
+	}
 	if exe, e := os.Executable(); e == nil {
 		opts.Env = append(opts.Env, "PATH="+filepath.Dir(exe)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
