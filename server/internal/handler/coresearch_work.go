@@ -629,7 +629,7 @@ func (h *H) daemonCoresearchKernel(w http.ResponseWriter, r *http.Request) {
 			}
 			sample, _ := json.Marshal(struct {
 				compute.Sample
-				At time.Time `json:"at"`
+				T time.Time `json:"t"`
 			}{*in.Sample, time.Now().UTC()})
 			if e = tx.Q.AppendCoresearchKernelSample(r.Context(), db.AppendCoresearchKernelSampleParams{WorkspaceID: tx.WS, ID: id, Sample: sample, KernelName: in.Kernel}); e != nil {
 				return e

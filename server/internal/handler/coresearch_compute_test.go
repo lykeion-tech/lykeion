@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/service"
@@ -72,8 +73,9 @@ func TestKernelMetricsRetention(t *testing.T) {
 	if len(work.Cells) != 1 {
 		t.Fatal(work)
 	}
+	started := time.Now().UTC()
 	for i := 0; i < 65; i++ {
-		code := s.call(t, "POST", "/api/daemon/coresearch/chats/"+c.ID.String()+"/kernel?daemon_id=work", s.personalToken(t, a), ws, map[string]any{"state": "busy", "sample": map[string]any{"rss": i + 1, "cpu": 1.5}}, nil)
+		code := s.call(t, "POST", "/api/daemon/coresearch/chats/"+c.ID.String()+"/kernel?daemon_id=work", s.personalToken(t, a), ws, map[string]any{"state": "busy", "kernel": "python3", "sample": map[string]any{"rss": i + 1, "cpu": 1.5}}, nil)
 		if code != 204 {
 			t.Fatal(code)
 		}
@@ -87,11 +89,30 @@ func TestKernelMetricsRetention(t *testing.T) {
 	if len(samples) != 60 || samples[0]["rss"] != float64(6) || samples[59]["rss"] != float64(65) {
 		t.Fatalf("%s", raw)
 	}
+	var result struct {
+		Kernels []struct {
+			Samples []struct {
+				T time.Time `json:"t"`
+			} `json:"samples"`
+		} `json:"kernels"`
+	}
+	if code := s.call(t, "GET", csProjects+"/"+p.ID+"/compute", a, ws, nil, &result); code != 200 || len(result.Kernels) != 1 || len(result.Kernels[0].Samples) != 60 {
+		t.Fatalf("compute samples %d %+v", code, result)
+	}
+	for _, sample := range result.Kernels[0].Samples {
+		if sample.T.IsZero() || sample.T.Before(started) || sample.T.After(time.Now()) {
+			t.Fatalf("missing server timestamp: %+v", sample)
+		}
+	}
+	if _, old := samples[0]["at"]; old {
+		t.Fatal("obsolete at timestamp")
+	}
 }
 
 func TestHeartbeatCompute(t *testing.T) {
 	s, a, b, _, ws, _ := csFixture(t)
 	ra := csRegister(t, s, a, ws, "telemetry", "claude")
+	started := time.Now().UTC()
 	rb := csRegister(t, s, b, ws, "foreign", "claude")
 	body := map[string]any{"runtimes": []service.RuntimeRef{ra}, "metrics": map[string]any{"mem_used": 1, "mem_total": 2, "cpu_used": 10, "cores": 2, "disk_free": 3, "disk_total": 4}, "models": map[string]any{"claude": []map[string]string{{"value": "from-cli", "label": "CLI model", "description": "reported"}}}}
 	if code := s.call(t, "POST", "/api/daemon/heartbeat", s.personalToken(t, a), "", body, nil); code != 200 {
@@ -108,8 +129,15 @@ func TestHeartbeatCompute(t *testing.T) {
 		if id == ra.RuntimeID.String() {
 			found = true
 			var metrics map[string]any
-			if e := json.Unmarshal(row["metrics"], &metrics); e != nil || metrics["mem_used"] != float64(1) {
+			if e := json.Unmarshal(row["metrics"], &metrics); e != nil || metrics["mem_used"] != float64(1) || metrics["disk_total"] != float64(4) {
 				t.Fatalf("metrics JSON %s %v", row["metrics"], e)
+			}
+			var stamp struct {
+				T time.Time `json:"t"`
+			}
+			json.Unmarshal(row["metrics"], &stamp)
+			if stamp.T.IsZero() || stamp.T.Before(started) || stamp.T.After(time.Now()) {
+				t.Fatalf("missing server machine timestamp: %s", row["metrics"])
 			}
 			if !strings.Contains(string(row["models"]), "from-cli") {
 				t.Fatal(string(row["models"]))
@@ -150,6 +178,23 @@ func TestHeartbeatInvalidTelemetryDoesNotBlockLiveness(t *testing.T) {
 	for _, metrics := range []any{nil, "unknown", map[string]any{"mem_used": 10, "mem_total": 1, "cores": 1, "cpu_used": 200}} {
 		if code := s.call(t, "POST", "/api/daemon/heartbeat", s.personalToken(t, a), "", map[string]any{"runtimes": []service.RuntimeRef{ref}, "metrics": metrics, "models": map[string]any{"claude": []map[string]string{{"value": "bad", "label": ""}}}}, nil); code != 200 {
 			t.Fatal(code)
+		}
+	}
+	for _, models := range []any{[]any{}, "unknown", 17, nil, map[string]any{"claude": "invalid"}} {
+		var before time.Time
+		if e := s.Env.Owner.QueryRow(t.Context(), `UPDATE runtime SET status='offline',last_seen_at=now()-interval '1 day' WHERE id=$1 RETURNING last_seen_at`, ref.RuntimeID).Scan(&before); e != nil {
+			t.Fatal(e)
+		}
+		if code := s.call(t, "POST", "/api/daemon/heartbeat", s.personalToken(t, a), "", map[string]any{"runtimes": []service.RuntimeRef{ref}, "models": models}, nil); code != 200 {
+			t.Fatalf("models=%v rejected liveness: %d", models, code)
+		}
+		var seen time.Time
+		var status string
+		if e := s.Env.Owner.QueryRow(t.Context(), `SELECT status,last_seen_at FROM runtime WHERE id=$1`, ref.RuntimeID).Scan(&status, &seen); e != nil || status != "online" || !seen.After(before) {
+			t.Fatalf("liveness not advanced: %s %v %v", status, seen, e)
+		}
+		if code := s.call(t, "POST", "/api/daemon/heartbeat", s.personalToken(t, a), "", map[string]any{"runtimes": []service.RuntimeRef{{}}, "models": models}, nil); code != 400 {
+			t.Fatalf("invalid runtime accepted: %d", code)
 		}
 	}
 	var status string

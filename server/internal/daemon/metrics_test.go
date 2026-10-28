@@ -2,13 +2,18 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
+	"lykeion/server/internal/compute"
+	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/daemon/kernels"
 )
 
@@ -87,5 +92,173 @@ func TestKernelMetricsSampleOnlyLiveOwnedSessions(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.samples) != n {
 		t.Fatal("fabricated stopped sample")
+	}
+}
+
+type metricTransport func(*http.Request) (*http.Response, error)
+
+func (f metricTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func metricSession(t *testing.T, h *chatHost, name string) *kernels.Sessions {
+	t.Helper()
+	s, e := kernels.Start(t.Context(), func(_ string, _ ...string) (*exec.Cmd, error) {
+		cmd := exec.Command("/bin/sh", "-c", `sleep 30 & child=$!; trap 'kill "$child" 2>/dev/null; wait "$child" 2>/dev/null' EXIT; printf '{"ready":true,"bridge_pid":%d,"pids":[%d],"kernel":"`+name+`"}\n' "$$" "$child"; read shutdown`)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		return cmd, nil
+	}, "unused", os.Environ(), h.dir, t.TempDir())
+	must(t, e)
+	t.Cleanup(func() { s.Close() })
+	waitFor(t, func() bool { return len(s.PIDs()) == 1 })
+	return s
+}
+
+func TestKernelSamplePublicationOrdersStopAndReplacement(t *testing.T) {
+	f := newCoreFixture(t)
+	h := f.d.chats[f.work.ChatID]
+	old, replacement := metricSession(t, h, "old"), metricSession(t, h, "replacement")
+	h.sessions = old
+	h.publishedSessions.Store(old)
+	paused, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+	f.d.api.HTTP = &http.Client{Transport: metricTransport(func(r *http.Request) (*http.Response, error) {
+		if r.GetBody == nil {
+			return http.DefaultTransport.RoundTrip(r)
+		}
+		b, e := r.GetBody()
+		if e != nil {
+			return nil, e
+		}
+		var body struct {
+			Sample *compute.Sample
+			Kernel string
+		}
+		e = json.NewDecoder(b).Decode(&body)
+		b.Close()
+		if e != nil {
+			return nil, e
+		}
+		if body.Sample != nil && body.Kernel == "old" {
+			close(paused)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return nil, r.Context().Err()
+			}
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	sampled := make(chan struct{})
+	go func() { f.d.sampleKernels(t.Context()); close(sampled) }()
+	select {
+	case <-paused:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sample never reached transport")
+	}
+	replaced := make(chan error, 1)
+	go func() {
+		if e := f.d.controlChat(t.Context(), coresearch.ClaimedControl{WorkContext: f.work, Op: "stop", Seq: 1}); e != nil {
+			replaced <- e
+			return
+		}
+		h.mu.Lock()
+		h.sessions = replacement
+		h.publishedSessions.Store(replacement)
+		e := f.d.kernelState(t.Context(), h, "idle", 0)
+		h.mu.Unlock()
+		replaced <- e
+	}()
+	overtook := false
+	select {
+	case e := <-replaced:
+		must(t, e)
+		overtook = true
+	case <-time.After(300 * time.Millisecond):
+	}
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case <-sampled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sample did not finish")
+	}
+	if !overtook {
+		select {
+		case e := <-replaced:
+			must(t, e)
+		case <-time.After(5 * time.Second):
+			t.Fatal("stop/replacement did not finish")
+		}
+	}
+	f.mu.Lock()
+	names := append([]string(nil), f.kernelNames...)
+	f.mu.Unlock()
+	if overtook || names[len(names)-1] != "replacement" {
+		t.Fatalf("old telemetry overtook replacement: overtook=%v names=%v", overtook, names)
+	}
+	// Process snapshots can be temporarily unavailable. Wait for an actual
+	// replacement reading rather than require every sampling tick to succeed.
+	waitFor(t, func() bool {
+		f.d.sampleKernels(t.Context())
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.samples) == 2 && f.kernelNames[len(f.kernelNames)-1] == "replacement"
+	})
+}
+
+func TestKernelSampleStallDoesNotBlockStop(t *testing.T) {
+	f := newCoreFixture(t)
+	h := f.d.chats[f.work.ChatID]
+	s := metricSession(t, h, "old")
+	h.sessions = s
+	h.publishedSessions.Store(s)
+	paused := make(chan struct{})
+	f.d.api.HTTP = &http.Client{Transport: metricTransport(func(r *http.Request) (*http.Response, error) {
+		if r.GetBody != nil {
+			b, e := r.GetBody()
+			if e != nil {
+				return nil, e
+			}
+			var body struct{ Sample *compute.Sample }
+			e = json.NewDecoder(b).Decode(&body)
+			b.Close()
+			if e != nil {
+				return nil, e
+			}
+			if body.Sample != nil {
+				close(paused)
+				<-r.Context().Done()
+				return nil, r.Context().Err()
+			}
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	sampled := make(chan struct{})
+	go func() { f.d.sampleKernels(ctx); close(sampled) }()
+	select {
+	case <-paused:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sample never reached transport")
+	}
+	stopped := make(chan error, 1)
+	go func() {
+		stopped <- f.d.controlChat(ctx, coresearch.ClaimedControl{WorkContext: f.work, Op: "stop", Seq: 1})
+	}()
+	select {
+	case e := <-stopped:
+		must(t, e)
+	case <-time.After(3 * time.Second):
+		t.Fatal("stalled telemetry blocked Stop")
+	}
+	select {
+	case <-sampled:
+	case <-time.After(time.Second):
+		t.Fatal("publication lacked bounded timeout")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.samples) != 0 || len(f.states) == 0 || f.states[len(f.states)-1] != "stopped" {
+		t.Fatalf("stale telemetry after Stop: %v %v", f.samples, f.states)
 	}
 }

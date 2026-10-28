@@ -183,12 +183,18 @@ func (d *daemon) sampleKernels(ctx context.Context) {
 		if e != nil || !slices.Equal(pids, after) {
 			continue
 		}
+		kernel := s.KernelName()
 		h.mu.Lock()
-		same := h.sessions == s
-		h.mu.Unlock()
-		if !same {
+		if h.sessions != s {
+			h.mu.Unlock()
 			continue
 		}
-		_ = d.coreAPI(h.work.WorkspaceID).Do(ctx, "POST", d.corePath("chats/"+h.work.ChatID.String()+"/kernel"), map[string]any{"sample": sample, "kernel": s.KernelName()}, nil)
+		// Order delivery with Stop/retirement/replacement. Process reads stay
+		// outside the host lock; stalled telemetry can delay controls at most
+		// one second, rather than the API client's normal 30-second timeout.
+		publishCtx, cancel := context.WithTimeout(ctx, time.Second)
+		_ = d.coreAPI(h.work.WorkspaceID).Do(publishCtx, "POST", d.corePath("chats/"+h.work.ChatID.String()+"/kernel"), map[string]any{"sample": sample, "kernel": kernel}, nil)
+		cancel()
+		h.mu.Unlock()
 	}
 }

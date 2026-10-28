@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -76,10 +77,10 @@ func (h *H) daemonRegister(w http.ResponseWriter, r *http.Request) {
 
 func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Runtimes []service.RuntimeRef       `json:"runtimes"`
-		Bases    json.RawMessage            `json:"bases"`
-		Metrics  json.RawMessage            `json:"metrics"`
-		Models   map[string]json.RawMessage `json:"models"`
+		Runtimes []service.RuntimeRef `json:"runtimes"`
+		Bases    json.RawMessage      `json:"bases"`
+		Metrics  json.RawMessage      `json:"metrics"`
+		Models   json.RawMessage      `json:"models"`
 	}
 	if err := readJSON(r, &in); err != nil || len(in.Runtimes) == 0 || len(in.Runtimes) > 64 {
 		writeErr(w, 400, "runtimes required (1-64)")
@@ -108,9 +109,14 @@ func (h *H) daemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	telemetry := service.RuntimeTelemetry{Models: map[string]json.RawMessage{}}
 	var metrics compute.MachineSample
 	if json.Unmarshal(in.Metrics, &metrics) == nil && metrics.Valid() {
-		telemetry.Metrics, _ = json.Marshal(metrics)
+		telemetry.Metrics, _ = json.Marshal(struct {
+			compute.MachineSample
+			T time.Time `json:"t"`
+		}{metrics, time.Now().UTC()})
 	}
-	for harness, raw := range in.Models {
+	var catalogs map[string]json.RawMessage
+	_ = json.Unmarshal(in.Models, &catalogs)
+	for harness, raw := range catalogs {
 		if _, ok := agent.Harnesses[harness]; !ok {
 			continue
 		}
