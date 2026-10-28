@@ -10,14 +10,18 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/coresearch/doc"
+	"lykeion/server/internal/daemon"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -32,6 +36,9 @@ func TestBuildQueueRules(t *testing.T) {
 	var one, two db.CoresearchBuild
 	if c := s.call(t, "POST", root+"/builds", b, ws, nil, &one); c != 201 {
 		t.Fatalf("queue %d", c)
+	}
+	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT sources FROM coresearch_build WHERE id=$1`, one.ID).Scan(&one.Sources); e != nil {
+		t.Fatal(e)
 	}
 	if c := s.call(t, "POST", root+"/builds", b, ws, nil, &two); c != 201 {
 		t.Fatal(c)
@@ -289,6 +296,9 @@ func TestBuildSnapshotsJournalOpenedDuringStaging(t *testing.T) {
 		t.Fatal(c)
 	}
 	var refs []coresearch.FileRef
+	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT sources FROM coresearch_build WHERE id=$1`, b.ID).Scan(&b.Sources); e != nil {
+		t.Fatal(e)
+	}
 	json.Unmarshal(b.Sources, &refs)
 	for _, ref := range refs {
 		if ref.FileID == second.FileID {
@@ -320,7 +330,7 @@ func TestBuildArtifactQuota(t *testing.T) {
 	old := coresearch.MaxProjectBytes
 	defer func() { coresearch.MaxProjectBytes = old }()
 	coresearch.MaxProjectBytes = 10
-	if c := finishBuildTest(t, s, a, ws, work.Builds[0], "ok"); c != 413 {
+	if c := finishBuildTest(t, s, a, ws, work.Builds[0], "ok"); c != 204 {
 		t.Fatalf("source plus artifacts quota %d", c)
 	}
 	sum := fmt.Sprintf("%x", sha256.Sum256([]byte("test pdf")))
@@ -332,10 +342,18 @@ func TestBuildArtifactQuota(t *testing.T) {
 	}
 	var status string
 	s.Env.Owner.QueryRow(t.Context(), `SELECT status FROM coresearch_build WHERE id=$1`, b.ID).Scan(&status)
-	if status != "running" {
-		t.Fatal("partial publication", status)
+	if status != "failed" {
+		t.Fatal("quota did not settle", status)
 	}
 	coresearch.MaxProjectBytes = 100
+	if c := finishBuildTest(t, s, a, ws, work.Builds[0], "ok"); c != 204 {
+		t.Fatal("repeat quota receipt", c)
+	}
+	s.call(t, "POST", root+"/builds", a, ws, nil, &b)
+	work = csWork(t, s, a, "own", ref)
+	if len(work.Builds) != 1 {
+		t.Fatal("quota blocks successor", work)
+	}
 	if c := finishBuildTest(t, s, a, ws, work.Builds[0], "ok"); c != 204 {
 		t.Fatal(c)
 	}
@@ -400,8 +418,17 @@ func TestBuildRunCLIRoutes(t *testing.T) {
 	if c := s.call(t, "POST", "/api/run/coresearch/paper/build", claimed[0].Token, "", nil, &reply); c != 201 || reply.ID == "" {
 		t.Fatalf("queue %d %+v", c, reply)
 	}
+	buildWork := csWork(t, s, a, "paper-build", ref)
+	if len(buildWork.Builds) != 1 {
+		t.Fatal(buildWork)
+	}
+	var public map[string]json.RawMessage
+	if c := s.call(t, "GET", "/api/run/coresearch/paper/build/"+reply.ID, claimed[0].Token, "", nil, &public); c != 200 {
+		t.Fatal(c)
+	}
+	assertPublicBuild(t, public)
 	var build db.CoresearchBuild
-	if c := s.call(t, "GET", "/api/run/coresearch/paper/build/"+reply.ID, claimed[0].Token, "", nil, &build); c != 200 || build.Status != "queued" {
+	if c := s.call(t, "GET", "/api/run/coresearch/paper/build/"+reply.ID, claimed[0].Token, "", nil, &build); c != 200 || build.Status != "running" {
 		t.Fatalf("wait %d %+v", c, build)
 	}
 	if build.RequestedBy.String() != s.userID(t, a) {
@@ -410,5 +437,114 @@ func TestBuildRunCLIRoutes(t *testing.T) {
 	s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled' WHERE id=$1`, accepted.Run.ID)
 	if c := s.call(t, "GET", "/api/run/coresearch/paper/build/"+reply.ID, claimed[0].Token, "", nil, nil); c != 401 && c != 404 {
 		t.Fatal("inactive run token still reads", c)
+	}
+}
+
+func assertPublicBuild(t *testing.T, value map[string]json.RawMessage) {
+	t.Helper()
+	for _, key := range []string{"claim_token", "claimed_daemon_id", "lease_expires_at", "receipt_sha", "daemon_id"} {
+		if _, found := value[key]; found {
+			t.Errorf("public response exposes %s", key)
+		}
+	}
+}
+func TestBuildPublicProjection(t *testing.T) {
+	s, a, b, ws, p, _ := paperFixture(t)
+	root := csProjects + "/" + p.ID
+	var created map[string]json.RawMessage
+	if c := s.call(t, "POST", root+"/builds", a, ws, nil, &created); c != 201 {
+		t.Fatal(c)
+	}
+	if len(created) != 2 || created["id"] == nil || created["seq"] == nil {
+		t.Errorf("POST must return only id/seq: %v", created)
+	}
+	ref := csRegister(t, s, a, ws, "own", "claude")
+	work := csWork(t, s, a, "own", ref)
+	if len(work.Builds) != 1 || work.Builds[0].ClaimToken == uuid.Nil {
+		t.Fatal(work)
+	}
+	var rows []map[string]json.RawMessage
+	if c := s.call(t, "GET", root+"/builds", b, ws, nil, &rows); c != 200 || len(rows) != 1 {
+		t.Fatal(c, rows)
+	}
+	assertPublicBuild(t, rows[0])
+}
+
+// Run the real daemon receipt recovery/delivery loop against the real API. A
+// quota rejection must be ACKed, leaving neither a running row nor a rejected
+// durable receipt, and a queued successor must become eligible immediately.
+func TestBuildQuotaDaemonReceipt(t *testing.T) {
+	s, a, _, ws, p, _ := paperFixture(t)
+	root := csProjects + "/" + p.ID
+	s.call(t, "POST", root+"/builds", a, ws, nil, nil)
+	ref := csRegister(t, s, a, ws, "own", "claude")
+	work := csWork(t, s, a, "own", ref)
+	if len(work.Builds) != 1 {
+		t.Fatal(work)
+	}
+	b := work.Builds[0]
+	var successor db.CoresearchBuild
+	s.call(t, "POST", root+"/builds", a, ws, nil, &successor)
+	state := t.TempDir()
+	receiptDir := filepath.Join(state, "coresearch-receipts", b.ID.String()+"-"+b.ClaimToken.String())
+	if e := os.MkdirAll(receiptDir, 0700); e != nil {
+		t.Fatal(e)
+	}
+	outputs := []map[string]any{}
+	for i, name := range []string{"pdf", "log", "synctex"} {
+		data := []byte("test " + name)
+		file := fmt.Sprintf("output-%08d", i)
+		if e := os.WriteFile(filepath.Join(receiptDir, file), data, 0600); e != nil {
+			t.Fatal(e)
+		}
+		outputs = append(outputs, map[string]any{"path": name, "file": file, "sha": fmt.Sprintf("%x", sha256.Sum256(data)), "size": len(data)})
+	}
+	receipt, _ := json.Marshal(map[string]any{"work": b.WorkContext, "id": b.ID, "kind": "builds", "body": map[string]any{"status": "ok", "pages": 1}, "outputs": outputs})
+	if e := os.WriteFile(filepath.Join(receiptDir, "finish.json"), receipt, 0600); e != nil {
+		t.Fatal(e)
+	}
+	identity, _ := json.Marshal(map[string]any{"daemon_id": "own", "server": s.URL})
+	if e := os.WriteFile(filepath.Join(state, "daemon.json"), identity, 0600); e != nil {
+		t.Fatal(e)
+	}
+	old := coresearch.MaxProjectBytes
+	coresearch.MaxProjectBytes = 10
+	defer func() { coresearch.MaxProjectBytes = old }()
+	done := errors.New("receipt check complete")
+	cfg := daemon.Config{Server: s.URL, Token: s.personalToken(t, a), StateDir: state, Home: t.TempDir(), Harnesses: map[string]string{"claude": "/usr/bin/true"}, Flush: 10 * time.Millisecond, Ready: func() error {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, e := os.Stat(receiptDir); errors.Is(e, os.ErrNotExist) {
+				return done
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Error("quota receipt was retained/rejected instead of acknowledged")
+		return done
+	}}
+	if e := daemon.Run(t.Context(), cfg); !errors.Is(e, done) {
+		t.Fatal(e)
+	}
+	var status, reason string
+	var refs, versions int
+	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT status,failure_reason,(pdf_blob IS NOT NULL)::int+(log_blob IS NOT NULL)::int+(synctex_blob IS NOT NULL)::int FROM coresearch_build WHERE id=$1`, b.ID).Scan(&status, &reason, &refs); e != nil {
+		t.Fatal(e)
+	}
+	if status != "failed" || reason != "project_quota_exceeded" || refs != 0 {
+		t.Fatalf("quota settlement %s %s refs=%d", status, reason, refs)
+	}
+	s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_version WHERE build_id=$1`, b.ID).Scan(&versions)
+	if versions != 0 {
+		t.Fatal("quota published version")
+	}
+	if c := finishBuildTest(t, s, a, ws, b, "ok"); c != 204 {
+		t.Fatal("same receipt retry", c)
+	}
+	if c := finishBuildTest(t, s, a, ws, b, "failed"); c != 409 {
+		t.Fatal("conflicting receipt", c)
+	}
+	next := csWork(t, s, a, "own", ref)
+	if len(next.Builds) != 1 || next.Builds[0].ID != successor.ID {
+		t.Fatal("quota blocks successor", next)
 	}
 }

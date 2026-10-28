@@ -205,15 +205,12 @@ func (d *daemon) runBuild(parent context.Context, w coresearch.WorkContext, b co
 		return err
 	}
 	var outputs []recordedOutput
-	durable := true
+	durable := false
 	var root string
 	meta := map[string]any{"status": "failed", "pages": 0}
 	defer func() {
 		if durable {
 			closeRecordedOutputs(outputs)
-		}
-		if root != "" {
-			os.RemoveAll(root)
 		}
 	}()
 	defer func() {
@@ -243,6 +240,13 @@ func (d *daemon) runBuild(parent context.Context, w coresearch.WorkContext, b co
 	root = filepath.Join(base, b.ID.String())
 	if err := os.Mkdir(root, 0700); err != nil {
 		root = ""
+		return err
+	}
+	owner := coreReceipt{Work: w, Kind: "builds", ID: b.ID}
+	if err := atomicJSON(root, "owner.json", owner); err != nil {
+		return err
+	}
+	if err := syncDir(base); err != nil {
 		return err
 	}
 	dir, tmp := filepath.Join(root, "src"), filepath.Join(root, "tmp")
@@ -313,14 +317,14 @@ func (d *daemon) runBuild(parent context.Context, w coresearch.WorkContext, b co
 			f.Close()
 			return errors.New("invalid build output")
 		}
-		spool, e := os.CreateTemp("", "lyk-build-output-")
+		spool, e := os.CreateTemp(root, "output-")
 		if e != nil {
 			f.Close()
 			return e
 		}
 		sum := sha256.New()
 		size, e := io.Copy(io.MultiWriter(spool, sum), io.LimitReader(f, coresearch.MaxFileBytes+1))
-		e = errors.Join(e, f.Close(), spool.Close())
+		e = errors.Join(e, f.Close(), spool.Sync(), spool.Close(), syncDir(root))
 		if e != nil || size > coresearch.MaxFileBytes {
 			os.Remove(spool.Name())
 			return errors.New("build output exceeds limit")
@@ -381,4 +385,86 @@ func (d *daemon) finishBuild(ctx context.Context, r coreReceipt, outputs []recor
 		return &apiclient.HTTPError{Status: resp.StatusCode, Msg: "build finish refused"}
 	}
 	return writeErr
+}
+
+// Only a matching durable journal may authorize reclaiming a build tree. The
+// marker and detached spools live above src/tmp, outside the sandbox's writes.
+func (d *daemon) cleanupBuildScratch(r coreReceipt, receiptDir string) error {
+	if r.Kind != "builds" {
+		return nil
+	}
+	base := filepath.Join(d.cfg.Home, "coresearch-builds")
+	info, e := os.Lstat(base)
+	if errors.Is(e, os.ErrNotExist) {
+		return nil
+	}
+	if e != nil {
+		return e
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("invalid build scratch base")
+	}
+	root := filepath.Join(base, r.ID.String())
+	tombstone := filepath.Join(base, ".gc-"+r.ID.String()+"-"+r.Work.ClaimToken.String())
+	exists := map[string]bool{}
+	for _, path := range []string{root, tombstone} {
+		info, e := os.Lstat(path)
+		if errors.Is(e, os.ErrNotExist) {
+			continue
+		}
+		if e != nil {
+			return e
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("invalid build scratch directory")
+		}
+		exists[path] = true
+	}
+	if !exists[root] && !exists[tombstone] {
+		return nil
+	}
+	if exists[root] {
+		owner, e := readCoreReceipt(filepath.Join(root, "owner.json"))
+		if e != nil {
+			return e
+		}
+		if owner.Kind != r.Kind || owner.ID != r.ID || owner.Work.WorkspaceID != r.Work.WorkspaceID || owner.Work.ProjectID != r.Work.ProjectID || owner.Work.ChatID != r.Work.ChatID || owner.Work.ClaimToken != r.Work.ClaimToken {
+			return errors.New("build scratch identity mismatch")
+		}
+	}
+	// Before deleting source/partial spools, verify each pending immutable
+	// output named by the already durable terminal receipt is still secured.
+	for _, out := range r.Outputs {
+		f, e := coresearch.OpenSnapshot(filepath.Join(receiptDir, out.File), out.Size, out.SHA)
+		if e != nil {
+			return e
+		}
+		if e = f.Close(); e != nil {
+			return e
+		}
+	}
+	// A tombstone's exact build/claim name records prior identity validation.
+	// It lives outside sandbox writes, so interrupted RemoveAll can resume even
+	// after owner.json has been deleted. No scan of unrelated names is needed.
+	if exists[tombstone] {
+		if e = os.RemoveAll(tombstone); e != nil {
+			return e
+		}
+		if e = syncDir(base); e != nil {
+			return e
+		}
+	}
+	if exists[root] {
+		if e = os.Rename(root, tombstone); e != nil {
+			return e
+		}
+		if e = syncDir(base); e != nil {
+			return e
+		}
+		if e = os.RemoveAll(tombstone); e != nil {
+			return e
+		}
+		return syncDir(base)
+	}
+	return nil
 }

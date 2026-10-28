@@ -61,7 +61,9 @@ func WithBlobs(ctx context.Context, st *store.Store, blobs storage.Storage, ws, 
 				continue
 			}
 			if !referenced {
-				retErr = errors.Join(retErr, blobs.Delete(cleanup, BlobKey(ws, sha)))
+				if e := blobs.Delete(cleanup, BlobKey(ws, sha)); e != nil {
+					retErr = errors.Join(retErr, e)
+				}
 			}
 		}
 	}()

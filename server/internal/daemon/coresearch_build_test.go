@@ -2,7 +2,10 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -218,7 +221,16 @@ func TestBuildReceiptRecovery(t *testing.T) {
 	w.ChatID = uuid.Nil
 	r := coreReceipt{Work: w, Kind: "builds", ID: uuid.New()}
 	must(t, f.d.journalCoresearch(w, r.Kind, r.ID))
+	scratch := buildScratchFixture(t, f.d, r)
+	unrelated := filepath.Join(f.d.cfg.Home, "coresearch-builds", uuid.NewString())
+	must(t, os.Mkdir(unrelated, 0700))
 	must(t, f.d.recoverCoresearch())
+	if _, e := os.Stat(scratch); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("recovered build scratch retained", e)
+	}
+	if _, e := os.Stat(unrelated); e != nil {
+		t.Fatal("unrelated scratch removed", e)
+	}
 	recovered, e := readCoreReceipt(filepath.Join(f.d.coreReceiptDir(r), "finish.json"))
 	must(t, e)
 	var meta map[string]any
@@ -281,4 +293,131 @@ func TestBuildPrivateRuntimePaths(t *testing.T) {
 func buildTestDaemon(t *testing.T) *daemon {
 	t.Helper()
 	return &daemon{cfg: Config{Home: t.TempDir()}}
+}
+
+func buildScratchFixture(t *testing.T, d *daemon, r coreReceipt) string {
+	t.Helper()
+	root := filepath.Join(d.cfg.Home, "coresearch-builds", r.ID.String())
+	must(t, os.MkdirAll(filepath.Join(root, "src"), 0700))
+	must(t, atomicJSON(root, "owner.json", coreReceipt{Work: r.Work, Kind: r.Kind, ID: r.ID}))
+	must(t, os.WriteFile(filepath.Join(root, "src", "main.tex"), []byte("unfinished source"), 0600))
+	must(t, os.WriteFile(filepath.Join(root, "output-partial"), []byte("unfinished spool"), 0600))
+	return root
+}
+func TestBuildRecoveryPreservesDurableOutputs(t *testing.T) {
+	f := newCoreFixture(t)
+	r := coreReceipt{Work: f.work, Kind: "builds", ID: uuid.New(), Body: json.RawMessage(`{"status":"ok","pages":1}`)}
+	must(t, f.d.journalCoresearch(r.Work, r.Kind, r.ID))
+	scratch := buildScratchFixture(t, f.d, r)
+	data := []byte("immutable output")
+	output := filepath.Join(f.d.coreReceiptDir(r), "output-00000000")
+	must(t, os.WriteFile(output, data, 0600))
+	r.Outputs = []coreOutputReceipt{{Path: "pdf", File: "output-00000000", Size: int64(len(data)), SHA: fmt.Sprintf("%x", sha256.Sum256(data))}}
+	must(t, atomicJSON(f.d.coreReceiptDir(r), "finish.json", r))
+	must(t, f.d.recoverCoresearch())
+	if _, e := os.Stat(scratch); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("completed scratch retained", e)
+	}
+	got, e := os.ReadFile(output)
+	must(t, e)
+	if string(got) != string(data) {
+		t.Fatal("pending durable output removed")
+	}
+}
+func TestBuildRecoveryValidatesScratchOwnership(t *testing.T) {
+	for _, scenario := range []string{"mismatched-owner", "scratch-link", "missing-durable-output", "invalid-finish"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newCoreFixture(t)
+			r := coreReceipt{Work: f.work, Kind: "builds", ID: uuid.New()}
+			must(t, f.d.journalCoresearch(r.Work, r.Kind, r.ID))
+			scratch := buildScratchFixture(t, f.d, r)
+			protected := scratch
+			switch scenario {
+			case "mismatched-owner":
+				other := r
+				other.Work.ClaimToken = uuid.New()
+				must(t, atomicJSON(scratch, "owner.json", other))
+			case "scratch-link":
+				protected = filepath.Join(t.TempDir(), "protected")
+				must(t, os.Rename(scratch, protected))
+				must(t, os.Symlink(protected, scratch))
+			case "missing-durable-output":
+				r.Body = json.RawMessage(`{"status":"ok"}`)
+				r.Outputs = []coreOutputReceipt{{Path: "pdf", File: "output-00000000", Size: 1, SHA: fmt.Sprintf("%x", sha256.Sum256([]byte("x")))}}
+				must(t, atomicJSON(f.d.coreReceiptDir(r), "finish.json", r))
+			case "invalid-finish":
+				must(t, os.WriteFile(filepath.Join(f.d.coreReceiptDir(r), "finish.json"), []byte("invalid"), 0600))
+			}
+			if e := f.d.recoverCoresearch(); e == nil {
+				t.Fatal("unsafe recovery accepted")
+			}
+			if _, e := os.Stat(filepath.Join(protected, "src", "main.tex")); e != nil {
+				t.Fatal("unsecured evidence removed", e)
+			}
+		})
+	}
+}
+
+func TestBuildSpoolsStayOwnedOnReceiptFailure(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	if os.Getenv("LYK_NO_TEX") == "1" {
+		t.Skip("explicit LYK_NO_TEX=1")
+	}
+	f := newCoreFixture(t)
+	f.saved("main.tex", `\documentclass{article}\begin{document}Owned output\end{document}`, 1)
+	b := coresearch.ClaimedBuild{WorkContext: f.work, ID: uuid.New(), Seq: 1, Sources: f.files}
+	b.ChatID = uuid.Nil
+	receipt := coreReceipt{Work: b.WorkContext, Kind: "builds", ID: b.ID}
+	original := http.DefaultTransport
+	f.d.api.HTTP = &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/start") {
+			if e := os.WriteFile(filepath.Join(f.d.coreReceiptDir(receipt), "finish.json"), []byte("broken publication"), 0600); e != nil {
+				return nil, e
+			}
+		}
+		return original.RoundTrip(r)
+	})}
+	if e := f.d.runBuild(t.Context(), b.WorkContext, b); e == nil {
+		t.Fatal("expected receipt publication failure")
+	}
+	scratch := filepath.Join(f.d.cfg.Home, "coresearch-builds", b.ID.String())
+	spools, e := filepath.Glob(filepath.Join(scratch, "output-*"))
+	must(t, e)
+	if len(spools) != 3 {
+		t.Fatalf("outputs escaped owned scratch or were removed before durable receipt: %v", spools)
+	}
+	if e := f.d.recoverCoresearch(); e == nil {
+		t.Fatal("invalid durable evidence accepted")
+	}
+	for _, p := range spools {
+		if _, e := os.Stat(p); e != nil {
+			t.Fatal("pending spool removed", e)
+		}
+	}
+	must(t, os.Remove(filepath.Join(f.d.coreReceiptDir(receipt), "finish.json")))
+	must(t, f.d.recoverCoresearch())
+	if _, e := os.Stat(scratch); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("scratch survived durable failure recovery", e)
+	}
+	r, e := readCoreReceipt(filepath.Join(f.d.coreReceiptDir(receipt), "finish.json"))
+	must(t, e)
+	if !strings.Contains(string(r.Body), `"status":"failed"`) {
+		t.Fatal(string(r.Body))
+	}
+}
+
+func TestBuildRecoveryResumesScratchDeletion(t *testing.T) {
+	f := newCoreFixture(t)
+	r := coreReceipt{Work: f.work, Kind: "builds", ID: uuid.New(), Body: json.RawMessage(`{"status":"failed"}`)}
+	must(t, f.d.journalCoresearch(r.Work, r.Kind, r.ID))
+	root := buildScratchFixture(t, f.d, r)
+	must(t, atomicJSON(f.d.coreReceiptDir(r), "finish.json", r))
+	tombstone := filepath.Join(filepath.Dir(root), ".gc-"+r.ID.String()+"-"+r.Work.ClaimToken.String())
+	must(t, os.Rename(root, tombstone))
+	// Deletion may already have removed the marker before the daemon crashed.
+	must(t, os.Remove(filepath.Join(tombstone, "owner.json")))
+	must(t, f.d.recoverCoresearch())
+	if _, e := os.Stat(tombstone); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("interrupted scratch deletion not resumed", e)
+	}
 }

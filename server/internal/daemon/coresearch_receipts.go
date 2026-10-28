@@ -159,6 +159,9 @@ func (d *daemon) queueCoresearch(w coresearch.WorkContext, kind string, id uuid.
 		if !same {
 			return false, errors.New("conflicting immutable Coresearch receipt")
 		}
+		if err := d.cleanupBuildScratch(old, dir); err != nil {
+			return true, err
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return true, d.sendCoreReceipt(ctx, old)
@@ -186,6 +189,9 @@ func (d *daemon) queueCoresearch(w coresearch.WorkContext, kind string, id uuid.
 	}
 	if err := atomicJSON(dir, "finish.json", r); err != nil {
 		return false, err
+	}
+	if err := d.cleanupBuildScratch(r, dir); err != nil {
+		return true, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -248,6 +254,9 @@ func (d *daemon) sendCoreReceipt(ctx context.Context, r coreReceipt) error {
 			}
 		}
 		return coreDeliveryError{err}
+	}
+	if err = d.cleanupBuildScratch(r, dir); err != nil {
+		return err
 	}
 	root := filepath.Dir(dir)
 	acknowledged := filepath.Join(root, ".ack-"+filepath.Base(dir))
@@ -382,6 +391,9 @@ func (d *daemon) recoverCoresearch() error {
 			if d.coreReceiptDir(completed) != dir {
 				return errors.New("Coresearch receipt identity mismatch")
 			}
+			if e := d.cleanupBuildScratch(completed, dir); e != nil {
+				return e
+			}
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -401,6 +413,9 @@ func (d *daemon) recoverCoresearch() error {
 		}
 		r.Body = mustMarshal(coreFailure(r.Kind, nil))
 		if e = atomicJSON(dir, "finish.json", r); e != nil {
+			return e
+		}
+		if e = d.cleanupBuildScratch(r, dir); e != nil {
 			return e
 		}
 	}

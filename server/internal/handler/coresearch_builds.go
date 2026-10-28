@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -22,6 +23,29 @@ import (
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
+
+// Public builds contain domain state only; daemon claim and receipt fields
+// remain confined to the authenticated daemon work protocol.
+type publicBuild struct {
+	ID            uuid.UUID       `json:"id"`
+	ProjectID     uuid.UUID       `json:"project_id"`
+	Seq           int32           `json:"seq"`
+	RequestedBy   uuid.UUID       `json:"requested_by"`
+	Status        string          `json:"status"`
+	Sources       json.RawMessage `json:"sources"`
+	HasPDF        bool            `json:"has_pdf"`
+	HasLog        bool            `json:"has_log"`
+	HasSyncTeX    bool            `json:"has_synctex"`
+	Pages         *int32          `json:"pages"`
+	FailureReason *string         `json:"failure_reason"`
+	CreatedAt     time.Time       `json:"created_at"`
+	StartedAt     *time.Time      `json:"started_at"`
+	FinishedAt    *time.Time      `json:"finished_at"`
+}
+
+func projectBuild(b db.CoresearchBuild) publicBuild {
+	return publicBuild{ID: b.ID, ProjectID: b.ProjectID, Seq: b.Seq, RequestedBy: b.RequestedBy, Status: b.Status, Sources: b.Sources, HasPDF: b.PdfBlob != nil, HasLog: b.LogBlob != nil, HasSyncTeX: b.SynctexBlob != nil, Pages: b.Pages, FailureReason: b.FailureReason, CreatedAt: b.CreatedAt, StartedAt: b.StartedAt, FinishedAt: b.FinishedAt}
+}
 
 func (h *H) buildTransaction(r *http.Request, write bool) (coresearch.BuildTransaction, uuid.UUID, uuid.UUID) {
 	role := middleware.RoleFrom(r.Context())
@@ -57,7 +81,7 @@ func (h *H) coresearchBuilds(w http.ResponseWriter, r *http.Request) {
 			if middleware.RoleFrom(r.Context()).AgentRunID != uuid.Nil {
 				writeJSON(w, 201, map[string]any{"build_id": out.ID, "seq": out.Seq})
 			} else {
-				writeJSON(w, 201, out)
+				writeJSON(w, 201, map[string]any{"id": out.ID, "seq": out.Seq})
 			}
 		}
 		return
@@ -134,12 +158,13 @@ func (h *H) coresearchBuilds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if id != "" {
-		writeJSON(w, 200, single)
+		writeJSON(w, 200, projectBuild(single))
 	} else {
-		if out == nil {
-			out = []db.CoresearchBuild{}
+		public := make([]publicBuild, 0, len(out))
+		for _, b := range out {
+			public = append(public, projectBuild(b))
 		}
-		writeJSON(w, 200, out)
+		writeJSON(w, 200, public)
 	}
 }
 func (h *H) authorizeBuild(r *http.Request, tx *store.Tx, daemon string, id uuid.UUID, terminal bool) (db.CoresearchBuild, error) {
@@ -286,13 +311,15 @@ func (h *H) daemonCoresearchBuildFinish(w http.ResponseWriter, r *http.Request) 
 		keys[name] = &key
 		uploads = append(uploads, coresearch.UploadBlob{SHA256: out.sha, Size: out.size, Open: func() (io.ReadCloser, error) { return os.Open(out.file) }})
 	}
+	quotaFailure := false
 	e = coresearch.WithBlobs(r.Context(), h.Store, h.Blobs, b.WorkspaceID, user(r), uploads, func() error {
-		return h.coresearchDaemonTx(r, func(tx *store.Tx, d string) error {
+		err := h.coresearchDaemonTx(r, func(tx *store.Tx, d string) error {
 			if e := check(tx, d); e != nil {
 				return e
 			}
 			if b.Status != "running" {
 				if b.ReceiptSha != nil && *b.ReceiptSha == digest {
+					quotaFailure = b.Status == "failed" && b.FailureReason != nil && *b.FailureReason == "project_quota_exceeded"
 					return nil
 				}
 				return service.ErrConflict
@@ -301,18 +328,32 @@ func (h *H) daemonCoresearchBuildFinish(w http.ResponseWriter, r *http.Request) 
 			if meta.Reason != "" {
 				reason = &meta.Reason
 			}
-			row, e := tx.Q.FinishCoresearchBuild(r.Context(), db.FinishCoresearchBuildParams{WorkspaceID: tx.WS, ID: id, Status: meta.Status, PdfSize: outputs["pdf"].size, LogSize: outputs["log"].size, SynctexSize: outputs["synctex"].size, PdfBlob: keys["pdf"], LogBlob: keys["log"], SynctexBlob: keys["synctex"], Pages: &meta.Pages, FailureReason: reason, ReceiptSha: &digest})
+			params := db.FinishCoresearchBuildParams{WorkspaceID: tx.WS, ID: id, Status: meta.Status, PdfSize: outputs["pdf"].size, LogSize: outputs["log"].size, SynctexSize: outputs["synctex"].size, PdfBlob: keys["pdf"], LogBlob: keys["log"], SynctexBlob: keys["synctex"], Pages: &meta.Pages, FailureReason: reason, ReceiptSha: &digest}
+			var row db.CoresearchBuild
+			e := tx.Savepoint(r.Context(), func(candidate *store.Tx) error {
+				var e error
+				row, e = candidate.Q.FinishCoresearchBuild(r.Context(), params)
+				if e != nil {
+					return e
+				}
+				used, e := candidate.Q.CoresearchProjectBytes(r.Context(), db.CoresearchProjectBytesParams{WorkspaceID: tx.WS, ProjectID: b.ProjectID, Sha256: ""})
+				if e != nil {
+					return e
+				}
+				if used > coresearch.MaxProjectBytes {
+					return coresearch.ErrQuota
+				}
+				return nil
+			})
+			if errors.Is(e, coresearch.ErrQuota) {
+				quotaFailure = true
+				reason := "project_quota_exceeded"
+				row, e = tx.Q.FinishCoresearchBuild(r.Context(), db.FinishCoresearchBuildParams{WorkspaceID: tx.WS, ID: id, Status: "failed", FailureReason: &reason, ReceiptSha: &digest})
+			}
 			if e != nil {
 				return e
 			}
-			used, e := tx.Q.CoresearchProjectBytes(r.Context(), db.CoresearchProjectBytesParams{WorkspaceID: tx.WS, ProjectID: b.ProjectID, Sha256: ""})
-			if e != nil {
-				return e
-			}
-			if used > coresearch.MaxProjectBytes {
-				return coresearch.ErrQuota
-			}
-			if meta.Status == "ok" {
+			if row.Status == "ok" {
 				_, e = tx.Q.InsertBuildVersion(r.Context(), db.InsertBuildVersionParams{WorkspaceID: tx.WS, ProjectID: b.ProjectID, Title: fmt.Sprintf("Build %d", b.Seq), ByUserID: &b.RequestedBy, BuildID: &b.ID, Files: b.Sources})
 				if e != nil {
 					return e
@@ -320,7 +361,21 @@ func (h *H) daemonCoresearchBuildFinish(w http.ResponseWriter, r *http.Request) 
 			}
 			return coresearch.BuildChanged(r.Context(), tx, row)
 		})
+		// The terminal failure is committed. Signal WithBlobs to remove only
+		// newly staged, unreferenced artifacts before acknowledging delivery.
+		if err == nil && quotaFailure {
+			return coresearch.ErrQuota
+		}
+		return err
 	})
+	if e == coresearch.ErrQuota {
+		e = nil
+	} else if quotaFailure && e != nil {
+		// Cleanup/transport errors must remain retryable even though the
+		// terminal quota result itself is already durably committed.
+		fail(w, r, e)
+		return
+	}
 	if coresearchAnswer(w, r, e) {
 		w.WriteHeader(204)
 	}
