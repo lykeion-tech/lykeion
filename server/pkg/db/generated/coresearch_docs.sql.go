@@ -103,6 +103,21 @@ func (q *Queries) DecideCoresearchChange(ctx context.Context, arg DecideCoresear
 	return err
 }
 
+const deleteCoresearchComment = `-- name: DeleteCoresearchComment :exec
+DELETE FROM coresearch_comment WHERE workspace_id= $1 AND id= $2 AND author_user_id= $3
+`
+
+type DeleteCoresearchCommentParams struct {
+	WorkspaceID  uuid.UUID `json:"workspace_id"`
+	ID           uuid.UUID `json:"id"`
+	AuthorUserID uuid.UUID `json:"author_user_id"`
+}
+
+func (q *Queries) DeleteCoresearchComment(ctx context.Context, arg DeleteCoresearchCommentParams) error {
+	_, err := q.db.Exec(ctx, deleteCoresearchComment, arg.WorkspaceID, arg.ID, arg.AuthorUserID)
+	return err
+}
+
 const getCoresearchChange = `-- name: GetCoresearchChange :one
 SELECT c.id, c.workspace_id, c.proposal_id, c.file_id, c.from_pos, c.to_pos, c.removed_text, c.file_action, c.status, c.decided_by, c.decided_at, c.created_at FROM coresearch_change c JOIN coresearch_file f ON f.workspace_id=c.workspace_id AND f.id=c.file_id WHERE c.workspace_id= $1 AND c.id= $2 AND f.project_id= $3 FOR UPDATE OF c
 `
@@ -128,6 +143,37 @@ func (q *Queries) GetCoresearchChange(ctx context.Context, arg GetCoresearchChan
 		&i.Status,
 		&i.DecidedBy,
 		&i.DecidedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getCoresearchComment = `-- name: GetCoresearchComment :one
+SELECT c.id, c.workspace_id, c.file_id, c.from_pos, c.to_pos, c.quote, c.line, c.author_user_id, c.body, c.mentions, c.resolved_by, c.resolved_at, c.created_at FROM coresearch_comment c JOIN coresearch_file f ON f.workspace_id=c.workspace_id AND f.id=c.file_id WHERE c.workspace_id= $1 AND c.id= $2 AND f.project_id= $3 AND f.deleted_at IS NULL FOR UPDATE OF c
+`
+
+type GetCoresearchCommentParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+}
+
+func (q *Queries) GetCoresearchComment(ctx context.Context, arg GetCoresearchCommentParams) (CoresearchComment, error) {
+	row := q.db.QueryRow(ctx, getCoresearchComment, arg.WorkspaceID, arg.ID, arg.ProjectID)
+	var i CoresearchComment
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.FileID,
+		&i.FromPos,
+		&i.ToPos,
+		&i.Quote,
+		&i.Line,
+		&i.AuthorUserID,
+		&i.Body,
+		&i.Mentions,
+		&i.ResolvedBy,
+		&i.ResolvedAt,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -242,6 +288,53 @@ func (q *Queries) InsertCoresearchChange(ctx context.Context, arg InsertCoresear
 		&i.Status,
 		&i.DecidedBy,
 		&i.DecidedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertCoresearchComment = `-- name: InsertCoresearchComment :one
+INSERT INTO coresearch_comment(workspace_id,file_id,from_pos,to_pos,quote,line,author_user_id,body,mentions) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, workspace_id, file_id, from_pos, to_pos, quote, line, author_user_id, body, mentions, resolved_by, resolved_at, created_at
+`
+
+type InsertCoresearchCommentParams struct {
+	WorkspaceID  uuid.UUID   `json:"workspace_id"`
+	FileID       uuid.UUID   `json:"file_id"`
+	FromPos      int32       `json:"from_pos"`
+	ToPos        int32       `json:"to_pos"`
+	Quote        string      `json:"quote"`
+	Line         int32       `json:"line"`
+	AuthorUserID uuid.UUID   `json:"author_user_id"`
+	Body         string      `json:"body"`
+	Mentions     []uuid.UUID `json:"mentions"`
+}
+
+func (q *Queries) InsertCoresearchComment(ctx context.Context, arg InsertCoresearchCommentParams) (CoresearchComment, error) {
+	row := q.db.QueryRow(ctx, insertCoresearchComment,
+		arg.WorkspaceID,
+		arg.FileID,
+		arg.FromPos,
+		arg.ToPos,
+		arg.Quote,
+		arg.Line,
+		arg.AuthorUserID,
+		arg.Body,
+		arg.Mentions,
+	)
+	var i CoresearchComment
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.FileID,
+		&i.FromPos,
+		&i.ToPos,
+		&i.Quote,
+		&i.Line,
+		&i.AuthorUserID,
+		&i.Body,
+		&i.Mentions,
+		&i.ResolvedBy,
+		&i.ResolvedAt,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -379,6 +472,49 @@ type ListCoresearchCommentRangesParams struct {
 
 func (q *Queries) ListCoresearchCommentRanges(ctx context.Context, arg ListCoresearchCommentRangesParams) ([]CoresearchComment, error) {
 	rows, err := q.db.Query(ctx, listCoresearchCommentRanges, arg.WorkspaceID, arg.FileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CoresearchComment
+	for rows.Next() {
+		var i CoresearchComment
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.FileID,
+			&i.FromPos,
+			&i.ToPos,
+			&i.Quote,
+			&i.Line,
+			&i.AuthorUserID,
+			&i.Body,
+			&i.Mentions,
+			&i.ResolvedBy,
+			&i.ResolvedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCoresearchComments = `-- name: ListCoresearchComments :many
+SELECT id, workspace_id, file_id, from_pos, to_pos, quote, line, author_user_id, body, mentions, resolved_by, resolved_at, created_at FROM coresearch_comment WHERE workspace_id= $1 AND file_id= $2 ORDER BY created_at,id
+`
+
+type ListCoresearchCommentsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	FileID      uuid.UUID `json:"file_id"`
+}
+
+func (q *Queries) ListCoresearchComments(ctx context.Context, arg ListCoresearchCommentsParams) ([]CoresearchComment, error) {
+	rows, err := q.db.Query(ctx, listCoresearchComments, arg.WorkspaceID, arg.FileID)
 	if err != nil {
 		return nil, err
 	}
@@ -638,6 +774,43 @@ func (q *Queries) MapCoresearchComment(ctx context.Context, arg MapCoresearchCom
 		arg.ID,
 	)
 	return err
+}
+
+const resolveCoresearchComment = `-- name: ResolveCoresearchComment :one
+UPDATE coresearch_comment SET resolved_by=CASE WHEN $1::boolean THEN COALESCE(resolved_by,$2::uuid) ELSE NULL END,resolved_at=CASE WHEN $1::boolean THEN COALESCE(resolved_at,now()) ELSE NULL END WHERE workspace_id= $3 AND id= $4 RETURNING id, workspace_id, file_id, from_pos, to_pos, quote, line, author_user_id, body, mentions, resolved_by, resolved_at, created_at
+`
+
+type ResolveCoresearchCommentParams struct {
+	Resolved    bool      `json:"resolved"`
+	ResolvedBy  uuid.UUID `json:"resolved_by"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) ResolveCoresearchComment(ctx context.Context, arg ResolveCoresearchCommentParams) (CoresearchComment, error) {
+	row := q.db.QueryRow(ctx, resolveCoresearchComment,
+		arg.Resolved,
+		arg.ResolvedBy,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	var i CoresearchComment
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.FileID,
+		&i.FromPos,
+		&i.ToPos,
+		&i.Quote,
+		&i.Line,
+		&i.AuthorUserID,
+		&i.Body,
+		&i.Mentions,
+		&i.ResolvedBy,
+		&i.ResolvedAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const setCoresearchChangeFileAction = `-- name: SetCoresearchChangeFileAction :exec

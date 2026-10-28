@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
+	db "lykeion/server/pkg/db/generated"
 )
 
 // TestEveryWorkspaceRouteHidesOtherWorkspaces audits every registered API
@@ -93,6 +95,24 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		t.Fatalf("owner document step: %d", code)
 	}
 
+	commentInput := map[string]any{"base": 1, "from": 0, "to": 7, "quote": "fixture", "line": 1, "body": "owner comment"}
+	var comment db.CoresearchComment
+	if code := s.call(t, "POST", docURL+"/comments", a, wa.ID, commentInput, &comment); code != 201 {
+		t.Fatalf("owner create comment: %d", code)
+	}
+	if code := s.call(t, "GET", docURL+"/comments", a, wa.ID, nil, nil); code != 200 {
+		t.Fatalf("owner list comments: %d", code)
+	}
+	commentURL := csProjects + "/" + cs.ID + "/comments/" + comment.ID.String()
+	if code := s.call(t, "POST", commentURL+"/resolve", a, wa.ID, nil, nil); code != 200 {
+		t.Fatalf("owner resolve comment: %d", code)
+	}
+	if code := s.call(t, "DELETE", commentURL, a, wa.ID, nil, nil); code != 204 {
+		t.Fatalf("owner delete comment: %d", code)
+	}
+	if code := s.call(t, "POST", docURL+"/comments", a, wa.ID, commentInput, &comment); code != 201 {
+		t.Fatalf("owner retained comment: %d", code)
+	}
 	var proposal, change string
 	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO coresearch_proposal(workspace_id,project_id,created_by) VALUES($1,$2,$3) RETURNING id`, wa.ID, cs.ID, s.userID(t, a)).Scan(&proposal); err != nil {
 		t.Fatal(err)
@@ -124,7 +144,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, wa.ID, nil, &welcome); code != 200 || welcome.Conversation.ID == "" {
 		t.Fatalf("conversation fixture %d", code)
 	}
-	ids := map[string]string{"{change}": change, "{seq}": "1", "{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
+	ids := map[string]string{"{comment}": comment.ID.String(), "{change}": change, "{seq}": "1", "{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
 	// Positive controls prove the probed resources resolve for their owner.
 	var ownRun struct {
 		ID     string
@@ -197,6 +217,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			body = map[string]string{"body": "outsider", "request_id": uuid.NewString()}
 		case route == "/api/coresearch/projects" || route == "/api/coresearch/projects/{project}":
 			body = map[string]string{"name": "outsider"}
+		case route == "/api/coresearch/projects/{project}/docs/{file}/comments":
+			body = commentInput
 		case route == "/api/coresearch/projects/{project}/docs/{file}/steps":
 			body = map[string]any{"base": 0, "client_id": "outsider", "steps": []any{[]any{0}}}
 		case route == "/api/coresearch/projects/{project}/docs/{file}/cursor":

@@ -44,3 +44,13 @@ SELECT * FROM coresearch_file WHERE workspace_id= @workspace_id AND project_id= 
 UPDATE coresearch_file SET deleted_at=CASE WHEN @deleted::boolean THEN now() ELSE NULL END WHERE workspace_id= @workspace_id AND project_id= @project_id AND id= @id;
 -- name: SetCoresearchChangeFileAction :exec
 UPDATE coresearch_change SET file_action= @file_action WHERE workspace_id= @workspace_id AND id= @id;
+-- name: ListCoresearchComments :many
+SELECT * FROM coresearch_comment WHERE workspace_id= @workspace_id AND file_id= @file_id ORDER BY created_at,id;
+-- name: InsertCoresearchComment :one
+INSERT INTO coresearch_comment(workspace_id,file_id,from_pos,to_pos,quote,line,author_user_id,body,mentions) VALUES(@workspace_id,@file_id,@from_pos,@to_pos,@quote,@line,@author_user_id,@body,@mentions) RETURNING *;
+-- name: GetCoresearchComment :one
+SELECT c.* FROM coresearch_comment c JOIN coresearch_file f ON f.workspace_id=c.workspace_id AND f.id=c.file_id WHERE c.workspace_id= @workspace_id AND c.id= @id AND f.project_id= @project_id AND f.deleted_at IS NULL FOR UPDATE OF c;
+-- name: ResolveCoresearchComment :one
+UPDATE coresearch_comment SET resolved_by=CASE WHEN @resolved::boolean THEN COALESCE(resolved_by,@resolved_by::uuid) ELSE NULL END,resolved_at=CASE WHEN @resolved::boolean THEN COALESCE(resolved_at,now()) ELSE NULL END WHERE workspace_id= @workspace_id AND id= @id RETURNING *;
+-- name: DeleteCoresearchComment :exec
+DELETE FROM coresearch_comment WHERE workspace_id= @workspace_id AND id= @id AND author_user_id= @author_user_id;

@@ -82,6 +82,12 @@ func TestRemovedMemberLosesPaper(t *testing.T) {
 	if c := s.call(t, "POST", url+"/cursor", b, ws, map[string]int{"anchor": 1, "head": 3}, nil); c != 204 {
 		t.Fatal(c)
 	}
+	var comment db.CoresearchComment
+	commentInput := map[string]any{"base": 0, "from": 1, "to": 3, "quote": "😀", "line": 1, "body": "member comment"}
+	if c := s.call(t, "POST", url+"/comments", b, ws, commentInput, &comment); c != 201 {
+		t.Fatalf("member comment %d", c)
+	}
+	commentURL := csProjects + "/" + p.ID + "/comments/" + comment.ID.String()
 	if c := s.call(t, "DELETE", csProjects+"/"+p.ID+"/members/"+s.userID(t, b), a, ws, nil, nil); c != 204 {
 		t.Fatal(c)
 	}
@@ -91,6 +97,19 @@ func TestRemovedMemberLosesPaper(t *testing.T) {
 	}{{"GET", "", nil}, {"GET", "/steps?after=0", nil}, {"GET", "/presence", nil}, {"POST", "/steps", map[string]any{"base": 0, "client_id": "b", "steps": []any{[]any{6}}}}, {"POST", "/cursor", map[string]int{"anchor": 1, "head": 3}}} {
 		if c := s.call(t, r.method, url+r.suffix, b, ws, r.body, nil); c != 404 {
 			t.Fatalf("%s %s = %d", r.method, r.suffix, c)
+		}
+	}
+	for _, endpoint := range []struct {
+		method, url string
+		body        any
+	}{
+		{"GET", url + "/comments", nil},
+		{"POST", url + "/comments", commentInput},
+		{"POST", commentURL + "/resolve", nil},
+		{"DELETE", commentURL, nil},
+	} {
+		if c := s.call(t, endpoint.method, endpoint.url, b, ws, endpoint.body, nil); c != 404 {
+			t.Fatalf("removed comment access %s %s = %d", endpoint.method, endpoint.url, c)
 		}
 	}
 	var people []map[string]any
