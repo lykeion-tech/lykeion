@@ -64,6 +64,7 @@ async function mount(
   settings = false,
   cacheAgent = true,
   rail = false,
+  cacheMessages = true,
 ) {
   vi.stubGlobal('document', {
     activeElement: null,
@@ -91,7 +92,8 @@ async function mount(
   });
   if (cacheAgent) client.setQueryData(keys.agent('lab', 'aristotle'), agent);
   client.setQueryData(conversationKey('lab', 'me'), [welcome]);
-  client.setQueryData(keys.coresearchMessages('lab', 'private-project', 'chat'), []);
+  if (cacheMessages)
+    client.setQueryData(keys.coresearchMessages('lab', 'private-project', 'chat'), []);
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }],
@@ -131,6 +133,54 @@ function edit(root: ReturnType<typeof node>, value: string) {
 const response = (body: unknown, status = 201) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 describe('Aristotle UI', () => {
+  it('shows uncached welcome history errors and restores history on explicit retry', async () => {
+    let resolveHistory!: (value: Response) => void;
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveHistory = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(
+        response([{ id: 'old-message', kind: 'comment', body: 'Existing research history' }], 200),
+      );
+    vi.stubGlobal('fetch', fetch);
+    const { root, settle } = await mount(
+      '/coresearch/conversations/welcome',
+      true,
+      false,
+      true,
+      false,
+      false,
+    );
+    expect.soft(textOf(root)).toContain('Loading conversation…');
+    expect.soft(textOf(root)).not.toContain('Welcome to Coresearch');
+    edit(root, 'Keep my draft');
+    await settle();
+    expect.soft(byLabel(root, 'Send').props.disabled).toBe(true);
+    await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    resolveHistory(response({ error: 'History unavailable' }, 500));
+    await settle();
+    await settle();
+    expect(textOf(root)).toContain('History unavailable');
+    expect(textOf(root)).not.toContain('Welcome to Coresearch');
+    expect(byLabel(root, 'Message Aristotle').props.value).toBe('Keep my draft');
+    await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const retry = all(root).find((n) => n.tag === 'button' && textOf(n) === 'Retry')!;
+    await (retry.props.onClick as () => Promise<void>)();
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(all(root).some((n) => n.props.innerHTML === 'Existing research history')).toBe(true);
+    expect(textOf(root)).not.toContain('History unavailable');
+    expect(textOf(root)).not.toContain('Welcome to Coresearch');
+    expect(byLabel(root, 'Message Aristotle').props.value).toBe('Keep my draft');
+    expect(byLabel(root, 'Send').props.disabled).toBe(false);
+  });
+
   it('keeps the conversation rail independent from Projects and their query', async () => {
     const fetch = vi.fn().mockResolvedValue(response([], 200));
     vi.stubGlobal('fetch', fetch);

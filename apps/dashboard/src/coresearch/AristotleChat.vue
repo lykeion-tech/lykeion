@@ -44,6 +44,10 @@ const messages = useCoresearchMessages(
   () => conversation.value?.project_id ?? '',
   () => conversation.value?.chat_id ?? '',
 );
+const historyUnavailable = computed(
+  () =>
+    !isDraft.value && !!conversation.value && (messages.isPending.value || !!messages.error.value),
+);
 const activeRun = computed(
   () =>
     messages.data.value?.find((m) => m.kind === 'turn' && isActiveTurn(m.status))?.agent_run_id ??
@@ -104,7 +108,15 @@ watch(
 );
 async function send(prompt?: string) {
   if (prompt) draft.value = prompt;
-  if (!draft.value.trim() || busy.value || blocker.value || activeRun.value || !agent.value) return;
+  if (
+    !draft.value.trim() ||
+    busy.value ||
+    historyUnavailable.value ||
+    blocker.value ||
+    activeRun.value ||
+    !agent.value
+  )
+    return;
   const ws = workspaceId.value,
     member = state.member.value,
     scope = state.scope.value,
@@ -223,6 +235,12 @@ async function stop() {
             ><Icon name="settings" :size="14" />Customize starters</RouterLink
           >
         </div>
+        <div v-else-if="messages.error.value" class="center-empty" role="alert">
+          {{ messages.error.value.message }}<button @click="messages.refetch()">Retry</button>
+        </div>
+        <div v-else-if="messages.isPending.value" class="center-empty" role="status">
+          Loading conversation…
+        </div>
         <div
           v-else-if="conversation?.is_welcome && !messages.data.value?.length"
           class="aristotle-welcome"
@@ -264,15 +282,12 @@ async function stop() {
             :chat-id="conversation.chat_id"
             :messages="messages.data.value ?? []"
           />
-          <p v-if="messages.error.value" role="alert">
-            {{ messages.error.value.message }}<button @click="messages.refetch()">Retry</button>
-          </p>
         </div>
       </div>
       <AristotleComposer
         v-model="draft"
         :busy="busy"
-        :blocker="blocker"
+        :blocker="historyUnavailable ? 'Load conversation history before sending.' : blocker"
         :error="error"
         :active-run="activeRun ?? undefined"
         @send="send()"
