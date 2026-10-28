@@ -454,6 +454,11 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) (resultE
 	if err := d.journalCoresearch(c.WorkContext, "cells", c.ID); err != nil {
 		return err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	watched := make(chan struct{})
+	go func() { defer close(watched); d.watchCoresearch(ctx, cancel, c.WorkContext, "cells", c.ID) }()
+	defer func() { cancel(); <-watched }()
 	var receipt any
 	defer func() {
 		if receipt == nil {
@@ -469,11 +474,6 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) (resultE
 	}
 	done := d.useChat(h)
 	defer done()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	watched := make(chan struct{})
-	go func() { defer close(watched); d.watchCoresearch(ctx, cancel, c.WorkContext, "cells", c.ID) }()
-	defer func() { cancel(); <-watched }()
 	// Keep host cleanup inside the cell boundary too: a successor must never
 	// start between bridge cancellation and retirement of its sandbox folders.
 	h.cellMu.Lock()

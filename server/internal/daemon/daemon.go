@@ -116,11 +116,12 @@ type claimed struct {
 	Skills []toolroute.RoutedSkill `json:"skills"`
 }
 type daemon struct {
-	chatsMu       sync.Mutex
-	chats         map[uuid.UUID]*chatHost
-	coreActive    map[string]bool
-	coreWork      map[uuid.UUID]bool
-	coreReceiptMu sync.Mutex
+	chatsMu            sync.Mutex
+	chats              map[uuid.UUID]*chatHost
+	coreActive         map[string]bool
+	coreWork           map[uuid.UUID]bool
+	coreReceiptMu      sync.Mutex
+	coreReceiptFlights map[string]*coreReceiptFlight
 
 	serviceCommand    func(sandbox.Policy, context.Context, string, ...string) (*exec.Cmd, error)
 	serviceReadyLimit time.Duration
@@ -224,6 +225,14 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 		return err
 	}
+	// Start before the initial generic outbox flush as well: old message
+	// delivery must not delay terminal receipts or their lease renewals.
+	receiptsDone := make(chan struct{})
+	go func() {
+		defer close(receiptsDone)
+		d.every(ctx, min(cfg.Flush, 10*time.Second), func(ctx context.Context) { d.fatal(d.flushCoresearch(ctx)) })
+	}()
+	defer func() { cancel(); <-receiptsDone }()
 	if err = d.flush(ctx); err != nil {
 		return err
 	}
@@ -284,6 +293,7 @@ loop:
 	}
 	cancel()
 	d.wg.Wait()
+	<-receiptsDone
 	d.stopChats()
 	// A concurrent child storage failure must not disappear during shutdown.
 	select {

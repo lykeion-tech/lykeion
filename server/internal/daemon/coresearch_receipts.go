@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,66 @@ import (
 )
 
 type coreDeliveryError struct{ error }
+
+// The registry lock protects only bookkeeping. Publication and delivery for
+// different receipts never wait on each other's disk or network operations.
+type coreReceiptFlight struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (d *daemon) lockCoreReceipt(dir string, wait bool) (func(), bool) {
+	d.coreReceiptMu.Lock()
+	if d.coreReceiptFlights == nil {
+		d.coreReceiptFlights = make(map[string]*coreReceiptFlight)
+	}
+	flight := d.coreReceiptFlights[dir]
+	if flight == nil {
+		flight = &coreReceiptFlight{}
+		d.coreReceiptFlights[dir] = flight
+	}
+	flight.refs++
+	d.coreReceiptMu.Unlock()
+	releaseRef := func() {
+		d.coreReceiptMu.Lock()
+		flight.refs--
+		if flight.refs == 0 {
+			delete(d.coreReceiptFlights, dir)
+		}
+		d.coreReceiptMu.Unlock()
+	}
+	if wait {
+		flight.mu.Lock()
+	} else if !flight.mu.TryLock() {
+		releaseRef()
+		return nil, false
+	}
+	return func() { flight.mu.Unlock(); releaseRef() }, true
+}
+
+// Settlement has its own lifetime: cancellation stops execution, but a bounded
+// final delivery still needs to report the outcome. A failed heartbeat never
+// authorizes delivery; the finish endpoint checks membership and generation.
+func (d *daemon) renewCoreReceipt(parent context.Context, r coreReceipt) func() {
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			attempt, stop := context.WithTimeout(ctx, 5*time.Second)
+			_ = d.coreAPI(r.Work.WorkspaceID).Do(attempt, "POST", d.coreWorkPath(r.Work, r.Kind+"/"+r.ID.String()+"/heartbeat"), nil, nil)
+			stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
+}
 
 type coreOutputReceipt struct {
 	Path string `json:"path"`
@@ -49,7 +110,11 @@ func (d *daemon) journalCoresearch(w coresearch.WorkContext, kind string, id uui
 	if err := privateDir(filepath.Dir(dir)); err != nil {
 		return err
 	}
-	return atomicJSON(dir, "claim.json", r)
+	if err := atomicJSON(dir, "claim.json", r); err != nil {
+		return err
+	}
+	// No code may start until both the claim and its directory entries are durable.
+	return errors.Join(syncDir(filepath.Dir(dir)), syncDir(d.cfg.StateDir))
 }
 func coreFailure(kind string, err error) map[string]any {
 	reason := "execution stopped before a terminal receipt was recorded; code was not replayed"
@@ -69,10 +134,12 @@ func coreFailure(kind string, err error) map[string]any {
 // queueCoresearch commits evidence before network I/O. Source snapshots remain
 // intact if committing the receipt fails, and are never used to replay code.
 func (d *daemon) queueCoresearch(w coresearch.WorkContext, kind string, id uuid.UUID, body any, outputs []recordedOutput) (bool, error) {
-	d.coreReceiptMu.Lock()
-	defer d.coreReceiptMu.Unlock()
 	r := coreReceipt{Work: w, Kind: kind, ID: id, Body: mustMarshal(body)}
+	stopRenewal := d.renewCoreReceipt(context.Background(), r)
+	defer stopRenewal()
 	dir := d.coreReceiptDir(r)
+	unlock, _ := d.lockCoreReceipt(dir, true)
+	defer unlock()
 	if err := privateDir(dir); err != nil {
 		return false, err
 	}
@@ -155,22 +222,6 @@ func (d *daemon) sendCoreReceipt(ctx context.Context, r coreReceipt) error {
 	dir := d.coreReceiptDir(r)
 	var err error
 	if r.Kind == "runs" {
-		renewCtx, stop := context.WithCancel(ctx)
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			ticker := time.NewTicker(10 * time.Second)
-			defer ticker.Stop()
-			for {
-				_ = d.coreAPI(r.Work.WorkspaceID).Do(renewCtx, "POST", d.coreWorkPath(r.Work, "runs/"+r.ID.String()+"/heartbeat"), nil, nil)
-				select {
-				case <-renewCtx.Done():
-					return
-				case <-ticker.C:
-				}
-			}
-		}()
-		defer func() { stop(); <-done }()
 		var facts map[string]any
 		if err = json.Unmarshal(r.Body, &facts); err != nil {
 			return err
@@ -206,8 +257,6 @@ func (d *daemon) sendCoreReceipt(ctx context.Context, r coreReceipt) error {
 	return syncDir(root)
 }
 func (d *daemon) flushCoresearch(ctx context.Context) error {
-	d.coreReceiptMu.Lock()
-	defer d.coreReceiptMu.Unlock()
 	root := filepath.Join(d.cfg.StateDir, "coresearch-receipts")
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -216,36 +265,82 @@ func (d *daemon) flushCoresearch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var errs []error
+	var workers sync.WaitGroup
+	results := make(chan error, len(entries))
 	for _, entry := range entries {
-		if ctx.Err() != nil {
-			return errors.Join(append(errs, ctx.Err())...)
-		}
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".ack-") {
 			continue
 		}
-		path := filepath.Join(root, entry.Name(), "finish.json")
-		r, e := readCoreReceipt(path)
-		if errors.Is(e, os.ErrNotExist) {
-			continue
-		}
-		if e != nil {
-			errs = append(errs, e)
-			continue
-		}
-		if filepath.Dir(path) != d.coreReceiptDir(r) {
-			errs = append(errs, errors.New("Coresearch receipt path mismatch"))
-			continue
-		}
-		e = d.sendCoreReceipt(ctx, r)
-		var delivery coreDeliveryError
-		if errors.As(e, &delivery) {
-			slog.Warn("Coresearch receipt retained", "work", r.ID, "err", e)
-		} else {
-			errs = append(errs, e)
-		}
+		dir := filepath.Join(root, entry.Name())
+		workers.Add(1)
+		go func() { defer workers.Done(); results <- d.flushCoreReceipt(ctx, dir) }()
+	}
+	workers.Wait()
+	close(results)
+	var errs []error
+	for err := range results {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+func (d *daemon) flushCoreReceipt(ctx context.Context, dir string) error {
+	if ctx.Err() != nil {
+		return nil // Shutdown retains the receipt for the next startup.
+	}
+	unlock, acquired := d.lockCoreReceipt(dir, false)
+	if !acquired {
+		return nil
+	}
+	defer unlock()
+	r, err := readCoreReceipt(filepath.Join(dir, "finish.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if dir != d.coreReceiptDir(r) {
+		return errors.New("Coresearch receipt path mismatch")
+	}
+	if r.Rejection != "" {
+		return nil
+	}
+	delivery, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	stopRenewal := d.renewCoreReceipt(delivery, r)
+	defer stopRenewal()
+	err = d.sendCoreReceipt(delivery, r)
+	var failed coreDeliveryError
+	if errors.As(err, &failed) {
+		slog.Warn("Coresearch receipt retained", "work", r.ID, "err", err)
+		return nil
+	}
+	return err
+}
+
+// Unpublished directories contain no execution authority. Preserve them outside
+// the active scan, without interpreting temporary JSON or preventing unrelated
+// published work from recovering. A valid finish receipt always takes priority.
+func (d *daemon) quarantineCoresearch(dir string) error {
+	root := filepath.Join(d.cfg.StateDir, "coresearch-unpublished")
+	if err := privateDir(root); err != nil {
+		return err
+	}
+	if err := syncDir(d.cfg.StateDir); err != nil {
+		return err
+	}
+	if err := os.Rename(dir, filepath.Join(root, filepath.Base(dir)+"-"+uuid.NewString())); err != nil {
+		return err
+	}
+	return errors.Join(syncDir(root), syncDir(filepath.Dir(dir)))
+}
+func validCoreReceiptName(name string) bool {
+	if len(name) != 73 || name[36] != '-' {
+		return false
+	}
+	id, first := uuid.Parse(name[:36])
+	token, second := uuid.Parse(name[37:])
+	return first == nil && second == nil && id != uuid.Nil && token != uuid.Nil
 }
 func (d *daemon) recoverCoresearch() error {
 	root := filepath.Join(d.cfg.StateDir, "coresearch-receipts")
@@ -263,14 +358,8 @@ func (d *daemon) recoverCoresearch() error {
 		dir := filepath.Join(root, entry.Name())
 		if strings.HasPrefix(entry.Name(), ".ack-") {
 			name := strings.TrimPrefix(entry.Name(), ".ack-")
-			if len(name) != 73 {
+			if !validCoreReceiptName(name) {
 				return errors.New("invalid acknowledged receipt")
-			}
-			if _, e := uuid.Parse(name[:36]); e != nil {
-				return e
-			}
-			if _, e := uuid.Parse(name[37:]); e != nil {
-				return e
 			}
 			if e := os.RemoveAll(dir); e != nil {
 				return e
@@ -280,20 +369,29 @@ func (d *daemon) recoverCoresearch() error {
 			}
 			continue
 		}
-		if strings.Contains(entry.Name(), "/") {
+		if !validCoreReceiptName(entry.Name()) {
 			return errors.New("invalid receipt directory")
 		}
+		if completed, err := readCoreReceipt(filepath.Join(dir, "finish.json")); err == nil {
+			if d.coreReceiptDir(completed) != dir {
+				return errors.New("Coresearch receipt identity mismatch")
+			}
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		r, e := readCoreReceipt(filepath.Join(dir, "claim.json"))
+		if errors.Is(e, os.ErrNotExist) {
+			if e = d.quarantineCoresearch(dir); e != nil {
+				return e
+			}
+			continue
+		}
 		if e != nil {
 			return e
 		}
 		if d.coreReceiptDir(r) != dir {
 			return errors.New("Coresearch journal identity mismatch")
-		}
-		if _, e = readCoreReceipt(filepath.Join(dir, "finish.json")); e == nil {
-			continue
-		} else if !errors.Is(e, os.ErrNotExist) {
-			return e
 		}
 		r.Body = mustMarshal(coreFailure(r.Kind, nil))
 		if e = atomicJSON(dir, "finish.json", r); e != nil {
