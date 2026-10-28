@@ -139,6 +139,18 @@ func daemonMessagePost(r *http.Request) bool {
 
 // JSONBodyLimit is shared by pre-transaction buffering and strict decoding.
 func JSONBodyLimit(r *http.Request) int64 {
+	// A one MiB document may expand sixfold in its JSON representation.
+	if r.Method == http.MethodPost {
+		p := strings.Split(r.URL.Path, "/")
+		if len(p) == 8 && p[1] == "api" && p[2] == "coresearch" && p[3] == "projects" && p[5] == "docs" && p[7] == "steps" {
+			if _, e := uuid.Parse(p[4]); e == nil {
+				if _, e := uuid.Parse(p[6]); e == nil {
+					return 7 << 20
+				}
+			}
+		}
+	}
+
 	if coresearchDaemonRoute(r, "cells", "finish") && r.Method == http.MethodPost {
 		return 21 << 20
 	}

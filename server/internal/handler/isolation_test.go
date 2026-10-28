@@ -72,9 +72,25 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if code := s.call(t, "POST", csProjects, a, wa.ID, map[string]string{"name": "Isolation Coresearch"}, &cs); code != 201 {
 		t.Fatalf("Coresearch fixture: %d", code)
 	}
-	code, version := csUpload(t, s, a, wa.ID, cs.ID, "fixture.txt", 0, false, []byte("fixture"))
+	code, version := csUpload(t, s, a, wa.ID, cs.ID, "fixture.tex", 0, false, []byte("fixture"))
 	if code != 201 {
 		t.Fatalf("Coresearch file fixture: %d", code)
+	}
+
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE coresearch_project SET mode='cowrite' WHERE id=$1`, cs.ID); err != nil {
+		t.Fatal(err)
+	}
+	docURL := csProjects + "/" + cs.ID + "/docs/" + version.FileID.String()
+	for _, suffix := range []string{"", "/steps?after=0", "/presence"} {
+		if code := s.call(t, "GET", docURL+suffix, a, wa.ID, nil, nil); code != 200 {
+			t.Fatalf("owner document %s: %d", suffix, code)
+		}
+	}
+	if code := s.call(t, "POST", docURL+"/cursor", a, wa.ID, map[string]int{"anchor": 0, "head": 0}, nil); code != 204 {
+		t.Fatalf("owner cursor: %d", code)
+	}
+	if code := s.call(t, "POST", docURL+"/steps", a, wa.ID, map[string]any{"base": 0, "client_id": "owner", "steps": []any{[]any{7}}}, nil); code != 200 {
+		t.Fatalf("owner document step: %d", code)
 	}
 	var welcome struct{ Conversation struct{ ID string } }
 	if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, wa.ID, nil, &welcome); code != 200 || welcome.Conversation.ID == "" {
@@ -153,6 +169,10 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			body = map[string]string{"body": "outsider", "request_id": uuid.NewString()}
 		case route == "/api/coresearch/projects" || route == "/api/coresearch/projects/{project}":
 			body = map[string]string{"name": "outsider"}
+		case route == "/api/coresearch/projects/{project}/docs/{file}/steps":
+			body = map[string]any{"base": 0, "client_id": "outsider", "steps": []any{[]any{0}}}
+		case route == "/api/coresearch/projects/{project}/docs/{file}/cursor":
+			body = map[string]int{"anchor": 0, "head": 0}
 		case route == "/api/coresearch/projects/{project}/members":
 			body = map[string]string{"user_id": s.userID(t, b), "role": "member"}
 		case strings.HasSuffix(route, "/restore"):

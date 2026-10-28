@@ -412,6 +412,7 @@ type CoresearchDoc struct {
 	WorkspaceID       uuid.UUID `json:"workspace_id"`
 	FileID            uuid.UUID `json:"file_id"`
 	Version           int64     `json:"version"`
+	InitialText       string    `json:"initial_text"`
 	CheckpointText    string    `json:"checkpoint_text"`
 	CheckpointVersion int64     `json:"checkpoint_version"`
 	UpdatedAt         time.Time `json:"updated_at"`

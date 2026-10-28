@@ -165,6 +165,9 @@ func NewRouter(h *H) http.Handler {
 		// The upload checks membership itself and streams its body to storage.
 		r.Post("/api/attachments", h.uploadAttachment)
 		r.Post("/api/coresearch/projects/{project}/files", h.uploadCoresearchFile)
+		r.Get("/api/coresearch/projects/{project}/docs/{file}", h.openCoresearchDoc)
+		r.Post("/api/coresearch/projects/{project}/docs/{file}/cursor", h.coresearchDocPresence)
+		r.Get("/api/coresearch/projects/{project}/docs/{file}/presence", h.coresearchDocPresence)
 		r.Get("/api/coresearch/projects/{project}/files/{file}/versions/{n}/content", h.downloadCoresearchFile)
 		r.Get("/api/coresearch/projects/{project}/chats/{chat}/cells/{cell}/outputs", h.coresearchCellOutputs)
 		r.Get("/api/cards/{id}/attachments/{aid}", h.downloadAttachment)
@@ -225,6 +228,8 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/coresearch/projects/{project}/members", h.setCoresearchMember)
 			r.Delete("/api/coresearch/projects/{project}/members/{user}", h.deleteCoresearchMember)
 			r.Get("/api/coresearch/projects/{project}/files", h.listCoresearchFiles)
+			r.Get("/api/coresearch/projects/{project}/docs/{file}/steps", h.coresearchDocSteps)
+			r.Post("/api/coresearch/projects/{project}/docs/{file}/steps", h.coresearchDocSteps)
 			r.Get("/api/coresearch/projects/{project}/files/{file}/versions", h.coresearchVersions)
 			r.Post("/api/coresearch/projects/{project}/files/{file}/restore", h.restoreCoresearchFile)
 			r.Post("/api/coresearch/projects/{project}/chats/{chat}/cells", h.coresearchCells)

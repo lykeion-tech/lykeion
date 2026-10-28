@@ -21,6 +21,7 @@ CREATE TABLE coresearch_doc (
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
   file_id uuid PRIMARY KEY,
   version bigint NOT NULL DEFAULT 0,
+  initial_text text NOT NULL,
   checkpoint_text text NOT NULL,
   checkpoint_version bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now(),

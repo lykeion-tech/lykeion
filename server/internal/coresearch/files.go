@@ -18,6 +18,8 @@ var MaxProjectBytes int64 = 2 << 30
 const MaxFileBytes int64 = 50 << 20
 const MaxTextBytes int64 = 1 << 20
 
+var ErrLiveDocument = errors.New("live document")
+
 var ErrArchived = errors.New("project is archived")
 var ErrQuota = errors.New("project files exceed the storage limit")
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -63,6 +65,11 @@ func SaveVersion(ctx context.Context, tx *store.Tx, in SaveIn) (db.CoresearchFil
 	}
 	file, err := tx.Q.LockCoresearchFile(ctx, db.LockCoresearchFileParams{WorkspaceID: in.Workspace, ProjectID: in.Project, Path: clean})
 	if err != nil {
+		return zero, err
+	}
+	if _, err := tx.Q.GetCoresearchDoc(ctx, db.GetCoresearchDocParams{WorkspaceID: in.Workspace, FileID: file.ID}); err == nil {
+		return zero, ErrLiveDocument
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return zero, err
 	}
 	head, err := tx.Q.CoresearchFileHead(ctx, db.CoresearchFileHeadParams{WorkspaceID: in.Workspace, FileID: file.ID})

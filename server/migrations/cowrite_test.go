@@ -57,7 +57,7 @@ func TestCowriteMigration(t *testing.T) {
 	for i, p := range []uuid.UUID{project, private} {
 		exec(`INSERT INTO coresearch_file(id,workspace_id,project_id,path) VALUES ($1,$2,$3,'main.tex')`, files[i], ws, p)
 		exec(`INSERT INTO coresearch_chat(id,workspace_id,project_id,owner_id,mode,cli) VALUES ($1,$2,$3,$4,'cowrite','claude')`, chats[i], ws, p, owner)
-		exec(`INSERT INTO coresearch_doc(workspace_id,file_id,checkpoint_text) VALUES ($1,$2,'paper')`, ws, files[i])
+		exec(`INSERT INTO coresearch_doc(workspace_id,file_id,initial_text,checkpoint_text) VALUES ($1,$2,'paper','paper')`, ws, files[i])
 		exec(`INSERT INTO coresearch_doc_step(workspace_id,file_id,version,author_user_id,client_id,changes) VALUES ($1,$2,1,$3,'client','{}')`, ws, files[i], owner)
 		exec(`INSERT INTO coresearch_proposal(id,workspace_id,project_id,chat_id,created_by) VALUES ($1,$2,$3,$4,$5)`, proposals[i], ws, p, chats[i], owner)
 		exec(`INSERT INTO coresearch_change(workspace_id,proposal_id,file_id,from_pos,to_pos,removed_text,status) VALUES ($1,$2,$3,0,0,'','pending')`, ws, proposals[i], files[i])

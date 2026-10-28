@@ -430,3 +430,19 @@ func TestPersonCellOutputExactBounds(t *testing.T) {
 		}
 	})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", route, nil).WithContext(ctx))
 }
+
+func TestDocStepsEscapedTextBounds(t *testing.T) {
+	path := "/api/coresearch/projects/00000000-0000-0000-0000-000000000001/docs/00000000-0000-0000-0000-000000000002/steps"
+	body := `{"base":0,"client_id":"x","steps":[[[0,"` + strings.Repeat(`\u0061`, 1<<20) + `"]]]}`
+	called := false
+	handler := RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true; w.WriteHeader(204) }))
+	req := httptest.NewRequest("POST", path, strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if !called || rec.Code != 204 {
+		t.Fatalf("escaped text refused: %d", rec.Code)
+	}
+	if n := JSONBodyLimit(httptest.NewRequest("POST", path+"/other", nil)); n != MaxBodyBytes {
+		t.Fatalf("nonmatching route limit %d", n)
+	}
+}
