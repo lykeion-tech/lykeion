@@ -82,6 +82,57 @@ func (q *Queries) CoresearchPresenceMembers(ctx context.Context, arg CoresearchP
 	return items, nil
 }
 
+const decideCoresearchChange = `-- name: DecideCoresearchChange :exec
+UPDATE coresearch_change SET status= $1,decided_by= $2,decided_at=now() WHERE workspace_id= $3 AND id= $4
+`
+
+type DecideCoresearchChangeParams struct {
+	Status      string     `json:"status"`
+	DecidedBy   *uuid.UUID `json:"decided_by"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+}
+
+func (q *Queries) DecideCoresearchChange(ctx context.Context, arg DecideCoresearchChangeParams) error {
+	_, err := q.db.Exec(ctx, decideCoresearchChange,
+		arg.Status,
+		arg.DecidedBy,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	return err
+}
+
+const getCoresearchChange = `-- name: GetCoresearchChange :one
+SELECT c.id, c.workspace_id, c.proposal_id, c.file_id, c.from_pos, c.to_pos, c.removed_text, c.file_action, c.status, c.decided_by, c.decided_at, c.created_at FROM coresearch_change c JOIN coresearch_file f ON f.workspace_id=c.workspace_id AND f.id=c.file_id WHERE c.workspace_id= $1 AND c.id= $2 AND f.project_id= $3 FOR UPDATE OF c
+`
+
+type GetCoresearchChangeParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+}
+
+func (q *Queries) GetCoresearchChange(ctx context.Context, arg GetCoresearchChangeParams) (CoresearchChange, error) {
+	row := q.db.QueryRow(ctx, getCoresearchChange, arg.WorkspaceID, arg.ID, arg.ProjectID)
+	var i CoresearchChange
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProposalID,
+		&i.FileID,
+		&i.FromPos,
+		&i.ToPos,
+		&i.RemovedText,
+		&i.FileAction,
+		&i.Status,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getCoresearchDoc = `-- name: GetCoresearchDoc :one
 SELECT workspace_id, file_id, version, initial_text, checkpoint_text, checkpoint_version, updated_at FROM coresearch_doc WHERE workspace_id= $1 AND file_id= $2
 `
@@ -102,6 +153,96 @@ func (q *Queries) GetCoresearchDoc(ctx context.Context, arg GetCoresearchDocPara
 		&i.CheckpointText,
 		&i.CheckpointVersion,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getCoresearchRetainedFile = `-- name: GetCoresearchRetainedFile :one
+SELECT id, workspace_id, project_id, path, deleted_at FROM coresearch_file WHERE workspace_id= $1 AND project_id= $2 AND id= $3
+`
+
+type GetCoresearchRetainedFileParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) GetCoresearchRetainedFile(ctx context.Context, arg GetCoresearchRetainedFileParams) (CoresearchFile, error) {
+	row := q.db.QueryRow(ctx, getCoresearchRetainedFile, arg.WorkspaceID, arg.ProjectID, arg.ID)
+	var i CoresearchFile
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Path,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getCoresearchVersion = `-- name: GetCoresearchVersion :one
+SELECT id, workspace_id, project_id, seq, title, by_user_id, build_id, files, created_at FROM coresearch_version WHERE workspace_id= $1 AND project_id= $2 AND seq= $3
+`
+
+type GetCoresearchVersionParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	Seq         int32     `json:"seq"`
+}
+
+func (q *Queries) GetCoresearchVersion(ctx context.Context, arg GetCoresearchVersionParams) (CoresearchVersion, error) {
+	row := q.db.QueryRow(ctx, getCoresearchVersion, arg.WorkspaceID, arg.ProjectID, arg.Seq)
+	var i CoresearchVersion
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Seq,
+		&i.Title,
+		&i.ByUserID,
+		&i.BuildID,
+		&i.Files,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertCoresearchChange = `-- name: InsertCoresearchChange :one
+INSERT INTO coresearch_change(workspace_id,proposal_id,file_id,from_pos,to_pos,removed_text,status) VALUES($1,$2,$3,$4,$5,$6,'pending') RETURNING id, workspace_id, proposal_id, file_id, from_pos, to_pos, removed_text, file_action, status, decided_by, decided_at, created_at
+`
+
+type InsertCoresearchChangeParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProposalID  uuid.UUID `json:"proposal_id"`
+	FileID      uuid.UUID `json:"file_id"`
+	FromPos     int32     `json:"from_pos"`
+	ToPos       int32     `json:"to_pos"`
+	RemovedText string    `json:"removed_text"`
+}
+
+func (q *Queries) InsertCoresearchChange(ctx context.Context, arg InsertCoresearchChangeParams) (CoresearchChange, error) {
+	row := q.db.QueryRow(ctx, insertCoresearchChange,
+		arg.WorkspaceID,
+		arg.ProposalID,
+		arg.FileID,
+		arg.FromPos,
+		arg.ToPos,
+		arg.RemovedText,
+	)
+	var i CoresearchChange
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProposalID,
+		&i.FileID,
+		&i.FromPos,
+		&i.ToPos,
+		&i.RemovedText,
+		&i.FileAction,
+		&i.Status,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -146,6 +287,85 @@ func (q *Queries) InsertCoresearchDocStep(ctx context.Context, arg InsertCoresea
 		arg.Changes,
 	)
 	return err
+}
+
+const insertCoresearchProposal = `-- name: InsertCoresearchProposal :one
+INSERT INTO coresearch_proposal(workspace_id,project_id,chat_id,agent_run_id,restore_of,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id, workspace_id, project_id, chat_id, agent_run_id, restore_of, created_by, created_at
+`
+
+type InsertCoresearchProposalParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ProjectID   uuid.UUID  `json:"project_id"`
+	ChatID      *uuid.UUID `json:"chat_id"`
+	AgentRunID  *uuid.UUID `json:"agent_run_id"`
+	RestoreOf   *int32     `json:"restore_of"`
+	CreatedBy   *uuid.UUID `json:"created_by"`
+}
+
+func (q *Queries) InsertCoresearchProposal(ctx context.Context, arg InsertCoresearchProposalParams) (CoresearchProposal, error) {
+	row := q.db.QueryRow(ctx, insertCoresearchProposal,
+		arg.WorkspaceID,
+		arg.ProjectID,
+		arg.ChatID,
+		arg.AgentRunID,
+		arg.RestoreOf,
+		arg.CreatedBy,
+	)
+	var i CoresearchProposal
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.ChatID,
+		&i.AgentRunID,
+		&i.RestoreOf,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listCoresearchChanges = `-- name: ListCoresearchChanges :many
+SELECT id, workspace_id, proposal_id, file_id, from_pos, to_pos, removed_text, file_action, status, decided_by, decided_at, created_at FROM coresearch_change WHERE workspace_id= $1 AND file_id= $2 AND ($3::text='' OR status=$3::text) ORDER BY created_at,id
+`
+
+type ListCoresearchChangesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	FileID      uuid.UUID `json:"file_id"`
+	Status      string    `json:"status"`
+}
+
+func (q *Queries) ListCoresearchChanges(ctx context.Context, arg ListCoresearchChangesParams) ([]CoresearchChange, error) {
+	rows, err := q.db.Query(ctx, listCoresearchChanges, arg.WorkspaceID, arg.FileID, arg.Status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CoresearchChange
+	for rows.Next() {
+		var i CoresearchChange
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ProposalID,
+			&i.FileID,
+			&i.FromPos,
+			&i.ToPos,
+			&i.RemovedText,
+			&i.FileAction,
+			&i.Status,
+			&i.DecidedBy,
+			&i.DecidedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCoresearchCommentRanges = `-- name: ListCoresearchCommentRanges :many
@@ -237,7 +457,7 @@ func (q *Queries) ListCoresearchDocSteps(ctx context.Context, arg ListCoresearch
 }
 
 const listCoresearchPendingRanges = `-- name: ListCoresearchPendingRanges :many
-SELECT id, workspace_id, proposal_id, file_id, from_pos, to_pos, removed_text, status, decided_by, decided_at, created_at FROM coresearch_change WHERE workspace_id= $1 AND file_id= $2 AND status IN ('pending','stale') ORDER BY id FOR UPDATE
+SELECT id, workspace_id, proposal_id, file_id, from_pos, to_pos, removed_text, file_action, status, decided_by, decided_at, created_at FROM coresearch_change WHERE workspace_id= $1 AND file_id= $2 AND status IN ('pending','stale') ORDER BY id FOR UPDATE
 `
 
 type ListCoresearchPendingRangesParams struct {
@@ -262,9 +482,84 @@ func (q *Queries) ListCoresearchPendingRanges(ctx context.Context, arg ListCores
 			&i.FromPos,
 			&i.ToPos,
 			&i.RemovedText,
+			&i.FileAction,
 			&i.Status,
 			&i.DecidedBy,
 			&i.DecidedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCoresearchRetainedFiles = `-- name: ListCoresearchRetainedFiles :many
+SELECT id, workspace_id, project_id, path, deleted_at FROM coresearch_file WHERE workspace_id= $1 AND project_id= $2 ORDER BY path
+`
+
+type ListCoresearchRetainedFilesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+}
+
+func (q *Queries) ListCoresearchRetainedFiles(ctx context.Context, arg ListCoresearchRetainedFilesParams) ([]CoresearchFile, error) {
+	rows, err := q.db.Query(ctx, listCoresearchRetainedFiles, arg.WorkspaceID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CoresearchFile
+	for rows.Next() {
+		var i CoresearchFile
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ProjectID,
+			&i.Path,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCoresearchVersions = `-- name: ListCoresearchVersions :many
+SELECT id, workspace_id, project_id, seq, title, by_user_id, build_id, files, created_at FROM coresearch_version WHERE workspace_id= $1 AND project_id= $2 ORDER BY seq DESC
+`
+
+type ListCoresearchVersionsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+}
+
+func (q *Queries) ListCoresearchVersions(ctx context.Context, arg ListCoresearchVersionsParams) ([]CoresearchVersion, error) {
+	rows, err := q.db.Query(ctx, listCoresearchVersions, arg.WorkspaceID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CoresearchVersion
+	for rows.Next() {
+		var i CoresearchVersion
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ProjectID,
+			&i.Seq,
+			&i.Title,
+			&i.ByUserID,
+			&i.BuildID,
+			&i.Files,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -340,6 +635,42 @@ func (q *Queries) MapCoresearchComment(ctx context.Context, arg MapCoresearchCom
 		arg.FromPos,
 		arg.ToPos,
 		arg.WorkspaceID,
+		arg.ID,
+	)
+	return err
+}
+
+const setCoresearchChangeFileAction = `-- name: SetCoresearchChangeFileAction :exec
+UPDATE coresearch_change SET file_action= $1 WHERE workspace_id= $2 AND id= $3
+`
+
+type SetCoresearchChangeFileActionParams struct {
+	FileAction  string    `json:"file_action"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SetCoresearchChangeFileAction(ctx context.Context, arg SetCoresearchChangeFileActionParams) error {
+	_, err := q.db.Exec(ctx, setCoresearchChangeFileAction, arg.FileAction, arg.WorkspaceID, arg.ID)
+	return err
+}
+
+const setCoresearchFileDeleted = `-- name: SetCoresearchFileDeleted :exec
+UPDATE coresearch_file SET deleted_at=CASE WHEN $1::boolean THEN now() ELSE NULL END WHERE workspace_id= $2 AND project_id= $3 AND id= $4
+`
+
+type SetCoresearchFileDeletedParams struct {
+	Deleted     bool      `json:"deleted"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SetCoresearchFileDeleted(ctx context.Context, arg SetCoresearchFileDeletedParams) error {
+	_, err := q.db.Exec(ctx, setCoresearchFileDeleted,
+		arg.Deleted,
+		arg.WorkspaceID,
+		arg.ProjectID,
 		arg.ID,
 	)
 	return err

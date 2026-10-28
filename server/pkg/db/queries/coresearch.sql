@@ -43,10 +43,10 @@ INSERT INTO coresearch_file(workspace_id,project_id,path) VALUES(@workspace_id,@
 SELECT * FROM coresearch_file WHERE workspace_id = @workspace_id AND project_id = @project_id AND path = @path FOR UPDATE;
 
 -- name: GetCoresearchFile :one
-SELECT * FROM coresearch_file WHERE workspace_id = @workspace_id AND project_id = @project_id AND id = @id;
+SELECT * FROM coresearch_file WHERE workspace_id = @workspace_id AND project_id = @project_id AND id = @id AND deleted_at IS NULL;
 
 -- name: ListCoresearchFiles :many
-SELECT * FROM coresearch_file WHERE workspace_id = @workspace_id AND project_id = @project_id ORDER BY path;
+SELECT * FROM coresearch_file WHERE workspace_id = @workspace_id AND project_id = @project_id AND deleted_at IS NULL ORDER BY path;
 
 -- name: CoresearchFileHead :one
 SELECT * FROM coresearch_file_version WHERE workspace_id = @workspace_id AND file_id = @file_id ORDER BY n DESC LIMIT 1;

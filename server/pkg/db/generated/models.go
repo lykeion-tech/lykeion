@@ -354,6 +354,7 @@ type CoresearchChange struct {
 	FromPos     int32      `json:"from_pos"`
 	ToPos       int32      `json:"to_pos"`
 	RemovedText string     `json:"removed_text"`
+	FileAction  string     `json:"file_action"`
 	Status      string     `json:"status"`
 	DecidedBy   *uuid.UUID `json:"decided_by"`
 	DecidedAt   *time.Time `json:"decided_at"`
@@ -430,10 +431,11 @@ type CoresearchDocStep struct {
 }
 
 type CoresearchFile struct {
-	ID          uuid.UUID `json:"id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	ProjectID   uuid.UUID `json:"project_id"`
-	Path        string    `json:"path"`
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ProjectID   uuid.UUID  `json:"project_id"`
+	Path        string     `json:"path"`
+	DeletedAt   *time.Time `json:"deleted_at"`
 }
 
 type CoresearchFileVersion struct {

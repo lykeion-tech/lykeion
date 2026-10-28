@@ -1,3 +1,4 @@
+ALTER TABLE coresearch_file ADD COLUMN deleted_at timestamptz;
 UPDATE coresearch_turn_receipt SET body=jsonb_build_object('Body',body,'Mode','','Template','','Model',NULL,'Attachments',NULL)::text;
 
 ALTER TABLE coresearch_conversation DROP CONSTRAINT coresearch_conversation_project_id_key;
@@ -70,6 +71,7 @@ CREATE TABLE coresearch_change (
   from_pos int NOT NULL,
   to_pos int NOT NULL,
   removed_text text NOT NULL,
+  file_action text NOT NULL DEFAULT '' CHECK (file_action IN ('','remove','restore')),
   status text NOT NULL CHECK (status IN ('pending','kept','undone','stale')),
   decided_by uuid REFERENCES "user" ON DELETE SET NULL,
   decided_at timestamptz,

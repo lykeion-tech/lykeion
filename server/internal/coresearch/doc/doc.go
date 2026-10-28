@@ -24,9 +24,10 @@ type Doc struct {
 // File carries an immutable blob hydrated before entering a transaction. InitialHead
 // is required only for the first Open; already-open documents use their journal.
 type File struct {
-	Record      db.CoresearchFile
-	InitialText string
-	InitialHead int32
+	Record        db.CoresearchFile
+	InitialText   string
+	InitialHead   int32
+	validatedText bool
 }
 type Author struct{ UserID, AgentRunID *uuid.UUID }
 type Step struct {
@@ -45,8 +46,13 @@ func Eligible(f db.CoresearchFile) bool {
 	return ext == ".tex" || ext == ".bib"
 }
 func lock(ctx context.Context, tx *store.Tx, f File) error {
-	if f.Record.WorkspaceID != tx.WS || !Eligible(f.Record) {
+	if f.Record.WorkspaceID != tx.WS {
 		return pgx.ErrNoRows
+	}
+	if !Eligible(f.Record) && !f.validatedText {
+		if _, e := tx.Q.GetCoresearchDoc(ctx, db.GetCoresearchDocParams{WorkspaceID: tx.WS, FileID: f.Record.ID}); e != nil {
+			return e
+		}
 	}
 	p, e := tx.Q.LockCoresearchProject(ctx, db.LockCoresearchProjectParams{WorkspaceID: tx.WS, ID: f.Record.ProjectID})
 	if e != nil {
@@ -57,6 +63,16 @@ func lock(ctx context.Context, tx *store.Tx, f File) error {
 	}
 	_, e = tx.Q.LockCoresearchFile(ctx, db.LockCoresearchFileParams{WorkspaceID: tx.WS, ProjectID: f.Record.ProjectID, Path: f.Record.Path})
 	return e
+}
+
+// OpenText initializes a validated UTF-8 text source for whole-paper restore.
+// Existing journals remain live regardless of filename extension.
+func OpenText(ctx context.Context, tx *store.Tx, f File) (Doc, error) {
+	if !utf8.ValidString(f.InitialText) || strings.ContainsRune(f.InitialText, 0) || len(f.InitialText) > MaxTextBytes {
+		return Doc{}, ErrInvalid
+	}
+	f.validatedText = true
+	return Open(ctx, tx, f)
 }
 func Open(ctx context.Context, tx *store.Tx, f File) (Doc, error) {
 	if e := lock(ctx, tx, f); e != nil {
@@ -209,9 +225,16 @@ func mapRanges(ctx context.Context, tx *store.Tx, f File, c ChangeSet) error {
 	if e != nil {
 		return e
 	}
+	changed := false
+	for _, section := range c.sections {
+		if section.insert != nil && (section.length > 0 || *section.insert != "") {
+			changed = true
+			break
+		}
+	}
 	for _, r := range changes {
 		status := r.Status
-		if c.Touches(int(r.FromPos), int(r.ToPos)) {
+		if c.Touches(int(r.FromPos), int(r.ToPos)) || r.FileAction == "remove" && changed {
 			status = "stale"
 		}
 		from, to := c.MapPos(int(r.FromPos), 1), c.MapPos(int(r.ToPos), -1)

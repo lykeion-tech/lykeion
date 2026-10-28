@@ -493,7 +493,7 @@ func (q *Queries) GetCoresearchChat(ctx context.Context, arg GetCoresearchChatPa
 }
 
 const getCoresearchFile = `-- name: GetCoresearchFile :one
-SELECT id, workspace_id, project_id, path FROM coresearch_file WHERE workspace_id = $1 AND project_id = $2 AND id = $3
+SELECT id, workspace_id, project_id, path, deleted_at FROM coresearch_file WHERE workspace_id = $1 AND project_id = $2 AND id = $3 AND deleted_at IS NULL
 `
 
 type GetCoresearchFileParams struct {
@@ -510,6 +510,7 @@ func (q *Queries) GetCoresearchFile(ctx context.Context, arg GetCoresearchFilePa
 		&i.WorkspaceID,
 		&i.ProjectID,
 		&i.Path,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -733,7 +734,7 @@ func (q *Queries) ListCoresearchFileVersions(ctx context.Context, arg ListCorese
 }
 
 const listCoresearchFiles = `-- name: ListCoresearchFiles :many
-SELECT id, workspace_id, project_id, path FROM coresearch_file WHERE workspace_id = $1 AND project_id = $2 ORDER BY path
+SELECT id, workspace_id, project_id, path, deleted_at FROM coresearch_file WHERE workspace_id = $1 AND project_id = $2 AND deleted_at IS NULL ORDER BY path
 `
 
 type ListCoresearchFilesParams struct {
@@ -755,6 +756,7 @@ func (q *Queries) ListCoresearchFiles(ctx context.Context, arg ListCoresearchFil
 			&i.WorkspaceID,
 			&i.ProjectID,
 			&i.Path,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -936,7 +938,7 @@ func (q *Queries) LockCoresearchChat(ctx context.Context, arg LockCoresearchChat
 }
 
 const lockCoresearchFile = `-- name: LockCoresearchFile :one
-SELECT id, workspace_id, project_id, path FROM coresearch_file WHERE workspace_id = $1 AND project_id = $2 AND path = $3 FOR UPDATE
+SELECT id, workspace_id, project_id, path, deleted_at FROM coresearch_file WHERE workspace_id = $1 AND project_id = $2 AND path = $3 FOR UPDATE
 `
 
 type LockCoresearchFileParams struct {
@@ -953,6 +955,7 @@ func (q *Queries) LockCoresearchFile(ctx context.Context, arg LockCoresearchFile
 		&i.WorkspaceID,
 		&i.ProjectID,
 		&i.Path,
+		&i.DeletedAt,
 	)
 	return i, err
 }

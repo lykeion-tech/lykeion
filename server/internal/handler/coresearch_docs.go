@@ -47,7 +47,9 @@ func docFile(r *http.Request, tx *store.Tx, ws, who uuid.UUID, write bool) (doc.
 		return doc.File{}, e
 	}
 	if !doc.Eligible(f) {
-		return doc.File{}, pgx.ErrNoRows
+		if _, e := tx.Q.GetCoresearchDoc(r.Context(), db.GetCoresearchDocParams{WorkspaceID: ws, FileID: f.ID}); e != nil {
+			return doc.File{}, e
+		}
 	}
 	return doc.File{Record: f}, nil
 }

@@ -22,3 +22,25 @@ SELECT * FROM coresearch_comment WHERE workspace_id= @workspace_id AND file_id= 
 UPDATE coresearch_comment SET from_pos= @from_pos,to_pos= @to_pos WHERE workspace_id= @workspace_id AND id= @id;
 -- name: CoresearchPresenceMembers :many
 SELECT m.user_id,u.name FROM coresearch_member m JOIN "user" u ON u.id=m.user_id WHERE m.workspace_id= @workspace_id AND m.project_id= @project_id;
+-- name: InsertCoresearchProposal :one
+INSERT INTO coresearch_proposal(workspace_id,project_id,chat_id,agent_run_id,restore_of,created_by) VALUES(@workspace_id,@project_id,sqlc.narg(chat_id),sqlc.narg(agent_run_id),sqlc.narg(restore_of),sqlc.narg(created_by)) RETURNING *;
+-- name: InsertCoresearchChange :one
+INSERT INTO coresearch_change(workspace_id,proposal_id,file_id,from_pos,to_pos,removed_text,status) VALUES(@workspace_id,@proposal_id,@file_id,@from_pos,@to_pos,@removed_text,'pending') RETURNING *;
+-- name: GetCoresearchChange :one
+SELECT c.* FROM coresearch_change c JOIN coresearch_file f ON f.workspace_id=c.workspace_id AND f.id=c.file_id WHERE c.workspace_id= @workspace_id AND c.id= @id AND f.project_id= @project_id FOR UPDATE OF c;
+-- name: DecideCoresearchChange :exec
+UPDATE coresearch_change SET status= @status,decided_by= @decided_by,decided_at=now() WHERE workspace_id= @workspace_id AND id= @id;
+-- name: ListCoresearchChanges :many
+SELECT * FROM coresearch_change WHERE workspace_id= @workspace_id AND file_id= @file_id AND (sqlc.arg(status)::text='' OR status=sqlc.arg(status)::text) ORDER BY created_at,id;
+-- name: ListCoresearchVersions :many
+SELECT * FROM coresearch_version WHERE workspace_id= @workspace_id AND project_id= @project_id ORDER BY seq DESC;
+-- name: GetCoresearchVersion :one
+SELECT * FROM coresearch_version WHERE workspace_id= @workspace_id AND project_id= @project_id AND seq= @seq;
+-- name: ListCoresearchRetainedFiles :many
+SELECT * FROM coresearch_file WHERE workspace_id= @workspace_id AND project_id= @project_id ORDER BY path;
+-- name: GetCoresearchRetainedFile :one
+SELECT * FROM coresearch_file WHERE workspace_id= @workspace_id AND project_id= @project_id AND id= @id;
+-- name: SetCoresearchFileDeleted :exec
+UPDATE coresearch_file SET deleted_at=CASE WHEN @deleted::boolean THEN now() ELSE NULL END WHERE workspace_id= @workspace_id AND project_id= @project_id AND id= @id;
+-- name: SetCoresearchChangeFileAction :exec
+UPDATE coresearch_change SET file_action= @file_action WHERE workspace_id= @workspace_id AND id= @id;

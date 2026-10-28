@@ -46,8 +46,9 @@ func prepareChatMetadata(ctx context.Context, dir string) error {
 }
 
 type fillChanges struct {
-	Unsaved  []string
-	Deferred []string
+	Discarded []string
+	Unsaved   []string
+	Deferred  []string
 }
 
 func (d *daemon) fill(ctx context.Context, chat, project uuid.UUID) ([]string, error) {
@@ -91,6 +92,12 @@ func (d *daemon) fillChanges(ctx context.Context, chat, project uuid.UUID) (fill
 		digest, e := hex.DecodeString(ref.SHA256)
 		if e != nil || len(digest) != sha256.Size || ref.N <= 0 || ref.Size < 0 || ref.Size > 50<<20 {
 			return changes, errors.New("invalid saved file reference")
+		}
+		if ref.DocVersion != nil {
+			if e = d.fillLiveFile(ctx, h, f, m, ref, &changes); e != nil {
+				return changes, e
+			}
+			continue
 		}
 		local, e := fillDigest(f, name)
 		if e != nil {
@@ -209,4 +216,57 @@ func (w *fillWriter) Write(p []byte) (int, error) {
 }
 func (d *daemon) chatFolder(chat uuid.UUID) string {
 	return filepath.Join(d.cfg.Home, "coresearch", chat.String())
+}
+
+func (d *daemon) fillLiveFile(ctx context.Context, h *chatHost, f *localfiles.Folder, m *localfiles.Manifest, ref coresearch.FileRef, changes *fillChanges) error {
+	if ref.Size > coresearch.MaxTextBytes || *ref.DocVersion < 0 {
+		return errors.New("invalid live document reference")
+	}
+	stage, e := os.CreateTemp("", "lyk-paper-fill-")
+	if e != nil {
+		return e
+	}
+	defer os.Remove(stage.Name())
+	defer stage.Close()
+	hash := sha256.New()
+	bounded := &fillWriter{w: io.MultiWriter(stage, hash), left: ref.Size}
+	if e = d.coreAPI(h.work.WorkspaceID).Download(ctx, d.corePath("blobs/"+ref.SHA256), bounded); e != nil {
+		return e
+	}
+	if bounded.left != 0 || hex.EncodeToString(hash.Sum(nil)) != ref.SHA256 {
+		return errors.New("live snapshot hash mismatch")
+	}
+	if _, e = stage.Seek(0, io.SeekStart); e != nil {
+		return e
+	}
+	h.filesMu.Lock()
+	defer h.filesMu.Unlock()
+	current, e := fillDigest(f, ref.Path)
+	if e != nil {
+		return e
+	}
+	pin := m.Entries[ref.Path]
+	if current != "" && current != ref.SHA256 && (pin.SHA256 == "" || current != pin.SHA256) {
+		changes.Discarded = append(changes.Discarded, ref.Path)
+	}
+	target, e := f.Prepare(ref.Path)
+	if e != nil {
+		return e
+	}
+	defer target.Close()
+	if e = target.Replace(func(w io.Writer) error {
+		_, e := io.Copy(w, stage)
+		if e != nil {
+			return e
+		}
+		file, ok := w.(*os.File)
+		if !ok {
+			return errors.New("snapshot target must be a file")
+		}
+		return file.Chmod(0444)
+	}); e != nil {
+		return e
+	}
+	m.Entries[ref.Path] = localfiles.Pin{N: int(ref.N), SHA256: ref.SHA256}
+	return nil
 }

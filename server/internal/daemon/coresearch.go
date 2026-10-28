@@ -657,6 +657,9 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 		return nil
 	}
 	prompt := c.AgentRun.Prompt
+	for _, path := range changes.Discarded {
+		prompt += "\ndiscarded local edit to " + path
+	}
 	if len(changes.Unsaved) > 0 {
 		prompt += "\nUnsaved local changes: " + strings.Join(changes.Unsaved, ", ")
 	}

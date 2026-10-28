@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/coresearch/doc"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -19,14 +20,34 @@ func EnqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	return enqueueTurn(ctx, tx, runs, chat, user, body, "", "")
 }
 
-func EnqueueAristotleTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string) (db.AgentRun, error) {
-	return enqueueTurn(ctx, tx, runs, chat, user, body, instructions, model)
+func EnqueueAristotleTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, selection ...*Selection) (db.AgentRun, error) {
+	return enqueueTurn(ctx, tx, runs, chat, user, body, instructions, model, selection...)
 }
 
-func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string) (db.AgentRun, error) {
+func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, selections ...*Selection) (db.AgentRun, error) {
 	var zero db.AgentRun
 	if user != chat.OwnerID {
 		return zero, errors.New("chat owner required")
+	}
+	var selection *Selection
+	if len(selections) > 0 && selections[0] != nil {
+		copy := *selections[0]
+		selection = &copy
+		if chat.Mode != "cowrite" {
+			return zero, doc.ErrInvalid
+		}
+		f, e := tx.Q.GetCoresearchFile(ctx, db.GetCoresearchFileParams{WorkspaceID: tx.WS, ProjectID: chat.ProjectID, ID: selection.FileID})
+		if e != nil {
+			return zero, e
+		}
+		d, e := doc.AtVersion(ctx, tx, doc.File{Record: f}, selection.Version)
+		if e != nil {
+			return zero, e
+		}
+		if _, e = doc.Slice(d.Text, selection.From, selection.To); e != nil {
+			return zero, e
+		}
+		selection.Path = f.Path
 	}
 	// The caller holds workspace, project and chat locks before enqueueing.
 	busy, err := tx.Q.CoresearchChatTurnBusy(ctx, db.CoresearchChatTurnBusyParams{WorkspaceID: tx.WS, ChatID: &chat.ID})
@@ -63,7 +84,7 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	if p.PythonVersion != nil {
 		env = "Python " + *p.PythonVersion
 	}
-	prompt := Prompt(PromptIn{ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env})
+	prompt := Prompt(PromptIn{Selection: selection, ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env})
 	if instructions != "" {
 		prompt = "Aristotle instructions:\n" + instructions + "\n\n" + prompt
 	}

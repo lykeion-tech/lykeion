@@ -300,7 +300,7 @@ func (q *Queries) CoresearchExpiredWorkspaces(ctx context.Context) ([]uuid.UUID,
 }
 
 const coresearchFileByPath = `-- name: CoresearchFileByPath :one
-SELECT id, workspace_id, project_id, path FROM coresearch_file WHERE workspace_id= $1 AND project_id= $2 AND path= $3
+SELECT id, workspace_id, project_id, path, deleted_at FROM coresearch_file WHERE workspace_id= $1 AND project_id= $2 AND path= $3 AND deleted_at IS NULL
 `
 
 type CoresearchFileByPathParams struct {
@@ -317,6 +317,7 @@ func (q *Queries) CoresearchFileByPath(ctx context.Context, arg CoresearchFileBy
 		&i.WorkspaceID,
 		&i.ProjectID,
 		&i.Path,
+		&i.DeletedAt,
 	)
 	return i, err
 }

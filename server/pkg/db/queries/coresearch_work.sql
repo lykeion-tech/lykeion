@@ -16,7 +16,7 @@ UPDATE coresearch_chat SET kernel_request= @op,kernel_request_seq=kernel_request
 -- name: ReportCoresearchKernel :exec
 UPDATE coresearch_chat SET kernel_state= @state,kernel_seen_at=now(),kernel_request=CASE WHEN kernel_request_seq= @seq_done THEN NULL ELSE kernel_request END WHERE workspace_id= @workspace_id AND id= @id;
 -- name: CoresearchFileByPath :one
-SELECT * FROM coresearch_file WHERE workspace_id= @workspace_id AND project_id= @project_id AND path= @path;
+SELECT * FROM coresearch_file WHERE workspace_id= @workspace_id AND project_id= @project_id AND path= @path AND deleted_at IS NULL;
 -- name: NextCoresearchRunKey :one
 SELECT ('R'||(coalesce(max(substring(key from 2)::bigint),0)+1))::text AS key FROM coresearch_run WHERE workspace_id= @workspace_id AND project_id= @project_id;
 -- name: EnqueueCoresearchRun :one

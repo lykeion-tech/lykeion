@@ -22,11 +22,12 @@ const MaxCellOutputBytes = 20 << 20
 const InlineCellOutputBytes = 1 << 20
 
 type FileRef struct {
-	Path   string    `json:"path"`
-	FileID uuid.UUID `json:"file_id"`
-	N      int32     `json:"n"`
-	SHA256 string    `json:"sha256"`
-	Size   int64     `json:"size"`
+	DocVersion *int64    `json:"doc_version,omitempty"`
+	Path       string    `json:"path"`
+	FileID     uuid.UUID `json:"file_id"`
+	N          int32     `json:"n"`
+	SHA256     string    `json:"sha256"`
+	Size       int64     `json:"size"`
 }
 type WorkContext struct {
 	ChatID        uuid.UUID `json:"chat_id"`
@@ -118,7 +119,7 @@ func PinnedFile(ctx context.Context, tx *store.Tx, project uuid.UUID, path strin
 	if e != nil {
 		return zero, e
 	}
-	return FileRef{f.Path, f.ID, v.N, v.Sha256, v.Size}, nil
+	return FileRef{Path: f.Path, FileID: f.ID, N: v.N, SHA256: v.Sha256, Size: v.Size}, nil
 }
 func FileRefs(ctx context.Context, tx *store.Tx, project uuid.UUID) ([]FileRef, error) {
 	out := []FileRef{}
@@ -259,7 +260,7 @@ func Claim(ctx context.Context, tx *store.Tx, who uuid.UUID, daemon string, runt
 				version = facts.Version
 			}
 			wc.ClaimToken = *r.ClaimToken
-			out.Runs = append(out.Runs, ClaimedRun{wc, r.ID, r.Key, FileRef{f.Path, f.ID, v.N, v.Sha256, v.Size}, refs, r.Seed, r.ExpectedEnvSha, version})
+			out.Runs = append(out.Runs, ClaimedRun{wc, r.ID, r.Key, FileRef{Path: f.Path, FileID: f.ID, N: v.N, SHA256: v.Sha256, Size: v.Size}, refs, r.Seed, r.ExpectedEnvSha, version})
 			claimed = true
 			if e = Changed(ctx, tx, "run", c, r.ID); e != nil {
 				return out, e

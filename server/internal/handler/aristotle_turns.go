@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/coresearch"
+	"lykeion/server/internal/coresearch/doc"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -20,6 +21,7 @@ type acceptancePayload struct {
 	Body, Mode, Template string
 	Model                *string
 	Attachments          []coresearchAttachment
+	Selection            *coresearch.Selection `json:"Selection,omitempty"`
 }
 
 func sameAcceptancePayload(stored, want string) bool {
@@ -41,6 +43,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		Template    string                 `json:"template,omitempty"`
 		Model       *string                `json:"model,omitempty"`
 		Attachments []coresearchAttachment `json:"attachments,omitempty"`
+		Selection   *coresearch.Selection  `json:"selection,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil || in.RequestID == uuid.Nil || !utf8.ValidString(in.Body) || strings.TrimSpace(in.Body) == "" || len(in.Body) > 262144 {
 		writeErr(w, 400, "body and request_id UUID required")
@@ -56,7 +59,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 	if len(in.Attachments) == 0 {
 		in.Attachments = nil
 	}
-	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Attachments})
+	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Attachments, in.Selection})
 	receiptBody := string(payload)
 	var response json.RawMessage
 	// Staging may outlive another identical request's upload claim. Only a
@@ -297,7 +300,10 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 					return e
 				}
 			}
-			run, e := coresearch.EnqueueAristotleTurn(ctx, tx, h.AgentRuns, chat, who, in.Body, instructions, model)
+			run, e := coresearch.EnqueueAristotleTurn(ctx, tx, h.AgentRuns, chat, who, in.Body, instructions, model, in.Selection)
+			if errors.Is(e, doc.ErrInvalid) {
+				return coresearchInputError("invalid selection version or UTF-16 bounds")
+			}
 			if errors.Is(e, coresearch.ErrTurnRunning) {
 				return conflict(e.Error())
 			}

@@ -92,11 +92,39 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if code := s.call(t, "POST", docURL+"/steps", a, wa.ID, map[string]any{"base": 0, "client_id": "owner", "steps": []any{[]any{7}}}, nil); code != 200 {
 		t.Fatalf("owner document step: %d", code)
 	}
+
+	var proposal, change string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO coresearch_proposal(workspace_id,project_id,created_by) VALUES($1,$2,$3) RETURNING id`, wa.ID, cs.ID, s.userID(t, a)).Scan(&proposal); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO coresearch_change(workspace_id,proposal_id,file_id,from_pos,to_pos,removed_text,status) VALUES($1,$2,$3,0,0,'','pending') RETURNING id`, wa.ID, proposal, version.FileID).Scan(&change); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO coresearch_version(workspace_id,project_id,seq,title,files) VALUES($1,$2,1,'snapshot',jsonb_build_array(jsonb_build_object('file_id',$3::text,'n',1,'path','fixture.tex')))`, wa.ID, cs.ID, version.FileID); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"/versions", "/docs/" + version.FileID.String() + "/changes?status=pending"} {
+		if code := s.call(t, "GET", csProjects+"/"+cs.ID+suffix, a, wa.ID, nil, nil); code != 200 {
+			t.Fatalf("owner paper%s: %d", suffix, code)
+		}
+	}
+	if code := s.call(t, "POST", csProjects+"/"+cs.ID+"/changes/"+change+"/keep", a, wa.ID, nil, nil); code != 200 {
+		t.Fatalf("owner keep %d", code)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE coresearch_change SET status='pending' WHERE id=$1`, change); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "POST", csProjects+"/"+cs.ID+"/changes/"+change+"/undo", a, wa.ID, nil, nil); code != 200 {
+		t.Fatalf("owner undo %d", code)
+	}
+	if code := s.call(t, "POST", csProjects+"/"+cs.ID+"/versions/1/restore", a, wa.ID, nil, nil); code != 201 {
+		t.Fatalf("owner restore %d", code)
+	}
 	var welcome struct{ Conversation struct{ ID string } }
 	if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, wa.ID, nil, &welcome); code != 200 || welcome.Conversation.ID == "" {
 		t.Fatalf("conversation fixture %d", code)
 	}
-	ids := map[string]string{"{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
+	ids := map[string]string{"{change}": change, "{seq}": "1", "{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
 	// Positive controls prove the probed resources resolve for their owner.
 	var ownRun struct {
 		ID     string

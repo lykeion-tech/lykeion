@@ -40,3 +40,12 @@ func TestPromptUsesLastTwentyMessages(t *testing.T) {
 		}
 	}
 }
+
+func TestCowriteSelectionPrompt(t *testing.T) {
+	p := Prompt(PromptIn{Mode: "cowrite", Selection: &Selection{Path: "main.tex", Version: 7, From: 1, To: 3}})
+	for _, s := range []string{"Cowrite", "lyk paper get", "lyk paper edit", "lyk paper build", "main.tex", "\"version\":7", "\"from\":1", "\"to\":3"} {
+		if !strings.Contains(p, s) {
+			t.Fatalf("missing %s in %s", s, p)
+		}
+	}
+}

@@ -67,6 +67,9 @@ func SaveVersion(ctx context.Context, tx *store.Tx, in SaveIn) (db.CoresearchFil
 	if err != nil {
 		return zero, err
 	}
+	if file.DeletedAt != nil {
+		return zero, pgx.ErrNoRows
+	}
 	if _, err := tx.Q.GetCoresearchDoc(ctx, db.GetCoresearchDocParams{WorkspaceID: in.Workspace, FileID: file.ID}); err == nil {
 		return zero, ErrLiveDocument
 	} else if !errors.Is(err, pgx.ErrNoRows) {

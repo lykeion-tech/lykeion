@@ -65,7 +65,7 @@ func RequestBounds(next http.Handler) http.Handler {
 		if attachment || attachmentDownload(r) && !outputDownload(r) {
 			requestTimeout, bodyTimeout = AttachmentRequestTimeout, AttachmentBodyReadTimeout
 		}
-		if output || outputDownload(r) || coresearchUpload || coresearchFileTransfer(r, false) || coresearchWorkTransfer(r, false) || coresearchCellOutputDownload(r) {
+		if output || outputDownload(r) || coresearchUpload || coresearchFileTransfer(r, false) || coresearchWorkTransfer(r, false) || coresearchCellOutputDownload(r) || coresearchPaperTransfer(r) {
 			requestTimeout, bodyTimeout = OutputRequestTimeout, OutputBodyReadTimeout
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/mcp/sources" {
@@ -141,6 +141,9 @@ func daemonMessagePost(r *http.Request) bool {
 func JSONBodyLimit(r *http.Request) int64 {
 	// A one MiB document may expand sixfold in its JSON representation.
 	if r.Method == http.MethodPost {
+		if r.URL.Path == "/api/run/coresearch/paper/edit" {
+			return 7 << 20
+		}
 		p := strings.Split(r.URL.Path, "/")
 		if len(p) == 8 && p[1] == "api" && p[2] == "coresearch" && p[3] == "projects" && p[5] == "docs" && p[7] == "steps" {
 			if _, e := uuid.Parse(p[4]); e == nil {
@@ -325,4 +328,17 @@ func coresearchCellOutputDownload(r *http.Request) bool {
 		}
 	}
 	return true
+}
+
+func coresearchPaperTransfer(r *http.Request) bool {
+	if r.Method == http.MethodGet && (strings.HasPrefix(r.URL.Path, "/api/run/coresearch/paper/") || coresearchDaemonRoute(r, "chats", "files")) {
+		return true
+	}
+	p := strings.Split(r.URL.Path, "/")
+	if r.Method == http.MethodPost && len(p) == 8 && p[1] == "api" && p[2] == "coresearch" && p[3] == "projects" && p[5] == "versions" && p[7] == "restore" {
+		_, e := uuid.Parse(p[4])
+		n, ne := strconv.Atoi(p[6])
+		return e == nil && ne == nil && n > 0
+	}
+	return false
 }

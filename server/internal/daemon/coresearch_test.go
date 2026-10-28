@@ -1240,3 +1240,55 @@ func TestAristotleTurnPropagatesFrozenModel(t *testing.T) {
 		})
 	}
 }
+
+func TestFillLiveDocReadOnly(t *testing.T) {
+	f := newCoreFixture(t)
+	f.saved("main.tex", "live text", 1)
+	version := int64(8)
+	f.files[0].DocVersion = &version
+	changes, e := f.d.fillChanges(t.Context(), f.work.ChatID, f.work.ProjectID)
+	must(t, e)
+	file := filepath.Join(f.dir(), "main.tex")
+	info, e := os.Stat(file)
+	must(t, e)
+	if info.Mode().Perm() != 0444 {
+		t.Fatalf("mode %o", info.Mode().Perm())
+	}
+	must(t, os.Chmod(file, 0600))
+	must(t, os.WriteFile(file, []byte("disk edit"), 0600))
+	f.d.chats[f.work.ChatID].writerLaunched = true
+	changes, e = f.d.fillChanges(t.Context(), f.work.ChatID, f.work.ProjectID)
+	must(t, e)
+	got, e := os.ReadFile(file)
+	must(t, e)
+	info, e = os.Stat(file)
+	must(t, e)
+	if string(got) != "live text" || info.Mode().Perm() != 0444 || !reflect.DeepEqual(changes.Discarded, []string{"main.tex"}) || len(changes.Unsaved) > 0 || len(changes.Deferred) > 0 {
+		t.Fatalf("%q %o %+v", got, info.Mode().Perm(), changes)
+	}
+}
+func TestFillLiveDocDiscardNoticeInPrompt(t *testing.T) {
+	f := newCoreFixture(t)
+	f.saved("main.tex", "paper", 1)
+	version := int64(0)
+	f.files[0].DocVersion = &version
+	_, e := f.d.fillChanges(t.Context(), f.work.ChatID, f.work.ProjectID)
+	must(t, e)
+	file := filepath.Join(f.dir(), "main.tex")
+	must(t, os.Chmod(file, 0600))
+	must(t, os.WriteFile(file, []byte("unsaved"), 0600))
+	called := false
+	f.d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+		return backendFunc(func(_ context.Context, prompt string, _ agent.ExecOptions) (*agent.Session, error) {
+			called = true
+			if !strings.Contains(prompt, "discarded local edit to main.tex") || strings.Contains(prompt, "Unsaved local changes") {
+				t.Fatal(prompt)
+			}
+			return finishedSession(agent.Result{}), nil
+		}), nil
+	}
+	must(t, f.d.runAgentRun(t.Context(), coreTurn(t, f)))
+	if !called {
+		t.Fatal("turn never launched")
+	}
+}

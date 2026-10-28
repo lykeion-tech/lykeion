@@ -102,3 +102,31 @@ for (let round = 0; round < 100; round++) {
   }
 }
 writeFileSync(new URL('../server/internal/coresearch/doc/testdata/interleavings.json',import.meta.url), JSON.stringify({seed:782,initial,initialClients,stats,trace})+'\n');
+
+// Decisions participate in the same journal that stale clients must rebase over.
+seed=1782;
+const decisionInitial='first😀\r\nsecond🧪\r\nthird';
+let decisionText=Text.of(decisionInitial.split('\n'));
+const decisionJournal=[],decisionRanges=[],decisionTrace=[];
+const decisionClients=[0,1,2].map(()=>({version:0,text:decisionInitial,draft:draftFor(decisionInitial)}));
+const decisionInitialClients=decisionClients.map(c=>plainDraft(c.draft));
+let decisionRangeID=0;
+const mapDecisionRanges=change=>{for(const range of decisionRanges){if(!['pending','stale'].includes(range.status))continue;if(overlaps(change,range))range.status='stale';range.from=change.mapPos(range.from,1);range.to=Math.max(range.from,change.mapPos(range.to,-1));}};
+for(let i=0;i<90;i++){
+ const writer=i%3,client=decisionClients[writer],rebases=[];let mapped=client.draft.changes,observed=Text.of(client.text.split('\n'));
+ for(let version=client.version;version<decisionJournal.length;version++){const remote=decisionJournal[version];mapped=mapped.map(remote);observed=remote.apply(observed);rebases.push({version:version+1,remote:remote.toJSON(),changes:mapped.toJSON(),observed:observed.toString(),localResult:mapped.apply(observed).toString()});}
+ const source=decisionText;mapDecisionRanges(mapped);decisionText=mapped.apply(decisionText);decisionJournal.push(mapped);
+ const added=[];if(writer===2)mapped.iterChanges((fromA,toA,fromB,toB,insert)=>{const range={id:decisionRangeID++,from:fromB,to:toB,inserted:insert.toString(),removed:source.sliceString(fromA,toA),status:'pending'};decisionRanges.push(range);added.push({...range});});
+ const nextDraft=draftFor(decisionText.toString());
+ decisionTrace.push({kind:'edit',writer,version:decisionJournal.length,base:client.version,observed:client.text,draft:plainDraft(client.draft),rebases,accepted:mapped.toJSON(),result:decisionText.toString(),added,ranges:decisionRanges.map(r=>({...r})),nextDraft:plainDraft(nextDraft)});
+ client.version=decisionJournal.length;client.text=decisionText.toString();client.draft=nextDraft;
+ if(i%3===2){
+  const actionable=decisionRanges.filter(r=>['pending','stale'].includes(r.status));if(!actionable.length)continue;
+  const target=actionable[random(actionable.length)],keep=target.status==='pending'&&random(2)===0;
+  let changes=null;
+  if(!keep){changes=ChangeSet.of({from:target.from,to:target.to,insert:Text.of(target.removed.split('\n'))},decisionText.length);mapDecisionRanges(changes);decisionText=changes.apply(decisionText);decisionJournal.push(changes);}
+  target.status=keep?'kept':'undone';
+  decisionTrace.push({kind:keep?'keep':'undo',writer:random(2),change:target.id,version:decisionJournal.length,accepted:changes?.toJSON(),result:decisionText.toString(),ranges:decisionRanges.map(r=>({...r}))});
+ }
+}
+writeFileSync(new URL('../server/internal/coresearch/doc/testdata/decisions.json',import.meta.url),JSON.stringify({seed:1782,initial:decisionInitial,initialClients:decisionInitialClients,trace:decisionTrace})+'\n');

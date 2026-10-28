@@ -223,6 +223,12 @@ func Replace(from, to int, insert string, docLen int) ChangeSet {
 		panic("invalid replacement range")
 	}
 	c := ChangeSet{}
+	if from == to && insert == "" {
+		if docLen > 0 {
+			c.sections = append(c.sections, section{length: docLen})
+		}
+		return c
+	}
 	if from > 0 {
 		c.sections = append(c.sections, section{length: from})
 	}

@@ -72,3 +72,5 @@ ALTER TABLE coresearch_project DROP CONSTRAINT coresearch_project_workspace_id_i
 ALTER TABLE coresearch_conversation ADD CONSTRAINT coresearch_conversation_project_id_key UNIQUE (project_id);
 
 UPDATE coresearch_turn_receipt SET body=body::jsonb->>'Body';
+
+ALTER TABLE coresearch_file DROP COLUMN deleted_at;

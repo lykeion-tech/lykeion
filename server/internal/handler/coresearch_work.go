@@ -685,23 +685,12 @@ func (h *H) daemonCoresearchStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (h *H) daemonCoresearchFiles(w http.ResponseWriter, r *http.Request) {
-	var out []coresearch.FileRef
-	e := h.coresearchDaemonTx(r, func(tx *store.Tx, d string) error {
-		id, e := coresearchID(r, "chat")
-		if e != nil {
-			return e
-		}
-		c, e := daemonCoresearchChat(r, tx, id, d)
-		if e != nil {
-			return e
-		}
-		out, e = coresearch.FileRefs(r.Context(), tx, c.ProjectID)
-		return e
-	})
-	if coresearchAnswer(w, r, e) {
+	out, e := h.daemonPaperFiles(r)
+	if paperAnswer(w, r, e) {
 		writeJSON(w, 200, out)
 	}
 }
+
 func (h *H) daemonCoresearchBlob(w http.ResponseWriter, r *http.Request) {
 	var v db.CoresearchFileVersion
 	e := h.coresearchDaemonTx(r, func(tx *store.Tx, d string) error {
