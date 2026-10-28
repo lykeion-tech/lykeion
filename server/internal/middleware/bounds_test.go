@@ -56,7 +56,7 @@ func TestRequestBoundsStreamsOnlyExactBlobPost(t *testing.T) {
 	for _, tc := range []struct {
 		method, path string
 		stream       bool
-	}{{"POST", "/api/role/blobs", true}, {"PUT", "/api/role/blobs", false}, {"POST", "/api/role/blobs/", false}, {"POST", "/api/role/records", false}} {
+	}{{"POST", "/api/coresearch/uploads", true}, {"PUT", "/api/coresearch/uploads", false}, {"POST", "/api/coresearch/uploads/", false}, {"POST", "/api/role/blobs", true}, {"PUT", "/api/role/blobs", false}, {"POST", "/api/role/blobs/", false}, {"POST", "/api/role/records", false}} {
 		body := &countingBody{Reader: strings.NewReader(strings.Repeat("x", MaxBodyBytes+1))}
 		reached := false
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

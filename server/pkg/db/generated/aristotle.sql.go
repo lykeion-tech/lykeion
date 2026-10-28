@@ -29,6 +29,42 @@ func (q *Queries) AristotleRuntimeAvailable(ctx context.Context, arg AristotleRu
 	return column_1, err
 }
 
+const aristotleRuntimeModelAvailable = `-- name: AristotleRuntimeModelAvailable :one
+SELECT EXISTS(SELECT 1 FROM runtime r WHERE r.workspace_id=app_workspace() AND r.owner_id=app_user() AND r.harness= $1 AND r.models @> jsonb_build_array(jsonb_build_object('value', $2::text)))::boolean
+`
+
+type AristotleRuntimeModelAvailableParams struct {
+	Harness string `json:"harness"`
+	Model   string `json:"model"`
+}
+
+func (q *Queries) AristotleRuntimeModelAvailable(ctx context.Context, arg AristotleRuntimeModelAvailableParams) (bool, error) {
+	row := q.db.QueryRow(ctx, aristotleRuntimeModelAvailable, arg.Harness, arg.Model)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const claimCoresearchUpload = `-- name: ClaimCoresearchUpload :execrows
+DELETE FROM attachment
+WHERE workspace_id=app_workspace() AND uploader_id=app_user() AND id= $1 AND card_id IS NULL
+  AND kind='file' AND created_at>now()-interval '24 hours' AND sha256= $2 AND blob_key= $3
+`
+
+type ClaimCoresearchUploadParams struct {
+	ID      uuid.UUID `json:"id"`
+	Sha256  string    `json:"sha256"`
+	BlobKey string    `json:"blob_key"`
+}
+
+func (q *Queries) ClaimCoresearchUpload(ctx context.Context, arg ClaimCoresearchUploadParams) (int64, error) {
+	result, err := q.db.Exec(ctx, claimCoresearchUpload, arg.ID, arg.Sha256, arg.BlobKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createCoresearchConversation = `-- name: CreateCoresearchConversation :one
 INSERT INTO coresearch_conversation(workspace_id,owner_id,agent_id,project_id,chat_id,title)
 VALUES(app_workspace(),app_user(),$1,$2,$3,$4) RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
@@ -152,6 +188,31 @@ func (q *Queries) GetCoresearchConversation(ctx context.Context, id uuid.UUID) (
 	return i, err
 }
 
+const getCoresearchConversationForChat = `-- name: GetCoresearchConversationForChat :one
+SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= $1 FOR UPDATE
+`
+
+func (q *Queries) GetCoresearchConversationForChat(ctx context.Context, chatID uuid.UUID) (CoresearchConversation, error) {
+	row := q.db.QueryRow(ctx, getCoresearchConversationForChat, chatID)
+	var i CoresearchConversation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.AgentID,
+		&i.ProjectID,
+		&i.ChatID,
+		&i.Title,
+		&i.IsWelcome,
+		&i.SnapshotHarness,
+		&i.SnapshotModel,
+		&i.SnapshotInstructions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getCoresearchTurnReceipt = `-- name: GetCoresearchTurnReceipt :one
 SELECT workspace_id, owner_id, request_id, target, body, response FROM coresearch_turn_receipt WHERE workspace_id=app_workspace() AND owner_id=app_user() AND request_id= $1
 `
@@ -217,8 +278,9 @@ func (q *Queries) InsertCoresearchTurnReceipt(ctx context.Context, arg InsertCor
 }
 
 const listCoresearchConversations = `-- name: ListCoresearchConversations :many
-SELECT c.id, c.workspace_id, c.owner_id, c.agent_id, c.project_id, c.chat_id, c.title, c.is_welcome, c.snapshot_harness, c.snapshot_model, c.snapshot_instructions, c.created_at, c.updated_at,coalesce((SELECT left(m.body,240) FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id ORDER BY m.created_at DESC,m.id DESC LIMIT 1),'')::text AS preview
-FROM coresearch_conversation c WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() ORDER BY c.updated_at DESC,c.id
+SELECT c.id, c.workspace_id, c.owner_id, c.agent_id, c.project_id, c.chat_id, c.title, c.is_welcome, c.snapshot_harness, c.snapshot_model, c.snapshot_instructions, c.created_at, c.updated_at,p.mode,coalesce((SELECT left(m.body,240) FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id ORDER BY m.created_at DESC,m.id DESC LIMIT 1),'')::text AS preview
+FROM coresearch_conversation c JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
+WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() ORDER BY c.updated_at DESC,c.id
 `
 
 type ListCoresearchConversationsRow struct {
@@ -235,6 +297,7 @@ type ListCoresearchConversationsRow struct {
 	SnapshotInstructions *string   `json:"snapshot_instructions"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
+	Mode                 string    `json:"mode"`
 	Preview              string    `json:"preview"`
 }
 
@@ -261,7 +324,48 @@ func (q *Queries) ListCoresearchConversations(ctx context.Context) ([]ListCorese
 			&i.SnapshotInstructions,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Mode,
 			&i.Preview,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSharedCowriteSessions = `-- name: ListSharedCowriteSessions :many
+SELECT p.id AS project_id,ch.id AS chat_id,p.name AS title,p.mode,p.updated_at
+FROM coresearch_project p JOIN LATERAL (SELECT id FROM coresearch_chat WHERE workspace_id=p.workspace_id AND project_id=p.id ORDER BY created_at,id LIMIT 1) ch ON true
+WHERE p.workspace_id=app_workspace() AND p.mode='cowrite' AND p.created_by<>app_user() ORDER BY p.updated_at DESC,p.id
+`
+
+type ListSharedCowriteSessionsRow struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	ChatID    uuid.UUID `json:"chat_id"`
+	Title     string    `json:"title"`
+	Mode      string    `json:"mode"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (q *Queries) ListSharedCowriteSessions(ctx context.Context) ([]ListSharedCowriteSessionsRow, error) {
+	rows, err := q.db.Query(ctx, listSharedCowriteSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSharedCowriteSessionsRow
+	for rows.Next() {
+		var i ListSharedCowriteSessionsRow
+		if err := rows.Scan(
+			&i.ProjectID,
+			&i.ChatID,
+			&i.Title,
+			&i.Mode,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

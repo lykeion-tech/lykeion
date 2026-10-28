@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
@@ -81,9 +82,22 @@ func (h *H) createCoresearchChat(w http.ResponseWriter, r *http.Request) {
 		if e = readJSON(r, &in); e != nil || (in.Cli != "claude" && in.Cli != "codex") {
 			return cardInputError("cli must be claude or codex")
 		}
-		out, e = tx.Q.CreateCoresearchChat(r.Context(), db.CreateCoresearchChatParams{WorkspaceID: ws, ProjectID: p.ID, OwnerID: who, Cli: in.Cli})
+		out, e = tx.Q.CreateCoresearchChat(r.Context(), db.CreateCoresearchChatParams{WorkspaceID: ws, ProjectID: p.ID, OwnerID: who, Cli: in.Cli, Mode: p.Mode})
 		if e != nil {
 			return e
+		}
+
+		if p.Mode == "cowrite" {
+			if e = tx.Q.LockAristotleOwner(r.Context()); e != nil {
+				return e
+			}
+			a, e := tx.Q.EnsureAristotle(r.Context())
+			if e != nil {
+				return e
+			}
+			if _, e = tx.Q.CreateCoresearchConversation(r.Context(), db.CreateCoresearchConversationParams{AgentID: a.ID, ProjectID: p.ID, ChatID: out.ID, Title: p.Name}); e != nil {
+				return e
+			}
 		}
 		return tx.Emit(r.Context(), "coresearch.chat.created", nil, store.User(who), map[string]any{"project_id": p.ID, "chat_id": out.ID})
 	})
@@ -118,8 +132,48 @@ func coresearchBody(r *http.Request) (string, error) {
 	return in.Body, nil
 }
 func (h *H) coresearchTurn(w http.ResponseWriter, r *http.Request) {
+	ws, err := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+	if err != nil {
+		writeErr(w, 404, "workspace not found")
+		return
+	}
+	var mode string
+	var conversation uuid.UUID
+	err = h.memberTx(r, ws, false, func(tx *store.Tx) error {
+		c, e := coresearchChat(r, tx, ws, user(r), false, true)
+		if e != nil {
+			return e
+		}
+		mode = c.Mode
+		if mode == "cowrite" {
+			conv, e := tx.Q.GetCoresearchConversationForChat(r.Context(), c.ID)
+			if e != nil {
+				return e
+			}
+			conversation = conv.ID
+		}
+		return nil
+	})
+	if !coresearchAnswer(w, r, err) {
+		return
+	}
+	if mode == "cowrite" {
+		chi.RouteContext(r.Context()).URLParams.Add("conversation", conversation.String())
+		h.acceptAristotleTurn(w, r)
+		return
+	}
+	h.legacyCoresearchTurn(w, r)
+}
+
+func (h *H) legacyCoresearchTurn(w http.ResponseWriter, r *http.Request) {
 	var out db.AgentRun
-	e := h.inWS(r, func(tx *store.Tx, ws, who uuid.UUID) error {
+	ws, err := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+	if err != nil {
+		writeErr(w, 404, "workspace not found")
+		return
+	}
+	who := user(r)
+	e := h.coresearchSaveTx(r, ws, func(tx *store.Tx) error {
 		c, e := coresearchChat(r, tx, ws, who, true, true)
 		if e != nil {
 			return e

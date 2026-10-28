@@ -60,3 +60,10 @@ func TestCleanPathProtectsCaseAliasesAndGit(t *testing.T) {
 		}
 	}
 }
+
+func TestAttachmentTextHeadAcrossUTF8Boundary(t *testing.T) {
+	text := []byte(strings.Repeat("a", 8191) + "λ")
+	if !IsText(text) || !IsText(text[:8192]) {
+		t.Fatal("a split UTF-8 rune made a text prefix look binary")
+	}
+}

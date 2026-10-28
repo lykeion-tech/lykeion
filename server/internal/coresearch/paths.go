@@ -47,6 +47,15 @@ func IsText(head []byte) bool {
 	if len(head) > 8192 {
 		head = head[:8192]
 	}
+	// A sniffed prefix may end partway through an otherwise valid rune.
+	// Treat that incomplete suffix conservatively as text rather than allowing
+	// an attachment to overwrite a text file or bypass its smaller size limit.
+	for i := max(0, len(head)-utf8.UTFMax+1); i < len(head); i++ {
+		if utf8.RuneStart(head[i]) && !utf8.FullRune(head[i:]) {
+			head = head[:i]
+			break
+		}
+	}
 	return utf8.Valid(head) && !bytes.ContainsRune(head, 0)
 }
 func BlobKey(ws uuid.UUID, sha string) string { return ws.String() + "/coresearch/" + sha }

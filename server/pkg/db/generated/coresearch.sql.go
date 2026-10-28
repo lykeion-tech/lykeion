@@ -89,6 +89,22 @@ func (q *Queries) CoresearchChatBusy(ctx context.Context, arg CoresearchChatBusy
 	return busy, err
 }
 
+const coresearchChatIsAristotle = `-- name: CoresearchChatIsAristotle :one
+SELECT EXISTS(SELECT 1 FROM coresearch_conversation WHERE workspace_id= $1 AND chat_id= $2)::boolean
+`
+
+type CoresearchChatIsAristotleParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ChatID      uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) CoresearchChatIsAristotle(ctx context.Context, arg CoresearchChatIsAristotleParams) (bool, error) {
+	row := q.db.QueryRow(ctx, coresearchChatIsAristotle, arg.WorkspaceID, arg.ChatID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const coresearchChatTurnBusy = `-- name: CoresearchChatTurnBusy :one
 SELECT EXISTS(SELECT 1 FROM agent_run WHERE workspace_id= $1 AND coresearch_chat_id= $2 AND status IN ('queued','dispatched','running'))::boolean
 `
@@ -292,13 +308,14 @@ func (q *Queries) CountCoresearchOwners(ctx context.Context, arg CountCoresearch
 }
 
 const createCoresearchChat = `-- name: CreateCoresearchChat :one
-INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES($1,$2,$3,'experiment',$4) RETURNING id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics
+INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES($1,$2,$3,coalesce(nullif($4::text,''),'experiment'),$5) RETURNING id, workspace_id, project_id, owner_id, mode, cli, daemon_id, kernel_request, kernel_request_seq, kernel_state, kernel_seen_at, created_at, kernel_metrics
 `
 
 type CreateCoresearchChatParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	ProjectID   uuid.UUID `json:"project_id"`
 	OwnerID     uuid.UUID `json:"owner_id"`
+	Mode        string    `json:"mode"`
 	Cli         string    `json:"cli"`
 }
 
@@ -307,6 +324,7 @@ func (q *Queries) CreateCoresearchChat(ctx context.Context, arg CreateCoresearch
 		arg.WorkspaceID,
 		arg.ProjectID,
 		arg.OwnerID,
+		arg.Mode,
 		arg.Cli,
 	)
 	var i CoresearchChat
@@ -1036,6 +1054,20 @@ func (q *Queries) SetCoresearchMember(ctx context.Context, arg SetCoresearchMemb
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const setCoresearchProjectMode = `-- name: SetCoresearchProjectMode :exec
+UPDATE coresearch_project SET mode= $1 WHERE workspace_id=app_workspace() AND id= $2
+`
+
+type SetCoresearchProjectModeParams struct {
+	Mode string    `json:"mode"`
+	ID   uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SetCoresearchProjectMode(ctx context.Context, arg SetCoresearchProjectModeParams) error {
+	_, err := q.db.Exec(ctx, setCoresearchProjectMode, arg.Mode, arg.ID)
+	return err
 }
 
 const settleCoresearch = `-- name: SettleCoresearch :many

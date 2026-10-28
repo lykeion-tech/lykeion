@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -73,15 +75,40 @@ func (h *H) bootstrapAristotle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (h *H) listCoresearchConversations(w http.ResponseWriter, r *http.Request) {
-	out := []db.ListCoresearchConversationsRow{}
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		var err error
-		out, err = tx.Q.ListCoresearchConversations(r.Context())
-		return err
-	})
-	if out == nil {
-		out = []db.ListCoresearchConversationsRow{}
+	type item struct {
+		value   any
+		updated time.Time
+		id      uuid.UUID
 	}
+	items := []item{}
+	out := []any{}
+	err := h.inWS(r, func(tx *store.Tx, ws, who uuid.UUID) error {
+		rows, e := tx.Q.ListCoresearchConversations(r.Context())
+		if e != nil {
+			return e
+		}
+		for _, row := range rows {
+			items = append(items, item{row, row.UpdatedAt, row.ID})
+		}
+		shared, e := tx.Q.ListSharedCowriteSessions(r.Context())
+		if e != nil {
+			return e
+		}
+		for _, row := range shared {
+			view := map[string]any{"shared": true, "project_id": row.ProjectID, "chat_id": row.ChatID, "title": row.Title, "mode": row.Mode, "updated_at": row.UpdatedAt}
+			items = append(items, item{view, row.UpdatedAt, row.ProjectID})
+		}
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].updated.Equal(items[j].updated) {
+				return items[i].id.String() < items[j].id.String()
+			}
+			return items[i].updated.After(items[j].updated)
+		})
+		for _, item := range items {
+			out = append(out, item.value)
+		}
+		return nil
+	})
 	if coresearchAnswer(w, r, err) {
 		writeJSON(w, 200, out)
 	}

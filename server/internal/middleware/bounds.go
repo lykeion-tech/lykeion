@@ -55,7 +55,7 @@ func RequestBounds(next http.Handler) http.Handler {
 		}
 		attachment := r.Method == http.MethodPost && r.URL.Path == "/api/attachments"
 		output := r.Method == http.MethodPost && r.URL.Path == "/api/role/outputs"
-		coresearchUpload := coresearchFileTransfer(r, true) || coresearchWorkTransfer(r, true)
+		coresearchUpload := coresearchFileTransfer(r, true) || coresearchWorkTransfer(r, true) || r.Method == http.MethodPost && r.URL.Path == "/api/coresearch/uploads"
 		rawBlob := r.Method == http.MethodPost && r.URL.Path == "/api/role/blobs" || RuntimeSkillZIPUpload(r) || attachment || output || coresearchUpload
 		callPost := r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs")
 		requestTimeout, bodyTimeout := RequestTimeout, BodyReadTimeout

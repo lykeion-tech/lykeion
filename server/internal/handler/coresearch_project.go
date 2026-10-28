@@ -28,7 +28,15 @@ func coresearchAnswer(w http.ResponseWriter, r *http.Request, err error) bool {
 	}
 	var stale coresearch.ErrStale
 	var input cardInputError
+	var invalid coresearchInputError
+	var overText coresearch.ErrAttachmentOverText
 	switch {
+	case errors.As(err, &invalid):
+		writeErr(w, 422, string(invalid))
+	case errors.As(err, &overText):
+		writeJSON(w, 409, map[string]any{"error": "attachment_over_text", "path": overText.Path})
+	case errors.Is(err, coresearch.ErrAttachmentHeadChanged):
+		writeErr(w, 409, err.Error())
 	case errors.As(err, &stale):
 		writeJSON(w, 409, map[string]any{"error": "stale_base", "base": stale.Base, "current": stale.Current})
 	case errors.Is(err, service.ErrConflict):

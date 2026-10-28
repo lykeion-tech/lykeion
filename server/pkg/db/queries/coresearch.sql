@@ -67,7 +67,7 @@ INSERT INTO coresearch_file_version(workspace_id,file_id,n,sha256,size,blob_key,
 VALUES(@workspace_id,@file_id,@n,@sha256,@size,@blob_key,sqlc.narg(author_user_id),sqlc.narg(agent_run_id),sqlc.narg(run_id),sqlc.narg(overrode),sqlc.narg(restored_from)) RETURNING *;
 
 -- name: CreateCoresearchChat :one
-INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES(@workspace_id,@project_id,@owner_id,'experiment',@cli) RETURNING *;
+INSERT INTO coresearch_chat(workspace_id,project_id,owner_id,mode,cli) VALUES(@workspace_id,@project_id,@owner_id,coalesce(nullif(@mode::text,''),'experiment'),@cli) RETURNING *;
 
 -- name: GetCoresearchChat :one
 SELECT * FROM coresearch_chat WHERE workspace_id= @workspace_id AND project_id= @project_id AND id= @id;
@@ -121,3 +121,9 @@ SELECT EXISTS(SELECT 1 FROM coresearch_chat c WHERE c.workspace_id= @workspace_i
  OR EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))))::boolean;
 -- name: CoresearchDepart :one
 SELECT public.coresearch_depart(@target::uuid)::boolean;
+
+-- name: SetCoresearchProjectMode :exec
+UPDATE coresearch_project SET mode= @mode WHERE workspace_id=app_workspace() AND id= @id;
+
+-- name: CoresearchChatIsAristotle :one
+SELECT EXISTS(SELECT 1 FROM coresearch_conversation WHERE workspace_id= @workspace_id AND chat_id= @chat_id)::boolean;

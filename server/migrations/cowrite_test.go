@@ -179,15 +179,47 @@ func TestCowriteMigrationRollback(t *testing.T) {
 		return clause
 	}
 	apply("down")
+	owner, ws, _ := seedWorkspace(t, env)
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'owner');`, ws, owner); err != nil {
+		t.Fatal(err)
+	}
+	request := uuid.New()
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO coresearch_turn_receipt(workspace_id,owner_id,request_id,target,body,response) VALUES($1,$2,$3,'','legacy body','{}')`, ws, owner, request); err != nil {
+		t.Fatal(err)
+	}
+	uniqueProject := func() bool {
+		t.Helper()
+		var present bool
+		if err := env.Owner.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='coresearch_conversation'::regclass AND conname='coresearch_conversation_project_id_key')`).Scan(&present); err != nil {
+			t.Fatal(err)
+		}
+		return present
+	}
+	if !uniqueProject() {
+		t.Fatal("rollback did not restore one conversation per project")
+	}
 	mode, kernel := check("coresearch_chat_mode_check"), check("coresearch_chat_kernel_request_check")
 	if strings.Contains(mode, "cowrite") || strings.Contains(kernel, "stop") {
 		t.Fatalf("rollback retained widened checks: %s / %s", mode, kernel)
 	}
 	apply("up")
+	if uniqueProject() {
+		t.Fatal("Cowrite still restricts projects to one conversation")
+	}
+	var legacy string
+	if err := env.Owner.QueryRow(ctx, `SELECT body::jsonb->>'Body' FROM coresearch_turn_receipt WHERE request_id=$1`, request).Scan(&legacy); err != nil || legacy != "legacy body" {
+		t.Fatalf("receipt upgrade %q %v", legacy, err)
+	}
 	if !strings.Contains(check("coresearch_chat_mode_check"), "cowrite") || !strings.Contains(check("coresearch_chat_kernel_request_check"), "stop") {
 		t.Fatal("reapply failed to widen checks")
 	}
 	apply("down")
+	if err := env.Owner.QueryRow(ctx, `SELECT body FROM coresearch_turn_receipt WHERE request_id=$1`, request).Scan(&legacy); err != nil || legacy != "legacy body" {
+		t.Fatalf("receipt rollback %q %v", legacy, err)
+	}
+	if !uniqueProject() {
+		t.Fatal("rollback did not restore unique project")
+	}
 	if check("coresearch_chat_mode_check") != mode || check("coresearch_chat_kernel_request_check") != kernel {
 		t.Fatal("rollback did not restore 0027 constraints")
 	}

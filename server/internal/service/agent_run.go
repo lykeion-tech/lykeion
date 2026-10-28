@@ -615,7 +615,11 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 										if project.PythonVersion != nil {
 											python = *project.PythonVersion
 										}
-										core = &ClaimedCoresearch{ChatID: chat.ID, ProjectID: project.ID, PythonVersion: python, Aristotle: project.ConversationOwnerID != nil}
+										isAristotle, e := tx.Q.CoresearchChatIsAristotle(ctx, db.CoresearchChatIsAristotleParams{WorkspaceID: tx.WS, ChatID: chat.ID})
+										if e != nil {
+											return e
+										}
+										core = &ClaimedCoresearch{ChatID: chat.ID, ProjectID: project.ID, PythonVersion: python, Aristotle: isAristotle}
 										if err := tx.Q.BindCoresearchChat(ctx, db.BindCoresearchChatParams{WorkspaceID: tx.WS, ID: chat.ID, DaemonID: &current.DaemonID}); err != nil {
 											return err
 										}

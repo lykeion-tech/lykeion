@@ -17,8 +17,14 @@ INSERT INTO coresearch_conversation(workspace_id,owner_id,agent_id,project_id,ch
 VALUES(app_workspace(),app_user(),@agent_id,@project_id,@chat_id,'Getting started with Aristotle',true) RETURNING *;
 
 -- name: ListCoresearchConversations :many
-SELECT c.*,coalesce((SELECT left(m.body,240) FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id ORDER BY m.created_at DESC,m.id DESC LIMIT 1),'')::text AS preview
-FROM coresearch_conversation c WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() ORDER BY c.updated_at DESC,c.id;
+SELECT c.*,p.mode,coalesce((SELECT left(m.body,240) FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id ORDER BY m.created_at DESC,m.id DESC LIMIT 1),'')::text AS preview
+FROM coresearch_conversation c JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
+WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() ORDER BY c.updated_at DESC,c.id;
+
+-- name: ListSharedCowriteSessions :many
+SELECT p.id AS project_id,ch.id AS chat_id,p.name AS title,p.mode,p.updated_at
+FROM coresearch_project p JOIN LATERAL (SELECT id FROM coresearch_chat WHERE workspace_id=p.workspace_id AND project_id=p.id ORDER BY created_at,id LIMIT 1) ch ON true
+WHERE p.workspace_id=app_workspace() AND p.mode='cowrite' AND p.created_by<>app_user() ORDER BY p.updated_at DESC,p.id;
 
 -- name: GetCoresearchTurnReceipt :one
 SELECT * FROM coresearch_turn_receipt WHERE workspace_id=app_workspace() AND owner_id=app_user() AND request_id= @request_id;
@@ -47,3 +53,14 @@ SELECT EXISTS(SELECT 1 FROM runtime WHERE workspace_id=app_workspace() AND owner
 
 -- name: SetAristotleRunModel :one
 UPDATE agent_run SET requested_model= @model WHERE workspace_id=app_workspace() AND id= @id AND kind='coresearch' RETURNING *;
+
+-- name: AristotleRuntimeModelAvailable :one
+SELECT EXISTS(SELECT 1 FROM runtime r WHERE r.workspace_id=app_workspace() AND r.owner_id=app_user() AND r.harness= @harness AND r.models @> jsonb_build_array(jsonb_build_object('value', @model::text)))::boolean;
+
+-- name: GetCoresearchConversationForChat :one
+SELECT * FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= @chat_id FOR UPDATE;
+
+-- name: ClaimCoresearchUpload :execrows
+DELETE FROM attachment
+WHERE workspace_id=app_workspace() AND uploader_id=app_user() AND id= @id AND card_id IS NULL
+  AND kind='file' AND created_at>now()-interval '24 hours' AND sha256= @sha256 AND blob_key= @blob_key;

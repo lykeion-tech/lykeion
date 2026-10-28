@@ -1,3 +1,7 @@
+UPDATE coresearch_turn_receipt SET body=jsonb_build_object('Body',body,'Mode','','Template','','Model',NULL,'Attachments',NULL)::text;
+
+ALTER TABLE coresearch_conversation DROP CONSTRAINT coresearch_conversation_project_id_key;
+
 ALTER TABLE coresearch_project
   ADD COLUMN mode text NOT NULL DEFAULT 'experiment' CHECK (mode IN ('experiment','cowrite')),
   ADD UNIQUE (workspace_id,id,mode);
