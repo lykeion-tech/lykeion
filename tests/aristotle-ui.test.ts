@@ -6,6 +6,7 @@ import { all, createTreeApp, node, textOf } from './daemon-tree';
 import AristotleChat from '../apps/dashboard/src/coresearch/AristotleChat.vue';
 import AgentDetail from '../apps/dashboard/src/views/AgentDetail.vue';
 import RailFabs from '../apps/dashboard/src/coresearch/RailFabs.vue';
+import ConversationRail from '../apps/dashboard/src/coresearch/ConversationRail.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { conversationKey } from '../apps/dashboard/src/coresearch/aristotle';
@@ -57,7 +58,13 @@ const welcome = {
   snapshot_model: null,
   snapshot_instructions: null,
 };
-async function mount(path = '/coresearch/new', online = true, settings = false, cacheAgent = true) {
+async function mount(
+  path = '/coresearch/new',
+  online = true,
+  settings = false,
+  cacheAgent = true,
+  rail = false,
+) {
   vi.stubGlobal('document', {
     activeElement: null,
     addEventListener() {},
@@ -92,11 +99,13 @@ async function mount(path = '/coresearch/new', online = true, settings = false, 
   await router.push(path);
   const app = createTreeApp({
     render: () =>
-      settings
-        ? h(AgentDetail, { id: router.currentRoute.value.path.split('/')[2] || 'aristotle' })
-        : router.currentRoute.value.path.startsWith('/coresearch')
-          ? h(AristotleChat)
-          : null,
+      rail
+        ? h(ConversationRail)
+        : settings
+          ? h(AgentDetail, { id: router.currentRoute.value.path.split('/')[2] || 'aristotle' })
+          : router.currentRoute.value.path.startsWith('/coresearch')
+            ? h(AristotleChat)
+            : null,
   });
   app.use(VueQueryPlugin, { queryClient: client });
   app.use(router);
@@ -122,6 +131,25 @@ function edit(root: ReturnType<typeof node>, value: string) {
 const response = (body: unknown, status = 201) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 describe('Aristotle UI', () => {
+  it('keeps the conversation rail independent from Projects and their query', async () => {
+    const fetch = vi.fn().mockResolvedValue(response([], 200));
+    vi.stubGlobal('fetch', fetch);
+    const { root, client } = await mount('/coresearch/new', true, false, true, true);
+    expect.soft(fetch).not.toHaveBeenCalled();
+    expect.soft(client.getQueryState(keys.coresearchProjects('lab'))).toBeUndefined();
+    expect.soft(byLabel(root, 'Conversations')?.tag).toBe('aside');
+    expect.soft(textOf(root)).not.toContain('Projects');
+    const links = all(root).filter((n) => n.tag === 'a');
+    expect(links.map((n) => n.props.href)).toEqual([
+      '/coresearch',
+      '/coresearch/new',
+      '/coresearch/conversations/welcome',
+      '/settings',
+    ]);
+    expect(byLabel(root, 'New conversation').props.href).toBe('/coresearch/new');
+    expect(textOf(root)).toContain('Getting started with Aristotle');
+    expect(textOf(root)).toContain('Settings');
+  });
   it('keeps a new draft unsaved and exposes the saved starter settings link', async () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);

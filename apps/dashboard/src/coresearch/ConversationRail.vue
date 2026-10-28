@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { useAristotle } from './aristotle';
-import { useCoresearchProjects } from './api';
 import Icon from '../components/Icon.vue';
 import Aristotle from '../components/Aristotle.vue';
-const state = useAristotle(),
-  projects = useCoresearchProjects();
+const state = useAristotle();
 </script>
 <template>
-  <aside class="sidebar conversation-rail" aria-label="Conversations and projects">
+  <aside class="sidebar conversation-rail" aria-label="Conversations">
     <header>
       <RouterLink to="/coresearch">Conversations</RouterLink
       ><RouterLink to="/coresearch/new" aria-label="New conversation" class="icon-button"
@@ -27,21 +25,6 @@ const state = useAristotle(),
             c.preview || (c.is_welcome ? 'Your research companion' : 'New conversation')
           }}</small></span
         ></RouterLink
-      >
-    </nav>
-    <header>
-      <RouterLink to="/coresearch/projects">Projects</RouterLink
-      ><RouterLink to="/coresearch/projects" aria-label="Manage projects" class="icon-button"
-        ><Icon name="folder" :size="15"
-      /></RouterLink>
-    </header>
-    <nav>
-      <RouterLink
-        v-for="p in projects.data.value ?? []"
-        :key="p.id"
-        :to="`/coresearch/${p.id}`"
-        class="conversation-link"
-        ><Icon name="folder" :size="15" /><span>{{ p.name }}</span></RouterLink
       >
     </nav>
     <p v-if="state.bootstrap.error.value || state.conversations.error.value" role="alert">
@@ -74,9 +57,6 @@ const state = useAristotle(),
   color: var(--muted);
   padding: 4px 10px;
   margin-bottom: 8px;
-}
-.conversation-rail header:not(:first-child) {
-  margin-top: 28px;
 }
 .conversation-link {
   display: flex;
