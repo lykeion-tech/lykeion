@@ -50,6 +50,12 @@ func (h *H) listCoresearchChats(w http.ResponseWriter, r *http.Request) {
 			return e
 		}
 		out, e = tx.Q.ListCoresearchChats(r.Context(), db.ListCoresearchChatsParams{WorkspaceID: ws, ProjectID: p.ID})
+		// Project members share chat metadata, but only the owner sees samples.
+		for i := range out {
+			if out[i].OwnerID != who {
+				out[i].KernelMetrics = nil
+			}
+		}
 		return e
 	})
 	if coresearchAnswer(w, r, e) {

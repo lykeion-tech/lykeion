@@ -70,9 +70,15 @@ func (h *H) machineColleagues(w http.ResponseWriter, r *http.Request) {
 
 func (h *H) listRuntimes(w http.ResponseWriter, r *http.Request) {
 	var out []db.ListRuntimesRow
-	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
+	err := h.inWS(r, func(tx *store.Tx, ws, who uuid.UUID) error {
 		var err error
 		out, err = tx.Q.ListRuntimes(r.Context(), ws)
+		// Machine metadata is shared with the workspace; samples stay private.
+		for i := range out {
+			if out[i].OwnerID != who {
+				out[i].Metrics = nil
+			}
+		}
 		return err
 	})
 	if err != nil {

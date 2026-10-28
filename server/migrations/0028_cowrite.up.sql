@@ -69,6 +69,7 @@ CREATE TABLE coresearch_change (
   decided_by uuid REFERENCES "user" ON DELETE SET NULL,
   decided_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id,id),
   CHECK (from_pos <= to_pos),
   FOREIGN KEY (workspace_id,proposal_id) REFERENCES coresearch_proposal (workspace_id,id) ON DELETE CASCADE,
   FOREIGN KEY (workspace_id,file_id) REFERENCES coresearch_file (workspace_id,id) ON DELETE CASCADE
@@ -87,6 +88,7 @@ CREATE TABLE coresearch_comment (
   resolved_by uuid REFERENCES "user" ON DELETE SET NULL,
   resolved_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id,id),
   CHECK (from_pos <= to_pos),
   FOREIGN KEY (workspace_id,file_id) REFERENCES coresearch_file (workspace_id,id) ON DELETE CASCADE
 );
@@ -125,6 +127,7 @@ CREATE TABLE coresearch_version (
   build_id uuid,
   files jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id,id),
   UNIQUE (project_id,seq),
   FOREIGN KEY (workspace_id,project_id) REFERENCES coresearch_project (workspace_id,id) ON DELETE CASCADE,
   FOREIGN KEY (workspace_id,build_id) REFERENCES coresearch_build (workspace_id,id) ON DELETE SET NULL (build_id)

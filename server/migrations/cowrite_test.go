@@ -32,6 +32,19 @@ func TestCowriteMigration(t *testing.T) {
 			t.Fatalf("want SQLSTATE %s, got %v", code, err)
 		}
 	}
+	for _, table := range []string{"coresearch_change", "coresearch_comment", "coresearch_version"} {
+		var composite bool
+		if err := env.Owner.QueryRow(ctx, `SELECT EXISTS (
+          SELECT 1 FROM pg_constraint c WHERE c.conrelid=($1::text)::regclass AND c.contype='u'
+          AND ARRAY(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY k(attnum,n)
+            JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum ORDER BY k.n)
+            = ARRAY['workspace_id','id']::text[])`, table).Scan(&composite); err != nil {
+			t.Fatal(err)
+		}
+		if !composite {
+			t.Errorf("%s lacks UNIQUE(workspace_id,id) composite FK target", table)
+		}
+	}
 	member, outsider := uuid.New(), uuid.New()
 	exec(`INSERT INTO "user"(id,email) VALUES ($1,'cowrite-member@x'),($2,'cowrite-outsider@x')`, member, outsider)
 	exec(`INSERT INTO member(workspace_id,user_id,role) VALUES ($1,$2,'owner'),($1,$3,'member'),($1,$4,'member')`, ws, owner, member, outsider)
