@@ -119,7 +119,13 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	// The person's own hooks and plugin hooks stay out of runs, so how a run
 	// behaves doesn't depend on what they have installed.
-	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--settings", `{"disableAllHooks":true}`})
+	settings := `{"disableAllHooks":true}`
+	if o.Coresearch {
+		// Chat documents remain readable data, but never become implicit project
+		// instructions, including nested files introduced after startup.
+		settings = `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
+	}
+	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--settings", settings})
 	if o.Coresearch {
 		args = append(args, "--strict-mcp-config", "--setting-sources", "project")
 		o.CLIPaths.ManagedSkills, err = SkillsDir("claude", o.Dir)
