@@ -352,6 +352,41 @@ describe('Aristotle UI', () => {
     expect(save().props.disabled).toBe(false);
     expect(byLabel(root, 'Agent name').value).toBe('Aristotle');
   });
+  it('keeps three fixed welcome cards while using saved starters only in a new draft', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
+    vi.stubGlobal('fetch', fetch);
+    const { root, client, router, settle } = await mount('/coresearch/conversations/welcome');
+    client.setQueryData(keys.agent('lab', 'aristotle'), {
+      ...agent,
+      conversation_starters: [{ label: 'Custom research action', prompt: 'Custom saved prompt' }],
+    });
+    await settle();
+    const welcomeCards = all(root).filter(
+      (n) =>
+        n.tag === 'button' &&
+        all(n).some(
+          (child) =>
+            child.props.class === 'research-motif motif-0' ||
+            String(child.props.class).includes('research-motif'),
+        ),
+    );
+    expect(welcomeCards).toHaveLength(3);
+    expect(textOf(root)).toContain('Ground a research question');
+    expect(textOf(root)).toContain('Design a reproducible experiment');
+    expect(textOf(root)).toContain('Review evidence and findings');
+    expect(textOf(root)).not.toContain('Custom research action');
+    (welcomeCards[0]!.props.onClick as () => void)();
+    await settle();
+    expect(JSON.parse(fetch.mock.calls[0]![1].body).body).toBe(
+      'Help me turn my research question into a focused, evidence-grounded question. Ask about the topic and constraints first.',
+    );
+    await router.push('/coresearch/new');
+    await settle();
+    expect(textOf(root)).toContain('Custom research action');
+    expect(textOf(root)).not.toContain('Ground a research question');
+    const starterStack = all(root).find((n) => n.props.class === 'starter-stack')!;
+    expect(starterStack.children.filter((n) => n.tag === 'button')).toHaveLength(1);
+  });
   it('provides mutually exclusive rail controls with accessible labels', () => {
     const change = vi.fn();
     const app = createTreeApp({ render: () => h(RailFabs, { view: 'context', onChange: change }) });

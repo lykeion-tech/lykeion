@@ -236,7 +236,7 @@ async function stop() {
           <p>You stay in control of what happens next.</p>
           <div class="welcome-actions">
             <button
-              v-for="(starter, index) in starters.slice(0, 3)"
+              v-for="(starter, index) in defaultStarters"
               :key="starter.label"
               @click="send(starter.prompt)"
             >
