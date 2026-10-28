@@ -421,3 +421,81 @@ func TestBuildRecoveryResumesScratchDeletion(t *testing.T) {
 		t.Fatal("interrupted scratch deletion not resumed", e)
 	}
 }
+
+func TestBuildRecoveryPreMarkerCrash(t *testing.T) {
+	f := newCoreFixture(t)
+	r := coreReceipt{Work: f.work, Kind: "builds", ID: uuid.New()}
+	must(t, f.d.journalCoresearch(r.Work, r.Kind, r.ID))
+	scratch := filepath.Join(f.d.cfg.Home, "coresearch-builds", r.ID.String())
+	must(t, os.MkdirAll(scratch, 0700))
+	must(t, f.d.recoverCoresearch())
+	if _, e := os.Stat(scratch); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("pre-marker scratch retained", e)
+	}
+	recovered, e := readCoreReceipt(filepath.Join(f.d.coreReceiptDir(r), "finish.json"))
+	must(t, e)
+	if !strings.Contains(string(recovered.Body), `"status":"failed"`) {
+		t.Fatal(string(recovered.Body))
+	}
+}
+
+func TestBuildRecoveryStagedInitialization(t *testing.T) {
+	for _, scenario := range []string{"pre-marker-crash", "marker-write-failure"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newCoreFixture(t)
+			r := coreReceipt{Work: f.work, Kind: "builds", ID: uuid.New()}
+			must(t, f.d.journalCoresearch(r.Work, r.Kind, r.ID))
+			base := filepath.Join(f.d.cfg.Home, "coresearch-builds")
+			stage := filepath.Join(base, ".init-"+r.ID.String()+"-"+r.Work.ClaimToken.String())
+			must(t, os.MkdirAll(stage, 0700))
+			unrelated := filepath.Join(base, ".init-"+r.ID.String()+"-"+uuid.NewString())
+			must(t, os.Mkdir(unrelated, 0700))
+			if scenario == "marker-write-failure" {
+				// Force the atomic marker rename to fail on an actual filesystem object.
+				must(t, os.Mkdir(filepath.Join(stage, "owner.json"), 0700))
+				if _, e := f.d.publishBuildScratch(r); e == nil {
+					t.Fatal("marker write unexpectedly succeeded")
+				}
+			}
+			must(t, f.d.recoverCoresearch())
+			if _, e := os.Stat(stage); !errors.Is(e, os.ErrNotExist) {
+				t.Fatal("incomplete stage retained", e)
+			}
+			if _, e := os.Stat(unrelated); e != nil {
+				t.Fatal("unrelated initialization removed", e)
+			}
+			if _, e := os.Stat(filepath.Join(base, r.ID.String())); !errors.Is(e, os.ErrNotExist) {
+				t.Fatal("incomplete scratch published", e)
+			}
+			must(t, f.d.flushCoresearch(t.Context()))
+		})
+	}
+}
+
+func TestBuildInitializationRequiresDurableClaim(t *testing.T) {
+	f := newCoreFixture(t)
+	r := coreReceipt{Work: f.work, Kind: "builds", ID: uuid.New()}
+	if _, e := f.d.createBuildScratch(r); e == nil {
+		t.Fatal("initialization without durable claim accepted")
+	}
+	base := filepath.Join(f.d.cfg.Home, "coresearch-builds")
+	entries, e := os.ReadDir(base)
+	if e != nil && !errors.Is(e, os.ErrNotExist) {
+		t.Fatal(e)
+	}
+	if len(entries) != 0 {
+		t.Fatal("unjournaled initialization created", entries)
+	}
+	must(t, f.d.journalCoresearch(r.Work, r.Kind, r.ID))
+	root, e := f.d.createBuildScratch(r)
+	must(t, e)
+	owner, e := readCoreReceipt(filepath.Join(root, "owner.json"))
+	must(t, e)
+	if !sameBuildIdentity(owner, r) {
+		t.Fatal("published marker identity changed")
+	}
+	stage := filepath.Join(base, ".init-"+r.ID.String()+"-"+r.Work.ClaimToken.String())
+	if _, e := os.Stat(stage); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("stage not atomically published", e)
+	}
+}

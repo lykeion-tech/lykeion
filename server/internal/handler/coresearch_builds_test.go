@@ -548,3 +548,72 @@ func TestBuildQuotaDaemonReceipt(t *testing.T) {
 		t.Fatal("quota blocks successor", next)
 	}
 }
+
+type buildDeleteOnceStorage struct {
+	storage.Storage
+	key    string
+	failed bool
+}
+
+func (s *buildDeleteOnceStorage) Delete(ctx context.Context, key string) error {
+	if key == s.key && !s.failed {
+		s.failed = true
+		return errors.New("injected transient artifact delete failure")
+	}
+	return s.Storage.Delete(ctx, key)
+}
+func TestBuildQuotaRetriesArtifactCleanup(t *testing.T) {
+	s, a, _, ws, p, _ := paperFixture(t)
+	root := csProjects + "/" + p.ID
+	// This candidate is shared with a retained source and must survive cleanup.
+	if c, _ := csUpload(t, s, a, ws, p.ID, "retained.txt", 0, false, []byte("test log")); c != 201 {
+		t.Fatal(c)
+	}
+	keyFor := func(data string) string {
+		return coresearch.BlobKey(uuid.MustParse(ws), fmt.Sprintf("%x", sha256.Sum256([]byte(data))))
+	}
+	unrelated := keyFor("unrelated unreferenced bytes")
+	if e := s.H.Blobs.Put(t.Context(), unrelated, bytes.NewBufferString("unrelated unreferenced bytes"), int64(len("unrelated unreferenced bytes"))); e != nil {
+		t.Fatal(e)
+	}
+	s.call(t, "POST", root+"/builds", a, ws, nil, nil)
+	ref := csRegister(t, s, a, ws, "own", "claude")
+	work := csWork(t, s, a, "own", ref)
+	if len(work.Builds) != 1 {
+		t.Fatal(work)
+	}
+	old := coresearch.MaxProjectBytes
+	defer func() { coresearch.MaxProjectBytes = old }()
+	coresearch.MaxProjectBytes = 16
+	broken := &buildDeleteOnceStorage{Storage: s.H.Blobs, key: keyFor("test pdf")}
+	s.H.Blobs = broken
+	if c := finishBuildTest(t, s, a, ws, work.Builds[0], "ok"); c != 500 {
+		t.Fatalf("cleanup failure must be retryable: %d", c)
+	}
+	if !broken.failed {
+		t.Fatal("delete failure not reached")
+	}
+	rc, e := s.H.Blobs.Get(t.Context(), broken.key)
+	if e != nil {
+		t.Fatal("failed deletion did not retain candidate", e)
+	}
+	rc.Close()
+	if c := finishBuildTest(t, s, a, ws, work.Builds[0], "ok"); c != 204 {
+		t.Fatalf("retry failed: %d", c)
+	}
+	for _, value := range []string{"test pdf", "test synctex"} {
+		if rc, e := s.H.Blobs.Get(t.Context(), keyFor(value)); e == nil {
+			rc.Close()
+			t.Errorf("ACK abandoned orphan %q", value)
+		} else if !errors.Is(e, storage.ErrNotFound) {
+			t.Fatal(e)
+		}
+	}
+	for _, key := range []string{keyFor("test log"), unrelated} {
+		rc, e := s.H.Blobs.Get(t.Context(), key)
+		if e != nil {
+			t.Fatal("retained or unrelated blob removed", e)
+		}
+		rc.Close()
+	}
+}

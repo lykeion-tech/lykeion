@@ -233,20 +233,10 @@ func (d *daemon) runBuild(parent context.Context, w coresearch.WorkContext, b co
 	watched := make(chan struct{})
 	go func() { defer close(watched); d.watchCoresearch(ctx, cancel, w, "builds", b.ID) }()
 	defer func() { cancel(); <-watched }()
-	base := filepath.Join(d.cfg.Home, "coresearch-builds")
-	if err := privateDir(base); err != nil {
-		return err
-	}
-	root = filepath.Join(base, b.ID.String())
-	if err := os.Mkdir(root, 0700); err != nil {
-		root = ""
-		return err
-	}
 	owner := coreReceipt{Work: w, Kind: "builds", ID: b.ID}
-	if err := atomicJSON(root, "owner.json", owner); err != nil {
-		return err
-	}
-	if err := syncDir(base); err != nil {
+	var err error
+	root, err = d.createBuildScratch(owner)
+	if err != nil {
 		return err
 	}
 	dir, tmp := filepath.Join(root, "src"), filepath.Join(root, "tmp")
@@ -387,6 +377,67 @@ func (d *daemon) finishBuild(ctx context.Context, r coreReceipt, outputs []recor
 	return writeErr
 }
 
+func sameBuildIdentity(a, b coreReceipt) bool {
+	return a.Kind == "builds" && b.Kind == "builds" && a.ID == b.ID && a.Work.WorkspaceID == b.Work.WorkspaceID && a.Work.ProjectID == b.Work.ProjectID && a.Work.ChatID == b.Work.ChatID && a.Work.ClaimToken == b.Work.ClaimToken
+}
+
+// The exact initialization directory is owned by the durable claim even before
+// its marker exists. Only a fully marked tree is published at the final path.
+func (d *daemon) createBuildScratch(r coreReceipt) (string, error) {
+	claim, err := readCoreReceipt(filepath.Join(d.coreReceiptDir(r), "claim.json"))
+	if err != nil {
+		return "", err
+	}
+	if !sameBuildIdentity(claim, r) {
+		return "", errors.New("build initialization journal mismatch")
+	}
+	base := filepath.Join(d.cfg.Home, "coresearch-builds")
+	if err := privateDir(base); err != nil {
+		return "", err
+	}
+	stage := filepath.Join(base, ".init-"+r.ID.String()+"-"+r.Work.ClaimToken.String())
+	if err := os.Mkdir(stage, 0700); err != nil {
+		return "", err
+	}
+	if err := syncDir(base); err != nil {
+		return "", err
+	}
+	return d.publishBuildScratch(r)
+}
+func (d *daemon) publishBuildScratch(r coreReceipt) (string, error) {
+	claim, err := readCoreReceipt(filepath.Join(d.coreReceiptDir(r), "claim.json"))
+	if err != nil {
+		return "", err
+	}
+	if !sameBuildIdentity(claim, r) {
+		return "", errors.New("build initialization journal mismatch")
+	}
+	base := filepath.Join(d.cfg.Home, "coresearch-builds")
+	stage := filepath.Join(base, ".init-"+r.ID.String()+"-"+r.Work.ClaimToken.String())
+	for _, path := range []string{base, stage} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("invalid build initialization directory")
+		}
+	}
+	root := filepath.Join(base, r.ID.String())
+	if _, err := os.Lstat(root); err == nil {
+		return "", os.ErrExist
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := atomicJSON(stage, "owner.json", coreReceipt{Work: r.Work, Kind: r.Kind, ID: r.ID}); err != nil {
+		return "", err
+	}
+	if err := os.Rename(stage, root); err != nil {
+		return "", err
+	}
+	return root, syncDir(base)
+}
+
 // Only a matching durable journal may authorize reclaiming a build tree. The
 // marker and detached spools live above src/tmp, outside the sandbox's writes.
 func (d *daemon) cleanupBuildScratch(r coreReceipt, receiptDir string) error {
@@ -406,8 +457,9 @@ func (d *daemon) cleanupBuildScratch(r coreReceipt, receiptDir string) error {
 	}
 	root := filepath.Join(base, r.ID.String())
 	tombstone := filepath.Join(base, ".gc-"+r.ID.String()+"-"+r.Work.ClaimToken.String())
+	stage := filepath.Join(base, ".init-"+r.ID.String()+"-"+r.Work.ClaimToken.String())
 	exists := map[string]bool{}
-	for _, path := range []string{root, tombstone} {
+	for _, path := range []string{root, tombstone, stage} {
 		info, e := os.Lstat(path)
 		if errors.Is(e, os.ErrNotExist) {
 			continue
@@ -420,15 +472,24 @@ func (d *daemon) cleanupBuildScratch(r coreReceipt, receiptDir string) error {
 		}
 		exists[path] = true
 	}
-	if !exists[root] && !exists[tombstone] {
+	if !exists[root] && !exists[tombstone] && !exists[stage] {
 		return nil
 	}
 	if exists[root] {
 		owner, e := readCoreReceipt(filepath.Join(root, "owner.json"))
-		if e != nil {
+		if errors.Is(e, os.ErrNotExist) {
+			// Compatibility with an interrupted pre-staging initialization:
+			// an empty final directory contains no unrelated data to erase.
+			entries, err := os.ReadDir(root)
+			if err != nil {
+				return err
+			}
+			if len(entries) != 0 {
+				return errors.New("unowned nonempty build scratch")
+			}
+		} else if e != nil {
 			return e
-		}
-		if owner.Kind != r.Kind || owner.ID != r.ID || owner.Work.WorkspaceID != r.Work.WorkspaceID || owner.Work.ProjectID != r.Work.ProjectID || owner.Work.ChatID != r.Work.ChatID || owner.Work.ClaimToken != r.Work.ClaimToken {
+		} else if !sameBuildIdentity(owner, r) {
 			return errors.New("build scratch identity mismatch")
 		}
 	}
@@ -440,6 +501,16 @@ func (d *daemon) cleanupBuildScratch(r coreReceipt, receiptDir string) error {
 			return e
 		}
 		if e = f.Close(); e != nil {
+			return e
+		}
+	}
+	// A failed/crashed marker publication leaves only this exact journal-owned
+	// staging name. Reclaim it after terminal evidence, without scanning peers.
+	if exists[stage] {
+		if e = os.RemoveAll(stage); e != nil {
+			return e
+		}
+		if e = syncDir(base); e != nil {
 			return e
 		}
 	}

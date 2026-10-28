@@ -362,13 +362,14 @@ func (h *H) daemonCoresearchBuildFinish(w http.ResponseWriter, r *http.Request) 
 			return coresearch.BuildChanged(r.Context(), tx, row)
 		})
 		// The terminal failure is committed. Signal WithBlobs to remove only
-		// newly staged, unreferenced artifacts before acknowledging delivery.
+		// unreferenced candidate artifacts, including a prior failed deletion,
+		// before acknowledging delivery.
 		if err == nil && quotaFailure {
-			return coresearch.ErrQuota
+			return coresearch.ErrDiscardBlobCandidates
 		}
 		return err
 	})
-	if e == coresearch.ErrQuota {
+	if e == coresearch.ErrDiscardBlobCandidates {
 		e = nil
 	} else if quotaFailure && e != nil {
 		// Cleanup/transport errors must remain retryable even though the

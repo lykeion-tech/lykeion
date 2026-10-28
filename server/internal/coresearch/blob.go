@@ -16,6 +16,11 @@ import (
 	"lykeion/server/internal/store"
 )
 
+// ErrDiscardBlobCandidates is returned by an authorized save callback after it
+// durably declines its candidate blobs. WithBlobs then reference-checks every
+// locked candidate, including pre-existing keys left by earlier failed cleanup.
+var ErrDiscardBlobCandidates = errors.New("discard unreferenced blob candidates")
+
 type UploadBlob struct {
 	SHA256 string
 	Body   io.Reader
@@ -30,7 +35,8 @@ func WithBlob(ctx context.Context, st *store.Store, blobs storage.Storage, ws, u
 
 // WithBlobs holds sorted workspace/blob locks on one dedicated connection until
 // save commits or rolls back. Save acquires workspace, authorization, project,
-// and file locks in that order. Only newly written, unreferenced blobs are deleted.
+// and file locks in that order. Ordinary failures clean newly written blobs;
+// ErrDiscardBlobCandidates also retries cleanup of pre-existing candidates.
 func WithBlobs(ctx context.Context, st *store.Store, blobs storage.Storage, ws, user uuid.UUID, uploads []UploadBlob, save func() error) (retErr error) {
 	conn, err := pgx.ConnectConfig(ctx, st.Pool.Config().ConnConfig.Copy())
 	if err != nil {
@@ -44,8 +50,13 @@ func WithBlobs(ctx context.Context, st *store.Store, blobs storage.Storage, ws, 
 	ordered := append([]UploadBlob(nil), uploads...)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].SHA256 < ordered[j].SHA256 })
 	fresh := []string{}
+	locked := []string{}
 	defer func() {
-		if retErr == nil || len(fresh) == 0 {
+		candidates := fresh
+		if errors.Is(retErr, ErrDiscardBlobCandidates) {
+			candidates = locked
+		}
+		if retErr == nil || len(candidates) == 0 {
 			return
 		}
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -54,7 +65,7 @@ func WithBlobs(ctx context.Context, st *store.Store, blobs storage.Storage, ws, 
 			retErr = errors.Join(retErr, e)
 			return
 		}
-		for _, sha := range fresh {
+		for _, sha := range candidates {
 			var referenced bool
 			if e := conn.QueryRow(cleanup, `SELECT public.coresearch_blob_referenced($1)`, sha).Scan(&referenced); e != nil {
 				retErr = errors.Join(retErr, e)
@@ -79,6 +90,7 @@ func WithBlobs(ctx context.Context, st *store.Store, blobs storage.Storage, ws, 
 		if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, lock); err != nil {
 			return err
 		}
+		locked = append(locked, up.SHA256)
 		existing, e := blobs.Get(ctx, key)
 		if e == nil {
 			if e = existing.Close(); e != nil {
