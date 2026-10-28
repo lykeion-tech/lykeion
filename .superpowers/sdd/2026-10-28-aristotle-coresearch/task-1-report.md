@@ -37,3 +37,15 @@ Task 2 must add normal conversation and request-id receipt queries, lock config/
 - This report is recorded in the following documentation commit. No unrelated files staged.
 
 All database tests use task-owned testcontainers; existing preview PostgreSQL/Redis state and services were untouched. Heavy checks run sequentially with GOMAXPROCS=2 and -p 1.
+
+## Round 1 review: bootstrap/departure serialization
+
+The alleged HTTP race is already prevented by existing middleware; no production change was needed. `server/internal/middleware/middleware.go:117-130` acquires `LockWorkspaceForMutation` for every non-GET/HEAD request before `LockMember`, then retains that scoped transaction while invoking the handler. The query in `server/pkg/db/queries/workspace.sql:65-69` locks the workspace row `FOR UPDATE` and then reads/locks membership `FOR SHARE`. Bootstrap POST and member-removal DELETE therefore share serialization before bootstrap creation or departure enumeration, and membership is checked after the shared lock is acquired. This preserves the established workspace-before-membership lock order without adding a second redundant lifecycle lock.
+
+Added deterministic `TestAristotleBootstrapSerializesWithDeparture`: an owner-connection advisory barrier pauses an archive-update trigger during `CoresearchDepart`'s existing-project enumeration. Bootstrap is started while departure is paused. The test observes its PostgreSQL lock wait on `LockWorkspaceForMutation`, releases departure, then verifies removal returns 204, bootstrap returns 404 after membership disappears, and no unarchived classified project survives without membership/conversation. Ordinary project departure is included in the fixture.
+
+The first two barrier attempts waited specifically for bootstrap's Aristotle advisory lock and timed out: bootstrap was correctly blocked earlier on the workspace row lock. Those attempts did not establish the reported race. The retained test observes the actual workspace wait and passes against unchanged production code. Review ruling from parent: retain regression/evidence and request scoped re-review; do not add redundant production locking.
+
+- `GOMAXPROCS=2 go test -p 1 ./internal/handler -run TestAristotleBootstrapSerializesWithDeparture -count=1`: PASS (`2.710s`).
+- `GOMAXPROCS=2 go test -p 1 ./internal/handler -run 'TestAristotle|TestWorkspaceDeparturePreservesProjectOwnership|TestEmptyProjectArchivesOnWorkspaceDeparture|TestAdministrativeDepartureChoosesOnlyRequiredExistingSuccessor|TestALeavingMemberTakesTheirSharingWithThem|TestLastOwnerIsProtected|TestConcurrentLastOwnerMutations' -count=1`: PASS (`7.679s`).
+- No full-suite rerun, preview mutation, merge or push. Only regression and report changed in this review round.

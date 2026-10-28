@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestAristotleBootstrap(t *testing.T) {
@@ -190,5 +191,89 @@ func TestConversationStarterBoundaries(t *testing.T) {
 	}
 	if err := validateConversationStarters(json.RawMessage("[{\"label\":\"\xff\",\"prompt\":\"x\"}]")); err == nil {
 		t.Fatal("invalid UTF-8 accepted")
+	}
+}
+
+// Pause departure while archiving an enumerated ordinary project, before
+// membership deletion. Bootstrap can then create a new project outside that
+// enumeration unless the workspace mutation lock serializes both paths.
+func TestAristotleBootstrapSerializesWithDeparture(t *testing.T) {
+	s, a, b, _, ws, _ := csFixture(t)
+	ctx := t.Context()
+	if code := s.call(t, "POST", csProjects, b, ws, map[string]string{"name": "Departure barrier"}, nil); code != 201 {
+		t.Fatal(code)
+	}
+	if _, err := s.Env.Owner.Exec(ctx, `CREATE FUNCTION test_departure_barrier() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(9827345); RETURN NEW; END $$; CREATE TRIGGER test_departure_barrier AFTER UPDATE OF archived_at ON coresearch_project FOR EACH ROW WHEN (NEW.archived_at IS NOT NULL) EXECUTE FUNCTION test_departure_barrier()`); err != nil {
+		t.Fatal(err)
+	}
+	barrier, err := s.Env.Owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer barrier.Rollback(ctx)
+	if _, err = barrier.Exec(ctx, `SELECT pg_advisory_xact_lock(9827345)`); err != nil {
+		t.Fatal(err)
+	}
+	removed := make(chan int, 1)
+	go func() {
+		removed <- s.call(t, "DELETE", "/api/workspaces/"+ws+"/members/"+s.userID(t, b), a, "", nil, nil)
+	}()
+	waitFor := func(fragment string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			var n int
+			if err := s.Env.Owner.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory' AND query LIKE $1`, "%"+fragment+"%").Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n > 0 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("did not reach advisory barrier: %s", fragment)
+	}
+	waitFor("CoresearchDepart")
+	bootstrapped := make(chan int, 1)
+	go func() { bootstrapped <- s.call(t, "POST", "/api/coresearch/bootstrap", b, ws, nil, nil) }()
+	// Observe either bootstrap's workspace lock wait or completion, without releasing the
+	// deletion barrier. Completion before departure commits reproduces the bug.
+	deadline := time.Now().Add(10 * time.Second)
+	early := 0
+	blocked := false
+	for time.Now().Before(deadline) {
+		select {
+		case early = <-bootstrapped:
+		default:
+		}
+		if early != 0 {
+			break
+		}
+		var n int
+		if err := s.Env.Owner.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%LockWorkspaceForMutation%'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n > 0 {
+			blocked = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := barrier.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if code := <-removed; code != 204 {
+		t.Fatalf("departure: %d", code)
+	}
+	code := early
+	if early == 0 {
+		code = <-bootstrapped
+	}
+	var orphaned int
+	if err := s.Env.Owner.QueryRow(ctx, `SELECT count(*) FROM coresearch_project p WHERE p.workspace_id=$1 AND p.conversation_owner_id=$2 AND p.archived_at IS NULL AND NOT EXISTS(SELECT 1 FROM member m WHERE m.workspace_id=p.workspace_id AND m.user_id=p.conversation_owner_id) AND NOT EXISTS(SELECT 1 FROM coresearch_conversation c WHERE c.project_id=p.id)`, ws, s.userID(t, b)).Scan(&orphaned); err != nil {
+		t.Fatal(err)
+	}
+	if !blocked || code != 404 || orphaned != 0 {
+		t.Fatalf("bootstrap must wait for departure then recheck membership: blocked=%t status=%d orphaned=%d", blocked, code, orphaned)
 	}
 }
