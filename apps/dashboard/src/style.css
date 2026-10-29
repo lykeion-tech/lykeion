@@ -84,6 +84,7 @@
   --error-text-panel: #9c3c3c;
   --error-text-aux: #a12b38;
   --danger-bg: #fbe9ed;
+  --danger-text: #d01e40;
   --recommend: #306587;
   --recommend-bg: #e8eef4;
   --recommend-border: #c8d3dc;
@@ -156,15 +157,16 @@
 
   --error-bg: color-mix(in srgb, var(--error) 12%, var(--canvas));
   --error-border: color-mix(in srgb, var(--error) 40%, var(--canvas));
-  --error-text: color-mix(in srgb, var(--error) 70%, var(--text));
-  --error-text-custom-runtime: color-mix(in srgb, #963b3b 70%, var(--text));
-  --error-text-composer: color-mix(in srgb, #963d39 70%, var(--text));
-  --error-text-wakeup: color-mix(in srgb, #9a3939 70%, var(--text));
-  --error-text-editor: color-mix(in srgb, #9b3030 70%, var(--text));
-  --error-text-agent: color-mix(in srgb, #9c3b3b 70%, var(--text));
-  --error-text-panel: color-mix(in srgb, #9c3c3c 70%, var(--text));
-  --error-text-aux: color-mix(in srgb, #a12b38 70%, var(--text));
+  --error-text: color-mix(in srgb, var(--error) 41%, var(--text));
+  --error-text-custom-runtime: color-mix(in srgb, #963b3b 41%, var(--text));
+  --error-text-composer: color-mix(in srgb, #963d39 41%, var(--text));
+  --error-text-wakeup: color-mix(in srgb, #9a3939 41%, var(--text));
+  --error-text-editor: color-mix(in srgb, #9b3030 41%, var(--text));
+  --error-text-agent: color-mix(in srgb, #9c3b3b 41%, var(--text));
+  --error-text-panel: color-mix(in srgb, #9c3c3c 41%, var(--text));
+  --error-text-aux: color-mix(in srgb, #a12b38 41%, var(--text));
   --danger-bg: color-mix(in srgb, #e6506d 20%, var(--canvas));
+  --danger-text: color-mix(in srgb, #e6506d 48%, var(--text));
   --recommend-bg: color-mix(in srgb, var(--recommend) 20%, var(--canvas));
   --recommend-border: color-mix(in srgb, var(--recommend) 40%, var(--canvas));
   --recommend-text: color-mix(in srgb, var(--recommend) 44%, var(--text));

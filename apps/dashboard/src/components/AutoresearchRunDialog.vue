@@ -173,7 +173,7 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
 }
 .run-badge.failed {
   background: var(--error-bg);
-  color: var(--error);
+  color: var(--error-text);
 }
 .run-planned {
   margin: 10px 0 0;
@@ -220,7 +220,7 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
   border: 1px solid var(--error-border);
   border-radius: 7px;
   background: var(--error-bg);
-  color: var(--error);
+  color: var(--error-text);
   padding: 10px 12px;
   margin: 0 0 18px;
   font-size: 12px;

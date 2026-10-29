@@ -517,7 +517,7 @@ watch(
   border-color: transparent;
 }
 .stop {
-  color: #e6506d;
+  color: var(--danger-text);
   background: var(--danger-bg);
 }
 .detail-tabs {
