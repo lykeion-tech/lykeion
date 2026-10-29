@@ -394,11 +394,10 @@ async function holdStudyResponse(
 }
 
 test('study navigation resets the comment draft', async ({ page }) => {
-  const { a } = await linkedStudies(page);
+  const { a, b } = await linkedStudies(page);
   const main = page.getByRole('region', { name: 'Study' });
-  const meta = page.getByRole('complementary', { name: 'Study details' });
   await main.getByRole('textbox', { name: 'Comment' }).fill('Draft for A');
-  await meta.getByRole('link', { name: 'Lifecycle B' }).click();
+  await studyHash(page, b, 'Lifecycle B');
   await expect(main.getByRole('heading', { name: 'Lifecycle B' })).toBeVisible();
   await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
   await studyHash(page, a, 'Lifecycle A');
