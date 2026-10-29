@@ -14,7 +14,7 @@ import (
 
 const cardRatings = `-- name: CardRatings :many
 SELECT id, workspace_id, card_id, board_column, pack_id, user_id, offered, drawn_at, rating, rated_at, dismissed_at FROM team_rating WHERE workspace_id = $1 AND card_id = $2 AND user_id = $3 AND offered
-ORDER BY array_position(ARRAY['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'], board_column)
+ORDER BY array_position(ARRAY['grounding', 'hypotheses', 'experimentation', 'validation'], board_column)
 `
 
 type CardRatingsParams struct {

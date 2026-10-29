@@ -13,14 +13,13 @@ const (
 	Hypotheses      = "hypotheses"
 	Experimentation = "experimentation"
 	Validation      = "validation"
-	Reporting       = "reporting"
 	Done            = "done"
 
 	Working = "working"
 )
 
-// Stages are the five scientific columns, in board order.
-var Stages = []string{Grounding, Hypotheses, Experimentation, Validation, Reporting}
+// Stages are the four scientific columns, in board order.
+var Stages = []string{Grounding, Hypotheses, Experimentation, Validation}
 
 func StageIndex(c string) int {
 	for i, s := range Stages {

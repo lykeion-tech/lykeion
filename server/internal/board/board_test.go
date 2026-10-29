@@ -10,6 +10,12 @@ func TestStopEndsTheCard(t *testing.T) {
 	}
 }
 
+func TestTheBoardEndsAtValidation(t *testing.T) {
+	if len(Stages) != 4 || Stages[3] != Validation || StageIndex("reporting") != -1 {
+		t.Fatalf("%v", Stages)
+	}
+}
+
 func TestStageIndex(t *testing.T) {
 	for i, c := range Stages {
 		if StageIndex(c) != i {

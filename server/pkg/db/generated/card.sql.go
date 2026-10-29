@@ -202,7 +202,7 @@ INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, pos
   scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, machine, predicates)
 VALUES ($1, $2, $3, $4, $5, $6,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = $7::text), 1) - 1,
-  COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'reporting'),
+  COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'validation'),
   $10, $11, $7::text, $12, $13, $14, COALESCE($15::jsonb, '[]'::jsonb))
 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine, predicates
 `

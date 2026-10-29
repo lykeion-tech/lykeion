@@ -70,8 +70,8 @@ func TestAUsedTeamCannotBeEdited(t *testing.T) {
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting")
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, nil); code != 201 {
+	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "validation")
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "validation": r})}, nil); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if c, e := s.saveSkills(t, a, w.ID, r); c != 409 || !strings.Contains(e, "Used by 1 study") {
@@ -90,9 +90,9 @@ func TestLockCountsOnlyUnfinishedColumns(t *testing.T) {
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting"), s.addedTeam(t, a, w.ID, "r2", "reporting")
+	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "validation"), s.addedTeam(t, a, w.ID, "r2", "validation")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "validation": r})}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if c, e := s.saveSkills(t, a, w.ID, g); c != 409 {
@@ -125,7 +125,7 @@ func TestLockCountsOnlyUnfinishedColumns(t *testing.T) {
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET ending = '', board_column = 'hypotheses', state = 'working' WHERE id = $1`, c.ID); err != nil {
 		t.Fatal(err)
 	}
-	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"reporting": r2}, nil); code != 200 {
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"validation": r2}, nil); code != 200 {
 		t.Fatalf("swap: %d", code)
 	}
 	if c, e := s.saveSkills(t, a, w.ID, r); c != 200 {

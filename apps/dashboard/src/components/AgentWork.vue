@@ -13,7 +13,7 @@ const router = useRouter(),
   menu = ref(''),
   collapsed = ref<string[]>([]),
   selectedIds = ref<string[]>([]);
-const stages = ['Grounding', 'Hypotheses', 'Experimentation', 'Validation', 'Blocked', 'Reporting'];
+const stages = ['Grounding', 'Hypotheses', 'Experimentation', 'Validation', 'Blocked'];
 const tasks = computed(() =>
   (state.data?.inquiries ?? []).filter(
     (x) =>
@@ -267,10 +267,6 @@ function toggle(stage: string) {
 .work-stage-dot.blocked {
   border-color: #dd5f6c;
   background: #dd5f6c33;
-}
-.work-stage-dot.reporting {
-  border-color: #1478c6;
-  background: #1478c6;
 }
 .agent-work-empty {
   padding: 40px;

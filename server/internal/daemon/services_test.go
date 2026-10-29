@@ -109,7 +109,7 @@ func serviceState(d *daemon, c claimed) string {
 func TestServicesStartOnlyForExperimentation(t *testing.T) {
 	d := &daemon{}
 	c := claimed{Services: []service.ClaimedService{{Name: "broken"}}}
-	for _, col := range []string{"grounding", "hypotheses", "validation", "reporting", ""} {
+	for _, col := range []string{"grounding", "hypotheses", "validation", ""} {
 		c.AgentRun.BoardColumn = col
 		s, err := d.startServices(context.Background(), c, nil)
 		must(t, err)

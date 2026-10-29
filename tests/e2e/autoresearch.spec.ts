@@ -135,7 +135,7 @@ test('an Autoresearch needs an assignee', async ({ page }) => {
   await expect(menu.getByText('Members')).toHaveCount(0);
   await page.screenshot({ path: `${shots}/autoresearch-picker.png`, fullPage: true });
   await menu.getByRole('menuitem', { name: 'Watcher' }).click();
-  await expect(dialog.getByRole('button', { name: /Stages: Grounding → Reporting/ })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /Stages: Grounding → Validation/ })).toBeVisible();
   await expect(create).toBeEnabled();
 });
 
@@ -156,13 +156,13 @@ test('a Team set Autoresearch shows its range', async ({ page }) => {
     .selectOption({ label: 'Watcher' });
   await set.getByRole('button', { name: 'Use this set' }).click();
   await expect(
-    dialog.getByRole('button', { name: 'Stages: Grounding → Reporting' }),
+    dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),
   ).toBeDisabled();
   await page.screenshot({ path: `${shots}/autoresearch-editor.png`, fullPage: true });
   await dialog.getByRole('button', { name: /Run only/ }).click();
   await dialog.getByRole('button', { name: 'Create autoresearch' }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByText('Assigned to a Team set · Grounding → Reporting')).toBeVisible();
+  await expect(page.getByText('Assigned to a Team set · Grounding → Validation')).toBeVisible();
   const id = page.url().split('/').pop()!;
   const got = (await (await page.request.get(`/api/autoresearch/${id}`, { headers })).json()) as {
     assignee_type: string;
@@ -172,7 +172,7 @@ test('a Team set Autoresearch shows its range', async ({ page }) => {
   expect(got).toMatchObject({
     assignee_type: 'team',
     scope_from: 'grounding',
-    scope_to: 'reporting',
+    scope_to: 'validation',
   });
   await page.screenshot({ path: `${shots}/autoresearch-detail.png`, fullPage: true });
 });

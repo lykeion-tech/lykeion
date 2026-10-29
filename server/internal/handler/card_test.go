@@ -223,11 +223,11 @@ func TestASingleTeamStudyStaysInItsColumn(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 	var wide studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q2", "scope": map[string]string{"from": "grounding", "to": "reporting"},
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q2", "scope": map[string]string{"from": "grounding", "to": "validation"},
 		"assignee": teamAssignee(map[string]string{"hypotheses": pack})}, &wide); code != 201 {
 		t.Fatalf("a wider scope for one Team: %d", code)
 	}
-	if len(wide.Teams) != 5 || wide.Teams["hypotheses"].PackID != pack || wide.Teams["grounding"].PackID != s.builtInID(t, w.ID, "grounding") {
+	if len(wide.Teams) != 4 || wide.Teams["hypotheses"].PackID != pack || wide.Teams["grounding"].PackID != s.builtInID(t, w.ID, "grounding") {
 		t.Fatalf("%+v", wide)
 	}
 }
@@ -237,17 +237,17 @@ func TestATeamSetsGapsGetTheBuiltInTeams(t *testing.T) {
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting")
-	teams := map[string]string{"grounding": g, "reporting": r}
+	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "validation")
+	teams := map[string]string{"grounding": g, "validation": r}
 	var c studyJSON
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(teams)}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" || c.BoardColumn != "grounding" || len(c.Teams) != 5 ||
-		c.Teams["grounding"].PackID != g || c.Teams["reporting"].PackID != r || c.Teams["validation"].PackID != s.builtInID(t, w.ID, "validation") {
+	if c.ScopeFrom != "grounding" || c.ScopeTo != "validation" || c.BoardColumn != "grounding" || len(c.Teams) != 4 ||
+		c.Teams["grounding"].PackID != g || c.Teams["validation"].PackID != r {
 		t.Fatalf("%+v", c)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "scope": map[string]string{"from": "grounding", "to": "validation"},
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "scope": map[string]string{"from": "grounding", "to": "experimentation"},
 		"assignee": teamAssignee(teams)}, nil); code != 400 {
 		t.Fatalf("a Team outside the scope: %d", code)
 	}
@@ -287,7 +287,7 @@ func TestAStudyWithNoTeamPickedStartsAtOnceEndToEnd(t *testing.T) {
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if c.BoardColumn != "grounding" || c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" || len(c.Teams) != 5 {
+	if c.BoardColumn != "grounding" || c.ScopeFrom != "grounding" || c.ScopeTo != "validation" || len(c.Teams) != 4 {
 		t.Fatalf("%+v", c)
 	}
 	for _, col := range board.Stages {
@@ -306,16 +306,16 @@ func TestALaterColumnsTeamCanChangeUntilItStarts(t *testing.T) {
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting"), s.addedTeam(t, a, w.ID, "r2", "reporting")
+	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "validation"), s.addedTeam(t, a, w.ID, "r2", "validation")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "validation": r})}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"reporting": r2}, nil); code != 200 {
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"validation": r2}, nil); code != 200 {
 		t.Fatalf("later column: %d", code)
 	}
-	if n := s.count(t, "SELECT count(*) FROM card_team WHERE card_id = $1 AND board_column = 'reporting' AND pack_id = $2", c.ID, r2); n != 1 {
-		t.Fatalf("reporting Team not changed: %d", n)
+	if n := s.count(t, "SELECT count(*) FROM card_team WHERE card_id = $1 AND board_column = 'validation' AND pack_id = $2", c.ID, r2); n != 1 {
+		t.Fatalf("validation Team not changed: %d", n)
 	}
 	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"grounding": r2}, nil); code != 409 {
 		t.Fatalf("current column: %d", code)
@@ -362,9 +362,9 @@ func TestATeamCountsTheStudiesItWorks(t *testing.T) {
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting")
+	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "validation")
 	for _, q := range []string{"one?", "two?"} {
-		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": q, "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": g})}, nil); code != 201 {
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": q, "assignee": teamAssignee(map[string]string{"grounding": g, "validation": g})}, nil); code != 201 {
 			t.Fatalf("create: %d", code)
 		}
 	}
@@ -397,17 +397,17 @@ func TestOnlyTheOwnerChangesAStudysTeams(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
-	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting"), s.addedTeam(t, a, w.ID, "r2", "reporting")
+	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "validation"), s.addedTeam(t, a, w.ID, "r2", "validation")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "validation": r})}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", b, w.ID, map[string]string{"reporting": r2}, nil); code != 403 {
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", b, w.ID, map[string]string{"validation": r2}, nil); code != 403 {
 		t.Fatalf("non-owner: %d", code)
 	}
 	var up struct{ ID string }
-	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "r3", Stage: "reporting"}), &up)
-	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"reporting": up.ID}, nil); code != 400 {
+	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "r3", Stage: "validation"}), &up)
+	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"validation": up.ID}, nil); code != 400 {
 		t.Fatalf("Team the owner has not added: %d", code)
 	}
 }
@@ -657,13 +657,32 @@ func TestListedAgentsSayWhetherTheyAreTeamCopies(t *testing.T) {
 	}
 }
 
-func TestCreateRefusesWhenAStageHasNoBuiltInTeam(t *testing.T) {
+func TestNoStudyReachesPastValidation(t *testing.T) {
 	s := newServer(t)
-	s.builtIns(t, board.Stages[:4]...)
+	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var e struct{ Error string }
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &e); code != 422 || e.Error != "No built-in Team for Reporting" {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "scope": map[string]string{"from": "grounding", "to": "reporting"}}, &e); code != 400 || e.Error != "scope names a column outside the stages" {
+		t.Fatalf("scope to reporting: %d %q", code, e.Error)
+	}
+	g := s.addedTeam(t, a, w.ID, "g", "grounding")
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": g})}, nil); code != 400 {
+		t.Fatalf("a Team on reporting: %d", code)
+	}
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != 201 || c.ScopeTo != "validation" {
+		t.Fatalf("default end: %d %+v", code, c)
+	}
+}
+
+func TestCreateRefusesWhenAStageHasNoBuiltInTeam(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t, board.Stages[:3]...)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var e struct{ Error string }
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &e); code != 422 || e.Error != "No built-in Team for Validation" {
 		t.Fatalf("%d %q", code, e.Error)
 	}
 	if n := s.count(t, "SELECT count(*) FROM card"); n != 0 {

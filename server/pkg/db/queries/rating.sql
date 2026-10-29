@@ -13,7 +13,7 @@ ON CONFLICT (card_id, board_column) DO NOTHING;
 -- The user's offers on one study, in column order.
 -- name: CardRatings :many
 SELECT * FROM team_rating WHERE workspace_id = @workspace_id AND card_id = @card_id AND user_id = @user_id AND offered
-ORDER BY array_position(ARRAY['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'], board_column);
+ORDER BY array_position(ARRAY['grounding', 'hypotheses', 'experimentation', 'validation'], board_column);
 
 -- name: SetRating :one
 UPDATE team_rating SET rating = sqlc.narg(rating), rated_at = @rated_at

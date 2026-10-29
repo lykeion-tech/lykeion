@@ -70,7 +70,6 @@
   --stage-experimentation-bg: #fbf6e9;
   --stage-validation-bg: #ebf4ec;
   --stage-blocked-bg: #fce8ea;
-  --stage-reporting-bg: #e9f2fa;
 
   --error: #923f3f;
   --error-bg: #fbebeb;
@@ -153,7 +152,6 @@
   );
   --stage-validation-bg: color-mix(in srgb, var(--stage-validation-dot) 12%, var(--canvas));
   --stage-blocked-bg: color-mix(in srgb, var(--stage-blocked-dot) 12%, var(--canvas));
-  --stage-reporting-bg: color-mix(in srgb, var(--stage-reporting-dot) 12%, var(--canvas));
 
   --error-bg: color-mix(in srgb, var(--error) 12%, var(--canvas));
   --error-border: color-mix(in srgb, var(--error) 40%, var(--canvas));
@@ -1459,13 +1457,6 @@ kbd {
 }
 .stage-blocked .stage-dot {
   color: var(--stage-blocked-dot);
-}
-.stage-reporting {
-  background: var(--stage-reporting-bg);
-}
-.stage-reporting .stage-dot {
-  background: var(--stage-reporting-dot);
-  color: var(--stage-reporting-dot);
 }
 .column-empty {
   margin-top: 42px;

@@ -71,7 +71,7 @@ function initialRange(): Range {
   const columns = a?.type === 'team' ? Object.keys(a.teams) : [];
   return columns.length === 1 && a?.type === 'team' && !a.agent_id
     ? { from: columns[0]!, to: columns[0]! }
-    : { from: 'grounding', to: 'reporting' };
+    : { from: 'grounding', to: 'validation' };
 }
 const range = ref<Range>(initialRange());
 const picker = ref<InstanceType<typeof AssignPicker>>();
@@ -101,7 +101,7 @@ const lastSetId = computed(
           c.owner_id === me.data.value?.id &&
           c.assignee_type === ('team' as string) &&
           c.scope_from === 'grounding' &&
-          c.scope_to === 'reporting',
+          c.scope_to === 'validation',
       )
       .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.id ?? '',
 );

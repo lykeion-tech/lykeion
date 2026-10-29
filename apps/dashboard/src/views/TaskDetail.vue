@@ -1629,7 +1629,6 @@ function pin() {
 .status-blocked {
   color: #d5213d;
 }
-.status-reporting,
 .status-done {
   color: #0672c5;
 }

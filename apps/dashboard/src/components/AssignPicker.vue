@@ -96,7 +96,7 @@ function assign(value: Picked | null, last = false, isSet = false) {
   range.value =
     !isSet && cols.length === 1
       ? { from: cols[0]!, to: cols[0]! }
-      : { from: 'grounding', to: 'reporting' };
+      : { from: 'grounding', to: 'validation' };
   emit('picked', last);
   closeMenu();
 }

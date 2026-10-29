@@ -133,7 +133,7 @@ func TestNoVersionInTeamResponses(t *testing.T) {
 		t.Fatalf("study: %d", c)
 	}
 	s.call(t, "GET", "/api/cards/"+study["id"].(string), a, w.ID, nil, &card)
-	if len(card["teams"].(map[string]any)) != 5 {
+	if len(card["teams"].(map[string]any)) != 4 {
 		t.Fatalf("study teams: %v", card["teams"])
 	}
 	// The card's own version counts its edits; only its Teams are checked.

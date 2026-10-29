@@ -243,7 +243,7 @@ onUnmounted(() => {
         <div v-if="submenu === name" class="context-submenu" role="menu" :aria-label="name">
           <template v-if="name === 'Status'"
             ><button
-              v-for="value in [...stages.slice(0, 4), 'Blocked', 'Reporting', 'Done', 'Cancelled']"
+              v-for="value in [...stages.slice(0, 4), 'Blocked', 'Done', 'Cancelled']"
               :key="value"
               role="menuitemradio"
               :aria-checked="

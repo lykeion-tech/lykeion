@@ -171,6 +171,7 @@ func TestParseRefuses(t *testing.T) {
 		{"unknown field", rawJSON(func(b []byte) []byte { return append([]byte(`{"surprise":1,`), b[1:]...) }), "surprise"},
 		{"empty name", mut(func(m *Manifest) { m.Name = "" }), "name"},
 		{"stage not a stage", mut(func(m *Manifest) { m.Stage = "lunch" }), "stage"},
+		{"stage reporting", mut(func(m *Manifest) { m.Stage = "reporting" }), "stage"},
 		{"no members", mut(func(m *Manifest) { m.Members = nil }), "members"},
 		{"too many members", mut(func(m *Manifest) { m.Members = tooMany() }), "members"},
 		{"bad member name", mut(func(m *Manifest) { m.Members[0].Name = "Scout" }), "name"},

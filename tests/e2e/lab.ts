@@ -142,10 +142,10 @@ export function labUnship(name: string) {
   rmSync(join(SHIPPED, name), { recursive: true, force: true });
 }
 
-const stageNames = ['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'];
+const stageNames = ['grounding', 'hypotheses', 'experimentation', 'validation'];
 export const builtInTeams = stageNames.map((s) => `${s[0]!.toUpperCase()}${s.slice(1)} Team`);
 
-// Built-in Teams install when a workspace is created, so the lab ships five
+// Built-in Teams install when a workspace is created, so the lab ships four
 // test-only stage Teams just while create makes one; workspaces made without
 // it have no built-in Teams.
 export async function withBuiltInTeams<T>(create: () => Promise<T>): Promise<T> {
@@ -290,7 +290,7 @@ export async function labReportAutoresearch(request: APIRequestContext, mode = '
       description: 'Read sources and report.',
       execution_mode: mode,
       assignee: { type: 'agent', id: agent.id },
-      scope: { from: 'grounding', to: 'reporting' },
+      scope: { from: 'grounding', to: 'validation' },
     },
   });
   expect(response.status()).toBe(201);

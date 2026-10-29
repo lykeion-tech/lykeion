@@ -54,7 +54,7 @@ function seedClient() {
     ending: '',
     block_kind: '',
     scope_from: 'grounding',
-    scope_to: 'reporting',
+    scope_to: 'validation',
     round: 1,
     redos: 0,
     teams: {},

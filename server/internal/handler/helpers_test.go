@@ -85,7 +85,7 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 // starts: a holder for runs a test queues itself.
 func (s *server) idleCard(t *testing.T, tok, wsID, question string) card {
 	t.Helper()
-	return s.seedCard(t, tok, wsID, question, nil, board.Grounding, board.Reporting)
+	return s.seedCard(t, tok, wsID, question, nil, board.Grounding, board.Validation)
 }
 
 // agentCard files a study worked by one agent, as Autoresearch opens one, and

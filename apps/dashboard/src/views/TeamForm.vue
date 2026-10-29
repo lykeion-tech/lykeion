@@ -27,7 +27,7 @@ type Slot = { name: string; agent: string; role: string; skills: string[]; conne
 
 const MAX_MEMBERS = 12;
 const MAX_CRITERIA = 10;
-const stages = ['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'];
+const stages = ['grounding', 'hypotheses', 'experimentation', 'validation'];
 const core = [
   'Does the work cite where its facts came from?',
   'Does it answer what the researcher asked?',

@@ -455,7 +455,6 @@ onUnmounted(() => {
               <option>Hypotheses</option>
               <option>Experimentation</option>
               <option>Validation</option>
-              <option>Reporting</option>
             </select></label
           ><label v-else-if="condition === 'pull-request'"
             >Event<select v-model="parameters.event" required>

@@ -544,7 +544,7 @@ func TestInboxSentences(t *testing.T) {
 		middleScoreText(7, "grounding", weak, false): "Study #7's Grounding column scored in the middle; its weakest criterion was “Does it say what it couldn't do?” (level 3 of 5).",
 		middleScoreText(7, "grounding", weak, true):  "Study #7's Grounding column scored in the middle and the study finished; its weakest criterion was “Does it say what it couldn't do?” (level 3 of 5).",
 		blockedText(7, "grounding", weak):            "Study #7 scored low twice in its Grounding column, lowest on “Does it say what it couldn't do?” (level 3 of 5). Comment on the study to tell the Team what to fix.",
-		doneText(7, "reporting"):                     "Study #7 is done, in its Reporting column.",
+		doneText(7, "validation"):                     "Study #7 is done, in its Validation column.",
 		unavailableText(7, "grounding"):              "Scoring is unavailable for study #7's Grounding column. It stays there, and Lykeion keeps retrying.",
 	} {
 		if got != want {

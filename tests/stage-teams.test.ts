@@ -239,7 +239,7 @@ async function mount(
 
 async function mountPicker(agents = false, lastSet: Picked | null = null) {
   const assignee = ref<Picked | null>(null);
-  const range = ref<Range>({ from: 'grounding', to: 'reporting' });
+  const range = ref<Range>({ from: 'grounding', to: 'validation' });
   const mounted = await mount(AssignPicker, () => ({
     modelValue: assignee.value,
     'onUpdate:modelValue': (v: Picked | null) => (assignee.value = v),
@@ -287,7 +287,7 @@ describe('AssignPicker', () => {
       await p.click(/Built-in Teams/);
       await p.click(/Your last set/);
       expect(p.assignee.value).toEqual({ type: 'team', teams: { hypotheses: 't1' } });
-      expect(p.range.value).toEqual({ from: 'grounding', to: 'reporting' });
+      expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
       expect(p.text()).toContain('Your Team set');
     } finally {
       p.unmount();
@@ -297,7 +297,7 @@ describe('AssignPicker', () => {
   it('shows the Stages pill when nothing is picked', async () => {
     const p = await mountPicker();
     try {
-      expect(p.button(/Grounding → Reporting/)).toBeTruthy();
+      expect(p.button(/Grounding → Validation/)).toBeTruthy();
     } finally {
       p.unmount();
     }
@@ -376,7 +376,7 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
     ending: '',
     block_kind: '',
     scope_from: 'grounding',
-    scope_to: 'reporting',
+    scope_to: 'validation',
     round: 1,
     redos: 0,
     teams: {},
@@ -562,7 +562,7 @@ describe('pre-registered results', () => {
     vi.stubGlobal('fetch', fetch);
     const t = await mount(CreateTask, () => ({}), '/', seedStudy);
     try {
-      await t.click(/Grounding → Reporting/);
+      await t.click(/Grounding → Validation/);
       await t.change('To stage', 'hypotheses');
       expect(t.text()).not.toContain('Pre-registered results');
       await t.fill('Describe your study', 'Question');

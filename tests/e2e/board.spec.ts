@@ -3,7 +3,7 @@ import { LAB, labFixture, newStudy } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-13-artifacts';
 
-test('the board shows seven columns and a new study arriving live in its column', async ({
+test('the board shows six columns and a new study arriving live in its column', async ({
   page,
 }) => {
   await page.goto('/#/studies');
@@ -14,7 +14,6 @@ test('the board shows seven columns and a new study arriving live in its column'
     'Experimentation',
     'Validation',
     'Blocked',
-    'Reporting',
     'Done',
   ]);
   await expect(page.locator('.task-card')).toHaveCount(0);

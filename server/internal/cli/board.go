@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var columns = []string{"grounding", "hypotheses", "experimentation", "validation", "reporting", "done"}
+var columns = []string{"grounding", "hypotheses", "experimentation", "validation", "done"}
 
 // steerPost sends one steering action for the card numbered n and prints where it left the card.
 func steerPost(cmd *cobra.Command, e *env, n, action string, body any) error {

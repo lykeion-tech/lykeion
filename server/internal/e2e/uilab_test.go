@@ -375,7 +375,7 @@ func TestUILab(t *testing.T) {
 			}
 			c, err = tx.Q.CreateCard(r.Context(), db.CreateCardParams{WorkspaceID: ws, Number: n, OwnerID: user,
 				Title: in.Title, Question: in.Question, BoardColumn: board.Grounding,
-				ScopeFrom: board.Grounding, ScopeTo: board.Reporting, Round: 1, AssigneeType: kind, AssigneeID: in.AgentID})
+				ScopeFrom: board.Grounding, ScopeTo: board.Validation, Round: 1, AssigneeType: kind, AssigneeID: in.AgentID})
 			if err != nil {
 				return err
 			}

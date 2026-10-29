@@ -19,7 +19,7 @@ func TestBoardColumnsHaveNoBacklog(t *testing.T) {
 	if err := SaveConfig(cfg, Config{Server: srv.URL, Token: "lyk_t", Workspace: "ws1"}); err != nil {
 		t.Fatal(err)
 	}
-	if out := lyk(t, "", "board"); strings.Contains(out, "backlog") || !strings.Contains(out, "#2") {
+	if out := lyk(t, "", "board"); strings.Contains(out, "backlog") || strings.Contains(out, "reporting") || !strings.Contains(out, "#2") {
 		t.Fatalf("board:\n%s", out)
 	}
 }

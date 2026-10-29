@@ -136,7 +136,7 @@ test.describe('new study', () => {
       data: {
         question: `The earlier set study ${Date.now()}`,
         assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
-        scope: { from: 'grounding', to: 'reporting' },
+        scope: { from: 'grounding', to: 'validation' },
         predicates: [{ name: 'effect', text: 'effect > 0' }],
       },
     });
@@ -151,12 +151,12 @@ test.describe('new study', () => {
       dialog.getByText('Your Team set will start working right after you create the study'),
     ).toBeVisible();
     await expect(
-      dialog.getByRole('button', { name: 'Stages: Grounding → Reporting' }),
+      dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),
     ).toBeDisabled();
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
     const study = await studyOf(page, question);
-    expect([study.scope_from, study.scope_to]).toEqual(['grounding', 'reporting']);
+    expect([study.scope_from, study.scope_to]).toEqual(['grounding', 'validation']);
     expect(study.assignee_id).toBeNull();
     expect(study.teams.grounding!.pack_id).toBe(ground);
     expect(study.teams.hypotheses!.pack_id).toBe(hyp);
@@ -166,7 +166,7 @@ test.describe('new study', () => {
     const question = `Built-in Teams, two stages ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await dialog.getByRole('button', { name: 'Stages: Grounding → Reporting' }).click();
+    await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
     await page.screenshot({ path: `${shots}/stages-pill.png` });
     await dialog.getByRole('combobox', { name: 'To stage' }).selectOption('hypotheses');
     await expect(
@@ -216,7 +216,7 @@ test.describe('new study', () => {
       data: {
         question: `A set study ${Date.now()}`,
         assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
-        scope: { from: 'grounding', to: 'reporting' },
+        scope: { from: 'grounding', to: 'validation' },
         predicates: [{ name: 'effect', text: 'effect > 0' }],
       },
     });
@@ -253,7 +253,7 @@ test.describe('new study', () => {
       'Describe what you want to do, in your own words',
     );
     await expect(
-      dialog.getByRole('button', { name: 'Stages: Grounding → Reporting' }),
+      dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),
     ).toBeEnabled();
   });
 
@@ -306,14 +306,13 @@ test.describe('new study', () => {
     await dialog.getByRole('button', { name: /Create study/ }).click();
     const response = await saved;
     expect(response.status(), await response.text()).toBe(201);
-    expect(response.request().postDataJSON().scope).toEqual({ from: 'grounding', to: 'reporting' });
+    expect(response.request().postDataJSON().scope).toEqual({ from: 'grounding', to: 'validation' });
     const study = await studyOf(page, question);
-    expect([study.scope_from, study.scope_to]).toEqual(['grounding', 'reporting']);
+    expect([study.scope_from, study.scope_to]).toEqual(['grounding', 'validation']);
     expect(Object.keys(study.teams).sort()).toEqual([
       'experimentation',
       'grounding',
       'hypotheses',
-      'reporting',
       'validation',
     ]);
     expect(study.teams.hypotheses!.pack_id).toBe(hyp);

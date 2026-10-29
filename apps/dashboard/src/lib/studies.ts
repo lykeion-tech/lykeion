@@ -51,13 +51,12 @@ export const careerStageLabels: Record<Exclude<CareerStage, ''>, string> = {
   other: 'Other',
 };
 
-// The five stages, one line each, as the Welcome step introduces them.
+// The four stages, one line each, as the Welcome step introduces them.
 export const stageIntro = [
   { name: 'Grounding', line: 'Find the literature and data that bear on the question.' },
   { name: 'Hypotheses', line: 'Form rival hypotheses that an experiment can tell apart.' },
   { name: 'Experimentation', line: 'Run the analysis and keep reproducible results.' },
   { name: 'Validation', line: 'Independent reviewers test the findings.' },
-  { name: 'Reporting', line: 'Release the result with traceable evidence.' },
 ];
 
 export type BoardColumn = Column | 'blocked';
@@ -67,7 +66,6 @@ export const boardColumns: { id: BoardColumn; name: string }[] = [
   { id: 'hypotheses', name: 'Hypotheses' },
   { id: 'experimentation', name: 'Experimentation' },
   { id: 'validation', name: 'Validation' },
-  { id: 'reporting', name: 'Reporting' },
   { id: 'blocked', name: 'Blocked' },
   { id: 'done', name: 'Done' },
 ];
@@ -76,7 +74,6 @@ export const stages: Column[] = [
   'hypotheses',
   'experimentation',
   'validation',
-  'reporting',
 ];
 export const columnName = (id: string) => boardColumns.find((c) => c.id === id)?.name ?? id;
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"lykeion/server/internal/board"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -19,6 +20,17 @@ func TestThePromptListsTheFiles(t *testing.T) {
 	}
 	if p := prompt(c, "agent", nil, "", nil, nil); strings.Contains(p, "attachments") {
 		t.Fatalf("a study without files mentions attachments:\n%s", p)
+	}
+}
+
+func TestNoPromptNamesAReportingStage(t *testing.T) {
+	for _, col := range board.Stages {
+		for _, role := range []string{"agent", "leader", "member", "auditor"} {
+			p := prompt(db.Card{Number: 1, BoardColumn: col, Question: "q?"}, role, nil, "", nil, nil)
+			if strings.Contains(p, "Reporting") || strings.Contains(p, "manuscript") {
+				t.Errorf("%s/%s:\n%s", col, role, p)
+			}
+		}
 	}
 }
 
@@ -69,7 +81,7 @@ func TestOtherColumnsSeeNoPredicatesBeforeTheyAreDecided(t *testing.T) {
 }
 
 func TestLaterColumnsGetTheOutcomesAsFixedFacts(t *testing.T) {
-	c := db.Card{Number: 1, BoardColumn: "reporting", Question: "q?", Predicates: []byte(twoPreds)}
+	c := db.Card{Number: 1, BoardColumn: "validation", Question: "q?", Predicates: []byte(twoPreds)}
 	decided := []Decision{
 		{Name: "effect", Text: "effect > 0.2", Outcome: "missed", Round: 1, Run: "x3", Values: map[string]float64{"effect": 0.1}},
 		{Name: "cap", Text: "loss < 0.5", Outcome: "unconfirmed", Reason: "no results run named"},

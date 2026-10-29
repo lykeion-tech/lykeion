@@ -19,7 +19,6 @@ var deliverables = map[string]string{
 	board.Hypotheses:      "Hypotheses with predictions, rival explanations and what would falsify each",
 	board.Experimentation: "Analysis code, the run record and results",
 	board.Validation:      "A critical report: what holds and what doesn't",
-	board.Reporting:       "A manuscript draft",
 }
 
 func title(column string) string {

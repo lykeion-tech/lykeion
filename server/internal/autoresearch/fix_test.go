@@ -96,8 +96,8 @@ func (f *fix) autoresearch(t *testing.T, mode, title, description, template stri
 	if err := db.New(tx).LockWorkspaceEvents(context.Background(), f.ws); err != nil {
 		t.Fatal(err)
 	}
-	if err := tx.QueryRow(context.Background(), `INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template)
-		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, f.ws, f.owner, title, description, mode, template).Scan(&id); err != nil {
+	if err := tx.QueryRow(context.Background(), `INSERT INTO autoresearch (workspace_id, owner_id, title, description, execution_mode, title_template, scope_to)
+		VALUES ($1, $2, $3, $4, $5, $6, 'validation') RETURNING id`, f.ws, f.owner, title, description, mode, template).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(context.Background()); err != nil {

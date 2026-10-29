@@ -27,7 +27,6 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
     'Experimentation',
     'Validation',
     'Blocked',
-    'Reporting',
     'Done',
   ]);
   await page.getByRole('button', { name: 'New', exact: true }).click();
@@ -42,7 +41,7 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   await expect(menu.getByText('Agents', { exact: true })).toHaveCount(0);
   await expect(menu.getByRole('menuitem', { name: 'Unassigned' })).toHaveCount(0);
   await menu.getByRole('menuitem', { name: 'Built-in Teams' }).click();
-  await dialog.getByRole('button', { name: 'Stages: Grounding → Reporting' }).click();
+  await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
   await dialog.getByRole('combobox', { name: 'From stage' }).selectOption('hypotheses');
   await dialog.getByRole('combobox', { name: 'To stage' }).selectOption('hypotheses');
   const saved = page.waitForResponse(

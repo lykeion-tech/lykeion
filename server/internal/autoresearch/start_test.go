@@ -135,7 +135,7 @@ func TestAutoresearchCardStartsAtOnce(t *testing.T) {
 			t.Fatalf("card: %+v", c)
 		}
 		got := f.cardTeams(t, c.ID)
-		for _, col := range []string{"grounding", "hypotheses", "experimentation", "validation", "reporting"} {
+		for _, col := range []string{"grounding", "hypotheses", "experimentation", "validation"} {
 			if got[col] != f.builtIn(t, col) {
 				t.Fatalf("teams: %v", got)
 			}
@@ -152,7 +152,7 @@ func TestAutoresearchCardStartsAtOnce(t *testing.T) {
 func TestAMissingBuiltInFailsTheRunAndLeavesNothing(t *testing.T) {
 	f := setup(t)
 	f.s.Engine = &flow.Engine{Store: f.s.Store, AgentRuns: f.s.AgentRuns}
-	f.exec(t, `DELETE FROM field_pack WHERE id = $1`, f.builtIn(t, "reporting"))
+	f.exec(t, `DELETE FROM field_pack WHERE id = $1`, f.builtIn(t, "validation"))
 	ap := f.autoresearch(t, "create_card", "Weekly", "What is new?", "")
 	r := f.fire(t, ap, Admission{})
 	if reason(r) != "failed/assignee_unavailable" || r.CardID != nil || f.count(t, `SELECT count(*) FROM card`) != 0 ||

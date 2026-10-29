@@ -75,7 +75,7 @@ function card(extra: Partial<Card> = {}): Card {
     pack_id: null,
     block_kind: '',
     scope_from: 'grounding',
-    scope_to: 'reporting',
+    scope_to: 'validation',
     teams: {},
     redos: 0,
     off_label: [],
@@ -87,16 +87,19 @@ function card(extra: Partial<Card> = {}): Card {
 }
 
 describe('board columns', () => {
-  it('orders the seven columns with Blocked between Reporting and Done', () => {
+  it('orders the six columns with Blocked between Validation and Done', () => {
     expect(boardColumns.map((c) => c.name)).toEqual([
       'Grounding',
       'Hypotheses',
       'Experimentation',
       'Validation',
-      'Reporting',
       'Blocked',
       'Done',
     ]);
+  });
+  it('has four stages', () => {
+    expect(studies.stages).toEqual(['grounding', 'hypotheses', 'experimentation', 'validation']);
+    expect(studies.stageIntro).toHaveLength(4);
   });
   it('shows a flagged active study in Blocked, and back in its column once the flag clears', () => {
     expect(boardColumnOf(card({ flag: 'escalated' }))).toBe('blocked');
@@ -368,7 +371,7 @@ describe('flow records and Inbox sentences', () => {
       studies.inboxText(
         {
           kind: 'middle_score',
-          text: "Study #1's Reporting column scored in the middle and the study finished; its weakest criterion was “Does it say what it couldn’t do?” (level 3 of 5).",
+          text: "Study #1's Validation column scored in the middle and the study finished; its weakest criterion was “Does it say what it couldn’t do?” (level 3 of 5).",
         },
         'S',
       ),
@@ -411,9 +414,9 @@ describe('study overview from recorded work', () => {
 
 describe('pre-registered results', () => {
   it('knows when the scope covers Experimentation', () => {
-    expect(studies.coversExperimentation({ from: 'grounding', to: 'reporting' }, [])).toBe(true);
+    expect(studies.coversExperimentation({ from: 'grounding', to: 'validation' }, [])).toBe(true);
     expect(studies.coversExperimentation({ from: 'grounding', to: 'hypotheses' }, [])).toBe(false);
-    expect(studies.coversExperimentation({ from: 'validation', to: 'reporting' }, [])).toBe(false);
+    expect(studies.coversExperimentation({ from: 'validation', to: 'validation' }, [])).toBe(false);
     expect(studies.coversExperimentation(null, ['experimentation'])).toBe(true);
     expect(studies.coversExperimentation(null, ['hypotheses'])).toBe(false);
   });

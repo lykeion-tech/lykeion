@@ -41,7 +41,7 @@ export interface Workspace {
 }
 
 export type Column =
-  'grounding' | 'hypotheses' | 'experimentation' | 'validation' | 'reporting' | 'done';
+  'grounding' | 'hypotheses' | 'experimentation' | 'validation' | 'done';
 
 // One column of a study offered to its owner for a Team rating.
 export interface ColumnRating {

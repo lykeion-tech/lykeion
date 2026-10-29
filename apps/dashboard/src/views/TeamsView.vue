@@ -30,7 +30,7 @@ function leaveFilter(event: FocusEvent) {
 }
 onMounted(() => document.addEventListener('pointerdown', outsideFilter));
 onUnmounted(() => document.removeEventListener('pointerdown', outsideFilter));
-const stages = ['grounding', 'hypotheses', 'experimentation', 'validation', 'reporting'];
+const stages = ['grounding', 'hypotheses', 'experimentation', 'validation'];
 const everything = useTeams('', '');
 const teams = useTeams(domain, stage);
 const rows = computed(() =>

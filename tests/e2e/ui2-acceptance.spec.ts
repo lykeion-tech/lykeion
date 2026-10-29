@@ -282,7 +282,7 @@ test('fresh daemon work completes a report visible from history and Inbox and cr
       description: 'Create a study to inspect.',
       execution_mode: 'create_card',
       assignee: { type: 'agent', id: f.agent_id },
-      scope: { from: 'grounding', to: 'reporting' },
+      scope: { from: 'grounding', to: 'validation' },
     },
   });
   expect(created.status(), await created.text()).toBe(201);
