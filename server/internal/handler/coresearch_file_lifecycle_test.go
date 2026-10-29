@@ -48,8 +48,8 @@ func TestCoresearchFileLifecycle(t *testing.T) {
 	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE coresearch_change SET status='stale' WHERE id=$1`, id); e != nil {
 		t.Fatal(e)
 	}
-	must("DELETE", fileURL, a, nil, 409, nil)
-	must("POST", root+"/changes/"+id+"/undo", b, nil, 200, nil)
+	// A stale change can no longer be decided, so it must not keep the file.
+	must("POST", root+"/changes/"+id+"/undo", b, nil, 409, nil)
 	must("DELETE", fileURL, b, nil, 204, nil)
 	must("DELETE", fileURL, a, nil, 404, nil)
 	must("PATCH", fileURL, a, map[string]string{"path": "new.tex"}, 404, nil)
@@ -70,8 +70,8 @@ func TestCoresearchFileLifecycle(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	cleared, e := changes.Apply("aold\r\nb")
-	if e != nil || cleared != "" || initial != "a😀\r\nb" || version != 2 || author != s.userID(t, b) {
+	cleared, e := changes.Apply("a😀\r\nb")
+	if e != nil || cleared != "" || initial != "a😀\r\nb" || version != 1 || author != s.userID(t, b) {
 		t.Fatalf("clear/history %q %d %s %v", cleared, version, initial, e)
 	}
 	var size, n int

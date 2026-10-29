@@ -146,6 +146,22 @@ func TestCoresearchModelTurnClaimedOnlyWhereModelListed(t *testing.T) {
 		t.Fatalf("runtime listing the model claimed %d runs", len(got))
 	}
 }
+func TestCoresearchUnlistedModelRunsWithCLIDefault(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	run := csTurn(t, s, a, ws, path)
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET requested_model='retired-model' WHERE id=$1`, run.ID); e != nil {
+		t.Fatal(e)
+	}
+	ref := csRegister(t, s, a, ws, "only", "claude")
+	got := csClaim(t, s, a, ref)
+	if len(got) != 1 || got[0].AgentRun.ID != run.ID {
+		t.Fatalf("no runtime lists the model, yet the turn was not claimed: %d", len(got))
+	}
+	if got[0].AgentRun.RequestedModel != "" {
+		t.Fatalf("turn should run on the CLI default, got model %q", got[0].AgentRun.RequestedModel)
+	}
+}
 func TestReleaseUnbinds(t *testing.T) {
 	s, a, _, _, ws, p := csFixture(t)
 	path, c := csChat(t, s, a, ws, p.ID)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -170,7 +171,8 @@ func (h *H) deleteCoresearchFile(w http.ResponseWriter, r *http.Request) {
 			if e != nil {
 				return e
 			}
-			if len(pending) > 0 {
+			// A stale change is settled by the typing inside it and blocks nothing.
+			if slices.ContainsFunc(pending, func(c db.CoresearchChange) bool { return c.Status == "pending" }) {
 				return conflict("Keep or Undo the pending changes before removing this file")
 			}
 			// Restore can initialize a retained text journal even at a non-TeX path.

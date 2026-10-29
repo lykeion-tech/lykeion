@@ -179,8 +179,11 @@ WHERE id = (
       OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id)
       OR (t.kind='coresearch' AND t.responsible_user_id=r.owner_id AND cc.owner_id=r.owner_id AND cc.cli=r.harness
           AND (cc.daemon_id IS NULL OR cc.daemon_id=r.daemon_id) AND cp.archived_at IS NULL
-          -- a turn frozen to a model runs only on a runtime whose CLI lists it
-          AND (t.requested_model='' OR r.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model)))
+          -- a turn frozen to a model runs on a runtime whose CLI lists it; when none
+          -- of the owner's online runtimes lists it, any runs it on the CLI default
+          AND (t.requested_model='' OR r.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))
+               OR NOT EXISTS(SELECT 1 FROM runtime o WHERE o.workspace_id=t.workspace_id AND o.owner_id=r.owner_id AND o.harness=r.harness
+                             AND o.status='online' AND o.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))))
           AND EXISTS(SELECT 1 FROM coresearch_member cm WHERE cm.workspace_id=t.workspace_id AND cm.project_id=cc.project_id AND cm.user_id=cc.owner_id)))
   ORDER BY t.created_at
   FOR UPDATE OF t SKIP LOCKED

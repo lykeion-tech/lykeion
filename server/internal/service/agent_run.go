@@ -797,6 +797,10 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							files = append(files, ClaimedAttachment{ID: a.ID, DiskName: a.DiskName, Sha256: a.Sha256, SizeBytes: a.SizeBytes, UnpackedBytes: a.UnpackedBytes, InnerFiles: a.InnerFiles})
 						}
 					}
+					if core != nil && t.RequestedModel != "" && !listsModel(current.Models, t.RequestedModel) {
+						// No CLI offers the frozen model any longer: run on the CLI's default.
+						t.RequestedModel = ""
+					}
 					c = &Claimed{Coresearch: core, PythonVersion: python, AgentRun: t, Env: env, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
@@ -1705,4 +1709,16 @@ func (s *AgentRuns) CancelInTx(ctx context.Context, tx *store.Tx, user uuid.UUID
 	}
 	tx.AfterCommit(func() { s.deliverAfterCommit(context.WithoutCancel(ctx), tx.WS, t.ID) })
 	return nil
+}
+
+// listsModel reports whether a runtime's reported models include value.
+func listsModel(models []byte, value string) bool {
+	type model struct {
+		Value string `json:"value"`
+	}
+	var list []model
+	if json.Unmarshal(models, &list) != nil {
+		return false
+	}
+	return slices.ContainsFunc(list, func(m model) bool { return m.Value == value })
 }
