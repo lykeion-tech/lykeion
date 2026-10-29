@@ -59,7 +59,6 @@ type Door struct {
 	Child func() agent.ExecOptions
 	// Study is the study's environment, where run_code and run_script run.
 	Study      *envs.Study
-	StudyEnv   map[string]string
 	ServiceEnv []string
 	// PrivatePaths are daemon-owned paths that no run may read, including
 	// paths that another run may create after this door starts.

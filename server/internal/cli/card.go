@@ -80,7 +80,7 @@ func agentID(cmd *cobra.Command, e *env, ref string) (string, error) {
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
 	var title, machine, agent string
-	var variables, predicates []string
+	var predicates []string
 	var uploads cardUploadFlags
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
@@ -90,17 +90,6 @@ func cardCmd(e *env) *cobra.Command {
 		in := map[string]any{"question": strings.Join(a, " ")}
 		if cmd.Flags().Changed("machine") {
 			in["machine"] = machine
-		}
-		if len(variables) > 0 {
-			env := make(map[string]string, len(variables))
-			for _, pair := range variables {
-				name, value, ok := strings.Cut(pair, "=")
-				if !ok {
-					return fmt.Errorf("--env requires NAME=VALUE")
-				}
-				env[name] = value
-			}
-			in["env"] = env
 		}
 		if len(predicates) > 0 {
 			list := make([]map[string]string, 0, len(predicates))
@@ -136,11 +125,9 @@ func cardCmd(e *env) *cobra.Command {
 	newCmd.Flags().StringArrayVar(&uploads.services, "service", nil, "hidden service NAME=DIR (repeatable)")
 	newCmd.Flags().StringArrayVar(&uploads.starts, "service-start", nil, "hidden service NAME=COMMAND (repeatable)")
 	newCmd.Flags().StringArrayVar(&uploads.clients, "service-client", nil, "public client NAME=RELPATH (repeatable)")
-	newCmd.Flags().StringArrayVar(&uploads.variables, "service-env", nil, "service study variable NAME=VAR (repeatable)")
 	newCmd.Flags().StringVar(&machine, "machine", "", "machine name or daemon id (default: mine)")
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().StringVar(&agent, "agent", "", "agent NAME|ID that works the whole study (default: Teams)")
-	newCmd.Flags().StringArrayVar(&variables, "env", nil, "plain study setting NAME=VALUE (repeatable)")
 	newCmd.Flags().StringArrayVar(&predicates, "predicate", nil, "pre-registered result NAME=TEXT, such as 'effect=effect > 0.2' (repeatable)")
 	c.AddCommand(newCmd,
 		&cobra.Command{Use: "machine CARD NAME|ID|mine", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {

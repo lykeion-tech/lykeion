@@ -174,8 +174,8 @@ func (q *Queries) DeletePendingAttachment(ctx context.Context, arg DeletePending
 }
 
 const insertPendingAttachment = `-- name: InsertPendingAttachment :one
-INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, kind, inner_files, unpacked_bytes, service_name, service_start, service_client, service_env)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, COALESCE($17::text[], '{}'::text[]))
+INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, kind, inner_files, unpacked_bytes, service_name, service_start, service_client)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, service_env, inner_files, unpacked_bytes
 `
 
@@ -196,7 +196,6 @@ type InsertPendingAttachmentParams struct {
 	ServiceName   *string   `json:"service_name"`
 	ServiceStart  *string   `json:"service_start"`
 	ServiceClient *string   `json:"service_client"`
-	ServiceEnv    []string  `json:"service_env"`
 }
 
 func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPendingAttachmentParams) (Attachment, error) {
@@ -217,7 +216,6 @@ func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPending
 		arg.ServiceName,
 		arg.ServiceStart,
 		arg.ServiceClient,
-		arg.ServiceEnv,
 	)
 	var i Attachment
 	err := row.Scan(
@@ -275,8 +273,8 @@ func (q *Queries) LinkAttachment(ctx context.Context, arg LinkAttachmentParams) 
 const linkService = `-- name: LinkService :execrows
 UPDATE attachment
 SET card_id = $1, service_name = $2, service_start = $3,
-  service_client = $4, service_env = COALESCE($5::text[], '{}'::text[])
-WHERE workspace_id = $6 AND uploader_id = $7 AND id = $8 AND kind = 'service' AND card_id IS NULL
+  service_client = $4
+WHERE workspace_id = $5 AND uploader_id = $6 AND id = $7 AND kind = 'service' AND card_id IS NULL
 `
 
 type LinkServiceParams struct {
@@ -284,7 +282,6 @@ type LinkServiceParams struct {
 	ServiceName   *string    `json:"service_name"`
 	ServiceStart  *string    `json:"service_start"`
 	ServiceClient *string    `json:"service_client"`
-	ServiceEnv    []string   `json:"service_env"`
 	WorkspaceID   uuid.UUID  `json:"workspace_id"`
 	UploaderID    uuid.UUID  `json:"uploader_id"`
 	ID            uuid.UUID  `json:"id"`
@@ -297,7 +294,6 @@ func (q *Queries) LinkService(ctx context.Context, arg LinkServiceParams) (int64
 		arg.ServiceName,
 		arg.ServiceStart,
 		arg.ServiceClient,
-		arg.ServiceEnv,
 		arg.WorkspaceID,
 		arg.UploaderID,
 		arg.ID,

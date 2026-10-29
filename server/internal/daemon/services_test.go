@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +61,7 @@ func main(){
 		must(t, err)
 	}
 	must(t, tw.Close())
-	c := claimed{Token: "ltk_agent", Env: map[string]string{"DATASET": "allowed", "OMITTED": "no", "LYK_SERVICE_PORT": "1", "NODE_OPTIONS": "bad"}}
+	c := claimed{Token: "ltk_agent"}
 	c.AgentRun.ID = uuid.New()
 	c.AgentRun.ResponsibleUserID = uuid.New()
 	c.AgentRun.WorkspaceID = uuid.New()
@@ -67,7 +69,7 @@ func main(){
 	c.AgentRun.CardID = &card
 	c.AgentRun.BoardColumn = "experimentation"
 	hash := sha256.Sum256(blob.Bytes())
-	c.Services = []service.ClaimedService{{ID: uuid.New(), Name: "evaluator", Start: "exec ./helper", Client: "public/client.sh", Env: []string{"DATASET", "NODE_OPTIONS", "LYK_SERVICE_PORT"}, Sha256: hex.EncodeToString(hash[:]), SizeBytes: int64(blob.Len())}}
+	c.Services = []service.ClaimedService{{ID: uuid.New(), Name: "evaluator", Start: "exec ./helper", Client: "public/client.sh", Sha256: hex.EncodeToString(hash[:]), SizeBytes: int64(blob.Len())}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/daemon/agent-runs/") {
 			w.Header().Set("Content-Type", "application/json")
@@ -117,7 +119,7 @@ func TestServicesStartOnlyForExperimentation(t *testing.T) {
 		s.Stop()
 	}
 }
-func TestAServiceGetsItsPortStateAndNamedVariables(t *testing.T) {
+func TestAServiceGetsItsPortAndState(t *testing.T) {
 	d, c, study := serviceFixture(t)
 	t.Setenv("PERSON_SECRET", "private")
 	s, err := d.startServices(context.Background(), c, study)
@@ -126,12 +128,12 @@ func TestAServiceGetsItsPortStateAndNamedVariables(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(serviceState(d, c), "env"))
 	must(t, err)
 	got := string(b)
-	for _, want := range []string{"DATASET=allowed", "LYK_SERVICE_STATE=" + serviceState(d, c), "LYK_SERVICE_PORT="} {
+	for _, want := range []string{"LYK_SERVICE_STATE=" + serviceState(d, c), "LYK_SERVICE_PORT="} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q: %s", want, got)
 		}
 	}
-	for _, bad := range []string{"OMITTED=", "PERSON_SECRET=", "NODE_OPTIONS=", "lyk_person", "ltk_agent", "LYK_SERVICE_PORT=1\n"} {
+	for _, bad := range []string{"PERSON_SECRET=", "lyk_person", "ltk_agent", "LYK_SERVICE_PORT=1\n"} {
 		if strings.Contains(got, bad) {
 			t.Errorf("leaked %q: %s", bad, got)
 		}
@@ -377,6 +379,75 @@ func TestServicesStopAfterWholeRunCompletion(t *testing.T) {
 	if conn, err := net.DialTimeout("tcp4", address, time.Second); err == nil {
 		conn.Close()
 		t.Fatal("service survived whole run")
+	}
+}
+
+// An older server may still send a study's variables in its claim. They
+// reach neither the agent, nor the code it runs, nor a hidden service; the
+// service's own exports still reach the agent and its code.
+func TestAnOlderServersStudyVariablesReachNoOne(t *testing.T) {
+	d, c, _ := serviceFixture(t)
+	runtimeID := uuid.New()
+	c.AgentRun.RuntimeID = &runtimeID
+	c.AgentRun.Attempt = 1
+	c.AgentRun.Harness = "claude"
+	raw, err := json.Marshal(c)
+	must(t, err)
+	var fields map[string]json.RawMessage
+	must(t, json.Unmarshal(raw, &fields))
+	fields["env"] = json.RawMessage(`{"STUDY_PROBE":"bar"}`)
+	var services []map[string]any
+	must(t, json.Unmarshal(fields["services"], &services))
+	services[0]["env"] = []string{"STUDY_PROBE"}
+	fields["services"], err = json.Marshal(services)
+	must(t, err)
+	raw, err = json.Marshal(fields)
+	must(t, err)
+	c = claimed{}
+	must(t, json.Unmarshal(raw, &c))
+	d.out = &Outbox{Dir: filepath.Join(d.cfg.StateDir, "outbox")}
+	d.messages = &Outbox{Dir: filepath.Join(d.cfg.StateDir, "messages")}
+	var seen agent.ExecOptions
+	d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+		return backendFunc(func(_ context.Context, _ string, o agent.ExecOptions) (*agent.Session, error) {
+			seen = o
+			messages := make(chan agent.Message)
+			close(messages)
+			done := make(chan agent.Result, 1)
+			done <- agent.Result{}
+			close(done)
+			return &agent.Session{Messages: messages, Done: done}, nil
+		}), nil
+	}
+	d.ownerOf = map[uuid.UUID]uuid.UUID{runtimeID: c.AgentRun.ResponsibleUserID}
+	must(t, d.runAgentRun(t.Context(), c))
+	report, err := readReport(d.out.file(Report{AgentRunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt}))
+	must(t, err)
+	if report.Kind != "complete" {
+		t.Fatalf("report %+v", report)
+	}
+	// The run's folder is gone. The code's environment is drawn as the run's
+	// own door draws it: from the options the agent got, plus the services'
+	// exports.
+	seen.Dir = t.TempDir()
+	door := newRunDoor(t, newLykeion(t), seen.Dir, func(dd *Door) {
+		dd.Child = func() agent.ExecOptions { return seen }
+		dd.ServiceEnv = slices.DeleteFunc(slices.Clone(seen.Env), func(e string) bool { return !strings.HasPrefix(e, "LYK_SERVICE_") })
+	}, envs.Python)
+	code, err := door.runEnv(t.Context())
+	must(t, err)
+	for name, env := range map[string][]string{"agent": seen.Env, "agent's children": agent.ChildEnv(seen), "code": code} {
+		if v, ok := lookup(env, "STUDY_PROBE"); ok {
+			t.Errorf("the %s got STUDY_PROBE=%s", name, v)
+		}
+		if v, _ := lookup(env, "LYK_SERVICE_EVALUATOR_URL"); !strings.HasPrefix(v, "http://127.0.0.1:") {
+			t.Errorf("the %s lost the service's URL: %q", name, v)
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(serviceState(d, c), "env"))
+	must(t, err)
+	if strings.Contains(string(b), "STUDY_PROBE") {
+		t.Errorf("the service got STUDY_PROBE: %s", b)
 	}
 }
 

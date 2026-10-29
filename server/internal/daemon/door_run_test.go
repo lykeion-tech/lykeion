@@ -1005,45 +1005,6 @@ func TestCodeGetsNoSecretsOrThePersonsSettings(t *testing.T) {
 	}
 }
 
-func TestRunCodeSeesStudyVariables(t *testing.T) {
-	t.Setenv("LYK_KERNEL_STUB", "1")
-	l := newLykeion(t)
-	dir := t.TempDir()
-	d := runDoor(t, l, dir, envs.Python)
-	d.StudyEnv = map[string]string{"PYTHONPATH": "sdk", "X": "user", "VIRTUAL_ENV": "bad", "PATH": "/bad", "LYK_DOOR": "bad", "HOME": "bad", "CODEX_HOME": "bad", "TMPDIR": "bad"}
-	child := d.Child
-	d.Child = func() agent.ExecOptions {
-		opts := child()
-		opts.Env = append(opts.Env, "PATH="+os.Getenv("PATH"), "LYK_DOOR=generated", "X=generated")
-		opts.Env = mergeEnv(opts.Env, d.StudyEnv)
-		return opts
-	}
-	got, err := useTool(t, d, "run_code", map[string]any{"language": "python", "code": "env:PYTHONPATH"})
-	must(t, err)
-	if !strings.HasSuffix(got, "sdk") {
-		t.Fatalf("kernel env: %q", got)
-	}
-	got, err = useTool(t, d, "run_code", map[string]any{"language": "python", "code": "env:X"})
-	must(t, err)
-	if !strings.HasSuffix(got, "generated") {
-		t.Fatalf("generated kernel env was replaced: %q", got)
-	}
-	env, err := d.runEnv(context.Background())
-	must(t, err)
-	for _, e := range []string{"PATH=/bad", "VIRTUAL_ENV=bad", "HOME=bad", "CODEX_HOME=bad", "TMPDIR=bad", "LYK_DOOR=bad"} {
-		if slices.Contains(env, e) {
-			t.Fatalf("study replaced generated or private env: %s", strings.SplitN(e, "=", 2)[0])
-		}
-	}
-	must(t, os.WriteFile(filepath.Join(dir, "env.py"), []byte(`printf '%s' "$PYTHONPATH"`), 0600))
-	t.Setenv("LYK_KERNEL_STUB", "0")
-	got, err = useTool(t, d, "run_script", map[string]any{"path": "env.py"})
-	must(t, err)
-	if !strings.HasSuffix(got, "sdk") {
-		t.Fatalf("script env: %q", got)
-	}
-}
-
 func runResultsScript(t *testing.T, d *Door, dir, name, body string) string {
 	t.Helper()
 	must(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600))

@@ -79,18 +79,17 @@ func TestAPendingServiceGetsMetadataWhenLinked(t *testing.T) {
 		if _, err := s.H.Blobs.Get(t.Context(), records.TextKey(ws+"/attachments/"+up["id"].(string))); !errors.Is(err, storage.ErrNotFound) {
 			t.Fatalf("service text companion: %v", err)
 		}
-		in := map[string]any{"predicates": testPredicates, "question": uuid.NewString(), "env": map[string]string{"DATA": "x"}, "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py", "client": "server.py", "env": []string{"DATA"}}}}
+		in := map[string]any{"predicates": testPredicates, "question": uuid.NewString(), "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py", "client": "server.py"}}}
 		var c card
 		if got := s.call(t, "POST", "/api/cards", tok, ws, in, &c); got != 201 {
 			t.Fatalf("create %d", got)
 		}
 		var cid, start, client string
-		var vars []string
-		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT card_id,service_start,service_client,service_env FROM attachment WHERE id=$1`, up["id"]).Scan(&cid, &start, &client, &vars); err != nil {
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT card_id,service_start,service_client FROM attachment WHERE id=$1`, up["id"]).Scan(&cid, &start, &client); err != nil {
 			t.Fatal(err)
 		}
-		if cid != c.ID || start != "python server.py" || client != "server.py" || len(vars) != 1 || vars[0] != "DATA" {
-			t.Fatalf("linked %s %q %q %v", cid, start, client, vars)
+		if cid != c.ID || start != "python server.py" || client != "server.py" {
+			t.Fatalf("linked %s %q %q", cid, start, client)
 		}
 		in["question"] = uuid.NewString()
 		if got := s.call(t, "POST", "/api/cards", tok, ws, in, nil); got != 400 {
@@ -123,7 +122,7 @@ func TestServicesAreChecked(t *testing.T) {
 			case "client":
 				v["client"] = "../secret"
 			case "env":
-				v["env"] = []string{"HOME"}
+				v["env"] = []string{}
 			case "file":
 				v["attachment_id"] = file
 			case "duplicate":
@@ -223,11 +222,14 @@ func testServiceRun(t *testing.T, col string, shared ...bool) {
 		t.Fatal(err)
 	}
 	sc := serviceClaims[0]
-	if len(serviceClaims) != 1 || len(sc) != 7 || sc["id"] != up["id"] || sc["start"] != "python server.py" || sc["client"] != "" || sc["sha256"] != up["sha256"] || sc["size_bytes"] != up["size_bytes"] {
+	if len(serviceClaims) != 1 || len(sc) != 6 || sc["id"] != up["id"] || sc["start"] != "python server.py" || sc["client"] != "" || sc["sha256"] != up["sha256"] || sc["size_bytes"] != up["size_bytes"] {
 		t.Fatalf("service metadata %v", serviceClaims)
 	}
-	if vars, ok := sc["env"].([]any); !ok || len(vars) != 0 {
+	if _, ok := sc["env"]; ok {
 		t.Fatalf("service env %v", sc["env"])
+	}
+	if _, ok := claims[0]["env"]; ok {
+		t.Fatalf("claim env %s", claims[0]["env"])
 	}
 	var run struct {
 		ID      string

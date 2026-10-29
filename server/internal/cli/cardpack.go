@@ -21,14 +21,13 @@ import (
 const maxCardUploadBytes = 5 << 30
 
 type cardService struct {
-	Name         string   `json:"name"`
-	AttachmentID string   `json:"attachment_id"`
-	Start        string   `json:"start"`
-	Client       string   `json:"client"`
-	Env          []string `json:"env"`
+	Name         string `json:"name"`
+	AttachmentID string `json:"attachment_id"`
+	Start        string `json:"start"`
+	Client       string `json:"client"`
 	folder       string
 }
-type cardUploadFlags struct{ attachments, services, starts, clients, variables []string }
+type cardUploadFlags struct{ attachments, services, starts, clients []string }
 
 var cardServiceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
@@ -50,12 +49,12 @@ func (f cardUploadFlags) upload(ctx context.Context, c *apiclient.Client, in map
 			return fmt.Errorf("duplicate hidden service name: %s", name)
 		}
 		byName[name] = len(services)
-		services = append(services, cardService{Name: name, folder: folder, Env: []string{}})
+		services = append(services, cardService{Name: name, folder: folder})
 	}
 	for _, flag := range []struct {
 		name   string
 		values []string
-	}{{"service-start", f.starts}, {"service-client", f.clients}, {"service-env", f.variables}} {
+	}{{"service-start", f.starts}, {"service-client", f.clients}} {
 		for _, v := range flag.values {
 			name, value, ok := strings.Cut(v, "=")
 			i, exists := byName[name]
@@ -67,8 +66,6 @@ func (f cardUploadFlags) upload(ctx context.Context, c *apiclient.Client, in map
 				services[i].Start = value
 			case "service-client":
 				services[i].Client = value
-			case "service-env":
-				services[i].Env = append(services[i].Env, value)
 			}
 		}
 	}

@@ -143,7 +143,6 @@ type Claimed struct {
 	Coresearch    *ClaimedCoresearch `json:"coresearch,omitempty"`
 	PythonVersion string             `json:"python_version,omitempty"`
 	AgentRun      db.AgentRun        `json:"agent_run"`
-	Env           map[string]string  `json:"env"`
 	Token         string             `json:"token"`
 	// CallToken records the run's connector calls. The daemon keeps it from
 	// the agent, so only the door can write a call record.
@@ -167,7 +166,6 @@ type ClaimedService struct {
 	Name      string    `json:"name"`
 	Start     string    `json:"start"`
 	Client    string    `json:"client"`
-	Env       []string  `json:"env"`
 	Sha256    string    `json:"sha256"`
 	SizeBytes int64     `json:"size_bytes"`
 }
@@ -760,21 +758,10 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					var python string
 					var files []ClaimedAttachment
 					var services []ClaimedService
-					env := map[string]string{}
 					if t.CardID != nil {
 						python, err = StudyPython(ctx, tx, *t.CardID)
 						if err != nil {
 							return err
-						}
-						card, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: ref.WorkspaceID, ID: *t.CardID})
-						if err != nil {
-							return err
-						}
-						if err := json.Unmarshal(card.Env, &env); err != nil {
-							return err
-						}
-						if env == nil {
-							env = map[string]string{}
 						}
 						rows, err := tx.Q.CardAttachments(ctx, db.CardAttachmentsParams{WorkspaceID: ref.WorkspaceID, CardID: t.CardID})
 						if err != nil {
@@ -790,7 +777,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 								if s.ServiceClient != nil {
 									client = *s.ServiceClient
 								}
-								services = append(services, ClaimedService{ID: s.ID, Name: *s.ServiceName, Start: *s.ServiceStart, Client: client, Env: s.ServiceEnv, Sha256: s.Sha256, SizeBytes: s.SizeBytes})
+								services = append(services, ClaimedService{ID: s.ID, Name: *s.ServiceName, Start: *s.ServiceStart, Client: client, Sha256: s.Sha256, SizeBytes: s.SizeBytes})
 							}
 						}
 						for _, a := range rows {
@@ -801,7 +788,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						// No CLI offers the frozen model any longer: run on the CLI's default.
 						t.RequestedModel = ""
 					}
-					c = &Claimed{Coresearch: core, PythonVersion: python, AgentRun: t, Env: env, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
+					c = &Claimed{Coresearch: core, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {

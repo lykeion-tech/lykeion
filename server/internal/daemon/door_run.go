@@ -292,10 +292,7 @@ func (d *Door) personEnv() []string {
 		opts.Guest = true
 	}
 	return slices.DeleteFunc(envs.Isolate(connectorEnv(opts, nil)), func(e string) bool {
-		k, v, _ := strings.Cut(e, "=")
-		if studyValue, study := d.StudyEnv[k]; study && k != "PATH" && v == studyValue {
-			return true
-		}
+		k, _, _ := strings.Cut(e, "=")
 		k = strings.ToUpper(k)
 		return privateCodeEnvName(k) || strings.HasPrefix(k, "AWS_") || strings.HasPrefix(k, "AZURE_") ||
 			slices.ContainsFunc(secretNames, func(s string) bool { return strings.Contains(k, s) })
@@ -322,15 +319,7 @@ func (d *Door) runEnv(ctx context.Context) ([]string, error) {
 	if prefix := d.Study.PathPrefix(); prefix != "" && !strings.Contains(sep+path+sep, sep+prefix+sep) {
 		path = prefix + sep + path
 	}
-	// The door does not pass CLI-only Lykeion settings to code. A study
-	// setting with one of those names must not introduce it either.
-	studyEnv := make(map[string]string, len(d.StudyEnv))
-	for name, value := range d.StudyEnv {
-		if !privateCodeEnvName(name) {
-			studyEnv[name] = value
-		}
-	}
-	return mergeEnv(append(append(env, "PATH="+path), d.ServiceEnv...), studyEnv), nil
+	return append(append(env, "PATH="+path), d.ServiceEnv...), nil
 }
 
 // runContext ends when the call's does or when the door closes.

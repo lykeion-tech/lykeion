@@ -168,43 +168,6 @@ func filteredEnvKey(k string) bool {
 	return strings.HasPrefix(u, "CLAUDECODE_") || strings.HasPrefix(u, "LYKEION_")
 }
 
-// ReservedStudyEnvKey names settings a study must not supply to agent startup.
-// The person's own environment retains its normal filtering and inheritance.
-func ReservedStudyEnvKey(k string) bool {
-	u := strings.ToUpper(k)
-	if filteredEnvKey(u) || strings.HasSuffix(u, "_KEY") || strings.HasSuffix(u, "_TOKEN") ||
-		strings.HasSuffix(u, "_SECRET") || strings.Contains(u, "PASSWORD") {
-		return true
-	}
-	switch u {
-	case "PATH", "HOME", "TMPDIR", "SHELL", "USER", "NODE_OPTIONS", "NODE_PATH":
-		return true
-	case "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED", "NODE_USE_SYSTEM_CA", "NODE_USE_ENV_PROXY",
-		"OPENSSL_CONF", "SSL_CERT_FILE", "SSL_CERT_DIR":
-		return true
-	case "ANTHROPIC_BASE_URL", "ANTHROPIC_AWS_BASE_URL", "ANTHROPIC_BEDROCK_BASE_URL",
-		"ANTHROPIC_BEDROCK_MANTLE_BASE_URL", "ANTHROPIC_VERTEX_BASE_URL",
-		"ANTHROPIC_FOUNDRY_BASE_URL", "ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_CUSTOM_HEADERS",
-		"ANTHROPIC_PROFILE", "ANTHROPIC_ORGANIZATION_ID", "ANTHROPIC_FEDERATION_RULE_ID":
-		return true
-	case "CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_FOUNDRY",
-		"CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_CERT_STORE",
-		"CLAUDE_CODE_CLIENT_CERT", "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE",
-		"CLAUDE_CODE_SHELL", "CLAUDE_CODE_SHELL_PREFIX", "CLAUDE_ENV_FILE":
-		return true
-	case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "CODEX_CA_CERTIFICATE",
-		"OPENAI_BASE_URL", "OPENAI_FEDERATION_RULE_ID", "OPENAI_IDENTITY_TOKEN_FILE", "OPENAI_ORGANIZATION",
-		"OPENAI_PROJECT", "CODEX_OSS_BASE_URL", "CODEX_OSS_PORT":
-		return true
-	}
-	for _, prefix := range []string{"LD_", "DYLD_", "LYK_", "VIRTUAL_ENV", "PYTHONHOME", "CONDA_", "MAMBA_", "ELAN_", "R_", "JULIA_", "JUPYTER_"} {
-		if strings.HasPrefix(u, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 // ChildEnv is the environment a run's own child processes get: the one the
 // CLI gets, with the run's config home.
 func ChildEnv(o ExecOptions) []string { return childEnv(o, o.CacheDir) }

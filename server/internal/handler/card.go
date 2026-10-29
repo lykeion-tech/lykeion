@@ -23,7 +23,6 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
-	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -36,10 +35,9 @@ type newCard struct {
 	Assignee   *assigneeIn `json:"assignee"`
 	Scope      *scopeIn    `json:"scope"`
 	// AttachmentIDs are the caller's pending uploads the study takes as its files.
-	AttachmentIDs []uuid.UUID       `json:"attachment_ids"`
-	Env           map[string]string `json:"env"`
-	Services      []newService      `json:"services"`
-	Predicates    []predicateIn     `json:"predicates"`
+	AttachmentIDs []uuid.UUID   `json:"attachment_ids"`
+	Services      []newService  `json:"services"`
+	Predicates    []predicateIn `json:"predicates"`
 }
 
 // predicateIn is a result the study declares before it runs, as a name and a
@@ -86,38 +84,6 @@ func checkPredicates(in []predicateIn, from, to string) error {
 	}
 	if b, _ := json.Marshal(in); len(b) > maxPredicatesJSON {
 		return cardInputError("the pre-registered results are too large; shorten their names or texts")
-	}
-	return nil
-}
-
-func checkStudyEnv(env map[string]string) error {
-	if len(env) > 50 {
-		return cardInputError("a study can have at most 50 variables")
-	}
-	names := make([]string, 0, len(env))
-	for name := range env {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	for _, name := range names {
-		if strings.HasSuffix(name, "_KEY") || strings.HasSuffix(name, "_TOKEN") || strings.HasSuffix(name, "_SECRET") || strings.Contains(name, "PASSWORD") {
-			return cardInputError(name + " looks like a secret; study variables are visible to the study's members. Use a connector for keys.")
-		}
-		valid := len(name) > 0 && (name[0] >= 'A' && name[0] <= 'Z' || name[0] == '_')
-		for i := 1; i < len(name) && valid; i++ {
-			c := name[i]
-			valid = c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
-		}
-		if !valid {
-			return cardInputError("invalid study variable name: " + name)
-		}
-		if agent.ReservedStudyEnvKey(name) {
-			return cardInputError("study variable name is reserved: " + name)
-		}
-		value := env[name]
-		if len(value) > 4096 || strings.ContainsAny(value, "\n\r\x00") {
-			return cardInputError("study variable value must be at most 4096 bytes with no newline or NUL: " + name)
-		}
 	}
 	return nil
 }
@@ -443,14 +409,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "question required")
 		return
 	}
-	if in.Env == nil {
-		in.Env = map[string]string{}
-	}
-	if err := checkStudyEnv(in.Env); err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	if err := checkServices(in.Services, in.Env); err != nil {
+	if err := checkServices(in.Services); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -516,10 +475,6 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-		}
-		params.Env, err = json.Marshal(in.Env)
-		if err != nil {
-			return err
 		}
 		if params.Predicates, err = json.Marshal(append([]predicateIn{}, in.Predicates...)); err != nil {
 			return err

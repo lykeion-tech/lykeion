@@ -52,8 +52,6 @@ const error = ref('');
 const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
 const form = ref<HTMLFormElement>();
-const variables = ref<{ key: number; name: string; value: string }[]>([]);
-let nextVariable = 0;
 const results = ref<{ key: number; name: string; text: string }[]>([]);
 let nextResult = 0;
 const addResult = () => results.value.push({ key: nextResult++, name: '', text: '' });
@@ -167,11 +165,6 @@ async function submit() {
     title: title.value.trim(),
     question: question.value.trim(),
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
-    env: Object.fromEntries(
-      variables.value
-        .filter((row) => row.name !== '' || row.value !== '')
-        .map((row) => [row.name, row.value]),
-    ),
     ...(files.ids.value.length ? { attachment_ids: files.ids.value } : {}),
     ...(assignee.value ? { assignee: assignee.value } : {}),
     ...(sendsRange.value ? { scope: range.value } : {}),
@@ -191,7 +184,6 @@ async function submit() {
       title.value = question.value = deadline.value = machine.value = '';
       assignee.value = props.assignee ? { ...props.assignee } : null;
       range.value = initialRange();
-      variables.value = [];
       results.value = [];
       addResult();
       files.clear();
@@ -337,41 +329,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         </ul>
         <p v-if="files.error.value" class="composer-error" role="alert">{{ files.error.value }}</p>
       </div>
-      <section class="composer-variables" aria-label="Study variables">
-        <div class="variables-header">
-          <span>Study variables</span>
-          <button
-            type="button"
-            class="text-button"
-            @click="variables.push({ key: nextVariable++, name: '', value: '' })"
-          >
-            Add variable
-          </button>
-        </div>
-        <p>Visible to everyone in this study. Not for passwords or keys; use a connector.</p>
-        <div class="variable-rows">
-          <div v-for="(row, index) in variables" :key="row.key" class="variable-row">
-            <input
-              v-model="row.name"
-              placeholder="Name"
-              :aria-label="`Variable name ${index + 1}`"
-            />
-            <input
-              v-model="row.value"
-              placeholder="Value"
-              :aria-label="`Variable value ${index + 1}`"
-            />
-            <button
-              type="button"
-              class="text-button"
-              :aria-label="`Remove variable ${index + 1}`"
-              @click="variables = variables.filter((v) => v.key !== row.key)"
-            >
-              Remove
-            </button>
-          </div>
-        </div>
-      </section>
       <section v-if="preregisters" class="composer-variables" aria-label="Pre-registered results">
         <div class="variables-header">
           <span>Pre-registered results</span>

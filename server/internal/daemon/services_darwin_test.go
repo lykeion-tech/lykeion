@@ -142,7 +142,7 @@ except OSError as e:
 `, family, address)
 			cmd, err := p.Command(context.Background(), python, "-c", script)
 			must(t, err)
-			cmd.Env = serviceEnvironment(nil, nil, "0", state, tmp, &envs.Bases{Dir: filepath.Join(root, "bases")})
+			cmd.Env = serviceEnvironment("0", state, tmp, &envs.Bases{Dir: filepath.Join(root, "bases")})
 			cmd.Dir = code
 			out, err := cmd.CombinedOutput()
 			if err != nil {

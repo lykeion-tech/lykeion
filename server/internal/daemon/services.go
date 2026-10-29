@@ -199,7 +199,7 @@ func (d *daemon) startService(ctx context.Context, c claimed, study *envs.Study,
 		return
 	}
 	cmd.Dir = code
-	cmd.Env = serviceEnvironment(c.Env, spec.Env, port, state, tmp, study.Bases)
+	cmd.Env = serviceEnvironment(port, state, tmp, study.Bases)
 	log := &serviceLog{path: filepath.Join(root, "log")}
 	logFile, e := os.OpenFile(log.path, os.O_CREATE|os.O_WRONLY, 0600)
 	if e != nil {
@@ -307,7 +307,7 @@ func servicePolicy(stateRoot, scratchRoot, code, state, tmp string, bases *envs.
 	}
 	return p, nil
 }
-func serviceEnvironment(study map[string]string, names []string, port, state, tmp string, bases *envs.Bases) []string {
+func serviceEnvironment(port, state, tmp string, bases *envs.Bases) []string {
 	paths := []string{}
 	for _, base := range bases.Folders() {
 		if isDir(base) {
@@ -315,15 +315,7 @@ func serviceEnvironment(study map[string]string, names []string, port, state, tm
 		}
 	}
 	paths = append(paths, "/usr/bin", "/bin", "/usr/sbin", "/sbin")
-	env := []string{"PATH=" + strings.Join(paths, string(os.PathListSeparator)), "TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "HOME=" + tmp, "LYK_SERVICE_PORT=" + port, "LYK_SERVICE_STATE=" + state}
-	accepted := acceptedStudyEnv(study)
-	named := map[string]string{}
-	for _, name := range names {
-		if value, ok := accepted[name]; ok {
-			named[name] = value
-		}
-	}
-	return mergeEnv(env, named)
+	return []string{"PATH=" + strings.Join(paths, string(os.PathListSeparator)), "TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "HOME=" + tmp, "LYK_SERVICE_PORT=" + port, "LYK_SERVICE_STATE=" + state}
 }
 
 func (d *daemon) prepareServiceCode(ctx context.Context, c claimed, spec service.ClaimedService, root string) error {

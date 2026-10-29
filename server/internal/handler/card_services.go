@@ -17,12 +17,11 @@ type newService struct {
 	AttachmentID uuid.UUID `json:"attachment_id"`
 	Start        string    `json:"start"`
 	Client       string    `json:"client"`
-	Env          []string  `json:"env"`
 }
 
 var serviceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
-func checkServices(services []newService, env map[string]string) error {
+func checkServices(services []newService) error {
 	if len(services) > 4 {
 		return cardInputError("a study can have at most 4 hidden services")
 	}
@@ -54,11 +53,6 @@ func checkServices(services []newService, env map[string]string) error {
 				return cardInputError("duplicate hidden service client filename: " + name)
 			}
 			clients[key] = true
-		}
-		for _, name := range s.Env {
-			if _, ok := env[name]; !ok {
-				return cardInputError("hidden service variable is not a study variable: " + name)
-			}
 		}
 	}
 	return nil
@@ -95,7 +89,7 @@ func pendingServices(r *http.Request, tx *store.Tx, ws, user uuid.UUID, services
 }
 func linkStudyServices(r *http.Request, tx *store.Tx, card db.Card, user uuid.UUID, services []newService) error {
 	for _, s := range services {
-		n, err := tx.Q.LinkService(r.Context(), db.LinkServiceParams{WorkspaceID: card.WorkspaceID, UploaderID: user, ID: s.AttachmentID, CardID: &card.ID, ServiceName: &s.Name, ServiceStart: &s.Start, ServiceClient: &s.Client, ServiceEnv: s.Env})
+		n, err := tx.Q.LinkService(r.Context(), db.LinkServiceParams{WorkspaceID: card.WorkspaceID, UploaderID: user, ID: s.AttachmentID, CardID: &card.ID, ServiceName: &s.Name, ServiceStart: &s.Start, ServiceClient: &s.Client})
 		if err != nil {
 			return err
 		}

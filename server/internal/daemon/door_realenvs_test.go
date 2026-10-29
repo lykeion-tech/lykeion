@@ -181,8 +181,6 @@ func TestRealCondaSetup(t *testing.T) {
 		t.Fatal("Python base is not ready")
 	}
 	study, run := t.TempDir(), t.TempDir()
-	must(t, os.Mkdir(filepath.Join(run, "sdk"), 0700))
-	must(t, os.WriteFile(filepath.Join(run, "sdk", "study_module.py"), []byte("value = 73\n"), 0600))
 	old := toolTimeout
 	toolTimeout = 35 * time.Minute
 	t.Cleanup(func() { toolTimeout = old })
@@ -190,7 +188,6 @@ func TestRealCondaSetup(t *testing.T) {
 	d := newRunDoor(t, l, run, func(d *Door) {
 		d.interp = nil
 		d.Study = envs.ForStudy(bases, study)
-		d.StudyEnv = map[string]string{"PYTHONPATH": "sdk"}
 	})
 	call := func(name string, args map[string]any) string {
 		t.Helper()
@@ -210,8 +207,8 @@ func TestRealCondaSetup(t *testing.T) {
 		call("run_code", map[string]any{"language": "r", "code": "persistent_r <- 73; cat(persistent_r)"})
 	}
 	call("set_up_environment", map[string]any{"python": "3.11", "conda": []string{"ripgrep"}})
-	after := call("run_code", map[string]any{"language": "python", "code": "import sys, study_module; print(sys.version); print('old variable', 'before' in globals()); print('study import', study_module.value)"})
-	if !strings.Contains(after, "3.11.") || !strings.Contains(after, "old variable False") || !strings.Contains(after, "study import 73") {
+	after := call("run_code", map[string]any{"language": "python", "code": "import sys; print(sys.version); print('old variable', 'before' in globals())"})
+	if !strings.Contains(after, "3.11.") || !strings.Contains(after, "old variable False") {
 		t.Fatalf("live Python did not switch: %s", after)
 	}
 	if bases.Ready(envs.R) {

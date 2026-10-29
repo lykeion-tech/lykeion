@@ -100,8 +100,7 @@ type claimed struct {
 		CardID      *uuid.UUID `json:"card_id"`
 		BoardColumn string     `json:"board_column"`
 	} `json:"agent_run"`
-	Env   map[string]string `json:"env"`
-	Token string            `json:"token"`
+	Token string `json:"token"`
 	// CallToken records the run's calls; only the door holds it.
 	CallToken string            `json:"call_token"`
 	MCPURL    string            `json:"mcp_url"`

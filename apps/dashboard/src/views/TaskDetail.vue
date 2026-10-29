@@ -123,7 +123,6 @@ const me = useMe();
 const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
-const variables = computed(() => Object.entries(c.value?.env ?? {}));
 // Each pre-registered result with its binding decision, if it has one yet.
 const preregistered = computed(() =>
   (c.value?.predicates ?? []).map((p) => ({
@@ -720,15 +719,6 @@ function pin() {
               <small>{{ formatSize(a.size_bytes) }}</small>
             </li>
           </ul>
-        </template>
-        <template v-if="variables.length">
-          <small>Study variables</small>
-          <dl class="v study-variables" aria-label="Study variables">
-            <div v-for="[name, value] in variables" :key="name">
-              <dt>{{ name }}</dt>
-              <dd>{{ value }}</dd>
-            </div>
-          </dl>
         </template>
         <template v-if="preregistered.length">
           <small>Pre-registered results</small>

@@ -382,7 +382,6 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
     teams: {},
     off_label: [],
     attachments: [],
-    env: {},
     services: [],
     created_at: '2026-10-25T10:00:00Z',
     updated_at: '2026-10-25T10:00:00Z',
@@ -440,8 +439,8 @@ describe('no Follows from', () => {
   });
 });
 
-describe('study variables and services', () => {
-  it('posts variable rows, preserves values and drops only genuinely empty rows', async () => {
+describe('hidden services, no study variables', () => {
+  it('has no Study variables in the new-study window and posts none', async () => {
     const fetch = vi.fn(
       async (_path: RequestInfo | URL, init?: RequestInit) =>
         new Response(init?.method === 'POST' ? '{}' : '[]', {
@@ -454,80 +453,19 @@ describe('study variables and services', () => {
       expect(t.text()).toContain(
         'Up to 100 files, 5 GB each, 10 GB in all; archives are unpacked for the agents',
       );
-      expect(t.text()).toContain(
-        'Visible to everyone in this study. Not for passwords or keys; use a connector.',
-      );
+      expect(t.text()).not.toContain('Study variables');
+      expect(t.button(/^Add variable$/)).toBeUndefined();
       await t.fill('Describe your study', 'Question');
       await preregister(t);
-      await t.click(/^Add variable$/);
-      await t.fill('Variable name 1', 'DATASET');
-      await t.fill('Variable value 1', '  study data  ');
-      await t.click(/^Add variable$/);
-      await t.fill('Variable name 2', 'EMPTY_VALUE');
-      await t.click(/^Add variable$/);
-      await t.click(/^Add variable$/);
-      await t.fill('Variable value 4', 'requires a name');
       await t.submit();
       const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
-      expect(posted).toBeTruthy();
-      expect(JSON.parse(String(posted![1]?.body)).env).toEqual({
-        DATASET: '  study data  ',
-        EMPTY_VALUE: '',
-        '': 'requires a name',
-      });
+      expect(JSON.parse(String(posted![1]?.body))).not.toHaveProperty('env');
     } finally {
       t.unmount();
     }
   });
 
-  it('shows the server secret-name refusal and keeps the inputs for correction', async () => {
-    const message =
-      "EXAMPLE_KEY looks like a secret; study variables are visible to the study's members. Use a connector for keys.";
-    const fetch = vi.fn(
-      async (_path: RequestInfo | URL, _init?: RequestInit) =>
-        new Response(JSON.stringify({ error: message }), { status: 400 }),
-    );
-    vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
-    try {
-      await t.fill('Describe your study', 'Question');
-      await preregister(t);
-      await t.click(/^Add variable$/);
-      await t.fill('Variable name 1', 'EXAMPLE_KEY');
-      await t.fill('Variable value 1', 'test value');
-      await t.submit();
-      expect(fetch.mock.calls.some((call) => call[0] === '/api/cards')).toBe(true);
-      expect(t.text()).toContain(message);
-      expect(t.input('Variable name 1')?.value).toBe('EXAMPLE_KEY');
-      expect(t.input('Variable value 1')?.value).toBe('test value');
-    } finally {
-      t.unmount();
-    }
-  });
-
-  it('removes a variable row before posting', async () => {
-    const fetch = vi.fn(
-      async (_path: RequestInfo | URL, init?: RequestInit) =>
-        new Response(init?.method === 'POST' ? '{}' : '[]', {
-          status: init?.method === 'POST' ? 201 : 200,
-        }),
-    );
-    vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
-    try {
-      await t.fill('Describe your study', 'Question');
-      await preregister(t);
-      await t.click(/^Add variable$/);
-      await t.fill('Variable name 1', 'REMOVED');
-      await t.click(/^Remove$/);
-      await t.submit();
-      expect(JSON.parse(String(fetch.mock.calls[0]![1]?.body)).env).toEqual({});
-    } finally {
-      t.unmount();
-    }
-  });
-
-  it('renders variable names and values under the attachments', async () => {
+  it('has no Study variables on the study page', async () => {
     const t = await mount(
       TaskDetail,
       () => ({ id: 'c' }),
@@ -539,10 +477,9 @@ describe('study variables and services', () => {
         }),
     );
     try {
-      expect(t.text()).toContain('Study variables');
-      expect(t.text()).toContain('DATASET');
-      expect(t.text()).toContain('study.csv');
-      expect(t.text().indexOf('Attached files')).toBeLessThan(t.text().indexOf('Study variables'));
+      expect(t.text()).toContain('Attached files');
+      expect(t.text()).not.toContain('Study variables');
+      expect(t.text()).not.toContain('DATASET');
     } finally {
       t.unmount();
     }

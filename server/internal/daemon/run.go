@@ -239,7 +239,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	defer services.Stop()
-	studyEnv := acceptedStudyEnv(c.Env)
 	opts := agent.ExecOptions{Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path + os.Getenv("PATH"),
 	}}
@@ -270,7 +269,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(err)
 		return nil
 	}
-	door := &Door{Guest: guest != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, StudyEnv: studyEnv, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
+	door := &Door{Guest: guest != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
 		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions {
 			if guest != "" {
 				return guestDoorOptions(opts)
@@ -284,7 +283,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	defer door.Close()
 	opts.DoorURL, opts.DoorToken = door.URL, door.Token
 	opts.Env = append(opts.Env, "LYK_DOOR="+door.URL, "LYK_DOOR_TOKEN="+door.Token)
-	opts.Env = mergeEnv(opts.Env, studyEnv)
 	if cont, err = d.beginContinuity(c, pol); err != nil {
 		fail(err)
 		return nil
@@ -970,37 +968,6 @@ func roleFile(harness string) string {
 		return "CLAUDE.md"
 	}
 	return "AGENTS.md"
-}
-
-// mergeEnv appends study settings in name order while preserving existing values.
-func mergeEnv(base []string, extra map[string]string) []string {
-	names := make([]string, 0, len(extra))
-	present := map[string]bool{}
-	for _, entry := range base {
-		name, _, _ := strings.Cut(entry, "=")
-		present[name] = true
-	}
-	for name := range extra {
-		if !present[name] {
-			names = append(names, name)
-		}
-	}
-	slices.Sort(names)
-	out := slices.Clone(base)
-	for _, name := range names {
-		out = append(out, name+"="+extra[name])
-	}
-	return out
-}
-
-func acceptedStudyEnv(extra map[string]string) map[string]string {
-	out := make(map[string]string, len(extra))
-	for name, value := range extra {
-		if !agent.ReservedStudyEnvKey(name) {
-			out[name] = value
-		}
-	}
-	return out
 }
 
 // guestDoorOptions excludes CLI-only authentication from connectors and code.

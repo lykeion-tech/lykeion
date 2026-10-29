@@ -89,7 +89,6 @@ export interface Card {
   redos: number;
   off_label: string[];
   attachments: { id: string; name: string; size_bytes: number; content_type: string }[];
-  env: Record<string, string>;
   services: { name: string }[];
   predicates: { name: string; text: string }[];
   // Each pre-registered result's binding outcome so far; GET /api/cards/:id only.

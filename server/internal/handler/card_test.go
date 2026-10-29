@@ -18,7 +18,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -1302,84 +1301,17 @@ func TestAnAbandonedParseEndsWhenItsFileIsClosed(t *testing.T) {
 	}
 }
 
-func TestStudyVariablesAreChecked(t *testing.T) {
+func TestStudyVariablesAreRefused(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)
 	s.H.Engine = nil
 	a := s.signIn(t, "variables@lab.org")
 	w := s.workspace(t, a, "variables")
-	many := map[string]string{}
-	for i := 0; i < 51; i++ {
-		many[fmt.Sprintf("VAR_%d", i)] = "x"
+	var out struct {
+		Error string `json:"error"`
 	}
-	cases := []struct {
-		name   string
-		env    map[string]string
-		status int
-	}{
-		{"plain", map[string]string{"DATA_DIR": "x", "PYTHONPATH": "sdk"}, 201}, {"empty", nil, 201}, {"too many", many, 400},
-		{"newline", map[string]string{"X": "a\nb"}, 400}, {"carriage return", map[string]string{"X": "a\rb"}, 400}, {"nul", map[string]string{"X": "a\x00b"}, 400},
-		{"too long", map[string]string{"X": strings.Repeat("x", 4097)}, 400}, {"limit", map[string]string{"X": strings.Repeat("x", 4096)}, 201},
-	}
-	for _, name := range []string{"OPENAI_API_KEY", "DB_PASSWORD_X", "ACCESS_TOKEN", "CLIENT_SECRET", "PATH", "HOME", "TMPDIR", "SHELL", "USER", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "LYK_DOOR", "VIRTUAL_ENV", "VIRTUAL_ENV_EXTRA", "PYTHONHOME", "PYTHONHOME_EXTRA", "CONDA_PREFIX", "MAMBA_ROOT_PREFIX", "ELAN_HOME", "R_HOME", "JULIA_PROJECT", "JUPYTER_PATH", "NODE_OPTIONS", "NODE_PATH", "CODEX_CONFIG", "CODEX_HOME", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE_TEST", "LYKEION_TEST", "BASH_ENV", "ZDOTDIR", "lower", "1X", ""} {
-		cases = append(cases, struct {
-			name   string
-			env    map[string]string
-			status int
-		}{name, map[string]string{name: "x"}, 400})
-	}
-	for _, name := range []string{
-		"NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED", "NODE_USE_SYSTEM_CA", "NODE_USE_ENV_PROXY",
-		"OPENSSL_CONF", "SSL_CERT_FILE", "SSL_CERT_DIR",
-		"ANTHROPIC_BASE_URL", "ANTHROPIC_AWS_BASE_URL", "ANTHROPIC_BEDROCK_BASE_URL",
-		"ANTHROPIC_BEDROCK_MANTLE_BASE_URL", "ANTHROPIC_VERTEX_BASE_URL", "ANTHROPIC_FOUNDRY_BASE_URL",
-		"ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_PROFILE",
-		"ANTHROPIC_ORGANIZATION_ID", "ANTHROPIC_FEDERATION_RULE_ID",
-		"CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_FOUNDRY",
-		"CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_CERT_STORE",
-		"CLAUDE_CODE_CLIENT_CERT", "CLAUDE_CODE_CLIENT_KEY", "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE",
-		"CLAUDE_CODE_SHELL", "CLAUDE_CODE_SHELL_PREFIX", "CLAUDE_ENV_FILE",
-		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "CODEX_CA_CERTIFICATE",
-		"OPENAI_BASE_URL", "OPENAI_FEDERATION_RULE_ID", "OPENAI_IDENTITY_TOKEN_FILE", "OPENAI_ORGANIZATION",
-		"OPENAI_PROJECT", "CODEX_OSS_BASE_URL", "CODEX_OSS_PORT",
-	} {
-		cases = append(cases, struct {
-			name   string
-			env    map[string]string
-			status int
-		}{name, map[string]string{name: "x"}, 400})
-	}
-	for i, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var out struct {
-				ID    string            `json:"id"`
-				Env   map[string]string `json:"env"`
-				Error string            `json:"error"`
-			}
-			code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": fmt.Sprintf("variables %d", i), "env": tc.env}, &out)
-			if code != tc.status {
-				t.Fatalf("status %d, want %d: %+v", code, tc.status, out)
-			}
-			if strings.HasSuffix(tc.name, "_KEY") || strings.HasSuffix(tc.name, "_TOKEN") || strings.HasSuffix(tc.name, "_SECRET") || strings.Contains(tc.name, "PASSWORD") {
-				want := tc.name + " looks like a secret; study variables are visible to the study's members. Use a connector for keys."
-				if out.Error != want {
-					t.Fatalf("error %q, want %q", out.Error, want)
-				}
-			}
-			if code == 201 {
-				if out.Env == nil || len(out.Env) != len(tc.env) {
-					t.Fatalf("created env %#v, want %#v", out.Env, tc.env)
-				}
-				var read struct {
-					Env map[string]string `json:"env"`
-				}
-				if code := s.call(t, "GET", "/api/cards/"+out.ID, a, w.ID, nil, &read); code != 200 {
-					t.Fatalf("read: %d", code)
-				}
-				if read.Env == nil || !reflect.DeepEqual(read.Env, out.Env) {
-					t.Fatalf("read env %#v, want %#v", read.Env, out.Env)
-				}
-			}
-		})
+	code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "variables", "env": map[string]string{}}, &out)
+	if code != 400 || !strings.Contains(out.Error, `unknown field "env"`) {
+		t.Fatalf("status %d: %+v", code, out)
 	}
 }

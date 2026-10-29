@@ -103,19 +103,9 @@ func TestRuntimeAdditionsQueries(t *testing.T) {
 	ctx := t.Context()
 	u, ws, card := seedWorkspace(t, env)
 	q := db.New(env.Owner)
-	for i, vars := range [][]byte{nil, []byte(`{"DATA":"/data"}`)} {
-		row, err := q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: int32(i + 2), Title: "new", Question: "q", OwnerID: u, BoardColumn: "grounding", Env: vars})
-		want := "{}"
-		if i == 1 {
-			want = `{"DATA": "/data"}`
-		}
-		if err != nil || string(row.Env) != want {
-			t.Fatalf("CreateCard env = %s (%v), want %s", row.Env, err, want)
-		}
-	}
 	insert := func(kind string) db.Attachment {
 		t.Helper()
-		row, err := q.InsertPendingAttachment(ctx, db.InsertPendingAttachmentParams{ID: uuid.New(), WorkspaceID: ws, UploaderID: u, Name: "upload.zip", ContentType: "application/zip", SizeBytes: 12, Sha256: "h", BlobKey: "k", Kind: kind, InnerFiles: 3, UnpackedBytes: 40, ServiceEnv: []string{}})
+		row, err := q.InsertPendingAttachment(ctx, db.InsertPendingAttachmentParams{ID: uuid.New(), WorkspaceID: ws, UploaderID: u, Name: "upload.zip", ContentType: "application/zip", SizeBytes: 12, Sha256: "h", BlobKey: "k", Kind: kind, InnerFiles: 3, UnpackedBytes: 40})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -126,7 +116,7 @@ func TestRuntimeAdditionsQueries(t *testing.T) {
 	}
 	pending, ordinary := insert("service"), insert("file")
 	name, start, client := "zeta", "python server.py", "client.py"
-	params := db.LinkServiceParams{ID: pending.ID, WorkspaceID: ws, UploaderID: u, CardID: &card, ServiceName: &name, ServiceStart: &start, ServiceClient: &client, ServiceEnv: []string{"DATA"}}
+	params := db.LinkServiceParams{ID: pending.ID, WorkspaceID: ws, UploaderID: u, CardID: &card, ServiceName: &name, ServiceStart: &start, ServiceClient: &client}
 	for _, change := range []func(*db.LinkServiceParams){
 		func(p *db.LinkServiceParams) { p.WorkspaceID = uuid.New() },
 		func(p *db.LinkServiceParams) { p.UploaderID = uuid.New() },
@@ -145,7 +135,7 @@ func TestRuntimeAdditionsQueries(t *testing.T) {
 		t.Fatal("incomplete service linked")
 	}
 	var stillPending bool
-	if err := env.Owner.QueryRow(ctx, `SELECT card_id IS NULL AND service_name IS NULL AND service_start IS NULL AND service_client IS NULL AND cardinality(service_env)=0 FROM attachment WHERE id=$1`, pending.ID).Scan(&stillPending); err != nil || !stillPending {
+	if err := env.Owner.QueryRow(ctx, `SELECT card_id IS NULL AND service_name IS NULL AND service_start IS NULL AND service_client IS NULL FROM attachment WHERE id=$1`, pending.ID).Scan(&stillPending); err != nil || !stillPending {
 		t.Fatalf("failed link changed pending metadata: %v (%v)", stillPending, err)
 	}
 	if n, err := q.LinkService(ctx, params); err != nil || n != 1 {
@@ -173,7 +163,7 @@ func TestRuntimeAdditionsQueries(t *testing.T) {
 	if *services[0].ServiceName != "alpha" || *services[1].ServiceName != "zeta" {
 		t.Fatalf("service order = %+v", services)
 	}
-	if s := services[1]; s.ServiceStart == nil || *s.ServiceStart != start || s.ServiceClient == nil || *s.ServiceClient != client || len(s.ServiceEnv) != 1 || s.ServiceEnv[0] != "DATA" || s.RecordKey != "" {
+	if s := services[1]; s.ServiceStart == nil || *s.ServiceStart != start || s.ServiceClient == nil || *s.ServiceClient != client || s.RecordKey != "" {
 		t.Fatalf("linked service metadata = %+v", s)
 	}
 	services, err = q.CardServices(ctx, db.CardServicesParams{WorkspaceID: uuid.New(), CardID: &card})
