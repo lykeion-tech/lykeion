@@ -347,6 +347,10 @@ func TestTurnUsesChatFolderAndNoDoor(t *testing.T) {
 	c.Skills = []toolroute.RoutedSkill{{Name: "claim-check", Folder: skillFolder(t, map[string]string{"SKILL.md": "---\nname: claim-check\ndescription: Check claims\n---\nCheck."})}}
 	c.AgentRun.Skill = "do not inject"
 	c.AgentRun.RequestedModel = "do not choose"
+	// The dashboard's origin need not serve the API: the CLI reaches the
+	// sources server where this daemon reaches the API.
+	f.d.cfg.Server = "http://127.0.0.1:16430/"
+	c.MCPURL = "http://127.0.0.1:16431/mcp/sources"
 	f.d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
 		return backendFunc(func(ctx context.Context, p string, o agent.ExecOptions) (*agent.Session, error) {
 			called = true
@@ -357,7 +361,7 @@ func TestTurnUsesChatFolderAndNoDoor(t *testing.T) {
 			if !strings.Contains(string(data), "name: lyk-claim-check") {
 				t.Fatal(string(data))
 			}
-			if o.Dir != f.dir() || o.DoorURL != "" || o.DoorToken != "" || !o.Coresearch || o.SourcesURL != c.MCPURL || o.Model != "" || strings.Contains(p, "do not inject") {
+			if o.Dir != f.dir() || o.DoorURL != "" || o.DoorToken != "" || !o.Coresearch || o.SourcesURL != "http://127.0.0.1:16430/mcp/sources" || o.Model != "" || strings.Contains(p, "do not inject") {
 				t.Fatalf("unexpected turn: %+v %s", o, p)
 			}
 			for _, v := range o.Env {

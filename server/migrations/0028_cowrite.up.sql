@@ -257,7 +257,8 @@ BEGIN
  IF public.app_user() IS DISTINCT FROM '00000000-0000-0000-0000-000000000000'::uuid THEN RAISE EXCEPTION 'maintenance identity required' USING ERRCODE='42501'; END IF;
  RETURN QUERY SELECT workspace_id FROM public.coresearch_cell WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now())
  UNION SELECT workspace_id FROM public.coresearch_run WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now())
- UNION SELECT workspace_id FROM public.coresearch_setup WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now()) UNION SELECT workspace_id FROM public.coresearch_build WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now()) ORDER BY 1;
+ UNION SELECT workspace_id FROM public.coresearch_setup WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now()) UNION SELECT workspace_id FROM public.coresearch_build WHERE status='running' AND (lease_expires_at IS NULL OR lease_expires_at<=now())
+ UNION SELECT workspace_id FROM public.coresearch_build WHERE status='queued' AND created_at<=now()-interval '90 seconds' ORDER BY 1;
 END $$;
 
 CREATE OR REPLACE FUNCTION public.coresearch_expire() RETURNS TABLE(kind text,project_id uuid,chat_id uuid,work_id uuid)
@@ -274,5 +275,9 @@ BEGIN
  RETURN QUERY SELECT 'setup'::text,c.project_id,c.id,item; END LOOP;
  END LOOP;
  FOR item IN UPDATE public.coresearch_build b SET status='failed',failure_reason='runtime_lost',finished_at=now() WHERE b.workspace_id=public.app_workspace() AND b.status='running' AND (b.lease_expires_at IS NULL OR b.lease_expires_at<=now()) AND (public.app_user()='00000000-0000-0000-0000-000000000000'::uuid OR public.coresearch_can_see(b.project_id)) RETURNING b.id LOOP
+ RETURN QUERY SELECT 'build'::text,b.project_id,NULL::uuid,b.id FROM public.coresearch_build b WHERE b.id=item; END LOOP;
+ -- A build no machine claimed within 90 seconds lost its machine between the
+ -- online check and the claim; it fails instead of waiting indefinitely.
+ FOR item IN UPDATE public.coresearch_build b SET status='aborted',failure_reason='no_machine',finished_at=now() WHERE b.workspace_id=public.app_workspace() AND b.status='queued' AND b.created_at<=now()-interval '90 seconds' AND (public.app_user()='00000000-0000-0000-0000-000000000000'::uuid OR public.coresearch_can_see(b.project_id)) RETURNING b.id LOOP
  RETURN QUERY SELECT 'build'::text,b.project_id,NULL::uuid,b.id FROM public.coresearch_build b WHERE b.id=item; END LOOP;
 END $$;

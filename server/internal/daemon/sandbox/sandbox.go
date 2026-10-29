@@ -43,6 +43,10 @@ import (
 type Policy struct {
 	// StrictRead exposes only system paths and explicit grants on Linux.
 	StrictRead bool
+	// ConfineEtc withdraws the system configuration folder (/etc) from the
+	// system reads, leaving only the local time zone link and, on Linux, the
+	// loader cache. On Linux it requires StrictRead.
+	ConfineEtc bool
 	// NoNetwork denies all network access, including DNS lookups.
 	NoNetwork bool
 	// LoopbackOnly requests strict 127.0.0.1 binding. macOS refuses this policy

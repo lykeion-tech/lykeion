@@ -83,7 +83,7 @@ func (d *daemon) buildPolicy(dir, tmp string, texRoots []string) (sandbox.Policy
 			return sandbox.Policy{}, err
 		}
 	}
-	return sandbox.Policy{StrictRead: true, NoNetwork: true, Home: home, Write: []string{dir, tmp}, Read: texRoots, Hidden: private, RestrictedRoots: roots}, nil
+	return sandbox.Policy{StrictRead: true, ConfineEtc: true, NoNetwork: true, Home: home, Write: []string{dir, tmp}, Read: texRoots, Hidden: private, RestrictedRoots: roots}, nil
 }
 func (d *daemon) compileBuild(parent context.Context, dir, tmp string, capBytes int64) buildResult {
 	result := buildResult{Status: "failed"}

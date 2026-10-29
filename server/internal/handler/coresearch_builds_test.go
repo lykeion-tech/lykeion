@@ -638,3 +638,59 @@ func TestBuildRefusedWithoutOwnMachine(t *testing.T) {
 		t.Fatalf("own machine online: %d", c)
 	}
 }
+
+func TestBuildUnclaimedFailsAsNoMachine(t *testing.T) {
+	s, a, b, ws, p, _ := paperFixture(t)
+	root := csProjects + "/" + p.ID
+	csRegister(t, s, b, ws, "gone", "claude")
+	// The machine stopped reporting but is still inside the online window, so
+	// the request is accepted and nothing will ever claim it.
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE runtime SET last_seen_at=now()-interval '50 seconds' WHERE owner_id=$1`, s.userID(t, b)); e != nil {
+		t.Fatal(e)
+	}
+	var orphan, claimed, fresh db.CoresearchBuild
+	if c := s.call(t, "POST", root+"/builds", b, ws, nil, &orphan); c != 201 {
+		t.Fatalf("queue %d", c)
+	}
+	ref := csRegister(t, s, a, ws, "own", "claude")
+	s.call(t, "POST", root+"/builds", a, ws, nil, &claimed)
+	if work := csWork(t, s, a, "own", ref); len(work.Builds) != 1 || work.Builds[0].ID != claimed.ID {
+		t.Fatal("claim", work)
+	}
+	s.call(t, "POST", root+"/builds", a, ws, nil, &fresh)
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE coresearch_build SET created_at=now()-interval '91 seconds' WHERE id=ANY($1)`, []uuid.UUID{orphan.ID, claimed.ID}); e != nil {
+		t.Fatal(e)
+	}
+	if e := coresearch.Sweep(t.Context(), s.H.Store); e != nil {
+		t.Fatal(e)
+	}
+	want := map[uuid.UUID]string{orphan.ID: "aborted no_machine", claimed.ID: "running ", fresh.ID: "queued "}
+	for id, w := range want {
+		var status string
+		var reason *string
+		if e := s.Env.Owner.QueryRow(t.Context(), `SELECT status,failure_reason FROM coresearch_build WHERE id=$1`, id).Scan(&status, &reason); e != nil {
+			t.Fatal(e)
+		}
+		if got := status + " " + derefString(reason); got != w {
+			t.Errorf("build %s: %q, want %q", id, got, w)
+		}
+	}
+	var listed []map[string]any
+	s.call(t, "GET", root+"/builds", b, ws, nil, &listed)
+	found := false
+	for _, row := range listed {
+		if row["id"] == orphan.ID.String() {
+			found = row["status"] == "aborted" && row["failure_reason"] == "no_machine"
+		}
+	}
+	if !found {
+		t.Fatalf("builds list does not report the abort: %v", listed)
+	}
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}

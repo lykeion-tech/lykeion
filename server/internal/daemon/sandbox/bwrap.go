@@ -32,10 +32,16 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if p.ConfineEtc && !p.StrictRead {
+		return nil, errors.New("sandbox: ConfineEtc requires StrictRead on Linux")
+	}
 	argv := []string{"--ro-bind", "/", "/"}
 	if p.StrictRead {
 		argv = []string{"--tmpfs", "/"}
 		for _, root := range linuxSystemRoots {
+			if p.ConfineEtc && root == "/etc" {
+				continue
+			}
 			info, err := os.Lstat(root)
 			if errors.Is(err, os.ErrNotExist) {
 				continue
@@ -58,6 +64,14 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 				argv = append(argv, "--symlink", target, root)
 			} else {
 				argv = append(argv, "--ro-bind", root, root)
+			}
+		}
+		if p.ConfineEtc {
+			argv = append(argv, "--ro-bind-try", "/etc/ld.so.cache", "/etc/ld.so.cache")
+			if target, err := os.Readlink("/etc/localtime"); err == nil {
+				argv = append(argv, "--symlink", target, "/etc/localtime")
+			} else {
+				argv = append(argv, "--ro-bind-try", "/etc/localtime", "/etc/localtime")
 			}
 		}
 	}

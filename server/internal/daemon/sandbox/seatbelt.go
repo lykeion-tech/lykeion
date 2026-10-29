@@ -20,6 +20,14 @@ var systemReads = []string{
 	`(literal "/dev/tty")`, `(literal "/dev/dtracehelper")`, `(subpath "/dev/fd")`,
 }
 
+// keychainFile names a keychain directly in ~/Library/Keychains and the
+// temporaries it is saved through.
+const keychainFile = `[^/]+[.]keychain-db([.]sb-[0-9a-f]+-[A-Za-z0-9]+)?$`
+
+// KeychainFile reports whether name is a keychain file the Keychain grant
+// covers. Such files must not also be WriteData: its unlink denial would win.
+var KeychainFile = regexp.MustCompile("^" + keychainFile).MatchString
+
 // machServices are the only system services code may talk to: user and group
 // lookups, logging, change notifications, network configuration (proxies)
 // and certificate trust. Every other service is refused, among them
@@ -55,6 +63,10 @@ func (p Policy) seatbeltProfile() (string, error) {
 	rule("allow signal (target same-sandbox)")
 	rule("allow sysctl-read")
 	reads := systemReads
+	if p.ConfineEtc {
+		reads = slices.Clone(reads)
+		reads[slices.Index(reads, `(subpath "/private/etc")`)] = `(literal "/private/etc/localtime")`
+	}
 	if _, err := os.Stat("/opt/homebrew"); err == nil {
 		reads = append(reads[:len(reads):len(reads)], `(subpath "/opt/homebrew")`)
 	}
@@ -146,6 +158,10 @@ func (p Policy) seatbeltProfile() (string, error) {
 	allowedServices := machServices
 	if p.Keychain {
 		allowedServices = slices.Concat(allowedServices, []string{"com.apple.SecurityServer", "com.apple.securityd.xpc"})
+		// Saving a keychain writes a temporary sibling and renames it over the
+		// keychain, so a refreshed sign-in persists only with these lifecycle grants.
+		pattern := "^" + regexp.QuoteMeta(filepath.Join(r.home, "Library", "Keychains")) + "/" + keychainFile
+		rule("allow file-read* file-write* (regex #" + `"` + pattern + `"` + ")")
 	}
 	for _, s := range allowedServices {
 		services = append(services, "(global-name "+sbplString(s)+")")

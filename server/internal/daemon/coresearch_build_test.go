@@ -37,6 +37,8 @@ func TestBuildConfinement(t *testing.T) {
 		{"normal", `Hello world.`, true},
 		{"write18", `\immediate\write18{touch ../escaped}`, false},
 		{"passwd", `\input{/etc/passwd}`, false},
+		{"passwd-catcodes", "\\pdfcompresslevel=0 \\ttfamily" + "\\catcode`\\#=12 \\catcode`\\_=12 \\catcode`\\%=12 \\catcode`\\&=12 \\catcode`\\$=12 \\catcode`\\^=12 \\catcode`\\~=12 \\input{/etc/passwd}", false},
+		{"passwd-openin", "\\catcode`\\#=12 \\catcode`\\%=12 \\newread\\r\\immediate\\openin\\r=/etc/passwd \\loop\\unless\\ifeof\\r\\read\\r to\\x\\typeout{\\meaning\\x}\\repeat", false},
 		{"openout", `\newwrite\f\immediate\openout\f=../escaped\immediate\write\f{x}`, false},
 		{"network", `\input{|curl https://example.com}`, false},
 		{"loop", `\def\x{\x}\x`, false},
@@ -64,6 +66,15 @@ func TestBuildConfinement(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(root, "escaped")); !os.IsNotExist(err) {
 				t.Fatal("escaped write", err)
+			}
+			if strings.HasPrefix(tc.name, "passwd") {
+				pdf, _ := os.ReadFile(filepath.Join(dir, "main.pdf"))
+				texlog, _ := os.ReadFile(filepath.Join(dir, "main.log"))
+				for _, out := range []string{string(pdf), string(texlog), result.Log} {
+					if strings.Contains(out, "nobody") {
+						t.Fatal("passwd content reached the build output")
+					}
+				}
 			}
 		})
 	}

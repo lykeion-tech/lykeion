@@ -1040,3 +1040,37 @@ func TestServicePrivateStateProjectionKeepsOnlyOwnGrants(t *testing.T) {
 		}
 	}
 }
+
+func TestConfineEtcWithdrawsSystemConfiguration(t *testing.T) {
+	p := Policy{Home: tempDir(t), StrictRead: true, NoNetwork: true}
+	prof, err := p.seatbeltProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prof, `(subpath "/private/etc")`) {
+		t.Fatal("ordinary policies keep the system configuration folder")
+	}
+	p.ConfineEtc = true
+	if prof, err = p.seatbeltProfile(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(prof, `(subpath "/private/etc")`) || !strings.Contains(prof, `(literal "/private/etc/localtime")`) {
+		t.Fatalf("Seatbelt keeps /etc readable:\n%s", prof)
+	}
+	args, err := p.bwrapArgs("true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range args {
+		if i+2 < len(args) && args[i+1] == "/etc" && strings.HasPrefix(args[i], "--") {
+			t.Fatalf("bubblewrap exposes host /etc: %v", args)
+		}
+	}
+	if !strings.Contains(strings.Join(args, " "), "--ro-bind-try /etc/ld.so.cache /etc/ld.so.cache") {
+		t.Fatalf("bubblewrap omits the loader cache: %v", args)
+	}
+	p.StrictRead = false
+	if _, err := p.bwrapArgs("true"); err == nil {
+		t.Fatal("ConfineEtc without StrictRead must fail closed on Linux")
+	}
+}

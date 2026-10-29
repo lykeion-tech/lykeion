@@ -22,6 +22,11 @@ var homeSecrets = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc", ".d
 
 func (d *daemon) cacheDir() string { return filepath.Join(d.cfg.Home, ".caches") }
 
+// sourcesURL is the sources server on the API this daemon reaches. The URL the
+// server names is built from the dashboard's public origin, which need not
+// serve the API (a separate dev server, a static host).
+func (d *daemon) sourcesURL() string { return strings.TrimRight(d.cfg.Server, "/") + "/mcp/sources" }
+
 // privatePaths remain excluded even when this run starts no services: another
 // run can write private service state or diagnostics while this one is active.
 func (d *daemon) privatePaths() ([]string, error) {
@@ -128,7 +133,7 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 			if err != nil {
 				return err
 			}
-			if e.Type().IsRegular() {
+			if e.Type().IsRegular() && !(filepath.Dir(path) == root && sandbox.KeychainFile(e.Name())) {
 				p.WriteData = append(p.WriteData, path)
 			}
 			return nil
