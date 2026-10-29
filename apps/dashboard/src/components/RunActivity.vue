@@ -98,7 +98,7 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
   left: -21px;
 }
 summary:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: 3px;
 }
 @media (prefers-reduced-motion: reduce) {

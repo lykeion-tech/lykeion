@@ -300,7 +300,7 @@ input {
 }
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: 2px;
 }
 </style>

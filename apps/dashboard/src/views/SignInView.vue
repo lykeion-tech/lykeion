@@ -153,7 +153,7 @@ function google() {
   gap: 10px;
 }
 .brand b {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .signin-card h1 {
   font-size: 20px;

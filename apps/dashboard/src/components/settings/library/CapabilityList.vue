@@ -78,7 +78,7 @@ input {
   min-width: 0;
 }
 .capability-search:focus-within {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: 2px;
 }
 .library-caption,

@@ -451,7 +451,7 @@ header {
 }
 a,
 .link {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 a {
   text-decoration: none;
@@ -573,7 +573,7 @@ footer {
 }
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: 2px;
 }
 </style>

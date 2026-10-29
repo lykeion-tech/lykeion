@@ -616,7 +616,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   justify-content: flex-end;
 }
 .another-switch input:focus-visible + .switch-track {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: 3px;
 }
 .composer-error {
@@ -808,7 +808,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   min-height: 24px;
 }
 .composer-files li:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
 }
 .composer-files .file-name {
   overflow: hidden;
@@ -820,7 +820,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   padding: 0;
 }
 .composer-files:has(input:focus-visible) label {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
 }
 .visually-hidden {
   position: absolute;

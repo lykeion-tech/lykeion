@@ -744,7 +744,7 @@ onUnmounted(() => {
 .mini-cost {
   width: 100%;
   height: 60px;
-  color: var(--primary);
+  color: var(--primary-text);
   margin-top: 10px;
 }
 .duration,

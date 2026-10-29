@@ -786,7 +786,7 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--surface) 30%, transparent);
 }
 .workspace-popup .push-right {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .shell-popup > .danger-menu-item {
   color: #cc344b;
@@ -898,7 +898,7 @@ onUnmounted(() => {
   left: 0;
 }
 .sidebar-handle:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: -2px;
 }
 </style>

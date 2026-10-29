@@ -206,7 +206,7 @@ small {
   margin: 8px 0;
 }
 a {
-  color: var(--primary);
+  color: var(--primary-text);
   text-decoration: none;
   font-size: 12px;
 }
@@ -244,7 +244,7 @@ footer {
 }
 button:focus-visible,
 a:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: 2px;
 }
 </style>

@@ -164,7 +164,7 @@ async function copy() {
 }
 button:focus-visible,
 pre:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: -2px;
 }
 

@@ -232,7 +232,7 @@ function key(event: KeyboardEvent) {
   color: var(--muted);
 }
 .palette-match {
-  color: var(--primary);
+  color: var(--primary-text);
   font-weight: 600;
 }
 .palette-preview {

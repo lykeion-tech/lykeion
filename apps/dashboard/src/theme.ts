@@ -9,6 +9,8 @@ export interface Theme {
   muted: string;
   border: string;
   accent: string;
+  // The accent as text and focus ring: Dawn's and Pale's accents read under 3:1 on their surface.
+  accentText: string;
   selected: string;
 }
 
@@ -25,6 +27,7 @@ export const themes: Theme[] = [
     muted: '#666a6d',
     border: '#e9e9eb',
     accent: '#3274a4',
+    accentText: '#3274a4',
     selected: '#c9cacf',
   },
   {
@@ -38,6 +41,7 @@ export const themes: Theme[] = [
     muted: '#bdbdbf',
     border: '#2a292c',
     accent: '#d25f66',
+    accentText: '#d25f66',
     selected: '#444447',
   },
   {
@@ -51,6 +55,7 @@ export const themes: Theme[] = [
     muted: '#c6bec9',
     border: '#413b44',
     accent: '#aa4278',
+    accentText: '#d086ac',
     selected: '#615662',
   },
   {
@@ -64,6 +69,7 @@ export const themes: Theme[] = [
     muted: '#c6c8d4',
     border: '#414456',
     accent: '#8054c4',
+    accentText: '#b399dc',
     selected: '#545866',
   },
 ];
@@ -80,5 +86,6 @@ export function applyTheme(id: unknown) {
   for (const key of ['surface', 'canvas', 'input', 'text', 'muted', 'border', 'selected'] as const)
     root.style.setProperty('--' + key, theme[key]);
   root.style.setProperty('--primary', theme.accent);
+  root.style.setProperty('--primary-text', theme.accentText);
   root.style.setProperty('--hover', theme.input);
 }

@@ -133,8 +133,8 @@
   --text-dim: color-mix(in srgb, var(--text) 50%, var(--surface));
   --launcher-ink: color-mix(in srgb, var(--text) 72%, var(--surface));
 
-  --focus-ring: var(--primary);
-  --focus-ring-field: var(--primary);
+  --focus-ring: var(--primary-text);
+  --focus-ring-field: var(--primary-text);
   --focus-glow: color-mix(in srgb, var(--primary) 31%, transparent);
   --focus-glow-faint: color-mix(in srgb, var(--primary) 19%, transparent);
   --focus-glow-soft: color-mix(in srgb, var(--primary) 15%, transparent);
@@ -457,7 +457,7 @@ kbd {
   color: #ffffffc0;
 }
 .text-button {
-  color: var(--primary);
+  color: var(--primary-text);
   font-size: 13px;
   padding: 6px;
 }

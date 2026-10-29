@@ -143,7 +143,7 @@ h3 {
   padding: 2px 8px;
 }
 .status.online {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .usage-bar {
   height: 12px;

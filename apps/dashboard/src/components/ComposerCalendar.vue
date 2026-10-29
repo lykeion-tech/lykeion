@@ -164,7 +164,7 @@ td > button {
   padding: 0;
 }
 .outside {
-  color: var(--text-dim);
+  color: var(--muted);
 }
 .selected {
   background: var(--primary);
@@ -177,7 +177,7 @@ td > button {
   background: #ffffff50;
 }
 .composer-calendar button:focus-visible {
-  outline: 1px solid var(--primary);
+  outline: 1px solid var(--primary-text);
   outline-offset: -2px;
 }
 </style>

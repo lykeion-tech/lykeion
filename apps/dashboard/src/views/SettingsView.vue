@@ -938,7 +938,7 @@ async function copySlug() {
   position: relative;
 }
 .theme-card.chosen {
-  outline: 1px solid var(--primary);
+  outline: 1px solid var(--primary-text);
   outline-offset: 0;
   border-color: var(--primary);
 }

@@ -145,7 +145,7 @@ function created(id: string) {
   white-space: nowrap;
 }
 .skill-row:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: 2px;
 }
 </style>

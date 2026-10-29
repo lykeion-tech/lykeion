@@ -334,7 +334,7 @@ onUnmounted(() => {
 .workspace-tab .icon {
   display: block;
   flex-shrink: 0;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .pinned-marker {
   color: var(--muted);

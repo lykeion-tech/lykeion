@@ -1516,7 +1516,7 @@ async function save() {
 .source-formats code {
   display: block;
   font-size: 11px;
-  color: var(--primary);
+  color: var(--primary-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1805,7 +1805,7 @@ async function save() {
   width: 20px;
   height: 20px;
   background: var(--fill-accent-soft);
-  color: var(--primary);
+  color: var(--primary-text);
   border-radius: 4px;
 }
 .autoresearch-header-muted {

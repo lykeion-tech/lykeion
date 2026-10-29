@@ -79,7 +79,7 @@ async function copy(event: MouseEvent) {
   color: var(--muted);
 }
 .markdown-body a {
-  color: var(--primary);
+  color: var(--primary-text);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -162,7 +162,7 @@ async function copy(event: MouseEvent) {
 }
 .markdown-body button:focus-visible,
 .markdown-body [tabindex]:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: -2px;
 }
 </style>

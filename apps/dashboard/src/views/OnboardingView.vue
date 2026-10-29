@@ -426,7 +426,7 @@ async function logOut() {
   font-weight: 500;
 }
 .brand b {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .steps {
   margin: auto 0;

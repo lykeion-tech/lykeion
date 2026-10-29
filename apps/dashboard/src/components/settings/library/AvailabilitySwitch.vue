@@ -49,7 +49,7 @@ defineEmits<{ toggle: [] }>();
   cursor: default;
 }
 .availability-switch:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: 3px;
 }
 @media (prefers-reduced-motion: reduce) {

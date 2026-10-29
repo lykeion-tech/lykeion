@@ -410,7 +410,7 @@ onUnmounted(() => window.removeEventListener('pointerdown', outside));
   flex: none;
 }
 .color-preset-row button[aria-pressed='true'] {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: 2px;
 }
 .color-error {

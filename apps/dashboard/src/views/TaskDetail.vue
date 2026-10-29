@@ -1315,7 +1315,7 @@ function pin() {
 }
 .notebook-link:hover {
   text-decoration: underline;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .notebook-footer > p {
   font-size: 12px;
@@ -1531,7 +1531,7 @@ function pin() {
   white-space: nowrap;
 }
 .record-line .source {
-  color: var(--primary);
+  color: var(--primary-text);
   margin-left: auto;
   white-space: nowrap;
 }
@@ -1605,7 +1605,7 @@ function pin() {
   padding: 3px 6px;
 }
 .study-meta .link {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .status-hypotheses {
   color: #ab54f4;
@@ -1807,7 +1807,7 @@ function pin() {
   width: 70px;
 }
 .task-splitter:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--primary-text);
   outline-offset: -1px;
 }
 @media (max-width: 850px) {
