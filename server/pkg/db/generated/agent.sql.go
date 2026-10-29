@@ -29,6 +29,51 @@ func (q *Queries) AgentIsTeamCopy(ctx context.Context, arg AgentIsTeamCopyParams
 	return exists, err
 }
 
+const agentUses = `-- name: AgentUses :many
+SELECT kind::text AS kind, label::text AS label, owner::text AS owner FROM (
+  SELECT 0 AS ord, c.number AS n, 'study' AS kind, '#' || c.number AS label, COALESCE(NULLIF(u.name, ''), u.email) AS owner
+  FROM card c JOIN "user" u ON u.id = c.owner_id
+  WHERE c.workspace_id = $1 AND c.assignee_id = $2 AND c.ending = '' AND c.state <> 'done'
+  UNION ALL
+  SELECT 1, 0, 'autoresearch', r.title, COALESCE(NULLIF(u.name, ''), u.email)
+  FROM autoresearch r JOIN "user" u ON u.id = r.owner_id
+  WHERE r.workspace_id = $1 AND r.assignee_id = $2
+) x ORDER BY ord, n, label
+`
+
+type AgentUsesParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	AgentID     *uuid.UUID `json:"agent_id"`
+}
+
+type AgentUsesRow struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	Owner string `json:"owner"`
+}
+
+// The studies still working with an agent (Blocked ones and mixed Autoresearch
+// studies included) and the Autoresearches that name it, studies first.
+func (q *Queries) AgentUses(ctx context.Context, arg AgentUsesParams) ([]AgentUsesRow, error) {
+	rows, err := q.db.Query(ctx, agentUses, arg.WorkspaceID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentUsesRow
+	for rows.Next() {
+		var i AgentUsesRow
+		if err := rows.Scan(&i.Kind, &i.Label, &i.Owner); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const archiveAgent = `-- name: ArchiveAgent :one
 UPDATE agent SET archived_at = now(), updated_at = now() WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters
 `

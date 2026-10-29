@@ -21,6 +21,19 @@ WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL RETURNIN
 -- name: ArchiveAgent :one
 UPDATE agent SET archived_at = now(), updated_at = now() WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL RETURNING *;
 
+-- name: AgentUses :many
+-- The studies still working with an agent (Blocked ones and mixed Autoresearch
+-- studies included) and the Autoresearches that name it, studies first.
+SELECT kind::text AS kind, label::text AS label, owner::text AS owner FROM (
+  SELECT 0 AS ord, c.number AS n, 'study' AS kind, '#' || c.number AS label, COALESCE(NULLIF(u.name, ''), u.email) AS owner
+  FROM card c JOIN "user" u ON u.id = c.owner_id
+  WHERE c.workspace_id = @workspace_id AND c.assignee_id = @agent_id AND c.ending = '' AND c.state <> 'done'
+  UNION ALL
+  SELECT 1, 0, 'autoresearch', r.title, COALESCE(NULLIF(u.name, ''), u.email)
+  FROM autoresearch r JOIN "user" u ON u.id = r.owner_id
+  WHERE r.workspace_id = @workspace_id AND r.assignee_id = @agent_id
+) x ORDER BY ord, n, label;
+
 -- name: ArchiveOwnedAgents :many
 UPDATE agent SET archived_at = now(), updated_at = now()
 WHERE workspace_id = @workspace_id AND owner_id = @owner_id AND archived_at IS NULL AND built_in_key='' RETURNING *;

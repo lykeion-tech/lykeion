@@ -57,7 +57,10 @@ func validateAgent(a db.Agent) error {
 
 func agentFail(w http.ResponseWriter, r *http.Request, err error, out any, status int) {
 	var bad cardInputError
+	var busy conflict
 	switch {
+	case errors.As(err, &busy):
+		writeErr(w, 409, busy.Error())
 	case errors.Is(err, errAgentForbidden):
 		writeErr(w, 403, err.Error())
 	case errors.Is(err, errAgentArchived), errors.Is(err, errAgentBuiltinArchive):
@@ -71,6 +74,31 @@ func agentFail(w http.ResponseWriter, r *http.Request, err error, out any, statu
 	default:
 		writeJSON(w, status, out)
 	}
+}
+
+// agentInUse refuses changes to an agent that studies or Autoresearches still
+// work with, naming the first five.
+func agentInUse(r *http.Request, tx *store.Tx, id uuid.UUID) error {
+	uses, err := tx.Q.AgentUses(r.Context(), db.AgentUsesParams{WorkspaceID: tx.WS, AgentID: &id})
+	if err != nil || len(uses) == 0 {
+		return err
+	}
+	var items []string
+	for _, u := range uses[:min(len(uses), 5)] {
+		if u.Kind == "study" {
+			items = append(items, fmt.Sprintf("study %s (%s)", u.Label, u.Owner))
+		} else {
+			items = append(items, fmt.Sprintf("Autoresearch %q (%s)", u.Label, u.Owner))
+		}
+	}
+	list := items[0]
+	if n := len(items); n > 1 {
+		list = strings.Join(items[:n-1], ", ") + " and " + items[n-1]
+	}
+	if len(uses) > 5 {
+		list = strings.Join(items, ", ") + fmt.Sprintf(" and %d more", len(uses)-5)
+	}
+	return conflict("Used by " + list + ". It can change once they finish or their owners delete them.")
 }
 
 func (h *H) listAgents(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +221,9 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		if a.ArchivedAt != nil {
 			return errAgentArchived
 		}
+		if err := agentInUse(r, tx, id); err != nil {
+			return err
+		}
 		if a.BuiltInKey != "" && in.Visibility != nil && *in.Visibility != "private" {
 			return cardInputError("built-in agents remain private")
 		}
@@ -251,6 +282,9 @@ func (h *H) archiveAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.ArchivedAt != nil {
 			return errAgentArchived
+		}
+		if err := agentInUse(r, tx, id); err != nil {
+			return err
 		}
 		out, err = tx.Q.ArchiveAgent(r.Context(), db.ArchiveAgentParams{WorkspaceID: ws, ID: id})
 		if err != nil {
