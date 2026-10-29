@@ -46,7 +46,7 @@
   --icon-faint: #8c9092;
   --icon-empty: #898c90;
   --icon-dim: #a2a4a9;
-  --text-faint: #96999c;
+  --text-faint: var(--muted);
   --text-dim: #a1a1ac;
   --launcher-ink: #747c83;
 
@@ -129,7 +129,7 @@
   --icon-faint: color-mix(in srgb, var(--text) 61%, var(--surface));
   --icon-empty: color-mix(in srgb, var(--text) 63%, var(--surface));
   --icon-dim: color-mix(in srgb, var(--text) 49%, var(--surface));
-  --text-faint: color-mix(in srgb, var(--text) 56%, var(--surface));
+  --text-faint: var(--muted);
   --text-dim: color-mix(in srgb, var(--text) 50%, var(--surface));
   --launcher-ink: color-mix(in srgb, var(--text) 72%, var(--surface));
 

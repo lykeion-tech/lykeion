@@ -235,6 +235,7 @@ defineExpose({ open });
 }
 .wakeup-picker input {
   background: none;
+  color: var(--text);
   border: 0;
   outline: 0;
   width: 100%;
