@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useQueryClient } from '@tanstack/vue-query';
+import { useQueries, useQueryClient } from '@tanstack/vue-query';
 import { api } from '../../api/client';
 import { useMe, useMembers } from '../../api/queries';
 import { workspaceId } from '../../api/session';
@@ -29,8 +29,7 @@ import type { ProjectRow, FileRow, ChatRow } from '../types';
 import ChatTranscript from '../ChatTranscript.vue';
 import ChatComposer from '../ChatComposer.vue';
 import AristotleComposer from '../AristotleComposer.vue';
-import ComputePane from '../ComputePane.vue';
-import RightPaneTabs from '../RightPaneTabs.vue';
+import CowriteRightPane from './CowriteRightPane.vue';
 import FilesPane from '../FilesPane.vue';
 import MembersDialog from '../MembersDialog.vue';
 import CowriteSidebar from './CowriteSidebar.vue';
@@ -39,8 +38,17 @@ import Outline from './Outline.vue';
 import Editor from './Editor.vue';
 import HomeChatDrawer from './HomeChatDrawer.vue';
 import SelectionToolbar, { type SelectionTarget } from './SelectionToolbar.vue';
-import { outlineOf, proofreadPrompt, compileManuscriptNotes } from './lib/manuscript';
-import { docPath } from './api';
+import {
+  outlineOf,
+  proofreadPrompt,
+  compileManuscriptNotes,
+  bibKeysOf,
+  labelsOf,
+  parseTexLog,
+} from './lib/manuscript';
+import { docPath, useBuilds, useVersions } from './api';
+import { keys } from '../api';
+import type { Doc, Comment, Version } from './types';
 const props = defineProps<{ project: ProjectRow; chatId?: string }>();
 const route = useRoute(),
   router = useRouter(),
@@ -62,9 +70,6 @@ const messages = useCoresearchMessages(
   () => chat.value?.id ?? '',
 );
 const owner = computed(() => !!me.data.value && chat.value?.owner_id === me.data.value.id);
-const computeChat = computed(() =>
-  owner.value ? chat.value : chats.data.value?.find((c) => c.owner_id === me.data.value?.id),
-);
 const conversation = computed(() =>
   aristotle.conversations.data.value?.find((c) => !c.shared && c.chat_id === chat.value?.id),
 );
@@ -93,6 +98,9 @@ const fileID = ref(''),
   namingNew = ref(false),
   membersOpen = ref(false),
   compute = ref(false),
+  focused = ref(false),
+  compiling = ref(false),
+  noMachine = ref(false),
   drawerOpen = ref(true);
 const editor = ref<InstanceType<typeof Editor>>(),
   drawer = ref<InstanceType<typeof HomeChatDrawer>>(),
@@ -420,13 +428,142 @@ async function manage(page: string) {
   });
   await router.push(`/settings?tab=${page}`);
 }
+const builds = useBuilds(() => props.project.id),
+  versions = useVersions(() => props.project.id);
+const paperFiles = computed(() =>
+  (files.data.value ?? []).filter((f) => /\.(tex|bib)$/i.test(f.path)),
+);
+const paperDocs = useQueries({
+  queries: computed(() =>
+    paperFiles.value.map((f) => ({
+      queryKey: keys.cowriteDoc(workspaceId.value, props.project.id, f.id),
+      enabled: !!workspaceId.value,
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api<Doc>('GET', docPath(props.project.id, f.id), undefined, undefined, {
+          signal,
+          workspace: workspaceId.value,
+        }),
+      refetchInterval: 4000,
+    })),
+  ),
+});
+const paper = computed(() =>
+  paperFiles.value.flatMap((f, i) => {
+    const doc = paperDocs.value[i]?.data;
+    if (f.id === fileID.value && editor.value) return [{ path: f.path, text: text.value }];
+    return doc ? [{ path: f.path, text: doc.text }] : [];
+  }),
+);
+const sources = computed(() =>
+  paper.value.filter((f) => /\.tex$/i.test(f.path)).map((f) => f.text),
+);
+const bibliography = computed(() => [
+  ...new Map(
+    paper.value
+      .filter((f) => /\.bib$/i.test(f.path))
+      .flatMap((f) => bibKeysOf(f.text))
+      .map((k) => [k.key, k]),
+  ).values(),
+]);
+const labels = computed(() => labelsOf(paper.value));
+const commentFiles = computed(() =>
+  (files.data.value ?? []).filter((f) => f.has_doc || /\.(tex|bib)$/i.test(f.path)),
+);
+const commentQueries = useQueries({
+  queries: computed(() =>
+    commentFiles.value.map((f) => ({
+      queryKey: keys.cowriteComments(workspaceId.value, props.project.id, f.id),
+      enabled: !!workspaceId.value,
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api<Comment[]>('GET', `${docPath(props.project.id, f.id)}/comments`, undefined, undefined, {
+          signal,
+          workspace: workspaceId.value,
+        }),
+    })),
+  ),
+});
+const comments = computed(() =>
+  commentFiles.value.flatMap((f, i) =>
+    (Array.isArray(commentQueries.value[i]?.data) ? commentQueries.value[i]!.data! : []).map(
+      (c) => ({ ...c, path: f.path }),
+    ),
+  ),
+);
+const latestBuild = computed(() => [...(builds.data.value ?? [])].sort((a, b) => b.seq - a.seq)[0]);
+const log = ref<string>(),
+  logFailed = ref(false);
+watch(
+  () => [workspaceId.value, props.project.id, latestBuild.value?.id, latestBuild.value?.has_log],
+  async (_, __, cleanup) => {
+    const controller = new AbortController();
+    cleanup(() => controller.abort());
+    const b = latestBuild.value,
+      workspace = workspaceId.value,
+      p = props.project.id;
+    log.value = undefined;
+    logFailed.value = false;
+    if (!b?.has_log) return;
+    try {
+      const blob = await api<Blob>(
+        'GET',
+        `${projectPath(p)}/builds/${b.seq}.log`,
+        undefined,
+        undefined,
+        { workspace, signal: controller.signal, response: 'blob' },
+      );
+      const value = await blob.text();
+      if (!controller.signal.aborted) log.value = value;
+    } catch {
+      if (!controller.signal.aborted) logFailed.value = true;
+    }
+  },
+  { immediate: true },
+);
+const texErrors = computed(() => parseTexLog(log.value ?? '').errors);
+async function jumpSource(path: string, at: number) {
+  const match = (files.data.value ?? [])
+    .filter((f) => path === f.path || path.endsWith(`/${f.path}`))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+  if (!match) return;
+  if (match.id !== fileID.value) {
+    await openFile(match.path);
+    if (fileID.value !== match.id) return;
+    await nextTick();
+  }
+  line.value = at;
+  editor.value?.jump(at);
+}
+async function restore(version: Version) {
+  try {
+    await editor.value?.flush();
+    await api('POST', `${projectPath(props.project.id)}/versions/${version.seq}/restore`);
+    await invalidate();
+    await editor.value?.refresh();
+  } catch (e) {
+    report(e);
+  }
+}
+async function deleteComment(id: string) {
+  try {
+    await api('DELETE', `${projectPath(props.project.id)}/comments/${encodeURIComponent(id)}`);
+    await invalidate();
+  } catch (e) {
+    report(e);
+  }
+}
 async function build() {
+  if (compiling.value || props.project.archived_at) return;
+  compiling.value = true;
+  noMachine.value = false;
   try {
     await editor.value?.flush();
     await api('POST', `${projectPath(props.project.id)}/builds`);
     await invalidate();
   } catch (e) {
     report(e);
+    noMachine.value = /no.*machine|no.*runtime/i.test(e instanceof Error ? e.message : String(e));
+  } finally {
+    compiling.value = false;
   }
 }
 </script>
@@ -476,8 +613,8 @@ async function build() {
     />
     <div
       class="task-columns"
-      :data-pane-mode="compute ? 'split' : 'closed'"
-      style="--task-utility-width: 360px"
+      :data-pane-mode="focused ? 'focus' : 'split'"
+      style="--task-utility-width: 50%"
     >
       <div class="task-main" data-column="paper">
         <div class="task-stage-row" />
@@ -494,6 +631,10 @@ async function build() {
                 :file-id="file.id"
                 :path="file.path"
                 :disabled="!!project.archived_at || missing"
+                :bib-keys="bibliography"
+                :labels="labels"
+                :errors="texErrors"
+                @cursor="line = $event"
                 @ready="openedJournals.add(file.id)"
                 @text="text = $event"
                 @selection="selection = $event"
@@ -552,17 +693,31 @@ async function build() {
           </div>
         </div>
       </div>
-      <div v-if="compute && chat" class="task-rightpane">
-        <RightPaneTabs
-          :tabs="[{ id: 'compute', label: 'Compute' }]"
-          active-id="compute"
-          pane-mode="split"
-          @close-pane="compute = false"
-        />
-        <div class="task-rightpane-card">
-          <ComputePane v-if="computeChat" :project="project" :chat="computeChat" :owner="true" />
-        </div>
-      </div>
+      <CowriteRightPane
+        :key="`${workspaceId}:${project.id}:${me.data.value?.id}`"
+        v-model:compute="compute"
+        :project-id="project.id"
+        :title="project.name"
+        :builds="builds.data.value ?? []"
+        :sources="sources"
+        :versions="versions.data.value ?? []"
+        :comments="comments"
+        :people="people"
+        :me-id="me.data.value?.id"
+        :disabled="!!project.archived_at || compiling"
+        :no-machine="noMachine"
+        :log="log"
+        :log-failed="logFailed"
+        :errors="log === undefined ? undefined : texErrors.length"
+        :cursor="file && editable ? { path: file.path, line: line ?? 1 } : undefined"
+        :restore="restore"
+        @compile="build"
+        @undo="editor?.undo()"
+        @redo="editor?.redo()"
+        @go-to-source="jumpSource"
+        @delete-comment="deleteComment"
+        @focus="focused = $event"
+      />
     </div>
     <MembersDialog
       v-if="membersOpen"

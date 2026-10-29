@@ -10,11 +10,13 @@ import {
   Decoration,
   WidgetType,
   lineNumbers,
+  gutter,
+  GutterMarker,
   highlightActiveLine,
   drawSelection,
   keymap,
 } from '@codemirror/view';
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands';
 import { indentOnInput, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
@@ -34,6 +36,7 @@ import { createCollaboration, collaborativeState } from './collab';
 import { trackedChanges, setChangeRows, mapChangeRows } from './trackedChanges';
 import { latexHighlight } from './lib/latex-highlight';
 import { latexCompletions } from './lib/latex-completion';
+import type { TexError } from './lib/manuscript';
 import type { Change, Doc, Presence } from './types';
 import type { SelectionTarget } from './SelectionToolbar.vue';
 const props = defineProps<{
@@ -43,6 +46,7 @@ const props = defineProps<{
   disabled?: boolean;
   bibKeys?: { key: string; title: string }[];
   labels?: string[];
+  errors?: TexError[];
 }>();
 const emit = defineEmits<{
   text: [string];
@@ -52,6 +56,45 @@ const emit = defineEmits<{
   build: [];
   ready: [];
 }>();
+const setErrors = StateEffect.define<Map<number, string>>();
+const errorLines = StateField.define<Map<number, string>>({
+  create: () => new Map(),
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(setErrors)) value = e.value;
+    return value;
+  },
+});
+class ErrorDot extends GutterMarker {
+  constructor(private message: string) {
+    super();
+  }
+  eq(other: ErrorDot) {
+    return other.message === this.message;
+  }
+  toDOM() {
+    const dot = document.createElement('span');
+    dot.className = 'cm-error';
+    dot.title = this.message;
+    dot.textContent = '●';
+    return dot;
+  }
+}
+const errorGutter = gutter({
+  class: 'cm-error-gutter',
+  lineMarker(live, line) {
+    const message = live.state.field(errorLines).get(live.state.doc.lineAt(line.from).number);
+    return message === undefined ? null : new ErrorDot(message);
+  },
+  lineMarkerChange: (u) => u.startState.field(errorLines) !== u.state.field(errorLines),
+});
+function updateErrors() {
+  const lines = new Map<number, string>();
+  for (const e of props.errors ?? [])
+    if (e.file === props.path && e.line !== undefined && !lines.has(e.line))
+      lines.set(e.line, e.message);
+  view?.dispatch({ effects: setErrors.of(lines) });
+}
+watch(() => [props.errors, props.path], updateErrors, { deep: true });
 const client = useQueryClient();
 const me = useMe(),
   host = ref<HTMLElement>();
@@ -368,6 +411,8 @@ onMounted(async () => {
     if (!alive) return;
     const extensions = [
       lineNumbers(),
+      errorLines,
+      errorGutter,
       highlightActiveLine(),
       drawSelection(),
       indentOnInput(),
@@ -474,6 +519,7 @@ onMounted(async () => {
       },
       onError: fail,
     });
+    updateErrors();
     emit('ready');
     emit('text', state.doc.toString());
     void refresh();
@@ -506,6 +552,12 @@ onBeforeUnmount(() => {
 });
 defineExpose({
   flush,
+  undo: () => {
+    if (view && !props.disabled) undo(view);
+  },
+  redo: () => {
+    if (view && !props.disabled) redo(view);
+  },
   selection,
   jump,
   search: searchFile,

@@ -74,6 +74,8 @@ export function useBuilds(project: Source<string>) {
     project,
     () => keys.cowriteBuilds(workspaceId.value, toValue(project)),
     () => `${projectPath(toValue(project))}/builds`,
+    () => true,
+    1500,
   );
 }
 export function useVersions(project: Source<string>) {

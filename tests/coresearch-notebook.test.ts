@@ -236,39 +236,45 @@ describe('Coresearch notebook and compute', () => {
       conda: [],
     });
   });
-  it('compute shows another owners private offline machine separately from kernel state and queued cells', async () => {
-    const { root } = await mount(ComputePane, false, (c) =>
-      c.setQueryData(keys.coresearchCells('lab', 'p', 'c'), [cell('q', 1, [], 'queued')]),
+  it('compute is the L2 compute panel fed only by the caller own compute rows', async () => {
+    const empty = await mount(ComputePane, true, (c) =>
+      c.setQueryData(keys.cowriteCompute('lab', 'p'), { kernels: [], machines: [] }),
     );
-    const text = textOf(root);
-    expect(text).toContain('Private workstation');
-    expect(text).toContain('offline');
-    expect(text).toContain('busy');
-    expect(text).toContain(chat.kernel_seen_at);
-    expect(text).toContain('2026-10-26T11:00:00Z');
-    expect(text).toContain('1 queued cell');
-    expect(text).not.toMatch(/CPU|Memory|GPU/);
-  });
-  it('compute matches workspace owner daemon and harness and distinguishes missing and unbound', async () => {
-    const missing = await mount(ComputePane, false, (c) =>
-      c.setQueryData(keys.runtimes('lab'), [
-        {
-          workspace_id: 'lab',
-          owner_id: 'other',
-          daemon_id: 'd',
-          harness: 'codex',
-          status: 'online',
-          device_name: 'Wrong CLI',
-        },
-      ]),
+    expect(textOf(empty.root)).toContain('No live kernels');
+    expect(textOf(empty.root)).not.toContain('Private workstation');
+    const mine = await mount(ComputePane, true, (c) =>
+      c.setQueryData(keys.cowriteCompute('lab', 'p'), {
+        kernels: [
+          {
+            chat_id: 'c',
+            kernel: 'python3',
+            state: 'running',
+            runtime_id: 'r',
+            device_name: 'My Mac',
+            samples: [{ t: '2026-10-28T10:00:00Z', rss: 1048576, cpu: 150 }],
+          },
+        ],
+        machines: [
+          {
+            runtime_id: 'r',
+            device_name: 'My Mac',
+            metrics: {
+              mem_used: 1,
+              mem_total: 2,
+              cpu_used: 150,
+              cores: 8,
+              disk_free: 10,
+              disk_total: 20,
+            },
+          },
+        ],
+      }),
     );
-    expect(textOf(missing.root)).toContain('Machine unavailable');
-    expect(textOf(missing.root)).not.toContain('offline');
-    const unbound = await mount(ComputePane, false, undefined, {
-      chat: { ...chat, daemon_id: null },
-    });
-    expect(textOf(unbound.root)).toContain('No machine bound');
-    expect(textOf(unbound.root)).not.toContain('offline');
+    const text = textOf(mine.root);
+    expect(text).toContain('My Mac');
+    expect(text).toContain('1.5 of 8 cores');
+    expect(text).toContain('Memory');
+    expect(text).not.toContain('GPU');
   });
   it('loads outputs-only blob endpoint on disclosure with project-scoped query key', async () => {
     const fetch = vi.fn().mockResolvedValue({

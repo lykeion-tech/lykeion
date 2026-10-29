@@ -108,6 +108,35 @@ for (const owner of [true, false]) {
               kernel_seen_at: '2026-10-26T12:00:00Z',
             },
           ];
+        else if (path.endsWith('/compute'))
+          data = owner
+            ? {
+                kernels: [
+                  {
+                    chat_id: 'c',
+                    kernel: 'python3',
+                    state: 'running',
+                    runtime_id: 'r',
+                    device_name: 'Alice private machine',
+                    samples: [{ t: '2026-10-26T12:00:00Z', rss: 1048576, cpu: 150 }],
+                  },
+                ],
+                machines: [
+                  {
+                    runtime_id: 'r',
+                    device_name: 'Alice private machine',
+                    metrics: {
+                      mem_used: 1,
+                      mem_total: 2,
+                      cpu_used: 150,
+                      cores: 8,
+                      disk_free: 10,
+                      disk_total: 20,
+                    },
+                  },
+                ],
+              }
+            : { kernels: [], machines: [] };
         else if (path.endsWith('/cells')) data = cells;
         else if (path.endsWith('/cells/blob/outputs'))
           data = [{ type: 'text', text: 'stored output from member route' }];
@@ -212,20 +241,15 @@ for (const owner of [true, false]) {
         await expect(notebook.getByRole('button', { name, exact: true })).toHaveCount(0);
     }
     await page.getByRole('tab', { name: 'Compute', exact: true }).click();
-    const compute = page.getByTestId('compute-panel');
-    for (const fact of [
-      'Alice private machine',
-      'offline',
-      'busy',
-      '2026-10-26T11:00:00Z',
-      '2026-10-26T12:00:00Z',
-      '1 queued cell',
-    ])
-      await expect(compute).toContainText(fact);
-    await expect(compute).not.toContainText('99 queued');
-    await expect(compute.getByRole('button', { name: 'Restart', exact: true })).toHaveCount(
-      owner ? 1 : 0,
-    );
+    const compute = page.getByRole('tabpanel', { name: 'Compute' });
+    if (owner) {
+      for (const fact of ['Alice private machine', '1.5 of 8 cores', 'Memory'])
+        await expect(compute).toContainText(fact);
+      await expect(compute).not.toContainText('GPU');
+    } else {
+      await expect(compute).toContainText('No live kernels');
+      await expect(compute).not.toContainText('Alice private machine');
+    }
     expect(errors).toEqual([]);
   });
 }
