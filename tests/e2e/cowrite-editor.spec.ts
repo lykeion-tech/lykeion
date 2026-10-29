@@ -8,7 +8,8 @@ test('real shared editor rebases, flushes file navigation, draws decisions and c
   const editor = page.locator('.cm-content');
   await expect(editor).toBeVisible();
   await expect(page.locator('.cm-settle-keep')).toHaveCount(1);
-  await expect(page.locator('.cm-settle-undo')).toHaveCount(2);
+  await expect(page.locator('.cm-settle-undo')).toHaveCount(1);
+  await expect(page.locator('.cm-settle-stale')).toHaveCount(1);
   await page.locator('.cm-settle-keep').click();
   await expect
     .poll(() => f.writes.some((w) => w.path.endsWith('/changes/pending/keep')))

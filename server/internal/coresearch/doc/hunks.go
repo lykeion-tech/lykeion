@@ -130,7 +130,11 @@ func Decide(ctx context.Context, tx *store.Tx, f File, id, who uuid.UUID, keep b
 	if row.FileID != f.Record.ID {
 		return pgx.ErrNoRows
 	}
-	if row.Status != "pending" && row.Status != "stale" || keep && row.Status == "stale" || keep && row.FileAction == "remove" && d.Text != "" {
+	// A stale change has someone's typing in or beside it, so it cannot be kept,
+	// and it can be undone only while undoing deletes nothing: restoring over a
+	// non-empty range would erase that typing.
+	undoable := row.Status == "pending" || row.Status == "stale" && row.ToPos == row.FromPos
+	if keep && row.Status != "pending" || !keep && !undoable || keep && row.FileAction == "remove" && d.Text != "" {
 		return ErrDecided
 	}
 	status := "kept"

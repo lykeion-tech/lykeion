@@ -44,12 +44,13 @@ class SettleWidget extends WidgetType {
   constructor(
     private id: string,
     private stale: boolean,
+    private undoable: boolean,
     private settle: (id: string, verdict: 'keep' | 'undo') => void,
   ) {
     super();
   }
   eq(other: SettleWidget) {
-    return other.id === this.id && other.stale === this.stale;
+    return other.id === this.id && other.stale === this.stale && other.undoable === this.undoable;
   }
   toDOM() {
     const box = document.createElement('div');
@@ -60,6 +61,8 @@ class SettleWidget extends WidgetType {
       note.textContent = 'the text changed under this edit';
       box.append(note);
     }
+    // Undoing over typed text would erase it; only an empty range stays undoable.
+    if (!this.undoable) return box;
     const undo = document.createElement('button');
     undo.type = 'button';
     undo.className = 'cm-settle-undo';
@@ -139,7 +142,12 @@ export function trackedChanges(opts: {
           );
         items.push(
           Decoration.widget({
-            widget: new SettleWidget(row.id, row.status === 'stale', opts.onSettle),
+            widget: new SettleWidget(
+              row.id,
+              row.status === 'stale',
+              row.status === 'pending' || row.from_pos === row.to_pos,
+              opts.onSettle,
+            ),
             block: true,
             side: 2,
           }).range(last.to),

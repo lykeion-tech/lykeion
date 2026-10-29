@@ -121,7 +121,7 @@ for(let i=0;i<90;i++){
  decisionTrace.push({kind:'edit',writer,version:decisionJournal.length,base:client.version,observed:client.text,draft:plainDraft(client.draft),rebases,accepted:mapped.toJSON(),result:decisionText.toString(),added,ranges:decisionRanges.map(r=>({...r})),nextDraft:plainDraft(nextDraft)});
  client.version=decisionJournal.length;client.text=decisionText.toString();client.draft=nextDraft;
  if(i%3===2){
-  const actionable=decisionRanges.filter(r=>['pending','stale'].includes(r.status));if(!actionable.length)continue;
+  const actionable=decisionRanges.filter(r=>r.status==='pending'||(r.status==='stale'&&r.from===r.to));if(!actionable.length)continue;
   const target=actionable[random(actionable.length)],keep=target.status==='pending'&&random(2)===0;
   let changes=null;
   if(!keep){changes=ChangeSet.of({from:target.from,to:target.to,insert:Text.of(target.removed.split('\n'))},decisionText.length);mapDecisionRanges(changes);decisionText=changes.apply(decisionText);decisionJournal.push(changes);}

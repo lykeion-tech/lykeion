@@ -397,12 +397,13 @@ func TestKeepUndoStaleMember(t *testing.T) {
 	if c := s.call(t, "POST", root+"/changes/"+id+"/keep", b, ws, nil, nil); c != 409 {
 		t.Fatalf("stale keep %d", c)
 	}
-	if c := s.call(t, "POST", root+"/changes/"+id+"/undo", b, ws, nil, nil); c != 200 {
+	// Undoing a change someone typed inside would erase their typing.
+	if c := s.call(t, "POST", root+"/changes/"+id+"/undo", b, ws, nil, nil); c != 409 {
 		t.Fatalf("stale undo %d", c)
 	}
 	var d doc.Doc
 	s.call(t, "GET", url, a, ws, nil, &d)
-	if d.Text != "prefix😀aoriginal\r\nb" || d.Version != 3 {
+	if d.Text != "prefix😀achanged\r\nb" || d.Version != 2 {
 		t.Fatalf("stale range %+v", d)
 	}
 }
