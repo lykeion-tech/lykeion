@@ -187,7 +187,7 @@ func preregistrationPrompt(c db.Card, decided []Decision) string {
 		}
 		b.WriteString("A script writes its results as a JSON object of numbers to the file named by $LYK_RESULTS. " +
 			"Report the run whose results settle the predicates in a record containing {\"results_run\": \"run:x<N>\"}, naming a `run_script` run that exited 0. " +
-			"The first run you name that decides a predicate binds it, held or missed.\n")
+			"When this column is scored, Lykeion decides each predicate from the latest run you named in this attempt; once a predicate is held or missed, no later attempt changes it.\n")
 		return b.String()
 	case i > board.StageIndex(board.Experimentation):
 		return outcomesBlock(decided)

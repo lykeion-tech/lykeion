@@ -19,7 +19,12 @@ test('search opens with researches and standalone and nested studies, previews a
   ] as const) {
     const response = await page.request.post('/api/cards', {
       headers,
-      data: { title, question: title, research_id, predicates: [{ name: 'effect', text: 'effect > 0' }], },
+      data: {
+        title,
+        question: title,
+        research_id,
+        predicates: [{ name: 'effect', text: 'effect > 0' }],
+      },
     });
     expect(response.status()).toBe(201);
     studies.push(await response.json());

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -51,6 +52,9 @@ type predicateIn struct {
 
 const maxPredicates = 8
 
+// maxPredicatesJSON stays under the card.predicates size check, leaving room for the stored keys.
+const maxPredicatesJSON = 6000
+
 // checkPredicates refuses predicates a study cannot be pre-registered with.
 func checkPredicates(in []predicateIn, from, to string) error {
 	runs := board.StageIndex(from) <= board.StageIndex(board.Experimentation) && board.StageIndex(board.Experimentation) <= board.StageIndex(to)
@@ -71,6 +75,8 @@ func checkPredicates(in []predicateIn, from, to string) error {
 		switch {
 		case p.Name == "" || utf8.RuneCountInString(p.Name) > 80:
 			return cardInputError(label + " needs a name of 1 to 80 characters")
+		case strings.ContainsFunc(p.Name, func(r rune) bool { return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' }):
+			return cardInputError(label + " has a line break or control character in its name")
 		case seen[p.Name]:
 			return cardInputError(label + " repeats a name")
 		}
@@ -78,6 +84,9 @@ func checkPredicates(in []predicateIn, from, to string) error {
 		if _, err := predicate.Parse(p.Text); err != nil {
 			return cardInputError(label + ": " + err.Error())
 		}
+	}
+	if b, _ := json.Marshal(in); len(b) > maxPredicatesJSON {
+		return cardInputError("the pre-registered results are too large; shorten their names or texts")
 	}
 	return nil
 }

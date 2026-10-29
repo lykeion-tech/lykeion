@@ -51,7 +51,7 @@ const twoPreds = `[{"name":"effect","text":"effect > 0.2"},{"name":"cap","text":
 func TestExperimentationRunsAreToldThePredicatesAndTheResultsRule(t *testing.T) {
 	c := db.Card{Number: 1, BoardColumn: "experimentation", Question: "q?", Predicates: []byte(twoPreds)}
 	p := prompt(c, "agent", nil, "", nil, nil)
-	for _, want := range []string{"effect", "effect > 0.2", "cap", "loss < 0.5", "$LYK_RESULTS", `{"results_run": "run:x<N>"}`} {
+	for _, want := range []string{"effect", "effect > 0.2", "cap", "loss < 0.5", "$LYK_RESULTS", `{"results_run": "run:x<N>"}`, "latest run you named in this attempt", "no later attempt changes it"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("no %q in:\n%s", want, p)
 		}

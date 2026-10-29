@@ -73,6 +73,7 @@ func TestBadPredicatesAreRefused(t *testing.T) {
 		"bad text":   {[]pred{{Name: "bad", Text: "effect == 0"}}, "bad"},
 		"long text":  {[]pred{{Name: "long", Text: "effect > 0 " + strings.Repeat(" ", 512)}}, "long"},
 		"empty text": {[]pred{{Name: "blank", Text: ""}}, "blank"},
+		"line break": {[]pred{{Name: "a\nb", Text: "effect > 0"}}, "line break or control character"},
 	}
 	for name, c := range cases {
 		code, out := s.createWith(t, a, w.ID, map[string]any{"question": "q " + name, "predicates": c.in})
@@ -158,5 +159,22 @@ func TestTheStudyViewCarriesBindingOutcomes(t *testing.T) {
 	s.call(t, "GET", "/api/cards/"+id, a, w.ID, nil, &got)
 	if len(got.Preregistration) != 1 || got.Preregistration[0]["outcome"] != "missed" || got.Preregistration[0]["run"] != "x1" {
 		t.Fatalf("after scoring: %v", got.Preregistration)
+	}
+}
+
+func TestHeavyPredicatesAreNotAServerError(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var in []pred
+	for i := 0; i < 8; i++ {
+		name := strings.Repeat("𝔼", 79) + string(rune('a'+i))
+		text := "effect > 0" + strings.Repeat(" ", 502)
+		in = append(in, pred{name, text})
+	}
+	code, out := s.createWith(t, a, w.ID, map[string]any{"question": "q heavy", "predicates": in})
+	if code != 201 && code != 400 {
+		t.Fatalf("%d %v", code, out)
 	}
 }

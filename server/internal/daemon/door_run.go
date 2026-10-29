@@ -537,22 +537,21 @@ const maxResults = 64 << 10
 // readResults reads the script's results file: nil when it wrote none, a
 // reason when the file can't be taken.
 func readResults(path string) ([]byte, string) {
-	// Lstat, so a link the script made is not followed out of the folder
-	st, err := os.Lstat(path)
+	// opened without following a link and without blocking, then checked on
+	// the open handle, so a link or a pipe the script made is refused
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ""
 	}
 	if err != nil {
 		return nil, "the results file could not be read: " + err.Error()
 	}
-	if !st.Mode().IsRegular() {
+	defer f.Close()
+	if st, err := f.Stat(); err != nil {
+		return nil, "the results file could not be read: " + err.Error()
+	} else if !st.Mode().IsRegular() {
 		return nil, "the results file is not a regular file"
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, "the results file could not be read: " + err.Error()
-	}
-	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, maxResults+1))
 	if err != nil {
 		return nil, "the results file could not be read: " + err.Error()

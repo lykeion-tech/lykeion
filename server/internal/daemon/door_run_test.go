@@ -1148,3 +1148,42 @@ func TestFitBodyNeverCutsResults(t *testing.T) {
 		t.Fatal("results cut")
 	}
 }
+
+func TestAResultsLinkOutOfTheFolderIsRefused(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.json")
+	must(t, os.WriteFile(outside, []byte(`{"effect":1}`), 0o600))
+	d := runDoor(t, l, dir, envs.Python)
+	runResultsScript(t, d, dir, "a.py", `ln -s `+outside+` "$LYK_RESULTS"`)
+	runs, _ := l.recorded()
+	if _, ok := runs[0]["results"]; ok {
+		t.Fatalf("followed a link: %v", runs[0]["results"])
+	}
+	if e, _ := runs[0]["results_error"].(string); e == "" {
+		t.Fatal("no results_error")
+	}
+}
+
+func TestAResultsFifoDoesNotHang(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runResultsScript(t, d, dir, "a.py", `mkfifo "$LYK_RESULTS"`)
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("run hung on a fifo")
+	}
+	runs, _ := l.recorded()
+	if _, ok := runs[0]["results"]; ok {
+		t.Fatal("results from a fifo")
+	}
+	if e, _ := runs[0]["results_error"].(string); e == "" {
+		t.Fatal("no results_error")
+	}
+}
