@@ -20,6 +20,7 @@ import NotebookPane from '../coresearch/NotebookPane.vue';
 import ComputePane from '../coresearch/ComputePane.vue';
 import FilesPane from '../coresearch/FilesPane.vue';
 import '../coresearch/l2.css';
+import CowriteSession from '../coresearch/cowrite/CowriteSession.vue';
 const props = defineProps<{ projectId: string; chatId?: string }>();
 const me = useMe();
 const project = useCoresearchProject(() => props.projectId),
@@ -109,6 +110,12 @@ async function openFile(file: FileRow) {
   <section class="coresearch coresearch-workspace">
     <p v-if="project.error.value" role="alert" class="p-5">{{ project.error.value.message }}</p>
     <p v-else-if="!project.data.value" role="status" class="p-5">Loading project…</p>
+    <CowriteSession
+      v-else-if="project.data.value.mode === 'cowrite'"
+      :key="`${workspaceId}:${projectId}`"
+      :project="project.data.value"
+      :chat-id="chatId"
+    />
     <template v-else>
       <div class="task-screen coresearch-project-main" :data-pane-mode="paneMode">
         <div class="task-columns" :data-pane-mode="paneMode" style="--task-utility-width: 360px">

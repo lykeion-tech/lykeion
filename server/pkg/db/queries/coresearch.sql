@@ -132,3 +132,8 @@ UPDATE coresearch_project SET mode= @mode WHERE workspace_id=app_workspace() AND
 
 -- name: CoresearchChatIsAristotle :one
 SELECT EXISTS(SELECT 1 FROM coresearch_conversation WHERE workspace_id= @workspace_id AND chat_id= @chat_id)::boolean;
+
+-- name: RenameCoresearchFile :one
+UPDATE coresearch_file SET path = $4
+WHERE workspace_id = $1 AND project_id = $2 AND id = $3 AND deleted_at IS NULL
+RETURNING *;

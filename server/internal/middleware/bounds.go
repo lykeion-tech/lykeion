@@ -335,6 +335,11 @@ func coresearchPaperTransfer(r *http.Request) bool {
 		return true
 	}
 	p := strings.Split(r.URL.Path, "/")
+	if r.Method == http.MethodDelete && len(p) == 7 && p[1] == "api" && p[2] == "coresearch" && p[3] == "projects" && p[5] == "files" {
+		_, pe := uuid.Parse(p[4])
+		_, fe := uuid.Parse(p[6])
+		return pe == nil && fe == nil
+	}
 	if r.Method == http.MethodPost && len(p) == 8 && p[1] == "api" && p[2] == "coresearch" && p[3] == "projects" && p[5] == "versions" && p[7] == "restore" {
 		_, e := uuid.Parse(p[4])
 		n, ne := strconv.Atoi(p[6])

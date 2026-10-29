@@ -167,6 +167,19 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		t.Fatalf("conversation fixture %d", code)
 	}
 	ids := map[string]string{"{asset}": "1.pdf", "{comment}": comment.ID.String(), "{change}": change, "{seq}": "1", "{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
+	// Use a separate file so the destructive positive control preserves the
+	// document and change fixtures used by the isolation sweep.
+	if code, removable := csUpload(t, s, a, wa.ID, cs.ID, "remove.tex", 0, false, []byte("remove")); code != 201 {
+		t.Fatal(code)
+	} else {
+		url := csProjects + "/" + cs.ID + "/files/" + removable.FileID.String()
+		if code := s.call(t, "PATCH", url, a, wa.ID, map[string]string{"path": "renamed.tex"}, nil); code != 200 {
+			t.Fatalf("owner rename %d", code)
+		}
+		if code := s.call(t, "DELETE", url, a, wa.ID, nil, nil); code != 204 {
+			t.Fatalf("owner delete %d", code)
+		}
+	}
 	// Positive controls prove the probed resources resolve for their owner.
 	var ownRun struct {
 		ID     string
@@ -239,6 +252,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			body = map[string]string{"body": "outsider", "request_id": uuid.NewString()}
 		case route == "/api/coresearch/projects" || route == "/api/coresearch/projects/{project}":
 			body = map[string]string{"name": "outsider"}
+		case route == "/api/coresearch/projects/{project}/files/{file}":
+			body = map[string]string{"path": "outsider.tex"}
 		case route == "/api/coresearch/projects/{project}/docs/{file}/comments":
 			body = commentInput
 		case route == "/api/coresearch/projects/{project}/docs/{file}/steps":

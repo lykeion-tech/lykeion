@@ -93,23 +93,28 @@ func TestCoresearchClaimOnlyOwnersDaemon(t *testing.T) {
 		t.Fatal(e)
 	}
 	if got := csClaim(t, s, b, bref); len(got) != 0 {
-		t.Fatal(got)
+		t.Fatalf("unexpected claimed runs: %d", len(got))
 	}
 	wrong := csRegister(t, s, a, ws, "a-codex", "codex")
 	if got := csClaim(t, s, a, wrong); len(got) != 0 {
-		t.Fatal(got)
+		t.Fatalf("unexpected claimed runs: %d", len(got))
 	}
 	ref := csRegister(t, s, a, ws, "a-claude", "claude")
 	got := csClaim(t, s, a, ref)
 	if len(got) != 1 {
-		t.Fatal(got)
+		t.Fatalf("unexpected claimed runs: %d", len(got))
 	}
 	var daemon string
 	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT daemon_id FROM coresearch_chat WHERE id=$1`, c.ID).Scan(&daemon); e != nil || daemon != "a-claude" {
 		t.Fatalf("%s %v", daemon, e)
 	}
-	if got[0].CallToken != "" || len(got[0].Connectors) != 0 || len(got[0].WorkspaceConnectors) != 0 || len(got[0].Skills) != 0 || len(got[0].MCP) != 0 || len(got[0].Attachments) != 0 || len(got[0].Services) != 0 || got[0].Coresearch == nil {
-		t.Fatalf("capabilities %+v", got[0])
+	if got[0].CallToken != "" || len(got[0].Connectors) != 0 || len(got[0].WorkspaceConnectors) != 0 || len(got[0].Skills) == 0 || len(got[0].MCP) != 0 || len(got[0].Attachments) != 0 || len(got[0].Services) != 0 || got[0].Coresearch == nil {
+		t.Fatalf("run %s capability counts: connectors=%d workspace_connectors=%d skills=%d mcp=%d attachments=%d services=%d coresearch=%t door=%t", got[0].AgentRun.ID, len(got[0].Connectors), len(got[0].WorkspaceConnectors), len(got[0].Skills), len(got[0].MCP), len(got[0].Attachments), len(got[0].Services), got[0].Coresearch != nil, got[0].CallToken != "")
+	}
+	for _, skill := range got[0].Skills {
+		if skill.Name == "" || len(skill.Folder) == 0 {
+			t.Fatalf("run %s has incomplete enabled skill %q (%d bytes)", got[0].AgentRun.ID, skill.Name, len(skill.Folder))
+		}
 	}
 	if e := s.H.AgentRuns.Cancel(t.Context(), uuid.MustParse(ws), uuid.MustParse(s.userID(t, a)), got[0].AgentRun.ID); e != nil {
 		t.Fatal(e)
@@ -117,7 +122,7 @@ func TestCoresearchClaimOnlyOwnersDaemon(t *testing.T) {
 	csTurn(t, s, a, ws, path)
 	second := csRegister(t, s, a, ws, "a-second", "claude")
 	if got := csClaim(t, s, a, second); len(got) != 0 {
-		t.Fatal(got)
+		t.Fatalf("unexpected claimed runs: %d", len(got))
 	}
 }
 func TestReleaseUnbinds(t *testing.T) {
@@ -269,8 +274,27 @@ func TestCoresearchTokenReachesSources(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if strings.Contains(string(data), "list_connectors") || strings.Contains(string(data), `"name":"fetch"`) {
-		t.Fatalf("Coresearch can use connectors: %s", data)
+	toolNames := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var message struct {
+			Result struct {
+				Tools []struct {
+					Name string `json:"name"`
+				} `json:"tools"`
+			} `json:"result"`
+		}
+		if e := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &message); e != nil {
+			t.Fatal(e)
+		}
+		for _, tool := range message.Result.Tools {
+			toolNames[tool.Name] = true
+		}
+	}
+	if !toolNames["list_connectors"] || !toolNames["fetch"] {
+		t.Fatalf("Coresearch built-in connector tools missing: %v", toolNames)
 	}
 	var payload map[string]any
 	var raw []byte

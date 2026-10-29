@@ -1012,6 +1012,37 @@ func (q *Queries) ReleaseCoresearchChat(ctx context.Context, arg ReleaseCoresear
 	return err
 }
 
+const renameCoresearchFile = `-- name: RenameCoresearchFile :one
+UPDATE coresearch_file SET path = $4
+WHERE workspace_id = $1 AND project_id = $2 AND id = $3 AND deleted_at IS NULL
+RETURNING id, workspace_id, project_id, path, deleted_at
+`
+
+type RenameCoresearchFileParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	ID          uuid.UUID `json:"id"`
+	Path        string    `json:"path"`
+}
+
+func (q *Queries) RenameCoresearchFile(ctx context.Context, arg RenameCoresearchFileParams) (CoresearchFile, error) {
+	row := q.db.QueryRow(ctx, renameCoresearchFile,
+		arg.WorkspaceID,
+		arg.ProjectID,
+		arg.ID,
+		arg.Path,
+	)
+	var i CoresearchFile
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ProjectID,
+		&i.Path,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const renameCoresearchProject = `-- name: RenameCoresearchProject :one
 UPDATE coresearch_project SET name = $1,updated_at=now() WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, name, python_version, created_by, created_at, archived_at, updated_at, conversation_owner_id, mode
 `

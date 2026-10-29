@@ -356,7 +356,7 @@ func TestRestoreDeletedFileCannotOrdinarySave(t *testing.T) {
 	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE coresearch_file SET deleted_at=now() WHERE id=$1`, v.FileID); e != nil {
 		t.Fatal(e)
 	}
-	if c, _ := csUpload(t, s, a, ws, p.ID, "image.png", 1, true, []byte{137, 80, 78, 71, 0, 1}); c != 404 {
+	if c, _ := csUpload(t, s, a, ws, p.ID, "image.png", 1, true, []byte{137, 80, 78, 71, 0, 1}); c != 409 {
 		t.Fatalf("hidden source must require explicit revival: %d", c)
 	}
 }

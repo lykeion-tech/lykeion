@@ -66,7 +66,7 @@ func TestWorkspaceAvailabilityPermissionsAndCAS(t *testing.T) {
 	}
 }
 
-func TestDisabledWorkspaceSkillsKeepExistingPins(t *testing.T) {
+func TestDisabledWorkspaceSkillsSuspendAndResumeExistingPins(t *testing.T) {
 	l := newAgentLab(t)
 	j, _ := noulJev(t, 0.9)
 	l.s.H.Engine.Jev = j
@@ -79,18 +79,22 @@ func TestDisabledWorkspaceSkillsKeepExistingPins(t *testing.T) {
 			t.Fatal(c)
 		}
 	}
-	if !bytes.Equal(first, routedFolder(t, l, run.token, "kept-method")) {
-		t.Fatal("existing pin changed")
-	}
 	var out toolsOut
 	if c := l.s.call(t, "POST", "/api/role/tools", run.token, "", map[string]any{"need": "use the imported method"}, &out); c != 200 {
 		t.Fatal(c)
 	}
 	for _, s := range out.Skills {
-		if s.Name == "disabled-method" || s.Name == "aeon" {
+		if s.Name == "kept-method" || s.Name == "disabled-method" || s.Name == "aeon" {
 			t.Fatalf("disabled skill routed: %s", s.Name)
 		}
 	}
+	if c := l.s.call(t, "PUT", "/api/availability/skill/"+pinned.ID, l.jwt, l.ws, map[string]any{"enabled": true, "revision": 1}, nil); c != 200 {
+		t.Fatal(c)
+	}
+	if !bytes.Equal(first, routedFolder(t, l, run.token, "kept-method")) {
+		t.Fatal("re-enabled pin changed")
+	}
+
 }
 
 func TestDisabledCustomConnectorStopsNewCallsButFinishesStartedCall(t *testing.T) {

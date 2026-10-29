@@ -66,6 +66,9 @@ func (h *H) coresearchChanges(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			return e
 		}
+		if f.DeletedAt != nil {
+			return pgx.ErrNoRows
+		}
 		if e = doc.Decide(r.Context(), tx, doc.File{Record: f}, id, who, strings.HasSuffix(r.URL.Path, "/keep")); e != nil {
 			return e
 		}

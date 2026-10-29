@@ -278,6 +278,7 @@
     --tw-drop-shadow-alpha: 100%;
     --tw-drop-shadow-size: initial;
     --tw-duration: initial;
+    --tw-ease: initial;
   }
 }
 .coresearch,
@@ -2599,6 +2600,11 @@
 .coresearch .duration-\[120ms\] {
   --tw-duration: 120ms;
   transition-duration: 120ms;
+}
+.coresearch.ease-in-out,
+.coresearch .ease-in-out {
+  --tw-ease: var(--ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
+  transition-timing-function: var(--ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
 }
 .coresearch.outline-none,
 .coresearch .outline-none {
@@ -14208,6 +14214,10 @@
   inherits: false;
 }
 @property --tw-duration {
+  syntax: '*';
+  inherits: false;
+}
+@property --tw-ease {
   syntax: '*';
   inherits: false;
 }

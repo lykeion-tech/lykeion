@@ -19,6 +19,8 @@ var MaxProjectBytes int64 = 2 << 30
 const MaxFileBytes int64 = 50 << 20
 const MaxTextBytes int64 = 1 << 20
 
+var ErrHiddenPath = errors.New("a removed file reserves this path; restore a paper version to revive it")
+
 var ErrLiveDocument = errors.New("live document")
 
 var ErrArchived = errors.New("project is archived")
@@ -69,7 +71,7 @@ func SaveVersion(ctx context.Context, tx *store.Tx, in SaveIn) (db.CoresearchFil
 		return zero, err
 	}
 	if file.DeletedAt != nil {
-		return zero, pgx.ErrNoRows
+		return zero, ErrHiddenPath
 	}
 	if _, err := tx.Q.GetCoresearchDoc(ctx, db.GetCoresearchDocParams{WorkspaceID: in.Workspace, FileID: file.ID}); err == nil {
 		return zero, ErrLiveDocument

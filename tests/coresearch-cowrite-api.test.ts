@@ -115,3 +115,81 @@ it('loads draft templates in a reserved new-project namespace before a session e
     ]),
   );
 });
+
+it('fences reactive document keys, disabled transitions and cancellation across scopes', async () => {
+  workspaceId.value = 'lab-a';
+  const project = ref('p-a'),
+    file = ref('f-a'),
+    after = ref(0),
+    open = ref(false);
+  const requests: { url: string; workspace: string | null; signal: AbortSignal }[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      (url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init.signal as AbortSignal;
+          requests.push({
+            url,
+            workspace: new Headers(init.headers).get('X-Workspace-ID'),
+            signal,
+          });
+          signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true },
+          );
+        }),
+    ),
+  );
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const app = createTreeApp({
+    setup() {
+      cowrite.useDocSteps(project, file, after, open);
+      return () => h('div');
+    },
+  });
+  app.use(VueQueryPlugin, { queryClient: client });
+  app.mount(node('root'));
+  cleanups.push(() => {
+    app.unmount();
+    client.clear();
+  });
+  await nextTick();
+  expect(requests).toHaveLength(0);
+  open.value = true;
+  await vi.waitFor(() => expect(requests).toHaveLength(1));
+  after.value = 500;
+  await vi.waitFor(() => expect(requests).toHaveLength(2));
+  expect(requests[0]!.signal.aborted).toBe(true);
+  file.value = 'f-b';
+  await vi.waitFor(() => expect(requests).toHaveLength(3));
+  expect(requests[1]!.signal.aborted).toBe(true);
+  project.value = 'p-b';
+  workspaceId.value = 'lab-b';
+  await vi.waitFor(() => expect(requests).toHaveLength(4));
+  expect(requests[2]!.signal.aborted).toBe(true);
+  expect(requests.map((r) => [r.workspace, r.url])).toEqual([
+    ['lab-a', '/api/coresearch/projects/p-a/docs/f-a/steps?after=0'],
+    ['lab-a', '/api/coresearch/projects/p-a/docs/f-a/steps?after=500'],
+    ['lab-a', '/api/coresearch/projects/p-a/docs/f-b/steps?after=500'],
+    ['lab-b', '/api/coresearch/projects/p-b/docs/f-b/steps?after=500'],
+  ]);
+  open.value = false;
+  file.value = 'f-c';
+  await nextTick();
+  expect(requests).toHaveLength(4);
+  expect(requests[3]!.signal.aborted).toBe(true);
+  expect(
+    new Set(
+      client
+        .getQueryCache()
+        .getAll()
+        .map((q) => JSON.stringify(q.queryKey)),
+    ).size,
+  ).toBe(5);
+  open.value = true;
+  await vi.waitFor(() => expect(requests).toHaveLength(5));
+  app.unmount();
+  expect(requests[4]!.signal.aborted).toBe(true);
+});

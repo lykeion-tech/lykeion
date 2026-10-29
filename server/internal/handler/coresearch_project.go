@@ -41,6 +41,8 @@ func coresearchAnswer(w http.ResponseWriter, r *http.Request, err error) bool {
 		writeJSON(w, 409, map[string]any{"error": "stale_base", "base": stale.Base, "current": stale.Current})
 	case errors.Is(err, service.ErrConflict):
 		writeErr(w, 409, err.Error())
+	case errors.Is(err, coresearch.ErrHiddenPath):
+		writeErr(w, 409, err.Error())
 	case errors.Is(err, coresearch.ErrLiveDocument):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, coresearch.ErrArchived):

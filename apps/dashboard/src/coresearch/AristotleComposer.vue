@@ -100,11 +100,20 @@ function edit(e: Event) {
   caret.value = el.selectionStart ?? el.value.length;
   mentionIndex.value = 0;
   dismissed.value = false;
-  if (el.style) {
+  autosize(el);
+}
+function autosize(el?: HTMLTextAreaElement) {
+  if (el?.style) {
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }
 }
+watch(
+  () => props.modelValue,
+  () => autosize(textarea.value),
+  { flush: 'post' },
+);
+onMounted(() => autosize(textarea.value));
 async function insertSkill(name: string) {
   const start = props.modelValue.slice(0, caret.value).lastIndexOf('/');
   const at = start + name.length + 2;

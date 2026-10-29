@@ -22,11 +22,14 @@ import { usePins } from './state/pins';
 import { useTaskComposer } from './state/task-composer';
 import { createDaemonSession, daemonSessionKey } from './lib/daemon-session';
 import { keys } from './api/keys';
+import { useCoresearchProject } from './coresearch/api';
 import { useAristotle } from './coresearch/aristotle';
 import ConversationRail from './coresearch/ConversationRail.vue';
 import RailFabs from './coresearch/RailFabs.vue';
 const route = useRoute();
 const router = useRouter();
+const currentCoresearchProject = useCoresearchProject(() => String(route.params.projectId ?? ''));
+const cowriteShell = computed(() => currentCoresearchProject.data.value?.mode === 'cowrite');
 const client = useQueryClient();
 const me = useMe();
 const aristotle = useAristotle();
@@ -147,7 +150,11 @@ const shownCard = computed(() => cards.data.value?.find((c) => c.id === cardId.v
 const tabTitle = computed(() =>
   shownCard.value
     ? `${workspace.data.value?.display_prefix ?? ''}-${shownCard.value.number}: ${shownCard.value.title}`
-    : (route.meta.tabTitle ?? heading.value),
+    : cowriteShell.value
+      ? typeof route.query.file === 'string'
+        ? route.query.file
+        : 'main.tex'
+      : (route.meta.tabTitle ?? heading.value),
 );
 const headingIcon = computed(
   () => destinations.find((x) => x.id === current.value)?.icon ?? 'tasks',
@@ -412,7 +419,12 @@ onUnmounted(() => {
       :collapsed="collapsed"
       @toggle="collapsed = !collapsed"
     />
-    <ConversationRail v-if="aristotleShell && railView === 'context'">
+    <div
+      v-if="cowriteShell"
+      id="cowrite-context-rail"
+      class="sidebar coresearch cowrite-context-rail"
+    />
+    <ConversationRail v-else-if="aristotleShell && railView === 'context'">
       <template #footer>
         <SidebarFooter
           ref="sidebarFooter"
@@ -422,9 +434,9 @@ onUnmounted(() => {
         />
       </template>
     </ConversationRail>
-    <RailFabs v-if="aristotleShell" :view="railView" @change="changeRail" />
+    <RailFabs v-if="aristotleShell && !cowriteShell" :view="railView" @change="changeRail" />
     <aside
-      v-if="!aristotleShell || railView === 'nav'"
+      v-if="!cowriteShell && (!aristotleShell || railView === 'nav')"
       class="sidebar"
       aria-label="Workspace navigation"
     >
@@ -940,5 +952,12 @@ onUnmounted(() => {
   .application.aristotle-shell .rail-fabs {
     z-index: 30;
   }
+}
+</style>
+
+<style>
+.application .sidebar.cowrite-context-rail {
+  padding: 0;
+  overflow: hidden;
 }
 </style>

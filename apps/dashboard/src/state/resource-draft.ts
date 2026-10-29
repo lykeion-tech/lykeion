@@ -2,16 +2,21 @@ import { computed, getCurrentScope, onScopeDispose, readonly, ref, watch, type R
 import type { Router } from 'vue-router';
 
 type Saved<T> = { revision: number; value: T };
-type DraftVisit = { dirty: () => boolean; discard: () => void; identity: () => string };
+type DraftVisit = {
+  dirty: () => boolean;
+  discard: () => void;
+  identity: () => string;
+  flush?: () => Promise<void>;
+};
 const visits = new Set<DraftVisit>();
 
 // Editors with their own save semantics share the same guarded exit decision.
-export function registerDraftVisit(visit: DraftVisit) {
+export function registerDraftVisit(visit: DraftVisit, retainOnDispose = false) {
   visits.add(visit);
   const unregister = () => {
     visits.delete(visit);
   };
-  if (getCurrentScope()) onScopeDispose(unregister);
+  if (getCurrentScope() && !retainOnDispose) onScopeDispose(unregister);
   return unregister;
 }
 
@@ -39,6 +44,16 @@ export function resolveDiscard(discard: boolean) {
 }
 
 export async function guardResourceDrafts(proceed?: () => Promise<boolean>): Promise<boolean> {
+  for (const visit of [...visits]) {
+    if (visit.dirty() && visit.flush) {
+      try {
+        await visit.flush();
+      } catch {
+        return false;
+      }
+      if (visits.has(visit) && visit.dirty()) return false;
+    }
+  }
   const dirty = [...visits]
     .filter((visit) => visit.dirty())
     .map((visit) => ({
