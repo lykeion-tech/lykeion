@@ -40,7 +40,8 @@
   --toggle-track-strong: #aaa;
   --card-border: #e1e1e666;
   --chart-rule: #cccfd3;
-  --control-border: #c6c8ca;
+  /* Outlines of radios, chips and status rings: 3:1 on surface, canvas and input in every palette. */
+  --control-border: #84878a;
   --handle-hover: #bbb;
   --scrollbar-thumb: #cbcbce;
   --icon-faint: #8c9092;
@@ -123,7 +124,7 @@
   --toggle-track-strong: color-mix(in srgb, var(--text) 47%, var(--surface));
   --card-border: color-mix(in srgb, var(--fill-menu) 40%, transparent);
   --chart-rule: color-mix(in srgb, var(--text) 26%, var(--surface));
-  --control-border: color-mix(in srgb, var(--text) 30%, var(--surface));
+  --control-border: color-mix(in srgb, var(--text) 47%, var(--surface));
   --handle-hover: color-mix(in srgb, var(--text) 37%, var(--surface));
   --scrollbar-thumb: color-mix(in srgb, var(--text) 28%, var(--surface));
   --icon-faint: color-mix(in srgb, var(--text) 61%, var(--surface));
