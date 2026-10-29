@@ -281,10 +281,6 @@
 .group-blocked .stage-ring {
   border-color: var(--stage-blocked-dot);
 }
-.group-reporting .stage-ring {
-  border-color: var(--stage-reporting-dot);
-  background: var(--stage-reporting-dot);
-}
 .group-done .stage-ring {
   background: var(--stage-dot);
 }

@@ -239,3 +239,11 @@ func TestAddPicksTheOwnersHarness(t *testing.T) {
 		}
 	}
 }
+
+func TestColumnTeamsRefusesARangeOutsideTheStages(t *testing.T) {
+	for _, r := range [][2]string{{"grounding", "reporting"}, {"reporting", "reporting"}, {"validation", "grounding"}} {
+		if _, err := ColumnTeams(context.Background(), nil, r[0], r[1], nil); err == nil {
+			t.Errorf("%v: no error", r)
+		}
+	}
+}

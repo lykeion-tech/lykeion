@@ -127,3 +127,16 @@ func TestRunOnlyRunsTheAssignedAgent(t *testing.T) {
 		t.Fatal("the Team's run did not use its leader's agent")
 	}
 }
+
+func TestAnAutoresearchCannotReachPastValidation(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "filler", "claude")
+	var e struct{ Error string }
+	body := map[string]any{"title": "Weekly", "execution_mode": "create_card", "assignee": map[string]any{"type": "agent", "id": agent},
+		"scope": map[string]string{"from": "grounding", "to": "reporting"}}
+	if code := s.call(t, "POST", "/api/autoresearch", a, w.ID, body, &e); code != 400 || e.Error != "scope names a column outside the stages" {
+		t.Fatalf("scope to reporting: %d %q", code, e.Error)
+	}
+}

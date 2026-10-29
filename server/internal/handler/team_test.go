@@ -354,3 +354,23 @@ func TestStudyWithABuiltInTeamCreatesTheOwnersAgents(t *testing.T) {
 		t.Fatalf("team agents %d, %v", n, err)
 	}
 }
+
+func TestATeamCannotWorkReporting(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	lead, aud, mem := s.newAgent(t, a, w.ID, "lead", "claude"), s.newAgent(t, a, w.ID, "aud", "codex"), s.newAgent(t, a, w.ID, "mem", "claude")
+	form := formFor(lead, aud, mem)
+	form["stage"] = "reporting"
+	var e struct{ Error string }
+	if c := s.call(t, "POST", "/api/teams", a, w.ID, form, &e); c != 400 || !strings.Contains(e.Error, `stage "reporting" is not a stage`) {
+		t.Fatalf("a Team on reporting: %d %q", c, e.Error)
+	}
+	if n := s.count(t, "SELECT count(*) FROM field_pack WHERE stage = 'reporting'"); n != 0 {
+		t.Fatalf("%d reporting Teams", n)
+	}
+	form["stage"] = "validation"
+	if c := s.call(t, "POST", "/api/teams", a, w.ID, form, nil); c != 201 {
+		t.Fatalf("the same form on validation: %d", c)
+	}
+}

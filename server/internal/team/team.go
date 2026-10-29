@@ -130,8 +130,12 @@ func (e NoBuiltInError) Error() string {
 // ColumnTeams gives the Team of every column from..to: the chosen one where
 // there is one, the stage's built-in Team elsewhere.
 func ColumnTeams(ctx context.Context, tx *store.Tx, from, to string, chosen map[string]uuid.UUID) (map[string]uuid.UUID, error) {
+	i, j := board.StageIndex(from), board.StageIndex(to)
+	if i < 0 || j < i {
+		return nil, fmt.Errorf("team: %q to %q is not a range of stages", from, to)
+	}
 	out := map[string]uuid.UUID{}
-	for _, col := range board.Stages[board.StageIndex(from) : board.StageIndex(to)+1] {
+	for _, col := range board.Stages[i : j+1] {
 		if id, ok := chosen[col]; ok {
 			out[col] = id
 			continue
