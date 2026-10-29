@@ -270,3 +270,17 @@ func TestStudiesWithoutPredicatesScoreAsBefore(t *testing.T) {
 		t.Fatalf("state %s", got.State)
 	}
 }
+
+func TestJevSeesTheOutcomesInLaterColumns(t *testing.T) {
+	decided := []Decision{{Name: "effect", Text: "effect > 0.2", Outcome: "missed", Run: "x3", Values: map[string]float64{"effect": 0.1}}}
+	s := scoringState(scoring{card: db.Card{Number: 1, BoardColumn: "reporting"}, decided: decided}, nil, nil, maxJevInput)
+	for _, want := range []string{"effect", "missed", "effect=0.1", "x3", "report them as they are"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in:\n%s", want, s)
+		}
+	}
+	long := scoring{card: db.Card{Number: 1, BoardColumn: "reporting"}, decided: decided, summary: strings.Repeat("w", 5000)}
+	if s := scoringState(long, nil, nil, 1500); !strings.Contains(s, "effect=0.1") {
+		t.Errorf("a tight budget cut the outcomes:\n%s", s)
+	}
+}

@@ -227,6 +227,8 @@ type scoring struct {
 	results []RunResults
 	prior   [][]byte
 	named   string
+	// On a column after Experimentation: the binding outcomes it is told.
+	decided []Decision
 }
 
 var (
@@ -296,6 +298,9 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 			if err := json.Unmarshal(c.Predicates, &in.preds); err != nil {
 				return err
 			}
+		}
+		if in.decided, err = decidedOutcomes(ctx, tx, c); err != nil {
+			return err
 		}
 		for _, r := range recs {
 			if len(in.preds) > 0 {
@@ -480,6 +485,7 @@ func scoringState(in scoring, quotes []QuoteMatch, values []ValueMatch, budget i
 		tail.WriteString(fence.Untrusted("The quotes, as the agents wrote them", list))
 	}
 
+	tail.WriteString(outcomesBlock(in.decided))
 	tail.WriteString("\nValue check, done by Lykeion's code: each reported value looked up in the output of the runs its item cites, " +
 		"every printed number rounded to the decimal places the value states; an integer must be printed exactly.\n")
 	if len(values) == 0 {
