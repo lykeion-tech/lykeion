@@ -1214,7 +1214,7 @@ onUnmounted(() => {
 }
 .working-active {
   background: var(--primary) !important;
-  color: white !important;
+  color: var(--on-primary) !important;
   border-color: var(--primary) !important;
 }
 .working-tooltip {

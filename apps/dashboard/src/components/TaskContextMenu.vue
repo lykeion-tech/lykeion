@@ -550,6 +550,6 @@ onUnmounted(() => {
 }
 .calendar-days .selected {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
 }
 </style>

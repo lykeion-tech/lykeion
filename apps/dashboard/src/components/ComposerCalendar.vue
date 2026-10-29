@@ -168,7 +168,7 @@ td > button {
 }
 .selected {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
 }
 .today:not(.selected) {
   font-weight: 600;

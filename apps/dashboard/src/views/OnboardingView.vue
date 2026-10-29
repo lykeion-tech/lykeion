@@ -455,7 +455,7 @@ async function logOut() {
   border: 1.5px solid var(--border);
   display: grid;
   place-items: center;
-  color: #fff;
+  color: var(--on-primary);
 }
 .done .dot {
   background: var(--primary);

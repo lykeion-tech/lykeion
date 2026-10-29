@@ -1005,7 +1005,7 @@ async function copySlug() {
   right: 12px;
   top: 18px;
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   border-radius: 50%;
   padding: 4px;
   width: 20px;

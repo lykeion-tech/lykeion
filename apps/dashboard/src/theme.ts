@@ -11,6 +11,8 @@ export interface Theme {
   accent: string;
   // The accent as text and focus ring, a step of its hue that reads at 4.5:1 on surface, canvas and input.
   accentText: string;
+  // Labels on an accent fill: white reads under 4.5:1 on Midnight's rose.
+  onAccent: string;
   selected: string;
 }
 
@@ -28,6 +30,7 @@ export const themes: Theme[] = [
     border: '#e9e9eb',
     accent: '#3274a4',
     accentText: '#30709f',
+    onAccent: '#ffffff',
     selected: '#c9cacf',
   },
   {
@@ -42,6 +45,7 @@ export const themes: Theme[] = [
     border: '#2a292c',
     accent: '#d25f66',
     accentText: '#d36369',
+    onAccent: '#0f0f0f',
     selected: '#444447',
   },
   {
@@ -56,6 +60,7 @@ export const themes: Theme[] = [
     border: '#413b44',
     accent: '#aa4278',
     accentText: '#d086ac',
+    onAccent: '#ffffff',
     selected: '#615662',
   },
   {
@@ -70,6 +75,7 @@ export const themes: Theme[] = [
     border: '#414456',
     accent: '#8054c4',
     accentText: '#b399dc',
+    onAccent: '#ffffff',
     selected: '#545866',
   },
 ];
@@ -87,5 +93,6 @@ export function applyTheme(id: unknown) {
     root.style.setProperty('--' + key, theme[key]);
   root.style.setProperty('--primary', theme.accent);
   root.style.setProperty('--primary-text', theme.accentText);
+  root.style.setProperty('--on-primary', theme.onAccent);
   root.style.setProperty('--hover', theme.input);
 }

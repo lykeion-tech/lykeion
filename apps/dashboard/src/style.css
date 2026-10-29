@@ -445,16 +445,16 @@ kbd {
   color: var(--text);
 }
 .button.primary {
-  color: #fff;
+  color: var(--on-primary);
   background: var(--primary);
-  border-color: #ffffff20;
+  border-color: color-mix(in srgb, var(--on-primary) 12.5%, transparent);
 }
 .button.primary:hover {
   filter: brightness(0.95);
 }
 .button.primary kbd {
-  background: #ffffff20;
-  color: #ffffffc0;
+  background: color-mix(in srgb, var(--on-primary) 12.5%, transparent);
+  color: color-mix(in srgb, var(--on-primary) 75%, transparent);
 }
 .text-button {
   color: var(--primary-text);
@@ -1003,7 +1003,7 @@ kbd {
   display: grid;
   place-items: center;
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   border-radius: 50%;
   width: 28px;
   height: 28px;

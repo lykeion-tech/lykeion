@@ -1924,7 +1924,7 @@ async function save() {
 }
 .output-radio.selected {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   border-color: var(--primary);
 }
 .autoresearch-project-select {
