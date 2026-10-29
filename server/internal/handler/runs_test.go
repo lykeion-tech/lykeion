@@ -276,3 +276,60 @@ func TestCardBlobKeysListEachKeyOnce(t *testing.T) {
 		t.Fatal("no keys")
 	}
 }
+
+func postScriptRun(t *testing.T, l *teamLab, extra map[string]any, tool string) map[string]any {
+	t.Helper()
+	leader := l.claim(t)
+	in := map[string]any{"tool": tool, "language": "python", "path": "a.py", "script": "1", "code": "1", "output": "", "exit_status": 0}
+	for k, v := range extra {
+		in[k] = v
+	}
+	if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, nil); c != 201 {
+		t.Fatalf("run %d", c)
+	}
+	_, body := l.runRecord(t, leader.token, "x1")
+	return body
+}
+
+func TestARunScriptKeepsItsResults(t *testing.T) {
+	raw := `{"effect":0.31,"ci_low":0.1}`
+	body := postScriptRun(t, newTeamLab(t, 0), map[string]any{"results": raw}, "run_script")
+	got, _ := body["results"].(map[string]any)
+	if len(got) != 2 || got["effect"] != 0.31 || got["ci_low"] != 0.1 || body["results_sha256"] != hexSHA(raw) {
+		t.Fatalf("body %+v", body)
+	}
+}
+
+func TestMalformedResultsAreKeptAsAnError(t *testing.T) {
+	for _, raw := range []string{`[1]`, `{"effect":"0.3"}`, `{"effect":NaN}`, `{"effect":1e400}`, `{"CI_low":1}`, `{"a":{"b":1}}`, `{"effect":1,"effect":2}`, `not json`} {
+		body := postScriptRun(t, newTeamLab(t, 0), map[string]any{"results": raw}, "run_script")
+		if s, _ := body["results_error"].(string); s == "" || body["results"] != nil {
+			t.Fatalf("%s: %+v", raw, body)
+		}
+	}
+}
+
+func TestADaemonResultsErrorIsKept(t *testing.T) {
+	msg := "results file is over 64 KiB"
+	body := postScriptRun(t, newTeamLab(t, 0), map[string]any{"results_error": msg}, "run_script")
+	if body["results_error"] != msg || body["results"] != nil {
+		t.Fatalf("body %+v", body)
+	}
+}
+
+func TestRunCodeResultsAreIgnored(t *testing.T) {
+	body := postScriptRun(t, newTeamLab(t, 0), map[string]any{"results": `{"effect":1}`, "results_error": "x"}, "run_code")
+	if body["results"] != nil || body["results_sha256"] != nil || body["results_error"] != nil {
+		t.Fatalf("body %+v", body)
+	}
+}
+
+func TestAgentsCannotWritePreregistrationRecords(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	var e struct{ Error string }
+	in := map[string]any{"kind": "preregistration", "body": map[string]any{}}
+	if c := l.s.call(t, "POST", "/api/role/records", leader.token, "", in, &e); c != 400 || e.Error != "preregistration records are written by the server" {
+		t.Fatalf("put preregistration: %d %q", c, e.Error)
+	}
+}

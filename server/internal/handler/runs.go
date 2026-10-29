@@ -5,6 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -13,6 +17,7 @@ import (
 
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/predicate"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/store"
@@ -49,15 +54,17 @@ func studyPackages(packages, language string) string {
 // blob.created events committed with the record make them readable.
 func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Tool       string `json:"tool"`
-		Language   string `json:"language"`
-		Code       string `json:"code"`
-		Path       string `json:"path"`
-		Script     string `json:"script"`
-		Output     string `json:"output"`
-		Error      string `json:"error"`
-		ExitStatus *int   `json:"exit_status"`
-		Packages   string `json:"packages"`
+		Tool       string  `json:"tool"`
+		Language   string  `json:"language"`
+		Code       string  `json:"code"`
+		Path       string  `json:"path"`
+		Script     string  `json:"script"`
+		Output     string  `json:"output"`
+		Error      string  `json:"error"`
+		ExitStatus *int    `json:"exit_status"`
+		Packages   string  `json:"packages"`
+		Results    *string `json:"results"`
+		ResultsErr string  `json:"results_error"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid run: "+err.Error())
@@ -107,6 +114,20 @@ func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 		body["code"] = in.Code
 	} else {
 		body["path"], body["script"], body["script_sha256"] = in.Path, in.Script, hexSHA(in.Script)
+		switch {
+		case in.Results != nil:
+			if res, err := parseResults(*in.Results); err != nil {
+				body["results_error"] = err.Error()
+			} else {
+				body["results"], body["results_sha256"] = res, hexSHA(*in.Results)
+			}
+		case in.ResultsErr != "":
+			msg := in.ResultsErr
+			if len(msg) > 512 {
+				msg = msg[:512]
+			}
+			body["results_error"] = strings.ToValidUTF8(msg, "")
+		}
 	}
 	// the whole texts a body keeps only part of, and the package list, by sha256
 	blobs := map[string]string{}
@@ -204,4 +225,45 @@ func (h *H) listRuns(w http.ResponseWriter, r *http.Request) {
 		out = append(out, run)
 	}
 	writeJSON(w, 200, out)
+}
+
+// parseResults reads a script's results file: one flat JSON object whose keys
+// are valid predicate keys, each once, and whose values are finite numbers.
+func parseResults(raw string) (map[string]float64, error) {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, errors.New("results must be one JSON object")
+	}
+	out := map[string]float64{}
+	for dec.More() {
+		t, err := dec.Token()
+		key, ok := t.(string)
+		if err != nil || !ok {
+			return nil, errors.New("results is not valid JSON")
+		}
+		if !predicate.ValidKey(key) {
+			return nil, fmt.Errorf("results key %q is not a valid key", key)
+		}
+		if _, dup := out[key]; dup {
+			return nil, fmt.Errorf("results key %q appears twice", key)
+		}
+		tok, err := dec.Token()
+		v, isNum := tok.(json.Number)
+		if err != nil || !isNum {
+			return nil, fmt.Errorf("results value for %q is not a number", key)
+		}
+		f, err := v.Float64()
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			return nil, fmt.Errorf("results value for %q is not a finite number", key)
+		}
+		out[key] = f
+	}
+	if _, err := dec.Token(); err != nil {
+		return nil, errors.New("results is not valid JSON")
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, errors.New("results has text after the object")
+	}
+	return out, nil
 }
