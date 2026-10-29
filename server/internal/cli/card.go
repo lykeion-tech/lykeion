@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,6 +21,20 @@ type cardView struct {
 		Name string `json:"name"`
 		Text string `json:"text"`
 	} `json:"predicates"`
+}
+
+// values prints a decision's values: the number alone for one key, else
+// key=value pairs in key order.
+func values(m map[string]float64) string {
+	keys := slices.Sorted(maps.Keys(m))
+	if len(keys) == 1 {
+		return strconv.FormatFloat(m[keys[0]], 'g', -1, 64)
+	}
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = k + "=" + strconv.FormatFloat(m[k], 'g', -1, 64)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // byNumber resolves a card number to its id.
@@ -142,8 +158,27 @@ func cardCmd(e *env) *cobra.Command {
 			}
 			fmt.Fprintf(e.out, "#%d %s\ncolumn: %s  state: %s\n\n%s\n",
 				x.Number, x.Title, x.BoardColumn, x.State, x.Question)
-			for _, p := range x.Predicates {
-				fmt.Fprintf(e.out, "pre-registered: %s: %s\n", p.Name, p.Text)
+			if len(x.Predicates) > 0 {
+				var view struct {
+					Preregistration []struct {
+						Name    string             `json:"name"`
+						Outcome string             `json:"outcome"`
+						Run     string             `json:"run"`
+						Values  map[string]float64 `json:"values"`
+					} `json:"preregistration"`
+				}
+				if err := e.client().Do(cmd.Context(), "GET", "/api/cards/"+x.ID, nil, &view); err != nil {
+					return err
+				}
+				for _, p := range x.Predicates {
+					outcome := "not decided yet"
+					for _, d := range view.Preregistration {
+						if d.Name == p.Name && (d.Outcome == "held" || d.Outcome == "missed") {
+							outcome = fmt.Sprintf("%s (%s, run %s)", d.Outcome, values(d.Values), d.Run)
+						}
+					}
+					fmt.Fprintf(e.out, "pre-registered: %s: %s — %s\n", p.Name, p.Text, outcome)
+				}
 			}
 			var comments []struct {
 				Body      string `json:"body"`

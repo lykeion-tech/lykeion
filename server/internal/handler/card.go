@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/predicate"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -304,6 +305,8 @@ type studyView struct {
 	// Attachments are the files attached at creation, never their storage.
 	Attachments []attachmentView  `json:"attachments"`
 	Services    []serviceNameView `json:"services"`
+	// Preregistration is each predicate's binding outcome so far.
+	Preregistration []flow.Decision `json:"preregistration"`
 }
 
 type serviceNameView struct {
@@ -348,6 +351,15 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 	if err := machineView(r.Context(), tx, &v); err != nil {
 		return v, err
 	}
+	recs, err := tx.Q.CardKindRecords(r.Context(), db.CardKindRecordsParams{WorkspaceID: c.WorkspaceID, CardID: c.ID, Kind: "preregistration"})
+	if err != nil {
+		return v, err
+	}
+	bodies := make([][]byte, len(recs))
+	for i, rec := range recs {
+		bodies[i] = rec.Body
+	}
+	v.Preregistration = flow.Binding(bodies)
 	return v, nil
 }
 

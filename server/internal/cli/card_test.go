@@ -347,6 +347,10 @@ func TestCardShowPrintsPredicates(t *testing.T) {
 			w.Write([]byte(`[]`))
 			return
 		}
+		if r.URL.Path == "/api/cards/x" {
+			w.Write([]byte(`{"id":"x","preregistration":[]}`))
+			return
+		}
 		w.Write([]byte(`[{"id":"x","number":1,"title":"t","question":"why","predicates":[{"name":"effect","text":"effect > 0.2"}]}]`))
 	}))
 	defer srv.Close()
@@ -356,7 +360,41 @@ func TestCardShowPrintsPredicates(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "why\npre-registered: effect: effect > 0.2\n") {
+	if !strings.Contains(out.String(), "why\npre-registered: effect: effect > 0.2 — not decided yet\n") {
 		t.Fatalf("%q", out.String())
+	}
+}
+
+func TestCardShowPrintsBindingOutcomes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/cards/x/comments":
+			w.Write([]byte(`[]`))
+		case "/api/cards/x":
+			w.Write([]byte(`{"id":"x","preregistration":[{"name":"effect","text":"effect > 0.2","outcome":"missed","round":1,"run":"x1","values":{"effect":0.12}},
+				{"name":"both","text":"a > 0 and b > 0","outcome":"held","round":1,"run":"x1","values":{"b":2,"a":1}},
+				{"name":"open","text":"c > 0","outcome":"unconfirmed","reason":"no results run named"}]}`))
+		default:
+			w.Write([]byte(`[{"id":"x","number":1,"title":"t","question":"why","predicates":[{"name":"effect","text":"effect > 0.2"},
+				{"name":"both","text":"a > 0 and b > 0"},{"name":"open","text":"c > 0"},{"name":"later","text":"d > 0"}]}]`))
+		}
+	}))
+	defer srv.Close()
+	var out bytes.Buffer
+	cmd := cardCmd(&env{cfg: Config{Server: srv.URL, Token: "ltk_run", Workspace: "w"}, out: &out})
+	cmd.SetArgs([]string{"show", "1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"pre-registered: effect: effect > 0.2 — missed (0.12, run x1)\n",
+		"pre-registered: both: a > 0 and b > 0 — held (a=1, b=2, run x1)\n",
+		"pre-registered: open: c > 0 — not decided yet\n",
+		"pre-registered: later: d > 0 — not decided yet\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("no %q in %q", want, out.String())
+		}
 	}
 }

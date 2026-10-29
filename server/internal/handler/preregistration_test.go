@@ -128,3 +128,35 @@ func TestAutoresearchStudiesStartWithoutPredicates(t *testing.T) {
 
 // testPredicates is the pre-registration a test sends to open an end-to-end study.
 var testPredicates = []pred{{Name: "effect", Text: "effect > 0"}}
+
+func TestTheStudyViewCarriesBindingOutcomes(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	code, out := s.createWith(t, a, w.ID, map[string]any{"question": "q", "predicates": []pred{{Name: "effect", Text: "effect > 0.2"}}})
+	if code != 201 {
+		t.Fatalf("%d %v", code, out)
+	}
+	id := out["id"].(string)
+	var got struct {
+		Preregistration []map[string]any `json:"preregistration"`
+	}
+	s.call(t, "GET", "/api/cards/"+id, a, w.ID, nil, &got)
+	if got.Preregistration == nil || len(got.Preregistration) != 0 {
+		t.Fatalf("before scoring: %v", got.Preregistration)
+	}
+	for i, body := range []string{
+		`{"verdict":"low","predicates":[{"name":"effect","text":"effect > 0.2","outcome":"missed","round":1,"run":"x1","values":{"effect":0.12}}]}`,
+		`{"verdict":"high","predicates":[{"name":"effect","text":"effect > 0.2","outcome":"held","round":2,"run":"x2","values":{"effect":0.5}}]}`,
+	} {
+		if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
+			VALUES ($1, $2, 'experimentation', $3, 'preregistration', 'server', $4, $5)`, w.ID, id, i+1, "r"+string(rune('1'+i)), body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.call(t, "GET", "/api/cards/"+id, a, w.ID, nil, &got)
+	if len(got.Preregistration) != 1 || got.Preregistration[0]["outcome"] != "missed" || got.Preregistration[0]["run"] != "x1" {
+		t.Fatalf("after scoring: %v", got.Preregistration)
+	}
+}
