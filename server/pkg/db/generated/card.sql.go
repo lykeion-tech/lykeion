@@ -204,7 +204,7 @@ VALUES ($1, $2, $3, $4, $5, $6,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = $7::text), 1) - 1,
   COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'validation'),
   $10, $11, $7::text, $12, $13, $14, COALESCE($15::jsonb, '[]'::jsonb))
-RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine, predicates
+RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, predicates
 `
 
 type CreateCardParams struct {
@@ -261,7 +261,6 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		&i.Ending,
 		&i.EndReason,
 		&i.Rounds,
-		&i.FollowsFrom,
 		&i.Version,
 		&i.CreatedAt,
 		&i.Round,
@@ -277,7 +276,6 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		&i.ScopeFrom,
 		&i.ScopeTo,
 		&i.Redos,
-		&i.Env,
 		&i.Machine,
 		&i.Predicates,
 	)
@@ -330,7 +328,7 @@ func (q *Queries) DeleteCard(ctx context.Context, arg DeleteCardParams) error {
 }
 
 const getCard = `-- name: GetCard :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine, predicates FROM card WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, predicates FROM card WHERE workspace_id = $1 AND id = $2
 `
 
 type GetCardParams struct {
@@ -356,7 +354,6 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.Ending,
 		&i.EndReason,
 		&i.Rounds,
-		&i.FollowsFrom,
 		&i.Version,
 		&i.CreatedAt,
 		&i.Round,
@@ -372,7 +369,6 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.ScopeFrom,
 		&i.ScopeTo,
 		&i.Redos,
-		&i.Env,
 		&i.Machine,
 		&i.Predicates,
 	)
@@ -489,7 +485,7 @@ func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxPa
 }
 
 const listCards = `-- name: ListCards :many
-SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.follows_from, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.env, c.machine, c.predicates,
+SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.machine, c.predicates,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
     AND t.status = 'queued' AND t.queue_reason IS NOT NULL)::boolean AS queued,
   COALESCE((SELECT t.role FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
@@ -514,7 +510,6 @@ type ListCardsRow struct {
 	Ending       string          `json:"ending"`
 	EndReason    string          `json:"end_reason"`
 	Rounds       int32           `json:"rounds"`
-	FollowsFrom  []uuid.UUID     `json:"follows_from"`
 	Version      int64           `json:"version"`
 	CreatedAt    time.Time       `json:"created_at"`
 	Round        int32           `json:"round"`
@@ -530,7 +525,6 @@ type ListCardsRow struct {
 	ScopeFrom    string          `json:"scope_from"`
 	ScopeTo      string          `json:"scope_to"`
 	Redos        int32           `json:"redos"`
-	Env          json.RawMessage `json:"env"`
 	Machine      *string         `json:"machine"`
 	Predicates   json.RawMessage `json:"predicates"`
 	Queued       bool            `json:"queued"`
@@ -566,7 +560,6 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.Ending,
 			&i.EndReason,
 			&i.Rounds,
-			&i.FollowsFrom,
 			&i.Version,
 			&i.CreatedAt,
 			&i.Round,
@@ -582,7 +575,6 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.ScopeFrom,
 			&i.ScopeTo,
 			&i.Redos,
-			&i.Env,
 			&i.Machine,
 			&i.Predicates,
 			&i.Queued,

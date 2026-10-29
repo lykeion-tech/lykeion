@@ -210,7 +210,7 @@ func (q *Queries) CountKindRecords(ctx context.Context, arg CountKindRecordsPara
 }
 
 const getCardByNumber = `-- name: GetCardByNumber :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine, predicates FROM card WHERE workspace_id = $1 AND number = $2
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, predicates FROM card WHERE workspace_id = $1 AND number = $2
 `
 
 type GetCardByNumberParams struct {
@@ -236,7 +236,6 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 		&i.Ending,
 		&i.EndReason,
 		&i.Rounds,
-		&i.FollowsFrom,
 		&i.Version,
 		&i.CreatedAt,
 		&i.Round,
@@ -252,7 +251,6 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 		&i.ScopeFrom,
 		&i.ScopeTo,
 		&i.Redos,
-		&i.Env,
 		&i.Machine,
 		&i.Predicates,
 	)
@@ -348,7 +346,7 @@ func (q *Queries) LiveCardRecordByKey(ctx context.Context, arg LiveCardRecordByK
 }
 
 const lockCard = `-- name: LockCard :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine, predicates FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, predicates FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
 `
 
 type LockCardParams struct {
@@ -374,7 +372,6 @@ func (q *Queries) LockCard(ctx context.Context, arg LockCardParams) (Card, error
 		&i.Ending,
 		&i.EndReason,
 		&i.Rounds,
-		&i.FollowsFrom,
 		&i.Version,
 		&i.CreatedAt,
 		&i.Round,
@@ -390,7 +387,6 @@ func (q *Queries) LockCard(ctx context.Context, arg LockCardParams) (Card, error
 		&i.ScopeFrom,
 		&i.ScopeTo,
 		&i.Redos,
-		&i.Env,
 		&i.Machine,
 		&i.Predicates,
 	)

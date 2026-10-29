@@ -13,7 +13,7 @@ func TestAttachmentsMigration(t *testing.T) {
 	env := testutil.Setup(t)
 	ctx := t.Context()
 	// Exercise the original attachment migration before later schema changes.
-	for _, name := range []string{"0022_runtime_additions.down.sql"} {
+	for _, name := range []string{"0030_one_agent_studies.down.sql", "0022_runtime_additions.down.sql"} {
 		b, err := fs.ReadFile(migrations.FS, name)
 		if err != nil {
 			t.Fatal(err)

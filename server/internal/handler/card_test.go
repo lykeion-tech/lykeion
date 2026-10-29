@@ -278,6 +278,36 @@ func TestFollowsFromIsRefused(t *testing.T) {
 	}
 }
 
+func TestStudyJSONHasNoFollowsFromOrVariables(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var c map[string]json.RawMessage
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var id string
+	if err := json.Unmarshal(c["id"], &id); err != nil {
+		t.Fatal(err)
+	}
+	var list []map[string]json.RawMessage
+	if code := s.call(t, "GET", "/api/cards", a, w.ID, nil, &list); code != 200 || len(list) != 1 {
+		t.Fatalf("list: %d, %d studies", code, len(list))
+	}
+	var one map[string]json.RawMessage
+	if code := s.call(t, "GET", "/api/cards/"+id, a, w.ID, nil, &one); code != 200 {
+		t.Fatalf("get: %d", code)
+	}
+	for name, study := range map[string]map[string]json.RawMessage{"GET /api/cards": list[0], "GET /api/cards/{id}": one} {
+		for _, key := range []string{"follows_from", "env"} {
+			if _, ok := study[key]; ok {
+				t.Errorf("%s has %q", name, key)
+			}
+		}
+	}
+}
+
 func TestAStudyWithNoTeamPickedStartsAtOnceEndToEnd(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)

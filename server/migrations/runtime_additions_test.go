@@ -51,7 +51,7 @@ func TestRuntimeAdditionsMigration(t *testing.T) {
 	refuse(service, "23514", ws, u, card, "db", nil)
 	refuse(`UPDATE attachment SET card_id=$1 WHERE kind='service' AND card_id IS NULL`, "23514", card)
 	for _, metadata := range []string{
-		`service_name='db'`, `service_start='start'`, `service_client='client.py'`, `service_env=ARRAY['DATA']`,
+		`service_name='db'`, `service_start='start'`, `service_client='client.py'`,
 	} {
 		refuse(`UPDATE attachment SET `+metadata+` WHERE kind='file'`, "23514")
 	}
@@ -61,19 +61,6 @@ func TestRuntimeAdditionsMigration(t *testing.T) {
 	// Pending uploads may reuse a service name until a study claims them.
 	exec(service, ws, u, nil, "db", "start")
 
-	var defaultEnv string
-	if err := env.Owner.QueryRow(ctx, `SELECT env::text FROM card WHERE id=$1`, card).Scan(&defaultEnv); err != nil || defaultEnv != "{}" {
-		t.Fatalf("default env = %q (%v), want {}", defaultEnv, err)
-	}
-	for _, bad := range []any{nil, `[]`, `null`, `"value"`, `{"COUNT":1}`, `{"NESTED":{}}`, `{"LIST":[]}`, `{"BOOL":true}`, `{"NULL":null}`} {
-		code := "23514"
-		if bad == nil {
-			code = "23502"
-		}
-		refuse(`UPDATE card SET env=$1 WHERE id=$2`, code, bad, card)
-	}
-	exec(`UPDATE card SET env='{"DATA":"/data","COUNT":"1"}' WHERE id=$1`, card)
-
 	read := func(name string) string {
 		t.Helper()
 		b, err := fs.ReadFile(migrations.FS, name)
@@ -82,6 +69,7 @@ func TestRuntimeAdditionsMigration(t *testing.T) {
 		}
 		return string(b)
 	}
+	exec(read("0030_one_agent_studies.down.sql"))
 	// Rollback must refuse incompatible rows without deleting them.
 	refuse(read("0022_runtime_additions.down.sql"), "23514")
 	var count int

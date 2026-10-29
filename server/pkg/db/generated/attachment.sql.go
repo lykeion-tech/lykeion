@@ -13,7 +13,7 @@ import (
 )
 
 const cardAttachment = `-- name: CardAttachment :one
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, service_env, inner_files, unpacked_bytes FROM attachment WHERE workspace_id = $1 AND card_id = $2 AND id = $3
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, inner_files, unpacked_bytes FROM attachment WHERE workspace_id = $1 AND card_id = $2 AND id = $3
 `
 
 type CardAttachmentParams struct {
@@ -44,7 +44,6 @@ func (q *Queries) CardAttachment(ctx context.Context, arg CardAttachmentParams) 
 		&i.ServiceName,
 		&i.ServiceStart,
 		&i.ServiceClient,
-		&i.ServiceEnv,
 		&i.InnerFiles,
 		&i.UnpackedBytes,
 	)
@@ -52,7 +51,7 @@ func (q *Queries) CardAttachment(ctx context.Context, arg CardAttachmentParams) 
 }
 
 const cardAttachments = `-- name: CardAttachments :many
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, service_env, inner_files, unpacked_bytes FROM attachment WHERE workspace_id = $1 AND card_id = $2 AND kind = 'file' ORDER BY length(record_key), record_key, id
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, inner_files, unpacked_bytes FROM attachment WHERE workspace_id = $1 AND card_id = $2 AND kind = 'file' ORDER BY length(record_key), record_key, id
 `
 
 type CardAttachmentsParams struct {
@@ -89,7 +88,6 @@ func (q *Queries) CardAttachments(ctx context.Context, arg CardAttachmentsParams
 			&i.ServiceName,
 			&i.ServiceStart,
 			&i.ServiceClient,
-			&i.ServiceEnv,
 			&i.InnerFiles,
 			&i.UnpackedBytes,
 		); err != nil {
@@ -104,7 +102,7 @@ func (q *Queries) CardAttachments(ctx context.Context, arg CardAttachmentsParams
 }
 
 const cardServices = `-- name: CardServices :many
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, service_env, inner_files, unpacked_bytes FROM attachment WHERE workspace_id = $1 AND card_id = $2 AND kind = 'service' ORDER BY service_name
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, inner_files, unpacked_bytes FROM attachment WHERE workspace_id = $1 AND card_id = $2 AND kind = 'service' ORDER BY service_name
 `
 
 type CardServicesParams struct {
@@ -141,7 +139,6 @@ func (q *Queries) CardServices(ctx context.Context, arg CardServicesParams) ([]A
 			&i.ServiceName,
 			&i.ServiceStart,
 			&i.ServiceClient,
-			&i.ServiceEnv,
 			&i.InnerFiles,
 			&i.UnpackedBytes,
 		); err != nil {
@@ -176,7 +173,7 @@ func (q *Queries) DeletePendingAttachment(ctx context.Context, arg DeletePending
 const insertPendingAttachment = `-- name: InsertPendingAttachment :one
 INSERT INTO attachment (id, workspace_id, uploader_id, name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, kind, inner_files, unpacked_bytes, service_name, service_start, service_client)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-RETURNING id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, service_env, inner_files, unpacked_bytes
+RETURNING id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, inner_files, unpacked_bytes
 `
 
 type InsertPendingAttachmentParams struct {
@@ -237,7 +234,6 @@ func (q *Queries) InsertPendingAttachment(ctx context.Context, arg InsertPending
 		&i.ServiceName,
 		&i.ServiceStart,
 		&i.ServiceClient,
-		&i.ServiceEnv,
 		&i.InnerFiles,
 		&i.UnpackedBytes,
 	)
@@ -305,7 +301,7 @@ func (q *Queries) LinkService(ctx context.Context, arg LinkServiceParams) (int64
 }
 
 const pendingAttachments = `-- name: PendingAttachments :many
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, service_env, inner_files, unpacked_bytes FROM attachment
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, inner_files, unpacked_bytes FROM attachment
 WHERE workspace_id = $1 AND uploader_id = $2 AND card_id IS NULL AND id = ANY($3::uuid[])
 ORDER BY created_at, id
 `
@@ -345,7 +341,6 @@ func (q *Queries) PendingAttachments(ctx context.Context, arg PendingAttachments
 			&i.ServiceName,
 			&i.ServiceStart,
 			&i.ServiceClient,
-			&i.ServiceEnv,
 			&i.InnerFiles,
 			&i.UnpackedBytes,
 		); err != nil {
@@ -391,7 +386,7 @@ func (q *Queries) StalePendingAttachments(ctx context.Context, before time.Time)
 }
 
 const workspaceAttachments = `-- name: WorkspaceAttachments :many
-SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, service_env, inner_files, unpacked_bytes FROM attachment WHERE workspace_id = $1
+SELECT id, workspace_id, uploader_id, card_id, name, disk_name, content_type, size_bytes, sha256, blob_key, text_sha256, text_size_bytes, record_key, created_at, kind, service_name, service_start, service_client, inner_files, unpacked_bytes FROM attachment WHERE workspace_id = $1
 `
 
 // Every upload of a workspace, linked or pending.
@@ -423,7 +418,6 @@ func (q *Queries) WorkspaceAttachments(ctx context.Context, workspaceID uuid.UUI
 			&i.ServiceName,
 			&i.ServiceStart,
 			&i.ServiceClient,
-			&i.ServiceEnv,
 			&i.InnerFiles,
 			&i.UnpackedBytes,
 		); err != nil {

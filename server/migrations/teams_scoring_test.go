@@ -54,23 +54,28 @@ func TestMigrationDeletesStudiesAndPacks(t *testing.T) {
 	}
 	defer conn.Close(ctx)
 
-	before := fstest.MapFS{}
 	files, err := fs.Glob(migrations.FS, "*.up.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range files {
-		if f < "0012" {
-			b, err := fs.ReadFile(migrations.FS, f)
-			if err != nil {
-				t.Fatal(err)
+	// Migrates up to, not including, the migration named first.
+	upTo := func(first string) {
+		t.Helper()
+		before := fstest.MapFS{}
+		for _, f := range files {
+			if f < first {
+				b, err := fs.ReadFile(migrations.FS, f)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before[f] = &fstest.MapFile{Data: b}
 			}
-			before[f] = &fstest.MapFile{Data: b}
+		}
+		if err := migrate.Up(ctx, conn, before); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if err := migrate.Up(ctx, conn, before); err != nil {
-		t.Fatal(err)
-	}
+	upTo("0012")
 	u, ws, card := uuid.New(), uuid.New(), uuid.New()
 	for _, q := range []struct {
 		sql  string
@@ -91,9 +96,8 @@ func TestMigrationDeletesStudiesAndPacks(t *testing.T) {
 			t.Fatalf("seed %s: %v", q.sql, err)
 		}
 	}
-	if err := migrate.Up(ctx, conn, migrations.FS); err != nil {
-		t.Fatal(err)
-	}
+	// 0030 deletes Autoresearch that ends at Reporting, the default until then.
+	upTo("0030")
 	for _, table := range []string{"card", "record", "comment", "inbox_item", "field_pack"} {
 		var n int
 		if err := conn.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil {
@@ -137,17 +141,6 @@ func TestSingleTeamStudyHasOneColumnScope(t *testing.T) {
 	_, _, card := seedWorkspace(t, env)
 	_, err := env.Owner.Exec(context.Background(), `UPDATE card SET scope_from = 'hypotheses', scope_to = 'grounding' WHERE id = $1`, card)
 	wantCode(t, err, "23514", "scope_from after scope_to")
-}
-
-func TestFollowsFromOnlyOnEndToEnd(t *testing.T) {
-	env := testutil.Setup(t)
-	_, _, card := seedWorkspace(t, env)
-	ctx := context.Background()
-	_, err := env.Owner.Exec(ctx, `UPDATE card SET scope_to = 'grounding', follows_from = ARRAY[$2::uuid] WHERE id = $1`, card, uuid.New())
-	wantCode(t, err, "23514", "follows_from on a one-column study")
-	if _, err := env.Owner.Exec(ctx, `UPDATE card SET scope_to = 'reporting', follows_from = ARRAY[$2::uuid] WHERE id = $1`, card, uuid.New()); err != nil {
-		t.Errorf("follows_from on an end-to-end study: %v", err)
-	}
 }
 
 func TestBlockKindIsOnlyLowScore(t *testing.T) {

@@ -163,7 +163,6 @@ type Attachment struct {
 	ServiceName   *string    `json:"service_name"`
 	ServiceStart  *string    `json:"service_start"`
 	ServiceClient *string    `json:"service_client"`
-	ServiceEnv    []string   `json:"service_env"`
 	InnerFiles    int32      `json:"inner_files"`
 	UnpackedBytes int64      `json:"unpacked_bytes"`
 }
@@ -255,7 +254,6 @@ type Card struct {
 	Ending       string          `json:"ending"`
 	EndReason    string          `json:"end_reason"`
 	Rounds       int32           `json:"rounds"`
-	FollowsFrom  []uuid.UUID     `json:"follows_from"`
 	Version      int64           `json:"version"`
 	CreatedAt    time.Time       `json:"created_at"`
 	Round        int32           `json:"round"`
@@ -271,7 +269,6 @@ type Card struct {
 	ScopeFrom    string          `json:"scope_from"`
 	ScopeTo      string          `json:"scope_to"`
 	Redos        int32           `json:"redos"`
-	Env          json.RawMessage `json:"env"`
 	Machine      *string         `json:"machine"`
 	Predicates   json.RawMessage `json:"predicates"`
 }
