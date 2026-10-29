@@ -27,7 +27,7 @@ func (l *lab) preregistered(t *testing.T, to string, agent uuid.UUID, preds stri
 			return err
 		}
 		c, err = tx.Q.CreateCard(context.Background(), db.CreateCardParams{WorkspaceID: l.ws, Number: n, Title: "t", Question: "Why do cells age?",
-			OwnerID: l.owner, FollowsFrom: []uuid.UUID{}, ScopeFrom: "experimentation", ScopeTo: to, AssigneeType: &typ, AssigneeID: &agent,
+			OwnerID: l.owner, ScopeFrom: "experimentation", ScopeTo: to, AssigneeType: &typ, AssigneeID: &agent,
 			BoardColumn: "experimentation", Round: 1, Predicates: []byte(preds)})
 		return err
 	})

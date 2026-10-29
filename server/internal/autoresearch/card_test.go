@@ -53,7 +53,7 @@ func TestCreateCardOpensAStudyOwnedByTheActor(t *testing.T) {
 	}
 	c := f.card(t, *r.CardID)
 	if c.BoardColumn != "grounding" || c.Round != 1 || c.OwnerID != collab || c.Origin != Origin(ap) || c.Title != "Digest 2026-10-14" ||
-		c.Question != "What changed in mouse liver lipidomics this week?" || len(c.FollowsFrom) != 0 {
+		c.Question != "What changed in mouse liver lipidomics this week?" {
 		t.Fatalf("card: %+v", c)
 	}
 	inbox := `SELECT count(*) FROM inbox_item WHERE kind = 'autoresearch_card' AND card_id = $1 AND autoresearch_run_id = $2 AND user_id = $3`
@@ -66,7 +66,7 @@ func TestCreateCardOpensAStudyOwnedByTheActor(t *testing.T) {
 	}
 }
 
-func TestAnActiveCardOfTheSameTitleSkipsAndTheNextFollowsTheLast(t *testing.T) {
+func TestAnActiveCardOfTheSameTitleSkips(t *testing.T) {
 	f := setup(t)
 	ap := f.autoresearch(t, "create_card", "Weekly digest", "", "")
 	first := f.fire(t, ap, Admission{})
@@ -76,7 +76,7 @@ func TestAnActiveCardOfTheSameTitleSkipsAndTheNextFollowsTheLast(t *testing.T) {
 	f.exec(t, `UPDATE card SET board_column = 'done', ending = 'stopped' WHERE id = $1`, *first.CardID)
 	next := f.fire(t, ap, Admission{})
 	c := f.card(t, *next.CardID)
-	if next.Status != "running" || len(c.FollowsFrom) != 1 || c.FollowsFrom[0] != *first.CardID || c.Question != "Weekly digest" {
+	if next.Status != "running" || c.ID == *first.CardID || c.Question != "Weekly digest" {
 		t.Fatalf("follow-up: %s %+v", reason(next), c)
 	}
 }

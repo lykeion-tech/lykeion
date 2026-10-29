@@ -141,7 +141,7 @@ func TestSharedMachinesQueriesAndRLS(t *testing.T) {
 		t.Fatalf("cleared shares=%+v (%v)", shares, err)
 	}
 	machine := "machine"
-	created, err := q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: 2, Title: "new", Question: "q", OwnerID: u, FollowsFrom: []uuid.UUID{}, BoardColumn: "grounding", Machine: &machine})
+	created, err := q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: 2, Title: "new", Question: "q", OwnerID: u, BoardColumn: "grounding", Machine: &machine})
 	if err != nil || created.Machine == nil || *created.Machine != machine {
 		t.Fatalf("created machine=%v (%v)", created.Machine, err)
 	}

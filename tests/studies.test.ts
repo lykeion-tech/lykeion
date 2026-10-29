@@ -63,7 +63,6 @@ function card(extra: Partial<Card> = {}): Card {
     ending: '',
     end_reason: '',
     rounds: 0,
-    follows_from: [],
     version: 1,
     created_at: '2026-10-15T10:00:00Z',
     updated_at: '2026-10-15T10:00:00Z',

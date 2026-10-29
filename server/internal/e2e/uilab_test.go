@@ -353,8 +353,7 @@ func TestUILab(t *testing.T) {
 		}
 		var in struct {
 			Title, Question string
-			AgentID         *uuid.UUID  `json:"agent_id"`
-			FollowsFrom     []uuid.UUID `json:"follows_from"`
+			AgentID         *uuid.UUID `json:"agent_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Question == "" {
 			http.Error(w, "question required", 400)
@@ -362,9 +361,6 @@ func TestUILab(t *testing.T) {
 		}
 		if in.Title == "" {
 			in.Title = in.Question
-		}
-		if in.FollowsFrom == nil {
-			in.FollowsFrom = []uuid.UUID{}
 		}
 		var kind *string
 		if in.AgentID != nil {
@@ -378,7 +374,7 @@ func TestUILab(t *testing.T) {
 				return err
 			}
 			c, err = tx.Q.CreateCard(r.Context(), db.CreateCardParams{WorkspaceID: ws, Number: n, OwnerID: user,
-				Title: in.Title, Question: in.Question, FollowsFrom: in.FollowsFrom, BoardColumn: board.Grounding,
+				Title: in.Title, Question: in.Question, BoardColumn: board.Grounding,
 				ScopeFrom: board.Grounding, ScopeTo: board.Reporting, Round: 1, AssigneeType: kind, AssigneeID: in.AgentID})
 			if err != nil {
 				return err
@@ -571,7 +567,7 @@ func seedUIFixture(ctx context.Context, st *store.Store) (uiFixture, error) {
 		if err != nil {
 			return err
 		}
-		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: ws, Number: n, OwnerID: u.ID, Title: "Transcript fixture", Question: "What remains unresolved in the recorded evidence?", FollowsFrom: []uuid.UUID{}})
+		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: ws, Number: n, OwnerID: u.ID, Title: "Transcript fixture", Question: "What remains unresolved in the recorded evidence?"})
 		if err != nil {
 			return err
 		}

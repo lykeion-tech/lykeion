@@ -33,7 +33,7 @@ echo '{"type":"result","is_error":false}'
 				if err := tx.Q.AddMember(t.Context(), db.AddMemberParams{WorkspaceID: healthyWS, UserID: f.user, Role: "owner"}); err != nil {
 					return err
 				}
-				c, err := tx.Q.CreateCard(t.Context(), db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: healthyWS, Number: 1, Title: "healthy", Question: "q", OwnerID: f.user, FollowsFrom: []uuid.UUID{}})
+				c, err := tx.Q.CreateCard(t.Context(), db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: healthyWS, Number: 1, Title: "healthy", Question: "q", OwnerID: f.user})
 				healthyCard = c.ID
 				return err
 			}))

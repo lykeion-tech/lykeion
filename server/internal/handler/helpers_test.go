@@ -108,7 +108,7 @@ func (s *server) seedCard(t *testing.T, tok, wsID, question string, agent *uuid.
 			return err
 		}
 		p := db.CreateCardParams{WorkspaceID: ws, Number: n, Title: question, Question: question, OwnerID: owner,
-			FollowsFrom: []uuid.UUID{}, ScopeFrom: from, ScopeTo: to, BoardColumn: from, Round: 1}
+			ScopeFrom: from, ScopeTo: to, BoardColumn: from, Round: 1}
 		if agent != nil {
 			typ := "agent"
 			p.AssigneeType, p.AssigneeID = &typ, agent

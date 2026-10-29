@@ -443,3 +443,13 @@ func TestCardShowPrintsBindingOutcomes(t *testing.T) {
 		}
 	}
 }
+
+func TestCardNewHasNoFollowsFromFlag(t *testing.T) {
+	e := &env{cfg: Config{Server: "http://unused", Token: "ltk_run", Workspace: "w"}, out: &bytes.Buffer{}}
+	cmd := cardCmd(e)
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs([]string{"new", "--follows-from", "3", "q"})
+	if err := cmd.Execute(); err == nil || err.Error() != "unknown flag: --follows-from" {
+		t.Fatalf("%v", err)
+	}
+}

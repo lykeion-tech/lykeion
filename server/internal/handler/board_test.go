@@ -34,6 +34,20 @@ func TestStopEndsAStudyAndThereIsNoResume(t *testing.T) {
 	}
 }
 
+func TestActingOnAnEndedCardAnswersStartANewStudy(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
+	s.Env.Owner.Exec(t.Context(), `UPDATE card SET ending = 'stopped' WHERE id = $1`, c.ID)
+	var out struct {
+		Error string `json:"error"`
+	}
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/stop", a, w.ID, map[string]string{"reason": "again"}, &out); code != 409 || out.Error != "the card has ended; start a new study to continue" {
+		t.Fatalf("%d %q", code, out.Error)
+	}
+}
+
 func TestDuplicateCards(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)
@@ -56,10 +70,8 @@ func TestDuplicateCards(t *testing.T) {
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "title": "DOES X RAISE Y?", "question": "other words"}, nil); code != 409 {
 		t.Fatalf("duplicate title: %d", code)
 	}
-	var follow card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Does X raise Y?", "follows_from": []string{first.ID}}, &follow); code != 201 {
-		t.Fatalf("a follow-up was refused: %d", code)
-	}
+	var other card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Another question?"}, &other)
 
 	// two identical cards at once: exactly one is created
 	codes := make(chan int, 2)
@@ -76,10 +88,10 @@ func TestDuplicateCards(t *testing.T) {
 		Ending    string `json:"ending"`
 		EndReason string `json:"end_reason"`
 	}
-	if code := s.call(t, "POST", "/api/cards/"+follow.ID+"/stop", a, w.ID, map[string]any{"duplicate_of": follow.Number}, nil); code != 400 {
+	if code := s.call(t, "POST", "/api/cards/"+other.ID+"/stop", a, w.ID, map[string]any{"duplicate_of": other.Number}, nil); code != 400 {
 		t.Fatalf("a card was stopped as a duplicate of itself: %d", code)
 	}
-	s.call(t, "POST", "/api/cards/"+follow.ID+"/stop", a, w.ID, map[string]any{"duplicate_of": first.Number}, &out)
+	s.call(t, "POST", "/api/cards/"+other.ID+"/stop", a, w.ID, map[string]any{"duplicate_of": first.Number}, &out)
 	if out.Ending != "stopped" || out.EndReason != "duplicate of #1" {
 		t.Fatalf("%+v", out)
 	}

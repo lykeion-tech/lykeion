@@ -307,16 +307,16 @@ async function linkedStudies(page: import('@playwright/test').Page) {
       })
     ).status(),
   ).toBe(204);
-  async function create(title: string, follows: string[] = []) {
+  async function create(title: string) {
     const response = await page.request.post(`${LAB}/lab/idle-study`, {
       headers: { 'X-Workspace-ID': ws },
-      data: { title, question: `${title} ${Date.now()}?`, follows_from: follows },
+      data: { title, question: `${title} ${Date.now()}?` },
     });
     expect(response.status()).toBe(201);
     return (await response.json()).id as string;
   }
   const b = await create('Lifecycle B');
-  const a = await create('Lifecycle A', [b]);
+  const a = await create('Lifecycle A');
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
   await page.goto(`/#/studies/${a}`);
   await expect(

@@ -53,15 +53,12 @@ func TestCardLifecycleBasics(t *testing.T) {
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Does X raise Y in mouse liver?"}, &c1); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "title": "Second", "question": "q2", "follows_from": []string{c1.ID}}, &c2)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "title": "Second", "question": "q2"}, &c2)
 	if c1.Number != 1 || c2.Number != 2 || c1.BoardColumn != "grounding" || c1.Title == "" || c1.OwnerID != s.userID(t, a) {
 		t.Fatalf("%+v %+v", c1, c2)
 	}
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": " "}, nil); code != 400 {
 		t.Fatalf("empty question: %d", code)
-	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "follows_from": []string{uuid.NewString()}}, nil); code != 400 {
-		t.Fatalf("follows_from an unknown card: %d", code)
 	}
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "board_column": "validation"}, nil); code != 400 {
 		t.Fatal("a card was created in a column the request named")
@@ -272,22 +269,13 @@ func TestATeamTheCreatorHasNotAddedIsRefused(t *testing.T) {
 	}
 }
 
-func TestFollowsFromOnlyEndToEnd(t *testing.T) {
+func TestFollowsFromIsRefused(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	var parent studyJSON
-	single := map[string]any{"question": "parent", "scope": map[string]string{"from": "validation", "to": "validation"}}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, single, &parent); code != 201 {
-		t.Fatalf("parent: %d", code)
-	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "child 1", "follows_from": []string{parent.ID},
-		"scope": map[string]string{"from": "grounding", "to": "hypotheses"}}, nil); code != 400 {
-		t.Fatalf("single-stage follower: %d", code)
-	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "child 2", "follows_from": []string{parent.ID}}, nil); code != 201 {
-		t.Fatalf("end-to-end follower: %d", code)
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "follows_from": []string{}}, nil); code != 400 {
+		t.Fatalf("follows_from: %d", code)
 	}
 }
 
@@ -352,7 +340,7 @@ func TestOffLabelColumnsAreMarked(t *testing.T) {
 	}
 }
 
-func TestDuplicateSaysWhetherFollowingIsAllowed(t *testing.T) {
+func TestADuplicateHasNoFollowUp(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
@@ -360,16 +348,13 @@ func TestDuplicateSaysWhetherFollowingIsAllowed(t *testing.T) {
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "same question"}, nil); code != 201 {
 		t.Fatalf("first: %d", code)
 	}
-	var dup struct {
-		Error          string
-		FollowsAllowed bool `json:"follows_allowed"`
-	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "same question"}, &dup); code != 409 || !dup.FollowsAllowed || dup.Error != "an active study already asks this: #1" {
+	var dup map[string]any
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "same question"}, &dup); code != 409 {
 		t.Fatalf("end-to-end duplicate: %d %+v", code, dup)
 	}
-	dup.FollowsAllowed = true
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question", "scope": map[string]string{"from": "validation", "to": "validation"}}, &dup); code != 409 || dup.FollowsAllowed {
-		t.Fatalf("single-stage duplicate: %d %+v", code, dup)
+	_, hasFollows := dup["follows_allowed"]
+	if dup["card_id"] == nil || dup["number"] != float64(1) || hasFollows {
+		t.Fatalf("body: %+v", dup)
 	}
 }
 

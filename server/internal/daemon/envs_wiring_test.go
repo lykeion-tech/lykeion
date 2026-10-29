@@ -97,7 +97,7 @@ func (f *daemonFixture) newCard(t *testing.T) uuid.UUID {
 	t.Helper()
 	var id uuid.UUID
 	must(t, f.runs.Store.InWorkspace(context.Background(), f.ws, f.user, func(tx *store.Tx) error {
-		c, err := tx.Q.CreateCard(context.Background(), db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: f.ws, Number: 2, Title: "t2", Question: "q2", OwnerID: f.user, FollowsFrom: []uuid.UUID{}})
+		c, err := tx.Q.CreateCard(context.Background(), db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: f.ws, Number: 2, Title: "t2", Question: "q2", OwnerID: f.user})
 		id = c.ID
 		return err
 	}))

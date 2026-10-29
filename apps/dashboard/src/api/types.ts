@@ -71,7 +71,6 @@ export interface Card {
   ending: '' | 'released' | 'stopped';
   end_reason: string;
   rounds: number;
-  follows_from: string[];
   version: number;
   created_at: string;
   round: number;

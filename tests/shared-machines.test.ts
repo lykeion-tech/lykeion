@@ -59,7 +59,6 @@ function seedClient() {
     redos: 0,
     teams: {},
     off_label: [],
-    follows_from: [],
     attachments: [],
     env: {},
     services: [],

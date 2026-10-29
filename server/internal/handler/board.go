@@ -24,7 +24,7 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-var errEnded = errors.New("the card has ended; continue with a new card that follows from it")
+var errEnded = errors.New("the card has ended; start a new study to continue")
 
 // resolveBlocked resolves the card's open items asking for a person, whom
 // stopping the study has answered.

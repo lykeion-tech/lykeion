@@ -712,18 +712,6 @@ function pin() {
         </div>
         <small>Deadline</small>
         <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
-        <template v-if="c.follows_from.length">
-          <small>Follows from</small>
-          <div class="v">
-            <RouterLink
-              v-for="fid in c.follows_from"
-              :key="fid"
-              class="link"
-              :to="'/studies/' + fid"
-              >{{ cards.data.value?.find((x) => x.id === fid)?.title ?? 'Study' }}</RouterLink
-            >
-          </div>
-        </template>
         <template v-if="c.attachments.length">
           <small>Attached files</small>
           <ul class="v attached-files" aria-label="Attached files">

@@ -381,7 +381,6 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
     redos: 0,
     teams: {},
     off_label: [],
-    follows_from: [],
     attachments: [],
     env: {},
     services: [],
@@ -395,6 +394,51 @@ async function preregister(t: { fill: (label: string, value: string) => Promise<
   await t.fill('Result name 1', 'Accurate');
   await t.fill('Result condition 1', 'accuracy >= 0.9');
 }
+
+describe('no Follows from', () => {
+  it('has no Follows from in the new-study window', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('[]', { status: 200 })));
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      expect(t.text()).not.toContain('Follows from');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('shows a duplicate without a follow button', async () => {
+    const fetch = vi.fn(
+      async (_path: RequestInfo | URL, init?: RequestInit) =>
+        new Response(
+          init?.method === 'POST'
+            ? '{"error":"an active study already asks this: #4","card_id":"c4","number":4}'
+            : '[]',
+          { status: init?.method === 'POST' ? 409 : 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      await t.fill('Describe your study', 'Question');
+      await preregister(t);
+      await t.submit();
+      expect(t.text()).toMatch(/An active study already asks this: \S*4/);
+      expect(t.text()).not.toContain('Follows from');
+      expect(t.button(/follow/i)).toBeUndefined();
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('renders a study page without follows_from', async () => {
+    const t = await mount(TaskDetail, () => ({ id: 'c' }), '/', (c) => seedStudy(c));
+    try {
+      expect(t.text()).not.toContain('Follows from');
+    } finally {
+      t.unmount();
+    }
+  });
+});
 
 describe('study variables and services', () => {
   it('posts variable rows, preserves values and drops only genuinely empty rows', async () => {

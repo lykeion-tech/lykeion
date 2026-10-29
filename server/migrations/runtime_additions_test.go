@@ -104,7 +104,7 @@ func TestRuntimeAdditionsQueries(t *testing.T) {
 	u, ws, card := seedWorkspace(t, env)
 	q := db.New(env.Owner)
 	for i, vars := range [][]byte{nil, []byte(`{"DATA":"/data"}`)} {
-		row, err := q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: int32(i + 2), Title: "new", Question: "q", OwnerID: u, FollowsFrom: []uuid.UUID{}, BoardColumn: "grounding", Env: vars})
+		row, err := q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: ws, Number: int32(i + 2), Title: "new", Question: "q", OwnerID: u, BoardColumn: "grounding", Env: vars})
 		want := "{}"
 		if i == 1 {
 			want = `{"DATA": "/data"}`

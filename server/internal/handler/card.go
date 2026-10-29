@@ -28,14 +28,13 @@ import (
 )
 
 type newCard struct {
-	Machine     *string     `json:"machine"`
-	ResearchID  *uuid.UUID  `json:"research_id"`
-	Title       string      `json:"title"`
-	Question    string      `json:"question"`
-	Deadline    *time.Time  `json:"deadline"`
-	FollowsFrom []uuid.UUID `json:"follows_from"`
-	Assignee    *assigneeIn `json:"assignee"`
-	Scope       *scopeIn    `json:"scope"`
+	Machine    *string     `json:"machine"`
+	ResearchID *uuid.UUID  `json:"research_id"`
+	Title      string      `json:"title"`
+	Question   string      `json:"question"`
+	Deadline   *time.Time  `json:"deadline"`
+	Assignee   *assigneeIn `json:"assignee"`
+	Scope      *scopeIn    `json:"scope"`
 	// AttachmentIDs are the caller's pending uploads the study takes as its files.
 	AttachmentIDs []uuid.UUID       `json:"attachment_ids"`
 	Env           map[string]string `json:"env"`
@@ -458,13 +457,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(in.Title) == "" {
 		in.Title = titleFrom(in.Question)
 	}
-	if in.FollowsFrom == nil {
-		in.FollowsFrom = []uuid.UUID{}
-	}
 	from, to, chosen, agent, err := studyScope(in)
-	if err == nil && len(in.FollowsFrom) > 0 && (from != board.Grounding || to != board.Reporting) {
-		err = cardInputError("only an end-to-end study can follow from another")
-	}
 	if err == nil {
 		err = checkPredicates(in.Predicates, from, to)
 	}
@@ -495,14 +488,6 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		for _, parentID := range in.FollowsFrom {
-			if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: parentID}); err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return cardInputError("follows_from contains an unknown card")
-				}
-				return err
-			}
-		}
 		// Every column has a Team, or the study its agent, from the start, so
 		// the study starts at once.
 		assignee := "team"
@@ -523,7 +508,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		}
 		params := db.CreateCardParams{
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
-			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
+			Deadline: in.Deadline, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
 			AssigneeType: &assignee, AssigneeID: agent, Round: 1,
 		}
 		if in.Machine != nil {
@@ -539,21 +524,18 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		if params.Predicates, err = json.Marshal(append([]predicateIn{}, in.Predicates...)); err != nil {
 			return err
 		}
-		// A follow-up may ask the same question again; any other card may not
-		// while an active card asks it. The workspace lock makes two identical
-		// cards created at once see each other.
-		if len(in.FollowsFrom) == 0 {
-			if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
-				return err
-			}
-			d, err := tx.Q.ActiveDuplicate(r.Context(), db.ActiveDuplicateParams{WorkspaceID: ws, Title: in.Title, Question: in.Question})
-			switch {
-			case err == nil:
-				dup = d
-				return errDuplicate
-			case !errors.Is(err, pgx.ErrNoRows):
-				return err
-			}
+		// No card may ask what an active card asks. The workspace lock makes two
+		// identical cards created at once see each other.
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
+		d, err := tx.Q.ActiveDuplicate(r.Context(), db.ActiveDuplicateParams{WorkspaceID: ws, Title: in.Title, Question: in.Question})
+		switch {
+		case err == nil:
+			dup = d
+			return errDuplicate
+		case !errors.Is(err, pgx.ErrNoRows):
+			return err
 		}
 		n, err := tx.Q.NextCardNumber(r.Context(), ws)
 		if err != nil {
@@ -582,7 +564,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, errDuplicate) {
 		writeJSON(w, 409, map[string]any{"error": fmt.Sprintf("an active study already asks this: #%d", dup.Number),
-			"card_id": dup.ID, "number": dup.Number, "follows_allowed": from == board.Grounding && to == board.Reporting})
+			"card_id": dup.ID, "number": dup.Number})
 		return
 	}
 	var inputErr cardInputError

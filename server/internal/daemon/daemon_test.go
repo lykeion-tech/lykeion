@@ -126,7 +126,7 @@ func fixture(t *testing.T) *daemonFixture {
 		if err := tx.Q.AddMember(ctx, db.AddMemberParams{WorkspaceID: f.ws, UserID: u.ID, Role: "owner"}); err != nil {
 			return err
 		}
-		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: f.ws, Number: 1, Title: "t", Question: "q", OwnerID: u.ID, FollowsFrom: []uuid.UUID{}})
+		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: f.ws, Number: 1, Title: "t", Question: "q", OwnerID: u.ID})
 		f.card = c.ID
 		return err
 	}))

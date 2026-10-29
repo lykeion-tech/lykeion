@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"lykeion/server/internal/board"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
@@ -92,9 +91,7 @@ func (s *Service) title(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r
 // user the run acts as, so its agent runs run on that user's runtimes. It is
 // refused while an active card this Autoresearch opened has the same title, and
 // the Autoresearch's first card is also refused when it duplicates any active
-// card, as a person's card would be. Each later card follows the one this
-// Autoresearch opened last, when the study is end-to-end (no other study may
-// follow). A webhook payload is kept as a round 0 record, which no attempt's
+// card, as a person's card would be. A webhook payload is kept as a round 0 record, which no attempt's
 // gate reads as evidence. With agent set, the chosen Teams work their columns
 // and the agent the rest; otherwise every column has a Team, the chosen one or
 // the stage's built-in Team.
@@ -111,13 +108,9 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return db.Card{}, err
 	}
-	follows := []uuid.UUID{}
-	prev, err := tx.Q.LastOriginCard(ctx, db.LastOriginCardParams{WorkspaceID: tx.WS, Origin: origin})
+	_, err = tx.Q.LastOriginCard(ctx, db.LastOriginCardParams{WorkspaceID: tx.WS, Origin: origin})
 	switch {
 	case err == nil:
-		if ap.ScopeFrom == board.Grounding && ap.ScopeTo == board.Reporting {
-			follows = append(follows, prev)
-		}
 	case !errors.Is(err, pgx.ErrNoRows):
 		return db.Card{}, err
 	default:
@@ -149,7 +142,7 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 		return db.Card{}, err
 	}
 	c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: tx.WS, Number: n, Title: title, Question: question,
-		OwnerID: run.ActingUserID, FollowsFrom: follows, AssigneeType: &assignee, AssigneeID: agent,
+		OwnerID: run.ActingUserID, AssigneeType: &assignee, AssigneeID: agent,
 		ScopeFrom: ap.ScopeFrom, ScopeTo: ap.ScopeTo, BoardColumn: ap.ScopeFrom, Round: 1})
 	if err != nil {
 		return db.Card{}, err

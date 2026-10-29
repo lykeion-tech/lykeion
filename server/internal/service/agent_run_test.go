@@ -58,7 +58,7 @@ func setup(t *testing.T) *fixture {
 		if err := tx.Q.AddMember(ctx, db.AddMemberParams{WorkspaceID: f.WS, UserID: u.ID, Role: "owner"}); err != nil {
 			return err
 		}
-		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: f.WS, Number: 1, Title: "t", Question: "q", OwnerID: u.ID, FollowsFrom: []uuid.UUID{}})
+		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: f.WS, Number: 1, Title: "t", Question: "q", OwnerID: u.ID})
 		f.Card = c.ID
 		return err
 	})

@@ -198,33 +198,32 @@ func (q *Queries) CardTeams(ctx context.Context, arg CardTeamsParams) ([]CardTea
 }
 
 const createCard = `-- name: CreateCard :one
-INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, follows_from, position,
+INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, position,
   scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, env, machine, predicates)
-VALUES ($1, $2, $3, $4, $5, $6, $7,
-  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = $8::text), 1) - 1,
-  COALESCE(NULLIF($9::text, ''), 'grounding'), COALESCE(NULLIF($10::text, ''), 'reporting'),
-  $11, $12, $8::text, $13, $14, COALESCE($15::jsonb, '{}'::jsonb), $16, COALESCE($17::jsonb, '[]'::jsonb))
+VALUES ($1, $2, $3, $4, $5, $6,
+  COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = $7::text), 1) - 1,
+  COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'reporting'),
+  $10, $11, $7::text, $12, $13, COALESCE($14::jsonb, '{}'::jsonb), $15, COALESCE($16::jsonb, '[]'::jsonb))
 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, follows_from, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, env, machine, predicates
 `
 
 type CreateCardParams struct {
-	WorkspaceID  uuid.UUID   `json:"workspace_id"`
-	Number       int32       `json:"number"`
-	Title        string      `json:"title"`
-	Question     string      `json:"question"`
-	OwnerID      uuid.UUID   `json:"owner_id"`
-	Deadline     *time.Time  `json:"deadline"`
-	FollowsFrom  []uuid.UUID `json:"follows_from"`
-	BoardColumn  string      `json:"board_column"`
-	ScopeFrom    string      `json:"scope_from"`
-	ScopeTo      string      `json:"scope_to"`
-	AssigneeType *string     `json:"assignee_type"`
-	AssigneeID   *uuid.UUID  `json:"assignee_id"`
-	Round        int32       `json:"round"`
-	ResearchID   *uuid.UUID  `json:"research_id"`
-	Env          []byte      `json:"env"`
-	Machine      *string     `json:"machine"`
-	Predicates   []byte      `json:"predicates"`
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	Number       int32      `json:"number"`
+	Title        string     `json:"title"`
+	Question     string     `json:"question"`
+	OwnerID      uuid.UUID  `json:"owner_id"`
+	Deadline     *time.Time `json:"deadline"`
+	BoardColumn  string     `json:"board_column"`
+	ScopeFrom    string     `json:"scope_from"`
+	ScopeTo      string     `json:"scope_to"`
+	AssigneeType *string    `json:"assignee_type"`
+	AssigneeID   *uuid.UUID `json:"assignee_id"`
+	Round        int32      `json:"round"`
+	ResearchID   *uuid.UUID `json:"research_id"`
+	Env          []byte     `json:"env"`
+	Machine      *string    `json:"machine"`
+	Predicates   []byte     `json:"predicates"`
 }
 
 // A new card goes to the top of its column. NextCardNumber has already locked
@@ -237,7 +236,6 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		arg.Question,
 		arg.OwnerID,
 		arg.Deadline,
-		arg.FollowsFrom,
 		arg.BoardColumn,
 		arg.ScopeFrom,
 		arg.ScopeTo,

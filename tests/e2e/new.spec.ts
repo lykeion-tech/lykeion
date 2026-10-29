@@ -14,13 +14,12 @@ async function cardsNamed(page: import('@playwright/test').Page, question: strin
       question: string;
       title: string;
       deadline: string | null;
-      follows_from: string[];
     }[]
   ).filter((c) => c.question === question);
 }
 
 test.describe('new study', () => {
-  test('creating a study, then a follow-up the duplicate check suggests', async ({ page }) => {
+  test('creating a study, then the duplicate check refuses a second', async ({ page }) => {
     const question = `Do dedifferentiated beta cells re-express ALDH1A3 in T2D? ${Date.now()}`;
     await page.goto('/#/studies');
     await page.getByRole('button', { name: 'New', exact: true }).click();
@@ -56,16 +55,9 @@ test.describe('new study', () => {
       question,
     );
     await page.screenshot({ path: `${artifacts}/duplicate-warning.png`, fullPage: true });
-    await dialog.getByRole('button', { name: /^Follows from BETA-/ }).click();
-    await expect(dialog.getByRole('button', { name: /Follows from: BETA-/ })).toBeVisible();
-    await page.screenshot({ path: `${artifacts}/follow-up.png`, fullPage: true });
-    await dialog.getByRole('button', { name: /Create study/ }).click();
-    await expect(dialog).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: /Follows from/ })).toHaveCount(0);
     found = await cardsNamed(page, question);
-    expect(found).toHaveLength(2);
-    expect(found.find((c) => c.follows_from.length)?.follows_from).toEqual([
-      found.find((c) => !c.follows_from.length)!.id,
-    ]);
+    expect(found).toHaveLength(1);
   });
 
   test('"Create another" keeps the modal open and empties it', async ({ page }) => {

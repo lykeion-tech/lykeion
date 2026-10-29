@@ -79,7 +79,7 @@ func agentID(cmd *cobra.Command, e *env, ref string) (string, error) {
 
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
-	var title, followsFrom, machine, agent string
+	var title, machine, agent string
 	var variables, predicates []string
 	var uploads cardUploadFlags
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
@@ -123,13 +123,6 @@ func cardCmd(e *env) *cobra.Command {
 			}
 			in["assignee"] = map[string]any{"type": "agent", "id": id}
 		}
-		if followsFrom != "" {
-			previous, err := byNumber(cmd, e, followsFrom)
-			if err != nil {
-				return err
-			}
-			in["follows_from"] = []string{previous.ID}
-		}
 		if err := uploads.upload(cmd.Context(), e.client(), in); err != nil {
 			return err
 		}
@@ -147,7 +140,6 @@ func cardCmd(e *env) *cobra.Command {
 	newCmd.Flags().StringVar(&machine, "machine", "", "machine name or daemon id (default: mine)")
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().StringVar(&agent, "agent", "", "agent NAME|ID that works the whole study (default: Teams)")
-	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
 	newCmd.Flags().StringArrayVar(&variables, "env", nil, "plain study setting NAME=VALUE (repeatable)")
 	newCmd.Flags().StringArrayVar(&predicates, "predicate", nil, "pre-registered result NAME=TEXT, such as 'effect=effect > 0.2' (repeatable)")
 	c.AddCommand(newCmd,

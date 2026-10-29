@@ -10,7 +10,6 @@ import { workspaceId } from '../api/session';
 import { uploadAttachment, useCard, useCards, useMe, useWorkspace } from '../api/queries';
 import { formatSize, useAttachments } from '../lib/attachments';
 import type { Card } from '../api/types';
-import { matchesQuery } from '../lib/search';
 import {
   coversExperimentation,
   predicateKeys,
@@ -46,14 +45,12 @@ onUnmounted(() => generation++);
 const title = ref('');
 const question = ref('');
 const deadline = ref('');
-const followsFrom = ref<string[]>([]);
 const another = ref(false);
 const expanded = ref(false);
 const busy = ref(false);
 const error = ref('');
 const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
-const query = ref('');
 const form = ref<HTMLFormElement>();
 const variables = ref<{ key: number; name: string; value: string }[]>([]);
 let nextVariable = 0;
@@ -119,28 +116,14 @@ const lastSet = computed(() => {
 });
 const number = (n: number) => studyNumber(workspace.data.value, { number: n });
 const byId = (id: string) => cards.data.value?.find((c) => c.id === id);
-const candidates = computed(() =>
-  (cards.data.value ?? []).filter(
-    (c) =>
-      !followsFrom.value.includes(c.id) &&
-      matchesQuery(`${number(c.number)} ${c.title}`, query.value),
-  ),
-);
 
 async function openMenu(name: string) {
   menu.value = menu.value === name ? '' : name;
-  query.value = '';
   await nextTick();
   form.value?.querySelector<HTMLInputElement>('.composer-menu input')?.focus();
 }
 function closeMenu() {
   menu.value = '';
-  query.value = '';
-}
-function follow(id: string) {
-  if (!followsFrom.value.includes(id)) followsFrom.value = [...followsFrom.value, id];
-  duplicate.value = null;
-  closeMenu();
 }
 function outside(event: PointerEvent) {
   if (!(event.target as HTMLElement).closest('.property-anchor')) closeMenu();
@@ -184,7 +167,6 @@ async function submit() {
     title: title.value.trim(),
     question: question.value.trim(),
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
-    follows_from: followsFrom.value,
     env: Object.fromEntries(
       variables.value
         .filter((row) => row.name !== '' || row.value !== '')
@@ -209,7 +191,6 @@ async function submit() {
       title.value = question.value = deadline.value = machine.value = '';
       assignee.value = props.assignee ? { ...props.assignee } : null;
       range.value = initialRange();
-      followsFrom.value = [];
       variables.value = [];
       results.value = [];
       addResult();
@@ -294,11 +275,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       </div>
       <p v-if="duplicate" class="composer-warning" role="status">
         An active study already asks this: {{ number(duplicate.number) }}
-        <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>. Set it as
-        “Follows from” to create a follow-up.
-        <button type="button" class="text-button" @click="follow(duplicate.id)">
-          Follows from {{ number(duplicate.number) }}
-        </button>
+        <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>.
       </p>
       <div class="composer-properties">
         <div class="property-line">
@@ -321,35 +298,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             @open="closeMenu"
             @picked="(last) => (usedLastSet = last)"
           />
-          <div v-for="id in followsFrom" :key="id" class="property-anchor">
-            <button
-              type="button"
-              class="property-pill"
-              :aria-label="`Follows from: ${byId(id) ? number(byId(id)!.number) : id}`"
-              @click="followsFrom = followsFrom.filter((x) => x !== id)"
-            >
-              <Icon name="up" :size="12" />{{ byId(id) ? number(byId(id)!.number) : 'Study'
-              }}<Icon name="close" :size="12" />
-            </button>
-          </div>
-          <div class="property-anchor">
-            <button type="button" class="property-pill" @click="openMenu('follows')">
-              <Icon name="link" :size="14" />Follows from
-            </button>
-            <div v-if="menu === 'follows'" class="composer-menu" role="menu">
-              <input v-model="query" placeholder="Search studies…" aria-label="Search studies" />
-              <button
-                v-for="c in candidates.slice(0, 8)"
-                :key="c.id"
-                type="button"
-                @click="follow(c.id)"
-              >
-                <small>{{ number(c.number) }}</small
-                ><span>{{ c.title }}</span>
-              </button>
-              <p v-if="!candidates.length">No matching studies</p>
-            </div>
-          </div>
         </div>
       </div>
       <div class="composer-files">

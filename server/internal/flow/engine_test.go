@@ -89,7 +89,7 @@ func (l *lab) study(t *testing.T, column string, teamed bool, agent *uuid.UUID) 
 			return err
 		}
 		if c, err = tx.Q.CreateCard(ctx, db.CreateCardParams{WorkspaceID: l.ws, Number: n, Title: "t", Question: "Why do cells age?", OwnerID: l.owner,
-			FollowsFrom: []uuid.UUID{}, ScopeFrom: column, ScopeTo: column, AssigneeType: &typ, AssigneeID: agent, BoardColumn: column, Round: 1}); err != nil {
+			ScopeFrom: column, ScopeTo: column, AssigneeType: &typ, AssigneeID: agent, BoardColumn: column, Round: 1}); err != nil {
 			return err
 		}
 		if teamed {

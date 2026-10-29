@@ -116,7 +116,7 @@ func (l *lab) scoped(t *testing.T, from, to string, agent uuid.UUID) db.Card {
 			return err
 		}
 		c, err = tx.Q.CreateCard(context.Background(), db.CreateCardParams{WorkspaceID: l.ws, Number: n, Title: "t", Question: "Why do cells age?",
-			OwnerID: l.owner, FollowsFrom: []uuid.UUID{}, ScopeFrom: from, ScopeTo: to, AssigneeType: &typ, AssigneeID: &agent, BoardColumn: from, Round: 1})
+			OwnerID: l.owner, ScopeFrom: from, ScopeTo: to, AssigneeType: &typ, AssigneeID: &agent, BoardColumn: from, Round: 1})
 		return err
 	})
 	return c
