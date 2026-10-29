@@ -1,7 +1,3 @@
-/** Regenerate with: node scripts/l2-css.mjs /path/to/Lykeion-L2
- * The reference must be dc21df94e8c9afe81ddcdac463cdde8d35d53c88 with its frozen
- * dependencies installed. Tailwind runs only there; the dashboard consumes CSS.
- */
 import { readFile, writeFile, mkdir, copyFile, rm } from 'node:fs/promises';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
