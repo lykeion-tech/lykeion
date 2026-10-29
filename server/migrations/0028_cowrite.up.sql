@@ -45,6 +45,11 @@ CREATE TABLE coresearch_doc_step (
 );
 CREATE FUNCTION refuse_coresearch_doc_step_update() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  -- A delete cascading from its file, project or workspace removes the whole
+  -- log; only statements aimed at the steps themselves are refused.
+  IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
+    RETURN OLD;
+  END IF;
   RAISE EXCEPTION 'document steps are append-only' USING ERRCODE='23514';
 END $$;
 CREATE TRIGGER coresearch_doc_step_immutable BEFORE UPDATE OR DELETE ON coresearch_doc_step

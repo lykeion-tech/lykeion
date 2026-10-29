@@ -225,3 +225,31 @@ func TestCowriteMigrationRollback(t *testing.T) {
 	}
 	apply("up")
 }
+
+// Steps refuse direct edits and deletes, but must not block a workspace, file
+// or project being deleted through its cascades.
+func TestCowriteStepsLetCascadesThrough(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	owner, ws, _ := seedWorkspace(t, env)
+	project, file := uuid.New(), uuid.New()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO coresearch_project(id,workspace_id,name,created_by,mode) VALUES ($1,$2,'paper',$3,'cowrite')`, []any{project, ws, owner}},
+		{`INSERT INTO coresearch_file(id,workspace_id,project_id,path) VALUES ($1,$2,$3,'main.tex')`, []any{file, ws, project}},
+		{`INSERT INTO coresearch_doc(workspace_id,file_id,initial_text,checkpoint_text) VALUES ($1,$2,'paper','paper')`, []any{ws, file}},
+		{`INSERT INTO coresearch_doc_step(workspace_id,file_id,version,author_user_id,client_id,changes) VALUES ($1,$2,1,$3,'client','{}')`, []any{ws, file, owner}},
+	} {
+		if _, err := env.Owner.Exec(ctx, q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := env.Owner.Exec(ctx, `DELETE FROM coresearch_doc_step WHERE file_id=$1`, file); err == nil {
+		t.Fatal("a direct step delete was allowed")
+	}
+	if _, err := env.Owner.Exec(ctx, `DELETE FROM workspace WHERE id=$1`, ws); err != nil {
+		t.Fatalf("workspace with document steps could not be deleted: %v", err)
+	}
+}
