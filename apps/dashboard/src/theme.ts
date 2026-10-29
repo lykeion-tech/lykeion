@@ -9,7 +9,7 @@ export interface Theme {
   muted: string;
   border: string;
   accent: string;
-  // The accent as text and focus ring: Dawn's and Pale's accents read under 3:1 on their surface.
+  // The accent as text and focus ring, a step of its hue that reads at 4.5:1 on surface, canvas and input.
   accentText: string;
   selected: string;
 }
@@ -27,7 +27,7 @@ export const themes: Theme[] = [
     muted: '#666a6d',
     border: '#e9e9eb',
     accent: '#3274a4',
-    accentText: '#3274a4',
+    accentText: '#30709f',
     selected: '#c9cacf',
   },
   {
@@ -41,7 +41,7 @@ export const themes: Theme[] = [
     muted: '#bdbdbf',
     border: '#2a292c',
     accent: '#d25f66',
-    accentText: '#d25f66',
+    accentText: '#d36369',
     selected: '#444447',
   },
   {
