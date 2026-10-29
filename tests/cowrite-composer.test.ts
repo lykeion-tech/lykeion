@@ -39,7 +39,7 @@ const models = [
   { value: 'cli-default', label: 'Default (recommended)', description: 'CLI default' },
   { value: 'cli-large', label: 'Large', description: 'More capacity' },
 ];
-async function mount({ draft = true, role = 'owner', choices = models } = {}) {
+async function mount({ draft = true, onWelcome = false, role = 'owner', choices = models } = {}) {
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal('document', {
     activeElement: null,
@@ -75,7 +75,11 @@ async function mount({ draft = true, role = 'owner', choices = models } = {}) {
   });
   client.setQueryData(keys.agent('lab', 'aristotle'), agent);
   client.setQueryData(conversationKey('lab', 'me'), [
-    { ...welcome, snapshot_model: draft ? null : 'frozen-model' },
+    {
+      ...welcome,
+      is_welcome: draft || onWelcome,
+      snapshot_model: draft || onWelcome ? null : 'frozen-model',
+    },
   ]);
   client.setQueryData(keys.coresearchMessages('lab', 'private', 'chat'), []);
   client.setQueryData(keys.skills('lab'), [
@@ -264,6 +268,37 @@ describe('Cowrite composer', () => {
       model: 'cli-large',
     });
     expect(m.router.currentRoute.value.path).toBe('/coresearch/paper/paper-chat');
+  });
+  it('starts a new session in the chosen mode from the welcome conversation', async () => {
+    const fetch = vi.fn((_url, init) =>
+      Promise.resolve(
+        response(
+          init.method === 'GET'
+            ? [{ id: 'neurips', label: 'NeurIPS' }]
+            : {
+                conversation: {
+                  ...welcome,
+                  id: 'new',
+                  project_id: 'p',
+                  chat_id: 'c',
+                  mode: 'cowrite',
+                },
+                run: { id: 'run' },
+              },
+          init.method === 'GET' ? 200 : 201,
+        ),
+      ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const m = await mount({ draft: false, onWelcome: true });
+    expect(m.label('Mode')).toBeDefined();
+    await m.click('Cowrite');
+    await m.edit('A new paper');
+    await m.click('Start paper');
+    const sent = fetch.mock.calls.find((c) => c[1].method === 'POST')!;
+    expect(sent[0]).toBe('/api/coresearch/conversations');
+    expect(JSON.parse(sent[1].body)).toMatchObject({ body: 'A new paper', mode: 'cowrite' });
+    expect(m.router.currentRoute.value.path).toBe('/coresearch/p/c');
   });
   it('shows plain Default without a list and excludes other members models', async () => {
     const m = await mount({ choices: [] });

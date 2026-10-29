@@ -59,6 +59,9 @@ const conversation = computed(() =>
             c.id === (route.params.conversationId || state.bootstrap.data.value?.conversation.id),
         ),
 );
+// The welcome conversation keeps its starters; what is sent from it opens a
+// new session, as the New chat page does.
+const startsSession = computed(() => isDraft.value || !!conversation.value?.is_welcome);
 const agent = computed(() => state.agent.data.value);
 const starters = computed(() =>
   agent.value?.conversation_starters?.length ? agent.value.conversation_starters : defaultStarters,
@@ -135,7 +138,7 @@ const mode = ref<SessionMode>('experiment'),
   template = ref('blank'),
   selectedModel = ref<string | null>(null);
 const effectiveModel = computed(() =>
-  isDraft.value
+  startsSession.value
     ? (models.value.find((m) => m.value === selectedModel.value)?.value ??
       models.value[0]?.value ??
       '')
@@ -252,13 +255,13 @@ async function send(prompt?: string) {
   const ws = workspaceId.value,
     member = state.member.value,
     scope = state.scope.value,
-    target = conversation.value?.id ?? '',
+    target = startsSession.value ? '' : (conversation.value?.id ?? ''),
     path = route.path;
   const generation = ++viewGeneration;
   const options = {
-    mode: isDraft.value ? mode.value : (conversation.value?.mode ?? 'experiment'),
-    ...(isDraft.value && mode.value === 'cowrite' ? { template: template.value } : {}),
-    ...(isDraft.value ? { model: effectiveModel.value } : {}),
+    mode: startsSession.value ? mode.value : (conversation.value?.mode ?? 'experiment'),
+    ...(startsSession.value && mode.value === 'cowrite' ? { template: template.value } : {}),
+    ...(startsSession.value ? { model: effectiveModel.value } : {}),
     ...(attachments.value.length
       ? { attachments: attachments.value.map((file) => ({ ...file })) }
       : {}),
@@ -500,7 +503,7 @@ async function stop() {
             v-model:template="template"
             :selected-model="effectiveModel"
             :models="models"
-            :draft="isDraft"
+            :draft="startsSession"
             :attachments="attachments"
             :busy="busy || uploading"
             :blocker="historyUnavailable ? 'Load conversation history before sending.' : blocker"

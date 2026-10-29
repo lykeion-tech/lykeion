@@ -1,17 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
 import { labSignIn } from './lab';
 test.use({ storageState: { cookies: [], origins: [] } });
-const steps = ['Welcome', 'Workspace', 'Runtime', 'Skills', 'Connectors', 'Ready'];
+const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Runtime'];
 const shots = 'test-results/ui2-task16';
 async function newcomer(page: Page, label: string) {
   await labSignIn(page.request, `onboarding-${label}@lab.test`);
   await page.goto('/#/onboarding');
   await expect(page.locator('.steps li')).toHaveText(steps);
 }
-test('six steps, Back and skips create a real workspace without a profile save', async ({
+test('five steps, Back and skips create a real workspace without a profile save', async ({
   page,
 }) => {
-  await newcomer(page, 'six');
+  await newcomer(page, 'five');
   await page.getByRole('button', { name: 'Set up your lab' }).click();
   await expect(page.getByRole('textbox', { name: 'Research context' })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'Your career stage' })).toHaveCount(0);
@@ -19,19 +19,17 @@ test('six steps, Back and skips create a real workspace without a profile save',
   await expect(page.getByRole('textbox', { name: 'URL' })).toHaveValue('zebrafish-lab');
   await page.getByRole('textbox', { name: 'Card prefix' }).fill('ZFISH');
   await page.getByRole('button', { name: 'Create workspace' }).click();
-  await expect(page.getByRole('heading', { name: 'Connect a research runtime' })).toBeVisible();
-  await expect(page.getByText('lyk daemon start')).toBeVisible();
-  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('heading', { name: 'Skills', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Runtime');
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Connectors', exact: true })).toBeVisible();
   await expect(page.getByRole('switch')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your lab is ready' })).toBeVisible();
-  await expect(page.getByText('Zebrafish lab', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect a runtime' })).toBeVisible();
+  await expect(page.getByText('lyk daemon start')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your lab is ready' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Enter workspace' }).click();
   await expect(page).toHaveURL(/#\/studies$/);
   const me = await (await page.request.get('/api/me')).json();
@@ -56,7 +54,7 @@ test('failed workspace creation stays on Workspace and retries once', async ({ p
   await expect(page.locator('[aria-current=step]')).toHaveText('Workspace');
   expect(await (await page.request.get('/api/workspaces')).json()).toEqual([]);
   await page.getByRole('button', { name: 'Create workspace' }).click();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Runtime');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
   expect(await (await page.request.get('/api/workspaces')).json()).toHaveLength(1);
 });
 test('existing-member resume preserves saved career and context and Settings still edits career', async ({
@@ -102,10 +100,9 @@ test('existing-member resume preserves saved career and context and Settings sti
     });
     await page.getByRole('radio', { name: ws.name, exact: true }).check();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByRole('button', { name: 'Skip for now' }).click();
     await page.getByRole('button', { name: 'Skip', exact: true }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page.getByText('Saved research context', { exact: true })).toBeVisible();
+    await expect(page.locator('[aria-current=step]')).toHaveText('Runtime');
     expect(writes).toEqual([]);
     expect((await (await page.request.get('/api/me')).json()).career_stage).toBe('postdoc');
     expect(
@@ -159,7 +156,6 @@ test('library pages read real shared data with four palettes and reachable respo
     await page.goto('/#/onboarding?step=workspace');
     await page.getByRole('radio', { name: ws.name, exact: true }).check();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(page.getByText('library-introduction', { exact: true })).toBeVisible();
     await expect(page.getByText('A real workspace skill.', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Add skill' })).toHaveCount(0);
@@ -191,7 +187,8 @@ test('library pages read real shared data with four palettes and reachable respo
       .locator('.onboarding-card')
       .filter({ has: page.getByText(connector.name, { exact: true }) });
     await expect(row).toContainText(connector.purpose);
-    await expect(row).toContainText(connector.enabled ? 'Available' : connector.reason);
+    if (connector.enabled) await expect(row).not.toContainText('Available');
+    else await expect(row).toContainText(connector.reason);
   }
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -204,7 +201,7 @@ test('library pages read real shared data with four palettes and reachable respo
   await expect(next).toBeInViewport();
   await page.screenshot({ path: `${shots}/mobile-wizard-connectors.png` });
   await next.click();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Ready');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Runtime');
 });
 
 test('a failed prefix save retries the created workspace without creating a duplicate', async ({
@@ -224,7 +221,7 @@ test('a failed prefix save retries the created workspace without creating a dupl
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await expect(page.getByRole('alert')).toBeVisible();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Runtime');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
   const saved = await (await page.request.get('/api/workspaces')).json();
   expect(saved).toHaveLength(1);
   expect(saved[0].display_prefix).toBe('PREFIX');
@@ -300,9 +297,7 @@ for (const phase of ['create', 'list'] as const) {
       );
       await expect(controlled).toHaveURL(/#\/studies$/);
       await expect(controlled.locator('.workspace-switch')).toContainText(b.name);
-      await expect(
-        controlled.getByRole('heading', { name: 'Connect a research runtime' }),
-      ).toHaveCount(0);
+      await expect(controlled.getByRole('heading', { name: 'Skills', exact: true })).toHaveCount(0);
     } finally {
       release();
       await controlled.unrouteAll({ behavior: 'wait' });

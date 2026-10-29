@@ -21,7 +21,7 @@ const router = useRouter();
 const client = useQueryClient();
 const workspaces = useWorkspaces();
 const runtimes = useRuntimes();
-const steps = ['Welcome', 'Workspace', 'Runtime', 'Skills', 'Connectors', 'Ready'] as const;
+const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Runtime'] as const;
 type Step = (typeof steps)[number];
 const step = ref<Step>(route.query.step === 'workspace' ? 'Workspace' : 'Welcome');
 watch(
@@ -63,9 +63,6 @@ const prefixError = computed(() =>
 );
 const canCreate = computed(
   () => name.value.trim() && /^[a-z0-9][a-z0-9-]{1,38}$/.test(slug.value) && !prefixError.value,
-);
-const chosen = computed<Workspace | undefined>(() =>
-  workspaces.data.value?.find((w) => w.id === workspaceId.value),
 );
 const onlineRuntimes = computed(() =>
   (runtimes.data.value ?? []).filter((r) => r.status === 'online'),
@@ -122,7 +119,7 @@ const saveWorkspace = () =>
     workspaceId.value = id;
     const selectedVisit = visit;
     await client.invalidateQueries({ queryKey: keys.workspaces });
-    if (visit === selectedVisit && workspaceId.value === id) step.value = 'Runtime';
+    if (visit === selectedVisit && workspaceId.value === id) step.value = 'Skills';
   });
 
 const back = () => {
@@ -188,7 +185,7 @@ async function logOut() {
     <main class="wizard-main">
       <header class="guide">
         <Aristotle still />
-        <div><b>Aristotle</b><span>Your guide to scientific research</span></div>
+        <div><b>Aristotle</b><small>Your guide to scientific research</small></div>
       </header>
       <section
         class="content"
@@ -280,7 +277,7 @@ async function logOut() {
           </div>
         </template>
         <template v-else-if="step === 'Runtime'">
-          <h2>Connect a research runtime</h2>
+          <h2>Connect a runtime</h2>
           <p class="sub">Connect a computer so agents can run research.</p>
           <p class="muted">
             Not connected yet? Run <code>lyk login</code> then <code>lyk daemon start</code>.
@@ -348,7 +345,7 @@ async function logOut() {
               <div>
                 <b>{{ connector.name }}</b>
                 <p>{{ connector.purpose }}</p>
-                <small>{{ connector.enabled ? 'Available' : connector.reason }}</small>
+                <small v-if="!connector.enabled">{{ connector.reason }}</small>
               </div>
               <span
                 class="availability"
@@ -368,17 +365,6 @@ async function logOut() {
             </article>
           </CapabilityList>
         </template>
-        <template v-else>
-          <h2>Your lab is ready</h2>
-          <div class="summary">
-            <small>Workspace</small>
-            <div>{{ chosen?.name ?? 'None yet' }}</div>
-            <small>Research context</small>
-            <div>{{ chosen?.research_context || 'None' }}</div>
-            <small>Runtimes</small>
-            <div>{{ onlineRuntimes.length }} online of {{ runtimes.data.value?.length ?? 0 }}</div>
-          </div>
-        </template>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
       </section>
       <footer class="actions">
@@ -397,15 +383,14 @@ async function logOut() {
             {{ choice === 'new' ? 'Create workspace' : 'Continue' }}
           </button>
         </template>
-        <template v-else-if="step === 'Runtime'">
-          <button class="button primary" @click="step = 'Skills'">Continue</button>
-          <button class="text-button" @click="step = 'Skills'">Skip for now</button>
-        </template>
         <template v-else-if="step === 'Skills' || step === 'Connectors'">
-          <button class="button primary" @click="step = step === 'Skills' ? 'Connectors' : 'Ready'">
+          <button
+            class="button primary"
+            @click="step = step === 'Skills' ? 'Connectors' : 'Runtime'"
+          >
             Continue
           </button>
-          <button class="text-button" @click="step = step === 'Skills' ? 'Connectors' : 'Ready'">
+          <button class="text-button" @click="step = step === 'Skills' ? 'Connectors' : 'Runtime'">
             Skip
           </button>
         </template>
@@ -506,7 +491,7 @@ async function logOut() {
   display: block;
   font-weight: 500;
 }
-.guide span {
+.guide small {
   color: var(--muted);
   font-size: 12.5px;
 }
@@ -647,18 +632,6 @@ async function logOut() {
 }
 .runtime-row .offline {
   color: var(--muted);
-}
-.summary {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px 20px;
-  font-size: 13.5px;
-  display: grid;
-  gap: 4px;
-}
-.summary small {
-  color: var(--muted);
-  margin-top: 8px;
 }
 .actions {
   border-top: 1px solid var(--border);
