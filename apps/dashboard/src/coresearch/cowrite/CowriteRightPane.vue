@@ -51,13 +51,18 @@ watch(
   },
   { immediate: true },
 );
-const tabs = computed(() => [
-  { id: 'info', label: 'Project Info' },
-  { id: 'versions', label: 'Versions' },
-  { id: 'comments', label: 'Comments' },
-  { id: 'logs', label: 'Logs' },
-  ...(props.compute ? [{ id: 'compute', label: 'Compute' }] : []),
-]);
+// Compute is the sidebar's own tab: it never shares the strip with the
+// paper's tools, and it closes.
+const tabs = computed(() =>
+  active.value === 'compute'
+    ? [{ id: 'compute', label: 'Compute', title: 'The machine this paper runs on', closable: true }]
+    : [
+        { id: 'info', label: 'Project Info' },
+        { id: 'versions', label: 'Versions' },
+        { id: 'comments', label: 'Comments' },
+        { id: 'logs', label: 'Logs' },
+      ],
+);
 function close() {
   tools.value = false;
   focus.value = false;
@@ -73,6 +78,7 @@ function close() {
         :active-id="active"
         :pane-mode="focus ? 'focus' : 'split'"
         @select="active = $event"
+        @close-tab="close"
         @toggle-focus="
           focus = !focus;
           emit('focus', focus);
@@ -101,27 +107,31 @@ function close() {
           @jump="(path, line) => emit('goToSource', path, line)"
         /><ComputePanel
           v-else-if="active === 'compute'"
+          role="tabpanel"
+          aria-label="Compute"
           :project-id="projectId"
           :title="title"
           :disabled="disabled"
-        /></div></template
-    ><PdfPane
-      v-else
-      :project-id="projectId"
-      :title="title"
-      :builds="builds"
-      :no-machine="noMachine"
-      :disabled="disabled"
-      :errors="errors"
-      :cursor="cursor"
-      @compile="emit('compile')"
-      @undo="emit('undo')"
-      @redo="emit('redo')"
-      @tools="
-        tools = true;
-        active = 'info';
-      "
-      @go-to-source="(path, line) => emit('goToSource', path, line)"
-    />
+        /></div
+    ></template>
+    <div v-else class="task-rightpane-card">
+      <PdfPane
+        :project-id="projectId"
+        :title="title"
+        :builds="builds"
+        :no-machine="noMachine"
+        :disabled="disabled"
+        :errors="errors"
+        :cursor="cursor"
+        @compile="emit('compile')"
+        @undo="emit('undo')"
+        @redo="emit('redo')"
+        @tools="
+          tools = true;
+          active = 'info';
+        "
+        @go-to-source="(path, line) => emit('goToSource', path, line)"
+      />
+    </div>
   </div>
 </template>

@@ -1,6 +1,8 @@
 import { type Page, type Route } from '@playwright/test';
 import { ChangeSet, Text } from '@codemirror/state';
 import { installFilesFixture, bootstrapRecord } from './coresearch-files-fixture.ts';
+// Request bodies and change rows as the wire carries them: parsed JSON.
+type Wire = ReturnType<typeof JSON.parse>;
 export async function cowriteFixture(page: Page, owner = true) {
   let person = owner ? 'me' : 'member',
     expired = false;
@@ -20,15 +22,17 @@ export async function cowriteFixture(page: Page, owner = true) {
     ['intro', { text: '\\section{Evidence}\nSecond file.', version: 0 }],
     ['bib', { text: '@article{test,title={Example}}', version: 0 }],
   ]);
-  const history = new Map<string, { version: number; client_id: string; changes: any }[]>();
-  const writes: { path: string; body: any; at: number; person: string }[] = [];
+  const history = new Map<string, { version: number; client_id: string; changes: Wire }[]>();
+  const writes: { path: string; body: Wire; at: number; person: string }[] = [];
   let conflicts = 0,
     force = false,
     offline = false,
     rejectTurn = false;
-  const changes: any[] = [
+  const changes: Wire[] = [
     {
       id: 'pending',
+      proposal_id: 'turn-proposal',
+      created_at: '2026-10-28T10:00:00Z',
       file_id: 'main',
       from_pos: 24,
       to_pos: 25,
@@ -37,6 +41,8 @@ export async function cowriteFixture(page: Page, owner = true) {
     },
     {
       id: 'stale',
+      proposal_id: 'turn-proposal',
+      created_at: '2026-10-28T10:00:00Z',
       file_id: 'main',
       from_pos: 26,
       to_pos: 32,
@@ -49,7 +55,7 @@ export async function cowriteFixture(page: Page, owner = true) {
     { id: 'intro', path: 'intro.tex' },
     { id: 'bib', path: 'refs.bib' },
   ].map((f) => ({ ...f, has_doc: true, head: { n: 1, size: 30, file_id: f.id } }));
-  function apply(id: string, raw: any, client = 'remote') {
+  function apply(id: string, raw: Wire, client = 'remote') {
     const d = docs.get(id)!;
     const cs = ChangeSet.fromJSON(raw);
     d.text = cs.apply(Text.of(d.text.split('\n'))).toString();
@@ -66,7 +72,7 @@ export async function cowriteFixture(page: Page, owner = true) {
     const req = route.request(),
       url = new URL(req.url()),
       path = url.pathname;
-    let data: any = [];
+    let data: Wire = [];
     if (req.method() !== 'GET')
       writes.push({
         path,

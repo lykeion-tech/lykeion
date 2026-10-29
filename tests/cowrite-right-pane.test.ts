@@ -5,6 +5,7 @@ import CowriteRightPane from '../apps/dashboard/src/coresearch/cowrite/CowriteRi
 import ProjectInfoPane from '../apps/dashboard/src/coresearch/cowrite/ProjectInfoPane.vue';
 import ComputePanel from '../apps/dashboard/src/coresearch/cowrite/ComputePanel.vue';
 import CommentsPane from '../apps/dashboard/src/coresearch/cowrite/CommentsPane.vue';
+import CowriteSidebar from '../apps/dashboard/src/coresearch/cowrite/CowriteSidebar.vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 const cleanup: (() => void)[] = [];
@@ -77,14 +78,21 @@ it('Tools opens the four permanent tabs in source order and Close returns to PDF
   await click(root, 'Close panel');
   expect(textOf(root)).toContain('Compile');
 });
-it('Compute adds a tab and shows the real empty-kernel state', async () => {
-  const root = mount(CowriteRightPane, { ...base, compute: true });
+it('Compute opens as its own closable tab and shows the real empty-kernel state', async () => {
+  const closed: boolean[] = [];
+  const root = mount(CowriteRightPane, {
+    ...base,
+    compute: true,
+    'onUpdate:compute': (v: boolean) => closed.push(v),
+  });
   await vi.waitFor(() => expect(textOf(root)).toContain('No live kernels'));
   expect(
     all(root)
       .filter((n) => n.props.role === 'tab')
       .map(textOf),
-  ).toEqual(['Project Info', 'Versions', 'Comments', 'Logs', 'Compute']);
+  ).toEqual(['Compute']);
+  await click(root, 'Close Compute');
+  expect(closed).toEqual([false]);
 });
 it('Stop requests a reason and sends it to the actual kernel operation route', async () => {
   compute = {
@@ -195,4 +203,21 @@ it('Comments filters resolved and mentions while delete remains author-only', as
       .filter((n) => n.props.class === 'ms-comment-text md-prose')
       .map((n) => n.props.innerHTML),
   ).toEqual(['<p>Read this</p>\n']);
+});
+it('the sidebar names how long ago each chat last moved', () => {
+  const ago = (mins: number) => new Date(Date.now() - mins * 60_000).toISOString();
+  const root = mount(CowriteSidebar, {
+    name: 'Paper',
+    tab: 'chats',
+    chats: [
+      { id: 'home', created_at: ago(300) },
+      { id: 'side', created_at: ago(90) },
+    ],
+    chatTimes: { home: ago(21) },
+  });
+  expect(
+    all(root)
+      .filter((n) => n.props.class === 'tsb-chat-time')
+      .map(textOf),
+  ).toEqual(['21m', '1h']);
 });

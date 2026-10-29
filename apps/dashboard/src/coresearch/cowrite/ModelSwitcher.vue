@@ -1,10 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { RuntimeModel } from '../../api/types';
 const props = defineProps<{ models: RuntimeModel[]; modelValue: string; disabled?: boolean }>();
 const emit = defineEmits<{ 'update:modelValue': [string] }>();
 const open = ref(false),
-  root = ref<HTMLElement>();
+  up = ref(false),
+  root = ref<HTMLElement>(),
+  menuEl = ref<HTMLElement>();
+// The menu drops below the pill; where the window has no room for it there,
+// it opens upward as it does from L2's docked composer.
+async function toggle() {
+  up.value = false;
+  open.value = !open.value;
+  await nextTick();
+  const menu = menuEl.value?.getBoundingClientRect?.();
+  if (menu && menu.bottom > window.innerHeight) up.value = true;
+}
 const label = computed(
   () =>
     props.models.find((m) => m.value === props.modelValue)?.label ??
@@ -37,7 +48,7 @@ onUnmounted(() => {
       :aria-expanded="open"
       :aria-label="`Model: ${label}`"
       :disabled="disabled"
-      @click="open = !open"
+      @click="toggle"
     >
       <span class="cli-pill-name">{{ label }}</span>
       <svg
@@ -57,7 +68,22 @@ onUnmounted(() => {
         />
       </svg>
     </button>
-    <div v-if="open && !disabled" class="cli-menu" role="listbox" aria-label="Models">
+    <div
+      v-if="open && !disabled"
+      ref="menuEl"
+      class="cli-menu"
+      role="listbox"
+      aria-label="Models"
+      :style="
+        up
+          ? {
+              top: 'auto',
+              bottom: 'calc(100% + 8px)',
+              boxShadow: '0 -18px 48px rgba(0, 0, 0, 0.6)',
+            }
+          : undefined
+      "
+    >
       <div class="cli-menu-head"><span class="cli-menu-eyebrow">Model</span></div>
       <button
         v-for="model in models"

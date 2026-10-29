@@ -115,9 +115,13 @@ const quote = computed(() =>
 const hint = (name: string, key: string) => (holdsFocus.value ? `${name} (${key})` : name);
 </script>
 <template>
+  <!-- Manual, not auto: the selection is reported on mouseup, and the
+       browser's light dismiss for that same press would close an auto
+       popover the moment it opens. Outside presses and Escape are handled
+       here instead. -->
   <div
     ref="box"
-    popover="auto"
+    popover="manual"
     class="ms-sel"
     :class="`ms-sel--${mode}`"
     :style="{

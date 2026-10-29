@@ -41,7 +41,7 @@ const groups = computed(() =>
       ),
   })),
 );
-async function remove() {
+async function confirmRemove() {
   if (busy.value || !removing.value) return;
   busy.value = true;
   error.value = '';
@@ -72,7 +72,7 @@ async function remove() {
       ><div :class="group.folder ? 'tsb-files-group' : undefined">
         <div
           v-if="group.folder"
-          class="mt-2 px-2.5 pb-[3px] pt-1.5 type-label text-fg-tertiary"
+          class="mt-2 px-2.5 pb-[3px] pt-1.5 type-label truncate text-fg-tertiary"
           :title="group.folder"
         >
           {{ group.folder }}
@@ -179,7 +179,7 @@ async function remove() {
             autofocus
             :disabled="busy"
             class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3 type-label text-white transition-opacity hover:opacity-90 bg-danger disabled:opacity-50"
-            @click="remove"
+            @click="confirmRemove"
           >
             Remove
           </button>

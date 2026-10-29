@@ -320,13 +320,42 @@ test('Compute shows only the caller kernel when another member owns the selected
       ],
     }),
   );
+  await page.route('**/projects/p/compute', (r) =>
+    r.fulfill({
+      json: {
+        kernels: [
+          {
+            chat_id: 'member-chat',
+            kernel: 'python3',
+            state: 'busy',
+            runtime_id: 'r',
+            device_name: 'CALLER-MACHINE',
+            samples: [{ t: '2026-09-02T04:05:06Z', rss: 1048576, cpu: 50 }],
+          },
+        ],
+        machines: [
+          {
+            runtime_id: 'r',
+            device_name: 'CALLER-MACHINE',
+            metrics: {
+              mem_used: 1,
+              mem_total: 2,
+              cpu_used: 50,
+              cores: 4,
+              disk_free: 1,
+              disk_total: 2,
+            },
+          },
+        ],
+      },
+    }),
+  );
   await page.goto('/#/coresearch/p/chat');
   await page.getByRole('button', { name: 'Compute', exact: true }).click();
   const pane = page.getByRole('tabpanel', { name: 'Compute', exact: true });
+  await expect(pane).toContainText('CALLER-MACHINE');
   await expect(pane).not.toContainText('OWNER-PRIVATE-STATE');
   await expect(pane).not.toContainText('2026-09-01T01:02:03Z');
-  await expect(pane).toContainText('CALLER-STATE');
-  await expect(pane).toContainText('2026-09-02T04:05:06Z');
 });
 test('a different user without a workspace can finish sign-in and manually return to the draft owner', async ({
   page,

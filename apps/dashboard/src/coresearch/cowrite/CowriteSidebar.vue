@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
 import type { ChatRow } from '../types';
 import FileMenu from './FileMenu.vue';
+import { formatAgo } from './lib/pane-time';
 const props = withDefaults(
   defineProps<{
     name: string;
@@ -11,6 +11,8 @@ const props = withDefaults(
     computeActive?: boolean;
     owner?: boolean;
     chatTitles?: Record<string, string>;
+    // When each chat last moved, as an ISO time.
+    chatTimes?: Record<string, string>;
   }>(),
   { tab: 'files' },
 );
@@ -171,7 +173,9 @@ const row = 'flex h-8 items-center gap-2.5 mx-0.5 rounded-lg px-2 type-body';
             <span class="tsb-chat-dot" aria-hidden="true" /><span class="tsb-chat-title">{{
               chatTitles?.[chat.id] || (i === 0 ? name : 'Conversation')
             }}</span
-            ><span class="tsb-chat-time" />
+            ><span class="tsb-chat-time">{{
+              formatAgo(Date.parse(chatTimes?.[chat.id] ?? chat.created_at) / 1000)
+            }}</span>
           </button>
         </div>
       </div>

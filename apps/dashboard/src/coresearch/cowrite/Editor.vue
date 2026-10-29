@@ -306,6 +306,9 @@ async function settle(id: string, verdict: 'keep' | 'undo') {
       options,
     );
     await refresh();
+    void client.invalidateQueries({
+      queryKey: keys.cowriteChanges(workspaceId.value, project, file),
+    });
   } catch (e) {
     fail(e);
   }
@@ -568,3 +571,11 @@ defineExpose({
 <template>
   <div class="manuscript-editor-shell"><div ref="host" class="manuscript-editor" /></div>
 </template>
+<style>
+/* The dashboard turns font synthesis off; the paper's mono face has no italic
+   of its own, so comment lines need the synthesised slant L2 draws. */
+.coresearch .manuscript-editor,
+.coresearch .merge-hunk {
+  font-synthesis: style;
+}
+</style>

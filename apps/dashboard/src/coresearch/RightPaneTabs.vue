@@ -121,17 +121,23 @@ watch(() => [props.activeId, props.tabs], reveal, { deep: true });
         :aria-label="paneMode === 'focus' ? 'Show conversation' : 'Expand panel'"
         @click="emit('toggleFocus')"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
           <path
             :d="
               paneMode === 'focus'
-                ? 'M2 6h4V2M14 10h-4v4M6 6 2 2m8 8 4 4'
-                : 'M6 2H2v4m8 8h4v-4M2 2l4 4m8 8-4-4'
+                ? 'M3 8h5V3M21 8h-5V3M16 21v-5h5M8 21v-5H3'
+                : 'M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5'
             "
-            stroke="currentColor"
-            stroke-width="1.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
           />
         </svg>
       </button>

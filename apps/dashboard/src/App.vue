@@ -151,9 +151,7 @@ const tabTitle = computed(() =>
   shownCard.value
     ? `${workspace.data.value?.display_prefix ?? ''}-${shownCard.value.number}: ${shownCard.value.title}`
     : cowriteShell.value
-      ? typeof route.query.file === 'string'
-        ? route.query.file
-        : 'main.tex'
+      ? (currentCoresearchProject.data.value?.name ?? '')
       : (route.meta.tabTitle ?? heading.value),
 );
 const headingIcon = computed(
@@ -419,11 +417,30 @@ onUnmounted(() => {
       :collapsed="collapsed"
       @toggle="collapsed = !collapsed"
     />
+    <!-- Kept mounted while the navigation is shown: the session teleports
+         its sidebar into the slot and would lose it otherwise. -->
     <div
       v-if="cowriteShell"
-      id="cowrite-context-rail"
+      v-show="railView === 'context'"
       class="sidebar coresearch cowrite-context-rail"
-    />
+    >
+      <button
+        v-if="railView === 'context'"
+        ref="workspaceTrigger"
+        class="workspace-switch nav-item"
+        data-shell-menu-trigger
+        aria-haspopup="menu"
+        :aria-expanded="workspaceMenu"
+        aria-controls="workspace-menu"
+        @click="toggleWorkspace"
+        @keydown.down.prevent="!workspaceMenu && toggleWorkspace()"
+      >
+        <span class="workspace-avatar">{{ workspaceName[0] }}</span
+        ><span>{{ workspaceName }}</span
+        ><Icon name="down" class="push-right" :size="14" />
+      </button>
+      <div id="cowrite-context-rail" class="cowrite-context-slot" />
+    </div>
     <ConversationRail v-else-if="aristotleShell && railView === 'context'">
       <template #footer>
         <SidebarFooter
@@ -434,9 +451,51 @@ onUnmounted(() => {
         />
       </template>
     </ConversationRail>
-    <RailFabs v-if="aristotleShell && !cowriteShell" :view="railView" @change="changeRail" />
+    <RailFabs
+      v-if="aristotleShell || cowriteShell"
+      :view="railView"
+      :session="cowriteShell"
+      @change="changeRail"
+    />
+    <div
+      v-if="workspaceMenu"
+      id="workspace-menu"
+      ref="workspacePopup"
+      class="shell-popup workspace-popup"
+      role="menu"
+      aria-label="Workspace"
+      @keydown="popupKey($event, workspacePopup, 'workspace')"
+    >
+      <button class="workspace-profile" role="menuitem" @click="go('settings?tab=profile')">
+        <span class="profile-menu-avatar">{{
+          (me.data.value?.name || me.data.value?.email || '?')[0]?.toUpperCase()
+        }}</span
+        ><span
+          >{{ me.data.value?.name || me.data.value?.email
+          }}<small>{{ me.data.value?.email }}</small></span
+        >
+      </button>
+      <div class="shell-menu-divider" />
+      <small class="workspace-menu-label">Workspaces</small>
+      <button
+        v-for="w in workspaces.data.value ?? []"
+        :key="w.id"
+        role="menuitem"
+        @click="chooseWorkspace(w.id)"
+      >
+        <span class="workspace-avatar">{{ w.name[0] }}</span
+        >{{ w.name }}<Icon v-if="w.id === workspaceId" name="check" class="push-right" :size="14" />
+      </button>
+      <button role="menuitem" @click="go('onboarding?step=workspace')">
+        <Icon name="plus" :size="16" />Create workspace
+      </button>
+      <div class="shell-menu-divider" />
+      <button role="menuitem" class="danger-menu-item" @click="logOut">
+        <Icon name="logout" :size="16" />Log out
+      </button>
+    </div>
     <aside
-      v-if="!cowriteShell && (!aristotleShell || railView === 'nav')"
+      v-if="(!aristotleShell && !cowriteShell) || railView === 'nav'"
       class="sidebar"
       aria-label="Workspace navigation"
     >
@@ -454,44 +513,6 @@ onUnmounted(() => {
         ><span>{{ workspaceName }}</span
         ><Icon name="down" class="push-right" :size="14" />
       </button>
-      <div
-        v-if="workspaceMenu"
-        id="workspace-menu"
-        ref="workspacePopup"
-        class="shell-popup workspace-popup"
-        role="menu"
-        aria-label="Workspace"
-        @keydown="popupKey($event, workspacePopup, 'workspace')"
-      >
-        <button class="workspace-profile" role="menuitem" @click="go('settings?tab=profile')">
-          <span class="profile-menu-avatar">{{
-            (me.data.value?.name || me.data.value?.email || '?')[0]?.toUpperCase()
-          }}</span
-          ><span
-            >{{ me.data.value?.name || me.data.value?.email
-            }}<small>{{ me.data.value?.email }}</small></span
-          >
-        </button>
-        <div class="shell-menu-divider" />
-        <small class="workspace-menu-label">Workspaces</small>
-        <button
-          v-for="w in workspaces.data.value ?? []"
-          :key="w.id"
-          role="menuitem"
-          @click="chooseWorkspace(w.id)"
-        >
-          <span class="workspace-avatar">{{ w.name[0] }}</span
-          >{{ w.name
-          }}<Icon v-if="w.id === workspaceId" name="check" class="push-right" :size="14" />
-        </button>
-        <button role="menuitem" @click="go('onboarding?step=workspace')">
-          <Icon name="plus" :size="16" />Create workspace
-        </button>
-        <div class="shell-menu-divider" />
-        <button role="menuitem" class="danger-menu-item" @click="logOut">
-          <Icon name="logout" :size="16" />Log out
-        </button>
-      </div>
       <div class="quick-actions">
         <button
           class="nav-item palette-trigger"
@@ -959,5 +980,19 @@ onUnmounted(() => {
 .application .sidebar.cowrite-context-rail {
   padding: 0;
   overflow: hidden;
+}
+.application .sidebar.cowrite-context-rail > .workspace-switch {
+  margin: 12px 10px 0;
+  width: auto;
+  flex: none;
+}
+.application .cowrite-context-slot {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.application .cowrite-context-slot > * {
+  flex: 1;
+  min-width: 0;
 }
 </style>

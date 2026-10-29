@@ -3,7 +3,7 @@ import { computed, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueries, useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../../api/client';
-import { useMe, useMembers } from '../../api/queries';
+import { useMe, useMembers, useRuntimes } from '../../api/queries';
 import { workspaceId } from '../../api/session';
 import { guardResourceDrafts } from '../../state/resource-draft';
 import { useWorkspaceTabs } from '../../state/workspace-tabs';
@@ -38,6 +38,9 @@ import Outline from './Outline.vue';
 import Editor from './Editor.vue';
 import HomeChatDrawer from './HomeChatDrawer.vue';
 import SelectionToolbar, { type SelectionTarget } from './SelectionToolbar.vue';
+import MergeChangesRow, { type Proposal } from './MergeChangesRow.vue';
+import TurnRail from '../TurnRail.vue';
+import RailRow from '../RailRow.vue';
 import {
   outlineOf,
   proofreadPrompt,
@@ -48,7 +51,7 @@ import {
 } from './lib/manuscript';
 import { docPath, useBuilds, useVersions } from './api';
 import { keys } from '../api';
-import type { Doc, Comment, Version } from './types';
+import type { Doc, Comment, Change, Version } from './types';
 const props = defineProps<{ project: ProjectRow; chatId?: string }>();
 const route = useRoute(),
   router = useRouter(),
@@ -56,6 +59,7 @@ const route = useRoute(),
   tabs = useWorkspaceTabs();
 const me = useMe(),
   members = useMembers(),
+  runtimes = useRuntimes(),
   aristotle = useAristotle();
 const chats = useCoresearchChats(() => props.project.id),
   files = useCoresearchFiles(() => props.project.id),
@@ -80,9 +84,23 @@ const chatTitles = computed(() =>
       .map((c) => [c.chat_id, c.title]),
   ),
 );
+const chatTimes = computed(() => {
+  const last = messages.data.value?.at(-1)?.created_at;
+  return chat.value && last ? { [chat.value.id]: last } : {};
+});
 const model = computed(() =>
   conversation.value && !conversation.value.shared ? (conversation.value.snapshot_model ?? '') : '',
 );
+// The label the owner's CLI reported for the session's model; the bare value
+// only once no runtime of theirs lists it any more.
+const sessionModels = computed(() => {
+  if (!model.value) return [];
+  const listed = (runtimes.data.value ?? [])
+    .filter((r) => r.owner_id === chat.value?.owner_id && r.harness === chat.value?.cli)
+    .flatMap((r) => r.models ?? [])
+    .find((m) => m.value === model.value);
+  return [listed ?? { value: model.value, label: model.value }];
+});
 const activeRun = computed(
   () =>
     messages.data.value?.find((m) => m.kind === 'turn' && isActiveTurn(m.status))?.agent_run_id ??
@@ -175,7 +193,6 @@ watch(
         for (const t of tabs.tabs.value) {
           if (t.path === old) {
             t.path = next;
-            t.title = current.path;
             t.history = t.history.map((p) => (p === old ? next : p));
           }
         }
@@ -217,11 +234,8 @@ async function invalidate() {
 }
 async function openFile(path: string) {
   if (!(await guardResourceDrafts())) return;
-  const target = pathFor(path);
-  const existing = tabs.tabs.value.find((t) => t.path === target);
-  if (existing) tabs.selected.value = existing.id;
-  else tabs.openTab(target, path, 'file');
-  await router.push(target);
+  // A file opens inside the session's own tab, as a task's files do in L2.
+  await router.push(pathFor(path));
 }
 async function openChat(id: string) {
   if (!(await guardResourceDrafts())) return;
@@ -489,6 +503,71 @@ const comments = computed(() =>
     ),
   ),
 );
+// The paper's tracked changes, every file at once, grouped as the proposals
+// that wrote them. The text of each hunk is cut from the live document.
+const changeQueries = useQueries({
+  queries: computed(() =>
+    commentFiles.value.flatMap((f) => [
+      {
+        queryKey: keys.cowriteChanges(workspaceId.value, props.project.id, f.id),
+        enabled: !!workspaceId.value,
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          api<Change[]>('GET', `${docPath(props.project.id, f.id)}/changes`, undefined, undefined, {
+            signal,
+            workspace: workspaceId.value,
+          }),
+        refetchInterval: 4000,
+      },
+      {
+        queryKey: keys.cowriteDoc(workspaceId.value, props.project.id, f.id),
+        enabled: !!workspaceId.value,
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          api<Doc>('GET', docPath(props.project.id, f.id), undefined, undefined, {
+            signal,
+            workspace: workspaceId.value,
+          }),
+        refetchInterval: 4000,
+      },
+    ]),
+  ),
+});
+const proposals = computed(() => {
+  const held = new Map<string, Proposal & { at: string }>();
+  commentFiles.value.forEach((f, i) => {
+    const rows = changeQueries.value[2 * i]?.data as Change[] | undefined;
+    const doc = changeQueries.value[2 * i + 1]?.data as Doc | undefined;
+    for (const c of Array.isArray(rows) ? rows : []) {
+      const p = held.get(c.proposal_id) ?? { id: c.proposal_id, files: [], at: c.created_at };
+      held.set(c.proposal_id, p);
+      let file = p.files.find((x) => x.path === f.path);
+      if (!file) p.files.push((file = { path: f.path, hunks: [] }));
+      file.hunks.push({
+        id: c.id,
+        status: c.status,
+        oldText: c.removed_text,
+        newText: doc?.text.slice(c.from_pos, c.to_pos) ?? '',
+      });
+    }
+  });
+  // ponytail: the API does not say which turn wrote a proposal, so cards with
+  // something still owed follow the transcript instead of sitting on their turn.
+  return [...held.values()]
+    .filter((p) => p.files.some((f) => f.hunks.some((h) => h.status === 'pending')))
+    .sort((a, b) => a.at.localeCompare(b.at));
+});
+async function settleHunk(id: string, verdict: 'keep' | 'undo') {
+  try {
+    await editor.value?.flush();
+    await api(
+      'POST',
+      `${projectPath(props.project.id)}/changes/${encodeURIComponent(id)}/${verdict}`,
+    );
+    await invalidate();
+    await editor.value?.refresh();
+  } catch (e) {
+    report(e);
+  }
+}
 const latestBuild = computed(() => [...(builds.data.value ?? [])].sort((a, b) => b.seq - a.seq)[0]);
 const log = ref<string>(),
   logFailed = ref(false);
@@ -582,6 +661,7 @@ async function build() {
         :chats="chats.data.value ?? []"
         :active-chat-id="chat?.id"
         :chat-titles="chatTitles"
+        :chat-times="chatTimes"
         :owner="project.role === 'owner'"
         :compute-active="compute"
         @compute="compute = !compute"
@@ -673,7 +753,14 @@ async function build() {
                 ><ChatTranscript
                   :project-id="project.id"
                   :chat-id="chat.id"
-                  :messages="messages.data.value ?? []" /><template #composer
+                  :messages="messages.data.value ?? []" /><TurnRail
+                  v-for="proposal in proposals"
+                  :key="proposal.id"
+                  ><RailRow marker="ok"
+                    ><MergeChangesRow
+                      :proposal="proposal"
+                      @settle="settleHunk" /></RailRow></TurnRail
+                ><template #composer
                   ><AristotleComposer
                     v-if="owner"
                     v-model="draft"
@@ -682,7 +769,7 @@ async function build() {
                     :blocker="project.archived_at ? 'Project is archived' : undefined"
                     :active-run="activeRun"
                     :selected-model="model"
-                    :models="model ? [{ value: model, label: model }] : []"
+                    :models="sessionModels"
                     :attachments="attachments"
                     @send="send()"
                     @stop="stop"
