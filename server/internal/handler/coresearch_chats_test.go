@@ -125,6 +125,27 @@ func TestCoresearchClaimOnlyOwnersDaemon(t *testing.T) {
 		t.Fatalf("unexpected claimed runs: %d", len(got))
 	}
 }
+
+// A turn frozen to a model only goes to a runtime whose CLI lists that model.
+func TestCoresearchModelTurnClaimedOnlyWhereModelListed(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	run := csTurn(t, s, a, ws, path)
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET requested_model='opus-frozen' WHERE id=$1`, run.ID); e != nil {
+		t.Fatal(e)
+	}
+	without := csRegister(t, s, a, ws, "a-without", "claude")
+	with := csRegister(t, s, a, ws, "a-with", "claude")
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE runtime SET models='[{"value":"opus-frozen"}]'::jsonb WHERE id=$1`, with.RuntimeID); e != nil {
+		t.Fatal(e)
+	}
+	if got := csClaim(t, s, a, without); len(got) != 0 {
+		t.Fatalf("runtime without the model claimed %d runs", len(got))
+	}
+	if got := csClaim(t, s, a, with); len(got) != 1 || got[0].AgentRun.ID != run.ID {
+		t.Fatalf("runtime listing the model claimed %d runs", len(got))
+	}
+}
 func TestReleaseUnbinds(t *testing.T) {
 	s, a, _, _, ws, p := csFixture(t)
 	path, c := csChat(t, s, a, ws, p.ID)

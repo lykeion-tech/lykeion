@@ -47,6 +47,7 @@ type chatHost struct {
 	users             int
 	tmp, bridgeDir    string
 	kernel            string
+	cpu               cpuMeter
 }
 
 func (d *daemon) corePath(path string) string {

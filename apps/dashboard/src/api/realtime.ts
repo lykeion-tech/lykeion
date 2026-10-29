@@ -20,9 +20,22 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'coresearch': {
       const project = e.payload.project_id;
       if (typeof project !== 'string') return [];
-      // The project prefix includes Cowrite docs, comments and builds.
-      // Stepped documents and changed comments/builds refetch through member routes.
       // Events carry identifiers only; all data is read through membership routes.
+      // Document, comment and build events are frequent and touch one file or
+      // the build list, so they leave every other viewer's queries alone.
+      const file = e.payload.file_id;
+      const cowrite = ['ws', ws, 'coresearch', project, 'cowrite'];
+      if (e.type === 'coresearch.doc.stepped' && typeof file === 'string')
+        return [
+          keys.cowriteDoc(ws, project, file),
+          keys.cowriteChanges(ws, project, file),
+          keys.cowriteComments(ws, project, file),
+          [...cowrite, 'doc-steps', file],
+        ];
+      if (e.type === 'coresearch.comment.changed' && typeof file === 'string')
+        return [keys.cowriteComments(ws, project, file)];
+      if (e.type === 'coresearch.build.changed')
+        return [keys.cowriteBuilds(ws, project), keys.cowriteVersions(ws, project)];
       return [
         keys.coresearchProjects(ws),
         keys.coresearchConversations(ws),

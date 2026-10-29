@@ -120,6 +120,9 @@ func TestSharedSessionMembers(t *testing.T) {
 	if code := s.call(t, "POST", path, b, ws, map[string]string{"body": "My manuscript chat", "request_id": uuid.NewString()}, &accepted); code != 201 || accepted.Run.RequestedModel != "member-model" || !strings.Contains(accepted.Run.Prompt, "Member instructions") {
 		t.Fatalf("member Aristotle turn %d %+v", code, accepted)
 	}
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE runtime SET models='[{"value":"member-model"}]'::jsonb WHERE id=$1`, ref.RuntimeID); e != nil {
+		t.Fatal(e)
+	}
 	claims := csClaim(t, s, b, ref)
 	if len(claims) != 1 || claims[0].Coresearch == nil || !claims[0].Coresearch.Aristotle || claims[0].AgentRun.RequestedModel != "member-model" {
 		t.Fatalf("new chat claim %+v", claims)

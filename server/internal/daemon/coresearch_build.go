@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"lykeion/server/internal/apiclient"
@@ -23,7 +24,9 @@ import (
 	"lykeion/server/internal/daemon/sandbox"
 )
 
-const BuildLimit = 2 * time.Minute
+// BuildLimit bounds a TeX run from the moment latexmk starts.
+var BuildLimit = 2 * time.Minute
+
 const BuildMemoryCap int64 = 2 << 30
 const buildInstallMessage = "Install TeX Live (or MacTeX) to build papers."
 const buildMonitorInterval = 100 * time.Millisecond
@@ -33,18 +36,24 @@ type buildResult struct {
 	Pages               int
 }
 
-func buildTools(ctx context.Context) (string, []string, error) {
-	latex, err := exec.LookPath("latexmk")
+// buildTools returns the resolved latexmk, the PATH a build runs with, and the
+// TeX system roots the sandbox may read.
+func buildTools(ctx context.Context) (string, string, []string, error) {
+	link, err := exec.LookPath("latexmk")
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
-	latex, err = filepath.EvalSymlinks(latex)
+	latex, err := filepath.EvalSymlinks(link)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	kpse, err := exec.LookPath("kpsewhich")
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
+	}
+	kpseReal, err := filepath.EvalSymlinks(kpse)
+	if err != nil {
+		return "", "", nil, err
 	}
 	roots := []string{}
 	for _, name := range []string{"TEXMFROOT", "TEXMFSYSVAR"} {
@@ -52,17 +61,27 @@ func buildTools(ctx context.Context) (string, []string, error) {
 		cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=/nonexistent"}
 		data, e := cmd.Output()
 		if e != nil {
-			return "", nil, e
+			return "", "", nil, e
 		}
 		root, e := filepath.EvalSymlinks(strings.TrimSpace(string(data)))
 		if e != nil || !filepath.IsAbs(root) || root == "/" {
-			return "", nil, fmt.Errorf("invalid TeX system root %s", name)
+			return "", "", nil, fmt.Errorf("invalid TeX system root %s", name)
 		}
 		if !slices.Contains(roots, root) {
 			roots = append(roots, root)
 		}
 	}
-	return latex, roots, nil
+	// TeX Live links bin/<arch>/latexmk to a script under texmf-dist, so the
+	// engines live beside the links found on PATH, not beside resolved scripts.
+	// The resolved kpsewhich directory covers installs that link a whole bin dir.
+	dirs := []string{}
+	for _, p := range []string{link, kpse, kpseReal} {
+		if d := filepath.Dir(p); !slices.Contains(dirs, d) {
+			dirs = append(dirs, d)
+		}
+	}
+	path := strings.Join(append(dirs, "/usr/bin", "/bin"), string(filepath.ListSeparator))
+	return latex, path, roots, nil
 }
 
 func (d *daemon) buildPolicy(dir, tmp string, texRoots []string) (sandbox.Policy, error) {
@@ -87,9 +106,9 @@ func (d *daemon) buildPolicy(dir, tmp string, texRoots []string) (sandbox.Policy
 }
 func (d *daemon) compileBuild(parent context.Context, dir, tmp string, capBytes int64) buildResult {
 	result := buildResult{Status: "failed"}
-	ctx, cancel := context.WithTimeout(parent, BuildLimit)
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	latex, root, err := buildTools(ctx)
+	latex, path, root, err := buildTools(ctx)
 	if err != nil {
 		result.Reason = buildInstallMessage
 		return result
@@ -130,7 +149,7 @@ func (d *daemon) compileBuild(parent context.Context, dir, tmp string, capBytes 
 	}
 	// Resolve binaries through trusted installation directories only. User TeX,
 	// Perl, loader and shell configuration are deliberately not inherited.
-	cmd.Env = []string{"PATH=" + filepath.Join(root[0], "bin", "universal-darwin") + ":" + filepath.Dir(latex) + ":/opt/homebrew/bin:/Library/TeX/texbin:/usr/bin:/bin", "HOME=" + home, "TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "LANG=C", "openin_any=p", "openout_any=p", "TEXMFHOME=" + home, "TEXMFVAR=" + tmp, "TEXMFCONFIG=" + home, "shell_escape=f", "VARTEXFONTS=" + filepath.Join(tmp, "fonts")}
+	cmd.Env = []string{"PATH=" + path, "HOME=" + home, "TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp, "LANG=C", "openin_any=p", "openout_any=p", "TEXMFHOME=" + home, "TEXMFVAR=" + tmp, "TEXMFCONFIG=" + home, "shell_escape=f", "VARTEXFONTS=" + filepath.Join(tmp, "fonts")}
 	cmd.Dir = dir
 	log := &recordedTail{limit: 2 << 20}
 	cmd.Stdout = log
@@ -142,6 +161,9 @@ func (d *daemon) compileBuild(parent context.Context, dir, tmp string, capBytes 
 		return result
 	}
 	defer killGroup(cmd)
+	var timedOut atomic.Bool
+	limit := time.AfterFunc(BuildLimit, func() { timedOut.Store(true); cancel() })
+	defer limit.Stop()
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	ticker := time.NewTicker(buildMonitorInterval)
@@ -168,8 +190,12 @@ func (d *daemon) compileBuild(parent context.Context, dir, tmp string, capBytes 
 	if result.Reason != "" {
 		return result
 	}
-	if ctx.Err() != nil {
+	if timedOut.Load() {
 		result.Reason = "timeout"
+		return result
+	}
+	if ctx.Err() != nil {
+		result.Reason = "cancelled"
 		return result
 	}
 	if err != nil {
@@ -228,7 +254,7 @@ func (d *daemon) runBuild(parent context.Context, w coresearch.WorkContext, b co
 	if err := d.coreAPI(w.WorkspaceID).Do(parent, "POST", d.coreWorkPath(w, "builds/"+b.ID.String()+"/start"), nil, nil); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(parent, BuildLimit)
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	watched := make(chan struct{})
 	go func() { defer close(watched); d.watchCoresearch(ctx, cancel, w, "builds", b.ID) }()

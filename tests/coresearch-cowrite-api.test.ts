@@ -70,21 +70,60 @@ it('reads all Cowrite resources through project-scoped member routes and keys', 
       .every((q) => q.queryKey.slice(0, 4).join('/') === 'ws/lab/coresearch/p'),
   ).toBe(true);
 });
-it.each(['coresearch.doc.stepped', 'coresearch.comment.changed', 'coresearch.build.changed'])(
-  'invalidates Cowrite queries on %s using ids only',
-  (type) => {
-    const event = {
-      id: 1,
-      workspace_id: 'lab',
-      type,
-      card_id: null,
-      payload: { project_id: 'p', file_id: 'file' },
-    };
-    const affected = invalidationsFor('lab', event as never);
-    expect(affected).toContainEqual(['ws', 'lab', 'coresearch', 'p']);
-    expect(invalidationsFor('other', event as never)).toEqual([]);
-  },
-);
+// An event reaches only the queries whose data it can change: a keystroke batch
+// refetches that file's document, but no viewer's chats, messages or compute.
+it.each([
+  [
+    'coresearch.doc.stepped',
+    [
+      keys.cowriteDoc('lab', 'p', 'file'),
+      keys.cowriteChanges('lab', 'p', 'file'),
+      keys.cowriteComments('lab', 'p', 'file'),
+      keys.cowriteDocSteps('lab', 'p', 'file', 7),
+    ],
+    [keys.cowriteBuilds('lab', 'p'), keys.cowriteDoc('lab', 'p', 'other')],
+  ],
+  [
+    'coresearch.comment.changed',
+    [keys.cowriteComments('lab', 'p', 'file')],
+    [keys.cowriteDoc('lab', 'p', 'file'), keys.cowriteComments('lab', 'p', 'other')],
+  ],
+  [
+    'coresearch.build.changed',
+    [keys.cowriteBuilds('lab', 'p'), keys.cowriteVersions('lab', 'p')],
+    [keys.cowriteDoc('lab', 'p', 'file'), keys.cowriteChanges('lab', 'p', 'file')],
+  ],
+] as const)('invalidates only the affected Cowrite queries on %s', (type, hit, missed) => {
+  const event = {
+    id: 1,
+    workspace_id: 'lab',
+    type,
+    card_id: null,
+    payload: { project_id: 'p', file_id: 'file', build_id: 'b' },
+  };
+  const affected = invalidationsFor('lab', event as never);
+  const stale = (key: readonly unknown[]) =>
+    affected.some((prefix) => prefix.every((part, i) => part === key[i]));
+  for (const key of hit) expect(stale(key), key.join('/')).toBe(true);
+  for (const key of [
+    ...missed,
+    keys.coresearchChats('lab', 'p'),
+    keys.coresearchMessages('lab', 'p', 'chat'),
+    keys.cowriteCompute('lab', 'p'),
+    keys.coresearchProjects('lab'),
+  ])
+    expect(stale(key), key.join('/')).toBe(false);
+  expect(invalidationsFor('other', event as never)).toEqual([]);
+});
+
+it('polls builds only while one is queued or running', () => {
+  const poll = (...status: string[]) =>
+    cowrite.buildPollInterval(status.map((s, i) => ({ id: String(i), status: s }) as never));
+  expect(poll()).toBe(false);
+  expect(poll('ok', 'failed', 'aborted')).toBe(false);
+  expect(poll('ok', 'queued')).toBe(1500);
+  expect(poll('running')).toBe(1500);
+});
 
 it('loads draft templates in a reserved new-project namespace before a session exists', async () => {
   workspaceId.value = 'lab';

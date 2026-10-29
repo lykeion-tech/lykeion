@@ -104,13 +104,15 @@ describe('shared CodeMirror journal', () => {
     expect(sendableUpdates(state)).toHaveLength(0);
     expect(getSyncedVersion(state)).toBe(1003);
   });
-  it('retains pending text after failure and batches at 300 milliseconds', async () => {
+  it('retains pending text after failure, retries on the next tick and batches at 300 milliseconds', async () => {
     vi.useFakeTimers();
     try {
       expect(shared.createCollaboration).toBeTypeOf('function');
       let state = shared.collaborativeState({ version: 0, text: 'before' }, 'local');
-      const push = vi.fn(async () => {
-        throw new Error('offline');
+      let offline = true;
+      const push = vi.fn(async (base: number, _id: string, changes: unknown[]) => {
+        if (offline) throw new Error('offline');
+        return { version: base + changes.length };
       });
       const error = vi.fn();
       const sync = shared.createCollaboration({
@@ -131,6 +133,15 @@ describe('shared CodeMirror journal', () => {
       expect(state.doc.toString()).toBe('beforeafter');
       expect(sendableUpdates(state)).toHaveLength(1);
       expect(error).toHaveBeenCalled();
+      // The editor's one-second tick schedules again while text is unsent.
+      offline = false;
+      sync.schedule();
+      await vi.advanceTimersByTimeAsync(300);
+      expect(push).toHaveBeenCalledTimes(2);
+      expect(sendableUpdates(state)).toHaveLength(0);
+      sync.schedule();
+      await vi.advanceTimersByTimeAsync(300);
+      expect(push).toHaveBeenCalledTimes(2);
       sync.stop();
     } finally {
       vi.useRealTimers();

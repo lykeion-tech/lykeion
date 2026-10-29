@@ -41,7 +41,7 @@ func TestSampleProcessTree(t *testing.T) {
 	}
 	defer func() { syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); cmd.Wait() }()
 	time.Sleep(50 * time.Millisecond)
-	tree, e := Sample(t.Context(), []int{cmd.Process.Pid, 2147483647, cmd.Process.Pid})
+	tree, e := new(cpuMeter).Sample(t.Context(), []int{cmd.Process.Pid, 2147483647, cmd.Process.Pid})
 	if e != nil || tree.RSS == 0 {
 		t.Fatalf("%+v %v", tree, e)
 	}
@@ -260,5 +260,39 @@ func TestKernelSampleStallDoesNotBlockStop(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.samples) != 0 || len(f.states) == 0 || f.states[len(f.states)-1] != "stopped" {
 		t.Fatalf("stale telemetry after Stop: %v %v", f.samples, f.states)
+	}
+}
+
+// Kernels report their current CPU, not the average over their lifetime: one
+// that worked and went idle reads low, one that idled and got busy reads high.
+func TestSampleReportsCurrentCPU(t *testing.T) {
+	start := func(code string) int {
+		cmd := exec.Command("python3", "-c", "import time\ne = time.time() + 1.5\n"+code)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+		return cmd.Process.Pid
+	}
+	idle := start("while time.time() < e: pass\ntime.sleep(30)")
+	busy := start("time.sleep(1.5)\nwhile True: pass")
+	time.Sleep(1700 * time.Millisecond)
+	var idleM, busyM cpuMeter
+	for _, m := range []struct {
+		m   *cpuMeter
+		pid int
+	}{{&idleM, idle}, {&busyM, busy}} {
+		if _, e := m.m.Sample(t.Context(), []int{m.pid}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	time.Sleep(500 * time.Millisecond)
+	s, e := idleM.Sample(t.Context(), []int{idle})
+	if e != nil || s.CPU > 20 {
+		t.Fatalf("idle kernel reported %.1f%% CPU (%v)", s.CPU, e)
+	}
+	s, e = busyM.Sample(t.Context(), []int{busy})
+	if e != nil || s.CPU < 60 {
+		t.Fatalf("busy kernel reported %.1f%% CPU (%v)", s.CPU, e)
 	}
 }

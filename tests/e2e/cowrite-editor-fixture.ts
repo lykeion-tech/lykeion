@@ -27,7 +27,8 @@ export async function cowriteFixture(page: Page, owner = true) {
   let conflicts = 0,
     force = false,
     offline = false,
-    rejectTurn = false;
+    rejectTurn = false,
+    activeTurn = false;
   const changes: Wire[] = [
     {
       id: 'pending',
@@ -104,7 +105,22 @@ export async function cowriteFixture(page: Page, owner = true) {
       const f = files.find((f) => f.id === path.split('/').at(-1));
       if (f) f.path = req.postDataJSON().path;
       data = f;
-    } else if (path.endsWith('/turns') && rejectTurn) {
+    } else if (path.endsWith('/messages') && activeTurn)
+      data = [
+        {
+          id: 'turn-message',
+          workspace_id: 'lab',
+          chat_id: 'chat',
+          kind: 'turn',
+          author_user_id: 'me',
+          agent_run_id: 'running-turn',
+          body: 'Earlier request',
+          created_at: '2026-10-28T10:00:00Z',
+          status: 'running',
+          failure_reason: null,
+        },
+      ];
+    else if (path.endsWith('/turns') && rejectTurn) {
       await route.fulfill({ status: 503, json: { error: 'turn unavailable' } });
       return;
     } else if (path.endsWith('/compute')) data = { kernels: [], machines: [] };
@@ -202,6 +218,9 @@ export async function cowriteFixture(page: Page, owner = true) {
     },
     rejectTurns(value: boolean) {
       rejectTurn = value;
+    },
+    setActiveTurn(value: boolean) {
+      activeTurn = value;
     },
     docs,
     writes,

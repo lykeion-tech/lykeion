@@ -80,8 +80,9 @@ export function createCollaboration(options: {
   return {
     flush,
     pull: () => serial(receive),
+    // Safe to call on every tick: it only arms a push while text is unsent.
     schedule() {
-      if (stopped || timer) return;
+      if (stopped || timer || !sendableUpdates(options.state()).length) return;
       timer = setTimeout(() => {
         timer = undefined;
         void flush().catch(options.onError ?? (() => {}));

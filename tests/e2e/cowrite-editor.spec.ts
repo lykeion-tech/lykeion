@@ -123,6 +123,20 @@ test('member toolbar exposes comments and real member mention IDs, never AI comm
   ]);
   await expect(page.getByRole('button', { name: 'Members', exact: true })).toHaveCount(0);
 });
+test('a failed push retries on the next tick without another keystroke', async ({ page }) => {
+  const f = await cowriteFixture(page);
+  await page.goto('/#/coresearch/p/chat');
+  const editor = page.locator('.cm-content');
+  await expect(editor).toBeVisible();
+  f.setOffline(true);
+  await editor.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.insertText('unsaved');
+  await expect(page.getByRole('alert').filter({ hasText: 'offline' })).toBeVisible();
+  f.setOffline(false);
+  await expect.poll(() => f.docs.get('main')!.text, { timeout: 5000 }).toContain('unsaved');
+});
+
 test('cursor polling does not bypass the 300ms edit batch', async ({ page }) => {
   const f = await cowriteFixture(page);
   await page.goto('/#/coresearch/p/chat');
@@ -134,6 +148,27 @@ test('cursor polling does not bypass the 300ms edit batch', async ({ page }) => 
   await page.keyboard.insertText('batch');
   await expect.poll(() => f.writes.filter((w) => w.path.endsWith('/steps')).length).toBe(1);
   expect(f.writes.find((w) => w.path.endsWith('/steps'))!.at - start).toBeGreaterThanOrEqual(250);
+});
+
+test('selection AI actions are disabled while a turn runs and leave the draft alone', async ({
+  page,
+}) => {
+  const f = await cowriteFixture(page);
+  f.setActiveTurn(true);
+  await page.goto('/#/coresearch/p/chat');
+  const editor = page.locator('.cm-content');
+  await expect(editor).toBeVisible();
+  const field = page.getByRole('textbox', { name: 'Message the agent' });
+  await field.fill('my own draft');
+  await editor.click();
+  await page.keyboard.press('ControlOrMeta+A');
+  await editor.dispatchEvent('mouseup');
+  await expect(page.getByRole('button', { name: 'Comment', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Proofread', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Edit with AI', exact: true })).toBeDisabled();
+  await page.locator('.ms-sel').press('p');
+  await expect(field).toHaveValue('my own draft');
+  expect(f.writes.filter((w) => w.path.endsWith('/chat/turns'))).toHaveLength(0);
 });
 
 test('failed selection acceptance retries the identical pinned selection and request', async ({

@@ -529,6 +529,8 @@ onMounted(async () => {
     interval = setInterval(() => {
       void refresh();
       queueCursor();
+      // A push that failed for any reason other than a conflict retries here.
+      sync?.schedule();
     }, 1000);
     if (sendableUpdates(state).length) sync.schedule();
   } catch (e) {

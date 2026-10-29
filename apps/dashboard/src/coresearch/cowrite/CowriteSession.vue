@@ -306,19 +306,16 @@ async function remove(path: string) {
   }
   await invalidate();
 }
+// A turn cannot be sent while another is being accepted or is running.
+const turnBlocked = computed(
+  () =>
+    !owner.value || busy.value || !!activeRun.value || !!props.project.archived_at || !chat.value,
+);
 async function send(
   body = draft.value,
   selectionValue?: { file_id: string; version: number; from: number; to: number },
 ) {
-  if (
-    !owner.value ||
-    busy.value ||
-    activeRun.value ||
-    props.project.archived_at ||
-    !body.trim() ||
-    !chat.value
-  )
-    return;
+  if (turnBlocked.value || !body.trim() || !chat.value) return;
   if (selectionValue) selectedRequest = { body, selection: selectionValue };
   else if (selectedRequest?.body === body) selectionValue = selectedRequest.selection;
   else selectedRequest = undefined;
@@ -355,7 +352,8 @@ async function send(
   }
 }
 async function selectionAction(kind: 'proofread' | 'edit', instruction = '') {
-  if (!owner.value) return;
+  // The owner's draft is replaced only by a request that can be sent now.
+  if (turnBlocked.value) return;
   drawerOpen.value = true;
   try {
     const at = await editor.value!.selection();
@@ -738,6 +736,7 @@ async function build() {
                 v-if="selection && !missing"
                 :target="selection"
                 :owner="owner && !project.archived_at"
+                :disabled="turnBlocked"
                 :people="people"
                 @proofread="selectionAction('proofread')"
                 @edit="(_target, instruction) => selectionAction('edit', instruction)"

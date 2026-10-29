@@ -47,6 +47,9 @@ func TestAristotleAcceptedReceiptSnapshotAndPrivacy(t *testing.T) {
 	if out.Conversation.SnapshotModel == nil || *out.Conversation.SnapshotModel != "frozen-model" || out.Run.RequestedModel != "frozen-model" || !strings.Contains(out.Run.Prompt, "Frozen instructions") {
 		t.Fatalf("snapshot not applied: %+v %+v", out.Conversation, out.Run)
 	}
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE runtime SET models='[{"value":"frozen-model"}]'::jsonb WHERE id=$1`, ref.RuntimeID); e != nil {
+		t.Fatal(e)
+	}
 	claims := csClaim(t, s, a, ref)
 	if len(claims) != 1 || claims[0].AgentRun.RequestedModel != "frozen-model" || claims[0].Coresearch == nil || !claims[0].Coresearch.Aristotle {
 		t.Fatalf("claim lost frozen config: %+v", claims)

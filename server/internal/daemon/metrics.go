@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -78,9 +79,26 @@ func parseProcessTree(data string, root int) (ProcessTreeSample, error) {
 	return s, nil
 }
 
+// cpuMark is a process's accumulated CPU seconds at one sample. The creation
+// time keeps a reused PID from inheriting another process's history.
+type cpuMark struct {
+	created int64
+	total   float64
+	at      time.Time
+}
+
+// cpuMeter reports current CPU as the CPU time each process used since the
+// previous sample. A process seen for the first time reports zero.
+type cpuMeter struct {
+	mu   sync.Mutex
+	prev map[int32]cpuMark
+}
+
 // Sample sums each root and its descendants once. Missing processes are
 // normal as kernels retire; failure to enumerate the process table is not.
-func Sample(ctx context.Context, pids []int) (compute.Sample, error) {
+func (m *cpuMeter) Sample(ctx context.Context, pids []int) (compute.Sample, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	all, err := process.ProcessesWithContext(ctx)
 	if err != nil {
 		return compute.Sample{}, err
@@ -112,25 +130,39 @@ func Sample(ctx context.Context, pids []int) (compute.Sample, error) {
 		}
 	}
 	var out compute.Sample
+	marks := map[int32]cpuMark{}
 	for pid := range seen {
 		p := byID[pid]
-		m, e := p.MemoryInfoWithContext(ctx)
+		info, e := p.MemoryInfoWithContext(ctx)
 		if e != nil {
 			if processGone(e) {
 				continue
 			}
 			return compute.Sample{}, e
 		}
-		cpu, e := p.CPUPercentWithContext(ctx)
+		times, e := p.TimesWithContext(ctx)
+		if e == nil {
+			var created int64
+			created, e = p.CreateTimeWithContext(ctx)
+			if e == nil {
+				mark := cpuMark{created: created, total: times.User + times.System, at: time.Now()}
+				marks[pid] = mark
+				if last, ok := m.prev[pid]; ok && last.created == created {
+					if wall := mark.at.Sub(last.at).Seconds(); wall > 0 && mark.total >= last.total {
+						out.CPU += (mark.total - last.total) / wall * 100
+					}
+				}
+			}
+		}
 		if e != nil {
 			if processGone(e) {
 				continue
 			}
 			return compute.Sample{}, e
 		}
-		out.RSS += m.RSS
-		out.CPU += cpu
+		out.RSS += info.RSS
 	}
+	m.prev = marks
 	return out, nil
 }
 
@@ -174,7 +206,7 @@ func (d *daemon) sampleKernels(ctx context.Context) {
 		if len(pids) == 0 {
 			continue
 		}
-		sample, e := Sample(ctx, pids)
+		sample, e := h.cpu.Sample(ctx, pids)
 		// Revalidate ownership after reading the process table: a retired root
 		// must not turn a reused numeric PID into another process's sample.
 		after := s.PIDs()

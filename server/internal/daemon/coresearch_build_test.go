@@ -510,3 +510,112 @@ func TestBuildInitializationRequiresDurableClaim(t *testing.T) {
 		t.Fatal("stage not atomically published", e)
 	}
 }
+
+// Upstream TeX Live links bin/<arch>/latexmk to the script under texmf-dist, so
+// the engines are found next to the link, not next to the script it resolves to.
+func TestBuildPathFollowsTexLiveLayout(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "2025", "bin", "x86_64-linux")
+	scripts := filepath.Join(root, "2025", "texmf-dist", "scripts", "latexmk")
+	for _, d := range []string{bin, scripts} {
+		if e := os.MkdirAll(d, 0700); e != nil {
+			t.Fatal(e)
+		}
+	}
+	tree, e := filepath.EvalSymlinks(filepath.Join(root, "2025"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	write := func(path, body string) {
+		if e := os.WriteFile(path, []byte(body), 0700); e != nil {
+			t.Fatal(e)
+		}
+	}
+	write(filepath.Join(scripts, "latexmk.pl"), "#!/bin/sh\n")
+	write(filepath.Join(bin, "kpsewhich"), "#!/bin/sh\necho "+tree+"\n")
+	write(filepath.Join(bin, "pdflatex"), "#!/bin/sh\n")
+	if e := os.Symlink("../../texmf-dist/scripts/latexmk/latexmk.pl", filepath.Join(bin, "latexmk")); e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("PATH", bin)
+	latex, path, _, e := buildTools(t.Context())
+	if e != nil {
+		t.Fatal(e)
+	}
+	if latex != filepath.Join(tree, "texmf-dist", "scripts", "latexmk", "latexmk.pl") {
+		t.Fatalf("latexmk not resolved: %s", latex)
+	}
+	found := ""
+	for _, d := range filepath.SplitList(path) {
+		if _, e := os.Stat(filepath.Join(d, "pdflatex")); e == nil {
+			found = filepath.Join(d, "pdflatex")
+			break
+		}
+	}
+	if found != filepath.Join(bin, "pdflatex") {
+		t.Fatalf("pdflatex not on build PATH %q (found %q)", path, found)
+	}
+}
+
+// runBuildMeta runs one build against the fixture and returns the reason and
+// status the daemon reports to the server. before runs ahead of each request.
+func runBuildMeta(t *testing.T, f *coreFixture, before func(*http.Request)) (string, string) {
+	t.Helper()
+	var meta struct{ Status, Reason string }
+	f.d.api.HTTP = &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		before(r)
+		if strings.Contains(r.URL.Path, "/builds/") && strings.HasSuffix(r.URL.Path, "/finish") {
+			if e := r.ParseMultipartForm(1 << 20); e != nil {
+				return nil, e
+			}
+			defer r.MultipartForm.RemoveAll()
+			json.Unmarshal([]byte(r.FormValue("meta")), &meta)
+			return &http.Response{StatusCode: 204, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{}}, nil
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	b := coresearch.ClaimedBuild{WorkContext: f.work, ID: uuid.New(), Seq: 1, Sources: f.files}
+	b.ChatID = uuid.Nil
+	f.d.runBuild(t.Context(), b.WorkContext, b)
+	return meta.Status, meta.Reason
+}
+
+// A build stopped by the server (revoked or cancelled) is not a timeout.
+func TestBuildCancellationIsNotTimeout(t *testing.T) {
+	if os.Getenv("LYK_NO_TEX") == "1" {
+		t.Skip("explicit LYK_NO_TEX=1")
+	}
+	f := newCoreFixture(t)
+	f.saved("main.tex", `\documentclass{article}\begin{document}\def\x{\x}\x\end{document}`, 1)
+	time.AfterFunc(1500*time.Millisecond, func() { f.revoked.Store(true) })
+	status, reason := runBuildMeta(t, f, func(*http.Request) {})
+	if status != "failed" || reason != "cancelled" {
+		t.Fatalf("status=%q reason=%q", status, reason)
+	}
+}
+
+// The build limit bounds TeX alone: slow source downloads do not consume it,
+// and a TeX run past the limit is reported as a timeout.
+func TestBuildLimitStartsWithLatexmk(t *testing.T) {
+	if os.Getenv("LYK_NO_TEX") == "1" {
+		t.Skip("explicit LYK_NO_TEX=1")
+	}
+	old := BuildLimit
+	BuildLimit = 3 * time.Second
+	t.Cleanup(func() { BuildLimit = old })
+	f := newCoreFixture(t)
+	f.saved("main.tex", `\documentclass{article}\begin{document}Slow source\end{document}`, 1)
+	status, reason := runBuildMeta(t, f, func(r *http.Request) {
+		if strings.Contains(r.URL.Path, "/blobs/") {
+			time.Sleep(BuildLimit + 500*time.Millisecond)
+		}
+	})
+	if status != "ok" {
+		t.Fatalf("slow download consumed the build limit: status=%q reason=%q", status, reason)
+	}
+	f.saved("main.tex", `\documentclass{article}\begin{document}\def\x{\x}\x\end{document}`, 1)
+	status, reason = runBuildMeta(t, f, func(*http.Request) {})
+	if status != "failed" || reason != "timeout" {
+		t.Fatalf("status=%q reason=%q", status, reason)
+	}
+}

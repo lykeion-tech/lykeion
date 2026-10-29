@@ -919,3 +919,36 @@ func TestCancelledArchiveInspectionStoresNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A Coresearch upload is pending in the same table, but it is never a study file.
+func TestACoresearchUploadCannotBeAttachedToAStudy(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	f, _ := mw.CreateFormFile("file", "notes.txt")
+	f.Write([]byte("coresearch notes"))
+	mw.Close()
+	req, _ := http.NewRequest("POST", s.URL+"/api/coresearch/uploads", &body)
+	req.Header.Set("Authorization", "Bearer "+a)
+	req.Header.Set("X-Workspace-ID", w.ID)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var up struct {
+		UploadID string `json:"upload_id"`
+	}
+	json.NewDecoder(resp.Body).Decode(&up)
+	resp.Body.Close()
+	if resp.StatusCode != 201 || up.UploadID == "" {
+		t.Fatalf("coresearch upload %d", resp.StatusCode)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{up.UploadID}}, nil); code != 400 {
+		t.Fatalf("study took a coresearch upload: %d", code)
+	}
+}

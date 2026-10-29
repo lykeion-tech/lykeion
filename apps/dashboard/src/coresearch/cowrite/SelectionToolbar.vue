@@ -13,9 +13,11 @@ const props = withDefaults(
   defineProps<{
     target: SelectionTarget;
     owner: boolean;
+    // True while the AI actions cannot be sent, such as during a running turn.
+    disabled?: boolean;
     people?: { id: string; name: string }[];
   }>(),
-  { people: () => [] },
+  { people: () => [], disabled: false },
 );
 const emit = defineEmits<{
   proofread: [SelectionTarget];
@@ -52,7 +54,7 @@ async function pick(person: { id: string; name: string }) {
   caret.value = before.length;
 }
 function proofread() {
-  if (!props.owner) return;
+  if (!props.owner || props.disabled) return;
   emit('proofread', props.target);
   emit('close');
 }
@@ -63,7 +65,7 @@ function submit() {
     emit('comment', props.target, said, [
       ...new Set([...mentioned].filter(([name]) => said.includes(`@${name}`)).map(([, id]) => id)),
     ]);
-  else if (props.owner) emit('edit', props.target, said);
+  else if (props.owner && !props.disabled) emit('edit', props.target, said);
   emit('close');
 }
 function key(e: KeyboardEvent) {
@@ -77,13 +79,13 @@ function key(e: KeyboardEvent) {
 }
 function barKey(e: KeyboardEvent) {
   if (mode.value !== 'tools' || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === 'p' && props.owner) {
+  if (e.key === 'p' && props.owner && !props.disabled) {
     e.preventDefault();
     proofread();
   } else if (e.key === 'c') {
     e.preventDefault();
     mode.value = 'comment';
-  } else if (e.key === 'e' && props.owner) {
+  } else if (e.key === 'e' && props.owner && !props.disabled) {
     e.preventDefault();
     mode.value = 'edit';
   }
@@ -144,6 +146,7 @@ const hint = (name: string, key: string) => (holdsFocus.value ? `${name} (${key}
         type="button"
         class="ms-sel-tool"
         :title="hint('Proofread', 'p')"
+        :disabled="disabled"
         @click="proofread"
       >
         Proofread</button
@@ -159,6 +162,7 @@ const hint = (name: string, key: string) => (holdsFocus.value ? `${name} (${key}
         type="button"
         class="ms-sel-tool"
         :title="hint('Edit with AI', 'e')"
+        :disabled="disabled"
         @click="mode = 'edit'"
       >
         Edit with AI

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,10 @@ func TestBuildDarwinSandboxPolicy(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	_, root, e := buildTools(ctx)
+	if os.Getenv("LYK_NO_TEX") == "1" {
+		t.Skip("explicit LYK_NO_TEX=1")
+	}
+	_, _, root, e := buildTools(ctx)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -29,14 +33,19 @@ func TestBuildDarwinSandboxPolicy(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	cmd, e := p.Command(ctx, "/bin/sh", "-c", `cat "$1"; echo bad > "$1"`, "probe", outside)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer sandbox.CloseCommand(cmd)
-	cmd.Env = []string{"PATH=/usr/bin:/bin"}
-	if output, e := cmd.CombinedOutput(); e == nil {
-		t.Fatalf("policy escape: %s", output)
+	// Reads and writes are probed separately: a combined script fails on the
+	// write alone and would hide a leaked read.
+	for _, probe := range []string{`cat "$1"`, `echo bad > "$1"`} {
+		cmd, e := p.Command(ctx, "/bin/sh", "-c", probe, "probe", outside)
+		if e != nil {
+			t.Fatal(e)
+		}
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		output, e := cmd.CombinedOutput()
+		sandbox.CloseCommand(cmd)
+		if e == nil || strings.Contains(string(output), "private") {
+			t.Fatalf("policy escape by %q: %s", probe, output)
+		}
 	}
 	b, e := os.ReadFile(outside)
 	if e != nil || string(b) != "private" {

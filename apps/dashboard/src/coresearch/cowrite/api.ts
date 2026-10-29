@@ -22,14 +22,21 @@ function useResource<T>(
   key: () => readonly unknown[],
   path: () => string,
   enabled: () => boolean = () => true,
-  interval?: number,
+  interval?: number | ((data: T | undefined) => number | false),
 ) {
   return useQuery({
     queryKey: computed(key),
     enabled: computed(() => !!workspaceId.value && !!toValue(project) && enabled()),
     queryFn: ({ signal }) =>
       api<T>('GET', path(), undefined, undefined, { signal, workspace: workspaceId.value }),
-    ...(interval ? { refetchInterval: interval } : {}),
+    ...(interval
+      ? {
+          refetchInterval:
+            typeof interval === 'number'
+              ? interval
+              : (query: { state: { data: T | undefined } }) => interval(query.state.data),
+        }
+      : {}),
   });
 }
 export function useDoc(project: Source<string>, file: Source<string>) {
@@ -69,13 +76,17 @@ export function useComments(project: Source<string>, file: Source<string>) {
     () => !!toValue(file),
   );
 }
+// Builds change on their own only while one is queued or running; settled
+// builds are refreshed by build events.
+export const buildPollInterval = (builds: Build[] | undefined) =>
+  builds?.some((b) => b.status === 'queued' || b.status === 'running') ? 1500 : false;
 export function useBuilds(project: Source<string>) {
   return useResource<Build[]>(
     project,
     () => keys.cowriteBuilds(workspaceId.value, toValue(project)),
     () => `${projectPath(toValue(project))}/builds`,
     () => true,
-    1500,
+    buildPollInterval,
   );
 }
 export function useVersions(project: Source<string>) {

@@ -75,8 +75,10 @@ func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]db.Attachment, error
 		return nil, cardInputError("A study can have at most 100 files")
 	}
 	var rows []db.Attachment
+	var coresearchKeys string
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
+		coresearchKeys = ws.String() + "/coresearch-uploads/"
 		rows, err = tx.Q.PendingAttachments(r.Context(), db.PendingAttachmentsParams{WorkspaceID: ws, UploaderID: user, Ids: ids})
 		return err
 	})
@@ -88,8 +90,9 @@ func (h *H) studyFiles(r *http.Request, ids []uuid.UUID) ([]db.Attachment, error
 	}
 	// The files are linked and keyed in the order they were attached.
 	slices.SortFunc(rows, func(a, b db.Attachment) int { return at[a.ID] - at[b.ID] })
+	// Coresearch uploads share the pending table but never become study files.
 	for _, a := range rows {
-		if a.Kind != "file" {
+		if a.Kind != "file" || strings.HasPrefix(a.BlobKey, coresearchKeys) {
 			return nil, cardInputError("Unknown attachment")
 		}
 	}
