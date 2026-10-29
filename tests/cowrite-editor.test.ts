@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { h, nextTick } from 'vue';
+import { h, nextTick, type Component } from 'vue';
 import { createTreeApp, node, all, textOf } from './daemon-tree';
 import ManuscriptFiles from '../apps/dashboard/src/coresearch/cowrite/ManuscriptFiles.vue';
 import Outline from '../apps/dashboard/src/coresearch/cowrite/Outline.vue';
@@ -16,7 +16,7 @@ afterEach(() => {
   cleanups.splice(0).forEach((f) => f());
   vi.unstubAllGlobals();
 });
-function mount(component: any, props: any = {}) {
+function mount(component: Component, props: Record<string, unknown> = {}) {
   const root = node('root');
   const app = createTreeApp({ render: () => h(component, props) });
   app.mount(root);
@@ -28,7 +28,7 @@ const click = (root: ReturnType<typeof node>, label: string) => {
     (n) => n.tag === 'button' && (n.props['aria-label'] === label || textOf(n) === label),
   );
   expect(button, label).toBeTruthy();
-  (button!.props.onClick as Function)({});
+  (button!.props.onClick as (e: object) => void)({});
   return nextTick();
 };
 it('puts main.tex first, groups folders and opens the selected file', async () => {

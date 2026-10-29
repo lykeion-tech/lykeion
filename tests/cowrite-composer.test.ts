@@ -396,7 +396,7 @@ describe('Cowrite composer', () => {
   });
   it('uploads files before accepting a turn, blocks while uploading and retains a refused attachment', async () => {
     let finishUpload!: (response: Response) => void;
-    const fetch = vi.fn((url, init) =>
+    const fetch = vi.fn((url, _init) =>
       String(url).endsWith('/uploads')
         ? new Promise<Response>((resolve) => {
             finishUpload = resolve;

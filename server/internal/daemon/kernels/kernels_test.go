@@ -52,7 +52,7 @@ func stub() {
 		out.Unlock()
 	}
 	if os.Getenv("LYK_BRIDGE_NO_READY") != "1" {
-		write(map[string]any{"ready": true,"bridge_pid":os.Getpid(),"pids":[]int{}})
+		write(map[string]any{"ready": true, "bridge_pid": os.Getpid(), "pids": []int{}})
 	}
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {

@@ -87,7 +87,7 @@ describe('shared CodeMirror journal', () => {
               release = r;
             });
           for (const raw of changes)
-            history.push({ version: history.length + 1, client_id: id, changes: raw as any });
+            history.push({ version: history.length + 1, client_id: id, changes: raw as never });
           return { version: history.length };
         },
       },
@@ -147,7 +147,7 @@ it('maps pending ranges through local edits and marks overlap stale', async () =
   });
   state = state.update({
     effects: setChangeRows.of([
-      { id: 'h', from_pos: 6, to_pos: 9, removed_text: 'old', status: 'pending' } as any,
+      { id: 'h', from_pos: 6, to_pos: 9, removed_text: 'old', status: 'pending' } as never,
     ]),
   }).state;
   state = state.update({ changes: { from: 0, insert: 'prefix ' } }).state;
@@ -158,7 +158,7 @@ it('maps pending ranges through local edits and marks overlap stale', async () =
 
 it('keeps boundary insertions pending when ranges are refreshed with local edits', async () => {
   const { mapChangeRows } = await import('./trackedChanges');
-  const row = { id: 'h', from_pos: 2, to_pos: 5, status: 'pending', removed_text: 'old' } as any;
+  const row = { id: 'h', from_pos: 2, to_pos: 5, status: 'pending', removed_text: 'old' } as never;
   expect(mapChangeRows([row], ChangeSet.of({ from: 2, insert: 'X' }, 8))[0]).toMatchObject({
     from_pos: 3,
     to_pos: 6,

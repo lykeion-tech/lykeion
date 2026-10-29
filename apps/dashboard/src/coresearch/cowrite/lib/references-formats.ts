@@ -151,6 +151,7 @@ function readBibtexEntry(text: string, at: number): { type: string; key: string;
     const name = /^([a-zA-Z_-]+)\s*=\s*/.exec(text.slice(i));
     if (!name) return undefined;
     i += name[0].length;
+    // eslint-disable-next-line no-useless-assignment -- copied from L2 as is
     let value = "";
     if (text[i] === "{") {
       let d = 0;

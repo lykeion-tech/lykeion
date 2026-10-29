@@ -26,7 +26,9 @@ watch(
 function remember() {
   try {
     window.localStorage.setItem(`lykeion:home-chat:${props.projectId}`, String(share.value));
-  } catch {}
+  } catch {
+    // Storage may be unavailable; the drawer then keeps its share for this page only.
+  }
 }
 function key(e: KeyboardEvent) {
   const next =
