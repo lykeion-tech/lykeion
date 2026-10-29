@@ -15,7 +15,12 @@ const data = useCompute(() => props.projectId),
   busy = ref(false),
   collapsed = ref(new Set<string>()),
   input = ref<HTMLInputElement[]>();
-const kernels = computed(() => data.data.value?.kernels ?? []);
+// The server reports a working kernel as busy; L2's rows call that state running.
+const kernels = computed(() =>
+  (data.data.value?.kernels ?? []).map((k) =>
+    k.state === 'busy' ? { ...k, state: 'running' } : k,
+  ),
+);
 const machines = computed(() =>
   (data.data.value?.machines ?? []).filter((m) =>
     kernels.value.some((k) => k.runtime_id === m.runtime_id),

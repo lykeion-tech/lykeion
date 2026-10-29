@@ -31,6 +31,7 @@ import (
 func TestBuildQueueRules(t *testing.T) {
 	s, a, b, ws, p, f := paperFixture(t)
 	root := csProjects + "/" + p.ID
+	csRegister(t, s, b, ws, "own", "claude")
 	s.call(t, "GET", root+"/docs/"+f, a, ws, nil, nil)
 	s.call(t, "POST", root+"/docs/"+f+"/steps", a, ws, map[string]any{"base": 0, "client_id": "a", "steps": []any{[]any{[]any{6, "queued text"}}}}, nil)
 	var one, two db.CoresearchBuild
@@ -119,8 +120,8 @@ func finishBuildTest(t *testing.T, s *server, who, ws string, b coresearch.Claim
 func TestBuildRunningMemberRevocation(t *testing.T) {
 	s, a, b, ws, p, _ := paperFixture(t)
 	root := csProjects + "/" + p.ID
-	s.call(t, "POST", root+"/builds", b, ws, nil, nil)
 	ref := csRegister(t, s, b, ws, "own", "claude")
+	s.call(t, "POST", root+"/builds", b, ws, nil, nil)
 	work := csWork(t, s, b, "own", ref)
 	if len(work.Builds) != 1 {
 		t.Fatal(work)
@@ -194,6 +195,7 @@ func TestBuildSettlementOnlyAppliedHunks(t *testing.T) {
 				var original uuid.UUID
 				s.Env.Owner.QueryRow(t.Context(), `SELECT coresearch_build_id FROM agent_run WHERE id=$1`, run.ID).Scan(&original)
 				var manual db.CoresearchBuild
+				csRegister(t, s, a, ws, "own", "claude")
 				if code := s.call(t, "POST", csProjects+"/"+p.ID+"/builds", a, ws, nil, &manual); code != 201 {
 					t.Fatal(code)
 				}
@@ -218,9 +220,9 @@ func TestBuildSettlementOnlyAppliedHunks(t *testing.T) {
 func TestBuildLeaseAndReceipt(t *testing.T) {
 	s, owner, a, ws, p, _ := paperFixture(t)
 	root := csProjects + "/" + p.ID
+	ref := csRegister(t, s, a, ws, "own", "claude")
 	var first, next db.CoresearchBuild
 	s.call(t, "POST", root+"/builds", a, ws, nil, &first)
-	ref := csRegister(t, s, a, ws, "own", "claude")
 	work := csWork(t, s, a, "own", ref)
 	if len(work.Builds) != 1 {
 		t.Fatal(work)
@@ -279,6 +281,7 @@ func (s *buildStageStorage) Put(ctx context.Context, key string, r io.Reader, n 
 func TestBuildSnapshotsJournalOpenedDuringStaging(t *testing.T) {
 	s, a, _, ws, p, f := paperFixture(t)
 	root := csProjects + "/" + p.ID
+	csRegister(t, s, a, ws, "own", "claude")
 	_, second := csUpload(t, s, a, ws, p.ID, "second.tex", 0, false, []byte("old"))
 	s.call(t, "GET", root+"/docs/"+f, a, ws, nil, nil)
 	s.call(t, "POST", root+"/docs/"+f+"/steps", a, ws, map[string]any{"base": 0, "client_id": "a", "steps": []any{[]any{[]any{6, "changed"}}}}, nil)
@@ -320,9 +323,9 @@ func (s buildFailStorage) Put(context.Context, string, io.Reader, int64) error {
 func TestBuildArtifactQuota(t *testing.T) {
 	s, a, _, ws, p, f := paperFixture(t)
 	root := csProjects + "/" + p.ID
+	ref := csRegister(t, s, a, ws, "own", "claude")
 	var b db.CoresearchBuild
 	s.call(t, "POST", root+"/builds", a, ws, nil, &b)
-	ref := csRegister(t, s, a, ws, "own", "claude")
 	work := csWork(t, s, a, "own", ref)
 	if len(work.Builds) != 1 {
 		t.Fatal(work)
@@ -451,6 +454,7 @@ func assertPublicBuild(t *testing.T, value map[string]json.RawMessage) {
 func TestBuildPublicProjection(t *testing.T) {
 	s, a, b, ws, p, _ := paperFixture(t)
 	root := csProjects + "/" + p.ID
+	ref := csRegister(t, s, a, ws, "own", "claude")
 	var created map[string]json.RawMessage
 	if c := s.call(t, "POST", root+"/builds", a, ws, nil, &created); c != 201 {
 		t.Fatal(c)
@@ -458,7 +462,6 @@ func TestBuildPublicProjection(t *testing.T) {
 	if len(created) != 2 || created["id"] == nil || created["seq"] == nil {
 		t.Errorf("POST must return only id/seq: %v", created)
 	}
-	ref := csRegister(t, s, a, ws, "own", "claude")
 	work := csWork(t, s, a, "own", ref)
 	if len(work.Builds) != 1 || work.Builds[0].ClaimToken == uuid.Nil {
 		t.Fatal(work)
@@ -476,8 +479,8 @@ func TestBuildPublicProjection(t *testing.T) {
 func TestBuildQuotaDaemonReceipt(t *testing.T) {
 	s, a, _, ws, p, _ := paperFixture(t)
 	root := csProjects + "/" + p.ID
-	s.call(t, "POST", root+"/builds", a, ws, nil, nil)
 	ref := csRegister(t, s, a, ws, "own", "claude")
+	s.call(t, "POST", root+"/builds", a, ws, nil, nil)
 	work := csWork(t, s, a, "own", ref)
 	if len(work.Builds) != 1 {
 		t.Fatal(work)
@@ -565,6 +568,7 @@ func (s *buildDeleteOnceStorage) Delete(ctx context.Context, key string) error {
 func TestBuildQuotaRetriesArtifactCleanup(t *testing.T) {
 	s, a, _, ws, p, _ := paperFixture(t)
 	root := csProjects + "/" + p.ID
+	ref := csRegister(t, s, a, ws, "own", "claude")
 	// This candidate is shared with a retained source and must survive cleanup.
 	if c, _ := csUpload(t, s, a, ws, p.ID, "retained.txt", 0, false, []byte("test log")); c != 201 {
 		t.Fatal(c)
@@ -577,7 +581,6 @@ func TestBuildQuotaRetriesArtifactCleanup(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.call(t, "POST", root+"/builds", a, ws, nil, nil)
-	ref := csRegister(t, s, a, ws, "own", "claude")
 	work := csWork(t, s, a, "own", ref)
 	if len(work.Builds) != 1 {
 		t.Fatal(work)
@@ -615,5 +618,23 @@ func TestBuildQuotaRetriesArtifactCleanup(t *testing.T) {
 			t.Fatal("retained or unrelated blob removed", e)
 		}
 		rc.Close()
+	}
+}
+
+func TestBuildRefusedWithoutOwnMachine(t *testing.T) {
+	s, a, b, ws, p, _ := paperFixture(t)
+	root := csProjects + "/" + p.ID
+	csRegister(t, s, a, ws, "colleague", "claude")
+	var refused map[string]any
+	if c := s.call(t, "POST", root+"/builds", b, ws, nil, &refused); c != 409 || refused["code"] != "no_machine" {
+		t.Fatalf("no own machine: %d %v", c, refused)
+	}
+	var n int
+	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_build WHERE project_id=$1`, p.ID).Scan(&n); e != nil || n != 0 {
+		t.Fatal("refused build was queued", n, e)
+	}
+	csRegister(t, s, b, ws, "own", "claude")
+	if c := s.call(t, "POST", root+"/builds", b, ws, nil, nil); c != 201 {
+		t.Fatalf("own machine online: %d", c)
 	}
 }

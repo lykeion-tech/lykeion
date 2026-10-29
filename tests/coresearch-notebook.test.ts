@@ -248,7 +248,7 @@ describe('Coresearch notebook and compute', () => {
           {
             chat_id: 'c',
             kernel: 'python3',
-            state: 'running',
+            state: 'busy',
             runtime_id: 'r',
             device_name: 'My Mac',
             samples: [{ t: '2026-10-28T10:00:00Z', rss: 1048576, cpu: 150 }],

@@ -233,6 +233,7 @@ func TestCoresearchFileLifecycleHydrationRechecks(t *testing.T) {
 func TestCoresearchFileLifecycleQueuedBuildRetainsPathAndText(t *testing.T) {
 	s, a, b, ws, p, f := paperFixture(t)
 	root := csProjects + "/" + p.ID
+	runtime := csRegister(t, s, b, ws, "own", "claude")
 	if c := s.call(t, "GET", root+"/docs/"+f, a, ws, nil, nil); c != 200 {
 		t.Fatal(c)
 	}
@@ -246,7 +247,6 @@ func TestCoresearchFileLifecycleQueuedBuildRetainsPathAndText(t *testing.T) {
 	if c := s.call(t, "DELETE", root+"/files/"+f, a, ws, nil, nil); c != 204 {
 		t.Fatal(c)
 	}
-	runtime := csRegister(t, s, b, ws, "own", "claude")
 	work := csWork(t, s, b, "own", runtime)
 	if len(work.Builds) != 1 || work.Builds[0].ID != build.ID {
 		t.Fatalf("queued claim %+v", work)

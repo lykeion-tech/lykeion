@@ -26,6 +26,10 @@ func paperAnswer(w http.ResponseWriter, r *http.Request, e error) bool {
 		writeErr(w, 409, e.Error())
 		return false
 	}
+	if errors.Is(e, coresearch.ErrNoMachine) {
+		writeJSON(w, 409, map[string]any{"error": e.Error(), "code": "no_machine"})
+		return false
+	}
 	return docAnswer(w, r, e)
 }
 func (h *H) coresearchChanges(w http.ResponseWriter, r *http.Request) {

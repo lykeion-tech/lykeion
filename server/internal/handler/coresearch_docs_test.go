@@ -75,6 +75,7 @@ func TestBehindStepRefused(t *testing.T) {
 }
 func TestRemovedMemberLosesPaper(t *testing.T) {
 	s, a, b, ws, p, f := paperFixture(t)
+	csRegister(t, s, b, ws, "own", "claude")
 	url := csProjects + "/" + p.ID + "/docs/" + f
 	if c := s.call(t, "GET", url, b, ws, nil, nil); c != 200 {
 		t.Fatal(c)

@@ -101,6 +101,15 @@ watch(
   },
   { immediate: true, deep: true },
 );
+// As L2's action menu: a press anywhere outside the open menu closes it.
+function closeOutside(e: MouseEvent) {
+  if (!(e.target as Element | null)?.closest?.('[data-version-menu]')) menu.value = undefined;
+}
+watch(menu, (open, _, onCleanup) => {
+  if (open === undefined) return;
+  document.addEventListener?.('mousedown', closeOutside);
+  onCleanup(() => document.removeEventListener?.('mousedown', closeOutside));
+});
 async function restoreVersion(v: Version) {
   if (restoring.value !== undefined || props.disabled) return;
   restoring.value = v.seq;
@@ -143,7 +152,7 @@ async function restoreVersion(v: Version) {
                 <span class="ms-version-removed">−{{ lines.get(v.seq)!.removed }}</span></span
               ><span class="ms-version-meta">{{ formatAgo(Date.parse(v.created_at) / 1000) }}</span>
             </div>
-            <div class="relative">
+            <div class="relative" data-version-menu>
               <button
                 type="button"
                 class="ms-version-more"

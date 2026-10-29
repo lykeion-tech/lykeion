@@ -452,6 +452,22 @@ func (q *Queries) CoresearchFileByPath(ctx context.Context, arg CoresearchFileBy
 	return i, err
 }
 
+const coresearchOwnMachineOnline = `-- name: CoresearchOwnMachineOnline :one
+SELECT EXISTS(SELECT 1 FROM runtime WHERE workspace_id= $1 AND owner_id= $2 AND status='online' AND last_seen_at>now()-interval '60 seconds')::boolean
+`
+
+type CoresearchOwnMachineOnlineParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+func (q *Queries) CoresearchOwnMachineOnline(ctx context.Context, arg CoresearchOwnMachineOnlineParams) (bool, error) {
+	row := q.db.QueryRow(ctx, coresearchOwnMachineOnline, arg.WorkspaceID, arg.OwnerID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const coresearchOwnedDaemon = `-- name: CoresearchOwnedDaemon :one
 SELECT EXISTS(SELECT 1 FROM runtime WHERE workspace_id= $1 AND daemon_id= $2 AND owner_id= $3)::boolean
 `

@@ -136,3 +136,6 @@ SELECT id AS runtime_id,coalesce(custom_name,device_name)::text AS device_name,m
 -- name: AppendCoresearchKernelSample :exec
 UPDATE coresearch_chat SET kernel_seen_at=now(),kernel_name=coalesce(sqlc.narg(kernel_name)::text,kernel_name),kernel_metrics=(SELECT coalesce(jsonb_agg(value ORDER BY ord),'[]'::jsonb) FROM jsonb_array_elements(kernel_metrics||jsonb_build_array(@sample::jsonb)) WITH ORDINALITY a(value,ord) WHERE ord>jsonb_array_length(kernel_metrics)+1-60)
 WHERE workspace_id= @workspace_id AND id= @id;
+
+-- name: CoresearchOwnMachineOnline :one
+SELECT EXISTS(SELECT 1 FROM runtime WHERE workspace_id= @workspace_id AND owner_id= @owner_id AND status='online' AND last_seen_at>now()-interval '60 seconds')::boolean;

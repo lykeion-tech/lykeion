@@ -30,6 +30,10 @@ type ClaimedBuild struct {
 }
 type BuildTransaction func(func(*store.Tx, uuid.UUID, uuid.UUID) error) error
 
+// ErrNoMachine refuses a requested build when none of the requester's own
+// machines is online: builds never wait for a machine that is away.
+var ErrNoMachine = errors.New("no machine online")
+
 // QueueBuild stages current live bytes outside transactions and then atomically
 // verifies the complete source set, snapshots journals and freezes references.
 func QueueBuild(ctx context.Context, st *store.Store, blobs storage.Storage, ws, identity uuid.UUID, transaction BuildTransaction, origin ...uuid.UUID) (db.CoresearchBuild, error) {
@@ -48,6 +52,14 @@ func QueueBuild(ctx context.Context, st *store.Store, blobs storage.Storage, ws,
 				if existing != nil {
 					out, e = tx.Q.GetCoresearchBuild(ctx, db.GetCoresearchBuildParams{WorkspaceID: ws, ID: *existing})
 					return e
+				}
+			} else {
+				online, e := tx.Q.CoresearchOwnMachineOnline(ctx, db.CoresearchOwnMachineOnlineParams{WorkspaceID: ws, OwnerID: u})
+				if e != nil {
+					return e
+				}
+				if !online {
+					return ErrNoMachine
 				}
 			}
 

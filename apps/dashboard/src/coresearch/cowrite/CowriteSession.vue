@@ -2,7 +2,7 @@
 import { computed, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueries, useQueryClient } from '@tanstack/vue-query';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import { useMe, useMembers } from '../../api/queries';
 import { workspaceId } from '../../api/session';
 import { guardResourceDrafts } from '../../state/resource-draft';
@@ -100,7 +100,7 @@ const fileID = ref(''),
   compute = ref(false),
   focused = ref(false),
   compiling = ref(false),
-  noMachine = ref(false),
+  refusedAfter = ref<number | null>(null),
   drawerOpen = ref(true);
 const editor = ref<InstanceType<typeof Editor>>(),
   drawer = ref<InstanceType<typeof HomeChatDrawer>>(),
@@ -551,17 +551,23 @@ async function deleteComment(id: string) {
     report(e);
   }
 }
+// A refusal for want of a machine holds until a build newer than it lands,
+// whoever's machine ran that build.
+const newestBuild = () => Math.max(0, ...(builds.data.value ?? []).map((b) => b.seq));
+const noMachine = computed(
+  () => refusedAfter.value !== null && newestBuild() <= refusedAfter.value,
+);
 async function build() {
   if (compiling.value || props.project.archived_at) return;
   compiling.value = true;
-  noMachine.value = false;
   try {
     await editor.value?.flush();
     await api('POST', `${projectPath(props.project.id)}/builds`);
+    refusedAfter.value = null;
     await invalidate();
   } catch (e) {
-    report(e);
-    noMachine.value = /no.*machine|no.*runtime/i.test(e instanceof Error ? e.message : String(e));
+    if (e instanceof ApiError && e.body.code === 'no_machine') refusedAfter.value = newestBuild();
+    else report(e);
   } finally {
     compiling.value = false;
   }
@@ -704,7 +710,7 @@ async function build() {
         :comments="comments"
         :people="people"
         :me-id="me.data.value?.id"
-        :disabled="!!project.archived_at || compiling"
+        :disabled="!!project.archived_at"
         :no-machine="noMachine"
         :log="log"
         :log-failed="logFailed"

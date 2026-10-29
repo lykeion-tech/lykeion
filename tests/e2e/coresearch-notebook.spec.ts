@@ -115,7 +115,7 @@ for (const owner of [true, false]) {
                   {
                     chat_id: 'c',
                     kernel: 'python3',
-                    state: 'running',
+                    state: 'busy',
                     runtime_id: 'r',
                     device_name: 'Alice private machine',
                     samples: [{ t: '2026-10-26T12:00:00Z', rss: 1048576, cpu: 150 }],

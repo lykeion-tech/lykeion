@@ -107,3 +107,17 @@ test('Outline follows the actual cursor and completions read other paper files',
   await page.keyboard.press('Control+Space');
   await expect(page.locator('.cm-tooltip-autocomplete')).toContainText('test');
 });
+test('Compile with no machine of the person online shows the no-machine state', async ({
+  page,
+}) => {
+  await cowriteFixture(page);
+  await page.route('**/api/coresearch/projects/p/builds', (r) =>
+    r.request().method() === 'POST'
+      ? r.fulfill({ status: 409, json: { error: 'no machine online', code: 'no_machine' } })
+      : r.fulfill({ json: [] }),
+  );
+  await page.goto('/#/coresearch/p/chat');
+  await page.getByRole('button', { name: 'Compile', exact: true }).click();
+  await expect(page.getByText(/no machine online/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Compile', exact: true })).toBeEnabled();
+});

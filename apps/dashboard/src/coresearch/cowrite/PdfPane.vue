@@ -14,6 +14,8 @@ import {
 import { PDF_ZOOM_PRESETS } from './lib/pdf-zoom';
 import PdfViewer, { type PdfView } from './PdfViewer.vue';
 import PaneIcon from './PaneIcon.vue';
+const KEY =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 const props = defineProps<{
   projectId: string;
   title: string;
@@ -232,7 +234,7 @@ function keys(e: KeyboardEvent) {
             class="ms-zoom-head"
             aria-haspopup="menu"
             :aria-expanded="zoomOpen"
-            aria-label="Zoom"
+            :aria-label="`Zoom: ${view.fit ? 'Zoom to fit' : `${Math.round(view.zoom * 100)}%`}`"
             @click="toggleZoom"
           >
             <PaneIcon name="Expand" width="14" height="14" /><span>{{
@@ -257,7 +259,7 @@ function keys(e: KeyboardEvent) {
             @toggle="($event as ToggleEvent).newState === 'closed' && (zoomOpen = false)"
           >
             <button type="button" role="menuitem" class="ms-zoom-item" @click="setZoom('fit')">
-              Zoom to fit<kbd>⌘0</kbd></button
+              Zoom to fit<kbd>{{ KEY }}0</kbd></button
             ><button
               type="button"
               role="menuitem"
@@ -268,7 +270,7 @@ function keys(e: KeyboardEvent) {
                 zoomOpen = false;
               "
             >
-              Zoom in<kbd>⌘+</kbd></button
+              Zoom in<kbd>{{ KEY }}+</kbd></button
             ><button
               type="button"
               role="menuitem"
@@ -279,7 +281,7 @@ function keys(e: KeyboardEvent) {
                 zoomOpen = false;
               "
             >
-              Zoom out<kbd>⌘−</kbd>
+              Zoom out<kbd>{{ KEY }}−</kbd>
             </button>
             <div class="ms-zoom-sep" role="separator" />
             <button
