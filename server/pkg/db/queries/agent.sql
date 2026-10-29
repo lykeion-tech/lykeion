@@ -3,9 +3,13 @@ INSERT INTO agent (workspace_id, name, description, instructions, harness, model
 VALUES (@workspace_id, @name, @description, @instructions, @harness, @model, @visibility, @owner_id, coalesce(sqlc.narg(conversation_starters)::jsonb, '[]'::jsonb)) RETURNING *;
 
 -- name: ListAgents :many
-SELECT * FROM agent WHERE workspace_id = @workspace_id
-AND (visibility = 'workspace' OR owner_id = @user_id OR @is_admin::boolean)
-ORDER BY created_at, id;
+SELECT a.*, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member
+FROM agent a WHERE a.workspace_id = @workspace_id
+AND (a.visibility = 'workspace' OR a.owner_id = @user_id OR @is_admin::boolean)
+ORDER BY a.created_at, a.id;
+
+-- name: AgentIsTeamCopy :one
+SELECT EXISTS (SELECT 1 FROM team_agent WHERE workspace_id = @workspace_id AND agent_id = @agent_id);
 
 -- name: GetAgent :one
 SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id;

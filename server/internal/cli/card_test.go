@@ -340,6 +340,51 @@ func TestCardNewSendsPredicates(t *testing.T) {
 	}
 }
 
+func TestCardNewSendsAnAgent(t *testing.T) {
+	const live, gone = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
+	var posted map[string]any
+	listed := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == "GET" && r.URL.Path == "/api/agents" {
+			listed++
+			w.Write([]byte(`[{"id":"` + gone + `","name":"solo","archived_at":"2026-01-01T00:00:00Z"},{"id":"` + live + `","name":"solo","archived_at":null}]`))
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+			t.Error(err)
+		}
+		w.Write([]byte(`{"id":"x","number":1,"title":"q"}`))
+	}))
+	defer srv.Close()
+	e := &env{cfg: Config{Server: srv.URL, Token: "ltk_run", Workspace: "w"}, out: &bytes.Buffer{}}
+	send := func(args ...string) error {
+		posted = nil
+		cmd := cardCmd(e)
+		cmd.SetArgs(append([]string{"new"}, args...))
+		return cmd.Execute()
+	}
+	if err := send("--agent", "solo", "q"); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"type": "agent", "id": live}; !reflect.DeepEqual(posted["assignee"], want) {
+		t.Fatalf("posted assignee %#v, want %#v", posted["assignee"], want)
+	}
+	listed = 0
+	if err := send("--agent", gone, "q"); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"type": "agent", "id": gone}; listed != 0 || !reflect.DeepEqual(posted["assignee"], want) {
+		t.Fatalf("an id was listed %d times and posted %#v", listed, posted["assignee"])
+	}
+	if err := send("--agent", "x", "q"); err == nil || err.Error() != `no agent named "x"` {
+		t.Fatalf("unknown name: %v", err)
+	}
+	if posted != nil {
+		t.Fatal("an unknown agent reached the server")
+	}
+}
+
 func TestCardShowPrintsPredicates(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -661,3 +661,31 @@ func TestJevSeesOutputsAsAList(t *testing.T) {
 		}
 	}
 }
+
+func TestAColumnNoTeamWorksIsScoredOnTheCoreQuestionsAlone(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	l.e.RatingDraw = always(true)
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.study(t, "grounding", false, &a)
+	l.done(t, c.ID)
+	calls := stub.calls()
+	if len(calls) != 1 {
+		t.Fatalf("%d Jev calls", len(calls))
+	}
+	core := criteria(nil)
+	if len(calls[0].Questions) != len(core) {
+		t.Fatalf("%d questions, want the %d core ones", len(calls[0].Questions), len(core))
+	}
+	for _, cr := range core {
+		if q, ok := calls[0].Questions[cr.ID]; !ok || q.Instructions != cr.Text {
+			t.Fatalf("question %s: %+v", cr.ID, q)
+		}
+	}
+	if !strings.Contains(calls[0].State, "No auditor checked this column: no Team works it.") {
+		t.Fatal("Jev was not told no auditor checked the column")
+	}
+	if all, _ := l.draws(t, c.ID); all != 0 {
+		t.Fatalf("%d draws without a Team", all)
+	}
+}

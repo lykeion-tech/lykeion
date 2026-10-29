@@ -8,9 +8,26 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+const agentIsTeamCopy = `-- name: AgentIsTeamCopy :one
+SELECT EXISTS (SELECT 1 FROM team_agent WHERE workspace_id = $1 AND agent_id = $2)
+`
+
+type AgentIsTeamCopyParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentID     uuid.UUID `json:"agent_id"`
+}
+
+func (q *Queries) AgentIsTeamCopy(ctx context.Context, arg AgentIsTeamCopyParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentIsTeamCopy, arg.WorkspaceID, arg.AgentID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
 
 const archiveAgent = `-- name: ArchiveAgent :one
 UPDATE agent SET archived_at = now(), updated_at = now() WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters
@@ -169,9 +186,10 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (Agent, erro
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters FROM agent WHERE workspace_id = $1
-AND (visibility = 'workspace' OR owner_id = $2 OR $3::boolean)
-ORDER BY created_at, id
+SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member
+FROM agent a WHERE a.workspace_id = $1
+AND (a.visibility = 'workspace' OR a.owner_id = $2 OR $3::boolean)
+ORDER BY a.created_at, a.id
 `
 
 type ListAgentsParams struct {
@@ -180,15 +198,33 @@ type ListAgentsParams struct {
 	IsAdmin     bool      `json:"is_admin"`
 }
 
-func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent, error) {
+type ListAgentsRow struct {
+	ID                   uuid.UUID       `json:"id"`
+	WorkspaceID          uuid.UUID       `json:"workspace_id"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	Instructions         string          `json:"instructions"`
+	Harness              string          `json:"harness"`
+	Model                string          `json:"model"`
+	Visibility           string          `json:"visibility"`
+	OwnerID              uuid.UUID       `json:"owner_id"`
+	ArchivedAt           *time.Time      `json:"archived_at"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
+	BuiltInKey           string          `json:"built_in_key"`
+	ConversationStarters json.RawMessage `json:"conversation_starters"`
+	TeamMember           bool            `json:"team_member"`
+}
+
+func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]ListAgentsRow, error) {
 	rows, err := q.db.Query(ctx, listAgents, arg.WorkspaceID, arg.UserID, arg.IsAdmin)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Agent
+	var items []ListAgentsRow
 	for rows.Next() {
-		var i Agent
+		var i ListAgentsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -204,6 +240,7 @@ func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent
 			&i.UpdatedAt,
 			&i.BuiltInKey,
 			&i.ConversationStarters,
+			&i.TeamMember,
 		); err != nil {
 			return nil, err
 		}

@@ -106,9 +106,9 @@ func (l *lab) add(t *testing.T, user uuid.UUID) []db.TeamAgent {
 	return out
 }
 
-func (l *lab) agents(t *testing.T) []db.Agent {
+func (l *lab) agents(t *testing.T) []db.ListAgentsRow {
 	t.Helper()
-	var out []db.Agent
+	var out []db.ListAgentsRow
 	err := l.store.InWorkspace(context.Background(), l.ws, uuid.Nil, func(tx *store.Tx) (err error) {
 		out, err = tx.Q.ListAgents(context.Background(), db.ListAgentsParams{WorkspaceID: l.ws, UserID: uuid.Nil, IsAdmin: true})
 		return

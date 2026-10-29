@@ -517,24 +517,159 @@ func TestAChosenTeamFillsItsColumnAndBuiltInsTheRest(t *testing.T) {
 	}
 }
 
-func TestAStudyCannotBeAssignedToAnAgentOrMember(t *testing.T) {
+func TestAOneAgentStudyStartsAtOnce(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "solo", "claude")
+	var c studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": map[string]any{"type": "agent", "id": agent},
+		"scope": map[string]string{"from": "grounding", "to": "grounding"}}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if n := s.count(t, "SELECT count(*) FROM card WHERE id = $1 AND assignee_type = 'agent' AND assignee_id = $2 AND board_column = 'grounding'", c.ID, agent); n != 1 {
+		t.Fatalf("the study is not assigned to the agent in Grounding: %+v", c)
+	}
+	if n := s.count(t, "SELECT count(*) FROM card_team WHERE card_id = $1", c.ID); n != 0 {
+		t.Fatalf("%d Teams on a one-agent study", n)
+	}
+	if n := s.queuedRuns(t, c.ID); n != 1 {
+		t.Fatalf("%d queued runs", n)
+	}
+	if n := s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND status = 'queued' AND role = 'agent' AND agent_id = $2", c.ID, agent); n != 1 {
+		t.Fatal("the queued run is not the agent's")
+	}
+	var whole studyJSON
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2", "assignee": map[string]any{"type": "agent", "id": agent},
+		"predicates": testPredicates}, &whole); code != 201 {
+		t.Fatalf("create without scope: %d", code)
+	}
+	if whole.ScopeFrom != "grounding" || whole.ScopeTo != board.Stages[len(board.Stages)-1] {
+		t.Fatalf("scope %s→%s", whole.ScopeFrom, whole.ScopeTo)
+	}
+}
+
+func TestAOneAgentStudyStillNeedsPreregistration(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "solo", "claude")
+	var e struct{ Error string }
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": map[string]any{"type": "agent", "id": agent},
+		"scope": map[string]string{"from": "experimentation", "to": "experimentation"}}, &e); code != 400 || e.Error != "a study that runs Experimentation needs at least one pre-registered result" {
+		t.Fatalf("%d %q", code, e.Error)
+	}
+}
+
+func TestAStudyIsWorkedByOneAgentOrByTeams(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	agent := s.newAgent(t, a, w.ID, "solo", "claude")
-	for name, assignee := range map[string]map[string]any{
-		"agent":           {"type": "agent", "id": agent},
-		"member":          {"type": "member", "id": s.userID(t, a)},
-		"team with agent": {"type": "team", "teams": map[string]string{"grounding": s.builtInID(t, w.ID, "grounding")}, "agent_id": agent},
+	builtIn := s.builtInID(t, w.ID, "grounding")
+	for name, tc := range map[string]struct {
+		assignee map[string]any
+		want     string
+	}{
+		"team with agent":  {map[string]any{"type": "team", "teams": map[string]string{"grounding": builtIn}, "agent_id": agent}, "a study is worked by one agent or by Teams, not both"},
+		"agent with teams": {map[string]any{"type": "agent", "id": agent, "teams": map[string]string{"grounding": builtIn}}, "a study is worked by one agent or by Teams, not both"},
+		"member":           {map[string]any{"type": "member", "id": s.userID(t, a)}, "a study is worked by one agent or by Teams"},
 	} {
 		var e struct{ Error string }
-		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": name, "assignee": assignee}, &e); code != 400 || e.Error != "a study is worked by a Team" {
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": name, "assignee": tc.assignee,
+			"scope": map[string]string{"from": "grounding", "to": "grounding"}}, &e); code != 400 || e.Error != tc.want {
 			t.Errorf("%s: %d %q", name, code, e.Error)
 		}
 	}
 	if n := s.count(t, "SELECT count(*) FROM card"); n != 0 {
 		t.Fatalf("%d studies", n)
+	}
+}
+
+func TestAStudyRefusesAgentsTheResearcherCannotUse(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	admin := s.member(t, a, w.ID, "d@lab.org", "admin")
+	grounding := map[string]string{"from": "grounding", "to": "grounding"}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "teamed", "scope": grounding}, nil); code != 201 {
+		t.Fatalf("Team study: %d", code)
+	}
+	var copyID string
+	if err := s.Env.Owner.QueryRow(t.Context(), "SELECT agent_id::text FROM team_agent LIMIT 1").Scan(&copyID); err != nil {
+		t.Fatal(err)
+	}
+	archived := s.newAgent(t, a, w.ID, "gone", "claude")
+	if code := s.call(t, "POST", "/api/agents/"+archived+"/archive", a, w.ID, nil, nil); code != 200 {
+		t.Fatalf("archive: %d", code)
+	}
+	var private struct{ ID string }
+	if code := s.call(t, "POST", "/api/agents", b, w.ID, map[string]string{"name": "mine", "harness": "claude", "visibility": "private"}, &private); code != 201 {
+		t.Fatalf("private agent: %d", code)
+	}
+	aristotle := s.newAgent(t, a, w.ID, "ari", "claude")
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE agent SET built_in_key = 'aristotle', visibility = 'private' WHERE id = $1", aristotle); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, tok, agent string
+	}{
+		{"archived", a, archived},
+		{"colleague's private agent, as an admin", admin, private.ID},
+		{"Aristotle", a, aristotle},
+		{"a Team member's copy", a, copyID},
+		{"unknown", a, uuid.NewString()},
+	} {
+		var e struct{ Error string }
+		if code := s.call(t, "POST", "/api/cards", tc.tok, w.ID, map[string]any{"question": tc.name, "assignee": map[string]any{"type": "agent", "id": tc.agent},
+			"scope": grounding}, &e); code != 400 || e.Error != "you can't start a study with this agent" {
+			t.Errorf("%s: %d %q", tc.name, code, e.Error)
+		}
+	}
+	if n := s.count(t, "SELECT count(*) FROM card"); n != 1 {
+		t.Fatalf("%d studies, want only the Team study", n)
+	}
+	shared := s.newAgent(t, b, w.ID, "shared", "claude")
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "shared", "assignee": map[string]any{"type": "agent", "id": shared},
+		"scope": grounding}, nil); code != 201 {
+		t.Fatalf("a colleague's workspace agent: %d", code)
+	}
+}
+
+func TestListedAgentsSayWhetherTheyAreTeamCopies(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	own := s.newAgent(t, a, w.ID, "solo", "claude")
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "scope": map[string]string{"from": "grounding", "to": "grounding"}}, nil); code != 201 {
+		t.Fatalf("Team study: %d", code)
+	}
+	var agents []struct {
+		ID         string
+		TeamMember *bool `json:"team_member"`
+	}
+	if code := s.call(t, "GET", "/api/agents", a, w.ID, nil, &agents); code != 200 {
+		t.Fatalf("list: %d", code)
+	}
+	copies := 0
+	for _, ag := range agents {
+		isCopy := s.count(t, "SELECT count(*) FROM team_agent WHERE agent_id = $1", ag.ID) > 0
+		if ag.TeamMember == nil || *ag.TeamMember != isCopy {
+			t.Fatalf("agent %s: team_member %v, copy %v", ag.ID, ag.TeamMember, isCopy)
+		}
+		if isCopy {
+			copies++
+		}
+		if ag.ID == own && *ag.TeamMember {
+			t.Fatal("the researcher's own agent is marked a Team copy")
+		}
+	}
+	if copies == 0 {
+		t.Fatal("no Team copies listed")
 	}
 }
 

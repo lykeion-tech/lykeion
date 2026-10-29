@@ -151,34 +151,72 @@ func scopeOf(s *scopeIn) (from, to string, err error) {
 	return s.From, s.To, nil
 }
 
-var errNotATeam = cardInputError("a study is worked by a Team")
-
-// studyScope gives the stages a researcher's study covers and the Teams they
-// chose for some of them. A lone Team with no scope keeps the study in its
-// column.
-func studyScope(in newCard) (from, to string, chosen map[string]uuid.UUID, err error) {
-	if a := in.Assignee; a != nil && (a.Type != "team" || a.ID != nil || a.AgentID != nil) {
-		return "", "", nil, errNotATeam
+// studyScope gives the stages a researcher's study covers and who works it:
+// the Teams they chose for some of its columns, or one agent for all of them.
+// A lone Team with no scope keeps the study in its column.
+func studyScope(in newCard) (from, to string, chosen map[string]uuid.UUID, agent *uuid.UUID, err error) {
+	a := in.Assignee
+	switch {
+	case a == nil:
+	case a.Type == "member":
+		return "", "", nil, nil, cardInputError("a study is worked by one agent or by Teams")
+	case (a.Type == "agent" && (a.Teams != nil || a.AgentID != nil)) || (a.Type == "team" && a.AgentID != nil):
+		return "", "", nil, nil, cardInputError("a study is worked by one agent or by Teams, not both")
+	case a.Type == "agent":
+		if a.ID == nil {
+			return "", "", nil, nil, cardInputError("assignee id required")
+		}
+		from, to, err = scopeOf(in.Scope)
+		return from, to, nil, a.ID, err
+	case a.Type != "team" || a.ID != nil:
+		return "", "", nil, nil, checkAssigneeShape(a)
 	}
-	if from, to, err = scopeOf(in.Scope); err != nil || in.Assignee == nil {
-		return from, to, nil, err
+	if from, to, err = scopeOf(in.Scope); err != nil || a == nil {
+		return from, to, nil, nil, err
 	}
-	chosen = in.Assignee.Teams
+	chosen = a.Teams
 	if len(chosen) == 0 {
-		return "", "", nil, cardInputError("a Team assignment names no Team")
+		return "", "", nil, nil, cardInputError("a Team assignment names no Team")
 	}
 	for col := range chosen {
 		i := board.StageIndex(col)
 		switch {
 		case i < 0:
-			return "", "", nil, cardInputError("a Team is placed on a column outside the stages")
+			return "", "", nil, nil, cardInputError("a Team is placed on a column outside the stages")
 		case len(chosen) == 1 && in.Scope == nil:
-			return col, col, chosen, nil
+			return col, col, chosen, nil, nil
 		case i < board.StageIndex(from) || i > board.StageIndex(to):
-			return "", "", nil, cardInputError("a Team is placed outside the study's scope")
+			return "", "", nil, nil, cardInputError("a Team is placed outside the study's scope")
 		}
 	}
-	return from, to, chosen, nil
+	return from, to, chosen, nil, nil
+}
+
+// checkStudyAgent refuses an agent the creator may not start a study with:
+// one they cannot assign, a built-in agent, or a Team member's copy.
+func checkStudyAgent(r *http.Request, tx *store.Tx, ws, creator, id uuid.UUID) error {
+	refused := cardInputError("you can't start a study with this agent")
+	var inputErr cardInputError
+	if err := checkAssignee(r, tx, ws, creator, "agent", id); errors.As(err, &inputErr) {
+		return refused
+	} else if err != nil {
+		return err
+	}
+	a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+	if err != nil {
+		return err
+	}
+	if a.BuiltInKey != "" {
+		return refused
+	}
+	copied, err := tx.Q.AgentIsTeamCopy(r.Context(), db.AgentIsTeamCopyParams{WorkspaceID: ws, AgentID: id})
+	if err != nil {
+		return err
+	}
+	if copied {
+		return refused
+	}
+	return nil
 }
 
 // resolveScope gives the stages an Autoresearch's studies cover. A lone Team
@@ -423,7 +461,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if in.FollowsFrom == nil {
 		in.FollowsFrom = []uuid.UUID{}
 	}
-	from, to, chosen, err := studyScope(in)
+	from, to, chosen, agent, err := studyScope(in)
 	if err == nil && len(in.FollowsFrom) > 0 && (from != board.Grounding || to != board.Reporting) {
 		err = cardInputError("only an end-to-end study can follow from another")
 	}
@@ -465,20 +503,28 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		// Every column has a Team from the start, so the study starts at once.
-		if teams, err = team.ColumnTeams(r.Context(), tx, from, to, chosen); err != nil {
-			return err
-		}
-		for _, col := range board.Stages[board.StageIndex(from) : board.StageIndex(to)+1] {
-			if err := ensureTeam(r, tx, user, teams[col]); err != nil {
+		// Every column has a Team, or the study its agent, from the start, so
+		// the study starts at once.
+		assignee := "team"
+		if agent != nil {
+			assignee = "agent"
+			if err := checkStudyAgent(r, tx, ws, user, *agent); err != nil {
 				return err
 			}
+		} else {
+			if teams, err = team.ColumnTeams(r.Context(), tx, from, to, chosen); err != nil {
+				return err
+			}
+			for _, col := range board.Stages[board.StageIndex(from) : board.StageIndex(to)+1] {
+				if err := ensureTeam(r, tx, user, teams[col]); err != nil {
+					return err
+				}
+			}
 		}
-		assignee := "team"
 		params := db.CreateCardParams{
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
 			Deadline: in.Deadline, FollowsFrom: in.FollowsFrom, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
-			AssigneeType: &assignee, Round: 1,
+			AssigneeType: &assignee, AssigneeID: agent, Round: 1,
 		}
 		if in.Machine != nil {
 			params.Machine, err = h.machineFor(r.Context(), tx, user, *in.Machine)

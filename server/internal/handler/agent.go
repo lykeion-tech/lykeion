@@ -74,14 +74,14 @@ func agentFail(w http.ResponseWriter, r *http.Request, err error, out any, statu
 }
 
 func (h *H) listAgents(w http.ResponseWriter, r *http.Request) {
-	out := []db.Agent{}
+	out := []db.ListAgentsRow{}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
 		out, err = tx.Q.ListAgents(r.Context(), db.ListAgentsParams{WorkspaceID: ws, UserID: user, IsAdmin: agentAdmin(r)})
 		return err
 	})
 	if out == nil {
-		out = []db.Agent{}
+		out = []db.ListAgentsRow{}
 	}
 	agentFail(w, r, err, out, 200)
 }

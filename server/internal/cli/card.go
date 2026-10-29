@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -55,9 +56,30 @@ func byNumber(cmd *cobra.Command, e *env, arg string) (cardView, error) {
 	return cardView{}, fmt.Errorf("no card #%d", n)
 }
 
+// agentID resolves an agent id or the exact name of a live agent to its id.
+func agentID(cmd *cobra.Command, e *env, ref string) (string, error) {
+	if _, err := uuid.Parse(ref); err == nil {
+		return ref, nil
+	}
+	var agents []struct {
+		ID         string  `json:"id"`
+		Name       string  `json:"name"`
+		ArchivedAt *string `json:"archived_at"`
+	}
+	if err := e.client().Do(cmd.Context(), "GET", "/api/agents", nil, &agents); err != nil {
+		return "", err
+	}
+	for _, a := range agents {
+		if a.Name == ref && a.ArchivedAt == nil {
+			return a.ID, nil
+		}
+	}
+	return "", fmt.Errorf("no agent named %q", ref)
+}
+
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
-	var title, followsFrom, machine string
+	var title, followsFrom, machine, agent string
 	var variables, predicates []string
 	var uploads cardUploadFlags
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
@@ -94,6 +116,13 @@ func cardCmd(e *env) *cobra.Command {
 		if title != "" {
 			in["title"] = title
 		}
+		if agent != "" {
+			id, err := agentID(cmd, e, agent)
+			if err != nil {
+				return err
+			}
+			in["assignee"] = map[string]any{"type": "agent", "id": id}
+		}
 		if followsFrom != "" {
 			previous, err := byNumber(cmd, e, followsFrom)
 			if err != nil {
@@ -117,6 +146,7 @@ func cardCmd(e *env) *cobra.Command {
 	newCmd.Flags().StringArrayVar(&uploads.variables, "service-env", nil, "service study variable NAME=VAR (repeatable)")
 	newCmd.Flags().StringVar(&machine, "machine", "", "machine name or daemon id (default: mine)")
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
+	newCmd.Flags().StringVar(&agent, "agent", "", "agent NAME|ID that works the whole study (default: Teams)")
 	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
 	newCmd.Flags().StringArrayVar(&variables, "env", nil, "plain study setting NAME=VALUE (repeatable)")
 	newCmd.Flags().StringArrayVar(&predicates, "predicate", nil, "pre-registered result NAME=TEXT, such as 'effect=effect > 0.2' (repeatable)")
