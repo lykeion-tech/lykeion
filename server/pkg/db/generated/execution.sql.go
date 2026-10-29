@@ -184,7 +184,10 @@ WHERE id = (
           AND (t.requested_model='' OR r.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))
                OR NOT EXISTS(SELECT 1 FROM runtime o WHERE o.workspace_id=t.workspace_id AND o.owner_id=r.owner_id AND o.harness=r.harness
                              AND o.status='online' AND o.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))))
-          AND EXISTS(SELECT 1 FROM coresearch_member cm WHERE cm.workspace_id=t.workspace_id AND cm.project_id=cc.project_id AND cm.user_id=cc.owner_id)))
+          AND EXISTS(SELECT 1 FROM coresearch_member cm WHERE cm.workspace_id=t.workspace_id AND cm.project_id=cc.project_id AND cm.user_id=cc.owner_id)
+          -- a chat's turns run one at a time, in the order they were sent
+          AND NOT EXISTS(SELECT 1 FROM agent_run o WHERE o.workspace_id=t.workspace_id AND o.coresearch_chat_id=t.coresearch_chat_id AND o.id<>t.id
+                         AND (o.status IN ('dispatched','running') OR (o.status='queued' AND (o.created_at,o.id)<(t.created_at,t.id))))))
   ORDER BY t.created_at
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1

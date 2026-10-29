@@ -90,8 +90,8 @@ UPDATE coresearch_chat SET daemon_id= @daemon_id WHERE workspace_id= @workspace_
 -- name: ReleaseCoresearchChat :exec
 UPDATE coresearch_chat SET daemon_id=NULL,kernel_state='stopped',kernel_name='',kernel_seen_at=NULL WHERE workspace_id= @workspace_id AND id= @id;
 
--- name: CoresearchChatTurnBusy :one
-SELECT EXISTS(SELECT 1 FROM agent_run WHERE workspace_id= @workspace_id AND coresearch_chat_id= @chat_id AND status IN ('queued','dispatched','running'))::boolean;
+-- name: CoresearchChatActiveTurns :one
+SELECT count(*)::int FROM agent_run WHERE workspace_id= @workspace_id AND coresearch_chat_id= @chat_id AND status IN ('queued','dispatched','running');
 
 -- name: CoresearchChatBusy :one
 SELECT (EXISTS(SELECT 1 FROM agent_run a WHERE a.workspace_id= @workspace_id AND a.coresearch_chat_id= @chat_id::uuid AND a.status IN ('queued','dispatched','running'))

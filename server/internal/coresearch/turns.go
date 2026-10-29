@@ -22,17 +22,22 @@ type Service struct {
 }
 
 func EnqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body string) (db.AgentRun, error) {
-	return enqueueTurn(ctx, tx, runs, chat, user, body, "", "")
+	return enqueueTurn(ctx, tx, runs, chat, user, body, "", "", false)
 }
 
-func EnqueueAristotleTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, selection ...*Selection) (db.AgentRun, error) {
-	return enqueueTurn(ctx, tx, runs, chat, user, body, instructions, model, selection...)
+// With queue, a Cowrite turn may wait behind the chat's turn in progress; at
+// most one waits at a time, and the claim runs them in order.
+func EnqueueAristotleTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, queue bool, selection ...*Selection) (db.AgentRun, error) {
+	return enqueueTurn(ctx, tx, runs, chat, user, body, instructions, model, queue, selection...)
 }
 
-func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, selections ...*Selection) (db.AgentRun, error) {
+func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, queue bool, selections ...*Selection) (db.AgentRun, error) {
 	var zero db.AgentRun
 	if user != chat.OwnerID {
 		return zero, errors.New("chat owner required")
+	}
+	if queue && chat.Mode != "cowrite" {
+		return zero, doc.ErrInvalid
 	}
 	var selection *Selection
 	if len(selections) > 0 && selections[0] != nil {
@@ -55,11 +60,11 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 		selection.Path = f.Path
 	}
 	// The caller holds workspace, project and chat locks before enqueueing.
-	busy, err := tx.Q.CoresearchChatTurnBusy(ctx, db.CoresearchChatTurnBusyParams{WorkspaceID: tx.WS, ChatID: &chat.ID})
+	active, err := tx.Q.CoresearchChatActiveTurns(ctx, db.CoresearchChatActiveTurnsParams{WorkspaceID: tx.WS, ChatID: &chat.ID})
 	if err != nil {
 		return zero, err
 	}
-	if busy {
+	if active > 1 || (active == 1 && !queue) {
 		return zero, ErrTurnRunning
 	}
 	p, err := tx.Q.GetCoresearchProject(ctx, db.GetCoresearchProjectParams{WorkspaceID: tx.WS, ID: chat.ProjectID})
@@ -89,7 +94,7 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	if p.PythonVersion != nil {
 		env = "Python " + *p.PythonVersion
 	}
-	prompt := Prompt(PromptIn{Selection: selection, ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env})
+	prompt := Prompt(PromptIn{Selection: selection, ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env, Queued: active > 0})
 	if instructions != "" {
 		prompt = "Aristotle instructions:\n" + instructions + "\n\n" + prompt
 	}

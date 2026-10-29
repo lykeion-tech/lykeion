@@ -151,7 +151,7 @@ test('cursor polling does not bypass the 300ms edit batch', async ({ page }) => 
   expect(f.writes.find((w) => w.path.endsWith('/steps'))!.at - start).toBeGreaterThanOrEqual(250);
 });
 
-test('selection AI actions are disabled while a turn runs and leave the draft alone', async ({
+test('selection AI actions queue behind a running turn and leave the draft alone', async ({
   page,
 }) => {
   const f = await cowriteFixture(page);
@@ -161,15 +161,24 @@ test('selection AI actions are disabled while a turn runs and leave the draft al
   await expect(editor).toBeVisible();
   const field = page.getByRole('textbox', { name: 'Message the agent' });
   await field.fill('my own draft');
-  await editor.click();
-  await page.keyboard.press('ControlOrMeta+A');
-  await editor.dispatchEvent('mouseup');
-  await expect(page.getByRole('button', { name: 'Comment', exact: true })).toBeEnabled();
-  await expect(page.getByRole('button', { name: 'Proofread', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Edit with AI', exact: true })).toBeDisabled();
-  await page.locator('.ms-sel').press('p');
+  const select = async () => {
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+A');
+    await editor.dispatchEvent('mouseup');
+  };
+  await select();
+  await expect(page.getByRole('button', { name: 'Edit with AI', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Proofread', exact: true }).click();
+  const turns = () => f.writes.filter((w) => w.path.endsWith('/chat/turns'));
+  await expect.poll(() => turns().length).toBe(1);
+  expect(turns()[0]!.body).toMatchObject({ queue: true });
+  expect(turns()[0]!.body.body).not.toContain('my own draft');
   await expect(field).toHaveValue('my own draft');
-  expect(f.writes.filter((w) => w.path.endsWith('/chat/turns'))).toHaveLength(0);
+  f.rejectTurns(true);
+  await select();
+  await page.getByRole('button', { name: 'Proofread', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'turn unavailable' })).toBeVisible();
+  await expect(field).toHaveValue('my own draft');
 });
 
 test('failed selection acceptance retries the identical pinned selection and request', async ({

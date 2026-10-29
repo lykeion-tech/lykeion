@@ -138,10 +138,15 @@ func (h *H) coresearchMessages(w http.ResponseWriter, r *http.Request) {
 }
 func coresearchBody(r *http.Request) (string, error) {
 	var in struct {
-		Body string `json:"body"`
+		Body  string `json:"body"`
+		Queue bool   `json:"queue"`
 	}
 	if e := readJSON(r, &in); e != nil || !utf8.ValidString(in.Body) || strings.TrimSpace(in.Body) == "" || len(in.Body) > 262144 {
 		return "", cardInputError("body must contain between 1 and 262144 bytes")
+	}
+	// Only Cowrite turns queue, and those are accepted by acceptAristotleTurn.
+	if in.Queue {
+		return "", coresearchInputError("queue is only valid in Cowrite")
 	}
 	return in.Body, nil
 }

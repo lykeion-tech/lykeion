@@ -70,6 +70,22 @@ func (q *Queries) BindCoresearchChat(ctx context.Context, arg BindCoresearchChat
 	return err
 }
 
+const coresearchChatActiveTurns = `-- name: CoresearchChatActiveTurns :one
+SELECT count(*)::int FROM agent_run WHERE workspace_id= $1 AND coresearch_chat_id= $2 AND status IN ('queued','dispatched','running')
+`
+
+type CoresearchChatActiveTurnsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ChatID      *uuid.UUID `json:"chat_id"`
+}
+
+func (q *Queries) CoresearchChatActiveTurns(ctx context.Context, arg CoresearchChatActiveTurnsParams) (int32, error) {
+	row := q.db.QueryRow(ctx, coresearchChatActiveTurns, arg.WorkspaceID, arg.ChatID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const coresearchChatBusy = `-- name: CoresearchChatBusy :one
 SELECT (EXISTS(SELECT 1 FROM agent_run a WHERE a.workspace_id= $1 AND a.coresearch_chat_id= $2::uuid AND a.status IN ('queued','dispatched','running'))
 OR EXISTS(SELECT 1 FROM coresearch_cell c WHERE c.workspace_id= $1 AND c.chat_id= $2::uuid AND c.status IN ('queued','running'))
@@ -100,22 +116,6 @@ type CoresearchChatIsAristotleParams struct {
 
 func (q *Queries) CoresearchChatIsAristotle(ctx context.Context, arg CoresearchChatIsAristotleParams) (bool, error) {
 	row := q.db.QueryRow(ctx, coresearchChatIsAristotle, arg.WorkspaceID, arg.ChatID)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const coresearchChatTurnBusy = `-- name: CoresearchChatTurnBusy :one
-SELECT EXISTS(SELECT 1 FROM agent_run WHERE workspace_id= $1 AND coresearch_chat_id= $2 AND status IN ('queued','dispatched','running'))::boolean
-`
-
-type CoresearchChatTurnBusyParams struct {
-	WorkspaceID uuid.UUID  `json:"workspace_id"`
-	ChatID      *uuid.UUID `json:"chat_id"`
-}
-
-func (q *Queries) CoresearchChatTurnBusy(ctx context.Context, arg CoresearchChatTurnBusyParams) (bool, error) {
-	row := q.db.QueryRow(ctx, coresearchChatTurnBusy, arg.WorkspaceID, arg.ChatID)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err

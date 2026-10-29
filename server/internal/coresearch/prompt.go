@@ -30,6 +30,9 @@ type PromptIn struct {
 	Message     string
 	History     []db.CoresearchMessage
 	Environment string
+	// Queued is set when the turn was sent while an earlier turn was still in
+	// progress; the history and file heads above were read at that moment.
+	Queued bool
 }
 
 func Prompt(p PromptIn) string {
@@ -60,6 +63,9 @@ func Prompt(p PromptIn) string {
 	}
 	for _, m := range history {
 		b.WriteString(fence.Untrusted("message from "+m.Kind, m.Body))
+	}
+	if p.Queued {
+		b.WriteString("This message was queued behind an earlier turn that had not finished when it was sent. Its work, if any, is earlier in this session rather than in the messages above, and the project files may have changed since the list above: read current text before editing.\n")
 	}
 	b.WriteString(fence.Untrusted("new message", p.Message))
 	return b.String()

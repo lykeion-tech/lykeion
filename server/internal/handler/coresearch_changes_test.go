@@ -514,3 +514,76 @@ func TestFillLiveDocRestoredOrdinaryText(t *testing.T) {
 		t.Fatal("ordinary text absent")
 	}
 }
+
+func TestCowriteSelectionTurnQueuesBehindRunningTurn(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	ref := csRegister(t, s, a, ws, "queue", "claude")
+	var accepted struct {
+		Conversation db.CoresearchConversation
+		Run          db.AgentRun
+	}
+	if c := s.call(t, "POST", "/api/coresearch/conversations", a, ws, map[string]any{"body": "start", "mode": "cowrite", "request_id": uuid.NewString()}, &accepted); c != 201 {
+		t.Fatal(c)
+	}
+	first := accepted.Run
+	if claims := csClaim(t, s, a, ref); len(claims) != 1 || claims[0].AgentRun.ID != first.ID {
+		t.Fatalf("first claim %+v", claims)
+	}
+	send := csProjects + "/" + accepted.Conversation.ProjectID.String() + "/chats/" + accepted.Conversation.ChatID.String() + "/turns"
+	turn := func(queue bool, out any) int {
+		in := map[string]any{"body": "proofread this", "request_id": uuid.NewString()}
+		if queue {
+			in["queue"] = true
+		}
+		return s.call(t, "POST", send, a, ws, in, out)
+	}
+	if c := turn(false, nil); c != 409 {
+		t.Fatalf("unqueued turn while running %d", c)
+	}
+	var queued struct{ Run db.AgentRun }
+	if c := turn(true, &queued); c != 201 || queued.Run.Status != "queued" {
+		t.Fatalf("queued turn %d %+v", c, queued.Run)
+	}
+	if !strings.Contains(queued.Run.Prompt, "queued behind an earlier turn") {
+		t.Fatalf("queued prompt lacks the queue note %s", queued.Run.Prompt)
+	}
+	var refused map[string]any
+	if c := turn(true, &refused); c != 409 || refused["error"] != coresearch.ErrTurnRunning.Error() {
+		t.Fatalf("second queued turn %d %v", c, refused)
+	}
+	if claims := csClaim(t, s, a, ref); len(claims) != 0 {
+		t.Fatalf("queued turn claimed while the first runs %+v", claims)
+	}
+	status := func(id uuid.UUID) (out string) {
+		s.Env.Owner.QueryRow(t.Context(), `SELECT status FROM agent_run WHERE id=$1`, id).Scan(&out)
+		return
+	}
+	if c := s.call(t, "POST", send+"/"+first.ID.String()+"/cancel", a, ws, nil, nil); c != 204 {
+		t.Fatal(c)
+	}
+	if got := status(queued.Run.ID); got != "queued" {
+		t.Fatalf("cancelling the running turn touched the queued one: %s", got)
+	}
+	if claims := csClaim(t, s, a, ref); len(claims) != 1 || claims[0].AgentRun.ID != queued.Run.ID {
+		t.Fatalf("queued claim %+v", claims)
+	}
+	var third struct{ Run db.AgentRun }
+	if c := turn(true, &third); c != 201 {
+		t.Fatal(c)
+	}
+	if c := s.call(t, "POST", send+"/"+third.Run.ID.String()+"/cancel", a, ws, nil, nil); c != 204 {
+		t.Fatal(c)
+	}
+	if got, running := status(third.Run.ID), status(queued.Run.ID); got != "cancelled" || running != "dispatched" {
+		t.Fatalf("cancel queued turn: queued %s running %s", got, running)
+	}
+
+	experiment, _ := csChat(t, s, a, ws, p.ID)
+	if c := s.call(t, "POST", experiment+"/turns", a, ws, map[string]any{"body": "x", "queue": true}, nil); c != 422 {
+		t.Fatalf("experiment queue %d", c)
+	}
+	var started struct{ Conversation db.CoresearchConversation }
+	if c := s.call(t, "POST", "/api/coresearch/conversations", a, ws, map[string]any{"body": "x", "mode": "experiment", "request_id": uuid.NewString(), "queue": true}, &started); c != 422 {
+		t.Fatalf("experiment conversation queue %d", c)
+	}
+}

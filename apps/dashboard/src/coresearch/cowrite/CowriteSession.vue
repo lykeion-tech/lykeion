@@ -147,9 +147,10 @@ const draft = ref(''),
   busy = ref(false),
   attachments = ref<ComposerAttachment[]>([]);
 let pending: AcceptanceRequest | null = null;
-let selectedRequest:
-  | { body: string; selection: { file_id: string; version: number; from: number; to: number } }
-  | undefined;
+type PinnedSelection = { file_id: string; version: number; from: number; to: number };
+// A selection action's failed request, adopted by the empty composer so Send
+// retries it unchanged.
+let selectedRequest: { body: string; selection: PinnedSelection; queue?: boolean } | undefined;
 const pathFor = (path: string, chatID = chat.value?.id ?? '') =>
   router.resolve({
     path: `/coresearch/${props.project.id}/${chatID}`,
@@ -220,7 +221,12 @@ watch(
       pending = held.pending;
       if (pending?.payload) {
         const options = JSON.parse(pending.payload);
-        if (options.selection) selectedRequest = { body: held.body, selection: options.selection };
+        if (options.selection)
+          selectedRequest = {
+            body: held.body,
+            selection: options.selection,
+            ...(options.queue ? { queue: true } : {}),
+          };
       }
     }
   },
@@ -306,19 +312,17 @@ async function remove(path: string) {
   }
   await invalidate();
 }
-// A turn cannot be sent while another is being accepted or is running.
+// The composer cannot send while another turn is being accepted or is running.
 const turnBlocked = computed(
   () =>
     !owner.value || busy.value || !!activeRun.value || !!props.project.archived_at || !chat.value,
 );
-async function send(
-  body = draft.value,
-  selectionValue?: { file_id: string; version: number; from: number; to: number },
-) {
+async function send() {
+  const body = draft.value;
   if (turnBlocked.value || !body.trim() || !chat.value) return;
-  if (selectionValue) selectedRequest = { body, selection: selectionValue };
-  else if (selectedRequest?.body === body) selectionValue = selectedRequest.selection;
-  else selectedRequest = undefined;
+  if (selectedRequest?.body !== body) selectedRequest = undefined;
+  const selectionValue = selectedRequest?.selection,
+    queue = selectedRequest?.queue;
   busy.value = true;
   error.value = '';
   const workspace = workspaceId.value,
@@ -329,6 +333,7 @@ async function send(
     const options = {
       ...(attachments.value.length ? { attachments: attachments.value } : {}),
       ...(selectionValue ? { selection: selectionValue } : {}),
+      ...(queue ? { queue: true } : {}),
     };
     pending = acceptanceRequest(pending, body, id, JSON.stringify(options));
     await api(
@@ -351,13 +356,19 @@ async function send(
     busy.value = false;
   }
 }
+// A selection action sends its own turn, queued behind any running one, and
+// leaves the owner's draft alone.
 async function selectionAction(kind: 'proofread' | 'edit', instruction = '') {
-  // The owner's draft is replaced only by a request that can be sent now.
-  if (turnBlocked.value) return;
+  if (!owner.value || !!props.project.archived_at || !chat.value) return;
   drawerOpen.value = true;
+  const id = chat.value.id,
+    workspace = workspaceId.value;
+  let body = '',
+    options: { selection: PinnedSelection; queue: true } | undefined,
+    request: AcceptanceRequest | undefined;
   try {
     const at = await editor.value!.selection();
-    const body =
+    body =
       kind === 'proofread'
         ? proofreadPrompt(at.path, at.line, at.quote)
         : compileManuscriptNotes(
@@ -371,10 +382,35 @@ async function selectionAction(kind: 'proofread' | 'edit', instruction = '') {
             ],
             '',
           );
-    draft.value = body;
-    await send(body, { file_id: at.file_id, version: at.version, from: at.from, to: at.to });
+    options = {
+      selection: { file_id: at.file_id, version: at.version, from: at.from, to: at.to },
+      queue: true,
+    };
+    error.value = '';
+    await editor.value?.flush();
+    request = acceptanceRequest(null, body, id, JSON.stringify(options));
+    await api(
+      'POST',
+      `${chatPath(props.project.id, id)}/turns`,
+      { body, request_id: request.request_id, ...options },
+      undefined,
+      { workspace },
+    );
+    await invalidate();
+    drawer.value?.scrollBottom();
   } catch (e) {
     report(e);
+    if (
+      request &&
+      options &&
+      !draft.value.trim() &&
+      !attachments.value.length &&
+      chat.value?.id === id
+    ) {
+      draft.value = body;
+      pending = request;
+      selectedRequest = { body, ...options };
+    }
   }
 }
 async function comment(_target: SelectionTarget, body: string, mentions: string[]) {
@@ -736,7 +772,6 @@ async function build() {
                 v-if="selection && !missing"
                 :target="selection"
                 :owner="owner && !project.archived_at"
-                :disabled="turnBlocked"
                 :people="people"
                 @proofread="selectionAction('proofread')"
                 @edit="(_target, instruction) => selectionAction('edit', instruction)"

@@ -22,6 +22,7 @@ type acceptancePayload struct {
 	Model                *string
 	Attachments          []coresearchAttachment
 	Selection            *coresearch.Selection `json:"Selection,omitempty"`
+	Queue                bool                  `json:",omitempty"`
 }
 
 func sameAcceptancePayload(stored, want string) bool {
@@ -44,6 +45,8 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		Model       *string                `json:"model,omitempty"`
 		Attachments []coresearchAttachment `json:"attachments,omitempty"`
 		Selection   *coresearch.Selection  `json:"selection,omitempty"`
+		// Queue lets a Cowrite turn wait behind the one in progress.
+		Queue bool `json:"queue,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil || in.RequestID == uuid.Nil || !utf8.ValidString(in.Body) || strings.TrimSpace(in.Body) == "" || len(in.Body) > 262144 {
 		writeErr(w, 400, "body and request_id UUID required")
@@ -59,7 +62,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 	if len(in.Attachments) == 0 {
 		in.Attachments = nil
 	}
-	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Attachments, in.Selection})
+	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Attachments, in.Selection, in.Queue})
 	receiptBody := string(payload)
 	var response json.RawMessage
 	// Staging may outlive another identical request's upload claim. Only a
@@ -136,6 +139,10 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 	}
 	if mode != "experiment" && mode != "cowrite" {
 		writeErr(w, 422, "mode must be experiment or cowrite")
+		return
+	}
+	if in.Queue && mode != "cowrite" {
+		writeErr(w, 422, "queue is only valid in Cowrite")
 		return
 	}
 	if in.Template != "" && (mode != "cowrite" || target != "") {
@@ -300,7 +307,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 					return e
 				}
 			}
-			run, e := coresearch.EnqueueAristotleTurn(ctx, tx, h.AgentRuns, chat, who, in.Body, instructions, model, in.Selection)
+			run, e := coresearch.EnqueueAristotleTurn(ctx, tx, h.AgentRuns, chat, who, in.Body, instructions, model, in.Queue, in.Selection)
 			if errors.Is(e, doc.ErrInvalid) {
 				return coresearchInputError("invalid selection version or UTF-16 bounds")
 			}

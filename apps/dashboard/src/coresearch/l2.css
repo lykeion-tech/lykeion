@@ -9506,12 +9506,6 @@
   background: var(--surface-3);
   color: var(--ink);
 }
-.coresearch .ms-sel-tool:disabled {
-  background: transparent;
-  color: var(--ink-muted);
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 .coresearch.ms-sel-editor,
 .coresearch .ms-sel-editor {
   display: flex;
