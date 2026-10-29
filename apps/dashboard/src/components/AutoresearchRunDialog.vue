@@ -169,7 +169,7 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
 }
 .run-badge.available {
   background: var(--recommend-bg);
-  color: var(--recommend);
+  color: var(--recommend-text);
 }
 .run-badge.failed {
   background: var(--error-bg);

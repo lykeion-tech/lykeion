@@ -167,7 +167,7 @@
   --danger-bg: color-mix(in srgb, #e6506d 20%, var(--canvas));
   --recommend-bg: color-mix(in srgb, var(--recommend) 20%, var(--canvas));
   --recommend-border: color-mix(in srgb, var(--recommend) 40%, var(--canvas));
-  --recommend-text: color-mix(in srgb, var(--recommend) 70%, var(--text));
+  --recommend-text: color-mix(in srgb, var(--recommend) 44%, var(--text));
 }
 * {
   box-sizing: border-box;
