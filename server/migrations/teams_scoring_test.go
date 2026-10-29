@@ -143,6 +143,25 @@ func TestSingleTeamStudyHasOneColumnScope(t *testing.T) {
 	wantCode(t, err, "23514", "scope_from after scope_to")
 }
 
+func TestFollowsFromOnlyOnEndToEnd(t *testing.T) {
+	env := testutil.Setup(t)
+	_, _, card := seedWorkspace(t, env)
+	ctx := context.Background()
+	// 0030 drops follows_from; its down puts the column and its check back.
+	down, err := fs.ReadFile(migrations.FS, "0030_one_agent_studies.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, string(down)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = env.Owner.Exec(ctx, `UPDATE card SET scope_to = 'grounding', follows_from = ARRAY[$2::uuid] WHERE id = $1`, card, uuid.New())
+	wantCode(t, err, "23514", "follows_from on a one-column study")
+	if _, err := env.Owner.Exec(ctx, `UPDATE card SET scope_to = 'reporting', follows_from = ARRAY[$2::uuid] WHERE id = $1`, card, uuid.New()); err != nil {
+		t.Errorf("follows_from on an end-to-end study: %v", err)
+	}
+}
+
 func TestBlockKindIsOnlyLowScore(t *testing.T) {
 	env := testutil.Setup(t)
 	_, _, card := seedWorkspace(t, env)

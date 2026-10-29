@@ -300,6 +300,9 @@ func TestStudyJSONHasNoFollowsFromOrVariables(t *testing.T) {
 		t.Fatalf("get: %d", code)
 	}
 	for name, study := range map[string]map[string]json.RawMessage{"GET /api/cards": list[0], "GET /api/cards/{id}": one} {
+		if _, ok := study["board_column"]; !ok {
+			t.Fatalf("%s has no board_column: %v", name, study)
+		}
 		for _, key := range []string{"follows_from", "env"} {
 			if _, ok := study[key]; ok {
 				t.Errorf("%s has %q", name, key)

@@ -101,6 +101,8 @@ func TestOneAgentStudiesMigration(t *testing.T) {
 	packAR := id(`INSERT INTO autoresearch (workspace_id, owner_id, title, execution_mode, scope_to) VALUES ($1, $2, 'p', 'run_only', 'validation') RETURNING id`, ws, u)
 	exec(`INSERT INTO autoresearch_team (workspace_id, autoresearch_id, board_column, pack_id) VALUES ($1, $2, 'validation', $3)`, ws, packAR, reportingPack)
 	exec(`INSERT INTO team_agent (workspace_id, pack_id, user_id, member, agent_id) VALUES ($1, $2, $3, 'm', $4)`, ws, reportingPack, u, agent)
+	exec(`INSERT INTO team_agent (workspace_id, pack_id, user_id, member, agent_id) VALUES ($1, $2, $3, 'm', $4)`, ws, other, u, agent)
+	exec(`INSERT INTO card_team (workspace_id, card_id, board_column, pack_id) VALUES ($1, $2, 'grounding', $3)`, ws, mixed, other)
 
 	exec(read("0030_one_agent_studies.up.sql"))
 
@@ -129,6 +131,18 @@ func TestOneAgentStudiesMigration(t *testing.T) {
 	}
 	if n := count(`SELECT count(*) FROM card WHERE id IN ($1, $2)`, mixed, withEnv); n != 2 {
 		t.Fatalf("%d of 2 kept studies left", n)
+	}
+	if n := count(`SELECT count(*) FROM field_pack WHERE id = $1`, other); n != 1 {
+		t.Fatal("a Team of another stage is gone")
+	}
+	if n := count(`SELECT count(*) FROM team_agent WHERE pack_id = $1`, other); n != 1 {
+		t.Fatalf("%d team_agent rows of a Team of another stage left", n)
+	}
+	if n := count(`SELECT count(*) FROM card_team WHERE card_id = $1`, mixed); n != 1 {
+		t.Fatalf("%d card_team rows of a kept study left", n)
+	}
+	if n := count(`SELECT count(*) FROM attachment WHERE card_id = $1 AND kind = 'service' AND service_name = 'db'`, withEnv); n != 1 {
+		t.Fatal("the hidden service went with its variables")
 	}
 	if n := count(`SELECT count(*) FROM autoresearch WHERE id = $1`, validationAR); n != 1 {
 		t.Fatal("the Validation Autoresearch is gone")

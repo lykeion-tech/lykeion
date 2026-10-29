@@ -30,6 +30,16 @@ func TestRuntimeAdditionsMigration(t *testing.T) {
 			t.Fatalf("want SQLSTATE %s, got %v", code, err)
 		}
 	}
+	read := func(name string) string {
+		t.Helper()
+		b, err := fs.ReadFile(migrations.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	// The columns this checks are dropped by 0030; its down puts them back.
+	exec(read("0030_one_agent_studies.down.sql"))
 	ins := `INSERT INTO attachment (workspace_id, uploader_id, card_id, name, content_type, size_bytes, sha256, blob_key)
 		VALUES ($1, $2, $3, 'a.zip', 'application/zip', $4, 'h', 'k')`
 	exec(ins, ws, u, card, int64(5368709120))
@@ -51,7 +61,7 @@ func TestRuntimeAdditionsMigration(t *testing.T) {
 	refuse(service, "23514", ws, u, card, "db", nil)
 	refuse(`UPDATE attachment SET card_id=$1 WHERE kind='service' AND card_id IS NULL`, "23514", card)
 	for _, metadata := range []string{
-		`service_name='db'`, `service_start='start'`, `service_client='client.py'`,
+		`service_name='db'`, `service_start='start'`, `service_client='client.py'`, `service_env=ARRAY['DATA']`,
 	} {
 		refuse(`UPDATE attachment SET `+metadata+` WHERE kind='file'`, "23514")
 	}
@@ -61,15 +71,19 @@ func TestRuntimeAdditionsMigration(t *testing.T) {
 	// Pending uploads may reuse a service name until a study claims them.
 	exec(service, ws, u, nil, "db", "start")
 
-	read := func(name string) string {
-		t.Helper()
-		b, err := fs.ReadFile(migrations.FS, name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(b)
+	var defaultEnv string
+	if err := env.Owner.QueryRow(ctx, `SELECT env::text FROM card WHERE id=$1`, card).Scan(&defaultEnv); err != nil || defaultEnv != "{}" {
+		t.Fatalf("default env = %q (%v), want {}", defaultEnv, err)
 	}
-	exec(read("0030_one_agent_studies.down.sql"))
+	for _, bad := range []any{nil, `[]`, `null`, `"value"`, `{"COUNT":1}`, `{"NESTED":{}}`, `{"LIST":[]}`, `{"BOOL":true}`, `{"NULL":null}`} {
+		code := "23514"
+		if bad == nil {
+			code = "23502"
+		}
+		refuse(`UPDATE card SET env=$1 WHERE id=$2`, code, bad, card)
+	}
+	exec(`UPDATE card SET env='{"DATA":"/data","COUNT":"1"}' WHERE id=$1`, card)
+
 	// Rollback must refuse incompatible rows without deleting them.
 	refuse(read("0022_runtime_additions.down.sql"), "23514")
 	var count int
