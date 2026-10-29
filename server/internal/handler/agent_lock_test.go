@@ -15,6 +15,15 @@ func (s *server) startStudy(t *testing.T, tok, wsID, agent, question string) str
 	return c.ID
 }
 
+// mustUpdate runs a setup statement and fails unless it changed a row.
+func (s *server) mustUpdate(t *testing.T, q string, args ...any) {
+	t.Helper()
+	tag, err := s.Env.Owner.Exec(t.Context(), q, args...)
+	if err != nil || tag.RowsAffected() == 0 {
+		t.Fatalf("setup %q: %v (%d rows)", q, err, tag.RowsAffected())
+	}
+}
+
 func (s *server) rename(t *testing.T, tok, wsID, agent string) (int, string) {
 	t.Helper()
 	var e struct{ Error string }
@@ -26,7 +35,7 @@ func TestAnAgentInUseCannotChange(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	s.Env.Owner.Exec(t.Context(), `UPDATE "user" SET name = 'Ada' WHERE email = 'a@lab.org'`)
+	s.mustUpdate(t, `UPDATE "user" SET name = 'Ada' WHERE email = 'a@lab.org'`)
 	agent := s.newAgent(t, a, w.ID, "solo", "claude")
 	card := s.startStudy(t, a, w.ID, agent, "q")
 	want := "Used by study #1 (Ada). It can change once they finish or their owners delete them."
@@ -51,23 +60,26 @@ func TestColleaguesStudiesAndAutoresearchesHoldASharedAgent(t *testing.T) {
 	b := s.signIn(t, "b@lab.org")
 	w := s.workspace(t, a, "lab")
 	s.call(t, "POST", "/api/invitations/"+s.invite(t, a, w.ID, "b@lab.org", "member")+"/accept", b, "", nil, nil)
-	s.Env.Owner.Exec(t.Context(), `UPDATE "user" SET name = 'Bea' WHERE email = 'b@lab.org'`)
+	s.mustUpdate(t, `UPDATE "user" SET name = 'Bea' WHERE email = 'b@lab.org'`)
 	agent := s.newAgent(t, a, w.ID, "solo", "claude")
 	s.startStudy(t, b, w.ID, agent, "one")
 	blocked := s.startStudy(t, b, w.ID, agent, "two")
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET state = 'blocked' WHERE id = $1`, blocked)
+	s.mustUpdate(t, `UPDATE card SET state = 'blocked' WHERE id = $1`, blocked)
 	mixed := s.idleCard(t, b, w.ID, "three")
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET assignee_type = 'team', assignee_id = $2 WHERE id = $1`, mixed.ID, agent)
+	s.mustUpdate(t, `UPDATE card SET assignee_type = 'team', assignee_id = $2 WHERE id = $1`, mixed.ID, agent)
 	var ar struct{ ID string }
 	if code := s.call(t, "POST", "/api/autoresearch", b, w.ID, map[string]any{"title": "Digest", "execution_mode": "run_only",
 		"assignee": map[string]any{"type": "agent", "id": agent}}, &ar); code != 201 {
 		t.Fatalf("autoresearch: %d", code)
 	}
+	if s.count(t, `SELECT count(*) FROM card WHERE (id = $1 AND state = 'blocked') OR (id = $2 AND assignee_type = 'team')`, blocked, mixed.ID) != 2 {
+		t.Fatal("setup did not produce a Blocked study and a mixed study")
+	}
 	want := `Used by study #1 (Bea), study #2 (Bea), study #3 (Bea) and Autoresearch "Digest" (Bea). It can change once they finish or their owners delete them.`
 	if code, msg := s.rename(t, a, w.ID, agent); code != 409 || msg != want {
 		t.Fatalf("patch: %d %q", code, msg)
 	}
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET state = 'done'`)
+	s.mustUpdate(t, `UPDATE card SET state = 'done'`)
 	if code := s.call(t, "DELETE", "/api/autoresearch/"+ar.ID, b, w.ID, nil, nil); code/100 != 2 {
 		t.Fatalf("delete autoresearch: %d", code)
 	}
@@ -82,8 +94,8 @@ func TestAFinishedOrEndedStudyDoesNotHoldTheAgent(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	agent := s.newAgent(t, a, w.ID, "solo", "claude")
 	one, two := s.startStudy(t, a, w.ID, agent, "one"), s.startStudy(t, a, w.ID, agent, "two")
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET state = 'done' WHERE id = $1`, one)
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET ending = 'stopped' WHERE id = $1`, two)
+	s.mustUpdate(t, `UPDATE card SET state = 'done' WHERE id = $1`, one)
+	s.mustUpdate(t, `UPDATE card SET ending = 'stopped' WHERE id = $1`, two)
 	if code, msg := s.rename(t, a, w.ID, agent); code != 200 {
 		t.Fatalf("%d %q", code, msg)
 	}
