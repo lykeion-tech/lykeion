@@ -615,6 +615,59 @@ describe('pre-registered results', () => {
   });
 });
 
+describe('pre-registered results for a single Team', () => {
+  const posting = () =>
+    vi.fn(
+      async (_path: RequestInfo | URL, init?: RequestInit) =>
+        new Response(init?.method === 'POST' ? '{}' : '[]', {
+          status: init?.method === 'POST' ? 201 : 200,
+        }),
+    );
+  const single = (column: string) => () => ({
+    assignee: { type: 'team', teams: { [column]: 't1' } },
+  });
+
+  it('asks for a result when the lone Team works Experimentation, and sends no scope', async () => {
+    const fetch = posting();
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateTask, single('experimentation'), '/', seedStudy);
+    try {
+      expect(t.text()).toContain('Pre-registered results');
+      await t.fill('Describe your study', 'Question');
+      expect(t.button(/^Create study/)?.props.disabled).toBe(true);
+      await t.fill('Result name 1', 'Accurate');
+      expect(t.button(/^Create study/)?.props.disabled).toBe(true);
+      await t.fill('Result condition 1', 'accuracy >= 0.9');
+      expect(t.button(/^Create study/)?.props.disabled).toBe(false);
+      await t.submit();
+      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
+      const body = JSON.parse(String(posted![1]?.body));
+      expect(body.scope).toBeUndefined();
+      expect(body.predicates).toEqual([{ name: 'Accurate', text: 'accuracy >= 0.9' }]);
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('asks for none when the lone Team works Hypotheses', async () => {
+    const fetch = posting();
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateTask, single('hypotheses'), '/', seedStudy);
+    try {
+      expect(t.text()).not.toContain('Pre-registered results');
+      await t.fill('Describe your study', 'Question');
+      expect(t.button(/^Create study/)?.props.disabled).toBe(false);
+      await t.submit();
+      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
+      const body = JSON.parse(String(posted![1]?.body));
+      expect(body.scope).toBeUndefined();
+      expect(body.predicates).toBeUndefined();
+    } finally {
+      t.unmount();
+    }
+  });
+});
+
 describe('pre-registered results on the study page', () => {
   it('shows each result with its binding outcome, value, run and the other runs', async () => {
     const t = await mount(
