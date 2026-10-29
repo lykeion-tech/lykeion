@@ -62,6 +62,9 @@ const messages = useCoresearchMessages(
   () => chat.value?.id ?? '',
 );
 const owner = computed(() => !!me.data.value && chat.value?.owner_id === me.data.value.id);
+const computeChat = computed(() =>
+  owner.value ? chat.value : chats.data.value?.find((c) => c.owner_id === me.data.value?.id),
+);
 const conversation = computed(() =>
   aristotle.conversations.data.value?.find((c) => !c.shared && c.chat_id === chat.value?.id),
 );
@@ -98,8 +101,13 @@ const file = computed(() => files.data.value?.find((f) => f.id === fileID.value)
 const missing = computed(
   () => !!file.value && !!files.data.value && !files.data.value.some((f) => f.id === fileID.value),
 );
+const openedJournals = ref(new Set<string>());
 const editable = computed(
-  () => !!file.value && /\.(tex|bib|sty|cls|bst|txt|md|csv|json|yaml|yml)$/i.test(file.value.path),
+  () =>
+    !!file.value &&
+    (file.value.has_doc ||
+      openedJournals.value.has(file.value.id) ||
+      /\.(tex|bib)$/i.test(file.value.path)),
 );
 const outline = computed(() =>
   file.value?.path.toLowerCase().endsWith('.tex') ? outlineOf(text.value) : [],
@@ -486,6 +494,7 @@ async function build() {
                 :file-id="file.id"
                 :path="file.path"
                 :disabled="!!project.archived_at || missing"
+                @ready="openedJournals.add(file.id)"
                 @text="text = $event"
                 @selection="selection = $event"
                 @error="error = $event"
@@ -551,7 +560,7 @@ async function build() {
           @close-pane="compute = false"
         />
         <div class="task-rightpane-card">
-          <ComputePane :project="project" :chat="chat" :owner="owner" />
+          <ComputePane v-if="computeChat" :project="project" :chat="computeChat" :owner="true" />
         </div>
       </div>
     </div>

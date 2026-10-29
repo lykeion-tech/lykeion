@@ -592,6 +592,37 @@ func (q *Queries) ListCoresearchDocSteps(ctx context.Context, arg ListCoresearch
 	return items, nil
 }
 
+const listCoresearchDocumentFiles = `-- name: ListCoresearchDocumentFiles :many
+SELECT d.file_id FROM coresearch_doc d
+JOIN coresearch_file f ON f.workspace_id=d.workspace_id AND f.id=d.file_id
+WHERE f.workspace_id= $1 AND f.project_id= $2 AND f.deleted_at IS NULL
+`
+
+type ListCoresearchDocumentFilesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+}
+
+func (q *Queries) ListCoresearchDocumentFiles(ctx context.Context, arg ListCoresearchDocumentFilesParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listCoresearchDocumentFiles, arg.WorkspaceID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var file_id uuid.UUID
+		if err := rows.Scan(&file_id); err != nil {
+			return nil, err
+		}
+		items = append(items, file_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCoresearchPendingRanges = `-- name: ListCoresearchPendingRanges :many
 SELECT id, workspace_id, proposal_id, file_id, from_pos, to_pos, removed_text, file_action, status, decided_by, decided_at, created_at FROM coresearch_change WHERE workspace_id= $1 AND file_id= $2 AND status IN ('pending','stale') ORDER BY id FOR UPDATE
 `

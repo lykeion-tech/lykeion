@@ -23,8 +23,9 @@ export interface ChatRow {
   daemon_id: string | null;
   kernel_request: string | null;
   kernel_request_seq: number;
-  kernel_state: string;
-  kernel_seen_at: string | null;
+  // Private kernel metadata is omitted for other chat owners.
+  kernel_state?: string;
+  kernel_seen_at?: string | null;
   created_at: string;
   // Supplied by the chat-list route; absent on chat creation.
   machine_name?: string;
@@ -52,6 +53,7 @@ export interface FileRow {
   id: string;
   path: string;
   head: FileVersion;
+  has_doc?: boolean;
 }
 export interface CellOutput {
   type: 'stream' | 'text' | 'image' | 'error';

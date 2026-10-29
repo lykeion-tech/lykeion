@@ -1,12 +1,14 @@
 import { type Page, type Route } from '@playwright/test';
 import { ChangeSet, Text } from '@codemirror/state';
-import { installFilesFixture } from './coresearch-files-fixture.ts';
+import { installFilesFixture, bootstrapRecord } from './coresearch-files-fixture.ts';
 export async function cowriteFixture(page: Page, owner = true) {
+  let person = owner ? 'me' : 'member',
+    expired = false;
   const base = await installFilesFixture(page, { user: owner ? 'me' : 'member' });
   await page.route('**/api/me', (r) =>
     r.fulfill({
       json: {
-        id: owner ? 'me' : 'member',
+        id: person,
         name: 'Ada Lovelace',
         email: 'ada@example.com',
         onboarded_at: '2026-01-01',
@@ -19,7 +21,7 @@ export async function cowriteFixture(page: Page, owner = true) {
     ['bib', { text: '@article{test,title={Example}}', version: 0 }],
   ]);
   const history = new Map<string, { version: number; client_id: string; changes: any }[]>();
-  const writes: { path: string; body: any; at: number }[] = [];
+  const writes: { path: string; body: any; at: number; person: string }[] = [];
   let conflicts = 0,
     force = false,
     offline = false,
@@ -46,7 +48,7 @@ export async function cowriteFixture(page: Page, owner = true) {
     { id: 'main', path: 'main.tex' },
     { id: 'intro', path: 'intro.tex' },
     { id: 'bib', path: 'refs.bib' },
-  ].map((f) => ({ ...f, head: { n: 1, size: 30, file_id: f.id } }));
+  ].map((f) => ({ ...f, has_doc: true, head: { n: 1, size: 30, file_id: f.id } }));
   function apply(id: string, raw: any, client = 'remote') {
     const d = docs.get(id)!;
     const cs = ChangeSet.fromJSON(raw);
@@ -66,7 +68,12 @@ export async function cowriteFixture(page: Page, owner = true) {
       path = url.pathname;
     let data: any = [];
     if (req.method() !== 'GET')
-      writes.push({ path, body: req.postData() ? req.postDataJSON() : undefined, at: Date.now() });
+      writes.push({
+        path,
+        body: req.postData() ? req.postDataJSON() : undefined,
+        at: Date.now(),
+        person,
+      });
     const match = path.match(/\/docs\/([^/]+)(?:\/(.*))?$/);
     if (path === '/api/coresearch/projects/p')
       data = {
@@ -141,8 +148,38 @@ export async function cowriteFixture(page: Page, owner = true) {
   };
   const matchProject = (url: URL) => url.pathname.startsWith('/api/coresearch/projects/p');
   await page.route(matchProject, handler);
+  await page.route(
+    (url) => url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/'),
+    async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/auth/send-code') {
+        await route.fulfill({ status: 204 });
+        return;
+      }
+      if (path === '/auth/verify-code') {
+        person = route.request().postDataJSON().email.startsWith('me@') ? 'me' : 'member';
+        expired = false;
+        offline = false;
+        await route.fulfill({ status: 204 });
+        return;
+      }
+      if (expired) {
+        await route.fulfill({ status: 401, json: { error: 'session expired' } });
+        return;
+      }
+      if (path === '/api/coresearch/bootstrap') {
+        await route.fulfill({ json: bootstrapRecord(person) });
+        return;
+      }
+      await route.fallback();
+    },
+  );
   return {
     ...base,
+    expire() {
+      expired = true;
+      base.event('workspace.updated');
+    },
     async attach(other: Page) {
       await installFilesFixture(other, { user: owner ? 'me' : 'member' });
       await other.route(matchProject, handler);

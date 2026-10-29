@@ -259,3 +259,48 @@ func TestCoresearchFileLifecycleQueuedBuildRetainsPathAndText(t *testing.T) {
 		t.Fatalf("immutable queued paths %+v", claimed.Sources)
 	}
 }
+
+func TestCoresearchFileLifecycleJournalMetadataSurvivesExtensionRename(t *testing.T) {
+	s, a, _, ws, p, f := paperFixture(t)
+	root := csProjects + "/" + p.ID
+	check := func(want bool) {
+		t.Helper()
+		var rows []map[string]any
+		if c := s.call(t, "GET", root+"/files", a, ws, nil, &rows); c != 200 {
+			t.Fatal(c)
+		}
+		for _, r := range rows {
+			if r["id"] == f {
+				if r["has_doc"] != want {
+					t.Fatalf("journal metadata = %v, want %v", r["has_doc"], want)
+				}
+				return
+			}
+		}
+		t.Fatal("missing file")
+	}
+	check(false)
+	if c := s.call(t, "GET", root+"/docs/"+f, a, ws, nil, nil); c != 200 {
+		t.Fatal(c)
+	}
+	for _, name := range []string{"intro.py", "extensionless"} {
+		if c := s.call(t, "PATCH", root+"/files/"+f, a, ws, map[string]string{"path": name}, nil); c != 200 {
+			t.Fatal(c)
+		}
+		check(true)
+		var d doc.Doc
+		if c := s.call(t, "GET", root+"/docs/"+f, a, ws, nil, &d); c != 200 || d.Text != "a😀\r\nb" {
+			t.Fatalf("retained journal %d %+v", c, d)
+		}
+	}
+	if c, _ := csUpload(t, s, a, ws, p.ID, "fresh.py", 0, false, []byte("fresh")); c != 201 {
+		t.Fatal(c)
+	}
+	var rows []map[string]any
+	s.call(t, "GET", root+"/files", a, ws, nil, &rows)
+	for _, r := range rows {
+		if r["path"] == "fresh.py" && r["has_doc"] != false {
+			t.Fatal("metadata initialized an arbitrary journal")
+		}
+	}
+}

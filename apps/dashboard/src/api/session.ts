@@ -10,7 +10,9 @@ watch(workspaceId, (id) => writeText('lykeion.workspace', id));
 // Guard before changing the shared ref: requests and subscriptions key off it.
 export async function selectWorkspace(id: string): Promise<boolean> {
   if (workspaceId.value === id) return true;
-  if (!(await guardResourceDrafts())) return false;
+  // Only SignIn's verified workspace bootstrap may park a scoped journal.
+  if (!(await guardResourceDrafts(undefined, !workspaceId.value ? 'workspace' : undefined)))
+    return false;
   workspaceId.value = id;
   return true;
 }

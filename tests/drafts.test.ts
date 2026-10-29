@@ -8,8 +8,14 @@ import {
   resolveDiscard,
   guardResourceDrafts,
   registerDraftNavigation,
+  registerDraftVisit,
 } from '../apps/dashboard/src/state/resource-draft';
 import { selectWorkspace, workspaceId } from '../apps/dashboard/src/api/session';
+import {
+  authenticationLost,
+  authenticationRestored,
+  finishAuthenticationRecovery,
+} from '../apps/dashboard/src/api/auth-loss';
 
 const scopes: ReturnType<typeof effectScope>[] = [];
 function editor(key = 'original-workspace/skill-a') {
@@ -223,5 +229,71 @@ describe('resource drafts', () => {
     expect(await accepted).toBe(true);
     expect(state.dirty.value).toBe(false);
     unregister();
+  });
+});
+
+describe('retained journal authentication recovery', () => {
+  it('parks only the recovery routes and verified empty-workspace bootstrap, never ordinary navigation', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/editor', component: {} },
+        { path: '/signin', component: {} },
+        { path: '/settings', component: {} },
+      ],
+    });
+    await router.push('/editor');
+    const guard = registerDraftNavigation(router);
+    let scope: 'active' | 'recovering' | 'detached' = 'recovering';
+    let dirty = true;
+    const flush = vi.fn(async (): Promise<void> => {
+      throw new Error('not saved');
+    });
+    const discard = vi.fn();
+    const remove = registerDraftVisit({
+      identity: () => 'member-a/lab/file',
+      dirty: () => dirty,
+      scope: () => scope,
+      flush,
+      discard,
+    });
+    try {
+      await router.push('/signin');
+      expect(router.currentRoute.value.path).toBe('/editor');
+      authenticationLost();
+      await router.push('/settings');
+      expect(router.currentRoute.value.path).toBe('/editor');
+      await router.push('/signin');
+      expect(router.currentRoute.value.path).toBe('/signin');
+      expect(flush).not.toHaveBeenCalled();
+      workspaceId.value = '';
+      expect(await selectWorkspace('lab')).toBe(false);
+      authenticationRestored();
+      expect(await selectWorkspace('lab')).toBe(true);
+      expect(await selectWorkspace('another-lab')).toBe(false);
+      // A different authenticated identity can use the application without touching this draft.
+      scope = 'detached';
+      await router.push('/settings');
+      finishAuthenticationRecovery();
+      expect(router.currentRoute.value.path).toBe('/settings');
+      expect(flush).not.toHaveBeenCalled();
+      expect(discard).not.toHaveBeenCalled();
+      expect(dirty).toBe(true);
+      // Returning to its owner restores the ordinary successful-flush requirement.
+      scope = 'active';
+      await router.push('/editor');
+      expect(router.currentRoute.value.path).toBe('/settings');
+      flush.mockImplementation(async () => {
+        dirty = false;
+      });
+      await router.push('/editor');
+      expect(router.currentRoute.value.path).toBe('/editor');
+      expect(discard).not.toHaveBeenCalled();
+    } finally {
+      remove();
+      guard();
+      authenticationRestored();
+      finishAuthenticationRecovery();
+    }
   });
 });

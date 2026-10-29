@@ -3,7 +3,7 @@ import { nextTick, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../api/client';
-import { authenticationRestored } from '../api/auth-loss';
+import { authenticationRestored, finishAuthenticationRecovery } from '../api/auth-loss';
 import { workspaceId } from '../api/session';
 import { readText, writeText } from '../storage';
 
@@ -65,6 +65,7 @@ async function verify() {
       writeText('lykeion.invite', '', 'session');
       await router.replace('/invite/' + invite);
     } else await router.replace('/');
+    finishAuthenticationRecovery();
   } catch (e) {
     error.value =
       e instanceof ApiError && e.status === 401

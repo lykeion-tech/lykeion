@@ -283,6 +283,14 @@ export async function installFilesFixture(
   return {
     writes,
     reads,
+    event(type: string) {
+      socket?.send(
+        JSON.stringify({
+          type: 'event',
+          event: { id: ++eventId, workspace_id: 'lab', type, payload: {} },
+        }),
+      );
+    },
     remoteHead(n: number) {
       latest = n;
       socket?.send(

@@ -23,9 +23,10 @@ import (
 )
 
 type coresearchFileView struct {
-	ID   uuid.UUID                `json:"id"`
-	Path string                   `json:"path"`
-	Head db.CoresearchFileVersion `json:"head"`
+	HasDoc bool                     `json:"has_doc"`
+	ID     uuid.UUID                `json:"id"`
+	Path   string                   `json:"path"`
+	Head   db.CoresearchFileVersion `json:"head"`
 }
 
 func (h *H) listCoresearchFiles(w http.ResponseWriter, r *http.Request) {
@@ -39,12 +40,20 @@ func (h *H) listCoresearchFiles(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		journalIDs, err := tx.Q.ListCoresearchDocumentFiles(r.Context(), db.ListCoresearchDocumentFilesParams{WorkspaceID: ws, ProjectID: p.ID})
+		if err != nil {
+			return err
+		}
+		journals := make(map[uuid.UUID]bool, len(journalIDs))
+		for _, id := range journalIDs {
+			journals[id] = true
+		}
 		for _, f := range files {
 			head, err := tx.Q.CoresearchFileHead(r.Context(), db.CoresearchFileHeadParams{WorkspaceID: ws, FileID: f.ID})
 			if err != nil {
 				return err
 			}
-			out = append(out, coresearchFileView{f.ID, f.Path, head})
+			out = append(out, coresearchFileView{ID: f.ID, Path: f.Path, Head: head, HasDoc: journals[f.ID]})
 		}
 		return nil
 	})

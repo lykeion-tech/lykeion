@@ -72,8 +72,15 @@ func (h *H) renameCoresearchFile(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		head, e := tx.Q.CoresearchFileHead(r.Context(), db.CoresearchFileHeadParams{WorkspaceID: ws, FileID: f.ID})
-		out = coresearchFileView{f.ID, f.Path, head}
-		return e
+		if e != nil {
+			return e
+		}
+		_, docErr := tx.Q.GetCoresearchDoc(r.Context(), db.GetCoresearchDocParams{WorkspaceID: ws, FileID: f.ID})
+		if docErr != nil && !errors.Is(docErr, pgx.ErrNoRows) {
+			return docErr
+		}
+		out = coresearchFileView{ID: f.ID, Path: f.Path, Head: head, HasDoc: docErr == nil}
+		return nil
 	})
 	var unique *pgconn.PgError
 	if errors.As(e, &unique) && unique.Code == "23505" {

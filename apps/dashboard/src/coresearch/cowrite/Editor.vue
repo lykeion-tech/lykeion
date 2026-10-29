@@ -21,6 +21,10 @@ import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 import { collab, getClientID, sendableUpdates, getSyncedVersion } from '@codemirror/collab';
 import { api } from '../../api/client';
+import { useQueryClient } from '@tanstack/vue-query';
+import { keys } from '../../api/keys';
+import type { Me } from '../../api/types';
+import { authenticationIsLost } from '../../api/auth-loss';
 import { workspaceId } from '../../api/session';
 import { useMe } from '../../api/queries';
 import { registerDraftVisit } from '../../state/resource-draft';
@@ -46,7 +50,9 @@ const emit = defineEmits<{
   selection: [SelectionTarget | undefined];
   error: [string];
   build: [];
+  ready: [];
 }>();
+const client = useQueryClient();
 const me = useMe(),
   host = ref<HTMLElement>();
 const workspace = workspaceId.value,
@@ -64,8 +70,16 @@ let view: EditorView | undefined,
   lastCursor = 0;
 const readOnly = new Compartment();
 const options = { workspace };
+function scope(): 'active' | 'recovering' | 'detached' {
+  // The observer may be disposed; read the current cache, never its captured ref.
+  const current = client.getQueryData<Me>(keys.me)?.id;
+  if (authenticationIsLost() || !current) return 'recovering';
+  if (current !== person) return 'detached';
+  if (!workspaceId.value) return 'recovering';
+  return workspaceId.value === workspace ? 'active' : 'detached';
+}
 function authorized() {
-  if (workspaceId.value !== workspace || me.data.value?.id !== person)
+  if (scope() !== 'active')
     throw new Error('Return to this member and lab to save the pending document');
 }
 function fail(e: unknown) {
@@ -93,6 +107,7 @@ const unregister = registerDraftVisit(
     dirty: () => !!state && sendableUpdates(state).length > 0,
     discard: () => {},
     flush,
+    scope,
   },
   true,
 );
@@ -459,6 +474,7 @@ onMounted(async () => {
       },
       onError: fail,
     });
+    emit('ready');
     emit('text', state.doc.toString());
     void refresh();
     interval = setInterval(() => {

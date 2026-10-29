@@ -183,7 +183,7 @@ test('two actual EditorViews converge with concurrent Unicode edits and CRLF', a
   expect(f.docs.get('main')!.text).toContain('paragraph.\r\n');
   await other.close();
 });
-test('rename refetch preserves the same dirty EditorView and outline across path navigation', async ({
+test('extension-changing rename preserves the dirty EditorView and live journal on reopen', async ({
   page,
 }) => {
   const f = await cowriteFixture(page);
@@ -195,15 +195,19 @@ test('rename refetch preserves the same dirty EditorView and outline across path
   await editor.click();
   await page.keyboard.press('ControlOrMeta+End');
   await page.keyboard.insertText(' retained');
-  f.renameFile('intro', 'sections/evidence.tex');
-  await expect(page.getByRole('button', { name: 'evidence.tex', exact: true })).toBeVisible();
+  f.renameFile('intro', 'sections/evidence.py');
+  await expect(page.getByRole('button', { name: 'evidence.py', exact: true })).toBeVisible();
   await expect(editor).toHaveAttribute('data-same-view', 'yes');
   await expect(editor).toContainText('retained');
   f.setOffline(false);
-  await page.getByRole('button', { name: 'evidence.tex', exact: true }).click();
-  await expect(page).toHaveURL(/file=sections\/evidence.tex/);
+  await page.getByRole('button', { name: 'evidence.py', exact: true }).click();
+  await expect(page).toHaveURL(/file=sections\/evidence.py/);
   await expect(editor).toHaveAttribute('data-same-view', 'yes');
-  await expect(page.getByRole('button', { name: 'Evidence', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'main.tex', exact: true }).click();
+  await page.getByRole('button', { name: 'evidence.py', exact: true }).click();
+  await expect(editor).toContainText('retained');
+  await page.reload();
+  await expect(editor).toContainText('retained');
   expect(f.docs.get('intro')!.text).toContain('retained');
 });
 test('long controlled draft restored from Settings autosizes on mount; drawer bounds persist', async ({
@@ -241,4 +245,131 @@ test('a remote deletion disables the retained view on refetch', async ({ page })
   ).toBeVisible();
   await expect(editor).toHaveAttribute('contenteditable', 'false');
   await expect(editor).toContainText('Second file.');
+});
+
+for (const person of ['me', 'member'])
+  test(`expired dirty editor recovers through SignIn as ${person} without crossing identity`, async ({
+    page,
+  }) => {
+    const f = await cowriteFixture(page);
+    await page.goto('/#/coresearch/p/chat');
+    const editor = page.locator('.cm-content');
+    await expect(editor).toBeVisible();
+    f.setOffline(true);
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+End');
+    await page.keyboard.insertText('PRIVATE PENDING');
+    f.expire();
+    await expect(page).toHaveURL(/#\/signin$/);
+    await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    async function signIn(who: string) {
+      await page.getByRole('textbox', { name: 'Email', exact: true }).fill(who + '@example.com');
+      await page.getByRole('button', { name: 'Continue with email', exact: true }).click();
+      await page.getByRole('textbox', { name: 'Digit 1', exact: true }).fill('123456');
+      await expect(page).not.toHaveURL(/signin/);
+      await expect
+        .poll(() => page.evaluate(() => localStorage.getItem('lykeion.workspace')))
+        .toBe('lab');
+      await page.evaluate(() => (location.hash = '/coresearch/p/chat'));
+      await expect(editor).toBeVisible();
+    }
+    await signIn(person);
+    if (person === 'member') {
+      await expect(editor).not.toContainText('PRIVATE PENDING');
+      expect(f.docs.get('main')!.text).not.toContain('PRIVATE PENDING');
+      expect(
+        f.writes.filter((w) => w.person === 'member' && w.path.endsWith('/steps')),
+      ).toHaveLength(0);
+      f.expire();
+      await expect(page).toHaveURL(/signin/);
+      await signIn('me');
+    }
+    await expect(editor).toContainText('PRIVATE PENDING');
+    await expect.poll(() => f.docs.get('main')!.text).toContain('PRIVATE PENDING');
+    expect(
+      f.writes
+        .filter(
+          (w) => w.path.endsWith('/steps') && JSON.stringify(w.body).includes('PRIVATE PENDING'),
+        )
+        .every((w) => w.person === 'me'),
+    ).toBe(true);
+  });
+test('Compute shows only the caller kernel when another member owns the selected chat', async ({
+  page,
+}) => {
+  await cowriteFixture(page, false);
+  await page.route('**/projects/p/chats', (r) =>
+    r.fulfill({
+      json: [
+        {
+          id: 'chat',
+          owner_id: 'me',
+          mode: 'cowrite',
+          cli: 'claude',
+          kernel_state: 'OWNER-PRIVATE-STATE',
+          kernel_seen_at: '2026-09-01T01:02:03Z',
+        },
+        {
+          id: 'member-chat',
+          owner_id: 'member',
+          mode: 'cowrite',
+          cli: 'claude',
+          kernel_state: 'CALLER-STATE',
+          kernel_seen_at: '2026-09-02T04:05:06Z',
+        },
+      ],
+    }),
+  );
+  await page.goto('/#/coresearch/p/chat');
+  await page.getByRole('button', { name: 'Compute', exact: true }).click();
+  const pane = page.getByRole('tabpanel', { name: 'Compute', exact: true });
+  await expect(pane).not.toContainText('OWNER-PRIVATE-STATE');
+  await expect(pane).not.toContainText('2026-09-01T01:02:03Z');
+  await expect(pane).toContainText('CALLER-STATE');
+  await expect(pane).toContainText('2026-09-02T04:05:06Z');
+});
+test('a different user without a workspace can finish sign-in and manually return to the draft owner', async ({
+  page,
+}) => {
+  const f = await cowriteFixture(page);
+  let withoutWorkspace = false;
+  await page.route('**/api/workspaces', (r) =>
+    withoutWorkspace ? r.fulfill({ json: [] }) : r.fallback(),
+  );
+  await page.goto('/#/coresearch/p/chat');
+  const editor = page.locator('.cm-content');
+  await expect(editor).toBeVisible();
+  f.setOffline(true);
+  await editor.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.insertText('PRIVATE LAB-LESS DRAFT');
+  f.expire();
+  await expect(page).toHaveURL(/signin/);
+  async function verify(who: string) {
+    await page.getByRole('textbox', { name: 'Email', exact: true }).fill(who + '@example.com');
+    await page.getByRole('button', { name: 'Continue with email', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Digit 1', exact: true }).fill('123456');
+  }
+  withoutWorkspace = true;
+  await verify('member');
+  await expect(page).toHaveURL(/onboarding\?step=workspace/);
+  await expect(page.locator('body')).not.toContainText('PRIVATE LAB-LESS DRAFT');
+  expect(f.writes.filter((w) => w.person === 'member' && w.path.endsWith('/steps'))).toHaveLength(
+    0,
+  );
+  // No new 401: this verified SignIn must restore scope after the deliberate reset too.
+  await page.evaluate(() => {
+    location.hash = '/signin';
+  });
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+  withoutWorkspace = false;
+  await verify('me');
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('lykeion.workspace')))
+    .toBe('lab');
+  await page.evaluate(() => {
+    location.hash = '/coresearch/p/chat';
+  });
+  await expect(editor).toContainText('PRIVATE LAB-LESS DRAFT');
+  await expect.poll(() => f.docs.get('main')!.text).toContain('PRIVATE LAB-LESS DRAFT');
 });

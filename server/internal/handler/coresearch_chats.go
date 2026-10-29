@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -43,27 +44,39 @@ func coresearchChat(r *http.Request, tx *store.Tx, ws, who uuid.UUID, write, own
 	}
 	return c, nil
 }
+
+// Embed shared metadata, but explicitly omit private kernel activity for other owners.
+type coresearchChatView struct {
+	db.ListCoresearchChatsRow
+	KernelState  *string    `json:"kernel_state,omitempty"`
+	KernelSeenAt *time.Time `json:"kernel_seen_at,omitempty"`
+}
+
 func (h *H) listCoresearchChats(w http.ResponseWriter, r *http.Request) {
-	out := []db.ListCoresearchChatsRow{}
+	out := []coresearchChatView{}
 	e := h.inWS(r, func(tx *store.Tx, ws, who uuid.UUID) error {
 		p, e := coresearchProject(r, tx, ws, who, false, false)
 		if e != nil {
 			return e
 		}
-		out, e = tx.Q.ListCoresearchChats(r.Context(), db.ListCoresearchChatsParams{WorkspaceID: ws, ProjectID: p.ID})
-		// Project members share chat metadata, but only the owner sees samples.
-		for i := range out {
-			if out[i].OwnerID != who {
-				out[i].KernelMetrics = nil
-				out[i].KernelName = ""
-			}
+		rows, e := tx.Q.ListCoresearchChats(r.Context(), db.ListCoresearchChatsParams{WorkspaceID: ws, ProjectID: p.ID})
+		if e != nil {
+			return e
 		}
-		return e
+		for _, row := range rows {
+			view := coresearchChatView{ListCoresearchChatsRow: row}
+			if row.OwnerID == who {
+				view.KernelState = &row.KernelState
+				view.KernelSeenAt = row.KernelSeenAt
+			} else {
+				view.KernelMetrics = nil
+				view.KernelName = ""
+			}
+			out = append(out, view)
+		}
+		return nil
 	})
 	if coresearchAnswer(w, r, e) {
-		if out == nil {
-			out = []db.ListCoresearchChatsRow{}
-		}
 		writeJSON(w, 200, out)
 	}
 }

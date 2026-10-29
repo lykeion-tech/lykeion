@@ -54,3 +54,8 @@ SELECT c.* FROM coresearch_comment c JOIN coresearch_file f ON f.workspace_id=c.
 UPDATE coresearch_comment SET resolved_by=CASE WHEN @resolved::boolean THEN COALESCE(resolved_by,@resolved_by::uuid) ELSE NULL END,resolved_at=CASE WHEN @resolved::boolean THEN COALESCE(resolved_at,now()) ELSE NULL END WHERE workspace_id= @workspace_id AND id= @id RETURNING *;
 -- name: DeleteCoresearchComment :exec
 DELETE FROM coresearch_comment WHERE workspace_id= @workspace_id AND id= @id AND author_user_id= @author_user_id;
+
+-- name: ListCoresearchDocumentFiles :many
+SELECT d.file_id FROM coresearch_doc d
+JOIN coresearch_file f ON f.workspace_id=d.workspace_id AND f.id=d.file_id
+WHERE f.workspace_id= @workspace_id AND f.project_id= @project_id AND f.deleted_at IS NULL;

@@ -1,5 +1,6 @@
 import { computed, getCurrentScope, onScopeDispose, readonly, ref, watch, type Ref } from 'vue';
 import type { Router } from 'vue-router';
+import { authenticationIsLost, authenticationIsRestoring } from '../api/auth-loss';
 
 type Saved<T> = { revision: number; value: T };
 type DraftVisit = {
@@ -7,6 +8,8 @@ type DraftVisit = {
   discard: () => void;
   identity: () => string;
   flush?: () => Promise<void>;
+  // Retained journals are never saved or discarded through another identity/scope.
+  scope?: () => 'active' | 'recovering' | 'detached';
 };
 const visits = new Set<DraftVisit>();
 
@@ -43,8 +46,19 @@ export function resolveDiscard(discard: boolean) {
   resolve?.(discard);
 }
 
-export async function guardResourceDrafts(proceed?: () => Promise<boolean>): Promise<boolean> {
-  for (const visit of [...visits]) {
+export async function guardResourceDrafts(
+  proceed?: () => Promise<boolean>,
+  recovery?: 'signin' | 'workspace',
+): Promise<boolean> {
+  const recovering =
+    recovery === 'signin'
+      ? authenticationIsLost() || authenticationIsRestoring()
+      : recovery === 'workspace' && authenticationIsRestoring();
+  const applicable = [...visits].filter((visit) => visit.scope?.() !== 'detached');
+  if (!recovering && applicable.some((visit) => visit.dirty() && visit.scope?.() === 'recovering'))
+    return false;
+  const active = applicable.filter((visit) => visit.scope?.() !== 'recovering');
+  for (const visit of active) {
     if (visit.dirty() && visit.flush) {
       try {
         await visit.flush();
@@ -54,7 +68,7 @@ export async function guardResourceDrafts(proceed?: () => Promise<boolean>): Pro
       if (visits.has(visit) && visit.dirty()) return false;
     }
   }
-  const dirty = [...visits]
+  const dirty = active
     .filter((visit) => visit.dirty())
     .map((visit) => ({
       visit,
@@ -69,7 +83,15 @@ export async function guardResourceDrafts(proceed?: () => Promise<boolean>): Pro
 }
 
 export function registerDraftNavigation(router: Pick<Router, 'beforeEach'>) {
-  return router.beforeEach((to, from) => to.fullPath === from.fullPath || guardResourceDrafts());
+  return router.beforeEach((to, from) => {
+    const recovery =
+      (to.path === '/signin' && authenticationIsLost()) ||
+      (from.path === '/signin' && authenticationIsRestoring());
+    return (
+      to.fullPath === from.fullPath ||
+      guardResourceDrafts(undefined, recovery ? 'signin' : undefined)
+    );
+  });
 }
 
 // Resource payloads are JSON values. Copy them so typing never mutates the query cache.
