@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/predicate"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -37,6 +38,47 @@ type newCard struct {
 	AttachmentIDs []uuid.UUID       `json:"attachment_ids"`
 	Env           map[string]string `json:"env"`
 	Services      []newService      `json:"services"`
+	Predicates    []predicateIn     `json:"predicates"`
+}
+
+// predicateIn is a result the study declares before it runs, as a name and a
+// condition over the numbers its script will report.
+type predicateIn struct {
+	Name string `json:"name"`
+	Text string `json:"text"`
+}
+
+const maxPredicates = 8
+
+// checkPredicates refuses predicates a study cannot be pre-registered with.
+func checkPredicates(in []predicateIn, from, to string) error {
+	runs := board.StageIndex(from) <= board.StageIndex(board.Experimentation) && board.StageIndex(board.Experimentation) <= board.StageIndex(to)
+	switch {
+	case !runs && len(in) > 0:
+		return cardInputError("only a study that runs Experimentation has pre-registered results")
+	case runs && len(in) == 0:
+		return cardInputError("a study that runs Experimentation needs at least one pre-registered result")
+	case len(in) > maxPredicates:
+		return cardInputError("a study can pre-register at most " + strconv.Itoa(maxPredicates) + " results")
+	}
+	seen := map[string]bool{}
+	for i, p := range in {
+		label := "pre-registered result " + strconv.Itoa(i+1)
+		if p.Name != "" {
+			label = "pre-registered result " + p.Name
+		}
+		switch {
+		case p.Name == "" || utf8.RuneCountInString(p.Name) > 80:
+			return cardInputError(label + " needs a name of 1 to 80 characters")
+		case seen[p.Name]:
+			return cardInputError(label + " repeats a name")
+		}
+		seen[p.Name] = true
+		if _, err := predicate.Parse(p.Text); err != nil {
+			return cardInputError(label + ": " + err.Error())
+		}
+	}
+	return nil
 }
 
 func checkStudyEnv(env map[string]string) error {
@@ -364,6 +406,9 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if err == nil && len(in.FollowsFrom) > 0 && (from != board.Grounding || to != board.Reporting) {
 		err = cardInputError("only an end-to-end study can follow from another")
 	}
+	if err == nil {
+		err = checkPredicates(in.Predicates, from, to)
+	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -422,6 +467,9 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		}
 		params.Env, err = json.Marshal(in.Env)
 		if err != nil {
+			return err
+		}
+		if params.Predicates, err = json.Marshal(append([]predicateIn{}, in.Predicates...)); err != nil {
 			return err
 		}
 		// A follow-up may ask the same question again; any other card may not

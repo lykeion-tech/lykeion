@@ -36,7 +36,7 @@ func TestAStudyIsCreatedOnASharedMachine(t *testing.T) {
 	}
 	for _, ref := range []string{"laptop", "skills-daemon"} {
 		var c map[string]any
-		if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"question": "q-" + ref, "machine": ref}, &c); code != 201 {
+		if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"predicates": testPredicates, "question": "q-" + ref, "machine": ref}, &c); code != 201 {
 			t.Fatalf("create %d %+v", code, c)
 		}
 		if c["machine"] != "skills-daemon" || c["machine_label"] != "laptop (machine-owner@lab.org)" {
@@ -48,7 +48,7 @@ func TestAStudyCantChooseAMachineNotSharedWithItsOwner(t *testing.T) {
 	f, guest, _ := machineStudy(t)
 	for _, ref := range []string{"laptop", "skills-daemon", "missing"} {
 		var out map[string]any
-		if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"question": "q", "machine": ref}, &out); code != 400 || out["error"] != "No machine named "+ref+" is shared with you" {
+		if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"predicates": testPredicates, "question": "q", "machine": ref}, &out); code != 400 || out["error"] != "No machine named "+ref+" is shared with you" {
 			t.Fatalf("create %d %+v", code, out)
 		}
 	}
@@ -56,7 +56,7 @@ func TestAStudyCantChooseAMachineNotSharedWithItsOwner(t *testing.T) {
 func TestOnlyTheOwnerChangesTheMachine(t *testing.T) {
 	f, guest, _ := machineStudy(t)
 	var c card
-	if code := f.s.call(t, "POST", "/api/cards", f.jwt, f.ws, map[string]any{"question": "q"}, &c); code != 201 {
+	if code := f.s.call(t, "POST", "/api/cards", f.jwt, f.ws, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != 201 {
 		t.Fatal(code)
 	}
 	var out map[string]any
@@ -67,7 +67,7 @@ func TestOnlyTheOwnerChangesTheMachine(t *testing.T) {
 func TestTheStudyPageExplainsAMissingMachine(t *testing.T) {
 	f, _, _ := machineStudy(t)
 	var c card
-	if code := f.s.call(t, "POST", "/api/cards", f.jwt, f.ws, map[string]any{"question": "q"}, &c); code != 201 {
+	if code := f.s.call(t, "POST", "/api/cards", f.jwt, f.ws, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != 201 {
 		t.Fatal(code)
 	}
 	for _, tc := range []struct{ machine, notice string }{{"gone", "This study's machine is no longer shared with you; choose another."}, {"skills-daemon", "This study's machine has no Codex shared with you; choose another."}} {
@@ -95,7 +95,7 @@ func TestChangingTheMachineResumesTheCancelledStep(t *testing.T) {
 		t.Fatal(code)
 	}
 	var c card
-	if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"question": "q", "machine": "laptop"}, &c); code != 201 {
+	if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"predicates": testPredicates, "question": "q", "machine": "laptop"}, &c); code != 201 {
 		t.Fatal(code)
 	}
 	if n := f.s.queuedRuns(t, c.ID); n != 1 {
@@ -141,7 +141,7 @@ func TestChangingTheMachineLeavesARunningRunAlone(t *testing.T) {
 	f, _, _ := machineStudy(t)
 	f.s.H.Engine = &flow.Engine{Store: f.s.H.Store, AgentRuns: f.s.H.AgentRuns}
 	var c card
-	if code := f.s.call(t, "POST", "/api/cards", f.jwt, f.ws, map[string]any{"question": "q"}, &c); code != 201 {
+	if code := f.s.call(t, "POST", "/api/cards", f.jwt, f.ws, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != 201 {
 		t.Fatal(code)
 	}
 	if n := f.s.queuedRuns(t, c.ID); n != 1 {
@@ -164,7 +164,7 @@ func TestChangingTheMachineLeavesARunningRunAlone(t *testing.T) {
 func TestAStudyDefaultsToMyMachines(t *testing.T) {
 	f, _, _ := machineStudy(t)
 	var out map[string]any
-	if code := f.s.call(t, "POST", "/api/cards", f.jwt, f.ws, map[string]any{"question": "my machines"}, &out); code != 201 {
+	if code := f.s.call(t, "POST", "/api/cards", f.jwt, f.ws, map[string]any{"predicates": testPredicates, "question": "my machines"}, &out); code != 201 {
 		t.Fatal(code)
 	}
 	if out["machine"] != nil || out["machine_label"] != "My machines" || out["machine_notice"] != "" {
@@ -179,7 +179,7 @@ func TestUnsupportedRuntimeCannotBeSelectedForStudy(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out map[string]any
-		if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"question": "unsupported", "machine": "skills-daemon"}, &out); code != 400 || out["error"] != "No machine named skills-daemon is shared with you" {
+		if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"predicates": testPredicates, "question": "unsupported", "machine": "skills-daemon"}, &out); code != 400 || out["error"] != "No machine named skills-daemon is shared with you" {
 			t.Fatalf("%s: %d %+v", platform, code, out)
 		}
 	}

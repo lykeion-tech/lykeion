@@ -29,7 +29,7 @@ func newRated(t *testing.T, offered bool) rated {
 	var card struct {
 		ID string `json:"id"`
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Why do cells age?"}, &card); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Why do cells age?"}, &card); code != 201 {
 		t.Fatalf("create study: %d", code)
 	}
 	if _, err := s.Env.Owner.Exec(context.Background(), `WITH p AS (

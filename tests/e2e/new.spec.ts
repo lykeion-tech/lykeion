@@ -142,6 +142,7 @@ test.describe('new study', () => {
         question: `The earlier set study ${Date.now()}`,
         assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
         scope: { from: 'grounding', to: 'reporting' },
+        predicates: [{ name: 'effect', text: 'effect > 0' }],
       },
     });
     expect(earlier.status()).toBe(201);
@@ -220,6 +221,7 @@ test.describe('new study', () => {
         question: `A set study ${Date.now()}`,
         assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
         scope: { from: 'grounding', to: 'reporting' },
+        predicates: [{ name: 'effect', text: 'effect > 0' }],
       },
     });
     expect(made.status()).toBe(201);

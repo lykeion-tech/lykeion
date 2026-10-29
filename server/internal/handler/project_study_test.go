@@ -23,7 +23,7 @@ func TestCreateStudyInProject(t *testing.T) {
 		t.Fatalf("create project: %d", code)
 	}
 	var created projectStudy
-	if code := s.call(t, "POST", "/api/cards", token, workspace.ID, map[string]any{"question": "What evidence belongs in this project?", "research_id": project.ID}, &created); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", token, workspace.ID, map[string]any{"predicates": testPredicates, "question": "What evidence belongs in this project?", "research_id": project.ID}, &created); code != 201 {
 		t.Fatalf("create project study: %d", code)
 	}
 	if created.ResearchID == nil || *created.ResearchID != project.ID {
@@ -46,8 +46,8 @@ func TestCreateStudyInProject(t *testing.T) {
 		t.Fatalf("project link required a later property update: %d", n)
 	}
 	for _, input := range []map[string]any{
-		{"question": "An independent study without a project"},
-		{"question": "An independent study with explicit null", "research_id": nil},
+		{"predicates": testPredicates, "question": "An independent study without a project"},
+		{"predicates": testPredicates, "question": "An independent study with explicit null", "research_id": nil},
 	} {
 		var independent projectStudy
 		if code := s.call(t, "POST", "/api/cards", token, workspace.ID, input, &independent); code != 201 || independent.ResearchID != nil {
@@ -70,7 +70,7 @@ func TestCreateStudyRejectsUnknownAndForeignProjectsAtomically(t *testing.T) {
 	}
 	cardsBefore, eventsBefore := s.count(t, "SELECT count(*) FROM card"), s.count(t, "SELECT count(*) FROM event")
 	for _, id := range []string{uuid.NewString(), project.ID, "not-a-uuid"} {
-		if code := s.call(t, "POST", "/api/cards", token, workspace.ID, map[string]any{"question": "Must not create an unlinked study", "research_id": id}, nil); code != 400 {
+		if code := s.call(t, "POST", "/api/cards", token, workspace.ID, map[string]any{"predicates": testPredicates, "question": "Must not create an unlinked study", "research_id": id}, nil); code != 400 {
 			t.Fatalf("accepted invalid project %q: %d", id, code)
 		}
 		if cards := s.count(t, "SELECT count(*) FROM card"); cards != cardsBefore {
@@ -97,7 +97,7 @@ func TestCreateProjectStudyRollsBackWhenItsEventFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	cardsBefore, eventsBefore := s.count(t, "SELECT count(*) FROM card"), s.count(t, "SELECT count(*) FROM event")
-	if code := s.call(t, "POST", "/api/cards", token, workspace.ID, map[string]any{"question": "This linked study must roll back", "research_id": project.ID}, nil); code != 500 {
+	if code := s.call(t, "POST", "/api/cards", token, workspace.ID, map[string]any{"predicates": testPredicates, "question": "This linked study must roll back", "research_id": project.ID}, nil); code != 500 {
 		t.Fatalf("event failure: %d", code)
 	}
 	if s.count(t, "SELECT count(*) FROM card") != cardsBefore || s.count(t, "SELECT count(*) FROM event") != eventsBefore {

@@ -363,7 +363,7 @@ func TestALeavingMemberTakesTheirSharingWithThem(t *testing.T) {
 			var runs []string
 			for i, tc := range []struct{ tok, machine, rt, status string }{{guest, "skills-daemon", f.rt, "running"}, {guest, "skills-daemon", "", "queued"}, {f.jwt, "guest-daemon", gr, "dispatched"}, {f.jwt, "guest-daemon", "", "queued"}, {guest, "", "", "queued"}, {f.jwt, "", "", "queued"}} {
 				var c card
-				in := map[string]any{"question": "departure " + uuid.NewString()}
+				in := map[string]any{"predicates": testPredicates, "question": "departure " + uuid.NewString()}
 				if tc.machine != "" {
 					in["machine"] = tc.machine
 				}
@@ -423,7 +423,7 @@ func TestALeavingMembersLateRunCannotClaimWorkspaceSharing(t *testing.T) {
 		t.Fatal(code)
 	}
 	var c card
-	if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"question": "late run", "machine": "skills-daemon"}, &c); code != 201 {
+	if code := f.s.call(t, "POST", "/api/cards", guest, f.ws, map[string]any{"predicates": testPredicates, "question": "late run", "machine": "skills-daemon"}, &c); code != 201 {
 		t.Fatal(code)
 	}
 	if code := f.s.call(t, "POST", "/api/workspaces/"+f.ws+"/leave", guest, "", nil, nil); code != 204 {

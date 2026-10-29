@@ -273,6 +273,7 @@ type Card struct {
 	Redos        int32           `json:"redos"`
 	Env          json.RawMessage `json:"env"`
 	Machine      *string         `json:"machine"`
+	Predicates   json.RawMessage `json:"predicates"`
 }
 
 type CardTeam struct {

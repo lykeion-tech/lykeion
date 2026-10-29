@@ -129,7 +129,7 @@ func TestNoVersionInTeamResponses(t *testing.T) {
 	s.call(t, "GET", "/api/teams", a, w.ID, nil, &list)
 	s.call(t, "GET", "/api/teams/"+created["id"].(string), a, w.ID, nil, &detail)
 	var study, card map[string]any
-	if c := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &study); c != 201 {
+	if c := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &study); c != 201 {
 		t.Fatalf("study: %d", c)
 	}
 	s.call(t, "GET", "/api/cards/"+study["id"].(string), a, w.ID, nil, &card)

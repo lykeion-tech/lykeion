@@ -23,12 +23,17 @@ test('Projects has the reference table and scopes its board and saved Properties
       title: 'Linked research study',
       question: 'Which sources establish this project board fixture?',
       research_id: project.id,
+      predicates: [{ name: 'effect', text: 'effect > 0' }],
     },
   });
   expect(card.status()).toBe(201);
   const unrelated = await page.request.post('/api/cards', {
     headers,
-    data: { title: 'Outside this project', question: 'An unrelated question outside the project.' },
+    data: {
+      title: 'Outside this project',
+      question: 'An unrelated question outside the project.',
+      predicates: [{ name: 'effect', text: 'effect > 0' }],
+    },
   });
   expect(unrelated.status()).toBe(201);
   await page.goto('/#/projects');

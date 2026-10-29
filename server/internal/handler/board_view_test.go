@@ -109,8 +109,8 @@ func TestCardListUpdatedAtIsTheNewestEvent(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var busy, quiet card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "busy"}, &busy)
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "quiet"}, &quiet)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "busy"}, &busy)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "quiet"}, &quiet)
 	for _, q := range []string{
 		`UPDATE event SET created_at = '2030-01-02T03:04:05Z' WHERE card_id = '` + busy.ID + `'`,
 		`UPDATE card SET created_at = '2020-01-01T00:00:00Z' WHERE id IN ('` + busy.ID + `', '` + quiet.ID + `')`,

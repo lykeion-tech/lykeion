@@ -50,20 +50,20 @@ func TestCardLifecycleBasics(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c1, c2 card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does X raise Y in mouse liver?"}, &c1); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Does X raise Y in mouse liver?"}, &c1); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"title": "Second", "question": "q2", "follows_from": []string{c1.ID}}, &c2)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "title": "Second", "question": "q2", "follows_from": []string{c1.ID}}, &c2)
 	if c1.Number != 1 || c2.Number != 2 || c1.BoardColumn != "grounding" || c1.Title == "" || c1.OwnerID != s.userID(t, a) {
 		t.Fatalf("%+v %+v", c1, c2)
 	}
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": " "}, nil); code != 400 {
 		t.Fatalf("empty question: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "follows_from": []string{uuid.NewString()}}, nil); code != 400 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "follows_from": []string{uuid.NewString()}}, nil); code != 400 {
 		t.Fatalf("follows_from an unknown card: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "board_column": "validation"}, nil); code != 400 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "board_column": "validation"}, nil); code != 400 {
 		t.Fatal("a card was created in a column the request named")
 	}
 
@@ -96,7 +96,7 @@ func TestCardsAreScopedToTheirWorkspace(t *testing.T) {
 	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@else.org")
 	wa, wb := s.workspace(t, a, "lab-a"), s.workspace(t, b, "lab-b")
 	var c card
-	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q"}, &c)
+	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c)
 	if code := s.call(t, "GET", "/api/cards/"+c.ID, b, wb.ID, nil, nil); code != 404 {
 		t.Fatalf("B read A's card through B's workspace: %d", code)
 	}
@@ -114,7 +114,7 @@ func TestInbox(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c)
 	var item uuid.UUID
 	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
 		VALUES ($1, $2, $3, 'escalated', '3 failed gates') RETURNING id`, w.ID, c.ID, s.userID(t, a)).Scan(&item); err != nil {
@@ -165,7 +165,7 @@ func TestEmptyCollectionResponsesAreJSONArrays(t *testing.T) {
 	assertBody("GET", "/api/inbox")
 
 	var c card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != http.StatusCreated {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != http.StatusCreated {
 		t.Fatalf("create card: %d", code)
 	}
 	assertBody("GET", "/api/cards/"+c.ID+"/comments")
@@ -227,7 +227,7 @@ func TestASingleTeamStudyStaysInItsColumn(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 	var wide studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2", "scope": map[string]string{"from": "grounding", "to": "reporting"},
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q2", "scope": map[string]string{"from": "grounding", "to": "reporting"},
 		"assignee": teamAssignee(map[string]string{"hypotheses": pack})}, &wide); code != 201 {
 		t.Fatalf("a wider scope for one Team: %d", code)
 	}
@@ -244,14 +244,14 @@ func TestATeamSetsGapsGetTheBuiltInTeams(t *testing.T) {
 	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting")
 	teams := map[string]string{"grounding": g, "reporting": r}
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(teams)}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(teams)}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" || c.BoardColumn != "grounding" || len(c.Teams) != 5 ||
 		c.Teams["grounding"].PackID != g || c.Teams["reporting"].PackID != r || c.Teams["validation"].PackID != s.builtInID(t, w.ID, "validation") {
 		t.Fatalf("%+v", c)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "scope": map[string]string{"from": "grounding", "to": "validation"},
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "scope": map[string]string{"from": "grounding", "to": "validation"},
 		"assignee": teamAssignee(teams)}, nil); code != 400 {
 		t.Fatalf("a Team outside the scope: %d", code)
 	}
@@ -286,7 +286,7 @@ func TestFollowsFromOnlyEndToEnd(t *testing.T) {
 		"scope": map[string]string{"from": "grounding", "to": "hypotheses"}}, nil); code != 400 {
 		t.Fatalf("single-stage follower: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "child 2", "follows_from": []string{parent.ID}}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "child 2", "follows_from": []string{parent.ID}}, nil); code != 201 {
 		t.Fatalf("end-to-end follower: %d", code)
 	}
 }
@@ -297,7 +297,7 @@ func TestAStudyWithNoTeamPickedStartsAtOnceEndToEnd(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if c.BoardColumn != "grounding" || c.ScopeFrom != "grounding" || c.ScopeTo != "reporting" || len(c.Teams) != 5 {
@@ -321,7 +321,7 @@ func TestALaterColumnsTeamCanChangeUntilItStarts(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting"), s.addedTeam(t, a, w.ID, "r2", "reporting")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", a, w.ID, map[string]string{"reporting": r2}, nil); code != 200 {
@@ -357,14 +357,14 @@ func TestDuplicateSaysWhetherFollowingIsAllowed(t *testing.T) {
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "same question"}, nil); code != 201 {
 		t.Fatalf("first: %d", code)
 	}
 	var dup struct {
 		Error          string
 		FollowsAllowed bool `json:"follows_allowed"`
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, &dup); code != 409 || !dup.FollowsAllowed || dup.Error != "an active study already asks this: #1" {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "same question"}, &dup); code != 409 || !dup.FollowsAllowed || dup.Error != "an active study already asks this: #1" {
 		t.Fatalf("end-to-end duplicate: %d %+v", code, dup)
 	}
 	dup.FollowsAllowed = true
@@ -380,7 +380,7 @@ func TestATeamCountsTheStudiesItWorks(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting")
 	for _, q := range []string{"one?", "two?"} {
-		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": q, "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": g})}, nil); code != 201 {
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": q, "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": g})}, nil); code != 201 {
 			t.Fatalf("create: %d", code)
 		}
 	}
@@ -398,11 +398,11 @@ func TestADoneStudyNoLongerHoldsItsQuestion(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var first card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, &first)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "same question"}, &first)
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column = 'grounding', round = 1, state = 'done' WHERE id = $1`, first.ID); err != nil {
 		t.Fatal(err)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "same question"}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "same question"}, nil); code != 201 {
 		t.Fatalf("a done study still holds its question: %d", code)
 	}
 }
@@ -415,7 +415,7 @@ func TestOnlyTheOwnerChangesAStudysTeams(t *testing.T) {
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
 	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "reporting"), s.addedTeam(t, a, w.ID, "r2", "reporting")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "reporting": r})}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if code := s.call(t, "PATCH", "/api/cards/"+c.ID+"/teams", b, w.ID, map[string]string{"reporting": r2}, nil); code != 403 {
@@ -507,7 +507,7 @@ func TestAChosenTeamFillsItsColumnAndBuiltInsTheRest(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	exp := s.addedTeam(t, a, w.ID, "exp", "experimentation")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "scope": map[string]string{"from": "hypotheses", "to": "validation"},
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "scope": map[string]string{"from": "hypotheses", "to": "validation"},
 		"assignee": teamAssignee(map[string]string{"experimentation": exp})}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
@@ -544,7 +544,7 @@ func TestCreateRefusesWhenAStageHasNoBuiltInTeam(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var e struct{ Error string }
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &e); code != 422 || e.Error != "No built-in Team for Reporting" {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &e); code != 422 || e.Error != "No built-in Team for Reporting" {
 		t.Fatalf("%d %q", code, e.Error)
 	}
 	if n := s.count(t, "SELECT count(*) FROM card"); n != 0 {
@@ -558,7 +558,7 @@ func TestAStartedStudyCannotBeEdited(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	for _, body := range []map[string]any{{"title": "t"}, {"question": "q2"}, {"deadline": "2026-12-01T00:00:00Z"}, {"assignee": map[string]any{"type": "team"}}} {
@@ -589,7 +589,7 @@ func TestTheOwnerDeletesAStudyAnyTime(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if n := s.queuedRuns(t, c.ID); n != 1 {
@@ -687,7 +687,7 @@ func TestAStudyLinksItsFilesAndRecordsThem(t *testing.T) {
 	pic := tinyPNG(t)
 	csv, png := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV)), s.uploadData(t, a, w.ID, "plot.png", pic)
 	var c card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does fasting raise PGC1A?", "attachment_ids": []string{csv, png}}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Does fasting raise PGC1A?", "attachment_ids": []string{csv, png}}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	type linked struct{ disk, key string }
@@ -781,7 +781,7 @@ func TestFilesKeepTheOrderTheyWereAttachedIn(t *testing.T) {
 		ID          string
 		Attachments []struct{ Name string }
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": ids}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "attachment_ids": ids}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	listed := func() []string {
@@ -811,11 +811,11 @@ func TestAQuoteFromAnAttachedFileIsChecked(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var c, other card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does fasting raise PGC1A?",
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Does fasting raise PGC1A?",
 		"attachment_ids": []string{s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))}}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does fasting raise TFAM?"}, &other); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Does fasting raise TFAM?"}, &other); code != 201 {
 		t.Fatalf("create other: %d", code)
 	}
 	claim := func(quote string) []db.Record {
@@ -832,7 +832,7 @@ func TestAQuoteFromAnAttachedFileIsChecked(t *testing.T) {
 	// a file longer than a body keeps: the body has its start, quotes are checked against all of it
 	big := strings.Repeat("gene,fold\n", 30000) + "SIRT1,3.1\n"
 	var long card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does fasting raise SIRT1?",
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Does fasting raise SIRT1?",
 		"attachment_ids": []string{s.uploadData(t, a, w.ID, "big.csv", []byte(big))}}, &long); code != 201 {
 		t.Fatalf("create long: %d", code)
 	}
@@ -873,7 +873,7 @@ func TestStudyFileLimits(t *testing.T) {
 	refused := func(ids []string, want string) {
 		t.Helper()
 		var out struct{ Error string }
-		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": ids}, &out); code != 400 || out.Error != want {
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "attachment_ids": ids}, &out); code != 400 || out.Error != want {
 			t.Fatalf("%d %q, want 400 %q", code, out.Error, want)
 		}
 		if n := s.count(t, `SELECT count(*) FROM card`); n != 0 {
@@ -893,7 +893,7 @@ func TestStudyFileLimits(t *testing.T) {
 	}
 	refused(ids, "A study's files can total at most 10 GB")
 	// Exactly 10 GB is allowed.
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": ids[:5]}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "attachment_ids": ids[:5]}, nil); code != 201 {
 		t.Fatalf("10 GB: %d", code)
 	}
 }
@@ -914,7 +914,7 @@ func TestForeignUploadsAreRefusedAsUnknown(t *testing.T) {
 		"an id that names no upload": uuid.NewString(),
 	} {
 		var out struct{ Error string }
-		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": []string{mine, id}}, &out); code != 400 || out.Error != "Unknown attachment" {
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "attachment_ids": []string{mine, id}}, &out); code != 400 || out.Error != "Unknown attachment" {
 			t.Fatalf("%s: %d %q", name, code, out.Error)
 		}
 	}
@@ -950,7 +950,7 @@ func TestAnUploadLinksToOneStudyOnly(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range codes {
 		wg.Go(func() {
-			codes[i] = s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": fmt.Sprintf("question %d", i), "attachment_ids": []string{id}}, nil)
+			codes[i] = s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": fmt.Sprintf("question %d", i), "attachment_ids": []string{id}}, nil)
 		})
 	}
 	wg.Wait()
@@ -986,7 +986,7 @@ func TestAnUploadTakenMidCreateRefusesTheStudy(t *testing.T) {
 	s.H.Blobs = gate
 	code := make(chan int)
 	go func() {
-		code <- s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": []string{first, taken}}, nil)
+		code <- s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "attachment_ids": []string{first, taken}}, nil)
 	}()
 	// the study has read both uploads as pending; the sweep then takes one
 	<-gate.waiting
@@ -1107,7 +1107,7 @@ func TestASlowExtractionIsRecordedAsBinary(t *testing.T) {
 		t.Fatalf("the upload waited %v for the parse", d)
 	}
 	var c card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "attachment_ids": []string{id}}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "attachment_ids": []string{id}}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	sum := sha256.Sum256(pdf)
@@ -1236,7 +1236,7 @@ func TestStudyVariablesAreChecked(t *testing.T) {
 				Env   map[string]string `json:"env"`
 				Error string            `json:"error"`
 			}
-			code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": fmt.Sprintf("variables %d", i), "env": tc.env}, &out)
+			code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": fmt.Sprintf("variables %d", i), "env": tc.env}, &out)
 			if code != tc.status {
 				t.Fatalf("status %d, want %d: %+v", code, tc.status, out)
 			}

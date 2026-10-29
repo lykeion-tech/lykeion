@@ -15,6 +15,10 @@ type cardView struct {
 	Question    string `json:"question"`
 	BoardColumn string `json:"board_column"`
 	State       string `json:"state"`
+	Predicates  []struct {
+		Name string `json:"name"`
+		Text string `json:"text"`
+	} `json:"predicates"`
 }
 
 // byNumber resolves a card number to its id.
@@ -38,7 +42,7 @@ func byNumber(cmd *cobra.Command, e *env, arg string) (cardView, error) {
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
 	var title, followsFrom, machine string
-	var variables []string
+	var variables, predicates []string
 	var uploads cardUploadFlags
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
@@ -59,6 +63,17 @@ func cardCmd(e *env) *cobra.Command {
 				env[name] = value
 			}
 			in["env"] = env
+		}
+		if len(predicates) > 0 {
+			list := make([]map[string]string, 0, len(predicates))
+			for _, pair := range predicates {
+				name, text, ok := strings.Cut(pair, "=")
+				if !ok {
+					return fmt.Errorf("--predicate requires NAME=TEXT")
+				}
+				list = append(list, map[string]string{"name": name, "text": text})
+			}
+			in["predicates"] = list
 		}
 		if title != "" {
 			in["title"] = title
@@ -88,6 +103,7 @@ func cardCmd(e *env) *cobra.Command {
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().StringVar(&followsFrom, "follows-from", "", "card number this follows")
 	newCmd.Flags().StringArrayVar(&variables, "env", nil, "plain study setting NAME=VALUE (repeatable)")
+	newCmd.Flags().StringArrayVar(&predicates, "predicate", nil, "pre-registered result NAME=TEXT, such as 'effect=effect > 0.2' (repeatable)")
 	c.AddCommand(newCmd,
 		&cobra.Command{Use: "machine CARD NAME|ID|mine", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 			if err := e.inWorkspace(); err != nil {
@@ -126,6 +142,9 @@ func cardCmd(e *env) *cobra.Command {
 			}
 			fmt.Fprintf(e.out, "#%d %s\ncolumn: %s  state: %s\n\n%s\n",
 				x.Number, x.Title, x.BoardColumn, x.State, x.Question)
+			for _, p := range x.Predicates {
+				fmt.Fprintf(e.out, "pre-registered: %s: %s\n", p.Name, p.Text)
+			}
 			var comments []struct {
 				Body      string `json:"body"`
 				CreatedAt string `json:"created_at"`

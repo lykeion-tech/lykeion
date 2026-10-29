@@ -307,3 +307,56 @@ func TestCardNewAndCardMachineFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestCardNewSendsPredicates(t *testing.T) {
+	var posted map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+			t.Error(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"x","number":1,"title":"q"}`))
+	}))
+	defer srv.Close()
+	var out bytes.Buffer
+	e := &env{cfg: Config{Server: srv.URL, Token: "ltk_run", Workspace: "w"}, out: &out}
+	cmd := cardCmd(e)
+	cmd.SetArgs([]string{"new", "q", "--predicate", "effect=effect > 0.2", "--predicate", "gap=a = b"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	want := []any{map[string]any{"name": "effect", "text": "effect > 0.2"}, map[string]any{"name": "gap", "text": "a = b"}}
+	if !reflect.DeepEqual(posted["predicates"], want) {
+		t.Fatalf("posted predicates %#v, want %#v", posted["predicates"], want)
+	}
+	posted = nil
+	cmd = cardCmd(e)
+	cmd.SetArgs([]string{"new", "q", "--predicate", "effect"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "NAME=TEXT") {
+		t.Fatalf("missing text: %v", err)
+	}
+	if posted != nil {
+		t.Fatal("invalid predicate reached server")
+	}
+}
+
+func TestCardShowPrintsPredicates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/comments") {
+			w.Write([]byte(`[]`))
+			return
+		}
+		w.Write([]byte(`[{"id":"x","number":1,"title":"t","question":"why","predicates":[{"name":"effect","text":"effect > 0.2"}]}]`))
+	}))
+	defer srv.Close()
+	var out bytes.Buffer
+	cmd := cardCmd(&env{cfg: Config{Server: srv.URL, Token: "ltk_run", Workspace: "w"}, out: &out})
+	cmd.SetArgs([]string{"show", "1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "why\npre-registered: effect: effect > 0.2\n") {
+		t.Fatalf("%q", out.String())
+	}
+}

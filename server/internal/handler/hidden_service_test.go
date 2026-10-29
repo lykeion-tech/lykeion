@@ -79,7 +79,7 @@ func TestAPendingServiceGetsMetadataWhenLinked(t *testing.T) {
 		if _, err := s.H.Blobs.Get(t.Context(), records.TextKey(ws+"/attachments/"+up["id"].(string))); !errors.Is(err, storage.ErrNotFound) {
 			t.Fatalf("service text companion: %v", err)
 		}
-		in := map[string]any{"question": uuid.NewString(), "env": map[string]string{"DATA": "x"}, "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py", "client": "server.py", "env": []string{"DATA"}}}}
+		in := map[string]any{"predicates": testPredicates, "question": uuid.NewString(), "env": map[string]string{"DATA": "x"}, "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py", "client": "server.py", "env": []string{"DATA"}}}}
 		var c card
 		if got := s.call(t, "POST", "/api/cards", tok, ws, in, &c); got != 201 {
 			t.Fatalf("create %d", got)
@@ -133,7 +133,7 @@ func TestServicesAreChecked(t *testing.T) {
 					arr = append(arr, valid())
 				}
 			}
-			if got := s.call(t, "POST", "/api/cards", tok, ws, map[string]any{"question": uuid.NewString(), "services": arr}, nil); got != 400 {
+			if got := s.call(t, "POST", "/api/cards", tok, ws, map[string]any{"predicates": testPredicates, "question": uuid.NewString(), "services": arr}, nil); got != 400 {
 				t.Fatalf("invalid %s: %d", key, got)
 			}
 		})
@@ -155,7 +155,7 @@ func testServiceVisibility(t *testing.T, download bool) {
 	ws := s.workspace(t, tok, "lab").ID
 	_, up := s.serviceUpload(t, tok, ws, "s.tar", serviceTar(t), false)
 	var c card
-	if got := s.call(t, "POST", "/api/cards", tok, ws, map[string]any{"question": "q", "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py"}}}, &c); got != 201 {
+	if got := s.call(t, "POST", "/api/cards", tok, ws, map[string]any{"predicates": testPredicates, "question": "q", "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py"}}}, &c); got != 201 {
 		t.Fatalf("create %d", got)
 	}
 	var view map[string]json.RawMessage
@@ -189,7 +189,7 @@ func testServiceRun(t *testing.T, col string, shared ...bool) {
 	ws := s.workspace(t, jwt, "lab").ID
 	_, up := s.serviceUpload(t, jwt, ws, "s.tar", serviceTar(t), false)
 	var c card
-	if got := s.call(t, "POST", "/api/cards", jwt, ws, map[string]any{"question": "q", "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py"}}}, &c); got != 201 {
+	if got := s.call(t, "POST", "/api/cards", jwt, ws, map[string]any{"predicates": testPredicates, "question": "q", "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py"}}}, &c); got != 201 {
 		t.Fatalf("create %d", got)
 	}
 	var rts []struct{ ID string }
@@ -330,7 +330,7 @@ func TestServiceLinkFailureRollsBackFilesAndStudy(t *testing.T) {
 	s.H.Blobs = gate
 	code := make(chan int)
 	go func() {
-		code <- s.call(t, "POST", "/api/cards", tok, ws, map[string]any{"question": "q", "attachment_ids": []string{file}, "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py"}, map[string]any{"name": "second", "attachment_id": second["id"], "start": "python server.py"}}}, nil)
+		code <- s.call(t, "POST", "/api/cards", tok, ws, map[string]any{"predicates": testPredicates, "question": "q", "attachment_ids": []string{file}, "services": []any{map[string]any{"name": "evaluator", "attachment_id": up["id"], "start": "python server.py"}, map[string]any{"name": "second", "attachment_id": second["id"], "start": "python server.py"}}}, nil)
 	}()
 	<-gate.waiting
 	if _, err := s.Env.Owner.Exec(t.Context(), `DELETE FROM attachment WHERE id=$1`, second["id"]); err != nil {
@@ -362,7 +362,7 @@ func TestForeignServiceUploadsAndCombinedLimits(t *testing.T) {
 	_, foreign := s.serviceUpload(t, a, other, "s.tar", serviceTar(t), false)
 	_, mine := s.serviceUpload(t, a, ws, "s.tar", serviceTar(t), false)
 	create := func(id any) int {
-		return s.call(t, "POST", "/api/cards", a, ws, map[string]any{"question": uuid.NewString(), "services": []any{map[string]any{"name": "evaluator", "attachment_id": id, "start": "python server.py"}}}, nil)
+		return s.call(t, "POST", "/api/cards", a, ws, map[string]any{"predicates": testPredicates, "question": uuid.NewString(), "services": []any{map[string]any{"name": "evaluator", "attachment_id": id, "start": "python server.py"}}}, nil)
 	}
 	if got := create(foreign["id"]); got != 400 {
 		t.Fatalf("foreign workspace %d", got)
@@ -385,7 +385,7 @@ func TestForeignServiceUploadsAndCombinedLimits(t *testing.T) {
 		if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE attachment SET `+column+`=$1 WHERE id=$2`, value, file); err != nil {
 			t.Fatal(err)
 		}
-		got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"question": uuid.NewString(), "attachment_ids": []string{file}, "services": []any{map[string]any{"name": "evaluator", "attachment_id": mine["id"], "start": "python server.py"}}}, nil)
+		got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"predicates": testPredicates, "question": uuid.NewString(), "attachment_ids": []string{file}, "services": []any{map[string]any{"name": "evaluator", "attachment_id": mine["id"], "start": "python server.py"}}}, nil)
 		if got != 400 {
 			t.Fatalf("combined %s limit %d", column, got)
 		}
@@ -396,7 +396,7 @@ func TestForeignServiceUploadsAndCombinedLimits(t *testing.T) {
 	if n := s.count(t, `SELECT count(*) FROM card`); n != 0 {
 		t.Fatalf("refusals created %d studies", n)
 	}
-	if got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"question": "wrong-kind", "attachment_ids": []any{mine["id"]}}, nil); got != 400 {
+	if got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"predicates": testPredicates, "question": "wrong-kind", "attachment_ids": []any{mine["id"]}}, nil); got != 400 {
 		t.Fatalf("service as file %d", got)
 	}
 
@@ -412,7 +412,7 @@ func TestForeignServiceUploadsAndCombinedLimits(t *testing.T) {
 		}
 		services = append(services, map[string]any{"name": fmt.Sprintf("evaluator-%d", i), "attachment_id": up["id"], "start": "python server.py"})
 	}
-	if got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"question": "over count", "attachment_ids": files, "services": services}, nil); got != 400 {
+	if got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"predicates": testPredicates, "question": "over count", "attachment_ids": files, "services": services}, nil); got != 400 {
 		t.Fatalf("97 files plus 4 services: %d", got)
 	}
 	if n := s.count(t, `SELECT count(*) FROM card`) + s.count(t, `SELECT count(*) FROM record`) + s.count(t, `SELECT count(*) FROM attachment WHERE card_id IS NOT NULL`); n != 0 {
@@ -422,7 +422,7 @@ func TestForeignServiceUploadsAndCombinedLimits(t *testing.T) {
 	exact := append([]string{}, files[:96]...)
 	exact = append(exact, files[0])
 	var c card
-	if got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"question": "exact count", "attachment_ids": exact, "services": services}, &c); got != 201 {
+	if got := s.call(t, "POST", "/api/cards", a, ws, map[string]any{"predicates": testPredicates, "question": "exact count", "attachment_ids": exact, "services": services}, &c); got != 201 {
 		t.Fatalf("96 files plus 4 services with repeated file id: %d", got)
 	}
 	if n := s.count(t, `SELECT count(*) FROM attachment WHERE card_id=$1`, c.ID); n != 100 {
