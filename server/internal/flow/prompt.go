@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/pack"
@@ -182,7 +183,7 @@ func preregistrationPrompt(c db.Card, decided []Decision) string {
 			if pr, err := predicate.Parse(p.Text); err == nil {
 				keys = " (reads " + strings.Join(pr.Keys(), ", ") + ")"
 			}
-			fmt.Fprintf(&b, "- %s: %s%s\n", p.Name, p.Text, keys)
+			fmt.Fprintf(&b, "- %s: %s%s\n", oneLine(p.Name), oneLine(p.Text), keys)
 		}
 		b.WriteString("A script writes its results as a JSON object of numbers to the file named by $LYK_RESULTS. " +
 			"Report the run whose results settle the predicates in a record containing {\"results_run\": \"run:x<N>\"}, naming a `run_script` run that exited 0. " +
@@ -204,7 +205,7 @@ func outcomesBlock(decided []Decision) string {
 	b.WriteString("\nPre-registered predicates and their outcomes, decided by Lykeion's code from the study's script runs:\n")
 	for _, d := range decided {
 		if d.Outcome == "unconfirmed" {
-			fmt.Fprintf(&b, "- %s (%s): not confirmed: %s\n", d.Name, d.Text, d.Reason)
+			fmt.Fprintf(&b, "- %s (%s): not confirmed: %s\n", oneLine(d.Name), oneLine(d.Text), oneLine(d.Reason))
 			continue
 		}
 		keys := make([]string, 0, len(d.Values))
@@ -216,8 +217,22 @@ func outcomesBlock(decided []Decision) string {
 		for i, k := range keys {
 			vals[i] = fmt.Sprintf("%s=%g", k, d.Values[k])
 		}
-		fmt.Fprintf(&b, "- %s (%s): %s, %s, run %s\n", d.Name, d.Text, d.Outcome, strings.Join(vals, ", "), d.Run)
+		if len(vals) > 0 {
+			vals = append(vals, "")
+		}
+		fmt.Fprintf(&b, "- %s (%s): %s, %srun %s\n", oneLine(d.Name), oneLine(d.Text), d.Outcome, strings.Join(vals, ", "), oneLine(d.Run))
 	}
 	b.WriteString("These outcomes are fixed; report them as they are, held or missed.\n")
 	return b.String()
+}
+
+// oneLine flattens line breaks and other control characters to spaces, so
+// researcher-written text cannot start a line of its own in a prompt.
+func oneLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return ' '
+		}
+		return r
+	}, s)
 }
