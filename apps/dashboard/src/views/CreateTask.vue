@@ -11,7 +11,13 @@ import { uploadAttachment, useCard, useCards, useMe, useWorkspace } from '../api
 import { formatSize, useAttachments } from '../lib/attachments';
 import type { Card } from '../api/types';
 import { matchesQuery } from '../lib/search';
-import { studyNumber, type Picked, type Range } from '../lib/studies';
+import {
+  coversExperimentation,
+  predicateKeys,
+  studyNumber,
+  type Picked,
+  type Range,
+} from '../lib/studies';
 import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
 import AssignPicker from '../components/AssignPicker.vue';
@@ -51,6 +57,12 @@ const query = ref('');
 const form = ref<HTMLFormElement>();
 const variables = ref<{ key: number; name: string; value: string }[]>([]);
 let nextVariable = 0;
+const results = ref<{ key: number; name: string; text: string }[]>([]);
+let nextResult = 0;
+const addResult = () => results.value.push({ key: nextResult++, name: '', text: '' });
+addResult();
+// The server's refusal of one pre-registered result, shown on its row.
+const resultError = ref<{ key: number; message: string } | null>(null);
 const files = useAttachments(uploadAttachment);
 async function pick(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -71,6 +83,19 @@ const picker = ref<InstanceType<typeof AssignPicker>>();
 const usedLastSet = ref(false);
 
 const teamColumns = computed(() => picker.value?.teamColumns ?? []);
+// A single Team with no set sends no range and works its own column.
+const sendsRange = computed(
+  () => !(assignee.value && teamColumns.value.length === 1 && !picker.value?.set),
+);
+const preregisters = computed(() =>
+  coversExperimentation(sendsRange.value ? range.value : null, teamColumns.value),
+);
+const sentResults = computed(() =>
+  results.value
+    .map((row) => ({ key: row.key, name: row.name.trim(), text: row.text.trim() }))
+    .filter((row) => row.name || row.text),
+);
+const resultKeys = computed(() => predicateKeys(sentResults.value.map((row) => row.text)));
 
 // The last set is the Teams of the creator's newest end-to-end study that had Teams.
 const lastSetId = computed(
@@ -135,6 +160,7 @@ const blocked = computed(
     busy.value ||
     !question.value.trim() ||
     unstaged.value ||
+    (preregisters.value && !sentResults.value.some((row) => row.name && row.text)) ||
     files.uploading.value ||
     files.failed.value,
 );
@@ -147,6 +173,8 @@ async function submit() {
   busy.value = true;
   error.value = '';
   duplicate.value = null;
+  resultError.value = null;
+  const sent = preregisters.value ? sentResults.value : [];
   // No Team picked sends no assignee, and the built-in Teams work the range;
   // a single Team keeps its own stage, so the server takes no range for it,
   // while a Team set always runs its range.
@@ -164,9 +192,8 @@ async function submit() {
     ),
     ...(files.ids.value.length ? { attachment_ids: files.ids.value } : {}),
     ...(assignee.value ? { assignee: assignee.value } : {}),
-    ...(assignee.value && teamColumns.value.length === 1 && !picker.value?.set
-      ? {}
-      : { scope: range.value }),
+    ...(sendsRange.value ? { scope: range.value } : {}),
+    ...(sent.length ? { predicates: sent.map(({ name, text }) => ({ name, text })) } : {}),
   };
   try {
     await api<Card>('POST', '/api/cards', fields, undefined, { workspace });
@@ -184,20 +211,35 @@ async function submit() {
       range.value = initialRange();
       followsFrom.value = [];
       variables.value = [];
+      results.value = [];
+      addResult();
       files.clear();
       await nextTick();
       form.value?.querySelector<HTMLInputElement>('.composer-title')?.focus();
     } else emit('close');
   } catch (e) {
     if (!current()) return;
+    const row = resultRow(sent, (e as Error).message);
     if (e instanceof ApiError && e.status === 409 && typeof e.body.card_id === 'string')
       duplicate.value = { id: e.body.card_id, number: Number(e.body.number) };
+    else if (row !== undefined) resultError.value = { key: row, message: (e as Error).message };
     else if (usedLastSet.value && /add this Team/.test((e as Error).message))
       error.value = "A Team in your last set isn't in your workspace any more";
     else error.value = (e as Error).message;
   } finally {
     if (current()) busy.value = false;
   }
+}
+// The server names a refused result by its name, or by its position when it
+// has none; the longest matching name wins.
+function resultRow(sent: { key: number; name: string }[], message: string): number | undefined {
+  const named = (label: string) =>
+    message.startsWith(`pre-registered result ${label} `) ||
+    message.startsWith(`pre-registered result ${label}:`);
+  const byName = sent
+    .filter((row) => row.name && named(row.name))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  return byName?.key ?? sent.find((row, i) => !row.name && named(String(i + 1)))?.key;
 }
 onMounted(() => document.addEventListener('pointerdown', outside));
 onUnmounted(() => document.removeEventListener('pointerdown', outside));
@@ -381,6 +423,50 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             </button>
           </div>
         </div>
+      </section>
+      <section v-if="preregisters" class="composer-variables" aria-label="Pre-registered results">
+        <div class="variables-header">
+          <span>Pre-registered results</span>
+          <button type="button" class="text-button" @click="addResult">Add result</button>
+        </div>
+        <p>
+          Conditions on the numbers this study's scripts write, decided once and kept. At least one
+          is needed.
+        </p>
+        <div class="variable-rows">
+          <div
+            v-for="(row, index) in results"
+            :key="row.key"
+            role="group"
+            :aria-label="`Result ${index + 1}`"
+          >
+            <div class="variable-row">
+              <input
+                v-model="row.name"
+                placeholder="Name"
+                maxlength="80"
+                :aria-label="`Result name ${index + 1}`"
+              />
+              <input
+                v-model="row.text"
+                placeholder="Condition, e.g. accuracy >= 0.9"
+                :aria-label="`Result condition ${index + 1}`"
+              />
+              <button
+                type="button"
+                class="text-button"
+                :aria-label="`Remove result ${index + 1}`"
+                @click="results = results.filter((r) => r.key !== row.key)"
+              >
+                Remove
+              </button>
+            </div>
+            <p v-if="resultError?.key === row.key" class="composer-error" role="alert">
+              {{ resultError.message }}
+            </p>
+          </div>
+        </div>
+        <p v-if="resultKeys.length">The scripts will have to write: {{ resultKeys.join(', ') }}</p>
       </section>
       <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
       <footer class="composer-footer">
@@ -816,7 +902,8 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   white-space: nowrap;
   flex: 1;
 }
-.composer-files .composer-error {
+.composer-files .composer-error,
+.composer-variables .composer-error {
   padding: 0;
 }
 .composer-files:has(input:focus-visible) label {

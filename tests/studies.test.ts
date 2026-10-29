@@ -83,6 +83,7 @@ function card(extra: Partial<Card> = {}): Card {
     attachments: [],
     env: {},
     services: [],
+    predicates: [],
     ...extra,
   };
 }
@@ -194,8 +195,8 @@ const lykEvent = (type: string, payload: Record<string, unknown>, at: string): L
 
 describe('stages and blocks', () => {
   it('names the block reason', () => {
-    const kinds: BlockKind[] = ['', 'low_score'];
-    expect(kinds.map(blockLabel)).toEqual(['', 'low score']);
+    const kinds: BlockKind[] = ['', 'low_score', 'unconfirmed_results'];
+    expect(kinds.map(blockLabel)).toEqual(['', 'low score', 'unconfirmed results']);
   });
 });
 
@@ -407,5 +408,43 @@ describe('study overview from recorded work', () => {
     };
     expect(studies.studyOverview([old, removed, step], 2)).toBe('Retrieve the protein entry.');
     expect(studies.studyOverview([old], 2)).toBe('No work recorded yet.');
+  });
+});
+
+describe('pre-registered results', () => {
+  it('knows when the scope covers Experimentation', () => {
+    expect(studies.coversExperimentation({ from: 'grounding', to: 'reporting' }, [])).toBe(true);
+    expect(studies.coversExperimentation({ from: 'grounding', to: 'hypotheses' }, [])).toBe(false);
+    expect(studies.coversExperimentation({ from: 'validation', to: 'reporting' }, [])).toBe(false);
+    expect(studies.coversExperimentation(null, ['experimentation'])).toBe(true);
+    expect(studies.coversExperimentation(null, ['hypotheses'])).toBe(false);
+  });
+  it('reads the pre-registered Inbox sentences back', () => {
+    expect(
+      studies.inboxText(
+        { kind: 'preregistered', text: "Study #3's pre-registered results: 2 held, 1 missed." },
+        '#3',
+      ),
+    ).toBe("#3's pre-registered results: 2 held, 1 missed");
+    expect(
+      studies.inboxText(
+        {
+          kind: 'blocked',
+          text: "Study #3's pre-registered results could not be confirmed twice: accuracy. Comment on the study to tell the Team what to fix.",
+        },
+        '#3',
+      ),
+    ).toBe("#3's pre-registered results couldn't be confirmed and it is waiting for you");
+    expect(studies.inboxText({ kind: 'blocked', text: 'Study #3 scored low twice.' }, '#3')).toBe(
+      '#3 scored low twice and is waiting for you',
+    );
+  });
+  it('lists the result keys the conditions read', () => {
+    expect(
+      studies.predicateKeys([
+        'accuracy >= 0.9 and not (loss > 1 or f1_macro < 0.2)',
+        'accuracy < 2',
+      ]),
+    ).toEqual(['accuracy', 'loss', 'f1_macro']);
   });
 });

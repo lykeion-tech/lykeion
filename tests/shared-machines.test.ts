@@ -810,6 +810,8 @@ describe('Shared machines', () => {
     const t = await mount(CreateTask, () => ({}));
     try {
       await t.fill('Describe your study', 'Question');
+      await t.fill('Result name 1', 'Accurate');
+      await t.fill('Result condition 1', 'accuracy >= 0.9');
       if (machine) await change(t, 'Machine', machine);
       await t.submit();
       const body = bodies(f).find((c) => c.path === '/api/cards')!.body;

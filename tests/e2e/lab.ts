@@ -7,6 +7,7 @@ import {
   request as apiRequest,
   type APIRequestContext,
   type Browser,
+  type Locator,
   type Page,
   type WebSocketRoute,
 } from '@playwright/test';
@@ -95,6 +96,12 @@ export async function newStudy(
   });
   expect(res.status()).toBe(201);
   return res.json();
+}
+
+// Fills the New study dialog's first pre-registered result.
+export async function preregister(dialog: Locator) {
+  await dialog.getByRole('textbox', { name: 'Result name 1' }).fill('effect');
+  await dialog.getByRole('textbox', { name: 'Result condition 1' }).fill('effect > 0');
 }
 
 // Gives a study n evidence records in its current column and round, each with a

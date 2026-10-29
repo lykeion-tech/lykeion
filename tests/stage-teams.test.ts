@@ -205,6 +205,17 @@ async function mount(
     (field!.props['onUpdate:modelValue'] as (value: string) => void)(value);
     await nextTick();
   };
+  const change = async (label: string, value: string) => {
+    const field = all(root).find((n) => n.props['aria-label'] === label);
+    expect(field, label).toBeTruthy();
+    (field!.props.onChange as (event: unknown) => void)({ target: { value } });
+    await nextTick();
+  };
+  const alert = (label: string) => {
+    const group = all(root).find((n) => n.props['aria-label'] === label);
+    const shown = group && all(group).find((n) => n.props.role === 'alert');
+    return shown ? textOf(shown).trim() : undefined;
+  };
   const submit = async () => {
     const form = all(root).find((n) => n.tag === 'form');
     await (form!.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
@@ -216,6 +227,8 @@ async function mount(
     click,
     input,
     fill,
+    change,
+    alert,
     submit,
     unmount: () => {
       app.unmount();
@@ -378,6 +391,11 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
   });
 }
 
+async function preregister(t: { fill: (label: string, value: string) => Promise<void> }) {
+  await t.fill('Result name 1', 'Accurate');
+  await t.fill('Result condition 1', 'accuracy >= 0.9');
+}
+
 describe('study variables and services', () => {
   it('posts variable rows, preserves values and drops only genuinely empty rows', async () => {
     const fetch = vi.fn(
@@ -396,6 +414,7 @@ describe('study variables and services', () => {
         'Visible to everyone in this study. Not for passwords or keys; use a connector.',
       );
       await t.fill('Describe your study', 'Question');
+      await preregister(t);
       await t.click(/^Add variable$/);
       await t.fill('Variable name 1', 'DATASET');
       await t.fill('Variable value 1', '  study data  ');
@@ -428,6 +447,7 @@ describe('study variables and services', () => {
     const t = await mount(CreateTask, () => ({}), '/', seedStudy);
     try {
       await t.fill('Describe your study', 'Question');
+      await preregister(t);
       await t.click(/^Add variable$/);
       await t.fill('Variable name 1', 'EXAMPLE_KEY');
       await t.fill('Variable value 1', 'test value');
@@ -452,6 +472,7 @@ describe('study variables and services', () => {
     const t = await mount(CreateTask, () => ({}), '/', seedStudy);
     try {
       await t.fill('Describe your study', 'Question');
+      await preregister(t);
       await t.click(/^Add variable$/);
       await t.fill('Variable name 1', 'REMOVED');
       await t.click(/^Remove$/);
@@ -511,6 +532,147 @@ describe('study variables and services', () => {
       expect(t.text()).toContain(
         "This study has hidden services: grader, database. Hidden services can't be fully isolated on every machine; don't use them to keep secrets.",
       );
+    } finally {
+      t.unmount();
+    }
+  });
+});
+
+describe('pre-registered results', () => {
+  const posting = (status = 201, body = '{}') =>
+    vi.fn(
+      async (_path: RequestInfo | URL, init?: RequestInit) =>
+        new Response(init?.method === 'POST' ? body : '[]', {
+          status: init?.method === 'POST' ? status : 200,
+        }),
+    );
+  const disabled = (t: Awaited<ReturnType<typeof mount>>) =>
+    t.button(/^Create study/)?.props.disabled;
+
+  it('asks for a result when the study runs Experimentation, and posts it', async () => {
+    const fetch = posting();
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      expect(t.text()).toContain('Pre-registered results');
+      expect(t.input('Result name 1')?.value).toBe('');
+      expect(t.input('Result name 2')).toBeUndefined();
+      await t.fill('Describe your study', 'Question');
+      expect(disabled(t)).toBe(true);
+      await t.fill('Result name 1', 'Accurate');
+      expect(disabled(t)).toBe(true);
+      await t.fill('Result condition 1', 'accuracy >= 0.9 and not loss > 1');
+      expect(disabled(t)).toBe(false);
+      expect(t.text()).toContain('accuracy, loss');
+      await t.click(/^Add result$/);
+      expect(t.input('Result name 2')?.value).toBe('');
+      await t.submit();
+      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
+      expect(JSON.parse(String(posted![1]?.body)).predicates).toEqual([
+        { name: 'Accurate', text: 'accuracy >= 0.9 and not loss > 1' },
+      ]);
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('hides the section and sends no results when the scope stops before Experimentation', async () => {
+    const fetch = posting();
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      await t.click(/Grounding → Reporting/);
+      await t.change('To stage', 'hypotheses');
+      expect(t.text()).not.toContain('Pre-registered results');
+      await t.fill('Describe your study', 'Question');
+      expect(disabled(t)).toBe(false);
+      await t.submit();
+      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
+      const body = JSON.parse(String(posted![1]?.body));
+      expect(body.scope).toEqual({ from: 'grounding', to: 'hypotheses' });
+      expect(body.predicates).toBeUndefined();
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('puts the server refusal on the row it names', async () => {
+    const message = 'pre-registered result Fast: unexpected token at 5';
+    vi.stubGlobal('fetch', posting(400, JSON.stringify({ error: message })));
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      await t.fill('Describe your study', 'Question');
+      await preregister(t);
+      await t.click(/^Add result$/);
+      await t.fill('Result name 2', 'Fast');
+      await t.fill('Result condition 2', 'time <');
+      await t.submit();
+      expect(t.alert('Result 2')).toBe(message);
+      expect(t.alert('Result 1')).toBeUndefined();
+    } finally {
+      t.unmount();
+    }
+  });
+});
+
+describe('pre-registered results on the study page', () => {
+  it('shows each result with its binding outcome, value, run and the other runs', async () => {
+    const t = await mount(
+      TaskDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) =>
+        seedStudy(c, {
+          predicates: [
+            { name: 'Accurate', text: 'accuracy >= 0.9' },
+            { name: 'Fast', text: 'seconds < 10' },
+            { name: 'Small', text: 'params < 1000' },
+            { name: 'Later', text: 'loss < 1' },
+          ],
+          preregistration: [
+            {
+              name: 'Accurate',
+              text: 'accuracy >= 0.9',
+              outcome: 'held',
+              round: 1,
+              run: 'x2',
+              values: { accuracy: 0.93 },
+              others: [{ run: 'x1', values: { accuracy: 0.4 } }],
+              reason: '',
+            },
+            {
+              name: 'Fast',
+              text: 'seconds < 10',
+              outcome: 'missed',
+              round: 1,
+              run: 'x2',
+              values: { seconds: 12 },
+              others: [],
+              reason: '',
+            },
+            {
+              name: 'Small',
+              text: 'params < 1000',
+              outcome: 'unconfirmed',
+              round: 0,
+              run: '',
+              values: {},
+              others: [],
+              reason: 'no run wrote params',
+            },
+          ],
+        }),
+    );
+    try {
+      const text = t.text();
+      expect(text).toContain('Pre-registered results');
+      expect(text).toContain('accuracy >= 0.9');
+      expect(text).toContain('held');
+      expect(text).toContain('accuracy = 0.93 in run x2');
+      expect(text).toContain('Other runs wrote: accuracy = 0.4 in run x1');
+      expect(text).toContain('missed');
+      expect(text).toContain('not confirmed yet: no run wrote params');
+      expect(text).toContain('Not decided yet');
     } finally {
       t.unmount();
     }

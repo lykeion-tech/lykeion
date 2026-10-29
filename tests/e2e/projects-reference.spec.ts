@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { labWorkspace } from './lab';
+import { labWorkspace, preregister } from './lab';
 
 test('Projects has the reference table and scopes its board and saved Properties to one project', async ({
   page,
@@ -124,6 +124,7 @@ test('an empty project creates a study already linked to its board', async ({ pa
   await modal
     .getByPlaceholder('Describe what you want to do, in your own words')
     .fill('How can this project create a durable linked study?');
+  await preregister(modal);
   await modal.getByRole('button', { name: /^Create study/ }).click();
   await expect(modal).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Created inside project/ })).toBeVisible();

@@ -92,9 +92,23 @@ export interface Card {
   attachments: { id: string; name: string; size_bytes: number; content_type: string }[];
   env: Record<string, string>;
   services: { name: string }[];
+  predicates: { name: string; text: string }[];
+  // Each pre-registered result's binding outcome so far; GET /api/cards/:id only.
+  preregistration?: Preregistration[] | null;
 }
 
-export type BlockKind = '' | 'low_score';
+export interface Preregistration {
+  name: string;
+  text: string;
+  outcome: 'held' | 'missed' | 'unconfirmed';
+  round: number;
+  run: string;
+  values: Record<string, number> | null;
+  others: { run: string; values: Record<string, number> | null }[] | null;
+  reason: string;
+}
+
+export type BlockKind = '' | 'low_score' | 'unconfirmed_results';
 
 export interface Comment {
   id: string;
@@ -192,6 +206,7 @@ export interface InboxItem {
     | 'autoresearch_report'
     | 'middle_score'
     | 'blocked'
+    | 'preregistered'
     | 'no_tool'
     | 'scoring_unavailable'
     | 'done';

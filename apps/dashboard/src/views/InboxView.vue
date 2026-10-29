@@ -56,6 +56,7 @@ const kinds: Record<InboxItem['kind'], { label: string; mark: string }> = {
   autoresearch_report: { label: 'Autoresearch report', mark: '↻' },
   middle_score: { label: 'Middle score', mark: '~' },
   blocked: { label: 'Blocked', mark: '!' },
+  preregistered: { label: 'Pre-registered results', mark: '=' },
   no_tool: { label: 'No tool', mark: '?' },
   scoring_unavailable: { label: 'Scoring unavailable', mark: '!' },
   done: { label: 'Done', mark: '✓' },

@@ -27,7 +27,7 @@ import {
   useRuntimes,
   useWorkspace,
 } from '../api/queries';
-import type { Card } from '../api/types';
+import type { Card, Preregistration } from '../api/types';
 import {
   actionLabel,
   blockedActions,
@@ -124,6 +124,23 @@ const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
 const variables = computed(() => Object.entries(c.value?.env ?? {}));
+// Each pre-registered result with its binding decision, if it has one yet.
+const preregistered = computed(() =>
+  (c.value?.predicates ?? []).map((p) => ({
+    ...p,
+    decision: c.value?.preregistration?.find((d) => d.name === p.name),
+  })),
+);
+const outcomeText = (d?: Preregistration) =>
+  !d
+    ? 'Not decided yet'
+    : d.outcome === 'unconfirmed'
+      ? `not confirmed yet: ${d.reason}`
+      : d.outcome;
+const valuesIn = (values: Record<string, number> | null, run: string) =>
+  `${Object.entries(values ?? {})
+    .map(([k, v]) => `${k} = ${v}`)
+    .join(', ')} in run ${run}`;
 const services = computed(() => c.value?.services ?? []);
 async function download(a: { id: string; name: string }) {
   try {
@@ -722,6 +739,21 @@ function pin() {
             <div v-for="[name, value] in variables" :key="name">
               <dt>{{ name }}</dt>
               <dd>{{ value }}</dd>
+            </div>
+          </dl>
+        </template>
+        <template v-if="preregistered.length">
+          <small>Pre-registered results</small>
+          <dl class="v study-variables" aria-label="Pre-registered results">
+            <div v-for="p in preregistered" :key="p.name">
+              <dt>{{ p.name }}</dt>
+              <dd>{{ p.text }}</dd>
+              <dd>{{ outcomeText(p.decision) }}</dd>
+              <dd v-if="p.decision?.run">{{ valuesIn(p.decision.values, p.decision.run) }}</dd>
+              <dd v-if="p.decision?.others?.length">
+                Other runs wrote:
+                {{ p.decision.others.map((o) => valuesIn(o.values, o.run)).join('; ') }}
+              </dd>
             </div>
           </dl>
         </template>
