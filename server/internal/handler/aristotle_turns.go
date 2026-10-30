@@ -20,6 +20,7 @@ import (
 type acceptancePayload struct {
 	Body, Mode, Template string
 	Model                *string
+	Harness              *string `json:",omitempty"`
 	Attachments          []coresearchAttachment
 	Selection            *coresearch.Selection `json:"Selection,omitempty"`
 	Queue                bool                  `json:",omitempty"`
@@ -43,6 +44,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		Mode        string                 `json:"mode,omitempty"`
 		Template    string                 `json:"template,omitempty"`
 		Model       *string                `json:"model,omitempty"`
+		Harness     *string                `json:"harness,omitempty"`
 		Attachments []coresearchAttachment `json:"attachments,omitempty"`
 		Selection   *coresearch.Selection  `json:"selection,omitempty"`
 		// Queue lets a Cowrite turn wait behind the one in progress.
@@ -62,7 +64,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 	if len(in.Attachments) == 0 {
 		in.Attachments = nil
 	}
-	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Attachments, in.Selection, in.Queue})
+	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Harness, in.Attachments, in.Selection, in.Queue})
 	receiptBody := string(payload)
 	var response json.RawMessage
 	// Staging may outlive another identical request's upload claim. Only a
@@ -137,6 +139,10 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 201, response)
 		return
 	}
+	if in.Harness != nil && *in.Harness != "claude" && *in.Harness != "codex" {
+		writeErr(w, 422, "unsupported CLI")
+		return
+	}
 	if mode != "experiment" && mode != "cowrite" {
 		writeErr(w, 422, "mode must be experiment or cowrite")
 		return
@@ -208,6 +214,12 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			harness, model, instructions := a.Harness, a.Model, a.Instructions
+			if c.SnapshotHarness == nil && in.Harness != nil {
+				if *in.Harness != harness {
+					model = ""
+				}
+				harness = *in.Harness
+			}
 			if c.SnapshotHarness == nil && in.Model != nil {
 				model = *in.Model
 				if model != "" {
@@ -222,6 +234,9 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 			}
 			if c.SnapshotHarness != nil {
 				harness, model, instructions = *c.SnapshotHarness, *c.SnapshotModel, *c.SnapshotInstructions
+				if in.Harness != nil && *in.Harness != harness {
+					return coresearchInputError("conversation CLI is frozen")
+				}
 				if in.Model != nil && *in.Model != model {
 					return coresearchInputError("conversation model is frozen")
 				}

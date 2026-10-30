@@ -134,6 +134,52 @@ function edit(root: ReturnType<typeof node>, value: string) {
 const response = (body: unknown, status = 201) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 describe('Aristotle UI', () => {
+  it('chooses an online CLI and its model for a new conversation', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(response({ conversation: { ...welcome, id: 'new' }, run: { id: 'run' } }));
+    vi.stubGlobal('fetch', fetch);
+    const { root, client, settle } = await mount();
+    client.setQueryData(keys.runtimes('lab'), [
+      {
+        id: 'c',
+        owner_id: 'me',
+        status: 'online',
+        harness: 'claude',
+        models: [
+          { value: '', label: 'Default' },
+          { value: 'opus', label: 'Opus' },
+        ],
+      },
+      {
+        id: 'x',
+        owner_id: 'me',
+        status: 'online',
+        harness: 'codex',
+        models: [
+          { value: '', label: 'Default' },
+          { value: 'codex-model', label: 'Codex model' },
+        ],
+      },
+    ]);
+    await settle();
+    await (
+      byLabel(root, 'CLI and model: Claude Code · Default').props.onClick as () => Promise<void>
+    )();
+    await settle();
+    (byLabel(root, 'Codex').props.onClick as () => void)();
+    await settle();
+    expect(textOf(root)).toContain('Codex model');
+    (byLabel(root, 'Codex model').props.onClick as () => void)();
+    await settle();
+    edit(root, 'A question');
+    await settle();
+    await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
+    const request = fetch.mock.calls.find((call) =>
+      String(call[0]).endsWith('/api/coresearch/conversations'),
+    );
+    expect(JSON.parse(request![1].body)).toMatchObject({ harness: 'codex', model: 'codex-model' });
+  });
   it('shows uncached welcome history errors and restores history on explicit retry', async () => {
     let resolveHistory!: (value: Response) => void;
     const fetch = vi

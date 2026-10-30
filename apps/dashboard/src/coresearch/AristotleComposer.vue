@@ -23,6 +23,8 @@ const props = withDefaults(
     template?: string;
     models?: RuntimeModel[];
     selectedModel?: string;
+    cli?: string;
+    clis?: string[];
     attachments?: ComposerAttachment[];
   }>(),
   {
@@ -40,6 +42,7 @@ const emit = defineEmits<{
   'update:mode': [SessionMode];
   'update:template': [string];
   'update:selectedModel': [string];
+  'update:cli': [string];
   files: [File[]];
   remove: [string];
   manage: [string];
@@ -299,9 +302,12 @@ const inline = (text?: string) =>
         <div class="composer-tools">
           <ModelSwitcher
             :models="models"
+            :cli="cli"
+            :clis="clis"
             :model-value="selectedModel"
             :disabled="!draft || busy"
             @update:model-value="emit('update:selectedModel', $event)"
+            @update:cli="emit('update:cli', $event)"
           />
           <button
             v-if="activeRun"

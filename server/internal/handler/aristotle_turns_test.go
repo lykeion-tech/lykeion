@@ -191,7 +191,7 @@ func TestAristotleWelcomeAndConcurrentIdempotency(t *testing.T) {
 func TestAristotleConcurrentCreateAndUntrustedConfig(t *testing.T) {
 	s, a, _, _, ws, _ := csFixture(t)
 	csRegister(t, s, a, ws, "claude", "claude")
-	for _, extra := range []string{"agent_id", "snapshot_model", "harness"} {
+	for _, extra := range []string{"agent_id", "snapshot_model"} {
 		if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, map[string]string{"body": "x", "request_id": uuid.NewString(), extra: "untrusted"}, nil); code != 400 {
 			t.Fatalf("trusted client %s: %d", extra, code)
 		}
@@ -248,5 +248,39 @@ func TestAristotleRejectsStaleOnlineRuntime(t *testing.T) {
 	csRegister(t, s, a, ws, "stale", "claude")
 	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, in, nil); code != 201 {
 		t.Fatalf("fresh retry %d", code)
+	}
+}
+
+func TestAristotleSelectedCLIIsValidatedAndFrozen(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	csRegister(t, s, a, ws, "selected-codex", "codex")
+	input := map[string]string{"body": "Choose CLI", "request_id": uuid.NewString(), "harness": "codex", "model": ""}
+	var out struct {
+		Conversation db.CoresearchConversation
+		Run          db.AgentRun
+	}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, input, &out); code != 201 {
+		t.Fatalf("selected CLI: %d", code)
+	}
+	if out.Conversation.SnapshotHarness == nil || *out.Conversation.SnapshotHarness != "codex" || out.Run.Harness != "codex" {
+		t.Fatalf("wrong CLI snapshot: %+v %+v", out.Conversation, out.Run)
+	}
+	replay := map[string]string{"body": "Choose CLI", "request_id": input["request_id"], "harness": "claude", "model": ""}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, replay, nil); code != 409 {
+		t.Fatalf("changed replay: %d", code)
+	}
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled' WHERE id=$1`, out.Run.ID); e != nil {
+		t.Fatal(e)
+	}
+	next := map[string]string{"body": "Continue", "request_id": uuid.NewString(), "harness": "claude"}
+	if code := s.call(t, "POST", "/api/coresearch/conversations/"+out.Conversation.ID.String()+"/turns", a, ws, next, nil); code != 422 {
+		t.Fatalf("changed frozen CLI: %d", code)
+	}
+	for _, cli := range []string{"invalid", "claude"} {
+		bad := map[string]string{"body": "No", "request_id": uuid.NewString(), "harness": cli}
+		code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, bad, nil)
+		if (cli == "invalid" && code != 422) || (cli == "claude" && code != 409) {
+			t.Fatalf("unavailable or invalid CLI %s: %d", cli, code)
+		}
 	}
 }

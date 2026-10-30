@@ -14225,3 +14225,31 @@
   syntax: '*';
   inherits: false;
 }
+
+.coresearch .cli-options {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px;
+}
+.coresearch .cli-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  padding: 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 7px;
+  background: var(--surface-1);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.coresearch .cli-choice.is-selected {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.coresearch .cli-divider {
+  height: 1px;
+  margin: 10px 8px;
+  background: var(--hairline-strong);
+}

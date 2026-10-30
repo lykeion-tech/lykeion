@@ -1,8 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { RuntimeModel } from '../../api/types';
-const props = defineProps<{ models: RuntimeModel[]; modelValue: string; disabled?: boolean }>();
-const emit = defineEmits<{ 'update:modelValue': [string] }>();
+import Icon from '../../components/Icon.vue';
+const props = defineProps<{
+  models: RuntimeModel[];
+  modelValue: string;
+  disabled?: boolean;
+  cli?: string;
+  clis?: string[];
+}>();
+const emit = defineEmits<{ 'update:modelValue': [string]; 'update:cli': [string] }>();
+const cliLabel = (cli: string) => (cli === 'codex' ? 'Codex' : 'Claude Code');
+const choices = computed(() =>
+  props.models.length ? props.models : [{ value: '', label: 'Default' }],
+);
 const open = ref(false),
   up = ref(false),
   root = ref<HTMLElement>(),
@@ -14,7 +25,9 @@ async function toggle() {
   open.value = !open.value;
   await nextTick();
   const menu = menuEl.value?.getBoundingClientRect?.();
-  if (menu && menu.bottom > window.innerHeight) up.value = true;
+  const frame = root.value?.closest?.('.aristotle-chat')?.getBoundingClientRect();
+  if (menu && menu.bottom > Math.min(window.innerHeight, frame?.bottom ?? window.innerHeight))
+    up.value = true;
 }
 const label = computed(
   () =>
@@ -37,20 +50,21 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <span v-if="!models.length && (!disabled || !modelValue)" class="cli-pill cli-pill--empty"
+  <span v-if="!cli && !models.length && (!disabled || !modelValue)" class="cli-pill cli-pill--empty"
     ><span class="cli-pill-name">Default</span></span
   >
   <div v-else ref="root" class="cli-switcher">
     <button
       type="button"
       class="cli-pill"
-      aria-haspopup="listbox"
+      :aria-haspopup="cli ? 'dialog' : 'listbox'"
       :aria-expanded="open"
-      :aria-label="`Model: ${label}`"
+      :aria-label="cli ? `CLI and model: ${cliLabel(cli)} · ${label}` : `Model: ${label}`"
       :disabled="disabled"
       @click="toggle"
     >
-      <span class="cli-pill-name">{{ label }}</span>
+      <Icon v-if="cli" name="book" :size="14" aria-hidden="true" />
+      <span class="cli-pill-name">{{ cli ? `${cliLabel(cli)} · ${label}` : label }}</span>
       <svg
         class="cli-chevron"
         :data-open="open"
@@ -72,8 +86,8 @@ onUnmounted(() => {
       v-if="open && !disabled"
       ref="menuEl"
       class="cli-menu"
-      role="listbox"
-      aria-label="Models"
+      :role="cli ? 'dialog' : 'listbox'"
+      :aria-label="cli ? 'CLI and model' : 'Models'"
       :style="
         up
           ? {
@@ -84,13 +98,33 @@ onUnmounted(() => {
           : undefined
       "
     >
+      <template v-if="cli">
+        <div class="cli-menu-head"><span class="cli-menu-eyebrow">CLI</span></div>
+        <div class="cli-options" role="group" aria-label="CLI">
+          <button
+            v-for="item in clis"
+            :key="item"
+            type="button"
+            class="cli-choice"
+            :class="{ 'is-selected': item === cli }"
+            :aria-label="cliLabel(item)"
+            :aria-pressed="item === cli"
+            @click="emit('update:cli', item)"
+          >
+            <span aria-hidden="true">{{ item === 'claude' ? '✳' : '◎' }}</span>
+            {{ cliLabel(item) }} <span v-if="item === cli" aria-hidden="true">✓</span>
+          </button>
+        </div>
+        <div class="cli-divider" />
+      </template>
       <div class="cli-menu-head"><span class="cli-menu-eyebrow">Model</span></div>
       <button
-        v-for="model in models"
+        v-for="model in choices"
         :key="model.value"
         type="button"
-        role="option"
-        :aria-selected="model.value === modelValue"
+        :role="cli ? undefined : 'option'"
+        :aria-selected="cli ? undefined : model.value === modelValue"
+        :aria-pressed="cli ? model.value === modelValue : undefined"
         :aria-label="model.description ? `${model.label} — ${model.description}` : model.label"
         class="cli-row"
         :class="{ 'is-selected': model.value === modelValue }"

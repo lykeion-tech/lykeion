@@ -132,9 +132,19 @@ const activeRun = computed(
     messages.data.value?.find((m) => m.kind === 'turn' && isActiveTurn(m.status))?.agent_run_id ??
     undefined,
 );
+const selectedCli = ref<string>();
+const availableClis = computed(() => ownOnlineClis(runtimes.data.value ?? [], me.data.value?.id));
 const harness = computed(
-  () => conversation.value?.snapshot_harness ?? agent.value?.harness ?? 'claude',
+  () =>
+    conversation.value?.snapshot_harness ?? selectedCli.value ?? agent.value?.harness ?? 'claude',
 );
+function chooseCli(value: string) {
+  if (value === harness.value) return;
+  selectedCli.value = value;
+  selectedRuntime.value = undefined;
+  selectedModel.value = null;
+  pending = null;
+}
 const selectedRuntime = ref<string>();
 const runtime = computed(() => {
   const own =
@@ -158,7 +168,7 @@ const effectiveModel = computed(() =>
 const attachments = ref<ComposerAttachment[]>([]),
   uploading = ref(false);
 const blocker = computed(() =>
-  ownOnlineClis(runtimes.data.value ?? [], me.data.value?.id).includes(harness.value)
+  availableClis.value.some((cli) => cli === harness.value)
     ? undefined
     : `No available own machine with ${harness.value}; connect a machine in Settings.`,
 );
@@ -189,6 +199,7 @@ watch(
     mode.value = 'experiment';
     template.value = 'blank';
     selectedModel.value = null;
+    selectedCli.value = undefined;
     selectedRuntime.value = undefined;
     attachments.value = [];
     uploading.value = false;
@@ -198,6 +209,7 @@ watch(
         draft.value = held.body;
         mode.value = held.mode;
         template.value = held.template;
+        if (held.harness === 'claude' || held.harness === 'codex') selectedCli.value = held.harness;
         if (held.harness === harness.value) {
           selectedRuntime.value = held.runtime;
           selectedModel.value = held.model;
@@ -272,7 +284,7 @@ async function send(prompt?: string) {
   const options = {
     mode: startsSession.value ? mode.value : (conversation.value?.mode ?? 'experiment'),
     ...(startsSession.value && mode.value === 'cowrite' ? { template: template.value } : {}),
-    ...(startsSession.value ? { model: effectiveModel.value } : {}),
+    ...(startsSession.value ? { model: effectiveModel.value, harness: harness.value } : {}),
     ...(attachments.value.length
       ? { attachments: attachments.value.map((file) => ({ ...file })) }
       : {}),
@@ -504,6 +516,8 @@ async function stop() {
               v-model="draft"
               v-model:mode="mode"
               v-model:template="template"
+              :cli="harness"
+              :clis="availableClis"
               :selected-model="effectiveModel"
               :models="models"
               :draft="isDraft"
@@ -514,6 +528,7 @@ async function stop() {
               :active-run="activeRun ?? undefined"
               @send="send()"
               @stop="stop"
+              @update:cli="chooseCli"
               @update:selected-model="selectedModel = $event"
               @files="uploadFiles"
               @manage="manageComposer"
@@ -525,6 +540,8 @@ async function stop() {
             v-model="draft"
             v-model:mode="mode"
             v-model:template="template"
+            :cli="harness"
+            :clis="availableClis"
             :selected-model="effectiveModel"
             :models="models"
             :draft="startsSession"
@@ -535,6 +552,7 @@ async function stop() {
             :active-run="activeRun ?? undefined"
             @send="send()"
             @stop="stop"
+            @update:cli="chooseCli"
             @update:selected-model="selectedModel = $event"
             @files="uploadFiles"
             @manage="manageComposer"

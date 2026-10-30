@@ -51,8 +51,13 @@ test('Manage skills preserves the draft on Settings back and explicit New clears
   );
   await page.goto('/#/coresearch/new');
   await page.getByRole('button', { name: 'Cowrite', exact: true }).click();
-  await page.getByRole('button', { name: 'Model: Default (recommended)', exact: true }).click();
-  await page.getByRole('option', { name: 'Large — More capacity', exact: true }).click();
+  await page
+    .getByRole('button', {
+      name: 'CLI and model: Claude Code · Default (recommended)',
+      exact: true,
+    })
+    .click();
+  await page.getByRole('button', { name: 'Large — More capacity', exact: true }).click();
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Template', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'NeurIPS', exact: true }).click();
@@ -78,7 +83,9 @@ test('Manage skills preserves the draft on Settings back and explicit New clears
     'aria-pressed',
     'true',
   );
-  await expect(page.getByRole('button', { name: 'Model: Large', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'CLI and model: Claude Code · Large', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove figure.svg', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Template', exact: true }).click();
@@ -110,9 +117,14 @@ for (const width of [1440, 390]) {
     await page.goto('/#/coresearch/new');
     if (width === 390)
       await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).click();
-    await page.getByRole('button', { name: 'Model: Default (recommended)', exact: true }).click();
+    await page
+      .getByRole('button', {
+        name: 'CLI and model: Claude Code · Default (recommended)',
+        exact: true,
+      })
+      .click();
     const bounds = await page
-      .getByRole('listbox', { name: 'Models', exact: true })
+      .getByRole('dialog', { name: 'CLI and model', exact: true })
       .evaluate((element) => {
         const menu = element.getBoundingClientRect();
         const frame = document.querySelector('.aristotle-chat')!.getBoundingClientRect();
@@ -186,8 +198,13 @@ test('draft composer uploads before Cowrite acceptance and routes the selected m
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Template', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'NeurIPS', exact: true }).click();
-  await page.getByRole('button', { name: 'Model: Default (recommended)', exact: true }).click();
-  await page.getByRole('option', { name: 'Large — More capacity', exact: true }).click();
+  await page
+    .getByRole('button', {
+      name: 'CLI and model: Claude Code · Default (recommended)',
+      exact: true,
+    })
+    .click();
+  await page.getByRole('button', { name: 'Large — More capacity', exact: true }).click();
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   const picker = page.waitForEvent('filechooser');
   await page.getByRole('menuitem', { name: 'Add files or photos', exact: true }).click();
@@ -237,8 +254,9 @@ test('member sees disabled switches and an empty runtime catalogue shows plain D
     }),
   );
   await page.goto('/#/coresearch/new');
-  await expect(page.locator('.cli-pill--empty')).toHaveText('Default');
-  await expect(page.locator('.cli-pill--empty')).not.toHaveAttribute('title');
+  await expect(
+    page.getByRole('button', { name: 'CLI and model: Claude Code · Default' }),
+  ).toBeVisible();
   await page.getByRole('textbox', { name: 'Message the agent' }).fill('/');
   await expect(page.getByRole('option', { name: 'Research Find evidence' })).toBeVisible();
   await page.getByRole('textbox', { name: 'Message the agent' }).press('Enter');

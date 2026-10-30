@@ -255,7 +255,7 @@ describe('Cowrite composer', () => {
     await m.click('Add');
     await m.click('Template');
     await m.click('NeurIPS');
-    await m.click('Model: Default (recommended)');
+    await m.click('CLI and model: Claude Code · Default (recommended)');
     await m.click('Large — More capacity');
     await m.edit('A new paper');
     await m.click('Start paper');
@@ -300,16 +300,15 @@ describe('Cowrite composer', () => {
     expect(JSON.parse(sent[1].body)).toMatchObject({ body: 'A new paper', mode: 'cowrite' });
     expect(m.router.currentRoute.value.path).toBe('/coresearch/p/c');
   });
-  it('shows plain Default without a list and excludes other members models', async () => {
+  it('shows the CLI and Default without a model catalogue and excludes other members models', async () => {
     const m = await mount({ choices: [] });
-    const pill = all(m.root).find((n) => String(n.props.class).includes('cli-pill--empty'));
-    expect(pill && textOf(pill)).toBe('Default');
+    expect(m.label('CLI and model: Claude Code · Default')).toBeDefined();
     expect(textOf(m.root)).not.toContain('Other member');
   });
   it('hides mode in a conversation and disables its frozen snapshot model', async () => {
     const m = await mount({ draft: false });
     expect(m.label('Mode')).toBeUndefined();
-    expect(m.label('Model: frozen-model').props.disabled).toBe(true);
+    expect(m.label('CLI and model: Claude Code · frozen-model').props.disabled).toBe(true);
     await m.click('Add');
     expect(textOf(m.root)).not.toContain('Template');
   });
@@ -402,7 +401,7 @@ describe('Cowrite composer', () => {
     await m.click('Send');
     const body = (index: number) => JSON.parse(fetch.mock.calls[index]![1].body);
     expect(body(0).request_id).toBe(body(1).request_id);
-    await m.click('Model: Default (recommended)');
+    await m.click('CLI and model: Claude Code · Default (recommended)');
     await m.click('Large — More capacity');
     await m.click('Send');
     expect(body(2).request_id).not.toBe(body(1).request_id);
