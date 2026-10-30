@@ -23,6 +23,7 @@ import { api } from '../api/client';
 import { guardResourceDrafts } from '../state/resource-draft';
 import type { FileRow, SessionMode } from './types';
 import SurfacePane from '../components/SurfacePane.vue';
+import { useElementWidth } from '../lib/element-width';
 import NotebookPane from './NotebookPane.vue';
 import FilesPane from './FilesPane.vue';
 import ComputePane from './ComputePane.vue';
@@ -76,6 +77,8 @@ const experiment = computed(
     !conversation.value.is_welcome &&
     conversation.value.mode !== 'cowrite',
 );
+const experimentLayout = ref<HTMLElement>();
+const experimentWidth = useElementWidth(experimentLayout);
 const activePane = ref<string | null>(null),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
   activeFile = ref<FileRow>();
@@ -378,7 +381,11 @@ async function stop() {
 </script>
 <template>
   <section class="coresearch aristotle-chat" data-testid="aristotle-chat">
-    <div class="task-columns experiment-surface-layout" :data-pane-mode="paneMode">
+    <div
+      ref="experimentLayout"
+      class="task-columns experiment-surface-layout"
+      :data-pane-mode="paneMode"
+    >
       <div
         class="task-main aristotle-conversation"
         data-column="conversation"
@@ -565,6 +572,7 @@ async function stop() {
         :active="activePane"
         :focused="paneMode === 'focus'"
         :surfaces="experimentSurfaces"
+        :container-width="experimentWidth || undefined"
         width-key="lykeion.experiment-pane-width"
         @update:open="closePane"
         @update:active="selectPane"

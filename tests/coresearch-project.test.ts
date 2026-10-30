@@ -460,3 +460,21 @@ it('opens the Experiment project chooser and selects Compute', async () => {
   await settle();
   expect(all(root).some((n) => n.props['data-testid'] === 'compute-panel')).toBe(true);
 });
+
+it('uses an overlay when the Experiment project container is narrow', async () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(private callback: (entries: unknown[]) => void) {}
+      observe() {
+        this.callback([{ contentRect: { width: 550 } }]);
+      }
+      disconnect() {}
+    },
+  );
+  const { root, settle } = await mount(CoresearchProject, { projectId: 'p', chatId: 'c' });
+  const toggle = button(root, 'Open experiment surfaces')!;
+  (toggle.props.onClick as () => void)();
+  await settle();
+  expect(all(root).find((n) => n.props['aria-label'] === 'Right pane')?.props.role).toBe('dialog');
+});

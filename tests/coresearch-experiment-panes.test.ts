@@ -184,3 +184,21 @@ it('opens the Experiment chooser with one surface at a time', async () => {
     expect(textOf(root)).toContain('Open a surface');
   }
 });
+
+it('uses an overlay for a narrow Experiment container in a wide window', async () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(private callback: (entries: unknown[]) => void) {}
+      observe() {
+        this.callback([{ contentRect: { width: 550 } }]);
+      }
+      disconnect() {}
+    },
+  );
+  const { root, settle } = await mount();
+  const toggle = all(root).find((n) => n.props['aria-label'] === 'Open experiment surfaces')!;
+  (toggle.props.onClick as () => void)();
+  await settle();
+  expect(all(root).find((n) => n.props['aria-label'] === 'Right pane')?.props.role).toBe('dialog');
+});

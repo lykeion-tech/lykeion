@@ -15,6 +15,7 @@ import SidebarFiles from '../coresearch/SidebarFiles.vue';
 import ChatTranscript from '../coresearch/ChatTranscript.vue';
 import ChatComposer from '../coresearch/ChatComposer.vue';
 import SurfacePane from '../components/SurfacePane.vue';
+import { useElementWidth } from '../lib/element-width';
 import NotebookPane from '../coresearch/NotebookPane.vue';
 import ComputePane from '../coresearch/ComputePane.vue';
 import FilesPane from '../coresearch/FilesPane.vue';
@@ -40,6 +41,8 @@ const activeRun = computed(
     messages.data.value?.find((m) => m.kind === 'turn' && isActiveTurn(m.status))?.agent_run_id ??
     undefined,
 );
+const experimentLayout = ref<HTMLElement>();
+const experimentWidth = useElementWidth(experimentLayout);
 const activePane = ref<string | null>(null),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
   activeFile = ref<FileRow>();
@@ -126,7 +129,11 @@ async function openFile(file: FileRow) {
     />
     <template v-else>
       <div class="task-screen coresearch-project-main" :data-pane-mode="paneMode">
-        <div class="task-columns experiment-surface-layout" :data-pane-mode="paneMode">
+        <div
+          ref="experimentLayout"
+          class="task-columns experiment-surface-layout"
+          :data-pane-mode="paneMode"
+        >
           <div class="task-main" data-column="conversation" :hidden="paneMode === 'focus'">
             <div class="task-stage-row">
               <button type="button" aria-label="Open experiment surfaces" @click="toggleSurfaces">
@@ -231,6 +238,7 @@ async function openFile(file: FileRow) {
             :active="activePane"
             :focused="paneMode === 'focus'"
             :surfaces="experimentSurfaces"
+            :container-width="experimentWidth || undefined"
             width-key="lykeion.experiment-pane-width"
             @update:open="closePane"
             @update:active="selectPane"
