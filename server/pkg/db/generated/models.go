@@ -299,6 +299,12 @@ type ConnectorFetch struct {
 	FetchedAt     time.Time `json:"fetched_at"`
 }
 
+type CoresearchBlobCleanup struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	BlobKey     string    `json:"blob_key"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type CoresearchBuild struct {
 	ID              uuid.UUID       `json:"id"`
 	WorkspaceID     uuid.UUID       `json:"workspace_id"`

@@ -396,6 +396,7 @@ function pin() {
             <Icon name="tag" />
           </button>
           <button
+            v-if="!showMeta"
             class="icon-button"
             :aria-pressed="showMeta"
             aria-label="Toggle details"
@@ -615,6 +616,7 @@ function pin() {
       v-model:active="activeSurface"
       v-model:focused="paneFocused"
       :surfaces="studySurfaces"
+      hide-title
       :container-width="studyWidth || undefined"
       :width-key="
         embedded ? 'lykeion.embedded-study-inspector-width' : 'lykeion.study-inspector-width'

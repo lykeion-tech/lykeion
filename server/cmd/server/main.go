@@ -220,11 +220,17 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		defer close(sweepDone)
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
+		if err := coresearch.SweepBlobCleanup(sweepCtx, st, blobs); err != nil && sweepCtx.Err() == nil {
+			slog.Error("Coresearch blob cleanup", "err", err)
+		}
 		for {
 			select {
 			case <-sweepCtx.Done():
 				return
 			case <-ticker.C:
+				if err := coresearch.SweepBlobCleanup(sweepCtx, st, blobs); err != nil && sweepCtx.Err() == nil {
+					slog.Error("Coresearch blob cleanup", "err", err)
+				}
 				if err := coresearch.Sweep(sweepCtx, st); err != nil && sweepCtx.Err() == nil {
 					slog.Error("Coresearch sweep", "err", err)
 				}

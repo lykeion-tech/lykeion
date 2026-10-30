@@ -93,7 +93,7 @@ describe('reading-first recorded run', () => {
     const result = html.slice(html.indexOf('data-message-type="tool_result"'));
     expect(result.slice(0, result.indexOf('class="step-payload"'))).toContain(fullOutput);
     expect(result.slice(0, result.indexOf('class="step-payload"'))).toContain('Show output');
-    expect(html).toContain('Recorded reasoning');
+    expect(html).not.toContain('Recorded reasoning');
     expect(html).toMatch(/<details[^>]*class="tool-step"[^>]*\bopen(?=[\s=>])/);
     expect(html).not.toMatch(/<details[^>]*class="step-(?:output|payload)"[^>]*\bopen(?=[\s=>])/);
     expect(html).toContain('Error');
@@ -129,7 +129,7 @@ describe('reading-first recorded run', () => {
     const single = await render(calls);
     expect(single).not.toContain('data-activity-group');
     expect(single).not.toContain('Ran 2 steps');
-    expect(single).toContain('Recorded reasoning');
+    expect(single).not.toContain('Recorded reasoning');
     const group = await render([
       ...calls,
       msg(4, 'tool_use', { id: 'b', input: { command: 'pwd' } }, 'Bash'),
@@ -137,6 +137,25 @@ describe('reading-first recorded run', () => {
     expect(group).toContain('Ran 2 steps');
     expect(group).toMatch(/<details[^>]*data-activity-group[^>]*\bopen(?=[\s=>])/);
     expect(group).not.toContain('Ran 3 steps');
+  });
+  it('hides logs and reasoning without leaving empty activity groups', async () => {
+    const html = await render([
+      msg(1, 'log', 'Internal run log'),
+      msg(2, 'thinking', 'Internal reasoning'),
+      msg(3, 'tool_use', { id: 'a', input: { command: 'ls' } }, 'Bash'),
+      msg(4, 'tool_result', { tool_use_id: 'a', content: 'files' }),
+      msg(5, 'log', 'Another internal log'),
+    ]);
+    expect(html).not.toContain('Run log');
+    expect(html).not.toContain('Recorded reasoning');
+    expect(html).not.toContain('Internal run log');
+    expect(html).not.toContain('Internal reasoning');
+    expect(html).not.toContain('data-activity-group');
+    expect(html).toContain('ls');
+    expect(html).toContain('files');
+    const hiddenOnly = await render([msg(1, 'log', 'log'), msg(2, 'thinking', 'thinking')]);
+    expect(hiddenOnly).not.toContain('Recorded activity');
+    expect(hiddenOnly).not.toContain('activity-single');
   });
   it('keeps unmatched recorded failures visible on the rail', async () => {
     const html = await render([
@@ -167,7 +186,7 @@ describe('reading-first recorded run', () => {
       ],
       { status: 'running' },
     );
-    expect(thinkingFirst).toContain('class="mark-message turn-item"');
+    expect(thinkingFirst).not.toContain('Recorded reasoning');
     expect(thinkingFirst).toContain('activity-step running');
   });
   it.each(['claude', 'codex'])(

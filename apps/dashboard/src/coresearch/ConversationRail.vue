@@ -26,7 +26,7 @@ async function deleteConversation(c: Conversation) {
   if (
     deleting.value ||
     !confirm(
-      `Delete “${c.title}” and its project, including files and paper? This cannot be undone. Stored file content may remain in storage.`,
+      `Delete “${c.title}” and its project, including files and paper? This cannot be undone.`,
     )
   )
     return;

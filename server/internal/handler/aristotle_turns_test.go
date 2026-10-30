@@ -2,12 +2,14 @@ package handler
 
 import (
 	"github.com/google/uuid"
+	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/service"
 	db "lykeion/server/pkg/db/generated"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestAristotleAcceptanceUnavailableIsAtomic(t *testing.T) {
@@ -404,5 +406,186 @@ func TestDeleteCowriteProjectRemovesPaperRecords(t *testing.T) {
 	}
 	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_file WHERE project_id=$1`, out.Conversation.ProjectID).Scan(&files); e != nil || files != 0 {
 		t.Fatalf("paper files retained: %d %v", files, e)
+	}
+}
+
+func TestDeleteConversationCleansUnsharedBlobsAndPreservesSharedBlobs(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	csRegister(t, s, a, ws, "blob-delete", "claude")
+	type accepted struct {
+		Conversation db.CoresearchConversation
+		Run          db.AgentRun
+	}
+	start := func(body string) accepted {
+		var out accepted
+		if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, map[string]string{"body": body, "request_id": uuid.NewString()}, &out); code != 201 {
+			t.Fatalf("start: %d", code)
+		}
+		if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled' WHERE id=$1`, out.Run.ID); e != nil {
+			t.Fatal(e)
+		}
+		return out
+	}
+	first, second := start("First"), start("Second")
+	code, unique := csUpload(t, s, a, ws, first.Conversation.ProjectID.String(), "unique.txt", 0, false, []byte("unique blob"))
+	if code != 201 {
+		t.Fatalf("unique upload %d", code)
+	}
+	code, shared := csUpload(t, s, a, ws, first.Conversation.ProjectID.String(), "shared.txt", 0, false, []byte("shared blob"))
+	if code != 201 {
+		t.Fatalf("shared upload %d", code)
+	}
+	code, retained := csUpload(t, s, a, ws, second.Conversation.ProjectID.String(), "shared.txt", 0, false, []byte("shared blob"))
+	if code != 201 || shared.BlobKey != retained.BlobKey {
+		t.Fatalf("same blob: %d", code)
+	}
+
+	cellKey := ws + "/coresearch/cells/" + uuid.NewString() + ".json"
+	artifactKey := coresearch.BlobKey(uuid.MustParse(ws), strings.Repeat("a", 64))
+	for _, key := range []string{cellKey, artifactKey} {
+		if err := s.H.Blobs.Put(t.Context(), key, strings.NewReader("artifact"), int64(len("artifact"))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO coresearch_cell(workspace_id,chat_id,seq,kernel,source,status,outputs_blob) VALUES ($1,$2,1,'python3','','ok',$3)`, ws, first.Conversation.ChatID, cellKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO coresearch_build(workspace_id,project_id,seq,requested_by,status,sources,pdf_blob) VALUES($1,$2,1,$3,'aborted','[]',$4)`, ws, first.Conversation.ProjectID, first.Conversation.OwnerID, artifactKey); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "DELETE", "/api/coresearch/conversations/"+first.Conversation.ID.String(), a, ws, nil, nil); code != 204 {
+		t.Fatalf("first delete: %d", code)
+	}
+	for _, key := range []string{cellKey, artifactKey} {
+		if rc, err := s.H.Blobs.Get(t.Context(), key); err == nil {
+			rc.Close()
+			t.Fatalf("artifact %s retained", key)
+		}
+	}
+	if rc, e := s.H.Blobs.Get(t.Context(), unique.BlobKey); e == nil {
+		rc.Close()
+		t.Fatal("unreferenced blob retained")
+	}
+	if rc, e := s.H.Blobs.Get(t.Context(), shared.BlobKey); e != nil {
+		t.Fatalf("shared blob removed: %v", e)
+	} else {
+		rc.Close()
+	}
+	if code := s.call(t, "DELETE", "/api/coresearch/conversations/"+second.Conversation.ID.String(), a, ws, nil, nil); code != 204 {
+		t.Fatalf("second delete: %d", code)
+	}
+	if rc, e := s.H.Blobs.Get(t.Context(), shared.BlobKey); e == nil {
+		rc.Close()
+		t.Fatal("last shared blob retained")
+	}
+}
+
+func TestDeleteConversationRetriesFailedBlobCleanup(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	csRegister(t, s, a, ws, "blob-retry", "claude")
+	var out struct {
+		Conversation db.CoresearchConversation
+		Run          db.AgentRun
+	}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, map[string]string{"body": "Retry cleanup", "request_id": uuid.NewString()}, &out); code != 201 {
+		t.Fatal(code)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled' WHERE id=$1`, out.Run.ID); err != nil {
+		t.Fatal(err)
+	}
+	code, version := csUpload(t, s, a, ws, out.Conversation.ProjectID.String(), "retry.txt", 0, false, []byte("retry bytes"))
+	if code != 201 {
+		t.Fatal(code)
+	}
+	original := s.H.Blobs
+	s.H.Blobs = &buildDeleteOnceStorage{Storage: original, key: version.BlobKey}
+	if code := s.call(t, "DELETE", "/api/coresearch/conversations/"+out.Conversation.ID.String(), a, ws, nil, nil); code != 204 {
+		t.Fatalf("delete: %d", code)
+	}
+	var pending int
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_blob_cleanup WHERE workspace_id=$1 AND blob_key=$2`, ws, version.BlobKey).Scan(&pending); err != nil || pending != 1 {
+		t.Fatalf("queue: %d %v", pending, err)
+	}
+	if err := coresearch.SweepBlobCleanup(t.Context(), s.H.Store, original); err != nil {
+		t.Fatal(err)
+	}
+	if rc, err := original.Get(t.Context(), version.BlobKey); err == nil {
+		rc.Close()
+		t.Fatal("blob retained after retry")
+	}
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_blob_cleanup WHERE workspace_id=$1 AND blob_key=$2`, ws, version.BlobKey).Scan(&pending); err != nil || pending != 0 {
+		t.Fatalf("queue after retry: %d %v", pending, err)
+	}
+}
+
+func TestDeleteConversationWaitsForBlobWriter(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	csRegister(t, s, a, ws, "blob-lock", "claude")
+	var out struct {
+		Conversation db.CoresearchConversation
+		Run          db.AgentRun
+	}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, map[string]string{"body": "Lock cleanup", "request_id": uuid.NewString()}, &out); code != 201 {
+		t.Fatal(code)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled' WHERE id=$1`, out.Run.ID); err != nil {
+		t.Fatal(err)
+	}
+	code, v := csUpload(t, s, a, ws, out.Conversation.ProjectID.String(), "lock.txt", 0, false, []byte("locked blob"))
+	if code != 201 {
+		t.Fatal(code)
+	}
+	held, release, writerDone := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		writerDone <- coresearch.WithBlob(t.Context(), s.H.Store, s.H.Blobs, uuid.MustParse(ws), out.Conversation.OwnerID, v.Sha256, strings.NewReader("locked blob"), int64(len("locked blob")), func() error { close(held); <-release; return nil })
+	}()
+	<-held
+	deleted := make(chan int, 1)
+	go func() {
+		deleted <- s.call(t, "DELETE", "/api/coresearch/conversations/"+out.Conversation.ID.String(), a, ws, nil, nil)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var count int
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_blob_cleanup WHERE workspace_id=$1 AND blob_key=$2`, ws, v.BlobKey).Scan(&count); err != nil {
+			close(release)
+			t.Fatal(err)
+		}
+		if count == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatal("deletion did not enqueue cleanup")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case code := <-deleted:
+		close(release)
+		t.Fatalf("cleanup did not wait for writer: %d", code)
+	default:
+	}
+	if rc, err := s.H.Blobs.Get(t.Context(), v.BlobKey); err != nil {
+		close(release)
+		t.Fatal("blob removed while writer held lock")
+	} else {
+		rc.Close()
+	}
+	close(release)
+	if err := <-writerDone; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-deleted:
+		if code != 204 {
+			t.Fatal(code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("deletion did not finish")
+	}
+	if rc, err := s.H.Blobs.Get(t.Context(), v.BlobKey); err == nil {
+		rc.Close()
+		t.Fatal("blob retained after writer released lock")
 	}
 }

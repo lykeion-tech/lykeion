@@ -57,7 +57,7 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   const open = (await main.boundingBox())!;
   expect(open.x).toBeLessThan(20);
   expect((await meta.boundingBox())!.x).toBeGreaterThanOrEqual(open.x + open.width);
-  await page.getByRole('button', { name: 'Toggle details', exact: true }).click();
+  await page.getByRole('button', { name: 'Close pane', exact: true }).click();
   await expect(meta).toHaveCount(0);
   await expect(splitter).toHaveCount(0);
   expect((await main.boundingBox())!.x).toBeLessThan(20);

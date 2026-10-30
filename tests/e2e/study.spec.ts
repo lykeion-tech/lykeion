@@ -101,7 +101,7 @@ test('the study opens with a compact overview and identifiable runs, keeping the
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/recorded-spend-timeline.png',
   });
   await runDialog.getByRole('button', { name: 'Close Runs' }).click();
-  await page.getByRole('button', { name: 'Toggle details' }).click();
+  await page.getByRole('button', { name: 'Close pane' }).click();
   await expect(meta).toHaveCount(0);
 });
 

@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -110,6 +113,10 @@ func (h *H) deleteCoresearchConversation(w http.ResponseWriter, r *http.Request)
 		if busy {
 			return conflict("project has queued or running work")
 		}
+		blobKeys, err := tx.Q.EnqueueCoresearchProjectBlobs(r.Context(), projectID)
+		if err != nil {
+			return err
+		}
 		n, err := tx.Q.DeleteOwnedCoresearchProject(r.Context(), projectID)
 		if err != nil {
 			return err
@@ -117,6 +124,13 @@ func (h *H) deleteCoresearchConversation(w http.ResponseWriter, r *http.Request)
 		if n != 1 {
 			return pgx.ErrNoRows
 		}
+		tx.AfterCommit(func() {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+			defer cancel()
+			if cleanupErr := coresearch.CleanupBlobs(ctx, h.Store, h.Blobs, ws, blobKeys); cleanupErr != nil {
+				slog.Error("Coresearch blob cleanup deferred", "err", cleanupErr)
+			}
+		})
 		return tx.Emit(r.Context(), "coresearch.project.updated", nil, store.User(who), map[string]any{"project_id": projectID})
 	})
 	if coresearchAnswer(w, r, err) {

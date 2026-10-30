@@ -936,15 +936,21 @@ describe('study right-pane surfaces', () => {
     const t = await mount(TaskDetail, () => ({ id: 'c' }), '/', seedStudy);
     try {
       expect(t.text()).toContain('Open a surface');
+      expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(false);
       expect(t.text()).not.toContain('Pre-registered results');
       for (const label of ['Properties', 'Execution log & timeline', 'Details', 'Files']) {
         await t.click(new RegExp(`^${label}$`));
         expect(t.nodes().some((n) => n.props['aria-label'] === 'Back to surfaces')).toBe(true);
+        expect(t.nodes().some((n) => n.props.class === 'surface-title')).toBe(false);
         const back = t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!;
         (back.props.onClick as () => void)();
         await nextTick();
         expect(t.text()).toContain('Open a surface');
       }
+      const close = t.nodes().find((n) => n.props['aria-label'] === 'Close pane')!;
+      (close.props.onClick as () => void)();
+      await nextTick();
+      expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(true);
     } finally {
       t.unmount();
     }

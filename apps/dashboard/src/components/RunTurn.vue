@@ -35,9 +35,14 @@ const active = computed(() => ['dispatched', 'running'].includes(props.run.statu
 // Each block's mark on the timeline: messages are rings, finished activity a
 // dot, activity with a recorded error a cross, the activity still going a spinner.
 const blocks = computed(() => {
-  const list = transcriptBlocks(messages.data.value ?? [], {
-    joinText: false,
-  });
+  const list = transcriptBlocks(
+    (messages.data.value ?? []).filter(
+      (message) => message.type !== 'log' && message.type !== 'thinking',
+    ),
+    {
+      joinText: false,
+    },
+  );
   return list.map((block, i) => {
     const steps = block.kind === 'activity' ? activitySteps(block.messages) : [];
     const markedSteps = isActivityGroup(steps) ? steps : steps.slice(0, 1);
