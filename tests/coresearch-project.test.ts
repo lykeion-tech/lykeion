@@ -54,6 +54,7 @@ const messages = [
   },
 ];
 async function mount(component: Component, props = {}, seed?: (client: QueryClient) => void) {
+  vi.stubGlobal('window', { innerWidth: 1500, addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal('document', { activeElement: null });
   vi.stubGlobal('Document', class {});
   vi.stubGlobal('ShadowRoot', class {});
@@ -444,4 +445,18 @@ it.each(['', '   '])('uses email or ID when owner name is blank: %j', async (nam
   });
   expect(button(dialog.root, 'Remove ada@example.org')).toBeTruthy();
   expect(button(dialog.root, 'Remove other')).toBeTruthy();
+});
+
+it('opens the Experiment project chooser and selects Compute', async () => {
+  const { root, settle } = await mount(CoresearchProject, { projectId: 'p', chatId: 'c' });
+  const toggle = button(root, 'Open experiment surfaces');
+  expect(toggle).toBeTruthy();
+  (toggle!.props.onClick as () => void)();
+  await settle();
+  expect(textOf(root)).toContain('Open a surface');
+  const compute = button(root, 'Compute');
+  expect(compute).toBeTruthy();
+  (compute!.props.onClick as () => void)();
+  await settle();
+  expect(all(root).some((n) => n.props['data-testid'] === 'compute-panel')).toBe(true);
 });

@@ -26,6 +26,7 @@ afterEach(() => {
   resolveDiscard(false);
 });
 async function mount(withFile = false) {
+  vi.stubGlobal('window', { innerWidth: 1500, addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal('document', {
     activeElement: null,
     addEventListener() {},
@@ -108,11 +109,13 @@ it('opens an Experiment inspector beside the conversation rail with Notebook Fil
   expect(notebook!.parent?.props.class).toBe('composer-top-row');
   (notebook!.props.onClick as () => void)();
   await settle();
-  expect(
-    all(root)
-      .filter((n) => n.props.role === 'tab')
-      .map(textOf),
-  ).toEqual(['Notebook', 'Files', 'Compute']);
+  expect(all(root).some((n) => n.props['aria-label'] === 'Notebook')).toBe(true);
+  const back = all(root).find((n) => n.props['aria-label'] === 'Back to surfaces')!;
+  (back.props.onClick as () => void)();
+  await settle();
+  expect(textOf(root)).toContain('Open a surface');
+  expect(textOf(root)).toContain('Files');
+  expect(textOf(root)).toContain('Compute');
   expect(textOf(root)).not.toContain('Runs');
   expect(all(root).some((n) => n.props['aria-label'] === 'Project sidebar')).toBe(false);
 });
@@ -136,6 +139,7 @@ it('returns Files to its existing list only after a dirty file draft is discarde
     await settle();
   };
   await click('Notebook');
+  await click('Back to surfaces');
   await click('Files');
   await click('notes.txt');
   await vi.waitFor(() =>
@@ -147,15 +151,36 @@ it('returns Files to its existing list only after a dirty file draft is discarde
   )!;
   (input.props['onUpdate:modelValue'] as (v: string) => void)('unsaved notes');
   await settle();
-  await click('Files');
+  await click('Back to surfaces');
   expect(discardDialog.value).toBe(true);
   resolveDiscard(false);
   await settle();
   expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(true);
-  await click('Files');
+  await click('Back to surfaces');
   expect(discardDialog.value).toBe(true);
   resolveDiscard(true);
   await settle();
   expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(false);
+  await click('Files');
   expect(all(root).some((n) => n.props.title === 'notes.txt')).toBe(true);
+});
+
+it('opens the Experiment chooser with one surface at a time', async () => {
+  const { root, settle } = await mount();
+  const toggle = all(root).find((n) => n.props['aria-label'] === 'Open experiment surfaces');
+  expect(toggle).toBeTruthy();
+  (toggle!.props.onClick as () => void)();
+  await settle();
+  expect(textOf(root)).toContain('Open a surface');
+  for (const label of ['Notebook', 'Files', 'Compute']) {
+    const choice = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === label);
+    expect(choice).toBeTruthy();
+    (choice!.props.onClick as () => void)();
+    await settle();
+    const back = all(root).find((n) => n.props['aria-label'] === 'Back to surfaces');
+    expect(back).toBeTruthy();
+    (back!.props.onClick as () => void)();
+    await settle();
+    expect(textOf(root)).toContain('Open a surface');
+  }
 });

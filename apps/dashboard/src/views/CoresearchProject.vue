@@ -11,11 +11,10 @@ import {
   useCoresearchFiles,
 } from '../coresearch/api';
 import type { FileRow } from '../coresearch/types';
-import { PANE_TABS } from '../coresearch/pane-tabs';
 import SidebarFiles from '../coresearch/SidebarFiles.vue';
 import ChatTranscript from '../coresearch/ChatTranscript.vue';
 import ChatComposer from '../coresearch/ChatComposer.vue';
-import RightPaneTabs from '../coresearch/RightPaneTabs.vue';
+import SurfacePane from '../components/SurfacePane.vue';
 import NotebookPane from '../coresearch/NotebookPane.vue';
 import ComputePane from '../coresearch/ComputePane.vue';
 import FilesPane from '../coresearch/FilesPane.vue';
@@ -41,7 +40,7 @@ const activeRun = computed(
     messages.data.value?.find((m) => m.kind === 'turn' && isActiveTurn(m.status))?.agent_run_id ??
     undefined,
 );
-const activePane = ref('notebook'),
+const activePane = ref<string | null>(null),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
   activeFile = ref<FileRow>();
 const stream = ref<HTMLElement>(),
@@ -50,7 +49,7 @@ watch(
   () => [workspaceId.value, props.projectId],
   () => {
     activeFile.value = undefined;
-    activePane.value = 'notebook';
+    activePane.value = null;
     paneMode.value = 'closed';
   },
 );
@@ -87,10 +86,19 @@ function trackScroll() {
 async function discardFile() {
   return guardResourceDrafts();
 }
-async function selectPane(id: string) {
+async function selectPane(id: string | null) {
   if (activePane.value === 'files' && !(await discardFile())) return;
   if (id === 'files') activeFile.value = undefined;
   activePane.value = id;
+}
+const experimentSurfaces = [
+  { id: 'notebook', label: 'Notebook', icon: 'book' },
+  { id: 'files', label: 'Files', icon: 'file' },
+  { id: 'compute', label: 'Compute', icon: 'monitor' },
+];
+async function toggleSurfaces() {
+  if (paneMode.value === 'closed') paneMode.value = 'split';
+  else await closePane();
 }
 async function closePane() {
   if (activePane.value === 'files' && !(await discardFile())) return;
@@ -118,9 +126,13 @@ async function openFile(file: FileRow) {
     />
     <template v-else>
       <div class="task-screen coresearch-project-main" :data-pane-mode="paneMode">
-        <div class="task-columns" :data-pane-mode="paneMode" style="--task-utility-width: 360px">
+        <div class="task-columns experiment-surface-layout" :data-pane-mode="paneMode">
           <div class="task-main" data-column="conversation" :hidden="paneMode === 'focus'">
-            <div class="task-stage-row"></div>
+            <div class="task-stage-row">
+              <button type="button" aria-label="Open experiment surfaces" @click="toggleSurfaces">
+                ☰
+              </button>
+            </div>
             <div v-if="chats.error.value" class="tab-strip-error" role="alert">
               {{ chats.error.value.message }}
             </div>
@@ -214,52 +226,48 @@ async function openFile(file: FileRow) {
               </section>
             </div>
           </div>
-          <button
-            v-if="paneMode !== 'closed'"
-            type="button"
-            class="task-pane-scrim"
-            aria-label="Close panel"
-            @click="closePane"
-          />
-          <div v-if="paneMode !== 'closed'" class="task-rightpane">
-            <RightPaneTabs
-              :tabs="PANE_TABS"
-              :active-id="activePane"
-              :pane-mode="paneMode"
-              @select="selectPane"
-              @toggle-focus="paneMode = paneMode === 'focus' ? 'split' : 'focus'"
-              @close-pane="closePane"
-            />
-            <div class="task-rightpane-card">
-              <NotebookPane
-                v-if="activePane === 'notebook' && chat"
-                :key="`${workspaceId}:${projectId}:${chat.id}:notebook`"
-                :project="project.data.value"
-                :chat="chat"
-                :owner="owner"
-              />
-              <ComputePane
-                v-else-if="activePane === 'compute' && chat"
-                :key="`${workspaceId}:${projectId}:${chat.id}:compute`"
-                :project="project.data.value"
-                :chat="chat"
-                :owner="owner"
-              />
-              <FilesPane
-                v-else-if="activePane === 'files' && activeFile"
-                :key="`${workspaceId}:${projectId}:${activeFile?.id}`"
-                :project="project.data.value"
-                :file="activeFile"
-              />
-              <SidebarFiles
-                v-else-if="activePane === 'files'"
-                :files="files.data.value ?? []"
-                :loading="files.isPending.value"
-                :error="files.error.value?.message"
-                @open="openFile"
-              />
-            </div>
-          </div>
+          <SurfacePane
+            :open="paneMode !== 'closed'"
+            :active="activePane"
+            :focused="paneMode === 'focus'"
+            :surfaces="experimentSurfaces"
+            width-key="lykeion.experiment-pane-width"
+            @update:open="closePane"
+            @update:active="selectPane"
+            @update:focused="paneMode = $event ? 'focus' : 'split'"
+          >
+            <template #default>
+              <div class="task-rightpane-card">
+                <NotebookPane
+                  v-if="activePane === 'notebook' && chat"
+                  :key="`${workspaceId}:${projectId}:${chat.id}:notebook`"
+                  :project="project.data.value"
+                  :chat="chat"
+                  :owner="owner"
+                />
+                <ComputePane
+                  v-else-if="activePane === 'compute' && chat"
+                  :key="`${workspaceId}:${projectId}:${chat.id}:compute`"
+                  :project="project.data.value"
+                  :chat="chat"
+                  :owner="owner"
+                />
+                <FilesPane
+                  v-else-if="activePane === 'files' && activeFile"
+                  :key="`${workspaceId}:${projectId}:${activeFile?.id}`"
+                  :project="project.data.value"
+                  :file="activeFile"
+                />
+                <SidebarFiles
+                  v-else-if="activePane === 'files'"
+                  :files="files.data.value ?? []"
+                  :loading="files.isPending.value"
+                  :error="files.error.value?.message"
+                  @open="openFile"
+                />
+              </div>
+            </template>
+          </SurfacePane>
         </div>
       </div>
     </template>
@@ -277,5 +285,31 @@ async function openFile(file: FileRow) {
 .coresearch-project-main {
   flex: 1;
   min-width: 0;
+}
+</style>
+
+<style scoped>
+.experiment-surface-layout {
+  display: flex !important;
+  position: relative;
+  min-width: 0;
+}
+.experiment-surface-layout > .task-main {
+  min-width: 0;
+  flex: 1;
+}
+.experiment-surface-layout > .task-main[hidden] {
+  display: none !important;
+}
+.experiment-surface-layout :deep(.surface-pane) {
+  min-height: 0;
+}
+.experiment-surface-layout :deep(.task-rightpane-card) {
+  border: 0;
+  border-radius: 0;
+  height: 100%;
+}
+.experiment-toggle {
+  margin-left: auto;
 }
 </style>

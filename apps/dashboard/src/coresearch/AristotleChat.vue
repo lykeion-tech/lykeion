@@ -21,9 +21,8 @@ import { workspaceId } from '../api/session';
 import { useMe, useRuntimes } from '../api/queries';
 import { api } from '../api/client';
 import { guardResourceDrafts } from '../state/resource-draft';
-import { PANE_TABS } from './pane-tabs';
 import type { FileRow, SessionMode } from './types';
-import RightPaneTabs from './RightPaneTabs.vue';
+import SurfacePane from '../components/SurfacePane.vue';
 import NotebookPane from './NotebookPane.vue';
 import FilesPane from './FilesPane.vue';
 import ComputePane from './ComputePane.vue';
@@ -77,7 +76,7 @@ const experiment = computed(
     !conversation.value.is_welcome &&
     conversation.value.mode !== 'cowrite',
 );
-const activePane = ref('notebook'),
+const activePane = ref<string | null>(null),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
   activeFile = ref<FileRow>();
 const inspectorProject = computed(() =>
@@ -91,14 +90,23 @@ watch(
   () => [workspaceId.value, conversation.value?.id],
   () => {
     paneMode.value = 'closed';
-    activePane.value = 'notebook';
+    activePane.value = null;
     activeFile.value = undefined;
   },
 );
-async function selectPane(id: string) {
+async function selectPane(id: string | null) {
   if (activePane.value === 'files' && !(await guardResourceDrafts())) return;
   if (id === 'files') activeFile.value = undefined;
   activePane.value = id;
+}
+const experimentSurfaces = [
+  { id: 'notebook', label: 'Notebook', icon: 'book' },
+  { id: 'files', label: 'Files', icon: 'file' },
+  { id: 'compute', label: 'Compute', icon: 'monitor' },
+];
+async function toggleSurfaces() {
+  if (paneMode.value === 'closed') paneMode.value = 'split';
+  else await closePane();
 }
 async function closePane() {
   if (activePane.value === 'files' && !(await guardResourceDrafts())) return;
@@ -370,7 +378,7 @@ async function stop() {
 </script>
 <template>
   <section class="coresearch aristotle-chat" data-testid="aristotle-chat">
-    <div class="task-columns" :data-pane-mode="paneMode" style="--task-utility-width: 360px">
+    <div class="task-columns experiment-surface-layout" :data-pane-mode="paneMode">
       <div
         class="task-main aristotle-conversation"
         data-column="conversation"
@@ -386,6 +394,15 @@ async function stop() {
             }}</b
             ><small>Your research companion</small>
           </div>
+          <button
+            v-if="experiment"
+            type="button"
+            class="experiment-toggle"
+            aria-label="Open experiment surfaces"
+            @click="toggleSurfaces"
+          >
+            ☰
+          </button>
         </header>
         <div v-if="state.bootstrap.error.value" class="center-empty" role="alert">
           {{ state.bootstrap.error.value.message
@@ -542,66 +559,63 @@ async function stop() {
           ></template
         >
       </div>
-      <button
-        v-if="paneMode !== 'closed'"
-        type="button"
-        class="task-pane-scrim"
-        aria-label="Close panel"
-        @click="closePane"
-      />
-      <div v-if="paneMode !== 'closed' && experiment" class="task-rightpane">
-        <RightPaneTabs
-          :tabs="PANE_TABS"
-          :active-id="activePane"
-          :pane-mode="paneMode"
-          @select="selectPane"
-          @toggle-focus="paneMode = paneMode === 'focus' ? 'split' : 'focus'"
-          @close-pane="closePane"
-        />
-        <div class="task-rightpane-card">
-          <p
-            v-if="project.error.value || chats.error.value"
-            class="p-5 type-body text-fg-subtle"
-            role="alert"
-          >
-            {{ project.error.value?.message || chats.error.value?.message }}
-          </p>
-          <p
-            v-else-if="!project.data.value || !chat"
-            class="p-5 type-body text-fg-subtle"
-            role="status"
-          >
-            Loading project…
-          </p>
-          <NotebookPane
-            v-else-if="activePane === 'notebook'"
-            :key="`${workspaceId}:${project.data.value.id}:${chat.id}:notebook`"
-            :project="project.data.value"
-            :chat="chat"
-            :owner="chat.owner_id === me.data.value?.id"
-          />
-          <ComputePane
-            v-else-if="activePane === 'compute'"
-            :key="`${workspaceId}:${project.data.value.id}:${chat.id}:compute`"
-            :project="project.data.value"
-            :chat="chat"
-            :owner="chat.owner_id === me.data.value?.id"
-          />
-          <FilesPane
-            v-else-if="activePane === 'files' && activeFile"
-            :key="`${workspaceId}:${project.data.value.id}:${activeFile.id}`"
-            :project="project.data.value"
-            :file="activeFile"
-          />
-          <SidebarFiles
-            v-else-if="activePane === 'files'"
-            :files="files.data.value ?? []"
-            :loading="files.isPending.value"
-            :error="files.error.value?.message"
-            @open="openFile"
-          />
-        </div>
-      </div>
+      <SurfacePane
+        v-if="experiment"
+        :open="paneMode !== 'closed'"
+        :active="activePane"
+        :focused="paneMode === 'focus'"
+        :surfaces="experimentSurfaces"
+        width-key="lykeion.experiment-pane-width"
+        @update:open="closePane"
+        @update:active="selectPane"
+        @update:focused="paneMode = $event ? 'focus' : 'split'"
+      >
+        <template #default>
+          <div class="task-rightpane-card">
+            <p
+              v-if="project.error.value || chats.error.value"
+              class="p-5 type-body text-fg-subtle"
+              role="alert"
+            >
+              {{ project.error.value?.message || chats.error.value?.message }}
+            </p>
+            <p
+              v-else-if="!project.data.value || !chat"
+              class="p-5 type-body text-fg-subtle"
+              role="status"
+            >
+              Loading project…
+            </p>
+            <NotebookPane
+              v-else-if="activePane === 'notebook'"
+              :key="`${workspaceId}:${project.data.value.id}:${chat.id}:notebook`"
+              :project="project.data.value"
+              :chat="chat"
+              :owner="chat.owner_id === me.data.value?.id"
+            />
+            <ComputePane
+              v-else-if="activePane === 'compute'"
+              :key="`${workspaceId}:${project.data.value.id}:${chat.id}:compute`"
+              :project="project.data.value"
+              :chat="chat"
+              :owner="chat.owner_id === me.data.value?.id"
+            />
+            <FilesPane
+              v-else-if="activePane === 'files' && activeFile"
+              :key="`${workspaceId}:${project.data.value.id}:${activeFile.id}`"
+              :project="project.data.value"
+              :file="activeFile"
+            />
+            <SidebarFiles
+              v-else-if="activePane === 'files'"
+              :files="files.data.value ?? []"
+              :loading="files.isPending.value"
+              :error="files.error.value?.message"
+              @open="openFile"
+            />
+          </div>
+        </template>
+      </SurfacePane>
     </div>
   </section>
 </template>
@@ -619,5 +633,31 @@ async function stop() {
 }
 .aristotle-conversation[hidden] {
   display: none;
+}
+</style>
+
+<style scoped>
+.experiment-surface-layout {
+  display: flex !important;
+  position: relative;
+  min-width: 0;
+}
+.experiment-surface-layout > .task-main {
+  min-width: 0;
+  flex: 1;
+}
+.experiment-surface-layout > .task-main[hidden] {
+  display: none !important;
+}
+.experiment-surface-layout :deep(.surface-pane) {
+  min-height: 0;
+}
+.experiment-surface-layout :deep(.task-rightpane-card) {
+  border: 0;
+  border-radius: 0;
+  height: 100%;
+}
+.experiment-toggle {
+  margin-left: auto;
 }
 </style>
