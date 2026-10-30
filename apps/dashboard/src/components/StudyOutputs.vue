@@ -82,7 +82,7 @@ async function download(record: StudyRecord) {
 </template>
 <style scoped>
 .study-outputs {
-  padding: 16px;
+  padding: 24px 20px;
 }
 h2 {
   font-size: 16px;

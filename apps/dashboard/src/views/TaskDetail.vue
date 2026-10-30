@@ -405,19 +405,6 @@ function pin() {
           </button>
         </div>
       </header>
-      <div v-if="c" class="study-machine type-caption">
-        <span
-          >Runs on:
-          {{ c.machine_label || (c.machine ? 'Unavailable machine' : 'My machines') }}</span
-        >
-        <p v-if="c.machine_notice" role="status">{{ c.machine_notice }}</p>
-        <MachinePicker
-          v-if="c.owner_id === me.data.value?.id"
-          :model-value="c.machine || ''"
-          :disabled="machineBusy"
-          @update:model-value="pickMachine"
-        />
-      </div>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
       <div v-if="c" class="transcript-scroll">
         <div class="transcript-content study-content">
@@ -685,6 +672,19 @@ function pin() {
               ><Icon name="right" :size="12"
             /></RouterLink>
           </div>
+          <div class="study-machine type-caption">
+            <span
+              >Runs on:
+              {{ c.machine_label || (c.machine ? 'Unavailable machine' : 'My machines') }}</span
+            >
+            <p v-if="c.machine_notice" role="status">{{ c.machine_notice }}</p>
+            <MachinePicker
+              v-if="c.owner_id === me.data.value?.id"
+              :model-value="c.machine || ''"
+              :disabled="machineBusy"
+              @update:model-value="pickMachine"
+            />
+          </div>
           <div
             v-for="read in [
               { query: members, label: 'members' },
@@ -763,8 +763,8 @@ function pin() {
   </section>
 </template>
 <style scoped>
-.surface-content {
-  padding: 16px 12px 24px;
+.study-meta.surface-content {
+  padding: 24px 20px 24px;
 }
 .surface-content > h2 {
   font-size: 16px;
@@ -957,6 +957,7 @@ function pin() {
 }
 .task-heading {
   height: 56px;
+  border-bottom: 1px solid var(--border);
   flex: none;
   padding: 0 20px;
   display: flex;
@@ -1774,7 +1775,7 @@ function pin() {
   font-size: 14px;
   font-weight: 600;
   line-height: 20px;
-  margin: 26px 0 16px;
+  margin: 0 0 16px;
 }
 .details-heading button {
   display: inline-flex;
@@ -1850,8 +1851,7 @@ function pin() {
 
 <style scoped>
 .study-machine {
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--border);
+  padding: 16px 0 0;
   color: var(--muted);
   display: flex;
   flex-wrap: wrap;

@@ -615,13 +615,15 @@ async function stop() {
               :project="project.data.value"
               :file="activeFile"
             />
-            <SidebarFiles
-              v-else-if="activePane === 'files'"
-              :files="files.data.value ?? []"
-              :loading="files.isPending.value"
-              :error="files.error.value?.message"
-              @open="openFile"
-            />
+            <section v-else-if="activePane === 'files'" aria-label="Files">
+              <h2 class="experiment-files-header">Files</h2>
+              <SidebarFiles
+                :files="files.data.value ?? []"
+                :loading="files.isPending.value"
+                :error="files.error.value?.message"
+                @open="openFile"
+              />
+            </section>
           </div>
         </template>
       </SurfacePane>

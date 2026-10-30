@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { labSignIn } from './lab';
 test.use({ storageState: { cookies: [], origins: [] } });
-const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Runtime'];
+const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Machines'];
 const shots = 'test-results/ui2-task16';
 async function newcomer(page: Page, label: string) {
   await labSignIn(page.request, `onboarding-${label}@lab.test`);
@@ -27,7 +27,7 @@ test('five steps, Back and skips create a real workspace without a profile save'
   await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Connect a runtime' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Machines' })).toBeVisible();
   await expect(page.getByText('lyk daemon start')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Your lab is ready' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Enter workspace' }).click();
@@ -102,7 +102,7 @@ test('existing-member resume preserves saved career and context and Settings sti
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Skip', exact: true }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page.locator('[aria-current=step]')).toHaveText('Runtime');
+    await expect(page.locator('[aria-current=step]')).toHaveText('Machines');
     expect(writes).toEqual([]);
     expect((await (await page.request.get('/api/me')).json()).career_stage).toBe('postdoc');
     expect(
@@ -201,7 +201,7 @@ test('library pages read real shared data with four palettes and reachable respo
   await expect(next).toBeInViewport();
   await page.screenshot({ path: `${shots}/mobile-wizard-connectors.png` });
   await next.click();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Runtime');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Machines');
 });
 
 test('a failed prefix save retries the created workspace without creating a duplicate', async ({

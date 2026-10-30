@@ -167,7 +167,7 @@ test('two owner clients observe real daemon registration, expiry and return with
       .and(wizard.locator(`[value="${f.workspace_id}"]`))
       .check();
     await wizard.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(wizard.locator('[aria-current=step]')).toHaveText('Runtime');
+    await expect(wizard.locator('[aria-current=step]')).toHaveText('Machines');
     await expect(wizard.getByText('ui2-availability', { exact: false })).toBeVisible();
     await wizard.screenshot({ path: `${shots}/real-daemon-wizard-runtime.png` });
     for (const step of ['Skills', 'Connectors', 'Ready']) {

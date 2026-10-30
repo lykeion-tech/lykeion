@@ -244,7 +244,7 @@ function close() {
 .surface-header {
   display: flex;
   align-items: center;
-  height: 52px;
+  height: 56px;
   flex: none;
   padding: 0 10px;
   border-bottom: 1px solid var(--border, #ddd);
@@ -284,6 +284,18 @@ function close() {
   display: flex;
   flex-direction: column;
 }
+
+.surface-body :deep(.task-rightpane-card .art-header) {
+  padding: 24px 20px 16px;
+}
+.surface-body :deep(.experiment-files-header) {
+  margin: 0;
+  padding: 24px 20px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
 .surface-chooser {
   margin: auto;
   width: min(270px, 90%);

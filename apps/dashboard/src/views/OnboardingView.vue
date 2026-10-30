@@ -21,7 +21,7 @@ const router = useRouter();
 const client = useQueryClient();
 const workspaces = useWorkspaces();
 const runtimes = useRuntimes();
-const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Runtime'] as const;
+const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Machines'] as const;
 type Step = (typeof steps)[number];
 const step = ref<Step>(route.query.step === 'workspace' ? 'Workspace' : 'Welcome');
 watch(
@@ -276,8 +276,8 @@ async function logOut() {
             </template>
           </div>
         </template>
-        <template v-else-if="step === 'Runtime'">
-          <h2>Connect a runtime</h2>
+        <template v-else-if="step === 'Machines'">
+          <h2>Machines</h2>
           <p class="sub">Connect a computer so agents can run research.</p>
           <p class="muted">
             Not connected yet? Run <code>lyk login</code> then <code>lyk daemon start</code>.
@@ -386,11 +386,11 @@ async function logOut() {
         <template v-else-if="step === 'Skills' || step === 'Connectors'">
           <button
             class="button primary"
-            @click="step = step === 'Skills' ? 'Connectors' : 'Runtime'"
+            @click="step = step === 'Skills' ? 'Connectors' : 'Machines'"
           >
             Continue
           </button>
-          <button class="text-button" @click="step = step === 'Skills' ? 'Connectors' : 'Runtime'">
+          <button class="text-button" @click="step = step === 'Skills' ? 'Connectors' : 'Machines'">
             Skip
           </button>
         </template>
