@@ -356,15 +356,9 @@ test.describe('new study', () => {
     expect(study.teams).toEqual({});
   });
 
-  test('the chips sit on one row and fold into ⋯ when narrow', async ({ page }) => {
-    const sdd = '.superpowers/sdd/2026-10-29-one-agent-studies';
+  test('the chips sit on one row and fold into ⋯ when narrow', async ({ page }, testInfo) => {
     const agent = await soloAgent(page);
     await page.setViewportSize({ width: 1280, height: 800 });
-    const dialog = await composer(page);
-    const row = dialog.getByRole('group', { name: 'Study properties' });
-    const more = row.getByRole('button', { name: 'More properties' });
-    const due = row.getByRole('button', { name: 'No deadline' });
-    const machine = row.getByRole('combobox', { name: 'Machine' });
     const noScroll = async () =>
       expect(
         await page.evaluate(
@@ -372,24 +366,51 @@ test.describe('new study', () => {
         ),
       ).toBeLessThanOrEqual(0);
 
-    for (const name of [
-      'Assignee: Built-in Teams',
-      'Stages: Grounding → Validation',
-      'Pre-registered · 0',
-      'No deadline',
-    ])
-      await expect(row.getByRole('button', { name, exact: true })).toBeVisible();
-    await expect(machine).toBeVisible();
-    await expect(more).toHaveCount(0);
-    const tops = await row.evaluate((el) =>
-      [...el.querySelectorAll('.property-pill, select')].map((c) =>
-        Math.round(c.getBoundingClientRect().top),
-      ),
-    );
-    expect(new Set(tops).size, String(tops)).toBe(1);
-    await noScroll();
+    // With an agent picked, every chip fits one row in both palettes.
+    let dialog = page.getByRole('dialog', { name: 'New study' });
+    for (const [theme, palette] of [
+      ['light', 'ash'],
+      ['dark', 'midnight'],
+    ] as const) {
+      await page.goto('/#/studies');
+      await page.evaluate(
+        (p) => localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: p })),
+        palette,
+      );
+      await page.reload();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      dialog = await composer(page);
+      await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+      await dialog.getByRole('menuitem', { name: agent.name, exact: true }).click();
+      await dialog.getByRole('textbox', { name: 'Study title' }).fill('Sleep and memory');
+      await expect(dialog.getByText(/works every stage alone/)).toBeVisible();
+      const row = dialog.getByRole('group', { name: 'Study properties' });
+      for (const name of [
+        `Assignee: ${agent.name}`,
+        'Stages: Grounding → Validation',
+        'Pre-registered · 0',
+        'No deadline',
+      ])
+        await expect(row.getByRole('button', { name, exact: true })).toBeVisible();
+      await expect(row.getByRole('combobox', { name: 'Machine' })).toBeVisible();
+      await expect(row.getByRole('button', { name: 'More properties' })).toHaveCount(0);
+      const tops = await row.evaluate((el) =>
+        [...el.querySelectorAll('.property-pill, select')].map((c) =>
+          Math.round(c.getBoundingClientRect().top),
+        ),
+      );
+      expect(new Set(tops).size, String(tops)).toBe(1);
+      await noScroll();
+      const path = testInfo.outputPath(`new-study-${theme}.png`);
+      await page.screenshot({ path });
+      await testInfo.attach(`new-study-${theme}`, { path, contentType: 'image/png' });
+    }
 
     // Narrowing the window folds the due date first, then the machine.
+    const row = dialog.getByRole('group', { name: 'Study properties' });
+    const more = row.getByRole('button', { name: 'More properties' });
+    const due = row.getByRole('button', { name: 'No deadline' });
+    const machine = row.getByRole('combobox', { name: 'Machine' });
     let width = 1280;
     while ((await more.count()) === 0 && width > 600) {
       width -= 20;
@@ -404,27 +425,17 @@ test.describe('new study', () => {
     await expect(machine).toHaveCount(0);
     await noScroll();
     await more.click();
-    await expect(row.getByRole('button', { name: 'No deadline' })).toBeVisible();
-    await expect(row.getByRole('combobox', { name: 'Machine' })).toBeVisible();
+    await expect(due).toBeVisible();
+    await expect(machine).toBeVisible();
 
-    // Both palettes, with an agent picked.
-    await page.setViewportSize({ width: 1280, height: 800 });
-    for (const [theme, palette] of [
-      ['light', 'ash'],
-      ['dark', 'midnight'],
-    ] as const) {
-      await page.evaluate(
-        (p) => localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: p })),
-        palette,
-      );
-      await page.reload();
-      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      const open = await composer(page);
-      await open.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
-      await open.getByRole('menuitem', { name: agent.name, exact: true }).click();
-      await open.getByRole('textbox', { name: 'Study title' }).fill('Sleep and memory');
-      await expect(open.getByText(/works every stage alone/)).toBeVisible();
-      await page.screenshot({ path: `${sdd}/task-7-new-study-${theme}.png` });
-    }
+    // The folded calendar stays open through a resize, and ⋯ closes it.
+    await due.click();
+    const calendar = page.locator('.composer-calendar');
+    await expect(calendar).toBeVisible();
+    await page.setViewportSize({ width: 620, height: 800 });
+    await expect(calendar).toBeVisible();
+    await more.click();
+    await expect(calendar).toHaveCount(0);
+    await expect(due).toHaveCount(0);
   });
 });

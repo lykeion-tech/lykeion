@@ -100,7 +100,8 @@ const folded = ref(0);
 let fitting = 0;
 async function fit() {
   const line = chipRow.value;
-  if (!line) return;
+  // Refolding would remount an open chip's menu; the row refits once it closes.
+  if (!line || menu.value) return;
   const visit = ++fitting;
   folded.value = 0;
   await nextTick();
@@ -128,6 +129,7 @@ watch(
     completeResults.value.length,
     machine.value,
     deadline.value,
+    menu.value,
   ],
   () => void fit(),
   { flush: 'post' },
@@ -403,7 +405,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               class="property-pill more-pill"
               aria-label="More properties"
               :aria-expanded="menu === 'more' || (menu === 'deadline' && folded > 0)"
-              @click="openMenu('more')"
+              @click="menu === 'deadline' ? closeMenu() : openMenu('more')"
             >
               ⋯
             </button>
@@ -636,10 +638,15 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   white-space: nowrap;
 }
 .machine-chip :deep(select) {
-  /* A select is as wide as its longest machine name. */
-  max-width: 160px;
+  /* A select otherwise reserves the width of its longest machine name. */
+  field-sizing: content;
+  max-width: 140px;
+  text-overflow: ellipsis;
   padding: 0 6px;
   font-size: 12px;
+}
+.property-line :deep(.assignee-pill) {
+  max-width: 180px;
 }
 .more-pill {
   padding: 0 10px;
