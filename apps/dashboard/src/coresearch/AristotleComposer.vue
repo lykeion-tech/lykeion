@@ -185,8 +185,7 @@ const inline = (text?: string) =>
       :class="draft ? 'composer-card--hero' : 'composer-card--docked'"
       :style="room === undefined ? undefined : { '--mention-ceiling': `${room}px` }"
     >
-      <div v-if="$slots.top" class="composer-top-row"><slot name="top" /></div>
-      <div v-if="blocker" class="composer-blocker" role="status">
+        <div v-if="blocker" class="composer-blocker" role="status">
         {{ blocker }} <RouterLink to="/settings?tab=machines">Settings</RouterLink>
       </div>
       <div v-if="attachments.length" class="composer-attachments">

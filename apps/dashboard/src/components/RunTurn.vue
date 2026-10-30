@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
 import RunActivity from './RunActivity.vue';
+import CopyButton from '../coresearch/CopyButton.vue';
 import {
   activitySteps,
   isActivityGroup,
@@ -98,13 +99,14 @@ const ending = computed(() => {
     </p>
     <div v-if="assignment" class="turn-assignment" aria-label="Assignment">
       <div v-if="formattingFailed" class="recorded-text-fallback">{{ assignment }}</div>
-      <RecordedMarkdown v-else :content="assignment" />
+      <RecordedMarkdown v-else class="lyk-reading" :content="assignment" />
+      <div class="assignment-actions"><CopyButton :text="assignment" label="Copy message" /></div>
     </div>
     <ol class="turn-timeline" aria-label="Transcript">
       <li v-for="block in blocks" :key="block.key" class="turn-item" :class="block.mark">
         <template v-if="block.kind === 'text'">
           <div v-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
-          <RecordedMarkdown v-else :content="block.text" />
+          <RecordedMarkdown v-else class="lyk-reading" :content="block.text" />
         </template>
         <RunActivity
           v-else
@@ -141,6 +143,7 @@ const ending = computed(() => {
 }
 /* The run's assignment, on the right like the researcher's own comments. */
 .turn-assignment {
+  position: relative;
   width: fit-content;
   max-width: min(100%, 52ch);
   margin: 0 0 39px auto;
@@ -150,9 +153,36 @@ const ending = computed(() => {
   background: var(--step-hover);
   min-width: 0;
 }
-.turn-assignment :deep(.markdown-body) {
-  font-size: 14px;
-  line-height: 21px;
+.assignment-actions {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  padding-top: 4px;
+  opacity: 0;
+}
+.turn-assignment:hover .assignment-actions,
+.turn-assignment:focus-within .assignment-actions {
+  opacity: 1;
+}
+.assignment-actions :deep(.quiet-action) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.assignment-actions :deep(.quiet-action:hover) {
+  color: var(--text);
+  background: var(--hover);
+}
+@media (hover: none) {
+  .assignment-actions {
+    opacity: 1;
+  }
 }
 .turn-timeline {
   position: relative;
@@ -229,10 +259,6 @@ const ending = computed(() => {
 .turn-ending {
   font-size: 12.5px;
   color: var(--muted);
-}
-.turn-item :deep(.markdown-body) {
-  font-size: 14px;
-  line-height: 21px;
 }
 @keyframes turn-pulse {
   50% {

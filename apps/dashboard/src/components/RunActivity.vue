@@ -16,10 +16,9 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
     <summary>
       <Icon name="right" :size="13" class="activity-chevron" />
       <span class="activity-title">{{
-        callCount ? `${working ? 'Running' : 'Ran'} ${callCount} steps` : 'Recorded activity'
-      }}</span>
-      <span class="activity-count">{{
-        callCount ? `${callCount} steps` : `${steps.length} records`
+        callCount
+          ? `${working ? 'Running · ' : ''}${callCount} ${callCount === 1 ? 'step' : 'steps'}`
+          : 'Recorded activity'
       }}</span>
       <span v-if="errors" class="activity-error"
         >{{ errors }} {{ errors === 1 ? 'error' : 'errors' }}</span
@@ -70,32 +69,19 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
   font-weight: 600;
   line-height: 20.3px;
 }
-.activity-count {
-  margin-left: auto;
-  font:
-    12px/1.4 'JetBrains Mono Variable',
-    ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  color: var(--step-quiet, var(--icon-faint));
-}
 .activity-error {
+  margin-left: auto;
   color: var(--error-text);
-  font-size: 11px;
+  font-size: 12px;
 }
 .activity-steps {
   list-style: none;
-  padding: 0;
-  margin: 0 0 0 -8px;
+  padding: 0 0 0 8px;
+  margin: 0 0 0 3px;
 }
 .activity-single {
   padding: 0;
   list-style: none;
-}
-.activity-single :deep(.activity-step + .activity-step > .step-marker) {
-  display: block;
-  left: -21px;
 }
 summary:focus-visible {
   outline: 2px solid var(--primary-text);

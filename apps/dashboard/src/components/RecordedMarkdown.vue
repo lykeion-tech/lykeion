@@ -1,23 +1,48 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { renderMarkdown } from '../lib/markdown';
 const props = defineProps<{ content: string }>();
 const rendered = computed(() => renderMarkdown(props.content));
 const notice = ref('');
-watch(
-  () => props.content,
-  () => (notice.value = ''),
-);
+const timers = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>();
+let revision = 0;
+function clearFeedback() {
+  revision++;
+  for (const timer of timers.values()) clearTimeout(timer);
+  timers.clear();
+  notice.value = '';
+}
+watch(() => props.content, clearFeedback);
+onBeforeUnmount(clearFeedback);
+function setCopied(button: HTMLButtonElement, copied: boolean) {
+  const label = button.querySelector('span');
+  const icon = button.querySelector<SVGElement>('.copy-icon');
+  const check = button.querySelector<SVGElement>('.copied-icon');
+  if (label) label.textContent = copied ? 'Copied' : 'Copy';
+  if (icon) icon.toggleAttribute('hidden', copied);
+  if (check) check.toggleAttribute('hidden', !copied);
+}
 async function copy(event: MouseEvent) {
   const button = (event.target as Element).closest<HTMLButtonElement>('button[data-copy-code]');
   if (!button || !event.currentTarget || !(event.currentTarget as Element).contains(button)) return;
   const code = rendered.value.codes[Number(button.dataset.copyCode)];
   if (code === undefined) return;
+  const current = revision;
   try {
     await navigator.clipboard.writeText(code);
-    notice.value = 'Code copied';
+    if (current !== revision) return;
+    notice.value = '';
+    setCopied(button, true);
+    clearTimeout(timers.get(button));
+    timers.set(
+      button,
+      setTimeout(() => {
+        setCopied(button, false);
+        timers.delete(button);
+      }, 1500),
+    );
   } catch {
-    notice.value = 'Could not copy. Select the code to copy it.';
+    if (current === revision) notice.value = 'Could not copy. Select the code to copy it.';
   }
 }
 </script>
@@ -110,8 +135,26 @@ async function copy(event: MouseEvent) {
   font-size: 11.5px;
   border-bottom: 1px solid var(--border);
 }
-.markdown-code button {
+.markdown-code .markdown-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
   font-size: 11.5px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.markdown-code .markdown-copy:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.markdown-copy svg[hidden] {
+  display: none;
 }
 .markdown-code pre {
   margin: 0;

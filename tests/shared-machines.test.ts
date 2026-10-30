@@ -831,7 +831,7 @@ describe('Shared machines', () => {
       t.unmount();
     }
   });
-  it('shows the study machine notice and PATCHes a selection including My machines null', async () => {
+  it('shows the study machine and notice without a machine selector', async () => {
     const f = fetching();
     const t = await mount(TaskDetail, () => ({ id: 'c' }));
     try {
@@ -841,14 +841,8 @@ describe('Shared machines', () => {
       expect(t.text()).toContain(
         "This study's machine is no longer shared with you; choose another.",
       );
-      await change(t, 'Machine', '');
-      await vi.waitFor(() =>
-        expect(bodies(f)).toContainEqual({
-          path: '/api/cards/c/machine',
-          body: { machine: null },
-          workspace: 'w',
-        }),
-      );
+      expect(t.all().some((n) => n.props['aria-label'] === 'Machine')).toBe(false);
+      expect(bodies(f)).toHaveLength(0);
     } finally {
       t.unmount();
     }

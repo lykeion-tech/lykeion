@@ -6,6 +6,7 @@ import { createDashboardQueryClient } from './api/query-client';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import './style.css';
+import './reading.css';
 import { applyTheme } from './theme';
 import { usePreferences } from './state/preferences';
 

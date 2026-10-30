@@ -2,7 +2,7 @@
 // Ported from Lykeion-L2 packages/ui/src/shell/RailFabs.tsx; see L2-LICENSE.
 import Icon from '../components/Icon.vue';
 // `session`: the rail beside a Cowrite session, which L2 marks with its flask.
-defineProps<{ view: 'nav' | 'context'; session?: boolean }>();
+defineProps<{ view: 'nav' | 'context'; session?: boolean; inbox?: boolean }>();
 const emit = defineEmits<{ change: ['nav' | 'context'] }>();
 </script>
 <template>
@@ -18,11 +18,11 @@ const emit = defineEmits<{ change: ['nav' | 'context'] }>();
     ><button
       class="rail-fab"
       :class="{ 'is-active': view === 'context' }"
-      :aria-label="session ? 'Show session details' : 'Show conversations'"
+      :aria-label="inbox ? 'Show inbox' : session ? 'Show session details' : 'Show conversations'"
       :aria-pressed="view === 'context'"
       @click="emit('change', 'context')"
     >
-      <Icon :name="session ? 'flask' : 'chat'" :size="16" />
+      <Icon :name="inbox ? 'inbox' : session ? 'flask' : 'chat'" :size="16" />
     </button>
   </div>
 </template>

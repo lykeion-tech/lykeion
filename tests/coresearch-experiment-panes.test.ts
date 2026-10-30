@@ -104,10 +104,12 @@ async function mount(withFile = false) {
 it('opens an Experiment inspector beside the conversation rail with Notebook Files Compute and no Runs', async () => {
   const { root, settle } = await mount();
   expect(all(root).some((n) => n.props['aria-label'] === 'Chat')).toBe(true);
-  const notebook = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Notebook');
-  expect(notebook).toBeTruthy();
-  expect(notebook!.parent?.props.class).toBe('composer-top-row');
-  (notebook!.props.onClick as () => void)();
+  expect(all(root).some((n) => n.props.class === 'composer-notebook-chip')).toBe(false);
+  const toggle = all(root).find((n) => n.props['aria-label'] === 'Open experiment surfaces')!;
+  (toggle.props.onClick as () => void)();
+  await settle();
+  const notebook = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Notebook')!;
+  (notebook.props.onClick as () => void)();
   await settle();
   expect(all(root).some((n) => n.props['aria-label'] === 'Notebook')).toBe(true);
   const back = all(root).find((n) => n.props['aria-label'] === 'Back to surfaces')!;
@@ -138,8 +140,7 @@ it('returns Files to its existing list only after a dirty file draft is discarde
     (target!.props.onClick as () => void)();
     await settle();
   };
-  await click('Notebook');
-  await click('Back to surfaces');
+  await click('Open experiment surfaces');
   await click('Files');
   await click('notes.txt');
   await vi.waitFor(() =>

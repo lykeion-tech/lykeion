@@ -27,6 +27,18 @@ test('an escalation reaches the Inbox and is read on opening', async ({ page }) 
     page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: title }),
   ).toBeVisible();
   await expect(link.locator('.unread')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show inbox' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.getByRole('button', { name: 'Show navigation' }).click();
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: title }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Show inbox' }).click();
+  await expect(link).toBeVisible();
+
   await expect
     .poll(async () => (await inbox(page)).find((i) => i.id === item.id)?.read_at)
     .toBeTruthy();
@@ -436,7 +448,9 @@ test('Inbox report context survives archive refresh and a closed run stays close
     await initial;
     holding = true;
     await row(page, item.id).click();
-    await expect(page.locator('.conversation-list')).toContainText('Nothing needs you right now');
+    await expect(page.getByRole('navigation', { name: 'Inbox items' })).toContainText(
+      'Nothing needs you right now',
+    );
     const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText('end-of-full-report', { exact: false })).toBeVisible();
@@ -457,5 +471,63 @@ test('Inbox report context survives archive refresh and a closed run stays close
     expect(receipt.resolved_at).toBeTruthy();
   } finally {
     release();
+  }
+});
+
+test('study descriptions render safe, readable Markdown in Studies and Inbox', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const question = [
+    '## Study approach',
+    '',
+    'A **focused** description with [a source](https://example.com) and `inline code`.',
+    '',
+    '- First item',
+    '  - Nested item',
+    '- Second item',
+    '',
+    '1. Numbered item',
+    '',
+    `Long identifier: ${'a'.repeat(240)}`,
+    '',
+    '> A quoted observation.',
+    '',
+    '| Measure | Value |',
+    '| --- | --- |',
+    '| Mean | 3 |',
+    '',
+    '```python',
+    'print(42)',
+    '```',
+    '',
+    '<script>window.badMarkdown = true</script> [unsafe](javascript:alert(1))',
+  ].join('\n');
+  const study = await newStudy(page.request, question, { assignee: null, title: 'Markdown study' });
+  await labInbox(page.request, study.id, 'escalated', 'Inspect Markdown');
+  const item = (await inbox(page)).find((i) => i.card_id === study.id)!;
+  expect(item).toBeTruthy();
+  for (const url of [`/#/studies/${study.id}`, `/#/inbox/${item.id}`]) {
+    await page.goto(url);
+    const description = page.getByRole('region', { name: 'Study description' });
+    await expect(description.getByRole('heading', { name: 'Study approach' })).toBeVisible();
+    await expect(description.locator('strong')).toHaveText('focused');
+    await expect(description.locator('ul ul li')).toHaveText('Nested item');
+    await expect(description.locator('ul').first()).toHaveCSS('list-style-type', 'disc');
+    await expect(description.locator('ol').first()).toHaveCSS('list-style-type', 'decimal');
+    await description.getByRole('button', { name: 'Copy code' }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('print(42)\n');
+    await expect(description.locator('blockquote')).toContainText('A quoted observation.');
+    await expect(description.getByRole('table')).toContainText('Mean');
+    await expect(description.locator('pre code')).toContainText('print(42)');
+    await expect(description.locator('a[href^="javascript:"],script,img')).toHaveCount(0);
+    await expect(description).toHaveCSS('border-top-width', '0px');
+    for (const width of [1512, 390]) {
+      await page.setViewportSize({ width, height: 982 });
+      await expect(description).toBeVisible();
+      expect(await description.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    }
+    await page.setViewportSize({ width: 1512, height: 982 });
   }
 });

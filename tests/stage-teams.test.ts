@@ -858,6 +858,7 @@ describe('a study worked by one agent', () => {
         }),
     );
     try {
+      await t.click(/^Properties$/);
       expect(t.text()).toContain('My Team');
       expect(t.text()).not.toContain('No auditor');
     } finally {

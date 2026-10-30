@@ -384,3 +384,71 @@ test('empty Experiment surfaces align their icons and descriptions', async ({ pa
     expect(Math.abs(position.y - positions[0]!.y)).toBeLessThanOrEqual(1);
   }
 });
+
+test('Coresearch replies use readable and safe Markdown while a turn is active', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await installAristotleFixture(page, true);
+  const body = [
+    '## Findings',
+    '',
+    'A **clear** result with [a source](https://example.com).',
+    '',
+    '- First',
+    '  - Nested',
+    '- Second',
+    '',
+    '> Important context',
+    '',
+    '| Metric | Value |',
+    '| --- | --- |',
+    '| Mean | 3 |',
+    '',
+    '```python',
+    'print(42)',
+    '```',
+    '',
+    '<script>window.badMarkdown = true</script> [unsafe](javascript:alert(1))',
+  ].join('\n');
+  await page.route(
+    '**/api/coresearch/projects/private-project/chats/accepted-chat/messages',
+    (route) =>
+      route.fulfill({
+        json: [
+          {
+            id: 'turn',
+            chat_id: 'accepted-chat',
+            kind: 'turn',
+            body: 'Question',
+            agent_run_id: 'current-run',
+            status: 'running',
+          },
+          {
+            id: 'reply',
+            chat_id: 'accepted-chat',
+            kind: 'reply',
+            body,
+            agent_run_id: 'current-run',
+          },
+        ],
+      }),
+  );
+  await page.goto('/#/coresearch/new');
+  await page.getByRole('button', { name: 'Ground a research question' }).click();
+  const reply = page.locator('.rail-row--prose .lyk-reading').last();
+  await expect(reply.getByRole('heading', { name: 'Findings' })).toBeVisible();
+  await expect(reply.locator('strong')).toHaveText('clear');
+  await expect(reply.locator('ul ul li')).toHaveText('Nested');
+  await expect(reply.locator('ul').first()).toHaveCSS('list-style-type', 'disc');
+  await expect(reply.locator('blockquote')).toContainText('Important context');
+  await expect(reply.getByRole('table')).toContainText('Mean');
+  await expect(reply.locator('pre code')).toContainText('print(42)');
+  await reply.locator('.code-block-copy').click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('print(42)');
+  await expect(reply.locator('script,img,a[href^="javascript:"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await reply.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+});

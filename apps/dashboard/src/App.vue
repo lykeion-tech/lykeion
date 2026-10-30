@@ -26,6 +26,7 @@ import { useCoresearchProject } from './coresearch/api';
 import { useAristotle } from './coresearch/aristotle';
 import ConversationRail from './coresearch/ConversationRail.vue';
 import RailFabs from './coresearch/RailFabs.vue';
+import InboxRail from './components/InboxRail.vue';
 const route = useRoute();
 const router = useRouter();
 const currentCoresearchProject = useCoresearchProject(() => String(route.params.projectId ?? ''));
@@ -34,18 +35,24 @@ const client = useQueryClient();
 const me = useMe();
 const aristotle = useAristotle();
 const aristotleShell = computed(() => !!route.meta.conversationRail);
+const inboxShell = computed(() => route.meta.page === 'inbox');
+const railStorageKey = computed(() =>
+  inboxShell.value
+    ? `lykeion.inbox.rail:${workspaceId.value}`
+    : `lykeion.aristotle.rail:${aristotle.scope.value}`,
+);
 const railView = ref<'nav' | 'context'>('context');
 watch(
-  aristotle.scope,
-  (scope) => {
-    railView.value = readText(`lykeion.aristotle.rail:${scope}`) === 'nav' ? 'nav' : 'context';
+  railStorageKey,
+  (key) => {
+    railView.value = readText(key) === 'nav' ? 'nav' : 'context';
   },
   { immediate: true },
 );
 function changeRail(view: 'nav' | 'context') {
   railView.value = view;
   collapsed.value = false;
-  writeText(`lykeion.aristotle.rail:${aristotle.scope.value}`, view);
+  writeText(railStorageKey.value, view);
 }
 const workspaces = useWorkspaces();
 const workspace = useWorkspace();
@@ -405,7 +412,7 @@ onUnmounted(() => {
     class="application"
     :class="{
       'sidebar-hidden': collapsed,
-      'aristotle-shell': aristotleShell,
+      'aristotle-shell': aristotleShell || inboxShell,
       desktop,
       'task-detail-open': Boolean(cardId),
     }"
@@ -451,10 +458,21 @@ onUnmounted(() => {
         />
       </template>
     </ConversationRail>
+    <InboxRail v-if="inboxShell" v-show="railView === 'context'">
+      <template #footer>
+        <SidebarFooter
+          ref="sidebarFooter"
+          :selected="current === 'settings'"
+          :help-open="help"
+          @toggle-help="toggleHelp"
+        />
+      </template>
+    </InboxRail>
     <RailFabs
-      v-if="aristotleShell || cowriteShell"
+      v-if="aristotleShell || cowriteShell || inboxShell"
       :view="railView"
       :session="cowriteShell"
+      :inbox="inboxShell"
       @change="changeRail"
     />
     <div
@@ -495,7 +513,7 @@ onUnmounted(() => {
       </button>
     </div>
     <aside
-      v-if="(!aristotleShell && !cowriteShell) || railView === 'nav'"
+      v-if="(!aristotleShell && !cowriteShell && !inboxShell) || railView === 'nav'"
       class="sidebar"
       aria-label="Workspace navigation"
     >

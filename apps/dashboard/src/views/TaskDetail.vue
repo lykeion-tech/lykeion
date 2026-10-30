@@ -1,10 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import {
+  computed,
+  defineAsyncComponent,
+  defineComponent,
+  h,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
 import SurfacePane from '../components/SurfacePane.vue';
 import StudyOutputs from '../components/StudyOutputs.vue';
-import MachinePicker from '../components/MachinePicker.vue';
 import AgentRunCard from '../components/AgentRunCard.vue';
 import AgentRunDialog from '../components/AgentRunDialog.vue';
 import ExecutionLog from '../components/ExecutionLog.vue';
@@ -23,7 +31,6 @@ import {
   useComments,
   useMe,
   useMembers,
-  useRecords,
   useRuns,
   useRuntimes,
   useWorkspace,
@@ -35,21 +42,24 @@ import {
   type ComposerAction,
   columnName,
   endLabel,
-  flowKinds,
-  flowView,
-  levelText,
-  redoLabel,
-  recordLine,
-  verdictLabels,
-  stages,
   stateLabel,
   studyNumber,
-  studyOverview,
   transcript,
 } from '../lib/studies';
 import { notify } from '../state/notice';
 import { usePins } from '../state/pins';
 import { readText, writeText } from '../storage';
+
+const PlainDescription = defineComponent({
+  props: { content: { type: String, default: '' } },
+  setup: (props) => () => h('p', { class: 'task-description-text' }, props.content),
+});
+const RecordedMarkdown = defineAsyncComponent({
+  loader: () => import('../components/RecordedMarkdown.vue'),
+  loadingComponent: PlainDescription,
+  errorComponent: PlainDescription,
+  delay: 0,
+});
 
 const props = defineProps<{ id: string; embedded?: boolean }>();
 const emit = defineEmits<{ close: [] }>();
@@ -165,36 +175,11 @@ const updatedAt = computed(
   () => c.value?.updated_at || cards.data.value?.find((x) => x.id === props.id)?.updated_at,
 );
 const number = computed(() => (c.value ? studyNumber(workspace.data.value, c.value) : ''));
-const stage = computed(() =>
-  c.value && stages.includes(c.value.board_column) ? c.value.board_column : '',
-);
-const records = useRecords(() => props.id, stage);
-const flow = computed(() => flowView(records.data.value ?? []));
-const firstRound = computed(() =>
-  Math.min(c.value?.round ?? 1, ...(records.data.value ?? []).map((r) => r.round)),
-);
-const hasFlow = computed(
-  () =>
-    !!(
-      flow.value.scores.length ||
-      flow.value.steps.length ||
-      flow.value.audit ||
-      flow.value.calls.length
-    ),
-);
-const lineRecords = computed(() =>
-  (records.data.value ?? []).filter((r) => !flowKinds.includes(r.kind)),
-);
-const team = computed(() => (c.value && stage.value ? c.value.teams?.[stage.value] : undefined));
-const offLabel = computed(() =>
-  Boolean(team.value && stage.value && c.value?.off_label?.includes(stage.value)),
-);
 const resourceReads = computed(() =>
   [
     { label: 'Comments', query: comments },
     { label: 'Events', query: events },
     { label: 'Runs', query: runs },
-    ...(stage.value ? [{ label: 'Records', query: records }] : []),
   ].map(({ label, query }) => ({
     label,
     error: query.error.value,
@@ -213,7 +198,6 @@ const entries = computed(() =>
     (events.data.value ?? []).filter((e) => e.type !== 'card.created'),
   ),
 );
-const overview = computed(() => studyOverview(records.data.value ?? [], c.value?.round ?? 1));
 const agentRuns = computed(() =>
   [...(runs.data.value ?? [])].sort(
     (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id),
@@ -291,38 +275,6 @@ function mutationScope() {
     current: () =>
       generation === ownGeneration && workspaceId.value === workspace && props.id === id,
   };
-}
-
-const machineBusy = ref(false);
-watch(
-  [workspaceId, () => props.id],
-  () => {
-    machineBusy.value = false;
-  },
-  { flush: 'sync' },
-);
-async function pickMachine(value: string) {
-  if (machineBusy.value) return;
-  const scope = mutationScope();
-  machineBusy.value = true;
-  error.value = '';
-  try {
-    await api(
-      'PATCH',
-      `/api/cards/${encodeURIComponent(scope.id)}/machine`,
-      { machine: value || null },
-      undefined,
-      { workspace: scope.workspace },
-    );
-    if (!scope.current()) return;
-    await client.invalidateQueries({ queryKey: keys.card(scope.workspace, scope.id) });
-    if (!scope.current()) return;
-    await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
-  } catch (e) {
-    if (scope.current()) error.value = (e as Error).message;
-  } finally {
-    if (scope.current()) machineBusy.value = false;
-  }
 }
 
 function name(userId: string) {
@@ -410,90 +362,8 @@ function pin() {
       <div v-if="c" class="transcript-scroll">
         <div class="transcript-content study-content">
           <h1 class="study-title">{{ c.title }}</h1>
-          <section v-if="stage" class="stage-box study-summary" aria-label="Overview">
-            <h4>
-              <span class="stage-dot" :class="'status-' + stage" />{{ columnName(stage) }} · round
-              {{ c.round
-              }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
-                stateLabel(c)
-              }}</span
-              ><span v-if="c.flag" class="chip" :class="'chip-' + c.flag">{{
-                c.flag.replace(/_/g, ' ')
-              }}</span
-              ><span v-if="team" class="chip chip-team">{{ team.name }}</span
-              ><span v-if="offLabel" class="chip chip-off-label"
-                >Built for {{ columnName(team!.stage) }}</span
-              >
-            </h4>
-            <p class="summary-text">{{ overview }}</p>
-            <p v-if="flow.audit" class="summary-audit">
-              <Icon name="check" :size="14" />
-              Audit recorded<span v-if="flow.audit.findings.length">
-                · {{ flow.audit.findings.length }}
-                {{ flow.audit.findings.length === 1 ? 'finding' : 'findings' }} to review</span
-              >
-            </p>
-            <details class="study-evidence">
-              <summary>View evidence and activity</summary>
-
-              <section v-if="flow.scores.length" class="flow-block" aria-label="Scores">
-                <h5>
-                  Scores<span class="chip" :class="'chip-verdict-' + flow.verdict">{{
-                    verdictLabels[flow.verdict] ?? flow.verdict
-                  }}</span>
-                </h5>
-                <div v-for="s in flow.scores" :key="s.criterion" class="score-row">
-                  <span>{{ s.criterion }}</span
-                  ><span class="level">{{ levelText(s.level) }} of 5</span
-                  ><span
-                    v-if="s.level <= 2 && redoLabel(c.redos, c.round, firstRound)"
-                    class="chip"
-                    >{{ redoLabel(c.redos, c.round, firstRound) }}</span
-                  >
-                </div>
-              </section>
-              <section v-if="flow.steps.length" class="flow-block" aria-label="Steps">
-                <h5>Steps</h5>
-                <div
-                  v-for="st in flow.steps"
-                  :key="st.key"
-                  class="step-row"
-                  :class="{ 'self-step': st.self }"
-                >
-                  {{ st.text }}<small v-if="st.detail">{{ st.detail }}</small>
-                </div>
-              </section>
-              <section v-if="flow.audit" class="flow-block" aria-label="Audit">
-                <h5>Audit</h5>
-                <p>{{ flow.audit.text }}</p>
-                <ul v-if="flow.audit.findings.length">
-                  <li v-for="f in flow.audit.findings" :key="f">{{ f }}</li>
-                </ul>
-              </section>
-              <section v-if="flow.calls.length" class="flow-block" aria-label="Calls">
-                <h5>Calls</h5>
-                <details v-for="k in flow.calls" :key="k.key" class="call-row">
-                  <summary>{{ k.server }} · {{ k.tool }} · {{ time(k.at) }}</summary>
-                  <pre>{{ k.answer }}</pre>
-                </details>
-              </section>
-              <div
-                v-for="r in lineRecords"
-                :key="r.id"
-                class="record-line"
-                :class="{ superseded: r.superseded_at }"
-              >
-                <span class="key">{{ recordLine(r).key }}</span
-                ><span>{{
-                  typeof r.body.text === 'string' ? r.body.text : recordLine(r).text
-                }}</span
-                ><span v-if="recordLine(r).source" class="source">{{ recordLine(r).source }}</span
-                ><span v-if="r.superseded_at" class="superseded-mark">superseded</span>
-              </div>
-              <p v-if="records.isSuccess.value && !lineRecords.length && !hasFlow" class="muted">
-                No records yet.
-              </p>
-            </details>
+          <section class="study-description" aria-label="Study description">
+            <RecordedMarkdown class="lyk-reading" :content="c.question" />
           </section>
           <ColumnRating v-for="r in openRatings" :key="r.column" :card-id="id" :offer="r" />
           <section v-if="agentRuns.length" class="agent-cards" aria-label="Agents">
@@ -680,12 +550,6 @@ function pin() {
               {{ c.machine_label || (c.machine ? 'Unavailable machine' : 'My machines') }}</span
             >
             <p v-if="c.machine_notice" role="status">{{ c.machine_notice }}</p>
-            <MachinePicker
-              v-if="c.owner_id === me.data.value?.id"
-              :model-value="c.machine || ''"
-              :disabled="machineBusy"
-              @update:model-value="pickMachine"
-            />
           </div>
           <div
             v-for="read in [
@@ -765,6 +629,9 @@ function pin() {
   </section>
 </template>
 <style scoped>
+.task-detail :deep(.surface-header) {
+  border-bottom: 0;
+}
 .study-meta.surface-content {
   padding: 24px 20px 24px;
 }
@@ -1456,8 +1323,14 @@ function pin() {
   font-size: 25px;
   line-height: 32px;
   font-weight: 600;
-  margin-bottom: 12px;
+  margin-bottom: 20px;
   overflow-wrap: anywhere;
+}
+.study-description {
+  color: var(--text);
+}
+.study-description :deep(.markdown-body ul) {
+  padding-inline-start: 20px;
 }
 .agent-cards {
   display: grid;

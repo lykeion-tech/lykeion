@@ -78,10 +78,14 @@ const copy = computed(() =>
                 : 'turn-block turn-block--interim'
             "
           >
-            <AssistantMessage :text="block.text" :live="active" /></div></RailRow
+            <AssistantMessage
+              class="lyk-reading"
+              :text="block.text"
+              :live="active"
+            /></div></RailRow
         ><ToolStepGroup v-else :steps="activitySteps(block.messages)" :active="active" /></template
       ><RailRow v-for="reply in replies" :key="reply.id" marker="prose"
-        ><AssistantMessage :text="reply.body" /></RailRow
+        ><AssistantMessage class="lyk-reading" :text="reply.body" /></RailRow
     ></TurnRail>
     <div v-if="copy" class="msg-actions"><CopyButton :text="copy" /></div>
   </div>

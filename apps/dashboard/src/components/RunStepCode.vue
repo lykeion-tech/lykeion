@@ -63,7 +63,7 @@ async function copy() {
         ><span class="cell-language">{{ language }}</span>
       </div>
       <button type="button" class="step-copy" aria-label="Copy tool code" @click="copy">
-        <Icon name="copy" :size="12" />{{ copied ? 'Copied' : 'Copy' }}
+        <Icon :name="copied ? 'check' : 'copy'" :size="12" />{{ copied ? 'Copied' : 'Copy' }}
       </button>
     </div>
     <pre

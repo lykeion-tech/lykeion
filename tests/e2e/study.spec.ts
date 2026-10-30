@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { newStudy, openAgentTranscript } from './lab';
 
-test('the study opens with a compact overview and identifiable runs, keeping the question in its assignment', async ({
+test('the study opens with its description and identifiable runs, keeping the question in its assignment', async ({
   page,
 }) => {
   const question = `Microglia pruning after sleep loss ${Date.now()}?`;
@@ -21,7 +21,7 @@ test('the study opens with a compact overview and identifiable runs, keeping the
   await expect(main.locator('.study-question')).toHaveCount(0);
   await expect(main.locator('.transcript-heading')).toHaveCount(0);
   await expect(main.locator('.event-line').filter({ hasText: /^Created/ })).toHaveCount(0);
-  await expect(main.getByRole('region', { name: 'Overview' })).toBeVisible();
+  await expect(main.getByRole('region', { name: 'Study description' })).toHaveText(question);
 
   // The lab's leader arrives live as its Team agent, previewing its latest text.
   const card = main.locator('.agent-card').first();
@@ -41,6 +41,8 @@ test('the study opens with a compact overview and identifiable runs, keeping the
   await expect(transcript.getByText('Claude Code', { exact: true })).toBeVisible();
   await expect(transcript.locator('.environment').getByText(/^lab-mac/)).toBeVisible();
   // The lab daemon reports its own machine's platform.
+  await expect(transcript.locator('.environment li', { hasText: 'Round' })).toHaveCount(0);
+  await expect(transcript.locator('.environment li', { hasText: 'Attempt' })).toHaveCount(0);
   const platform = transcript.locator('.environment li', { hasText: 'Platform' });
   await expect(platform.locator('code')).toHaveText(/^(linux|darwin|windows) \/ \w+$/);
   for (const value of await transcript.locator('.environment code').allTextContents())
@@ -700,106 +702,6 @@ async function unassigned(page: import('@playwright/test').Page) {
   });
 }
 
-test('scores show per criterion with the verdict', async ({ page }) => {
-  const study = await unassigned(page);
-  await labFlow(page.request, study.id, {
-    column: 'grounding',
-    state: 'working',
-    redos: 1,
-    records: [
-      score(0, 5),
-      score(1, 2),
-      score(2, 4),
-      { kind: 'outcome', key: 'o1', body: { verdict: 'low', attempt: 2 } },
-    ],
-  });
-  await page.goto(`/#/studies/${study.id}`);
-  await page.getByRole('region', { name: 'Overview' }).locator('.study-evidence > summary').click();
-  const scores = page.getByRole('region', { name: 'Scores' });
-  await expect(scores.getByText('Low', { exact: true })).toBeVisible();
-  const rows = scores.locator('.score-row');
-  await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0)).toContainText(core[0]!);
-  await expect(rows.nth(0)).toContainText('5 of 5');
-  await expect(rows.nth(1)).toContainText('2 of 5');
-  await expect(rows.nth(1)).toContainText('Redone once');
-  await expect(rows.nth(2)).not.toContainText('Redone once');
-  await page.screenshot({ path: `${shots}/scores-block.png`, fullPage: true });
-});
-
-test('only the current column shows its scores, with no stage cards below the agents', async ({
-  page,
-}) => {
-  const study = await unassigned(page);
-  await labFlow(page.request, study.id, {
-    column: 'grounding',
-    state: 'done',
-    records: [
-      { ...score(0, 4.779999999999999), key: 'g1' },
-      { kind: 'outcome', key: 'go', body: { verdict: 'high', attempt: 1 } },
-    ],
-  });
-  await labFlow(page.request, study.id, {
-    column: 'hypotheses',
-    state: 'working',
-    records: [
-      { ...score(1, 3), key: 'h1' },
-      { kind: 'outcome', key: 'ho', body: { verdict: 'middle', attempt: 1 } },
-    ],
-  });
-  await page.goto(`/#/studies/${study.id}`);
-  const overview = page.getByRole('region', { name: 'Overview' });
-  await overview.locator('.study-evidence > summary').click();
-  await expect(overview.getByRole('region', { name: 'Scores' })).toContainText('3 of 5');
-  await expect(page.getByRole('region', { name: 'Scores' })).toHaveCount(1);
-  const main = page.getByRole('region', { name: 'Study' });
-  await expect(main.getByRole('button', { name: 'Grounding', exact: true })).toHaveCount(0);
-});
-
-test("the leader's self-step is marked", async ({ page }) => {
-  const study = await unassigned(page);
-  await labFlow(page.request, study.id, {
-    column: 'grounding',
-    state: 'working',
-    records: [
-      { kind: 'delegation', key: 'd1', body: { member: 'scout', step: 'Find islet papers' } },
-      { kind: 'self_step', key: 'd2', body: { step: 'Merged the two reading lists' } },
-      {
-        kind: 'audit',
-        key: 'a1',
-        body: { text: 'Sources check out.', findings: ['One claim lacks a citation'] },
-      },
-      {
-        kind: 'call',
-        key: 'c1',
-        body: {
-          server: 'europepmc',
-          tool: 'search',
-          args: {},
-          answer: 'ANSWER-BODY-TEXT',
-          truncated: false,
-          at: new Date().toISOString(),
-        },
-      },
-    ],
-  });
-  await page.goto(`/#/studies/${study.id}`);
-  await page.getByRole('region', { name: 'Overview' }).locator('.study-evidence > summary').click();
-  const steps = page.getByRole('region', { name: 'Steps' });
-  await expect(steps).toContainText('Leader → scout: Find islet papers');
-  await expect(steps).toContainText('The leader did this itself — no member fit');
-  await expect(steps).toContainText('Merged the two reading lists');
-  await expect(page.getByRole('region', { name: 'Audit' })).toContainText(
-    'One claim lacks a citation',
-  );
-  const call = page.getByRole('region', { name: 'Calls' }).locator('details');
-  await expect(call.locator('summary')).toContainText('europepmc · search');
-  await expect(call.getByText('ANSWER-BODY-TEXT')).toBeHidden();
-  await call.locator('summary').click();
-  await expect(call.getByText('ANSWER-BODY-TEXT')).toBeVisible();
-  await page.screenshot({ path: `${shots}/steps-timeline.png`, fullPage: true });
-});
-
 test('a blocked study is redone from the composer', async ({ page }) => {
   const study = await unassigned(page);
   await labFlow(page.request, study.id, {
@@ -871,9 +773,7 @@ test('a finished single-stage study stays in its column, done', async ({ page })
   await page.screenshot({ path: `${shots}/done-on-board.png`, fullPage: true });
 });
 
-test('the overview replaces the description and keeps the complete evidence behind a disclosure', async ({
-  page,
-}) => {
+test('the study shows its description without evidence in details', async ({ page }) => {
   const study = await unassigned(page);
   await labFlow(page.request, study.id, {
     column: 'grounding',
@@ -895,16 +795,18 @@ test('the overview replaces the description and keeps the complete evidence behi
     ],
   });
   await page.goto(`/#/studies/${study.id}`);
-  const overview = page.getByRole('region', { name: 'Overview' });
-  await expect(overview.locator('.summary-text')).toHaveText('The protein lookup is recorded.');
-  await expect(overview).toContainText('Audit recorded');
-  await expect(overview).toContainText('1 finding to review');
-  await expect(overview.getByRole('region', { name: 'Audit' })).toBeHidden();
-  await expect(page.locator('.study-question, .transcript-heading')).toHaveCount(0);
-  await expect(page.locator('.event-line').filter({ hasText: /^Created/ })).toHaveCount(0);
-  await overview.locator('.study-evidence > summary').click();
-  await expect(overview.getByRole('region', { name: 'Audit' })).toBeVisible();
-  await expect(overview).toContainText('Full details remain available here.');
+  const description = page.getByRole('region', { name: 'Study description' });
+  await expect(description).toContainText('Does sleep loss prune microglia?');
+  await expect(description).not.toContainText('Audit recorded');
+  await expect(description).not.toContainText('The protein lookup is recorded.');
+  const pane = page.getByRole('complementary', { name: 'Right pane' });
+  await pane.getByRole('button', { name: 'Properties', exact: true }).click();
+  await expect(pane.getByLabel('Machine', { exact: true })).toHaveCount(0);
+  await expect(pane).toContainText('Runs on:');
+  await pane.getByRole('button', { name: 'Back to surfaces' }).click();
+  await pane.getByRole('button', { name: 'Details', exact: true }).click();
+  await expect(pane.getByText('View evidence and activity')).toHaveCount(0);
+  await expect(pane.getByRole('region', { name: 'Audit' })).toHaveCount(0);
 });
 
 test('Properties stays the same width on the right and resizes inward', async ({ page }) => {

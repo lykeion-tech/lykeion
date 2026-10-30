@@ -91,8 +91,9 @@ describe('reading-first recorded run', () => {
     expect(html).toContain(fullIntent);
     expect(html).toContain('class="step-output"');
     const result = html.slice(html.indexOf('data-message-type="tool_result"'));
-    expect(result.slice(0, result.indexOf('class="step-payload"'))).toContain(fullOutput);
-    expect(result.slice(0, result.indexOf('class="step-payload"'))).toContain('Show output');
+    expect(result).toContain(fullOutput);
+    expect(result).toContain('Output');
+    expect(result).not.toContain('Full recorded message');
     expect(html).not.toContain('Recorded reasoning');
     expect(html).toMatch(/<details[^>]*class="tool-step"[^>]*\bopen(?=[\s=>])/);
     expect(html).not.toMatch(/<details[^>]*class="step-(?:output|payload)"[^>]*\bopen(?=[\s=>])/);
@@ -115,10 +116,10 @@ describe('reading-first recorded run', () => {
     expect(html).toContain('In [3]');
     expect(html).toContain('python');
     expect(html).toContain('print(42)');
-    expect(html).toContain('Show output');
-    expect(html).toContain('Full recorded message');
+    expect(html).toContain('Output');
+    expect(html).not.toContain('Full recorded message');
     expect(html).not.toContain('step-provenance');
-    expect(html).not.toContain('step-chevron');
+    expect(html).toContain('step-chevron');
   });
   it('counts tool calls rather than reasoning or result records', async () => {
     const calls = [
@@ -134,7 +135,7 @@ describe('reading-first recorded run', () => {
       ...calls,
       msg(4, 'tool_use', { id: 'b', input: { command: 'pwd' } }, 'Bash'),
     ]);
-    expect(group).toContain('Ran 2 steps');
+    expect(group).toContain('2 steps');
     expect(group).toMatch(/<details[^>]*data-activity-group[^>]*\bopen(?=[\s=>])/);
     expect(group).not.toContain('Ran 3 steps');
   });
@@ -178,7 +179,7 @@ describe('reading-first recorded run', () => {
       }),
     ]);
     expect(html).toContain('class="mark-ok turn-item"');
-    expect(html).toContain('activity-step recorded failed');
+    expect(html).toContain('activity-step failed');
     const thinkingFirst = await render(
       [
         msg(1, 'thinking', 'Recorded reasoning'),
@@ -248,11 +249,10 @@ describe('reading-first recorded run', () => {
       msg(2, 'text', { plain: 'structured text' }),
       msg(3, 'tool_use', { path: 'data.xlsx' }, 'spreadsheet_custom'),
     ]);
-    expect(html).toContain('unknown-x');
     expect(html).toMatch(/class="step-label"[^>]*>Use research tool</);
     expect(html).toContain('structured text');
     expect(html).toContain('payload');
-    expect(html).toContain('Full recorded message');
+    expect(html).not.toContain('Full recorded message');
   });
   it('renders tables, lists and unfinished code fences while keeping code escaped and copyable', async () => {
     const html = await render([

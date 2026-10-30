@@ -48,7 +48,8 @@ const entries = computed(() => {
     </div>
     <div v-else class="turn-reply">
       <TurnRail
-        ><RailRow marker="prose"><AssistantMessage :text="entry.message.body" /></RailRow
+        ><RailRow marker="prose"
+          ><AssistantMessage class="lyk-reading" :text="entry.message.body" /></RailRow
       ></TurnRail>
       <div class="msg-actions"><CopyButton :text="entry.message.body" /></div>
     </div>

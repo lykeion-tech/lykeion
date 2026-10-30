@@ -77,8 +77,6 @@ const environment = computed(() => {
     },
     { key: 'Kernel', value: machine?.kernel ?? '' },
     { key: 'Stage', value: columnName(r.board_column) },
-    { key: 'Round', value: String(r.round) },
-    { key: 'Attempt', value: `${r.attempt} of ${r.max_attempts}` },
   ].filter((e) => e.value);
 });
 const lines = (text: string) => text.replace(/\n$/, '').split('\n');

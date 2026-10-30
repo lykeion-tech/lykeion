@@ -108,11 +108,6 @@ async function closePane() {
   if (activePane.value === 'files' && !(await discardFile())) return;
   paneMode.value = 'closed';
 }
-async function openPane(id: string) {
-  if (activePane.value === 'files' && !(await discardFile())) return;
-  activePane.value = id;
-  paneMode.value = 'split';
-}
 async function openFile(file: FileRow) {
   if (!(await discardFile())) return;
   activeFile.value = file;
@@ -204,29 +199,6 @@ async function openFile(file: FileRow) {
                         atBottom = true;
                         scrollBottom();
                       "
-                      ><template #top
-                        ><button
-                          type="button"
-                          class="composer-notebook-chip"
-                          :class="{ 'is-on': paneMode !== 'closed' && activePane === 'notebook' }"
-                          :aria-pressed="paneMode !== 'closed' && activePane === 'notebook'"
-                          @click="openPane('notebook')"
-                        >
-                          <svg
-                            width="13"
-                            height="13"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.75"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                          >
-                            <rect x="5" y="3" width="14" height="18" rx="2" />
-                            <path d="M9 3v18M9 8h6M9 12h6" /></svg
-                          >Notebook
-                        </button></template
                       ></ChatComposer
                     >
                   </div>
