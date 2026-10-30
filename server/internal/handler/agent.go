@@ -208,7 +208,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	var out db.Agent
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+		a, err := tx.Q.GetAgentForUpdate(r.Context(), db.GetAgentForUpdateParams{WorkspaceID: ws, ID: id})
 		if err != nil {
 			return err
 		}
@@ -267,7 +267,7 @@ func (h *H) archiveAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	var out db.Agent
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+		a, err := tx.Q.GetAgentForUpdate(r.Context(), db.GetAgentForUpdateParams{WorkspaceID: ws, ID: id})
 		if err != nil {
 			return err
 		}

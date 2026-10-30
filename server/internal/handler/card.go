@@ -167,7 +167,7 @@ func checkStudyAgent(r *http.Request, tx *store.Tx, ws, creator, id uuid.UUID) e
 	} else if err != nil {
 		return err
 	}
-	a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+	a, err := tx.Q.GetAgentForShare(r.Context(), db.GetAgentForShareParams{WorkspaceID: ws, ID: id})
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func checkAssignee(r *http.Request, tx *store.Tx, ws, creator uuid.UUID, typ str
 		}
 		return nil
 	}
-	a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+	a, err := tx.Q.GetAgentForShare(r.Context(), db.GetAgentForShareParams{WorkspaceID: ws, ID: id})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return cardInputError("agent is unavailable")

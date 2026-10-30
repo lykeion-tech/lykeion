@@ -230,6 +230,70 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (Agent, erro
 	return i, err
 }
 
+const getAgentForShare = `-- name: GetAgentForShare :one
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters FROM agent WHERE workspace_id = $1 AND id = $2 FOR SHARE
+`
+
+type GetAgentForShareParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+// Starting a study with an agent holds off changes to it until the study is in.
+func (q *Queries) GetAgentForShare(ctx context.Context, arg GetAgentForShareParams) (Agent, error) {
+	row := q.db.QueryRow(ctx, getAgentForShare, arg.WorkspaceID, arg.ID)
+	var i Agent
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
+		&i.Instructions,
+		&i.Harness,
+		&i.Model,
+		&i.Visibility,
+		&i.OwnerID,
+		&i.ArchivedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.BuiltInKey,
+		&i.ConversationStarters,
+	)
+	return i, err
+}
+
+const getAgentForUpdate = `-- name: GetAgentForUpdate :one
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters FROM agent WHERE workspace_id = $1 AND id = $2 FOR UPDATE
+`
+
+type GetAgentForUpdateParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+// Changing an agent waits for the studies being started with it.
+func (q *Queries) GetAgentForUpdate(ctx context.Context, arg GetAgentForUpdateParams) (Agent, error) {
+	row := q.db.QueryRow(ctx, getAgentForUpdate, arg.WorkspaceID, arg.ID)
+	var i Agent
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
+		&i.Instructions,
+		&i.Harness,
+		&i.Model,
+		&i.Visibility,
+		&i.OwnerID,
+		&i.ArchivedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.BuiltInKey,
+		&i.ConversationStarters,
+	)
+	return i, err
+}
+
 const listAgents = `-- name: ListAgents :many
 SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member
 FROM agent a WHERE a.workspace_id = $1

@@ -14,6 +14,14 @@ SELECT EXISTS (SELECT 1 FROM team_agent WHERE workspace_id = @workspace_id AND a
 -- name: GetAgent :one
 SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id;
 
+-- name: GetAgentForUpdate :one
+-- Changing an agent waits for the studies being started with it.
+SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id FOR UPDATE;
+
+-- name: GetAgentForShare :one
+-- Starting a study with an agent holds off changes to it until the study is in.
+SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id FOR SHARE;
+
 -- name: UpdateAgent :one
 UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model, visibility = @visibility, conversation_starters = @conversation_starters, updated_at = now()
 WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL RETURNING *;
