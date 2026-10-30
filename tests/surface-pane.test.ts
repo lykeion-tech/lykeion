@@ -185,3 +185,33 @@ it('dismisses a narrow pane with Escape', async () => {
   expect(closed).toBe(true);
   app.unmount();
 });
+
+it('moves focus into an open pane when its layout becomes narrow', async () => {
+  const listeners = new Map<string, () => void>();
+  const fakeWindow = {
+    innerWidth: 1200,
+    addEventListener: (n: string, cb: () => void) => listeners.set(n, cb),
+    removeEventListener() {},
+  };
+  Object.assign(globalThis, { window: fakeWindow, document: { activeElement: null } });
+  const root = node('root'),
+    app = createTreeApp({
+      render: () => h(SurfacePane, { open: true, active: null, focused: false, surfaces: [] }),
+    });
+  app.mount(root);
+  await nextTick();
+  let focused = false;
+  const pane = all(root).find((n) => n.props['aria-label'] === 'Right pane')!;
+  pane.querySelector = () =>
+    ({
+      focus: () => {
+        focused = true;
+      },
+    }) as never;
+  fakeWindow.innerWidth = 800;
+  listeners.get('resize')!();
+  await nextTick();
+  await nextTick();
+  expect(focused).toBe(true);
+  app.unmount();
+});

@@ -50,6 +50,15 @@ watch(
   },
   { immediate: true },
 );
+watch(narrow, async (isNarrow) => {
+  if (!isNarrow || !props.open) return;
+  const current =
+    typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null);
+  if (current && !pane.value?.contains(current)) opener = current;
+  await nextTick();
+  if (current && pane.value?.contains(current)) return;
+  pane.value?.querySelector<HTMLElement>('button')?.focus();
+});
 watch(
   () => props.active,
   async () => {
