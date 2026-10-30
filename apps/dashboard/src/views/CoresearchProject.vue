@@ -239,6 +239,7 @@ async function openFile(file: FileRow) {
             :focused="paneMode === 'focus'"
             :surfaces="experimentSurfaces"
             :container-width="experimentWidth || undefined"
+            :focus-key="activeFile?.id"
             width-key="lykeion.experiment-pane-width"
             @update:open="closePane"
             @update:active="selectPane"

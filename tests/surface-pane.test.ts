@@ -275,3 +275,72 @@ it('limits a split pane to leave room in the actual study container', async () =
   expect(sep.props['aria-valuemax']).toBe(400);
   app.unmount();
 });
+
+it('leaves Escape and Tab to an open nested dialog', async () => {
+  let closed = false;
+  Object.assign(globalThis, {
+    window: { innerWidth: 800, addEventListener() {}, removeEventListener() {} },
+  });
+  const root = node('root');
+  const app = createTreeApp({
+    render: () =>
+      h(SurfacePane, {
+        open: true,
+        active: 'execution',
+        focused: false,
+        surfaces: [],
+        'onUpdate:open': () => {
+          closed = true;
+        },
+      }),
+  });
+  app.mount(root);
+  await nextTick();
+  const pane = all(root).find((n) => n.props['aria-label'] === 'Right pane')!;
+  let prevented = false;
+  for (const key of ['Escape', 'Tab'])
+    (pane.props.onKeydown as (e: unknown) => void)({
+      key,
+      target: { closest: () => ({}) },
+      preventDefault() {
+        prevented = true;
+      },
+    });
+  expect(closed).toBe(false);
+  expect(prevented).toBe(false);
+  app.unmount();
+});
+
+it('restores pane focus when a narrow surface replaces its content', async () => {
+  Object.assign(globalThis, {
+    window: { innerWidth: 800, addEventListener() {}, removeEventListener() {} },
+    document: { activeElement: null },
+  });
+  const key = ref('list'),
+    root = node('root');
+  const app = createTreeApp({
+    render: () =>
+      h(SurfacePane, {
+        open: true,
+        active: 'files',
+        focused: false,
+        surfaces: [],
+        focusKey: key.value,
+      }),
+  });
+  app.mount(root);
+  await nextTick();
+  let focused = false;
+  const pane = all(root).find((n) => n.props['aria-label'] === 'Right pane')!;
+  pane.querySelector = () =>
+    ({
+      focus: () => {
+        focused = true;
+      },
+    }) as never;
+  key.value = 'file-1';
+  await nextTick();
+  await nextTick();
+  expect(focused).toBe(true);
+  app.unmount();
+});

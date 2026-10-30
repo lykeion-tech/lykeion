@@ -9,6 +9,7 @@ const props = defineProps<{
   surfaces: { id: string; label: string; icon: string }[];
   widthKey?: string;
   containerWidth?: number;
+  focusKey?: string;
 }>();
 const emit = defineEmits<{
   'update:open': [boolean];
@@ -79,8 +80,17 @@ watch(
     pane.value?.querySelector<HTMLElement>('button')?.focus();
   },
 );
+watch(
+  () => props.focusKey,
+  async () => {
+    if (!props.open || !narrow.value) return;
+    await nextTick();
+    pane.value?.querySelector<HTMLElement>('button')?.focus();
+  },
+);
 function keyboard(event: KeyboardEvent) {
   if (!narrow.value) return;
+  if ((event.target as Element | null)?.closest?.('dialog[open]')) return;
   if (event.key === 'Escape') {
     event.preventDefault();
     close();
