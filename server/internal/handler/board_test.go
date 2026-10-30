@@ -39,7 +39,7 @@ func TestActingOnAnEndedCardAnswersStartANewStudy(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	c := s.idleCard(t, a, w.ID, "q")
-	s.Env.Owner.Exec(t.Context(), `UPDATE card SET ending = 'stopped' WHERE id = $1`, c.ID)
+	s.mustUpdate(t, `UPDATE card SET ending = 'stopped' WHERE id = $1`, c.ID)
 	var out struct {
 		Error string `json:"error"`
 	}

@@ -89,12 +89,12 @@ func (s *Service) title(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r
 // openCard opens an Autoresearch run's study in the Autoresearch's scope and
 // queues its first column's run in this transaction. The card is owned by the
 // user the run acts as, so its agent runs run on that user's runtimes. It is
-// refused while an active card this Autoresearch opened has the same title, and
-// the Autoresearch's first card is also refused when it duplicates any active
-// card, as a person's card would be. A webhook payload is kept as a round 0 record, which no attempt's
-// gate reads as evidence. With agent set, the chosen Teams work their columns
-// and the agent the rest; otherwise every column has a Team, the chosen one or
-// the stage's built-in Team.
+// refused while an active card this Autoresearch opened has the same title,
+// and the Autoresearch's first card is also refused when it duplicates any
+// active card, as a person's card would be. A webhook payload is kept as a
+// round 0 record, which no attempt's gate reads as evidence. With agent set,
+// the chosen Teams work their columns and the agent the rest; otherwise every
+// column has a Team, the chosen one or the stage's built-in Team.
 func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch, run db.AutoresearchRun, title, question string, payload json.RawMessage, agent *uuid.UUID, chosen map[string]uuid.UUID) (db.Card, error) {
 	// Two runs opening cards at once must see each other's card.
 	if err := lockWorkspace(ctx, tx); err != nil {
