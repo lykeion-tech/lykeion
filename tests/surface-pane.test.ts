@@ -253,3 +253,25 @@ it('uses an overlay when the parent study is narrow even on a wide screen', asyn
   expect(pane.props.class).toContain('surface-overlay');
   app.unmount();
 });
+
+it('limits a split pane to leave room in the actual study container', async () => {
+  Object.assign(globalThis, {
+    window: { innerWidth: 1500, addEventListener() {}, removeEventListener() {} },
+  });
+  const root = node('root');
+  const app = createTreeApp({
+    render: () =>
+      h(SurfacePane, {
+        open: true,
+        active: null,
+        focused: false,
+        surfaces: [],
+        containerWidth: 800,
+      }),
+  });
+  app.mount(root);
+  await nextTick();
+  const sep = all(root).find((n) => n.props.role === 'separator')!;
+  expect(sep.props['aria-valuemax']).toBe(400);
+  app.unmount();
+});

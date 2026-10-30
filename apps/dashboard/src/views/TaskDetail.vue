@@ -73,7 +73,7 @@ const embeddedConstrained = computed(
 );
 let studyObserver: ResizeObserver | undefined;
 onMounted(() => {
-  if (!props.embedded || !studyElement.value) return;
+  if (!studyElement.value) return;
   studyWidth.value = studyElement.value.getBoundingClientRect().width;
   studyObserver = new ResizeObserver(([entry]) => {
     if (entry) studyWidth.value = entry.contentRect.width;
@@ -628,7 +628,7 @@ function pin() {
       v-model:active="activeSurface"
       v-model:focused="paneFocused"
       :surfaces="studySurfaces"
-      :container-width="embedded ? studyWidth : undefined"
+      :container-width="studyWidth || undefined"
       :width-key="
         embedded ? 'lykeion.embedded-study-inspector-width' : 'lykeion.study-inspector-width'
       "
