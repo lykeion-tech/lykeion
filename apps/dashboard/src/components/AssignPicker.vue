@@ -4,6 +4,7 @@ import Icon from './Icon.vue';
 import { useAgents, useMe, useTeams } from '../api/queries';
 import { matchesQuery } from '../lib/search';
 import { stages, type Picked, type Range } from '../lib/studies';
+import { useTaskComposer } from '../state/task-composer';
 
 // The Assign and Stages pills of a study or an Autoresearch. A study is worked
 // by a Team or a Team set, and the built-in Teams work every stage nobody
@@ -22,6 +23,7 @@ const emit = defineEmits<{ open: []; picked: [last: boolean] }>();
 
 const agentList = useAgents();
 const me = useMe();
+const { closeComposer } = useTaskComposer();
 const store = useTeams('', '');
 const root = ref<HTMLElement>();
 const menu = ref('');
@@ -207,7 +209,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           >
             <Icon name="bot" :size="14" /><span>{{ a.name }}</span>
           </button>
-          <RouterLink to="/agents" class="manage-agents">Manage agents</RouterLink>
+          <RouterLink to="/agents" role="menuitem" class="manage-agents" @click="closeComposer">
+            Manage agents
+          </RouterLink>
         </template>
         <p v-if="!matchingAgents.length && !matchingTeams.length">No matches</p>
       </div>

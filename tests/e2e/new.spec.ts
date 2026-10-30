@@ -334,7 +334,7 @@ test.describe('new study', () => {
     await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     const menu = dialog.getByRole('menu');
     await expect(menu.getByText('One agent', { exact: true })).toBeVisible();
-    await expect(menu.getByRole('link', { name: 'Manage agents' })).toHaveAttribute(
+    await expect(menu.getByRole('menuitem', { name: 'Manage agents' })).toHaveAttribute(
       'href',
       '#/agents',
     );

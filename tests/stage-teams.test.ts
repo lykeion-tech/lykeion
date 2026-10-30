@@ -9,6 +9,7 @@ import TeamsView from '../apps/dashboard/src/views/TeamsView.vue';
 import CreateTask from '../apps/dashboard/src/views/CreateTask.vue';
 import TaskDetail from '../apps/dashboard/src/views/TaskDetail.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
+import { useTaskComposer } from '../apps/dashboard/src/state/task-composer';
 import { keys } from '../apps/dashboard/src/api/keys';
 import type { Picked, Range } from '../apps/dashboard/src/lib/studies';
 
@@ -350,6 +351,11 @@ describe('AssignPicker', () => {
         expect(menu).not.toContain(hidden);
       const manage = p.nodes().find((n) => textOf(n).trim() === 'Manage agents');
       expect(manage?.props.href).toBe('/agents');
+      expect(manage?.props.role).toBe('menuitem');
+      const { composer, openComposer } = useTaskComposer();
+      openComposer();
+      for (const onClick of [manage!.props.onClick].flat() as ((e: unknown) => void)[]) onClick({});
+      expect(composer.open).toBe(false);
       await p.click(/^Solo agent$/);
       expect(p.assignee.value).toEqual({ type: 'agent', id: 'a1' });
       expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
