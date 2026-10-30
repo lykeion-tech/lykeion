@@ -100,6 +100,9 @@ export async function newStudy(
 
 // Fills the New study dialog's first pre-registered result.
 export async function preregister(dialog: Locator) {
+  const name = dialog.getByRole('textbox', { name: 'Result name 1' });
+  if (!(await name.isVisible()))
+    await dialog.getByRole('button', { name: /^Pre-registered · \d+$/ }).click();
   await dialog.getByRole('textbox', { name: 'Result name 1' }).fill('effect');
   await dialog.getByRole('textbox', { name: 'Result condition 1' }).fill('effect > 0');
 }

@@ -59,6 +59,7 @@ addResult();
 // The server's refusal of one pre-registered result, shown on its row.
 const resultError = ref<{ key: number; message: string } | null>(null);
 const files = useAttachments(uploadAttachment);
+const filesHint = 'Up to 100 files, 5 GB each, 10 GB in all; archives are unpacked for the agents';
 async function pick(event: Event) {
   const input = event.target as HTMLInputElement;
   const picked = [...(input.files ?? [])];
@@ -91,6 +92,46 @@ const sentResults = computed(() =>
     .filter((row) => row.name || row.text),
 );
 const resultKeys = computed(() => predicateKeys(sentResults.value.map((row) => row.text)));
+const completeResults = computed(() => sentResults.value.filter((row) => row.name && row.text));
+
+// Chips that don't fit the row fold into a "⋯" chip: the due date, then the machine.
+const chipRow = ref<HTMLElement>();
+const folded = ref(0);
+let fitting = 0;
+async function fit() {
+  const line = chipRow.value;
+  if (!line) return;
+  const visit = ++fitting;
+  folded.value = 0;
+  await nextTick();
+  const overflows = () =>
+    (line.lastElementChild?.getBoundingClientRect().right ?? 0) >
+    line.getBoundingClientRect().right;
+  while (visit === fitting && folded.value < 2 && overflows()) {
+    folded.value++;
+    await nextTick();
+  }
+}
+let resizes: ResizeObserver | undefined;
+onMounted(() => {
+  resizes = new ResizeObserver(() => void fit());
+  if (chipRow.value) resizes.observe(chipRow.value);
+  // Chips change width once the fonts load, while the row keeps its own.
+  void document.fonts?.ready.then(() => fit());
+});
+onUnmounted(() => resizes?.disconnect());
+watch(
+  () => [
+    picker.value?.name,
+    range.value,
+    preregisters.value,
+    completeResults.value.length,
+    machine.value,
+    deadline.value,
+  ],
+  () => void fit(),
+  { flush: 'post' },
+);
 
 // The last set is the Teams of the creator's newest end-to-end study that had Teams.
 const lastSetId = computed(
@@ -141,7 +182,7 @@ const blocked = computed(
     busy.value ||
     !question.value.trim() ||
     unstaged.value ||
-    (preregisters.value && !sentResults.value.some((row) => row.name && row.text)) ||
+    (preregisters.value && !completeResults.value.length) ||
     files.uploading.value ||
     files.failed.value,
 );
@@ -195,8 +236,10 @@ async function submit() {
     const row = resultRow(sent, (e as Error).message);
     if (e instanceof ApiError && e.status === 409 && typeof e.body.card_id === 'string')
       duplicate.value = { id: e.body.card_id, number: Number(e.body.number) };
-    else if (row !== undefined) resultError.value = { key: row, message: (e as Error).message };
-    else if (usedLastSet.value && /add this Team/.test((e as Error).message))
+    else if (row !== undefined) {
+      resultError.value = { key: row, message: (e as Error).message };
+      menu.value = 'results';
+    } else if (usedLastSet.value && /add this Team/.test((e as Error).message))
       error.value = "A Team in your last set isn't in your workspace any more";
     else error.value = (e as Error).message;
   } finally {
@@ -270,9 +313,81 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>.
       </p>
       <div class="composer-properties">
-        <div class="property-line">
-          <MachinePicker v-model="machine" :disabled="busy" />
-          <div class="property-anchor">
+        <div ref="chipRow" class="property-line" role="group" aria-label="Study properties">
+          <AssignPicker
+            ref="picker"
+            v-model="assignee"
+            v-model:range="range"
+            one-agent
+            :last-set="lastSet"
+            @open="closeMenu"
+            @picked="(last) => (usedLastSet = last)"
+          />
+          <div v-if="preregisters" class="property-anchor">
+            <button
+              type="button"
+              :class="['property-pill', { required: !completeResults.length }]"
+              :aria-expanded="menu === 'results'"
+              :title="completeResults.length ? undefined : 'At least one result is needed'"
+              @click="openMenu('results')"
+            >
+              <Icon name="check" :size="14" />Pre-registered · {{ completeResults.length }}
+            </button>
+            <section
+              v-if="menu === 'results'"
+              class="composer-menu results-menu"
+              aria-label="Pre-registered results"
+            >
+              <div class="variables-header">
+                <span>Pre-registered results</span>
+                <button type="button" class="text-button" @click="addResult">Add result</button>
+              </div>
+              <p>
+                Conditions on the numbers this study's scripts write, decided once and kept. At
+                least one is needed.
+              </p>
+              <div class="variable-rows">
+                <div
+                  v-for="(row, index) in results"
+                  :key="row.key"
+                  role="group"
+                  :aria-label="`Result ${index + 1}`"
+                >
+                  <div class="variable-row">
+                    <input
+                      v-model="row.name"
+                      placeholder="Name"
+                      maxlength="80"
+                      :aria-label="`Result name ${index + 1}`"
+                    />
+                    <input
+                      v-model="row.text"
+                      placeholder="Condition, e.g. accuracy >= 0.9"
+                      :aria-label="`Result condition ${index + 1}`"
+                    />
+                    <button
+                      type="button"
+                      class="text-button"
+                      :aria-label="`Remove result ${index + 1}`"
+                      @click="results = results.filter((r) => r.key !== row.key)"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <p v-if="resultError?.key === row.key" class="composer-error" role="alert">
+                    {{ resultError.message }}
+                  </p>
+                </div>
+              </div>
+              <p v-if="resultKeys.length">
+                The scripts will have to write: {{ resultKeys.join(', ') }}
+              </p>
+            </section>
+          </div>
+          <div v-if="folded < 2" class="property-anchor machine-chip">
+            <MachinePicker v-model="machine" chip :disabled="busy" />
+          </div>
+          <div v-if="folded < 1" class="property-anchor">
             <button type="button" class="property-pill" @click="openMenu('deadline')">
               <Icon name="clock" :size="14" />{{ deadline || 'No deadline' }}</button
             ><ComposerCalendar
@@ -282,30 +397,44 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               @close="closeMenu"
             />
           </div>
-          <AssignPicker
-            ref="picker"
-            v-model="assignee"
-            v-model:range="range"
-            :last-set="lastSet"
-            @open="closeMenu"
-            @picked="(last) => (usedLastSet = last)"
-          />
+          <div v-if="folded" class="property-anchor">
+            <button
+              type="button"
+              class="property-pill more-pill"
+              aria-label="More properties"
+              :aria-expanded="menu === 'more' || (menu === 'deadline' && folded > 0)"
+              @click="openMenu('more')"
+            >
+              ⋯
+            </button>
+            <div
+              v-if="menu === 'more' || (menu === 'deadline' && folded > 0)"
+              class="composer-menu fold-menu"
+              role="group"
+              aria-label="More properties"
+            >
+              <div v-if="folded > 1" class="machine-chip">
+                <MachinePicker v-model="machine" chip :disabled="busy" />
+              </div>
+              <div class="property-anchor">
+                <button type="button" class="property-pill" @click="openMenu('deadline')">
+                  <Icon name="clock" :size="14" />{{ deadline || 'No deadline' }}</button
+                ><ComposerCalendar
+                  v-if="menu === 'deadline'"
+                  v-model="deadline"
+                  kind="due"
+                  @close="closeMenu"
+                />
+              </div>
+            </div>
+          </div>
         </div>
+        <p v-if="assignee?.type === 'agent'" class="assignee-note">
+          {{ picker?.name }} works every stage alone. No auditor checks its work; Jev still scores
+          each stage.
+        </p>
       </div>
-      <div class="composer-files">
-        <label class="text-button" for="composer-files-input">
-          <Icon name="link" :size="14" />Attach files
-        </label>
-        <input
-          id="composer-files-input"
-          type="file"
-          multiple
-          class="visually-hidden"
-          @change="pick"
-        />
-        <small
-          >Up to 100 files, 5 GB each, 10 GB in all; archives are unpacked for the agents</small
-        >
+      <div v-if="files.items.value.length || files.error.value" class="composer-files">
         <ul v-if="files.items.value.length" aria-label="Files to attach">
           <li v-for="f in files.items.value" :key="f.key" tabindex="0">
             <span class="file-name">{{ f.name }}</span>
@@ -329,52 +458,20 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         </ul>
         <p v-if="files.error.value" class="composer-error" role="alert">{{ files.error.value }}</p>
       </div>
-      <section v-if="preregisters" class="composer-variables" aria-label="Pre-registered results">
-        <div class="variables-header">
-          <span>Pre-registered results</span>
-          <button type="button" class="text-button" @click="addResult">Add result</button>
-        </div>
-        <p>
-          Conditions on the numbers this study's scripts write, decided once and kept. At least one
-          is needed.
-        </p>
-        <div class="variable-rows">
-          <div
-            v-for="(row, index) in results"
-            :key="row.key"
-            role="group"
-            :aria-label="`Result ${index + 1}`"
-          >
-            <div class="variable-row">
-              <input
-                v-model="row.name"
-                placeholder="Name"
-                maxlength="80"
-                :aria-label="`Result name ${index + 1}`"
-              />
-              <input
-                v-model="row.text"
-                placeholder="Condition, e.g. accuracy >= 0.9"
-                :aria-label="`Result condition ${index + 1}`"
-              />
-              <button
-                type="button"
-                class="text-button"
-                :aria-label="`Remove result ${index + 1}`"
-                @click="results = results.filter((r) => r.key !== row.key)"
-              >
-                Remove
-              </button>
-            </div>
-            <p v-if="resultError?.key === row.key" class="composer-error" role="alert">
-              {{ resultError.message }}
-            </p>
-          </div>
-        </div>
-        <p v-if="resultKeys.length">The scripts will have to write: {{ resultKeys.join(', ') }}</p>
-      </section>
       <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
       <footer class="composer-footer">
+        <label class="icon-button attachment-button" for="composer-files-input" :title="filesHint">
+          <Icon name="attachment" :size="15" /><span class="visually-hidden">Attach files</span>
+        </label>
+        <input
+          id="composer-files-input"
+          type="file"
+          multiple
+          class="visually-hidden"
+          aria-describedby="composer-files-hint"
+          @change="pick"
+        />
+        <span id="composer-files-hint" class="visually-hidden">{{ filesHint }}</span>
         <label class="another-switch push-right">
           <input v-model="another" type="checkbox" role="switch" aria-label="Create another" />
           <span class="switch-track" />Create another</label
@@ -395,7 +492,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   overflow: visible;
 }
 .task-composer.manual {
-  width: 676px;
+  width: 800px;
 }
 .task-composer.expanded {
   width: min(1100px, calc(100vw - 64px));
@@ -511,22 +608,78 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 }
 .property-line {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
   min-height: 26px;
+  min-width: 0;
+}
+.property-line > *,
+.property-line :deep(.property-anchor) {
+  flex: none;
+}
+.property-line :deep(.property-pill),
+.machine-chip :deep(select) {
+  height: 26px;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+}
+.property-line :deep(.property-pill:hover:not(:disabled)),
+.machine-chip :deep(select:hover:not(:disabled)) {
+  background: var(--fill-chip);
+}
+.property-line .property-pill.required {
+  border-color: var(--stage-experimentation-dot);
+}
+.machine-chip :deep(.machine-picker) {
+  gap: 6px;
+  white-space: nowrap;
+}
+.machine-chip :deep(select) {
+  /* A select is as wide as its longest machine name. */
+  max-width: 160px;
+  padding: 0 6px;
+  font-size: 12px;
 }
 .more-pill {
   padding: 0 10px;
+}
+/* Panels open upward and end at their chip, so they cover neither the footer
+   nor the page's right edge. */
+.results-menu,
+.fold-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: auto;
+  right: 0;
+}
+.results-menu {
+  width: 460px;
+  max-width: calc(100vw - 64px);
+  padding: 10px;
+  font-size: 12px;
+}
+.results-menu > p {
+  margin: 4px 0 8px;
+  padding: 0;
+}
+.fold-menu {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
 }
 .assignee-note {
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 8px 20px;
+  padding: 0 4px;
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 18px;
 }
 .composer-footer {
   display: flex;
@@ -741,8 +894,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
     font-size: 11px;
   }
 }
-.composer-files,
-.composer-variables {
+.composer-files {
   padding: 0 20px 8px;
   font-size: 12px;
 }
@@ -754,10 +906,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 }
 .variables-header {
   justify-content: space-between;
-}
-.composer-variables > p {
-  margin: 4px 0 8px;
-  color: var(--muted);
 }
 .variable-row {
   margin-top: 6px;
@@ -775,19 +923,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .variable-row input:first-child {
   flex: 0.7;
 }
-.composer-files > small {
-  margin-left: 8px;
-  color: var(--muted);
-}
-.composer-files label {
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
 .composer-files ul {
   list-style: none;
-  margin: 6px 0 0;
+  margin: 0;
   padding: 0;
   max-height: 120px;
   overflow: auto;
@@ -808,10 +946,14 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   flex: 1;
 }
 .composer-files .composer-error,
-.composer-variables .composer-error {
+.results-menu .composer-error {
   padding: 0;
 }
-.composer-files:has(input:focus-visible) label {
+.attachment-button {
+  cursor: pointer;
+  color: var(--muted);
+}
+.composer-footer:has(#composer-files-input:focus-visible) .attachment-button {
   outline: 2px solid var(--primary-text);
 }
 .visually-hidden {

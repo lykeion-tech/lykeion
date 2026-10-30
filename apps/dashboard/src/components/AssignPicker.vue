@@ -7,10 +7,12 @@ import { stages, type Picked, type Range } from '../lib/studies';
 
 // The Assign and Stages pills of a study or an Autoresearch. A study is worked
 // by a Team or a Team set, and the built-in Teams work every stage nobody
-// picked a Team for. An Autoresearch (agents) may instead name an agent.
+// picked a Team for; with oneAgent it may instead be worked by one agent alone.
+// An Autoresearch (agents) may name an agent, alone or beside its Teams.
 // Teams are the built-in ones and the ones the researcher has added.
 const props = defineProps<{
   agents?: boolean;
+  oneAgent?: boolean;
   lastSet?: Picked | null;
   menuBelow?: boolean;
 }>();
@@ -36,11 +38,15 @@ const addedTeams = computed(() =>
 );
 const stageName = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : '');
 // The owner of the study or Autoresearch is the researcher, so a private agent
-// is offered only to its owner.
+// is offered only to its owner. A study's lone agent is never Aristotle nor an
+// agent inside a Team.
 const assignableAgents = computed(() =>
-  props.agents
+  props.agents || props.oneAgent
     ? (agentList.data.value ?? []).filter(
-        (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
+        (a) =>
+          !a.archived_at &&
+          (a.visibility === 'workspace' || a.owner_id === me.data.value?.id) &&
+          (props.agents || (!a.built_in_key && !a.team_member)),
       )
     : [],
 );
@@ -155,9 +161,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <button v-if="!agents" type="button" role="menuitem" @click="assign(null)">
           <Icon name="bot" :size="14" /><span>Built-in Teams</span>
         </button>
-        <p v-if="matchingAgents.length" class="menu-group">Agents</p>
+        <p v-if="agents && matchingAgents.length" class="menu-group">Agents</p>
         <button
-          v-for="a in matchingAgents"
+          v-for="a in agents ? matchingAgents : []"
           :key="a.id"
           type="button"
           role="menuitem"
@@ -190,6 +196,19 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <button v-if="showSets" type="button" role="menuitem" @click="menu = 'set'">
           <Icon name="plus" :size="14" /><span>New set…</span>
         </button>
+        <template v-if="oneAgent">
+          <p v-if="matchingAgents.length" class="menu-group">One agent</p>
+          <button
+            v-for="a in matchingAgents"
+            :key="a.id"
+            type="button"
+            role="menuitem"
+            @click="assign({ type: 'agent', id: a.id })"
+          >
+            <Icon name="bot" :size="14" /><span>{{ a.name }}</span>
+          </button>
+          <RouterLink to="/agents" class="manage-agents">Manage agents</RouterLink>
+        </template>
         <p v-if="!matchingAgents.length && !matchingTeams.length">No matches</p>
       </div>
       <div
@@ -285,6 +304,16 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 <style scoped>
 .assign-picker {
   display: contents;
+}
+.manage-agents {
+  display: block;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding: 8px 8px 4px;
+  color: var(--muted);
+}
+.manage-agents:hover {
+  color: var(--text);
 }
 .stage-menu.below {
   top: calc(100% + 6px);

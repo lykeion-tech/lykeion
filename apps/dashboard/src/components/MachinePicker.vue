@@ -3,7 +3,8 @@ import { computed } from 'vue';
 import { useMe, useMembers, useRuntimes } from '../api/queries';
 import { studyMachines } from '../lib/machines';
 const value = defineModel<string>({ default: '' });
-defineProps<{ disabled?: boolean }>();
+// A chip shows the select alone; its aria-label still names it.
+defineProps<{ disabled?: boolean; chip?: boolean }>();
 const me = useMe();
 const members = useMembers();
 const runtimes = useRuntimes();
@@ -15,7 +16,7 @@ function label(owner: string) {
 </script>
 <template>
   <label class="machine-picker type-caption"
-    >Machine
+    ><template v-if="!chip">Machine</template>
     <select v-model="value" aria-label="Machine" :disabled="disabled">
       <option value="">My machines</option>
       <option v-for="machine in machines" :key="machine.id" :value="machine.id">

@@ -23,6 +23,7 @@ test('a pre-registered result is created with the study and listed as not decide
   await page.getByRole('button', { name: 'New', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New study' });
   await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
+  await dialog.getByRole('button', { name: 'Pre-registered · 0', exact: true }).click();
   const results = dialog.getByRole('region', { name: 'Pre-registered results' });
   await expect(results.getByRole('textbox', { name: 'Result name 1' })).toHaveValue('');
   await expect(dialog.getByRole('button', { name: /^Create study/ })).toBeDisabled();

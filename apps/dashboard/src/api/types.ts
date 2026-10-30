@@ -307,6 +307,8 @@ export interface AgentDefinition {
   visibility: 'workspace' | 'private';
   owner_id: string;
   archived_at: string | null;
+  // A copy of an agent made to work inside a Team.
+  team_member?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -53,6 +53,36 @@ function client() {
       owner_id: 'u1',
       archived_at: null,
     },
+    {
+      id: 'a2',
+      name: 'Aristotle',
+      visibility: 'workspace',
+      owner_id: 'u1',
+      archived_at: null,
+      built_in_key: 'aristotle',
+    },
+    {
+      id: 'a3',
+      name: 'Team copy',
+      visibility: 'workspace',
+      owner_id: 'u1',
+      archived_at: null,
+      team_member: true,
+    },
+    {
+      id: 'a4',
+      name: 'Colleague private',
+      visibility: 'private',
+      owner_id: 'u2',
+      archived_at: null,
+    },
+    {
+      id: 'a5',
+      name: 'Retired agent',
+      visibility: 'workspace',
+      owner_id: 'u1',
+      archived_at: '2026-10-20T10:00:00Z',
+    },
   ]);
   c.setQueryData(keys.members('w'), [{ user_id: 'u2', name: 'Colleague', email: 'c@lab.test' }]);
   c.setQueryData(keys.teams('w', '', ''), [
@@ -109,6 +139,7 @@ type Node = {
   focus(): void;
   showModal(): void;
   getRootNode(): null;
+  getBoundingClientRect(): { right: number };
   value?: unknown;
   readonly options: Node[];
   readonly tagName: string;
@@ -133,6 +164,7 @@ function node(tag: string, text = ''): Node {
     focus() {},
     showModal() {},
     getRootNode: () => null,
+    getBoundingClientRect: () => ({ right: 0 }),
   };
 }
 const textOf = (n: Node): string => n.text + n.children.map(textOf).join('');
@@ -173,6 +205,13 @@ async function mount(
   g.document ??= { addEventListener() {}, removeEventListener() {} };
   vi.stubGlobal('window', { innerWidth: 1512, addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal('Document', class {});
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal('ShadowRoot', class {});
   const queryClient = client();
   seed?.(queryClient);
@@ -223,6 +262,7 @@ async function mount(
   };
   return {
     text: () => textOf(root),
+    nodes: () => all(root),
     button,
     click,
     input,
@@ -237,7 +277,7 @@ async function mount(
   };
 }
 
-async function mountPicker(agents = false, lastSet: Picked | null = null) {
+async function mountPicker(agents = false, lastSet: Picked | null = null, oneAgent = false) {
   const assignee = ref<Picked | null>(null);
   const range = ref<Range>({ from: 'grounding', to: 'validation' });
   const mounted = await mount(AssignPicker, () => ({
@@ -247,6 +287,7 @@ async function mountPicker(agents = false, lastSet: Picked | null = null) {
     'onUpdate:range': (v: Range) => (range.value = v),
     agents,
     lastSet,
+    oneAgent,
   }));
   return { ...mounted, assignee, range };
 }
@@ -289,6 +330,30 @@ describe('AssignPicker', () => {
       expect(p.assignee.value).toEqual({ type: 'team', teams: { hypotheses: 't1' } });
       expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
       expect(p.text()).toContain('Your Team set');
+    } finally {
+      p.unmount();
+    }
+  });
+
+  it('offers a study one agent the researcher may use', async () => {
+    const p = await mountPicker(false, null, true);
+    try {
+      await p.click(/Built-in Teams/);
+      const groups = p
+        .nodes()
+        .filter((n) => n.props.class === 'menu-group')
+        .map((n) => textOf(n));
+      expect(groups).toEqual(['Teams', 'Team sets', 'One agent']);
+      const menu = p.text();
+      expect(menu.slice(menu.indexOf('One agent'))).toContain('Solo agent');
+      for (const hidden of ['Aristotle', 'Team copy', 'Colleague private', 'Retired agent'])
+        expect(menu).not.toContain(hidden);
+      const manage = p.nodes().find((n) => textOf(n).trim() === 'Manage agents');
+      expect(manage?.props.href).toBe('/agents');
+      await p.click(/^Solo agent$/);
+      expect(p.assignee.value).toEqual({ type: 'agent', id: 'a1' });
+      expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
+      expect(p.button(/Grounding → Validation/)?.props.disabled).toBe(false);
     } finally {
       p.unmount();
     }
@@ -389,14 +454,22 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
   });
 }
 
-async function preregister(t: { fill: (label: string, value: string) => Promise<void> }) {
+async function openResults(t: Awaited<ReturnType<typeof mount>>) {
+  if (!t.input('Result name 1')) await t.click(/^Pre-registered · \d+$/);
+}
+
+async function preregister(t: Awaited<ReturnType<typeof mount>>) {
+  await openResults(t);
   await t.fill('Result name 1', 'Accurate');
   await t.fill('Result condition 1', 'accuracy >= 0.9');
 }
 
 describe('no Follows from', () => {
   it('has no Follows from in the new-study window', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('[]', { status: 200 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('[]', { status: 200 })),
+    );
     const t = await mount(CreateTask, () => ({}), '/', seedStudy);
     try {
       expect(t.text()).not.toContain('Follows from');
@@ -430,7 +503,12 @@ describe('no Follows from', () => {
   });
 
   it('renders a study page without follows_from', async () => {
-    const t = await mount(TaskDetail, () => ({ id: 'c' }), '/', (c) => seedStudy(c));
+    const t = await mount(
+      TaskDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) => seedStudy(c),
+    );
     try {
       expect(t.text()).not.toContain('Follows from');
     } finally {
@@ -535,6 +613,8 @@ describe('pre-registered results', () => {
     vi.stubGlobal('fetch', fetch);
     const t = await mount(CreateTask, () => ({}), '/', seedStudy);
     try {
+      expect(t.button(/^Pre-registered · 0$/)?.props.class).toContain('required');
+      await openResults(t);
       expect(t.text()).toContain('Pre-registered results');
       expect(t.input('Result name 1')?.value).toBe('');
       expect(t.input('Result name 2')).toBeUndefined();
@@ -565,6 +645,7 @@ describe('pre-registered results', () => {
       await t.click(/Grounding → Validation/);
       await t.change('To stage', 'hypotheses');
       expect(t.text()).not.toContain('Pre-registered results');
+      expect(t.button(/^Pre-registered/)).toBeUndefined();
       await t.fill('Describe your study', 'Question');
       expect(disabled(t)).toBe(false);
       await t.submit();
@@ -613,6 +694,7 @@ describe('pre-registered results for a single Team', () => {
     vi.stubGlobal('fetch', fetch);
     const t = await mount(CreateTask, single('experimentation'), '/', seedStudy);
     try {
+      await openResults(t);
       expect(t.text()).toContain('Pre-registered results');
       await t.fill('Describe your study', 'Question');
       expect(t.button(/^Create study/)?.props.disabled).toBe(true);
@@ -636,6 +718,7 @@ describe('pre-registered results for a single Team', () => {
     const t = await mount(CreateTask, single('hypotheses'), '/', seedStudy);
     try {
       expect(t.text()).not.toContain('Pre-registered results');
+      expect(t.button(/^Pre-registered/)).toBeUndefined();
       await t.fill('Describe your study', 'Question');
       expect(t.button(/^Create study/)?.props.disabled).toBe(false);
       await t.submit();
@@ -643,6 +726,130 @@ describe('pre-registered results for a single Team', () => {
       const body = JSON.parse(String(posted![1]?.body));
       expect(body.scope).toBeUndefined();
       expect(body.predicates).toBeUndefined();
+    } finally {
+      t.unmount();
+    }
+  });
+});
+
+describe('the one-row New study window', () => {
+  const posting = () =>
+    vi.fn(
+      async (_path: RequestInfo | URL, init?: RequestInit) =>
+        new Response(init?.method === 'POST' ? '{}' : '[]', {
+          status: init?.method === 'POST' ? 201 : 200,
+        }),
+    );
+  const soloLine =
+    'Solo agent works every stage alone. No auditor checks its work; Jev still scores each stage.';
+
+  it('holds every chip on one row, in order', async () => {
+    vi.stubGlobal('fetch', posting());
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      const row = t.nodes().find((n) => n.props['aria-label'] === 'Study properties');
+      expect(row).toBeTruthy();
+      const text = textOf(row!);
+      const order = [
+        'Built-in Teams',
+        'Grounding → Validation',
+        'Pre-registered · 0',
+        'My machines',
+        'No deadline',
+      ];
+      const at = order.map((label) => text.indexOf(label));
+      expect(
+        at.every((i) => i >= 0),
+        text,
+      ).toBe(true);
+      expect([...at].sort((a, b) => a - b)).toEqual(at);
+      expect(t.button(/^Pre-registered · 0$/)?.props.class).toContain('required');
+      for (const gone of ['Study variables', 'Follows from', 'Reporting'])
+        expect(t.text()).not.toContain(gone);
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('says one agent works alone with no auditor, and posts the agent', async () => {
+    const fetch = posting();
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      expect(t.text()).not.toContain(soloLine);
+      // The pills carry an avatar letter before the name; menu items don't.
+      await t.click(/^BBuilt-in Teams$/);
+      await t.click(/^Solo agent$/);
+      expect(t.text()).toContain(soloLine);
+      await t.click(/^SSolo agent$/);
+      await t.click(/^Built-in Teams$/);
+      expect(t.text()).not.toContain(soloLine);
+      await t.click(/^BBuilt-in Teams$/);
+      await t.click(/^Solo agent$/);
+      await t.fill('Describe your study', 'Question');
+      await preregister(t);
+      await t.submit();
+      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
+      const body = JSON.parse(String(posted![1]?.body));
+      expect(body.assignee).toEqual({ type: 'agent', id: 'a1' });
+      expect(body.scope).toEqual({ from: 'grounding', to: 'validation' });
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('opens the pre-registered results from their chip and counts the complete ones', async () => {
+    vi.stubGlobal('fetch', posting());
+    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    try {
+      expect(t.input('Result name 1')).toBeUndefined();
+      await t.click(/^Pre-registered · 0$/);
+      expect(t.input('Result name 1')?.value).toBe('');
+      await t.fill('Result name 1', 'Accurate');
+      expect(textOf(t.button(/^Pre-registered/)!).trim()).toBe('Pre-registered · 0');
+      await t.fill('Result condition 1', 'accuracy >= 0.9');
+      expect(textOf(t.button(/^Pre-registered/)!).trim()).toBe('Pre-registered · 1');
+      expect(t.button(/^Pre-registered/)?.props.class).not.toContain('required');
+      await t.click(/Grounding → Validation/);
+      await t.change('To stage', 'hypotheses');
+      expect(t.button(/^Pre-registered/)).toBeUndefined();
+    } finally {
+      t.unmount();
+    }
+  });
+});
+
+describe('a study worked by one agent', () => {
+  it('names the agent with No auditor beside it', async () => {
+    const t = await mount(
+      TaskDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) => seedStudy(c, { assignee_type: 'agent', assignee_id: 'a1', teams: {} }),
+    );
+    try {
+      expect(t.text()).toContain('Solo agent');
+      expect(t.text()).toContain('No auditor');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('shows no such note for a Team', async () => {
+    const t = await mount(
+      TaskDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) =>
+        seedStudy(c, {
+          assignee_type: 'team',
+          assignee_id: null,
+          teams: { grounding: { pack_id: 't2', name: 'My Team', stage: 'grounding' } },
+        }),
+    );
+    try {
+      expect(t.text()).toContain('My Team');
+      expect(t.text()).not.toContain('No auditor');
     } finally {
       t.unmount();
     }

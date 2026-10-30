@@ -88,6 +88,7 @@ type Node = {
   focus(): void;
   showModal(): void;
   getRootNode(): null;
+  getBoundingClientRect(): { right: number };
   value?: unknown;
   readonly options: Node[];
   readonly tagName: string;
@@ -112,6 +113,7 @@ function node(tag: string, text = ''): Node {
     focus() {},
     showModal() {},
     getRootNode: () => null,
+    getBoundingClientRect: () => ({ right: 0 }),
   };
 }
 const textOf = (n: Node): string => n.text + n.children.map(textOf).join('');
@@ -154,6 +156,13 @@ async function mount(
   vi.stubGlobal('window', { innerWidth: 1512, addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal('Document', class {});
   vi.stubGlobal('ShadowRoot', class {});
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   const queryClient = seedClient();
   seed?.(queryClient);
   const router = createRouter({
@@ -808,6 +817,7 @@ describe('Shared machines', () => {
     const t = await mount(CreateTask, () => ({}));
     try {
       await t.fill('Describe your study', 'Question');
+      await t.click(/^Pre-registered · 0$/);
       await t.fill('Result name 1', 'Accurate');
       await t.fill('Result condition 1', 'accuracy >= 0.9');
       if (machine) await change(t, 'Machine', machine);

@@ -247,6 +247,10 @@ const assigneeName = computed(() => {
   if (x.assignee_type === 'member') return name(x.assignee_id);
   return agents.data.value?.find((a) => a.id === x.assignee_id)?.name ?? 'Unavailable agent';
 });
+// An agent working with no Team has nobody auditing it.
+const worksAlone = computed(
+  () => c.value?.assignee_type === 'agent' && !Object.keys(c.value.teams ?? {}).length,
+);
 let draftRevision = 0;
 watch(
   [comment, action],
@@ -660,7 +664,8 @@ function pin() {
               ? name(c.assignee_id)[0]
               : '?'
         }}</span
-        ><span class="v">{{ assigneeName }}</span>
+        ><span class="v">{{ assigneeName }}</span
+        ><span v-if="worksAlone" class="chip">No auditor</span>
       </div>
       <div class="property-row">
         <label for="study-research">Project</label

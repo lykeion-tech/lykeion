@@ -992,3 +992,27 @@ test('the execution log sits as far below Project as Details sits below it', asy
     1,
   );
 });
+
+test('a study one agent works names the agent with No auditor beside it', async ({ page }) => {
+  const headers = { 'X-Workspace-ID': await labWorkspace(page.request) };
+  const name = `Lone agent ${Date.now()}`;
+  const made = await page.request.post('/api/agents', {
+    headers,
+    data: { name, harness: 'claude' },
+  });
+  expect(made.status()).toBe(201);
+  const agent = (await made.json()) as { id: string };
+  const alone = await newStudy(page.request, `Worked alone ${Date.now()}?`, {
+    assignee: { type: 'agent', id: agent.id },
+    scope: { from: 'grounding', to: 'grounding' },
+  });
+  await page.goto(`/#/studies/${alone.id}`);
+  const assignee = page.locator('.property-row', { hasText: 'Assignee' });
+  await expect(assignee).toContainText(name);
+  await expect(assignee.getByText('No auditor', { exact: true })).toBeVisible();
+
+  const teamed = await newStudy(page.request, `Worked by a Team ${Date.now()}?`);
+  await page.goto(`/#/studies/${teamed.id}`);
+  await expect(page.locator('.property-row', { hasText: 'Assignee' })).toContainText('Team');
+  await expect(page.getByText('No auditor', { exact: true })).toHaveCount(0);
+});
