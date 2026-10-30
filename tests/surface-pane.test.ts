@@ -153,3 +153,35 @@ it('drags the separator and retains the preferred width when remounted', async (
   );
   second.app.unmount();
 });
+
+it('dismisses a narrow pane with Escape', async () => {
+  let closed = false;
+  Object.assign(globalThis, {
+    window: {
+      innerWidth: 800,
+      addEventListener() {},
+      removeEventListener() {},
+      matchMedia: () => ({ matches: true }),
+    },
+  });
+  const root = node('root');
+  const app = createTreeApp({
+    render: () =>
+      h(SurfacePane, {
+        open: true,
+        active: null,
+        focused: false,
+        surfaces: [],
+        'onUpdate:open': (value: boolean) => {
+          closed = !value;
+        },
+      }),
+  });
+  app.mount(root);
+  await nextTick();
+  const pane = all(root).find((n) => n.props['aria-label'] === 'Right pane')!;
+  expect(pane.props.onKeydown).toBeTruthy();
+  (pane.props.onKeydown as (e: unknown) => void)({ key: 'Escape', preventDefault() {} });
+  expect(closed).toBe(true);
+  app.unmount();
+});

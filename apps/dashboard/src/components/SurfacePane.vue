@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import { usePaneResize } from '../lib/resize';
 const props = defineProps<{
@@ -23,6 +23,65 @@ const resize = usePaneResize(
   () => (typeof window === 'undefined' ? 640 : Math.max(160, window.innerWidth - 420)),
 );
 const title = computed(() => props.surfaces.find((s) => s.id === props.active)?.label ?? '');
+const pane = ref<HTMLElement>();
+const narrow = ref(typeof window !== 'undefined' && window.innerWidth <= 980);
+let opener: HTMLElement | null = null;
+const updateNarrow = () => {
+  narrow.value = window.innerWidth <= 980;
+};
+onMounted(() => {
+  window.addEventListener('resize', updateNarrow);
+});
+onUnmounted(() => {
+  window.removeEventListener('resize', updateNarrow);
+});
+watch(
+  () => props.open,
+  async (open) => {
+    if (open) {
+      opener =
+        typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+      await nextTick();
+      if (narrow.value) pane.value?.querySelector<HTMLElement>('button')?.focus();
+    } else {
+      opener?.focus?.();
+      opener = null;
+    }
+  },
+  { immediate: true },
+);
+watch(
+  () => props.active,
+  async () => {
+    if (!props.open) return;
+    await nextTick();
+    pane.value?.querySelector<HTMLElement>('button')?.focus();
+  },
+);
+function keyboard(event: KeyboardEvent) {
+  if (!narrow.value) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    close();
+    return;
+  }
+  if (event.key !== 'Tab' || !pane.value) return;
+  const controls = Array.from(
+    pane.value.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]',
+    ),
+  ).filter((el) => el.getClientRects().length > 0);
+  if (!controls.length) return;
+  const first = controls[0]!,
+    last = controls[controls.length - 1]!;
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
 function close() {
   emit('update:open', false);
 }
@@ -31,7 +90,11 @@ function close() {
   <button v-if="open" class="surface-backdrop" aria-label="Close pane overlay" @click="close" />
   <aside
     v-if="open"
+    ref="pane"
     class="surface-pane"
+    :role="narrow ? 'dialog' : undefined"
+    :aria-modal="narrow ? true : undefined"
+    @keydown="keyboard"
     :class="{ 'surface-focused': focused }"
     :style="{ '--surface-width': resize.width.value + 'px' }"
     aria-label="Right pane"
