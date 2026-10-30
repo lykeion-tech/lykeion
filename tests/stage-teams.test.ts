@@ -561,6 +561,7 @@ describe('hidden services, no study variables', () => {
         }),
     );
     try {
+      await t.click(/^Details$/);
       expect(t.text()).toContain('Attached files');
       expect(t.text()).not.toContain('Study variables');
       expect(t.text()).not.toContain('DATASET');
@@ -577,6 +578,7 @@ describe('hidden services, no study variables', () => {
       (c) => seedStudy(c, { services }),
     );
     try {
+      await t.click(/^Details$/);
       expect(t.text()).not.toContain('This study has hidden services:');
     } finally {
       t.unmount();
@@ -594,6 +596,7 @@ describe('hidden services, no study variables', () => {
         }),
     );
     try {
+      await t.click(/^Details$/);
       expect(t.text()).toContain(
         "This study has hidden services: grader, database. Hidden services can't be fully isolated on every machine; don't use them to keep secrets.",
       );
@@ -834,6 +837,7 @@ describe('a study worked by one agent', () => {
       (c) => seedStudy(c, { assignee_type: 'agent', assignee_id: 'a1', teams: {} }),
     );
     try {
+      await t.click(/^Properties$/);
       expect(t.text()).toContain('Solo agent');
       expect(t.text()).toContain('No auditor');
     } finally {
@@ -911,6 +915,7 @@ describe('pre-registered results on the study page', () => {
         }),
     );
     try {
+      await t.click(/^Details$/);
       const text = t.text();
       expect(text).toContain('Pre-registered results');
       expect(text).toContain('accuracy >= 0.9');
@@ -924,4 +929,72 @@ describe('pre-registered results on the study page', () => {
       t.unmount();
     }
   });
+});
+
+describe('study right-pane surfaces', () => {
+  it('opens the chooser and shows properties, execution, details and files one at a time', async () => {
+    const t = await mount(TaskDetail, () => ({ id: 'c' }), '/', seedStudy);
+    try {
+      expect(t.text()).toContain('Open a surface');
+      expect(t.text()).not.toContain('Pre-registered results');
+      for (const label of ['Properties', 'Execution log & timeline', 'Details', 'Files']) {
+        await t.click(new RegExp(`^${label}$`));
+        expect(t.nodes().some((n) => n.props['aria-label'] === 'Back to surfaces')).toBe(true);
+        const back = t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!;
+        (back.props.onClick as () => void)();
+        await nextTick();
+        expect(t.text()).toContain('Open a surface');
+      }
+    } finally {
+      t.unmount();
+    }
+  });
+});
+
+it('lists each saved study output separately with its stage and run provenance', async () => {
+  const t = await mount(
+    TaskDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => {
+      seedStudy(client);
+      client.setQueryData(
+        [...keys.recordsAll('w', 'c'), 'kind', 'output'],
+        [
+          {
+            id: 'a',
+            key: 'o1',
+            board_column: 'grounding',
+            round: 1,
+            role: 'agent',
+            agent_run_id: 'run-a',
+            created_at: '2026-10-30T10:00:00Z',
+            body: { name: 'result.csv', size_bytes: 4 },
+          },
+          {
+            id: 'b',
+            key: 'o2',
+            board_column: 'validation',
+            round: 2,
+            role: 'agent',
+            agent_run_id: 'run-b',
+            created_at: '2026-10-30T11:00:00Z',
+            body: { name: 'result.csv', size_bytes: 8 },
+          },
+        ],
+      );
+    },
+  );
+  try {
+    await t.click(/^Files$/);
+    expect(
+      t.nodes().filter((n) => n.tag === 'button' && textOf(n).includes('result.csv')),
+    ).toHaveLength(2);
+    expect(t.text()).toContain('Grounding');
+    expect(t.text()).toContain('Validation');
+    expect(t.text()).toContain('run-a');
+    expect(t.text()).toContain('run-b');
+  } finally {
+    t.unmount();
+  }
 });

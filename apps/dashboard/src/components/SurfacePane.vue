@@ -20,7 +20,12 @@ const resize = usePaneResize(
   240,
   640,
   -1,
-  () => (typeof window === 'undefined' ? 640 : Math.max(160, window.innerWidth - 420)),
+  () =>
+    typeof window === 'undefined'
+      ? 640
+      : window.innerWidth <= 980
+        ? window.innerWidth
+        : Math.max(160, window.innerWidth - 420),
 );
 const title = computed(() => props.surfaces.find((s) => s.id === props.active)?.label ?? '');
 const pane = ref<HTMLElement>();

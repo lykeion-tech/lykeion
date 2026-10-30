@@ -2,12 +2,13 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
+import SurfacePane from '../components/SurfacePane.vue';
+import StudyOutputs from '../components/StudyOutputs.vue';
 import MachinePicker from '../components/MachinePicker.vue';
 import AgentRunCard from '../components/AgentRunCard.vue';
 import AgentRunDialog from '../components/AgentRunDialog.vue';
 import ExecutionLog from '../components/ExecutionLog.vue';
 import ColumnRating from '../components/ColumnRating.vue';
-import { usePaneResize } from '../lib/resize';
 import { api } from '../api/client';
 import { formatSize } from '../lib/attachments';
 import { keys } from '../api/keys';
@@ -70,20 +71,6 @@ const studyMinimum = 400;
 const embeddedConstrained = computed(
   () => props.embedded && studyWidth.value < inspectorMinimum + studyMinimum,
 );
-const inspector = usePaneResize(
-  props.embedded ? 'lykeion.embedded-study-inspector-width' : 'lykeion.study-inspector-width',
-  props.embedded ? 260 : 364,
-  inspectorMinimum,
-  480,
-  -1,
-  () =>
-    props.embedded
-      ? Math.max(0, studyWidth.value - studyMinimum)
-      : Math.max(
-          160,
-          window.innerWidth - (Number(readText('lykeion.sidebar-width')) || 224) - studyMinimum,
-        ),
-);
 let studyObserver: ResizeObserver | undefined;
 onMounted(() => {
   if (!props.embedded || !studyElement.value) return;
@@ -95,6 +82,14 @@ onMounted(() => {
 });
 onUnmounted(() => studyObserver?.disconnect());
 const detailsOpen = ref(true);
+const activeSurface = ref<string | null>(null);
+const paneFocused = ref(false);
+const studySurfaces = [
+  { id: 'properties', label: 'Properties', icon: 'settings' },
+  { id: 'execution', label: 'Execution log & timeline', icon: 'chart' },
+  { id: 'details', label: 'Details', icon: 'list' },
+  { id: 'files', label: 'Files', icon: 'file' },
+];
 const propertyBusy = ref(false);
 async function saveProperty(body: Record<string, unknown>) {
   const scope = mutationScope();
@@ -270,6 +265,8 @@ watch(
   () => {
     generation++;
     detailsOpen.value = true;
+    activeSurface.value = null;
+    paneFocused.value = false;
     propertyBusy.value = false;
     comment.value = '';
     busy.value = false;
@@ -377,10 +374,9 @@ function pin() {
       embedded ? 'embedded-task' : 'desktop-task',
       { 'embedded-constrained': embeddedConstrained },
     ]"
-    :style="{ '--properties-width': inspector.width.value + 'px' }"
     aria-label="Study"
   >
-    <div class="task-main">
+    <div class="task-main" :hidden="showMeta && paneFocused">
       <header class="task-heading">
         <button
           v-if="!embedded"
@@ -626,137 +622,156 @@ function pin() {
         </button>
       </p>
     </div>
-    <div
-      v-if="showMeta && c"
-      class="task-splitter"
-      role="separator"
-      tabindex="0"
-      aria-orientation="vertical"
-      aria-label="Resize study inspector"
-      :aria-valuenow="inspector.width.value"
-      :aria-valuemin="inspector.minimum.value"
-      :aria-valuemax="inspector.maximum.value"
-      @pointerdown="inspector.pointerdown($event)"
-      @keydown="inspector.keydown"
-    />
-    <aside v-if="showMeta && c" class="task-properties study-meta" aria-label="Study details">
-      <header class="properties-title"><h2>Properties</h2></header>
-      <div class="property-row">
-        <small>Stage</small>
-        <div class="v">
-          <span class="property-icon"
-            ><span class="stage-dot" :class="'status-' + c.board_column" /></span
-          >{{ columnName(c.board_column)
-          }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
-            stateLabel(c)
-          }}</span
-          ><span v-if="c.ending" class="chip ending-chip" :class="'chip-' + c.ending">{{
-            endLabel(c)
-          }}</span>
-        </div>
-      </div>
-      <div class="property-row">
-        <small>Assignee</small
-        ><span class="avatar property-avatar property-icon">{{
-          c.assignee_type === 'agent'
-            ? (agents.data.value?.find((a) => a.id === c?.assignee_id)?.name[0] ?? 'A')
-            : c.assignee_id
-              ? name(c.assignee_id)[0]
-              : '?'
-        }}</span
-        ><span class="v">{{ assigneeName }}</span
-        ><span v-if="worksAlone" class="chip">No auditor</span>
-      </div>
-      <div class="property-row">
-        <label for="study-research">Project</label
-        ><span class="property-icon"><Icon name="folder" :size="13" /></span
-        ><select
-          id="study-research"
-          aria-label="Project"
-          :value="c.research_id ?? ''"
-          :disabled="propertyBusy || researches.isPending.value"
-          @change="
-            saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
-          "
-        >
-          <option value="">No project</option>
-          <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
-            {{ r.name }}
-          </option></select
-        ><RouterLink
-          v-if="c.research_id"
-          :to="'/projects/' + c.research_id"
-          aria-label="Open Project"
-          ><Icon name="right" :size="12"
-        /></RouterLink>
-      </div>
-      <div
-        v-for="read in [
-          { query: members, label: 'members' },
-          { query: agents, label: 'agents' },
-          { query: researches, label: 'Projects' },
-        ].filter((x) => x.query.error.value)"
-        :key="read.label"
-        class="inline-error"
-      >
-        {{ read.query.error.value?.message }}
-        <button @click="read.query.refetch()">Retry {{ read.label }}</button>
-      </div>
-      <ExecutionLog :runs="runs.data.value ?? []" :title="number + ' · ' + c.title" />
-      <h3 class="details-heading">
-        <button :aria-expanded="detailsOpen" @click="detailsOpen = !detailsOpen">
-          Details <Icon :name="detailsOpen ? 'down' : 'right'" :size="11" />
-        </button>
-      </h3>
-      <div v-if="detailsOpen" class="details-body">
-        <small>Owner</small>
-        <div class="v metadata-owner">
-          <span class="avatar">{{ name(c.owner_id)[0] }}</span
-          >{{ name(c.owner_id) }}
-        </div>
-        <small>Deadline</small>
-        <div class="v">{{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}</div>
-        <template v-if="c.attachments.length">
-          <small>Attached files</small>
-          <ul class="v attached-files" aria-label="Attached files">
-            <li v-for="a in c.attachments" :key="a.id">
-              <button type="button" class="text-button" @click="download(a)">{{ a.name }}</button>
-              <small>{{ formatSize(a.size_bytes) }}</small>
-            </li>
-          </ul>
-        </template>
-        <template v-if="preregistered.length">
-          <small>Pre-registered results</small>
-          <dl class="v study-variables" aria-label="Pre-registered results">
-            <div v-for="p in preregistered" :key="p.name">
-              <dt>{{ p.name }}</dt>
-              <dd>{{ p.text }}</dd>
-              <dd>{{ outcomeText(p.decision) }}</dd>
-              <dd v-if="p.decision?.run">{{ valuesIn(p.decision.values, p.decision.run) }}</dd>
-              <dd v-if="p.decision?.others?.length">
-                Other runs wrote:
-                {{ p.decision.others.map((o) => valuesIn(o.values, o.run)).join('; ') }}
-              </dd>
+    <SurfacePane
+      v-if="c"
+      v-model:open="showMeta"
+      v-model:active="activeSurface"
+      v-model:focused="paneFocused"
+      :surfaces="studySurfaces"
+      :width-key="
+        embedded ? 'lykeion.embedded-study-inspector-width' : 'lykeion.study-inspector-width'
+      "
+    >
+      <template #default="{ active }">
+        <div v-if="active === 'properties'" class="study-meta surface-content">
+          <h2>Properties</h2>
+          <div class="property-row">
+            <small>Stage</small>
+            <div class="v">
+              <span class="property-icon"
+                ><span class="stage-dot" :class="'status-' + c.board_column" /></span
+              >{{ columnName(c.board_column)
+              }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
+                stateLabel(c)
+              }}</span
+              ><span v-if="c.ending" class="chip ending-chip" :class="'chip-' + c.ending">{{
+                endLabel(c)
+              }}</span>
             </div>
-          </dl>
-        </template>
-        <p v-if="services.length" class="v services-note">
-          This study has hidden services: {{ services.map((s) => s.name).join(', ') }}. Hidden
-          services can't be fully isolated on every machine; don't use them to keep secrets.
-        </p>
-        <small>Created</small>
-        <div class="v">{{ new Date(c.created_at).toLocaleString() }}</div>
-        <small>Updated</small>
-        <div class="v">{{ updatedAt ? new Date(updatedAt).toLocaleString() : '—' }}</div>
-        <template v-if="creator"
-          ><small>Created by</small>
-          <div class="v">{{ name(creator) }}</div></template
-        >
-      </div>
-    </aside>
+          </div>
+          <div class="property-row">
+            <small>Assignee</small
+            ><span class="avatar property-avatar property-icon">{{
+              c.assignee_type === 'agent'
+                ? (agents.data.value?.find((a) => a.id === c?.assignee_id)?.name[0] ?? 'A')
+                : c.assignee_id
+                  ? name(c.assignee_id)[0]
+                  : '?'
+            }}</span
+            ><span class="v">{{ assigneeName }}</span
+            ><span v-if="worksAlone" class="chip">No auditor</span>
+          </div>
+          <div class="property-row">
+            <label for="study-research">Project</label
+            ><span class="property-icon"><Icon name="folder" :size="13" /></span
+            ><select
+              id="study-research"
+              aria-label="Project"
+              :value="c.research_id ?? ''"
+              :disabled="propertyBusy || researches.isPending.value"
+              @change="
+                saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
+              "
+            >
+              <option value="">No project</option>
+              <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
+                {{ r.name }}
+              </option></select
+            ><RouterLink
+              v-if="c.research_id"
+              :to="'/projects/' + c.research_id"
+              aria-label="Open Project"
+              ><Icon name="right" :size="12"
+            /></RouterLink>
+          </div>
+          <div
+            v-for="read in [
+              { query: members, label: 'members' },
+              { query: agents, label: 'agents' },
+              { query: researches, label: 'Projects' },
+            ].filter((x) => x.query.error.value)"
+            :key="read.label"
+            class="inline-error"
+          >
+            {{ read.query.error.value?.message }}
+            <button @click="read.query.refetch()">Retry {{ read.label }}</button>
+          </div>
+        </div>
+        <div v-else-if="active === 'execution'" class="study-meta surface-content">
+          <ExecutionLog :runs="runs.data.value ?? []" :title="number + ' · ' + c.title" />
+        </div>
+        <div v-else-if="active === 'details'" class="study-meta surface-content">
+          <h3 class="details-heading">
+            <button :aria-expanded="detailsOpen" @click="detailsOpen = !detailsOpen">
+              Details <Icon :name="detailsOpen ? 'down' : 'right'" :size="11" />
+            </button>
+          </h3>
+          <div v-if="detailsOpen" class="details-body">
+            <small>Owner</small>
+            <div class="v metadata-owner">
+              <span class="avatar">{{ name(c.owner_id)[0] }}</span
+              >{{ name(c.owner_id) }}
+            </div>
+            <small>Deadline</small>
+            <div class="v">
+              {{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}
+            </div>
+            <template v-if="c.attachments.length">
+              <small>Attached files</small>
+              <ul class="v attached-files" aria-label="Attached files">
+                <li v-for="a in c.attachments" :key="a.id">
+                  <button type="button" class="text-button" @click="download(a)">
+                    {{ a.name }}
+                  </button>
+                  <small>{{ formatSize(a.size_bytes) }}</small>
+                </li>
+              </ul>
+            </template>
+            <template v-if="preregistered.length">
+              <small>Pre-registered results</small>
+              <dl class="v study-variables" aria-label="Pre-registered results">
+                <div v-for="p in preregistered" :key="p.name">
+                  <dt>{{ p.name }}</dt>
+                  <dd>{{ p.text }}</dd>
+                  <dd>{{ outcomeText(p.decision) }}</dd>
+                  <dd v-if="p.decision?.run">{{ valuesIn(p.decision.values, p.decision.run) }}</dd>
+                  <dd v-if="p.decision?.others?.length">
+                    Other runs wrote:
+                    {{ p.decision.others.map((o) => valuesIn(o.values, o.run)).join('; ') }}
+                  </dd>
+                </div>
+              </dl>
+            </template>
+            <p v-if="services.length" class="v services-note">
+              This study has hidden services: {{ services.map((s) => s.name).join(', ') }}. Hidden
+              services can't be fully isolated on every machine; don't use them to keep secrets.
+            </p>
+            <small>Created</small>
+            <div class="v">{{ new Date(c.created_at).toLocaleString() }}</div>
+            <small>Updated</small>
+            <div class="v">{{ updatedAt ? new Date(updatedAt).toLocaleString() : '—' }}</div>
+            <template v-if="creator"
+              ><small>Created by</small>
+              <div class="v">{{ name(creator) }}</div></template
+            >
+          </div>
+        </div>
+        <StudyOutputs v-else-if="active === 'files'" :card-id="id" />
+      </template>
+    </SurfacePane>
   </section>
 </template>
 <style scoped>
+.surface-content {
+  padding: 16px 12px 24px;
+}
+.surface-content > h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+.task-main[hidden] {
+  display: none;
+}
 .property-menu-anchor {
   position: relative;
 }

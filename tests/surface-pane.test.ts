@@ -215,3 +215,18 @@ it('moves focus into an open pane when its layout becomes narrow', async () => {
   expect(focused).toBe(true);
   app.unmount();
 });
+
+it('keeps the overlay wide enough for its content on a phone-sized viewport', async () => {
+  Object.assign(globalThis, {
+    window: { innerWidth: 480, addEventListener() {}, removeEventListener() {} },
+  });
+  const root = node('root');
+  const app = createTreeApp({
+    render: () => h(SurfacePane, { open: true, active: null, focused: false, surfaces: [] }),
+  });
+  app.mount(root);
+  await nextTick();
+  const pane = all(root).find((n) => n.props['aria-label'] === 'Right pane')!;
+  expect((pane.props.style as Record<string, string>)['--surface-width']).toBe('364px');
+  app.unmount();
+});
