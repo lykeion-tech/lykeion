@@ -10,6 +10,7 @@ const props = defineProps<{
   widthKey?: string;
   containerWidth?: number;
   focusKey?: string;
+  hideTitle?: boolean;
 }>();
 const emit = defineEmits<{
   'update:open': [boolean];
@@ -158,7 +159,7 @@ function close() {
       >
         <Icon name="back" />
       </button>
-      <span class="surface-title">{{ title }}</span>
+      <span v-if="!hideTitle" class="surface-title">{{ title }}</span>
       <span class="surface-spacer" />
       <button
         class="surface-icon"
@@ -291,9 +292,15 @@ function close() {
 .surface-body :deep(.experiment-files-header) {
   margin: 0;
   padding: 24px 20px 16px;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 20px;
+}
+.surface-body :deep(.experiment-files-header + .tsb-files .tsb-tasks-empty) {
+  padding: 2px 20px 16px;
+}
+.surface-body :deep(.compute-panel-body) {
+  padding-inline: 0;
+}
+.surface-body :deep(.compute-panel-body .compute-empty) {
+  padding: 2px 20px 16px;
 }
 
 .surface-chooser {

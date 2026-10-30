@@ -373,6 +373,28 @@ describe('Coresearch workspace', () => {
     expect(quote).toBeTruthy();
     expect(all(quote!).filter((n) => n.props.class === 'code-block')).toHaveLength(1);
   });
+  it('hides run logs and status entries while retaining real tool steps', async () => {
+    const { root } = await mount(
+      ChatTranscript,
+      { projectId: 'p', chatId: 'c', messages: messages.slice(0, 2) },
+      (c) =>
+        c.setQueryData(keys.coresearchSteps('lab', 'p', 'c', 'run'), [
+          { attempt: 1, seq: 1, type: 'log', tool: '', content: 'diagnostic' },
+          { attempt: 1, seq: 2, type: 'status', tool: '', content: 'working' },
+          {
+            attempt: 1,
+            seq: 3,
+            type: 'tool_use',
+            tool: 'Bash',
+            content: { type: 'tool_use', id: 'call', input: { command: 'echo baseline' } },
+          },
+        ]),
+    );
+    expect(textOf(root)).not.toContain('Run log');
+    expect(textOf(root)).not.toContain('Run status');
+    expect(all(root).filter((n) => n.props['data-testid'] === 'tool-step')).toHaveLength(1);
+    expect(textOf(root)).not.toContain('3 steps');
+  });
   it('thinking stays prose and is excluded from the copied assistant reply', async () => {
     const copied: string[] = [];
     vi.stubGlobal('navigator', {

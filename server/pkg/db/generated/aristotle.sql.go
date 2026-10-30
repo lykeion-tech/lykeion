@@ -65,6 +65,64 @@ func (q *Queries) ClaimCoresearchUpload(ctx context.Context, arg ClaimCoresearch
 	return result.RowsAffected(), nil
 }
 
+const convertWelcomeConversation = `-- name: ConvertWelcomeConversation :one
+UPDATE coresearch_conversation SET is_welcome=false, title= $1, updated_at=now()
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $2 AND is_welcome RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
+`
+
+type ConvertWelcomeConversationParams struct {
+	Title string    `json:"title"`
+	ID    uuid.UUID `json:"id"`
+}
+
+func (q *Queries) ConvertWelcomeConversation(ctx context.Context, arg ConvertWelcomeConversationParams) (CoresearchConversation, error) {
+	row := q.db.QueryRow(ctx, convertWelcomeConversation, arg.Title, arg.ID)
+	var i CoresearchConversation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.AgentID,
+		&i.ProjectID,
+		&i.ChatID,
+		&i.Title,
+		&i.IsWelcome,
+		&i.SnapshotHarness,
+		&i.SnapshotModel,
+		&i.SnapshotInstructions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const convertWelcomeProject = `-- name: ConvertWelcomeProject :exec
+UPDATE coresearch_project SET name= $1, mode= $2, conversation_owner_id=CASE WHEN $2::text='cowrite' THEN NULL ELSE app_user() END, updated_at=now()
+WHERE workspace_id=app_workspace() AND id= $3
+`
+
+type ConvertWelcomeProjectParams struct {
+	Name string    `json:"name"`
+	Mode string    `json:"mode"`
+	ID   uuid.UUID `json:"id"`
+}
+
+func (q *Queries) ConvertWelcomeProject(ctx context.Context, arg ConvertWelcomeProjectParams) error {
+	_, err := q.db.Exec(ctx, convertWelcomeProject, arg.Name, arg.Mode, arg.ID)
+	return err
+}
+
+const coresearchConversationProject = `-- name: CoresearchConversationProject :one
+SELECT project_id FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $1
+`
+
+func (q *Queries) CoresearchConversationProject(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, coresearchConversationProject, id)
+	var project_id uuid.UUID
+	err := row.Scan(&project_id)
+	return project_id, err
+}
+
 const createCoresearchConversation = `-- name: CreateCoresearchConversation :one
 INSERT INTO coresearch_conversation(workspace_id,owner_id,agent_id,project_id,chat_id,title)
 VALUES(app_workspace(),app_user(),$1,$2,$3,$4) RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
@@ -135,6 +193,18 @@ func (q *Queries) CreateWelcomeConversation(ctx context.Context, arg CreateWelco
 	return i, err
 }
 
+const deleteOwnedCoresearchProject = `-- name: DeleteOwnedCoresearchProject :execrows
+DELETE FROM coresearch_project WHERE workspace_id=app_workspace() AND created_by=app_user() AND id= $1
+`
+
+func (q *Queries) DeleteOwnedCoresearchProject(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOwnedCoresearchProject, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const ensureAristotle = `-- name: EnsureAristotle :one
 INSERT INTO agent(workspace_id,owner_id,name,description,instructions,harness,model,visibility,built_in_key)
 VALUES(app_workspace(),app_user(),'Aristotle','Your personal research partner.','Help the researcher ground questions in evidence, design reproducible experiments, and review findings. Ask clarifying questions, distinguish evidence from uncertainty, and do not start background work.','claude','','private','aristotle')
@@ -159,6 +229,31 @@ func (q *Queries) EnsureAristotle(ctx context.Context) (Agent, error) {
 		&i.UpdatedAt,
 		&i.BuiltInKey,
 		&i.ConversationStarters,
+	)
+	return i, err
+}
+
+const firstCoresearchConversation = `-- name: FirstCoresearchConversation :one
+SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() ORDER BY created_at,id LIMIT 1
+`
+
+func (q *Queries) FirstCoresearchConversation(ctx context.Context) (CoresearchConversation, error) {
+	row := q.db.QueryRow(ctx, firstCoresearchConversation)
+	var i CoresearchConversation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.AgentID,
+		&i.ProjectID,
+		&i.ChatID,
+		&i.Title,
+		&i.IsWelcome,
+		&i.SnapshotHarness,
+		&i.SnapshotModel,
+		&i.SnapshotInstructions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { RuntimeModel } from '../../api/types';
-import Icon from '../../components/Icon.vue';
+import CliIcon from '../CliIcon.vue';
 const props = defineProps<{
   models: RuntimeModel[];
   modelValue: string;
@@ -63,8 +63,8 @@ onUnmounted(() => {
       :disabled="disabled"
       @click="toggle"
     >
-      <Icon v-if="cli" name="book" :size="14" aria-hidden="true" />
-      <span class="cli-pill-name">{{ cli ? `${cliLabel(cli)} · ${label}` : label }}</span>
+      <CliIcon v-if="cli === 'claude' || cli === 'codex'" :cli="cli" />
+      <span class="cli-pill-name">{{ cli ? cliLabel(cli) : label }}</span>
       <svg
         class="cli-chevron"
         :data-open="open"
@@ -86,6 +86,7 @@ onUnmounted(() => {
       v-if="open && !disabled"
       ref="menuEl"
       class="cli-menu"
+      :class="{ 'cli-menu--with-cli': cli }"
       :role="cli ? 'dialog' : 'listbox'"
       :aria-label="cli ? 'CLI and model' : 'Models'"
       :style="
@@ -112,7 +113,7 @@ onUnmounted(() => {
             @click="emit('update:cli', item)"
           >
             <span aria-hidden="true">{{ item === 'claude' ? '✳' : '◎' }}</span>
-            {{ cliLabel(item) }} <span v-if="item === cli" aria-hidden="true">✓</span>
+            {{ cliLabel(item) }}
           </button>
         </div>
         <div class="cli-divider" />

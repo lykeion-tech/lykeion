@@ -285,16 +285,6 @@ async function create() {
           />
           <div class="row chips">
             <span class="muted">Skills</span>
-            <button
-              v-for="s in m.skills"
-              :key="s"
-              type="button"
-              class="button chip"
-              :aria-label="`Remove skill ${s}`"
-              @click="m.skills.splice(m.skills.indexOf(s), 1)"
-            >
-              {{ s }} ×
-            </button>
             <select
               aria-label="Add skill"
               @change="
@@ -315,6 +305,16 @@ async function create() {
                 {{ s.name }}
               </option>
             </select>
+            <button
+              v-for="s in m.skills"
+              :key="s"
+              type="button"
+              class="button chip"
+              :aria-label="`Remove skill ${s}`"
+              @click="m.skills.splice(m.skills.indexOf(s), 1)"
+            >
+              {{ s }} ×
+            </button>
           </div>
           <div class="row chips">
             <span class="muted">Connectors</span>
@@ -648,8 +648,12 @@ textarea {
 .chips {
   flex-wrap: wrap;
 }
+.chips > .muted {
+  flex: 0 0 72px;
+}
 .chips > select {
-  flex: 0 0 auto;
+  flex: 0 1 216px;
+  min-width: 0;
 }
 .chip {
   padding: 1px 8px;

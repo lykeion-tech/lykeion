@@ -303,3 +303,84 @@ test('Aristotle portraits keep the full artwork inside every avatar', async ({ p
   await page.goto('/#/agents/aristotle');
   await checkPortraits('.agent-avatar .aristotle-art');
 });
+
+test('experiment pane header aligns with the conversation header', async ({ page }) => {
+  await installAristotleFixture(page, true);
+  await page.goto('/#/coresearch/new');
+  await page.getByRole('textbox', { name: 'Message the agent' }).fill('Open the experiment');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page).toHaveURL(/conversations\/accepted$/);
+  await page.getByRole('button', { name: 'Open experiment surfaces' }).click();
+  const conversation = await page.locator('.aristotle-header').boundingBox();
+  const pane = await page.locator('.surface-pane .surface-header').boundingBox();
+  expect(conversation).not.toBeNull();
+  expect(pane).not.toBeNull();
+  expect(
+    Math.abs(conversation!.y + conversation!.height - pane!.y - pane!.height),
+  ).toBeLessThanOrEqual(1);
+});
+
+test('empty Experiment surfaces align their icons and descriptions', async ({ page }) => {
+  await installAristotleFixture(page, true);
+  await page.route('**/api/coresearch/projects/private-project', (route) =>
+    route.fulfill({
+      json: {
+        id: 'private-project',
+        workspace_id: 'lab',
+        name: 'Experiment',
+        mode: 'experiment',
+        archived_at: null,
+      },
+    }),
+  );
+  await page.route('**/api/coresearch/projects/private-project/chats', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'accepted-chat',
+          project_id: 'private-project',
+          workspace_id: 'lab',
+          owner_id: 'me',
+          cli: 'claude',
+        },
+      ],
+    }),
+  );
+  await page.route('**/api/coresearch/projects/private-project/files', (route) =>
+    route.fulfill({ json: [] }),
+  );
+  await page.route(
+    '**/api/coresearch/projects/private-project/chats/accepted-chat/cells',
+    (route) => route.fulfill({ json: [] }),
+  );
+  await page.route('**/api/coresearch/projects/private-project/compute', (route) =>
+    route.fulfill({ json: { kernels: [], machines: [] } }),
+  );
+  await page.goto('/#/coresearch/new');
+  await page.getByRole('textbox', { name: 'Message the agent' }).fill('Check surfaces');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page).toHaveURL(/conversations\/accepted$/);
+  await page.getByRole('button', { name: 'Open experiment surfaces' }).click();
+  const positions = [];
+  for (const [label, selector] of [
+    ['Files', '.tsb-tasks-empty'],
+    ['Notebook', '.nbp-empty'],
+    ['Compute', '.compute-empty'],
+  ]) {
+    await page.getByLabel('Right pane').getByRole('button', { name: label!, exact: true }).click();
+    const pane = page.locator('.task-rightpane-card');
+    const icon = await pane.locator('.art-header .art-title svg').boundingBox();
+    const text = await pane.locator(selector!).evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element.firstChild!);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.x, y: rect.y };
+    });
+    positions.push({ iconX: icon!.x, x: text.x, y: text.y });
+    await page.getByRole('button', { name: 'Back to surfaces' }).click();
+  }
+  for (const position of positions) {
+    expect(Math.abs(position.x - position.iconX)).toBeLessThanOrEqual(1);
+    expect(Math.abs(position.y - positions[0]!.y)).toBeLessThanOrEqual(1);
+  }
+});

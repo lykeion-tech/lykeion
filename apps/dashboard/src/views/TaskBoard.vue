@@ -152,18 +152,13 @@ const working = computed(() => all.value.filter((c) => c.role && !c.queued && !c
 const activeFilterCount = computed(() =>
   Object.values(filters.value).reduce((sum, items) => sum + (items?.length ?? 0), 0),
 );
-// The list keeps stopped studies under "Hidden columns", as the mock kept Cancelled.
 const listGroups = computed(() =>
   boardColumns.map((c) => ({
     ...c,
-    cards:
-      c.id === 'done'
-        ? grouped.value.done.filter((x) => x.ending !== 'stopped')
-        : grouped.value[c.id],
+    cards: grouped.value[c.id],
   })),
 );
-const stopped = computed(() => grouped.value.done.filter((x) => x.ending === 'stopped'));
-const collapsedGroups = ref<string[]>(['stopped']);
+const collapsedGroups = ref<string[]>([]);
 function toggleGroup(id: string) {
   collapsedGroups.value = collapsedGroups.value.includes(id)
     ? collapsedGroups.value.filter((x) => x !== id)
@@ -290,12 +285,14 @@ onUnmounted(() => {
         <button
           class="button compact"
           :class="{ active: activeFilterCount }"
+          aria-label="Filter"
+          title="Filter"
           :aria-expanded="popup === 'filter'"
           aria-haspopup="menu"
           @click="menu('filter', $event)"
           @keydown.down.prevent="menu('filter', $event)"
         >
-          <Icon name="filter" :size="14" />Filter<span v-if="activeFilterCount">{{
+          <Icon name="filter" :size="14" /><span v-if="activeFilterCount">{{
             activeFilterCount
           }}</span>
         </button>
@@ -361,11 +358,13 @@ onUnmounted(() => {
       <div class="menu-anchor">
         <button
           class="button compact"
+          aria-label="Display"
+          title="Display"
           :aria-expanded="popup === 'display'"
           @click="menu('display', $event)"
           @keydown.down.prevent="menu('display', $event)"
         >
-          <Icon name="filters" :size="14" />Display
+          <Icon name="filters" :size="14" />
         </button>
         <div
           v-if="popup === 'display'"
@@ -388,6 +387,8 @@ onUnmounted(() => {
       </div>
       <button
         class="button compact"
+        :aria-label="display.mode"
+        :title="display.mode"
         @click="display.mode = display.mode === 'Board' ? 'List' : 'Board'"
       >
         <component
@@ -395,7 +396,7 @@ onUnmounted(() => {
           :size="14"
           :stroke-width="1.7"
           aria-hidden="true"
-        />{{ display.mode }}
+        />
       </button>
     </div>
   </div>
@@ -531,26 +532,6 @@ onUnmounted(() => {
           </span>
         </button>
         <p v-if="!group.cards.length" class="list-empty">No studies</p>
-      </template>
-    </section>
-    <section>
-      <h3 class="hidden-heading">Hidden columns</h3>
-      <button
-        class="list-group hidden-group"
-        :aria-expanded="!collapsedGroups.includes('stopped')"
-        @click="toggleGroup('stopped')"
-      >
-        <Icon name="close" :size="12" />Stopped<small>{{ stopped.length }}</small>
-      </button>
-      <template v-if="!collapsedGroups.includes('stopped')">
-        <button v-for="card in stopped" :key="card.id" class="list-row" @click="open(card.id)">
-          <small>{{ number(card) }}</small
-          ><span class="truncate">{{ card.title }}</span>
-          <span class="row-meta push-right"
-            ><span class="chip chip-stopped">{{ endLabel(card) }}</span
-            ><span>{{ ownerName(card.owner_id) }}</span></span
-          >
-        </button>
       </template>
     </section>
   </div>
@@ -1315,15 +1296,6 @@ onUnmounted(() => {
   font-size: 12.5px;
   text-align: center;
   padding: 12px 0 6px;
-}
-.hidden-heading {
-  font-size: 13.5px;
-  font-weight: 400;
-  margin: 14px 0 6px 4px;
-}
-.hidden-group {
-  background: transparent;
-  font-weight: 400;
 }
 .study-menu {
   position: fixed;

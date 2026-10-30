@@ -64,3 +64,20 @@ SELECT * FROM coresearch_conversation WHERE workspace_id=app_workspace() AND own
 DELETE FROM attachment
 WHERE workspace_id=app_workspace() AND uploader_id=app_user() AND id= @id AND card_id IS NULL
   AND kind='file' AND created_at>now()-interval '24 hours' AND sha256= @sha256 AND blob_key= @blob_key;
+
+-- name: FirstCoresearchConversation :one
+SELECT * FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() ORDER BY created_at,id LIMIT 1;
+
+-- name: ConvertWelcomeConversation :one
+UPDATE coresearch_conversation SET is_welcome=false, title= @title, updated_at=now()
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id AND is_welcome RETURNING *;
+
+-- name: ConvertWelcomeProject :exec
+UPDATE coresearch_project SET name= @name, mode= @mode, conversation_owner_id=CASE WHEN @mode::text='cowrite' THEN NULL ELSE app_user() END, updated_at=now()
+WHERE workspace_id=app_workspace() AND id= @id;
+
+-- name: CoresearchConversationProject :one
+SELECT project_id FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id;
+
+-- name: DeleteOwnedCoresearchProject :execrows
+DELETE FROM coresearch_project WHERE workspace_id=app_workspace() AND created_by=app_user() AND id= @id;

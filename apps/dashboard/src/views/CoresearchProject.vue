@@ -15,6 +15,7 @@ import SidebarFiles from '../coresearch/SidebarFiles.vue';
 import ChatTranscript from '../coresearch/ChatTranscript.vue';
 import ChatComposer from '../coresearch/ChatComposer.vue';
 import SurfacePane from '../components/SurfacePane.vue';
+import Icon from '../components/Icon.vue';
 import { useElementWidth } from '../lib/element-width';
 import NotebookPane from '../coresearch/NotebookPane.vue';
 import ComputePane from '../coresearch/ComputePane.vue';
@@ -137,7 +138,7 @@ async function openFile(file: FileRow) {
           <div class="task-main" data-column="conversation" :hidden="paneMode === 'focus'">
             <div class="task-stage-row">
               <button type="button" aria-label="Open experiment surfaces" @click="toggleSurfaces">
-                ☰
+                <Icon name="panel" :size="16" aria-hidden="true" />
               </button>
             </div>
             <div v-if="chats.error.value" class="tab-strip-error" role="alert">
@@ -234,6 +235,7 @@ async function openFile(file: FileRow) {
             </div>
           </div>
           <SurfacePane
+            hide-title
             :open="paneMode !== 'closed'"
             :active="activePane"
             :focused="paneMode === 'focus'"
@@ -268,7 +270,11 @@ async function openFile(file: FileRow) {
                   :file="activeFile"
                 />
                 <section v-else-if="activePane === 'files'" aria-label="Files">
-                  <h2 class="experiment-files-header">Files</h2>
+                  <header class="art-header experiment-files-header">
+                    <span class="art-title"
+                      ><Icon name="file" :size="16" aria-hidden="true" />Files</span
+                    >
+                  </header>
                   <SidebarFiles
                     :files="files.data.value ?? []"
                     :loading="files.isPending.value"

@@ -236,6 +236,15 @@ a.agent-row:hover {
   gap: 6px;
   min-width: 0;
 }
+.agent-owner .avatar {
+  flex: none;
+}
+.agent-owner-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .avatar.small {
   width: 18px;
   height: 18px;

@@ -13,13 +13,15 @@ describe('Aristotle request and restoration state', () => {
     expect(acceptanceRequest(first, 'edited', '').request_id).not.toBe(first.request_id);
     expect(acceptanceRequest(first, 'question', 'welcome').request_id).not.toBe(first.request_id);
   });
-  it('restores only an existing conversation and otherwise selects welcome', () => {
+  it('restores a saved conversation and falls back to the starter', () => {
     const list = [
       { id: 'welcome', is_welcome: true },
       { id: 'saved', is_welcome: false },
     ];
     expect(restoreConversation(list, 'saved')).toBe('saved');
     expect(restoreConversation(list, 'deleted')).toBe('welcome');
+    expect(restoreConversation(list, 'welcome')).toBe('welcome');
+    expect(restoreConversation(list.slice(0, 1), null)).toBe('welcome');
   });
   it('ships research prompts rather than workplace actions', () => {
     expect(defaultStarters).toHaveLength(3);

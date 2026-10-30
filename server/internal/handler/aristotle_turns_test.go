@@ -284,3 +284,125 @@ func TestAristotleSelectedCLIIsValidatedAndFrozen(t *testing.T) {
 		}
 	}
 }
+
+func TestAristotleStarterBecomesFirstSession(t *testing.T) {
+	for _, mode := range []string{"experiment", "cowrite"} {
+		t.Run(mode, func(t *testing.T) {
+			s, a, _, _, ws, _ := csFixture(t)
+			csRegister(t, s, a, ws, "starter", "claude")
+			var boot, after struct {
+				Agent        db.Agent
+				Conversation db.CoresearchConversation
+			}
+			if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, ws, nil, &boot); code != 200 {
+				t.Fatal(code)
+			}
+			in := map[string]string{"body": "First research question", "request_id": uuid.NewString(), "mode": mode}
+			if mode == "cowrite" {
+				in["template"] = "blank"
+			}
+			var out struct {
+				Conversation db.CoresearchConversation
+				Run          db.AgentRun
+			}
+			path := "/api/coresearch/conversations/" + boot.Conversation.ID.String() + "/turns"
+			if code := s.call(t, "POST", path, a, ws, in, &out); code != 201 {
+				t.Fatalf("accept starter: %d", code)
+			}
+			if out.Conversation.ID != boot.Conversation.ID || out.Conversation.ProjectID != boot.Conversation.ProjectID || out.Conversation.ChatID != boot.Conversation.ChatID || out.Conversation.IsWelcome || out.Conversation.Title != "First research question" {
+				t.Fatalf("starter not converted: %+v", out.Conversation)
+			}
+			var replay struct {
+				Conversation db.CoresearchConversation
+				Run          db.AgentRun
+			}
+			if code := s.call(t, "POST", path, a, ws, in, &replay); code != 201 || replay.Run.ID != out.Run.ID || replay.Conversation.ID != out.Conversation.ID {
+				t.Fatalf("starter replay: %d %+v", code, replay)
+			}
+			if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, ws, nil, &after); code != 200 || after.Conversation.ID != out.Conversation.ID {
+				t.Fatalf("bootstrap recreated starter: %d %+v", code, after.Conversation)
+			}
+			var projectMode, chatMode string
+			if e := s.Env.Owner.QueryRow(t.Context(), `SELECT p.mode, c.mode FROM coresearch_project p JOIN coresearch_chat c ON c.project_id=p.id WHERE p.id=$1 AND c.id=$2`, out.Conversation.ProjectID, out.Conversation.ChatID).Scan(&projectMode, &chatMode); e != nil || projectMode != mode || chatMode != mode {
+				t.Fatalf("mode mismatch: %s %s %v", projectMode, chatMode, e)
+			}
+			if mode == "cowrite" {
+				var n int
+				if e := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_file WHERE project_id=$1`, out.Conversation.ProjectID).Scan(&n); e != nil || n == 0 {
+					t.Fatalf("missing paper files: %d %v", n, e)
+				}
+			}
+		})
+	}
+}
+
+func TestDeleteCoresearchConversationRemovesOwnedProject(t *testing.T) {
+	s, a, b, _, ws, _ := csFixture(t)
+	csRegister(t, s, a, ws, "delete-machine", "claude")
+	var boot struct{ Conversation db.CoresearchConversation }
+	if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, ws, nil, &boot); code != 200 {
+		t.Fatal(code)
+	}
+	var out struct {
+		Conversation db.CoresearchConversation
+		Run          db.AgentRun
+	}
+	path := "/api/coresearch/conversations/" + boot.Conversation.ID.String()
+	if code := s.call(t, "POST", path+"/turns", a, ws, map[string]string{"body": "Question", "request_id": uuid.NewString()}, &out); code != 201 {
+		t.Fatal(code)
+	}
+	if code := s.call(t, "DELETE", path, b, ws, nil, nil); code != 404 {
+		t.Fatalf("nonowner delete: %d", code)
+	}
+	if code := s.call(t, "DELETE", path, a, ws, nil, nil); code != 409 {
+		t.Fatalf("active delete: %d", code)
+	}
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled' WHERE id=$1`, out.Run.ID); e != nil {
+		t.Fatal(e)
+	}
+	if code := s.call(t, "DELETE", path, a, ws, nil, nil); code != 204 {
+		t.Fatalf("delete: %d", code)
+	}
+	var n int
+	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_project WHERE id=$1`, out.Conversation.ProjectID).Scan(&n); e != nil || n != 0 {
+		t.Fatalf("project retained: %d %v", n, e)
+	}
+	if code := s.call(t, "GET", "/api/coresearch/projects/"+out.Conversation.ProjectID.String(), a, ws, nil, nil); code != 404 {
+		t.Fatalf("project accessible: %d", code)
+	}
+}
+
+func TestDeleteCowriteProjectRemovesPaperRecords(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	csRegister(t, s, a, ws, "delete-paper", "claude")
+	var out struct {
+		Conversation db.CoresearchConversation
+		Run          db.AgentRun
+	}
+	in := map[string]string{"body": "Paper", "mode": "cowrite", "template": "blank", "request_id": uuid.NewString()}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, in, &out); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var files int
+	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_file WHERE project_id=$1`, out.Conversation.ProjectID).Scan(&files); e != nil || files == 0 {
+		t.Fatalf("paper files: %d %v", files, e)
+	}
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled' WHERE id=$1`, out.Run.ID); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.Env.Owner.Exec(t.Context(), `INSERT INTO coresearch_build(workspace_id,project_id,seq,requested_by,status,sources) VALUES($1,$2,1,$3,'queued','[]')`, ws, out.Conversation.ProjectID, out.Conversation.OwnerID); e != nil {
+		t.Fatal(e)
+	}
+	if code := s.call(t, "DELETE", "/api/coresearch/conversations/"+out.Conversation.ID.String(), a, ws, nil, nil); code != 409 {
+		t.Fatalf("active build deletion: %d", code)
+	}
+	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE coresearch_build SET status='aborted' WHERE project_id=$1`, out.Conversation.ProjectID); e != nil {
+		t.Fatal(e)
+	}
+	if code := s.call(t, "DELETE", "/api/coresearch/conversations/"+out.Conversation.ID.String(), a, ws, nil, nil); code != 204 {
+		t.Fatalf("delete paper: %d", code)
+	}
+	if e := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_file WHERE project_id=$1`, out.Conversation.ProjectID).Scan(&files); e != nil || files != 0 {
+		t.Fatalf("paper files retained: %d %v", files, e)
+	}
+}

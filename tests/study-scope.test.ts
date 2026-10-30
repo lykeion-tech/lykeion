@@ -75,7 +75,9 @@ async function mount(scope?: 'mine' | 'workspace', projectId?: string, user: str
   };
   await settle();
   const button = (text: string) =>
-    all(root).find((n) => n.tag === 'button' && textOf(n).trim() === text)!;
+    all(root).find(
+      (n) => n.tag === 'button' && (n.props['aria-label'] === text || textOf(n).trim() === text),
+    )!;
   const click = async (text: string) => {
     const b = button(text);
     (b.props.onClick as (event: unknown) => void)({ currentTarget: b });

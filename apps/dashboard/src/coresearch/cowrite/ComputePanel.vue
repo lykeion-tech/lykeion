@@ -121,7 +121,7 @@ async function perform(chat: string, op: 'interrupt' | 'stop' | 'restart') {
         {{ error || data.error.value?.message }}
       </p>
       <template v-if="data.data.value"
-        ><p v-if="!kernels.length" class="px-4 pb-4 type-small text-fg-subtle">
+        ><p v-if="!kernels.length" class="compute-empty px-4 pb-4 type-small text-fg-subtle">
           No live kernels<span class="mt-1 block type-meta text-fg-tertiary"
             >Run a cell in this experiment and the machine it lands on appears here.</span
           >

@@ -66,15 +66,10 @@ export const boardColumns: { id: BoardColumn; name: string }[] = [
   { id: 'hypotheses', name: 'Hypotheses' },
   { id: 'experimentation', name: 'Experimentation' },
   { id: 'validation', name: 'Validation' },
-  { id: 'blocked', name: 'Blocked' },
   { id: 'done', name: 'Done' },
+  { id: 'blocked', name: 'Blocked' },
 ];
-export const stages: Column[] = [
-  'grounding',
-  'hypotheses',
-  'experimentation',
-  'validation',
-];
+export const stages: Column[] = ['grounding', 'hypotheses', 'experimentation', 'validation'];
 export const columnName = (id: string) => boardColumns.find((c) => c.id === id)?.name ?? id;
 
 // A study scored low twice, or flagged for a person, sits in Blocked; its

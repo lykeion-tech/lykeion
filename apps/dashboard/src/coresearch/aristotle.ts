@@ -119,7 +119,7 @@ export function restoreConversation(
   list: { id: string; is_welcome: boolean }[],
   saved: string | null,
 ) {
-  return list.find((c) => c.id === saved)?.id ?? list.find((c) => c.is_welcome)?.id;
+  return list.find((c) => c.id === saved)?.id ?? list.find((c) => c.is_welcome)?.id ?? list[0]?.id;
 }
 export const conversationKey = (ws: string, member: string) =>
   [...keys.coresearchConversations(ws), member] as const;

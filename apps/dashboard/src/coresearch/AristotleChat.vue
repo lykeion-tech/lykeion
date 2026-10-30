@@ -59,8 +59,6 @@ const conversation = computed(() =>
             c.id === (route.params.conversationId || state.bootstrap.data.value?.conversation.id),
         ),
 );
-// The welcome conversation keeps its starters; what is sent from it opens a
-// new session, as the New chat page does.
 const startsSession = computed(() => isDraft.value || !!conversation.value?.is_welcome);
 const agent = computed(() => state.agent.data.value);
 const starters = computed(() =>
@@ -246,18 +244,25 @@ watch(
   [() => state.conversations.data.value, () => route.path],
   ([list]) => {
     if (!list?.length) return;
+    const owned = list.filter((c): c is Conversation => !c.shared);
+    const openConversation = (id: string) => {
+      const target = owned.find((c) => c.id === id);
+      if (target)
+        void router.replace(
+          target.mode === 'cowrite'
+            ? `/coresearch/${target.project_id}/${target.chat_id}`
+            : `/coresearch/conversations/${target.id}`,
+        );
+    };
     if (route.path === '/coresearch') {
-      const owned = list.filter((c): c is Conversation => !c.shared);
       const id = restoreConversation(owned, readText(lastKey(state.scope.value)) ?? null);
-      if (id) void router.replace(`/coresearch/conversations/${id}`);
+      if (id) openConversation(id);
     } else if (route.params.conversationId) {
-      const selected = list
-        .filter((c): c is Conversation => !c.shared)
-        .find((c) => c.id === route.params.conversationId);
+      const selected = owned.find((c) => c.id === route.params.conversationId);
       if (selected) writeText(lastKey(state.scope.value), selected.id);
       else {
-        const welcome = list.find((c) => c.is_welcome);
-        if (welcome) void router.replace(`/coresearch/conversations/${welcome.id}`);
+        const id = restoreConversation(owned, readText(lastKey(state.scope.value)) ?? null);
+        if (id) openConversation(id);
       }
     }
   },
@@ -278,7 +283,7 @@ async function send(prompt?: string) {
   const ws = workspaceId.value,
     member = state.member.value,
     scope = state.scope.value,
-    target = startsSession.value ? '' : (conversation.value?.id ?? ''),
+    target = isDraft.value ? '' : (conversation.value?.id ?? ''),
     path = route.path;
   const generation = ++viewGeneration;
   const options = {
@@ -414,13 +419,13 @@ async function stop() {
             ><small>Your research companion</small>
           </div>
           <button
-            v-if="experiment"
+            v-if="experiment && paneMode === 'closed'"
             type="button"
             class="experiment-toggle"
             aria-label="Open experiment surfaces"
             @click="toggleSurfaces"
           >
-            ☰
+            <Icon name="panel" :size="16" aria-hidden="true" />
           </button>
         </header>
         <div v-if="state.bootstrap.error.value" class="center-empty" role="alert">
@@ -586,6 +591,7 @@ async function stop() {
       </div>
       <SurfacePane
         v-if="experiment"
+        hide-title
         :open="paneMode !== 'closed'"
         :active="activePane"
         :focused="paneMode === 'focus'"
@@ -634,7 +640,11 @@ async function stop() {
               :file="activeFile"
             />
             <section v-else-if="activePane === 'files'" aria-label="Files">
-              <h2 class="experiment-files-header">Files</h2>
+              <header class="art-header experiment-files-header">
+                <span class="art-title"
+                  ><Icon name="file" :size="16" aria-hidden="true" />Files</span
+                >
+              </header>
               <SidebarFiles
                 :files="files.data.value ?? []"
                 :loading="files.isPending.value"

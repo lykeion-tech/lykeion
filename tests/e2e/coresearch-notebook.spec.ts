@@ -45,7 +45,7 @@ for (const owner of [true, false]) {
         outputs_blob: 'private/blob',
       },
       { id: 'queued', seq: 4, source: '1+1', status: 'queued', execution_count: null, outputs: [] },
-    ].map((c) => ({ kernel: 'python3', outputs_blob: null, ...c }));
+    ].map((c) => ({ kernel: 'python3', outputs_blob: null, agent_run_id: 'run', ...c }));
     await page.route(
       (url) => url.pathname.startsWith('/api/'),
       async (route) => {
@@ -212,14 +212,19 @@ for (const owner of [true, false]) {
     await expect(notebook).toContainText('Python 3.12.8');
     await expect(notebook).toContainText('solver failed');
     if (owner) {
+      const toggle = notebook.getByRole('button', { name: 'Run code', exact: true });
+      const paneBox = await page.locator('.surface-body').boundingBox();
+      const toggleBox = await toggle.boundingBox();
+      expect(
+        Math.abs(paneBox!.y + paneBox!.height - toggleBox!.y - toggleBox!.height),
+      ).toBeLessThanOrEqual(1);
+      await toggle.click();
       await notebook.getByRole('combobox', { name: 'Kernel', exact: true }).fill('custom-kernel');
       await notebook.getByRole('textbox', { name: 'Cell source', exact: true }).fill('print(2)');
       await notebook.getByRole('button', { name: 'Run', exact: true }).click();
       await expect(notebook.getByRole('textbox', { name: 'Cell source', exact: true })).toHaveValue(
         '',
       );
-      await notebook.getByRole('button', { name: 'Interrupt', exact: true }).click();
-      await notebook.getByRole('button', { name: 'Restart', exact: true }).click();
       await notebook
         .getByRole('textbox', { name: 'Setup Python version', exact: true })
         .fill('3.13');
@@ -227,11 +232,9 @@ for (const owner of [true, false]) {
         .getByRole('textbox', { name: 'Conda packages', exact: true })
         .fill('numpy\nscipy>=1.10');
       await notebook.getByRole('button', { name: 'Set up', exact: true }).click();
-      await expect.poll(() => writes.length).toBe(4);
+      await expect.poll(() => writes.length).toBe(2);
       expect(writes.map((w) => w.body)).toEqual([
         { kernel: 'custom-kernel', source: 'print(2)' },
-        { op: 'interrupt' },
-        { op: 'restart' },
         { chat_id: 'c', python: '3.13', conda: ['numpy', 'scipy>=1.10'] },
       ]);
       expect(writes.every((w) => w.workspace === 'lab')).toBe(true);
@@ -240,7 +243,8 @@ for (const owner of [true, false]) {
       for (const name of ['Run', 'Set up', 'Interrupt', 'Restart'])
         await expect(notebook.getByRole('button', { name, exact: true })).toHaveCount(0);
     }
-    await page.getByRole('tab', { name: 'Compute', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to surfaces', exact: true }).click();
+    await page.getByRole('button', { name: 'Compute', exact: true }).click();
     const compute = page.getByRole('tabpanel', { name: 'Compute' });
     if (owner) {
       for (const fact of ['Alice private machine', '1.5 of 8 cores', 'Memory'])

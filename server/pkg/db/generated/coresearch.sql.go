@@ -253,11 +253,12 @@ func (q *Queries) CoresearchMember(ctx context.Context, arg CoresearchMemberPara
 }
 
 const coresearchProjectBusy = `-- name: CoresearchProjectBusy :one
-SELECT EXISTS(SELECT 1 FROM coresearch_chat c WHERE c.workspace_id= $1 AND c.project_id= $2 AND (
+SELECT (EXISTS(SELECT 1 FROM coresearch_chat c WHERE c.workspace_id= $1 AND c.project_id= $2 AND (
  EXISTS(SELECT 1 FROM agent_run a WHERE a.workspace_id=c.workspace_id AND a.coresearch_chat_id=c.id AND a.status IN ('queued','dispatched','running'))
  OR EXISTS(SELECT 1 FROM coresearch_cell x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))
  OR EXISTS(SELECT 1 FROM coresearch_run x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))
- OR EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))))::boolean
+ OR EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))))
+ OR EXISTS(SELECT 1 FROM coresearch_build b WHERE b.workspace_id= $1 AND b.project_id= $2 AND b.status IN ('queued','running')))::boolean AS busy
 `
 
 type CoresearchProjectBusyParams struct {
@@ -267,9 +268,9 @@ type CoresearchProjectBusyParams struct {
 
 func (q *Queries) CoresearchProjectBusy(ctx context.Context, arg CoresearchProjectBusyParams) (bool, error) {
 	row := q.db.QueryRow(ctx, coresearchProjectBusy, arg.WorkspaceID, arg.ProjectID)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
+	var busy bool
+	err := row.Scan(&busy)
+	return busy, err
 }
 
 const coresearchProjectBytes = `-- name: CoresearchProjectBytes :one

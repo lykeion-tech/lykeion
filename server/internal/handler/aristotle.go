@@ -56,6 +56,13 @@ func (h *H) bootstrapAristotle(w http.ResponseWriter, r *http.Request) {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		c, err = tx.Q.FirstCoresearchConversation(ctx)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		p, err := tx.Q.CreateCoresearchProject(ctx, "Getting started with Aristotle")
 		if err != nil {
 			return err
@@ -72,6 +79,48 @@ func (h *H) bootstrapAristotle(w http.ResponseWriter, r *http.Request) {
 	})
 	if coresearchAnswer(w, r, err) {
 		writeJSON(w, 200, map[string]any{"agent": a, "conversation": c})
+	}
+}
+
+func (h *H) deleteCoresearchConversation(w http.ResponseWriter, r *http.Request) {
+	err := h.inWS(r, func(tx *store.Tx, ws, who uuid.UUID) error {
+		id, err := coresearchID(r, "conversation")
+		if err != nil {
+			return err
+		}
+		projectID, err := tx.Q.CoresearchConversationProject(r.Context(), id)
+		if err != nil {
+			return err
+		}
+		project, err := tx.Q.LockCoresearchProject(r.Context(), db.LockCoresearchProjectParams{WorkspaceID: ws, ID: projectID})
+		if err != nil {
+			return err
+		}
+		if project.CreatedBy != who {
+			return pgx.ErrNoRows
+		}
+		conversation, err := tx.Q.GetCoresearchConversation(r.Context(), id)
+		if err != nil || conversation.ProjectID != projectID {
+			return pgx.ErrNoRows
+		}
+		busy, err := tx.Q.CoresearchProjectBusy(r.Context(), db.CoresearchProjectBusyParams{WorkspaceID: ws, ProjectID: projectID})
+		if err != nil {
+			return err
+		}
+		if busy {
+			return conflict("project has queued or running work")
+		}
+		n, err := tx.Q.DeleteOwnedCoresearchProject(r.Context(), projectID)
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return pgx.ErrNoRows
+		}
+		return tx.Emit(r.Context(), "coresearch.project.updated", nil, store.User(who), map[string]any{"project_id": projectID})
+	})
+	if coresearchAnswer(w, r, err) {
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 func (h *H) listCoresearchConversations(w http.ResponseWriter, r *http.Request) {

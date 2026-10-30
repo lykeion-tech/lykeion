@@ -25,9 +25,13 @@ const steps = useCoresearchSteps(
 const replies = computed(() => props.replies.filter((m) => m.kind === 'reply'));
 const blocks = computed(() =>
   transcriptBlocks(
-    (steps.data.value ?? []).map((m) =>
-      m.type === 'thinking' && typeof m.content === 'string' ? { ...m, type: 'text' as const } : m,
-    ),
+    (steps.data.value ?? [])
+      .filter((m) => m.type !== 'log' && m.type !== 'status')
+      .map((m) =>
+        m.type === 'thinking' && typeof m.content === 'string'
+          ? { ...m, type: 'text' as const }
+          : m,
+      ),
   ).filter(
     (b) =>
       !(

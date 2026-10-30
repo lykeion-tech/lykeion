@@ -178,7 +178,7 @@ const inline = (text?: string) =>
     .replace(/<\/?a\b[^>]*>/g, '');
 </script>
 <template>
-  <div class="aristotle-composer" :class="draft ? 'w-full max-w-[660px]' : undefined">
+  <div class="aristotle-composer">
     <div
       ref="card"
       class="composer-card"

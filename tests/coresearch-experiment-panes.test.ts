@@ -171,6 +171,9 @@ it('opens the Experiment chooser with one surface at a time', async () => {
   expect(toggle).toBeTruthy();
   (toggle!.props.onClick as () => void)();
   await settle();
+  expect(
+    all(root).find((n) => n.props['aria-label'] === 'Open experiment surfaces'),
+  ).toBeUndefined();
   expect(textOf(root)).toContain('Open a surface');
   for (const label of ['Notebook', 'Files', 'Compute']) {
     const choice = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === label);
@@ -183,6 +186,9 @@ it('opens the Experiment chooser with one surface at a time', async () => {
     await settle();
     expect(textOf(root)).toContain('Open a surface');
   }
+  (all(root).find((n) => n.props['aria-label'] === 'Close pane')!.props.onClick as () => void)();
+  await settle();
+  expect(all(root).find((n) => n.props['aria-label'] === 'Open experiment surfaces')).toBeTruthy();
 });
 
 it('uses an overlay for a narrow Experiment container in a wide window', async () => {

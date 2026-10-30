@@ -14231,17 +14231,23 @@
   gap: 6px;
   padding: 0 8px;
 }
+.coresearch .cli-menu--with-cli {
+  width: min(300px, calc(100vw - 32px));
+}
 .coresearch .cli-choice {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: 1 1 0;
+  min-width: 0;
+  height: 52px;
   padding: 8px;
   border: 1px solid var(--hairline-strong);
   border-radius: 7px;
   background: var(--surface-1);
   color: var(--ink);
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
 .coresearch .cli-choice.is-selected {

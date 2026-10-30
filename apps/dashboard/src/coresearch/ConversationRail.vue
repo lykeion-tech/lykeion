@@ -1,9 +1,62 @@
 <script setup lang="ts">
-import { useAristotle, newComposerDraft } from './aristotle';
-import { isNavigationFailure, NavigationFailureType, type NavigationFailure } from 'vue-router';
+import { ref } from 'vue';
+import { useQueryClient } from '@tanstack/vue-query';
+import { Trash2 } from '@lucide/vue';
+import { useAristotle, newComposerDraft, type Conversation } from './aristotle';
+import {
+  isNavigationFailure,
+  NavigationFailureType,
+  useRoute,
+  useRouter,
+  type NavigationFailure,
+} from 'vue-router';
+import { api } from '../api/client';
+import { keys } from '../api/keys';
+import { workspaceId } from '../api/session';
+import { guardResourceDrafts } from '../state/resource-draft';
 import Icon from '../components/Icon.vue';
 import Aristotle from '../components/Aristotle.vue';
 const state = useAristotle();
+const router = useRouter(),
+  route = useRoute(),
+  client = useQueryClient();
+const deleting = ref(''),
+  deleteError = ref('');
+async function deleteConversation(c: Conversation) {
+  if (
+    deleting.value ||
+    !confirm(
+      `Delete “${c.title}” and its project, including files and paper? This cannot be undone. Stored file content may remain in storage.`,
+    )
+  )
+    return;
+  const ws = workspaceId.value,
+    scope = state.scope.value;
+  const active = route.params.conversationId === c.id || route.params.projectId === c.project_id;
+  if (active && !(await guardResourceDrafts())) return;
+  if (scope !== state.scope.value) return;
+  deleting.value = c.id;
+  deleteError.value = '';
+  try {
+    await api(
+      'DELETE',
+      `/api/coresearch/conversations/${encodeURIComponent(c.id)}`,
+      undefined,
+      undefined,
+      { workspace: ws },
+    );
+    if (scope !== state.scope.value) return;
+    if (route.params.conversationId === c.id || route.params.projectId === c.project_id)
+      await router.push('/coresearch/new');
+    await state.bootstrap.refetch();
+    await client.invalidateQueries({ queryKey: keys.coresearchConversations(ws) });
+    await client.invalidateQueries({ queryKey: keys.coresearchProjects(ws) });
+  } catch (error) {
+    if (scope === state.scope.value) deleteError.value = (error as Error).message;
+  } finally {
+    deleting.value = '';
+  }
+}
 async function startDraft(
   event: MouseEvent,
   navigate: (event: MouseEvent) => Promise<void | NavigationFailure>,
@@ -37,27 +90,43 @@ async function startDraft(
       </RouterLink>
     </header>
     <nav>
-      <RouterLink
+      <div
         v-for="c in state.conversations.data.value ?? []"
         :key="c.shared ? `shared:${c.project_id}` : c.id"
-        :to="
-          c.mode === 'cowrite'
-            ? `/coresearch/${c.project_id}/${c.chat_id}`
-            : `/coresearch/conversations/${c.id}`
-        "
-        class="conversation-link"
-        active-class="selected"
-        ><Aristotle still class="rail-portrait" /><span
-          >{{ c.title
-          }}<small
-            >{{ c.mode === 'cowrite' ? 'Cowrite' : 'Experiment'
-            }}{{ c.shared ? ' · Shared' : '' }}</small
-          ><small>{{
-            c.preview || (c.is_welcome ? 'Your research companion' : 'New conversation')
-          }}</small></span
-        ></RouterLink
+        class="conversation-item"
       >
+        <RouterLink
+          :to="
+            c.mode === 'cowrite'
+              ? `/coresearch/${c.project_id}/${c.chat_id}`
+              : `/coresearch/conversations/${c.id}`
+          "
+          class="conversation-link"
+          active-class="selected"
+          ><Aristotle still class="rail-portrait" /><span
+            >{{ c.title
+            }}<small class="conversation-mode">{{
+              c.mode === 'cowrite' ? 'Cowrite' : 'Experiment'
+            }}</small
+            ><small v-if="c.shared">Shared</small
+            ><small>{{
+              c.preview || (c.is_welcome ? 'Your research companion' : 'New conversation')
+            }}</small></span
+          ></RouterLink
+        >
+        <button
+          v-if="!c.shared"
+          type="button"
+          class="conversation-delete"
+          :aria-label="`Delete ${c.title}`"
+          :disabled="!!deleting"
+          @click="deleteConversation(c)"
+        >
+          <Trash2 :size="15" aria-hidden="true" />
+        </button>
+      </div>
     </nav>
+    <p v-if="deleteError" role="alert">{{ deleteError }}</p>
     <p v-if="state.bootstrap.error.value || state.conversations.error.value" role="alert">
       Could not load conversations.
       <button
@@ -107,6 +176,38 @@ async function startDraft(
   border-radius: 6px;
   font-size: 13px;
 }
+.conversation-item {
+  position: relative;
+}
+.conversation-item .conversation-link {
+  padding-right: 32px;
+}
+.conversation-delete {
+  position: absolute;
+  right: 6px;
+  top: 7px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--icon-faint);
+  opacity: 0;
+  pointer-events: none;
+}
+.conversation-item:hover .conversation-delete,
+.conversation-item:focus-within .conversation-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .conversation-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 .conversation-link > span {
   min-width: 0;
   overflow: hidden;
@@ -120,6 +221,13 @@ async function startDraft(
   font-size: 11px;
   color: var(--muted);
   margin-top: 5px;
+}
+.conversation-link .conversation-mode {
+  display: table;
+  padding: 1px 5px;
+  background: var(--fill-chip);
+  border: 1px solid var(--border);
+  border-radius: 4px;
 }
 .conversation-link:hover,
 .conversation-link.selected {

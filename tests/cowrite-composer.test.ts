@@ -269,7 +269,7 @@ describe('Cowrite composer', () => {
     });
     expect(m.router.currentRoute.value.path).toBe('/coresearch/paper/paper-chat');
   });
-  it('starts a new session in the chosen mode from the welcome conversation', async () => {
+  it('turns the welcome conversation into a session in the chosen mode', async () => {
     const fetch = vi.fn((_url, init) =>
       Promise.resolve(
         response(
@@ -278,9 +278,8 @@ describe('Cowrite composer', () => {
             : {
                 conversation: {
                   ...welcome,
-                  id: 'new',
-                  project_id: 'p',
-                  chat_id: 'c',
+                  id: 'welcome',
+                  is_welcome: false,
                   mode: 'cowrite',
                 },
                 run: { id: 'run' },
@@ -296,9 +295,9 @@ describe('Cowrite composer', () => {
     await m.edit('A new paper');
     await m.click('Start paper');
     const sent = fetch.mock.calls.find((c) => c[1].method === 'POST')!;
-    expect(sent[0]).toBe('/api/coresearch/conversations');
+    expect(sent[0]).toBe('/api/coresearch/conversations/welcome/turns');
     expect(JSON.parse(sent[1].body)).toMatchObject({ body: 'A new paper', mode: 'cowrite' });
-    expect(m.router.currentRoute.value.path).toBe('/coresearch/p/c');
+    expect(m.router.currentRoute.value.path).toBe('/coresearch/private/chat');
   });
   it('shows the CLI and Default without a model catalogue and excludes other members models', async () => {
     const m = await mount({ choices: [] });

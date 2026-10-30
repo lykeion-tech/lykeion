@@ -3,6 +3,7 @@ import { parseMarkdownBlocks } from '../../lib/markdown';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useSkills, useConnectors } from '../../api/queries';
 import { useAvailabilityChanges } from '../../state/availability';
+import Icon from '../../components/Icon.vue';
 import { useTemplates } from './api';
 const props = defineProps<{ cowrite?: boolean; template: string }>();
 const emit = defineEmits<{
@@ -22,7 +23,7 @@ const sections = computed(() => [
   {
     id: 'skills',
     label: 'Skills',
-    paths: ['M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z'],
+    paths: [],
   },
   {
     id: 'connectors',
@@ -114,7 +115,8 @@ const inline = (text?: string) =>
         @click="sub = sub === section.id ? '' : section.id"
       >
         <span class="cmenu-icon"
-          ><svg
+          ><Icon v-if="section.id === 'skills'" name="book" :size="15" aria-hidden="true" /><svg
+            v-else
             width="15"
             height="15"
             viewBox="0 0 24 24"

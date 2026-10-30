@@ -49,7 +49,7 @@ const cell = (id: string, seq: number, outputs: unknown, status = 'ok') => ({
   execution_count: seq,
   outputs_blob: null,
   author_user_id: 'me',
-  agent_run_id: null,
+  agent_run_id: 'run',
 });
 const button = (root: ReturnType<typeof node>, label: string) =>
   all(root).find(
@@ -169,39 +169,75 @@ describe('Coresearch notebook and compute', () => {
     ).toEqual(['cell-first', 'cell-late']);
     expect(textOf(root)).toContain('Traceback\nexact failure');
   });
+  it('keeps agent cells in the notebook and user cells in the bottom code console', async () => {
+    const { root, settle } = await mount(NotebookPane, true, (c) =>
+      c.setQueryData(keys.coresearchCells('lab', 'p', 'c'), [
+        { ...cell('agent', 1, []), agent_run_id: 'run' },
+        { ...cell('user', 2, []), agent_run_id: null },
+      ]),
+    );
+    const main = all(root).find((n) => n.props['data-testid'] === 'notebook-cells')!;
+    expect(all(main).some((n) => n.props.id === 'cell-agent')).toBe(true);
+    expect(all(main).some((n) => n.props.id === 'cell-user')).toBe(false);
+    expect(button(root, 'Run code')?.props['aria-expanded']).toBe(false);
+    expect(all(root).some((n) => n.props['data-testid'] === 'cell-editor')).toBe(false);
+    (button(root, 'Run code')!.props.onClick as () => void)();
+    await settle();
+    const console = all(root).find((n) => n.props['data-testid'] === 'cell-editor')!;
+    expect(all(console).some((n) => n.props.id === 'cell-user')).toBe(true);
+    expect(all(console).some((n) => n.props.id === 'cell-agent')).toBe(false);
+    expect(all(console).some((n) => n.props['aria-label'] === 'Cell source')).toBe(true);
+  });
+  it('lets a member read user cell history without offering execution', async () => {
+    const { root, settle } = await mount(NotebookPane, false, (c) =>
+      c.setQueryData(keys.coresearchCells('lab', 'p', 'c'), [
+        { ...cell('user', 1, [{ type: 'text', text: 'user result' }]), agent_run_id: null },
+      ]),
+    );
+    (button(root, 'Code history')!.props.onClick as () => void)();
+    await settle();
+    expect(all(root).some((n) => n.props.id === 'cell-user')).toBe(true);
+    expect(all(root).some((n) => n.props['aria-label'] === 'Cell source')).toBe(false);
+    expect(button(root, 'Run')).toBeUndefined();
+  });
   it('cell editor and all execution/setup controls only for chat owner', async () => {
     const member = await mount(NotebookPane);
     expect(all(member.root).filter((n) => n.tag === 'textarea')).toHaveLength(0);
     for (const label of ['Run', 'Interrupt', 'Restart', 'Set up'])
       expect(button(member.root, label)).toBeUndefined();
     const owner = await mount(NotebookPane, true);
+    (button(owner.root, 'Run code')!.props.onClick as () => void)();
+    await owner.settle();
     expect(
       all(owner.root).filter(
         (n) => n.tag === 'textarea' && n.props['aria-label'] === 'Cell source',
       ),
     ).toHaveLength(1);
-    for (const label of ['Run', 'Interrupt', 'Restart', 'Set up'])
-      expect(button(owner.root, label)).toBeTruthy();
+    for (const label of ['Run', 'Set up']) expect(button(owner.root, label)).toBeTruthy();
+    for (const label of ['Interrupt', 'Restart']) expect(button(owner.root, label)).toBeUndefined();
     const runtimeMember = await mount(ComputePane);
     expect(button(runtimeMember.root, 'Interrupt')).toBeUndefined();
     expect(button(runtimeMember.root, 'Restart')).toBeUndefined();
   });
-  it('interrupt posts kernel op and owner can submit a free kernel name', async () => {
+  it('owner can submit a free kernel name', async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
     vi.stubGlobal('fetch', fetch);
     const { root, settle } = await mount(NotebookPane, true);
-    (button(root, 'Interrupt')!.props.onClick as () => void)();
+    (button(root, 'Run code')!.props.onClick as () => void)();
     await settle();
-    expect(fetch.mock.calls[0]?.[0]).toBe('/api/coresearch/projects/p/chats/c/kernel');
-    expect(JSON.parse(fetch.mock.calls[0]?.[1].body)).toEqual({ op: 'interrupt' });
     const kernel = all(root).find((n) => n.tag === 'input' && n.props['aria-label'] === 'Kernel')!;
     (kernel.props['onUpdate:modelValue'] as (v: string) => void)('custom-kernel');
-    const area = all(root).find((n) => n.tag === 'textarea')!;
+    const area = all(root).find(
+      (n) => n.tag === 'textarea' && n.props['aria-label'] === 'Cell source',
+    )!;
     (area.props['onUpdate:modelValue'] as (v: string) => void)('print(2)');
     await settle();
     (button(root, 'Run')!.props.onClick as () => void)();
     await settle();
-    expect(JSON.parse(fetch.mock.calls[1]?.[1].body)).toEqual({
+    const sent = fetch.mock.calls.find(
+      ([path, options]) => String(path).endsWith('/cells') && options?.method === 'POST',
+    );
+    expect(JSON.parse(sent?.[1].body)).toEqual({
       kernel: 'custom-kernel',
       source: 'print(2)',
     });

@@ -94,7 +94,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		}
 		return original
 	}
-	var existing bool
+	var existing, startingWelcome bool
 	mode := in.Mode
 	if mode == "" {
 		mode = "experiment"
@@ -125,8 +125,11 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 			if e != nil {
 				return e
 			}
-			mode = p.Mode
-			if in.Mode != "" && in.Mode != mode {
+			startingWelcome = c.IsWelcome && c.SnapshotHarness == nil
+			if !startingWelcome {
+				mode = p.Mode
+			}
+			if !startingWelcome && in.Mode != "" && in.Mode != mode {
 				return coresearchInputError("session mode is immutable")
 			}
 		}
@@ -151,7 +154,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 422, "queue is only valid in Cowrite")
 		return
 	}
-	if in.Template != "" && (mode != "cowrite" || target != "") {
+	if in.Template != "" && (mode != "cowrite" || (target != "" && !startingWelcome)) {
 		writeErr(w, 422, "template is only valid when starting Cowrite")
 		return
 	}
@@ -160,7 +163,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		template = "blank"
 	}
 	uploads := []coresearch.UploadBlob{}
-	if target == "" && mode == "cowrite" {
+	if (target == "" || startingWelcome) && mode == "cowrite" {
 		uploads, err = coresearch.ScaffoldBlobs(template)
 		if err != nil {
 			writeErr(w, 422, err.Error())
@@ -199,6 +202,9 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 				c, e = tx.Q.GetCoresearchConversation(ctx, id)
 				if e != nil {
 					return e
+				}
+				if startingWelcome && (!c.IsWelcome || c.SnapshotHarness != nil) {
+					return conflict("starter conversation already started")
 				}
 			}
 			if c.SnapshotHarness == nil {
@@ -265,6 +271,23 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 			}
 			if !available {
 				return conflict("No available own machine with " + harness + "; connect a machine in Settings")
+			}
+			if startingWelcome {
+				titleRunes := []rune(strings.TrimSpace(in.Body))
+				title := string(titleRunes[:min(80, len(titleRunes))])
+				if e = tx.Q.ConvertWelcomeProject(ctx, db.ConvertWelcomeProjectParams{ID: c.ProjectID, Name: title, Mode: mode}); e != nil {
+					return e
+				}
+				chat.Mode = mode
+				if mode == "cowrite" {
+					if e = coresearch.Scaffold(ctx, tx, h.Store, h.Blobs, ws, c.ProjectID, who, template); e != nil {
+						return e
+					}
+				}
+				c, e = tx.Q.ConvertWelcomeConversation(ctx, db.ConvertWelcomeConversationParams{ID: c.ID, Title: title})
+				if e != nil {
+					return e
+				}
 			}
 			if target == "" {
 				titleRunes := []rune(strings.TrimSpace(in.Body))

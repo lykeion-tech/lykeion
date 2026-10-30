@@ -247,6 +247,72 @@ describe('Aristotle UI', () => {
     expect(textOf(root)).toContain('Getting started with Aristotle');
     expect(textOf(root)).toContain('Settings');
   });
+  it.each(['experiment', 'cowrite'])(
+    'preserves an existing starter alongside a separate %s run',
+    async (mode) => {
+      const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
+      client.setQueryData(conversationKey('lab', 'me'), [
+        welcome,
+        { ...welcome, id: 'run', is_welcome: false, mode, title: 'Research run' },
+      ]);
+      await settle();
+      expect(textOf(root)).toContain('Research run');
+      expect(textOf(root)).toContain('Getting started with Aristotle');
+    },
+  );
+  it('keeps the starter when only a shared session exists', async () => {
+    const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
+    client.setQueryData(conversationKey('lab', 'me'), [
+      welcome,
+      {
+        shared: true,
+        mode: 'cowrite',
+        project_id: 'shared',
+        chat_id: 'chat',
+        title: 'Shared paper',
+      },
+    ]);
+    await settle();
+    expect(textOf(root)).toContain('Getting started with Aristotle');
+    expect(textOf(root)).toContain('Shared paper');
+  });
+  it('deletes an owned chat and its project after confirmation', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+    vi.stubGlobal('confirm', () => true);
+    const { root, settle } = await mount('/coresearch/new', true, false, true, true);
+    const remove = byLabel(root, 'Delete Getting started with Aristotle');
+    expect(remove).toBeTruthy();
+    await (remove.props.onClick as () => Promise<void>)();
+    await settle();
+    expect(
+      fetch.mock.calls.some(
+        (c) => c[0] === '/api/coresearch/conversations/welcome' && c[1].method === 'DELETE',
+      ),
+    ).toBe(true);
+  });
+  it('does not delete when confirmation is declined and offers no delete for shared sessions', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    vi.stubGlobal('confirm', () => false);
+    const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
+    client.setQueryData(conversationKey('lab', 'me'), [
+      welcome,
+      {
+        shared: true,
+        mode: 'cowrite',
+        project_id: 'shared',
+        chat_id: 'chat',
+        title: 'Shared paper',
+      },
+    ]);
+    await settle();
+    expect(byLabel(root, 'Delete Shared paper')).toBeUndefined();
+    await (
+      byLabel(root, 'Delete Getting started with Aristotle').props.onClick as () => Promise<void>
+    )();
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('keeps a new draft unsaved and exposes the saved starter settings link', async () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);

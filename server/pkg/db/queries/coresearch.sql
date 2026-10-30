@@ -119,11 +119,12 @@ VALUES(@workspace_id,'coresearch',@owner_id::uuid,@owner_id::uuid,'',0,'coresear
 SELECT project_id::uuid,chat_id::uuid,message_id::uuid FROM public.coresearch_settle(@run_id::uuid);
 
 -- name: CoresearchProjectBusy :one
-SELECT EXISTS(SELECT 1 FROM coresearch_chat c WHERE c.workspace_id= @workspace_id AND c.project_id= @project_id AND (
+SELECT (EXISTS(SELECT 1 FROM coresearch_chat c WHERE c.workspace_id= @workspace_id AND c.project_id= @project_id AND (
  EXISTS(SELECT 1 FROM agent_run a WHERE a.workspace_id=c.workspace_id AND a.coresearch_chat_id=c.id AND a.status IN ('queued','dispatched','running'))
  OR EXISTS(SELECT 1 FROM coresearch_cell x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))
  OR EXISTS(SELECT 1 FROM coresearch_run x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))
- OR EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))))::boolean;
+ OR EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.workspace_id=c.workspace_id AND x.chat_id=c.id AND x.status IN ('queued','running'))))
+ OR EXISTS(SELECT 1 FROM coresearch_build b WHERE b.workspace_id= @workspace_id AND b.project_id= @project_id AND b.status IN ('queued','running')))::boolean AS busy;
 -- name: CoresearchDepart :one
 SELECT public.coresearch_depart(@target::uuid)::boolean;
 

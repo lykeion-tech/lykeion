@@ -253,7 +253,11 @@ async function save() {
             ><span class="avatar small">{{
               (owner(a.owner_id)?.name || owner(a.owner_id)?.email || '?')[0]
             }}</span
-            >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
+            ><span
+              class="agent-owner-name"
+              :title="owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member'"
+              >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
+            ></span
           ><span role="cell">{{ a.visibility === 'private' ? 'Owner only' : 'Workspace' }}</span
           ><span role="cell">{{ backendLabel(a.harness) }}</span
           ><span role="cell">{{ timeAgo(a.updated_at) }}</span></RouterLink
