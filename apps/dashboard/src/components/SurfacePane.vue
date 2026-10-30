@@ -8,6 +8,7 @@ const props = defineProps<{
   focused: boolean;
   surfaces: { id: string; label: string; icon: string }[];
   widthKey?: string;
+  containerWidth?: number;
 }>();
 const emit = defineEmits<{
   'update:open': [boolean];
@@ -20,19 +21,25 @@ const resize = usePaneResize(
   240,
   640,
   -1,
-  () =>
-    typeof window === 'undefined'
-      ? 640
-      : window.innerWidth <= 980
-        ? window.innerWidth
-        : Math.max(160, window.innerWidth - 420),
+  () => {
+    const viewport = typeof window === 'undefined' ? 1500 : window.innerWidth;
+    const available = props.containerWidth || viewport;
+    return viewport <= 980 || (props.containerWidth !== undefined && available < 640)
+      ? available
+      : Math.max(160, available - 400);
+  },
 );
 const title = computed(() => props.surfaces.find((s) => s.id === props.active)?.label ?? '');
 const pane = ref<HTMLElement>();
-const narrow = ref(typeof window !== 'undefined' && window.innerWidth <= 980);
+const viewport = ref(typeof window === 'undefined' ? 1500 : window.innerWidth);
+const narrow = computed(
+  () =>
+    viewport.value <= 980 ||
+    (props.containerWidth !== undefined && props.containerWidth > 0 && props.containerWidth < 640),
+);
 let opener: HTMLElement | null = null;
 const updateNarrow = () => {
-  narrow.value = window.innerWidth <= 980;
+  viewport.value = window.innerWidth;
 };
 onMounted(() => {
   window.addEventListener('resize', updateNarrow);
@@ -101,7 +108,13 @@ function close() {
 }
 </script>
 <template>
-  <button v-if="open" class="surface-backdrop" aria-label="Close pane overlay" @click="close" />
+  <button
+    v-if="open"
+    class="surface-backdrop"
+    :class="{ 'is-overlay': narrow }"
+    aria-label="Close pane overlay"
+    @click="close"
+  />
   <aside
     v-if="open"
     ref="pane"
@@ -109,7 +122,7 @@ function close() {
     :role="narrow ? 'dialog' : undefined"
     :aria-modal="narrow ? true : undefined"
     @keydown="keyboard"
-    :class="{ 'surface-focused': focused }"
+    :class="{ 'surface-focused': focused, 'surface-overlay': narrow }"
     :style="{ '--surface-width': resize.width.value + 'px' }"
     aria-label="Right pane"
   >
@@ -196,29 +209,27 @@ function close() {
 .surface-separator:focus-visible {
   background: var(--border, #ddd);
 }
-@media (max-width: 980px) {
-  .surface-backdrop {
-    display: block;
-    position: absolute;
-    inset: 0;
-    z-index: 19;
-    border: 0;
-    background: rgb(0 0 0 / 0.24);
-  }
-  .surface-pane {
-    position: absolute;
-    z-index: 20;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: min(var(--surface-width), 100%);
-  }
-  .surface-focused {
-    width: 100%;
-  }
-  .surface-separator {
-    display: none;
-  }
+.surface-backdrop.is-overlay {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 19;
+  border: 0;
+  background: rgb(0 0 0 / 0.24);
+}
+.surface-pane.surface-overlay {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: min(var(--surface-width), 100%);
+}
+.surface-pane.surface-overlay.surface-focused {
+  width: 100%;
+}
+.surface-overlay .surface-separator {
+  display: none;
 }
 .surface-header {
   display: flex;

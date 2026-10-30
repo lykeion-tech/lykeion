@@ -230,3 +230,26 @@ it('keeps the overlay wide enough for its content on a phone-sized viewport', as
   expect((pane.props.style as Record<string, string>)['--surface-width']).toBe('364px');
   app.unmount();
 });
+
+it('uses an overlay when the parent study is narrow even on a wide screen', async () => {
+  Object.assign(globalThis, {
+    window: { innerWidth: 1500, addEventListener() {}, removeEventListener() {} },
+  });
+  const root = node('root');
+  const app = createTreeApp({
+    render: () =>
+      h(SurfacePane, {
+        open: true,
+        active: null,
+        focused: false,
+        surfaces: [],
+        containerWidth: 550,
+      }),
+  });
+  app.mount(root);
+  await nextTick();
+  const pane = all(root).find((n) => n.props['aria-label'] === 'Right pane')!;
+  expect(pane.props.role).toBe('dialog');
+  expect(pane.props.class).toContain('surface-overlay');
+  app.unmount();
+});

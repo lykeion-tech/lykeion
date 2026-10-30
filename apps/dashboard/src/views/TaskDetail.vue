@@ -628,6 +628,7 @@ function pin() {
       v-model:active="activeSurface"
       v-model:focused="paneFocused"
       :surfaces="studySurfaces"
+      :container-width="embedded ? studyWidth : undefined"
       :width-key="
         embedded ? 'lykeion.embedded-study-inspector-width' : 'lykeion.study-inspector-width'
       "
