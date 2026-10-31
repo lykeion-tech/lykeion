@@ -6,7 +6,7 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import { useRouter } from 'vue-router';
 import { Columns3, List, FunnelX } from '@lucide/vue';
-import Icon from '../components/Icon.vue';
+import Icon from '../ui/Icon.vue';
 import { useCards, useMe, useMembers, useWorkspace } from '../api/queries';
 import type { Card } from '../api/types';
 import {

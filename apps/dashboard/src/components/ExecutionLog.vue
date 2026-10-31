@@ -9,8 +9,8 @@ import {
   runTimeline,
 } from '../lib/run-timeline';
 import { roleLabel } from '../lib/studies';
-import Icon from './Icon.vue';
-import Modal from './Modal.vue';
+import Icon from '../ui/Icon.vue';
+import Modal from '../ui/Modal.vue';
 const props = defineProps<{ runs: AgentRun[]; title: string }>();
 const expanded = ref(true),
   showRuns = ref(false),

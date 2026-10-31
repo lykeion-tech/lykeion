@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import EmojiIcon from '../apps/dashboard/src/components/EmojiIcon.vue';
+import EmojiIcon from '../apps/dashboard/src/ui/EmojiIcon.vue';
 import { all, createTreeApp, node } from './daemon-tree';
 
 it('lets an editor pick an emoji and prevents editing for a read-only object', async () => {

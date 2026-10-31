@@ -3,7 +3,7 @@ import { createRenderer, createSSRApp, h, nextTick, ref, ssrContextKey, type Com
 import { renderToString } from '@vue/server-renderer';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import AssignPicker from '../apps/dashboard/src/components/AssignPicker.vue';
+import AssignPicker from '../apps/dashboard/src/ui/AssignPicker.vue';
 import TeamDetail from '../apps/dashboard/src/views/TeamDetail.vue';
 import TeamsView from '../apps/dashboard/src/views/TeamsView.vue';
 import AgentsView from '../apps/dashboard/src/views/AgentsView.vue';
@@ -14,7 +14,7 @@ import { useTaskComposer } from '../apps/dashboard/src/state/task-composer';
 import { keys } from '../apps/dashboard/src/api/keys';
 import type { Picked, Range } from '../apps/dashboard/src/lib/studies';
 
-vi.mock('../apps/dashboard/src/components/settings/CompactSelect.vue', () => ({
+vi.mock('../apps/dashboard/src/ui/CompactSelect.vue', () => ({
   default: {
     props: ['modelValue', 'options', 'label'],
     emits: ['update:modelValue'],

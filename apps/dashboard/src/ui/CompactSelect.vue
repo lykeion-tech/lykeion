@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, useId } from 'vue';
-import Icon from '../Icon.vue';
+import Icon from './Icon.vue';
 defineOptions({ inheritAttrs: false });
 const props = withDefaults(
   defineProps<{

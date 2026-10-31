@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import SelectPicker from '../components/SelectPicker.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { themes } from '../theme';
-import Icon from '../components/Icon.vue';
+import Icon from '../ui/Icon.vue';
 import StoragePanel from '../components/settings/StoragePanel.vue';
 import MachinesView from './MachinesView.vue';
 import UpdatesView from './UpdatesView.vue';
@@ -12,7 +12,7 @@ import AnalyticsPanel from '../components/settings/AnalyticsPanel.vue';
 import SkillPanel from '../components/settings/library/SkillPanel.vue';
 import ConnectorPanel from '../components/settings/library/ConnectorPanel.vue';
 import TokenCreationForm from '../components/settings/TokenCreationForm.vue';
-import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
+import TimeZonePicker from '../ui/TimeZonePicker.vue';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';

@@ -4,7 +4,7 @@ import { ref } from 'vue';
 const freshWebhooks = ref<Record<string, string>>({});
 </script>
 <script setup lang="ts">
-import SelectPicker from '../components/SelectPicker.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
 import { computed, reactive, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
@@ -20,11 +20,11 @@ import {
 } from '../api/queries';
 import type { Autoresearch } from '../api/types';
 import { columnName, type Picked, type Range } from '../lib/studies';
-import Modal from '../components/Modal.vue';
+import Modal from '../ui/Modal.vue';
 import AutoresearchRunDialog from '../components/AutoresearchRunDialog.vue';
-import Icon from '../components/Icon.vue';
-import AssignPicker from '../components/AssignPicker.vue';
-import TimeZonePicker from '../components/settings/TimeZonePicker.vue';
+import Icon from '../ui/Icon.vue';
+import AssignPicker from '../ui/AssignPicker.vue';
+import TimeZonePicker from '../ui/TimeZonePicker.vue';
 import {
   scheduleCron,
   scheduleError,
@@ -513,7 +513,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
     >
   </section>
 </template>
-<style src="./directory.css" />
+<style src="../ui/directory.css" />
 <style scoped>
 .autoresearch-content {
   display: flex;

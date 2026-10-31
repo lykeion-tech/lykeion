@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import Icon from './Icon.vue';
+import Icon from '../ui/Icon.vue';
 const props = defineProps<{
   code: string;
   language: string;

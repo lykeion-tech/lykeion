@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import Modal from './Modal.vue';
-import Icon from './Icon.vue';
+import Modal from '../ui/Modal.vue';
+import Icon from '../ui/Icon.vue';
 import { backendDefaultModel, backendLabel } from '../lib/backends';
 import type { Runtime } from '../api/types';
 const props = defineProps<{ harness: string; runtimes?: Runtime[] }>();

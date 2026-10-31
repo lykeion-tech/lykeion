@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TeamMember } from '../api/types';
 import { backendLabel } from '../lib/backends';
-import Icon from './Icon.vue';
+import Icon from '../ui/Icon.vue';
 import { computed } from 'vue';
 const props = defineProps<{
   member: TeamMember;

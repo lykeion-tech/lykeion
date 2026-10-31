@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { workspaceId } from '../../../api/session';
 import { useSkillLibrary } from '../../../api/library';
 import { matchesQuery } from '../../../lib/search';
-import Icon from '../../Icon.vue';
+import Icon from '../../../ui/Icon.vue';
 import AvailabilitySwitch from './AvailabilitySwitch.vue';
 import { useAvailabilityChanges } from '../../../state/availability';
 const policy = useAvailabilityChanges();

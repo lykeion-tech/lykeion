@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import SelectPicker from '../../SelectPicker.vue';
+import SelectPicker from '../../../ui/SelectPicker.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRuntimes, useMe } from '../../../api/queries';
 import { useResourceDraft } from '../../../state/resource-draft';

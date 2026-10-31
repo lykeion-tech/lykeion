@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import Modal from '../../Modal.vue';
-import Icon from '../../Icon.vue';
+import Modal from '../../../ui/Modal.vue';
+import Icon from '../../../ui/Icon.vue';
 import ConnectorConfigFields, {
   emptyConnector,
   connectorInput,

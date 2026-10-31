@@ -8,7 +8,7 @@ import {
 } from '../../../api/library';
 import { useWorkspaces } from '../../../api/queries';
 import { matchesQuery } from '../../../lib/search';
-import Icon from '../../Icon.vue';
+import Icon from '../../../ui/Icon.vue';
 import AvailabilitySwitch from './AvailabilitySwitch.vue';
 import { useAvailabilityChanges } from '../../../state/availability';
 const policy = useAvailabilityChanges();

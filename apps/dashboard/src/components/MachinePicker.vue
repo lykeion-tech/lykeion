@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useMe, useMembers, useRuntimes } from '../api/queries';
 import { studyMachines } from '../lib/machines';
-import Icon from './Icon.vue';
+import Icon from '../ui/Icon.vue';
 
 const value = defineModel<string>({ default: '' });
 defineProps<{ disabled?: boolean; chip?: boolean }>();

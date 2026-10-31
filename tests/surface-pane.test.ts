@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { h, nextTick, ref } from 'vue';
-import SurfacePane from '../apps/dashboard/src/components/SurfacePane.vue';
+import SurfacePane from '../apps/dashboard/src/ui/SurfacePane.vue';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
 
 it('opens a single surface, returns to the chooser, and restores it after closing', async () => {

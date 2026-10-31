@@ -14,7 +14,7 @@ const PlainRecordedText = defineComponent({
   setup: (text) => () => h('div', { class: 'recorded-text-fallback' }, text.content),
 });
 const RecordedMarkdown = defineAsyncComponent({
-  loader: () => import('./RecordedMarkdown.vue'),
+  loader: () => import('../ui/RecordedMarkdown.vue'),
   loadingComponent: PlainRecordedText,
   errorComponent: PlainRecordedText,
   delay: 0,

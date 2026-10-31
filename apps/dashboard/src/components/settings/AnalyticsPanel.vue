@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import SelectPicker from '../SelectPicker.vue';
+import SelectPicker from '../../ui/SelectPicker.vue';
 import { agentDisplayName } from '../../lib/agent-name';
 import { computed, ref, watch } from 'vue';
 import { useAnalytics, useResearches } from '../../api/queries';

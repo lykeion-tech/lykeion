@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import Modal from '../components/Modal.vue';
+import Modal from '../ui/Modal.vue';
 import ComposerCalendar from '../components/ComposerCalendar.vue';
-import Icon from '../components/Icon.vue';
+import Icon from '../ui/Icon.vue';
 import { api, ApiError } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
@@ -19,7 +19,7 @@ import {
 } from '../lib/studies';
 import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
-import AssignPicker from '../components/AssignPicker.vue';
+import AssignPicker from '../ui/AssignPicker.vue';
 import MachinePicker from '../components/MachinePicker.vue';
 
 const props = defineProps<{ assignee?: Assignee; projectId?: string }>();
@@ -481,7 +481,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
     </form>
   </Modal>
 </template>
-<style scoped src="../components/composer-menu.css"></style>
+<style scoped src="../ui/composer-menu.css"></style>
 <style scoped>
 .task-composer {
   width: 578px;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import Icon from '../../Icon.vue';
-import RecordedMarkdown from '../../RecordedMarkdown.vue';
+import Icon from '../../../ui/Icon.vue';
+import RecordedMarkdown from '../../../ui/RecordedMarkdown.vue';
 import type { highlightToolCode } from '../../../lib/tool-code';
 
 const props = defineProps<{ path: string; content: string }>();

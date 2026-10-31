@@ -55,7 +55,7 @@ export function connectorProblem(value: ConnectorFields) {
 }
 </script>
 <script setup lang="ts">
-import Icon from '../../Icon.vue';
+import Icon from '../../../ui/Icon.vue';
 const value = defineModel<ConnectorFields>({ required: true });
 defineProps<{ disabled?: boolean }>();
 </script>

@@ -3,7 +3,7 @@ import { parseMarkdownBlocks } from '../../lib/markdown';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useSkills, useConnectors } from '../../api/queries';
 import { useAvailabilityChanges } from '../../state/availability';
-import Icon from '../../components/Icon.vue';
+import Icon from '../../ui/Icon.vue';
 import { useTemplates } from './api';
 const props = defineProps<{ cowrite?: boolean; template: string }>();
 const emit = defineEmits<{

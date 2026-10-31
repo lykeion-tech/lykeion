@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import TeamName from './TeamName.vue';
-import CompactSelect from './settings/CompactSelect.vue';
+import TeamName from '../components/TeamName.vue';
+import CompactSelect from './CompactSelect.vue';
 import { teamDisplayParts } from '../lib/team-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, toRaw } from 'vue';
 import Icon from './Icon.vue';

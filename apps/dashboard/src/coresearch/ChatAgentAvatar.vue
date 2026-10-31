@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AgentDefinition } from '../api/types';
 import Aristotle from '../components/Aristotle.vue';
-import AvatarDisplay from '../components/AvatarDisplay.vue';
+import AvatarDisplay from '../ui/AvatarDisplay.vue';
 const props = withDefaults(
   defineProps<{ agent?: AgentDefinition; size?: number; fallbackAristotle?: boolean }>(),
   { size: 64, fallbackAristotle: false },

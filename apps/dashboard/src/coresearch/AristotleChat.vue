@@ -23,7 +23,7 @@ import { api } from '../api/client';
 import { guardResourceDrafts } from '../state/resource-draft';
 import type { FileRow, SessionMode } from './types';
 import type { AgentDefinition } from '../api/types';
-import SurfacePane from '../components/SurfacePane.vue';
+import SurfacePane from '../ui/SurfacePane.vue';
 import { useElementWidth } from '../lib/element-width';
 import { agentNameWithoutCli } from '../lib/agent-name';
 import NotebookPane from './NotebookPane.vue';
@@ -40,7 +40,7 @@ import {
   useCoresearchMessages,
 } from './api';
 import ChatAgentAvatar from './ChatAgentAvatar.vue';
-import Icon from '../components/Icon.vue';
+import Icon from '../ui/Icon.vue';
 import ChatTranscript from './ChatTranscript.vue';
 import AristotleComposer from './AristotleComposer.vue';
 import './l2.css';

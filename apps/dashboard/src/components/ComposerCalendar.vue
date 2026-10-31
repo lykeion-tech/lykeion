@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
-import Icon from './Icon.vue';
+import Icon from '../ui/Icon.vue';
 import {
   dateKey as key,
   longDateLabel as label,

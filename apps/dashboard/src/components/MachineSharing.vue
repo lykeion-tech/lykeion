@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import SelectPicker from './SelectPicker.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../api/client';
@@ -8,7 +8,7 @@ import { workspaceId } from '../api/session';
 import { useMe, useMembers } from '../api/queries';
 import type { AffectedMachineRun, Runtime } from '../api/types';
 import { backendLabel } from '../lib/backends';
-import Modal from './Modal.vue';
+import Modal from '../ui/Modal.vue';
 const props = defineProps<{ machineId: string; runtimes: Runtime[]; hideHeading?: boolean }>();
 const me = useMe();
 const members = useMembers();
@@ -276,5 +276,5 @@ function cancel() {
     </Modal>
   </section>
 </template>
-<style scoped src="../views/resources.css"></style>
+<style scoped src="../ui/resources.css"></style>
 <style scoped src="../views/machines.css"></style>

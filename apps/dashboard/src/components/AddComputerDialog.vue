@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /* global __LYK_PUBLIC_API_ORIGIN__ */
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import Modal from './Modal.vue';
-import Icon from './Icon.vue';
+import Modal from '../ui/Modal.vue';
+import Icon from '../ui/Icon.vue';
 import MachineCommand from './MachineCommand.vue';
 import { useRuntimes } from '../api/queries';
 import { computerStartCommands, groupDaemons } from '../lib/machines';

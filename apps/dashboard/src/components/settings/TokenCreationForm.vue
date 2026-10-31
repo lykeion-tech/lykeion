@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
-import Icon from '../Icon.vue';
+import Icon from '../../ui/Icon.vue';
 type TokenExpiry = '30' | '90' | '365' | 'none';
 const props = withDefaults(
   defineProps<{

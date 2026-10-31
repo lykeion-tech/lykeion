@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import SelectPicker from '../components/SelectPicker.vue';
-import AvatarDisplay from '../components/AvatarDisplay.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
+import AvatarDisplay from '../ui/AvatarDisplay.vue';
 import Aristotle from '../components/Aristotle.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
@@ -10,8 +10,8 @@ import { useAgents, useMe, useMembers, useRuntimes } from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import type { AgentDefinition } from '../api/types';
-import Modal from '../components/Modal.vue';
-import Icon from '../components/Icon.vue';
+import Modal from '../ui/Modal.vue';
+import Icon from '../ui/Icon.vue';
 import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
 import '../coresearch/l2.css';
 import { backends, backendLabel } from '../lib/backends';
@@ -380,7 +380,7 @@ async function save() {
     >
   </section>
 </template>
-<style src="./directory.css" />
+<style src="../ui/directory.css" />
 
 <style scoped>
 .new-agent-model-field {

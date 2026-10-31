@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Ported from Lykeion-L2 packages/ui/src/shell/RailFabs.tsx; see L2-LICENSE.
-import Icon from '../components/Icon.vue';
+import Icon from '../ui/Icon.vue';
 // `session`: the rail beside a Cowrite session, which L2 marks with its flask.
 defineProps<{ view: 'nav' | 'context'; session?: boolean; inbox?: boolean }>();
 const emit = defineEmits<{ change: ['nav' | 'context'] }>();

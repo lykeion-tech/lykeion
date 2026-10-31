@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import Icon from './Icon.vue';
-import Modal from './Modal.vue';
+import Icon from '../ui/Icon.vue';
+import Modal from '../ui/Modal.vue';
 import AgentConnectorDialog from './AgentConnectorDialog.vue';
 import type { AgentConnector } from '../lib/agent-connectors';
 const props = defineProps<{ servers: AgentConnector[]; editable: boolean; archived: boolean }>();

@@ -13,7 +13,7 @@ import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api/client';
 import type { TeamMember } from '../api/types';
-import Modal from '../components/Modal.vue';
+import Modal from '../ui/Modal.vue';
 import TeamSkillsPicker from '../components/TeamSkillsPicker.vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import {
@@ -27,8 +27,8 @@ import {
 } from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
-import Icon from '../components/Icon.vue';
-import EmojiIcon from '../components/EmojiIcon.vue';
+import Icon from '../ui/Icon.vue';
+import EmojiIcon from '../ui/EmojiIcon.vue';
 import TeamMemberProfile from '../components/TeamMemberProfile.vue';
 import { useTaskComposer } from '../state/task-composer';
 const props = defineProps<{ id: string }>();

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import AvatarDisplay from '../components/AvatarDisplay.vue';
-import SelectPicker from '../components/SelectPicker.vue';
+import AvatarDisplay from '../ui/AvatarDisplay.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
 import { generalPurposeDomain, teamDisplayParts, teamDomain } from '../lib/team-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import Icon from '../components/Icon.vue';
+import Icon from '../ui/Icon.vue';
 import { workspaceId } from '../api/session';
 import { useTeams } from '../api/queries';
 import { matchesQuery } from '../lib/search';
@@ -186,8 +186,8 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
     </div>
   </section>
 </template>
-<style src="./directory.css" />
-<style src="./directory-table.css" />
+<style src="../ui/directory.css" />
+<style src="../ui/directory-table.css" />
 <style scoped>
 .team-directory {
   padding: 4px 4px 32px 20px;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import Icon from './Icon.vue';
+import Icon from '../ui/Icon.vue';
 import type { AgentRun } from '../api/types';
 import { roleLabel, timeAgo } from '../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../lib/agent-name';

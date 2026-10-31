@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import AvatarPicker from '../apps/dashboard/src/components/AvatarPicker.vue';
+import AvatarPicker from '../apps/dashboard/src/ui/AvatarPicker.vue';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
 
 it('offers emoji without image upload when used for an Agent or Team icon', () => {

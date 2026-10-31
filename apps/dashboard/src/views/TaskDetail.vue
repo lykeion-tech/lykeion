@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import SelectPicker from '../components/SelectPicker.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
 import {
   computed,
   defineAsyncComponent,
@@ -11,8 +11,8 @@ import {
   watch,
 } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import Icon from '../components/Icon.vue';
-import SurfacePane from '../components/SurfacePane.vue';
+import Icon from '../ui/Icon.vue';
+import SurfacePane from '../ui/SurfacePane.vue';
 import StudyOutputs from '../components/StudyOutputs.vue';
 import AgentRunCard from '../components/AgentRunCard.vue';
 import TeamName from '../components/TeamName.vue';
@@ -59,7 +59,7 @@ const PlainDescription = defineComponent({
   setup: (props) => () => h('p', { class: 'task-description-text' }, props.content),
 });
 const RecordedMarkdown = defineAsyncComponent({
-  loader: () => import('../components/RecordedMarkdown.vue'),
+  loader: () => import('../ui/RecordedMarkdown.vue'),
   loadingComponent: PlainDescription,
   errorComponent: PlainDescription,
   delay: 0,

@@ -16,10 +16,10 @@ import {
   useWorkspace,
 } from '../api/queries';
 import type { Research } from '../api/types';
-import Modal from '../components/Modal.vue';
+import Modal from '../ui/Modal.vue';
 import ProjectDetail from '../components/ProjectDetail.vue';
 import { timeAgo } from '../lib/studies';
-import Icon from '../components/Icon.vue';
+import Icon from '../ui/Icon.vue';
 const props = defineProps<{ id?: string }>();
 const list = useResearches(),
   detail = useResearch(() => props.id ?? '');
@@ -510,8 +510,8 @@ async function save() {
     </Modal>
   </section>
 </template>
-<style src="./directory.css" />
-<style src="./directory-table.css" />
+<style src="../ui/directory.css" />
+<style src="../ui/directory-table.css" />
 
 <style scoped>
 .project-editor {

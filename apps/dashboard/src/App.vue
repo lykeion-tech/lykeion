@@ -3,13 +3,13 @@ import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { MessageCircle } from '@lucide/vue';
-import Icon from './components/Icon.vue';
-import SidebarFooter from './components/SidebarFooter.vue';
+import Icon from './ui/Icon.vue';
+import SidebarFooter from './ui/SidebarFooter.vue';
 import { usePaneResize } from './lib/resize';
 import { studyDisplayTitle } from './lib/studies';
-import Modal from './components/Modal.vue';
+import Modal from './ui/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
-import CommandPalette from './components/CommandPalette.vue';
+import CommandPalette from './ui/CommandPalette.vue';
 import CreateTask from './views/CreateTask.vue';
 import { api, ApiError } from './api/client';
 import { selectWorkspace, workspaceId } from './api/session';

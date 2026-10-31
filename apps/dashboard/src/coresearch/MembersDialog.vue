@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import SelectPicker from '../components/SelectPicker.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
 import { computed, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useMembers } from '../api/queries';

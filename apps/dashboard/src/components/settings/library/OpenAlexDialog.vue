@@ -5,8 +5,8 @@ export const budget = (keySet?: boolean) =>
 </script>
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import Modal from '../../Modal.vue';
-import Icon from '../../Icon.vue';
+import Modal from '../../../ui/Modal.vue';
+import Icon from '../../../ui/Icon.vue';
 import { useLibraryMutations, useOpenAlexConnector } from '../../../api/library';
 import { useWorkspaces } from '../../../api/queries';
 import { workspaceId } from '../../../api/session';

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import SelectPicker from '../components/SelectPicker.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
-import Icon from '../components/Icon.vue';
-import Modal from '../components/Modal.vue';
+import Icon from '../ui/Icon.vue';
+import Modal from '../ui/Modal.vue';
 import TeamsView from './TeamsView.vue';
 import { backendLabel } from '../lib/backends';
 import { api } from '../api/client';

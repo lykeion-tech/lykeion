@@ -7,7 +7,7 @@ import AristotleChat from '../apps/dashboard/src/coresearch/AristotleChat.vue';
 import AgentDetail from '../apps/dashboard/src/views/AgentDetail.vue';
 import RailFabs from '../apps/dashboard/src/coresearch/RailFabs.vue';
 import ConversationRail from '../apps/dashboard/src/coresearch/ConversationRail.vue';
-import SidebarFooter from '../apps/dashboard/src/components/SidebarFooter.vue';
+import SidebarFooter from '../apps/dashboard/src/ui/SidebarFooter.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { conversationKey } from '../apps/dashboard/src/coresearch/aristotle';

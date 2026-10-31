@@ -14,7 +14,7 @@ import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import { guardResourceDrafts } from '../state/resource-draft';
-import Icon from '../components/Icon.vue';
+import Icon from '../ui/Icon.vue';
 import ChatAgentAvatar from './ChatAgentAvatar.vue';
 import { useAgents } from '../api/queries';
 const state = useAristotle();

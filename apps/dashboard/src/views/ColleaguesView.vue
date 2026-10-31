@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import SelectPicker from '../components/SelectPicker.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import Icon from '../components/Icon.vue';
-import Modal from '../components/Modal.vue';
+import Icon from '../ui/Icon.vue';
+import Modal from '../ui/Modal.vue';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
@@ -197,7 +197,7 @@ const invite = () =>
     </form>
   </Modal>
 </template>
-<style scoped src="./resources.css"></style>
+<style scoped src="../ui/resources.css"></style>
 <style scoped>
 .colleagues {
   max-width: 842px;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import SelectPicker from './SelectPicker.vue';
+import SelectPicker from '../ui/SelectPicker.vue';
 import { computed, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../api/client';
@@ -7,7 +7,7 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import { useAgents, useMe, useMembers } from '../api/queries';
 import type { ResearchDetail, Research } from '../api/types';
-import Icon from './Icon.vue';
+import Icon from '../ui/Icon.vue';
 import { usePaneResize } from '../lib/resize';
 import { readText } from '../storage';
 import TaskBoard from '../views/TaskBoard.vue';

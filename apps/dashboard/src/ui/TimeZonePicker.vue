@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import Icon from '../Icon.vue';
+import Icon from './Icon.vue';
 import { Globe } from '@lucide/vue';
 const props = withDefaults(
   defineProps<{ modelValue: string; automatic?: boolean; compact?: boolean }>(),

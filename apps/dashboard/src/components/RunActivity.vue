@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import Icon from './Icon.vue';
+import Icon from '../ui/Icon.vue';
 import RunStep from './RunStep.vue';
 import type { RunMessage } from '../api/types';
 import { activitySteps, isActivityGroup } from '../lib/run-transcript';

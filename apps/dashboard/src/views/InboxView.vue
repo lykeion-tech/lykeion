@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import Icon from '../components/Icon.vue';
+import Icon from '../ui/Icon.vue';
 import TaskDetail from './TaskDetail.vue';
 import AutoresearchRunDialog from '../components/AutoresearchRunDialog.vue';
 import { api } from '../api/client';
@@ -109,4 +109,4 @@ watch(
     />
   </section>
 </template>
-<style scoped src="./resources.css"></style>
+<style scoped src="../ui/resources.css"></style>

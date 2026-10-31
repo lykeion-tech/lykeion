@@ -2,15 +2,15 @@
 import { defineAsyncComponent, defineComponent, h, computed, ref, watch } from 'vue';
 import { useAutoresearchRun } from '../api/queries';
 import { workspaceId } from '../api/session';
-import Modal from './Modal.vue';
-import Icon from './Icon.vue';
+import Modal from '../ui/Modal.vue';
+import Icon from '../ui/Icon.vue';
 const formattingFailed = ref(false);
 const PlainRecordedText = defineComponent({
   props: { content: { type: String, default: '' } },
   setup: (text) => () => h('div', { class: 'recorded-text-fallback' }, text.content),
 });
 const RecordedMarkdown = defineAsyncComponent({
-  loader: () => import('./RecordedMarkdown.vue'),
+  loader: () => import('../ui/RecordedMarkdown.vue'),
   loadingComponent: PlainRecordedText,
   errorComponent: PlainRecordedText,
   delay: 0,

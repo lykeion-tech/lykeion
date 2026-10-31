@@ -2,8 +2,8 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
-import Icon from '../components/Icon.vue';
-import Modal from '../components/Modal.vue';
+import Icon from '../ui/Icon.vue';
+import Modal from '../ui/Modal.vue';
 import MachineSharing from '../components/MachineSharing.vue';
 import DaemonSettings from '../components/DaemonSettings.vue';
 import { useMe } from '../api/queries';
@@ -535,5 +535,5 @@ async function remove(d: Daemon) {
     </div>
   </Modal>
 </template>
-<style scoped src="./resources.css"></style>
+<style scoped src="../ui/resources.css"></style>
 <style scoped src="./machines.css"></style>

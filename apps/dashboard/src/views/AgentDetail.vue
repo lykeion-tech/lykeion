@@ -18,8 +18,8 @@ import {
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import type { AgentDefinition, Card } from '../api/types';
-import Icon from '../components/Icon.vue';
-import EmojiIcon from '../components/EmojiIcon.vue';
+import Icon from '../ui/Icon.vue';
+import EmojiIcon from '../ui/EmojiIcon.vue';
 import { useTaskComposer } from '../state/task-composer';
 import { backends, backendLabel } from '../lib/backends';
 import { matchesQuery } from '../lib/search';

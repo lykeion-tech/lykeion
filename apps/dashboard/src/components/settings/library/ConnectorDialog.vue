@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import Modal from '../../Modal.vue';
-import Icon from '../../Icon.vue';
+import Modal from '../../../ui/Modal.vue';
+import Icon from '../../../ui/Icon.vue';
 import { useConnectorLibrary, useWorkspaceMCPServers } from '../../../api/library';
 import { useMe, useMembers } from '../../../api/queries';
 

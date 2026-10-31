@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue';
-import Icon from './Icon.vue';
+import Icon from '../ui/Icon.vue';
 const props = defineProps<{ command: string; label: string }>();
 const copied = ref(false),
   failed = ref(false);
