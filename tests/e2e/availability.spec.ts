@@ -29,7 +29,8 @@ test('connector row switch replaces status and preserves setup requirements', as
   await page.getByRole('searchbox', { name: 'Search connectors' }).fill('biogrid');
   const toggle = page.getByRole('switch', { name: 'Enable biogrid', exact: true });
   await expect(toggle).toBeChecked();
-  await expect(page.locator('.connector-row small')).toContainText(setup.reason);
+  expect(setup.purpose).toBeTruthy();
+  await expect(page.locator('.connector-row p')).toContainText(setup.purpose);
   await expect(page.locator('.connector-row .status')).toHaveCount(0);
   await toggle.click();
   await expect(toggle).not.toBeChecked();
@@ -103,8 +104,12 @@ test('a stale row toggle reports the real conflict and retries the current revis
   const refused = page.waitForResponse(
     (r) => r.url().includes('/api/availability/skill/') && r.status() === 409,
   );
+  const refetched = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === '/api/skills',
+  );
   await toggle.click();
   await refused;
+  await refetched;
   await expect(page.getByRole('alert')).toContainText('availability changed');
   await expect(toggle).toBeChecked();
   await toggle.click();

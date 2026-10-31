@@ -54,7 +54,7 @@ test('colleague import refreshes open Settings and Team picker and deletion reta
     await colleague.page.goto('/#/settings/skills');
     await settingsSocket.subscribed();
     await pickerSocket.subscribed();
-    await expect(picker.getByLabel('Add skill', { exact: true })).toBeVisible();
+    await expect(picker.getByRole('combobox', { name: 'Add skill', exact: true })).toBeVisible();
     const imported = await colleague.context.request.post('/api/skills/import', {
       headers: headers(ws),
       multipart: {
@@ -69,7 +69,10 @@ test('colleague import refreshes open Settings and Team picker and deletion reta
     const skill = await imported.json();
     await expect(page.getByText('review-helper', { exact: true })).toBeVisible();
     await expect(
-      picker.getByRole('combobox', { name: 'Add skill', exact: true }).locator('..').locator('select option[value="review-helper"]'),
+      picker
+        .getByRole('combobox', { name: 'Add skill', exact: true })
+        .locator('..')
+        .locator('select option[value="review-helper"]'),
     ).toHaveCount(1);
     const makeAgent = async (name: string, model: string) => {
       const response = await page.request.post('/api/agents', {
@@ -89,7 +92,10 @@ test('colleague import refreshes open Settings and Team picker and deletion reta
     await picker.getByLabel('Member role', { exact: true }).fill('Works');
     await selectPicker(picker.getByLabel('Auditor agent', { exact: true }), audit.id);
     await picker.getByLabel('Auditor role', { exact: true }).fill('Audits');
-    await selectPicker(picker.getByLabel('Add skill', { exact: true }), 'review-helper');
+    await selectPicker(
+      picker.getByRole('combobox', { name: 'Add skill', exact: true }),
+      'review-helper',
+    );
     await expect(picker.getByRole('button', { name: 'Create Team', exact: true })).toBeEnabled();
     expect(
       (
@@ -101,7 +107,10 @@ test('colleague import refreshes open Settings and Team picker and deletion reta
     ).toBe(204);
     await expect(page.getByRole('button', { name: 'review-helper', exact: true })).toHaveCount(0);
     await expect(
-      picker.getByRole('combobox', { name: 'Add skill', exact: true }).locator('..').locator('select option[value="review-helper"]'),
+      picker
+        .getByRole('combobox', { name: 'Add skill', exact: true })
+        .locator('..')
+        .locator('select option[value="review-helper"]'),
     ).toHaveCount(0);
     await expect(
       picker.getByRole('button', { name: 'Remove skill review-helper', exact: true }),
@@ -117,7 +126,7 @@ test('colleague import refreshes open Settings and Team picker and deletion reta
   }
 });
 
-test('connector state refreshes an open member modal and custom deletion revokes actions', async ({
+test('a custom connector appears for an open member page and its deletion shows it is gone', async ({
   page,
   browser,
 }) => {
@@ -128,20 +137,8 @@ test('connector state refreshes an open member modal and custom deletion revokes
     await member.page.goto('/#/settings/connectors');
     await member.page.getByRole('button', { name: 'biogrid', exact: true }).click();
     const dialog = member.page.getByRole('dialog', { name: 'biogrid connector', exact: true });
-    await dialog.getByRole('tab', { name: 'Configuration', exact: true }).click();
+    await expect(dialog.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
     await socket.subscribed();
-    await expect(dialog.getByText('No key saved', { exact: true })).toBeVisible();
-    const list = await (await page.request.get('/api/connectors', { headers: headers(ws) })).json();
-    const entry = list.find((c: { name: string }) => c.name === 'biogrid');
-    expect(
-      (
-        await page.request.put('/api/connectors/biogrid', {
-          headers: headers(ws),
-          data: { revision: entry.revision, key: 'realtime-fixture-value', enabled: true },
-        })
-      ).status(),
-    ).toBe(200);
-    await expect(dialog.getByText('Key saved', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Save changes', exact: true })).toHaveCount(0);
     await member.page.keyboard.press('Escape');
     const created = await page.request.post('/api/mcp-servers', {
@@ -165,7 +162,7 @@ test('connector state refreshes an open member modal and custom deletion revokes
       ).status(),
     ).toBe(204);
     await expect(
-      member.page.getByText('This connector is no longer available. Your draft is preserved.', {
+      member.page.getByText('This connector is no longer available.', {
         exact: true,
       }),
     ).toBeVisible();

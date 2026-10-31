@@ -1,8 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, defineComponent, h, ref, watch } from 'vue';
 import Icon from '../../../../ui/Icon.vue';
-import RecordedMarkdown from '../../../../ui/RecordedMarkdown.vue';
 import type { highlightToolCode } from '../../../../lib/tool-code';
+
+const PlainRecordedText = defineComponent({
+  props: { content: { type: String, default: '' } },
+  setup: (text) => () => h('div', { class: 'recorded-text-fallback' }, text.content),
+});
+const RecordedMarkdown = defineAsyncComponent({
+  loader: () => import('../../../../ui/RecordedMarkdown.vue'),
+  loadingComponent: PlainRecordedText,
+  errorComponent: PlainRecordedText,
+  delay: 0,
+});
 
 const props = defineProps<{ path: string; content: string }>();
 const markdown = computed(() => /\.(md|markdown)$/i.test(props.path));
@@ -74,6 +84,10 @@ watch(
 </template>
 
 <style scoped>
+.recorded-text-fallback {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .file-viewer {
   min-width: 0;
   border: 1px solid var(--border);
