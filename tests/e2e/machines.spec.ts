@@ -681,10 +681,7 @@ test('supported daemon-reported providers retain actual versions and unreported 
     await expect(claude).toContainText('actual-claude');
     const codex = table.getByRole('row').filter({ hasText: 'Codex' });
     await expect(codex.locator('.runtime-version')).toHaveText('Not reported');
-    await codex.getByRole('button', { name: 'Backend details' }).click();
-    const detail = page.getByRole('dialog', { name: 'Codex backend details' });
-    await expect(detail).toContainText('Not reported');
-    await expect(detail).toContainText(
+    await expect(codex.locator('.machine-health')).toHaveText(
       records.find((r) => r.harness === 'codex')!.status === 'online' ? 'Online' : 'Offline',
     );
     await page.screenshot({ path: 'test-results/ui2-task16/machine-backend.png' });
