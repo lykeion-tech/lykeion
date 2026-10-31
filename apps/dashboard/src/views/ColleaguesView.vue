@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from '../components/SelectPicker.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../components/Icon.vue';
@@ -122,22 +123,23 @@ const invite = () =>
           </td>
           <td class="muted">{{ m.email }}</td>
           <td>
-            <select
-              v-if="isAdmin"
-              :value="m.role"
-              :disabled="busy"
-              :aria-label="'Role of ' + label(m)"
-              @change="setRole(m, $event.target as HTMLSelectElement)"
-            >
-              <option
-                v-if="myRole === 'owner' || m.role === 'owner'"
-                value="owner"
-                :disabled="myRole !== 'owner'"
+            <SelectPicker v-if="isAdmin"
+              ><select
+                :value="m.role"
+                :disabled="busy"
+                :aria-label="'Role of ' + label(m)"
+                @change="setRole(m, $event.target as HTMLSelectElement)"
               >
-                Owner
-              </option>
-              <option value="admin">Admin</option>
-              <option value="member">Member</option></select
+                <option
+                  v-if="myRole === 'owner' || m.role === 'owner'"
+                  value="owner"
+                  :disabled="myRole !== 'owner'"
+                >
+                  Owner
+                </option>
+                <option value="admin">Admin</option>
+                <option value="member">Member</option>
+              </select></SelectPicker
             ><span v-else>{{ roleNames[m.role] }}</span>
           </td>
           <td>
@@ -183,10 +185,12 @@ const invite = () =>
         >Email<input v-model="email" type="email" aria-label="Email" required autofocus
       /></label>
       <label
-        >Role<select v-model="role" aria-label="Role">
-          <option value="member">Member</option>
-          <option value="admin">Admin</option>
-        </select></label
+        >Role<SelectPicker
+          ><select v-model="role" aria-label="Role">
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
+          </select></SelectPicker
+        ></label
       >
       <p v-if="inviteError" class="inline-error" role="alert">{{ inviteError }}</p>
       <button class="button primary" :disabled="busy">Send invitation</button>

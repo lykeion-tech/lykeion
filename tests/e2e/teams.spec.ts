@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { labPack, labSignIn, labWorkspace } from './lab';
 
@@ -72,11 +73,11 @@ test('the store filters by domain and stage', async ({ page }) => {
   await page.screenshot({ path: `${shots}/store.png` });
 
   await page.getByRole('button', { name: 'Filter', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Domain', exact: true }).selectOption('chemistry');
+  await selectPicker(page.getByRole('combobox', { name: 'Domain', exact: true }), 'chemistry');
   await expect(rows.filter({ hasText: 'store-chem' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(0);
-  await page.getByRole('combobox', { name: 'Domain', exact: true }).selectOption('');
-  await page.getByRole('combobox', { name: 'Stage', exact: true }).selectOption('grounding');
+  await selectPicker(page.getByRole('combobox', { name: 'Domain', exact: true }), '');
+  await selectPicker(page.getByRole('combobox', { name: 'Stage', exact: true }), 'grounding');
   await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'store-chem' })).toHaveCount(0);
   await page.keyboard.press('Escape');
@@ -172,27 +173,30 @@ test('creating a Team from the template', async ({ page }) => {
     .getByRole('dialog', { name: 'Create Team' })
     .getByLabel('Domain')
     .fill('Computational biology');
-  await page
-    .getByRole('dialog', { name: 'Create Team' })
-    .getByRole('combobox', { name: 'Built for', exact: true })
-    .selectOption('grounding');
-  await page.getByLabel('Leader agent').selectOption({ label: a.lead });
+  await selectPicker(
+    page
+      .getByRole('dialog', { name: 'Create Team' })
+      .getByRole('combobox', { name: 'Built for', exact: true }),
+    'grounding',
+  );
+  await selectPicker(page.getByLabel('Leader agent'), { label: a.lead });
   await page.getByLabel('Leader role').fill('Reads the question and names a member for each step');
   const member = page.locator('.team-member').first();
   await member.getByLabel('Member name').fill('bioinformatician');
-  await member.getByLabel('Member agent').selectOption({ label: a.worker });
+  await selectPicker(member.getByLabel('Member agent'), { label: a.worker });
   await member.getByLabel('Member role').fill('Python scripts and alignment');
-  await member.getByLabel('Add skill').selectOption('aeon');
-  await member.getByLabel('Add connector').selectOption('uniprot');
-  await member.getByLabel('Add connector').selectOption('url');
+  await selectPicker(member.getByLabel('Add skill'), 'aeon');
+  await expect(member.getByRole('button', { name: 'Remove skill aeon' })).toBeVisible();
+  await selectPicker(member.getByLabel('Add connector'), 'uniprot');
+  await selectPicker(member.getByLabel('Add connector'), 'url');
   await member.getByLabel('Connector name').fill('lab-mcp');
   await member.getByLabel('Connector URL').fill('https://mcp.example.org/sse');
   await page.getByRole('button', { name: '+ Add member' }).click();
   const second = page.locator('.team-member').nth(1);
   await second.getByLabel('Member name').fill('data-specialist');
-  await second.getByLabel('Member agent').selectOption({ label: a.lead });
+  await selectPicker(second.getByLabel('Member agent'), { label: a.lead });
   await second.getByLabel('Member role').fill('Fetches records');
-  await page.getByLabel('Auditor agent').selectOption({ label: a.checker });
+  await selectPicker(page.getByLabel('Auditor agent'), { label: a.checker });
   await page.getByLabel('Auditor role').fill('Checks every quote against its recorded call');
   await page.getByRole('button', { name: "+ This Team's own criterion" }).click();
   await page
@@ -204,26 +208,24 @@ test('creating a Team from the template', async ({ page }) => {
   await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible();
   await expect(page.getByText('bioinformatician', { exact: true })).toBeVisible();
   await expect(page.getByText('data-specialist', { exact: true })).toBeVisible();
-  await expect(page.getByText('Skills: aeon')).toBeVisible();
   await page.getByRole('tab', { name: 'Settings', exact: true }).click();
   await expect(page.getByText('Every dataset named has its accession')).toBeVisible();
-  await expect(page.getByText('20 steps per column')).toBeVisible();
 });
 
 test('the auditor must use another model', async ({ page }) => {
   const a = await formAgents(page);
   await page.goto('/#/teams/new');
   await page.getByLabel('Team name').fill('auditor-check');
-  await page.getByLabel('Leader agent').selectOption({ label: a.lead });
+  await selectPicker(page.getByLabel('Leader agent'), { label: a.lead });
   await page.getByLabel('Leader role').fill('Leads');
   const member = page.locator('.team-member').first();
   await member.getByLabel('Member name').fill('worker');
-  await member.getByLabel('Member agent').selectOption({ label: a.worker });
+  await selectPicker(member.getByLabel('Member agent'), { label: a.worker });
   await member.getByLabel('Member role').fill('Works');
-  await page.getByLabel('Auditor agent').selectOption({ label: a.checker });
+  await selectPicker(page.getByLabel('Auditor agent'), { label: a.checker });
   await page.getByLabel('Auditor role').fill('Audits');
   await expect(page.getByRole('button', { name: 'Create Team' })).toBeEnabled();
-  await page.getByLabel('Auditor agent').selectOption({ label: a.lead });
+  await selectPicker(page.getByLabel('Auditor agent'), { label: a.lead });
   await expect(page.getByRole('alert')).toHaveText(
     'The auditor must run on a different model from the leader and every member',
   );
@@ -267,7 +269,7 @@ test('Team slots show the supported agent backends', async ({ page }) => {
   await page.goto('/#/teams/new');
   const slot = page.locator('.slot').filter({ has: page.getByLabel('Leader agent') });
   for (const agent of agents) {
-    await page.getByLabel('Leader agent').selectOption(agent.id);
+    await selectPicker(page.getByLabel('Leader agent'), agent.id);
     await expect(slot.locator('small')).toHaveText(agent.label);
   }
 });

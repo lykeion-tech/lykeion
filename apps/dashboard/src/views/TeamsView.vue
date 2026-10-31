@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AvatarDisplay from '../components/AvatarDisplay.vue';
-import { teamDisplayParts } from '../lib/team-name';
+import SelectPicker from '../components/SelectPicker.vue';
+import { generalPurposeDomain, teamDisplayParts, teamDomain } from '../lib/team-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from '../components/Icon.vue';
 import { workspaceId } from '../api/session';
@@ -22,31 +23,41 @@ async function toggleFilter() {
   if (filterOpen.value) return closeFilter(true);
   filterOpen.value = true;
   await nextTick();
-  filterAnchor.value?.querySelector<HTMLSelectElement>('select')?.focus();
+  filterAnchor.value?.querySelector<HTMLButtonElement>('.select-picker-trigger')?.focus();
 }
 function outsideFilter(event: PointerEvent) {
   if (!filterAnchor.value?.contains(event.target as Node | null)) closeFilter();
 }
 function leaveFilter(event: FocusEvent) {
+  if ((event.relatedTarget as HTMLElement | null)?.closest?.('.select-picker-popup')) return;
   if (!filterAnchor.value?.contains(event.relatedTarget as Node | null)) closeFilter();
 }
 onMounted(() => document.addEventListener('pointerdown', outsideFilter));
 onUnmounted(() => document.removeEventListener('pointerdown', outsideFilter));
 const stages = ['grounding', 'hypotheses', 'experimentation', 'validation'];
 const everything = useTeams('', '');
-const teams = useTeams(domain, stage);
+const teams = useTeams(() => (domain.value === generalPurposeDomain ? '' : domain.value), stage);
 const rows = computed(() =>
   (teams.data.value ?? [])
-    .filter((team) =>
-      matchesQuery(
-        `${team.name} ${teamDisplayParts(team.name).label} ${team.manifest.description}`,
-        search.value,
-      ),
+    .filter(
+      (team) =>
+        (domain.value !== generalPurposeDomain ||
+          teamDomain(team.source, team.stage, team.domain) === generalPurposeDomain) &&
+        matchesQuery(
+          `${team.name} ${teamDisplayParts(team.name).label} ${team.manifest.description}`,
+          search.value,
+        ),
     )
     .sort((a, b) => (newestFirst.value ? -1 : 1) * a.created_at.localeCompare(b.created_at)),
 );
 const domains = computed(() =>
-  [...new Set((everything.data.value ?? []).map((t) => t.domain).filter(Boolean))].sort(),
+  [
+    ...new Set(
+      (everything.data.value ?? [])
+        .map((t) => teamDomain(t.source, t.stage, t.domain))
+        .filter(Boolean),
+    ),
+  ].sort(),
 );
 watch(workspaceId, () => closeFilter());
 const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
@@ -90,16 +101,20 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
           @keydown.esc.stop.prevent="closeFilter(true)"
         >
           <label
-            >Domain<select v-model="domain" aria-label="Domain">
-              <option value="">All domains</option>
-              <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
-            </select></label
+            >Domain<SelectPicker
+              ><select v-model="domain" aria-label="Domain">
+                <option value="">All domains</option>
+                <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
+              </select></SelectPicker
+            ></label
           >
           <label
-            >Stage<select v-model="stage" aria-label="Stage">
-              <option value="">All stages</option>
-              <option v-for="s in stages" :key="s" :value="s">{{ label(s) }}</option>
-            </select></label
+            >Stage<SelectPicker
+              ><select v-model="stage" aria-label="Stage">
+                <option value="">All stages</option>
+                <option v-for="s in stages" :key="s" :value="s">{{ label(s) }}</option>
+              </select></SelectPicker
+            ></label
           >
           <button
             v-if="domain || stage"
@@ -137,10 +152,13 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
                     v-if="t.avatar_url"
                     :value="t.avatar_url.slice(6)"
                     :size="18" /><Icon v-else name="network" :size="18" /></span
-                ><span class="team-label">{{ teamDisplayParts(t.name).label }}</span></RouterLink
+                ><span class="team-label"
+                  ><span>{{ teamDisplayParts(t.name).label }}</span
+                  ><small v-if="t.manifest.description">{{ t.manifest.description }}</small></span
+                ></RouterLink
               >
             </td>
-            <td>{{ t.domain || '—' }}</td>
+            <td>{{ teamDomain(t.source, t.stage, t.domain) || '—' }}</td>
             <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>
             <td>{{ t.manifest.members.length + 2 }}</td>
             <td>
@@ -173,6 +191,9 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 <style scoped>
 .team-directory {
   padding: 4px 4px 32px 20px;
+}
+.team-toolbar {
+  margin-right: 16px;
 }
 .team-toolbar .agent-sort {
   margin-left: 0;
@@ -254,6 +275,22 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.team-label {
+  min-width: 0;
+}
+.team-label > span,
+.team-label small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-label small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
 }
 .team-icon {
   display: grid;

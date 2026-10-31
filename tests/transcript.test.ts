@@ -146,17 +146,41 @@ describe('reading-first recorded run', () => {
       msg(3, 'tool_use', { id: 'a', input: { command: 'ls' } }, 'Bash'),
       msg(4, 'tool_result', { tool_use_id: 'a', content: 'files' }),
       msg(5, 'log', 'Another internal log'),
+      msg(6, 'status', 'Internal status'),
+      msg(7, 'text', '  '),
+      msg(8, 'thinking', ''),
     ]);
     expect(html).not.toContain('Run log');
     expect(html).not.toContain('Recorded reasoning');
     expect(html).not.toContain('Internal run log');
     expect(html).not.toContain('Internal reasoning');
+    expect(html).not.toContain('Internal status');
+    expect(html).not.toContain('Run status');
+    expect(html).not.toContain('mark-message');
     expect(html).not.toContain('data-activity-group');
     expect(html).toContain('ls');
     expect(html).toContain('files');
-    const hiddenOnly = await render([msg(1, 'log', 'log'), msg(2, 'thinking', 'thinking')]);
+    const hiddenOnly = await render([
+      msg(1, 'log', 'log'),
+      msg(2, 'thinking', 'thinking'),
+      msg(3, 'status', 'status'),
+    ]);
     expect(hiddenOnly).not.toContain('Recorded activity');
     expect(hiddenOnly).not.toContain('activity-single');
+    expect(hiddenOnly).not.toContain('mark-message');
+  });
+  it('uses hidden title metadata without rendering it as a step', async () => {
+    const html = await render([
+      msg(1, 'tool_use', { id: 'a', input: { command: 'ls' } }, 'Bash'),
+      msg(2, 'status', {
+        type: 'tool_step_titles',
+        version: 1,
+        titles: [{ seq: 1, title: 'Inspect recorded files' }],
+      }),
+    ]);
+    expect(html).toContain('Inspect recorded files');
+    expect(html).not.toContain('Run status');
+    expect(html).not.toContain('mark-message');
   });
   it('keeps unmatched recorded failures visible on the rail', async () => {
     const html = await render([
@@ -199,8 +223,9 @@ describe('reading-first recorded run', () => {
           msg(2, 'text', '## Result\n\nSecond paragraph.'),
           msg(3, 'text', '- first item\n- second item'),
           msg(4, 'text', '```python\nprint("recorded")\n```'),
-          msg(5, 'status', 'waiting'),
-          msg(6, 'text', 'After activity.'),
+          msg(5, 'tool_use', { id: 'between', input: { command: 'pwd' } }, 'Bash'),
+          msg(6, 'status', 'waiting'),
+          msg(7, 'text', 'After activity.'),
         ],
         { harness },
       );

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import TeamName from './TeamName.vue';
+import CompactSelect from './settings/CompactSelect.vue';
 import { teamDisplayParts } from '../lib/team-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, toRaw } from 'vue';
 import Icon from './Icon.vue';
@@ -73,6 +74,12 @@ defineExpose({ name, unstaged, teamColumns, set });
 const matchingTeams = computed(() =>
   addedTeams.value.filter((t) => matchesQuery(t.name, query.value)),
 );
+const matchingBuiltInTeams = computed(() =>
+  matchingTeams.value.filter((team) => team.source === 'shipped'),
+);
+const matchingCustomTeams = computed(() =>
+  matchingTeams.value.filter((team) => team.source !== 'shipped'),
+);
 const matchingAgents = computed(() =>
   assignableAgents.value.filter((a) => matchesQuery(a.name, query.value)),
 );
@@ -130,7 +137,10 @@ function pickColumn(col: string) {
   closeMenu();
 }
 function outside(event: PointerEvent) {
-  if (!root.value?.contains(event.target as Node)) closeMenu();
+  const target = event.target as HTMLElement;
+  const picker = target.closest?.('.compact-select-menu');
+  if (picker?.id && root.value?.querySelector(`[aria-controls="${CSS.escape(picker.id)}"]`)) return;
+  if (!root.value?.contains(target)) closeMenu();
 }
 function keysDown(event: KeyboardEvent) {
   if (event.key === 'Escape' && menu.value) {
@@ -160,9 +170,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         role="menu"
       >
         <input v-model="query" placeholder="Assign to…" aria-label="Search assignees" />
-        <button v-if="!agents" type="button" role="menuitem" @click="assign(null)">
-          <Icon name="bot" :size="14" /><span>Built-in Teams</span>
-        </button>
         <p v-if="agents && matchingAgents.length" class="menu-group">Agents</p>
         <button
           v-for="a in agents ? matchingAgents : []"
@@ -173,18 +180,26 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         >
           <Icon name="bot" :size="14" /><span>{{ a.name }}</span>
         </button>
-        <p v-if="matchingTeams.length" class="menu-group">Teams</p>
-        <button
-          v-for="t in matchingTeams"
-          :key="t.id"
-          type="button"
-          role="menuitem"
-          @click="assign({ type: 'team', teams: { [t.stage]: t.id } })"
+        <template
+          v-for="group in [
+            { label: 'Built-in Teams', teams: matchingBuiltInTeams },
+            { label: 'Custom Teams', teams: matchingCustomTeams },
+          ]"
+          :key="group.label"
         >
-          <Icon name="bot" :size="14" /><span><TeamName :name="t.name" /></span
-          ><small v-if="t.stage">Built for {{ stageName(t.stage) }}</small
-          ><small v-else>No stage label</small>
-        </button>
+          <p v-if="group.teams.length" class="menu-group">{{ group.label }}</p>
+          <button
+            v-for="t in group.teams"
+            :key="t.id"
+            type="button"
+            role="menuitem"
+            @click="assign({ type: 'team', teams: { [t.stage]: t.id } })"
+          >
+            <Icon name="bot" :size="14" /><span><TeamName :name="t.name" /></span
+            ><small v-if="t.stage">Built for {{ stageName(t.stage) }}</small
+            ><small v-else>No stage label</small>
+          </button>
+        </template>
         <p v-if="showSets" class="menu-group">Team sets</p>
         <button
           v-if="showSets && lastSet"
@@ -199,7 +214,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           <Icon name="plus" :size="14" /><span>New set…</span>
         </button>
         <template v-if="oneAgent">
-          <p v-if="matchingAgents.length" class="menu-group">One agent</p>
+          <p v-if="matchingAgents.length" class="menu-group">Agents</p>
           <button
             v-for="a in matchingAgents"
             :key="a.id"
@@ -223,19 +238,30 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       >
         <label v-for="s in stages" :key="s"
           >{{ stageName(s) }}
-          <select v-model="setSlots[s]" :aria-label="`${stageName(s)} Team`">
-            <option value="">{{ agents ? 'No Team' : 'Built-in Team' }}</option>
-            <option v-for="t in addedTeams" :key="t.id" :value="t.id">
-              {{ teamDisplayParts(t.name).label }}
-            </option>
-          </select>
+          <CompactSelect
+            v-model="setSlots[s]"
+            :label="`${stageName(s)} Team`"
+            :width="240"
+            :options="[
+              { value: '', label: agents ? 'No Team' : 'Built-in Team' },
+              ...addedTeams.map((team) => ({
+                value: team.id,
+                label: teamDisplayParts(team.name).label,
+              })),
+            ]"
+          />
         </label>
         <label v-if="gaps"
           >Agent for the other stages
-          <select v-model="setAgent" aria-label="Agent for the other stages">
-            <option value="">Choose an agent</option>
-            <option v-for="a in assignableAgents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <CompactSelect
+            v-model="setAgent"
+            label="Agent for the other stages"
+            :width="240"
+            :options="[
+              { value: '', label: 'Choose an agent' },
+              ...assignableAgents.map((agent) => ({ value: agent.id, label: agent.name })),
+            ]"
+          />
         </label>
         <button type="button" class="button primary compact" :disabled="!setReady" @click="useSet">
           Use this set
@@ -267,14 +293,16 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       >
         <label
           >Stage
-          <select
-            aria-label="Stage"
-            value=""
-            @change="pickColumn(($event.target as HTMLSelectElement).value)"
-          >
-            <option value="" disabled>Choose a stage</option>
-            <option v-for="s in stages" :key="s" :value="s">{{ stageName(s) }}</option>
-          </select>
+          <CompactSelect
+            model-value=""
+            label="Stage"
+            :width="200"
+            :options="[
+              { value: '', label: 'Choose a stage', disabled: true },
+              ...stages.map((stage) => ({ value: stage, label: stageName(stage) })),
+            ]"
+            @update:model-value="pickColumn"
+          />
         </label>
       </div>
       <div
@@ -284,23 +312,23 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       >
         <label
           >From
-          <select
-            :value="range.from"
-            aria-label="From stage"
-            @change="pickStage('from', ($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="s in stages" :key="s" :value="s">{{ stageName(s) }}</option>
-          </select>
+          <CompactSelect
+            :model-value="range.from"
+            label="From stage"
+            :width="200"
+            :options="stages.map((stage) => ({ value: stage, label: stageName(stage) }))"
+            @update:model-value="pickStage('from', $event)"
+          />
         </label>
         <label
           >To
-          <select
-            :value="range.to"
-            aria-label="To stage"
-            @change="pickStage('to', ($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="s in stages" :key="s" :value="s">{{ stageName(s) }}</option>
-          </select>
+          <CompactSelect
+            :model-value="range.to"
+            label="To stage"
+            :width="200"
+            :options="stages.map((stage) => ({ value: stage, label: stageName(stage) }))"
+            @update:model-value="pickStage('to', $event)"
+          />
         </label>
       </div>
     </div>

@@ -251,7 +251,7 @@ onUnmounted(() => {
   max-width: calc(100vw - 16px);
   max-height: 334px;
   padding: 6px;
-  background: var(--modal);
+  background: var(--fill-menu);
   border: 1px solid color-mix(in srgb, var(--surface) 35%, transparent);
   border-radius: 8px;
   box-shadow: 0 6px 20px #0002;

@@ -79,6 +79,7 @@ async function mount(
     defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
   });
   client.setQueryData(keys.me, { id: 'me', name: 'Ada' });
+  client.setQueryData(keys.agents('lab'), [{ ...agent, source: 'built_in' }]);
   client.setQueryData(keys.workspaces, [{ id: 'lab', role: 'owner' }]);
   client.setQueryData(keys.workspace('lab'), {});
   client.setQueryData(keys.cards('lab'), []);
@@ -134,6 +135,144 @@ function edit(root: ReturnType<typeof node>, value: string) {
 const response = (body: unknown, status = 201) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 describe('Aristotle UI', () => {
+  it('uses the conversation agent avatar in the rail', async () => {
+    const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
+    client.setQueryData(keys.agents('lab'), [
+      { ...agent, id: 'custom', built_in_key: '', name: 'Analyst', avatar_url: 'emoji:🧪' },
+    ]);
+    client.setQueryData(conversationKey('lab', 'me'), [
+      { ...welcome, id: 'custom-chat', agent_id: 'custom', title: 'Analysis' },
+    ]);
+    await settle();
+    const row = all(root).find((n) => n.tag === 'a' && textOf(n).includes('Analysis'))!;
+    expect(textOf(row)).toContain('🧪');
+    expect(all(row).some((n) => n.props.class === 'chat-agent-avatar')).toBe(true);
+  });
+  it('starts a new conversation with the chosen agent and its starters', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
+    vi.stubGlobal('fetch', fetch);
+    const { root, client, settle } = await mount('/coresearch/new');
+    const custom = {
+      ...agent,
+      id: 'custom',
+      built_in_key: '',
+      name: 'Custom analyst',
+      instructions: 'Analyze carefully',
+      model: 'agent-model',
+      conversation_starters: [{ label: 'Custom start', prompt: 'Exact custom prompt' }],
+    };
+    client.setQueryData(keys.runtimes('lab'), [
+      {
+        owner_id: 'me',
+        status: 'online',
+        harness: 'claude',
+        models: [{ value: 'other-model', label: 'Other model' }],
+      },
+    ]);
+    client.setQueryData(keys.agents('lab'), [
+      { ...agent, source: 'built_in' },
+      { ...custom, source: 'custom' },
+    ]);
+    await settle();
+    (byLabel(root, 'Choose agent').props.onClick as () => void)();
+    await settle();
+    const option = all(root).find(
+      (n) => n.tag === 'button' && textOf(n).trim() === 'Custom analyst',
+    )!;
+    (option.props.onClick as () => void)();
+    await settle();
+    expect(textOf(root)).toContain('Chat with Custom analyst');
+    expect(textOf(root)).toContain('Custom start');
+    const starter = all(root).find(
+      (n) => n.tag === 'button' && textOf(n).trim() === 'Custom start',
+    )!;
+    await (starter.props.onClick as () => Promise<void>)();
+    await settle();
+    const sent = fetch.mock.calls.find((call) =>
+      String(call[0]).endsWith('/api/coresearch/conversations'),
+    )!;
+    expect(JSON.parse(sent[1].body)).toMatchObject({
+      agent_id: 'custom',
+      body: 'Exact custom prompt',
+    });
+    expect(JSON.parse(sent[1].body)).not.toHaveProperty('model');
+  });
+  it.each(['custom', 'built_in'])('allows %s agents to edit and save conversation starters', async (source) => {
+    const fetch = vi.fn(async (_url: string, _init: { body: string }) => response(agent, 200));
+    vi.stubGlobal('fetch', fetch);
+    const { root, client, settle } = await mount('/agents/aristotle?tab=settings', true, true);
+    client.setQueryData(keys.agent('lab', 'aristotle'), {
+      ...agent,
+      built_in_key: '',
+      name: 'Agent',
+    });
+    client.setQueryData(keys.agents('lab'), [{ ...agent, source }]);
+    await settle();
+    expect(textOf(root)).toContain('Conversation starters');
+    const add = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Add starter')!;
+    (add.props.onClick as () => void)();
+    await settle();
+    (byLabel(root, 'Starter 1 label').props['onUpdate:modelValue'] as (s: string) => void)(
+      'Investigate',
+    );
+    (byLabel(root, 'Starter 1 prompt').props['onUpdate:modelValue'] as (s: string) => void)(
+      'Investigate this evidence',
+    );
+    await settle();
+    const form = all(root).find(
+      (n) => n.tag === 'form' && textOf(n).includes('Conversation starters'),
+    )!;
+    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    expect(JSON.parse(fetch.mock.calls[0]![1].body).conversation_starters).toEqual([
+      { label: 'Investigate', prompt: 'Investigate this evidence' },
+    ]);
+  });
+  it('shows the runtime-reported model name and falls back when it is unknown', async () => {
+    const { root, client, settle } = await mount('/agents/aristotle', true, true);
+    client.setQueryData(keys.agent('lab', 'aristotle'), { ...agent, model: 'sonnet' });
+    client.setQueryData(keys.runtimes('lab'), [
+      {
+        owner_id: 'me',
+        status: 'online',
+        harness: 'claude',
+        models: [{ value: 'sonnet', label: 'Sonnet 5.5' }],
+      },
+    ]);
+    await settle();
+    expect(textOf(root).match(/Sonnet 5\.5/g)).toHaveLength(2);
+    client.setQueryData(keys.runtimes('lab'), [
+      {
+        owner_id: 'me',
+        status: 'online',
+        harness: 'claude',
+        models: [{ value: 'sonnet', label: 'Sonnet 5.5' }],
+      },
+      {
+        owner_id: 'me',
+        status: 'online',
+        harness: 'claude',
+        models: [{ value: 'sonnet', label: 'Sonnet 4.6' }],
+      },
+    ]);
+    await settle();
+    expect(textOf(root).match(/sonnet/g)).toHaveLength(2);
+    client.setQueryData(keys.runtimes('lab'), []);
+    await settle();
+    expect(textOf(root).match(/sonnet/g)).toHaveLength(2);
+  });
+  it('only offers deletion for custom agents', async () => {
+    const { root, client, settle } = await mount('/agents/aristotle', true, true);
+    const teamAgent = { ...agent, built_in_key: '', name: 'Team agent' };
+    client.setQueryData(keys.agent('lab', 'aristotle'), teamAgent);
+    client.setQueryData(keys.agents('lab'), [{ ...teamAgent, source: 'built_in' }]);
+    await settle();
+    const deleteButton = () =>
+      all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Delete agent');
+    expect(deleteButton()).toBeUndefined();
+    client.setQueryData(keys.agents('lab'), [{ ...teamAgent, source: 'custom' }]);
+    await settle();
+    expect(deleteButton()).toBeTruthy();
+  });
   it('chooses an online CLI and its model for a new conversation', async () => {
     const fetch = vi
       .fn()
@@ -415,6 +554,7 @@ describe('Aristotle UI', () => {
       conversation: { ...welcome, id: 'other-welcome', workspace_id: 'other-lab' },
     });
     client.setQueryData(keys.agent('other-lab', 'other-agent'), otherAgent);
+    client.setQueryData(keys.agents('other-lab'), [{ ...otherAgent, source: 'built_in' }]);
     client.setQueryData(conversationKey('other-lab', 'me'), []);
     client.setQueryData(keys.runtimes('other-lab'), []);
     workspaceId.value = 'other-lab';
@@ -512,7 +652,11 @@ describe('Aristotle UI', () => {
   );
   it('resets agent edit sessions and prevents an old save from clearing a newer save', async () => {
     const resolvers: ((r: Response) => void)[] = [];
-    const fetch = vi.fn(() => new Promise<Response>((resolve) => resolvers.push(resolve)));
+    const fetch = vi.fn((url: string) =>
+      url.endsWith('/api/agents')
+        ? Promise.resolve(response([{ ...agent, source: 'built_in' }], 200))
+        : new Promise<Response>((resolve) => resolvers.push(resolve)),
+    );
     vi.stubGlobal('fetch', fetch);
     const { root, client, router, settle } = await mount(
       '/agents/aristotle?tab=settings',

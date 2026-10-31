@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { labWorkspace, labSignIn, LAB, labSkillFolder } from './lab';
 import { rmSync } from 'node:fs';
@@ -164,8 +165,8 @@ test('runtime import shows per-item results', async ({ page }) => {
   await page.getByRole('button', { name: 'Add skill', exact: true }).click();
   await page.getByRole('button', { name: 'Copy from runtime', exact: false }).click();
   const picker = page.getByRole('combobox', { name: 'Runtime', exact: true });
-  await expect(picker.locator('option')).not.toHaveCount(1);
-  await picker.selectOption({ label: 'lab-mac · Claude Code' });
+  await expect(picker.locator('..').locator('select option')).not.toHaveCount(1);
+  await selectPicker(picker, { label: 'lab-mac · Claude Code' });
   await page.getByRole('checkbox', { name: 'runtime-review', exact: false }).check();
   await page.getByRole('checkbox', { name: 'runtime-duplicate', exact: false }).check();
   await page.getByRole('button', { name: 'Import to workspace', exact: true }).click();
@@ -499,9 +500,9 @@ test('single runtime copy opens its editor only after Done', async ({ page }) =>
   await open(page);
   await page.getByRole('button', { name: 'Add skill', exact: true }).click();
   await page.getByRole('button', { name: 'Copy from runtime', exact: false }).click();
-  await page
-    .getByRole('combobox', { name: 'Runtime', exact: true })
-    .selectOption({ label: 'lab-mac · Claude Code' });
+  await selectPicker(page.getByRole('combobox', { name: 'Runtime', exact: true }), {
+    label: 'lab-mac · Claude Code',
+  });
   await page.getByRole('checkbox', { name: 'runtime-single', exact: false }).check();
   await page.getByRole('button', { name: 'Import to workspace', exact: true }).click();
   await expect(page.getByText('runtime-single · Imported', { exact: true })).toBeVisible();
@@ -547,8 +548,8 @@ async function selectedRuntimeSkill(page: Page) {
   await page.getByRole('button', { name: 'Add skill', exact: true }).click();
   await page.getByRole('button', { name: 'Copy from runtime', exact: false }).click();
   const picker = page.getByRole('combobox', { name: 'Runtime', exact: true });
-  await expect(picker.locator('option')).not.toHaveCount(1);
-  await picker.selectOption({ label: 'lab-mac · Claude Code' });
+  await expect(picker.locator('..').locator('select option')).not.toHaveCount(1);
+  await selectPicker(picker, { label: 'lab-mac · Claude Code' });
   const checkbox = page.getByRole('checkbox', { name: 'runtime-review', exact: false });
   await checkbox.check();
   return { picker, checkbox, runtime: await picker.inputValue() };
@@ -559,14 +560,14 @@ test('runtime Back preserves selected skills until explicit discard', async ({ p
   await page.getByRole('button', { name: 'Back to methods', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible();
   await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
-  await expect(picker).toHaveValue(runtime);
+  await expect(picker).toHaveAttribute('data-value', runtime);
   await expect(checkbox).toBeChecked();
   await page.getByRole('button', { name: 'Back to methods', exact: true }).click();
   await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Add skill', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Copy from runtime', exact: false }).click();
-  await expect(picker).toHaveValue('');
-  await picker.selectOption({ label: 'lab-mac · Claude Code' });
+  await expect(picker).toHaveAttribute('data-value', '');
+  await selectPicker(picker, { label: 'lab-mac · Claude Code' });
   await expect(checkbox).not.toBeChecked();
 });
 
@@ -574,16 +575,16 @@ test('runtime change preserves identity and selected skills until explicit disca
   page,
 }) => {
   const { picker, checkbox, runtime } = await selectedRuntimeSkill(page);
-  await picker.selectOption('');
+  await selectPicker(picker, '');
   await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible();
   await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
-  await expect(picker).toHaveValue(runtime);
+  await expect(picker).toHaveAttribute('data-value', runtime);
   await expect(checkbox).toBeChecked();
-  await picker.selectOption('');
+  await selectPicker(picker, '');
   await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
-  await expect(picker).toHaveValue('');
+  await expect(picker).toHaveAttribute('data-value', '');
   await expect(checkbox).toHaveCount(0);
-  await picker.selectOption({ label: 'lab-mac · Claude Code' });
+  await selectPicker(picker, { label: 'lab-mac · Claude Code' });
   await expect(checkbox).not.toBeChecked();
 });
 
@@ -655,7 +656,7 @@ test('runtime import retries the same job read after an error without resubmitti
   await page.getByRole('button', { name: 'Import to workspace', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Copy from runtime', exact: true });
   await expect(dialog.getByRole('alert')).toBeVisible();
-  await expect(picker).toHaveValue(runtime);
+  await expect(picker).toHaveAttribute('data-value', runtime);
   await expect(picker).toBeDisabled();
   await expect(dialog.locator('.runtime-actions')).toContainText('1 selected');
   // The count can come from the cached job; the discard guard proves the actual
@@ -672,7 +673,7 @@ test('runtime import retries the same job read after an error without resubmitti
   await retry.click();
   await expect(dialog.getByText(/runtime-review · (Imported|conflict)/)).toBeVisible();
   await expect(dialog.getByRole('alert')).toHaveCount(0);
-  await expect(picker).toHaveValue(runtime);
+  await expect(picker).toHaveAttribute('data-value', runtime);
   await expect(picker).toBeEnabled();
   await expect(dialog.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
   expect(posts).toBe(1);

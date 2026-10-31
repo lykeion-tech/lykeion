@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { preregister, withBuiltInTeams } from './lab';
+import { chooseCompact, labPack, preregister, withBuiltInTeams } from './lab';
 
 async function workspace(request: APIRequestContext) {
   const created = await request.post('/api/workspaces', {
@@ -14,6 +14,22 @@ async function openIn(page: Page, ws: string, path: string) {
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
   await page.goto(path);
 }
+
+test('built-in stage Teams show and filter by General-purpose domain', async ({ page }) => {
+  const ws = await builtInWorkspace(page.request);
+  await labPack(page.request, 'astronomy team', ws, { domain: 'astronomy', stage: 'grounding' });
+  await openIn(page, ws, '/#/teams');
+  const rows = page.locator('.team-table tbody tr');
+  await expect(rows.filter({ hasText: 'Grounding Team' })).toContainText('General-purpose');
+  await page.getByRole('button', { name: 'Filter', exact: true }).click();
+  await chooseCompact(page, 'Domain', 'General-purpose');
+  await expect(rows).toHaveCount(4);
+  await expect(rows.filter({ hasText: 'astronomy team' })).toHaveCount(0);
+  await rows.filter({ hasText: 'Grounding Team' }).getByRole('link').click();
+  await expect(page.locator('.agent-meta')).toContainText('General-purpose');
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  await expect(page.locator('.team-settings')).toContainText('General-purpose');
+});
 
 test('a study with no Team picked gets its stage’s built-in Team and the board starts at Grounding', async ({
   page,
@@ -40,10 +56,10 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   await expect(menu.getByText('Members', { exact: true })).toHaveCount(0);
   await expect(menu.getByText('Agents', { exact: true })).toHaveCount(0);
   await expect(menu.getByRole('menuitem', { name: 'Unassigned' })).toHaveCount(0);
-  await menu.getByRole('menuitem', { name: 'Built-in Teams' }).click();
+  await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
   await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
-  await dialog.getByRole('combobox', { name: 'From stage' }).selectOption('hypotheses');
-  await dialog.getByRole('combobox', { name: 'To stage' }).selectOption('hypotheses');
+  await chooseCompact(page, 'From stage', 'Hypotheses');
+  await chooseCompact(page, 'To stage', 'Hypotheses');
   const saved = page.waitForResponse(
     (r) => r.url().endsWith('/api/cards') && r.request().method() === 'POST',
   );
@@ -120,4 +136,31 @@ test('a workspace without a built-in Team shows why a study can’t start', asyn
   await preregister(dialog);
   await dialog.getByRole('button', { name: /^Create study/ }).click();
   await expect(dialog.getByRole('alert')).toHaveText('No built-in Team for Grounding');
+});
+
+test('custom Team settings save profile and workspace access', async ({ page }) => {
+  const ws = await workspace(page.request);
+  const team = await labPack(page.request, 'Team settings test', ws, { stage: 'grounding' });
+  const headers = { 'X-Workspace-ID': ws };
+  await openIn(page, ws, `/#/teams/${team.id}`);
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  await page.getByRole('textbox', { name: 'Team name' }).fill('Renamed Team');
+  await page.getByRole('textbox', { name: 'Team description' }).fill('Updated Team description');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('heading', { name: 'Renamed Team' })).toBeVisible();
+  await page.getByRole('button', { name: 'Access', exact: true }).click();
+  await page.getByRole('radio', { name: /Entire workspace/ }).check();
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/teams/${team.id}`) && response.request().method() === 'PATCH',
+  );
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  const result = await page.request.get(`/api/teams/${team.id}`, { headers });
+  expect(result.ok()).toBeTruthy();
+  expect(await result.json()).toMatchObject({
+    visibility: 'workspace',
+    manifest: { name: 'Renamed Team', description: 'Updated Team description' },
+  });
 });

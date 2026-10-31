@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from '../components/SelectPicker.vue';
 import { computed, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useMembers } from '../api/queries';
@@ -99,22 +100,24 @@ async function change(id: string, remove = false) {
             </li>
           </ul>
           <div v-if="editable" class="flex items-center gap-2">
-            <select
-              v-model="selected"
-              aria-label="Workspace member"
-              class="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 type-body"
-              :disabled="busy || !candidates.length"
-            >
-              <option value="">
-                {{ candidates.length ? 'Choose a member' : 'All workspace members are included' }}
-              </option>
-              <option
-                v-for="candidate in candidates"
-                :key="candidate.user_id"
-                :value="candidate.user_id"
+            <SelectPicker
+              ><select
+                v-model="selected"
+                aria-label="Workspace member"
+                class="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 type-body"
+                :disabled="busy || !candidates.length"
               >
-                {{ name(candidate.user_id) }}
-              </option></select
+                <option value="">
+                  {{ candidates.length ? 'Choose a member' : 'All workspace members are included' }}
+                </option>
+                <option
+                  v-for="candidate in candidates"
+                  :key="candidate.user_id"
+                  :value="candidate.user_id"
+                >
+                  {{ name(candidate.user_id) }}
+                </option>
+              </select></SelectPicker
             ><button
               type="button"
               class="rounded-md bg-surface-2 px-3 py-1 type-body"

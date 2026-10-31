@@ -3,6 +3,24 @@ import { LAB, labFixture, newStudy } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-13-artifacts';
 
+test('each board column opens the new study composer', async ({ page }) => {
+  await page.goto('/#/studies');
+  for (const name of [
+    'Grounding',
+    'Hypotheses',
+    'Experimentation',
+    'Validation',
+    'Done',
+    'Blocked',
+  ]) {
+    const column = page.getByRole('region', { name, exact: true });
+    await column.getByRole('button', { name: 'New study', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New study' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  }
+});
+
 test('the board shows six columns and a new study arriving live in its column', async ({
   page,
 }) => {

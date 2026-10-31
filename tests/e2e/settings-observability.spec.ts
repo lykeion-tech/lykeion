@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test } from '@playwright/test';
 import { labWorkspace, newStudy } from './lab';
 
@@ -80,7 +81,7 @@ test('Profile analytics filters real study usage and retains Settings geometry',
         ),
     )
     .toBe(true);
-  await panel.getByRole('combobox', { name: 'Research scope' }).selectOption('standalone');
+  await selectPicker(panel.getByRole('combobox', { name: 'Research scope' }), 'standalone');
   await expect(panel.getByTestId('analytics-summary')).toContainText('$0.01');
   await page.screenshot({
     path: 'test-results/settings-observability/analytics.png',

@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test } from '@playwright/test';
 
 test('members, invitations and the last-owner rule', async ({ page }) => {
@@ -5,17 +6,23 @@ test('members, invitations and the last-owner rule', async ({ page }) => {
   const members = page.getByRole('table', { name: 'Members' });
   const me = members.getByRole('row').filter({ hasText: 'Ana Ruiz' });
   await expect(me).toContainText('ana@lab.test');
-  await expect(me.getByRole('combobox', { name: 'Role of Ana Ruiz' })).toHaveValue('owner');
+  await expect(me.getByRole('combobox', { name: 'Role of Ana Ruiz' })).toHaveAttribute(
+    'data-value',
+    'owner',
+  );
 
-  await me.getByRole('combobox', { name: 'Role of Ana Ruiz' }).selectOption('member');
+  await selectPicker(me.getByRole('combobox', { name: 'Role of Ana Ruiz' }), 'member');
   await expect(page.getByRole('alert')).toHaveText('a workspace needs at least one owner');
-  await expect(me.getByRole('combobox', { name: 'Role of Ana Ruiz' })).toHaveValue('owner');
+  await expect(me.getByRole('combobox', { name: 'Role of Ana Ruiz' })).toHaveAttribute(
+    'data-value',
+    'owner',
+  );
 
   const email = `c.lindqvist.${Date.now()}@ki.se`;
   await page.getByRole('button', { name: 'Invite' }).click();
   const dialog = page.getByRole('dialog', { name: 'Invite a colleague' });
   await dialog.getByRole('textbox', { name: 'Email' }).fill(email);
-  await dialog.getByRole('combobox', { name: 'Role' }).selectOption('member');
+  await selectPicker(dialog.getByRole('combobox', { name: 'Role' }), 'member');
   await dialog.getByRole('button', { name: 'Send invitation' }).click();
   const pending = page
     .getByRole('table', { name: 'Pending invitations' })
@@ -90,22 +97,22 @@ test('real owner, admin and member controls enforce F1 and remove a colleague', 
     await adminPage.goto('/#/colleagues');
     const ownerRow = roster(adminPage).getByRole('row').filter({ hasText: 'ana@lab.test' });
     const ownerSelect = ownerRow.getByRole('combobox');
-    await expect(ownerSelect).toHaveValue('owner');
-    await expect(ownerSelect.locator('option[value="owner"]')).toBeDisabled();
+    await expect(ownerSelect).toHaveAttribute('data-value', 'owner');
+    await expect(ownerSelect.locator('..').locator('select option[value="owner"]')).toBeDisabled();
     await expect(
       roster(adminPage)
         .getByRole('row')
         .filter({ hasText: 'colleagues-member@lab.test' })
         .getByRole('combobox')
-        .locator('option[value="owner"]'),
+        .locator('..').locator('select option[value="owner"]'),
     ).toHaveCount(0);
     const refusal = adminPage.waitForResponse(
       (r) => r.request().method() === 'PATCH' && r.url().endsWith(`/members/${ownerId}`),
     );
-    await ownerSelect.selectOption('member');
+    await selectPicker(ownerSelect, 'member');
     expect((await refusal).status()).toBe(409);
     await expect(adminPage.getByRole('alert')).toHaveText('a workspace needs at least one owner');
-    await expect(ownerSelect).toHaveValue('owner');
+    await expect(ownerSelect).toHaveAttribute('data-value', 'owner');
     adminPage.once('dialog', (d) => d.accept());
     const removal = adminPage.waitForResponse(
       (r) => r.request().method() === 'DELETE' && r.url().endsWith(`/members/${ownerId}`),
@@ -118,7 +125,7 @@ test('real owner, admin and member controls enforce F1 and remove a colleague', 
       fullPage: true,
     });
     const inviteDialog = await openInvite(adminPage, 'admin-invited@lab.test');
-    await inviteDialog.getByRole('combobox', { name: 'Role' }).selectOption('admin');
+    await selectPicker(inviteDialog.getByRole('combobox', { name: 'Role' }), 'admin');
     await adminPage.screenshot({ path: `${artifacts}/invite.png`, fullPage: true });
     await inviteDialog.getByRole('button', { name: 'Send invitation' }).click();
     const invitationRow = pending(adminPage)
@@ -145,10 +152,10 @@ test('real owner, admin and member controls enforce F1 and remove a colleague', 
     const memberRow = roster(page)
       .getByRole('row')
       .filter({ hasText: 'colleagues-member@lab.test' });
-    await memberRow.getByRole('combobox').selectOption('owner');
-    await expect(memberRow.getByRole('combobox')).toHaveValue('owner');
-    await memberRow.getByRole('combobox').selectOption('member');
-    await expect(memberRow.getByRole('combobox')).toHaveValue('member');
+    await selectPicker(memberRow.getByRole('combobox'), 'owner');
+    await expect(memberRow.getByRole('combobox')).toHaveAttribute('data-value', 'owner');
+    await selectPicker(memberRow.getByRole('combobox'), 'member');
+    await expect(memberRow.getByRole('combobox')).toHaveAttribute('data-value', 'member');
     await page.screenshot({ path: `${artifacts}/owner-roster.png`, fullPage: true });
     page.once('dialog', (d) => d.dismiss());
     await memberRow.getByRole('button').click();
@@ -189,13 +196,16 @@ test('a real refused invitation keeps the email and role inline for retry', asyn
   try {
     await page.goto('/#/colleagues');
     const dialog = await openInvite(page, 'draft-refused@lab.test');
-    await dialog.getByRole('combobox', { name: 'Role' }).selectOption('admin');
+    await selectPicker(dialog.getByRole('combobox', { name: 'Role' }), 'admin');
     await dialog.getByRole('button', { name: 'Send invitation' }).click();
     await expect(dialog.getByRole('alert')).toHaveText('admins only');
     await expect(dialog.getByRole('textbox', { name: 'Email' })).toHaveValue(
       'draft-refused@lab.test',
     );
-    await expect(dialog.getByRole('combobox', { name: 'Role' })).toHaveValue('admin');
+    await expect(dialog.getByRole('combobox', { name: 'Role' })).toHaveAttribute(
+      'data-value',
+      'admin',
+    );
     expect(
       (await invitations(page.request, ws)).some((x) => x.email === 'draft-refused@lab.test'),
     ).toBe(false);
@@ -309,7 +319,7 @@ for (const action of ['invite', 'role', 'revoke', 'remove'] as const) {
           } else {
             const row = roster(page).getByRole('row').filter({ hasText: email });
             if (action === 'role') {
-              await row.getByRole('combobox').selectOption('admin');
+              await selectPicker(row.getByRole('combobox'), 'admin');
             } else {
               page.once('dialog', (d) => d.accept());
               await row.getByRole('button').click();
@@ -319,7 +329,7 @@ for (const action of ['invite', 'role', 'revoke', 'remove'] as const) {
           if (action === 'role')
             await expect(
               roster(page).getByRole('row').filter({ hasText: email }).getByRole('combobox'),
-            ).toHaveValue('member');
+            ).toHaveAttribute('data-value', 'member');
           if (action === 'remove')
             await expect(roster(page).getByRole('row').filter({ hasText: email })).toBeVisible();
           if (action === 'revoke')
@@ -350,7 +360,7 @@ for (const action of ['invite', 'role', 'revoke', 'remove'] as const) {
             await expect(roster(page)).toContainText('Ana Ruiz');
           }
           const newDialog = await openInvite(page, 'current-visit@lab.test');
-          await newDialog.getByRole('combobox', { name: 'Role' }).selectOption('admin');
+          await selectPicker(newDialog.getByRole('combobox', { name: 'Role' }), 'admin');
           const browserResponse = page.waitForResponse(
             (r) => r.request().method() === method && r.url().includes(`/api/workspaces/${ws}/`),
           );
@@ -362,7 +372,10 @@ for (const action of ['invite', 'role', 'revoke', 'remove'] as const) {
           await expect(newDialog.getByRole('textbox', { name: 'Email' })).toHaveValue(
             'current-visit@lab.test',
           );
-          await expect(newDialog.getByRole('combobox', { name: 'Role' })).toHaveValue('admin');
+          await expect(newDialog.getByRole('combobox', { name: 'Role' })).toHaveAttribute(
+            'data-value',
+            'admin',
+          );
           await expect(newDialog.getByRole('button', { name: 'Send invitation' })).toBeEnabled();
           await expect(page.getByRole('alert')).toHaveCount(0);
           expect(writes).toEqual([

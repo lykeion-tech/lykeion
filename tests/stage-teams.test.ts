@@ -14,6 +14,26 @@ import { useTaskComposer } from '../apps/dashboard/src/state/task-composer';
 import { keys } from '../apps/dashboard/src/api/keys';
 import type { Picked, Range } from '../apps/dashboard/src/lib/studies';
 
+vi.mock('../apps/dashboard/src/components/settings/CompactSelect.vue', () => ({
+  default: {
+    props: ['modelValue', 'options', 'label'],
+    emits: ['update:modelValue'],
+    render(this: any) {
+      return h(
+        'select',
+        {
+          'aria-label': this.label,
+          value: this.modelValue,
+          onChange: (event: any) => this.$emit('update:modelValue', event.target.value),
+        },
+        this.options.map((option: any) =>
+          h('option', { value: option.value, disabled: option.disabled }, option.label),
+        ),
+      );
+    },
+  },
+}));
+
 const member = (name: string) => ({
   name,
   role: `${name} role`,
@@ -93,9 +113,16 @@ function client() {
   ]);
   c.setQueryData(keys.team('w', 't1'), {
     id: 't1',
+    uploaded_by: null,
+    visibility: 'workspace',
     manifest: manifest('Hypotheses Team', 'hypotheses'),
   });
-  c.setQueryData(keys.team('w', 't2'), { id: 't2', manifest: manifest('My Team', 'grounding') });
+  c.setQueryData(keys.team('w', 't2'), {
+    id: 't2',
+    uploaded_by: 'u1',
+    visibility: 'private',
+    manifest: manifest('My Team', 'grounding'),
+  });
   return c;
 }
 
@@ -345,9 +372,9 @@ describe('AssignPicker', () => {
         .nodes()
         .filter((n) => n.props.class === 'menu-group')
         .map((n) => textOf(n));
-      expect(groups).toEqual(['Teams', 'Team sets', 'One agent']);
+      expect(groups).toEqual(['Built-in Teams', 'Custom Teams', 'Team sets', 'Agents']);
       const menu = p.text();
-      expect(menu.slice(menu.indexOf('One agent'))).toContain('Solo agent');
+      expect(menu.slice(menu.indexOf('Agents'))).toContain('Solo agent');
       for (const visible of ['Aristotle', 'Team copy']) expect(menu).toContain(visible);
       for (const hidden of ['Colleague private', 'Retired agent'])
         expect(menu).not.toContain(hidden);
@@ -426,6 +453,99 @@ describe('new agent model picker', () => {
 });
 
 describe('TeamDetail', () => {
+  it('lets the Team owner edit the profile and choose workspace access', async () => {
+    const fetch = vi.fn(
+      async (path: RequestInfo | URL, init?: RequestInit) =>
+        new Response(
+          init?.method === 'PATCH'
+            ? '{"id":"t2"}'
+            : String(path).startsWith('/api/teams?')
+              ? JSON.stringify([storeTeam('t2', 'My Team', 'grounding', 'uploaded', true)])
+              : JSON.stringify({
+                  id: 't2',
+                  uploaded_by: 'u1',
+                  visibility: 'private',
+                  manifest: manifest('My Team', 'grounding'),
+                }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(TeamDetail, () => ({ id: 't2' }), '/teams/t2');
+    try {
+      await t.click(/^Settings$/);
+      await t.fill('Team name', 'Updated Team');
+      await t.fill('Team description', 'Updated description');
+      await t.submit();
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/teams/t2',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ name: 'Updated Team', description: 'Updated description' }),
+        }),
+      );
+      await t.click(/^Access$/);
+      const workspace = t.nodes().find((n) => n.tag === 'input' && n.props.value === 'workspace')!;
+      (workspace.props['onUpdate:modelValue'] as (value: string) => void)('workspace');
+      await nextTick();
+      await t.submit();
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/teams/t2',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ visibility: 'workspace' }),
+        }),
+      );
+    } finally {
+      t.unmount();
+    }
+  });
+  it('keeps a colleague’s shared Team read-only', async () => {
+    const t = await mount(
+      TeamDetail,
+      () => ({ id: 't2' }),
+      '/teams/t2',
+      (c) => {
+        c.setQueryData(keys.team('w', 't2'), {
+          id: 't2',
+          uploaded_by: 'u2',
+          visibility: 'workspace',
+          manifest: manifest('My Team', 'grounding'),
+        });
+      },
+    );
+    try {
+      expect(t.button(/^Delete Team$/)).toBeUndefined();
+      await t.click(/^Settings$/);
+      expect(t.nodes().find((n) => n.props['aria-label'] === 'Team name')?.props.readonly).toBe(
+        true,
+      );
+      expect(t.button(/^Save changes$/)).toBeUndefined();
+      await t.click(/^Access$/);
+      expect(
+        t
+          .nodes()
+          .filter((n) => n.tag === 'input')
+          .every((n) => n.props.disabled === true),
+      ).toBe(true);
+    } finally {
+      t.unmount();
+    }
+  });
+  it('keeps scientific settings under General and provides Access settings', async () => {
+    const t = await mount(TeamDetail, () => ({ id: 't2' }), '/teams/t2');
+    try {
+      await t.click(/^Settings$/);
+      expect(t.text()).toContain('Details');
+      expect(t.text()).toContain('Review criteria');
+      expect(t.button(/^General$/)).toBeTruthy();
+      expect(t.button(/^Access$/)).toBeTruthy();
+      await t.click(/^Access$/);
+      expect(t.text()).toContain('Who can use this Team');
+    } finally {
+      t.unmount();
+    }
+  });
   it('shows only this Team’s studies in searchable, collapsible work groups', async () => {
     const card = (id: string, title: string, team: string, board_column = 'grounding') => ({
       id,
@@ -923,7 +1043,7 @@ describe('the one-row New study window', () => {
         'Built-in Teams',
         'Grounding → Validation',
         'Pre-registered · 0',
-        'My machines',
+        'Machines',
         'No deadline',
       ];
       const at = order.map((label) => text.indexOf(label));
@@ -940,7 +1060,7 @@ describe('the one-row New study window', () => {
     }
   });
 
-  it('says one agent works alone with no auditor, and posts the agent', async () => {
+  it('posts the selected agent for a solo study', async () => {
     const fetch = posting();
     vi.stubGlobal('fetch', fetch);
     const t = await mount(CreateTask, () => ({}), '/', seedStudy);
@@ -949,11 +1069,11 @@ describe('the one-row New study window', () => {
       // The pills carry an avatar letter before the name; menu items don't.
       await t.click(/^BBuilt-in Teams$/);
       await t.click(/^Solo agent$/);
-      expect(t.text()).toContain(soloLine);
-      await t.click(/^SSolo agent$/);
-      await t.click(/^Built-in Teams$/);
       expect(t.text()).not.toContain(soloLine);
-      await t.click(/^BBuilt-in Teams$/);
+      await t.click(/^SSolo agent$/);
+      await t.click(/^Hypotheses Team/);
+      expect(t.text()).not.toContain(soloLine);
+      await t.click(/^HHypotheses Team$/);
       await t.click(/^Solo agent$/);
       await t.fill('Describe your study', 'Question');
       await preregister(t);

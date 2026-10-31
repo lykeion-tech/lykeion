@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from '../components/SelectPicker.vue';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
@@ -315,18 +316,20 @@ async function copySlug() {
   <div class="desktop-settings">
     <nav class="settings-rail" aria-label="Settings">
       <h1>Settings</h1>
-      <select
-        class="settings-mobile-navigation"
-        aria-label="Settings section"
-        :value="section"
-        @change="open(($event.target as HTMLSelectElement).value)"
+      <SelectPicker
+        ><select
+          class="settings-mobile-navigation"
+          aria-label="Settings section"
+          :value="section"
+          @change="open(($event.target as HTMLSelectElement).value)"
+        >
+          <optgroup v-for="group in groups" :key="group.title" :label="group.title">
+            <option v-for="item in group.items" :key="item.id" :value="item.id">
+              {{ item.label }}
+            </option>
+          </optgroup>
+        </select></SelectPicker
       >
-        <optgroup v-for="group in groups" :key="group.title" :label="group.title">
-          <option v-for="item in group.items" :key="item.id" :value="item.id">
-            {{ item.label }}
-          </option>
-        </optgroup>
-      </select>
       <label class="settings-search"
         ><Icon name="search" :size="16" /><input
           v-model="query"
@@ -400,17 +403,19 @@ async function copySlug() {
             </div>
             <label class="setting-row"
               ><span>Your career stage</span
-              ><select
-                :value="me.data.value?.career_stage ?? ''"
-                class="career-stage-select"
-                aria-label="Your career stage"
-                @change="changeCareer($event.target as HTMLSelectElement)"
-              >
-                <option value="">Choose a stage (optional)</option>
-                <option v-for="c in careerStages" :key="c" :value="c">
-                  {{ careerStageLabels[c] }}
-                </option>
-              </select></label
+              ><SelectPicker
+                ><select
+                  :value="me.data.value?.career_stage ?? ''"
+                  class="career-stage-select"
+                  aria-label="Your career stage"
+                  @change="changeCareer($event.target as HTMLSelectElement)"
+                >
+                  <option value="">Choose a stage (optional)</option>
+                  <option v-for="c in careerStages" :key="c" :value="c">
+                    {{ careerStageLabels[c] }}
+                  </option>
+                </select></SelectPicker
+              ></label
             >
           </div>
           <AnalyticsPanel />
@@ -523,6 +528,7 @@ async function copySlug() {
                 ><span>Name</span
                 ><input
                   v-model="wsName"
+                  class="workspace-name-input"
                   aria-label="Workspace name"
                   required
                   :disabled="!isAdmin || busy" /></label
@@ -863,6 +869,9 @@ async function copySlug() {
 }
 .setting-row input.profile-name-input {
   border: 0;
+  text-align: right;
+}
+.setting-row input.workspace-name-input {
   text-align: right;
 }
 .setting-row.about-row {

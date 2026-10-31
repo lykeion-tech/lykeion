@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { labPack, labTeam, labWorkspace, preregister } from './lab';
+import { chooseCompact, labPack, labTeam, labWorkspace, preregister } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-14-artifacts';
 const shots = 'test-results/teams-scoring';
@@ -19,6 +19,74 @@ async function cardsNamed(page: import('@playwright/test').Page, question: strin
 }
 
 test.describe('new study', () => {
+  test('Team set choices use a compact keyboard-accessible list', async ({ page }) => {
+    await labTeam(page.request, await labWorkspace(page.request));
+    await page.goto('/#/studies');
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New study' });
+    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
+    await dialog.getByRole('menuitem', { name: 'New set…' }).click();
+    const control = dialog.getByRole('combobox', { name: 'Grounding Team' });
+    await control.click();
+    const list = dialog.getByRole('listbox', { name: 'Grounding Team' });
+    await expect(list.getByRole('option', { name: 'Built-in Team' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect((await list.boundingBox())!.width).toBeLessThanOrEqual(240);
+    await list.getByRole('option', { name: 'ui-demo', exact: true }).click();
+    await expect(control).toContainText('ui-demo');
+    await control.click();
+    await page.keyboard.press('Escape');
+    await expect(list).toHaveCount(0);
+    await expect(control).toBeFocused();
+  });
+
+  test('picker menus use the calendar background in both themes', async ({ page }) => {
+    for (const palette of ['ash', 'midnight']) {
+      await page.goto('/#/studies');
+      await page.evaluate(
+        (theme) => localStorage.setItem('lykeion.preferences', JSON.stringify({ theme })),
+        palette,
+      );
+      await page.reload();
+      await page.getByRole('button', { name: 'New', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'New study' });
+      await dialog.getByRole('button', { name: 'No deadline' }).click();
+      const calendar = dialog.getByRole('dialog', { name: 'Choose due date' });
+      const color = await calendar.evaluate((element) => getComputedStyle(element).backgroundColor);
+      await dialog.getByRole('button', { name: 'No deadline' }).click();
+      await dialog.getByRole('button', { name: 'Machines', exact: true }).click();
+      const machines = dialog.getByRole('menu', { name: 'Choose machine' });
+      expect(await machines.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+        color,
+      );
+      await dialog.getByRole('button', { name: 'Machines', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
+      const assignees = dialog.getByRole('menu');
+      expect(await assignees.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+        color,
+      );
+    }
+  });
+
+  test('machine picker opens a compact menu and closes with Escape', async ({ page }) => {
+    await page.goto('/#/studies');
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New study' });
+    const trigger = dialog.getByRole('button', { name: 'Machines', exact: true });
+    await expect(trigger.locator('svg')).toHaveCount(2);
+    await trigger.click();
+    const menu = dialog.getByRole('menu', { name: 'Choose machine' });
+    await expect(menu.getByRole('menuitemradio', { name: 'My machines' })).toBeChecked();
+    const bounds = await menu.boundingBox();
+    expect(bounds?.width).toBeLessThanOrEqual(280);
+    expect(bounds?.x).toBeGreaterThanOrEqual(0);
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  });
+
   test('creating a study, then the duplicate check refuses a second', async ({ page }) => {
     const question = `Do dedifferentiated beta cells re-express ALDH1A3 in T2D? ${Date.now()}`;
     await page.goto('/#/studies');
@@ -164,7 +232,7 @@ test.describe('new study', () => {
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
     await page.screenshot({ path: `${shots}/stages-pill.png` });
-    await dialog.getByRole('combobox', { name: 'To stage' }).selectOption('hypotheses');
+    await chooseCompact(page, 'To stage', 'Hypotheses');
     await expect(
       dialog.getByRole('button', { name: 'Stages: Grounding → Hypotheses' }),
     ).toBeVisible();
@@ -192,7 +260,7 @@ test.describe('new study', () => {
     await item.click();
     await expect(dialog.getByRole('button', { name: /Create study/ })).toBeDisabled();
     await dialog.getByRole('button', { name: 'Stages: choose a stage' }).click();
-    await dialog.getByRole('combobox', { name: 'Stage' }).selectOption('validation');
+    await chooseCompact(page, 'Stage', 'Validation');
     await expect(dialog.getByRole('button', { name: 'Stages: Validation' })).toBeDisabled();
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
@@ -257,7 +325,7 @@ test.describe('new study', () => {
     const dialog = await composer(page);
     await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     const menu = dialog.getByRole('menu');
-    await expect(menu.getByText('Teams', { exact: true })).toBeVisible();
+    await expect(menu.getByText('Custom Teams', { exact: true })).toBeVisible();
     await expect(
       menu.getByRole('menuitem', { name: /^ui-demo Built for Grounding/ }),
     ).toBeVisible();
@@ -268,12 +336,8 @@ test.describe('new study', () => {
     await menu.getByText('Team sets', { exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${shots}/assign-picker.png` });
     await menu.getByRole('menuitem', { name: 'New set…' }).click();
-    await dialog
-      .getByRole('combobox', { name: 'Grounding Team' })
-      .selectOption({ label: 'ui-demo' });
-    await dialog
-      .getByRole('combobox', { name: 'Hypotheses Team' })
-      .selectOption({ label: 'ui-hyp' });
+    await chooseCompact(page, 'Grounding Team', 'ui-demo');
+    await chooseCompact(page, 'Hypotheses Team', 'ui-hyp');
     await expect(dialog.getByRole('combobox', { name: 'Agent for the other stages' })).toHaveCount(
       0,
     );
@@ -289,9 +353,7 @@ test.describe('new study', () => {
     await preregister(dialog);
     await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     await dialog.getByRole('menuitem', { name: 'New set…' }).click();
-    await dialog
-      .getByRole('combobox', { name: 'Hypotheses Team' })
-      .selectOption({ label: 'ui-hyp' });
+    await chooseCompact(page, 'Hypotheses Team', 'ui-hyp');
     await dialog.getByRole('button', { name: 'Use this set' }).click();
     await expect(dialog.getByRole('button', { name: 'Assignee: Your Team set' })).toBeVisible();
     const saved = page.waitForResponse(
@@ -333,17 +395,13 @@ test.describe('new study', () => {
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     const menu = dialog.getByRole('menu');
-    await expect(menu.getByText('One agent', { exact: true })).toBeVisible();
+    await expect(menu.getByText('Agents', { exact: true })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: 'Manage agents' })).toHaveAttribute(
       'href',
       '#/agents',
     );
     await menu.getByRole('menuitem', { name: agent.name, exact: true }).click();
-    await expect(
-      dialog.getByText(
-        `${agent.name} works every stage alone. No auditor checks its work; Jev still scores each stage.`,
-      ),
-    ).toBeVisible();
+    await expect(dialog.locator('.assignee-note')).toHaveCount(0);
     await expect(
       dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),
     ).toBeEnabled();
@@ -383,7 +441,7 @@ test.describe('new study', () => {
       await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
       await dialog.getByRole('menuitem', { name: agent.name, exact: true }).click();
       await dialog.getByRole('textbox', { name: 'Study title' }).fill('Sleep and memory');
-      await expect(dialog.getByText(/works every stage alone/)).toBeVisible();
+      await expect(dialog.locator('.assignee-note')).toHaveCount(0);
       const row = dialog.getByRole('group', { name: 'Study properties' });
       for (const name of [
         `Assignee: ${agent.name}`,
@@ -392,10 +450,10 @@ test.describe('new study', () => {
         'No deadline',
       ])
         await expect(row.getByRole('button', { name, exact: true })).toBeVisible();
-      await expect(row.getByRole('combobox', { name: 'Machine' })).toBeVisible();
+      await expect(row.getByRole('button', { name: 'Machines' })).toBeVisible();
       await expect(row.getByRole('button', { name: 'More properties' })).toHaveCount(0);
       const tops = await row.evaluate((el) =>
-        [...el.querySelectorAll('.property-pill, select')].map((c) =>
+        [...el.querySelectorAll('.property-pill, .machine-trigger')].map((c) =>
           Math.round(c.getBoundingClientRect().top),
         ),
       );
@@ -410,7 +468,7 @@ test.describe('new study', () => {
     const row = dialog.getByRole('group', { name: 'Study properties' });
     const more = row.getByRole('button', { name: 'More properties' });
     const due = row.getByRole('button', { name: 'No deadline' });
-    const machine = row.getByRole('combobox', { name: 'Machine' });
+    const machine = row.getByRole('button', { name: 'Machines' });
     let width = 1280;
     while ((await more.count()) === 0 && width > 600) {
       width -= 20;
@@ -427,6 +485,11 @@ test.describe('new study', () => {
     await more.click();
     await expect(due).toBeVisible();
     await expect(machine).toBeVisible();
+    await machine.click();
+    const foldedMachines = dialog.getByRole('menu', { name: 'Choose machine' });
+    await expect(foldedMachines.getByRole('menuitemradio', { name: 'My machines' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(foldedMachines).toHaveCount(0);
 
     // The folded calendar stays open through a resize, and ⋯ closes it.
     await due.click();

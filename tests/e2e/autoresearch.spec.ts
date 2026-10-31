@@ -1,5 +1,7 @@
+import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  chooseCompact,
   labFixture,
   labTeam,
   labAutoresearchRun,
@@ -53,7 +55,7 @@ test('a template opens the editor, and the schedule reaches the server as cron',
   await assign(dialog, page, 'Watcher');
   await dialog.getByRole('button', { name: /Run only/ }).click();
   await dialog.getByLabel('Scheduled time').fill('07:30');
-  await dialog.getByRole('combobox', { name: 'Schedule days' }).selectOption('week');
+  await selectPicker(dialog.getByRole('combobox', { name: 'Schedule days' }), 'week');
   await dialog.getByRole('button', { name: 'Mon', exact: true }).click(); // Monday starts chosen
   await dialog.getByRole('button', { name: 'Wed', exact: true }).click();
   await dialog.getByRole('button', { name: 'Fri', exact: true }).click();
@@ -135,7 +137,9 @@ test('an Autoresearch needs an assignee', async ({ page }) => {
   await expect(menu.getByText('Members')).toHaveCount(0);
   await page.screenshot({ path: `${shots}/autoresearch-picker.png`, fullPage: true });
   await menu.getByRole('menuitem', { name: 'Watcher' }).click();
-  await expect(dialog.getByRole('button', { name: /Stages: Grounding → Validation/ })).toBeVisible();
+  await expect(
+    dialog.getByRole('button', { name: /Stages: Grounding → Validation/ }),
+  ).toBeVisible();
   await expect(create).toBeEnabled();
 });
 
@@ -150,10 +154,8 @@ test('a Team set Autoresearch shows its range', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Unassigned' }).click();
   await page.getByRole('menuitem', { name: 'New set…' }).click();
   const set = page.getByRole('dialog', { name: 'New Team set' });
-  await set.getByRole('combobox', { name: 'Grounding Team' }).selectOption({ index: 1 });
-  await set
-    .getByRole('combobox', { name: 'Agent for the other stages' })
-    .selectOption({ label: 'Watcher' });
+  await chooseCompact(page, 'Grounding Team', 1);
+  await chooseCompact(page, 'Agent for the other stages', 'Watcher');
   await set.getByRole('button', { name: 'Use this set' }).click();
   await expect(
     dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),

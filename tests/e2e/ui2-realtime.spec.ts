@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import {
   labAutoresearchRun,
@@ -68,7 +69,7 @@ test('colleague import refreshes open Settings and Team picker and deletion reta
     const skill = await imported.json();
     await expect(page.getByText('review-helper', { exact: true })).toBeVisible();
     await expect(
-      picker.getByLabel('Add skill', { exact: true }).locator('option[value="review-helper"]'),
+      picker.getByRole('combobox', { name: 'Add skill', exact: true }).locator('..').locator('select option[value="review-helper"]'),
     ).toHaveCount(1);
     const makeAgent = async (name: string, model: string) => {
       const response = await page.request.post('/api/agents', {
@@ -81,14 +82,14 @@ test('colleague import refreshes open Settings and Team picker and deletion reta
     const lead = await makeAgent('Realtime leader', 'sonnet');
     const audit = await makeAgent('Realtime auditor', 'opus');
     await picker.getByLabel('Team name', { exact: true }).fill('Realtime Team');
-    await picker.getByLabel('Leader agent', { exact: true }).selectOption(lead.id);
+    await selectPicker(picker.getByLabel('Leader agent', { exact: true }), lead.id);
     await picker.getByLabel('Leader role', { exact: true }).fill('Leads');
     await picker.getByLabel('Member name', { exact: true }).fill('worker');
-    await picker.getByLabel('Member agent', { exact: true }).selectOption(lead.id);
+    await selectPicker(picker.getByLabel('Member agent', { exact: true }), lead.id);
     await picker.getByLabel('Member role', { exact: true }).fill('Works');
-    await picker.getByLabel('Auditor agent', { exact: true }).selectOption(audit.id);
+    await selectPicker(picker.getByLabel('Auditor agent', { exact: true }), audit.id);
     await picker.getByLabel('Auditor role', { exact: true }).fill('Audits');
-    await picker.getByLabel('Add skill', { exact: true }).selectOption('review-helper');
+    await selectPicker(picker.getByLabel('Add skill', { exact: true }), 'review-helper');
     await expect(picker.getByRole('button', { name: 'Create Team', exact: true })).toBeEnabled();
     expect(
       (
@@ -100,7 +101,7 @@ test('colleague import refreshes open Settings and Team picker and deletion reta
     ).toBe(204);
     await expect(page.getByRole('button', { name: 'review-helper', exact: true })).toHaveCount(0);
     await expect(
-      picker.getByLabel('Add skill', { exact: true }).locator('option[value="review-helper"]'),
+      picker.getByRole('combobox', { name: 'Add skill', exact: true }).locator('..').locator('select option[value="review-helper"]'),
     ).toHaveCount(0);
     await expect(
       picker.getByRole('button', { name: 'Remove skill review-helper', exact: true }),

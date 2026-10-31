@@ -600,6 +600,7 @@ type FieldPack struct {
 	Stage       string          `json:"stage"`
 	AvatarUrl   string          `json:"avatar_url"`
 	DeletedAt   *time.Time      `json:"deleted_at"`
+	Visibility  string          `json:"visibility"`
 }
 
 type FieldPackApproval struct {

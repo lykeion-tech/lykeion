@@ -196,9 +196,9 @@ textarea {
   resize: none;
 }
 /* Native option menus do not consistently inherit their select's background. */
-:root[data-theme='dark'] option,
-:root[data-theme='dark'] optgroup {
-  background-color: var(--input);
+option,
+optgroup {
+  background-color: var(--fill-menu);
   color: var(--text);
 }
 .hide-scrollbar {
@@ -610,7 +610,7 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 4px 18px #0002;
-  background: var(--surface);
+  background: var(--fill-menu);
   font-size: 13px;
 }
 .floating-menu button {

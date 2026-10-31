@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from './SelectPicker.vue';
 import { agentDisplayName } from '../lib/agent-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type {
@@ -414,67 +415,85 @@ onUnmounted(() => {
             >When<input v-model="parameters.at" type="datetime-local" required /></label
           ><template v-else-if="condition === 'interval'"
             ><label
-              >Every<select v-model="parameters.interval" required>
-                <option value="">Choose interval</option>
-                <option value="hourly">Hour</option>
-                <option value="daily">Day</option>
-              </select></label
+              >Every<SelectPicker
+                ><select v-model="parameters.interval" required>
+                  <option value="">Choose interval</option>
+                  <option value="hourly">Hour</option>
+                  <option value="daily">Day</option>
+                </select></SelectPicker
+              ></label
             ><label
               >Until<input
                 v-model="parameters.until"
                 type="datetime-local"
                 required /></label></template
           ><label v-else-if="condition === 'reply'"
-            >Who<select v-model="parameters.personId">
-              <option value="">Anyone</option>
-              <option v-for="person in state.data?.colleagues" :key="person.id" :value="person.id">
-                {{ person.name }}
-              </option>
-            </select></label
+            >Who<SelectPicker
+              ><select v-model="parameters.personId">
+                <option value="">Anyone</option>
+                <option
+                  v-for="person in state.data?.colleagues"
+                  :key="person.id"
+                  :value="person.id"
+                >
+                  {{ person.name }}
+                </option>
+              </select></SelectPicker
+            ></label
           ><template v-else-if="condition === 'field'"
             ><label
-              >Field<select v-model="parameters.field" required>
-                <option value="">Choose field</option>
-                <option>Status</option>
-                <option>Assignee</option>
-                <option>Label</option>
-              </select></label
+              >Field<SelectPicker
+                ><select v-model="parameters.field" required>
+                  <option value="">Choose field</option>
+                  <option>Status</option>
+                  <option>Assignee</option>
+                  <option>Label</option>
+                </select></SelectPicker
+              ></label
             ><label>Becomes<input v-model="parameters.value" required /></label></template
           ><label v-else-if="condition === 'run-end'"
-            >Outcome<select v-model="parameters.outcome" required>
-              <option value="">Choose outcome</option>
-              <option>Succeeded</option>
-              <option>Failed</option>
-              <option>Cancelled</option>
-              <option>Any</option>
-            </select></label
+            >Outcome<SelectPicker
+              ><select v-model="parameters.outcome" required>
+                <option value="">Choose outcome</option>
+                <option>Succeeded</option>
+                <option>Failed</option>
+                <option>Cancelled</option>
+                <option>Any</option>
+              </select></SelectPicker
+            ></label
           ><label v-else-if="condition === 'subtasks'"
-            >When<select v-model="parameters.stage" required>
-              <option value="">Choose condition</option>
-              <option>All finish</option>
-              <option>Grounding</option>
-              <option>Hypotheses</option>
-              <option>Experimentation</option>
-              <option>Validation</option>
-            </select></label
+            >When<SelectPicker
+              ><select v-model="parameters.stage" required>
+                <option value="">Choose condition</option>
+                <option>All finish</option>
+                <option>Grounding</option>
+                <option>Hypotheses</option>
+                <option>Experimentation</option>
+                <option>Validation</option>
+              </select></SelectPicker
+            ></label
           ><label v-else-if="condition === 'pull-request'"
-            >Event<select v-model="parameters.event" required>
-              <option value="">Choose event</option>
-              <option>CI finishes</option>
-              <option>Merged</option>
-            </select></label
+            >Event<SelectPicker
+              ><select v-model="parameters.event" required>
+                <option value="">Choose event</option>
+                <option>CI finishes</option>
+                <option>Merged</option>
+              </select></SelectPicker
+            ></label
           ><template v-else-if="condition === 'task-status'"
             ><label
-              >Task<select v-model="parameters.taskId" required>
-                <option value="">Choose task</option>
-                <option
-                  v-for="task in state.data?.inquiries.filter((x) => x.id !== detail.inquiry.id)"
-                  :key="task.id"
-                  :value="task.id"
-                >
-                  {{ task.title }}
-                </option>
-              </select></label
+              >Task<SelectPicker
+                ><select v-model="parameters.taskId" required>
+                  <option value="">Choose task</option>
+                  <option
+                    v-for="task in state.data?.inquiries.filter((x) => x.id !== detail.inquiry.id)"
+                    :key="task.id"
+                    :value="task.id"
+                  >
+                    {{ task.title }}
+                  </option>
+                </select></SelectPicker
+              ></label
             ><label
               >Status<input
                 v-model="parameters.status"
@@ -486,12 +505,14 @@ onUnmounted(() => {
         </div>
         <div class="wakeup-row">
           <span>Wake</span
-          ><select v-model="agentId">
-            <option value="">Choose an agent</option>
-            <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
-              {{ agentDisplayName(agent.name) }}
-            </option>
-          </select>
+          ><SelectPicker
+            ><select v-model="agentId">
+              <option value="">Choose an agent</option>
+              <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
+                {{ agentDisplayName(agent.name) }}
+              </option>
+            </select></SelectPicker
+          >
         </div>
         <label class="wake-instructions"
           >What to do when woken<textarea
@@ -830,7 +851,7 @@ onUnmounted(() => {
   width: 290px;
   border: 1px solid #ffffff40;
   border-radius: 8px;
-  background: var(--modal);
+  background: var(--fill-menu);
   box-shadow: 0 8px 20px #0002;
   z-index: 2;
   max-height: 55vh;

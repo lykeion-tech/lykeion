@@ -61,6 +61,19 @@ export function transcriptBlocks(
   return blocks;
 }
 
+// Keep tool-title metadata for real calls, but never render internal events as steps.
+export function visibleTranscriptMessages(messages: readonly RunMessage[]): RunMessage[] {
+  return messages.filter((message) => {
+    if (message.type === 'log' || (message.type === 'status' && !isStepTitles(message)))
+      return false;
+    if (message.type === 'text' || message.type === 'thinking')
+      return typeof message.content === 'string'
+        ? message.content.trim().length > 0
+        : message.content != null;
+    return true;
+  });
+}
+
 function sorted(messages: readonly RunMessage[]) {
   return [...messages].sort((a, b) => a.attempt - b.attempt || a.seq - b.seq);
 }

@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { LAB, labFixture, labPack } from './lab';
 
@@ -19,6 +20,26 @@ async function inFixture(page: Page) {
   await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
   return { f, headers: { 'X-Workspace-ID': f.workspace_id } };
 }
+
+test('the Agent list shows each Agent source', async ({ page }) => {
+  const { headers } = await inFixture(page);
+  expect((await page.request.post('/api/coresearch/bootstrap', { headers })).status()).toBe(200);
+  expect(
+    (
+      await page.request.post('/api/agents', {
+        headers,
+        data: { name: 'Custom source agent', harness: 'claude' },
+      })
+    ).status(),
+  ).toBe(201);
+  await page.goto('/#/agents');
+  const table = page.getByRole('table', { name: 'Agents' });
+  await expect(table.getByRole('columnheader', { name: 'Source' })).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'Aristotle' })).toContainText('Built-in');
+  await expect(table.getByRole('row').filter({ hasText: 'Custom source agent' })).toContainText(
+    'Custom',
+  );
+});
 
 test('the Agents list filters Mine, All and Archived through one compact Filter button', async ({
   page,
@@ -69,19 +90,19 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   const table = page.getByRole('table', { name: 'Agents' });
   const curatorRow = table.getByRole('row').filter({ hasText: 'Evidence curator' });
   await expect(curatorRow).toContainText('Keeps sources traceable');
-  await expect(curatorRow).toContainText('Workspace');
+  await expect(curatorRow).toContainText('Custom');
   await expect(curatorRow).toContainText('Claude Code');
   await expect(curatorRow).toContainText('You');
   await expect(curatorRow.getByRole('cell')).toHaveCount(6);
   const privateRow = table.getByRole('row').filter({ hasText: 'Private reviewer' });
-  await expect(privateRow).toContainText('Owner only');
+  await expect(privateRow).toContainText('Custom');
   await expect(privateRow).toContainText('Codex');
   await expect(privateRow.getByRole('cell')).toHaveCount(6);
   await expect(table.getByRole('columnheader')).toHaveText([
     'Name',
     'Status',
     'Owner',
-    'Access',
+    'Source',
     'Harness',
     'Last updated',
   ]);
@@ -198,7 +219,7 @@ test('the agent page shows its studies and edits instructions, profile and acces
 
   await page.goto('/#/agents/' + agent.id);
   await expect(page.getByRole('heading', { name: 'Methods reviewer', exact: true })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Agents');
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0);
   await expect(page.locator('.agent-meta')).toContainText('Harness default');
   await expect(page.locator('.agent-meta')).toContainText('Claude Code');
   await expect(page.locator('.agent-meta')).toContainText('Workspace');
@@ -224,7 +245,7 @@ test('the agent page shows its studies and edits instructions, profile and acces
 
   await page.getByRole('tab', { name: 'Settings' }).click();
   await page.getByRole('textbox', { name: 'Agent name' }).fill('Methods lead');
-  await page.getByRole('combobox', { name: 'Harness' }).selectOption('codex');
+  await selectPicker(page.getByRole('combobox', { name: 'Harness' }), 'codex');
   await page.getByRole('textbox', { name: 'Model' }).fill('gpt-5');
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'Methods lead', exact: true })).toBeVisible();

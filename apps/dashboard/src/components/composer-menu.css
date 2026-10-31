@@ -30,7 +30,7 @@
   max-width: 340px;
   max-height: min(460px, 60vh);
   overflow: auto;
-  background: var(--surface);
+  background: var(--fill-menu);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 5px;

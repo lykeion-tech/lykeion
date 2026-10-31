@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import {
@@ -18,12 +18,14 @@ import {
 } from './aristotle';
 import { readText, writeText } from '../storage';
 import { workspaceId } from '../api/session';
-import { useMe, useRuntimes } from '../api/queries';
+import { useAgents, useMe, useRuntimes } from '../api/queries';
 import { api } from '../api/client';
 import { guardResourceDrafts } from '../state/resource-draft';
 import type { FileRow, SessionMode } from './types';
+import type { AgentDefinition } from '../api/types';
 import SurfacePane from '../components/SurfacePane.vue';
 import { useElementWidth } from '../lib/element-width';
+import { agentNameWithoutCli } from '../lib/agent-name';
 import NotebookPane from './NotebookPane.vue';
 import FilesPane from './FilesPane.vue';
 import ComputePane from './ComputePane.vue';
@@ -37,7 +39,7 @@ import {
   useCoresearchFiles,
   useCoresearchMessages,
 } from './api';
-import Aristotle from '../components/Aristotle.vue';
+import ChatAgentAvatar from './ChatAgentAvatar.vue';
 import Icon from '../components/Icon.vue';
 import ChatTranscript from './ChatTranscript.vue';
 import AristotleComposer from './AristotleComposer.vue';
@@ -47,7 +49,58 @@ const route = useRoute(),
   client = useQueryClient();
 const state = useAristotle(),
   me = useMe(),
+  agents = useAgents(),
   runtimes = useRuntimes();
+const selectedAgentId = ref('');
+const agentPickerOpen = ref(false);
+const agentPicker = ref<HTMLElement>();
+const agentPickerTrigger = ref<HTMLButtonElement>();
+const availableAgents = computed(() =>
+  (agents.data.value ?? []).filter(
+    (item) =>
+      !item.archived_at && (item.owner_id === me.data.value?.id || item.visibility === 'workspace'),
+  ),
+);
+async function toggleAgentPicker() {
+  agentPickerOpen.value = !agentPickerOpen.value;
+  if (agentPickerOpen.value) {
+    await nextTick();
+    agentPicker.value
+      ?.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]')
+      ?.focus();
+  }
+}
+function agentPickerKey(event: KeyboardEvent) {
+  if (!agentPickerOpen.value) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    agentPickerOpen.value = false;
+    agentPickerTrigger.value?.focus();
+    return;
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+  const options = Array.from(
+    agentPicker.value?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [],
+  );
+  if (!options.length) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const index = options.indexOf(document.activeElement as HTMLButtonElement);
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? options.length - 1
+        : (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+  options[next]?.focus();
+}
+function closeAgentPicker(event: PointerEvent) {
+  if (agentPicker.value && !agentPicker.value.contains(event.target as Node))
+    agentPickerOpen.value = false;
+}
+onMounted(() => document.addEventListener('pointerdown', closeAgentPicker));
+onUnmounted(() => document.removeEventListener('pointerdown', closeAgentPicker));
 const isDraft = computed(() => route.path === '/coresearch/new');
 const conversation = computed(() =>
   isDraft.value
@@ -60,7 +113,30 @@ const conversation = computed(() =>
         ),
 );
 const startsSession = computed(() => isDraft.value || !!conversation.value?.is_welcome);
-const agent = computed(() => state.agent.data.value);
+const agent = computed(() => {
+  const id = isDraft.value ? selectedAgentId.value : conversation.value?.agent_id;
+  if (!id || id === state.agent.data.value?.id) return state.agent.data.value;
+  const found = (agents.data.value ?? []).find((item) => item.id === id);
+  if (found || isDraft.value || !agents.isSuccess.value) return found;
+  // A conversation keeps its frozen configuration even if its Agent is later deleted or no longer shared.
+  return {
+    id,
+    name: 'Unavailable agent',
+    description: '',
+    avatar_url: '',
+    built_in_key: '',
+    conversation_starters: [],
+    harness: conversation.value?.snapshot_harness ?? 'claude',
+    model: conversation.value?.snapshot_model ?? '',
+    visibility: 'private',
+    owner_id: '',
+    workspace_id: workspaceId.value,
+    instructions: '',
+    archived_at: null,
+    created_at: '',
+    updated_at: '',
+  } satisfies AgentDefinition;
+});
 const starters = computed(() =>
   agent.value?.conversation_starters?.length ? agent.value.conversation_starters : defaultStarters,
 );
@@ -155,6 +231,10 @@ const mode = ref<SessionMode>('experiment'),
 const effectiveModel = computed(() =>
   startsSession.value
     ? (models.value.find((m) => m.value === selectedModel.value)?.value ??
+      (selectedAgentId.value && harness.value === agent.value?.harness
+        ? agent.value?.model
+        : undefined) ??
+      models.value.find((m) => m.value === agent.value?.model)?.value ??
       models.value[0]?.value ??
       '')
     : (conversation.value?.snapshot_model ?? ''),
@@ -195,11 +275,14 @@ watch(
     selectedModel.value = null;
     selectedCli.value = undefined;
     selectedRuntime.value = undefined;
+    selectedAgentId.value = '';
+    agentPickerOpen.value = false;
     attachments.value = [];
     uploading.value = false;
-    if (route.path !== '/settings' && state.member.value && workspaceId.value) {
+    if (route.path.startsWith('/coresearch') && state.member.value && workspaceId.value) {
       const held = takeComposerContinuation(state.scope.value, route.fullPath, historyPosition());
       if (held) {
+        selectedAgentId.value = held.agentId ?? '';
         draft.value = held.body;
         mode.value = held.mode;
         template.value = held.template;
@@ -219,21 +302,26 @@ function historyPosition() {
   const value = router.options.history.state.position;
   return typeof value === 'number' ? value : undefined;
 }
-async function manageComposer(page: string) {
+function rememberComposer() {
   if (busy.value || uploading.value) return;
   holdComposerContinuation({
     scope: state.scope.value,
     path: route.fullPath,
     position: historyPosition(),
     body: draft.value,
+    agentId: selectedAgentId.value,
     mode: mode.value,
     template: template.value,
     runtime: runtime.value?.id,
     harness: harness.value,
-    model: effectiveModel.value,
+    model: selectedAgentId.value ? selectedModel.value : effectiveModel.value,
     attachments: attachments.value,
     pending,
   });
+}
+async function manageComposer(page: string) {
+  if (busy.value || uploading.value) return;
+  rememberComposer();
   await router.push(`/settings?tab=${page}`);
 }
 watch(
@@ -285,7 +373,15 @@ async function send(prompt?: string) {
   const options = {
     mode: startsSession.value ? mode.value : (conversation.value?.mode ?? 'experiment'),
     ...(startsSession.value && mode.value === 'cowrite' ? { template: template.value } : {}),
-    ...(startsSession.value ? { model: effectiveModel.value, harness: harness.value } : {}),
+    ...(startsSession.value
+      ? {
+          ...(selectedModel.value !== null || (!selectedAgentId.value && models.value.length)
+            ? { model: effectiveModel.value }
+            : {}),
+          harness: harness.value,
+        }
+      : {}),
+    ...(isDraft.value && selectedAgentId.value ? { agent_id: selectedAgentId.value } : {}),
     ...(attachments.value.length
       ? { attachments: attachments.value.map((file) => ({ ...file })) }
       : {}),
@@ -405,7 +501,11 @@ async function stop() {
         :hidden="paneMode === 'focus'"
       >
         <header v-if="!isDraft" class="aristotle-header">
-          <Aristotle still />
+          <ChatAgentAvatar
+            :agent="agent"
+            :size="34"
+            :fallback-aristotle="conversation?.is_welcome"
+          />
           <div>
             <b>{{
               conversation?.is_welcome
@@ -437,13 +537,13 @@ async function stop() {
           }}<button class="button" @click="state.agent.refetch()">Try again</button>
         </div>
         <div v-else-if="!agent || (!isDraft && !conversation)" class="center-empty" role="status">
-          Loading Aristotle…
+          Loading agent…
         </div>
         <template v-else
           ><div class="aristotle-scroll">
             <div v-if="isDraft" class="aristotle-start">
-              <Aristotle still />
-              <h1>Chat with {{ agent.name }}</h1>
+              <ChatAgentAvatar :agent="agent" />
+              <h1>Chat with {{ agentNameWithoutCli(agent.name, agent.harness) }}</h1>
               <p>
                 {{
                   agent.description ||
@@ -460,9 +560,60 @@ async function stop() {
                   {{ starter.label }}<Icon name="right" :size="14" />
                 </button>
               </div>
-              <RouterLink :to="`/agents/${agent.id}?tab=settings`" class="customize-starters"
-                ><Icon name="settings" :size="14" />Customize starters</RouterLink
-              >
+              <div class="starter-actions">
+                <RouterLink
+                  :to="`/agents/${agent.id}?tab=settings`"
+                  class="customize-starters"
+                  @click="rememberComposer"
+                  ><Icon name="settings" :size="14" />Customize starters</RouterLink
+                >
+                <div ref="agentPicker" class="chat-agent-picker" @keydown="agentPickerKey">
+                  <button
+                    ref="agentPickerTrigger"
+                    type="button"
+                    class="customize-starters"
+                    aria-label="Choose agent"
+                    aria-haspopup="menu"
+                    :aria-expanded="agentPickerOpen"
+                    :disabled="busy"
+                    @click="toggleAgentPicker"
+                  >
+                    <Icon name="bot" :size="14" />Choose agent
+                  </button>
+                  <div
+                    v-if="agentPickerOpen"
+                    class="chat-agent-menu"
+                    role="menu"
+                    aria-label="Agents"
+                  >
+                    <button
+                      v-for="item in availableAgents"
+                      :key="item.id"
+                      type="button"
+                      role="menuitemradio"
+                      :aria-checked="item.id === agent.id"
+                      @click="
+                        selectedAgentId = item.id;
+                        selectedCli = undefined;
+                        selectedRuntime = undefined;
+                        selectedModel = null;
+                        pending = null;
+                        agentPickerOpen = false;
+                      "
+                    >
+                      <ChatAgentAvatar :agent="item" :size="24" /><span>{{
+                        agentNameWithoutCli(item.name, item.harness)
+                      }}</span
+                      ><Icon v-if="item.id === agent.id" name="check" :size="14" />
+                    </button>
+                    <p v-if="agents.isError.value" role="alert">
+                      Could not load agents.
+                      <button type="button" @click="agents.refetch()">Retry</button>
+                    </p>
+                    <p v-else-if="!availableAgents.length">No agents available.</p>
+                  </div>
+                </div>
+              </div>
             </div>
             <div v-else-if="messages.error.value" class="center-empty" role="alert">
               {{ messages.error.value.message }}<button @click="messages.refetch()">Retry</button>
@@ -558,9 +709,8 @@ async function stop() {
             @files="uploadFiles"
             @manage="manageComposer"
             @remove="attachments = attachments.filter((file) => file.upload_id !== $event)"
-            ></AristotleComposer
-          ></template
-        >
+          ></AristotleComposer
+        ></template>
       </div>
       <SurfacePane
         v-if="experiment"

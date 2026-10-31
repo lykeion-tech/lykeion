@@ -7,7 +7,7 @@ import {
   studyNumber,
   timeAgo,
 } from '../lib/studies';
-import { teamDisplayParts } from '../lib/team-name';
+import { teamDisplayParts, teamDomain } from '../lib/team-name';
 import { backendLabel } from '../lib/backends';
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -16,7 +16,15 @@ import type { TeamMember } from '../api/types';
 import Modal from '../components/Modal.vue';
 import TeamSkillsPicker from '../components/TeamSkillsPicker.vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { addTeam, duplicateTeam, useTeam, useTeams, useCards, useWorkspace } from '../api/queries';
+import {
+  addTeam,
+  duplicateTeam,
+  useTeam,
+  useTeams,
+  useCards,
+  useWorkspace,
+  useMe,
+} from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import Icon from '../components/Icon.vue';
@@ -57,12 +65,55 @@ async function saveSkills(skills: string[]) {
   }
 }
 const detail = useTeam(() => props.id);
+const me = useMe();
+const settingsName = ref('');
+const settingsDescription = ref('');
+const settingsVisibility = ref<'private' | 'workspace'>('private');
+const settingsBusy = ref(false);
+const settingsError = ref('');
+watch(
+  () => detail.data.value,
+  (value) => {
+    if (!value) return;
+    settingsName.value = value.manifest.name;
+    settingsDescription.value = value.manifest.description || '';
+    settingsVisibility.value = value.visibility || 'private';
+  },
+  { immediate: true },
+);
+const canEditTeam = computed(
+  () =>
+    !!detail.data.value && detail.data.value.uploaded_by === me.data.value?.id && !builtIn.value,
+);
+async function saveSettings(input: Record<string, string>) {
+  if (settingsBusy.value || !canEditTeam.value) return;
+  const ownVisit = visit,
+    ws = workspaceId.value,
+    id = props.id;
+  settingsBusy.value = true;
+  settingsError.value = '';
+  try {
+    await api('PATCH', `/api/teams/${id}`, input, undefined, { workspace: ws });
+    await Promise.all([
+      client.invalidateQueries({ queryKey: keys.team(ws, id) }),
+      client.invalidateQueries({ queryKey: keys.packs(ws) }),
+    ]);
+  } catch (e) {
+    if (ownVisit === visit) settingsError.value = (e as Error).message;
+  } finally {
+    if (ownVisit === visit) settingsBusy.value = false;
+  }
+}
+
 const store = useTeams('', '');
 const manifest = computed(() => detail.data.value?.manifest);
 const row = computed(() => store.data.value?.find((t) => t.id === props.id));
 const added = computed(() => !!row.value?.added);
 // A built-in Team is in every workspace, works without Add and can't be changed.
 const builtIn = computed(() => row.value?.source === 'shipped');
+const displayDomain = computed(() =>
+  manifest.value ? teamDomain(row.value?.source, manifest.value.stage, manifest.value.domain) : '',
+);
 const availability = computed(() =>
   builtIn.value ? 'Built in' : added.value ? 'Added' : 'Not added',
 );
@@ -168,6 +219,7 @@ function toggleGroup(id: string) {
 }
 const tabs = ['Overview', 'Work', 'Settings'] as const;
 const tab = ref<(typeof tabs)[number]>('Overview');
+const settingsSection = ref<'general' | 'access'>('general');
 const busy = ref(false),
   error = ref(''),
   created = ref<number | null>(null);
@@ -179,6 +231,7 @@ watch([workspaceId, () => props.id], () => {
   skillsBusy.value = false;
   skillsError.value = '';
   tab.value = 'Overview';
+  settingsSection.value = 'general';
   selectedPerson.value = 'leader';
   search.value = '';
   collapsed.value = [];
@@ -189,6 +242,8 @@ watch([workspaceId, () => props.id], () => {
   copyBusy.value = false;
   copyError.value = '';
   iconBusy.value = false;
+  settingsBusy.value = false;
+  settingsError.value = '';
 });
 async function saveIcon(value: string) {
   if (iconBusy.value) return;
@@ -214,7 +269,7 @@ async function deleteTeam() {
     busy.value ||
     !manifest.value ||
     !confirm(
-      `Delete ${teamDisplayParts(manifest.value.name).label}? Its Agent copies will also be deleted. Past studies and run history will be kept.`,
+      `Delete ${teamDisplayParts(manifest.value.name).label}? Its Agent copies will also be deleted, including copies owned by other workspace members. Past studies and run history will be kept.`,
     )
   )
     return;
@@ -284,84 +339,79 @@ function tabKey(event: KeyboardEvent, index: number) {
 <template>
   <section class="agent-page team-detail-page">
     <template v-if="manifest">
-      <header class="agent-hero">
-        <nav class="agent-crumbs" aria-label="Breadcrumb">
-          <RouterLink to="/teams">Teams</RouterLink><span>/</span
-          ><span aria-current="page">{{ teamDisplayParts(manifest.name).label }}</span>
-        </nav>
-        <div class="agent-identity">
-          <EmojiIcon
-            :key="workspaceId + ':' + id"
-            :value="detail.data.value?.avatar_url || ''"
-            :editable="store.isSuccess.value && !!row && !builtIn"
-            :busy="iconBusy"
-            fallback="network"
-            @select="saveIcon"
-          />
-          <div class="team-heading">
-            <div class="agent-title">
-              <h1>{{ teamDisplayParts(manifest.name).label }}</h1>
-              <span
-                v-if="store.isSuccess.value"
-                class="agent-status"
-                :class="{ archived: !added && !builtIn }"
-                >{{ availability }}</span
-              >
+      <div class="agent-page-header">
+        <header class="agent-hero">
+          <div class="agent-identity">
+            <EmojiIcon
+              :key="workspaceId + ':' + id"
+              :value="detail.data.value?.avatar_url || ''"
+              :editable="canEditTeam"
+              :busy="iconBusy"
+              fallback="network"
+              @select="saveIcon"
+            />
+            <div class="team-heading">
+              <div class="agent-title">
+                <h1>{{ teamDisplayParts(manifest.name).label }}</h1>
+                <span
+                  v-if="store.isSuccess.value"
+                  class="agent-status"
+                  :class="{ archived: !added && !builtIn }"
+                  >{{ availability }}</span
+                >
+              </div>
+              <p v-if="manifest.description" class="agent-description">
+                {{ manifest.description }}
+              </p>
+              <p class="agent-meta">
+                <span><Icon name="network" :size="13" />{{ stage(manifest.stage) }}</span
+                ><span v-if="harnesses"><Icon name="monitor" :size="13" />{{ harnesses }}</span
+                ><span v-if="displayDomain"
+                  ><Icon name="circle" :size="13" />{{ displayDomain }}</span
+                ><span><Icon name="bot" :size="13" />{{ people.length }} agents</span>
+              </p>
             </div>
-            <p v-if="manifest.description" class="agent-description">{{ manifest.description }}</p>
-            <p class="agent-meta">
-              <span><Icon name="network" :size="13" />{{ stage(manifest.stage) }}</span
-              ><span v-if="harnesses"><Icon name="monitor" :size="13" />{{ harnesses }}</span
-              ><span v-if="manifest.domain"
-                ><Icon name="circle" :size="13" />{{ manifest.domain }}</span
-              ><span><Icon name="bot" :size="13" />{{ people.length }} agents</span>
-            </p>
+            <div class="agent-actions">
+              <button v-if="canEditTeam" class="button" :disabled="busy" @click="deleteTeam">
+                <Icon name="trash" :size="14" />Delete Team
+              </button>
+              <button
+                v-if="builtIn"
+                class="button"
+                @click="
+                  copyError = '';
+                  copyName = manifest.name + ' (duplicate)';
+                "
+              >
+                Duplicate this Team</button
+              ><button v-if="added || builtIn" class="button primary" @click="newStudy">
+                <Icon name="plus" :size="14" />New study</button
+              ><button
+                v-else
+                class="button primary"
+                :disabled="busy || !store.isSuccess.value"
+                @click="add"
+              >
+                Add Team
+              </button>
+            </div>
           </div>
-          <div class="agent-actions">
-            <button
-              v-if="store.isSuccess.value && row && !builtIn"
-              class="button"
-              :disabled="busy"
-              @click="deleteTeam"
-            >
-              <Icon name="trash" :size="14" />Delete Team
-            </button>
-            <button
-              v-if="builtIn"
-              class="button"
-              @click="
-                copyError = '';
-                copyName = manifest.name + ' (duplicate)';
-              "
-            >
-              Duplicate this Team</button
-            ><button v-if="added || builtIn" class="button primary" @click="newStudy">
-              <Icon name="plus" :size="14" />New study</button
-            ><button
-              v-else
-              class="button primary"
-              :disabled="busy || !store.isSuccess.value"
-              @click="add"
-            >
-              Add Team
-            </button>
-          </div>
+        </header>
+        <div class="agent-tabs-bar" role="tablist" aria-label="Team sections">
+          <button
+            v-for="(t, i) in tabs"
+            :id="'team-tab-' + i"
+            :key="t"
+            role="tab"
+            :aria-selected="tab === t"
+            :tabindex="tab === t ? 0 : -1"
+            :aria-controls="'team-panel-' + i"
+            @click="tab = t"
+            @keydown="tabKey($event, i)"
+          >
+            {{ t }}
+          </button>
         </div>
-      </header>
-      <div class="agent-tabs-bar" role="tablist" aria-label="Team sections">
-        <button
-          v-for="(t, i) in tabs"
-          :id="'team-tab-' + i"
-          :key="t"
-          role="tab"
-          :aria-selected="tab === t"
-          :tabindex="tab === t ? 0 : -1"
-          :aria-controls="'team-panel-' + i"
-          @click="tab = t"
-          @keydown="tabKey($event, i)"
-        >
-          {{ t }}
-        </button>
       </div>
       <p v-if="error" class="inline-error agent-error" role="alert">
         {{ error }}
@@ -415,7 +465,7 @@ function tabKey(event: KeyboardEvent, index: number) {
           <TeamMemberProfile
             :member="selected.member"
             :role="selected.role"
-            :editable-skills="!builtIn && store.isSuccess.value"
+            :editable-skills="canEditTeam"
             @edit-skills="
               skillsError = '';
               skillMember = selected.member;
@@ -484,33 +534,133 @@ function tabKey(event: KeyboardEvent, index: number) {
       <section
         v-else-if="tab === 'Settings'"
         id="team-panel-2"
-        class="agent-work"
+        class="agent-split"
         role="tabpanel"
         aria-labelledby="team-tab-2"
       >
-        <h2>Scientific settings</h2>
-        <p class="team-lede">The Team’s scope and the criteria used to review its work.</p>
-        <dl class="team-settings">
-          <dt>Domain</dt>
-          <dd>{{ manifest.domain || 'No domain' }}</dd>
-          <dt>Stage</dt>
-          <dd>{{ stage(manifest.stage) }}</dd>
-          <template v-if="row"
-            ><dt>Source</dt>
-            <dd>{{ builtIn ? 'Built into Lykeion' : 'Uploaded by you' }}</dd></template
+        <nav class="agent-subnav" aria-label="Team settings">
+          <button
+            :aria-current="settingsSection === 'general' ? 'page' : undefined"
+            @click="settingsSection = 'general'"
           >
-          <dt>Steps per column</dt>
-          <dd>{{ manifest.steps || 12 }} steps per column</dd>
-        </dl>
-        <section class="team-section">
-          <h2>Review criteria</h2>
-          <ol class="team-criteria">
-            <li>Does the work cite where its facts came from?</li>
-            <li>Does it answer what the researcher asked?</li>
-            <li>Does it say what it couldn't do?</li>
-            <li v-for="c in manifest.criteria" :key="c">{{ c }}</li>
-          </ol>
-        </section>
+            General
+          </button>
+          <button
+            :aria-current="settingsSection === 'access' ? 'page' : undefined"
+            @click="settingsSection = 'access'"
+          >
+            Access
+          </button>
+        </nav>
+        <div v-if="settingsSection === 'general'" class="agent-pane">
+          <h2>General</h2>
+          <h3>Profile</h3>
+          <form
+            @submit.prevent="
+              saveSettings({ name: settingsName.trim(), description: settingsDescription })
+            "
+          >
+            <div class="agent-card">
+              <label class="agent-field"
+                >Name<input
+                  v-model="settingsName"
+                  aria-label="Team name"
+                  maxlength="64"
+                  required
+                  :readonly="!canEditTeam"
+              /></label>
+              <label class="agent-field"
+                >Description<span>
+                  <textarea
+                    v-model="settingsDescription"
+                    aria-label="Team description"
+                    maxlength="1000"
+                    :readonly="!canEditTeam"
+                  /><small>{{ settingsDescription.length }} / 1000</small></span
+                ></label
+              >
+            </div>
+            <p v-if="settingsError" class="inline-error" role="alert">{{ settingsError }}</p>
+            <footer v-if="canEditTeam">
+              <button class="button primary" :disabled="settingsBusy || !settingsName.trim()">
+                Save changes
+              </button>
+            </footer>
+          </form>
+          <h2>Details</h2>
+          <p class="team-lede">The Team’s scope and the criteria used to review its work.</p>
+          <dl class="team-settings">
+            <dt>Domain</dt>
+            <dd>{{ displayDomain || 'No domain' }}</dd>
+            <dt>Stage</dt>
+            <dd>{{ stage(manifest.stage) }}</dd>
+            <template v-if="row"
+              ><dt>Source</dt>
+              <dd>
+                {{
+                  builtIn
+                    ? 'Built into Lykeion'
+                    : canEditTeam
+                      ? 'Uploaded by you'
+                      : 'Shared by a workspace member'
+                }}
+              </dd></template
+            >
+          </dl>
+          <section class="team-section">
+            <h2>Review criteria</h2>
+            <ol class="team-criteria">
+              <li>Does the work cite where its facts came from?</li>
+              <li>Does it answer what the researcher asked?</li>
+              <li>Does it say what it couldn't do?</li>
+              <li v-for="c in manifest.criteria" :key="c">{{ c }}</li>
+            </ol>
+          </section>
+        </div>
+        <form
+          v-else
+          class="agent-pane"
+          @submit.prevent="saveSettings({ visibility: settingsVisibility })"
+        >
+          <h2>Access</h2>
+          <h3>Who can use this Team</h3>
+          <div class="agent-card agent-radios" role="radiogroup" aria-label="Access">
+            <label
+              ><input
+                v-model="settingsVisibility"
+                type="radio"
+                value="private"
+                :disabled="!canEditTeam"
+              /><span
+                ><b>Only the owner</b
+                ><small
+                  >Only the owner can add and use this Team. Existing Agent copies remain with their
+                  owners.</small
+                ></span
+              ></label
+            >
+            <label
+              ><input
+                v-model="settingsVisibility"
+                type="radio"
+                value="workspace"
+                :disabled="!canEditTeam"
+              /><span
+                ><b>Entire workspace</b
+                ><small>Every workspace member can add and use this Team.</small></span
+              ></label
+            >
+          </div>
+          <p v-if="settingsError" class="inline-error" role="alert">{{ settingsError }}</p>
+          <footer v-if="canEditTeam">
+            <button
+              class="button primary"
+              :disabled="settingsBusy || settingsVisibility === detail.data.value?.visibility"
+            >
+              Save changes
+            </button>
+          </footer>
+        </form>
       </section>
     </template>
     <div v-else class="agent-work">
@@ -554,9 +704,6 @@ function tabKey(event: KeyboardEvent, index: number) {
 </template>
 <style src="./agent-detail.css" />
 <style scoped>
-.team-detail-page {
-  scrollbar-gutter: stable;
-}
 .team-work-search {
   display: inline-flex;
   align-items: center;
@@ -733,6 +880,11 @@ function tabKey(event: KeyboardEvent, index: number) {
   }
 }
 
+.team-detail-page .agent-pane > h2:first-child {
+  font-size: 16px;
+  font-weight: 500;
+  margin-bottom: 30px;
+}
 .team-detail-page h2 {
   font-size: 14px;
   font-weight: 600;

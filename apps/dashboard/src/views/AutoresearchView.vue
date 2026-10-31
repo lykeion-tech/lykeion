@@ -4,6 +4,7 @@ import { ref } from 'vue';
 const freshWebhooks = ref<Record<string, string>>({});
 </script>
 <script setup lang="ts">
+import SelectPicker from '../components/SelectPicker.vue';
 import { computed, reactive, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
@@ -437,10 +438,12 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
               :max="schedule.unit === 'hours' ? 23 : 59"
               aria-label="Interval"
             />
-            <select v-model="schedule.unit" aria-label="Interval unit">
-              <option value="hours">hours</option>
-              <option value="minutes">minutes</option>
-            </select>
+            <SelectPicker
+              ><select v-model="schedule.unit" aria-label="Interval unit">
+                <option value="hours">hours</option>
+                <option value="minutes">minutes</option>
+              </select></SelectPicker
+            >
             between
             <input
               v-model="schedule.windowStart"
@@ -452,11 +455,13 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
             <input v-model="schedule.windowEnd" type="time" step="3600" aria-label="Window end" />
           </div>
           <label
-            >Days<select v-model="schedule.dayMode" aria-label="Schedule days">
-              <option value="every">Every day</option>
-              <option value="week">Days of week</option>
-              <option value="month">Day of month</option>
-            </select></label
+            >Days<SelectPicker
+              ><select v-model="schedule.dayMode" aria-label="Schedule days">
+                <option value="every">Every day</option>
+                <option value="week">Days of week</option>
+                <option value="month">Day of month</option>
+              </select></SelectPicker
+            ></label
           >
           <div v-if="schedule.dayMode === 'week'" class="choice-row">
             <button

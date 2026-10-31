@@ -31,8 +31,14 @@ test('Teams uses the reference table and opens the reference-size scientific cre
   await expect(filter).toHaveCSS('height', '32px');
   await filter.click();
   const popup = page.getByRole('dialog', { name: 'Filter Teams' });
-  await expect(popup.getByRole('combobox', { name: 'Domain', exact: true })).toHaveValue('');
-  await expect(popup.getByRole('combobox', { name: 'Stage', exact: true })).toHaveValue('');
+  await expect(popup.getByRole('combobox', { name: 'Domain', exact: true })).toHaveAttribute(
+    'data-value',
+    '',
+  );
+  await expect(popup.getByRole('combobox', { name: 'Stage', exact: true })).toHaveAttribute(
+    'data-value',
+    '',
+  );
   await expect(popup.getByText('Built for', { exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(popup).toHaveCount(0);

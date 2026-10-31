@@ -201,7 +201,7 @@ onUnmounted(() => {
   z-index: 100;
   width: 144px;
   padding: 2px;
-  background: var(--modal);
+  background: var(--fill-menu);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 5px 18px #0001;

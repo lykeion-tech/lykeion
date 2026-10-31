@@ -1,6 +1,59 @@
 import { expect, test } from '@playwright/test';
 import { installAristotleFixture } from './aristotle-fixture';
 
+test('a new conversation can select an agent and use its starters', async ({ page }) => {
+  const fixture = await installAristotleFixture(page, true);
+  await page.route('**/api/agents', async (route) => {
+    await route.fulfill({
+      json: [
+        {
+          id: 'aristotle',
+          name: 'Aristotle',
+          owner_id: 'me',
+          visibility: 'private',
+          built_in_key: 'aristotle',
+          archived_at: null,
+          harness: 'claude',
+          model: '',
+          description: '',
+          avatar_url: '',
+          conversation_starters: [],
+        },
+        {
+          id: 'analyst',
+          name: 'Research analyst',
+          owner_id: 'me',
+          visibility: 'private',
+          built_in_key: '',
+          archived_at: null,
+          harness: 'claude',
+          model: '',
+          description: 'Analyzes evidence',
+          avatar_url: 'emoji:🧪',
+          conversation_starters: [
+            { label: 'Explore evidence', prompt: 'Examine these sources carefully.' },
+          ],
+        },
+      ],
+    });
+  });
+  await page.goto('/#/coresearch/new');
+  await page.getByRole('button', { name: 'Choose agent' }).click();
+  await page.getByRole('menuitemradio', { name: 'Research analyst' }).click();
+  await expect(page.getByRole('heading', { name: 'Chat with Research analyst' })).toBeVisible();
+  await expect(page.getByText('Analyzes evidence')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Customize starters' })).toHaveAttribute(
+    'href',
+    '#/agents/analyst?tab=settings',
+  );
+  await page.getByRole('button', { name: 'Explore evidence' }).click();
+  await expect
+    .poll(
+      () => fixture.requests.find((item) => item.path === '/api/coresearch/conversations')?.body,
+    )
+    .toMatchObject({ agent_id: 'analyst', body: 'Examine these sources carefully.' });
+});
+
 for (const theme of ['ash', 'midnight']) {
   test(`${theme}: first welcome, unsaved draft and no-machine blocker`, async ({ page }) => {
     const fixture = await installAristotleFixture(page);
@@ -73,6 +126,44 @@ for (const theme of ['ash', 'midnight']) {
         expect(overlap, `${fab} must not overlap editable text area`).toBe(0);
       }
     }
+  });
+}
+
+for (const source of ['built_in', 'custom'] as const) {
+  test(`conversation starters are visible and editable for ${source} agents`, async ({ page }) => {
+    await installAristotleFixture(page);
+    let agent = {
+      id: 'aristotle',
+      workspace_id: 'lab',
+      owner_id: 'me',
+      built_in_key: '',
+      name: source === 'built_in' ? 'Theorist · Hypotheses Team' : 'Custom agent',
+      description: 'Research',
+      instructions: '',
+      harness: 'claude',
+      model: '',
+      visibility: 'private',
+      archived_at: null,
+      conversation_starters: [] as { label: string; prompt: string }[],
+      source,
+    };
+    await page.route('**/api/agents/aristotle', async (route) => {
+      if (route.request().method() === 'PATCH')
+        agent = { ...agent, ...route.request().postDataJSON() };
+      await route.fulfill({ json: agent });
+    });
+    await page.route('**/api/agents', async (route) => {
+      await route.fulfill({ json: [agent] });
+    });
+    await page.goto('/#/agents/aristotle?tab=settings');
+    await expect(page.getByRole('heading', { name: 'Conversation starters' })).toBeVisible();
+    await page.getByRole('button', { name: 'Add starter', exact: true }).click();
+    await page.getByLabel('Starter 1 label').fill('Investigate');
+    await page.getByLabel('Starter 1 prompt').fill('Investigate the evidence');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect
+      .poll(() => agent.conversation_starters)
+      .toEqual([{ label: 'Investigate', prompt: 'Investigate the evidence' }]);
   });
 }
 

@@ -397,7 +397,7 @@ onUnmounted(() => {
 .execution-popup {
   position: fixed;
   z-index: 95;
-  background: var(--modal);
+  background: var(--fill-menu);
   border: 1px solid var(--border);
   border-radius: 9px;
   box-shadow: 0 6px 18px #0002;

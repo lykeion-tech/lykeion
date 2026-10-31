@@ -803,13 +803,18 @@ describe('Shared machines', () => {
         ]),
     );
     try {
-      expect(t.text()).toContain('My machines');
+      expect(t.text()).toContain('Machines');
+      await t.click(/^Machines$/);
       expect(t.text()).toContain('Bench');
       expect(t.text()).toContain('Linux VM (Ada)');
       expect(t.text()).toContain('Chosen Linux (Ada)');
       expect(t.text()).not.toContain('Ada Mac');
       expect(t.text()).not.toContain('Private Linux');
-      expect(t.all().some((n) => n.tag === 'option' && n.props.value === 'vm-id')).toBe(true);
+      expect(
+        t
+          .all()
+          .some((n) => n.props.role === 'menuitemradio' && textOf(n).includes('Linux VM (Ada)')),
+      ).toBe(true);
     } finally {
       t.unmount();
     }
@@ -822,7 +827,10 @@ describe('Shared machines', () => {
       await t.click(/^Pre-registered · 0$/);
       await t.fill('Result name 1', 'Accurate');
       await t.fill('Result condition 1', 'accuracy >= 0.9');
-      if (machine) await change(t, 'Machine', machine);
+      if (machine) {
+        await t.click(/^Machines$/);
+        await t.click(/^Bench$/);
+      }
       await t.submit();
       const body = bodies(f).find((c) => c.path === '/api/cards')!.body;
       if (machine) expect(body.machine).toBe(machine);

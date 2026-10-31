@@ -1,5 +1,65 @@
 import { expect, test } from '@playwright/test';
 import { installFilesFixture, openSavedFile, texts } from './coresearch-files-fixture';
+test('chat transcript uses the Study step timeline, including errors and expandable output', async ({
+  page,
+}) => {
+  await installFilesFixture(page);
+  await page.route(
+    '**/api/coresearch/projects/p/chats/selected/turns/different/steps',
+    async (route) => {
+      await route.fulfill({
+        json: [
+          { attempt: 1, seq: 0, type: 'text', tool: '', content: '  ' },
+          { attempt: 1, seq: 0.5, type: 'log', tool: '', content: 'hidden log' },
+          {
+            attempt: 1,
+            seq: 1,
+            type: 'tool_use',
+            tool: 'Bash',
+            content: { type: 'tool_use', id: 'one', input: { command: 'echo first' } },
+          },
+          {
+            attempt: 1,
+            seq: 2,
+            type: 'tool_result',
+            tool: '',
+            content: { tool_use_id: 'one', content: 'first result', is_error: true },
+          },
+          {
+            attempt: 1,
+            seq: 3,
+            type: 'tool_use',
+            tool: 'Bash',
+            content: { type: 'tool_use', id: 'two', input: { command: 'echo second' } },
+          },
+          {
+            attempt: 1,
+            seq: 4,
+            type: 'tool_result',
+            tool: '',
+            content: { tool_use_id: 'two', content: 'second result' },
+          },
+        ],
+      });
+    },
+  );
+  await page.goto('/#/coresearch/p/selected');
+  const timeline = page.getByRole('list', { name: 'Transcript' });
+  await expect(timeline.locator(':scope > li.turn-item')).toHaveCount(1);
+  await expect(timeline).toHaveCSS('list-style-type', 'none');
+  const group = timeline.locator('details[data-activity-group]');
+  await expect(group).toBeVisible();
+  await expect(group).toHaveAttribute('open', '');
+  await expect(group.locator('summary').first()).toContainText('2 steps');
+  await expect(group.locator('summary').first()).toContainText('1 error');
+  await expect(group.getByText('first result')).toBeVisible();
+  const second = group.locator('details.tool-step').nth(1);
+  await second.locator('summary').click();
+  await expect(second.getByText('second result')).toBeVisible();
+  await group.locator('summary').first().click();
+  await expect(group.locator('ol')).toBeHidden();
+});
+
 test('typing before remote head update preserves draft and base through stale and force saves; intentional reload replaces edits', async ({
   page,
 }) => {

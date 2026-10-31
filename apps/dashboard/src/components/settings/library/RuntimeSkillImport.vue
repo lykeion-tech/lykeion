@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from '../../SelectPicker.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRuntimes, useMe } from '../../../api/queries';
 import { useResourceDraft } from '../../../state/resource-draft';
@@ -167,18 +168,20 @@ function toggleAll() {
 <template>
   <div class="runtime-import">
     <label class="field"
-      >Runtime<select
-        :value="runtime"
-        aria-label="Runtime"
-        :disabled="active || changing"
-        @change="changeRuntime"
-      >
-        <option value="">Choose runtime</option>
-        <option v-for="r in owned" :key="r.id" :value="r.id" :disabled="r.status !== 'online'">
-          {{ r.custom_name || r.device_name }} · {{ label(r.harness)
-          }}{{ r.status === 'offline' ? ' · Offline' : '' }}
-        </option>
-      </select></label
+      >Runtime<SelectPicker
+        ><select
+          :value="runtime"
+          aria-label="Runtime"
+          :disabled="active || changing"
+          @change="changeRuntime"
+        >
+          <option value="">Choose runtime</option>
+          <option v-for="r in owned" :key="r.id" :value="r.id" :disabled="r.status !== 'online'">
+            {{ r.custom_name || r.device_name }} · {{ label(r.harness)
+            }}{{ r.status === 'offline' ? ' · Offline' : '' }}
+          </option>
+        </select></SelectPicker
+      ></label
     >
     <p v-if="runtimes.isPending.value" role="status">Loading runtimes…</p>
     <p v-else-if="runtimes.error.value" role="alert">{{ runtimes.error.value.message }}</p>

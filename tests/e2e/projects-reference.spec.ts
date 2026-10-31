@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test } from '@playwright/test';
 import { labWorkspace, preregister } from './lab';
 
@@ -76,12 +77,12 @@ test('Projects has the reference table and scopes its board and saved Properties
   await expect(rail.getByRole('textbox', { name: 'Project description' })).toHaveValue(
     project.description,
   );
-  await rail.getByRole('combobox', { name: 'Project status' }).selectOption('in_progress');
+  await selectPicker(rail.getByRole('combobox', { name: 'Project status' }), 'in_progress');
   await expect(rail.getByRole('combobox', { name: 'Project status' })).toBeEnabled();
-  await rail.getByRole('combobox', { name: 'Project priority' }).selectOption('urgent');
+  await selectPicker(rail.getByRole('combobox', { name: 'Project priority' }), 'urgent');
   await expect(rail.getByRole('combobox', { name: 'Project priority' })).toBeEnabled();
   const me = await (await page.request.get('/api/me')).json();
-  await rail.getByRole('combobox', { name: 'Project lead' }).selectOption(`member:${me.id}`);
+  await selectPicker(rail.getByRole('combobox', { name: 'Project lead' }), `member:${me.id}`);
   await expect(rail.getByRole('combobox', { name: 'Project lead' })).toBeEnabled();
   await rail
     .getByRole('textbox', { name: 'Project description' })
@@ -95,9 +96,18 @@ test('Projects has the reference table and scopes its board and saved Properties
     )
     .toBe('Updated from the Properties rail.');
   await page.reload();
-  await expect(rail.getByRole('combobox', { name: 'Project status' })).toHaveValue('in_progress');
-  await expect(rail.getByRole('combobox', { name: 'Project priority' })).toHaveValue('urgent');
-  await expect(rail.getByRole('combobox', { name: 'Project lead' })).toHaveValue(`member:${me.id}`);
+  await expect(rail.getByRole('combobox', { name: 'Project status' })).toHaveAttribute(
+    'data-value',
+    'in_progress',
+  );
+  await expect(rail.getByRole('combobox', { name: 'Project priority' })).toHaveAttribute(
+    'data-value',
+    'urgent',
+  );
+  await expect(rail.getByRole('combobox', { name: 'Project lead' })).toHaveAttribute(
+    'data-value',
+    `member:${me.id}`,
+  );
   await expect(rail.getByRole('heading', { name: 'Resources' })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/reference/project-board.png' });
   await page.getByRole('button', { name: 'Toggle project properties' }).click();

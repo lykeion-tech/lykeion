@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from '../SelectPicker.vue';
 import { agentDisplayName } from '../../lib/agent-name';
 import { computed, ref, watch } from 'vue';
 import { useAnalytics, useResearches } from '../../api/queries';
@@ -91,13 +92,15 @@ const updated = computed(() =>
       <span v-if="analytics.data.value">Updated {{ updated }}</span>
     </header>
     <div class="toolbar">
-      <select v-model="scope" aria-label="Research scope">
-        <option value="all">All Studies</option>
-        <option value="standalone">Standalone Studies</option>
-        <option v-for="research in researches.data.value" :key="research.id" :value="research.id">
-          {{ research.name }}
-        </option>
-      </select>
+      <SelectPicker
+        ><select v-model="scope" aria-label="Research scope">
+          <option value="all">All Studies</option>
+          <option value="standalone">Standalone Studies</option>
+          <option v-for="research in researches.data.value" :key="research.id" :value="research.id">
+            {{ research.name }}
+          </option>
+        </select></SelectPicker
+      >
       <div class="segments" role="group" aria-label="Cadence">
         <button
           v-for="item in ['daily', 'weekly']"

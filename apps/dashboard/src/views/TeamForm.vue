@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from '../components/SelectPicker.vue';
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
@@ -237,10 +238,12 @@ async function create() {
           The leader coordinates the Team and chooses who works next.
         </p>
         <div class="slot">
-          <select v-model="leader.agent" aria-label="Leader agent">
-            <option value="" disabled>Choose an agent</option>
-            <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <SelectPicker
+            ><select v-model="leader.agent" aria-label="Leader agent">
+              <option value="" disabled>Choose an agent</option>
+              <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select></SelectPicker
+          >
           <small v-if="agentById(leader.agent)">{{
             harnessName(agentById(leader.agent)!.harness)
           }}</small>
@@ -263,10 +266,12 @@ async function create() {
               placeholder="Name, for example bioinformatician"
               maxlength="32"
             />
-            <select v-model="m.agent" aria-label="Member agent">
-              <option value="" disabled>Choose an agent</option>
-              <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
-            </select>
+            <SelectPicker
+              ><select v-model="m.agent" aria-label="Member agent">
+                <option value="" disabled>Choose an agent</option>
+                <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select></SelectPicker
+            >
             <button
               type="button"
               class="button"
@@ -285,26 +290,28 @@ async function create() {
           />
           <div class="row chips">
             <span class="muted">Skills</span>
-            <select
-              aria-label="Add skill"
-              @change="
-                (e) => {
-                  const t = e.target as HTMLSelectElement;
-                  if (t.value && !m.skills.includes(t.value)) m.skills.push(t.value);
-                  t.value = '';
-                }
-              "
-            >
-              <option value="">+ skill</option>
-              <option
-                v-for="s in skills.data.value ?? []"
-                :key="s.name"
-                :value="s.name"
-                :disabled="!s.policy_enabled"
+            <SelectPicker
+              ><select
+                aria-label="Add skill"
+                @change="
+                  (e) => {
+                    const t = e.target as HTMLSelectElement;
+                    if (t.value && !m.skills.includes(t.value)) m.skills.push(t.value);
+                    t.value = '';
+                  }
+                "
               >
-                {{ s.name }}
-              </option>
-            </select>
+                <option value="">+ skill</option>
+                <option
+                  v-for="s in skills.data.value ?? []"
+                  :key="s.name"
+                  :value="s.name"
+                  :disabled="!s.policy_enabled"
+                >
+                  {{ s.name }}
+                </option>
+              </select></SelectPicker
+            >
             <button
               v-for="s in m.skills"
               :key="s"
@@ -318,45 +325,47 @@ async function create() {
           </div>
           <div class="row chips">
             <span class="muted">Connectors</span>
-            <select
-              aria-label="Add connector"
-              @change="
-                (e) => {
-                  const t = e.target as HTMLSelectElement;
-                  addConnector(m, t.value);
-                  t.value = '';
-                }
-              "
+            <SelectPicker
+              ><select
+                aria-label="Add connector"
+                @change="
+                  (e) => {
+                    const t = e.target as HTMLSelectElement;
+                    addConnector(m, t.value);
+                    t.value = '';
+                  }
+                "
+              >
+                <option value="">+ connector</option>
+                <optgroup label="Catalogue">
+                  <option
+                    v-for="c in catalogue.data.value ?? []"
+                    :key="c.name"
+                    :value="c.name"
+                    :disabled="m.connectors.some((x) => x.name === c.name)"
+                  >
+                    {{ c.name }}
+                  </option>
+                </optgroup>
+                <optgroup label="Workspace">
+                  <option
+                    v-for="c in workspaceConnectors.data.value ?? []"
+                    :key="c.id"
+                    :value="'workspace:' + c.id"
+                    :disabled="
+                      !c.policy_enabled ||
+                      m.connectors.some((x) => x.kind === 'workspace' && x.value === c.id)
+                    "
+                  >
+                    {{ c.name }}
+                  </option>
+                </optgroup>
+                <optgroup label="Your own">
+                  <option value="url">An https MCP URL</option>
+                  <option value="command">A local command</option>
+                </optgroup>
+              </select></SelectPicker
             >
-              <option value="">+ connector</option>
-              <optgroup label="Catalogue">
-                <option
-                  v-for="c in catalogue.data.value ?? []"
-                  :key="c.name"
-                  :value="c.name"
-                  :disabled="m.connectors.some((x) => x.name === c.name)"
-                >
-                  {{ c.name }}
-                </option>
-              </optgroup>
-              <optgroup label="Workspace">
-                <option
-                  v-for="c in workspaceConnectors.data.value ?? []"
-                  :key="c.id"
-                  :value="'workspace:' + c.id"
-                  :disabled="
-                    !c.policy_enabled ||
-                    m.connectors.some((x) => x.kind === 'workspace' && x.value === c.id)
-                  "
-                >
-                  {{ c.name }}
-                </option>
-              </optgroup>
-              <optgroup label="Your own">
-                <option value="url">An https MCP URL</option>
-                <option value="command">A local command</option>
-              </optgroup>
-            </select>
           </div>
           <div v-for="(c, j) in m.connectors" :key="j" class="row connector">
             <template v-if="c.kind === 'catalogue' || c.kind === 'workspace'">
@@ -422,10 +431,12 @@ async function create() {
         <h2>Independent Auditor</h2>
         <p class="section-description">An independent model checks the work before scoring.</p>
         <div class="slot">
-          <select v-model="auditor.agent" aria-label="Auditor agent">
-            <option value="" disabled>Choose an agent</option>
-            <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <SelectPicker
+            ><select v-model="auditor.agent" aria-label="Auditor agent">
+              <option value="" disabled>Choose an agent</option>
+              <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select></SelectPicker
+          >
           <small v-if="agentById(auditor.agent)"
             >{{ harnessName(agentById(auditor.agent)!.harness) }} · runs once after the leader says
             done, before scoring</small
@@ -447,10 +458,12 @@ async function create() {
             aria-label="Domain"
             placeholder="Domain, for example Computational biology"
           />
-          <select v-model="stage" aria-label="Built for">
-            <option value="">Built for a set of stages</option>
-            <option v-for="s in stages" :key="s" :value="s">Built for {{ label(s) }}</option>
-          </select>
+          <SelectPicker
+            ><select v-model="stage" aria-label="Built for">
+              <option value="">Built for a set of stages</option>
+              <option v-for="s in stages" :key="s" :value="s">Built for {{ label(s) }}</option>
+            </select></SelectPicker
+          >
         </div>
 
         <h2>Scoring criteria</h2>

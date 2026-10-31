@@ -274,17 +274,10 @@ describe('Coresearch workspace', () => {
     });
     await settle();
     expect(urls).toEqual(['/api/coresearch/projects/p/chats/c/turns/different/steps']);
-    const step = all(root).find((n) => n.props['data-testid'] === 'tool-step')!;
+    const step = all(root).find((n) => n.tag === 'details' && n.props.class === 'tool-step');
     expect(step).toBeTruthy();
-    (all(step).find((n) => n.tag === 'button')!.props.onClick as () => void)();
-    await settle();
-    expect(textOf(root)).toContain('echo baseline');
-    (
-      all(root).find((n) => n.tag === 'button' && textOf(n).includes('Show output'))!.props
-        .onClick as () => void
-    )();
-    await settle();
-    expect(all(root).find((n) => n.props['data-testid'] === 'tool-output')?.text).toBe('baseline');
+    expect(textOf(step!)).toContain('echo baseline');
+    expect(textOf(step!)).toContain('baseline');
   });
   it('owner membership controls exclude existing members and protect the last owner', async () => {
     const requests: { url: string; method: string; body: unknown }[] = [];
@@ -381,6 +374,8 @@ describe('Coresearch workspace', () => {
         c.setQueryData(keys.coresearchSteps('lab', 'p', 'c', 'run'), [
           { attempt: 1, seq: 1, type: 'log', tool: '', content: 'diagnostic' },
           { attempt: 1, seq: 2, type: 'status', tool: '', content: 'working' },
+          { attempt: 1, seq: 4, type: 'text', tool: '', content: '' },
+          { attempt: 1, seq: 5, type: 'thinking', tool: '', content: '   ' },
           {
             attempt: 1,
             seq: 3,
@@ -392,8 +387,15 @@ describe('Coresearch workspace', () => {
     );
     expect(textOf(root)).not.toContain('Run log');
     expect(textOf(root)).not.toContain('Run status');
-    expect(all(root).filter((n) => n.props['data-testid'] === 'tool-step')).toHaveLength(1);
+    expect(
+      all(root).filter((n) => n.tag === 'details' && n.props.class === 'tool-step'),
+    ).toHaveLength(1);
     expect(textOf(root)).not.toContain('3 steps');
+    expect(
+      all(root).filter(
+        (n) => n.tag === 'li' && String(n.props.class).split(/\s+/).includes('mark-message'),
+      ),
+    ).toHaveLength(1);
   });
   it('thinking stays prose and is excluded from the copied assistant reply', async () => {
     const copied: string[] = [];
@@ -412,7 +414,9 @@ describe('Coresearch workspace', () => {
           { attempt: 1, seq: 1, type: 'thinking', tool: '', content: 'Checking uncertainty.' },
         ]),
     );
-    expect(all(root).filter((n) => n.props['data-testid'] === 'tool-step')).toHaveLength(0);
+    expect(
+      all(root).filter((n) => n.tag === 'details' && n.props.class === 'tool-step'),
+    ).toHaveLength(0);
     expect(
       all(root)
         .map((n) => n.props.innerHTML ?? '')

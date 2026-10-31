@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import {
   expect,
   test,
@@ -82,15 +83,21 @@ test('Profile and Preferences save to the account and the device', async ({ page
     await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Ana Settings');
     await page.getByRole('textbox', { name: 'Name', exact: true }).blur();
     await expect.poll(async () => (await account(page.request)).name).toBe('Ana Settings');
-    await page.getByRole('combobox', { name: 'Your career stage' }).first().selectOption('phd');
+    await selectPicker(page.getByRole('combobox', { name: 'Your career stage' }).first(), 'phd');
     await expect.poll(async () => (await account(page.request)).career_stage).toBe('phd');
     await page.screenshot({ path: `${artifacts}/profile.png` });
     await page.getByRole('button', { name: 'General', exact: true }).click();
-    await expect(page.getByRole('combobox', { name: 'Your career stage' })).toHaveValue('phd');
-    await page.getByRole('combobox', { name: 'Your career stage' }).selectOption('postdoc');
+    await expect(page.getByRole('combobox', { name: 'Your career stage' })).toHaveAttribute(
+      'data-value',
+      'phd',
+    );
+    await selectPicker(page.getByRole('combobox', { name: 'Your career stage' }), 'postdoc');
     await expect.poll(async () => (await account(page.request)).career_stage).toBe('postdoc');
     await page.getByRole('button', { name: 'Profile', exact: true }).click();
-    await expect(page.getByRole('combobox', { name: 'Your career stage' })).toHaveValue('postdoc');
+    await expect(page.getByRole('combobox', { name: 'Your career stage' })).toHaveAttribute(
+      'data-value',
+      'postdoc',
+    );
     await page.getByRole('button', { name: 'Preferences', exact: true }).click();
     await page.getByRole('button', { name: 'Time zone', exact: true }).click();
     await page.getByRole('option', { name: /^Asia\/Tokyo UTC/ }).click();
@@ -700,7 +707,7 @@ test('a career-stage edit is saved while an independent name change is pending',
     await page.getByRole('textbox', { name: 'Name', exact: true }).blur();
     await held.started;
     const stage = original.career_stage === 'phd' ? 'postdoc' : 'phd';
-    await page.getByRole('combobox', { name: 'Your career stage' }).selectOption(stage);
+    await selectPicker(page.getByRole('combobox', { name: 'Your career stage' }), stage);
     await expect
       .poll(async () => (await account(page.request)).career_stage, { timeout: 3000 })
       .toBe(stage);
@@ -728,7 +735,7 @@ test('General stays busy until all current account writes finish', async ({ page
     await page.goto('/#/settings?tab=general');
     held = await hold(page, '**/api/me', 'PATCH', undefined, true, true);
     const stage = page.getByRole('combobox', { name: 'Your career stage' });
-    await stage.selectOption('phd');
+    await selectPicker(stage, 'phd');
     await held.started;
     const second = page.waitForResponse(
       (r) =>
@@ -736,15 +743,15 @@ test('General stays busy until all current account writes finish', async ({ page
         r.url().endsWith('/api/me') &&
         r.request().postDataJSON().career_stage === 'postdoc',
     );
-    await stage.selectOption('postdoc');
+    await selectPicker(stage, 'postdoc');
     expect((await second).status()).toBe(200);
-    await expect(stage).toHaveValue('postdoc');
+    await expect(stage).toHaveAttribute('data-value', 'postdoc');
     await expect(
       page.getByRole('button', { name: 'Change workspace logo', exact: true }),
     ).toBeDisabled();
     held.release();
     await held.done;
-    await expect(stage).toHaveValue('phd');
+    await expect(stage).toHaveAttribute('data-value', 'phd');
     await expect(
       page.getByRole('button', { name: 'Change workspace logo', exact: true }),
     ).toBeEnabled();

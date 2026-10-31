@@ -138,3 +138,6 @@ SELECT EXISTS(SELECT 1 FROM coresearch_conversation WHERE workspace_id= @workspa
 UPDATE coresearch_file SET path = $4
 WHERE workspace_id = $1 AND project_id = $2 AND id = $3 AND deleted_at IS NULL
 RETURNING *;
+
+-- name: SetCoresearchRunAgent :one
+UPDATE agent_run SET agent_id = @agent_id WHERE workspace_id = @workspace_id AND id = @id AND kind = 'coresearch' RETURNING *;

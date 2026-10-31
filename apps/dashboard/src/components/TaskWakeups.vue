@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { matchesQuery } from '../lib/search';
 import { state } from '../services/workspace';
 import Modal from './Modal.vue';
+import SelectPicker from './SelectPicker.vue';
 import Icon from './Icon.vue';
 const status = ref('Waiting or executing'),
   source = ref('all'),
@@ -42,22 +43,28 @@ defineExpose({ open });
         </button>
       </div>
       <div class="push-right wakeup-filters">
-        <select v-model="source" aria-label="Wakeup source">
-          <option value="all">Source: All</option>
-          <option value="manual">Manual</option>
-          <option value="agent">Agent</option>
-        </select>
-        <select v-model="trigger" aria-label="Wakeup trigger">
-          <option value="all">All triggers</option>
-          <option value="schedule">Schedule</option>
-          <option value="webhook">Webhook</option>
-        </select>
-        <select v-model="agent" aria-label="Wakeup agent">
-          <option value="all">All agents</option>
-          <option v-for="item in state.data?.agents" :key="item.id" :value="item.id">
-            {{ item.name }}
-          </option>
-        </select>
+        <SelectPicker
+          ><select v-model="source" aria-label="Wakeup source">
+            <option value="all">Source: All</option>
+            <option value="manual">Manual</option>
+            <option value="agent">Agent</option>
+          </select></SelectPicker
+        >
+        <SelectPicker
+          ><select v-model="trigger" aria-label="Wakeup trigger">
+            <option value="all">All triggers</option>
+            <option value="schedule">Schedule</option>
+            <option value="webhook">Webhook</option>
+          </select></SelectPicker
+        >
+        <SelectPicker
+          ><select v-model="agent" aria-label="Wakeup agent">
+            <option value="all">All agents</option>
+            <option v-for="item in state.data?.agents" :key="item.id" :value="item.id">
+              {{ item.name }}
+            </option>
+          </select></SelectPicker
+        >
         <label>
           <Icon name="search" :size="14" />
           <input

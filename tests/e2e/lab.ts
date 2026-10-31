@@ -15,6 +15,14 @@ import {
 export const LAB = `http://${process.env.LYK_UI_LAB_ADDR || '127.0.0.1:18080'}`;
 export const EMAIL = 'ana@lab.test';
 
+export async function chooseCompact(page: Page, label: string, choice: string | number) {
+  await page.getByRole('combobox', { name: label, exact: true }).click();
+  const options = page.getByRole('listbox', { name: label, exact: true }).getByRole('option');
+  await (
+    typeof choice === 'number' ? options.nth(choice) : options.filter({ hasText: choice }).first()
+  ).click();
+}
+
 export async function labCode(request: APIRequestContext, email: string): Promise<string> {
   const res = await request.get(`${LAB}/lab/code?email=${encodeURIComponent(email)}`);
   expect(res.status()).toBe(200);

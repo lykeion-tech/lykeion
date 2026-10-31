@@ -707,6 +707,46 @@ func TestListedAgentsSayWhetherTheyAreTeamCopies(t *testing.T) {
 	}
 }
 
+func TestListedAgentsIncludeTheirSource(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "agent-source@lab.org")
+	w := s.workspace(t, a, "lab")
+	custom := s.newAgent(t, a, w.ID, "custom", "claude")
+	builtin := s.builtInID(t, w.ID, "grounding")
+	if code := s.call(t, "POST", "/api/teams/"+builtin+"/add", a, w.ID, nil, nil); code != 200 {
+		t.Fatalf("add built-in Team: %d", code)
+	}
+	uploaded := s.addedTeam(t, a, w.ID, "custom-team", "grounding")
+	var builtInCopy, customCopy string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT agent_id FROM team_agent WHERE pack_id = $1 LIMIT 1`, builtin).Scan(&builtInCopy); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT agent_id FROM team_agent WHERE pack_id = $1 LIMIT 1`, uploaded).Scan(&customCopy); err != nil {
+		t.Fatal(err)
+	}
+	var boot struct{ Agent struct{ ID string } }
+	if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, w.ID, nil, &boot); code != 200 {
+		t.Fatalf("bootstrap: %d", code)
+	}
+	var agents []struct {
+		ID     string
+		Source string `json:"source"`
+	}
+	if code := s.call(t, "GET", "/api/agents", a, w.ID, nil, &agents); code != 200 {
+		t.Fatalf("list: %d", code)
+	}
+	got := map[string]string{}
+	for _, agent := range agents {
+		got[agent.ID] = agent.Source
+	}
+	for id, want := range map[string]string{custom: "custom", customCopy: "custom", builtInCopy: "built_in", boot.Agent.ID: "built_in"} {
+		if got[id] != want {
+			t.Errorf("agent %s source = %q, want %q", id, got[id], want)
+		}
+	}
+}
+
 func TestNoStudyReachesPastValidation(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)

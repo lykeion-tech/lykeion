@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { labWorkspace, labSignIn, LAB, newStudy } from './lab';
 
@@ -486,14 +487,14 @@ test('Team picker submits only workspace identity and preserves removed referenc
   await page.goto('/#/teams/new');
   const teamName = `Connector Team ${Date.now()}`;
   await page.getByLabel('Team name', { exact: true }).fill(teamName);
-  await page.getByLabel('Leader agent', { exact: true }).selectOption(lead.id);
+  await selectPicker(page.getByLabel('Leader agent', { exact: true }), lead.id);
   await page.getByLabel('Leader role', { exact: true }).fill('Leads');
   await page.getByLabel('Member name', { exact: true }).fill('worker');
-  await page.getByLabel('Member agent', { exact: true }).selectOption(lead.id);
+  await selectPicker(page.getByLabel('Member agent', { exact: true }), lead.id);
   await page.getByLabel('Member role', { exact: true }).fill('Works');
-  await page.getByLabel('Auditor agent', { exact: true }).selectOption(audit.id);
+  await selectPicker(page.getByLabel('Auditor agent', { exact: true }), audit.id);
   await page.getByLabel('Auditor role', { exact: true }).fill('Audits');
-  await page.getByLabel('Add connector', { exact: true }).selectOption('workspace:' + saved.id);
+  await selectPicker(page.getByLabel('Add connector', { exact: true }), 'workspace:' + saved.id);
   const request = page.waitForRequest(
     (r) => r.url().endsWith('/api/teams') && r.method() === 'POST',
   );
@@ -503,7 +504,7 @@ test('Team picker submits only workspace identity and preserves removed referenc
   expect(JSON.stringify(body)).not.toContain('team-private');
   await expect(page.getByRole('heading', { name: teamName, exact: true })).toBeVisible();
   await page.goto('/#/teams/new');
-  await page.getByLabel('Add connector', { exact: true }).selectOption('workspace:' + saved.id);
+  await selectPicker(page.getByLabel('Add connector', { exact: true }), 'workspace:' + saved.id);
   expect(
     (
       await page.request.delete(`/api/mcp-servers/${saved.id}`, {

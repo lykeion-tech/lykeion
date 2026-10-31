@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from './SelectPicker.vue';
 import { computed, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../api/client';
@@ -182,55 +183,67 @@ function pickLead(event: Event) {
         </h2>
         <div v-if="properties" class="project-property-rows">
           <label
-            >Status<select
-              aria-label="Project status"
-              :value="project.status"
-              :disabled="busy"
-              @change="
-                update({ status: ($event.target as HTMLSelectElement).value as Research['status'] })
-              "
-            >
-              <option v-for="s in statuses" :key="s.value" :value="s.value">{{ s.label }}</option>
-            </select></label
+            >Status<SelectPicker
+              ><select
+                aria-label="Project status"
+                :value="project.status"
+                :disabled="busy"
+                @change="
+                  update({
+                    status: ($event.target as HTMLSelectElement).value as Research['status'],
+                  })
+                "
+              >
+                <option v-for="s in statuses" :key="s.value" :value="s.value">{{ s.label }}</option>
+              </select></SelectPicker
+            ></label
           >
           <label
-            >Priority<select
-              aria-label="Project priority"
-              :value="project.priority"
-              :disabled="busy"
-              @change="
-                update({
-                  priority: ($event.target as HTMLSelectElement).value as Research['priority'],
-                })
-              "
-            >
-              <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
-            </select></label
+            >Priority<SelectPicker
+              ><select
+                aria-label="Project priority"
+                :value="project.priority"
+                :disabled="busy"
+                @change="
+                  update({
+                    priority: ($event.target as HTMLSelectElement).value as Research['priority'],
+                  })
+                "
+              >
+                <option v-for="p in priorities" :key="p.value" :value="p.value">
+                  {{ p.label }}
+                </option>
+              </select></SelectPicker
+            ></label
           >
           <label
-            >Lead<select
-              aria-label="Project lead"
-              :value="currentLead"
-              :disabled="busy"
-              @change="pickLead"
-            >
-              <option value="">No lead</option>
-              <option v-if="!leadAvailable" :value="currentLead" disabled>Unavailable lead</option>
-              <optgroup label="Members">
-                <option
-                  v-for="m in members.data.value ?? []"
-                  :key="m.user_id"
-                  :value="`member:${m.user_id}`"
-                >
-                  {{ m.name || m.email }}
+            >Lead<SelectPicker
+              ><select
+                aria-label="Project lead"
+                :value="currentLead"
+                :disabled="busy"
+                @change="pickLead"
+              >
+                <option value="">No lead</option>
+                <option v-if="!leadAvailable" :value="currentLead" disabled>
+                  Unavailable lead
                 </option>
-              </optgroup>
-              <optgroup label="Agents">
-                <option v-for="a in usableAgents" :key="a.id" :value="`agent:${a.id}`">
-                  {{ a.name }}
-                </option>
-              </optgroup>
-            </select></label
+                <optgroup label="Members">
+                  <option
+                    v-for="m in members.data.value ?? []"
+                    :key="m.user_id"
+                    :value="`member:${m.user_id}`"
+                  >
+                    {{ m.name || m.email }}
+                  </option>
+                </optgroup>
+                <optgroup label="Agents">
+                  <option v-for="a in usableAgents" :key="a.id" :value="`agent:${a.id}`">
+                    {{ a.name }}
+                  </option>
+                </optgroup>
+              </select></SelectPicker
+            ></label
           >
         </div>
       </section>

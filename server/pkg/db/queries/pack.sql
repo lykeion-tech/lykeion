@@ -78,3 +78,7 @@ ORDER BY created_at, id LIMIT 1;
 
 -- name: ListOwnPacks :many
 SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND uploaded_by = @user_id AND deleted_at IS NULL ORDER BY name, created_at;
+
+-- name: UpdateTeamSettings :one
+UPDATE field_pack SET name = @name, manifest = @manifest, sha256 = @sha256, blob_key = @blob_key, visibility = @visibility
+WHERE workspace_id = @workspace_id AND id = @id RETURNING *;

@@ -4892,7 +4892,7 @@
   bottom: calc(100% + 8px);
   left: 0;
   width: 248px;
-  background: var(--surface-1);
+  background: var(--fill-menu);
   border: 1px solid var(--hairline-strong);
   border-radius: 12px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
@@ -6298,7 +6298,7 @@
   max-height: min(340px, var(--mention-ceiling, 340px));
   overflow-y: auto;
   z-index: 20;
-  background: var(--surface-1);
+  background: var(--fill-menu);
   border: 1px solid var(--hairline-strong);
   border-radius: 10px;
   box-shadow: var(--shadow-pop, 0 8px 24px rgb(0 0 0 / 28%));
@@ -7605,7 +7605,7 @@
   bottom: calc(100% + 8px);
   left: 0;
   width: 188px;
-  background: var(--surface-1);
+  background: var(--fill-menu);
   border: 1px solid var(--hairline-strong);
   border-radius: 10px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
@@ -8064,7 +8064,7 @@
   width: 264px;
   max-height: min(52vh, 320px);
   overflow-y: auto;
-  background: var(--surface-1);
+  background: var(--fill-menu);
   border: 1px solid var(--hairline-strong);
   border-radius: 12px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
@@ -8803,7 +8803,7 @@
   padding: 6px;
   border: 1px solid var(--hairline-strong);
   border-radius: 12px;
-  background: var(--surface-2);
+  background: var(--fill-menu);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
 }
 .coresearch.ms-zoom-item,
@@ -8906,7 +8906,7 @@
   padding: 6px;
   border: 1px solid var(--hairline-strong);
   border-radius: 12px;
-  background: var(--surface-2);
+  background: var(--fill-menu);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
 }
 .coresearch.ms-view-picker-item,
@@ -10246,7 +10246,7 @@
   padding: 4px;
   border: 1px solid var(--hairline-strong);
   border-radius: 8px;
-  background: var(--surface-1);
+  background: var(--fill-menu);
 }
 .coresearch.ms-sel-mention,
 .coresearch .ms-sel-mention {

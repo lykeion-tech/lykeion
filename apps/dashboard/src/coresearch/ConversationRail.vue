@@ -15,8 +15,10 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import { guardResourceDrafts } from '../state/resource-draft';
 import Icon from '../components/Icon.vue';
-import Aristotle from '../components/Aristotle.vue';
+import ChatAgentAvatar from './ChatAgentAvatar.vue';
+import { useAgents } from '../api/queries';
 const state = useAristotle();
+const agents = useAgents();
 const router = useRouter(),
   route = useRoute(),
   client = useQueryClient();
@@ -103,7 +105,14 @@ async function startDraft(
           "
           class="conversation-link"
           active-class="selected"
-          ><Aristotle still class="rail-portrait" /><span
+          ><ChatAgentAvatar
+            :agent="
+              c.shared ? undefined : agents.data.value?.find((agent) => agent.id === c.agent_id)
+            "
+            :size="24"
+            :fallback-aristotle="!c.shared && c.agent_id === state.agent.data.value?.id"
+          />
+          <span
             >{{ c.title
             }}<small class="conversation-mode">{{
               c.mode === 'cowrite' ? 'Cowrite' : 'Experiment'
@@ -232,13 +241,5 @@ async function startDraft(
 .conversation-link:hover,
 .conversation-link.selected {
   background: var(--hover);
-}
-</style>
-
-<style scoped>
-.conversation-link :deep(.rail-portrait) {
-  width: 22px;
-  height: 24px;
-  flex: none;
 }
 </style>

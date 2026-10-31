@@ -435,7 +435,6 @@ onUnmounted(() => {
         <span v-else class="stage-dot" /><strong>{{ column.name }}</strong
         ><span>{{ grouped[column.id].length }}</span
         ><button
-          v-if="column.id === 'grounding'"
           class="icon-button push-right"
           aria-label="New study"
           @click="openComposer(undefined, projectId)"

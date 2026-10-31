@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { LAB, labFixture, labRealtime } from './lab';
 
@@ -67,7 +68,7 @@ for (const width of [1512, 390]) {
       if (width === 390) {
         const navigation = page.getByRole('combobox', { name: 'Settings section' });
         await expect(navigation).toBeInViewport({ ratio: 1 });
-        await navigation.selectOption('connectors');
+        await selectPicker(navigation, 'connectors');
       } else await page.goto('/#/settings/connectors');
       await expect(page.getByRole('button', { name: 'biogrid', exact: true })).toBeVisible();
       await page
@@ -149,7 +150,7 @@ test('two owner clients observe real daemon registration, expiry and return with
     const option = (client: Page) =>
       client
         .getByRole('combobox', { name: 'Runtime', exact: true })
-        .locator('option')
+        .locator('..').locator('select option')
         .filter({ hasText: 'ui2-availability' });
     for (const client of [page, other]) {
       await expect(option(client)).toHaveCount(1);

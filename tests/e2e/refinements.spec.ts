@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test } from '@playwright/test';
 import { LAB, labFixture } from './lab';
 
@@ -18,13 +19,17 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   await resize.focus();
   await page.keyboard.press('End');
   await expect(inspector).toHaveCSS('width', '480px');
-  await inspector.getByRole('combobox', { name: 'Project', exact: true }).selectOption(research.id);
+  await selectPicker(
+    inspector.getByRole('combobox', { name: 'Project', exact: true }),
+    research.id,
+  );
   // A study's assignee is shown, not offered.
   await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveCount(0);
   await expect(inspector.locator('.property-row', { hasText: 'Assignee' })).toBeVisible();
   await page.goto(`/#/studies/${f.card_id}`);
   await expect(inspector).toHaveCSS('width', '480px');
-  await expect(inspector.getByRole('combobox', { name: 'Project', exact: true })).toHaveValue(
+  await expect(inspector.getByRole('combobox', { name: 'Project', exact: true })).toHaveAttribute(
+    'data-value',
     research.id,
   );
   await expect(
@@ -170,7 +175,7 @@ test('Project creation/edit and agent profiles use canonical writes and old/curr
     [first, second.id],
     [second.id, null],
   ]) {
-    await meta.getByRole('combobox', { name: 'Project', exact: true }).selectOption(current ?? '');
+    await selectPicker(meta.getByRole('combobox', { name: 'Project', exact: true }), current ?? '');
     await expect
       .poll(
         async () =>

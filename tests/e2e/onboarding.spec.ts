@@ -1,3 +1,4 @@
+import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { labSignIn } from './lab';
 test.use({ storageState: { cookies: [], origins: [] } });
@@ -111,7 +112,7 @@ test('existing-member resume preserves saved career and context and Settings sti
     await page.getByRole('button', { name: 'Enter workspace' }).click();
     await expect(page).toHaveURL(/#\/studies$/);
     await page.goto('/#/settings?tab=profile');
-    await page.getByRole('combobox', { name: 'Your career stage' }).selectOption('phd');
+    await selectPicker(page.getByRole('combobox', { name: 'Your career stage' }), 'phd');
     await expect
       .poll(async () => (await (await page.request.get('/api/me')).json()).career_stage)
       .toBe('phd');

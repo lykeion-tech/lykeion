@@ -165,7 +165,7 @@ func Ensure(ctx context.Context, tx *store.Tx, user, packID uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	if p.DeletedAt != nil {
+	if p.DeletedAt != nil || (p.Source != "shipped" && p.Visibility != "workspace" && (p.UploadedBy == nil || *p.UploadedBy != user)) {
 		return ErrNotAdded
 	}
 	if p.Source == "shipped" {

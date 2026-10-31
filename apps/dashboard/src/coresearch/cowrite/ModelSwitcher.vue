@@ -34,7 +34,7 @@ async function toggle() {
 const label = computed(
   () =>
     props.models.find((m) => m.value === props.modelValue)?.label ??
-    (props.disabled && props.modelValue ? props.modelValue : 'Default'),
+    (props.modelValue || 'Default'),
 );
 function outside(e: Event) {
   if (!root.value?.contains(e.target as Node)) open.value = false;

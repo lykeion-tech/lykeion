@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from '../components/SelectPicker.vue';
 import {
   computed,
   defineAsyncComponent,
@@ -536,19 +537,21 @@ function pin() {
           <div class="property-row">
             <label for="study-research">Project</label
             ><span class="property-icon"><Icon name="folder" :size="13" /></span
-            ><select
-              id="study-research"
-              aria-label="Project"
-              :value="c.research_id ?? ''"
-              :disabled="propertyBusy || researches.isPending.value"
-              @change="
-                saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
-              "
-            >
-              <option value="">No project</option>
-              <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
-                {{ r.name }}
-              </option></select
+            ><SelectPicker
+              ><select
+                id="study-research"
+                aria-label="Project"
+                :value="c.research_id ?? ''"
+                :disabled="propertyBusy || researches.isPending.value"
+                @change="
+                  saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
+                "
+              >
+                <option value="">No project</option>
+                <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
+                  {{ r.name }}
+                </option>
+              </select></SelectPicker
             ><RouterLink
               v-if="c.research_id"
               :to="'/projects/' + c.research_id"
@@ -667,7 +670,7 @@ function pin() {
   z-index: 30;
   width: 176px;
   padding: 0 4px;
-  background: var(--modal);
+  background: var(--fill-menu);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 6px 18px #0001;

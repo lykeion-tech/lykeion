@@ -434,6 +434,6 @@ function step(n: number | undefined) {
   top: 100%;
   right: 0;
   z-index: 5;
-  background: var(--surface-1);
+  background: var(--fill-menu);
 }
 </style>

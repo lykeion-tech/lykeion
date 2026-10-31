@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { activitySteps, transcriptBlocks } from '../lib/run-transcript';
+import { transcriptBlocks, visibleTranscriptMessages } from '../lib/run-transcript';
+import RunTimeline from '../components/RunTimeline.vue';
 import { isActiveTurn, useCoresearchSteps } from './api';
 import type { MessageRow } from './types';
 import AssistantMessage from './AssistantMessage.vue';
 import CopyButton from './CopyButton.vue';
-import TurnRail from './TurnRail.vue';
-import RailRow from './RailRow.vue';
-import ToolStepGroup from './ToolStepGroup.vue';
 const props = defineProps<{
   projectId: string;
   chatId: string;
@@ -22,16 +20,12 @@ const steps = useCoresearchSteps(
   () => props.turn.agent_run_id ?? '',
   () => active.value,
 );
-const replies = computed(() => props.replies.filter((m) => m.kind === 'reply'));
+const replies = computed(() => props.replies.filter((m) => m.kind === 'reply' && m.body.trim()));
 const blocks = computed(() =>
   transcriptBlocks(
-    (steps.data.value ?? [])
-      .filter((m) => m.type !== 'log' && m.type !== 'status')
-      .map((m) =>
-        m.type === 'thinking' && typeof m.content === 'string'
-          ? { ...m, type: 'text' as const }
-          : m,
-      ),
+    visibleTranscriptMessages(steps.data.value ?? []).map((m) =>
+      m.type === 'thinking' && typeof m.content === 'string' ? { ...m, type: 'text' as const } : m,
+    ),
   ).filter(
     (b) =>
       !(
@@ -40,6 +34,15 @@ const blocks = computed(() =>
       ),
   ),
 );
+const timelineBlocks = computed(() => [
+  ...blocks.value,
+  ...replies.value.map((reply) => ({
+    key: `reply:${reply.id}`,
+    kind: 'text' as const,
+    text: reply.body,
+    messages: [],
+  })),
+]);
 const thinkingKeys = computed(
   () =>
     new Set(
@@ -68,25 +71,19 @@ const copy = computed(() =>
     Could not read tool steps: {{ steps.error.value.message }}
   </p>
   <div v-if="blocks.length || replies.length" class="turn-reply">
-    <TurnRail
-      ><template v-for="block in blocks" :key="block.key"
-        ><RailRow v-if="block.kind === 'text'" marker="prose"
-          ><div
-            :class="
-              thinkingKeys.has(block.key)
-                ? 'turn-block turn-block--thinking'
-                : 'turn-block turn-block--interim'
-            "
-          >
-            <AssistantMessage
-              class="lyk-reading"
-              :text="block.text"
-              :live="active"
-            /></div></RailRow
-        ><ToolStepGroup v-else :steps="activitySteps(block.messages)" :active="active" /></template
-      ><RailRow v-for="reply in replies" :key="reply.id" marker="prose"
-        ><AssistantMessage class="lyk-reading" :text="reply.body" /></RailRow
-    ></TurnRail>
+    <RunTimeline class="coresearch-run-timeline" :blocks="timelineBlocks" :active="active">
+      <template #text="{ block }">
+        <div
+          :class="
+            thinkingKeys.has(block.key)
+              ? 'turn-block turn-block--thinking'
+              : 'turn-block turn-block--interim'
+          "
+        >
+          <AssistantMessage class="lyk-reading" :text="block.text" :live="active" />
+        </div>
+      </template>
+    </RunTimeline>
     <div v-if="copy" class="msg-actions"><CopyButton :text="copy" /></div>
   </div>
   <div v-if="active" class="run-line" role="status">
@@ -104,3 +101,19 @@ const copy = computed(() =>
     }}
   </div>
 </template>
+
+<style scoped>
+.coresearch-run-timeline {
+  --step-canvas: var(--surface);
+  --step-border: color-mix(in srgb, var(--text) 12%, var(--surface));
+  --step-line: color-mix(in srgb, var(--text) 20%, var(--surface));
+  --step-quiet: color-mix(in srgb, var(--text) 40%, var(--surface));
+  --step-muted: color-mix(in srgb, var(--text) 55%, var(--surface));
+  --step-surface: #edeef3;
+  --step-hover: color-mix(in srgb, var(--step-surface) 92%, var(--text));
+  --step-done: #27a644;
+}
+:global(:root[data-theme='dark']) .coresearch-run-timeline {
+  --step-surface: color-mix(in srgb, var(--surface) 92%, var(--text));
+}
+</style>

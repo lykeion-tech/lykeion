@@ -309,6 +309,7 @@ export interface AgentDefinition {
   archived_at: string | null;
   // A copy of an agent made to work inside a Team.
   team_member?: boolean;
+  source?: 'built_in' | 'custom';
   created_at: string;
   updated_at: string;
 }
@@ -354,6 +355,8 @@ export interface StoreTeam {
 }
 
 export interface TeamDetail {
+  visibility: 'private' | 'workspace';
+  uploaded_by: string | null;
   avatar_url: string;
   id: string;
   manifest: TeamManifest;

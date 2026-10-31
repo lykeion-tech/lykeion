@@ -4,25 +4,22 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
+}
+.agent-page-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface);
 }
 .agent-hero {
   padding: 24px var(--gutter) 22px;
   border-bottom: 1px solid var(--border);
 }
-.agent-crumbs {
-  display: flex;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.agent-crumbs [aria-current] {
-  color: var(--text);
-}
 .agent-identity {
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  margin-top: 8px;
 }
 .agent-identity > div:nth-child(2) {
   flex: 1;

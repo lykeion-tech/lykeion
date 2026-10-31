@@ -27,6 +27,9 @@ func editable(r *http.Request, tx *store.Tx, p db.FieldPack) error {
 	if p.Source == "shipped" {
 		return errBuiltInTeam
 	}
+	if p.UploadedBy == nil || *p.UploadedBy != user(r) {
+		return forbidden("Only the Team owner can change it")
+	}
 	uses, err := tx.Q.TeamUses(r.Context(), db.TeamUsesParams{WorkspaceID: tx.WS, PackID: p.ID, Stages: board.Stages})
 	if err != nil {
 		return err

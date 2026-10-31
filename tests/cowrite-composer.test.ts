@@ -59,6 +59,15 @@ async function mount({ draft = true, onWelcome = false, role = 'owner', choices 
     conversation_starters: [],
   };
   client.setQueryData(keys.me, { id: 'me' });
+  client.setQueryData(keys.agents('lab'), [
+    {
+      ...agent,
+      owner_id: 'me',
+      visibility: 'private',
+      built_in_key: 'aristotle',
+      archived_at: null,
+    },
+  ]);
   client.setQueryData(keys.workspaces, [{ id: 'lab', role }]);
   client.setQueryData(keys.runtimes('lab'), [
     { owner_id: 'me', status: 'online', harness: 'claude', models: choices },

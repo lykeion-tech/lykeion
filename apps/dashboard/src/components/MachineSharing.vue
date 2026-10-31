@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from './SelectPicker.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../api/client';
@@ -182,13 +183,15 @@ function cancel() {
     <div class="sharing-fields">
       <label
         >Share
-        <select v-model="mode" aria-label="Share" :disabled="locked" @change="chooseMode">
-          <option v-if="mode === 'mixed'" value="mixed" disabled>
-            Different permissions per CLI
-          </option>
-          <option value="chosen" :disabled="!supported">Choose colleagues</option>
-          <option value="workspace" :disabled="!supported">Everyone in the workspace</option>
-        </select>
+        <SelectPicker
+          ><select v-model="mode" aria-label="Share" :disabled="locked" @change="chooseMode">
+            <option v-if="mode === 'mixed'" value="mixed" disabled>
+              Different permissions per CLI
+            </option>
+            <option value="chosen" :disabled="!supported">Choose colleagues</option>
+            <option value="workspace" :disabled="!supported">Everyone in the workspace</option>
+          </select></SelectPicker
+        >
       </label>
       <fieldset :disabled="locked">
         <legend class="type-caption">Agent CLIs</legend>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import Aristotle from '../components/Aristotle.vue';
+import SelectPicker from '../components/SelectPicker.vue';
 import AvatarDisplay from '../components/AvatarDisplay.vue';
+import Aristotle from '../components/Aristotle.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
@@ -249,7 +250,7 @@ async function save() {
       <div v-if="list.data.value?.length" class="agent-table" role="table" aria-label="Agents">
         <div class="agent-row agent-head" role="row">
           <span role="columnheader">Name</span><span role="columnheader">Status</span
-          ><span role="columnheader">Owner</span><span role="columnheader">Access</span
+          ><span role="columnheader">Owner</span><span role="columnheader">Source</span
           ><span role="columnheader">Harness</span
           ><span role="columnheader" aria-sort="descending"
             ><span class="directory-last-value">Last updated</span></span
@@ -264,16 +265,28 @@ async function save() {
           ><span class="agent-cell" role="cell"
             ><span class="avatar"
               ><AvatarDisplay
-                v-if="a.avatar_url"
+                v-if="a.built_in_key === 'aristotle' && a.avatar_url"
                 :value="a.avatar_url.slice(6)"
                 :size="20"
-              /><Aristotle v-else-if="a.built_in_key === 'aristotle'" still /><template v-else>{{
-                agentDisplayName(a.name)[0]
-              }}</template></span
+              /><Aristotle v-else-if="a.built_in_key === 'aristotle'" still /><Icon
+                v-else-if="a.source === 'built_in' || a.built_in_key"
+                name="bot"
+                :size="18"
+              /><AvatarDisplay
+                v-else-if="a.avatar_url"
+                :value="a.avatar_url.slice(6)"
+                :size="20"
+              /><template v-else>{{ agentDisplayName(a.name)[0] }}</template></span
             ><span
               ><b
                 >{{ agentNameWithoutCli(a.name, a.harness)
-                }}<i v-if="a.owner_id === me.data.value?.id" class="you-badge">You</i></b
+                }}<i
+                  v-if="
+                    a.owner_id === me.data.value?.id && a.source !== 'built_in' && !a.built_in_key
+                  "
+                  class="you-badge"
+                  >You</i
+                ></b
               ><small>{{ a.description }}</small></span
             ></span
           ><span role="cell" :class="a.archived_at ? 'muted' : 'agent-active'">{{
@@ -288,7 +301,13 @@ async function save() {
               :title="owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member'"
               >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
             ></span
-          ><span role="cell">{{ a.visibility === 'private' ? 'Owner only' : 'Workspace' }}</span
+          ><span role="cell">{{
+            a.source === 'built_in' || a.built_in_key
+              ? 'Built-in'
+              : a.source === 'custom'
+                ? 'Custom'
+                : '—'
+          }}</span
           ><span role="cell">{{ backendLabel(a.harness) }}</span
           ><span role="cell"
             ><span class="directory-last-value">{{ timeAgo(a.updated_at) }}</span></span
@@ -337,10 +356,12 @@ async function save() {
           </div>
         </div>
         <label
-          >Visibility<select v-model="draft.visibility" aria-label="Visibility">
-            <option value="workspace">Workspace</option>
-            <option value="private">Private</option>
-          </select></label
+          >Visibility<SelectPicker
+            ><select v-model="draft.visibility" aria-label="Visibility">
+              <option value="workspace">Workspace</option>
+              <option value="private">Private</option>
+            </select></SelectPicker
+          ></label
         ><label
           >Instructions<textarea
             v-model="draft.instructions"

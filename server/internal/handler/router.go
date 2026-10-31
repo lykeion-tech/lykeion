@@ -186,6 +186,7 @@ func NewRouter(h *H) http.Handler {
 		r.Get("/api/cards/{id}/attachments/{aid}", h.downloadAttachment)
 		r.Get("/api/cards/{id}/outputs/{key}", h.downloadOutput)
 		r.Post("/api/teams", h.createTeam)
+		r.Patch("/api/teams/{id}", h.updateTeamSettings)
 		r.Post("/api/teams/{id}/skills", h.saveTeamSkills)
 		r.Post("/api/teams/{id}/duplicate", h.duplicateTeam)
 
@@ -314,7 +315,6 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/packs/{id}/approve", h.approvePack)
 			r.Get("/api/teams", h.listTeams)
 			r.Get("/api/teams/{id}", h.getTeam)
-			r.Patch("/api/teams/{id}", h.updateTeamAvatar)
 			r.Delete("/api/teams/{id}", h.deleteTeam)
 			r.Post("/api/teams/{id}/add", h.addTeam)
 			r.Get("/api/cards/{id}", h.getCard)

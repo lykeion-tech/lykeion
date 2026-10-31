@@ -71,6 +71,7 @@ export interface ComposerContinuation {
   path: string;
   position?: number;
   body: string;
+  agentId?: string;
   mode: SessionMode;
   template: string;
   runtime?: string;

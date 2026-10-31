@@ -103,10 +103,10 @@ func (q *Queries) InsertTeamAgent(ctx context.Context, arg InsertTeamAgentParams
 }
 
 const storeTeams = `-- name: StoreTeams :many
-SELECT DISTINCT ON (p.name) p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, p.avatar_url, p.deleted_at, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
+SELECT DISTINCT ON (p.name) p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, p.avatar_url, p.deleted_at, p.visibility, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
   WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND t.user_id = $1))::bool AS added
 FROM field_pack p
-WHERE p.workspace_id = $2 AND p.deleted_at IS NULL AND (p.source = 'shipped' OR p.uploaded_by = $1)
+WHERE p.workspace_id = $2 AND p.deleted_at IS NULL AND (p.source = 'shipped' OR p.uploaded_by = $1 OR p.visibility = 'workspace')
   AND ($3::text = '' OR p.domain = $3) AND ($4::text = '' OR p.stage = $4)
 ORDER BY p.name, p.created_at DESC
 `
@@ -133,10 +133,11 @@ type StoreTeamsRow struct {
 	Stage       string          `json:"stage"`
 	AvatarUrl   string          `json:"avatar_url"`
 	DeletedAt   *time.Time      `json:"deleted_at"`
+	Visibility  string          `json:"visibility"`
 	Added       bool            `json:"added"`
 }
 
-// The store: shipped Teams and the user's own uploads.
+// The store: shipped, workspace-shared, and the user's own Teams.
 func (q *Queries) StoreTeams(ctx context.Context, arg StoreTeamsParams) ([]StoreTeamsRow, error) {
 	rows, err := q.db.Query(ctx, storeTeams,
 		arg.UserID,
@@ -166,6 +167,7 @@ func (q *Queries) StoreTeams(ctx context.Context, arg StoreTeamsParams) ([]Store
 			&i.Stage,
 			&i.AvatarUrl,
 			&i.DeletedAt,
+			&i.Visibility,
 			&i.Added,
 		); err != nil {
 			return nil, err

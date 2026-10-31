@@ -387,7 +387,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             </section>
           </div>
           <div v-if="folded < 2" class="property-anchor machine-chip">
-            <MachinePicker v-model="machine" chip :disabled="busy" />
+            <MachinePicker v-model="machine" chip :disabled="busy" @open="closeMenu" />
           </div>
           <div v-if="folded < 1" class="property-anchor">
             <button type="button" class="property-pill" @click="openMenu('deadline')">
@@ -431,10 +431,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             </div>
           </div>
         </div>
-        <p v-if="assignee?.type === 'agent'" class="assignee-note">
-          {{ picker?.name }} works every stage alone. No auditor checks its work; Jev still scores
-          each stage.
-        </p>
       </div>
       <div v-if="files.items.value.length || files.error.value" class="composer-files">
         <ul v-if="files.items.value.length" aria-label="Files to attach">
@@ -619,7 +615,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   flex: none;
 }
 .property-line :deep(.property-pill),
-.machine-chip :deep(select) {
+.machine-chip :deep(.machine-trigger) {
   height: 26px;
   border: 1px solid var(--control-border);
   border-radius: 7px;
@@ -627,7 +623,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   color: var(--text);
 }
 .property-line :deep(.property-pill:hover:not(:disabled)),
-.machine-chip :deep(select:hover:not(:disabled)) {
+.machine-chip :deep(.machine-trigger:hover:not(:disabled)) {
   background: var(--fill-chip);
 }
 .property-line .property-pill.required {
@@ -637,12 +633,8 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   gap: 6px;
   white-space: nowrap;
 }
-.machine-chip :deep(select) {
-  /* A select otherwise reserves the width of its longest machine name. */
-  field-sizing: content;
-  max-width: 140px;
-  text-overflow: ellipsis;
-  padding: 0 6px;
+.machine-chip :deep(.machine-trigger) {
+  max-width: 160px;
   font-size: 12px;
 }
 .property-line :deep(.assignee-pill) {
@@ -678,15 +670,8 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   min-width: 0;
   padding: 8px;
 }
-.assignee-note {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 0 4px;
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 18px;
+.fold-menu:has(:deep(.machine-menu)) {
+  overflow: visible;
 }
 .composer-footer {
   display: flex;

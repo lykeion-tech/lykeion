@@ -24,6 +24,7 @@ type acceptancePayload struct {
 	Attachments          []coresearchAttachment
 	Selection            *coresearch.Selection `json:"Selection,omitempty"`
 	Queue                bool                  `json:",omitempty"`
+	AgentID              *uuid.UUID            `json:",omitempty"`
 }
 
 func sameAcceptancePayload(stored, want string) bool {
@@ -48,13 +49,18 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		Attachments []coresearchAttachment `json:"attachments,omitempty"`
 		Selection   *coresearch.Selection  `json:"selection,omitempty"`
 		// Queue lets a Cowrite turn wait behind the one in progress.
-		Queue bool `json:"queue,omitempty"`
+		Queue   bool       `json:"queue,omitempty"`
+		AgentID *uuid.UUID `json:"agent_id,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil || in.RequestID == uuid.Nil || !utf8.ValidString(in.Body) || strings.TrimSpace(in.Body) == "" || len(in.Body) > 262144 {
 		writeErr(w, 400, "body and request_id UUID required")
 		return
 	}
 	target := chi.URLParam(r, "conversation")
+	if target != "" && in.AgentID != nil {
+		writeErr(w, 422, "conversation agent is frozen")
+		return
+	}
 	ws, err := uuid.Parse(r.Header.Get("X-Workspace-ID"))
 	if err != nil {
 		writeErr(w, 404, "workspace not found")
@@ -64,7 +70,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 	if len(in.Attachments) == 0 {
 		in.Attachments = nil
 	}
-	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Harness, in.Attachments, in.Selection, in.Queue})
+	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Harness, in.Attachments, in.Selection, in.Queue, in.AgentID})
 	receiptBody := string(payload)
 	var response json.RawMessage
 	// Staging may outlive another identical request's upload claim. Only a
@@ -208,12 +214,22 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if c.SnapshotHarness == nil {
-				if e = tx.Q.LockAristotleOwner(ctx); e != nil {
-					return e
-				}
-				a, e = tx.Q.EnsureAristotle(ctx)
-				if e != nil {
-					return e
+				if in.AgentID != nil {
+					a, e = tx.Q.GetAgentForShare(ctx, db.GetAgentForShareParams{WorkspaceID: ws, ID: *in.AgentID})
+					if e != nil {
+						return e
+					}
+					if a.ArchivedAt != nil || (a.OwnerID != who && a.Visibility != "workspace") {
+						return pgx.ErrNoRows
+					}
+				} else {
+					if e = tx.Q.LockAristotleOwner(ctx); e != nil {
+						return e
+					}
+					a, e = tx.Q.EnsureAristotle(ctx)
+					if e != nil {
+						return e
+					}
 				}
 				if target != "" && c.AgentID != a.ID {
 					return pgx.ErrNoRows
@@ -352,6 +368,10 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(e, coresearch.ErrTurnRunning) {
 				return conflict(e.Error())
 			}
+			if e != nil {
+				return e
+			}
+			run, e = tx.Q.SetCoresearchRunAgent(ctx, db.SetCoresearchRunAgentParams{WorkspaceID: ws, ID: run.ID, AgentID: &c.AgentID})
 			if e != nil {
 				return e
 			}

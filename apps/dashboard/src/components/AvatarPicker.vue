@@ -231,7 +231,7 @@ async function upload(event: Event) {
   width: 288px;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: var(--modal);
+  background: var(--fill-menu);
   box-shadow: 0 8px 25px #0002;
   overflow: hidden;
   font-weight: 400;
@@ -277,8 +277,8 @@ async function upload(event: Event) {
 .expanded {
   width: 352px;
   height: 436px;
-  background: #171717;
-  color: #ddd;
+  background: var(--fill-menu);
+  color: var(--text);
 }
 .expanded nav {
   display: flex;
@@ -289,7 +289,7 @@ async function upload(event: Event) {
 .expanded nav button {
   width: 36px;
   padding: 0;
-  color: #999;
+  color: var(--muted);
   border-bottom: 3px solid transparent;
 }
 .expanded nav button.selected {
@@ -326,7 +326,7 @@ async function upload(event: Event) {
   position: absolute;
   right: 10px;
   top: 45px;
-  background: #292929;
+  background: var(--fill-menu);
   padding: 8px;
   display: flex;
   gap: 8px;
@@ -366,7 +366,7 @@ async function upload(event: Event) {
   border-radius: 4px;
 }
 .emoji-grid button:hover {
-  background: #444;
+  background: var(--hover);
 }
 .avatar-picker > p {
   font-size: 12px;

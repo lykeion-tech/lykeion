@@ -361,7 +361,11 @@ func (q *Queries) GetAgentForUpdate(ctx context.Context, arg GetAgentForUpdatePa
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at, a.deleted_at, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member
+SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at, a.deleted_at, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member,
+  CASE WHEN a.built_in_key <> '' OR EXISTS (
+    SELECT 1 FROM team_agent t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id
+    WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id AND p.source = 'shipped'
+  ) THEN 'built_in' ELSE 'custom' END::text AS source
 FROM agent a WHERE a.workspace_id = $1 AND a.team_deleted_at IS NULL AND a.deleted_at IS NULL
 AND (a.visibility = 'workspace' OR a.owner_id = $2 OR $3::boolean)
 ORDER BY a.created_at, a.id
@@ -392,6 +396,7 @@ type ListAgentsRow struct {
 	TeamDeletedAt        *time.Time      `json:"team_deleted_at"`
 	DeletedAt            *time.Time      `json:"deleted_at"`
 	TeamMember           bool            `json:"team_member"`
+	Source               string          `json:"source"`
 }
 
 func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]ListAgentsRow, error) {
@@ -422,6 +427,7 @@ func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]ListA
 			&i.TeamDeletedAt,
 			&i.DeletedAt,
 			&i.TeamMember,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}

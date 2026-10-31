@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectPicker from './SelectPicker.vue';
 import { agentDisplayName } from '../lib/agent-name';
 import { ref, computed, watch, nextTick } from 'vue';
 import { SquareTerminal, Globe, Trash2, UserRoundPlus, Rocket, Webhook } from '@lucide/vue';
@@ -338,14 +339,13 @@ async function save() {
             >The leader receives all tasks assigned to this team and coordinates the team.</small
           >
           <div class="team-select">
-            <UserRoundPlus :size="16" :stroke-width="1.5" /><select
-              v-model="agentId"
-              aria-label="Leader agent"
-            >
-              <option value="">Select a leader agent</option>
-              <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
-                {{ agentDisplayName(agent.name) }}
-              </option></select
+            <UserRoundPlus :size="16" :stroke-width="1.5" /><SelectPicker
+              ><select v-model="agentId" aria-label="Leader agent">
+                <option value="">Select a leader agent</option>
+                <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
+                  {{ agentDisplayName(agent.name) }}
+                </option>
+              </select></SelectPicker
             ><Icon name="down" :size="14" />
           </div>
         </label>
@@ -440,12 +440,14 @@ async function save() {
       </div>
       <div v-else-if="kind === 'import-runtime'" class="editor-body runtime-import">
         <label
-          >Runtime<select v-model="importRuntime">
-            <option value="">Choose runtime</option>
-            <option v-for="runtime in state.data?.runtimes" :key="runtime.id" :value="runtime.id">
-              {{ runtime.name }}
-            </option>
-          </select>
+          >Runtime<SelectPicker
+            ><select v-model="importRuntime">
+              <option value="">Choose runtime</option>
+              <option v-for="runtime in state.data?.runtimes" :key="runtime.id" :value="runtime.id">
+                {{ runtime.name }}
+              </option>
+            </select></SelectPicker
+          >
         </label>
         <div v-if="importRuntime" class="runtime-import-status">
           <Icon name="archive" :size="14" />
@@ -611,14 +613,13 @@ async function save() {
           <label
             ><span>ASSIGNEE<span class="required-mark">*</span></span>
             <div class="autoresearch-assignee">
-              <Rocket :size="16" :stroke-width="1.5" /><select
-                v-model="agentId"
-                aria-label="Autoresearch assignee"
-              >
-                <option value="">Select agent or team</option>
-                <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
-                  {{ agentDisplayName(agent.name) }}
-                </option></select
+              <Rocket :size="16" :stroke-width="1.5" /><SelectPicker
+                ><select v-model="agentId" aria-label="Autoresearch assignee">
+                  <option value="">Select agent or team</option>
+                  <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
+                    {{ agentDisplayName(agent.name) }}
+                  </option>
+                </select></SelectPicker
               ><Icon name="down" :size="12" />
             </div>
           </label>
@@ -647,14 +648,13 @@ async function save() {
               >Also sets where runs execute — the project's repository or local directory</small
             >
             <div class="autoresearch-project-select">
-              <Icon name="folder" :size="15" /><select
-                v-model="projectId"
-                aria-label="Autoresearch project"
-              >
-                <option value="">No project</option>
-                <option v-for="p in state.data?.projects" :key="p.id" :value="p.id">
-                  {{ p.name }}
-                </option></select
+              <Icon name="folder" :size="15" /><SelectPicker
+                ><select v-model="projectId" aria-label="Autoresearch project">
+                  <option value="">No project</option>
+                  <option v-for="p in state.data?.projects" :key="p.id" :value="p.id">
+                    {{ p.name }}
+                  </option>
+                </select></SelectPicker
               ><Icon name="down" :size="12" />
             </div>
           </label>
@@ -731,10 +731,12 @@ async function save() {
                     :max="intervalUnit === 'hours' ? 23 : 59"
                     aria-label="Interval"
                   />
-                  <select v-model="intervalUnit" aria-label="Interval unit">
-                    <option value="hours">hours</option>
-                    <option value="minutes">minutes</option>
-                  </select>
+                  <SelectPicker
+                    ><select v-model="intervalUnit" aria-label="Interval unit">
+                      <option value="hours">hours</option>
+                      <option value="minutes">minutes</option>
+                    </select></SelectPicker
+                  >
                 </label>
                 <label class="interval-window">
                   <Icon name="clock" :size="12" />
@@ -743,11 +745,13 @@ async function save() {
                 </label>
               </div>
               <label
-                >Days<select v-model="dayMode" aria-label="Schedule days">
-                  <option value="every">Every day</option>
-                  <option value="week">Days of week</option>
-                  <option value="month">Day of month</option>
-                </select>
+                >Days<SelectPicker
+                  ><select v-model="dayMode" aria-label="Schedule days">
+                    <option value="every">Every day</option>
+                    <option value="week">Days of week</option>
+                    <option value="month">Day of month</option>
+                  </select></SelectPicker
+                >
               </label>
               <div v-if="dayMode === 'week'" class="weekday-picker">
                 <button
@@ -1478,7 +1482,7 @@ async function save() {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: var(--surface);
+  background: var(--fill-menu);
   border-radius: 6px;
   padding: 12px;
 }
@@ -1684,7 +1688,7 @@ async function save() {
   right: 0;
   top: 100%;
   padding: 8px;
-  background: var(--surface);
+  background: var(--fill-menu);
   border: 1px solid var(--border);
   border-radius: 7px;
   box-shadow: 0 6px 20px #0002;

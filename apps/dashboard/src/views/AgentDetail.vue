@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../api/client';
 import {
   useAgent,
+  useAgents,
   useCards,
   useMe,
   useMembers,
@@ -58,6 +59,7 @@ function requestedTab() {
   return route.query.tab === 'settings' ? 'settings' : 'overview';
 }
 const detail = useAgent(() => props.id),
+  agents = useAgents(),
   me = useMe(),
   members = useMembers(),
   cards = useCards(),
@@ -102,11 +104,29 @@ const denied = computed(
   () => detail.error.value instanceof ApiError && [403, 404].includes(detail.error.value.status),
 );
 const agent = computed(() => (denied.value ? undefined : detail.data.value));
+const modelLabel = computed(() => {
+  const current = agent.value;
+  if (!current?.model) return 'Harness default';
+  const labels = new Set(
+    (runtimes.data.value ?? [])
+      .filter(
+        (runtime) =>
+          runtime.owner_id === me.data.value?.id &&
+          runtime.status === 'online' &&
+          runtime.harness === current.harness,
+      )
+      .flatMap((runtime) => runtime.models ?? [])
+      .filter((model) => model.value === current.model)
+      .map((model) => model.label),
+  );
+  return labels.size === 1 ? [...labels][0]! : current.model;
+});
 const mine = computed(() => agent.value?.owner_id === me.data.value?.id);
 const mayDelete = computed(
   () =>
     !!agent.value &&
     !builtin.value &&
+    agents.data.value?.find((item) => item.id === props.id)?.source === 'custom' &&
     (mine.value ||
       ['owner', 'admin'].includes(
         workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role ?? '',
@@ -245,64 +265,62 @@ function toggle(id: string) {
 <template>
   <section class="agent-page">
     <template v-if="agent">
-      <header class="agent-hero">
-        <nav class="agent-crumbs" aria-label="Breadcrumb">
-          <RouterLink to="/agents">Agents</RouterLink><span>/</span
-          ><span aria-current="page">{{ agentNameWithoutCli(agent.name, agent.harness) }}</span>
-        </nav>
-        <div class="agent-identity">
-          <EmojiIcon
-            :key="workspaceId + ':' + id"
-            :value="agent.avatar_url || ''"
-            :editable="editable"
-            :busy="busy"
-            fallback="bot"
-            @select="(value) => patch({ avatar_url: value })"
-          >
-            <Aristotle v-if="builtin" still /><Icon v-else name="bot" :size="26" />
-          </EmojiIcon>
-          <div>
-            <div class="agent-title">
-              <h1>{{ agentNameWithoutCli(agent.name, agent.harness) }}</h1>
-              <span class="agent-status" :class="{ archived: agent.archived_at }">{{
-                agent.archived_at ? 'Archived' : 'Active'
-              }}</span>
-            </div>
-            <p v-if="agent.description" class="agent-description">{{ agent.description }}</p>
-            <p class="agent-meta">
-              <span><Icon name="bot" :size="13" />{{ agent.model || 'Harness default' }}</span
-              ><span><Icon name="monitor" :size="13" />{{ harnessName(agent.harness) }}</span
-              ><span
-                ><Icon name="shield" :size="13" />{{
-                  agent.visibility === 'private' ? 'Personal' : 'Workspace'
-                }}</span
-              >
-            </p>
-          </div>
-          <div class="agent-actions">
-            <button v-if="mayDelete" class="button" :disabled="busy" @click="deleteAgent">
-              <Icon name="trash" :size="14" />Delete agent
-            </button>
-            <button
-              v-if="!agent.archived_at && (agent.visibility === 'workspace' || mine)"
-              class="button primary"
-              @click="openComposer({ type: 'agent', id })"
+      <div class="agent-page-header">
+        <header class="agent-hero">
+          <div class="agent-identity">
+            <EmojiIcon
+              :key="workspaceId + ':' + id"
+              :value="agent.avatar_url || ''"
+              :editable="editable"
+              :busy="busy"
+              fallback="bot"
+              @select="(value) => patch({ avatar_url: value })"
             >
-              <Icon name="plus" :size="14" />New study
-            </button>
+              <Aristotle v-if="builtin" still /><Icon v-else name="bot" :size="26" />
+            </EmojiIcon>
+            <div>
+              <div class="agent-title">
+                <h1>{{ agentNameWithoutCli(agent.name, agent.harness) }}</h1>
+                <span class="agent-status" :class="{ archived: agent.archived_at }">{{
+                  agent.archived_at ? 'Archived' : 'Active'
+                }}</span>
+              </div>
+              <p v-if="agent.description" class="agent-description">{{ agent.description }}</p>
+              <p class="agent-meta">
+                <span><Icon name="bot" :size="13" />{{ modelLabel }}</span
+                ><span><Icon name="monitor" :size="13" />{{ harnessName(agent.harness) }}</span
+                ><span
+                  ><Icon name="shield" :size="13" />{{
+                    agent.visibility === 'private' ? 'Personal' : 'Workspace'
+                  }}</span
+                >
+              </p>
+            </div>
+            <div class="agent-actions">
+              <button v-if="mayDelete" class="button" :disabled="busy" @click="deleteAgent">
+                <Icon name="trash" :size="14" />Delete agent
+              </button>
+              <button
+                v-if="!agent.archived_at && (agent.visibility === 'workspace' || mine)"
+                class="button primary"
+                @click="openComposer({ type: 'agent', id })"
+              >
+                <Icon name="plus" :size="14" />New study
+              </button>
+            </div>
           </div>
+        </header>
+        <div class="agent-tabs-bar" role="tablist">
+          <button
+            v-for="t in ['overview', 'work', 'capabilities', 'settings'] as const"
+            :key="t"
+            role="tab"
+            :aria-selected="tab === t"
+            @click="tab = t"
+          >
+            {{ t[0]!.toUpperCase() + t.slice(1) }}
+          </button>
         </div>
-      </header>
-      <div class="agent-tabs-bar" role="tablist">
-        <button
-          v-for="t in ['overview', 'work', 'capabilities', 'settings'] as const"
-          :key="t"
-          role="tab"
-          :aria-selected="tab === t"
-          @click="tab = t"
-        >
-          {{ t[0]!.toUpperCase() + t.slice(1) }}
-        </button>
       </div>
       <p v-if="error" class="inline-error agent-error" role="alert">{{ error }}</p>
 
@@ -344,7 +362,7 @@ function toggle(id: string) {
             <dt>Harness</dt>
             <dd>{{ harnessName(agent.harness) }}</dd>
             <dt>Model</dt>
-            <dd>{{ agent.model || 'Harness default' }}</dd>
+            <dd>{{ modelLabel }}</dd>
           </dl>
           <h3>
             Studies <small>{{ assigned.length }}</small>
@@ -449,7 +467,7 @@ function toggle(id: string) {
                 general.name === agentNameWithoutCli(agent.name, agent.harness)
                   ? agent.name
                   : general.name,
-              ...(builtin ? { conversation_starters: starters } : {}),
+              conversation_starters: starters,
             })
           "
         >
@@ -502,63 +520,57 @@ function toggle(id: string) {
               </div>
             </div>
           </div>
-          <template v-if="builtin"
-            ><h3>Conversation starters</h3>
-            <p class="agent-hint">
-              Settings apply to new conversations. Leave this list empty to use the defaults.
-            </p>
-            <div
-              v-for="(starter, index) in starters"
-              :key="index"
-              class="starter-editor agent-card"
-            >
-              <label
-                >Label<input
-                  v-model="starter.label"
-                  :aria-label="`Starter ${index + 1} label`"
-                  maxlength="120"
-                  :readonly="!editable"
-                  required /></label
-              ><label
-                >Prompt<textarea
-                  v-model="starter.prompt"
-                  :aria-label="`Starter ${index + 1} prompt`"
-                  :readonly="!editable"
-                  required
-                /></label
-              ><button
-                v-if="editable"
-                type="button"
-                class="text-button"
-                :aria-label="`Remove starter ${index + 1}`"
-                @click="starters.splice(index, 1)"
-              >
-                Remove
-              </button>
-            </div>
-            <button
+          <h3>Conversation starters</h3>
+          <p class="agent-hint">
+            Settings apply to new conversations. Leave this list empty to use the defaults.
+          </p>
+          <div v-for="(starter, index) in starters" :key="index" class="starter-editor agent-card">
+            <label
+              >Label<input
+                v-model="starter.label"
+                :aria-label="`Starter ${index + 1} label`"
+                maxlength="120"
+                :readonly="!editable"
+                required /></label
+            ><label
+              >Prompt<textarea
+                v-model="starter.prompt"
+                :aria-label="`Starter ${index + 1} prompt`"
+                :readonly="!editable"
+                required
+              /></label
+            ><button
               v-if="editable"
               type="button"
-              class="button"
-              :disabled="starters.length >= 12"
-              @click="starters.push({ label: '', prompt: '' })"
+              class="text-button"
+              :aria-label="`Remove starter ${index + 1}`"
+              @click="starters.splice(index, 1)"
             >
-              Add starter
+              Remove
             </button>
-            <div v-if="!starters.length" class="default-starters">
-              <p v-for="starter in defaultStarters" :key="starter.label">
-                <b>{{ starter.label }}</b
-                ><small>{{ starter.prompt }}</small>
-              </p>
-            </div>
-            <p v-if="!validStarters" role="alert">
-              Each starter needs a label (up to 120 characters) and a prompt (up to 16 KiB).
-            </p></template
+          </div>
+          <button
+            v-if="editable"
+            type="button"
+            class="button"
+            :disabled="starters.length >= 12"
+            @click="starters.push({ label: '', prompt: '' })"
           >
+            Add starter
+          </button>
+          <div v-if="!starters.length" class="default-starters">
+            <p v-for="starter in defaultStarters" :key="starter.label">
+              <b>{{ starter.label }}</b
+              ><small>{{ starter.prompt }}</small>
+            </p>
+          </div>
+          <p v-if="!validStarters" role="alert">
+            Each starter needs a label (up to 120 characters) and a prompt (up to 16 KiB).
+          </p>
           <footer v-if="editable">
             <button
               class="button primary"
-              :disabled="busy || !general.name.trim() || (builtin && !validStarters)"
+              :disabled="busy || !general.name.trim() || !validStarters"
             >
               Save changes
             </button>

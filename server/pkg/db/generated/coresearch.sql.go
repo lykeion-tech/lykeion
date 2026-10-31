@@ -1116,6 +1116,70 @@ func (q *Queries) SetCoresearchProjectMode(ctx context.Context, arg SetCoresearc
 	return err
 }
 
+const setCoresearchRunAgent = `-- name: SetCoresearchRunAgent :one
+UPDATE agent_run SET agent_id = $1 WHERE workspace_id = $2 AND id = $3 AND kind = 'coresearch' RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id
+`
+
+type SetCoresearchRunAgentParams struct {
+	AgentID     *uuid.UUID `json:"agent_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+}
+
+func (q *Queries) SetCoresearchRunAgent(ctx context.Context, arg SetCoresearchRunAgentParams) (AgentRun, error) {
+	row := q.db.QueryRow(ctx, setCoresearchRunAgent, arg.AgentID, arg.WorkspaceID, arg.ID)
+	var i AgentRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.ResponsibleUserID,
+		&i.BoardColumn,
+		&i.Round,
+		&i.Role,
+		&i.Harness,
+		&i.Prompt,
+		&i.Skill,
+		&i.Status,
+		&i.QueueReason,
+		&i.RuntimeID,
+		&i.PrepareLeaseExpiresAt,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.SessionID,
+		&i.ContinuityScope,
+		&i.ProfileMode,
+		&i.PolicyDigest,
+		&i.Model,
+		&i.Error,
+		&i.FailureReason,
+		&i.CostUsd,
+		&i.LateUsageAt,
+		&i.CreatedAt,
+		&i.HandoffNote,
+		&i.InputLeaseExpiresAt,
+		&i.InputFetchExpiresAt,
+		&i.InputFetchID,
+		&i.InputOutcomes,
+		&i.AddonHash,
+		&i.AddonMcp,
+		&i.Kind,
+		&i.RequesterID,
+		&i.RequestedModel,
+		&i.AgentID,
+		&i.Assignment,
+		&i.CancelReason,
+		&i.MachineName,
+		&i.MachineOwnerID,
+		&i.CoresearchChatID,
+		&i.CoresearchBuildID,
+	)
+	return i, err
+}
+
 const settleCoresearch = `-- name: SettleCoresearch :many
 SELECT project_id::uuid,chat_id::uuid,message_id::uuid FROM public.coresearch_settle($1::uuid)
 `

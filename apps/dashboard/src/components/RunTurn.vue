@@ -1,13 +1,8 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
-import RunActivity from './RunActivity.vue';
+import RunTimeline from './RunTimeline.vue';
 import CopyButton from '../coresearch/CopyButton.vue';
-import {
-  activitySteps,
-  isActivityGroup,
-  liveStatus,
-  transcriptBlocks,
-} from '../lib/run-transcript';
+import { liveStatus, transcriptBlocks, visibleTranscriptMessages } from '../lib/run-transcript';
 import { useRunMessages } from '../api/queries';
 import type { AgentRun } from '../api/types';
 import { readableAssignment } from '../lib/studies';
@@ -33,36 +28,14 @@ const props = defineProps<{ run: AgentRun }>();
 const assignment = computed(() => readableAssignment(props.run));
 const messages = useRunMessages(() => props.run, true);
 const active = computed(() => ['dispatched', 'running'].includes(props.run.status));
-// Each block's mark on the timeline: messages are rings, finished activity a
-// dot, activity with a recorded error a cross, the activity still going a spinner.
-const blocks = computed(() => {
-  const list = transcriptBlocks(
-    (messages.data.value ?? []).filter(
-      (message) => message.type !== 'log' && message.type !== 'thinking',
+const blocks = computed(() =>
+  transcriptBlocks(
+    visibleTranscriptMessages(messages.data.value ?? []).filter(
+      (message) => message.type !== 'thinking',
     ),
-    {
-      joinText: false,
-    },
-  );
-  return list.map((block, i) => {
-    const steps = block.kind === 'activity' ? activitySteps(block.messages) : [];
-    const markedSteps = isActivityGroup(steps) ? steps : steps.slice(0, 1);
-    const mark =
-      block.kind === 'text'
-        ? 'mark-message'
-        : markedSteps.some((step) => step.error)
-          ? 'mark-fail'
-          : !markedSteps.some((step) => step.tool)
-            ? 'mark-message'
-            : active.value &&
-                block.messages[0]?.attempt === props.run.attempt &&
-                i === list.length - 1 &&
-                markedSteps.some((step) => step.running)
-              ? 'mark-run'
-              : 'mark-ok';
-    return { ...block, mark };
-  });
-});
+    { joinText: false },
+  ),
+);
 const ending = computed(() => {
   const r = props.run;
   const took =
@@ -102,24 +75,18 @@ const ending = computed(() => {
       <RecordedMarkdown v-else class="lyk-reading" :content="assignment" />
       <div class="assignment-actions"><CopyButton :text="assignment" label="Copy message" /></div>
     </div>
-    <ol class="turn-timeline" aria-label="Transcript">
-      <li v-for="block in blocks" :key="block.key" class="turn-item" :class="block.mark">
-        <template v-if="block.kind === 'text'">
-          <div v-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
-          <RecordedMarkdown v-else class="lyk-reading" :content="block.text" />
-        </template>
-        <RunActivity
-          v-else
-          :messages="block.messages"
-          :active="active && block.messages[0]?.attempt === run.attempt"
-        />
-      </li>
-      <li class="turn-item turn-ending" :class="ending.mark">
-        <span :role="active || run.status === 'queued' ? 'status' : undefined">{{
-          ending.text
-        }}</span>
-      </li>
-    </ol>
+    <RunTimeline
+      :blocks="blocks"
+      :active="active"
+      :attempt="run.attempt"
+      :ending="ending"
+      :queued="run.status === 'queued'"
+    >
+      <template #text="{ block }">
+        <div v-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
+        <RecordedMarkdown v-else class="lyk-reading" :content="block.text" />
+      </template>
+    </RunTimeline>
     <p v-if="run.error" class="run-error">{{ run.error }}</p>
   </div>
 </template>
@@ -182,97 +149,6 @@ const ending = computed(() => {
 @media (hover: none) {
   .assignment-actions {
     opacity: 1;
-  }
-}
-.turn-timeline {
-  position: relative;
-  list-style: none;
-  margin: 0;
-  padding: 0 0 0 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-/* The rail the marks sit on. */
-.turn-timeline::before {
-  content: '';
-  position: absolute;
-  left: 10px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--step-line);
-}
-.turn-item {
-  position: relative;
-  min-width: 0;
-  padding-block: 5px;
-}
-.turn-item:has(> .run-activity) {
-  padding-block: 0;
-}
-.turn-item:has(> .run-activity)::before {
-  top: 9px;
-}
-.turn-item::before {
-  content: '';
-  position: absolute;
-  left: -21px;
-  top: 12px;
-  width: 7px;
-  height: 7px;
-  box-sizing: border-box;
-  border-radius: 50%;
-  box-shadow: 0 0 0 4px var(--step-canvas);
-}
-.mark-message::before {
-  border: 1px solid var(--step-muted);
-  background: var(--step-canvas);
-}
-.mark-ok::before {
-  background: var(--step-done);
-}
-.mark-queued::before {
-  border: 1px dashed var(--step-muted);
-  background: var(--step-canvas);
-}
-.mark-live::before {
-  background: var(--stage-experimentation-dot);
-  animation: turn-pulse 1.6s ease-in-out infinite;
-}
-.mark-run::before {
-  border: 1.5px solid var(--primary);
-  border-right-color: transparent;
-  animation: turn-spin 1s linear infinite;
-}
-.mark-fail::before {
-  left: -22px;
-  top: 11px;
-  width: 9px;
-  height: 9px;
-  border-radius: 0;
-  background:
-    linear-gradient(45deg, transparent 43%, var(--error-text) 43% 57%, transparent 57%),
-    linear-gradient(-45deg, transparent 43%, var(--error-text) 43% 57%, transparent 57%),
-    var(--step-canvas);
-}
-.turn-ending {
-  font-size: 12.5px;
-  color: var(--muted);
-}
-@keyframes turn-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-@keyframes turn-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .turn-item::before {
-    animation: none;
   }
 }
 .recorded-text-fallback {

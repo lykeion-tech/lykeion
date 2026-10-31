@@ -96,7 +96,7 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	}
 	prompt := Prompt(PromptIn{Selection: selection, ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env, Queued: active > 0})
 	if instructions != "" {
-		prompt = "Aristotle instructions:\n" + instructions + "\n\n" + prompt
+		prompt = "Agent instructions:\n" + instructions + "\n\n" + prompt
 	}
 	message, err := tx.Q.InsertCoresearchMessage(ctx, db.InsertCoresearchMessageParams{WorkspaceID: tx.WS, ChatID: chat.ID, Kind: "turn", AuthorUserID: &user, Body: body})
 	if err != nil {
