@@ -7,6 +7,10 @@ const longPackage = `very-long-package-name-${'x'.repeat(240)}==1.0`;
 // Opens a run of the study from its agent card, on the run dialog's Environment tab.
 async function openEnvironment(page: Page, cardId: string) {
   await page.goto(`/#/studies/${cardId}`);
+  await expect(page.locator('.agent-card').first()).toBeVisible();
+  // At narrow widths the right pane opens as an overlay over the run cards.
+  const closePane = page.getByRole('button', { name: 'Close pane', exact: true });
+  if (await closePane.isVisible()) await closePane.click();
   const study = await openAgentTranscript(page);
   await study.getByRole('tab', { name: 'Environment' }).click();
   return study;
