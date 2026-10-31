@@ -86,13 +86,15 @@ test('Profile and Preferences save to the account and the device', async ({ page
     await selectPicker(page.getByRole('combobox', { name: 'Your career stage' }).first(), 'phd');
     await expect.poll(async () => (await account(page.request)).career_stage).toBe('phd');
     await page.screenshot({ path: `${artifacts}/profile.png` });
-    await page.getByRole('button', { name: 'General', exact: true }).click();
+    await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+    await page.getByRole('button', { name: 'Profile', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Your career stage' })).toHaveAttribute(
       'data-value',
       'phd',
     );
     await selectPicker(page.getByRole('combobox', { name: 'Your career stage' }), 'postdoc');
     await expect.poll(async () => (await account(page.request)).career_stage).toBe('postdoc');
+    await page.getByRole('button', { name: 'General', exact: true }).click();
     await page.getByRole('button', { name: 'Profile', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Your career stage' })).toHaveAttribute(
       'data-value',
@@ -728,11 +730,11 @@ test('a career-stage edit is saved while an independent name change is pending',
   }
 });
 
-test('General stays busy until all current account writes finish', async ({ page }) => {
+test('Profile keeps concurrent career stage writes in the order they finish', async ({ page }) => {
   const original = await account(page.request);
   let held: Awaited<ReturnType<typeof hold>> | undefined;
   try {
-    await page.goto('/#/settings?tab=general');
+    await page.goto('/#/settings?tab=profile');
     held = await hold(page, '**/api/me', 'PATCH', undefined, true, true);
     const stage = page.getByRole('combobox', { name: 'Your career stage' });
     await selectPicker(stage, 'phd');
@@ -746,15 +748,9 @@ test('General stays busy until all current account writes finish', async ({ page
     await selectPicker(stage, 'postdoc');
     expect((await second).status()).toBe(200);
     await expect(stage).toHaveAttribute('data-value', 'postdoc');
-    await expect(
-      page.getByRole('button', { name: 'Change workspace logo', exact: true }),
-    ).toBeDisabled();
     held.release();
     await held.done;
     await expect(stage).toHaveAttribute('data-value', 'phd');
-    await expect(
-      page.getByRole('button', { name: 'Change workspace logo', exact: true }),
-    ).toBeEnabled();
     expect(held.count()).toBe(2);
   } finally {
     held?.release();

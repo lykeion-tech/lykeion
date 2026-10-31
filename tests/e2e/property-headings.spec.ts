@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { LAB, labFixture } from './lab';
 
-test('Properties contains smaller semantic Execution log and Details headings with independent disclosures', async ({
+test('Properties is the larger heading; Execution log and Details are smaller headings with their own disclosures', async ({
   page,
 }) => {
   const fixture = await labFixture(page.request);
@@ -10,13 +10,23 @@ test('Properties contains smaller semantic Execution log and Details headings wi
     fixture.workspace_id,
   );
   await page.goto(`/#/studies/${fixture.card_id}`);
-  const meta = page.getByRole('complementary', { name: 'Study details', exact: true });
+  const meta = page.getByRole('complementary', { name: 'Right pane', exact: true });
+  const choose = async (surface: string) => {
+    const back = meta.getByRole('button', { name: 'Back to surfaces', exact: true });
+    if (await back.isVisible()) await back.click();
+    await meta.getByRole('button', { name: surface, exact: true }).click();
+  };
+  await choose('Properties');
   const properties = meta.getByRole('heading', { name: 'Properties', level: 2, exact: true });
   await expect(properties).toBeVisible();
   const propertiesSize = await properties.evaluate((el) =>
     parseFloat(getComputedStyle(el).fontSize),
   );
-  for (const name of ['Execution log', 'Details']) {
+  for (const [surface, name, body] of [
+    ['Execution log & timeline', 'Execution log', '.execution-body'],
+    ['Details', 'Details', '.details-body'],
+  ] as const) {
+    await choose(surface);
     const heading = meta.getByRole('heading', { name, level: 3, exact: true });
     await expect(heading).toBeVisible();
     await expect(heading).toHaveCSS('font-size', '14px');
@@ -26,20 +36,14 @@ test('Properties contains smaller semantic Execution log and Details headings wi
     );
     const button = heading.getByRole('button', { name, exact: true });
     await expect(button).toHaveAttribute('aria-expanded', 'true');
+    await expect(meta.locator(body)).toBeVisible();
     await button.click();
     await expect(button).toHaveAttribute('aria-expanded', 'false');
-    await expect(
-      meta.locator(name === 'Execution log' ? '.execution-body' : '.details-body'),
-    ).toHaveCount(0);
-    await expect(
-      meta.locator(name === 'Execution log' ? '.details-body' : '.execution-body'),
-    ).toBeVisible();
+    await expect(meta.locator(body)).toHaveCount(0);
     await button.focus();
     await page.keyboard.press('Enter');
     await expect(button).toHaveAttribute('aria-expanded', 'true');
-    await expect(
-      meta.locator(name === 'Execution log' ? '.execution-body' : '.details-body'),
-    ).toBeVisible();
+    await expect(meta.locator(body)).toBeVisible();
   }
 });
 

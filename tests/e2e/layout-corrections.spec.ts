@@ -14,8 +14,8 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   }, f.workspace_id);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(`/#/studies/${f.card_id}`);
-  const meta = page.getByRole('complementary', { name: 'Study details' });
-  const splitter = page.getByRole('separator', { name: 'Resize study inspector' });
+  const meta = page.locator('aside[aria-label="Right pane"]');
+  const splitter = page.getByRole('separator', { name: 'Resize right pane' });
   const main = page.locator('.task-main');
   await expect(meta).toHaveCSS('width', '364px');
   const rail = (await page.locator('.sidebar').boundingBox())!;
@@ -23,8 +23,9 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   const content = (await main.boundingBox())!;
   const separator = (await splitter.boundingBox())!;
   expect(content.x).toBeCloseTo(rail.x + rail.width, 0);
-  expect(separator.x).toBeCloseTo(content.x + content.width, 0);
-  expect(properties.x).toBeCloseTo(separator.x + separator.width, 0);
+  expect(properties.x).toBeCloseTo(content.x + content.width, 0);
+  // the resizer straddles the pane's left edge
+  expect(Math.abs(separator.x + separator.width / 2 - properties.x)).toBeLessThanOrEqual(1);
   expect(
     await meta.evaluate((el) =>
       Boolean(
@@ -38,15 +39,15 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   await expect(meta).toHaveCSS('width', '374px');
   await expect(splitter).toHaveAttribute('aria-valuenow', '374');
   const drag = (await splitter.boundingBox())!;
-  await page.mouse.move(drag.x, drag.y + 60);
+  await page.mouse.move(drag.x + drag.width / 2, drag.y + 60);
   await page.mouse.down();
-  await page.mouse.move(drag.x - 50, drag.y + 60);
+  await page.mouse.move(drag.x + drag.width / 2 - 50, drag.y + 60);
   await page.mouse.up();
   await expect(meta).toHaveCSS('width', '424px');
   const shrink = (await splitter.boundingBox())!;
-  await page.mouse.move(shrink.x, shrink.y + 60);
+  await page.mouse.move(shrink.x + shrink.width / 2, shrink.y + 60);
   await page.mouse.down();
-  await page.mouse.move(shrink.x + 60, shrink.y + 60);
+  await page.mouse.move(shrink.x + shrink.width / 2 + 60, shrink.y + 60);
   await page.mouse.up();
   await expect(meta).toHaveCSS('width', '364px');
   await page.reload();
@@ -56,24 +57,28 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   await expect(page.locator('.sidebar')).toBeHidden();
   const open = (await main.boundingBox())!;
   expect(open.x).toBeLessThan(20);
-  expect((await meta.boundingBox())!.x).toBeGreaterThanOrEqual(open.x + open.width);
+  expect((await meta.boundingBox())!.x).toBeGreaterThanOrEqual(open.x + open.width - 1);
   await page.getByRole('button', { name: 'Close pane', exact: true }).click();
   await expect(meta).toHaveCount(0);
   await expect(splitter).toHaveCount(0);
   expect((await main.boundingBox())!.x).toBeLessThan(20);
   await page.getByRole('button', { name: 'Toggle details', exact: true }).click();
   await expect(meta).toBeVisible();
+  // At narrow widths the pane floats over the study instead of squeezing it.
   await page.setViewportSize({ width: 900, height: 982 });
   const narrow = (await main.boundingBox())!;
   const narrowMeta = (await meta.boundingBox())!;
-  expect(narrowMeta.x).toBeGreaterThanOrEqual(narrow.x + narrow.width);
+  await expect(meta).toHaveAttribute('role', 'dialog');
+  expect(narrow.width).toBeGreaterThan(860);
   expect(narrowMeta.x + narrowMeta.width).toBeLessThanOrEqual(900);
   await page.screenshot({ path: `${artifacts}/collapsed-rail-900.png` });
   await page.setViewportSize({ width: 800, height: 982 });
-  await expect(meta).toBeHidden();
+  await expect(meta).toHaveAttribute('role', 'dialog');
   await expect(splitter).toBeHidden();
   expect((await main.boundingBox())!.x).toBeLessThan(20);
   expect((await main.boundingBox())!.width).toBeGreaterThan(760);
+  const mobileMeta = (await meta.boundingBox())!;
+  expect(mobileMeta.x + mobileMeta.width).toBeLessThanOrEqual(800);
   await page.screenshot({ path: `${artifacts}/mobile-800.png` });
 });
 

@@ -7,7 +7,6 @@ test('Team agent skills save in place, and not while a study uses the Team', asy
   const original = await labPack(page.request, `skill-picker-${Date.now()}`, ws);
   await page.request.post(`/api/teams/${original.id}/add`, { headers });
   await page.goto(`/#/teams/${original.id}`);
-  await page.getByRole('tab', { name: 'Agents', exact: true }).click();
   const member = page
     .locator('.team-member-profile')
     .filter({ has: page.getByRole('heading', { name: /^pi/ }) });
@@ -17,7 +16,10 @@ test('Team agent skills save in place, and not while a study uses the Team', asy
   await picker.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(picker).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(original.id));
-  await expect(page.locator('.team-member-profile').first()).toContainText('aeon');
+  await page.getByRole('button', { name: 'Edit skills for pi', exact: true }).click();
+  await expect(picker.getByRole('checkbox', { name: 'aeon', exact: true })).toBeChecked();
+  await page.keyboard.press('Escape');
+  await expect(picker).toHaveCount(0);
   const saved = await (await page.request.get(`/api/teams/${original.id}`, { headers })).json();
   expect([...saved.manifest.leader.skills].sort()).toEqual(['aeon', 'lead']);
 
@@ -35,8 +37,10 @@ test('Team agent skills save in place, and not while a study uses the Team', asy
   await picker.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(picker.getByRole('alert')).toContainText('Used by 1 study');
   await page.reload();
-  await page.getByRole('tab', { name: 'Agents', exact: true }).click();
-  await expect(page.locator('.team-member-profile').first()).toContainText('aeon');
+  await page.getByRole('button', { name: 'Edit skills for pi', exact: true }).click();
+  await expect(picker.getByRole('checkbox', { name: 'aeon', exact: true })).toBeChecked();
+  await page.keyboard.press('Escape');
+  await expect(picker).toHaveCount(0);
 });
 
 test('run header has only the agent name and Properties icons share a center line', async ({
@@ -45,6 +49,7 @@ test('run header has only the agent name and Properties icons share a center lin
   const f = await labFixture(page.request);
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
   await page.goto(`/#/studies/${f.card_id}`);
+  await page.getByRole('button', { name: 'Properties', exact: true }).click();
   const rows = page.locator('.study-meta > .property-row');
   const centers: number[] = [];
   for (let i = 0; i < 3; i++) {

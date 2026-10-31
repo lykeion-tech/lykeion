@@ -281,7 +281,7 @@ test('create-card history opens the linked study', async ({ page }) => {
   await page.goto(`/#/autoresearch/${f.autoresearch_id}`);
   await page.getByRole('link', { name: /Completed.*Open study/ }).click();
   await expect(page).toHaveURL(new RegExp(`#/studies/${f.card_id}$`));
-  await expect(page.getByRole('region', { name: 'Study' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Study', exact: true })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Autoresearch run' })).toHaveCount(0);
 });
 

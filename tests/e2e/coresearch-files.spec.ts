@@ -234,24 +234,21 @@ test('local pane exits share the application discard dialog without native or re
     draft = 'local pane draft\n';
   await pane.getByRole('button', { name: 'Edit content', exact: true }).click();
   await pane.getByRole('textbox', { name: 'File content' }).fill(draft);
-  const notebook = page.getByRole('tab', { name: 'Notebook', exact: true }),
+  const back = page.getByRole('button', { name: 'Back to surfaces', exact: true }),
     discard = page.getByRole('dialog', { name: 'Discard unsaved changes?', exact: true });
-  await notebook.click();
+  await back.click();
   await expect(discard).toHaveCount(1);
   await discard.getByRole('button', { name: 'Keep editing', exact: true }).click();
   await expect(pane.getByRole('textbox')).toHaveValue(draft);
-  await notebook.click();
+  await back.click();
   await expect(discard).toHaveCount(1);
   await discard.getByRole('button', { name: 'Discard changes', exact: true }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Notebook', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Open a surface' })).toBeVisible();
   await expect(discard).toHaveCount(0);
   await openSavedFile(page, 'residuals.csv');
   await expect(pane.getByRole('button', { name: 'Edit content', exact: true })).toBeVisible();
   await expect(pane.getByRole('textbox', { name: 'File content' })).toHaveCount(0);
-  await page
-    .locator('.task-rightpane')
-    .getByRole('button', { name: 'Close panel', exact: true })
-    .click();
+  await page.getByRole('button', { name: 'Close pane', exact: true }).click();
   await expect(discard).toHaveCount(0);
   expect(nativePrompts).toBe(0);
 });

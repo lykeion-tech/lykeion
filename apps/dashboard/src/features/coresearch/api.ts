@@ -68,14 +68,6 @@ export function ownOnlineClis(runtimes: Runtime[], user: string | undefined): Cl
     ),
   ];
 }
-// Copied from Lykeion-L2 packages/api/src/task-title.ts.
-export const PROMPT_TITLE_MAX = 80;
-export function titleFromPrompt(prompt: string): string {
-  return prompt.trim().slice(0, PROMPT_TITLE_MAX).trim();
-}
-export const NO_MACHINE =
-  'No machine of yours is connected to this lab. Install the local machine daemon on a machine you want to run on, and it will appear here.';
-
 export function useCoresearchMembers(id: MaybeRefOrGetter<string>) {
   return useQuery({
     queryKey: computed(() => keys.coresearchMembers(workspaceId.value, toValue(id))),

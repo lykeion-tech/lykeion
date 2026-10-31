@@ -188,6 +188,7 @@ for (const owner of [true, false]) {
       await toggle.click();
       await expect(rail).toBeHidden();
     }
+    await page.getByRole('button', { name: 'Open experiment surfaces', exact: true }).click();
     await page.getByRole('button', { name: 'Notebook', exact: true }).click();
     const notebook = page.getByTestId('notebook-panel');
     await expect(notebook.locator('.nbp-error')).toContainText('ValueError: bad');

@@ -142,23 +142,6 @@ header {
   border-radius: 5px;
   padding: 4px 7px;
 }
-.tabs {
-  display: flex;
-  gap: 24px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--border);
-}
-.tabs button {
-  border: 0;
-  background: none;
-  padding: 12px 0;
-  color: var(--muted);
-  cursor: pointer;
-}
-.tabs [aria-selected='true'] {
-  border-bottom: 2px solid var(--text);
-  color: var(--text);
-}
 .body {
   padding: 16px 24px 24px;
   overflow: auto;
@@ -183,8 +166,7 @@ header {
   margin: 0;
   overflow-wrap: anywhere;
 }
-a,
-.link {
+a {
   color: var(--primary-text);
 }
 a {
@@ -199,101 +181,10 @@ a {
 .scope {
   margin-top: 24px;
 }
-.setting {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 18px;
-  margin-bottom: 20px;
-}
-.setting input[role='switch'] {
-  appearance: none;
-  flex-shrink: 0;
-  width: 31px;
-  height: 18px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--muted);
-  padding: 2px;
-  cursor: pointer;
-}
-.setting input[role='switch']:checked {
-  background: var(--primary);
-}
-.setting input[role='switch']::after {
-  content: '';
-  display: block;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--surface);
-  transition: transform 0.12s;
-}
-.setting input[role='switch']:checked::after {
-  transform: translateX(13px);
-}
-.setting b {
-  font-weight: 500;
-}
-.field {
-  display: block;
-  font-size: 12px;
-  margin: 20px 0 10px;
-}
-.field input {
-  display: block;
-  width: 100%;
-  background: var(--input);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 8px 10px;
-  margin-top: 7px;
-  color: var(--text);
-}
-.check {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  font-size: 12px;
-  line-height: 1.5;
-  margin: 20px 0 10px;
-}
-.check input {
-  margin-top: 3px;
-}
-.link {
-  border: 0;
-  background: none;
-  padding: 0;
-  font-size: 12px;
-  cursor: pointer;
-}
 .terms {
   display: block;
   font-size: 12px;
   margin-top: 10px;
-}
-.edit,
-.delete {
-  margin-top: 14px;
-}
-.delete {
-  display: block;
-}
-.replacement {
-  margin: 0 0 22px;
-}
-.draft-warning,
-.delete-confirm {
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 12px;
-  margin-top: 18px;
-  font-size: 12px;
-}
-.delete-confirm .button {
-  margin-right: 8px;
 }
 footer {
   display: flex;
@@ -303,9 +194,6 @@ footer {
 }
 .footer-hint {
   margin: 0;
-}
-.inline-error {
-  overflow-wrap: anywhere;
 }
 button:focus-visible,
 input:focus-visible {

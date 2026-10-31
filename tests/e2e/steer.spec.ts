@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { labWorkspace, newStudy } from './lab';
 
 async function choose(page: Page, ...path: string[]) {
-  await page.getByRole('button', { name: 'Action' }).click();
+  await page.getByRole('button', { name: 'Action', exact: true }).click();
   for (const item of path) await page.getByRole('menuitem', { name: item }).click();
 }
 // The scripted leader stops twice, which files an escalation in the Inbox.
@@ -30,11 +30,9 @@ test('Stop ends the study after confirmation and removes the composer', async ({
   await page.getByRole('textbox', { name: 'Comment' }).fill('no usable data in human cohorts');
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Send' }).click();
-  await expect(
-    page
-      .getByRole('complementary', { name: 'Study details' })
-      .getByText('Stopped · no usable data in human cohorts'),
-  ).toBeVisible();
+  const pane = page.getByRole('complementary', { name: 'Right pane' });
+  await pane.getByRole('button', { name: 'Properties', exact: true }).click();
+  await expect(pane.getByText('Stopped · no usable data in human cohorts')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveCount(0);
 });
 
@@ -48,11 +46,12 @@ test('a stopped study keeps its full long reason inside the metadata pane', asyn
   await page.getByRole('textbox', { name: 'Comment' }).fill(reason);
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Send' }).click();
-  const meta = page.getByRole('complementary', { name: 'Study details' });
+  const meta = page.getByRole('complementary', { name: 'Right pane' });
+  await meta.getByRole('button', { name: 'Properties', exact: true }).click();
   const ending = meta.getByText(`Stopped · ${reason}`, { exact: true });
   await expect(ending).toBeVisible();
   const fits = await ending.evaluate((el) => {
-    const pane = el.closest('[aria-label="Study details"]')!;
+    const pane = el.closest('[aria-label="Right pane"]')!;
     const chip = el.getBoundingClientRect();
     const bounds = pane.getBoundingClientRect();
     const text = document.createRange();
@@ -126,7 +125,7 @@ test('Stop cancellation retains text and sends nothing until confirmation', asyn
 
 test('the action picker offers no Resume', async ({ page }) => {
   await recordedStudy(page);
-  await page.getByRole('button', { name: 'Action' }).click();
+  await page.getByRole('button', { name: 'Action', exact: true }).click();
   const menu = page.getByRole('menu', { name: 'Actions' });
   await expect(menu.getByRole('menuitem', { name: /Stop/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /Resume/ })).toHaveCount(0);

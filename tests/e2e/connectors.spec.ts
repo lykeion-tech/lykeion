@@ -22,47 +22,38 @@ async function catalogue(page: Page, name: string) {
   };
 }
 
-test('catalogue setup uses real readiness and key status', async ({ page }) => {
+test('catalogue overview is read-only and the key stays server-side', async ({ page }) => {
   const { headers, saved } = await catalogue(page, 'biogrid');
-  await open(page, 'biogrid');
-  const dialog = page.getByRole('dialog', { name: 'biogrid connector', exact: true });
-  await expect(dialog.getByText(saved.reason, { exact: true })).toBeVisible();
-  await dialog.getByRole('tab', { name: 'Configuration' }).click();
-  await expect(dialog.getByRole('switch', { name: 'Enable connector' })).toBeChecked();
   expect(saved.policy_enabled).toBe(true);
   expect(saved.enabled).toBe(false);
-  await expect(dialog.getByText('No key saved', { exact: true })).toBeVisible();
+  await open(page, 'biogrid');
+  const dialog = page.getByRole('dialog', { name: 'biogrid connector', exact: true });
+  await expect(dialog.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(dialog.getByText(saved.purpose, { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Lykeion scientific catalogue', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('tab')).toHaveCount(0);
+  await expect(dialog.getByLabel('API key', { exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Save changes', exact: true })).toHaveCount(0);
   const secret = 'browser-key-unique-13';
-  const key = dialog.getByLabel('API key', { exact: true });
-  await key.fill(secret);
-  await expect(key).toHaveAttribute('type', 'password');
-  await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(dialog.getByText('Key saved', { exact: true })).toBeVisible();
+  const put = await page.request.put('/api/connectors/biogrid', {
+    headers,
+    data: { revision: saved.revision, key: secret },
+  });
+  expect(put.status()).toBe(200);
   const list = await page.request.get('/api/connectors', { headers });
   expect(JSON.stringify(await list.json())).not.toContain(secret);
-  await key.fill('replacement-browser-key');
-  const replaced = page.waitForResponse(
-    (r) =>
-      r.url().endsWith('/api/connectors/biogrid') &&
-      r.request().method() === 'PUT' &&
-      r.status() === 200,
-  );
-  await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await replaced;
-  await expect(key).toHaveValue('');
   const events = await page.request.get(
     `${LAB}/lab/connector-events?workspace=${await labWorkspace(page.request)}`,
   );
   expect(events.status()).toBe(200);
-  const payload = JSON.stringify(await events.json());
-  expect(payload).not.toContain(secret);
-  expect(payload).not.toContain('replacement-browser-key');
-  await dialog.getByRole('button', { name: 'Clear saved key', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(dialog.getByText('No key saved', { exact: true })).toBeVisible();
+  expect(JSON.stringify(await events.json())).not.toContain(secret);
+  await expect(dialog.getByText(secret)).toHaveCount(0);
 });
 
-test('members inspect but only owner changes catalogue', async ({ page, browser }) => {
+test('members inspect a catalogue connector without any editing controls', async ({
+  page,
+  browser,
+}) => {
   const { ws, headers } = await catalogue(page, 'kegg');
   const context = await browser.newContext();
   try {
@@ -81,11 +72,10 @@ test('members inspect but only owner changes catalogue', async ({ page, browser 
     const other = await context.newPage();
     await other.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
     await open(other, 'kegg');
-    await other.getByRole('tab', { name: 'Configuration' }).click();
-    await expect(
-      other.getByText('Only the workspace owner can change catalogue settings.', { exact: true }),
-    ).toBeVisible();
-    await expect(other.getByRole('button', { name: 'Save changes', exact: true })).toHaveCount(0);
+    const dialog = other.getByRole('dialog', { name: 'kegg connector', exact: true });
+    await expect(dialog.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+    await expect(dialog.getByRole('tab')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Save changes', exact: true })).toHaveCount(0);
   } finally {
     await context.close();
   }
@@ -121,39 +111,47 @@ async function addURL(
   return { ws, headers, saved: rows.find((c: { name: string }) => c.name === name) };
 }
 
-test('custom MCP is admin managed and write-only', async ({ page }) => {
+test('custom MCP overview is read-only and its configuration stays write-only', async ({
+  page,
+}) => {
   const name = `custom-${Date.now()}`;
   const { ws, headers, saved } = await addURL(page, name, 'https://example.test/mcp');
-  await page.getByRole('tab', { name: 'Configuration' }).click();
-  await expect(
-    page.getByText(
-      'Saved configuration is write-only. Replacing it requires re-entering the complete connection.',
-      { exact: true },
-    ),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Edit configuration', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'MCP URL', exact: true })).toHaveValue('');
-  await expect(page.getByLabel('Header value 1', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
-  await page
-    .getByRole('textbox', { name: 'MCP URL', exact: true })
-    .fill('https://replacement.example.test/mcp');
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Edit configuration', exact: true })).toBeVisible();
+  const dialog = page.getByRole('dialog', { name: `${name} connector`, exact: true });
+  await expect(dialog.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(dialog.locator('.chips').getByText('Remote URL', { exact: true })).toBeVisible();
+  await expect(dialog.locator('dd').getByText('Remote URL', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('You', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('example.test')).toHaveCount(0);
+  await expect(dialog.getByRole('tab')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Edit configuration', exact: true })).toHaveCount(
+    0,
+  );
+  const replaced = await page.request.put(`/api/mcp-servers/${saved.id}`, {
+    headers,
+    data: {
+      name,
+      revision: saved.revision,
+      config: { url: 'https://replacement.example.test/mcp' },
+    },
+  });
+  expect(replaced.status()).toBe(200);
   const rows = await (await page.request.get('/api/mcp-servers', { headers })).json();
   expect(rows.find((c: { id: string }) => c.id === saved.id).revision).toBe(saved.revision + 1);
   expect(JSON.stringify(rows)).not.toContain('replacement.example');
   const events = await page.request.get(`${LAB}/lab/connector-events?workspace=${ws}`);
   expect(events.status()).toBe(200);
   expect(JSON.stringify(await events.json())).not.toContain('connector-browser-secret');
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
-  await expect(
-    page.getByText(`Delete ${name} from this workspace? The remote server is not deleted.`, {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Delete connector', exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const current = rows.find((c: { id: string }) => c.id === saved.id);
+  expect(
+    (
+      await page.request.delete(`/api/mcp-servers/${saved.id}`, {
+        headers,
+        data: { revision: current.revision },
+      })
+    ).status(),
+  ).toBe(204);
+  const after = await (await page.request.get('/api/mcp-servers', { headers })).json();
+  expect(after.some((c: { id: string }) => c.id === saved.id)).toBe(false);
 });
 
 test('URL and command forms execute through the real door', async ({ page }) => {
@@ -223,78 +221,25 @@ test('URL and command forms execute through the real door', async ({ page }) => 
   expect(JSON.stringify(await events.json())).not.toContain('connector-browser-secret');
 });
 
-test('stale connector save keeps typed values', async ({ page }) => {
-  const { headers, saved } = await catalogue(page, 'materials-project');
-  await open(page, 'materials-project');
-  await page.getByRole('tab', { name: 'Configuration' }).click();
-  await page.getByLabel('API key', { exact: true }).fill('unsaved-browser-key');
-  expect(
-    (
-      await page.request.put('/api/connectors/materials-project', {
-        headers,
-        data: { revision: saved.revision, key: 'other-browser-key' },
-      })
-    ).status(),
-  ).toBe(200);
-  await expect(
-    page.getByText('Saved configuration changed. Your draft is preserved.', { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByLabel('API key', { exact: true })).toHaveValue('unsaved-browser-key');
-  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
-});
-
-test('restricted licence and optional-key states use saved server metadata', async ({ page }) => {
+test('licence-restricted and keyless connectors show their saved metadata in the overview', async ({
+  page,
+}) => {
+  const { saved: kegg } = await catalogue(page, 'kegg');
   await open(page, 'kegg');
-  await page.getByRole('tab', { name: 'Configuration' }).click();
-  await page.getByRole('checkbox', { name: /I confirm this workspace/ }).check();
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(page.getByText('Available to this workspace', { exact: true })).toBeVisible();
-  await page.getByRole('switch', { name: 'Enable connector' }).uncheck();
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(
-    page.getByText('the workspace owner enables `kegg` in Connectors', { exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press('Escape');
-  await open(page, 'geo');
-  await page.getByRole('tab', { name: 'Configuration' }).click();
-  await expect(page.getByText('No key saved', { exact: true })).toBeVisible();
-  await expect(page.getByText('Available without a key.', { exact: true })).toBeVisible();
-});
-
-test('a real 409 keeps the connector key draft until explicit reload', async ({ page }) => {
-  const { headers, saved } = await catalogue(page, 'core');
-  await open(page, 'core');
-  await page.getByRole('tab', { name: 'Configuration' }).click();
-  await page.getByLabel('API key', { exact: true }).fill('keep-this-unsaved-key');
-  await page.route('**/api/connectors/core', async (route) => {
-    if (route.request().method() === 'PUT') {
-      expect(
-        (
-          await page.request.put('/api/connectors/core', {
-            headers,
-            data: { revision: saved.revision, key: 'concurrent-core-key' },
-          })
-        ).status(),
-      ).toBe(200);
-    }
-    await route.continue();
-  });
-  const refusal = page.waitForResponse(
-    (r) =>
-      r.url().endsWith('/api/connectors/core') &&
-      r.request().method() === 'PUT' &&
-      r.status() === 409,
+  const dialog = page.getByRole('dialog', { name: 'kegg connector', exact: true });
+  await expect(dialog.getByText(kegg.domain, { exact: true })).toBeVisible();
+  await expect(dialog.getByText(kegg.tier, { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('link', { name: /View source terms/ })).toHaveAttribute(
+    'href',
+    kegg.terms,
   );
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await refusal;
-  await expect(page.getByLabel('API key', { exact: true })).toHaveValue('keep-this-unsaved-key');
-  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Reload saved version', exact: true }).click();
-  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
-  await expect(page.getByLabel('API key', { exact: true })).toHaveValue('keep-this-unsaved-key');
-  await page.getByRole('button', { name: 'Reload saved version', exact: true }).click();
-  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
-  await expect(page.getByLabel('API key', { exact: true })).toHaveValue('');
+  await expect(dialog.getByRole('checkbox')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  const { saved: geo } = await catalogue(page, 'geo');
+  await open(page, 'geo');
+  const geoDialog = page.getByRole('dialog', { name: 'geo connector', exact: true });
+  await expect(geoDialog.getByText(geo.purpose, { exact: true })).toBeVisible();
+  await expect(geoDialog.getByLabel('API key', { exact: true })).toHaveCount(0);
 });
 
 test('new connector forms guard cancel and route exits', async ({ page }) => {
@@ -316,29 +261,9 @@ test('new connector forms guard cancel and route exits', async ({ page }) => {
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-test('reconnect refreshes metadata and preserves dirty configuration', async ({ page }) => {
-  const { headers, saved } = await catalogue(page, 'lincs-l1000');
-  await open(page, 'lincs-l1000');
-  await page.getByRole('tab', { name: 'Configuration' }).click();
-  await page.getByLabel('API key', { exact: true }).fill('offline-unsaved-key');
-  await page.context().setOffline(true);
-  expect(
-    (
-      await page.request.put('/api/connectors/lincs-l1000', {
-        headers,
-        data: { revision: saved.revision, key: 'new-saved-lincs-key' },
-      })
-    ).status(),
-  ).toBe(200);
-  await page.context().setOffline(false);
-  await expect(page.getByText('Key saved', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('API key', { exact: true })).toHaveValue('offline-unsaved-key');
-  await expect(
-    page.getByText('Saved configuration changed. Your draft is preserved.', { exact: true }),
-  ).toBeVisible();
-});
-
-test('connector C layout follows all supported themes and keyboard focus', async ({ page }) => {
+test('connector overview layout follows all supported themes and keyboard focus', async ({
+  page,
+}) => {
   for (const theme of ['ash', 'midnight', 'dawn', 'pale']) {
     await page.goto('/#/settings/preferences');
     await page
@@ -349,10 +274,10 @@ test('connector C layout follows all supported themes and keyboard focus', async
     await expect(page.getByRole('button', { name: 'biogrid', exact: true })).toBeVisible();
     if (theme === 'ash') await page.screenshot({ path: 'test-results/connectors/list.png' });
     await page.getByRole('button', { name: 'biogrid', exact: true }).click();
-    await page.getByRole('tab', { name: 'Configuration' }).click();
+    await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Close connector', exact: true }).focus();
     await page.keyboard.press('Tab');
-    await expect(page.getByRole('tab', { name: 'Overview', exact: true })).toBeFocused();
+    await expect(page.getByRole('link', { name: /View source terms/ })).toBeFocused();
     await page.screenshot({ path: `test-results/connectors/${theme}-detail.png` });
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'biogrid', exact: true })).toBeFocused();
@@ -361,7 +286,7 @@ test('connector C layout follows all supported themes and keyboard focus', async
   await page.screenshot({ path: 'test-results/connectors/url-form.png' });
 });
 
-test('admin creates custom connectors while members inspect and permission loss preserves replacement', async ({
+test('admin creates custom connectors and a demoted member can only inspect them', async ({
   page,
   browser,
 }) => {
@@ -398,50 +323,6 @@ test('admin creates custom connectors while members inspect and permission loss 
     await expect(
       editor.getByRole('dialog', { name: `${name} connector`, exact: true }),
     ).toBeVisible();
-    const saved = (await (await page.request.get('/api/mcp-servers', { headers })).json()).find(
-      (c: { name: string }) => c.name === name,
-    );
-    await editor.getByRole('tab', { name: 'Configuration' }).click();
-    await editor.getByRole('button', { name: 'Edit configuration', exact: true }).click();
-    const draft = 'https://keep-admin-draft.example.test/mcp';
-    await editor.getByRole('textbox', { name: 'MCP URL', exact: true }).fill(draft);
-    await editor.route(`**/api/mcp-servers/${saved.id}`, async (route) => {
-      if (route.request().method() === 'PUT')
-        expect(
-          (
-            await page.request.patch(`/api/workspaces/${ws}/members/${me.id}`, {
-              headers,
-              data: { role: 'member' },
-            })
-          ).status(),
-        ).toBe(204);
-      await route.continue();
-    });
-    const refusal = editor.waitForResponse(
-      (r) =>
-        r.url().endsWith(`/api/mcp-servers/${saved.id}`) &&
-        r.request().method() === 'PUT' &&
-        r.status() === 403,
-    );
-    await editor.getByRole('button', { name: 'Save changes', exact: true }).click();
-    await refusal;
-    await expect(editor.getByRole('textbox', { name: 'MCP URL', exact: true })).toHaveValue(draft);
-    await expect(editor.getByRole('textbox', { name: 'MCP URL', exact: true })).toBeDisabled();
-    expect(
-      (
-        await page.request.patch(`/api/workspaces/${ws}/members/${me.id}`, {
-          headers,
-          data: { role: 'admin' },
-        })
-      ).status(),
-    ).toBe(204);
-    await expect(editor.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled();
-    await expect(editor.getByRole('textbox', { name: 'MCP URL', exact: true })).toHaveValue(draft);
-    await editor.unroute(`**/api/mcp-servers/${saved.id}`);
-    await editor.getByRole('button', { name: 'Save changes', exact: true }).click();
-    await expect(
-      editor.getByRole('button', { name: 'Edit configuration', exact: true }),
-    ).toBeVisible();
     expect(
       (
         await page.request.patch(`/api/workspaces/${ws}/members/${me.id}`, {
@@ -450,11 +331,7 @@ test('admin creates custom connectors while members inspect and permission loss 
         })
       ).status(),
     ).toBe(204);
-    await expect(
-      editor.getByRole('button', { name: 'Edit configuration', exact: true }),
-    ).toHaveCount(0);
-    await expect(editor.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
-    await editor.getByRole('button', { name: 'Close', exact: true }).click();
+    await editor.getByRole('button', { name: 'Close connector', exact: true }).click();
     await expect(editor.getByRole('button', { name: 'Add connector', exact: true })).toHaveCount(0);
     await editor.getByRole('button', { name: name, exact: true }).click();
     await expect(
@@ -638,48 +515,4 @@ test('HTTP header duplicates ignore case while environment names retain case', a
     lab_mode: 'second',
   });
   await expect(dialog).toHaveCount(0);
-});
-
-test('replacement rejects mixed-case HTTP header duplicates without changing submitted spelling', async ({
-  page,
-}) => {
-  const name = `replacement-headers-${Date.now()}`;
-  const { saved } = await addURL(page, name, 'https://headers-before.example.test/mcp');
-  await page.getByRole('tab', { name: 'Configuration', exact: true }).click();
-  await page.getByRole('button', { name: 'Edit configuration', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: `${name} connector`, exact: true });
-  await dialog
-    .getByRole('textbox', { name: 'MCP URL', exact: true })
-    .fill('https://headers-after.example.test/mcp');
-  for (const [index, header, value] of [
-    [1, 'X-Lab-Credential', 'first-replacement-value'],
-    [2, 'x-lab-credential', 'second-replacement-value'],
-  ] as const) {
-    await dialog.getByRole('button', { name: 'Add HTTP header', exact: true }).click();
-    await dialog.getByRole('textbox', { name: `Header name ${index}`, exact: true }).fill(header);
-    await dialog.getByLabel(`Header value ${index}`, { exact: true }).fill(value);
-  }
-  const submit = dialog.getByRole('button', { name: 'Save changes', exact: true });
-  await expect(submit).toBeDisabled();
-  await expect(submit).toHaveAttribute('title', 'Each row needs a unique name.');
-  await expect(dialog.getByRole('textbox', { name: 'Header name 1', exact: true })).toHaveValue(
-    'X-Lab-Credential',
-  );
-  await expect(dialog.getByLabel('Header value 1', { exact: true })).toHaveValue(
-    'first-replacement-value',
-  );
-  await dialog.getByRole('textbox', { name: 'Header name 2', exact: true }).fill('X-Lab-Other');
-  const request = page.waitForRequest(
-    (r) => r.url().endsWith(`/api/mcp-servers/${saved.id}`) && r.method() === 'PUT',
-  );
-  await submit.click();
-  const body = (await request).postDataJSON();
-  expect(body.revision).toBe(saved.revision);
-  expect(body.config.headers).toEqual({
-    'X-Lab-Credential': 'first-replacement-value',
-    'X-Lab-Other': 'second-replacement-value',
-  });
-  await expect(
-    dialog.getByRole('button', { name: 'Edit configuration', exact: true }),
-  ).toBeVisible();
 });

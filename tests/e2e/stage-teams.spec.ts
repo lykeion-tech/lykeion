@@ -35,6 +35,14 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   page,
 }) => {
   const ws = await builtInWorkspace(page.request);
+  expect(
+    (
+      await page.request.post('/api/agents', {
+        headers: { 'X-Workspace-ID': ws },
+        data: { name: 'Picker lab agent', harness: 'claude' },
+      })
+    ).status(),
+  ).toBe(201);
   await openIn(page, ws, '/#/studies');
   await expect(page.getByRole('region', { name: 'Grounding', exact: true })).toBeVisible();
   await expect(page.locator('.board-column > header strong')).toHaveText([
@@ -42,8 +50,8 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
     'Hypotheses',
     'Experimentation',
     'Validation',
-    'Blocked',
     'Done',
+    'Blocked',
   ]);
   await page.getByRole('button', { name: 'New', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New study' });
@@ -52,9 +60,11 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   await expect(dialog.getByRole('button', { name: 'Assignee: Built-in Teams' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
   const menu = dialog.getByRole('menu');
-  await expect(menu.getByRole('menuitem', { name: 'Hypotheses Team' })).toBeVisible();
-  await expect(menu.getByText('Members', { exact: true })).toHaveCount(0);
-  await expect(menu.getByText('Agents', { exact: true })).toHaveCount(0);
+  await expect(
+    menu.getByRole('menuitem', { name: 'Hypotheses Team Built for Hypotheses' }),
+  ).toBeVisible();
+  await expect(menu.getByText('Agents', { exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Picker lab agent' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Unassigned' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
   await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
@@ -67,7 +77,12 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   const response = await saved;
   expect(response.status(), await response.text()).toBe(201);
   expect(response.request().postDataJSON().assignee).toBeUndefined();
-  const study = (await response.json()) as { id: string; board_column: string };
+  const study = (await response.json()) as {
+    id: string;
+    board_column: string;
+    teams: { hypotheses: { name: string } };
+  };
+  expect(study.teams.hypotheses.name).toBe('Hypotheses Team');
   expect(study.board_column).toBe('hypotheses');
   await expect(
     page
@@ -75,7 +90,10 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
       .locator(`[data-card="${study.id}"]`),
   ).toBeVisible();
   await page.goto(`/#/studies/${study.id}`);
-  await expect(page.locator('.chip-team')).toHaveText('Hypotheses Team');
+  const stored = (await (
+    await page.request.get(`/api/cards/${study.id}`, { headers: { 'X-Workspace-ID': ws } })
+  ).json()) as { teams: { hypotheses: { name: string } } };
+  expect(stored.teams.hypotheses.name).toBe('Hypotheses Team');
 });
 
 test('a built-in Team is read-only and Duplicate this Team makes an editable copy', async ({
@@ -98,8 +116,7 @@ test('a built-in Team is read-only and Duplicate this Team makes an editable cop
   await expect(page.getByRole('heading', { name: 'Grounding Team', exact: true })).toBeVisible();
   await expect(page.locator('.team-detail-page')).not.toContainText(/version/i);
   await expect(page.getByRole('button', { name: 'Add Team' })).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Agents', exact: true }).click();
-  await expect(page.locator('.team-member-profile')).toHaveCount(4);
+  await expect(page.locator('.canvas-agent')).toHaveCount(4);
   await expect(page.getByRole('button', { name: /^Edit skills/ })).toHaveCount(0);
   const refused = await page.request.post(`/api/teams/${builtIn.id}/skills`, {
     headers,
@@ -116,13 +133,15 @@ test('a built-in Team is read-only and Duplicate this Team makes an editable cop
   await expect(page.getByRole('heading', { name: 'My grounding Team', exact: true })).toBeVisible();
   await expect(page).not.toHaveURL(new RegExp(builtIn.id));
   await expect(page.getByRole('button', { name: 'Duplicate this Team' })).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Agents', exact: true }).click();
   await page.getByRole('button', { name: 'Edit skills for pi', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Skills for pi', exact: true });
   await picker.getByRole('checkbox', { name: 'aeon', exact: true }).check();
   await picker.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(picker).toHaveCount(0);
-  await expect(page.locator('.team-member-profile').first()).toContainText('aeon');
+  await page.getByRole('button', { name: 'Edit skills for pi', exact: true }).click();
+  await expect(picker.getByRole('checkbox', { name: 'aeon', exact: true })).toBeChecked();
+  await page.keyboard.press('Escape');
+  await expect(picker).toHaveCount(0);
 });
 
 test('a workspace without a built-in Team shows why a study can’t start', async ({ page }) => {

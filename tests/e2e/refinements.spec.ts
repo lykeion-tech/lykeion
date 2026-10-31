@@ -1,6 +1,15 @@
 import { selectPicker } from './select-picker';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { LAB, labFixture } from './lab';
+
+// Opens one of the study's right-pane surfaces from the chooser.
+async function openSurface(page: Page, surface: string) {
+  const pane = page.getByRole('complementary', { name: 'Right pane', exact: true });
+  const back = pane.getByRole('button', { name: 'Back to surfaces', exact: true });
+  if (await back.isVisible()) await back.click();
+  await pane.getByRole('button', { name: surface, exact: true }).click();
+  return pane;
+}
 
 test('inspector resize and real Project persist; disclosures and Runs use recorded data', async ({
   page,
@@ -13,12 +22,13 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   ).json();
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(`/#/studies/${f.card_id}`);
-  const inspector = page.getByRole('complementary', { name: 'Study details' });
+  const inspector = page.getByRole('complementary', { name: 'Right pane', exact: true });
+  await openSurface(page, 'Properties');
   await expect(inspector.getByText('Stage', { exact: true })).toBeVisible();
-  const resize = page.getByRole('separator', { name: 'Resize study inspector' });
+  const resize = page.getByRole('separator', { name: 'Resize right pane' });
   await resize.focus();
   await page.keyboard.press('End');
-  await expect(inspector).toHaveCSS('width', '480px');
+  await expect(inspector).toHaveCSS('width', '640px');
   await selectPicker(
     inspector.getByRole('combobox', { name: 'Project', exact: true }),
     research.id,
@@ -27,11 +37,13 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveCount(0);
   await expect(inspector.locator('.property-row', { hasText: 'Assignee' })).toBeVisible();
   await page.goto(`/#/studies/${f.card_id}`);
-  await expect(inspector).toHaveCSS('width', '480px');
+  await expect(inspector).toHaveCSS('width', '640px');
+  await openSurface(page, 'Properties');
   await expect(inspector.getByRole('combobox', { name: 'Project', exact: true })).toHaveAttribute(
     'data-value',
     research.id,
   );
+  await openSurface(page, 'Execution log & timeline');
   await expect(
     inspector.getByRole('button', { name: 'Execution log', exact: true }),
   ).toHaveAttribute('aria-expanded', 'true');
@@ -41,6 +53,7 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   await page.evaluate(() => localStorage.setItem('lykeion.study-inspector-width', '364'));
   await page.reload();
   await expect(inspector).toHaveCSS('width', '364px');
+  await openSurface(page, 'Execution log & timeline');
   await inspector.getByRole('button', { name: 'Open timeline', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Runs', exact: true });
   await expect(dialog.getByText('Latest-attempt time', { exact: true })).toBeVisible();
@@ -49,6 +62,7 @@ test('inspector resize and real Project persist; disclosures and Runs use record
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/timeline.png',
   });
   await dialog.getByRole('button', { name: 'Close Runs' }).click();
+  await openSurface(page, 'Details');
   await inspector.getByRole('button', { name: 'Details', exact: true }).click();
   await expect(inspector.getByRole('button', { name: 'Change', exact: true })).toHaveCount(0);
   await inspector.getByRole('button', { name: 'Details', exact: true }).click();
@@ -77,21 +91,22 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   await page.mouse.move(box.x + 62, box.y + 60);
   await page.mouse.up();
   await expect(page.locator('.sidebar')).toHaveCSS('width', '260px');
-  const inspector = page.getByRole('separator', { name: 'Resize study inspector' });
+  const pane = page.locator('aside[aria-label="Right pane"]');
+  const inspector = page.getByRole('separator', { name: 'Resize right pane' });
   await inspector.focus();
   await page.keyboard.press('Home');
-  await expect(page.locator('.study-meta')).toHaveCSS('width', '240px');
+  await expect(pane).toHaveCSS('width', '240px');
   const right = (await inspector.boundingBox())!;
-  await page.mouse.move(right.x, right.y + 60);
+  await page.mouse.move(right.x + right.width / 2, right.y + 60);
   await page.mouse.down();
-  await page.mouse.move(right.x - 70, right.y + 60);
+  await page.mouse.move(right.x + right.width / 2 - 70, right.y + 60);
   await page.mouse.up();
-  await expect(page.locator('.study-meta')).toHaveCSS('width', '310px');
+  await expect(pane).toHaveCSS('width', '310px');
   await page.goto('/#/projects');
   await page.goto(`/#/studies/${f.card_id}`);
   await page.reload();
   await expect(page.locator('.sidebar')).toHaveCSS('width', '260px');
-  await expect(page.locator('.study-meta')).toHaveCSS('width', '310px');
+  await expect(pane).toHaveCSS('width', '310px');
 });
 
 test('Execution log and Details independently disclose; Runs keeps recorded costs and attempt timing honest', async ({
@@ -100,13 +115,15 @@ test('Execution log and Details independently disclose; Runs keeps recorded cost
   const f = await labFixture(page.request);
   await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
   await page.goto(`/#/studies/${f.card_id}`);
-  const meta = page.locator('.study-meta');
+  const meta = await openSurface(page, 'Execution log & timeline');
   await expect(meta.getByRole('button', { name: 'Execution log', exact: true })).toBeVisible();
   await meta.getByRole('button', { name: 'Execution log', exact: true }).click();
   await expect(meta.locator('.execution-body')).toHaveCount(0);
+  await openSurface(page, 'Details');
   await expect(meta.locator('.details-body')).toBeVisible();
   await meta.getByRole('button', { name: 'Details', exact: true }).click();
   await expect(meta.locator('.details-body')).toHaveCount(0);
+  await openSurface(page, 'Execution log & timeline');
   await meta.getByRole('button', { name: 'Open Runs', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Runs', exact: true });
   await expect(dialog.getByText('Latest-attempt time', { exact: true })).toBeVisible();
@@ -169,7 +186,7 @@ test('Project creation/edit and agent profiles use canonical writes and old/curr
     await page.request.get(`/api/cards/${f.card_id}/runs`, { headers })
   ).json();
   await page.goto(`/#/studies/${f.card_id}`);
-  const meta = page.locator('.study-meta');
+  const meta = await openSurface(page, 'Properties');
   for (const [old, current] of [
     [null, first],
     [first, second.id],

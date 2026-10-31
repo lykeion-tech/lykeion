@@ -15,9 +15,7 @@ async function fits(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 for (const width of [1512, 390]) {
-  test(`library and backend dialogs render all four actual palettes at ${width}px`, async ({
-    page,
-  }) => {
+  test(`library dialogs render all four actual palettes at ${width}px`, async ({ page }) => {
     const f = await labFixture(page.request);
     await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
     const headers = { 'X-Workspace-ID': f.workspace_id };
@@ -26,14 +24,8 @@ for (const width of [1512, 390]) {
       data: { name: 'matrix-method', description: 'Review recorded evidence.' },
     });
     expect(created.status()).toBe(201);
-    const agentResponse = await page.request.post('/api/agents', {
-      headers,
-      data: { name: 'Matrix backend', harness: 'codex' },
-    });
-    expect(agentResponse.status()).toBe(201);
-    const agent = await agentResponse.json();
     await page.setViewportSize({ width, height: width === 390 ? 844 : 982 });
-    const colors: Record<string, string[]> = { skill: [], connector: [], backend: [] };
+    const colors: Record<string, string[]> = { skill: [], connector: [] };
     for (const theme of palettes) {
       await page.setViewportSize({ width: 1512, height: 982 });
       await palette(page, theme);
@@ -87,7 +79,6 @@ for (const width of [1512, 390]) {
           (el) => getComputedStyle(el).backgroundColor + ' / ' + getComputedStyle(el).color,
         ),
       );
-      await connector.getByRole('tab', { name: 'Configuration', exact: true }).click();
       await fits(page);
       await page.screenshot({ path: `${shots}/${width}-${theme}-connector-modal.png` });
       await page.keyboard.press('Escape');
@@ -97,24 +88,6 @@ for (const width of [1512, 390]) {
       await fits(page);
       await page.screenshot({ path: `${shots}/${width}-${theme}-custom-modal.png` });
       await page.keyboard.press('Escape');
-      await page.goto(`/#/agents/${agent.id}`);
-      await page.getByRole('tab', { name: 'Settings', exact: true }).click();
-      const backendTrigger = page.getByRole('button', { name: 'Backend details', exact: true });
-      await backendTrigger.click();
-      const backend = page.getByRole('dialog', { name: 'Codex backend details' });
-      await expect(backend).toBeVisible();
-      await expect(backend).not.toContainText('Private only');
-      colors.backend!.push(
-        await page
-          .locator('.backend-dialog')
-          .evaluate(
-            (el) => getComputedStyle(el).backgroundColor + ' / ' + getComputedStyle(el).color,
-          ),
-      );
-      await fits(page);
-      await page.screenshot({ path: `${shots}/${width}-${theme}-backend-modal.png` });
-      await page.keyboard.press('Escape');
-      await expect(backendTrigger).toBeFocused();
     }
     for (const [component, values] of Object.entries(colors))
       expect(new Set(values).size, component).toBe(4);
@@ -150,7 +123,8 @@ test('two owner clients observe real daemon registration, expiry and return with
     const option = (client: Page) =>
       client
         .getByRole('combobox', { name: 'Runtime', exact: true })
-        .locator('..').locator('select option')
+        .locator('..')
+        .locator('select option')
         .filter({ hasText: 'ui2-availability' });
     for (const client of [page, other]) {
       await expect(option(client)).toHaveCount(1);
@@ -168,13 +142,13 @@ test('two owner clients observe real daemon registration, expiry and return with
       .and(wizard.locator(`[value="${f.workspace_id}"]`))
       .check();
     await wizard.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(wizard.locator('[aria-current=step]')).toHaveText('Machines');
+    for (const step of ['Skills', 'Connectors', 'Machines']) {
+      await expect(wizard.locator('[aria-current=step]')).toHaveText(step);
+      if (step !== 'Machines')
+        await wizard.getByRole('button', { name: 'Continue', exact: true }).click();
+    }
     await expect(wizard.getByText('ui2-availability', { exact: false })).toBeVisible();
     await wizard.screenshot({ path: `${shots}/real-daemon-wizard-runtime.png` });
-    for (const step of ['Skills', 'Connectors', 'Ready']) {
-      await wizard.getByRole('button', { name: 'Continue', exact: true }).click();
-      await expect(wizard.locator('[aria-current=step]')).toHaveText(step);
-    }
     await wizard.getByRole('button', { name: 'Enter workspace' }).click();
     await expect(wizard).toHaveURL(/#\/studies$/);
     await wizard.close();

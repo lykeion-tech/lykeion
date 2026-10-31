@@ -133,6 +133,8 @@ for (const destination of [
       await page.goto(`/#/inbox/${a.item.id}`);
       expect(await refused).toBe(404);
       if (destination === 'another workspace') {
+        // The inbox shows its own rail; the workspace switcher lives in the navigation rail.
+        await page.getByRole('button', { name: 'Show navigation', exact: true }).click();
         await page
           .getByRole('complementary', { name: 'Workspace navigation' })
           .getByRole('button', { name: /Beta-cell lab/ })
@@ -184,11 +186,10 @@ test('the embedded study fits long evidence and resets drafts on selection', asy
   await labHypotheses(page.request, a.card.id);
   await labRecords(page.request, a.card.id, 25);
   await page.goto(`/#/inbox/${a.item.id}`);
-  const study = page.getByRole('region', { name: 'Study' });
+  const study = page.getByRole('region', { name: 'Study', exact: true });
   await expect(study.getByRole('heading', { name: a.card.title })).toBeVisible();
-  await expect(study.locator('.record-line')).toHaveCount(25);
-  const meta = page.getByRole('complementary', { name: 'Study details' });
-  expect((await meta.boundingBox())!.width).toBe(260);
+  const meta = study.locator('aside[aria-label="Right pane"]');
+  expect((await meta.boundingBox())!.width).toBe(364);
   await page.getByRole('textbox', { name: 'Comment' }).fill('Embedded draft must reset');
   await page.screenshot({ path: `${artifacts}/embedded-long-content.png`, fullPage: true });
   const bounds = await study.evaluate((element) => ({
@@ -230,7 +231,7 @@ test('Stop in the embedded study archives the original item and keeps the ended 
   await expect(row(page, item.id)).toHaveCount(0);
 });
 
-test('embedded Properties uses its own compact width and responds to the actual Inbox container', async ({
+test('embedded Properties keeps its own width and responds to the actual Inbox container', async ({
   page,
 }) => {
   const { card, item } = await escalation(page, 'Embedded responsive Properties');
@@ -240,47 +241,58 @@ test('embedded Properties uses its own compact width and responds to the actual 
   });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(`/#/inbox/${item.id}`);
-  const study = page.getByRole('region', { name: 'Study' });
-  const meta = study.getByRole('complementary', { name: 'Study details' });
-  const splitter = study.getByRole('separator', { name: 'Resize study inspector' });
+  const study = page.getByRole('region', { name: 'Study', exact: true });
+  const meta = study.locator('aside[aria-label="Right pane"]');
+  // The pane floats over the study on narrow windows and when the Inbox leaves it under 640px.
+  const floats = async () =>
+    (await page.evaluate(() => innerWidth)) <= 980 || (await study.boundingBox())!.width < 640;
+  const expectPaneMode = () =>
+    expect
+      .poll(async () => (await floats()) === ((await meta.getAttribute('role')) === 'dialog'))
+      .toBe(true);
+  const splitter = study.getByRole('separator', { name: 'Resize right pane' });
   await expect(study.getByRole('heading', { name: card.title })).toBeVisible();
   await page.setViewportSize({ width: 1100, height: 982 });
-  await expect(meta).toBeHidden();
+  await expectPaneMode();
+  // With the rail open the study is still wide enough to dock the pane.
+  expect(await floats()).toBe(false);
   const railToggle = page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).first();
   await railToggle.click();
-  await expect(meta).toHaveCSS('width', '260px');
+  await expectPaneMode();
+  expect(await floats()).toBe(false);
+  await expect(meta).toHaveCSS('width', '364px');
   await expect(meta).toBeVisible();
   expect((await meta.boundingBox())!.x).toBeGreaterThan(
     (await study.locator('.task-main').boundingBox())!.x,
   );
   expect(await page.evaluate(() => innerWidth)).toBe(1100);
   await railToggle.click();
-  await expect(meta).toBeHidden();
+  await expectPaneMode();
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await expect(meta).toHaveCSS('width', '260px');
+  await expect(meta).toHaveCSS('width', '364px');
   await splitter.focus();
   await page.keyboard.press('ArrowLeft');
-  await expect(meta).toHaveCSS('width', '270px');
+  await expect(meta).toHaveCSS('width', '374px');
   expect(await page.evaluate(() => localStorage.getItem('lykeion.study-inspector-width'))).toBe(
     '424',
   );
   const compactPreference = await page.evaluate(() =>
     localStorage.getItem('lykeion.embedded-study-inspector-width'),
   );
-  expect(compactPreference).toBe('270');
+  expect(compactPreference).toBe('374');
   await page.keyboard.press('End');
-  await expect(meta).toHaveCSS('width', '480px');
-  await page.setViewportSize({ width: 1300, height: 982 });
+  await expect(meta).toHaveCSS('width', '640px');
+  await page.setViewportSize({ width: 1200, height: 982 });
   const available = (await study.boundingBox())!.width - 400;
   await expect(splitter).toHaveAttribute('aria-valuemax', String(available));
   await expect(meta).toHaveCSS('width', `${available}px`);
   await page.setViewportSize({ width: 1100, height: 982 });
-  await expect(meta).toBeHidden();
+  await expectPaneMode();
   expect(
     await page.evaluate(() => localStorage.getItem('lykeion.embedded-study-inspector-width')),
-  ).toBe('480');
+  ).toBe('640');
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await expect(meta).toHaveCSS('width', '480px');
+  await expect(meta).toHaveCSS('width', '640px');
   await splitter.focus();
   await page.keyboard.press('Home');
   await page.keyboard.press('ArrowLeft');
@@ -291,11 +303,16 @@ test('embedded Properties uses its own compact width and responds to the actual 
   });
   for (const width of [1100, 900]) {
     await page.setViewportSize({ width, height: 982 });
-    await expect(meta).toBeHidden();
-    await expect(splitter).toBeHidden();
+    await expectPaneMode();
+    if (width === 900) {
+      expect(await floats()).toBe(true);
+      await expect(splitter).toBeHidden();
+    }
     const main = await study.locator('.task-main').boundingBox();
     const area = await study.boundingBox();
-    expect(main!.width).toBeCloseTo(area!.width, 0);
+    // A docked pane shares the study's width; a floating one leaves it whole.
+    const docked = (await floats()) ? 0 : (await meta.boundingBox())!.width;
+    expect(main!.width + docked).toBeCloseTo(area!.width, 0);
     await page.getByRole('textbox', { name: 'Comment' }).fill(`Usable at ${width}`);
     const composer = await study.locator('.pinned-composer').boundingBox();
     const evidence = await study.locator('.transcript-scroll').boundingBox();

@@ -41,6 +41,10 @@ test('a pre-registered result is created with the study and listed as not decide
   await expect(dialog).toHaveCount(0);
 
   await page.getByText(question).first().click();
+  await page
+    .getByRole('complementary', { name: 'Right pane' })
+    .getByRole('button', { name: 'Details', exact: true })
+    .click();
   const listed = page.locator('dl[aria-label="Pre-registered results"]');
   await expect(listed).toContainText('Accurate');
   await expect(listed).toContainText('accuracy >= 0.9 and loss < 1');

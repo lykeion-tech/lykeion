@@ -6,6 +6,8 @@ const longPackage = `very-long-package-name-${'x'.repeat(240)}==1.0`;
 
 // Opens a run of the study from its agent card, on the run dialog's Environment tab.
 async function openEnvironment(page: Page, cardId: string) {
+  // At narrow widths an open right pane floats over the run cards, so keep it closed.
+  await page.addInitScript(() => localStorage.setItem('lykeion.study-meta', 'false'));
   await page.goto(`/#/studies/${cardId}`);
   const study = await openAgentTranscript(page);
   await study.getByRole('tab', { name: 'Environment' }).click();

@@ -447,6 +447,9 @@ async function save() {
 .agent-filter {
   margin-left: auto;
 }
+.agent-toolbar {
+  margin-right: 16px;
+}
 .agent-sort {
   margin-left: 0;
 }
