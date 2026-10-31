@@ -85,10 +85,6 @@ export interface Paper {
   updatedTs: number;
 }
 
-/** What a capture or an import brings: a Paper without the lab's own
- *  fields. `ids` should already be normalised by the caller. */
-export type PaperInput = Omit<Paper, "id" | "titleKey" | "createdTs" | "updatedTs">;
-
 export type ReadLevel = "full-text" | "sections" | "abstract" | "none";
 
 export interface Reference {
@@ -106,17 +102,6 @@ export interface Reference {
   read?: { level: ReadLevel; userId: string; ts: number };
 }
 
-export interface LiteratureSearch {
-  id: string;
-  researchId: string;
-  taskId: string;
-  runId: string;
-  tool: "search_works" | "search_articles" | "find_related_articles";
-  query: string;
-  hits?: number;
-  ts: number;
-}
-
 /** What `listReferences` answers: the join the surfaces draw. */
 export interface ReferenceRow {
   reference: Reference;
@@ -125,8 +110,6 @@ export interface ReferenceRow {
    *  `year` equal another Paper's (D-1). */
   suggestedMatches?: { paperId: string; title: string }[];
 }
-
-export type ImportFormat = "bibtex" | "ris" | "csl-json";
 
 export type ImportRejectionReason =
   | "no-title"
@@ -141,14 +124,6 @@ export interface ImportRejection {
   reason: ImportRejectionReason;
   detail?: string;
 }
-
-export interface ImportResult {
-  imported: Reference[];
-  rejected: ImportRejection[];
-}
-
-/** `importReferences` refuses text over this. */
-export const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
 
 const DOI = /^10\.\d{4,9}\/\S+$/;
 
@@ -209,120 +184,8 @@ export function titleSimilarity(a: string, b: string): number {
   return (2 * table[x.length]![y.length]!) / (x.length + y.length);
 }
 
-/** Titles an index answers for many unrelated works; a lookup BY TITLE can
- *  never match on one of these alone. */
-export const GENERIC_TITLES: ReadonlySet<string> = new Set([
-  "editorial", "erratum", "corrigendum", "letter", "reply", "case report",
-  "introduction", "preface", "abstract", "untitled",
-]);
-
 /** For a record found BY ID: the title it carries is close enough to the
  *  one we asked about. Below this the id resolved to a different paper. */
 export function titlesAgree(a: string, b: string): boolean {
   return titleSimilarity(a, b) >= 0.7;
-}
-
-/** For a record found BY TITLE: exact normalised equality, nothing less,
- *  and never for a generic title. */
-export function titleLookupMatches(a: string, b: string): boolean {
-  const na = normaliseTitle(a);
-  if (GENERIC_TITLES.has(na) || GENERIC_TITLES.has(normaliseTitle(b))) return false;
-  return na === normaliseTitle(b);
-}
-
-const STOPWORDS = new Set([
-  "a", "an", "the", "of", "on", "in", "for", "to", "and", "or", "with", "by",
-  "from", "at", "as", "is", "are", "be", "into", "toward", "towards", "via",
-  "using", "about", "over", "under", "between", "through", "during",
-]);
-
-const ascii = (s: string) => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z]/g, "");
-
-/** `a`, `b`, …, `z`, `aa`, `ab`, … for n = 1, 2, …; "" for 0. */
-function suffix(n: number): string {
-  let out = "";
-  let k = n;
-  while (k > 0) {
-    k -= 1;
-    out = String.fromCharCode(97 + (k % 26)) + out;
-    k = Math.floor(k / 26);
-  }
-  return out;
-}
-
-/** `{family}{year}{firstword}`, lower-cased ASCII, `anon` / `nd` for what is
- *  missing, the first title word that is not a stopword and starts with a
- *  letter, then `a`, `b`… until the key is not in `taken` (D-11). */
-export function citeKeyFor(
-  paper: { authors: PaperAuthor[]; year?: number; title: string },
-  taken: ReadonlySet<string>,
-): string {
-  const family = ascii(paper.authors[0]?.family ?? "") || "anon";
-  const year = paper.year === undefined ? "nd" : String(paper.year);
-  const word =
-    normaliseTitle(paper.title)
-      .split(" ")
-      .find((w) => /^[a-z]/.test(w) && !STOPWORDS.has(w)) ?? "";
-  const base = `${family}${year}${ascii(word)}`;
-  for (let n = 0; ; n++) {
-    const key = `${base}${suffix(n)}`;
-    if (!taken.has(key)) return key;
-  }
-}
-
-export function verdictOf(resolvers: PaperVerification["resolvers"]): PaperVerification["verdict"] {
-  const answers = Object.values(resolvers);
-  if (answers.some((r) => r.status === "matched")) return "verified";
-  if (answers.some((r) => r.status === "unmatched" && r.queriedBy === "id")) return "not-found";
-  return "unresolvable";
-}
-
-export function retractionOf(sources: PaperRetraction["sources"]): PaperRetraction["status"] {
-  if (sources.openalex === "retracted" || sources.crossref === "retracted") return "retracted";
-  if (sources.crossref === "concern" || sources.crossref === "corrected") return sources.crossref;
-  return "none";
-}
-
-/** The one heuristic badge: a preprint dated 2024 or later. */
-export function preprintAfterInflection(paper: { type?: string; year?: number }): boolean {
-  return paper.type === "preprint" && (paper.year ?? 0) >= 2024;
-}
-
-const RANK: Record<MetadataSource, number> = { index: 3, import: 2, agent: 1 };
-
-const METADATA_FIELDS = ["title", "authors", "year", "venue", "type", "abstract"] as const;
-
-/**
- * One Paper, twice reported (D-1). Ids are unioned and a held id wins over
- * an incoming one of the same kind; a metadata field is filled when empty
- * and overwritten only by a higher-ranked source; `verification` and
- * `retraction` take the newer `ts`; `fullText` is kept unless absent, or the
- * incoming is a PDF and the held one is XML. Never mutates.
- */
-export function mergePaper(existing: Paper, incoming: PaperInput): Paper {
-  const out: Paper = { ...existing, ids: { ...existing.ids }, authors: [...existing.authors] };
-  for (const [kind, value] of Object.entries(incoming.ids) as [keyof PaperIds, string | undefined][])
-    if (value !== undefined && out.ids[kind] === undefined) out.ids[kind] = value;
-  const higher = RANK[incoming.metadata.source] > RANK[existing.metadata.source];
-  for (const field of METADATA_FIELDS) {
-    const held = existing[field];
-    const offered = incoming[field];
-    const empty = held === undefined || held === "" || (Array.isArray(held) && held.length === 0);
-    const offeredEmpty = offered === undefined || offered === "" || (Array.isArray(offered) && offered.length === 0);
-    if (offeredEmpty) continue;
-    if (empty || higher) (out as unknown as Record<string, unknown>)[field] = Array.isArray(offered) ? [...offered] : offered;
-  }
-  if (higher) out.metadata = { ...incoming.metadata };
-  if (incoming.verification && (!existing.verification || incoming.verification.ts >= existing.verification.ts))
-    out.verification = incoming.verification;
-  if (incoming.retraction && (!existing.retraction || incoming.retraction.ts >= existing.retraction.ts))
-    out.retraction = incoming.retraction;
-  if (
-    incoming.fullText &&
-    (!existing.fullText ||
-      (incoming.fullText.contentType === "application/pdf" && existing.fullText.contentType === "application/xml"))
-  )
-    out.fullText = incoming.fullText;
-  out.titleKey = normaliseTitle(out.title);
-  return out;
 }

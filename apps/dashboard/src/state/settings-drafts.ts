@@ -36,8 +36,3 @@ const drafts = reactive<Record<string, SettingsDraft>>(
   saved && typeof saved === 'object' ? (saved as Record<string, SettingsDraft>) : {},
 );
 watch(drafts, (value) => saveSetting(key, value), { deep: true });
-
-// The one owner of 'lykeion.settings-drafts'.
-export function useSettingsDrafts() {
-  return drafts;
-}

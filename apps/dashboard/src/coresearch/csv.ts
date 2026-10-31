@@ -58,11 +58,6 @@ export function parseDelimited(text: string, delimiter: string): string[][] {
   return rows;
 }
 
-/** Pick the delimiter for a content type (TSV → tab, else comma). */
-export function delimiterFor(contentType: string): string {
-  return contentType.includes('tab-separated') ? '\t' : ',';
-}
-
 /**
  * Indices of columns whose every non-empty data cell parses as a finite
  * number — the chartable columns. `dataRows` excludes the header.

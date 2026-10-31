@@ -1,10 +1,4 @@
-// Calendar dates travel as local YYYY-MM-DD keys; Date objects are local midnights.
 
-export function shortDate(value?: string | null) {
-  return value
-    ? new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : '';
-}
 
 export function dateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

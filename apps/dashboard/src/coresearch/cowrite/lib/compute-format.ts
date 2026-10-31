@@ -35,17 +35,3 @@ export function formatCores(cpuPercent: number | undefined): string {
   if (cpuPercent === undefined || !Number.isFinite(cpuPercent)) return UNREPORTED;
   return (cpuPercent / 100).toFixed(1);
 }
-
-/**
- * How long ago something happened, in the shortest form that is still exact
- * enough to act on: seconds under a minute, whole minutes under an hour, and
- * whole hours above it. Absent when nothing has happened yet, which is a
- * different fact from happening a long time ago.
- */
-export function formatSince(ts: number | undefined, now: number): string {
-  if (ts === undefined || !Number.isFinite(ts)) return UNREPORTED;
-  const seconds = Math.max(0, Math.floor(now - ts));
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  return `${Math.floor(seconds / 3600)}h`;
-}

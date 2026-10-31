@@ -239,8 +239,6 @@ export function actionLabel(a: ComposerAction): string {
   return { comment: 'Comment', stop: 'Stop' }[a.kind];
 }
 
-export const verdictLabels: Record<string, string> = { high: 'High', middle: 'Middle', low: 'Low' };
-
 // A score level to one decimal; Jev's levels are floats like 4.779999999999999.
 export const levelText = (level: number): string => String(Math.round(level * 10) / 10);
 
@@ -375,9 +373,6 @@ export function predicateKeys(texts: string[]): string[] {
   const words = texts.flatMap((t) => t.match(/[a-z][a-z0-9_]*/g) ?? []);
   return [...new Set(words.filter((w) => !['and', 'or', 'not'].includes(w)))];
 }
-
-// Kinds the study page shows in their own blocks, not as record lines.
-export const flowKinds = ['delegation', 'self_step', 'audit', 'score', 'outcome', 'call', 'tools'];
 
 // Use the current round's recorded conclusion, or its latest assigned step.
 // The complete records remain available in the study's evidence disclosure.

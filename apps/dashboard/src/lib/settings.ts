@@ -1,11 +1,6 @@
 import type { CreateFields } from '../state/preferences';
 import type { LabelDraft } from '../state/settings-drafts';
 
-// Agent-created tasks only take these fields; manual tasks take every field.
-export function createFieldAvailable(field: string, mode: 'agent' | 'manual') {
-  return mode === 'manual' || ['Priority', 'Project', 'Due date'].includes(field);
-}
-
 export function validCreateFields(value: unknown): value is CreateFields {
   return (
     !!value &&
@@ -13,10 +8,6 @@ export function validCreateFields(value: unknown): value is CreateFields {
     Array.isArray((value as { agent: unknown }).agent) &&
     Array.isArray((value as { manual: unknown }).manual)
   );
-}
-
-export function copyCreateFields(value: CreateFields): CreateFields {
-  return { agent: [...value.agent], manual: [...value.manual] };
 }
 
 // The normalised URL, or null for anything but a plain HTTPS address (no credentials,
