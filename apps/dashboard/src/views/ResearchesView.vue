@@ -764,6 +764,13 @@ async function save() {
 .projects-table tr {
   padding-right: 0;
 }
+.projects-table td {
+  display: flex;
+  align-items: center;
+}
+.projects-table td:last-child {
+  justify-content: flex-end;
+}
 .projects-table th:last-child,
 .projects-table td:last-child {
   text-align: right;

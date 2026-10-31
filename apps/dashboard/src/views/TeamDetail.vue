@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import TeamName from '../components/TeamName.vue';
+import { matchesQuery } from '../lib/search';
+import {
+  boardColumnOf,
+  boardColumns,
+  studyDisplayTitle,
+  studyNumber,
+  timeAgo,
+} from '../lib/studies';
+import { teamDisplayParts } from '../lib/team-name';
+import { backendLabel } from '../lib/backends';
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api/client';
@@ -7,7 +16,7 @@ import type { TeamMember } from '../api/types';
 import Modal from '../components/Modal.vue';
 import TeamSkillsPicker from '../components/TeamSkillsPicker.vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { addTeam, duplicateTeam, useTeam, useTeams } from '../api/queries';
+import { addTeam, duplicateTeam, useTeam, useTeams, useCards, useWorkspace } from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import Icon from '../components/Icon.vue';
@@ -89,7 +98,75 @@ const people = computed(() =>
       ]
     : [],
 );
-const tabs = ['Overview', 'Agents', 'Settings'] as const;
+const harnesses = computed(() =>
+  [
+    ...new Set(
+      people.value.flatMap(({ member }) =>
+        member.agent.models
+          ? Object.keys(member.agent.models)
+          : member.agent.harness
+            ? [member.agent.harness]
+            : [],
+      ),
+    ),
+  ]
+    .map(backendLabel)
+    .join(' / '),
+);
+const selectedPerson = ref('leader');
+const selected = computed(() => {
+  if (!manifest.value) return null;
+  if (selectedPerson.value === 'auditor')
+    return { member: manifest.value.auditor, role: 'Auditor' };
+  if (selectedPerson.value.startsWith('member:')) {
+    const member = manifest.value.members[Number(selectedPerson.value.slice(7))];
+    if (member) return { member, role: 'Member' };
+  }
+  return { member: manifest.value.leader, role: 'Leader' };
+});
+const cards = computed(() =>
+  manifest.value
+    ? [
+        { member: manifest.value.leader, role: 'Leader', key: 'leader' },
+        { member: manifest.value.auditor, role: 'Auditor', key: 'auditor' },
+        ...manifest.value.members.map((member, index) => ({
+          member,
+          role: 'Member',
+          key: `member:${index}`,
+        })),
+      ]
+    : [],
+);
+const cardsQuery = useCards();
+const workspace = useWorkspace();
+const search = ref('');
+const collapsed = ref<string[]>([]);
+const groups = computed(() => {
+  const assigned = (cardsQuery.data.value ?? [])
+    .filter(
+      (card) =>
+        Object.values(card.teams ?? {}).some((team) => team.pack_id === props.id) ||
+        (card.assignee_type === 'team' && card.assignee_id === props.id),
+    )
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  return boardColumns.map((column) => ({
+    ...column,
+    cards: assigned.filter(
+      (card) =>
+        boardColumnOf(card) === column.id &&
+        matchesQuery(
+          `${studyNumber(workspace.data.value, card)} ${card.title} ${card.question}`,
+          search.value,
+        ),
+    ),
+  }));
+});
+function toggleGroup(id: string) {
+  collapsed.value = collapsed.value.includes(id)
+    ? collapsed.value.filter((item) => item !== id)
+    : [...collapsed.value, id];
+}
+const tabs = ['Overview', 'Work', 'Settings'] as const;
 const tab = ref<(typeof tabs)[number]>('Overview');
 const busy = ref(false),
   error = ref(''),
@@ -102,6 +179,9 @@ watch([workspaceId, () => props.id], () => {
   skillsBusy.value = false;
   skillsError.value = '';
   tab.value = 'Overview';
+  selectedPerson.value = 'leader';
+  search.value = '';
+  collapsed.value = [];
   busy.value = false;
   error.value = '';
   created.value = null;
@@ -178,7 +258,7 @@ function tabKey(event: KeyboardEvent, index: number) {
       <header class="agent-hero">
         <nav class="agent-crumbs" aria-label="Breadcrumb">
           <RouterLink to="/teams">Teams</RouterLink><span>/</span
-          ><span aria-current="page"><TeamName :name="manifest.name" /></span>
+          ><span aria-current="page">{{ teamDisplayParts(manifest.name).label }}</span>
         </nav>
         <div class="agent-identity">
           <EmojiIcon
@@ -189,9 +269,9 @@ function tabKey(event: KeyboardEvent, index: number) {
             fallback="network"
             @select="saveIcon"
           />
-          <div>
+          <div class="team-heading">
             <div class="agent-title">
-              <h1><TeamName :name="manifest.name" /></h1>
+              <h1>{{ teamDisplayParts(manifest.name).label }}</h1>
               <span
                 v-if="store.isSuccess.value"
                 class="agent-status"
@@ -201,8 +281,10 @@ function tabKey(event: KeyboardEvent, index: number) {
             </div>
             <p v-if="manifest.description" class="agent-description">{{ manifest.description }}</p>
             <p class="agent-meta">
-              <span><Icon name="circle" :size="13" />{{ manifest.domain || 'No domain' }}</span
-              ><span><Icon name="network" :size="13" />{{ stage(manifest.stage) }}</span
+              <span><Icon name="network" :size="13" />{{ stage(manifest.stage) }}</span
+              ><span v-if="harnesses"><Icon name="monitor" :size="13" />{{ harnesses }}</span
+              ><span v-if="manifest.domain"
+                ><Icon name="circle" :size="13" />{{ manifest.domain }}</span
               ><span><Icon name="bot" :size="13" />{{ people.length }} agents</span>
             </p>
           </div>
@@ -259,69 +341,106 @@ function tabKey(event: KeyboardEvent, index: number) {
       <div
         v-if="tab === 'Overview'"
         id="team-panel-0"
-        class="agent-overview"
+        class="team-studio"
         role="tabpanel"
         aria-labelledby="team-tab-0"
       >
-        <div class="team-roles">
-          <h2>Team roles</h2>
-          <p class="team-lede">A leader coordinates the work. An independent auditor reviews it.</p>
-          <div class="team-role-cards">
-            <TeamMemberProfile :member="manifest.leader" role="Leader" card /><TeamMemberProfile
-              :member="manifest.auditor"
-              role="Auditor"
-              card
-            />
+        <div class="team-canvas">
+          <div class="canvas-heading">
+            <strong>Team</strong><span>{{ people.length }} agents</span>
           </div>
-          <section class="team-section">
-            <h2>Members</h2>
-            <div class="team-member-list">
-              <TeamMemberProfile v-for="m in manifest.members" :key="m.name" :member="m" />
-            </div>
-            <p v-if="!manifest.members.length" class="team-lede">No additional members.</p>
-          </section>
-        </div>
-        <aside class="agent-panel" aria-label="Team summary">
-          <h3>Team</h3>
-          <dl>
-            <dt>Domain</dt>
-            <dd>{{ manifest.domain || 'No domain' }}</dd>
-            <dt>Stage</dt>
-            <dd>{{ stage(manifest.stage) }}</dd>
-            <dt>Agents</dt>
-            <dd>{{ people.length }}</dd>
-            <template v-if="row"
-              ><dt>Source</dt>
-              <dd>{{ builtIn ? 'Built into Lykeion' : 'Uploaded by you' }}</dd></template
+          <div class="canvas-layout">
+            <button
+              v-for="person in cards"
+              :key="person.key"
+              class="canvas-agent"
+              :aria-pressed="selectedPerson === person.key"
+              @click="selectedPerson = person.key"
             >
-          </dl>
+              <span class="card-identity"
+                ><span class="avatar">{{ person.member.name[0] }}</span
+                ><span
+                  ><strong>{{ person.member.name }}</strong
+                  ><small>{{ person.role }}</small></span
+                ></span
+              >
+              <span class="card-description">{{ person.member.role }}</span>
+            </button>
+          </div>
           <p v-if="builtIn" class="team-note">
             Built-in Teams can't be changed. Duplicate this Team to make one of your own.
           </p>
+        </div>
+        <aside v-if="selected" class="team-inspector" aria-label="Agent details">
+          <h2>Agent details</h2>
+          <TeamMemberProfile
+            :member="selected.member"
+            :role="selected.role"
+            :editable-skills="!builtIn && store.isSuccess.value"
+            @edit-skills="
+              skillsError = '';
+              skillMember = selected.member;
+            "
+          />
+          <div class="inspector-harness">
+            <span>Harness</span>
+            <p>
+              {{
+                Object.keys(
+                  selected.member.agent.models ?? { [selected.member.agent.harness ?? '']: '' },
+                )
+                  .map(backendLabel)
+                  .join(' or ')
+              }}
+            </p>
+          </div>
         </aside>
       </div>
       <section
-        v-else-if="tab === 'Agents'"
+        v-else-if="tab === 'Work'"
         id="team-panel-1"
         class="agent-work"
         role="tabpanel"
         aria-labelledby="team-tab-1"
       >
-        <h2>Agents in this Team</h2>
-        <p class="team-lede">The roles and capabilities this Team brings to a study.</p>
-        <div class="team-member-list">
-          <TeamMemberProfile
-            v-for="person in people"
-            :key="person.role + person.member.name"
-            :member="person.member"
-            :role="person.role"
-            :editable-skills="!builtIn && store.isSuccess.value"
-            @edit-skills="
-              skillsError = '';
-              skillMember = person.member;
-            "
-          />
+        <div class="agent-work-toolbar">
+          <label class="team-work-search"
+            ><Icon name="search" :size="14" /><input
+              v-model="search"
+              placeholder="Search studies..."
+              aria-label="Search studies"
+          /></label>
         </div>
+        <p v-if="cardsQuery.isPending.value" class="muted" role="status">Loading studies…</p>
+        <p v-else-if="cardsQuery.isError.value" class="inline-error" role="alert">
+          {{ cardsQuery.error.value?.message }}
+          <button class="text-button" @click="cardsQuery.refetch()">Retry studies</button>
+        </p>
+        <template v-else
+          ><section v-for="group in groups" :key="group.id" class="agent-group">
+            <button
+              class="agent-group-head"
+              :class="'group-' + group.id"
+              :aria-expanded="!collapsed.includes(group.id)"
+              @click="toggleGroup(group.id)"
+            >
+              <Icon name="down" :size="12" /><span class="stage-ring" />{{ group.name
+              }}<small>{{ group.cards.length }}</small>
+            </button>
+            <template v-if="!collapsed.includes(group.id)"
+              ><RouterLink
+                v-for="card in group.cards"
+                :key="card.id"
+                :to="'/studies/' + card.id"
+                class="agent-study"
+                ><small>{{ studyNumber(workspace.data.value, card) }}</small
+                ><span>{{ studyDisplayTitle(card.title || card.question) }}</span
+                ><em>{{ timeAgo(card.updated_at) }}</em></RouterLink
+              >
+              <p v-if="!group.cards.length" class="agent-group-empty">No studies</p></template
+            >
+          </section></template
+        >
       </section>
       <section
         v-else-if="tab === 'Settings'"
@@ -337,6 +456,10 @@ function tabKey(event: KeyboardEvent, index: number) {
           <dd>{{ manifest.domain || 'No domain' }}</dd>
           <dt>Stage</dt>
           <dd>{{ stage(manifest.stage) }}</dd>
+          <template v-if="row"
+            ><dt>Source</dt>
+            <dd>{{ builtIn ? 'Built into Lykeion' : 'Uploaded by you' }}</dd></template
+          >
           <dt>Steps per column</dt>
           <dd>{{ manifest.steps || 12 }} steps per column</dd>
         </dl>
@@ -392,6 +515,172 @@ function tabKey(event: KeyboardEvent, index: number) {
 </template>
 <style src="./agent-detail.css" />
 <style scoped>
+.team-detail-page {
+  scrollbar-gutter: stable;
+}
+.team-work-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 224px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+}
+.team-work-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+.team-work-search:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.team-heading {
+  flex: 1;
+  min-width: 0;
+}
+.team-detail-page .agent-identity > .agent-actions {
+  flex: none;
+}
+.team-studio {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+  padding: 24px var(--gutter);
+  align-items: start;
+}
+.team-canvas {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.canvas-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 18px 20px;
+  font-size: 13px;
+}
+.canvas-heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.canvas-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.canvas-agent {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  min-width: 0;
+  min-height: 130px;
+  padding: 20px;
+  text-align: left;
+  background: var(--surface);
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.canvas-agent:nth-child(even) {
+  border-left: 1px solid var(--border);
+}
+.canvas-agent:hover {
+  background: var(--hover);
+}
+.canvas-agent[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  box-shadow: inset 3px 0 var(--primary);
+}
+.canvas-agent:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -3px;
+}
+.card-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.canvas-agent .avatar {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  font-size: 12px;
+}
+.canvas-agent strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.canvas-agent small {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--input);
+  color: var(--muted);
+  font-size: 11px;
+}
+.card-description {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.team-canvas .team-note {
+  margin: 16px 20px;
+}
+.team-inspector {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input);
+}
+.team-inspector :deep(.avatar) {
+  background: var(--surface);
+}
+.team-detail-page .team-inspector h2 {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.inspector-harness {
+  padding-top: 16px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.inspector-harness span {
+  color: var(--muted);
+}
+.inspector-harness p {
+  margin-top: 6px;
+}
+@container (max-width: 1000px) {
+  .team-studio {
+    grid-template-columns: 1fr;
+  }
+}
+@container (max-width: 600px) {
+  .canvas-layout {
+    grid-template-columns: 1fr;
+  }
+  .canvas-agent:nth-child(even) {
+    border-left: 0;
+  }
+}
+
 .team-detail-page h2 {
   font-size: 14px;
   font-weight: 600;

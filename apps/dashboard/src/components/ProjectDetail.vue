@@ -432,7 +432,7 @@ function pickLead(event: Event) {
   padding: 0 8px;
   width: 100%;
   min-height: 70px;
-  resize: vertical;
+  resize: none;
   font: inherit;
   font-size: 14px;
   line-height: 22px;

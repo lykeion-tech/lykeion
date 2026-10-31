@@ -59,8 +59,6 @@ const author = computed(() => {
           <h3>Overview</h3>
           <dl class="facts">
             <template v-if="kind === 'catalogue' && entry">
-              <dt>Availability</dt>
-              <dd>{{ entry.enabled ? 'Available to this workspace' : entry.reason }}</dd>
               <dt>Origin</dt>
               <dd>Lykeion scientific catalogue</dd>
               <template v-if="entry.terms"
@@ -81,16 +79,16 @@ const author = computed(() => {
             <dt>Scope</dt>
             <dd>Workspace</dd>
           </dl>
-          <p class="hint scope">
-            {{
-              kind === 'catalogue'
-                ? 'Available connectors can be selected for Teams and routed to agents.'
-                : 'Agents can use this connection through the recorded tool door.'
-            }}
+          <p v-if="kind === 'custom'" class="hint scope">
+            Agents can use this connection through the recorded tool door.
           </p>
         </template>
       </div>
-      <footer><button class="button" @click="close">Close</button></footer>
+      <footer v-if="row && kind === 'catalogue'">
+        <p class="hint footer-hint">
+          Available connectors can be selected for Teams and routed to agents.
+        </p>
+      </footer>
     </section>
   </Modal>
 </template>
@@ -299,10 +297,12 @@ a {
 }
 footer {
   display: flex;
-  gap: 8px;
-  justify-content: flex-end;
+  align-items: center;
   padding: 14px 24px;
   border-top: 1px solid var(--border);
+}
+.footer-hint {
+  margin: 0;
 }
 .inline-error {
   overflow-wrap: anywhere;

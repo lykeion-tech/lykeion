@@ -228,8 +228,6 @@ async function cancelEdit() {
                 · {{ detail.data.value.source.location }}</template
               >
             </dd>
-            <dt>Access</dt>
-            <dd>Workspace members can use this skill.</dd>
             <template v-if="detail.data.value.licence"
               ><dt>Licence</dt>
               <dd>{{ detail.data.value.licence }}</dd></template
@@ -395,7 +393,7 @@ async function cancelEdit() {
   color: var(--muted);
 }
 .chips .script-chip {
-  color: var(--text);
+  color: #666a6d;
   border: 1px solid var(--border);
 }
 .detail-tabs {
@@ -494,7 +492,7 @@ async function cancelEdit() {
   font:
     12px/1.7 ui-monospace,
     monospace;
-  resize: vertical;
+  resize: none;
 }
 .detail-footer {
   border-top: 1px solid var(--border);

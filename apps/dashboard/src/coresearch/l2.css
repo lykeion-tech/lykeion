@@ -476,7 +476,7 @@
   }
 }
 .coresearch textarea {
-  resize: vertical;
+  resize: none;
 }
 .coresearch::-webkit-search-decoration,
 .coresearch ::-webkit-search-decoration {
@@ -3876,7 +3876,7 @@
   font-weight: 400;
   line-height: 1.45;
   letter-spacing: 0;
-  resize: vertical;
+  resize: none;
 }
 .coresearch.turn-confirm-failure,
 .coresearch .turn-confirm-failure {
@@ -10784,7 +10784,7 @@
 .coresearch.research-card-textarea,
 .coresearch .research-card-textarea {
   width: 100%;
-  resize: vertical;
+  resize: none;
   border: 1px solid var(--hairline-strong, var(--hairline));
   border-radius: 8px;
   background: var(--surface-2);
@@ -11288,7 +11288,7 @@
   font-weight: 400;
   line-height: 1.45;
   letter-spacing: 0;
-  resize: vertical;
+  resize: none;
 }
 .coresearch.ref-sheet-actions,
 .coresearch .ref-sheet-actions {

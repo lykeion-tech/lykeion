@@ -30,7 +30,6 @@ import {
   timeAgo,
 } from '../lib/studies';
 import { notify } from '../state/notice';
-import AgentName from '../components/AgentName.vue';
 import { agentNameWithoutCli } from '../lib/agent-name';
 import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
 import '../coresearch/l2.css';
@@ -235,9 +234,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <header class="agent-hero">
         <nav class="agent-crumbs" aria-label="Breadcrumb">
           <RouterLink to="/agents">Agents</RouterLink><span>/</span
-          ><span aria-current="page"
-            ><AgentName :name="agent.name" :harness="agent.harness"
-          /></span>
+          ><span aria-current="page">{{ agentNameWithoutCli(agent.name, agent.harness) }}</span>
         </nav>
         <div class="agent-identity">
           <EmojiIcon
@@ -252,7 +249,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           </EmojiIcon>
           <div>
             <div class="agent-title">
-              <h1><AgentName :name="agent.name" :harness="agent.harness" /></h1>
+              <h1>{{ agentNameWithoutCli(agent.name, agent.harness) }}</h1>
               <span class="agent-status" :class="{ archived: agent.archived_at }">{{
                 agent.archived_at ? 'Archived' : 'Active'
               }}</span>

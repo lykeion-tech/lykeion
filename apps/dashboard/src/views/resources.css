@@ -448,7 +448,7 @@
 }
 .resource-form textarea {
   min-height: 120px;
-  resize: vertical;
+  resize: none;
 }
 .resource-form > .button {
   align-self: flex-start;

@@ -36,6 +36,35 @@ type Tx struct {
 	after  []func()
 }
 
+// CardTeamAssignment describes one Team assigned to a study stage.
+type CardTeamAssignment struct {
+	CardID uuid.UUID
+	Column string
+	PackID uuid.UUID
+	Name   string
+	Stage  string
+}
+
+// CardTeamAssignments loads all stage assignments in one workspace-scoped query.
+func (t *Tx) CardTeamAssignments(ctx context.Context) ([]CardTeamAssignment, error) {
+	rows, err := t.raw.Query(ctx, `SELECT ct.card_id, ct.board_column, ct.pack_id, p.name, p.stage
+ FROM card_team ct JOIN field_pack p ON p.workspace_id = ct.workspace_id AND p.id = ct.pack_id
+ WHERE ct.workspace_id = $1`, t.WS)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var assignments []CardTeamAssignment
+	for rows.Next() {
+		var a CardTeamAssignment
+		if err := rows.Scan(&a.CardID, &a.Column, &a.PackID, &a.Name, &a.Stage); err != nil {
+			return nil, err
+		}
+		assignments = append(assignments, a)
+	}
+	return assignments, rows.Err()
+}
+
 // AfterCommit runs fn once the transaction has committed, and never when it
 // rolls back. Side effects outside the database, such as deleting blobs,
 // belong here.

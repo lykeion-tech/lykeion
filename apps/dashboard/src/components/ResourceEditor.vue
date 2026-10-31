@@ -1016,7 +1016,7 @@ async function save() {
 }
 .editor-skill textarea {
   height: 64px;
-  resize: vertical;
+  resize: none;
 }
 .skill-choices {
   padding: 20px;
@@ -1279,7 +1279,7 @@ async function save() {
 .json-editor {
   height: 256px;
   min-height: 256px;
-  resize: vertical;
+  resize: none;
   font-size: 13px;
   line-height: 20px;
 }

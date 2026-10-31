@@ -327,7 +327,7 @@ async function submit() {
 }
 .field textarea {
   height: 74px;
-  resize: vertical;
+  resize: none;
 }
 .field small,
 .hint {

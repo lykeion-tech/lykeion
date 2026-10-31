@@ -599,19 +599,41 @@ func (h *H) setCardTeams(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type cardListView struct {
+	db.ListCardsRow
+	Teams map[string]cardTeamView `json:"teams"`
+}
+
 func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
-	cards := []db.ListCardsRow{}
+	cards := []cardListView{}
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
-		var err error
-		cards, err = tx.Q.ListCards(r.Context(), ws)
-		return err
+		rows, err := tx.Q.ListCards(r.Context(), ws)
+		if err != nil {
+			return err
+		}
+		assignments, err := tx.CardTeamAssignments(r.Context())
+		if err != nil {
+			return err
+		}
+		byCard := make(map[uuid.UUID]map[string]cardTeamView)
+		for _, assignment := range assignments {
+			if byCard[assignment.CardID] == nil {
+				byCard[assignment.CardID] = make(map[string]cardTeamView)
+			}
+			byCard[assignment.CardID][assignment.Column] = cardTeamView{PackID: assignment.PackID, Name: assignment.Name, Stage: assignment.Stage}
+		}
+		for _, card := range rows {
+			teams := byCard[card.ID]
+			if teams == nil {
+				teams = map[string]cardTeamView{}
+			}
+			cards = append(cards, cardListView{ListCardsRow: card, Teams: teams})
+		}
+		return nil
 	})
 	if err != nil {
 		fail(w, r, err)
 		return
-	}
-	if cards == nil {
-		cards = []db.ListCardsRow{}
 	}
 	writeJSON(w, http.StatusOK, cards)
 }

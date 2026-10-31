@@ -906,7 +906,7 @@ function pin() {
 .task-description-input {
   width: 100%;
   min-height: 100px;
-  resize: vertical;
+  resize: none;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
@@ -986,7 +986,7 @@ function pin() {
   width: 100%;
   min-height: 26px;
   max-height: 180px;
-  resize: vertical;
+  resize: none;
   line-height: 22px;
   font-size: 14px;
   padding: 0;

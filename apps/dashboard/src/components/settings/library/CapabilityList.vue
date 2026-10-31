@@ -61,7 +61,6 @@ defineEmits<{ 'update:query': [value: string]; 'update:field': [value: string]; 
       >All <Icon name="down" :size="12"
     /></span>
   </div>
-  <p class="library-caption">Workspace library</p>
   <p v-if="loading" role="status">Loading {{ noun }}…</p>
   <div v-else-if="error" role="alert">
     <p>{{ error }}</p>
@@ -174,13 +173,9 @@ input:focus-visible {
 input::-webkit-search-cancel-button {
   display: none;
 }
-.library-caption,
 .library-empty {
   color: var(--muted);
   font-size: 12px;
-}
-.library-caption {
-  margin: 0 0 6px;
 }
 .library-empty {
   padding: 24px 0;

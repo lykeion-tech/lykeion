@@ -402,6 +402,7 @@ async function copySlug() {
               ><span>Your career stage</span
               ><select
                 :value="me.data.value?.career_stage ?? ''"
+                class="career-stage-select"
                 aria-label="Your career stage"
                 @change="changeCareer($event.target as HTMLSelectElement)"
               >
@@ -493,23 +494,7 @@ async function copySlug() {
         </template>
 
         <template v-else-if="section === 'general'">
-          <h3>Your career stage</h3>
-          <div class="setting-box">
-            <label class="setting-row"
-              ><span>Your career stage</span
-              ><select
-                :value="me.data.value?.career_stage ?? ''"
-                aria-label="Your career stage"
-                @change="changeCareer($event.target as HTMLSelectElement)"
-              >
-                <option value="">Choose a stage (optional)</option>
-                <option v-for="c in careerStages" :key="c" :value="c">
-                  {{ careerStageLabels[c] }}
-                </option>
-              </select></label
-            >
-          </div>
-          <h3 class="subsequent-heading">Workspace details</h3>
+          <h3>Workspace details</h3>
           <form @submit.prevent="saveDetails">
             <div class="setting-box">
               <div class="setting-row avatar-row">
@@ -886,7 +871,7 @@ async function copySlug() {
 }
 .setting-row textarea {
   height: 64px;
-  resize: vertical;
+  resize: none;
   line-height: 20px;
 }
 .about-control {
@@ -1329,7 +1314,7 @@ async function copySlug() {
 }
 .settings-editor textarea {
   height: 78px;
-  resize: vertical;
+  resize: none;
 }
 .settings-editor input[type='color'] {
   height: 36px;

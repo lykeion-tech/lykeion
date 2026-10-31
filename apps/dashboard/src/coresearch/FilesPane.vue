@@ -419,7 +419,7 @@ function step(n: number | undefined) {
   display: block;
   width: 100%;
   min-height: 240px;
-  resize: vertical;
+  resize: none;
   background: var(--surface-1);
   color: var(--ink);
   padding: 16px;

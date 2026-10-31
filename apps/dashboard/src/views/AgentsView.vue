@@ -14,9 +14,7 @@ import Icon from '../components/Icon.vue';
 import { backends, backendLabel } from '../lib/backends';
 import { matchesQuery } from '../lib/search';
 import { timeAgo } from '../lib/studies';
-import { agentDisplayName } from '../lib/agent-name';
-import AgentName from '../components/AgentName.vue';
-import CliIcon from '../coresearch/CliIcon.vue';
+import { agentDisplayName, agentNameWithoutCli } from '../lib/agent-name';
 defineProps<{ create?: boolean }>();
 const list = useAgents(),
   me = useMe(),
@@ -251,11 +249,8 @@ async function save() {
               }}</template></span
             ><span
               ><b
-                ><AgentName :name="a.name" :harness="a.harness" /><i
-                  v-if="a.owner_id === me.data.value?.id"
-                  class="you-badge"
-                  >You</i
-                ></b
+                >{{ agentNameWithoutCli(a.name, a.harness)
+                }}<i v-if="a.owner_id === me.data.value?.id" class="you-badge">You</i></b
               ><small>{{ a.description }}</small></span
             ></span
           ><span role="cell" :class="a.archived_at ? 'muted' : 'agent-active'">{{
@@ -271,14 +266,7 @@ async function save() {
               >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
             ></span
           ><span role="cell">{{ a.visibility === 'private' ? 'Owner only' : 'Workspace' }}</span
-          ><span role="cell"
-            ><span
-              v-if="a.harness === 'claude' || a.harness === 'codex'"
-              role="img"
-              :aria-label="backendLabel(a.harness)"
-              :title="backendLabel(a.harness)"
-              ><CliIcon :cli="a.harness" /></span
-            ><template v-else>{{ backendLabel(a.harness) }}</template></span
+          ><span role="cell">{{ backendLabel(a.harness) }}</span
           ><span role="cell"
             ><span class="directory-last-value">{{ timeAgo(a.updated_at) }}</span></span
           ></RouterLink

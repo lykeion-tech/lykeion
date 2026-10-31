@@ -3,8 +3,7 @@ import { computed } from 'vue';
 import Icon from './Icon.vue';
 import type { AgentRun } from '../api/types';
 import { roleLabel, timeAgo } from '../lib/studies';
-import { agentDisplayName } from '../lib/agent-name';
-import AgentName from './AgentName.vue';
+import { agentDisplayName, agentNameWithoutCli } from '../lib/agent-name';
 
 const props = defineProps<{ run: AgentRun; study: string; position: number }>();
 const emit = defineEmits<{ open: [] }>();
@@ -44,7 +43,7 @@ const lastActive = computed(
     <header>
       <span class="status-dot" :title="state" />
       <span class="avatar agent">{{ name[0] }}</span>
-      <h3><AgentName :name="run.agent_name || roleLabel(run.role)" :harness="run.harness" /></h3>
+      <h3>{{ agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness) }}</h3>
       <button
         class="icon-button open-run"
         aria-haspopup="dialog"

@@ -61,6 +61,17 @@ const own = computed(() =>
       matchesQuery(`${c.name} ${c.transport}`, query.value),
   ),
 );
+const rows = computed(() =>
+  [
+    ...(literature.value ? [{ type: 'openalex' as const, name: 'OpenAlex' }] : []),
+    ...scientific.value.map((connector) => ({
+      type: 'catalogue' as const,
+      name: connector.name,
+      connector,
+    })),
+    ...own.value.map((connector) => ({ type: 'custom' as const, name: connector.name, connector })),
+  ].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+);
 function open(id: string, type: 'catalogue' | 'custom') {
   selected.value = id;
   kind.value = type;
@@ -99,81 +110,102 @@ watch(
       noun="connectors"
       :loading="catalogue.isPending.value || custom.isPending.value"
       :error="catalogue.error.value?.message || custom.error.value?.message"
-      :count="scientific.length + own.length + (literature ? 1 : 0)"
+      :count="rows.length"
       @retry="
         catalogue.refetch();
         custom.refetch();
       "
     >
-      <div v-if="literature" class="connector-entry">
-        <button
-          class="connector-row"
-          :class="{ chosen: showOpenAlex }"
-          aria-label="OpenAlex"
-          @click="showOpenAlex = true"
-        >
-          <div>
-            <strong>OpenAlex</strong>
-            <p>Papers, preprints and abstracts across all fields, arXiv included. Built in.</p>
-          </div>
-        </button>
-        <AvailabilitySwitch
-          name="OpenAlex"
-          :checked="openalex.data.value?.policy_enabled ?? false"
-          :disabled="
-            !openalex.data.value ||
-            openalex.isError.value ||
-            !policy.catalogueAllowed.value ||
-            !!policy.pending.value
-          "
-          @toggle="
-            policy.toggle(
-              'catalogue',
-              'openalex',
-              openalex.data.value!.revision,
-              !openalex.data.value!.policy_enabled,
-            )
-          "
-        />
-      </div>
-      <div v-for="c in scientific" :key="'catalogue:' + c.name" class="connector-entry">
-        <button
-          class="connector-row"
-          :class="{ chosen: showDetail && selected === c.name && kind === 'catalogue' }"
-          :aria-label="c.name"
-          @click="open(c.name, 'catalogue')"
-        >
-          <div>
-            <strong>{{ c.name }}</strong>
-            <p>{{ c.purpose }}</p>
-          </div>
-        </button>
-        <AvailabilitySwitch
-          :name="c.name"
-          :checked="c.policy_enabled"
-          :disabled="!policy.catalogueAllowed.value || !!policy.pending.value"
-          @toggle="policy.toggle('catalogue', c.name, c.revision, !c.policy_enabled)"
-        />
-      </div>
-      <h3 v-if="own.length">Custom</h3>
-      <p v-if="own.length" class="section-note">Shared connections added to this workspace.</p>
-      <div v-for="c in own" :key="'custom:' + c.id" class="connector-entry">
-        <button
-          class="connector-row"
-          :class="{ chosen: showDetail && selected === c.id && kind === 'custom' }"
-          :aria-label="c.name"
-          @click="open(c.id, 'custom')"
-        >
-          <div>
-            <strong>{{ c.name }}</strong
-            ><small>Custom · {{ c.transport === 'url' ? 'Remote URL' : 'Command' }}</small>
-          </div></button
-        ><AvailabilitySwitch
-          :name="c.name"
-          :checked="c.policy_enabled ?? true"
-          :disabled="!policy.allowed.value || !!policy.pending.value"
-          @toggle="policy.toggle('mcp', c.id, c.policy_revision ?? 0, !(c.policy_enabled ?? true))"
-        /></div></CapabilityList
+      <template
+        v-for="row in rows"
+        :key="row.type + ':' + (row.type === 'custom' ? row.connector.id : row.name)"
+      >
+        <div v-if="row.type === 'openalex'" class="connector-entry">
+          <button
+            class="connector-row"
+            :class="{ chosen: showOpenAlex }"
+            aria-label="OpenAlex"
+            @click="showOpenAlex = true"
+          >
+            <div>
+              <strong>OpenAlex</strong>
+              <p>Papers, preprints and abstracts across all fields, arXiv included. Built in.</p>
+            </div>
+          </button>
+          <AvailabilitySwitch
+            name="OpenAlex"
+            :checked="openalex.data.value?.policy_enabled ?? false"
+            :disabled="
+              !openalex.data.value ||
+              openalex.isError.value ||
+              !policy.catalogueAllowed.value ||
+              !!policy.pending.value
+            "
+            @toggle="
+              policy.toggle(
+                'catalogue',
+                'openalex',
+                openalex.data.value!.revision,
+                !openalex.data.value!.policy_enabled,
+              )
+            "
+          />
+        </div>
+        <div v-else-if="row.type === 'catalogue'" class="connector-entry">
+          <button
+            class="connector-row"
+            :class="{
+              chosen: showDetail && selected === row.connector.name && kind === 'catalogue',
+            }"
+            :aria-label="row.connector.name"
+            @click="open(row.connector.name, 'catalogue')"
+          >
+            <div>
+              <strong>{{ row.connector.name }}</strong>
+              <p>{{ row.connector.purpose }}</p>
+            </div>
+          </button>
+          <AvailabilitySwitch
+            :name="row.connector.name"
+            :checked="row.connector.policy_enabled"
+            :disabled="!policy.catalogueAllowed.value || !!policy.pending.value"
+            @toggle="
+              policy.toggle(
+                'catalogue',
+                row.connector.name,
+                row.connector.revision,
+                !row.connector.policy_enabled,
+              )
+            "
+          />
+        </div>
+        <div v-else class="connector-entry">
+          <button
+            class="connector-row"
+            :class="{ chosen: showDetail && selected === row.connector.id && kind === 'custom' }"
+            :aria-label="row.connector.name"
+            @click="open(row.connector.id, 'custom')"
+          >
+            <div>
+              <strong>{{ row.connector.name }}</strong
+              ><small
+                >Custom · {{ row.connector.transport === 'url' ? 'Remote URL' : 'Command' }}</small
+              >
+            </div></button
+          ><AvailabilitySwitch
+            :name="row.connector.name"
+            :checked="row.connector.policy_enabled ?? true"
+            :disabled="!policy.allowed.value || !!policy.pending.value"
+            @toggle="
+              policy.toggle(
+                'mcp',
+                row.connector.id,
+                row.connector.policy_revision ?? 0,
+                !(row.connector.policy_enabled ?? true),
+              )
+            "
+          />
+        </div> </template></CapabilityList
     ><ConnectorDialog
       v-if="showDetail && selected"
       :key="workspaceId + kind + selected"

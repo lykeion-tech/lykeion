@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import AvatarDisplay from './AvatarDisplay.vue';
 import AvatarPicker from './AvatarPicker.vue';
+import Icon from './Icon.vue';
 const props = defineProps<{ value: string; editable: boolean; fallback: string; busy?: boolean }>();
 const emit = defineEmits<{ select: [value: string] }>();
 const open = ref(false);
@@ -26,6 +27,7 @@ function choose(value: string) {
         :value="emoji || fallback"
         :size="26"
       />
+      <span class="emoji-icon-edit" aria-hidden="true"><Icon name="edit" :size="18" /></span>
     </button>
     <span v-else class="agent-avatar"
       ><slot v-if="!emoji" /><AvatarDisplay
@@ -48,9 +50,27 @@ function choose(value: string) {
   flex: none;
 }
 .emoji-icon-button {
+  position: relative;
+  overflow: hidden;
+  border-radius: 50%;
   border: 0;
   padding: 0;
   cursor: pointer;
+}
+.emoji-icon-edit {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  color: var(--text);
+  background: var(--input);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.emoji-icon-button:not(:disabled):hover .emoji-icon-edit,
+.emoji-icon-button:focus-visible .emoji-icon-edit {
+  opacity: 1;
 }
 .emoji-icon-button:focus-visible {
   outline: 2px solid var(--primary-text);

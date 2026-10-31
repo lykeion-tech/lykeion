@@ -196,7 +196,7 @@ const providers = computed(() => [
 }
 .custom-runtime textarea {
   height: 64px;
-  resize: vertical;
+  resize: none;
 }
 .custom-runtime label small {
   font-size: 11px;

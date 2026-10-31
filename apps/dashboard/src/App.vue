@@ -850,7 +850,7 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
-  resize: vertical;
+  resize: none;
   padding: 10px;
   font: inherit;
   line-height: 22px;

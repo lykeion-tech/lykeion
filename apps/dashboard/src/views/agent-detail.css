@@ -351,7 +351,7 @@
   background: none;
   font-size: 14px;
   line-height: 1.6;
-  resize: vertical;
+  resize: none;
 }
 .agent-pane .agent-prompt::-webkit-scrollbar {
   display: none;
@@ -391,7 +391,7 @@
 }
 .agent-field textarea {
   min-height: 64px;
-  resize: vertical;
+  resize: none;
 }
 .agent-field span small {
   display: block;

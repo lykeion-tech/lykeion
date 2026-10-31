@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import TeamName from '../components/TeamName.vue';
 import AvatarDisplay from '../components/AvatarDisplay.vue';
 import { teamDisplayParts } from '../lib/team-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -138,8 +137,8 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
                     v-if="t.avatar_url"
                     :value="t.avatar_url.slice(6)"
                     :size="18" /><Icon v-else name="network" :size="18" /></span
-                ><span class="team-label"><TeamName :name="t.name" /></span
-              ></RouterLink>
+                ><span class="team-label">{{ teamDisplayParts(t.name).label }}</span></RouterLink
+              >
             </td>
             <td>{{ t.domain || '—' }}</td>
             <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>

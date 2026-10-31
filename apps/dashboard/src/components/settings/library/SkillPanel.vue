@@ -27,11 +27,13 @@ const fields = computed(() =>
   ].sort(),
 );
 const rows = computed(() =>
-  (library.data.value ?? []).filter(
-    (s) =>
-      matchesQuery(`${s.name} ${s.description} ${s.domain}`, query.value) &&
-      (!field.value || (s.origin === 'imported' ? 'Workspace' : s.domain) === field.value),
-  ),
+  (library.data.value ?? [])
+    .filter(
+      (s) =>
+        matchesQuery(`${s.name} ${s.description} ${s.domain}`, query.value) &&
+        (!field.value || (s.origin === 'imported' ? 'Workspace' : s.domain) === field.value),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
 );
 watch(
   workspaceId,

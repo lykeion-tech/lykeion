@@ -251,7 +251,7 @@ async function perform() {
   flex: 1;
   min-width: 0;
   width: 100%;
-  resize: vertical;
+  resize: none;
   padding: 0;
   border: 0;
   background: transparent;

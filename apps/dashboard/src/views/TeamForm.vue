@@ -622,7 +622,7 @@ textarea {
 }
 textarea {
   min-height: 60px;
-  resize: vertical;
+  resize: none;
 }
 .row {
   display: flex;

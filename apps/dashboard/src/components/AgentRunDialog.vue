@@ -10,8 +10,7 @@ import type { AgentRun, Runtime } from '../api/types';
 import { backendLabel } from '../lib/backends';
 import { executionCells, notebookJson, recordedCode } from '../lib/run-transcript';
 import { columnName, roleLabel } from '../lib/studies';
-import { agentDisplayName } from '../lib/agent-name';
-import AgentName from './AgentName.vue';
+import { agentDisplayName, agentNameWithoutCli } from '../lib/agent-name';
 
 const props = defineProps<{
   runs: AgentRun[];
@@ -108,7 +107,7 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
       <header class="run-dialog-heading">
         <div class="run-dialog-title">
           <h2>
-            <AgentName :name="run.agent_name || roleLabel(run.role)" :harness="run.harness" />
+            {{ agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness) }}
           </h2>
         </div>
         <div class="run-dialog-actions">

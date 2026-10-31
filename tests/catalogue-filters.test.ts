@@ -18,6 +18,13 @@ vi.mock('../apps/dashboard/src/api/library', () => {
         { id: 'a', name: 'astronomy', description: 'stars', domain: 'Physics', origin: 'bundled' },
         { id: 'b', name: 'genomics', description: 'genes', domain: 'Biology', origin: 'bundled' },
         { id: 'c', name: 'my skill', description: 'custom', domain: 'Other', origin: 'imported' },
+        {
+          id: 'd',
+          name: 'Alpha skill',
+          description: 'custom',
+          domain: 'Other',
+          origin: 'imported',
+        },
       ]),
     useConnectorLibrary: () =>
       result([
@@ -60,6 +67,22 @@ async function field(root: ReturnType<typeof node>, value: string) {
   (option!.props.onClick as () => void)();
   await nextTick();
 }
+it('sorts bundled and workspace skills together by name', () => {
+  const root = mount(SkillPanel);
+  expect(
+    all(root)
+      .filter((n) => n.tag === 'button' && n.props.class === 'skill-row')
+      .map((n) => n.props['aria-label']),
+  ).toEqual(['Alpha skill', 'astronomy', 'genomics', 'my skill']);
+});
+it('sorts built-in, catalogue and workspace connectors together by name', () => {
+  const root = mount(ConnectorPanel);
+  expect(
+    all(root)
+      .filter((n) => n.tag === 'button' && n.props.class === 'connector-row')
+      .map((n) => n.props['aria-label']),
+  ).toEqual(['genes', 'my connector', 'OpenAlex', 'telescope']);
+});
 it('filters skills by catalogue domain or Workspace and combines search', async () => {
   const root = mount(SkillPanel);
   await field(root, 'Physics');

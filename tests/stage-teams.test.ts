@@ -376,6 +376,68 @@ describe('AssignPicker', () => {
 });
 
 describe('TeamDetail', () => {
+  it('shows only this Team’s studies in searchable, collapsible work groups', async () => {
+    const card = (id: string, title: string, team: string, board_column = 'grounding') => ({
+      id,
+      title,
+      number: id === 'c1' ? 1 : 2,
+      question: '',
+      board_column,
+      state: 'working',
+      flag: '',
+      ending: '',
+      updated_at: '2026-10-25T10:00:00Z',
+      teams: { grounding: { pack_id: team } },
+    });
+    const t = await mount(
+      TeamDetail,
+      () => ({ id: 't2' }),
+      '/teams/t2',
+      (c) => {
+        c.setQueryData(keys.cards('w'), [
+          card('c1', 'Selected study', 't2'),
+          card('c2', 'Other study', 't1'),
+        ]);
+        c.setQueryData(keys.workspace('w'), { display_prefix: 'LAB' });
+      },
+    );
+    try {
+      await t.click(/^Work$/);
+      expect(t.text()).toContain('Selected study');
+      expect(t.text()).toContain('LAB-1');
+      expect(t.text()).not.toContain('Other study');
+      await t.fill('Search studies', 'missing');
+      expect(t.text()).not.toContain('Selected study');
+      await t.fill('Search studies', 'LAB-1');
+      expect(t.text()).toContain('Selected study');
+      await t.click(/^Grounding/);
+      expect(t.text()).not.toContain('Selected study');
+    } finally {
+      t.unmount();
+    }
+  });
+  it('inspects the selected agent in the team canvas', async () => {
+    const t = await mount(TeamDetail, () => ({ id: 't2' }), '/teams/t2');
+    try {
+      expect(
+        t.nodes().filter((n) => n.tag === 'button' && n.props['aria-pressed'] !== undefined),
+      ).toHaveLength(3);
+      expect(
+        t
+          .nodes()
+          .filter((n) => n.props.role === 'tab')
+          .map((n) => n.text),
+      ).not.toContain('Agents');
+      const inspector = () => t.nodes().find((n) => n.props['aria-label'] === 'Agent details')!;
+      const textOf = (n: Node): string => n.text + n.children.map(textOf).join('');
+      expect(textOf(inspector())).toContain('lead role');
+      await t.click(/scout/);
+      expect(textOf(inspector())).toContain('scout role');
+      expect(textOf(inspector())).toContain('Edit skills');
+    } finally {
+      t.unmount();
+    }
+  });
   it('allows only an editable Team to choose an icon and saves it', async () => {
     const fetch = vi.fn(
       async (_path: RequestInfo | URL, init?: RequestInit) =>
@@ -432,7 +494,6 @@ describe('TeamDetail', () => {
       expect(t.text()).toContain('Duplicate this Team');
       expect(t.text()).not.toContain('Add Team');
       expect(t.text()).not.toMatch(/Delete/);
-      await t.click(/^Agents$/);
       expect(t.text()).toContain('scout');
       expect(t.text()).not.toContain('Edit skills');
     } finally {
@@ -455,7 +516,7 @@ describe('TeamDetail', () => {
     const t = await mount(TeamDetail, () => ({ id: 't2' }), '/teams/t2');
     try {
       expect(t.text()).not.toContain('Duplicate this Team');
-      await t.click(/^Agents$/);
+      await t.click(/scout/);
       expect(t.text()).toContain('Edit skills');
     } finally {
       t.unmount();

@@ -350,7 +350,7 @@ function toggleConnector(id: string) {
 .agent-panel-content .system-prompt {
   width: 100%;
   min-height: 510px;
-  resize: vertical;
+  resize: none;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;

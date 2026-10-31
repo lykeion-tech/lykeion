@@ -81,7 +81,7 @@
 }
 .directory-form textarea {
   min-height: 80px;
-  resize: vertical;
+  resize: none;
 }
 .directory-form footer {
   display: flex;

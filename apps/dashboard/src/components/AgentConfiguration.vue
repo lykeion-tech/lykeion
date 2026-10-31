@@ -315,7 +315,7 @@ async function save() {
   height: 32px;
 }
 .agent-configuration textarea {
-  resize: vertical;
+  resize: none;
   min-height: 64px;
 }
 .agent-configuration input[type='checkbox'],

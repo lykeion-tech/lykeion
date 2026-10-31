@@ -192,6 +192,9 @@ select {
   font: inherit;
   color: inherit;
 }
+textarea {
+  resize: none;
+}
 /* Native option menus do not consistently inherit their select's background. */
 :root[data-theme='dark'] option,
 :root[data-theme='dark'] optgroup {
@@ -696,7 +699,7 @@ kbd {
   outline: none;
 }
 .description-input {
-  resize: vertical;
+  resize: none;
   width: 100%;
   min-height: 172px;
   background: transparent;
@@ -714,7 +717,7 @@ kbd {
   min-height: 164px;
   border: 0;
   background: none;
-  resize: vertical;
+  resize: none;
   line-height: 22px;
   outline: none;
 }
@@ -996,7 +999,7 @@ kbd {
   margin-top: 26px;
 }
 .comment-composer textarea {
-  resize: vertical;
+  resize: none;
   min-height: 30px;
   width: 100%;
   border: 0;
@@ -1141,7 +1144,7 @@ kbd {
 }
 .settings-content textarea {
   min-height: 120px;
-  resize: vertical;
+  resize: none;
 }
 .settings-content form > .button {
   justify-self: start;
@@ -1573,4 +1576,66 @@ kbd {
 .chip-escalated {
   background: #fbe3e5;
   color: #a33a44;
+}
+
+/* Native single-choice controls share the model menu's surface and selection
+   treatment where the browser supports customizable select pickers. */
+@supports (appearance: base-select) and selector(::picker(select)) {
+  select:not([multiple]):not([size]),
+  select:not([multiple]):not([size])::picker(select) {
+    appearance: base-select;
+  }
+
+  select:not([multiple]):not([size])::picker(select) {
+    max-height: min(52vh, 320px);
+    min-width: max(100%, 200px);
+    padding: 5px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 18px 48px rgb(0 0 0 / 30%);
+    overflow-y: auto;
+  }
+
+  select.career-stage-select:not([multiple]):not([size])::picker(select) {
+    width: 240px;
+    min-width: 0;
+    max-width: calc(100vw - 24px);
+    max-height: 220px;
+    overflow-x: hidden;
+  }
+
+  select:not([multiple]):not([size]) option {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 32px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  select:not([multiple]):not([size]) option:hover,
+  select:not([multiple]):not([size]) option:focus-visible {
+    background: var(--hover);
+  }
+
+  select:not([multiple]):not([size]) option:checked {
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+  }
+
+  select:not([multiple]):not([size]) option::checkmark {
+    order: 1;
+    margin-left: auto;
+    color: var(--primary);
+  }
+
+  select:not([multiple]):not([size]) option:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
 }

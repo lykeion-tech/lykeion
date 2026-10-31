@@ -230,6 +230,19 @@ func TestASingleTeamStudyStaysInItsColumn(t *testing.T) {
 	if len(wide.Teams) != 4 || wide.Teams["hypotheses"].PackID != pack || wide.Teams["grounding"].PackID != s.builtInID(t, w.ID, "grounding") {
 		t.Fatalf("%+v", wide)
 	}
+	var listed []studyJSON
+	if code := s.call(t, "GET", "/api/cards", a, w.ID, nil, &listed); code != 200 {
+		t.Fatalf("list: %d", code)
+	}
+	found := false
+	for _, item := range listed {
+		if item.ID == wide.ID {
+			found = item.Teams["hypotheses"].PackID == pack && len(item.Teams) == 4
+		}
+	}
+	if !found {
+		t.Fatalf("missing per-stage Team assignments in list: %+v", listed)
+	}
 }
 
 func TestATeamSetsGapsGetTheBuiltInTeams(t *testing.T) {

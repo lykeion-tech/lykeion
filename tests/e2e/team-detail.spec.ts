@@ -13,45 +13,22 @@ async function seed(page: Page, name: string) {
 }
 
 for (const width of [1512, 1920]) {
-  test(`Team detail uses exact Agent profile geometry at ${width}px`, async ({ page }) => {
+  test(`Team studio displays and inspects its agents at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1080 });
-    const { pack, agent } = await seed(page, `geometry-team-${width}`);
-    await page.goto(`/#/agents/${agent.id}`);
-    await expect(page.locator('.agent-panel')).toBeVisible();
-    const selectors = [
-      '.agent-hero',
-      '.agent-identity',
-      '.agent-avatar',
-      '.agent-tabs-bar',
-      '.agent-overview',
-      '.agent-panel',
-    ];
-    const reference = await Promise.all(
-      selectors.map((selector) => page.locator(selector).boundingBox()),
-    );
-    const styles = await page
-      .locator('.agent-hero')
-      .evaluate((el) => ({ padding: getComputedStyle(el).padding }));
+    const { pack } = await seed(page, `geometry-team-${width}`);
     await page.goto(`/#/teams/${pack.id}`);
     await expect(page.getByRole('heading', { name: pack.name, exact: true })).toBeVisible();
-    await expect(page.locator('.page-header')).toHaveCount(0);
-    for (const [i, selector] of selectors.entries()) {
-      const bounds = (await page.locator(selector).boundingBox())!;
-      expect(bounds.x, selector + ' x').toBe(reference[i]!.x);
-      expect(bounds.y, selector + ' y').toBe(reference[i]!.y);
-      expect(bounds.width, selector + ' width').toBe(reference[i]!.width);
-      if (!['.agent-overview', '.agent-panel'].includes(selector))
-        expect(bounds.height, selector + ' height').toBe(reference[i]!.height);
-    }
-    await expect(page.locator('.agent-hero')).toHaveCSS('padding', styles.padding);
-    await expect(page.getByRole('heading', { name: 'Members', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Leader', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Auditor', exact: true })).toBeVisible();
-    await expect(page.getByRole('tabpanel')).toContainText('Skills: search');
+    await expect(page.locator('.canvas-agent')).toHaveCount(4);
+    await expect(page.getByRole('tab', { name: 'Agents', exact: true })).toHaveCount(0);
+    const inspector = page.getByLabel('Agent details');
+    await expect(inspector).toContainText('pi');
+    await page.locator('.canvas-agent').last().click();
+    await expect(page.locator('.canvas-agent').last()).toHaveAttribute('aria-pressed', 'true');
+    await expect(inspector).toContainText('Edit skills');
     await page.getByRole('tab', { name: 'Overview', exact: true }).focus();
     await page.keyboard.press('ArrowRight');
-    await expect(page.getByRole('tab', { name: 'Agents', exact: true })).toBeFocused();
-    await expect(page.getByRole('tabpanel').locator('.team-member-profile')).toHaveCount(4);
+    await expect(page.getByRole('tab', { name: 'Work', exact: true })).toBeFocused();
+    await expect(page.getByRole('textbox', { name: 'Search studies' })).toBeVisible();
     await page.getByRole('tab', { name: 'Settings', exact: true }).click();
     await expect(page.getByRole('tabpanel')).toContainText('biology');
     await expect(page.getByRole('tabpanel')).toContainText('12 steps per column');
@@ -86,6 +63,9 @@ for (const width of [1512, 1920]) {
       expect(study.teams.grounding.pack_id).toBe(pack.id);
       expect(study.scope_from).toBe('grounding');
       expect(study.scope_to).toBe('grounding');
+      await page.goto(`/#/teams/${pack.id}`);
+      await page.getByRole('tab', { name: 'Work', exact: true }).click();
+      await expect(page.getByRole('link', { name: /Team profile study/ })).toBeVisible();
     }
   });
 }
@@ -94,7 +74,7 @@ test('Team profile tabs and roles remain readable on a narrow viewport', async (
   const { pack } = await seed(page, 'narrow-team-profile');
   await page.setViewportSize({ width: 600, height: 900 });
   await page.goto(`/#/teams/${pack.id}`);
-  await expect(page.locator('.agent-panel')).toBeVisible();
+  await expect(page.getByLabel('Agent details')).toBeVisible();
   expect(
     await page.locator('.team-detail-page').evaluate((el) => el.scrollWidth <= el.clientWidth),
   ).toBe(true);
