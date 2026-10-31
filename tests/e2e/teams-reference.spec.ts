@@ -103,7 +103,7 @@ test('direct Team creation keeps the footer accessible on a narrow screen', asyn
   await expect(page).toHaveURL(/#\/teams$/);
 });
 
-test('Teams sorts by creation and shares Agents column positions and Projects heading style', async ({
+test('Teams sorts by creation and shares the first column and Projects heading style', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -161,8 +161,7 @@ test('Teams sorts by creation and shares Agents column positions and Projects he
   await expect(lastValue).toHaveCSS('width', '70px');
   const lastCell = (await rows.first().locator('td').last().boundingBox())!;
   const lastBox = (await lastValue.boundingBox())!;
-  expect(lastBox.x + lastBox.width).toBeLessThanOrEqual(lastCell.x + lastCell.width);
-  expect(lastBox.x).toBeGreaterThan(lastCell.x);
+  expect(lastBox.x + lastBox.width).toBe(lastCell.x + lastCell.width);
   const teamIcon = (await rows.first().locator('.team-icon').boundingBox())!;
   const teamGlyph = (await rows.first().locator('.team-icon svg').boundingBox())!;
   const teamLabelX = (await rows.first().locator('.team-label').boundingBox())!.x;
@@ -223,11 +222,11 @@ test('Teams sorts by creation and shares Agents column positions and Projects he
   const agentSort = (await page
     .getByRole('button', { name: 'Last updated', exact: true })
     .boundingBox())!;
-  expect(agentLast.x + agentLast.width).toBe(agentSort.x + agentSort.width);
+  expect(agentLast.x + agentLast.width - (agentSort.x + agentSort.width)).toBe(16);
   const agentNew = (await page
     .getByRole('button', { name: 'New agent', exact: true })
     .boundingBox())!;
-  expect(agentSort.x + agentSort.width - (agentNew.x + agentNew.width)).toBe(16);
+  expect(agentSort.x + agentSort.width).toBe(agentNew.x + agentNew.width);
   expect((await page.locator('.agent-search').boundingBox())!.x).toBe(
     (await page.locator('.page-header h1').boundingBox())!.x,
   );
