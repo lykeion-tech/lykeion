@@ -139,15 +139,6 @@ try {
     join(output, 'l2.css'),
     await format(header + fontCSS + scope(css), formatOptions),
   );
-  // A separate generated token sheet is useful to consumers importing only
-  // the palette. The full generated sheet also includes these source rules.
-  await writeFile(
-    join(output, 'l2-tokens.css'),
-    await format(
-      header + scope(await readFile(join(ui, 'src/styles/tokens.css'), 'utf8')),
-      formatOptions,
-    ),
-  );
   await copyFile(join(source, 'LICENSE'), join(output, 'L2-LICENSE'));
 } finally {
   await rm(entry, { force: true });
