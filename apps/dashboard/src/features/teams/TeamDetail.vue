@@ -30,7 +30,7 @@ import { workspaceId } from '../../api/session';
 import Icon from '../../ui/Icon.vue';
 import EmojiIcon from '../../ui/EmojiIcon.vue';
 import TeamMemberProfile from './TeamMemberProfile.vue';
-import { useTaskComposer } from '../../state/task-composer';
+import { useStudyComposer } from '../../state/study-composer';
 const props = defineProps<{ id: string }>();
 const client = useQueryClient();
 const router = useRouter();
@@ -293,7 +293,7 @@ async function deleteTeam() {
     if (visit === ownVisit) busy.value = false;
   }
 }
-const { openComposer } = useTaskComposer();
+const { openComposer } = useStudyComposer();
 const stage = (value: string) =>
   value ? value[0]!.toUpperCase() + value.slice(1) : 'A set of stages';
 async function add() {

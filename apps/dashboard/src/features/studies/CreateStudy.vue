@@ -18,7 +18,7 @@ import {
   type Range,
 } from '../../lib/studies';
 import { notify } from '../../state/notice';
-import type { Assignee } from '../../state/task-composer';
+import type { Assignee } from '../../state/study-composer';
 import AssignPicker from '../../ui/AssignPicker.vue';
 import MachinePicker from '../machines/MachinePicker.vue';
 
@@ -265,7 +265,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 <template>
   <Modal
     title="New study"
-    :class="['task-composer', 'manual', { expanded }]"
+    :class="['study-composer', 'manual', { expanded }]"
     @close="emit('close')"
   >
     <!-- eslint-disable vue/use-v-on-exact -->
@@ -483,28 +483,28 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 </template>
 <style scoped src="../../ui/composer-menu.css"></style>
 <style scoped>
-.task-composer {
+.study-composer {
   width: 578px;
   max-width: calc(100vw - 48px);
   background: var(--modal);
   overflow: visible;
 }
-.task-composer.manual {
+.study-composer.manual {
   width: 800px;
 }
-.task-composer.expanded {
+.study-composer.expanded {
   width: min(1100px, calc(100vw - 64px));
 }
-.task-composer form {
+.study-composer form {
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 308px;
 }
-.task-composer.manual form {
+.study-composer.manual form {
   min-height: 384px;
 }
-.task-composer.expanded form {
+.study-composer.expanded form {
   height: min(740px, 85vh);
 }
 .composer-breadcrumb {
@@ -778,7 +778,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   border-top: 1px solid #ffffff60;
   margin: 3px -4px;
 }
-.task-relation-backdrop {
+.study-relation-backdrop {
   position: absolute;
   inset: 0;
   z-index: 100;
@@ -787,7 +787,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   justify-content: center;
   padding-top: 32px;
 }
-.task-relation-picker {
+.study-relation-picker {
   width: 386px;
   max-width: calc(100vw - 40px);
   background: var(--fill-menu);
@@ -796,16 +796,16 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   padding: 8px;
   box-shadow: 0 12px 36px #0002;
 }
-.task-relation-picker header {
+.study-relation-picker header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.task-relation-picker h2 {
+.study-relation-picker h2 {
   font-size: 16px;
   margin: 0;
 }
-.task-relation-picker > p {
+.study-relation-picker > p {
   font-size: 12px;
   color: var(--muted);
   margin: 8px 0 15px;

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -133,9 +133,9 @@ describe('the dashboard source layout', () => {
 
   it('studies holds its files', () => {
     const moved = [
-      ['views/TaskBoard.vue', 'features/studies/TaskBoard.vue'],
-      ['views/TaskDetail.vue', 'features/studies/TaskDetail.vue'],
-      ['views/CreateTask.vue', 'features/studies/CreateTask.vue'],
+      ['views/TaskBoard.vue', 'features/studies/StudyBoard.vue'],
+      ['views/TaskDetail.vue', 'features/studies/StudyDetail.vue'],
+      ['views/CreateTask.vue', 'features/studies/CreateStudy.vue'],
       ['components/ColumnRating.vue', 'features/studies/ColumnRating.vue'],
       ['components/StudyOutputs.vue', 'features/studies/StudyOutputs.vue'],
       ['components/StudyEnvironment.vue', 'features/studies/StudyEnvironment.vue'],
@@ -191,5 +191,23 @@ describe('the dashboard source layout', () => {
   it('dashboard unit tests live with their code', () => {
     const left = readdirSync('tests').filter((f) => f.endsWith('.test.ts')).sort();
     expect(left).toEqual(['dashboard-layout.test.ts', 'desktop-daemon.test.ts', 'mock-layer.test.ts']);
+  });
+
+  it('study files carry the study name', () => {
+    const renamed = [
+      ['features/studies/TaskBoard.vue', 'features/studies/StudyBoard.vue'],
+      ['features/studies/TaskDetail.vue', 'features/studies/StudyDetail.vue'],
+      ['features/studies/CreateTask.vue', 'features/studies/CreateStudy.vue'],
+      ['state/task-composer.ts', 'state/study-composer.ts'],
+    ];
+    for (const [from, to] of renamed) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
+
+  it('keeps the stored keys', () => {
+    expect(readFileSync(join(src, 'state/pins.ts'), 'utf8')).toContain("'lykeion.pinned-tasks'");
+    expect(readFileSync(join(src, 'state/preferences.ts'), 'utf8')).toContain('taskOpen');
   });
 });

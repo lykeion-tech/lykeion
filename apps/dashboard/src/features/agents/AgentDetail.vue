@@ -20,7 +20,7 @@ import { workspaceId } from '../../api/session';
 import type { AgentDefinition, Card } from '../../api/types';
 import Icon from '../../ui/Icon.vue';
 import EmojiIcon from '../../ui/EmojiIcon.vue';
-import { useTaskComposer } from '../../state/task-composer';
+import { useStudyComposer } from '../../state/study-composer';
 import { backends, backendLabel } from '../../lib/backends';
 import { matchesQuery } from '../../lib/search';
 import { agentConnectorIntegrationAvailable } from './agent-connectors';
@@ -39,7 +39,7 @@ import '../coresearch/l2.css';
 const props = defineProps<{ id: string }>();
 const route = useRoute();
 const router = useRouter();
-const { openComposer } = useTaskComposer();
+const { openComposer } = useStudyComposer();
 const starters = ref<Starter[]>([]);
 const builtin = computed(() => agent.value?.built_in_key === 'aristotle');
 const validStarters = computed(

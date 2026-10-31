@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
-import TaskDetail from '../studies/TaskDetail.vue';
+import StudyDetail from '../studies/StudyDetail.vue';
 import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
@@ -84,7 +84,7 @@ watch(
     <div class="split-workspace">
       <div class="conversation-content">
         <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
-        <TaskDetail
+        <StudyDetail
           v-if="selected?.card_id && selected.kind !== 'autoresearch_report'"
           :id="selected.card_id"
           :key="selected.card_id"

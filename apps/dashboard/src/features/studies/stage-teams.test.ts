@@ -7,10 +7,10 @@ import AssignPicker from '../../ui/AssignPicker.vue';
 import TeamDetail from '../teams/TeamDetail.vue';
 import TeamsView from '../teams/TeamsView.vue';
 import AgentsView from '../agents/AgentsView.vue';
-import CreateTask from './CreateTask.vue';
-import TaskDetail from './TaskDetail.vue';
+import CreateStudy from './CreateStudy.vue';
+import StudyDetail from './StudyDetail.vue';
 import { workspaceId } from '../../api/session';
-import { useTaskComposer } from '../../state/task-composer';
+import { useStudyComposer } from '../../state/study-composer';
 import { keys } from '../../api/keys';
 import type { Picked, Range } from '../../lib/studies';
 
@@ -381,7 +381,7 @@ describe('AssignPicker', () => {
       const manage = p.nodes().find((n) => textOf(n).trim() === 'Manage agents');
       expect(manage?.props.href).toBe('/agents');
       expect(manage?.props.role).toBe('menuitem');
-      const { composer, openComposer } = useTaskComposer();
+      const { composer, openComposer } = useStudyComposer();
       openComposer();
       for (const onClick of [manage!.props.onClick].flat() as ((e: unknown) => void)[]) onClick({});
       expect(composer.open).toBe(false);
@@ -756,7 +756,7 @@ describe('no Follows from', () => {
       'fetch',
       vi.fn(async () => new Response('[]', { status: 200 })),
     );
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       expect(t.text()).not.toContain('Follows from');
     } finally {
@@ -775,7 +775,7 @@ describe('no Follows from', () => {
         ),
     );
     vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       await t.fill('Describe your study', 'Question');
       await preregister(t);
@@ -790,7 +790,7 @@ describe('no Follows from', () => {
 
   it('renders a study page without follows_from', async () => {
     const t = await mount(
-      TaskDetail,
+      StudyDetail,
       () => ({ id: 'c' }),
       '/',
       (c) => seedStudy(c),
@@ -812,7 +812,7 @@ describe('hidden services, no study variables', () => {
         }),
     );
     vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       expect(t.text()).toContain(
         'Up to 100 files, 5 GB each, 10 GB in all; archives are unpacked for the agents',
@@ -831,7 +831,7 @@ describe('hidden services, no study variables', () => {
 
   it('has no Study variables on the study page', async () => {
     const t = await mount(
-      TaskDetail,
+      StudyDetail,
       () => ({ id: 'c' }),
       '/',
       (c) =>
@@ -852,7 +852,7 @@ describe('hidden services, no study variables', () => {
 
   it.each([undefined, []])('omits the services note when services are %s', async (services) => {
     const t = await mount(
-      TaskDetail,
+      StudyDetail,
       () => ({ id: 'c' }),
       '/',
       (c) => seedStudy(c, { services }),
@@ -867,7 +867,7 @@ describe('hidden services, no study variables', () => {
 
   it('names the hidden services and shows the isolation note', async () => {
     const t = await mount(
-      TaskDetail,
+      StudyDetail,
       () => ({ id: 'c' }),
       '/',
       (c) =>
@@ -900,7 +900,7 @@ describe('pre-registered results', () => {
   it('asks for a result when the study runs Experimentation, and posts it', async () => {
     const fetch = posting();
     vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       expect(t.button(/^Pre-registered · 0$/)?.props.class).toContain('required');
       await openResults(t);
@@ -929,7 +929,7 @@ describe('pre-registered results', () => {
   it('hides the section and sends no results when the scope stops before Experimentation', async () => {
     const fetch = posting();
     vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       await t.click(/Grounding → Validation/);
       await t.change('To stage', 'hypotheses');
@@ -950,7 +950,7 @@ describe('pre-registered results', () => {
   it('puts the server refusal on the row it names', async () => {
     const message = 'pre-registered result Fast: unexpected token at 5';
     vi.stubGlobal('fetch', posting(400, JSON.stringify({ error: message })));
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       await t.fill('Describe your study', 'Question');
       await preregister(t);
@@ -981,7 +981,7 @@ describe('pre-registered results for a single Team', () => {
   it('asks for a result when the lone Team works Experimentation, and sends no scope', async () => {
     const fetch = posting();
     vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateTask, single('experimentation'), '/', seedStudy);
+    const t = await mount(CreateStudy, single('experimentation'), '/', seedStudy);
     try {
       await openResults(t);
       expect(t.text()).toContain('Pre-registered results');
@@ -1004,7 +1004,7 @@ describe('pre-registered results for a single Team', () => {
   it('asks for none when the lone Team works Hypotheses', async () => {
     const fetch = posting();
     vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateTask, single('hypotheses'), '/', seedStudy);
+    const t = await mount(CreateStudy, single('hypotheses'), '/', seedStudy);
     try {
       expect(t.text()).not.toContain('Pre-registered results');
       expect(t.button(/^Pre-registered/)).toBeUndefined();
@@ -1034,7 +1034,7 @@ describe('the one-row New study window', () => {
 
   it('holds every chip on one row, in order', async () => {
     vi.stubGlobal('fetch', posting());
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       const row = t.nodes().find((n) => n.props['aria-label'] === 'Study properties');
       expect(row).toBeTruthy();
@@ -1063,7 +1063,7 @@ describe('the one-row New study window', () => {
   it('posts the selected agent for a solo study', async () => {
     const fetch = posting();
     vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       expect(t.text()).not.toContain(soloLine);
       // The pills carry an avatar letter before the name; menu items don't.
@@ -1089,7 +1089,7 @@ describe('the one-row New study window', () => {
 
   it('opens the pre-registered results from their chip and counts the complete ones', async () => {
     vi.stubGlobal('fetch', posting());
-    const t = await mount(CreateTask, () => ({}), '/', seedStudy);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       expect(t.input('Result name 1')).toBeUndefined();
       await t.click(/^Pre-registered · 0$/);
@@ -1111,7 +1111,7 @@ describe('the one-row New study window', () => {
 describe('a study worked by one agent', () => {
   it('names the agent with No auditor beside it', async () => {
     const t = await mount(
-      TaskDetail,
+      StudyDetail,
       () => ({ id: 'c' }),
       '/',
       (c) => seedStudy(c, { assignee_type: 'agent', assignee_id: 'a1', teams: {} }),
@@ -1127,7 +1127,7 @@ describe('a study worked by one agent', () => {
 
   it('shows no such note for a Team', async () => {
     const t = await mount(
-      TaskDetail,
+      StudyDetail,
       () => ({ id: 'c' }),
       '/',
       (c) =>
@@ -1150,7 +1150,7 @@ describe('a study worked by one agent', () => {
 describe('pre-registered results on the study page', () => {
   it('shows each result with its binding outcome, value, run and the other runs', async () => {
     const t = await mount(
-      TaskDetail,
+      StudyDetail,
       () => ({ id: 'c' }),
       '/',
       (c) =>
@@ -1214,7 +1214,7 @@ describe('pre-registered results on the study page', () => {
 
 describe('study right-pane surfaces', () => {
   it('opens the chooser and shows properties, execution, details and files one at a time', async () => {
-    const t = await mount(TaskDetail, () => ({ id: 'c' }), '/', seedStudy);
+    const t = await mount(StudyDetail, () => ({ id: 'c' }), '/', seedStudy);
     try {
       expect(t.text()).toContain('Open a surface');
       expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(false);
@@ -1240,7 +1240,7 @@ describe('study right-pane surfaces', () => {
 
 it('lists each saved study output separately with its stage and run provenance', async () => {
   const t = await mount(
-    TaskDetail,
+    StudyDetail,
     () => ({ id: 'c' }),
     '/',
     (client) => {

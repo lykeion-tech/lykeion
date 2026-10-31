@@ -10,15 +10,15 @@ import type { ResearchDetail, Research } from '../../api/types';
 import Icon from '../../ui/Icon.vue';
 import { usePaneResize } from '../../lib/resize';
 import { readText } from '../../storage';
-import TaskBoard from '../studies/TaskBoard.vue';
-import { useTaskComposer } from '../../state/task-composer';
+import StudyBoard from '../studies/StudyBoard.vue';
+import { useStudyComposer } from '../../state/study-composer';
 const props = defineProps<{ project: ResearchDetail }>();
 defineEmits<{ edit: [] }>();
 const client = useQueryClient(),
   members = useMembers(),
   agents = useAgents(),
   me = useMe();
-const { openComposer } = useTaskComposer();
+const { openComposer } = useStudyComposer();
 const inspector = usePaneResize('lykeion.project-inspector-width', 364, 240, 480, -1, () =>
   Math.max(160, window.innerWidth - (Number(readText('lykeion.sidebar-width')) || 224) - 400),
 );
@@ -129,7 +129,7 @@ function pickLead(event: Event) {
         </button>
       </header>
       <div class="project-board">
-        <TaskBoard v-if="project.studies.length" :key="project.id" :project-id="project.id" />
+        <StudyBoard v-if="project.studies.length" :key="project.id" :project-id="project.id" />
         <template v-else>
           <div class="project-empty-toolbar">
             <button
@@ -539,7 +539,7 @@ function pickLead(event: Event) {
 }
 </style>
 <style>
-.project-board .task-toolbar {
+.project-board .study-toolbar {
   height: 56px;
   padding: 10px 16px;
 }

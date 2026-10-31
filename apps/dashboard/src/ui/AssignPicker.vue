@@ -7,7 +7,7 @@ import Icon from './Icon.vue';
 import { useAgents, useMe, useTeams } from '../api/queries';
 import { matchesQuery } from '../lib/search';
 import { stages, type Picked, type Range } from '../lib/studies';
-import { useTaskComposer } from '../state/task-composer';
+import { useStudyComposer } from '../state/study-composer';
 
 // The Assign and Stages pills of a study or an Autoresearch. A study is worked
 // by a Team or a Team set, and the built-in Teams work every stage nobody
@@ -26,7 +26,7 @@ const emit = defineEmits<{ open: []; picked: [last: boolean] }>();
 
 const agentList = useAgents();
 const me = useMe();
-const { closeComposer } = useTaskComposer();
+const { closeComposer } = useStudyComposer();
 const store = useTeams('', '');
 const root = ref<HTMLElement>();
 const menu = ref('');

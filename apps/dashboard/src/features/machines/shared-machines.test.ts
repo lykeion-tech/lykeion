@@ -4,8 +4,8 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import MachinesView from './MachinesView.vue';
 import SettingsView from '../workspace/SettingsView.vue';
-import CreateTask from '../studies/CreateTask.vue';
-import TaskDetail from '../studies/TaskDetail.vue';
+import CreateStudy from '../studies/CreateStudy.vue';
+import StudyDetail from '../studies/StudyDetail.vue';
 import AgentRunDialog from '../runs/AgentRunDialog.vue';
 import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
@@ -167,7 +167,7 @@ async function mount(
   seed?.(queryClient);
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/:p(.*)*', component: CreateTask }],
+    routes: [{ path: '/:p(.*)*', component: CreateStudy }],
   });
   await router.push(path);
   const app = createTreeApp({ render: () => h(component, props()) });
@@ -548,7 +548,7 @@ describe('Shared machines', () => {
   it('shows the study machine label and notice but no editor to nonowners', async () => {
     const f = fetching();
     const t = await mount(
-      TaskDetail,
+      StudyDetail,
       () => ({ id: 'c' }),
       '/',
       (c) => c.setQueryData(keys.me, { id: 'u2' }),
@@ -764,7 +764,7 @@ describe('Shared machines', () => {
   it('offers owner machines on any OS and eligible offline Linux VMs by their own id', async () => {
     fetching();
     const t = await mount(
-      CreateTask,
+      CreateStudy,
       () => ({}),
       '/',
       (c) =>
@@ -821,7 +821,7 @@ describe('Shared machines', () => {
   });
   it.each(['', 'd1'])('posts a machine only when chosen (%s)', async (machine) => {
     const f = fetching();
-    const t = await mount(CreateTask, () => ({}));
+    const t = await mount(CreateStudy, () => ({}));
     try {
       await t.fill('Describe your study', 'Question');
       await t.click(/^Pre-registered · 0$/);
@@ -841,7 +841,7 @@ describe('Shared machines', () => {
   });
   it('shows the study machine and notice without a machine selector', async () => {
     const f = fetching();
-    const t = await mount(TaskDetail, () => ({ id: 'c' }));
+    const t = await mount(StudyDetail, () => ({ id: 'c' }));
     try {
       expect(t.text()).not.toContain('Runs on: Bench');
       await t.click(/^Properties$/);

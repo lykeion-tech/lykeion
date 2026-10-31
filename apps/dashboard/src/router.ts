@@ -10,12 +10,12 @@ import {
 import CoresearchList from './features/coresearch/CoresearchList.vue';
 import AristotleChat from './features/coresearch/AristotleChat.vue';
 import CoresearchProject from './features/coresearch/CoresearchProject.vue';
-import TaskBoard from './features/studies/TaskBoard.vue';
+import StudyBoard from './features/studies/StudyBoard.vue';
 import ResearchesView from './features/projects/ResearchesView.vue';
 import AutoresearchView from './features/autoresearch/AutoresearchView.vue';
 import AgentsView from './features/agents/AgentsView.vue';
 import AgentDetail from './features/agents/AgentDetail.vue';
-import TaskDetail from './features/studies/TaskDetail.vue';
+import StudyDetail from './features/studies/StudyDetail.vue';
 import InboxView from './features/inbox/InboxView.vue';
 import ColleaguesView from './features/workspace/ColleaguesView.vue';
 import TeamsView from './features/teams/TeamsView.vue';
@@ -119,7 +119,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/onboarding', component: OnboardingView, meta: { bare: true, title: 'Set up' } },
   {
     path: '/studies/:cardId?',
-    components: { default: TaskBoard, detail: TaskDetail },
+    components: { default: StudyBoard, detail: StudyDetail },
     meta: { page: 'studies', title: 'Studies' },
     props: {
       default: { scope: 'workspace' },
@@ -128,7 +128,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/my-studies/:cardId?',
-    components: { default: TaskBoard, detail: TaskDetail },
+    components: { default: StudyBoard, detail: StudyDetail },
     meta: { page: 'my-studies', title: 'My Studies' },
     props: {
       default: { scope: 'mine' },

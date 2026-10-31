@@ -15,7 +15,7 @@ function togglePin(id: string): boolean {
   return true;
 }
 
-// The one owner of 'lykeion.pinned-tasks': the ids of tasks pinned to the sidebar.
+// The one owner of 'lykeion.pinned-tasks': the ids of studies pinned to the sidebar.
 export function usePins() {
   return { pins: readonly(pins), togglePin };
 }

@@ -23,6 +23,6 @@ function closeComposer() {
   });
 }
 
-export function useTaskComposer() {
+export function useStudyComposer() {
   return { composer: readonly(composer), openComposer, closeComposer };
 }

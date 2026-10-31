@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { h, nextTick, reactive } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import TaskBoard from './TaskBoard.vue';
+import StudyBoard from './StudyBoard.vue';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
@@ -60,7 +60,7 @@ async function mount(scope?: 'mine' | 'workspace', projectId?: string, user: str
     routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }],
   });
   await router.push(scope === 'mine' ? '/my-studies' : '/studies');
-  const app = createTreeApp({ render: () => h(TaskBoard, props) });
+  const app = createTreeApp({ render: () => h(StudyBoard, props) });
   app.use(VueQueryPlugin, { queryClient: client });
   app.use(router);
   const root = node('root');

@@ -56,7 +56,7 @@ import { readText, writeText } from '../../storage';
 
 const PlainDescription = defineComponent({
   props: { content: { type: String, default: '' } },
-  setup: (props) => () => h('p', { class: 'task-description-text' }, props.content),
+  setup: (props) => () => h('p', { class: 'study-description-text' }, props.content),
 });
 const RecordedMarkdown = defineAsyncComponent({
   loader: () => import('../../ui/RecordedMarkdown.vue'),
@@ -329,18 +329,18 @@ function pin() {
 <template>
   <section
     ref="studyElement"
-    class="task-detail"
+    class="study-detail"
     :class="[
-      embedded ? 'embedded-task' : 'desktop-task',
+      embedded ? 'embedded-study' : 'desktop-study',
       { 'embedded-constrained': embeddedConstrained },
     ]"
     aria-label="Study"
   >
     <div class="task-main" :hidden="showMeta && paneFocused">
-      <header class="task-heading">
+      <header class="study-heading">
         <button
           v-if="!embedded"
-          class="icon-button back-task"
+          class="icon-button back-study"
           aria-label="Back to studies"
           @click="emit('close')"
         >
@@ -434,7 +434,7 @@ function pin() {
         <p v-if="blocked.length" class="block-bar">
           Scored low twice. Tell the Team what to fix to redo this column.
         </p>
-        <form class="task-comment" @submit.prevent="send">
+        <form class="study-comment" @submit.prevent="send">
           <textarea
             v-model="comment"
             :placeholder="placeholders[action.kind]"
@@ -647,7 +647,7 @@ function pin() {
   </section>
 </template>
 <style scoped>
-.task-detail :deep(.surface-header) {
+.study-detail :deep(.surface-header) {
   border-bottom: 0;
 }
 .study-meta.surface-content {
@@ -699,12 +699,12 @@ function pin() {
   width: calc(100% - 68px);
   font-size: 14px;
 }
-.subtask-row {
+.substudy-row {
   padding-bottom: 26px;
   border-bottom: 1px solid var(--border);
 }
 
-.add-subtasks {
+.add-substudies {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -714,7 +714,7 @@ function pin() {
   margin: 8px 0 0;
 }
 
-.desktop-task {
+.desktop-study {
   inset: 0;
   position: absolute;
   background: var(--surface);
@@ -722,13 +722,13 @@ function pin() {
   z-index: 12;
   overflow: hidden;
 }
-.task-preview {
+.study-preview {
   left: auto;
   width: min(1180px, calc(100% - 48px));
   border-left: 1px solid var(--border);
   box-shadow: -16px 0 40px #00000010;
 }
-.task-properties {
+.study-properties {
   flex: 0 0 var(--properties-width);
   width: var(--properties-width);
   overflow: auto;
@@ -736,14 +736,14 @@ function pin() {
   font-size: 14px;
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
-.task-properties > header {
+.study-properties > header {
   height: 60px;
   padding: 0 12px;
   display: flex;
   align-items: center;
   gap: 4px;
 }
-.task-properties > header h2 {
+.study-properties > header h2 {
   font-size: 20px;
   line-height: 28px;
   font-weight: 600;
@@ -808,17 +808,17 @@ function pin() {
   line-height: 22px;
   margin: 12px 8px 0;
 }
-.task-metadata > p {
+.study-metadata > p {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-left: 0;
 }
-.task-metadata p > span {
+.study-metadata p > span {
   min-width: 72px;
   color: var(--muted);
 }
-.task-splitter {
+.study-splitter {
   flex: none;
   width: 1px;
   background: var(--border);
@@ -826,13 +826,13 @@ function pin() {
   position: relative;
   touch-action: none;
 }
-.task-splitter::before {
+.study-splitter::before {
   content: '';
   position: absolute;
   inset: 0 -3px;
   z-index: 2;
 }
-.task-splitter:hover {
+.study-splitter:hover {
   background: var(--primary);
 }
 .task-main {
@@ -842,7 +842,7 @@ function pin() {
   min-width: 0;
   min-height: 0;
 }
-.task-heading {
+.study-heading {
   height: 56px;
   border-bottom: 1px solid var(--border);
   flex: none;
@@ -852,15 +852,15 @@ function pin() {
   gap: 8px;
   font-size: 14px;
 }
-.task-heading > span {
+.study-heading > span {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
 }
-.task-heading > .push-right {
+.study-heading > .push-right {
   display: flex;
 }
-.task-heading .back-task {
+.study-heading .back-study {
   width: 20px;
   margin-left: -8px;
 }
@@ -888,7 +888,7 @@ function pin() {
   display: block;
   margin-bottom: 20px;
 }
-.task-description-text {
+.study-description-text {
   padding: 0;
   text-align: left;
   white-space: pre-wrap;
@@ -896,7 +896,7 @@ function pin() {
   display: block;
   color: var(--muted);
 }
-.task-title-input {
+.study-title-input {
   width: 100%;
   font-size: 24px;
   font-weight: 600;
@@ -906,7 +906,7 @@ function pin() {
   border-radius: 5px;
   margin-bottom: 12px;
 }
-.task-description-input {
+.study-description-input {
   width: 100%;
   min-height: 100px;
   resize: none;
@@ -972,7 +972,7 @@ function pin() {
 .creation-entry > time {
   margin-left: auto;
 }
-.task-comment {
+.study-comment {
   background: var(--input);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -980,7 +980,7 @@ function pin() {
   min-height: 72px;
   margin-top: 24px;
 }
-.task-comment textarea {
+.study-comment textarea {
   height: 26px;
   display: block;
   border: 0;
@@ -994,19 +994,19 @@ function pin() {
   font-size: 14px;
   padding: 0;
 }
-.task-comment footer {
+.study-comment footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   min-height: 24px;
   gap: 12px;
 }
-.task-comment footer > small {
+.study-comment footer > small {
   margin-right: auto;
   color: var(--muted);
   font-size: 11px;
 }
-.task-comment .round-send {
+.study-comment .round-send {
   width: 26px;
   height: 26px;
 }
@@ -1017,7 +1017,7 @@ function pin() {
   padding: 0 16px 24px;
   flex: none;
 }
-.pinned-composer .task-comment {
+.pinned-composer .study-comment {
   margin-top: 8px;
 }
 .block-bar {
@@ -1030,18 +1030,18 @@ function pin() {
   line-height: 18px;
   color: var(--error-text);
 }
-.task-claims {
+.study-claims {
   margin-top: 30px;
 }
-.task-claims h2 {
+.study-claims h2 {
   font-size: 16px;
 }
-.task-claims article {
+.study-claims article {
   border-top: 1px solid var(--border);
   padding: 16px 0;
   line-height: 23px;
 }
-.task-claims small {
+.study-claims small {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -1051,7 +1051,7 @@ function pin() {
   font-size: 14px;
 }
 @media (max-width: 1150px) {
-  .task-properties {
+  .study-properties {
     flex-basis: min(var(--properties-width), 280px);
     width: min(var(--properties-width), 280px);
   }
@@ -1060,11 +1060,11 @@ function pin() {
     padding-left: 24px;
     padding-right: 24px;
   }
-  .task-preview .task-properties {
+  .study-preview .study-properties {
     flex-basis: 240px;
     width: 240px;
   }
-  .task-heading {
+  .study-heading {
     padding: 0 16px;
   }
 }
@@ -1073,12 +1073,12 @@ function pin() {
   padding-left: 30px;
   padding-right: 30px;
 }
-.inspector-focused > .task-properties,
-.inspector-focused > .task-splitter,
+.inspector-focused > .study-properties,
+.inspector-focused > .study-splitter,
 .inspector-focused > .task-main {
   display: none;
 }
-.task-inspector {
+.study-inspector {
   width: var(--inspector-width);
   flex: none;
   display: flex;
@@ -1087,7 +1087,7 @@ function pin() {
   background: var(--surface);
   overflow: hidden;
 }
-.inspector-focused .task-inspector {
+.inspector-focused .study-inspector {
   width: 100%;
   flex: 1;
 }
@@ -1302,13 +1302,13 @@ function pin() {
   margin-top: 12px;
 }
 @media (max-width: 1250px) {
-  .task-inspector {
+  .study-inspector {
     width: min(var(--inspector-width), 320px);
   }
-  .has-inspector .task-properties {
+  .has-inspector .study-properties {
     display: none;
   }
-  .has-inspector > .task-splitter {
+  .has-inspector > .study-splitter {
     display: none;
   }
   .has-inspector .transcript-content,
@@ -1317,11 +1317,11 @@ function pin() {
     padding-right: 20px;
   }
 }
-.embedded-constrained > .task-properties,
-.embedded-constrained > .task-splitter {
+.embedded-constrained > .study-properties,
+.embedded-constrained > .study-splitter {
   display: none;
 }
-.embedded-task {
+.embedded-study {
   min-width: 0;
   position: relative;
   flex: 1;
@@ -1600,7 +1600,7 @@ function pin() {
 </style>
 
 <style scoped>
-.task-properties {
+.study-properties {
   flex-basis: var(--properties-width) !important;
   width: var(--properties-width) !important;
 }
@@ -1661,7 +1661,7 @@ function pin() {
   background: var(--hover);
 }
 /* ExecutionLog has two root nodes, so its section takes no scope attribute. */
-.task-properties :deep(.execution-log) {
+.study-properties :deep(.execution-log) {
   margin-top: 26px;
 }
 .details-heading {
@@ -1730,13 +1730,13 @@ function pin() {
 .details-body .v input {
   width: 70px;
 }
-.task-splitter:focus-visible {
+.study-splitter:focus-visible {
   outline: 2px solid var(--primary-text);
   outline-offset: -1px;
 }
 @media (max-width: 850px) {
-  .task-properties,
-  .task-splitter {
+  .study-properties,
+  .study-splitter {
     display: none;
   }
 }

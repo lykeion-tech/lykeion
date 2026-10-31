@@ -28,7 +28,7 @@ import {
 } from '../../lib/studies';
 import { readJSON, writeJSON } from '../../storage';
 import { notify } from '../../state/notice';
-import { useTaskComposer } from '../../state/task-composer';
+import { useStudyComposer } from '../../state/study-composer';
 const props = withDefaults(defineProps<{ projectId?: string; scope?: 'workspace' | 'mine' }>(), {
   scope: 'workspace',
 });
@@ -38,7 +38,7 @@ const cards = useCards();
 const me = useMe();
 const members = useMembers();
 const workspace = useWorkspace();
-const { openComposer } = useTaskComposer();
+const { openComposer } = useStudyComposer();
 const client = useQueryClient();
 const actionError = ref('');
 const studyMenuTrigger = ref<HTMLElement>();
@@ -262,7 +262,7 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <div class="task-toolbar">
+  <div class="study-toolbar">
     <div v-if="actorTabs.length" class="toolbar-group">
       <button
         v-for="name in actorTabs"
@@ -939,14 +939,14 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
 }
-.tasks-table {
+.studies-table {
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
   min-width: 100%;
 }
-.tasks-table th,
-.tasks-table td {
+.studies-table th,
+.studies-table td {
   border: 1px solid var(--border);
   border-left: 0;
   height: 40px;
@@ -957,7 +957,7 @@ onUnmounted(() => {
   white-space: nowrap;
   position: relative;
 }
-.tasks-table th {
+.studies-table th {
   background: var(--table-header);
   font-weight: 400;
   font-size: 12px;
@@ -965,22 +965,22 @@ onUnmounted(() => {
   color: var(--muted);
   overflow: visible;
 }
-.tasks-table th > button {
+.studies-table th > button {
   font: inherit;
   padding: 0;
 }
-.tasks-table th:first-child,
-.tasks-table td:first-child {
+.studies-table th:first-child,
+.studies-table td:first-child {
   text-align: center;
   padding: 0;
   width: 58px;
 }
-.tasks-table input[type='checkbox'] {
+.studies-table input[type='checkbox'] {
   width: 14px;
   height: 14px;
   accent-color: var(--primary);
 }
-.tasks-table td > select {
+.studies-table td > select {
   appearance: none;
   border: 0;
   background: transparent;
@@ -990,7 +990,7 @@ onUnmounted(() => {
   padding: 4px 0;
   cursor: pointer;
 }
-.tasks-table tbody tr.selected {
+.studies-table tbody tr.selected {
   background: var(--input);
 }
 .table-title {
@@ -1004,22 +1004,22 @@ onUnmounted(() => {
   color: var(--muted);
   min-width: 40px;
 }
-.table-title > button:not(.rename-task) {
+.table-title > button:not(.rename-study) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
 }
-.table-title.nested-task {
+.table-title.nested-study {
   padding-left: 20px;
 }
-.table-title .rename-task {
+.table-title .rename-study {
   margin-left: auto;
   opacity: 0;
   flex: none;
 }
-.tasks-table tr:hover .rename-task,
-.rename-task:focus-visible {
+.studies-table tr:hover .rename-study,
+.rename-study:focus-visible {
   opacity: 1;
 }
 .table-edit-button {
