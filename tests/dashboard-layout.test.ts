@@ -77,4 +77,19 @@ describe('the dashboard source layout', () => {
       expect(existsSync(join(src, from)), from).toBe(false);
     }
   });
+
+  it('teams holds its files', () => {
+    const moved = [
+      ['views/TeamsView.vue', 'features/teams/TeamsView.vue'],
+      ['views/TeamDetail.vue', 'features/teams/TeamDetail.vue'],
+      ['views/TeamForm.vue', 'features/teams/TeamForm.vue'],
+      ['components/TeamMemberProfile.vue', 'features/teams/TeamMemberProfile.vue'],
+      ['components/TeamSkillsPicker.vue', 'features/teams/TeamSkillsPicker.vue'],
+      ['components/TeamName.vue', 'features/teams/TeamName.vue'],
+    ];
+    for (const [from, to] of moved) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
 });

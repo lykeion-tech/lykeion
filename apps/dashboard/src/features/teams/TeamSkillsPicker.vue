@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useSkillLibrary } from '../api/queries';
-import type { TeamMember } from '../api/types';
-import Modal from '../ui/Modal.vue';
+import { useSkillLibrary } from '../../api/queries';
+import type { TeamMember } from '../../api/types';
+import Modal from '../../ui/Modal.vue';
 const props = defineProps<{ member: TeamMember; busy: boolean; error: string }>();
 const emit = defineEmits<{ close: []; save: [skills: string[]] }>();
 const library = useSkillLibrary();

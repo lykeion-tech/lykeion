@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import CliIcon from '../coresearch/CliIcon.vue';
-import { backendLabel } from '../lib/backends';
-import { teamDisplayParts } from '../lib/team-name';
+import CliIcon from '../../coresearch/CliIcon.vue';
+import { backendLabel } from '../../lib/backends';
+import { teamDisplayParts } from '../../lib/team-name';
 const props = defineProps<{ name: string }>();
 const parts = computed(() => teamDisplayParts(props.name));
 </script>

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import AvatarDisplay from '../ui/AvatarDisplay.vue';
-import SelectPicker from '../ui/SelectPicker.vue';
-import { generalPurposeDomain, teamDisplayParts, teamDomain } from '../lib/team-name';
+import AvatarDisplay from '../../ui/AvatarDisplay.vue';
+import SelectPicker from '../../ui/SelectPicker.vue';
+import { generalPurposeDomain, teamDisplayParts, teamDomain } from '../../lib/team-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import Icon from '../ui/Icon.vue';
-import { workspaceId } from '../api/session';
-import { useTeams } from '../api/queries';
-import { matchesQuery } from '../lib/search';
+import Icon from '../../ui/Icon.vue';
+import { workspaceId } from '../../api/session';
+import { useTeams } from '../../api/queries';
+import { matchesQuery } from '../../lib/search';
 
 const search = ref('');
 const newestFirst = ref(true);
@@ -186,8 +186,8 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
     </div>
   </section>
 </template>
-<style src="../ui/directory.css" />
-<style src="../ui/directory-table.css" />
+<style src="../../ui/directory.css" />
+<style src="../../ui/directory-table.css" />
 <style scoped>
 .team-directory {
   padding: 4px 4px 32px 20px;

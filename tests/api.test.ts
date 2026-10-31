@@ -652,7 +652,7 @@ describe('shared library queries and mutations', () => {
     expect(client.getQueryData(keys.skillFile('w1', 's1', 2, 'data/a.bin'))).toBeUndefined();
   });
   it('Team drafts retain unavailable selected skills and connector names and become invalid', async () => {
-    const { default: TeamForm } = await import('../apps/dashboard/src/views/TeamForm.vue');
+    const { default: TeamForm } = await import('../apps/dashboard/src/features/teams/TeamForm.vue');
     const { createMemoryHistory, createRouter } = await import('vue-router');
     app.use(createRouter({ history: createMemoryHistory(), routes: [] }));
     app.provide(ssrContextKey, { modules: new Set() });

@@ -15,7 +15,7 @@ import Icon from '../ui/Icon.vue';
 import SurfacePane from '../ui/SurfacePane.vue';
 import StudyOutputs from '../components/StudyOutputs.vue';
 import AgentRunCard from '../components/AgentRunCard.vue';
-import TeamName from '../components/TeamName.vue';
+import TeamName from '../features/teams/TeamName.vue';
 import AgentRunDialog from '../components/AgentRunDialog.vue';
 import ExecutionLog from '../components/ExecutionLog.vue';
 import ColumnRating from '../components/ColumnRating.vue';

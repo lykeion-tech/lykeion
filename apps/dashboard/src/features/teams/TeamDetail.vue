@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { matchesQuery } from '../lib/search';
+import { matchesQuery } from '../../lib/search';
 import {
   boardColumnOf,
   boardColumns,
   studyDisplayTitle,
   studyNumber,
   timeAgo,
-} from '../lib/studies';
-import { teamDisplayParts, teamDomain } from '../lib/team-name';
-import { backendLabel } from '../lib/backends';
+} from '../../lib/studies';
+import { teamDisplayParts, teamDomain } from '../../lib/team-name';
+import { backendLabel } from '../../lib/backends';
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { api } from '../api/client';
-import type { TeamMember } from '../api/types';
-import Modal from '../ui/Modal.vue';
-import TeamSkillsPicker from '../components/TeamSkillsPicker.vue';
+import { api } from '../../api/client';
+import type { TeamMember } from '../../api/types';
+import Modal from '../../ui/Modal.vue';
+import TeamSkillsPicker from './TeamSkillsPicker.vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import {
   addTeam,
@@ -24,13 +24,13 @@ import {
   useCards,
   useWorkspace,
   useMe,
-} from '../api/queries';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
-import Icon from '../ui/Icon.vue';
-import EmojiIcon from '../ui/EmojiIcon.vue';
-import TeamMemberProfile from '../components/TeamMemberProfile.vue';
-import { useTaskComposer } from '../state/task-composer';
+} from '../../api/queries';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
+import Icon from '../../ui/Icon.vue';
+import EmojiIcon from '../../ui/EmojiIcon.vue';
+import TeamMemberProfile from './TeamMemberProfile.vue';
+import { useTaskComposer } from '../../state/task-composer';
 const props = defineProps<{ id: string }>();
 const client = useQueryClient();
 const router = useRouter();
@@ -702,7 +702,7 @@ function tabKey(event: KeyboardEvent, index: number) {
     </Modal>
   </section>
 </template>
-<style src="./agent-detail.css" />
+<style src="../../views/agent-detail.css" />
 <style scoped>
 .team-work-search {
   display: inline-flex;
