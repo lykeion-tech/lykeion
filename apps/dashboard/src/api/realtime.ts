@@ -177,7 +177,13 @@ export function useRealtimeSync(
   async function refresh(list: QueryKey[], current: () => boolean) {
     // Invalidating a first load reuses its pending request. Cancel it first,
     // even when its transport ignores abort, so a late snapshot cannot win.
-    await Promise.all(list.map((queryKey) => client.cancelQueries({ queryKey })));
+    // A loaded query is left alone: invalidating it restarts its request,
+    // and whoever awaits that request then waits for the restarted one.
+    await Promise.all(
+      list.map((queryKey) =>
+        client.cancelQueries({ queryKey, predicate: (query) => query.state.data === undefined }),
+      ),
+    );
     if (!current()) return;
     for (const queryKey of list) void client.invalidateQueries({ queryKey });
   }
