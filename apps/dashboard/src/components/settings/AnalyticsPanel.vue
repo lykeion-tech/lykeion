@@ -154,16 +154,6 @@ const updated = computed(() =>
       <div class="chart-panel">
         <header>
           <h4>Usage</h4>
-          <div class="segments" role="group" aria-label="Chart metric">
-            <button
-              v-for="item in metrics"
-              :key="item.key"
-              :aria-pressed="metric === item.key"
-              @click="metric = item.key"
-            >
-              {{ item.label }}
-            </button>
-          </div>
         </header>
         <div class="chart-scale muted">
           {{
@@ -235,9 +225,16 @@ const updated = computed(() =>
       <div class="leaderboard">
         <header>
           <h4>Agents</h4>
-          <span class="muted"
-            >Sorted by {{ metrics.find((m) => m.key === metric)?.label.toLowerCase() }}</span
-          >
+          <div class="segments" role="group" aria-label="Chart metric">
+            <button
+              v-for="item in metrics"
+              :key="item.key"
+              :aria-pressed="metric === item.key"
+              @click="metric = item.key"
+            >
+              {{ item.label }}
+            </button>
+          </div>
         </header>
         <div class="table-scroll">
           <table aria-label="Agent usage">
@@ -488,9 +485,6 @@ small {
 .chart-panel > .basis {
   margin: 12px 0 0;
 }
-.leaderboard header .muted {
-  font-size: 11px;
-}
 table {
   width: 100%;
   border-collapse: collapse;
@@ -554,7 +548,7 @@ tr:last-child td {
   .leaderboard {
     padding: 14px;
   }
-  .chart-panel header {
+  .leaderboard header {
     flex-wrap: wrap;
   }
   .toolbar {

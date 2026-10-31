@@ -1,10 +1,26 @@
 <script setup lang="ts">
 import Icon from '../../Icon.vue';
+import { ref } from 'vue';
+const menu = ref<HTMLDetailsElement | null>(null);
+function closeMenu() {
+  if (menu.value) menu.value.open = false;
+}
+function onFocusOut(event: FocusEvent) {
+  if (!menu.value?.contains(event.relatedTarget as Node | null)) closeMenu();
+}
 withDefaults(
-  defineProps<{ query: string; loading: boolean; error?: string; count: number; noun?: string }>(),
+  defineProps<{
+    query: string;
+    field?: string;
+    fields?: string[];
+    loading: boolean;
+    error?: string;
+    count: number;
+    noun?: string;
+  }>(),
   { noun: 'skills' },
 );
-defineEmits<{ 'update:query': [value: string]; retry: [] }>();
+defineEmits<{ 'update:query': [value: string]; 'update:field': [value: string]; retry: [] }>();
 </script>
 <template>
   <div class="library-filters">
@@ -14,8 +30,34 @@ defineEmits<{ 'update:query': [value: string]; retry: [] }>();
         :aria-label="`Search ${noun}`"
         :placeholder="`Search ${noun}…`"
         :value="query"
-        @input="$emit('update:query', ($event.target as HTMLInputElement).value)" /></label
-    ><span class="all-control" aria-label="Current scope: All"
+        @input="$emit('update:query', ($event.target as HTMLInputElement).value)"
+    /></label>
+    <details
+      v-if="fields"
+      ref="menu"
+      class="field-menu"
+      @focusout="onFocusOut"
+      @keydown.esc="closeMenu"
+    >
+      <summary class="all-control" aria-label="Scientific field">
+        {{ field || 'All' }} <Icon name="down" :size="12" />
+      </summary>
+      <div class="field-options" aria-label="Scientific fields">
+        <button
+          v-for="option in ['', ...fields]"
+          :key="option"
+          type="button"
+          :aria-current="field === option ? 'true' : undefined"
+          @click="
+            $emit('update:field', option);
+            closeMenu();
+          "
+        >
+          {{ option || 'All' }}
+        </button>
+      </div>
+    </details>
+    <span v-else class="all-control" aria-label="Current scope: All"
       >All <Icon name="down" :size="12"
     /></span>
   </div>
@@ -27,7 +69,7 @@ defineEmits<{ 'update:query': [value: string]; retry: [] }>();
   </div>
   <p v-else-if="!count" class="library-empty">
     {{
-      query
+      query || field
         ? `No ${noun} match your search.`
         : noun === 'skills'
           ? 'No skills yet. Add a skill to your workspace.'
@@ -55,6 +97,54 @@ defineEmits<{ 'update:query': [value: string]; retry: [] }>();
   border: 0;
   border-radius: 6px;
   padding: 8px 10px;
+}
+.field-menu {
+  position: relative;
+  max-width: 60%;
+  flex: none;
+}
+.field-menu summary {
+  cursor: pointer;
+  list-style: none;
+  text-align: right;
+}
+.field-menu summary::-webkit-details-marker {
+  display: none;
+}
+.field-options {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: calc(100% + 4px);
+  width: max-content;
+  max-width: min(90vw, 420px);
+  max-height: min(50vh, 360px);
+  overflow: auto;
+  scrollbar-width: none;
+  background: var(--modal);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 8px 24px #0003;
+}
+.field-options::-webkit-scrollbar {
+  display: none;
+}
+.field-options button {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.field-options button:hover,
+.field-options button:focus-visible {
+  background: var(--selected);
 }
 .capability-search {
   display: flex;

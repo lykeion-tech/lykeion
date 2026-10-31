@@ -248,10 +248,6 @@ async function cancelEdit() {
             ><div class="setting">
               <div>
                 <b>Workspace availability</b>
-                <p class="hint">
-                  {{ entry.enabled ? 'Available to this workspace' : entry.reason }}
-                </p>
-                <p class="hint">Availability reflects workspace policy and required setup.</p>
               </div>
               <input
                 :checked="form.draft.value?.enabled ?? entry.policy_enabled"
@@ -373,6 +369,7 @@ async function cancelEdit() {
   display: flex;
   flex-direction: column;
   max-height: calc(90vh - 2px);
+  background: var(--surface);
 }
 header {
   padding: 22px 24px 18px;

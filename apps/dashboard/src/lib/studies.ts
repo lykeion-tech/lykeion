@@ -173,7 +173,6 @@ export function recordLine(r: StudyRecord) {
 }
 
 const steered: Record<string, () => string> = {
-  stop: () => 'Stopped',
   resume: () => 'Resumed',
 };
 export function eventText(e: LykEvent): string {

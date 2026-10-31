@@ -558,7 +558,7 @@ test('study events page beyond 500 and refresh later steering live', async ({ pa
       await page.request.post(`/api/cards/${f.card_id}/stop`, { headers, data: { reason: 'done' } })
     ).status(),
   ).toBe(200);
-  await expect(page.locator('.event-line', { hasText: 'Stopped' })).toHaveCount(1);
+  await expect(page.locator('.event-line', { hasText: 'Stopped' })).toHaveCount(0);
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
 });
 

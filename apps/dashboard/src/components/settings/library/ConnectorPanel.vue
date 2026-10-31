@@ -15,6 +15,7 @@ const catalogue = useConnectorLibrary(),
   custom = useWorkspaceMCPServers(),
   workspaces = useWorkspaces();
 const query = ref(''),
+  field = ref(''),
   selected = ref(''),
   kind = ref<'catalogue' | 'custom'>('catalogue'),
   showDetail = ref(false),
@@ -24,13 +25,27 @@ const allowed = computed(() =>
     workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role ?? '',
   ),
 );
+const fields = computed(() =>
+  [
+    ...new Set([
+      ...(catalogue.data.value ?? []).map((c) => c.domain).filter(Boolean),
+      ...((custom.data.value ?? []).length ? ['Workspace'] : []),
+    ]),
+  ].sort(),
+);
 const scientific = computed(() =>
-  (catalogue.data.value ?? []).filter((c) =>
-    matchesQuery(`${c.name} ${c.domain} ${c.purpose}`, query.value),
+  (catalogue.data.value ?? []).filter(
+    (c) =>
+      matchesQuery(`${c.name} ${c.domain} ${c.purpose}`, query.value) &&
+      (!field.value || c.domain === field.value),
   ),
 );
 const own = computed(() =>
-  (custom.data.value ?? []).filter((c) => matchesQuery(`${c.name} ${c.transport}`, query.value)),
+  (custom.data.value ?? []).filter(
+    (c) =>
+      (!field.value || field.value === 'Workspace') &&
+      matchesQuery(`${c.name} ${c.transport}`, query.value),
+  ),
 );
 function open(id: string, type: 'catalogue' | 'custom') {
   selected.value = id;
@@ -48,6 +63,7 @@ watch(
     showDetail.value = false;
     adding.value = false;
     query.value = '';
+    field.value = '';
   },
   { flush: 'sync' },
 );
@@ -63,6 +79,8 @@ watch(
     <p v-if="policy.error.value" class="inline-error" role="alert">{{ policy.error.value }}</p>
     <CapabilityList
       v-model:query="query"
+      v-model:field="field"
+      :fields="fields"
       noun="connectors"
       :loading="catalogue.isPending.value || custom.isPending.value"
       :error="catalogue.error.value?.message || custom.error.value?.message"

@@ -12,13 +12,25 @@ import SkillDialog from './SkillDialog.vue';
 import AddSkillDialog from './AddSkillDialog.vue';
 const library = useSkillLibrary();
 const query = ref(''),
+  field = ref(''),
   selected = ref(''),
   adding = ref(false),
   showDetail = ref(false),
   editing = ref(false);
+const fields = computed(() =>
+  [
+    ...new Set(
+      (library.data.value ?? [])
+        .map((s) => (s.origin === 'imported' ? 'Workspace' : s.domain))
+        .filter(Boolean),
+    ),
+  ].sort(),
+);
 const rows = computed(() =>
-  (library.data.value ?? []).filter((s) =>
-    matchesQuery(`${s.name} ${s.description} ${s.domain}`, query.value),
+  (library.data.value ?? []).filter(
+    (s) =>
+      matchesQuery(`${s.name} ${s.description} ${s.domain}`, query.value) &&
+      (!field.value || (s.origin === 'imported' ? 'Workspace' : s.domain) === field.value),
   ),
 );
 watch(
@@ -29,6 +41,7 @@ watch(
     adding.value = false;
     editing.value = false;
     query.value = '';
+    field.value = '';
   },
   { flush: 'sync' },
 );
@@ -50,6 +63,8 @@ function created(id: string) {
     <p v-if="policy.error.value" class="inline-error" role="alert">{{ policy.error.value }}</p>
     <CapabilityList
       v-model:query="query"
+      v-model:field="field"
+      :fields="fields"
       :loading="library.isPending.value"
       :error="library.error.value?.message"
       :count="rows.length"

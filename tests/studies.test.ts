@@ -221,6 +221,7 @@ describe('records and transcript', () => {
     expect(eventText(lykEvent('card.steered', { path: '/api/cards/c/resume' }, ''))).toBe(
       'Resumed',
     );
+    expect(eventText(lykEvent('card.steered', { path: '/api/cards/c/stop' }, ''))).toBe('');
     expect(eventText(lykEvent('card.escalated', {}, ''))).toBe('Escalated: waiting for a person');
     expect(eventText(lykEvent('record.created', {}, ''))).toBe('');
   });

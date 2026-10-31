@@ -414,8 +414,12 @@ async function cancelEdit() {
 .detail-body {
   padding: 20px;
   overflow: auto;
+  scrollbar-width: none;
   flex: 1;
   min-height: 230px;
+}
+.detail-body::-webkit-scrollbar {
+  display: none;
 }
 .facts {
   display: grid;
