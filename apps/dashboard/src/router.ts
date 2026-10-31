@@ -7,24 +7,24 @@ import {
 } from 'vue-router';
 
 // The board is the landing route and loads eagerly.
-import CoresearchList from './views/CoresearchList.vue';
-import AristotleChat from './coresearch/AristotleChat.vue';
-import CoresearchProject from './views/CoresearchProject.vue';
-import TaskBoard from './views/TaskBoard.vue';
-import ResearchesView from './views/ResearchesView.vue';
-import AutoresearchView from './views/AutoresearchView.vue';
-import AgentsView from './views/AgentsView.vue';
-import AgentDetail from './views/AgentDetail.vue';
-import TaskDetail from './views/TaskDetail.vue';
-import InboxView from './views/InboxView.vue';
-import ColleaguesView from './views/ColleaguesView.vue';
-import TeamsView from './views/TeamsView.vue';
-import TeamDetail from './views/TeamDetail.vue';
-import TeamForm from './views/TeamForm.vue';
-import SettingsView from './views/SettingsView.vue';
-import SignInView from './views/SignInView.vue';
-import AcceptInvite from './views/AcceptInvite.vue';
-import OnboardingView from './views/OnboardingView.vue';
+import CoresearchList from './features/coresearch/CoresearchList.vue';
+import AristotleChat from './features/coresearch/AristotleChat.vue';
+import CoresearchProject from './features/coresearch/CoresearchProject.vue';
+import StudyBoard from './features/studies/StudyBoard.vue';
+import ResearchesView from './features/projects/ResearchesView.vue';
+import AutoresearchView from './features/autoresearch/AutoresearchView.vue';
+import AgentsView from './features/agents/AgentsView.vue';
+import AgentDetail from './features/agents/AgentDetail.vue';
+import StudyDetail from './features/studies/StudyDetail.vue';
+import InboxView from './features/inbox/InboxView.vue';
+import ColleaguesView from './features/workspace/ColleaguesView.vue';
+import TeamsView from './features/teams/TeamsView.vue';
+import TeamDetail from './features/teams/TeamDetail.vue';
+import TeamForm from './features/teams/TeamForm.vue';
+import SettingsView from './features/workspace/SettingsView.vue';
+import SignInView from './features/workspace/SignInView.vue';
+import AcceptInvite from './features/workspace/AcceptInvite.vue';
+import OnboardingView from './features/workspace/OnboardingView.vue';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -119,7 +119,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/onboarding', component: OnboardingView, meta: { bare: true, title: 'Set up' } },
   {
     path: '/studies/:cardId?',
-    components: { default: TaskBoard, detail: TaskDetail },
+    components: { default: StudyBoard, detail: StudyDetail },
     meta: { page: 'studies', title: 'Studies' },
     props: {
       default: { scope: 'workspace' },
@@ -128,7 +128,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/my-studies/:cardId?',
-    components: { default: TaskBoard, detail: TaskDetail },
+    components: { default: StudyBoard, detail: StudyDetail },
     meta: { page: 'my-studies', title: 'My Studies' },
     props: {
       default: { scope: 'mine' },

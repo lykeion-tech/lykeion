@@ -478,7 +478,7 @@ kbd {
   align-items: center;
   gap: 4px;
 }
-.task-toolbar {
+.study-toolbar {
   height: 48px;
   display: flex;
   align-items: flex-start;
@@ -912,7 +912,7 @@ kbd {
   line-height: 20px;
   color: var(--muted);
 }
-.task-detail {
+.study-detail {
   position: absolute;
   inset: 0;
   background: var(--surface);
@@ -1235,12 +1235,12 @@ kbd {
   .sidebar-handle {
     left: 212px;
   }
-  .task-toolbar {
+  .study-toolbar {
     flex-wrap: wrap;
     height: auto;
     min-height: 48px;
   }
-  .task-toolbar .push-right {
+  .study-toolbar .push-right {
     margin-left: auto;
   }
   .detail-content {
@@ -1333,7 +1333,7 @@ kbd {
   line-height: 28px;
   font-weight: 600;
 }
-.task-toolbar {
+.study-toolbar {
   height: 42px;
   padding: 2px 16px 12px;
   gap: 12px;
@@ -1393,11 +1393,11 @@ kbd {
   .sidebar-handle {
     left: 219px;
   }
-  .task-toolbar {
+  .study-toolbar {
     flex-wrap: nowrap;
     overflow: visible;
   }
-  .task-toolbar .button {
+  .study-toolbar .button {
     padding: 0 7px;
   }
   .page-header {

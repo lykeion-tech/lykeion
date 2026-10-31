@@ -278,7 +278,7 @@ async function mountAgentConnectors(
     const vuePath = (await (await fetch('/src/main.ts')).text()).match(
         /from ["']([^"']+)["']/,
       )![1]!,
-      componentPath = '/src/components/AgentConnectors.vue';
+      componentPath = '/src/features/agents/AgentConnectors.vue';
     const { createApp, h, reactive } = await import(vuePath);
     const { default: Panel } = await import(componentPath);
     const props = reactive({ servers, editable: true, archived: false });

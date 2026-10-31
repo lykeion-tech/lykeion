@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const root = 'apps/dashboard/src';
-const excluded: string[] = JSON.parse(readFileSync('tsconfig.json', 'utf8')).exclude ?? [];
 const files = (dir: string): string[] =>
   readdirSync(dir).flatMap((name) => {
     const path = join(dir, name);
@@ -17,12 +16,7 @@ describe('the dashboard reads the server, not a mock', () => {
   });
   it('compiles no file that imports one', () => {
     const offenders = files(root)
-      .filter((f) => !excluded.includes(f))
       .filter((f) => /services\/(workspace|research)|contracts\/src\/research/.test(readFileSync(f, 'utf8')));
     expect(offenders).toEqual([]);
-  });
-  it('routes to none of the excluded later-slice screens', () => {
-    const router = readFileSync(join(root, 'router.ts'), 'utf8');
-    for (const f of excluded) expect(router).not.toContain(f.split('/').pop()!.replace('.vue', ''));
   });
 });

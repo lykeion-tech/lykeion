@@ -3,31 +3,31 @@ import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { MessageCircle } from '@lucide/vue';
-import Icon from './components/Icon.vue';
-import SidebarFooter from './components/SidebarFooter.vue';
+import Icon from './ui/Icon.vue';
+import SidebarFooter from './ui/SidebarFooter.vue';
 import { usePaneResize } from './lib/resize';
 import { studyDisplayTitle } from './lib/studies';
-import Modal from './components/Modal.vue';
-import WorkspaceTabs from './components/WorkspaceTabs.vue';
-import CommandPalette from './components/CommandPalette.vue';
-import CreateTask from './views/CreateTask.vue';
+import Modal from './ui/Modal.vue';
+import WorkspaceTabs from './features/workspace/WorkspaceTabs.vue';
+import CommandPalette from './ui/CommandPalette.vue';
+import CreateStudy from './features/studies/CreateStudy.vue';
 import { api, ApiError } from './api/client';
 import { selectWorkspace, workspaceId } from './api/session';
-import DiscardDraftDialog from './components/settings/library/DiscardDraftDialog.vue';
+import DiscardDraftDialog from './features/workspace/settings/library/DiscardDraftDialog.vue';
 import { guardResourceDrafts } from './state/resource-draft';
 import { useCards, useMe, useWorkspace, useWorkspaces } from './api/queries';
 import { useRealtimeSync } from './api/realtime';
 import { notice, notify } from './state/notice';
 import { readText, writeText } from './storage';
 import { usePins } from './state/pins';
-import { useTaskComposer } from './state/task-composer';
+import { useStudyComposer } from './state/study-composer';
 import { createDaemonSession, daemonSessionKey } from './lib/daemon-session';
 import { keys } from './api/keys';
-import { useCoresearchProject } from './coresearch/api';
-import { useAristotle } from './coresearch/aristotle';
-import ConversationRail from './coresearch/ConversationRail.vue';
-import RailFabs from './coresearch/RailFabs.vue';
-import InboxRail from './components/InboxRail.vue';
+import { useCoresearchProject } from './features/coresearch/api';
+import { useAristotle } from './features/coresearch/aristotle';
+import ConversationRail from './features/coresearch/ConversationRail.vue';
+import RailFabs from './features/coresearch/RailFabs.vue';
+import InboxRail from './features/inbox/InboxRail.vue';
 const route = useRoute();
 const router = useRouter();
 const currentCoresearchProject = useCoresearchProject(() => String(route.params.projectId ?? ''));
@@ -175,9 +175,9 @@ const pinnedCards = computed(() =>
     .filter((c): c is NonNullable<typeof c> => !!c),
 );
 watch(pinnedExpanded, (value) => writeText('lykeion.pinned-expanded', String(value)));
-const { composer, openComposer: openTaskCreate, closeComposer } = useTaskComposer();
+const { composer, openComposer: openStudyCreate, closeComposer } = useStudyComposer();
 function openCreate() {
-  openTaskCreate();
+  openStudyCreate();
 }
 const workspaceMenu = ref(false);
 const help = ref(false);
@@ -415,7 +415,7 @@ onUnmounted(() => {
       'sidebar-hidden': collapsed,
       'aristotle-shell': aristotleShell || inboxShell,
       desktop,
-      'task-detail-open': Boolean(cardId),
+      'study-detail-open': Boolean(cardId),
     }"
     :style="{ '--rail-width': rail.width.value + 'px' }"
   >
@@ -549,7 +549,7 @@ onUnmounted(() => {
         <template v-for="(group, groupIndex) in groups" :key="group.name"
           ><section
             v-if="groupIndex === 1 && pinnedCards.length"
-            class="nav-group pinned-task-group"
+            class="nav-group pinned-study-group"
           >
             <button
               class="nav-caption pinned-caption"
@@ -642,7 +642,7 @@ onUnmounted(() => {
         <RouterView v-if="cardId" name="detail" @close="go(current ?? 'studies')" />
       </template>
     </main>
-    <CreateTask
+    <CreateStudy
       v-if="composer.open"
       :assignee="composer.assignee"
       :project-id="composer.projectId"
@@ -861,7 +861,7 @@ onUnmounted(() => {
   gap: 8px;
 }
 @media (max-width: 1750px) {
-  .task-detail-open .aristotle-launcher {
+  .study-detail-open .aristotle-launcher {
     display: none;
   }
 }
@@ -875,7 +875,7 @@ onUnmounted(() => {
   width: 100%;
   text-align: left;
 }
-.pinned-task-group .nav-item > span {
+.pinned-study-group .nav-item > span {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;

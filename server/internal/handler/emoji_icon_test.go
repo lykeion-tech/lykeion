@@ -37,7 +37,7 @@ func TestEmojiAllowlistMatchesPicker(t *testing.T) {
 			}
 		}
 	}
-	picker, err := os.ReadFile("../../../apps/dashboard/src/components/AvatarPicker.vue")
+	picker, err := os.ReadFile("../../../apps/dashboard/src/ui/AvatarPicker.vue")
 	if err != nil {
 		t.Fatal(err)
 	}

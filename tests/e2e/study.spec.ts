@@ -847,7 +847,7 @@ test('study content and composer share a wider measure and only the corner butto
   const content = main.locator('.study-content');
   await expect(content).toHaveCSS('max-width', '860px');
   const bounds = await main.locator('.agent-cards').boundingBox();
-  const composer = await main.locator('.task-comment').boundingBox();
+  const composer = await main.locator('.study-comment').boundingBox();
   expect(bounds).toBeTruthy();
   expect(composer).toBeTruthy();
   expect(composer!.x).toBeCloseTo(bounds!.x, 0);
@@ -863,7 +863,7 @@ test('study content and composer share a wider measure and only the corner butto
   await page.screenshot({ path: 'test-results/l2-transcript/study-width-composer-alignment.png' });
   await page.setViewportSize({ width: 800, height: 982 });
   const narrowCards = await main.locator('.agent-cards').boundingBox();
-  const narrowComposer = await main.locator('.task-comment').boundingBox();
+  const narrowComposer = await main.locator('.study-comment').boundingBox();
   expect(narrowComposer!.x).toBeCloseTo(narrowCards!.x, 0);
   expect(narrowComposer!.width).toBeCloseTo(narrowCards!.width, 0);
 });
