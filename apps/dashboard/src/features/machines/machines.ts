@@ -68,7 +68,7 @@ export function desktopProfileMachine(
 }
 
 export function computerStartCommands(server: string, platform: 'unix' | 'windows') {
-  const executable = platform === 'windows' ? '.\\lyk.exe' : '../../lib/lyk';
+  const executable = platform === 'windows' ? '.\\lyk.exe' : './lyk';
   const origin = new URL(server).origin;
   const quoted = "'" + origin.replaceAll("'", platform === 'windows' ? "''" : "'\"'\"'") + "'";
   return `${executable} login --server ${quoted} --email you@lab.org\n${executable} daemon ${platform === 'windows' ? 'run' : 'start'}`;

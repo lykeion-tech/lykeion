@@ -10,7 +10,7 @@ import { computerStartCommands, groupDaemons } from './machines';
 const emit = defineEmits<{ close: [] }>();
 const runtimes = useRuntimes();
 const platform = ref<'unix' | 'windows'>('unix');
-const executable = computed(() => (platform.value === 'windows' ? '.\\lyk.exe' : '../../components/lyk'));
+const executable = computed(() => (platform.value === 'windows' ? '.\\lyk.exe' : './lyk'));
 const build = computed(
   () => `go build -o ${platform.value === 'windows' ? 'lyk.exe' : 'lyk'} ./cmd/lyk`,
 );

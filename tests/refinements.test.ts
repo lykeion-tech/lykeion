@@ -197,6 +197,10 @@ describe('computer setup shell arguments', () => {
       expect(commands).not.toMatch(/person|secret|private|fragment|path/);
     },
   );
+  it('starts the macOS and Linux command from ./lyk', async () => {
+    const { computerStartCommands } = await import('../apps/dashboard/src/features/machines/machines');
+    expect(computerStartCommands('http://localhost:8080', 'unix')).toMatch(/^\.\/lyk /m);
+  });
   it('escapes apostrophes for each shell without allowing argument injection', async () => {
     const { computerStartCommands } = await import('../apps/dashboard/src/features/machines/machines');
     expect(computerStartCommands("https://lab'host.example/path", 'unix')).toContain(
