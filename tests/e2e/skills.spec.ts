@@ -552,7 +552,7 @@ async function selectedRuntimeSkill(page: Page) {
   await selectPicker(picker, { label: 'lab-mac · Claude Code' });
   const checkbox = page.getByRole('checkbox', { name: 'runtime-review', exact: false });
   await checkbox.check();
-  return { picker, checkbox, runtime: await picker.getAttribute('data-value') };
+  return { picker, checkbox, runtime: (await picker.getAttribute('data-value')) ?? '' };
 }
 
 test('runtime Back preserves selected skills until explicit discard', async ({ page }) => {
