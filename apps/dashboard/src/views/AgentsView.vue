@@ -5,12 +5,14 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
 import { api } from '../api/client';
-import { useAgents, useMe, useMembers } from '../api/queries';
+import { useAgents, useMe, useMembers, useRuntimes } from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import type { AgentDefinition } from '../api/types';
 import Modal from '../components/Modal.vue';
 import Icon from '../components/Icon.vue';
+import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
+import '../coresearch/l2.css';
 import { backends, backendLabel } from '../lib/backends';
 import { matchesQuery } from '../lib/search';
 import { timeAgo } from '../lib/studies';
@@ -18,7 +20,8 @@ import { agentDisplayName, agentNameWithoutCli } from '../lib/agent-name';
 defineProps<{ create?: boolean }>();
 const list = useAgents(),
   me = useMe(),
-  members = useMembers();
+  members = useMembers(),
+  runtimes = useRuntimes();
 const client = useQueryClient(),
   router = useRouter();
 const editor = ref(false),
@@ -33,6 +36,24 @@ const empty = () => ({
   visibility: 'workspace' as 'workspace' | 'private',
 });
 const draft = ref(empty());
+const modelChoices = computed(() => {
+  const runtime = runtimes.data.value?.find(
+    (r) =>
+      r.owner_id === me.data.value?.id &&
+      r.status === 'online' &&
+      r.harness === draft.value.harness,
+  );
+  const models = runtime?.models ?? [];
+  return models.some((model) => model.value === '')
+    ? models
+    : [{ value: '', label: 'Default' }, ...models];
+});
+watch(
+  () => draft.value.harness,
+  () => {
+    draft.value.model = '';
+  },
+);
 let visit = 0;
 const tab = ref<'mine' | 'all' | 'archived'>('mine'),
   search = ref(''),
@@ -295,19 +316,25 @@ async function save() {
             v-model="draft.description"
             maxlength="1000"
             aria-label="Agent description"
-          /></label
-        ><label
-          >Harness<select v-model="draft.harness" aria-label="Harness">
-            <option v-for="backend in backends" :key="backend.id" :value="backend.id">
-              {{ backend.label }}
-            </option>
-          </select></label
-        ><label
-          >Model<input
-            v-model="draft.model"
-            aria-label="Model"
-            placeholder="Harness default" /></label
-        ><label
+          />
+        </label>
+        <div class="new-agent-model-field">
+          <span>Harness</span>
+          <div class="coresearch new-agent-model-picker">
+            <ModelSwitcher
+              v-model="draft.harness"
+              :models="backends.map((backend) => ({ value: backend.id, label: backend.label }))"
+              label="Harness"
+            />
+          </div>
+        </div>
+        <div class="new-agent-model-field">
+          <span>Model</span>
+          <div class="coresearch new-agent-model-picker">
+            <ModelSwitcher v-model="draft.model" :models="modelChoices" label="Model" />
+          </div>
+        </div>
+        <label
           >Visibility<select v-model="draft.visibility" aria-label="Visibility">
             <option value="workspace">Workspace</option>
             <option value="private">Private</option>
@@ -333,6 +360,41 @@ async function save() {
 <style src="./directory.css" />
 
 <style scoped>
+.new-agent-model-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.coresearch.new-agent-model-picker {
+  height: auto;
+  background: transparent;
+  --surface-1: var(--surface);
+  --surface-2: var(--input);
+  --ink: var(--text);
+  --ink-subtle: var(--muted);
+  --ink-tertiary: var(--muted);
+  --hairline-strong: var(--border);
+  --type-body: 14px;
+  --type-small: 12px;
+  --type-meta: 12px;
+}
+.new-agent-model-picker :deep(.cli-switcher),
+.new-agent-model-picker :deep(.cli-pill) {
+  width: 100%;
+}
+.new-agent-model-picker :deep(.cli-pill) {
+  justify-content: space-between;
+  background: var(--input);
+  color: var(--text);
+  height: 37px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-weight: 400;
+}
+.coresearch.new-agent-model-picker :deep(.cli-chevron) {
+  color: var(--text);
+}
+
 .agent-directory .agent-row > :not(:first-child) {
   text-align: center;
 }

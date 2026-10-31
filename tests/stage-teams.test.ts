@@ -6,6 +6,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import AssignPicker from '../apps/dashboard/src/components/AssignPicker.vue';
 import TeamDetail from '../apps/dashboard/src/views/TeamDetail.vue';
 import TeamsView from '../apps/dashboard/src/views/TeamsView.vue';
+import AgentsView from '../apps/dashboard/src/views/AgentsView.vue';
 import CreateTask from '../apps/dashboard/src/views/CreateTask.vue';
 import TaskDetail from '../apps/dashboard/src/views/TaskDetail.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
@@ -371,6 +372,54 @@ describe('AssignPicker', () => {
       expect(p.button(/Grounding → Validation/)).toBeTruthy();
     } finally {
       p.unmount();
+    }
+  });
+});
+
+describe('new agent model picker', () => {
+  it('uses the selected harness models and resets the model when the harness changes', async () => {
+    const t = await mount(
+      AgentsView,
+      () => ({ create: true }),
+      '/agents/new',
+      (c) => {
+        c.setQueryData(keys.runtimes('w'), [
+          {
+            owner_id: 'u1',
+            status: 'online',
+            harness: 'claude',
+            models: [{ value: 'opus', label: 'Opus' }],
+          },
+          {
+            owner_id: 'u1',
+            status: 'online',
+            harness: 'codex',
+            models: [{ value: 'gpt', label: 'GPT' }],
+          },
+        ]);
+      },
+    );
+    try {
+      await t.click(/Start blank/);
+      const picker = () =>
+        t.nodes().find((n) => String(n.props['aria-label']).startsWith('Model:'))!;
+      expect(picker().props['aria-label']).toBe('Model: Default');
+      await (picker().props.onClick as () => Promise<void>)();
+      await nextTick();
+      await t.click(/^Opus$/);
+      expect(picker().props['aria-label']).toBe('Model: Opus');
+      const harness = t.nodes().find((n) => n.props['aria-label'] === 'Harness: Claude Code')!;
+      expect(harness).toBeDefined();
+      await (harness.props.onClick as () => Promise<void>)();
+      await nextTick();
+      await t.click(/^Codex$/);
+      expect(picker().props['aria-label']).toBe('Model: Default');
+      await (picker().props.onClick as () => Promise<void>)();
+      await nextTick();
+      expect(t.text()).toContain('GPT');
+      expect(t.text()).not.toContain('Opus');
+    } finally {
+      t.unmount();
     }
   });
 });

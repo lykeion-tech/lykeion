@@ -427,12 +427,12 @@ test('supported backend selectors persist provider labels and expose truthful fo
     await page.goto('/#/agents/new');
     await page.getByRole('button', { name: /Start blank/ }).click();
     const form = page.getByRole('dialog', { name: 'New agent', exact: true });
-    await expect(form.getByRole('combobox', { name: 'Harness' }).locator('option')).toHaveText([
-      'Claude Code',
-      'Codex',
-    ]);
+    await form.getByRole('button', { name: /^Harness:/ }).click();
+    await expect(
+      form.getByRole('listbox', { name: 'Harness options' }).getByRole('option'),
+    ).toHaveCount(2);
+    await form.getByRole('option', { name: label!, exact: true }).click();
     await form.getByRole('textbox', { name: 'Agent name', exact: true }).fill(`${label} task16`);
-    await form.getByRole('combobox', { name: 'Harness' }).selectOption(harness!);
     await form.getByRole('button', { name: 'Create agent', exact: true }).click();
     await expect(page.locator('.agent-identity')).toContainText(label!);
     await page.getByRole('tab', { name: 'Settings', exact: true }).click();
