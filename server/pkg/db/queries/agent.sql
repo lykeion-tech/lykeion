@@ -4,7 +4,7 @@ VALUES (@workspace_id, @name, @description, @instructions, @harness, @model, @vi
 
 -- name: ListAgents :many
 SELECT a.*, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member
-FROM agent a WHERE a.workspace_id = @workspace_id
+FROM agent a WHERE a.workspace_id = @workspace_id AND a.deleted_at IS NULL
 AND (a.visibility = 'workspace' OR a.owner_id = @user_id OR @is_admin::boolean)
 ORDER BY a.created_at, a.id;
 
@@ -12,15 +12,15 @@ ORDER BY a.created_at, a.id;
 SELECT EXISTS (SELECT 1 FROM team_agent WHERE workspace_id = @workspace_id AND agent_id = @agent_id);
 
 -- name: GetAgent :one
-SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id;
+SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id AND deleted_at IS NULL;
 
 -- name: GetAgentForUpdate :one
 -- Changing an agent waits for the studies being started with it.
-SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id FOR UPDATE;
+SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id AND deleted_at IS NULL FOR UPDATE;
 
 -- name: GetAgentForShare :one
 -- Starting a study with an agent holds off changes to it until the study is in.
-SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id FOR SHARE;
+SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id AND deleted_at IS NULL FOR SHARE;
 
 -- name: UpdateAgent :one
 UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model, visibility = @visibility, conversation_starters = @conversation_starters, avatar_url = @avatar_url, updated_at = now()
@@ -28,6 +28,14 @@ WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL RETURNIN
 
 -- name: ArchiveAgent :one
 UPDATE agent SET archived_at = now(), updated_at = now() WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL RETURNING *;
+
+-- name: DeleteAgent :exec
+UPDATE agent SET deleted_at = now(), archived_at = COALESCE(archived_at, now()), updated_at = now(),
+  description = '', instructions = '', model = '', avatar_url = '', conversation_starters = '[]'::jsonb
+WHERE workspace_id = @workspace_id AND id = @id AND deleted_at IS NULL;
+
+-- name: AgentHasLiveRuns :one
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND status IN ('queued', 'dispatched', 'running'));
 
 -- name: AgentUses :many
 -- The studies still working with an agent (Blocked ones and mixed Autoresearch

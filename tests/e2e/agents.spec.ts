@@ -131,6 +131,23 @@ test('New agent opens the starting-point page, and Start blank opens the form', 
   await expect(page).toHaveURL(/#\/agents$/);
 });
 
+test('deletes an unused agent from its detail page', async ({ page }) => {
+  const { headers } = await inFixture(page);
+  const response = await page.request.post('/api/agents', {
+    headers,
+    data: { name: 'Agent to delete', harness: 'claude' },
+  });
+  expect(response.status()).toBe(201);
+  const agent = await response.json();
+  await page.goto('/#/agents/' + agent.id);
+  await expect(page.getByRole('heading', { name: 'Agent to delete' })).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Delete agent' }).click();
+  await expect(page).toHaveURL(/#\/agents$/);
+  await expect(page.getByRole('row').filter({ hasText: 'Agent to delete' })).toHaveCount(0);
+  expect((await page.request.get(`/api/agents/${agent.id}`, { headers })).status()).toBe(404);
+});
+
 test('the agent page shows its studies and edits instructions, profile and access', async ({
   page,
 }) => {
@@ -187,11 +204,11 @@ test('the agent page shows its studies and edits instructions, profile and acces
   await expect.poll(async () => (await read()).visibility).toBe('private');
   await expect(page.locator('.agent-meta')).toContainText('Personal');
 
+  expect((await page.request.delete(`/api/cards/${studyId}`, { headers })).ok()).toBeTruthy();
   page.once('dialog', (d) => d.accept());
-  await page.getByRole('button', { name: 'Agent actions' }).click();
-  await page.getByRole('menuitem', { name: 'Archive agent' }).click();
-  await expect(page.locator('.agent-status')).toHaveText('Archived');
-  await expect(page.getByRole('button', { name: 'Agent actions' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Delete agent' }).click();
+  await expect(page).toHaveURL(/#\/agents$/);
+  await expect(page.getByRole('row').filter({ hasText: 'Methods lead' })).toHaveCount(0);
 });
 
 // Mount the real hidden components directly. No agent connector HTTP route or

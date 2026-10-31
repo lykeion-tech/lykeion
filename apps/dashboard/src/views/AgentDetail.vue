@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import Aristotle from '../components/Aristotle.vue';
 import { defaultStarters, type Starter } from '../coresearch/aristotle';
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../api/client';
 import {
@@ -36,6 +36,7 @@ import '../coresearch/l2.css';
 
 const props = defineProps<{ id: string }>();
 const route = useRoute();
+const router = useRouter();
 const starters = ref<Starter[]>([]);
 const builtin = computed(() => agent.value?.built_in_key === 'aristotle');
 const validStarters = computed(
@@ -65,7 +66,6 @@ const runtimes = useRuntimes();
 
 const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
   section = ref<'general' | 'access'>('general'),
-  menu = ref(false),
   search = ref(''),
   collapsed = ref<string[]>([]),
   busy = ref(false),
@@ -101,6 +101,15 @@ const denied = computed(
 );
 const agent = computed(() => (denied.value ? undefined : detail.data.value));
 const mine = computed(() => agent.value?.owner_id === me.data.value?.id);
+const mayDelete = computed(
+  () =>
+    !!agent.value &&
+    !builtin.value &&
+    (mine.value ||
+      ['owner', 'admin'].includes(
+        workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role ?? '',
+      )),
+);
 const editable = computed(
   () =>
     !!agent.value &&
@@ -164,7 +173,6 @@ watch(
     busy.value = false;
     tab.value = requestedTab();
     error.value = '';
-    menu.value = false;
   },
   { flush: 'sync' },
 );
@@ -203,30 +211,34 @@ async function patch(body: Record<string, unknown>) {
     if (current()) busy.value = false;
   }
 }
-async function archive() {
-  menu.value = false;
-  if (!agent.value || !confirm(`Archive ${agent.value.name}? Existing study assignments remain.`))
+async function deleteAgent() {
+  if (
+    busy.value ||
+    !agent.value ||
+    !confirm(`Delete ${agent.value.name}? Past studies and run history will be kept.`)
+  )
     return;
   const ws = workspaceId.value,
-    id = props.id;
+    id = props.id,
+    generation = editGeneration;
+  busy.value = true;
+  error.value = '';
   try {
-    await api('POST', `/api/agents/${id}/archive`);
+    await api('DELETE', `/api/agents/${id}`, undefined, undefined, { workspace: ws });
     await client.invalidateQueries({ queryKey: keys.agents(ws) });
-    await client.invalidateQueries({ queryKey: keys.agent(ws, id) });
+    client.removeQueries({ queryKey: keys.agent(ws, id) });
+    if (generation === editGeneration) await router.push('/agents');
   } catch (e) {
-    error.value = (e as Error).message;
+    if (generation === editGeneration) error.value = (e as Error).message;
+  } finally {
+    if (generation === editGeneration) busy.value = false;
   }
-}
-function outside(event: PointerEvent) {
-  if (!(event.target as HTMLElement).closest('.agent-more')) menu.value = false;
 }
 function toggle(id: string) {
   collapsed.value = collapsed.value.includes(id)
     ? collapsed.value.filter((x) => x !== id)
     : [...collapsed.value, id];
 }
-onMounted(() => document.addEventListener('pointerdown', outside));
-onUnmounted(() => document.removeEventListener('pointerdown', outside));
 </script>
 <template>
   <section class="agent-page">
@@ -266,21 +278,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             </p>
           </div>
           <div class="agent-actions">
-            <div v-if="editable && !builtin" class="agent-more">
-              <button
-                class="icon-button"
-                aria-label="Agent actions"
-                :aria-expanded="menu"
-                @click="menu = !menu"
-              >
-                <Icon name="more" :size="16" />
-              </button>
-              <div v-if="menu" class="agent-menu" role="menu">
-                <button role="menuitem" @click="archive">
-                  <Icon name="archive" :size="14" />Archive agent
-                </button>
-              </div>
-            </div>
+            <button v-if="mayDelete" class="button" :disabled="busy" @click="deleteAgent">
+              <Icon name="trash" :size="14" />Delete agent
+            </button>
           </div>
         </div>
       </header>

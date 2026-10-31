@@ -13,6 +13,22 @@ import (
 	"github.com/google/uuid"
 )
 
+const agentHasLiveRuns = `-- name: AgentHasLiveRuns :one
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = $1 AND agent_id = $2 AND status IN ('queued', 'dispatched', 'running'))
+`
+
+type AgentHasLiveRunsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	AgentID     *uuid.UUID `json:"agent_id"`
+}
+
+func (q *Queries) AgentHasLiveRuns(ctx context.Context, arg AgentHasLiveRunsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentHasLiveRuns, arg.WorkspaceID, arg.AgentID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const agentIsTeamCopy = `-- name: AgentIsTeamCopy :one
 SELECT EXISTS (SELECT 1 FROM team_agent WHERE workspace_id = $1 AND agent_id = $2)
 `
@@ -75,7 +91,7 @@ func (q *Queries) AgentUses(ctx context.Context, arg AgentUsesParams) ([]AgentUs
 }
 
 const archiveAgent = `-- name: ArchiveAgent :one
-UPDATE agent SET archived_at = now(), updated_at = now() WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url
+UPDATE agent SET archived_at = now(), updated_at = now() WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, deleted_at
 `
 
 type ArchiveAgentParams struct {
@@ -102,13 +118,14 @@ func (q *Queries) ArchiveAgent(ctx context.Context, arg ArchiveAgentParams) (Age
 		&i.BuiltInKey,
 		&i.ConversationStarters,
 		&i.AvatarUrl,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const archiveOwnedAgents = `-- name: ArchiveOwnedAgents :many
 UPDATE agent SET archived_at = now(), updated_at = now()
-WHERE workspace_id = $1 AND owner_id = $2 AND archived_at IS NULL AND built_in_key='' RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url
+WHERE workspace_id = $1 AND owner_id = $2 AND archived_at IS NULL AND built_in_key='' RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, deleted_at
 `
 
 type ArchiveOwnedAgentsParams struct {
@@ -141,6 +158,7 @@ func (q *Queries) ArchiveOwnedAgents(ctx context.Context, arg ArchiveOwnedAgents
 			&i.BuiltInKey,
 			&i.ConversationStarters,
 			&i.AvatarUrl,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -154,7 +172,7 @@ func (q *Queries) ArchiveOwnedAgents(ctx context.Context, arg ArchiveOwnedAgents
 
 const createAgent = `-- name: CreateAgent :one
 INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, conversation_starters)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, coalesce($9::jsonb, '[]'::jsonb)) RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, coalesce($9::jsonb, '[]'::jsonb)) RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, deleted_at
 `
 
 type CreateAgentParams struct {
@@ -198,12 +216,29 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		&i.BuiltInKey,
 		&i.ConversationStarters,
 		&i.AvatarUrl,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
+const deleteAgent = `-- name: DeleteAgent :exec
+UPDATE agent SET deleted_at = now(), archived_at = COALESCE(archived_at, now()), updated_at = now(),
+  description = '', instructions = '', model = '', avatar_url = '', conversation_starters = '[]'::jsonb
+WHERE workspace_id = $1 AND id = $2 AND deleted_at IS NULL
+`
+
+type DeleteAgentParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) DeleteAgent(ctx context.Context, arg DeleteAgentParams) error {
+	_, err := q.db.Exec(ctx, deleteAgent, arg.WorkspaceID, arg.ID)
+	return err
+}
+
 const getAgent = `-- name: GetAgent :one
-SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url FROM agent WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, deleted_at FROM agent WHERE workspace_id = $1 AND id = $2 AND deleted_at IS NULL
 `
 
 type GetAgentParams struct {
@@ -230,12 +265,13 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (Agent, erro
 		&i.BuiltInKey,
 		&i.ConversationStarters,
 		&i.AvatarUrl,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getAgentForShare = `-- name: GetAgentForShare :one
-SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url FROM agent WHERE workspace_id = $1 AND id = $2 FOR SHARE
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, deleted_at FROM agent WHERE workspace_id = $1 AND id = $2 AND deleted_at IS NULL FOR SHARE
 `
 
 type GetAgentForShareParams struct {
@@ -263,12 +299,13 @@ func (q *Queries) GetAgentForShare(ctx context.Context, arg GetAgentForSharePara
 		&i.BuiltInKey,
 		&i.ConversationStarters,
 		&i.AvatarUrl,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getAgentForUpdate = `-- name: GetAgentForUpdate :one
-SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url FROM agent WHERE workspace_id = $1 AND id = $2 FOR UPDATE
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, deleted_at FROM agent WHERE workspace_id = $1 AND id = $2 AND deleted_at IS NULL FOR UPDATE
 `
 
 type GetAgentForUpdateParams struct {
@@ -296,13 +333,14 @@ func (q *Queries) GetAgentForUpdate(ctx context.Context, arg GetAgentForUpdatePa
 		&i.BuiltInKey,
 		&i.ConversationStarters,
 		&i.AvatarUrl,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member
-FROM agent a WHERE a.workspace_id = $1
+SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.deleted_at, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member
+FROM agent a WHERE a.workspace_id = $1 AND a.deleted_at IS NULL
 AND (a.visibility = 'workspace' OR a.owner_id = $2 OR $3::boolean)
 ORDER BY a.created_at, a.id
 `
@@ -329,6 +367,7 @@ type ListAgentsRow struct {
 	BuiltInKey           string          `json:"built_in_key"`
 	ConversationStarters json.RawMessage `json:"conversation_starters"`
 	AvatarUrl            string          `json:"avatar_url"`
+	DeletedAt            *time.Time      `json:"deleted_at"`
 	TeamMember           bool            `json:"team_member"`
 }
 
@@ -357,6 +396,7 @@ func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]ListA
 			&i.BuiltInKey,
 			&i.ConversationStarters,
 			&i.AvatarUrl,
+			&i.DeletedAt,
 			&i.TeamMember,
 		); err != nil {
 			return nil, err
@@ -371,7 +411,7 @@ func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]ListA
 
 const updateAgent = `-- name: UpdateAgent :one
 UPDATE agent SET name = $1, description = $2, instructions = $3, harness = $4, model = $5, visibility = $6, conversation_starters = $7, avatar_url = $8, updated_at = now()
-WHERE workspace_id = $9 AND id = $10 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url
+WHERE workspace_id = $9 AND id = $10 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, deleted_at
 `
 
 type UpdateAgentParams struct {
@@ -417,6 +457,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent
 		&i.BuiltInKey,
 		&i.ConversationStarters,
 		&i.AvatarUrl,
+		&i.DeletedAt,
 	)
 	return i, err
 }
