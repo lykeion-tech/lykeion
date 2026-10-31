@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -186,5 +186,10 @@ describe('the dashboard source layout', () => {
   it('has no components or views folder', () => {
     expect(existsSync(join(src, 'components'))).toBe(false);
     expect(existsSync(join(src, 'views'))).toBe(false);
+  });
+
+  it('dashboard unit tests live with their code', () => {
+    const left = readdirSync('tests').filter((f) => f.endsWith('.test.ts')).sort();
+    expect(left).toEqual(['dashboard-layout.test.ts', 'desktop-daemon.test.ts', 'mock-layer.test.ts']);
   });
 });
