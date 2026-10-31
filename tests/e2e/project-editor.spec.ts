@@ -171,6 +171,9 @@ test('project leads include active agents, persist their selection and preserve 
     .fill('Agent-led project');
   await dialog.getByRole('button', { name: 'Lead', exact: true }).click();
   await dialog.getByRole('textbox', { name: 'Search project leads' }).fill('Project curator');
+  await expect(
+    dialog.getByRole('menuitemradio', { name: 'Project curator', exact: true }),
+  ).toBeVisible();
   await page.keyboard.press('ArrowUp');
   await expect(
     dialog.getByRole('menuitemradio', { name: 'Project curator', exact: true }),
