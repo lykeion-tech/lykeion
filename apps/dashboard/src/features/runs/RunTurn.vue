@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
 import RunTimeline from './RunTimeline.vue';
-import CopyButton from '../coresearch/CopyButton.vue';
-import { liveStatus, transcriptBlocks, visibleTranscriptMessages } from '../lib/run-transcript';
-import { useRunMessages } from '../api/queries';
-import type { AgentRun } from '../api/types';
-import { readableAssignment } from '../lib/studies';
-import { durationLabel } from '../lib/run-timeline';
+import CopyButton from '../../coresearch/CopyButton.vue';
+import { liveStatus, transcriptBlocks, visibleTranscriptMessages } from './run-transcript';
+import { useRunMessages } from '../../api/queries';
+import type { AgentRun } from '../../api/types';
+import { readableAssignment } from '../../lib/studies';
+import { durationLabel } from './run-timeline';
 
 const formattingFailed = ref(false);
 const PlainRecordedText = defineComponent({
@@ -14,7 +14,7 @@ const PlainRecordedText = defineComponent({
   setup: (text) => () => h('div', { class: 'recorded-text-fallback' }, text.content),
 });
 const RecordedMarkdown = defineAsyncComponent({
-  loader: () => import('../ui/RecordedMarkdown.vue'),
+  loader: () => import('../../ui/RecordedMarkdown.vue'),
   loadingComponent: PlainRecordedText,
   errorComponent: PlainRecordedText,
   delay: 0,

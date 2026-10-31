@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { highlightToolCode } from '../lib/tool-code';
+import type { highlightToolCode } from '../../lib/tool-code';
 const props = defineProps<{ code: string; language: string }>();
 const tokens = ref<Awaited<ReturnType<typeof highlightToolCode>>>();
 const lines = computed<{ content: string; color?: string }[][]>(() =>
@@ -15,7 +15,7 @@ watch(
     });
     tokens.value = undefined;
     try {
-      const { highlightToolCode } = await import('../lib/tool-code');
+      const { highlightToolCode } = await import('../../lib/tool-code');
       const result = await highlightToolCode(code, language);
       if (!cancelled) tokens.value = result;
     } catch {

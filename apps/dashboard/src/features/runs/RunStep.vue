@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { CheckCircle2, Circle, CircleX, LoaderCircle } from '@lucide/vue';
-import Icon from '../ui/Icon.vue';
+import Icon from '../../ui/Icon.vue';
 import RunStepCode from './RunStepCode.vue';
-import { recordedContent, type ActivityStep } from '../lib/run-transcript';
+import { recordedContent, type ActivityStep } from './run-transcript';
 const props = defineProps<{ step: ActivityStep; active?: boolean; nested?: boolean }>();
 const fallback = computed(() => {
   const step = props.step;

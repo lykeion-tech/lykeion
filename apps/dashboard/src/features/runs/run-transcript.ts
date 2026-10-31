@@ -1,4 +1,4 @@
-import type { RunMessage } from '../api/types';
+import type { RunMessage } from '../../api/types';
 import { toolStepTitle } from './tool-step-title';
 
 export interface TranscriptBlock {

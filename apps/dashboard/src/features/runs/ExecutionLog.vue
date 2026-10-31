@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import type { AgentRun } from '../api/types';
+import type { AgentRun } from '../../api/types';
 import {
   activeRun,
   durationLabel,
   milliseconds,
   runDuration,
   runTimeline,
-} from '../lib/run-timeline';
-import { roleLabel } from '../lib/studies';
-import Icon from '../ui/Icon.vue';
-import Modal from '../ui/Modal.vue';
+} from './run-timeline';
+import { roleLabel } from '../../lib/studies';
+import Icon from '../../ui/Icon.vue';
+import Modal from '../../ui/Modal.vue';
 const props = defineProps<{ runs: AgentRun[]; title: string }>();
 const expanded = ref(true),
   showRuns = ref(false),

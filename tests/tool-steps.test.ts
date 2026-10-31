@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { transcriptBlocks, activitySteps } from '../apps/dashboard/src/lib/run-transcript';
+import { transcriptBlocks, activitySteps } from '../apps/dashboard/src/features/runs/run-transcript';
 import type { RunMessage } from '../apps/dashboard/src/api/types';
 const msg = (
   seq: number,

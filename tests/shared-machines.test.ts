@@ -6,7 +6,7 @@ import MachinesView from '../apps/dashboard/src/features/machines/MachinesView.v
 import SettingsView from '../apps/dashboard/src/views/SettingsView.vue';
 import CreateTask from '../apps/dashboard/src/views/CreateTask.vue';
 import TaskDetail from '../apps/dashboard/src/views/TaskDetail.vue';
-import AgentRunDialog from '../apps/dashboard/src/components/AgentRunDialog.vue';
+import AgentRunDialog from '../apps/dashboard/src/features/runs/AgentRunDialog.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { keys } from '../apps/dashboard/src/api/keys';
 import type { AgentRun, Runtime } from '../apps/dashboard/src/api/types';

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import Icon from '../ui/Icon.vue';
+import Icon from '../../ui/Icon.vue';
 import RunStep from './RunStep.vue';
-import type { RunMessage } from '../api/types';
-import { activitySteps, isActivityGroup } from '../lib/run-transcript';
+import type { RunMessage } from '../../api/types';
+import { activitySteps, isActivityGroup } from './run-transcript';
 const props = defineProps<{ messages: RunMessage[]; active?: boolean }>();
 const steps = computed(() => activitySteps(props.messages));
 const callCount = computed(() => steps.value.filter((step) => step.tool).length);

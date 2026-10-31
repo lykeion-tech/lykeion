@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { toolStepTitle } from '../apps/dashboard/src/lib/tool-step-title';
-import { activitySteps } from '../apps/dashboard/src/lib/run-transcript';
+import { toolStepTitle } from '../apps/dashboard/src/features/runs/tool-step-title';
+import { activitySteps } from '../apps/dashboard/src/features/runs/run-transcript';
 import type { RunMessage } from '../apps/dashboard/src/api/types';
 
 describe('readable action fallbacks', () => {

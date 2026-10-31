@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import Icon from '../ui/Icon.vue';
+import Icon from '../../ui/Icon.vue';
 const props = defineProps<{
   code: string;
   language: string;
@@ -24,7 +24,7 @@ async function highlight() {
   const current = ++revision;
   tokens.value = undefined;
   try {
-    const { highlightToolCode } = await import('../lib/tool-code');
+    const { highlightToolCode } = await import('../../lib/tool-code');
     const result = await highlightToolCode(props.code, props.language);
     if (current === revision) tokens.value = result;
   } catch {

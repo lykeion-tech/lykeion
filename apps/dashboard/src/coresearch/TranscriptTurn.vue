@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { transcriptBlocks, visibleTranscriptMessages } from '../lib/run-transcript';
-import RunTimeline from '../components/RunTimeline.vue';
-import RunStatus from '../components/RunStatus.vue';
+import { transcriptBlocks, visibleTranscriptMessages } from '../features/runs/run-transcript';
+import RunTimeline from '../features/runs/RunTimeline.vue';
+import RunStatus from '../features/runs/RunStatus.vue';
 import { isActiveTurn, useCoresearchSteps } from './api';
 import type { MessageRow } from './types';
 import AssistantMessage from './AssistantMessage.vue';

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { effectScope } from 'vue';
 import { clampPane, usePaneResize } from '../apps/dashboard/src/lib/resize';
-import { runDuration, runTimeline } from '../apps/dashboard/src/lib/run-timeline';
+import { runDuration, runTimeline } from '../apps/dashboard/src/features/runs/run-timeline';
 import { invalidationsFor } from '../apps/dashboard/src/api/realtime';
 import { keys } from '../apps/dashboard/src/api/keys';
 import type { AgentRun, LykEvent } from '../apps/dashboard/src/api/types';

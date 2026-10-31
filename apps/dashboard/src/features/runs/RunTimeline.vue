@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import RunActivity from './RunActivity.vue';
 import RunStatus from './RunStatus.vue';
-import { activitySteps, isActivityGroup, type TranscriptBlock } from '../lib/run-transcript';
+import { activitySteps, isActivityGroup, type TranscriptBlock } from './run-transcript';
 const props = defineProps<{
   blocks: TranscriptBlock[];
   active: boolean;

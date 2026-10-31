@@ -3,8 +3,8 @@ import { createSSRApp, h } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import StudyEnvironment from '../apps/dashboard/src/components/StudyEnvironment.vue';
-import AgentRunCard from '../apps/dashboard/src/components/AgentRunCard.vue';
-import RunTurn from '../apps/dashboard/src/components/RunTurn.vue';
+import AgentRunCard from '../apps/dashboard/src/features/runs/AgentRunCard.vue';
+import RunTurn from '../apps/dashboard/src/features/runs/RunTurn.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { keys } from '../apps/dashboard/src/api/keys';
 import type { AgentRun, RunMessage } from '../apps/dashboard/src/api/types';
@@ -14,7 +14,7 @@ import {
   notebookJson,
   recordedCode,
   transcriptBlocks,
-} from '../apps/dashboard/src/lib/run-transcript';
+} from '../apps/dashboard/src/features/runs/run-transcript';
 
 const run = {
   id: 'r',

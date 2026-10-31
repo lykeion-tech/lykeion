@@ -1,4 +1,4 @@
-import type { AgentRun } from '../api/types';
+import type { AgentRun } from '../../api/types';
 export const activeRun = (r: AgentRun) => ['queued', 'dispatched', 'running'].includes(r.status);
 export const milliseconds = (s: string | null) =>
   s && Number.isFinite(Date.parse(s)) ? Date.parse(s) : null;
