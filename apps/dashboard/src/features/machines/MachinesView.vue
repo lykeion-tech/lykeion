@@ -2,17 +2,17 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
-import Icon from '../ui/Icon.vue';
-import Modal from '../ui/Modal.vue';
-import MachineSharing from '../components/MachineSharing.vue';
-import DaemonSettings from '../components/DaemonSettings.vue';
-import { useMe } from '../api/queries';
-import { backendLabel } from '../lib/backends';
-import AddComputerDialog from '../components/AddComputerDialog.vue';
-import { api, ApiError } from '../api/client';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
-import { useMembers, useRuntimes } from '../api/queries';
+import Icon from '../../ui/Icon.vue';
+import Modal from '../../ui/Modal.vue';
+import MachineSharing from './MachineSharing.vue';
+import DaemonSettings from './DaemonSettings.vue';
+import { useMe } from '../../api/queries';
+import { backendLabel } from '../../lib/backends';
+import AddComputerDialog from './AddComputerDialog.vue';
+import { api, ApiError } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
+import { useMembers, useRuntimes } from '../../api/queries';
 import {
   desktopMachineID,
   desktopProfileMachine,
@@ -20,9 +20,9 @@ import {
   groupDaemons,
   localPlaceholderID,
   type Daemon,
-} from '../lib/machines';
-import type { DaemonSnapshot } from '../../../desktop/src/daemon-types';
-import { timeAgo } from '../lib/studies';
+} from './machines';
+import type { DaemonSnapshot } from '../../../../desktop/src/daemon-types';
+import { timeAgo } from '../../lib/studies';
 
 const props = defineProps<{ machineId?: string; embedded?: boolean }>();
 const router = useRouter();
@@ -535,5 +535,5 @@ async function remove(d: Daemon) {
     </div>
   </Modal>
 </template>
-<style scoped src="../ui/resources.css"></style>
+<style scoped src="../../ui/resources.css"></style>
 <style scoped src="./machines.css"></style>

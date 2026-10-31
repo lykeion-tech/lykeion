@@ -60,4 +60,21 @@ describe('the dashboard source layout', () => {
       expect(existsSync(join(src, from)), from).toBe(false);
     }
   });
+
+  it('machines holds its files', () => {
+    const moved = [
+      ['views/MachinesView.vue', 'features/machines/MachinesView.vue'],
+      ['views/machines.css', 'features/machines/machines.css'],
+      ['components/AddComputerDialog.vue', 'features/machines/AddComputerDialog.vue'],
+      ['components/MachineCommand.vue', 'features/machines/MachineCommand.vue'],
+      ['components/MachinePicker.vue', 'features/machines/MachinePicker.vue'],
+      ['components/MachineSharing.vue', 'features/machines/MachineSharing.vue'],
+      ['components/DaemonSettings.vue', 'features/machines/DaemonSettings.vue'],
+      ['lib/machines.ts', 'features/machines/machines.ts'],
+    ];
+    for (const [from, to] of moved) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
 });

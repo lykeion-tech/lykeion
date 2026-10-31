@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { desktopMachineID, desktopProfileReady, localPlaceholderID } from '../lib/machines';
-import type { DaemonPreferences, DaemonSnapshot } from '../../../desktop/src/daemon-types';
+import { desktopMachineID, desktopProfileReady, localPlaceholderID } from './machines';
+import type { DaemonPreferences, DaemonSnapshot } from '../../../../desktop/src/daemon-types';
 
 const props = defineProps<{
   machineId: string;

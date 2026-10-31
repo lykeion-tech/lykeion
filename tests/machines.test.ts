@@ -3,7 +3,7 @@ import { createSSRApp, h } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import MachinesView from '../apps/dashboard/src/views/MachinesView.vue';
+import MachinesView from '../apps/dashboard/src/features/machines/MachinesView.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { keys } from '../apps/dashboard/src/api/keys';
 

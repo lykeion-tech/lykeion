@@ -188,7 +188,7 @@ describe('computer setup shell arguments', () => {
   it.each(['unix', 'windows'] as const)(
     'quotes an IPv6 origin and strips non-origin input for %s',
     async (platform) => {
-      const { computerStartCommands } = await import('../apps/dashboard/src/lib/machines');
+      const { computerStartCommands } = await import('../apps/dashboard/src/features/machines/machines');
       const commands = computerStartCommands(
         'http://person:secret@[::1]:8080/path?token=private#fragment',
         platform,
@@ -198,7 +198,7 @@ describe('computer setup shell arguments', () => {
     },
   );
   it('escapes apostrophes for each shell without allowing argument injection', async () => {
-    const { computerStartCommands } = await import('../apps/dashboard/src/lib/machines');
+    const { computerStartCommands } = await import('../apps/dashboard/src/features/machines/machines');
     expect(computerStartCommands("https://lab'host.example/path", 'unix')).toContain(
       "'https://lab'\"'\"'host.example'",
     );

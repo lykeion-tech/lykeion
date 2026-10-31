@@ -1,5 +1,5 @@
-import type { Runtime } from '../api/types';
-import type { DaemonSnapshot } from '../../../desktop/src/daemon-types';
+import type { Runtime } from '../../api/types';
+import type { DaemonSnapshot } from '../../../../desktop/src/daemon-types';
 
 export type Daemon = {
   id: string;
@@ -68,7 +68,7 @@ export function desktopProfileMachine(
 }
 
 export function computerStartCommands(server: string, platform: 'unix' | 'windows') {
-  const executable = platform === 'windows' ? '.\\lyk.exe' : './lyk';
+  const executable = platform === 'windows' ? '.\\lyk.exe' : '../../lib/lyk';
   const origin = new URL(server).origin;
   const quoted = "'" + origin.replaceAll("'", platform === 'windows' ? "''" : "'\"'\"'") + "'";
   return `${executable} login --server ${quoted} --email you@lab.org\n${executable} daemon ${platform === 'windows' ? 'run' : 'start'}`;

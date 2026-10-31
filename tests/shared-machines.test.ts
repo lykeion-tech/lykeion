@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRenderer, h, nextTick, ref, ssrContextKey, type Component } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import MachinesView from '../apps/dashboard/src/views/MachinesView.vue';
+import MachinesView from '../apps/dashboard/src/features/machines/MachinesView.vue';
 import SettingsView from '../apps/dashboard/src/views/SettingsView.vue';
 import CreateTask from '../apps/dashboard/src/views/CreateTask.vue';
 import TaskDetail from '../apps/dashboard/src/views/TaskDetail.vue';

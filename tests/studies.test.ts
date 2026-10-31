@@ -286,7 +286,7 @@ describe('composer actions', () => {
   });
 });
 
-import { groupDaemons } from '../apps/dashboard/src/lib/machines';
+import { groupDaemons } from '../apps/dashboard/src/features/machines/machines';
 import type { Runtime } from '../apps/dashboard/src/api/types';
 
 describe('machines', () => {

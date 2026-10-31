@@ -4,10 +4,10 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import OnboardingView from '../apps/dashboard/src/views/OnboardingView.vue';
 import { createDaemonSession, daemonSessionKey } from '../apps/dashboard/src/lib/daemon-session';
-import MachinesView from '../apps/dashboard/src/views/MachinesView.vue';
+import MachinesView from '../apps/dashboard/src/features/machines/MachinesView.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
-import DaemonSettings from '../apps/dashboard/src/components/DaemonSettings.vue';
+import DaemonSettings from '../apps/dashboard/src/features/machines/DaemonSettings.vue';
 import type { DaemonSnapshot, DesktopDaemonBridge } from '../apps/desktop/src/daemon-types';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
 vi.mock('lottie-web/build/player/lottie_light', () => ({

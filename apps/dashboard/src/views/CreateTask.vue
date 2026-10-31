@@ -20,7 +20,7 @@ import {
 import { notify } from '../state/notice';
 import type { Assignee } from '../state/task-composer';
 import AssignPicker from '../ui/AssignPicker.vue';
-import MachinePicker from '../components/MachinePicker.vue';
+import MachinePicker from '../features/machines/MachinePicker.vue';
 
 const props = defineProps<{ assignee?: Assignee; projectId?: string }>();
 const emit = defineEmits<{ close: [] }>();

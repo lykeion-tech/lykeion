@@ -1,16 +1,16 @@
 <script setup lang="ts">
 /* global __LYK_PUBLIC_API_ORIGIN__ */
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import Modal from '../ui/Modal.vue';
-import Icon from '../ui/Icon.vue';
+import Modal from '../../ui/Modal.vue';
+import Icon from '../../ui/Icon.vue';
 import MachineCommand from './MachineCommand.vue';
-import { useRuntimes } from '../api/queries';
-import { computerStartCommands, groupDaemons } from '../lib/machines';
+import { useRuntimes } from '../../api/queries';
+import { computerStartCommands, groupDaemons } from './machines';
 
 const emit = defineEmits<{ close: [] }>();
 const runtimes = useRuntimes();
 const platform = ref<'unix' | 'windows'>('unix');
-const executable = computed(() => (platform.value === 'windows' ? '.\\lyk.exe' : './lyk'));
+const executable = computed(() => (platform.value === 'windows' ? '.\\lyk.exe' : '../../components/lyk'));
 const build = computed(
   () => `go build -o ${platform.value === 'windows' ? 'lyk.exe' : 'lyk'} ./cmd/lyk`,
 );
