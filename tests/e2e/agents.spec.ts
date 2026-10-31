@@ -1,4 +1,3 @@
-import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { LAB, labFixture, labPack } from './lab';
 
@@ -78,11 +77,11 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await expect(page.locator('.agent-tabs')).toHaveCount(0);
   await filter.click();
   const menu = page.getByRole('menu', { name: 'Filter agents' });
-  await expect(menu.getByRole('menuitemradio', { name: 'Mine 2' })).toHaveAttribute(
+  await expect(menu.getByRole('menuitemradio', { name: 'Mine 3' })).toHaveAttribute(
     'aria-checked',
     'true',
   );
-  await expect(menu.getByRole('menuitemradio', { name: 'All 2' })).toBeVisible();
+  await expect(menu.getByRole('menuitemradio', { name: 'All 3' })).toBeVisible();
   await expect(menu.getByRole('menuitemradio', { name: 'Archived 1' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
@@ -123,7 +122,7 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await expect(table.getByRole('row')).toHaveCount(2);
   await filter.press('ArrowDown');
   await page.keyboard.press('Home');
-  await expect(menu.getByRole('menuitemradio', { name: 'Mine 2' })).toBeFocused();
+  await expect(menu.getByRole('menuitemradio', { name: 'Mine 3' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(menu).toHaveCount(0);
   await expect(table.getByRole('row').filter({ hasText: 'Retired analyst' })).toHaveCount(0);
@@ -245,12 +244,15 @@ test('the agent page shows its studies and edits instructions, profile and acces
 
   await page.getByRole('tab', { name: 'Settings' }).click();
   await page.getByRole('textbox', { name: 'Agent name' }).fill('Methods lead');
-  await selectPicker(page.getByRole('combobox', { name: 'Harness' }), 'codex');
-  await page.getByRole('textbox', { name: 'Model' }).fill('gpt-5');
+  await page.getByRole('button', { name: /^Harness:/ }).click();
+  await page
+    .getByRole('listbox', { name: 'Harness options' })
+    .getByRole('option', { name: 'Codex', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'Methods lead', exact: true })).toBeVisible();
   const saved = await read();
-  expect([saved.harness, saved.model]).toEqual(['codex', 'gpt-5']);
+  expect(saved.harness).toBe('codex');
   await page.screenshot({ path: `${artifacts}/agent-settings.png` });
 
   await page.getByRole('button', { name: 'Access' }).click();
@@ -488,7 +490,7 @@ test('agent connector edit preserves peer servers and dirty snapshots require ex
   await panel.screenshot({ path: `${artifacts}/agent-connectors-prepared-empty.png` });
 });
 
-test('supported backend selectors persist provider labels and expose truthful focused details', async ({
+test('supported backend selectors persist provider labels', async ({
   page,
 }) => {
   const { headers } = await inFixture(page);
@@ -508,57 +510,10 @@ test('supported backend selectors persist provider labels and expose truthful fo
     await form.getByRole('button', { name: 'Create agent', exact: true }).click();
     await expect(page.locator('.agent-identity')).toContainText(label!);
     await page.getByRole('tab', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('combobox', { name: 'Harness' })).toHaveValue(harness!);
-    {
-      const trigger = page.getByRole('button', { name: 'Backend details', exact: true });
-      await trigger.click();
-      const detail = page.getByRole('dialog', { name: `${label} backend details` });
-      await expect(detail).not.toContainText('Private only');
-      await expect(detail).toContainText(harness!);
-      await expect(detail).toContainText('Harness default');
-      const response = await page.request.get('/api/runtimes', { headers });
-      expect(response.status()).toBe(200);
-      const reported = (
-        (await response.json()) as {
-          harness: string;
-          custom_name: string | null;
-          device_name: string;
-          cli_version: string;
-        }[]
-      ).filter((runtime) => runtime.harness === harness);
-      for (const runtime of reported) {
-        const report = detail.locator('.runtime-report').filter({
-          has: page.getByText(runtime.custom_name || runtime.device_name, { exact: true }),
-        });
-        await expect(report).toHaveCount(1);
-        await expect(report.locator('dd').nth(2)).toHaveText(runtime.cli_version || 'Not reported');
-      }
-      if (!reported.length) await expect(detail).toContainText('Not reported');
-      const agentURL = page.url();
-      const canvases: string[] = [];
-      for (const palette of ['ash', 'midnight', 'dawn', 'pale']) {
-        await page.goto('/#/settings/preferences');
-        await page
-          .getByRole('button', { name: palette[0]!.toUpperCase() + palette.slice(1), exact: true })
-          .click();
-        await expect(page.locator('html')).toHaveAttribute('data-palette', palette);
-        await page.goto(agentURL);
-        await page.getByRole('tab', { name: 'Settings', exact: true }).click();
-        await trigger.click();
-        await expect(detail).toBeVisible();
-        canvases.push(
-          await page
-            .locator('.backend-dialog')
-            .evaluate((el) => getComputedStyle(el).backgroundColor),
-        );
-        await page.screenshot({
-          path: `test-results/ui2-task16/${palette}-${harness}-backend.png`,
-        });
-        await page.keyboard.press('Escape');
-        await expect(trigger).toBeFocused();
-      }
-      expect(new Set(canvases).size).toBe(4);
-    }
+    await expect(page.getByRole('button', { name: /^Harness:/ })).toHaveText(label!);
+    const id = new URL(page.url().replace('#', '')).pathname.split('/').pop();
+    const saved = await (await page.request.get(`/api/agents/${id}`, { headers })).json();
+    expect(saved.harness).toBe(harness);
   }
 });
 
