@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { agentDisplayName } from '../lib/agent-name';
 import { ref, computed, watch, nextTick } from 'vue';
 import { SquareTerminal, Globe, Trash2, UserRoundPlus, Rocket, Webhook } from '@lucide/vue';
 import TimeZonePicker from './settings/TimeZonePicker.vue';
@@ -343,7 +344,7 @@ async function save() {
             >
               <option value="">Select a leader agent</option>
               <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
-                {{ agent.name }}
+                {{ agentDisplayName(agent.name) }}
               </option></select
             ><Icon name="down" :size="14" />
           </div>
@@ -371,7 +372,9 @@ async function save() {
               placeholder="Search agents..."
               aria-label="Search team members"
             /><label v-for="agent in memberMatches" :key="agent.id"
-              ><input v-model="members" type="checkbox" :value="agent.id" />{{ agent.name }}</label
+              ><input v-model="members" type="checkbox" :value="agent.id" />{{
+                agentDisplayName(agent.name)
+              }}</label
             >
             <p v-if="!memberMatches.length">
               {{ state.data?.agents.length ? 'No matching agents' : 'No agents available' }}
@@ -614,7 +617,7 @@ async function save() {
               >
                 <option value="">Select agent or team</option>
                 <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
-                  {{ agent.name }}
+                  {{ agentDisplayName(agent.name) }}
                 </option></select
               ><Icon name="down" :size="12" />
             </div>

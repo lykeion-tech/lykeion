@@ -2,11 +2,13 @@
 import { computed } from 'vue';
 import Icon from './Icon.vue';
 import type { AgentRun } from '../api/types';
-import { columnName, roleLabel, timeAgo } from '../lib/studies';
+import { roleLabel, timeAgo } from '../lib/studies';
+import { agentDisplayName } from '../lib/agent-name';
+import AgentName from './AgentName.vue';
 
 const props = defineProps<{ run: AgentRun; study: string; position: number }>();
 const emit = defineEmits<{ open: [] }>();
-const name = computed(() => props.run.agent_name || roleLabel(props.run.role));
+const name = computed(() => agentDisplayName(props.run.agent_name || roleLabel(props.run.role)));
 const state = computed(
   () =>
     ({
@@ -42,7 +44,7 @@ const lastActive = computed(
     <header>
       <span class="status-dot" :title="state" />
       <span class="avatar agent">{{ name[0] }}</span>
-      <h3>{{ name }}</h3>
+      <h3><AgentName :name="run.agent_name || roleLabel(run.role)" :harness="run.harness" /></h3>
       <button
         class="icon-button open-run"
         aria-haspopup="dialog"
@@ -52,10 +54,6 @@ const lastActive = computed(
         <Icon name="external" :size="15" />
       </button>
     </header>
-    <small class="run-identity"
-      >Run {{ position }} · {{ columnName(run.board_column) }} · Round {{ run.round }} · Attempt
-      {{ run.attempt }}</small
-    >
     <p class="preview">{{ preview }}</p>
     <footer>
       <time :datetime="lastActive">{{ timeAgo(lastActive) }}</time>

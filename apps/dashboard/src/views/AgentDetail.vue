@@ -18,12 +18,21 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import type { AgentDefinition, Card } from '../api/types';
 import Icon from '../components/Icon.vue';
-import BackendDetailsDialog from '../components/BackendDetailsDialog.vue';
-import { backends, backendLabel, backendDefaultModel } from '../lib/backends';
+import { backends, backendLabel } from '../lib/backends';
 import { matchesQuery } from '../lib/search';
 import { agentConnectorIntegrationAvailable } from '../lib/agent-connectors';
-import { boardColumnOf, boardColumns, studyNumber, timeAgo } from '../lib/studies';
+import {
+  boardColumnOf,
+  boardColumns,
+  studyDisplayTitle,
+  studyNumber,
+  timeAgo,
+} from '../lib/studies';
 import { notify } from '../state/notice';
+import AgentName from '../components/AgentName.vue';
+import { agentNameWithoutCli } from '../lib/agent-name';
+import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
+import '../coresearch/l2.css';
 
 const props = defineProps<{ id: string }>();
 const route = useRoute();
@@ -53,7 +62,6 @@ const detail = useAgent(() => props.id),
   workspaces = useWorkspaces();
 const client = useQueryClient();
 const runtimes = useRuntimes();
-const backendDetails = ref(false);
 
 const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
   section = ref<'general' | 'access'>('general'),
@@ -65,6 +73,28 @@ const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
 const general = ref({ name: '', description: '', harness: 'claude', model: '' }),
   visibility = ref<'workspace' | 'private'>('workspace'),
   instructions = ref('');
+const modelChoices = computed(() => {
+  const runtime = runtimes.data.value?.find(
+    (r) =>
+      r.owner_id === me.data.value?.id &&
+      r.status === 'online' &&
+      r.harness === general.value.harness,
+  );
+  const models = runtime?.models ?? [];
+  const current = general.value.model;
+  return [
+    ...(current && !models.some((m) => m.value === current)
+      ? [{ value: current, label: current }]
+      : []),
+    ...models,
+  ];
+});
+const harnessChoices = computed(() => [
+  ...backends.map((backend) => ({ value: backend.id, label: backend.label })),
+  ...(backends.some((backend) => backend.id === general.value.harness)
+    ? []
+    : [{ value: general.value.harness, label: backendLabel(general.value.harness) }]),
+]);
 
 const denied = computed(
   () => detail.error.value instanceof ApiError && [403, 404].includes(detail.error.value.status),
@@ -112,7 +142,7 @@ watch(
   (a: AgentDefinition | undefined) => {
     if (!a) return;
     general.value = {
-      name: a.name,
+      name: agentNameWithoutCli(a.name, a.harness),
       description: a.description,
       harness: a.harness,
       model: a.model,
@@ -135,7 +165,6 @@ watch(
     tab.value = requestedTab();
     error.value = '';
     menu.value = false;
-    backendDetails.value = false;
   },
   { flush: 'sync' },
 );
@@ -205,7 +234,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <header class="agent-hero">
         <nav class="agent-crumbs" aria-label="Breadcrumb">
           <RouterLink to="/agents">Agents</RouterLink><span>/</span
-          ><span aria-current="page">{{ agent.name }}</span>
+          ><span aria-current="page"
+            ><AgentName :name="agent.name" :harness="agent.harness"
+          /></span>
         </nav>
         <div class="agent-identity">
           <span class="agent-avatar"
@@ -213,7 +244,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           /></span>
           <div>
             <div class="agent-title">
-              <h1>{{ agent.name }}</h1>
+              <h1><AgentName :name="agent.name" :harness="agent.harness" /></h1>
               <span class="agent-status" :class="{ archived: agent.archived_at }">{{
                 agent.archived_at ? 'Archived' : 'Active'
               }}</span>
@@ -271,7 +302,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           <p v-if="!active.length" class="muted">No assigned study is running.</p>
           <RouterLink v-for="c in active" :key="c.id" :to="'/studies/' + c.id" class="agent-study"
             ><small>{{ number(c) }}</small
-            ><span>{{ c.title || c.question }}</span
+            ><span>{{ studyDisplayTitle(c.title || c.question) }}</span
             ><em>{{ c.role || 'Queued' }}</em></RouterLink
           >
           <hr />
@@ -283,7 +314,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             :to="'/studies/' + c.id"
             class="agent-study"
             ><small>{{ number(c) }}</small
-            ><span>{{ c.title || c.question }}</span
+            ><span>{{ studyDisplayTitle(c.title || c.question) }}</span
             ><em>{{ timeAgo(c.updated_at) }}</em></RouterLink
           >
         </div>
@@ -349,7 +380,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               :to="'/studies/' + c.id"
               class="agent-study"
               ><small>{{ number(c) }}</small
-              ><span>{{ c.title || c.question }}</span
+              ><span>{{ studyDisplayTitle(c.title || c.question) }}</span
               ><em>{{ timeAgo(c.updated_at) }}</em></RouterLink
             >
             <p v-if="!g.cards.length" class="agent-group-empty">No studies</p>
@@ -380,9 +411,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           @submit.prevent="patch({ instructions })"
         >
           <h2>Instructions</h2>
-          <p class="agent-lede">
-            Set the instructions this agent works from. Markdown is supported.
-          </p>
+          <p class="agent-lede">Set the instructions this agent works from.</p>
           <label class="agent-label" for="agent-instructions">System prompt</label>
           <textarea
             id="agent-instructions"
@@ -402,7 +431,14 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           class="agent-pane"
           @submit.prevent="
             validStarters &&
-            patch({ ...general, ...(builtin ? { conversation_starters: starters } : {}) })
+            patch({
+              ...general,
+              name:
+                general.name === agentNameWithoutCli(agent.name, agent.harness)
+                  ? agent.name
+                  : general.name,
+              ...(builtin ? { conversation_starters: starters } : {}),
+            })
           "
         >
           <h2>General</h2>
@@ -420,6 +456,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               >Description<span>
                 <textarea
                   v-model="general.description"
+                  class="agent-description-input"
                   maxlength="1000"
                   aria-label="Agent description"
                   :readonly="!editable"
@@ -430,42 +467,28 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           <h3>Execution</h3>
           <p class="agent-hint">An empty model uses the harness default.</p>
           <div class="agent-card agent-execution">
-            <label
-              >Harness<select v-model="general.harness" aria-label="Harness" :disabled="!editable">
-                <option v-for="backend in backends" :key="backend.id" :value="backend.id">
-                  {{ backend.label }}
-                </option>
-                <option
-                  v-if="!backends.some((backend) => backend.id === general.harness)"
-                  :value="general.harness"
-                >
-                  {{ backendLabel(general.harness) }}
-                </option>
-              </select></label
-            ><label
-              >Model<input
-                v-model="general.model"
-                aria-label="Model"
-                placeholder="Harness default"
-                :readonly="!editable"
-            /></label>
-          </div>
-          <div class="agent-card" style="padding: 14px 18px; margin-top: 14px">
-            <div
-              style="display: flex; align-items: center; justify-content: space-between; gap: 12px"
-            >
-              <b>{{ backendLabel(general.harness) }}</b
-              ><button type="button" class="text-button" @click="backendDetails = true">
-                Backend details
-              </button>
+            <div class="agent-model-field">
+              <span>Harness</span>
+              <div class="coresearch agent-model-picker">
+                <ModelSwitcher
+                  v-model="general.harness"
+                  :models="harnessChoices"
+                  label="Harness"
+                  open-up
+                  :disabled="!editable"
+                />
+              </div>
             </div>
-            <p class="agent-hint">
-              {{
-                backendDefaultModel(general.harness)
-                  ? `Leave blank to use the adapter default: ${backendDefaultModel(general.harness)}.`
-                  : 'Leave blank to use the harness default.'
-              }}
-            </p>
+            <div class="agent-model-field">
+              <span>Model</span>
+              <div class="coresearch agent-model-picker">
+                <ModelSwitcher
+                  v-model="general.model"
+                  :models="modelChoices"
+                  :disabled="!editable"
+                />
+              </div>
+            </div>
           </div>
           <template v-if="builtin"
             ><h3>Conversation starters</h3>
@@ -569,13 +592,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       {{ detail.error.value.message }} <button @click="detail.refetch()">Retry</button>
     </p>
   </section>
-  <BackendDetailsDialog
-    v-if="backendDetails"
-    :key="workspaceId + id"
-    :harness="general.harness"
-    :runtimes="runtimes.data.value"
-    @close="backendDetails = false"
-  />
 </template>
 <style src="./agent-detail.css" />
 

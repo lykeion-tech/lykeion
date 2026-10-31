@@ -14,11 +14,14 @@ import Icon from '../components/Icon.vue';
 import SurfacePane from '../components/SurfacePane.vue';
 import StudyOutputs from '../components/StudyOutputs.vue';
 import AgentRunCard from '../components/AgentRunCard.vue';
+import TeamName from '../components/TeamName.vue';
 import AgentRunDialog from '../components/AgentRunDialog.vue';
 import ExecutionLog from '../components/ExecutionLog.vue';
 import ColumnRating from '../components/ColumnRating.vue';
 import { api } from '../api/client';
 import { formatSize } from '../lib/attachments';
+import { studyDisplayTitle } from '../lib/studies';
+import { agentDisplayName } from '../lib/agent-name';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import {
@@ -216,15 +219,19 @@ const placeholders: Record<ComposerAction['kind'], string> = {
   stop: 'Why the study stops.',
 };
 const blocked = computed(() => (c.value ? blockedActions(c.value, me.data.value?.id) : []));
+const assignedTeams = computed(() => [
+  ...new Set(Object.values(c.value?.teams ?? {}).map((t) => t.name)),
+]);
 const assigneeName = computed(() => {
   const x = c.value;
   if (x?.assignee_type === 'team') {
-    const names = [...new Set(Object.values(x.teams ?? {}).map((t) => t.name))];
-    return names.length ? `Team: ${names.join(', ')}` : 'Team';
+    return 'Team';
   }
   if (!x?.assignee_id) return 'Unassigned';
   if (x.assignee_type === 'member') return name(x.assignee_id);
-  return agents.data.value?.find((a) => a.id === x.assignee_id)?.name ?? 'Unavailable agent';
+  return agentDisplayName(
+    agents.data.value?.find((a) => a.id === x.assignee_id)?.name ?? 'Unavailable agent',
+  );
 });
 // An agent working with no Team has nobody auditing it.
 const worksAlone = computed(
@@ -337,7 +344,7 @@ function pin() {
           @click="emit('close')"
         >
           <Icon name="back" /></button
-        ><span>{{ number }} {{ c?.title }}</span>
+        ><span>{{ number }} {{ studyDisplayTitle(c?.title ?? '') }}</span>
         <div class="push-right">
           <button
             class="icon-button"
@@ -361,7 +368,7 @@ function pin() {
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
       <div v-if="c" class="transcript-scroll">
         <div class="transcript-content study-content">
-          <h1 class="study-title">{{ c.title }}</h1>
+          <h1 class="study-title">{{ studyDisplayTitle(c.title) }}</h1>
           <section class="study-description" aria-label="Study description">
             <RecordedMarkdown class="lyk-reading" :content="c.question" />
           </section>
@@ -371,7 +378,7 @@ function pin() {
               v-for="(run, index) in agentRuns"
               :key="run.id"
               :run="run"
-              :study="c.title"
+              :study="studyDisplayTitle(c.title)"
               :position="index + 1"
               @open="openRun = run.id"
             />
@@ -518,7 +525,12 @@ function pin() {
                   ? name(c.assignee_id)[0]
                   : '?'
             }}</span
-            ><span class="v">{{ assigneeName }}</span
+            ><span class="v"
+              ><template v-if="c.assignee_type === 'team' && assignedTeams.length"
+                >Team:
+                <template v-for="(team, i) in assignedTeams" :key="team"
+                  ><span v-if="i">, </span><TeamName :name="team" /></template></template
+              ><template v-else>{{ assigneeName }}</template></span
             ><span v-if="worksAlone" class="chip">No auditor</span>
           </div>
           <div class="property-row">
@@ -565,7 +577,10 @@ function pin() {
           </div>
         </div>
         <div v-else-if="active === 'execution'" class="study-meta surface-content">
-          <ExecutionLog :runs="runs.data.value ?? []" :title="number + ' · ' + c.title" />
+          <ExecutionLog
+            :runs="runs.data.value ?? []"
+            :title="number + ' · ' + studyDisplayTitle(c.title)"
+          />
         </div>
         <div v-else-if="active === 'details'" class="study-meta surface-content">
           <h3 class="details-heading">

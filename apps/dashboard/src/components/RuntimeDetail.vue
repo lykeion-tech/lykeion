@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { agentDisplayName } from '../lib/agent-name';
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { state, notify } from '../services/workspace';
@@ -81,7 +82,7 @@ const agents = computed(() => state.data?.agents.filter((x) => x.runtimeId === p
           >
             <Icon :name="agent.avatar ?? 'bot'" />
             <span
-              >{{ agent.name }}<small>{{ agent.status }}</small>
+              >{{ agentDisplayName(agent.name) }}<small>{{ agent.status }}</small>
             </span>
             <Icon name="right" class="push-right" :size="12" />
           </button>

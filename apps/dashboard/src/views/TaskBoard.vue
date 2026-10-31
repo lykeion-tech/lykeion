@@ -21,6 +21,7 @@ import {
   roleLabel,
   stateLabel,
   studyNumber,
+  studyDisplayTitle,
   timeAgo,
   type FilterCategory as Category,
   type StudyFilters,
@@ -460,7 +461,7 @@ onUnmounted(() => {
               ><span v-if="column.id === 'blocked'" class="chip">{{
                 columnName(card.board_column)
               }}</span></small
-            ><span>{{ card.title }}</span>
+            ><span>{{ studyDisplayTitle(card.title) }}</span>
             <div class="card-metadata">
               <span v-if="display.properties.includes('Role')"
                 ><Icon :name="card.role ? 'bot' : 'users'" :size="12" />{{
@@ -509,7 +510,7 @@ onUnmounted(() => {
       <template v-if="!collapsedGroups.includes(group.id)">
         <button v-for="card in group.cards" :key="card.id" class="list-row" @click="open(card.id)">
           <small>{{ number(card) }}</small
-          ><span class="truncate">{{ card.title }}</span>
+          ><span class="truncate">{{ studyDisplayTitle(card.title) }}</span>
           <span class="row-meta push-right">
             <span
               v-if="stateLabel(card) && group.id !== 'blocked'"

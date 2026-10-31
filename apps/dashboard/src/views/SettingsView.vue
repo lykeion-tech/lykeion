@@ -1786,6 +1786,9 @@ async function copySlug() {
   padding: 10px 16px;
   border-top: 1px solid var(--border);
 }
+.tokens-table td:last-child {
+  text-align: right;
+}
 .tokens-table tr:first-child td {
   border-top: 0;
 }

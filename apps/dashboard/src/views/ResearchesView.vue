@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { agentDisplayName } from '../lib/agent-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
@@ -466,7 +467,7 @@ async function save() {
                     :aria-checked="leadType === 'agent' && leadId === agent.id"
                     @click="selectLead('agent', agent.id)"
                   >
-                    {{ agent.name }}
+                    {{ agentDisplayName(agent.name) }}
                   </button>
                   <p
                     v-if="members.isPending.value || agents.isPending.value"

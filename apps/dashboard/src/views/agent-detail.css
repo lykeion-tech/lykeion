@@ -343,6 +343,7 @@
   font-size: 14px;
 }
 .agent-pane .agent-prompt {
+  scrollbar-width: none;
   min-height: 510px;
   padding: 10px;
   border: 1px solid var(--border);
@@ -351,6 +352,15 @@
   font-size: 14px;
   line-height: 1.6;
   resize: vertical;
+}
+.agent-pane .agent-prompt::-webkit-scrollbar {
+  display: none;
+}
+.agent-description-input {
+  scrollbar-width: none;
+}
+.agent-description-input::-webkit-scrollbar {
+  display: none;
 }
 .agent-card {
   margin-bottom: 40px;
@@ -396,11 +406,38 @@
   gap: 17px;
   padding: 16px 17px;
 }
-.agent-execution label {
+.agent-execution label,
+.agent-model-field {
   display: flex;
   flex-direction: column;
   gap: 8px;
   font-size: 12px;
+}
+.coresearch.agent-model-picker {
+  height: auto;
+  background: transparent;
+  --surface-1: var(--surface);
+  --surface-2: var(--input);
+  --ink: var(--text);
+  --ink-subtle: var(--muted);
+  --ink-tertiary: var(--muted);
+  --hairline-strong: var(--border);
+  --type-body: 14px;
+  --type-small: 12px;
+  --type-meta: 12px;
+}
+.agent-model-picker .cli-switcher,
+.agent-model-picker .cli-pill {
+  width: 100%;
+}
+.agent-model-picker .cli-pill {
+  justify-content: space-between;
+  background: var(--surface);
+  color: var(--text);
+  height: 37px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-weight: 400;
 }
 .agent-radios label {
   display: flex;

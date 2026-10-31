@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { agentDisplayName } from '../../lib/agent-name';
 import { computed, ref, watch } from 'vue';
 import { useAnalytics, useResearches } from '../../api/queries';
 import { workspaceId } from '../../api/session';
@@ -255,7 +256,7 @@ const updated = computed(() =>
             <tbody>
               <tr v-for="agent in agents" :key="agent.agent_id ?? 'unattributed'">
                 <td>
-                  {{ agent.agent_id ? agent.name : 'Unattributed'
+                  {{ agent.agent_id ? agentDisplayName(agent.name) : 'Unattributed'
                   }}<small v-if="!agent.agent_id">{{
                     [...agent.roles, ...agent.harnesses].join(' · ')
                   }}</small>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { agentDisplayName } from '../lib/agent-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type {
   InquiryDetail,
@@ -488,7 +489,7 @@ onUnmounted(() => {
           ><select v-model="agentId">
             <option value="">Choose an agent</option>
             <option v-for="agent in state.data?.agents" :key="agent.id" :value="agent.id">
-              {{ agent.name }}
+              {{ agentDisplayName(agent.name) }}
             </option>
           </select>
         </div>
@@ -513,8 +514,8 @@ onUnmounted(() => {
             router.push('/settings/code');
           "
         >
-          <Icon name="settings" :size="14" />PR merge settings</button
-        >
+          <Icon name="settings" :size="14" />PR merge settings
+        </button>
       </div>
       <form v-else @submit.prevent="linkPullRequest">
         <label

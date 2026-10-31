@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import TeamName from './TeamName.vue';
+import { teamDisplayParts } from '../lib/team-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, toRaw } from 'vue';
 import Icon from './Icon.vue';
 import { useAgents, useMe, useTeams } from '../api/queries';
@@ -64,7 +66,9 @@ const name = computed(() => {
   if (!a) return props.agents ? '' : 'Built-in Teams';
   if (!('teams' in a)) return agentList.data.value?.find((x) => x.id === a.id)?.name ?? 'Agent';
   if (isSet.value) return 'Your Team set';
-  return addedTeams.value.find((t) => t.id === a.teams[teamColumns.value[0]!])?.name ?? 'Team';
+  return teamDisplayParts(
+    addedTeams.value.find((t) => t.id === a.teams[teamColumns.value[0]!])?.name ?? 'Team',
+  ).label;
 });
 // A Team with no stage label has no column until the researcher picks one.
 const unstaged = computed(() => teamColumns.value.includes(''));
@@ -181,7 +185,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           role="menuitem"
           @click="assign({ type: 'team', teams: { [t.stage]: t.id } })"
         >
-          <Icon name="bot" :size="14" /><span>{{ t.name }}</span
+          <Icon name="bot" :size="14" /><span><TeamName :name="t.name" /></span
           ><small v-if="t.stage">Built for {{ stageName(t.stage) }}</small
           ><small v-else>No stage label</small>
         </button>
@@ -225,7 +229,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           >{{ stageName(s) }}
           <select v-model="setSlots[s]" :aria-label="`${stageName(s)} Team`">
             <option value="">{{ agents ? 'No Team' : 'Built-in Team' }}</option>
-            <option v-for="t in addedTeams" :key="t.id" :value="t.id">{{ t.name }}</option>
+            <option v-for="t in addedTeams" :key="t.id" :value="t.id">
+              {{ teamDisplayParts(t.name).label }}
+            </option>
           </select>
         </label>
         <label v-if="gaps"

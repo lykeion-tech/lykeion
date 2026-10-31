@@ -10,6 +10,8 @@ import type { AgentRun, Runtime } from '../api/types';
 import { backendLabel } from '../lib/backends';
 import { executionCells, notebookJson, recordedCode } from '../lib/run-transcript';
 import { columnName, roleLabel } from '../lib/studies';
+import { agentDisplayName } from '../lib/agent-name';
+import AgentName from './AgentName.vue';
 
 const props = defineProps<{
   runs: AgentRun[];
@@ -26,7 +28,7 @@ const index = computed(() =>
   ),
 );
 const run = computed(() => props.runs[index.value]!);
-const name = computed(() => run.value.agent_name || roleLabel(run.value.role));
+const name = computed(() => agentDisplayName(run.value.agent_name || roleLabel(run.value.role)));
 function step(by: number) {
   const n = props.runs.length;
   id.value = props.runs[(index.value + by + n) % n]!.id;
@@ -105,7 +107,9 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
     <template #default="{ close }">
       <header class="run-dialog-heading">
         <div class="run-dialog-title">
-          <h2>{{ name }}</h2>
+          <h2>
+            <AgentName :name="run.agent_name || roleLabel(run.role)" :harness="run.harness" />
+          </h2>
         </div>
         <div class="run-dialog-actions">
           <button

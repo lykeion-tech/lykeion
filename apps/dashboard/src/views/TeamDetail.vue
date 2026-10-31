@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TeamName from '../components/TeamName.vue';
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api/client';
@@ -155,13 +156,13 @@ function tabKey(event: KeyboardEvent, index: number) {
       <header class="agent-hero">
         <nav class="agent-crumbs" aria-label="Breadcrumb">
           <RouterLink to="/teams">Teams</RouterLink><span>/</span
-          ><span aria-current="page">{{ manifest.name }}</span>
+          ><span aria-current="page"><TeamName :name="manifest.name" /></span>
         </nav>
         <div class="agent-identity">
           <span class="agent-avatar"><Icon name="network" :size="26" /></span>
           <div>
             <div class="agent-title">
-              <h1>{{ manifest.name }}</h1>
+              <h1><TeamName :name="manifest.name" /></h1>
               <span
                 v-if="store.isSuccess.value"
                 class="agent-status"

@@ -81,6 +81,8 @@ export function boardColumnOf(card: Card): BoardColumn {
     : card.board_column;
 }
 
+export const studyDisplayTitle = (title: string) => title.replace(/\s+\[[a-z][0-9a-f]{12}\]$/i, '');
+
 export const studyNumber = (ws: { display_prefix: string } | undefined, card: { number: number }) =>
   `${ws?.display_prefix || 'LYK'}-${card.number}`;
 

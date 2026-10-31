@@ -13,6 +13,9 @@ import Icon from '../components/Icon.vue';
 import { backends, backendLabel } from '../lib/backends';
 import { matchesQuery } from '../lib/search';
 import { timeAgo } from '../lib/studies';
+import { agentDisplayName } from '../lib/agent-name';
+import AgentName from '../components/AgentName.vue';
+import CliIcon from '../coresearch/CliIcon.vue';
 defineProps<{ create?: boolean }>();
 const list = useAgents(),
   me = useMe(),
@@ -101,7 +104,11 @@ const inTab = (a: AgentDefinition, t: typeof tab.value) =>
 const count = (t: typeof tab.value) => (list.data.value ?? []).filter((a) => inTab(a, t)).length;
 const rows = computed(() =>
   (list.data.value ?? [])
-    .filter((a) => inTab(a, tab.value) && matchesQuery(`${a.name} ${a.description}`, search.value))
+    .filter(
+      (a) =>
+        inTab(a, tab.value) &&
+        matchesQuery(`${a.name} ${agentDisplayName(a.name)} ${a.description}`, search.value),
+    )
     .sort((a, b) => (newestFirst.value ? -1 : 1) * a.updated_at.localeCompare(b.updated_at)),
 );
 const owner = (id: string) => members.data.value?.find((m) => m.user_id === id);
@@ -235,11 +242,11 @@ async function save() {
           ><span class="agent-cell" role="cell"
             ><span class="avatar"
               ><Aristotle v-if="a.built_in_key === 'aristotle'" still /><template v-else>{{
-                a.name[0]
+                agentDisplayName(a.name)[0]
               }}</template></span
             ><span
               ><b
-                >{{ a.name }}<i
+                ><AgentName :name="a.name" :harness="a.harness" /><i
                   v-if="a.owner_id === me.data.value?.id"
                   class="you-badge"
                   >You</i
@@ -259,7 +266,14 @@ async function save() {
               >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
             ></span
           ><span role="cell">{{ a.visibility === 'private' ? 'Owner only' : 'Workspace' }}</span
-          ><span role="cell">{{ backendLabel(a.harness) }}</span
+          ><span role="cell"
+            ><span
+              v-if="a.harness === 'claude' || a.harness === 'codex'"
+              role="img"
+              :aria-label="backendLabel(a.harness)"
+              :title="backendLabel(a.harness)"
+              ><CliIcon :cli="a.harness" /></span
+            ><template v-else>{{ backendLabel(a.harness) }}</template></span
           ><span role="cell">{{ timeAgo(a.updated_at) }}</span></RouterLink
         >
         <p v-if="!rows.length" class="agent-none">No matching agents</p>

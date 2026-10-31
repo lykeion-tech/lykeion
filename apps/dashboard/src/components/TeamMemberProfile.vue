@@ -42,7 +42,7 @@ const harnesses = computed(() =>
       :aria-label="'Edit skills for ' + member.name"
       @click="emit('editSkills')"
     >
-      <Icon name="plus" :size="12" />Edit skills
+      <Icon name="edit" :size="12" />Edit skills
     </button>
     <p v-if="member.connectors?.length" class="member-capabilities">
       Connectors: {{ member.connectors.map((c) => c.catalogue || c.url || c.name).join(', ') }}
@@ -120,6 +120,9 @@ h4 {
   align-items: center;
   gap: 4px;
   margin: 8px 0 0 44px;
+  padding: 0;
+  border: 0;
+  background: none;
   font-size: 12px;
   color: var(--muted);
 }

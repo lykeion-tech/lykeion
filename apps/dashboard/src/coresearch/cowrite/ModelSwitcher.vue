@@ -8,6 +8,8 @@ const props = defineProps<{
   disabled?: boolean;
   cli?: string;
   clis?: string[];
+  label?: string;
+  openUp?: boolean;
 }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:cli': [string] }>();
 const cliLabel = (cli: string) => (cli === 'codex' ? 'Codex' : 'Claude Code');
@@ -21,7 +23,7 @@ const open = ref(false),
 // The menu drops below the pill; where the window has no room for it there,
 // it opens upward as it does from L2's docked composer.
 async function toggle() {
-  up.value = false;
+  up.value = !!props.openUp;
   open.value = !open.value;
   await nextTick();
   const menu = menuEl.value?.getBoundingClientRect?.();
@@ -59,7 +61,9 @@ onUnmounted(() => {
       class="cli-pill"
       :aria-haspopup="cli ? 'dialog' : 'listbox'"
       :aria-expanded="open"
-      :aria-label="cli ? `CLI and model: ${cliLabel(cli)} · ${label}` : `Model: ${label}`"
+      :aria-label="
+        cli ? `CLI and model: ${cliLabel(cli)} · ${label}` : `${props.label || 'Model'}: ${label}`
+      "
       :disabled="disabled"
       @click="toggle"
     >
@@ -88,7 +92,7 @@ onUnmounted(() => {
       class="cli-menu"
       :class="{ 'cli-menu--with-cli': cli }"
       :role="cli ? 'dialog' : 'listbox'"
-      :aria-label="cli ? 'CLI and model' : 'Models'"
+      :aria-label="cli ? 'CLI and model' : props.label ? `${props.label} options` : 'Models'"
       :style="
         up
           ? {
@@ -118,7 +122,9 @@ onUnmounted(() => {
         </div>
         <div class="cli-divider" />
       </template>
-      <div class="cli-menu-head"><span class="cli-menu-eyebrow">Model</span></div>
+      <div class="cli-menu-head">
+        <span class="cli-menu-eyebrow">{{ props.label || 'Model' }}</span>
+      </div>
       <button
         v-for="model in choices"
         :key="model.value"

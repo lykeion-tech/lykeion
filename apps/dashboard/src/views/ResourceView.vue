@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import TeamName from '../components/TeamName.vue';
+import { agentDisplayName } from '../lib/agent-name';
 import { computed, ref, watch } from 'vue';
 import { matchesQuery } from '../lib/search';
 import { useRoute, useRouter } from 'vue-router';
@@ -225,7 +227,7 @@ watch(automaticUpdates, (value) => writeText('lykeion.automatic-updates', String
         >
           <Icon name="users" :size="24" />
           <span
-            >{{ team.name }}<small>{{ team.description }}</small>
+            ><TeamName :name="team.name" /><small>{{ team.description }}</small>
           </span>
           <small class="push-right">{{ team.agentIds.length }} members</small>
         </button>
@@ -407,7 +409,7 @@ watch(automaticUpdates, (value) => writeText('lykeion.automatic-updates', String
               <span>
                 <AvatarDisplay :value="agent.avatar" :size="28" />
                 <span
-                  >{{ agent.name }}<small>{{ agent.role }}</small>
+                  >{{ agentDisplayName(agent.name) }}<small>{{ agent.role }}</small>
                 </span>
               </span>
               <span>{{ agent.status }}</span>

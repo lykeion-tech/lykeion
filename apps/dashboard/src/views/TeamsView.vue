@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import TeamName from '../components/TeamName.vue';
+import { teamDisplayParts } from '../lib/team-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from '../components/Icon.vue';
 import { workspaceId } from '../api/session';
@@ -35,7 +37,12 @@ const everything = useTeams('', '');
 const teams = useTeams(domain, stage);
 const rows = computed(() =>
   (teams.data.value ?? [])
-    .filter((team) => matchesQuery(`${team.name} ${team.manifest.description}`, search.value))
+    .filter((team) =>
+      matchesQuery(
+        `${team.name} ${teamDisplayParts(team.name).label} ${team.manifest.description}`,
+        search.value,
+      ),
+    )
     .sort((a, b) => (newestFirst.value ? -1 : 1) * a.created_at.localeCompare(b.created_at)),
 );
 const domains = computed(() =>
@@ -126,8 +133,8 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
             <td>
               <RouterLink :to="'/teams/' + t.id" class="team-name"
                 ><span class="team-icon"><Icon name="network" :size="18" /></span
-                ><span class="team-label">{{ t.name }}</span></RouterLink
-              >
+                ><span class="team-label"><TeamName :name="t.name" /></span
+              ></RouterLink>
             </td>
             <td>{{ t.domain || '—' }}</td>
             <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>

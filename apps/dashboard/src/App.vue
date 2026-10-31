@@ -6,6 +6,7 @@ import { MessageCircle } from '@lucide/vue';
 import Icon from './components/Icon.vue';
 import SidebarFooter from './components/SidebarFooter.vue';
 import { usePaneResize } from './lib/resize';
+import { studyDisplayTitle } from './lib/studies';
 import Modal from './components/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
 import CommandPalette from './components/CommandPalette.vue';
@@ -156,7 +157,7 @@ const heading = computed(() =>
 const shownCard = computed(() => cards.data.value?.find((c) => c.id === cardId.value));
 const tabTitle = computed(() =>
   shownCard.value
-    ? `${workspace.data.value?.display_prefix ?? ''}-${shownCard.value.number}: ${shownCard.value.title}`
+    ? `${workspace.data.value?.display_prefix ?? ''}-${shownCard.value.number}: ${studyDisplayTitle(shownCard.value.title)}`
     : cowriteShell.value
       ? (currentCoresearchProject.data.value?.name ?? '')
       : (route.meta.tabTitle ?? heading.value),
@@ -568,7 +569,7 @@ onUnmounted(() => {
                   :name="card.ending ? 'check' : 'circle'"
                   :class="card.flag ? 'pinned-blocked' : ''"
                   :size="14"
-                /><span>{{ card.title }}</span></RouterLink
+                /><span>{{ studyDisplayTitle(card.title) }}</span></RouterLink
               ></template
             >
           </section>
