@@ -164,6 +164,11 @@
   width: 100%;
   font-size: 13px;
 }
+.directory-header-action,
+.agent-directory .agent-sort,
+.team-directory .agent-sort {
+  width: 128px;
+}
 .agent-sort {
   margin-left: auto;
   gap: 5px;

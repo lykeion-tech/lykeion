@@ -175,7 +175,7 @@ async function save() {
       </div></template
     ><template v-else
       ><Teleport to="#page-header-actions">
-        <button class="button primary" @click="router.push('/agents/new')">
+        <button class="button primary directory-header-action" @click="router.push('/agents/new')">
           <Icon name="plus" :size="14" />New agent
         </button>
       </Teleport>
@@ -274,7 +274,9 @@ async function save() {
               :title="backendLabel(a.harness)"
               ><CliIcon :cli="a.harness" /></span
             ><template v-else>{{ backendLabel(a.harness) }}</template></span
-          ><span role="cell">{{ timeAgo(a.updated_at) }}</span></RouterLink
+          ><span role="cell"
+            ><span class="directory-last-value">{{ timeAgo(a.updated_at) }}</span></span
+          ></RouterLink
         >
         <p v-if="!rows.length" class="agent-none">No matching agents</p>
       </div>
@@ -341,6 +343,17 @@ async function save() {
 .agent-directory .agent-row > :not(:first-child) {
   text-align: center;
 }
+.agent-directory {
+  --directory-columns: minmax(240px, 1fr) repeat(4, 122px) 128px;
+}
+.agent-directory .agent-row > :last-child {
+  text-align: right;
+}
+.agent-directory .directory-last-value {
+  display: inline-block;
+  width: 80px;
+  text-align: center;
+}
 .agent-directory .agent-owner {
   justify-content: center;
 }
@@ -351,7 +364,7 @@ async function save() {
 }
 
 .agent-directory {
-  padding: 4px 20px 32px;
+  padding: 4px 4px 32px 20px;
 }
 .agent-filter {
   margin-left: auto;

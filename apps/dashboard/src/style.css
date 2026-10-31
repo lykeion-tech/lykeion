@@ -172,6 +172,14 @@
 * {
   box-sizing: border-box;
 }
+/* Keep scrollbar tracks unobtrusive while retaining native scrolling and thumbs. */
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+* {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
 body {
   margin: 0;
   color: var(--text);

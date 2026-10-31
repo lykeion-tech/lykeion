@@ -54,7 +54,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 <template>
   <section class="directory-page directory-table-page team-directory">
     <Teleport to="#page-header-actions">
-      <RouterLink to="/teams/new" class="button primary"
+      <RouterLink to="/teams/new" class="button primary directory-header-action"
         ><Icon name="plus" :size="14" />New Team</RouterLink
       >
     </Teleport>
@@ -139,7 +139,11 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
             <td>{{ t.domain || '—' }}</td>
             <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>
             <td>{{ t.manifest.members.length + 2 }}</td>
-            <td>{{ t.source === 'shipped' ? 'Built in' : t.added ? 'Added' : 'Not added' }}</td>
+            <td>
+              <span class="directory-last-value">{{
+                t.source === 'shipped' ? 'Built in' : t.added ? 'Added' : 'Not added'
+              }}</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -164,7 +168,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 <style src="./directory-table.css" />
 <style scoped>
 .team-directory {
-  padding: 4px 20px 32px;
+  padding: 4px 4px 32px 20px;
 }
 .team-toolbar .agent-sort {
   margin-left: 0;
@@ -208,7 +212,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   margin-top: 12px;
 }
 .team-table tr {
-  grid-template-columns: minmax(300px, 1fr) repeat(3, 120px) 70px;
+  grid-template-columns: minmax(300px, 1fr) repeat(3, 120px) 128px;
   padding-right: 0;
 }
 .team-table th:not(:first-child) {
@@ -216,6 +220,16 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 }
 .team-table td:not(:first-child) {
   justify-content: center;
+  text-align: center;
+}
+.team-table th:last-child {
+  text-align: right;
+}
+.team-table td:last-child {
+  justify-content: flex-end;
+}
+.team-table .directory-last-value {
+  width: 70px;
   text-align: center;
 }
 .team-table-scroll {
