@@ -10,12 +10,12 @@ import {
 import CoresearchList from './views/CoresearchList.vue';
 import AristotleChat from './coresearch/AristotleChat.vue';
 import CoresearchProject from './views/CoresearchProject.vue';
-import TaskBoard from './views/TaskBoard.vue';
+import TaskBoard from './features/studies/TaskBoard.vue';
 import ResearchesView from './features/projects/ResearchesView.vue';
 import AutoresearchView from './features/autoresearch/AutoresearchView.vue';
 import AgentsView from './features/agents/AgentsView.vue';
 import AgentDetail from './features/agents/AgentDetail.vue';
-import TaskDetail from './views/TaskDetail.vue';
+import TaskDetail from './features/studies/TaskDetail.vue';
 import InboxView from './features/inbox/InboxView.vue';
 import ColleaguesView from './views/ColleaguesView.vue';
 import TeamsView from './features/teams/TeamsView.vue';

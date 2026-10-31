@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
-import Icon from '../ui/Icon.vue';
+import Icon from '../../ui/Icon.vue';
 import {
   dateKey as key,
   longDateLabel as label,
@@ -8,7 +8,7 @@ import {
   moveDate,
   parseDateKey as parse,
   weekdayNames as weekdays,
-} from '../lib/dates';
+} from './dates';
 const props = defineProps<{ modelValue: string; kind: 'due' | 'start' }>();
 const emit = defineEmits<{ 'update:modelValue': [value: string]; close: [] }>();
 const initial = parse(props.modelValue),

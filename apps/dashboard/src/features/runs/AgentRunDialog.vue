@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import RunTurn from './RunTurn.vue';
-import StudyEnvironment from '../../components/StudyEnvironment.vue';
+import StudyEnvironment from '../studies/StudyEnvironment.vue';
 import HighlightedSource from './HighlightedSource.vue';
 import { useMembers, useRunMessages } from '../../api/queries';
 import type { AgentRun, Runtime } from '../../api/types';

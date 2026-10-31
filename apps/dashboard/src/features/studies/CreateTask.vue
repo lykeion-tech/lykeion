@@ -1,26 +1,26 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import Modal from '../ui/Modal.vue';
-import ComposerCalendar from '../components/ComposerCalendar.vue';
-import Icon from '../ui/Icon.vue';
-import { api, ApiError } from '../api/client';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
-import { uploadAttachment, useCard, useCards, useMe, useWorkspace } from '../api/queries';
-import { formatSize, useAttachments } from '../lib/attachments';
-import type { Card } from '../api/types';
+import Modal from '../../ui/Modal.vue';
+import ComposerCalendar from './ComposerCalendar.vue';
+import Icon from '../../ui/Icon.vue';
+import { api, ApiError } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
+import { uploadAttachment, useCard, useCards, useMe, useWorkspace } from '../../api/queries';
+import { formatSize, useAttachments } from '../../lib/attachments';
+import type { Card } from '../../api/types';
 import {
   coversExperimentation,
   predicateKeys,
   studyNumber,
   type Picked,
   type Range,
-} from '../lib/studies';
-import { notify } from '../state/notice';
-import type { Assignee } from '../state/task-composer';
-import AssignPicker from '../ui/AssignPicker.vue';
-import MachinePicker from '../features/machines/MachinePicker.vue';
+} from '../../lib/studies';
+import { notify } from '../../state/notice';
+import type { Assignee } from '../../state/task-composer';
+import AssignPicker from '../../ui/AssignPicker.vue';
+import MachinePicker from '../machines/MachinePicker.vue';
 
 const props = defineProps<{ assignee?: Assignee; projectId?: string }>();
 const emit = defineEmits<{ close: [] }>();
@@ -481,7 +481,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
     </form>
   </Modal>
 </template>
-<style scoped src="../ui/composer-menu.css"></style>
+<style scoped src="../../ui/composer-menu.css"></style>
 <style scoped>
 .task-composer {
   width: 578px;

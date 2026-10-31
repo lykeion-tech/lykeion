@@ -10,7 +10,7 @@ import { studyDisplayTitle } from './lib/studies';
 import Modal from './ui/Modal.vue';
 import WorkspaceTabs from './components/WorkspaceTabs.vue';
 import CommandPalette from './ui/CommandPalette.vue';
-import CreateTask from './views/CreateTask.vue';
+import CreateTask from './features/studies/CreateTask.vue';
 import { api, ApiError } from './api/client';
 import { selectWorkspace, workspaceId } from './api/session';
 import DiscardDraftDialog from './components/settings/library/DiscardDraftDialog.vue';

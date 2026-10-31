@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue';
-import { api } from '../api/client';
-import { useKindRecords } from '../api/queries';
-import { workspaceId } from '../api/session';
-import { formatSize } from '../lib/attachments';
-import { columnName } from '../lib/studies';
-import { notify } from '../state/notice';
-import type { StudyRecord } from '../api/types';
+import { api } from '../../api/client';
+import { useKindRecords } from '../../api/queries';
+import { workspaceId } from '../../api/session';
+import { formatSize } from '../../lib/attachments';
+import { columnName } from '../../lib/studies';
+import { notify } from '../../state/notice';
+import type { StudyRecord } from '../../api/types';
 const props = defineProps<{ cardId: string }>();
 const outputs = useKindRecords(() => props.cardId, 'output');
 const downloading = ref('');

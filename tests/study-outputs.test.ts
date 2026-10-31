@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { h, nextTick, ref } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import StudyOutputs from '../apps/dashboard/src/components/StudyOutputs.vue';
+import StudyOutputs from '../apps/dashboard/src/features/studies/StudyOutputs.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { all, createTreeApp, node, textOf } from './daemon-tree';

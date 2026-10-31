@@ -8,7 +8,7 @@ import {
   monthWeeks,
   moveDate,
   parseDateKey,
-} from '../apps/dashboard/src/lib/dates';
+} from '../apps/dashboard/src/features/studies/dates';
 import {
   scheduleCron,
   scheduleError,
@@ -30,7 +30,7 @@ import {
   validCreateFields,
 } from '../apps/dashboard/src/lib/settings';
 import { matchesQuery, paletteEntries, rankPaletteEntries } from '../apps/dashboard/src/lib/search';
-import { environmentView } from '../apps/dashboard/src/lib/environment';
+import { environmentView } from '../apps/dashboard/src/features/studies/environment';
 import type {
   AgentRun,
   Card,

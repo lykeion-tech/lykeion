@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { api } from '../api/client';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
-import type { ColumnRating } from '../api/types';
-import { columnName } from '../lib/studies';
-import { notify } from '../state/notice';
+import { api } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
+import type { ColumnRating } from '../../api/types';
+import { columnName } from '../../lib/studies';
+import { notify } from '../../state/notice';
 
 const props = defineProps<{ cardId: string; offer: ColumnRating }>();
 const client = useQueryClient();

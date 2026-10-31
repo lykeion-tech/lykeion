@@ -1,4 +1,4 @@
-import type { AgentRun, Runtime, StudyRecord } from '../api/types';
+import type { AgentRun, Runtime, StudyRecord } from '../../api/types';
 
 const languages = [
   { key: 'python', name: 'Python' },

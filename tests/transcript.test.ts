@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createSSRApp, h } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import StudyEnvironment from '../apps/dashboard/src/components/StudyEnvironment.vue';
+import StudyEnvironment from '../apps/dashboard/src/features/studies/StudyEnvironment.vue';
 import AgentRunCard from '../apps/dashboard/src/features/runs/AgentRunCard.vue';
 import RunTurn from '../apps/dashboard/src/features/runs/RunTurn.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';

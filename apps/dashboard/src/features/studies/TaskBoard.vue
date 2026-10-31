@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { api } from '../api/client';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
+import { api } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
 import { useRouter } from 'vue-router';
 import { Columns3, List, FunnelX } from '@lucide/vue';
-import Icon from '../ui/Icon.vue';
-import { useCards, useMe, useMembers, useWorkspace } from '../api/queries';
-import type { Card } from '../api/types';
+import Icon from '../../ui/Icon.vue';
+import { useCards, useMe, useMembers, useWorkspace } from '../../api/queries';
+import type { Card } from '../../api/types';
 import {
   blockLabel,
   boardColumns,
@@ -25,10 +25,10 @@ import {
   timeAgo,
   type FilterCategory as Category,
   type StudyFilters,
-} from '../lib/studies';
-import { readJSON, writeJSON } from '../storage';
-import { notify } from '../state/notice';
-import { useTaskComposer } from '../state/task-composer';
+} from '../../lib/studies';
+import { readJSON, writeJSON } from '../../storage';
+import { notify } from '../../state/notice';
+import { useTaskComposer } from '../../state/task-composer';
 const props = withDefaults(defineProps<{ projectId?: string; scope?: 'workspace' | 'mine' }>(), {
   scope: 'workspace',
 });

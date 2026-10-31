@@ -10,7 +10,7 @@ import type { ResearchDetail, Research } from '../../api/types';
 import Icon from '../../ui/Icon.vue';
 import { usePaneResize } from '../../lib/resize';
 import { readText } from '../../storage';
-import TaskBoard from '../../views/TaskBoard.vue';
+import TaskBoard from '../studies/TaskBoard.vue';
 import { useTaskComposer } from '../../state/task-composer';
 const props = defineProps<{ project: ResearchDetail }>();
 defineEmits<{ edit: [] }>();

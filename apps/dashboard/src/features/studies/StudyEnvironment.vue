@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useKindRecords, useRuntimes } from '../api/queries';
-import type { AgentRun } from '../api/types';
-import { environmentView } from '../lib/environment';
+import { useKindRecords, useRuntimes } from '../../api/queries';
+import type { AgentRun } from '../../api/types';
+import { environmentView } from './environment';
 
 const props = defineProps<{ id: string; runs: AgentRun[] }>();
 const runtimes = useRuntimes();

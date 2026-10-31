@@ -130,4 +130,22 @@ describe('the dashboard source layout', () => {
       expect(existsSync(join(src, from)), from).toBe(false);
     }
   });
+
+  it('studies holds its files', () => {
+    const moved = [
+      ['views/TaskBoard.vue', 'features/studies/TaskBoard.vue'],
+      ['views/TaskDetail.vue', 'features/studies/TaskDetail.vue'],
+      ['views/CreateTask.vue', 'features/studies/CreateTask.vue'],
+      ['components/ColumnRating.vue', 'features/studies/ColumnRating.vue'],
+      ['components/StudyOutputs.vue', 'features/studies/StudyOutputs.vue'],
+      ['components/StudyEnvironment.vue', 'features/studies/StudyEnvironment.vue'],
+      ['components/ComposerCalendar.vue', 'features/studies/ComposerCalendar.vue'],
+      ['lib/environment.ts', 'features/studies/environment.ts'],
+      ['lib/dates.ts', 'features/studies/dates.ts'],
+    ];
+    for (const [from, to] of moved) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
 });

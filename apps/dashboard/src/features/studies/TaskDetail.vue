@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import SelectPicker from '../ui/SelectPicker.vue';
+import SelectPicker from '../../ui/SelectPicker.vue';
 import {
   computed,
   defineAsyncComponent,
@@ -11,20 +11,20 @@ import {
   watch,
 } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import Icon from '../ui/Icon.vue';
-import SurfacePane from '../ui/SurfacePane.vue';
-import StudyOutputs from '../components/StudyOutputs.vue';
-import AgentRunCard from '../features/runs/AgentRunCard.vue';
-import TeamName from '../features/teams/TeamName.vue';
-import AgentRunDialog from '../features/runs/AgentRunDialog.vue';
-import ExecutionLog from '../features/runs/ExecutionLog.vue';
-import ColumnRating from '../components/ColumnRating.vue';
-import { api } from '../api/client';
-import { formatSize } from '../lib/attachments';
-import { studyDisplayTitle } from '../lib/studies';
-import { agentDisplayName } from '../lib/agent-name';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
+import Icon from '../../ui/Icon.vue';
+import SurfacePane from '../../ui/SurfacePane.vue';
+import StudyOutputs from './StudyOutputs.vue';
+import AgentRunCard from '../runs/AgentRunCard.vue';
+import TeamName from '../teams/TeamName.vue';
+import AgentRunDialog from '../runs/AgentRunDialog.vue';
+import ExecutionLog from '../runs/ExecutionLog.vue';
+import ColumnRating from './ColumnRating.vue';
+import { api } from '../../api/client';
+import { formatSize } from '../../lib/attachments';
+import { studyDisplayTitle } from '../../lib/studies';
+import { agentDisplayName } from '../../lib/agent-name';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
 import {
   useAgents,
   useResearches,
@@ -38,8 +38,8 @@ import {
   useRuns,
   useRuntimes,
   useWorkspace,
-} from '../api/queries';
-import type { Card, Preregistration } from '../api/types';
+} from '../../api/queries';
+import type { Card, Preregistration } from '../../api/types';
 import {
   actionLabel,
   blockedActions,
@@ -49,17 +49,17 @@ import {
   stateLabel,
   studyNumber,
   transcript,
-} from '../lib/studies';
-import { notify } from '../state/notice';
-import { usePins } from '../state/pins';
-import { readText, writeText } from '../storage';
+} from '../../lib/studies';
+import { notify } from '../../state/notice';
+import { usePins } from '../../state/pins';
+import { readText, writeText } from '../../storage';
 
 const PlainDescription = defineComponent({
   props: { content: { type: String, default: '' } },
   setup: (props) => () => h('p', { class: 'task-description-text' }, props.content),
 });
 const RecordedMarkdown = defineAsyncComponent({
-  loader: () => import('../ui/RecordedMarkdown.vue'),
+  loader: () => import('../../ui/RecordedMarkdown.vue'),
   loadingComponent: PlainDescription,
   errorComponent: PlainDescription,
   delay: 0,

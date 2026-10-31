@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
-import TaskDetail from '../../views/TaskDetail.vue';
+import TaskDetail from '../studies/TaskDetail.vue';
 import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';

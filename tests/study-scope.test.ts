@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { h, nextTick, reactive } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import TaskBoard from '../apps/dashboard/src/views/TaskBoard.vue';
+import TaskBoard from '../apps/dashboard/src/features/studies/TaskBoard.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
