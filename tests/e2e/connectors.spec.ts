@@ -22,7 +22,7 @@ async function catalogue(page: Page, name: string) {
   };
 }
 
-test('catalogue overview shows real readiness and the key stays server-side', async ({ page }) => {
+test('catalogue overview is read-only and the key stays server-side', async ({ page }) => {
   const { headers, saved } = await catalogue(page, 'biogrid');
   expect(saved.policy_enabled).toBe(true);
   expect(saved.enabled).toBe(false);
@@ -118,7 +118,8 @@ test('custom MCP overview is read-only and its configuration stays write-only', 
   const { ws, headers, saved } = await addURL(page, name, 'https://example.test/mcp');
   const dialog = page.getByRole('dialog', { name: `${name} connector`, exact: true });
   await expect(dialog.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
-  await expect(dialog.getByText('Remote URL').first()).toBeVisible();
+  await expect(dialog.locator('.chips').getByText('Remote URL', { exact: true })).toBeVisible();
+  await expect(dialog.locator('dd').getByText('Remote URL', { exact: true })).toBeVisible();
   await expect(dialog.getByText('You', { exact: true })).toBeVisible();
   await expect(dialog.getByText('example.test')).toHaveCount(0);
   await expect(dialog.getByRole('tab')).toHaveCount(0);
@@ -275,7 +276,8 @@ test('connector overview layout follows all supported themes and keyboard focus'
     await page.getByRole('button', { name: 'biogrid', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Close connector', exact: true }).focus();
-    await expect(page.getByRole('button', { name: 'Close connector', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: /View source terms/ })).toBeFocused();
     await page.screenshot({ path: `test-results/connectors/${theme}-detail.png` });
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'biogrid', exact: true })).toBeFocused();
