@@ -649,8 +649,6 @@ func TestAStudyRefusesAgentsTheResearcherCannotUse(t *testing.T) {
 	}{
 		{"archived", a, archived},
 		{"colleague's private agent, as an admin", admin, private.ID},
-		{"Aristotle", a, aristotle},
-		{"a Team member's copy", a, copyID},
 		{"unknown", a, uuid.NewString()},
 	} {
 		var e struct{ Error string }
@@ -661,6 +659,12 @@ func TestAStudyRefusesAgentsTheResearcherCannotUse(t *testing.T) {
 	}
 	if n := s.count(t, "SELECT count(*) FROM card"); n != 1 {
 		t.Fatalf("%d studies, want only the Team study", n)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "team copy solo", "assignee": map[string]any{"type": "agent", "id": copyID}, "scope": grounding}, nil); code != 201 {
+		t.Errorf("a Team member's copy as a solo agent: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "built-in solo", "assignee": map[string]any{"type": "agent", "id": aristotle}, "scope": grounding}, nil); code != 201 {
+		t.Errorf("a built-in agent as a solo agent: %d", code)
 	}
 	shared := s.newAgent(t, b, w.ID, "shared", "claude")
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "shared", "assignee": map[string]any{"type": "agent", "id": shared},

@@ -28,6 +28,7 @@ type Agent struct {
 	ConversationStarters json.RawMessage `json:"conversation_starters"`
 	AvatarUrl            string          `json:"avatar_url"`
 	TeamDeletedAt        *time.Time      `json:"team_deleted_at"`
+	DeletedAt            *time.Time      `json:"deleted_at"`
 }
 
 type AgentRun struct {

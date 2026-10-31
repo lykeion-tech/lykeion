@@ -348,7 +348,8 @@ describe('AssignPicker', () => {
       expect(groups).toEqual(['Teams', 'Team sets', 'One agent']);
       const menu = p.text();
       expect(menu.slice(menu.indexOf('One agent'))).toContain('Solo agent');
-      for (const hidden of ['Aristotle', 'Team copy', 'Colleague private', 'Retired agent'])
+      for (const visible of ['Aristotle', 'Team copy']) expect(menu).toContain(visible);
+      for (const hidden of ['Colleague private', 'Retired agent'])
         expect(menu).not.toContain(hidden);
       const manage = p.nodes().find((n) => textOf(n).trim() === 'Manage agents');
       expect(manage?.props.href).toBe('/agents');

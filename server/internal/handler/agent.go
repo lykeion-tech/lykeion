@@ -313,3 +313,53 @@ func (h *H) archiveAgent(w http.ResponseWriter, r *http.Request) {
 	})
 	agentFail(w, r, err, map[string]any{"agent": out, "cancelled": 0}, 200)
 }
+
+func (h *H) deleteAgent(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
+		a, err := tx.Q.GetAgentForUpdate(r.Context(), db.GetAgentForUpdateParams{WorkspaceID: ws, ID: id})
+		if err != nil {
+			return err
+		}
+		if !agentVisible(r, a, user) {
+			return pgx.ErrNoRows
+		}
+		if a.OwnerID != user && !agentAdmin(r) {
+			return errAgentForbidden
+		}
+		if a.BuiltInKey != "" {
+			return conflict("built-in agents cannot be deleted")
+		}
+		if err := agentInUse(r, tx, id); err != nil {
+			return err
+		}
+		member, err := tx.Q.AgentIsTeamCopy(r.Context(), db.AgentIsTeamCopyParams{WorkspaceID: ws, AgentID: id})
+		if err != nil {
+			return err
+		}
+		if member {
+			return conflict("agents belonging to a Team cannot be deleted")
+		}
+		live, err := tx.Q.AgentHasLiveRuns(r.Context(), db.AgentHasLiveRunsParams{WorkspaceID: ws, AgentID: &id})
+		if err != nil {
+			return err
+		}
+		if live {
+			return conflict("agents with active runs cannot be deleted")
+		}
+		if err := tx.Q.DeleteAgent(r.Context(), db.DeleteAgentParams{WorkspaceID: ws, ID: id}); err != nil {
+			return err
+		}
+		return tx.Emit(r.Context(), "agent.deleted", nil, store.User(user), map[string]any{"agent_id": id})
+	})
+	agentFail(w, r, err, map[string]any{"deleted": true}, 200)
+}

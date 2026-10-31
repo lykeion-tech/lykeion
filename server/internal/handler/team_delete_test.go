@@ -42,6 +42,22 @@ func TestDeleteTeamBlockedWhenInUse(t *testing.T) {
 	}
 }
 
+func TestTeamCopySoloStudyBlocksTeamDeletion(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "team-copy-solo@lab.org")
+	w := s.workspace(t, a, "lab")
+	id := s.addedTeam(t, a, w.ID, "solo-copy", "grounding")
+	var agent string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT agent_id FROM team_agent WHERE pack_id = $1 LIMIT 1`, id).Scan(&agent); err != nil {
+		t.Fatal(err)
+	}
+	s.startStudy(t, a, w.ID, agent, "solo question")
+	if code := s.call(t, "DELETE", "/api/teams/"+id, a, w.ID, nil, nil); code != 409 {
+		t.Fatalf("delete Team with copy working solo: %d", code)
+	}
+}
+
 func TestDeleteBuiltInTeamForbidden(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)

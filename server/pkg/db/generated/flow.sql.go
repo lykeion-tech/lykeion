@@ -121,7 +121,7 @@ func (q *Queries) CountRoundKindRecords(ctx context.Context, arg CountRoundKindR
 }
 
 const getTeamAgent = `-- name: GetTeamAgent :one
-SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at FROM team_agent t JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
+SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at, a.deleted_at FROM team_agent t JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
 WHERE t.workspace_id = $1 AND t.pack_id = $2 AND t.user_id = $3 AND t.member = $4
 `
 
@@ -158,6 +158,7 @@ func (q *Queries) GetTeamAgent(ctx context.Context, arg GetTeamAgentParams) (Age
 		&i.ConversationStarters,
 		&i.AvatarUrl,
 		&i.TeamDeletedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }

@@ -306,6 +306,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/agents", h.createAgent)
 			r.Get("/api/agents/{id}", h.getAgent)
 			r.Patch("/api/agents/{id}", h.updateAgent)
+			r.Delete("/api/agents/{id}", h.deleteAgent)
 			r.Post("/api/agents/{id}/archive", h.archiveAgent)
 			r.Patch("/api/cards/{id}/properties", h.updateCardProperties)
 			r.Get("/api/cards", h.listCards)

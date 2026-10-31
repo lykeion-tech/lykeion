@@ -157,8 +157,7 @@ func studyScope(in newCard) (from, to string, chosen map[string]uuid.UUID, agent
 	return from, to, chosen, nil, nil
 }
 
-// checkStudyAgent refuses an agent the creator may not start a study with:
-// one they cannot assign, a built-in agent, or a Team member's copy.
+// checkStudyAgent refuses an agent the creator may not assign.
 func checkStudyAgent(r *http.Request, tx *store.Tx, ws, creator, id uuid.UUID) error {
 	refused := cardInputError("you can't start a study with this agent")
 	var inputErr cardInputError
@@ -166,20 +165,6 @@ func checkStudyAgent(r *http.Request, tx *store.Tx, ws, creator, id uuid.UUID) e
 		return refused
 	} else if err != nil {
 		return err
-	}
-	a, err := tx.Q.GetAgentForShare(r.Context(), db.GetAgentForShareParams{WorkspaceID: ws, ID: id})
-	if err != nil {
-		return err
-	}
-	if a.BuiltInKey != "" {
-		return refused
-	}
-	copied, err := tx.Q.AgentIsTeamCopy(r.Context(), db.AgentIsTeamCopyParams{WorkspaceID: ws, AgentID: id})
-	if err != nil {
-		return err
-	}
-	if copied {
-		return refused
 	}
 	return nil
 }

@@ -26,6 +26,8 @@ func TestStageTeamsMigration(t *testing.T) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
+	// Undo the later constraint replacement before testing the earlier migration.
+	exec(read("0034_team_deletion.down.sql"))
 	// Back to the state before 0020, then seed what it has to clean up.
 	exec(read("0020_stage_teams.down.sql"))
 

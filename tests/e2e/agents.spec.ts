@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { LAB, labFixture } from './lab';
+import { LAB, labFixture, labPack } from './lab';
 
 const artifacts = 'test-results/ui-lab/agents';
 
@@ -131,6 +131,57 @@ test('New agent opens the starting-point page, and Start blank opens the form', 
   await expect(page).toHaveURL(/#\/agents$/);
 });
 
+test('deletes an unused agent from its detail page', async ({ page }) => {
+  const { headers } = await inFixture(page);
+  const response = await page.request.post('/api/agents', {
+    headers,
+    data: { name: 'Agent to delete', harness: 'claude' },
+  });
+  expect(response.status()).toBe(201);
+  const agent = await response.json();
+  await page.goto('/#/agents/' + agent.id);
+  await expect(page.getByRole('heading', { name: 'Agent to delete' })).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Delete agent' }).click();
+  await expect(page).toHaveURL(/#\/agents$/);
+  await expect(page.getByRole('row').filter({ hasText: 'Agent to delete' })).toHaveCount(0);
+  expect((await page.request.get(`/api/agents/${agent.id}`, { headers })).status()).toBe(404);
+});
+
+test('starts a new study with the viewed agent selected', async ({ page }) => {
+  const { headers } = await inFixture(page);
+  const response = await page.request.post('/api/agents', {
+    headers,
+    data: { name: 'Study agent', harness: 'claude' },
+  });
+  expect(response.status()).toBe(201);
+  const agent = await response.json();
+  await page.goto('/#/agents/' + agent.id);
+  await page.getByRole('button', { name: 'New study' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Study agent');
+});
+
+test('starts a new study with a Team copy or built-in Agent selected', async ({ page }) => {
+  const { f, headers } = await inFixture(page);
+  const team = await labPack(page.request, 'agent-study-team', f.workspace_id, {
+    stage: 'grounding',
+  });
+  const added = await page.request.post(`/api/teams/${team.id}/add`, { headers });
+  expect(added.status()).toBe(200);
+  const copies = await added.json();
+  const bootstrap = await page.request.post('/api/coresearch/bootstrap', { headers });
+  expect(bootstrap.status()).toBe(200);
+  const builtin = (await bootstrap.json()).agent;
+  for (const agent of [copies[0], builtin]) {
+    await page.goto('/#/agents/' + agent.id);
+    await page.getByRole('button', { name: 'New study' }).click();
+    await expect(
+      page.getByRole('dialog').getByRole('button', { name: `Assignee: ${agent.name}` }),
+    ).toBeVisible();
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+  }
+});
+
 test('the agent page shows its studies and edits instructions, profile and access', async ({
   page,
 }) => {
@@ -187,11 +238,11 @@ test('the agent page shows its studies and edits instructions, profile and acces
   await expect.poll(async () => (await read()).visibility).toBe('private');
   await expect(page.locator('.agent-meta')).toContainText('Personal');
 
+  expect((await page.request.delete(`/api/cards/${studyId}`, { headers })).ok()).toBeTruthy();
   page.once('dialog', (d) => d.accept());
-  await page.getByRole('button', { name: 'Agent actions' }).click();
-  await page.getByRole('menuitem', { name: 'Archive agent' }).click();
-  await expect(page.locator('.agent-status')).toHaveText('Archived');
-  await expect(page.getByRole('button', { name: 'Agent actions' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Delete agent' }).click();
+  await expect(page).toHaveURL(/#\/agents$/);
+  await expect(page.getByRole('row').filter({ hasText: 'Methods lead' })).toHaveCount(0);
 });
 
 // Mount the real hidden components directly. No agent connector HTTP route or

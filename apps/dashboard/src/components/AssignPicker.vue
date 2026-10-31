@@ -42,15 +42,11 @@ const addedTeams = computed(() =>
 );
 const stageName = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : '');
 // The owner of the study or Autoresearch is the researcher, so a private agent
-// is offered only to its owner. A study's lone agent is never Aristotle nor an
-// agent inside a Team.
+// is offered only to its owner.
 const assignableAgents = computed(() =>
   props.agents || props.oneAgent
     ? (agentList.data.value ?? []).filter(
-        (a) =>
-          !a.archived_at &&
-          (a.visibility === 'workspace' || a.owner_id === me.data.value?.id) &&
-          (props.agents || (!a.built_in_key && !a.team_member)),
+        (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
       )
     : [],
 );
