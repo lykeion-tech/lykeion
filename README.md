@@ -153,6 +153,4 @@ After changing SQL, regenerate the queries with `GOMAXPROCS=2 go tool sqlc gener
 
 ## Lineage and licences
 
-Lykeion's architecture follows [Multica](https://github.com/multica-ai/multica): a server, a daemon on each person's machine that runs coding-agent CLIs, and workspaces, agents and runtimes. Lykeion adds the science on top, and its code is written independently.
-
 Third-party code and text used in Lykeion are credited in [NOTICE](NOTICE).
