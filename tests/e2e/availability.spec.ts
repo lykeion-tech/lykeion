@@ -104,8 +104,12 @@ test('a stale row toggle reports the real conflict and retries the current revis
   const refused = page.waitForResponse(
     (r) => r.url().includes('/api/availability/skill/') && r.status() === 409,
   );
+  const refetched = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === '/api/skills',
+  );
   await toggle.click();
   await refused;
+  await refetched;
   await expect(page.getByRole('alert')).toContainText('availability changed');
   await expect(toggle).toBeChecked();
   await toggle.click();
