@@ -212,7 +212,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   margin-top: 12px;
 }
 .team-table tr {
-  grid-template-columns: minmax(300px, 1fr) repeat(3, 120px) 128px;
+  grid-template-columns: minmax(300px, 1fr) repeat(3, 120px) 95px;
   padding-right: 0;
 }
 .team-table th:not(:first-child) {
