@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { agentDisplayName } from '../lib/agent-name';
+import { agentDisplayName } from '../../lib/agent-name';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
-import { api } from '../api/client';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
+import { api } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
 import {
   useAgents,
   useCards,
@@ -14,12 +14,12 @@ import {
   useResearch,
   useResearches,
   useWorkspace,
-} from '../api/queries';
-import type { Research } from '../api/types';
-import Modal from '../ui/Modal.vue';
-import ProjectDetail from '../components/ProjectDetail.vue';
-import { timeAgo } from '../lib/studies';
-import Icon from '../ui/Icon.vue';
+} from '../../api/queries';
+import type { Research } from '../../api/types';
+import Modal from '../../ui/Modal.vue';
+import ProjectDetail from './ProjectDetail.vue';
+import { timeAgo } from '../../lib/studies';
+import Icon from '../../ui/Icon.vue';
 const props = defineProps<{ id?: string }>();
 const list = useResearches(),
   detail = useResearch(() => props.id ?? '');
@@ -510,8 +510,8 @@ async function save() {
     </Modal>
   </section>
 </template>
-<style src="../ui/directory.css" />
-<style src="../ui/directory-table.css" />
+<style src="../../ui/directory.css" />
+<style src="../../ui/directory-table.css" />
 
 <style scoped>
 .project-editor {

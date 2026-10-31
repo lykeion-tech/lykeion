@@ -11,7 +11,7 @@ import CoresearchList from './views/CoresearchList.vue';
 import AristotleChat from './coresearch/AristotleChat.vue';
 import CoresearchProject from './views/CoresearchProject.vue';
 import TaskBoard from './views/TaskBoard.vue';
-import ResearchesView from './views/ResearchesView.vue';
+import ResearchesView from './features/projects/ResearchesView.vue';
 import AutoresearchView from './views/AutoresearchView.vue';
 import AgentsView from './views/AgentsView.vue';
 import AgentDetail from './views/AgentDetail.vue';

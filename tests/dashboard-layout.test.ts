@@ -25,4 +25,15 @@ describe('the dashboard source layout', () => {
       expect(existsSync(join(src, from)), from).toBe(false);
     }
   });
+
+  it('projects holds its files', () => {
+    const moved = [
+      ['views/ResearchesView.vue', 'features/projects/ResearchesView.vue'],
+      ['components/ProjectDetail.vue', 'features/projects/ProjectDetail.vue'],
+    ];
+    for (const [from, to] of moved) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
 });
