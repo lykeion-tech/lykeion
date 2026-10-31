@@ -148,7 +148,8 @@ test('current attempt pagination retains every message and compact raw payload a
     await tool.locator('.step-heading').click();
   await expect(tool.locator('.step-output')).toContainText('END OF FULL TOOL INPUT');
   await expect(turn.getByText('Full recorded message', { exact: false })).toHaveCount(0);
-  await expect(turn.locator('.activity-step')).toHaveCount(3);
+  // The status message is not shown, so the tool call and its result are the two steps.
+  await expect(turn.locator('.activity-step')).toHaveCount(2);
   await expect(turn.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
 });
 
