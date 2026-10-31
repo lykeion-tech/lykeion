@@ -195,8 +195,13 @@ test('the model menu stays inside a 900 px viewport', async ({ page }) => {
     }),
   );
   await page.goto('/#/coresearch/new');
-  await page.getByRole('button', { name: 'Model: Default (recommended)', exact: true }).click();
-  const menu = page.getByRole('listbox', { name: 'Models', exact: true });
+  await page
+    .getByRole('button', {
+      name: 'CLI and model: Claude Code · Default (recommended)',
+      exact: true,
+    })
+    .click();
+  const menu = page.getByRole('dialog', { name: 'CLI and model', exact: true });
   await expect(menu).toBeVisible();
   const box = (await menu.boundingBox())!;
   expect(box.y).toBeGreaterThanOrEqual(0);
