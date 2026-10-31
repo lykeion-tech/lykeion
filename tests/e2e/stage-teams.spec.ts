@@ -35,6 +35,14 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   page,
 }) => {
   const ws = await builtInWorkspace(page.request);
+  expect(
+    (
+      await page.request.post('/api/agents', {
+        headers: { 'X-Workspace-ID': ws },
+        data: { name: 'Picker lab agent', harness: 'claude' },
+      })
+    ).status(),
+  ).toBe(201);
   await openIn(page, ws, '/#/studies');
   await expect(page.getByRole('region', { name: 'Grounding', exact: true })).toBeVisible();
   await expect(page.locator('.board-column > header strong')).toHaveText([
@@ -52,8 +60,11 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   await expect(dialog.getByRole('button', { name: 'Assignee: Built-in Teams' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
   const menu = dialog.getByRole('menu');
-  await expect(menu.getByRole('menuitem', { name: /^Hypotheses Team Built/ })).toBeVisible();
-  await expect(menu.getByText('Members', { exact: true })).toHaveCount(0);
+  await expect(
+    menu.getByRole('menuitem', { name: 'Hypotheses Team Built for Hypotheses' }),
+  ).toBeVisible();
+  await expect(menu.getByText('Agents', { exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Picker lab agent' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Unassigned' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
   await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
@@ -66,7 +77,12 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   const response = await saved;
   expect(response.status(), await response.text()).toBe(201);
   expect(response.request().postDataJSON().assignee).toBeUndefined();
-  const study = (await response.json()) as { id: string; board_column: string };
+  const study = (await response.json()) as {
+    id: string;
+    board_column: string;
+    teams: { hypotheses: { name: string } };
+  };
+  expect(study.teams.hypotheses.name).toBe('Hypotheses Team');
   expect(study.board_column).toBe('hypotheses');
   await expect(
     page
@@ -74,9 +90,10 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
       .locator(`[data-card="${study.id}"]`),
   ).toBeVisible();
   await page.goto(`/#/studies/${study.id}`);
-  const cards = page.locator('.agent-card');
-  await expect(cards.filter({ hasText: 'Hypotheses Team' })).not.toHaveCount(0);
-  await expect(cards.filter({ hasNotText: 'Hypotheses Team' })).toHaveCount(0);
+  const stored = (await (
+    await page.request.get(`/api/cards/${study.id}`, { headers: { 'X-Workspace-ID': ws } })
+  ).json()) as { teams: { hypotheses: { name: string } } };
+  expect(stored.teams.hypotheses.name).toBe('Hypotheses Team');
 });
 
 test('a built-in Team is read-only and Duplicate this Team makes an editable copy', async ({
