@@ -56,7 +56,7 @@ test('skills list opens modal C and preserves search', async ({ page }) => {
   await open(page);
   await page.getByRole('searchbox', { name: 'Search skills' }).fill(name);
   await expect(page.getByRole('button', { name: 'All', exact: true })).toHaveCount(0);
-  await expect(page.getByLabel('Current scope: All')).toHaveText('All');
+  await expect(page.getByLabel('Scientific field', { exact: true })).toHaveText('All');
   await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/skills/list-filtered.png' });
   await page.getByRole('button', { name, exact: true }).click();
@@ -69,7 +69,7 @@ test('skills list opens modal C and preserves search', async ({ page }) => {
     dialog.getByRole('navigation', { name: 'Skill files' }).getByRole('button').first(),
   ).toHaveText('SKILL.md');
   await dialog.getByRole('button', { name: 'scripts/check.py', exact: true }).click();
-  await expect(dialog.locator('.file-preview')).toContainText('never executed');
+  await expect(dialog.getByLabel('File preview')).toContainText('never executed');
   await dialog.getByRole('button', { name: 'references/raw.bin', exact: true }).click();
   await expect(dialog.getByText('Binary file', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/skills/files-binary.png' });
@@ -187,7 +187,7 @@ test('bundle is read-only and colleague cannot edit my import', async ({ page, b
   await page.getByRole('button', { name: 'aeon', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('K-Dense');
   await page.getByRole('tab', { name: 'Files', exact: true }).click();
-  await expect(page.getByRole('dialog').locator('.file-preview')).toContainText('aeon');
+  await expect(page.getByRole('dialog').getByLabel('File preview')).toContainText('aeon');
   await expect(page.getByRole('textbox', { name: 'SKILL.md', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
@@ -552,7 +552,7 @@ async function selectedRuntimeSkill(page: Page) {
   await selectPicker(picker, { label: 'lab-mac · Claude Code' });
   const checkbox = page.getByRole('checkbox', { name: 'runtime-review', exact: false });
   await checkbox.check();
-  return { picker, checkbox, runtime: await picker.inputValue() };
+  return { picker, checkbox, runtime: await picker.getAttribute('data-value') };
 }
 
 test('runtime Back preserves selected skills until explicit discard', async ({ page }) => {
@@ -617,7 +617,9 @@ test('skill module-load failure keeps complete safe recorded instructions availa
   await expect(dialog.locator('script,img')).toHaveCount(0);
   expect(await page.evaluate(() => 'skillExecuted' in window)).toBe(false);
   await dialog.getByRole('tab', { name: 'Files', exact: true }).click();
-  await expect(dialog.locator('.file-preview')).toHaveText(content);
+  await expect(dialog.getByLabel('File preview').locator('.recorded-text-fallback')).toHaveText(
+    instructions,
+  );
 });
 
 test('runtime import retries the same job read after an error without resubmitting', async ({
