@@ -34,8 +34,8 @@ test('the sidebar shows the final IT Department order', async ({ page }) => {
   expect(
     names
       .map((name) => name.trim())
-      .filter((name) => ['Teams', 'Agents', 'Autoresearch', 'Machines'].includes(name)),
-  ).toEqual(['Teams', 'Agents', 'Autoresearch', 'Machines']);
+      .filter((name) => ['Teams', 'Agents', 'Autoresearch'].includes(name)),
+  ).toEqual(['Teams', 'Autoresearch', 'Agents']);
   await expect(nav.getByText('IT Department', { exact: true })).toBeVisible();
   await nav.getByRole('link', { name: 'Teams', exact: true }).click();
   await expect(page).toHaveURL(/#\/teams$/);
@@ -108,7 +108,7 @@ test('adding a Team creates its agents', async ({ page }) => {
   await expect(page.getByRole('status')).toContainText('Created 4 agents in your Agents page');
   await page.screenshot({ path: `${shots}/team-added.png` });
   await page.getByRole('link', { name: 'Agents', exact: true }).first().click();
-  await expect(page.getByRole('table', { name: 'Agents' })).toContainText('pi · store-add');
+  await expect(page.getByRole('table', { name: 'Agents' })).toContainText('Pi · store-add');
   await page.goto('/#/teams');
   await expect(page.locator('.team-table tbody tr').filter({ hasText: 'store-add' })).toContainText(
     'Added',
