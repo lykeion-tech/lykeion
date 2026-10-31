@@ -206,6 +206,20 @@ test('the agent page shows its studies and edits instructions, profile and acces
   page,
 }) => {
   const { headers } = await inFixture(page);
+  const meId = (await (await page.request.get('/api/me')).json()).id;
+  await page.route('**/api/runtimes', (r) =>
+    r.fulfill({
+      json: [
+        {
+          id: 'own',
+          owner_id: meId,
+          harness: 'codex',
+          status: 'online',
+          models: [{ value: 'gpt-lab', label: 'GPT Lab' }],
+        },
+      ],
+    }),
+  );
   const agent = await (
     await page.request.post('/api/agents', {
       headers,
@@ -249,10 +263,15 @@ test('the agent page shows its studies and edits instructions, profile and acces
     .getByRole('listbox', { name: 'Harness options' })
     .getByRole('option', { name: 'Codex', exact: true })
     .click();
+  await page.getByRole('button', { name: /^Model:/ }).click();
+  await page
+    .getByRole('listbox', { name: 'Models' })
+    .getByRole('option', { name: 'GPT Lab', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'Methods lead', exact: true })).toBeVisible();
   const saved = await read();
-  expect(saved.harness).toBe('codex');
+  expect([saved.harness, saved.model]).toEqual(['codex', 'gpt-lab']);
   await page.screenshot({ path: `${artifacts}/agent-settings.png` });
 
   await page.getByRole('button', { name: 'Access' }).click();
@@ -490,9 +509,7 @@ test('agent connector edit preserves peer servers and dirty snapshots require ex
   await panel.screenshot({ path: `${artifacts}/agent-connectors-prepared-empty.png` });
 });
 
-test('supported backend selectors persist provider labels', async ({
-  page,
-}) => {
+test('supported backend selectors persist provider labels', async ({ page }) => {
   const { headers } = await inFixture(page);
   for (const [harness, label] of [
     ['claude', 'Claude Code'],
