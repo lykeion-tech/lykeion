@@ -515,7 +515,7 @@ async function save() {
 
 <style scoped>
 .project-editor {
-  width: 676px;
+  width: 800px;
   max-width: calc(100vw - 48px);
   background: var(--modal);
 }

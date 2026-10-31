@@ -36,6 +36,10 @@ test('attach a CSV to a new study, see it listed, download the same bytes', asyn
   await expect(dialog).toHaveCount(0);
 
   await page.getByText(question).first().click();
+  await page
+    .getByRole('complementary', { name: 'Right pane' })
+    .getByRole('button', { name: 'Details', exact: true })
+    .click();
   const list = page.getByRole('list', { name: 'Attached files' });
   await expect(list).toContainText('expression.csv');
   // the file names start where the other details' values do

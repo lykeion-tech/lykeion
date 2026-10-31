@@ -31,8 +31,8 @@ test('the board shows six columns and a new study arriving live in its column', 
     'Hypotheses',
     'Experimentation',
     'Validation',
-    'Blocked',
     'Done',
+    'Blocked',
   ]);
   await expect(page.locator('.task-card')).toHaveCount(0);
   await page.screenshot({ path: `${artifacts}/empty-board.png`, fullPage: true });
@@ -52,7 +52,10 @@ test('the board shows six columns and a new study arriving live in its column', 
 
   await shown.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${artifacts}/populated-board.png`, fullPage: true });
-  await page.getByRole('button', { name: 'Mine' }).click();
+  // The researcher's own study also shows on their personal board.
+  await page.goto('/#/my-studies');
+  await expect(shown).toBeVisible();
+  await page.goto('/#/studies');
   await expect(shown).toBeVisible();
 
   await page.getByRole('button', { name: 'Board' }).click();
@@ -248,7 +251,9 @@ test('long board columns keep their header and cards inside the column while scr
     const board = column.closest('.board-scroll')!;
     const bounds = column.getBoundingClientRect();
     const header = column.querySelector('header')!.getBoundingClientRect();
-    const last = column.querySelector('.task-card:last-of-type')!.getBoundingClientRect();
+    const last = column
+      .querySelector('.study-card:last-of-type .task-card')!
+      .getBoundingClientRect();
     return {
       boardTop: board.getBoundingClientRect().top,
       headerTop: header.top,
