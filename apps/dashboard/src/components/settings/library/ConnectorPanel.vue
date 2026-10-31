@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { workspaceId } from '../../../api/session';
-import { useConnectorLibrary, useWorkspaceMCPServers } from '../../../api/library';
+import {
+  useConnectorLibrary,
+  useOpenAlexConnector,
+  useWorkspaceMCPServers,
+} from '../../../api/library';
 import { useWorkspaces } from '../../../api/queries';
 import { matchesQuery } from '../../../lib/search';
 import Icon from '../../Icon.vue';
@@ -11,14 +15,17 @@ const policy = useAvailabilityChanges();
 import CapabilityList from './CapabilityList.vue';
 import ConnectorDialog from './ConnectorDialog.vue';
 import AddConnectorDialog from './AddConnectorDialog.vue';
+import OpenAlexDialog, { budget } from './OpenAlexDialog.vue';
 const catalogue = useConnectorLibrary(),
   custom = useWorkspaceMCPServers(),
+  openalex = useOpenAlexConnector(),
   workspaces = useWorkspaces();
 const query = ref(''),
   field = ref(''),
   selected = ref(''),
   kind = ref<'catalogue' | 'custom'>('catalogue'),
   showDetail = ref(false),
+  showOpenAlex = ref(false),
   adding = ref(false);
 const allowed = computed(() =>
   ['owner', 'admin'].includes(
@@ -28,6 +35,7 @@ const allowed = computed(() =>
 const fields = computed(() =>
   [
     ...new Set([
+      'Literature',
       ...(catalogue.data.value ?? []).map((c) => c.domain).filter(Boolean),
       ...((custom.data.value ?? []).length ? ['Workspace'] : []),
     ]),
@@ -39,6 +47,13 @@ const scientific = computed(() =>
       matchesQuery(`${c.name} ${c.domain} ${c.purpose}`, query.value) &&
       (!field.value || c.domain === field.value),
   ),
+);
+// OpenAlex is built into the sources server: listed with Literature, with a key
+// and no availability switch.
+const literature = computed(
+  () =>
+    (!field.value || field.value === 'Literature') &&
+    matchesQuery('OpenAlex Literature papers preprints abstracts', query.value),
 );
 const own = computed(() =>
   (custom.data.value ?? []).filter(
@@ -62,6 +77,7 @@ watch(
     selected.value = '';
     showDetail.value = false;
     adding.value = false;
+    showOpenAlex.value = false;
     query.value = '';
     field.value = '';
   },
@@ -84,12 +100,28 @@ watch(
       noun="connectors"
       :loading="catalogue.isPending.value || custom.isPending.value"
       :error="catalogue.error.value?.message || custom.error.value?.message"
-      :count="scientific.length + own.length"
+      :count="scientific.length + own.length + (literature ? 1 : 0)"
       @retry="
         catalogue.refetch();
         custom.refetch();
       "
     >
+      <div v-if="literature" class="connector-entry">
+        <button
+          class="connector-row"
+          :class="{ chosen: showOpenAlex }"
+          aria-label="OpenAlex"
+          @click="showOpenAlex = true"
+        >
+          <div>
+            <strong>OpenAlex</strong>
+            <p>Papers, preprints and abstracts across all fields, arXiv included. Built in.</p>
+          </div>
+          <span class="budget" :class="{ saved: openalex.data.value?.key_set }">{{
+            budget(openalex.data.value?.key_set)
+          }}</span>
+        </button>
+      </div>
       <div v-for="c in scientific" :key="'catalogue:' + c.name" class="connector-entry">
         <button
           class="connector-row"
@@ -134,6 +166,10 @@ watch(
       :connector-id="selected"
       :kind="kind"
       @close="showDetail = false"
+    /><OpenAlexDialog
+      v-if="showOpenAlex"
+      :key="workspaceId + ':openalex'"
+      @close="showOpenAlex = false"
     /><AddConnectorDialog
       v-if="adding"
       :key="workspaceId"
@@ -172,6 +208,21 @@ h3 {
   color: var(--muted);
   line-height: 1.5;
   margin: 0 0 14px;
+}
+.budget {
+  flex: none;
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--recommend-border);
+  background: var(--recommend-bg);
+  color: var(--recommend-text);
+}
+.budget.saved {
+  border-color: var(--border);
+  background: var(--fill-chip);
+  color: var(--text);
 }
 .connector-entry {
   display: flex;

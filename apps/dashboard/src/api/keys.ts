@@ -84,6 +84,7 @@ export const keys = {
   skillFile: (ws: string, id: string, revision: number, path: string) =>
     ['ws', ws, 'skill', id, 'files', revision, path] as const,
   connectors: (ws: string) => ['ws', ws, 'connectors'] as const,
+  openAlex: (ws: string) => ['ws', ws, 'connectors', 'openalex'] as const,
   workspaceMCP: (ws: string) => ['ws', ws, 'mcp-servers'] as const,
   workspaceMCPItem: (ws: string, id: string) => ['ws', ws, 'mcp-server', id] as const,
   runtimeSkillRequest: (ws: string, runtime: string, id: string) =>

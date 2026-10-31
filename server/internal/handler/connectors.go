@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/store"
@@ -78,6 +79,26 @@ func (h *H) listConnectors(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// openAlexConnector shows whether the workspace has saved an OpenAlex key.
+func (h *H) openAlexConnector(w http.ResponseWriter, r *http.Request) {
+	var out connectorView
+	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
+		row, err := tx.Q.GetWorkspaceConnector(r.Context(), db.GetWorkspaceConnectorParams{WorkspaceID: ws, Name: connectors.OpenAlex.Name})
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			out = h.viewOf(connectors.OpenAlex, nil)
+		case err != nil:
+			return err
+		default:
+			out = h.viewOf(connectors.OpenAlex, &row)
+		}
+		return nil
+	})
+	if answer(w, r, err) {
+		writeJSON(w, 200, out)
+	}
+}
+
 type connectorIn struct {
 	Revision         *int64  `json:"revision"`
 	Enabled          *bool   `json:"enabled"`
@@ -88,7 +109,11 @@ type connectorIn struct {
 // setConnector changes one connector for the workspace. A key is sealed at
 // once; it can be replaced or cleared, never read back.
 func (h *H) setConnector(w http.ResponseWriter, r *http.Request) {
-	e, ok := connectors.Get(chi.URLParam(r, "name"))
+	name := chi.URLParam(r, "name")
+	e, ok := connectors.Get(name)
+	if name == connectors.OpenAlex.Name {
+		e, ok = connectors.OpenAlex, true
+	}
 	if !ok {
 		writeErr(w, 404, "no connector of that name")
 		return
@@ -100,6 +125,10 @@ func (h *H) setConnector(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Revision == nil || *in.Revision < 0 {
 		writeErr(w, 400, "revision is required")
+		return
+	}
+	if e.Name == connectors.OpenAlex.Name && (in.Enabled != nil || in.LicenceConfirmed != nil) {
+		writeErr(w, 400, "OpenAlex takes only a key")
 		return
 	}
 	if in.Key != nil && *in.Key != "" {

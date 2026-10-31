@@ -195,6 +195,12 @@ var Catalogue = []Entry{
 	get("zenodo", Literature, Open, "https://zenodo.org/api", 0.5, "https://about.zenodo.org/terms/", "Records, datasets and software deposited in Zenodo."),
 }
 
+// OpenAlex is the sources server's own literature search, not a catalogue
+// connector: a workspace may save a key for it, which raises its daily
+// OpenAlex budget, and nothing else about it is set per workspace.
+var OpenAlex = Entry{Name: "openalex", Domain: Literature, Tier: Key, KeyQuery: "api_key", Keyless: true,
+	Purpose: "Papers, preprints and abstracts across all fields, searched through the sources server."}
+
 func Get(name string) (Entry, bool) {
 	i := slices.IndexFunc(Catalogue, func(e Entry) bool { return e.Name == name })
 	if i < 0 {

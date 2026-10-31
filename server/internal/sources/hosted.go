@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/internal/connectors"
@@ -208,6 +209,31 @@ type OpenOut struct {
 	Structure       string        `json:"structure"`
 }
 
+// openAlex is the OpenAlex client for the role's workspace: under the key
+// the workspace saved, or the server's when it saved none.
+func (h *Hosted) openAlex(ctx context.Context, role middleware.Role) (OpenAlex, error) {
+	oa := h.OA
+	if h.Conn == nil || h.Store == nil {
+		return oa, nil
+	}
+	var sealed []byte
+	err := h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
+		row, err := tx.Q.GetWorkspaceConnector(ctx, db.GetWorkspaceConnectorParams{WorkspaceID: tx.WS, Name: connectors.OpenAlex.Name})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		sealed = row.KeyCiphertext
+		return err
+	})
+	if err != nil || len(sealed) == 0 {
+		return oa, err
+	}
+	if oa.Key, err = h.Conn.Open(role.WorkspaceID, connectors.OpenAlex.Name, sealed); err != nil {
+		return OpenAlex{}, fmt.Errorf("the key saved for `openalex` cannot be read on this server: the workspace owner saves it again in Connectors")
+	}
+	return oa, nil
+}
+
 func ids(hits []Hit) []string {
 	out := make([]string, len(hits))
 	for i, h := range hits {
@@ -224,7 +250,10 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			var err error
 			switch in.Database {
 			case "openalex":
-				hits, err = h.OA.Search(ctx, in.Query)
+				var oa OpenAlex
+				if oa, err = h.openAlex(ctx, role); err == nil {
+					hits, err = oa.Search(ctx, in.Query)
+				}
 			case "europepmc":
 				hits, err = h.EPMC.Search(ctx, in.Query)
 			case "arxiv":
@@ -253,7 +282,10 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			var err error
 			switch dbName {
 			case "openalex":
-				d, err = h.OA.Get(ctx, id)
+				var oa OpenAlex
+				if oa, err = h.openAlex(ctx, role); err == nil {
+					d, err = oa.Get(ctx, id)
+				}
 			case "europepmc":
 				d, err = h.EPMC.Get(ctx, id)
 			case "arxiv":

@@ -464,3 +464,26 @@ func TestTheConnectorToolsAreServedOnlyWithAClient(t *testing.T) {
 		t.Errorf("a server with no connector client offers fetch: %v", got)
 	}
 }
+
+func TestAWorkspaceSearchesOpenAlexUnderItsOwnKey(t *testing.T) {
+	f := newConnFix(t, ok(`{}`))
+	ctx := context.Background()
+	f.h.OA = OpenAlex{Base: "https://api.openalex.test", Key: "server-key-1"}
+	role := middleware.Role{WorkspaceID: f.ws}
+	if oa, err := f.h.openAlex(ctx, role); err != nil || oa.Key != "server-key-1" {
+		t.Fatalf("with no workspace key the server's is used: %q %v", oa.Key, err)
+	}
+	sealed, _ := f.h.Conn.Seal(f.ws, "openalex", "workspace-key-1")
+	f.env.Owner.Exec(ctx, `INSERT INTO workspace_connector (workspace_id, name, key_ciphertext, updated_by) VALUES ($1, 'openalex', $2, $3)`, f.ws, sealed, f.user)
+	if oa, err := f.h.openAlex(ctx, role); err != nil || oa.Key != "workspace-key-1" || oa.Base != f.h.OA.Base {
+		t.Fatalf("the workspace's key: %q %v", oa.Key, err)
+	}
+	if f.h.OA.Key != "server-key-1" {
+		t.Fatal("a workspace's key replaced the server's")
+	}
+	old, _ := (&connectors.Client{Secret: bytes.Repeat([]byte{9}, 32)}).Seal(f.ws, "openalex", "workspace-key-1")
+	f.env.Owner.Exec(ctx, `UPDATE workspace_connector SET key_ciphertext = $2 WHERE workspace_id = $1 AND name = 'openalex'`, f.ws, old)
+	if _, err := f.h.openAlex(ctx, role); err == nil || !strings.Contains(err.Error(), "saves it again in Connectors") {
+		t.Fatalf("a key that no longer opens: %v", err)
+	}
+}

@@ -328,6 +328,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/cards/{id}/ratings/{column}/dismiss", h.dismissRating)
 
 			r.Get("/api/connectors", h.listConnectors)
+			r.Get("/api/connectors/openalex", h.openAlexConnector)
 			r.With(middleware.RequireOwner).Put("/api/connectors/{name}", h.setConnector)
 
 			r.Get("/api/inbox", h.listInbox)

@@ -145,3 +145,42 @@ func TestConnectorPolicyIsSeparateFromReadiness(t *testing.T) {
 		t.Fatalf("policy must not imply readiness: %+v", saved)
 	}
 }
+
+func TestOwnersSaveTheWorkspacesOpenAlexKey(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	var v connectorView
+	if code := s.call(t, "GET", "/api/connectors/openalex", b, w.ID, nil, &v); code != 200 || v.KeySet || !v.TakesKey || !v.Enabled || v.Revision != 0 {
+		t.Fatalf("a member reads OpenAlex's state: %d %+v", code, v)
+	}
+	const key = "oa-key-1234567"
+	if code := s.call(t, "PUT", "/api/connectors/openalex", b, w.ID, map[string]any{"revision": 0, "key": key}, nil); code != 403 {
+		t.Fatalf("a member set the key: %d", code)
+	}
+	var got json.RawMessage
+	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 0, "key": key}, &got); code != 200 ||
+		strings.Contains(string(got), key) || !strings.Contains(string(got), `"key_set":true`) {
+		t.Fatalf("save the key: %d %s", code, got)
+	}
+	s.call(t, "GET", "/api/connectors/openalex", b, w.ID, nil, &got)
+	if strings.Contains(string(got), key) || !strings.Contains(string(got), `"key_set":true`) {
+		t.Fatalf("read back: %s", got)
+	}
+	var list []connectorView
+	s.call(t, "GET", "/api/connectors", a, w.ID, nil, &list)
+	for _, c := range list {
+		if c.Name == "openalex" {
+			t.Fatal("OpenAlex joined the connector catalogue")
+		}
+	}
+	for _, body := range []map[string]any{{"revision": 1, "enabled": false}, {"revision": 1, "licence_confirmed": true}} {
+		if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, body, nil); code != 400 {
+			t.Errorf("PUT %v: %d, want 400", body, code)
+		}
+	}
+	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 1, "key": ""}, &v); code != 200 || v.KeySet {
+		t.Fatalf("clear the key: %d %+v", code, v)
+	}
+}

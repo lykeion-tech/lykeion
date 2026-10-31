@@ -66,6 +66,17 @@ function libraryList<T>(key: (workspace: string) => readonly unknown[], path: st
 export const useSkillLibrary = () => libraryList<SkillSummary>(keys.skills, '/api/skills');
 export const useConnectorLibrary = () =>
   libraryList<ConnectorSummary>(keys.connectors, '/api/connectors');
+// The sources server's OpenAlex search: only whether the workspace saved a key.
+export const useOpenAlexConnector = () =>
+  useQuery({
+    queryKey: computed(() => keys.openAlex(ws.value)),
+    queryFn: ({ queryKey, signal }) =>
+      api<ConnectorSummary>('GET', '/api/connectors/openalex', undefined, undefined, {
+        workspace: queryKey[1],
+        signal,
+      }),
+    enabled: computed(() => Boolean(ws.value)),
+  });
 export const useWorkspaceMCPServers = () =>
   libraryList<WorkspaceMcpSummary>(keys.workspaceMCP, '/api/mcp-servers');
 
