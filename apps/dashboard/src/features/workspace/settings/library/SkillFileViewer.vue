@@ -84,6 +84,10 @@ watch(
 </template>
 
 <style scoped>
+.recorded-text-fallback {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .file-viewer {
   min-width: 0;
   border: 1px solid var(--border);
