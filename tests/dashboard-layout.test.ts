@@ -36,4 +36,16 @@ describe('the dashboard source layout', () => {
       expect(existsSync(join(src, from)), from).toBe(false);
     }
   });
+
+  it('autoresearch holds its files', () => {
+    const moved = [
+      ['views/AutoresearchView.vue', 'features/autoresearch/AutoresearchView.vue'],
+      ['components/AutoresearchRunDialog.vue', 'features/autoresearch/AutoresearchRunDialog.vue'],
+      ['lib/schedule.ts', 'features/autoresearch/schedule.ts'],
+    ];
+    for (const [from, to] of moved) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
 });

@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../ui/Icon.vue';
 import TaskDetail from './TaskDetail.vue';
-import AutoresearchRunDialog from '../components/AutoresearchRunDialog.vue';
+import AutoresearchRunDialog from '../features/autoresearch/AutoresearchRunDialog.vue';
 import { api } from '../api/client';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';

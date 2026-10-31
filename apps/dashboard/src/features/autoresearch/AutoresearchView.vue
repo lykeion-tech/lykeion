@@ -4,27 +4,27 @@ import { ref } from 'vue';
 const freshWebhooks = ref<Record<string, string>>({});
 </script>
 <script setup lang="ts">
-import SelectPicker from '../ui/SelectPicker.vue';
+import SelectPicker from '../../ui/SelectPicker.vue';
 import { computed, reactive, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
-import { api } from '../api/client';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
+import { api } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
 import {
   useAgents,
   useAutoresearch,
   useAutoresearches,
   useAutoresearchRuns,
   useMe,
-} from '../api/queries';
-import type { Autoresearch } from '../api/types';
-import { columnName, type Picked, type Range } from '../lib/studies';
-import Modal from '../ui/Modal.vue';
-import AutoresearchRunDialog from '../components/AutoresearchRunDialog.vue';
-import Icon from '../ui/Icon.vue';
-import AssignPicker from '../ui/AssignPicker.vue';
-import TimeZonePicker from '../ui/TimeZonePicker.vue';
+} from '../../api/queries';
+import type { Autoresearch } from '../../api/types';
+import { columnName, type Picked, type Range } from '../../lib/studies';
+import Modal from '../../ui/Modal.vue';
+import AutoresearchRunDialog from './AutoresearchRunDialog.vue';
+import Icon from '../../ui/Icon.vue';
+import AssignPicker from '../../ui/AssignPicker.vue';
+import TimeZonePicker from '../../ui/TimeZonePicker.vue';
 import {
   scheduleCron,
   scheduleError,
@@ -32,8 +32,8 @@ import {
   toggleWeekday,
   weekdayAbbreviations,
   type Schedule,
-} from '../lib/schedule';
-import { notify } from '../state/notice';
+} from './schedule';
+import { notify } from '../../state/notice';
 
 const props = defineProps<{ id?: string }>();
 const list = useAutoresearches(),
@@ -513,7 +513,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
     >
   </section>
 </template>
-<style src="../ui/directory.css" />
+<style src="../../ui/directory.css" />
 <style scoped>
 .autoresearch-content {
   display: flex;

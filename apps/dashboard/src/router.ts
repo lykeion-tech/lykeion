@@ -12,7 +12,7 @@ import AristotleChat from './coresearch/AristotleChat.vue';
 import CoresearchProject from './views/CoresearchProject.vue';
 import TaskBoard from './views/TaskBoard.vue';
 import ResearchesView from './features/projects/ResearchesView.vue';
-import AutoresearchView from './views/AutoresearchView.vue';
+import AutoresearchView from './features/autoresearch/AutoresearchView.vue';
 import AgentsView from './views/AgentsView.vue';
 import AgentDetail from './views/AgentDetail.vue';
 import TaskDetail from './views/TaskDetail.vue';

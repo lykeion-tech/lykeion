@@ -16,7 +16,7 @@ import {
   scheduleSummary,
   toggleWeekday,
   type Schedule,
-} from '../apps/dashboard/src/lib/schedule';
+} from '../apps/dashboard/src/features/autoresearch/schedule';
 import {
   connectorConfig,
   connectorFields,
