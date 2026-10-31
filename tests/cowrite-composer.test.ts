@@ -3,7 +3,7 @@ import { h, nextTick } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
-import AristotleChat from '../apps/dashboard/src/coresearch/AristotleChat.vue';
+import AristotleChat from '../apps/dashboard/src/features/coresearch/AristotleChat.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import {
@@ -12,9 +12,9 @@ import {
   takeComposerContinuation,
   clearComposerContinuation,
   newComposerDraft,
-} from '../apps/dashboard/src/coresearch/aristotle';
+} from '../apps/dashboard/src/features/coresearch/aristotle';
 import { authenticationLost, authenticationRestored } from '../apps/dashboard/src/api/auth-loss';
-vi.mock('../apps/dashboard/src/components/Aristotle.vue', () => ({
+vi.mock('../apps/dashboard/src/features/coresearch/Aristotle.vue', () => ({
   default: { render: () => null },
 }));
 const cleanups: (() => void)[] = [];

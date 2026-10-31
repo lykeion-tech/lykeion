@@ -2,14 +2,14 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { h, nextTick } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import AristotleChat from '../apps/dashboard/src/coresearch/AristotleChat.vue';
-import ConversationRail from '../apps/dashboard/src/coresearch/ConversationRail.vue';
-import { conversationKey } from '../apps/dashboard/src/coresearch/aristotle';
+import AristotleChat from '../apps/dashboard/src/features/coresearch/AristotleChat.vue';
+import ConversationRail from '../apps/dashboard/src/features/coresearch/ConversationRail.vue';
+import { conversationKey } from '../apps/dashboard/src/features/coresearch/aristotle';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { discardDialog, resolveDiscard } from '../apps/dashboard/src/state/resource-draft';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
-vi.mock('../apps/dashboard/src/components/Aristotle.vue', () => ({
+vi.mock('../apps/dashboard/src/features/coresearch/Aristotle.vue', () => ({
   default: { render: () => null },
 }));
 vi.hoisted(() =>

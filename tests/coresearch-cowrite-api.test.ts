@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { h, nextTick, ref } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import * as cowrite from '../apps/dashboard/src/coresearch/cowrite/api';
+import * as cowrite from '../apps/dashboard/src/features/coresearch/cowrite/api';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { invalidationsFor } from '../apps/dashboard/src/api/realtime';
 import { workspaceId } from '../apps/dashboard/src/api/session';

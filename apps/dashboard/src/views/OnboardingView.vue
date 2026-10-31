@@ -2,7 +2,7 @@
 import { computed, inject, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
-import Aristotle from '../components/Aristotle.vue';
+import Aristotle from '../features/coresearch/Aristotle.vue';
 import Icon from '../ui/Icon.vue';
 import CapabilityList from '../components/settings/library/CapabilityList.vue';
 import { useSkillLibrary, useConnectorLibrary, useWorkspaceMCPServers } from '../api/library';

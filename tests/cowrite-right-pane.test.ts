@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { h, nextTick, type Component } from 'vue';
 import { createTreeApp, node, all, textOf } from './daemon-tree';
-import CowriteRightPane from '../apps/dashboard/src/coresearch/cowrite/CowriteRightPane.vue';
-import ProjectInfoPane from '../apps/dashboard/src/coresearch/cowrite/ProjectInfoPane.vue';
-import ComputePanel from '../apps/dashboard/src/coresearch/cowrite/ComputePanel.vue';
-import CommentsPane from '../apps/dashboard/src/coresearch/cowrite/CommentsPane.vue';
-import CowriteSidebar from '../apps/dashboard/src/coresearch/cowrite/CowriteSidebar.vue';
+import CowriteRightPane from '../apps/dashboard/src/features/coresearch/cowrite/CowriteRightPane.vue';
+import ProjectInfoPane from '../apps/dashboard/src/features/coresearch/cowrite/ProjectInfoPane.vue';
+import ComputePanel from '../apps/dashboard/src/features/coresearch/cowrite/ComputePanel.vue';
+import CommentsPane from '../apps/dashboard/src/features/coresearch/cowrite/CommentsPane.vue';
+import CowriteSidebar from '../apps/dashboard/src/features/coresearch/cowrite/CowriteSidebar.vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 const cleanup: (() => void)[] = [];

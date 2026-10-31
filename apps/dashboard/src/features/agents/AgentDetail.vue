@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router';
-import Aristotle from '../../components/Aristotle.vue';
-import { defaultStarters, type Starter } from '../../coresearch/aristotle';
+import Aristotle from '../coresearch/Aristotle.vue';
+import { defaultStarters, type Starter } from '../coresearch/aristotle';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../../api/client';
@@ -33,8 +33,8 @@ import {
 } from '../../lib/studies';
 import { notify } from '../../state/notice';
 import { agentNameWithoutCli } from '../../lib/agent-name';
-import ModelSwitcher from '../../coresearch/cowrite/ModelSwitcher.vue';
-import '../../coresearch/l2.css';
+import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
+import '../coresearch/l2.css';
 
 const props = defineProps<{ id: string }>();
 const route = useRoute();

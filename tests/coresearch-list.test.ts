@@ -3,9 +3,9 @@ import { h, nextTick } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { readFileSync } from 'node:fs';
-import CoresearchList from '../apps/dashboard/src/views/CoresearchList.vue';
-import CoresearchStarter from '../apps/dashboard/src/coresearch/CoresearchStarter.vue';
-import { ownOnlineClis, titleFromPrompt } from '../apps/dashboard/src/coresearch/api';
+import CoresearchList from '../apps/dashboard/src/features/coresearch/CoresearchList.vue';
+import CoresearchStarter from '../apps/dashboard/src/features/coresearch/CoresearchStarter.vue';
+import { ownOnlineClis, titleFromPrompt } from '../apps/dashboard/src/features/coresearch/api';
 import { invalidationsFor } from '../apps/dashboard/src/api/realtime';
 import type { LykEvent } from '../apps/dashboard/src/api/types';
 import { keys } from '../apps/dashboard/src/api/keys';
@@ -291,8 +291,8 @@ describe('Coresearch API wiring', () => {
 
 it('loads the scoped full stylesheet without a later resetting token import', () => {
   for (const file of [
-    'apps/dashboard/src/coresearch/CoresearchStarter.vue',
-    'apps/dashboard/src/views/CoresearchList.vue',
+    'apps/dashboard/src/features/coresearch/CoresearchStarter.vue',
+    'apps/dashboard/src/features/coresearch/CoresearchList.vue',
   ]) {
     expect(readFileSync(file, 'utf8')).not.toContain('l2-tokens.css');
   }

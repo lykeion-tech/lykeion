@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import CliIcon from '../../coresearch/CliIcon.vue';
+import CliIcon from '../coresearch/CliIcon.vue';
 import { backendLabel } from '../../lib/backends';
 import { teamDisplayParts } from '../../lib/team-name';
 const props = defineProps<{ name: string }>();

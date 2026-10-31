@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { h, nextTick, type Component } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import FilesPane from '../apps/dashboard/src/coresearch/FilesPane.vue';
+import FilesPane from '../apps/dashboard/src/features/coresearch/FilesPane.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import {

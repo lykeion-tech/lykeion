@@ -1,11 +1,11 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { h, nextTick, type Component } from 'vue';
 import { createTreeApp, node, all, textOf } from './daemon-tree';
-import ManuscriptFiles from '../apps/dashboard/src/coresearch/cowrite/ManuscriptFiles.vue';
-import Outline from '../apps/dashboard/src/coresearch/cowrite/Outline.vue';
-import SelectionToolbar from '../apps/dashboard/src/coresearch/cowrite/SelectionToolbar.vue';
-import CowriteSidebar from '../apps/dashboard/src/coresearch/cowrite/CowriteSidebar.vue';
-import { outlineOf } from '../apps/dashboard/src/coresearch/cowrite/lib/manuscript';
+import ManuscriptFiles from '../apps/dashboard/src/features/coresearch/cowrite/ManuscriptFiles.vue';
+import Outline from '../apps/dashboard/src/features/coresearch/cowrite/Outline.vue';
+import SelectionToolbar from '../apps/dashboard/src/features/coresearch/cowrite/SelectionToolbar.vue';
+import CowriteSidebar from '../apps/dashboard/src/features/coresearch/cowrite/CowriteSidebar.vue';
+import { outlineOf } from '../apps/dashboard/src/features/coresearch/cowrite/lib/manuscript';
 import {
   guardResourceDrafts,
   registerDraftVisit,

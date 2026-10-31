@@ -5,7 +5,7 @@ import {
   acceptanceRequest,
   defaultStarters,
   restoreConversation,
-} from '../apps/dashboard/src/coresearch/aristotle';
+} from '../apps/dashboard/src/features/coresearch/aristotle';
 describe('Aristotle request and restoration state', () => {
   it('retains a UUID on transport retry, replaces it after edits or target changes', () => {
     const first = acceptanceRequest(null, 'question', '');

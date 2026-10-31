@@ -15,7 +15,7 @@ const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
 if (revision !== 'dc21df94e8c9afe81ddcdac463cdde8d35d53c88')
   throw new Error('Use the pinned L2 revision');
 const ui = join(source, 'packages/ui');
-const output = join(root, 'apps/dashboard/src/coresearch');
+const output = join(root, 'apps/dashboard/src/features/coresearch');
 await mkdir(join(output, 'fonts'), { recursive: true });
 const entry = join(ui, '.coresearch-css-entry.css');
 const compiled = join(ui, '.coresearch-css-output.css');
@@ -127,7 +127,7 @@ try {
   await writeFile(
     entry,
     imports.map((p) => `@import "./src/${p}";`).join('\n') +
-      `\n@source "./src";\n@source "${join(root, 'apps/dashboard/src/coresearch/**')}";\n@source "${join(root, 'apps/dashboard/src/views/CoresearchList.vue')}";\n@source "${join(root, 'apps/dashboard/src/views/CoresearchProject.vue')}";\n`,
+      `\n@source "./src";\n@source "${join(root, 'apps/dashboard/src/features/coresearch/**')}";\n@source "${join(root, 'apps/dashboard/src/features/coresearch/CoresearchList.vue')}";\n@source "${join(root, 'apps/dashboard/src/features/coresearch/CoresearchProject.vue')}";\n`,
   );
   execFileSync('npx', ['--yes', '@tailwindcss/cli@4.3.3', '-i', entry, '-o', compiled], {
     cwd: ui,

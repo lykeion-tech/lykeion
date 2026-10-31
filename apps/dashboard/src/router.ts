@@ -7,9 +7,9 @@ import {
 } from 'vue-router';
 
 // The board is the landing route and loads eagerly.
-import CoresearchList from './views/CoresearchList.vue';
-import AristotleChat from './coresearch/AristotleChat.vue';
-import CoresearchProject from './views/CoresearchProject.vue';
+import CoresearchList from './features/coresearch/CoresearchList.vue';
+import AristotleChat from './features/coresearch/AristotleChat.vue';
+import CoresearchProject from './features/coresearch/CoresearchProject.vue';
 import TaskBoard from './features/studies/TaskBoard.vue';
 import ResearchesView from './features/projects/ResearchesView.vue';
 import AutoresearchView from './features/autoresearch/AutoresearchView.vue';

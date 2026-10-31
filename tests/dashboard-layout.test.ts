@@ -148,4 +148,19 @@ describe('the dashboard source layout', () => {
       expect(existsSync(join(src, from)), from).toBe(false);
     }
   });
+
+  it('coresearch holds its files', () => {
+    const moved = [
+      ['coresearch/l2.css', 'features/coresearch/l2.css'],
+      ['coresearch/cowrite/Editor.vue', 'features/coresearch/cowrite/Editor.vue'],
+      ['views/CoresearchList.vue', 'features/coresearch/CoresearchList.vue'],
+      ['views/CoresearchProject.vue', 'features/coresearch/CoresearchProject.vue'],
+      ['components/Aristotle.vue', 'features/coresearch/Aristotle.vue'],
+      ['lib/element-width.ts', 'features/coresearch/element-width.ts'],
+    ];
+    for (const [from, to] of moved) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
 });

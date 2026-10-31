@@ -13,7 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@lykeion/api': fileURLToPath(
-        new URL('./src/coresearch/cowrite/lib/l2-api.ts', import.meta.url),
+        new URL('./src/features/coresearch/cowrite/lib/l2-api.ts', import.meta.url),
       ),
     },
   },

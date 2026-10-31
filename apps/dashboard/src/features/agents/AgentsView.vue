@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import SelectPicker from '../../ui/SelectPicker.vue';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
-import Aristotle from '../../components/Aristotle.vue';
+import Aristotle from '../coresearch/Aristotle.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
@@ -12,8 +12,8 @@ import { workspaceId } from '../../api/session';
 import type { AgentDefinition } from '../../api/types';
 import Modal from '../../ui/Modal.vue';
 import Icon from '../../ui/Icon.vue';
-import ModelSwitcher from '../../coresearch/cowrite/ModelSwitcher.vue';
-import '../../coresearch/l2.css';
+import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
+import '../coresearch/l2.css';
 import { backends, backendLabel } from '../../lib/backends';
 import { matchesQuery } from '../../lib/search';
 import { timeAgo } from '../../lib/studies';

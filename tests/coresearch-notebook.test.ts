@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { h, nextTick, type Component } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import NotebookPane from '../apps/dashboard/src/coresearch/NotebookPane.vue';
-import ComputePane from '../apps/dashboard/src/coresearch/ComputePane.vue';
+import NotebookPane from '../apps/dashboard/src/features/coresearch/NotebookPane.vue';
+import ComputePane from '../apps/dashboard/src/features/coresearch/ComputePane.vue';
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
-import { chatRuntime } from '../apps/dashboard/src/coresearch/notebook-model';
+import { chatRuntime } from '../apps/dashboard/src/features/coresearch/notebook-model';
 import type { Runtime } from '../apps/dashboard/src/api/types';
-import type { ChatRow } from '../apps/dashboard/src/coresearch/types';
+import type { ChatRow } from '../apps/dashboard/src/features/coresearch/types';
 vi.hoisted(() => {
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,

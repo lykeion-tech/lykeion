@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
 import RunTimeline from './RunTimeline.vue';
-import CopyButton from '../../coresearch/CopyButton.vue';
+import CopyButton from '../coresearch/CopyButton.vue';
 import { liveStatus, transcriptBlocks, visibleTranscriptMessages } from './run-transcript';
 import { useRunMessages } from '../../api/queries';
 import type { AgentRun } from '../../api/types';
