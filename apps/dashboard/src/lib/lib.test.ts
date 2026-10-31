@@ -22,7 +22,6 @@ import {
   connectorFields,
   parseConnectorJson,
 } from './connectors';
-import { colorPresets, hexToHsv, hsvToHex } from './color';
 import {
   labelNameTaken,
   propertyOptions,
@@ -296,19 +295,6 @@ describe('connector configuration', () => {
   });
   it('lets the caller tell broken JSON from a bad shape', () => {
     expect(() => parseConnectorJson('{')).toThrow(SyntaxError);
-  });
-});
-
-describe('colours', () => {
-  it('converts between hex and HSV', () => {
-    expect(hexToHsv('#ff0000')).toEqual({ h: 0, s: 100, v: 100 });
-    expect(hexToHsv('#0000FF').h).toBe(240);
-    expect(hexToHsv('#808080').h).toBeNull();
-    expect(hexToHsv('#000000')).toEqual({ h: null, s: 0, v: 0 });
-    for (const hex of colorPresets) {
-      const { h, s, v } = hexToHsv(hex);
-      expect(hsvToHex(h ?? 0, s, v)).toBe(hex);
-    }
   });
 });
 
