@@ -1,4 +1,4 @@
-import type { Page, WebSocketRoute } from '@playwright/test';
+import { expect, type Page, type WebSocketRoute } from '@playwright/test';
 export const bootstrapRecord = (user = 'me') => ({
   agent: {
     id: 'aristotle',
@@ -308,11 +308,14 @@ export async function installFilesFixture(
   };
 }
 export async function openSavedFile(page: Page, name: string) {
-  const close = page.getByRole('button', { name: 'Close pane', exact: true });
-  if (!(await close.isVisible()))
-    await page.getByRole('button', { name: 'Open experiment surfaces', exact: true }).click();
+  const open = page.getByRole('button', { name: 'Open experiment surfaces', exact: true });
   const back = page.getByRole('button', { name: 'Back to surfaces', exact: true });
+  const files = page.getByRole('button', { name: 'Files', exact: true });
+  const close = page.getByRole('button', { name: 'Close pane', exact: true });
+  await expect(open.or(close).first()).toBeVisible();
+  if (!(await close.isVisible())) await open.click();
+  await expect(back.or(files).first()).toBeVisible();
   if (await back.isVisible()) await back.click();
-  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  await files.click();
   await page.getByRole('button', { name, exact: true }).click();
 }
