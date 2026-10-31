@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -35,6 +36,7 @@ func fakeAPIs(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/epmc/PMC1/fullTextXML", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<article><body><p>X raised Y by 40% in mice.</p></body></article>`))
 	})
+	mux.HandleFunc("/ax/query", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(arxivFeed)) })
 	mux.HandleFunc("/geo/esearch.fcgi", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"esearchresult":{"idlist":["200001"]}}`))
 	})
@@ -61,7 +63,7 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 	api := fakeAPIs(t)
 	st := &store.Store{Pool: env.App}
 	blobs := storage.Local{Dir: t.TempDir()}
-	h := &Hosted{OA: OpenAlex{Base: api.URL + "/oa"}, EPMC: EuropePMC{Base: api.URL + "/epmc"}, GEO: GEO{Base: api.URL + "/geo"}, Store: st, Blobs: blobs}
+	h := &Hosted{OA: OpenAlex{Base: api.URL + "/oa"}, EPMC: EuropePMC{Base: api.URL + "/epmc"}, GEO: GEO{Base: api.URL + "/geo"}, AX: &Arxiv{Base: api.URL + "/ax", Gap: time.Millisecond}, Store: st, Blobs: blobs}
 
 	// a running agent run for a card, with its token
 	ctx := context.Background()
@@ -104,6 +106,8 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 		{"search_literature", map[string]any{"database": "europepmc", "query": "x y"}},
 		{"fetch_text", map[string]any{"source_id": "europepmc:PMC1"}},
 		{"fetch_text", map[string]any{"source_id": "openalex:W2"}},
+		{"search_literature", map[string]any{"database": "arxiv", "query": "attention"}},
+		{"fetch_text", map[string]any{"source_id": "arxiv:1706.03762"}},
 		{"open_dataset", map[string]any{"accession": "GSE1"}},
 	} {
 		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: c.name, Arguments: c.args})
@@ -134,10 +138,13 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 		}](f).FullText {
 			t.Errorf("fetch not recorded: %+v %q", f, txt)
 		}
+		if ax, ok := v.ByKey("fetch", "arxiv:1706.03762"); !ok || records.Body[struct{ Database string }](ax).Database != "arxiv" {
+			t.Errorf("arXiv fetch not recorded: %+v", ax)
+		}
 		if w2, _ := v.ByKey("fetch", "openalex:W2"); !records.Body[struct{ Retracted bool }](w2).Retracted {
 			t.Error("retraction not recorded")
 		}
-		if s, _ := v.Latest("search"); records.Body[struct{ Database, Query string }](s).Database != "europepmc" {
+		if s, _ := v.Latest("search"); records.Body[struct{ Database, Query string }](s).Database != "arxiv" {
 			t.Errorf("search not recorded: %+v", s)
 		}
 		d, ok := v.ByKey("open_dataset", "GSE1")

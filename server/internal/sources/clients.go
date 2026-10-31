@@ -5,6 +5,8 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -16,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,6 +26,7 @@ const (
 	OpenAlexBase  = "https://api.openalex.org"
 	EuropePMCBase = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 	EUtilsBase    = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+	ArxivBase     = "https://export.arxiv.org/api"
 )
 
 type Hit struct {
@@ -69,14 +73,30 @@ func get(ctx context.Context, h *http.Client, u string) ([]byte, error) {
 	}
 	resp, err := h.Do(req)
 	if err != nil {
+		if ue := (*url.Error)(nil); errors.As(err, &ue) {
+			ue.URL = shown(req.URL)
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s", u, resp.Status)
+		return nil, fmt.Errorf("GET %s: %s", shown(req.URL), resp.Status)
 	}
 	return b, err
+}
+
+// shown is u as an error may name it: errors reach agents, so an upstream
+// key is cut out.
+func shown(u *url.URL) string {
+	c := *u
+	q := c.Query()
+	if !q.Has("api_key") {
+		return u.String()
+	}
+	q.Del("api_key")
+	c.RawQuery = q.Encode()
+	return c.String()
 }
 
 func getJSON(ctx context.Context, h *http.Client, u string, v any) error {
@@ -93,14 +113,24 @@ type OpenAlex struct {
 	// Mailto is the server's contact email, sent so OpenAlex serves its
 	// requests from the polite pool; empty sends none.
 	Mailto string
+	// Key is the server's OpenAlex API key, which raises its daily budget
+	// tenfold over keyless calls; empty sends none.
+	Key string
 }
 
-// contact is the mailto parameter to append to a request, or "".
+// contact is the mailto and api_key parameters to append to a request, or "".
 func (o OpenAlex) contact(sep string) string {
-	if o.Mailto == "" {
+	q := url.Values{}
+	if o.Mailto != "" {
+		q.Set("mailto", o.Mailto)
+	}
+	if o.Key != "" {
+		q.Set("api_key", o.Key)
+	}
+	if len(q) == 0 {
 		return ""
 	}
-	return sep + "mailto=" + url.QueryEscape(o.Mailto)
+	return sep + q.Encode()
 }
 
 type oaWork struct {
@@ -155,6 +185,121 @@ func (o OpenAlex) Get(ctx context.Context, id string) (Doc, error) {
 	}
 	h := w.hit()
 	return Doc{Hit: h, Text: h.Abstract}, nil
+}
+
+// Arxiv searches arXiv's own API. arXiv asks callers to leave a few seconds
+// between requests, so every call through one Arxiv waits its turn.
+type Arxiv struct {
+	Base string
+	HTTP *http.Client
+	// Gap is the least time between two calls; zero uses ArxivGap.
+	Gap time.Duration
+
+	mu   sync.Mutex
+	last time.Time
+}
+
+const ArxivGap = 3 * time.Second
+
+var (
+	arxivWord = regexp.MustCompile(`[\pL\pN]+`)
+	// arxivRef is a new-style (2106.01234) or old-style (hep-th/9901001) id.
+	arxivRef = regexp.MustCompile(`^(\d{4}\.\d{4,5}|[a-z-]+(\.[A-Z]{2})?/\d{7})$`)
+	arxivVer = regexp.MustCompile(`v\d+$`)
+	// arxivStop are the words arXiv's index leaves out: required, they match
+	// nothing.
+	arxivStop = strings.Fields("a an and are as at be but by for if in into is it no not of on or such that the their then there these they this to was will with")
+)
+
+type axEntry struct {
+	ID        string `xml:"id"`
+	Published string `xml:"published"`
+	Title     string `xml:"title"`
+	Summary   string `xml:"summary"`
+	DOI       string `xml:"http://arxiv.org/schemas/atom doi"`
+}
+
+func (e axEntry) hit() Hit {
+	id := arxivVer.ReplaceAllString(strings.TrimPrefix(strings.TrimPrefix(e.ID, "http://arxiv.org/abs/"), "https://arxiv.org/abs/"), "")
+	doi := e.DOI
+	if doi == "" {
+		doi = "10.48550/arXiv." + id
+	}
+	year, _ := strconv.Atoi(e.Published[:min(4, len(e.Published))])
+	return Hit{ID: "arxiv:" + id, Title: strings.Join(strings.Fields(e.Title), " "), DOI: doi, Year: year,
+		Abstract: strings.Join(strings.Fields(e.Summary), " ")}
+}
+
+// wait holds the call until Gap has passed since the one before.
+func (a *Arxiv) wait(ctx context.Context) error {
+	gap := a.Gap
+	if gap == 0 {
+		gap = ArxivGap
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if d := time.Until(a.last.Add(gap)); d > 0 {
+		t := time.NewTimer(d)
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+		}
+	}
+	a.last = time.Now()
+	return nil
+}
+
+func (a *Arxiv) query(ctx context.Context, q url.Values) ([]Hit, error) {
+	if err := a.wait(ctx); err != nil {
+		return nil, err
+	}
+	b, err := get(ctx, a.HTTP, a.Base+"/query?"+q.Encode())
+	if err != nil {
+		return nil, err
+	}
+	var feed struct {
+		Entries []axEntry `xml:"entry"`
+	}
+	if err := xml.Unmarshal(b, &feed); err != nil {
+		return nil, err
+	}
+	hits := make([]Hit, len(feed.Entries))
+	for i, e := range feed.Entries {
+		hits[i] = e.hit()
+	}
+	return hits, nil
+}
+
+// Search asks for papers holding every word of q, most relevant first.
+func (a *Arxiv) Search(ctx context.Context, q string) ([]Hit, error) {
+	words := slices.DeleteFunc(arxivWord.FindAllString(q, -1), func(w string) bool {
+		return slices.Contains(arxivStop, strings.ToLower(w))
+	})
+	if len(words) == 0 {
+		return nil, fmt.Errorf("arxiv: no search terms in %q", q)
+	}
+	for i, w := range words {
+		words[i] = "all:" + w
+	}
+	return a.query(ctx, url.Values{"search_query": {strings.Join(words, " AND ")}, "sortBy": {"relevance"}, "max_results": {"10"}})
+}
+
+// Get returns the abstract: arXiv's API holds no full text.
+func (a *Arxiv) Get(ctx context.Context, id string) (Doc, error) {
+	id = arxivVer.ReplaceAllString(id, "")
+	if !arxivRef.MatchString(id) {
+		return Doc{}, fmt.Errorf("arxiv id %q: want 2106.01234 or hep-th/9901001", id)
+	}
+	hits, err := a.query(ctx, url.Values{"id_list": {id}})
+	if err != nil {
+		return Doc{}, err
+	}
+	if len(hits) == 0 || hits[0].Title == "" {
+		return Doc{}, fmt.Errorf("arxiv: %s not found", id)
+	}
+	return Doc{Hit: hits[0], Text: hits[0].Abstract}, nil
 }
 
 type EuropePMC struct {

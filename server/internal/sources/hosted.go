@@ -32,6 +32,7 @@ type Hosted struct {
 	OA    OpenAlex
 	EPMC  EuropePMC
 	GEO   GEO
+	AX    *Arxiv             // nil offers no arXiv
 	Conn  *connectors.Client // the catalogue connectors; nil offers no connector tools
 	Store *store.Store
 	Blobs storage.Storage
@@ -177,7 +178,7 @@ func (h *Hosted) record(ctx context.Context, role middleware.Role, token, kind, 
 }
 
 type SearchIn struct {
-	Database string `json:"database" jsonschema:"openalex or europepmc"`
+	Database string `json:"database" jsonschema:"openalex, europepmc or arxiv"`
 	Query    string `json:"query" jsonschema:"search terms"`
 }
 type HitsOut struct {
@@ -217,7 +218,7 @@ func ids(hits []Hit) []string {
 
 func (h *Hosted) server(role middleware.Role) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "lyk_sources", Version: "0.1.0"}, nil)
-	mcp.AddTool(srv, &mcp.Tool{Name: "search_literature", Description: "Search OpenAlex or Europe PMC. Every query is recorded on the card."},
+	mcp.AddTool(srv, &mcp.Tool{Name: "search_literature", Description: "Search OpenAlex, Europe PMC or arXiv. An arXiv search matches papers holding every word of the query. Every query is recorded on the card."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in SearchIn) (*mcp.CallToolResult, HitsOut, error) {
 			var hits []Hit
 			var err error
@@ -226,8 +227,13 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 				hits, err = h.OA.Search(ctx, in.Query)
 			case "europepmc":
 				hits, err = h.EPMC.Search(ctx, in.Query)
+			case "arxiv":
+				if h.AX == nil {
+					return nil, HitsOut{}, fmt.Errorf("arxiv is not offered on this server")
+				}
+				hits, err = h.AX.Search(ctx, in.Query)
 			default:
-				return nil, HitsOut{}, fmt.Errorf("database must be openalex or europepmc")
+				return nil, HitsOut{}, fmt.Errorf("database must be openalex, europepmc or arxiv")
 			}
 			if err != nil {
 				return nil, HitsOut{}, err
@@ -250,10 +256,15 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 				d, err = h.OA.Get(ctx, id)
 			case "europepmc":
 				d, err = h.EPMC.Get(ctx, id)
+			case "arxiv":
+				if h.AX == nil {
+					return nil, FetchOut{}, fmt.Errorf("arxiv is not offered on this server")
+				}
+				d, err = h.AX.Get(ctx, id)
 			case "geo":
 				d, err = h.GEO.Metadata(ctx, id)
 			default:
-				return nil, FetchOut{}, fmt.Errorf("source id must start with openalex:, europepmc: or geo:")
+				return nil, FetchOut{}, fmt.Errorf("source id must start with openalex:, europepmc:, arxiv: or geo:")
 			}
 			if err != nil {
 				return nil, FetchOut{}, err

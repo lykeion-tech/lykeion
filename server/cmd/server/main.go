@@ -174,7 +174,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	runs.OnSettlement = (&coresearch.Service{Store: st, Blobs: blobs}).OnSettlement(ap.OnSettlement(engine.OnSettlement))
 	conn := &connectors.Client{HTTP: connectors.Guarded(), Secret: secretKey, Contact: getenv("CONTACT_EMAIL")}
 	runs.Keys = conn
-	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase, Mailto: conn.Contact}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase},
+	hosted := &sources.Hosted{Conn: conn, OA: sources.OpenAlex{Base: sources.OpenAlexBase, Mailto: conn.Contact, Key: getenv("OPENALEX_API_KEY")}, EPMC: sources.EuropePMC{Base: sources.EuropePMCBase}, AX: &sources.Arxiv{Base: sources.ArxivBase},
 		GEO: sources.GEO{Base: sources.EUtilsBase, MetadataBase: sources.GeoMetadataBase}, Store: st, Blobs: blobs}
 	if path := getenv("SOURCES_EXCLUDE_FILE"); path != "" {
 		if hosted.Exclude, err = sources.LoadExclusions(path); err != nil {
