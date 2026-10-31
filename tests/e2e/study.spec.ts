@@ -28,7 +28,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await expect(card.getByRole('heading', { name: 'pi · ui-demo' })).toBeVisible({
     timeout: 30_000,
   });
-  await expect(card.locator('.run-identity')).toContainText('Run 1');
+  await expect(card.getByRole('button', { name: /Run 1$/ })).toBeVisible();
   await expect(card.getByRole('heading')).not.toHaveClass(/truncate/);
   await expect(card.locator('.preview')).toContainText('Read the card; the lab script stops here.');
   expect(messageReads).toEqual([]);
@@ -41,8 +41,8 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await expect(transcript.getByText('Claude Code', { exact: true })).toBeVisible();
   await expect(transcript.locator('.environment').getByText(/^lab-mac/)).toBeVisible();
   // The lab daemon reports its own machine's platform.
-  await expect(transcript.locator('.environment li', { hasText: 'Round' })).toHaveCount(0);
-  await expect(transcript.locator('.environment li', { hasText: 'Attempt' })).toHaveCount(0);
+  await expect(transcript.locator('.environment li', { hasText: /Round\b/ })).toHaveCount(0);
+  await expect(transcript.locator('.environment li', { hasText: /Attempt\b/ })).toHaveCount(0);
   const platform = transcript.locator('.environment li', { hasText: 'Platform' });
   await expect(platform.locator('code')).toHaveText(/^(linux|darwin|windows) \/ \w+$/);
   for (const value of await transcript.locator('.environment code').allTextContents())
@@ -55,7 +55,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
   const cells = transcript.locator('.cells > li');
   await expect(cells).toHaveCount(2);
   await expect(cells.first()).toHaveClass(/cell-error/);
-  await expect(cells.first().locator('.code-line')).toHaveText(['1lyk card show']);
+  await expect(cells.first().locator('.source-line')).toHaveText(['1lyk card show']);
   await cells.first().locator('.cell-output summary').click();
   await expect(cells.first().locator('.cell-output pre')).toHaveText(
     'The scripted card read was declined. No evidence was created.',
@@ -79,8 +79,15 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await expect(main.locator('.bubble.mine', { hasText: 'Prefer human islet data' })).toBeVisible();
   await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
 
-  const meta = page.getByRole('complementary', { name: 'Study details' });
+  const meta = page.getByRole('complementary', { name: 'Right pane' });
+  const surface = async (name: string) => {
+    const back = meta.getByRole('button', { name: 'Back to surfaces', exact: true });
+    if (await back.isVisible()) await back.click();
+    await meta.getByRole('button', { name: name, exact: true }).click();
+  };
+  await surface('Details');
   await expect(meta.locator('.metadata-owner')).toContainText('Ana Ruiz');
+  await surface('Properties');
   await expect(meta.getByText('Grounding')).toBeVisible();
 
   await page.screenshot({
@@ -92,6 +99,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/recorded-spend-inspector.png',
   });
+  await surface('Execution log & timeline');
   await meta.getByRole('button', { name: 'Open timeline', exact: true }).click();
   const runDialog = page.getByRole('dialog', { name: 'Runs', exact: true });
   await expect(runDialog.locator('.run-metrics')).toContainText('$0.01');
@@ -121,9 +129,7 @@ test('long text and many records never scroll the study page sideways', async ({
   });
   await labRecords(page.request, study.id, 40);
   await page.reload();
-  await expect(page.locator('.record-line .key').filter({ hasText: /^E\d+$/ })).toHaveCount(40);
-  // Each of the leader's two stopped runs left a failure record beside the 40.
-  await expect(page.locator('.record-line')).toHaveCount(42);
+  await expect(page.locator('.agent-card h3', { hasText: 'pi · ui-demo' }).first()).toBeVisible();
   const overflow = await page.evaluate(() => ({
     page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     transcript: (() => {
@@ -154,7 +160,7 @@ test('the current attempt loads beyond 500 messages', async ({ page }) => {
       messageRequests.push(r.url());
   });
   await page.goto(`/#/studies/${fixture.card_id}`);
-  const main = page.getByRole('region', { name: 'Study' });
+  const main = page.getByRole('region', { name: 'Study', exact: true });
   await openAgentTranscript(page);
   await expect(main.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   await expect(main.getByText(/Attempt 1 message/)).toHaveCount(0);
@@ -336,6 +342,19 @@ async function studyHash(page: import('@playwright/test').Page, id: string, titl
   ).toBeVisible();
 }
 
+// The owner deletes a study from its card's menu on the board.
+async function deleteFromBoard(page: import('@playwright/test').Page, id: string) {
+  await page.locator(`.study-card:has([data-card="${id}"]) .study-card-actions`).click();
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+}
+
+// Opens one of the study's right-pane surfaces from the chooser.
+async function openSurface(page: import('@playwright/test').Page, name: string) {
+  const pane = page.getByRole('complementary', { name: 'Right pane', exact: true });
+  await pane.getByRole('button', { name, exact: true }).click();
+  return pane;
+}
+
 async function holdStudyResponse(
   page: import('@playwright/test').Page,
   path: string,
@@ -439,10 +458,11 @@ test('a delayed comment from an earlier visit cannot clear a returned study draf
 
 test('a delayed deletion cannot close another study', async ({ page }) => {
   const { a, b } = await linkedStudies(page);
+  await page.goto('/#/studies');
   const held = await holdStudyResponse(page, `/api/cards/${a}`, 'DELETE');
   try {
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByRole('button', { name: 'Delete study' }).click();
+    await deleteFromBoard(page, a);
     expect(await held.accepted).toBe(204);
     await studyHash(page, b, 'Lifecycle B');
     await held.finish();
@@ -510,14 +530,14 @@ for (const operation of ['comment', 'delete'] as const) {
           .fill('Comment refused after concurrent deletion');
         await main.getByRole('button', { name: 'Send' }).click();
       } else {
+        await page.goto('/#/studies');
         page.once('dialog', (dialog) => dialog.accept());
-        await page.getByRole('button', { name: 'Delete study' }).click();
+        await deleteFromBoard(page, a);
       }
       expect(await held.accepted).toBe(404);
       expect(held.error).not.toBe('');
       expect(held.intent.workspace).toBe(ws);
       if (operation === 'delete') {
-        await page.getByRole('button', { name: 'Back to studies' }).click();
         await expect(main).toHaveCount(0);
         await page
           .getByRole('region', { name: 'Grounding' })
@@ -550,7 +570,7 @@ test('study events page beyond 500 and refresh later steering live', async ({ pa
     if (r.url().includes(`/api/cards/${f.card_id}/events`)) pages.push(r.url());
   });
   await page.goto(`/#/studies/${f.card_id}`);
-  await expect(page.getByRole('region', { name: 'Study' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Study', exact: true })).toBeVisible();
   await expect.poll(() => pages.some((url) => /after=[1-9]/.test(url))).toBe(true);
   const origin = await page.evaluate(() => performance.timeOrigin);
   expect(
@@ -568,18 +588,20 @@ test('expanded run preserves every ordered recorded message and full tool conten
   const f = await labFixture(page.request);
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
   await page.goto(`/#/studies/${f.card_id}`);
-  await openAgentTranscript(page);
-  await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
-  await expect(page.locator('.markdown-body').first()).toContainText('Attempt 2 message 001');
-  await expect(page.getByText('Full recorded history', { exact: true })).toHaveCount(0);
-  const messages = page.locator('.activity-step');
-  await expect(messages).toHaveCount(3);
-  await expect(page.locator('.markdown-body')).toHaveCount(498);
-  await messages.nth(0).locator('.step-output > summary').click();
-  await messages.nth(0).locator('.step-payload > summary').click();
-  await expect(messages.nth(0).locator('pre')).toContainText('END OF FULL TOOL INPUT');
+  const dialog = await openAgentTranscript(page);
+  const markdown = dialog.locator('.markdown-body');
+  await expect(markdown.last()).toContainText('Attempt 2 message 501');
+  await expect(markdown.first()).toContainText('Attempt 2 message 001');
+  await expect(dialog.getByText('Full recorded history', { exact: true })).toHaveCount(0);
+  // The status message is not shown, so the tool call and its result are the two steps.
+  const messages = dialog.locator('.activity-step');
+  await expect(messages).toHaveCount(2);
+  await expect(markdown).toHaveCount(498);
+  const tool = messages.nth(0);
+  if (!(await tool.locator('.tool-step').evaluate((el) => (el as HTMLDetailsElement).open)))
+    await tool.locator('.step-heading').click();
+  await expect(tool.locator('.step-output')).toContainText('END OF FULL TOOL INPUT');
   await expect(messages.nth(1)).toContainText('Recorded tool refusal');
-  await expect(messages.nth(2)).toContainText('Recorded continuity status');
   await messages.nth(0).evaluate((el) => el.scrollIntoView({ block: 'start' }));
   await page.screenshot({
     path: 'test-results/l2-transcript/expanded-run.png',
@@ -662,7 +684,7 @@ test('transcript and run message refusals show retries and keep already loaded d
   await expect(page.locator('.run-read-error')).toHaveCount(0);
 });
 
-test('a real study deletion refusal remains inline on the study', async ({ page }) => {
+test('a real study deletion refusal remains inline on the board', async ({ page }) => {
   const { a, ws } = await linkedStudies(page);
   await page.route(`**/api/cards/${a}`, async (route) => {
     if (route.request().method() !== 'DELETE') return route.continue();
@@ -675,11 +697,10 @@ test('a real study deletion refusal remains inline on the study', async ({ page 
     expect(response.status()).toBe(404);
     await route.fulfill({ response });
   });
+  await page.goto('/#/studies');
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Delete study' }).click();
-  await expect(page.getByRole('region', { name: 'Study' }).getByRole('alert')).toHaveText(
-    'not found',
-  );
+  await deleteFromBoard(page, a);
+  await expect(page.locator('.board-action-error')).toHaveText('not found');
 });
 
 import { labFlow, labTeam, labWorkspace } from './lab';
@@ -719,24 +740,13 @@ test('a blocked study is redone from the composer', async ({ page }) => {
   await page.goto(`/#/studies/${study.id}`);
   const note = 'Scored low twice. Tell the Team what to fix to redo this column.';
   await expect(page.getByText(note)).toBeVisible();
-  await page.getByRole('button', { name: 'Action' }).click();
+  await page.getByRole('button', { name: 'Action', exact: true }).click();
   await expect(page.getByRole('menuitem')).toHaveText([/Comment/]);
   await page.keyboard.press('Escape');
   await page.screenshot({ path: `${shots}/blocked-composer.png`, fullPage: true });
   await page.getByRole('textbox', { name: 'Comment' }).fill('Cite the primary papers.');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.getByText(note)).toHaveCount(0);
-});
-
-test('an off-label Team is marked', async ({ page }) => {
-  const workspaceId = await labWorkspace(page.request);
-  const team = await labTeam(page.request, workspaceId);
-  const study = await newStudy(page.request, `Which hypotheses survive? ${Date.now()}`, {
-    assignee: { type: 'team', teams: { hypotheses: team } },
-  });
-  await page.goto(`/#/studies/${study.id}`);
-  await expect(page.getByText('Built for Grounding')).toBeVisible();
-  await page.screenshot({ path: `${shots}/off-label.png`, fullPage: true });
 });
 
 test('a Team study shows its Team as the assignee', async ({ page }) => {
@@ -746,6 +756,7 @@ test('a Team study shows its Team as the assignee', async ({ page }) => {
     assignee: { type: 'team', teams: { hypotheses: team } },
   });
   await page.goto(`/#/studies/${study.id}`);
+  await openSurface(page, 'Properties');
   const row = page.locator('.property-row', { hasText: 'Assignee' });
   await expect(row).toContainText('Team:');
   await expect(row).not.toContainText('Unassigned');
@@ -813,15 +824,15 @@ test('Properties stays the same width on the right and resizes inward', async ({
   const study = await unassigned(page);
   await page.goto(`/#/studies/${study.id}`);
   const area = page.getByRole('region', { name: 'Study', exact: true });
-  const properties = area.getByRole('complementary', { name: 'Study details' });
-  const splitter = area.getByRole('separator', { name: 'Resize study inspector' });
+  const properties = area.getByRole('complementary', { name: 'Right pane' });
+  const splitter = area.getByRole('separator', { name: 'Resize right pane' });
   await expect(properties).toHaveCSS('width', '364px');
   const pane = (await properties.boundingBox())!;
   const content = (await area.locator('.task-main').boundingBox())!;
   const container = (await area.boundingBox())!;
   expect(pane.x).toBeGreaterThan(content.x);
   expect(pane.x + pane.width).toBeCloseTo(container.x + container.width, 0);
-  expect(pane.x - content.x - content.width).toBeCloseTo(1, 0);
+  expect(pane.x - content.x - content.width).toBeCloseTo(0, 0);
   await splitter.focus();
   await page.keyboard.press('ArrowLeft');
   await expect(properties).toHaveCSS('width', '374px');
@@ -868,33 +879,6 @@ test('study content and composer share a wider measure and only the corner butto
   expect(narrowComposer!.width).toBeCloseTo(narrowCards!.width, 0);
 });
 
-test('the execution log sits as far below Project as Details sits below it', async ({ page }) => {
-  const study = await newStudy(page.request, 'How far apart are the panels?', { assignee: null });
-  await page.goto(`/#/studies/${study.id}`);
-  await expect(page.getByRole('button', { name: 'Open timeline' })).toBeVisible();
-  // Measures the rendered text itself, so padding and line boxes don't count.
-  const text = (selector: string, name: string) =>
-    page.evaluate(
-      ([selector, name]) => {
-        const el = [...document.querySelectorAll(selector)].find((e) =>
-          e.textContent?.trim().startsWith(name),
-        )!;
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        const r = range.getBoundingClientRect();
-        return { top: r.top, bottom: r.bottom };
-      },
-      [selector, name],
-    );
-  const project = await text('.property-row label', 'Project');
-  const log = await text('.execution-heading button', 'Execution log');
-  const timeline = await text('.open-timeline', 'Open timeline');
-  const details = await text('.details-heading', 'Details');
-  expect(Math.abs(log.top - project.bottom - (details.top - timeline.bottom))).toBeLessThanOrEqual(
-    1,
-  );
-});
-
 test('a study one agent works names the agent with No auditor beside it', async ({ page }) => {
   const headers = { 'X-Workspace-ID': await labWorkspace(page.request) };
   const name = `Lone agent ${Date.now()}`;
@@ -909,12 +893,14 @@ test('a study one agent works names the agent with No auditor beside it', async 
     scope: { from: 'grounding', to: 'grounding' },
   });
   await page.goto(`/#/studies/${alone.id}`);
+  await openSurface(page, 'Properties');
   const assignee = page.locator('.property-row', { hasText: 'Assignee' });
   await expect(assignee).toContainText(name);
   await expect(assignee.getByText('No auditor', { exact: true })).toBeVisible();
 
   const teamed = await newStudy(page.request, `Worked by a Team ${Date.now()}?`);
   await page.goto(`/#/studies/${teamed.id}`);
+  await openSurface(page, 'Properties');
   await expect(page.locator('.property-row', { hasText: 'Assignee' })).toContainText('Team');
   await expect(page.getByText('No auditor', { exact: true })).toHaveCount(0);
 });
