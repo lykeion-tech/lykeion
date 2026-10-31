@@ -508,6 +508,35 @@ describe('useRealtimeSync', () => {
     expect(sync.connected.value).toBe(false);
   });
 
+  it('an event during a loaded refetch keeps its awaiters waiting for fresh data', async () => {
+    const queryKey = keys.skills('w1');
+    const replies: Array<(value: string[]) => void> = [];
+    const observer = new QueryObserver(client, {
+      queryKey,
+      queryFn: () => new Promise<string[]>((resolve) => replies.push(resolve)),
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      sockets[0]!.onopen!({});
+      await settle();
+      replies.splice(0).forEach((reply) => reply(['loaded']));
+      await settle();
+      expect(client.getQueryData(queryKey)).toEqual(['loaded']);
+
+      let settled = false;
+      const awaited = client.invalidateQueries({ queryKey }).then(() => (settled = true));
+      await settle();
+      sockets[0]!.event(ev('skill.changed', null, 41));
+      await vi.advanceTimersByTimeAsync(100);
+      expect(settled).toBe(false);
+      replies.splice(0).forEach((reply) => reply(['fresh']));
+      await awaited;
+      expect(client.getQueryData(queryKey)).toEqual(['fresh']);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('does not finish an old socket refresh after a workspace switch', async () => {
     const cancelled = deferred<void>();
     const cancel = client.cancelQueries.bind(client);
