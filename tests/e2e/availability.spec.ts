@@ -29,7 +29,8 @@ test('connector row switch replaces status and preserves setup requirements', as
   await page.getByRole('searchbox', { name: 'Search connectors' }).fill('biogrid');
   const toggle = page.getByRole('switch', { name: 'Enable biogrid', exact: true });
   await expect(toggle).toBeChecked();
-  await expect(page.locator('.connector-row small')).toContainText(setup.reason);
+  expect(setup.purpose).toBeTruthy();
+  await expect(page.locator('.connector-row p')).toContainText(setup.purpose);
   await expect(page.locator('.connector-row .status')).toHaveCount(0);
   await toggle.click();
   await expect(toggle).not.toBeChecked();
