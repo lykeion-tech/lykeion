@@ -23,7 +23,6 @@ import EmojiIcon from '../../ui/EmojiIcon.vue';
 import { useStudyComposer } from '../../state/study-composer';
 import { backends, backendLabel } from '../../lib/backends';
 import { matchesQuery } from '../../lib/search';
-import { agentConnectorIntegrationAvailable } from './agent-connectors';
 import {
   boardColumnOf,
   boardColumns,
@@ -421,8 +420,7 @@ function toggle(id: string) {
       <div v-else class="agent-split">
         <nav class="agent-subnav">
           <template v-if="tab === 'capabilities'"
-            ><button aria-current="page">Instructions</button
-            ><button v-if="agentConnectorIntegrationAvailable">Connectors</button></template
+            ><button aria-current="page">Instructions</button></template
           >
           <template v-else
             ><button
