@@ -29,6 +29,7 @@ test('search opens with researches and standalone and nested studies, previews a
     expect(response.status()).toBe(201);
     studies.push(await response.json());
   }
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), workspace);
   await page.goto('/#/studies');
   const search = page.getByRole('button', { name: 'Search', exact: true });
   await search.click();
