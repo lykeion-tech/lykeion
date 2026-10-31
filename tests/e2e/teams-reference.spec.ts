@@ -21,7 +21,7 @@ test('Teams uses the reference table and opens the reference-size scientific cre
     'font-size',
     '12px',
   );
-  const columns = ['Name', 'Domain', 'Stage', 'Agents', 'Availability'];
+  const columns = ['Name', 'Domain', 'Stage', 'Agents', 'Source'];
   for (const [i, name] of columns.entries())
     await expect(table.getByRole('columnheader').nth(i)).toHaveAccessibleName(name);
   await expect(table.locator('thead')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
@@ -70,7 +70,7 @@ test('Teams uses the reference table and opens the reference-size scientific cre
   await expect(
     modal.getByRole('heading', { name: 'Additional Members', exact: true }),
   ).toBeVisible();
-  await expect(modal.getByLabel('Auditor agent')).toHaveCount(1);
+  await expect(modal.getByRole('combobox', { name: 'Auditor agent', exact: true })).toHaveCount(1);
   await expect(modal.getByLabel('Auditor role')).toHaveCount(1);
   await expect(modal.getByLabel('Steps per column')).toHaveAttribute('max', '50');
   await expect(modal.getByRole('button', { name: 'Create Team', exact: true })).toBeDisabled();
@@ -153,9 +153,16 @@ test('Teams sorts by creation and shares Agents column positions and Projects he
   expect((await page.locator('.agent-search').boundingBox())!.x).toBe(
     (await page.locator('.page-header h1').boundingBox())!.x,
   );
-  expect(teamLast.x + teamLast.width).toBe(teamSort.x + teamSort.width);
+  // The toolbar is inset 16px from the table's right edge.
+  expect(teamLast.x + teamLast.width - (teamSort.x + teamSort.width)).toBe(16);
   await expect(page.locator('.team-table th').last()).toHaveCSS('text-align', 'right');
-  await expect(rows.first().locator('td').last()).toHaveCSS('text-align', 'right');
+  const lastValue = rows.first().locator('td').last().locator('.directory-last-value');
+  await expect(lastValue).toHaveCSS('text-align', 'center');
+  await expect(lastValue).toHaveCSS('width', '70px');
+  const lastCell = (await rows.first().locator('td').last().boundingBox())!;
+  const lastBox = (await lastValue.boundingBox())!;
+  expect(lastBox.x + lastBox.width).toBeLessThanOrEqual(lastCell.x + lastCell.width);
+  expect(lastBox.x).toBeGreaterThan(lastCell.x);
   const teamIcon = (await rows.first().locator('.team-icon').boundingBox())!;
   const teamGlyph = (await rows.first().locator('.team-icon svg').boundingBox())!;
   const teamLabelX = (await rows.first().locator('.team-label').boundingBox())!.x;
@@ -187,9 +194,10 @@ test('Teams sorts by creation and shares Agents column positions and Projects he
   const agentPositions = await page
     .locator('.agent-head > span')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
-  // The Teams table has one column fewer; Availability sits on the Agents
-  // table's last line.
-  expect(teamPositions).toEqual(agentPositions.filter((_, i) => i !== 4));
+  // The Teams table shares the Agents table's first column; its four trailing
+  // columns are evenly spaced.
+  expect(teamPositions[0]).toBe(agentPositions[0]);
+  expect(teamPositions.slice(2).map((x, i) => x - teamPositions[i + 1]!)).toEqual([132, 132, 132]);
   const agentIcon = (await page.locator('.agent-cell > .avatar').first().boundingBox())!;
   expect(agentIcon.x + agentIcon.width / 2).toBe(teamIcon.x + teamIcon.width / 2);
   expect((await page.locator('.agent-cell > span:last-child').first().boundingBox())!.x).toBe(
@@ -219,7 +227,7 @@ test('Teams sorts by creation and shares Agents column positions and Projects he
   const agentNew = (await page
     .getByRole('button', { name: 'New agent', exact: true })
     .boundingBox())!;
-  expect(agentSort.x + agentSort.width).toBe(agentNew.x + agentNew.width);
+  expect(agentSort.x + agentSort.width - (agentNew.x + agentNew.width)).toBe(16);
   expect((await page.locator('.agent-search').boundingBox())!.x).toBe(
     (await page.locator('.page-header h1').boundingBox())!.x,
   );
@@ -235,6 +243,7 @@ test('Teams sorts by creation and shares Agents column positions and Projects he
     });
   await page.goto('/#/projects');
   const heading = page.locator('.projects-table th').first();
+  await expect(heading).toBeVisible();
   const projectPositions = await page
     .locator('.projects-table th')
     .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
