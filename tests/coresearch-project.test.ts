@@ -15,6 +15,10 @@ import { tabAfterClose, PANE_TABS } from '../apps/dashboard/src/coresearch/pane-
 import { keys } from '../apps/dashboard/src/api/keys';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
+vi.mock('vue-spinner', async () => {
+  const { h } = await import('vue');
+  return { RingLoader: { render: () => h('div', { class: 'v-spinner' }) } };
+});
 vi.hoisted(() => {
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
@@ -365,6 +369,19 @@ describe('Coresearch workspace', () => {
     const quote = all(root).find((n) => n.tag === 'blockquote');
     expect(quote).toBeTruthy();
     expect(all(quote!).filter((n) => n.props.class === 'code-block')).toHaveLength(1);
+  });
+  it('shows the same ring spinner for active chat turns, and not queued or finished turns', async () => {
+    for (const status of ['running', 'dispatched', 'queued', 'completed']) {
+      const { root } = await mount(ChatTranscript, {
+        projectId: 'p',
+        chatId: 'c',
+        messages: [{ ...messages[0], status }],
+      });
+      const spinner = all(root).find((node) =>
+        String(node.props.class).includes('run-status-spinner'),
+      );
+      expect(Boolean(spinner), status).toBe(status === 'running' || status === 'dispatched');
+    }
   });
   it('hides run logs and status entries while retaining real tool steps', async () => {
     const { root } = await mount(

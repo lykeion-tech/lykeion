@@ -36,7 +36,8 @@
     "@codemirror/view": "6.43.13",
     "@codemirror/collab": "6.1.1",
     "@lezer/highlight": "1.2.3",
-    "pdfjs-dist": "6.3.289"
+    "pdfjs-dist": "6.3.289",
+    "vue-spinner": "3.0.2"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

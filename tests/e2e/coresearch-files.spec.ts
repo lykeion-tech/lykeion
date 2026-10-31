@@ -1,5 +1,30 @@
 import { expect, test } from '@playwright/test';
 import { installFilesFixture, openSavedFile, texts } from './coresearch-files-fixture';
+test('active chat turns display the ring spinner beside Working', async ({ page }) => {
+  await installFilesFixture(page);
+  await page.route('**/api/coresearch/projects/p/chats/selected/messages', async (route) => {
+    await route.fulfill({
+      json: [
+        {
+          id: 'turn',
+          chat_id: 'selected',
+          kind: 'turn',
+          body: 'Inspect data',
+          agent_run_id: 'different',
+          status: 'running',
+        },
+      ],
+    });
+  });
+  await page.goto('/#/coresearch/p/selected');
+  const status = page.getByRole('status').filter({ hasText: 'Working' });
+  await expect(status).toBeVisible();
+  await expect(status.locator('.v-ring2')).toBeVisible();
+  await expect(status.locator('.v-ring3')).toBeVisible();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(status.locator('.v-ring2')).toHaveCSS('animation-name', 'none');
+});
+
 test('chat transcript uses the Study step timeline, including errors and expandable output', async ({
   page,
 }) => {

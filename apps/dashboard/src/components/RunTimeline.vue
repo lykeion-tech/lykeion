@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import RunActivity from './RunActivity.vue';
+import RunStatus from './RunStatus.vue';
 import { activitySteps, isActivityGroup, type TranscriptBlock } from '../lib/run-transcript';
 const props = defineProps<{
   blocks: TranscriptBlock[];
@@ -41,7 +42,9 @@ const marked = computed(() =>
       />
     </li>
     <li v-if="ending" class="turn-item turn-ending" :class="ending.mark">
-      <span :role="active || queued ? 'status' : undefined">{{ ending.text }}</span>
+      <div :role="active || queued ? 'status' : undefined">
+        <RunStatus :text="ending.text" :working="active" />
+      </div>
     </li>
   </ol>
 </template>

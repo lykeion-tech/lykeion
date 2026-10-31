@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { transcriptBlocks, visibleTranscriptMessages } from '../lib/run-transcript';
 import RunTimeline from '../components/RunTimeline.vue';
+import RunStatus from '../components/RunStatus.vue';
 import { isActiveTurn, useCoresearchSteps } from './api';
 import type { MessageRow } from './types';
 import AssistantMessage from './AssistantMessage.vue';
@@ -87,9 +88,16 @@ const copy = computed(() =>
     <div v-if="copy" class="msg-actions"><CopyButton :text="copy" /></div>
   </div>
   <div v-if="active" class="run-line" role="status">
-    {{
-      turn.status === 'queued' ? 'Queued' : turn.status === 'dispatched' ? 'Starting…' : 'Working…'
-    }}
+    <RunStatus
+      :working="turn.status !== 'queued'"
+      :text="
+        turn.status === 'queued'
+          ? 'Queued'
+          : turn.status === 'dispatched'
+            ? 'Starting…'
+            : 'Working…'
+      "
+    />
   </div>
   <div
     v-for="failure in props.replies.filter((m) => m.kind === 'failure')"

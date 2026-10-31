@@ -182,6 +182,19 @@ describe('reading-first recorded run', () => {
     expect(html).not.toContain('Run status');
     expect(html).not.toContain('mark-message');
   });
+  it('shows the ring spinner only while a study run is active', async () => {
+    for (const status of ['running', 'dispatched'] as const) {
+      const html = await render([], { status });
+      expect(html).toContain('run-status-spinner');
+      expect(html).toContain('v-ring2');
+      expect(html).toContain('var(--primary-text)');
+      expect(html).toContain('v-ring3');
+    }
+    for (const status of ['queued', 'completed', 'failed', 'cancelled'] as const) {
+      const html = await render([], { status });
+      expect(html).not.toContain('run-status-spinner');
+    }
+  });
   it('keeps unmatched recorded failures visible on the rail', async () => {
     const html = await render([
       msg(1, 'tool_result', {
