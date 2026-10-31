@@ -201,13 +201,15 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   margin-top: 12px;
 }
 .team-table tr {
+  grid-template-columns: minmax(300px, 1fr) repeat(3, 120px) 70px;
   padding-right: 0;
 }
-.team-table th:last-child,
-.team-table td:last-child {
-  text-align: right;
-  /* Keeps the other columns on the Agents table's lines. */
-  grid-column: -2;
+.team-table th:not(:first-child) {
+  text-align: center;
+}
+.team-table td:not(:first-child) {
+  justify-content: center;
+  text-align: center;
 }
 .team-table-scroll {
   overflow-x: auto;
@@ -234,9 +236,6 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   height: 32px;
   flex: none;
   color: var(--muted);
-}
-.team-table td:last-child {
-  justify-content: flex-end;
 }
 .team-table td {
   display: flex;

@@ -239,7 +239,7 @@ async function save() {
               }}</template></span
             ><span
               ><b
-                >{{ a.name }}<Icon v-if="a.visibility === 'private'" name="shield" :size="12" /><i
+                >{{ a.name }}<i
                   v-if="a.owner_id === me.data.value?.id"
                   class="you-badge"
                   >You</i
@@ -324,6 +324,12 @@ async function save() {
 <style src="./directory.css" />
 
 <style scoped>
+.agent-directory .agent-row > :not(:first-child) {
+  text-align: center;
+}
+.agent-directory .agent-owner {
+  justify-content: center;
+}
 .agent-form {
   width: 100%;
   max-width: none;
