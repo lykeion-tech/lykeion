@@ -167,5 +167,11 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.setSession(w, tok)
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, h.dashboardURL(), http.StatusFound)
+}
+
+// dashboardURL is where a browser sign-in lands: the dashboard, which may sit
+// beside a landing page rather than at the site's root.
+func (h *H) dashboardURL() string {
+	return h.PublicURL + "/"
 }

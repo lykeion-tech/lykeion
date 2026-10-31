@@ -16,6 +16,8 @@
   "include": [
     "apps/dashboard/**/*.ts",
     "apps/dashboard/**/*.vue",
+    "apps/web/**/*.ts",
+    "apps/web/**/*.vue",
     "packages/**/*.ts",
     "tests/**/*.ts"
   ]
