@@ -308,11 +308,11 @@ export async function installFilesFixture(
   };
 }
 export async function openSavedFile(page: Page, name: string) {
-  if (!(await page.getByRole('tablist', { name: 'Right pane', exact: true }).isVisible()))
-    await page.getByRole('button', { name: 'Notebook', exact: true }).click();
-  await page
-    .getByRole('tablist', { name: 'Right pane', exact: true })
-    .getByRole('tab', { name: 'Files', exact: true })
-    .click();
+  const close = page.getByRole('button', { name: 'Close pane', exact: true });
+  if (!(await close.isVisible()))
+    await page.getByRole('button', { name: 'Open experiment surfaces', exact: true }).click();
+  const back = page.getByRole('button', { name: 'Back to surfaces', exact: true });
+  if (await back.isVisible()) await back.click();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
   await page.getByRole('button', { name, exact: true }).click();
 }
