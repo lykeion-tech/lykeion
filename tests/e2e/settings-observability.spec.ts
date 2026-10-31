@@ -50,9 +50,9 @@ test('Profile analytics filters real study usage and retains Settings geometry',
   await expect.poll(ownCost, { timeout: 30_000 }).toBeGreaterThan(0);
   const dollars = (n: number) =>
     `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: n > 0 && n < 0.01 ? 6 : 2 })}`;
-  const reportCost = async (scope: string) => {
+  const reportCost = async (scope: string, cadence = 'daily', range = '30d') => {
     const response = await page.request.get(
-      `/api/analytics?scope=${scope}&cadence=weekly&range=7d`,
+      `/api/analytics?scope=${scope}&cadence=${cadence}&range=${range}`,
       { headers },
     );
     return (await response.json()).summary.cost_usd as number;
@@ -61,9 +61,12 @@ test('Profile analytics filters real study usage and retains Settings geometry',
   const panel = page.getByTestId('analytics-panel');
   await expect(panel).toBeVisible();
   await expect.poll(async () => (await reportCost('all')) >= (await ownCost())).toBe(true);
-  await expect(panel.getByTestId('analytics-summary')).toContainText(
-    `Cost${dollars(await reportCost('all'))}`,
-  );
+  await expect
+    .poll(async () => {
+      const shown = await panel.getByTestId('analytics-summary').innerText();
+      return shown.replace(/\s+/g, '').includes(`Cost${dollars(await reportCost('all'))}`);
+    })
+    .toBe(true);
   await expect(panel.getByRole('table', { name: 'Agent usage' })).toBeVisible();
   await panel.getByRole('button', { name: 'Weekly', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'Weekly', exact: true })).toHaveAttribute(
@@ -90,9 +93,15 @@ test('Profile analytics filters real study usage and retains Settings geometry',
     )
     .toBe(true);
   await selectPicker(panel.getByRole('combobox', { name: 'Research scope' }), 'standalone');
-  await expect(panel.getByTestId('analytics-summary')).toContainText(
-    `Cost${dollars(await reportCost('standalone'))}`,
-  );
+  await expect
+    .poll(async () => {
+      const shown = await panel.getByTestId('analytics-summary').innerText();
+      return shown
+        .replace(/\s+/g, '')
+        .includes(`Cost${dollars(await reportCost('standalone', 'weekly', '7d'))}`);
+    })
+    .toBe(true);
+  expect(await reportCost('standalone', 'weekly', '7d')).toBeGreaterThanOrEqual(await ownCost());
   await page.screenshot({
     path: 'test-results/settings-observability/analytics.png',
     fullPage: true,
