@@ -251,7 +251,9 @@ async function save() {
           <span role="columnheader">Name</span><span role="columnheader">Status</span
           ><span role="columnheader">Owner</span><span role="columnheader">Access</span
           ><span role="columnheader">Harness</span
-          ><span role="columnheader" aria-sort="descending">Last updated</span>
+          ><span role="columnheader" aria-sort="descending"
+            ><span class="directory-last-value">Last updated</span></span
+          >
         </div>
         <RouterLink
           v-for="a in rows"

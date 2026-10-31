@@ -432,6 +432,12 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	var dup db.ActiveDuplicateRow
 	var teams map[string]uuid.UUID
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
 		services, err := pendingServices(r, tx, ws, user, in.Services)
 		if err != nil {
 			return err
@@ -989,11 +995,11 @@ func machineView(ctx context.Context, tx *store.Tx, v *studyView) error {
 			return err
 		}
 		for _, member := range agents {
-			a, err := tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: tx.WS, ID: member.AgentID})
+			harness, err := tx.Q.AgentHarnessForHistory(ctx, db.AgentHarnessForHistoryParams{WorkspaceID: tx.WS, ID: member.AgentID})
 			if err != nil {
 				return err
 			}
-			needed[a.Harness] = true
+			needed[harness] = true
 		}
 	}
 	for _, harness := range []struct{ key, label string }{{"claude", "Claude Code"}, {"codex", "Codex"}} {

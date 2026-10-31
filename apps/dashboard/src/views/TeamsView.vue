@@ -125,7 +125,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
             <th scope="col">Domain</th>
             <th scope="col">Stage</th>
             <th scope="col">Agents</th>
-            <th scope="col">Availability</th>
+            <th scope="col"><span class="directory-last-value">Source</span></th>
           </tr>
         </thead>
         <tbody>
@@ -233,6 +233,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   justify-content: flex-end;
 }
 .team-table .directory-last-value {
+  display: inline-block;
   width: 70px;
   text-align: center;
 }

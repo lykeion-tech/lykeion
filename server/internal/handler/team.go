@@ -138,6 +138,73 @@ func (h *H) updateTeamAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *H) deleteTeam(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
+		p, err := visiblePack(r, tx, user, id)
+		if err != nil {
+			return err
+		}
+		if p.Source == "shipped" {
+			return errBuiltInTeam
+		}
+		used, err := tx.Q.TeamHasActiveUses(r.Context(), db.TeamHasActiveUsesParams{WorkspaceID: ws, PackID: id})
+		if err != nil {
+			return err
+		}
+		if used != nil && *used {
+			return conflict("This Team is used by an active study or Autoresearch.")
+		}
+		agents, err := tx.Q.TeamAgentIDs(r.Context(), db.TeamAgentIDsParams{WorkspaceID: ws, PackID: id})
+		if err != nil {
+			return err
+		}
+		for _, agentID := range agents {
+			if _, err := tx.Q.GetAgentForUpdate(r.Context(), db.GetAgentForUpdateParams{WorkspaceID: ws, ID: agentID}); err != nil {
+				return err
+			}
+			if err := agentInUse(r, tx, agentID); err != nil {
+				return err
+			}
+			live, err := tx.Q.TeamAgentHasLiveRuns(r.Context(), db.TeamAgentHasLiveRunsParams{WorkspaceID: ws, AgentID: &agentID})
+			if err != nil {
+				return err
+			}
+			if live {
+				return conflict("A Team agent has an active run.")
+			}
+			shared, err := tx.Q.AgentBelongsToOtherTeam(r.Context(), db.AgentBelongsToOtherTeamParams{WorkspaceID: ws, AgentID: agentID, PackID: id})
+			if err != nil {
+				return err
+			}
+			if shared {
+				return conflict("A Team agent belongs to another Team.")
+			}
+		}
+		for _, agentID := range agents {
+			if err := tx.Q.DeleteTeamAgent(r.Context(), db.DeleteTeamAgentParams{WorkspaceID: ws, AgentID: agentID}); err != nil {
+				return err
+			}
+		}
+		if err := tx.Q.DeleteTeam(r.Context(), db.DeleteTeamParams{WorkspaceID: ws, PackID: id}); err != nil {
+			return err
+		}
+		return tx.Emit(r.Context(), "team.deleted", nil, store.User(user), map[string]any{})
+	})
+	if answer(w, r, err) {
+		writeJSON(w, 200, map[string]any{"deleted": true})
+	}
+}
+
 // teamAgents answers with the agents Add created or already had.
 func teamAgents(r *http.Request, tx *store.Tx, rows []db.TeamAgent) ([]db.Agent, error) {
 	out := []db.Agent{}
@@ -157,7 +224,10 @@ func (h *H) addTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []db.Agent
-	err := h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) error {
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
 		p, err := visiblePack(r, tx, user, id)
 		if err != nil {
 			return err

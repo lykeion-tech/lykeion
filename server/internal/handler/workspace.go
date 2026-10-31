@@ -331,6 +331,12 @@ func (h *H) leave(w http.ResponseWriter, r *http.Request) {
 
 func (h *H) remove(w http.ResponseWriter, r *http.Request, target uuid.UUID) {
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
 		if err := keepAnOwner(r.Context(), tx, ws, target); err != nil {
 			return err
 		}

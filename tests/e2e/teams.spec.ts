@@ -3,6 +3,26 @@ import { labPack, labSignIn, labWorkspace } from './lab';
 
 const shots = 'test-results/teams-scoring';
 
+test('deleting a custom Team warns about its agents and removes them', async ({ page }) => {
+  const ws = await labWorkspace(page.request);
+  const headers = { 'X-Workspace-ID': ws };
+  const team = await labPack(page.request, 'delete-this-team', ws, { stage: 'grounding' });
+  const added = await page.request.post(`/api/teams/${team.id}/add`, { headers });
+  expect(added.status()).toBe(200);
+  const agents = await added.json();
+  expect(agents.length).toBeGreaterThan(0);
+  await page.goto(`/#/teams/${team.id}`);
+  await expect(page.getByRole('heading', { name: 'delete-this-team' })).toBeVisible();
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Agent copies will also be deleted');
+    await dialog.accept();
+  });
+  await page.getByRole('button', { name: 'Delete Team' }).click();
+  await expect(page).toHaveURL(/#\/teams$/);
+  expect((await page.request.get(`/api/teams/${team.id}`, { headers })).status()).toBe(404);
+  expect((await page.request.get(`/api/agents/${agents[0].id}`, { headers })).status()).toBe(404);
+});
+
 test('the sidebar shows the final IT Department order', async ({ page }) => {
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });

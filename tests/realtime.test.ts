@@ -38,6 +38,9 @@ describe('event to query map', () => {
   it("a Team's added agents refresh the Agents list", () => {
     has('team.added', keys.agents('w1'), null);
   });
+  it('a deleted Team refreshes cached Agent details without exposing their ids', () => {
+    has('team.deleted', ['ws', 'w1', 'agent'], null);
+  });
   it('a deleted card, named only in the payload, still refreshes its own queries', () => {
     const deleted = { ...ev('card.deleted', null), payload: { card_id: 'c9' } };
     expect(invalidationsFor('w1', deleted)).toContainEqual(keys.card('w1', 'c9'));

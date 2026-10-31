@@ -12,7 +12,7 @@ UPDATE field_pack SET avatar_url = @avatar_url WHERE workspace_id = @workspace_i
 -- name: ListFieldPacks :many
 SELECT p.*, COALESCE((SELECT array_agg(a.approved_by ORDER BY a.approved_at) FROM field_pack_approval a
   WHERE a.workspace_id = p.workspace_id AND a.pack_id = p.id), '{}')::uuid[] AS approvals
-FROM field_pack p WHERE p.workspace_id = @workspace_id ORDER BY p.name, p.created_at;
+FROM field_pack p WHERE p.workspace_id = @workspace_id AND p.deleted_at IS NULL ORDER BY p.name, p.created_at;
 
 -- name: ApproveFieldPack :execrows
 INSERT INTO field_pack_approval (workspace_id, pack_id, approved_by)
@@ -37,7 +37,7 @@ ORDER BY harness;
 
 -- Whether the name belongs to a shipped pack or to someone other than the user.
 -- name: PackNameTaken :one
-SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND deleted_at IS NULL
   AND uploaded_by IS DISTINCT FROM @user_id::uuid) AS taken;
 
 -- Saving a Team rewrites its row; the id and the stored version stay.
@@ -64,12 +64,12 @@ SELECT id::uuid AS id FROM all_workspace_ids();
 SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND source = 'shipped') AS ok;
 
 -- name: PackNameInUse :one
-SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name) AS used;
+SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND deleted_at IS NULL) AS used;
 
 -- The name moves in the row and in the manifest the row holds.
 -- name: RenameFieldPack :exec
 UPDATE field_pack SET name = @new_name::text, manifest = jsonb_set(manifest, '{name}', to_jsonb(@new_name::text))
-WHERE workspace_id = @workspace_id AND name = @name AND source <> 'shipped';
+WHERE workspace_id = @workspace_id AND name = @name AND source <> 'shipped' AND deleted_at IS NULL;
 
 -- The free Team of a stage: the shipped Team labelled for that stage and no field.
 -- name: BuiltInStageTeam :one
@@ -77,4 +77,4 @@ SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND source = 'shippe
 ORDER BY created_at, id LIMIT 1;
 
 -- name: ListOwnPacks :many
-SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND uploaded_by = @user_id ORDER BY name, created_at;
+SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND uploaded_by = @user_id AND deleted_at IS NULL ORDER BY name, created_at;

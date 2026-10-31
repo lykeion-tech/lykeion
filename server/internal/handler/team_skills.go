@@ -237,6 +237,9 @@ func (h *H) duplicateTeam(w http.ResponseWriter, r *http.Request) {
 	var row db.FieldPack
 	var agents []db.Agent
 	err = h.Store.InWorkspace(r.Context(), ws, user, func(tx *store.Tx) error {
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
 		if _, err := visiblePack(r, tx, user, id); err != nil {
 			return err
 		}

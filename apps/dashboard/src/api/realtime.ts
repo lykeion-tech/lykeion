@@ -125,7 +125,11 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'pack':
       return [keys.packs(ws)];
     case 'team':
-      return [keys.packs(ws), keys.agents(ws)];
+      return [
+        keys.packs(ws),
+        keys.agents(ws),
+        ...(e.type === 'team.deleted' ? [['ws', ws, 'agent']] : []),
+      ];
     default:
       return [];
   }

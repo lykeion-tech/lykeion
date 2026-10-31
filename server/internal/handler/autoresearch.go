@@ -168,6 +168,12 @@ func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
 		if err := checkAssigneeRefs(r, tx, ws, user, in.Assignee); err != nil {
 			return err
 		}

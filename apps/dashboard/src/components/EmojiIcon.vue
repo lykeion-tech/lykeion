@@ -49,6 +49,10 @@ function choose(value: string) {
   position: relative;
   flex: none;
 }
+.emoji-icon-wrap :deep(.avatar-display) {
+  border-radius: 0;
+  overflow: visible;
+}
 .emoji-icon-button {
   position: relative;
   overflow: hidden;

@@ -209,6 +209,35 @@ async function saveIcon(value: string) {
     if (visit === ownVisit) iconBusy.value = false;
   }
 }
+async function deleteTeam() {
+  if (
+    busy.value ||
+    !manifest.value ||
+    !confirm(
+      `Delete ${teamDisplayParts(manifest.value.name).label}? Its Agent copies will also be deleted. Past studies and run history will be kept.`,
+    )
+  )
+    return;
+  const ownVisit = visit,
+    ws = workspaceId.value,
+    id = props.id;
+  busy.value = true;
+  error.value = '';
+  try {
+    await api('DELETE', `/api/teams/${id}`, undefined, undefined, { workspace: ws });
+    await Promise.all([
+      client.invalidateQueries({ queryKey: keys.packs(ws) }),
+      client.invalidateQueries({ queryKey: keys.agents(ws) }),
+      client.invalidateQueries({ queryKey: ['ws', ws, 'agent'] }),
+    ]);
+    client.removeQueries({ queryKey: keys.team(ws, id) });
+    if (visit === ownVisit) await router.push('/teams');
+  } catch (e) {
+    if (visit === ownVisit) error.value = (e as Error).message;
+  } finally {
+    if (visit === ownVisit) busy.value = false;
+  }
+}
 const { openComposer } = useTaskComposer();
 const stage = (value: string) =>
   value ? value[0]!.toUpperCase() + value.slice(1) : 'A set of stages';
@@ -290,6 +319,14 @@ function tabKey(event: KeyboardEvent, index: number) {
           </div>
           <div class="agent-actions">
             <button
+              v-if="store.isSuccess.value && row && !builtIn"
+              class="button"
+              :disabled="busy"
+              @click="deleteTeam"
+            >
+              <Icon name="trash" :size="14" />Delete Team
+            </button>
+            <button
               v-if="builtIn"
               class="button"
               @click="
@@ -345,27 +382,29 @@ function tabKey(event: KeyboardEvent, index: number) {
         role="tabpanel"
         aria-labelledby="team-tab-0"
       >
-        <div class="team-canvas">
-          <div class="canvas-heading">
-            <strong>Team</strong><span>{{ people.length }} agents</span>
-          </div>
-          <div class="canvas-layout">
-            <button
-              v-for="person in cards"
-              :key="person.key"
-              class="canvas-agent"
-              :aria-pressed="selectedPerson === person.key"
-              @click="selectedPerson = person.key"
-            >
-              <span class="card-identity"
-                ><span class="avatar">{{ person.member.name[0] }}</span
-                ><span
-                  ><strong>{{ person.member.name }}</strong
-                  ><small>{{ person.role }}</small></span
-                ></span
+        <div class="team-canvas-column">
+          <div class="team-canvas">
+            <div class="canvas-heading">
+              <strong>Team</strong><span>{{ people.length }} agents</span>
+            </div>
+            <div class="canvas-layout">
+              <button
+                v-for="person in cards"
+                :key="person.key"
+                class="canvas-agent"
+                :aria-pressed="selectedPerson === person.key"
+                @click="selectedPerson = person.key"
               >
-              <span class="card-description">{{ person.member.role }}</span>
-            </button>
+                <span class="card-identity"
+                  ><span class="avatar">{{ person.member.name[0] }}</span
+                  ><span
+                    ><strong>{{ person.member.name }}</strong
+                    ><small>{{ person.role }}</small></span
+                  ></span
+                >
+                <span class="card-description">{{ person.member.role }}</span>
+              </button>
+            </div>
           </div>
           <p v-if="builtIn" class="team-note">
             Built-in Teams can't be changed. Duplicate this Team to make one of your own.
@@ -577,6 +616,7 @@ function tabKey(event: KeyboardEvent, index: number) {
 .canvas-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
 }
 .canvas-agent {
   display: flex;
@@ -593,6 +633,12 @@ function tabKey(event: KeyboardEvent, index: number) {
 }
 .canvas-agent:nth-child(even) {
   border-left: 1px solid var(--border);
+}
+.canvas-agent:nth-child(odd):last-child {
+  border-right: 1px solid var(--border);
+}
+.canvas-agent:nth-child(even):nth-last-child(2) {
+  border-bottom: 1px solid var(--border);
 }
 .canvas-agent:hover {
   background: var(--hover);
@@ -638,8 +684,8 @@ function tabKey(event: KeyboardEvent, index: number) {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.team-canvas .team-note {
-  margin: 16px 20px;
+.team-canvas-column .team-note {
+  margin: 16px 0 0;
 }
 .team-inspector {
   min-width: 0;
@@ -678,6 +724,12 @@ function tabKey(event: KeyboardEvent, index: number) {
   }
   .canvas-agent:nth-child(even) {
     border-left: 0;
+  }
+  .canvas-agent:nth-child(odd):last-child {
+    border-right: 0;
+  }
+  .canvas-agent:nth-child(even):nth-last-child(2) {
+    border-bottom: 0;
   }
 }
 

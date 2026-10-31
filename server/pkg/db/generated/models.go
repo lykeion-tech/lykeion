@@ -27,6 +27,7 @@ type Agent struct {
 	BuiltInKey           string          `json:"built_in_key"`
 	ConversationStarters json.RawMessage `json:"conversation_starters"`
 	AvatarUrl            string          `json:"avatar_url"`
+	TeamDeletedAt        *time.Time      `json:"team_deleted_at"`
 }
 
 type AgentRun struct {
@@ -597,6 +598,7 @@ type FieldPack struct {
 	Domain      string          `json:"domain"`
 	Stage       string          `json:"stage"`
 	AvatarUrl   string          `json:"avatar_url"`
+	DeletedAt   *time.Time      `json:"deleted_at"`
 }
 
 type FieldPackApproval struct {

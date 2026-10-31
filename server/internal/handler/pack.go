@@ -16,7 +16,7 @@ import (
 // visibleTo says whether user may see and approve the pack: shipped packs are
 // everyone's, an upload is its uploader's alone.
 func visibleTo(p db.FieldPack, user uuid.UUID) bool {
-	return p.Source == "shipped" || (p.UploadedBy != nil && *p.UploadedBy == user)
+	return p.DeletedAt == nil && (p.Source == "shipped" || (p.UploadedBy != nil && *p.UploadedBy == user))
 }
 
 // approve records user's approval of p and emits pack.approved, only when

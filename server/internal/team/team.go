@@ -165,6 +165,9 @@ func Ensure(ctx context.Context, tx *store.Tx, user, packID uuid.UUID) error {
 	if err != nil {
 		return err
 	}
+	if p.DeletedAt != nil {
+		return ErrNotAdded
+	}
 	if p.Source == "shipped" {
 		var m pack.Manifest
 		if err := json.Unmarshal(p.Manifest, &m); err != nil {

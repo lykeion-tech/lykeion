@@ -13,6 +13,23 @@ import (
 	"github.com/google/uuid"
 )
 
+const agentBelongsToOtherTeam = `-- name: AgentBelongsToOtherTeam :one
+SELECT EXISTS (SELECT 1 FROM team_agent WHERE workspace_id = $1 AND agent_id = $2 AND pack_id <> $3)
+`
+
+type AgentBelongsToOtherTeamParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentID     uuid.UUID `json:"agent_id"`
+	PackID      uuid.UUID `json:"pack_id"`
+}
+
+func (q *Queries) AgentBelongsToOtherTeam(ctx context.Context, arg AgentBelongsToOtherTeamParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentBelongsToOtherTeam, arg.WorkspaceID, arg.AgentID, arg.PackID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const agentLiveNameTaken = `-- name: AgentLiveNameTaken :one
 SELECT EXISTS (SELECT 1 FROM agent WHERE workspace_id = $1 AND archived_at IS NULL
   AND lower(name) = lower($2::text)) AS taken
@@ -29,6 +46,36 @@ func (q *Queries) AgentLiveNameTaken(ctx context.Context, arg AgentLiveNameTaken
 	var taken bool
 	err := row.Scan(&taken)
 	return taken, err
+}
+
+const deleteTeam = `-- name: DeleteTeam :exec
+UPDATE field_pack SET deleted_at = now() WHERE workspace_id = $1 AND id = $2 AND deleted_at IS NULL
+`
+
+type DeleteTeamParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	PackID      uuid.UUID `json:"pack_id"`
+}
+
+func (q *Queries) DeleteTeam(ctx context.Context, arg DeleteTeamParams) error {
+	_, err := q.db.Exec(ctx, deleteTeam, arg.WorkspaceID, arg.PackID)
+	return err
+}
+
+const deleteTeamAgent = `-- name: DeleteTeamAgent :exec
+UPDATE agent SET team_deleted_at = now(), archived_at = COALESCE(archived_at, now()), updated_at = now(),
+  description = '', instructions = '', model = '', avatar_url = '', conversation_starters = '[]'::jsonb
+WHERE workspace_id = $1 AND id = $2 AND team_deleted_at IS NULL
+`
+
+type DeleteTeamAgentParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentID     uuid.UUID `json:"agent_id"`
+}
+
+func (q *Queries) DeleteTeamAgent(ctx context.Context, arg DeleteTeamAgentParams) error {
+	_, err := q.db.Exec(ctx, deleteTeamAgent, arg.WorkspaceID, arg.AgentID)
+	return err
 }
 
 const insertTeamAgent = `-- name: InsertTeamAgent :exec
@@ -56,10 +103,10 @@ func (q *Queries) InsertTeamAgent(ctx context.Context, arg InsertTeamAgentParams
 }
 
 const storeTeams = `-- name: StoreTeams :many
-SELECT DISTINCT ON (p.name) p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, p.avatar_url, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
+SELECT DISTINCT ON (p.name) p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, p.avatar_url, p.deleted_at, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
   WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND t.user_id = $1))::bool AS added
 FROM field_pack p
-WHERE p.workspace_id = $2 AND (p.source = 'shipped' OR p.uploaded_by = $1)
+WHERE p.workspace_id = $2 AND p.deleted_at IS NULL AND (p.source = 'shipped' OR p.uploaded_by = $1)
   AND ($3::text = '' OR p.domain = $3) AND ($4::text = '' OR p.stage = $4)
 ORDER BY p.name, p.created_at DESC
 `
@@ -85,6 +132,7 @@ type StoreTeamsRow struct {
 	Domain      string          `json:"domain"`
 	Stage       string          `json:"stage"`
 	AvatarUrl   string          `json:"avatar_url"`
+	DeletedAt   *time.Time      `json:"deleted_at"`
 	Added       bool            `json:"added"`
 }
 
@@ -117,11 +165,57 @@ func (q *Queries) StoreTeams(ctx context.Context, arg StoreTeamsParams) ([]Store
 			&i.Domain,
 			&i.Stage,
 			&i.AvatarUrl,
+			&i.DeletedAt,
 			&i.Added,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const teamAgentHasLiveRuns = `-- name: TeamAgentHasLiveRuns :one
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = $1 AND agent_id = $2 AND status IN ('queued', 'dispatched', 'running'))
+`
+
+type TeamAgentHasLiveRunsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	AgentID     *uuid.UUID `json:"agent_id"`
+}
+
+func (q *Queries) TeamAgentHasLiveRuns(ctx context.Context, arg TeamAgentHasLiveRunsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, teamAgentHasLiveRuns, arg.WorkspaceID, arg.AgentID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const teamAgentIDs = `-- name: TeamAgentIDs :many
+SELECT DISTINCT agent_id FROM team_agent WHERE workspace_id = $1 AND pack_id = $2 ORDER BY agent_id
+`
+
+type TeamAgentIDsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	PackID      uuid.UUID `json:"pack_id"`
+}
+
+func (q *Queries) TeamAgentIDs(ctx context.Context, arg TeamAgentIDsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, teamAgentIDs, arg.WorkspaceID, arg.PackID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var agent_id uuid.UUID
+		if err := rows.Scan(&agent_id); err != nil {
+			return nil, err
+		}
+		items = append(items, agent_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -163,4 +257,22 @@ func (q *Queries) TeamAgentsFor(ctx context.Context, arg TeamAgentsForParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const teamHasActiveUses = `-- name: TeamHasActiveUses :one
+SELECT EXISTS (SELECT 1 FROM card c LEFT JOIN card_team t ON t.workspace_id = c.workspace_id AND t.card_id = c.id
+  WHERE c.workspace_id = $1 AND (t.pack_id = $2 OR c.pack_id = $2) AND c.ending = '' AND c.state <> 'done')
+  OR EXISTS (SELECT 1 FROM autoresearch_team WHERE workspace_id = $1 AND pack_id = $2)
+`
+
+type TeamHasActiveUsesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	PackID      uuid.UUID `json:"pack_id"`
+}
+
+func (q *Queries) TeamHasActiveUses(ctx context.Context, arg TeamHasActiveUsesParams) (*bool, error) {
+	row := q.db.QueryRow(ctx, teamHasActiveUses, arg.WorkspaceID, arg.PackID)
+	var column_1 *bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
