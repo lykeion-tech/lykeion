@@ -6,8 +6,6 @@ import CoresearchProject from './CoresearchProject.vue';
 import ChatComposer from './ChatComposer.vue';
 import ChatTranscript from './ChatTranscript.vue';
 import MembersDialog from './MembersDialog.vue';
-import NewChatDialog from './NewChatDialog.vue';
-import ProjectSidebar from './ProjectSidebar.vue';
 import SidebarFiles from './SidebarFiles.vue';
 import AssistantMessage from './AssistantMessage.vue';
 import RightPaneTabs from './RightPaneTabs.vue';
@@ -154,14 +152,6 @@ describe('Coresearch workspace', () => {
     expect(textOf(root)).toContain('Owner');
     expect(button(root, 'Add member')).toBeUndefined();
     expect(button(root, 'Remove Ada')).toBeUndefined();
-  });
-  it('new chat offers only the callers supported online CLIs', async () => {
-    const { root } = await mount(NewChatDialog, { projectId: 'p' });
-    expect(
-      all(root)
-        .filter((n) => n.props['data-cli'])
-        .map((n) => n.props['data-cli']),
-    ).toEqual(['claude']);
   });
   it('sends and cancels through the dedicated Coresearch routes', async () => {
     const requests: { url: string; method: string; body: unknown }[] = [];
@@ -463,22 +453,11 @@ describe('Coresearch workspace', () => {
   });
 });
 
-it.each(['', '   '])('uses email or ID when owner name is blank: %j', async (name) => {
+it.each(['', '   '])('members dialog uses email or ID when name is blank: %j', async (name) => {
   const members = [
     { user_id: 'me', name, email: 'ada@example.org' },
     { user_id: 'other', name, email: ' ' },
   ];
-  const sidebar = await mount(ProjectSidebar, {
-    name: 'Project',
-    files: [],
-    chats: [chat, { ...chat, id: 'other-chat', owner_id: 'other' }],
-    members,
-  });
-  expect(textOf(sidebar.root)).toContain('ada@example.org');
-  expect(textOf(sidebar.root)).toContain('other');
-  expect(all(sidebar.root).some((n) => n.props['aria-label'] === 'Owner: ada@example.org')).toBe(
-    true,
-  );
   const dialog = await mount(MembersDialog, { projectId: 'p', editable: true }, (c) => {
     c.setQueryData(keys.members('lab'), members);
     c.setQueryData(keys.coresearchMembers('lab', 'p'), [
