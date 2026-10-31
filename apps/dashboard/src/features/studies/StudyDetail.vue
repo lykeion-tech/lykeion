@@ -699,20 +699,6 @@ function pin() {
   width: calc(100% - 68px);
   font-size: 14px;
 }
-.substudy-row {
-  padding-bottom: 26px;
-  border-bottom: 1px solid var(--border);
-}
-
-.add-substudies {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--muted);
-  padding: 12px 0;
-  margin: 8px 0 0;
-}
 
 .desktop-study {
   inset: 0;
@@ -874,19 +860,6 @@ function pin() {
   max-width: 1002px;
   padding: 0 16px 24px;
   margin: 0 auto;
-}
-.task-description {
-  padding: 8px 0 12px;
-  min-height: 100px;
-}
-.task-title {
-  font-size: 24px;
-  font-weight: 600;
-  line-height: 32px;
-  padding: 0;
-  text-align: left;
-  display: block;
-  margin-bottom: 20px;
 }
 .study-description-text {
   padding: 0;
@@ -1430,34 +1403,9 @@ function pin() {
   margin-bottom: 6px;
   flex-wrap: wrap;
 }
-.record-line {
-  display: flex;
-  gap: 10px;
-  padding: 3px 0;
-  overflow-wrap: anywhere;
-}
-.record-line > span:nth-child(2) {
-  flex: 1;
-  min-width: 0;
-  white-space: pre-wrap;
-  line-height: 1.7;
-}
-.record-line .key {
-  flex: none;
-  color: var(--muted);
-  min-width: 20px;
-}
-.record-line.superseded {
-  color: var(--muted);
-}
 .superseded-mark {
   color: #8a6a1c;
   font-size: 12px;
-  white-space: nowrap;
-}
-.record-line .source {
-  color: var(--primary-text);
-  margin-left: auto;
   white-space: nowrap;
 }
 .who {
