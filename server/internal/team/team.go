@@ -231,6 +231,28 @@ func Add(ctx context.Context, tx *store.Tx, p db.FieldPack, m pack.Manifest, use
 	return tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: p.ID, UserID: user})
 }
 
+// AddBuiltIn gives user their agents for each built-in stage Team that one of
+// their harnesses can run, so the agents are listed before any study uses them.
+func AddBuiltIn(ctx context.Context, tx *store.Tx, user uuid.UUID) error {
+	for _, stage := range board.Stages {
+		p, err := tx.Q.BuiltInStageTeam(ctx, db.BuiltInStageTeamParams{WorkspaceID: tx.WS, Stage: stage})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		var m pack.Manifest
+		if err := json.Unmarshal(p.Manifest, &m); err != nil {
+			return err
+		}
+		if _, err := Add(ctx, tx, p, m, user); err != nil && !errors.Is(err, ErrNoHarness) {
+			return err
+		}
+	}
+	return nil
+}
+
 // freeName is base, or base with " 2", " 3" … until no live agent holds it.
 func freeName(ctx context.Context, tx *store.Tx, base string) (string, error) {
 	if utf8.RuneCountInString(base) > maxAgentName-4 {

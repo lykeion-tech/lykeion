@@ -35,6 +35,9 @@ describe('event to query map', () => {
     for (const type of ['pack.uploaded', 'pack.approved', 'team.created'])
       has(type, ['ws', 'w1', 'packs'], null);
   });
+  it("a Team's added agents refresh the Agents list", () => {
+    has('team.added', keys.agents('w1'), null);
+  });
   it('a deleted card, named only in the payload, still refreshes its own queries', () => {
     const deleted = { ...ev('card.deleted', null), payload: { card_id: 'c9' } };
     expect(invalidationsFor('w1', deleted)).toContainEqual(keys.card('w1', 'c9'));
