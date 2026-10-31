@@ -254,6 +254,8 @@ test('embedded Properties keeps its own width and responds to the actual Inbox c
   await expect(study.getByRole('heading', { name: card.title })).toBeVisible();
   await page.setViewportSize({ width: 1100, height: 982 });
   await expectPaneMode();
+  // With the rail open the study is still wide enough to dock the pane.
+  expect(await floats()).toBe(false);
   const railToggle = page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).first();
   await railToggle.click();
   await expectPaneMode();
