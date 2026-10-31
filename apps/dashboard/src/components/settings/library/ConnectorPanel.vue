@@ -15,7 +15,7 @@ const policy = useAvailabilityChanges();
 import CapabilityList from './CapabilityList.vue';
 import ConnectorDialog from './ConnectorDialog.vue';
 import AddConnectorDialog from './AddConnectorDialog.vue';
-import OpenAlexDialog, { budget } from './OpenAlexDialog.vue';
+import OpenAlexDialog from './OpenAlexDialog.vue';
 const catalogue = useConnectorLibrary(),
   custom = useWorkspaceMCPServers(),
   openalex = useOpenAlexConnector(),
@@ -48,8 +48,7 @@ const scientific = computed(() =>
       (!field.value || c.domain === field.value),
   ),
 );
-// OpenAlex is built into the sources server: listed with Literature, with a key
-// and no availability switch.
+// OpenAlex is built into the sources server and listed with Literature.
 const literature = computed(
   () =>
     (!field.value || field.value === 'Literature') &&
@@ -117,15 +116,30 @@ watch(
             <strong>OpenAlex</strong>
             <p>Papers, preprints and abstracts across all fields, arXiv included. Built in.</p>
           </div>
-          <span class="budget" :class="{ saved: openalex.data.value?.key_set }">{{
-            budget(openalex.data.value?.key_set)
-          }}</span>
         </button>
+        <AvailabilitySwitch
+          name="OpenAlex"
+          :checked="openalex.data.value?.policy_enabled ?? false"
+          :disabled="
+            !openalex.data.value ||
+            openalex.isError.value ||
+            !policy.catalogueAllowed.value ||
+            !!policy.pending.value
+          "
+          @toggle="
+            policy.toggle(
+              'catalogue',
+              'openalex',
+              openalex.data.value!.revision,
+              !openalex.data.value!.policy_enabled,
+            )
+          "
+        />
       </div>
       <div v-for="c in scientific" :key="'catalogue:' + c.name" class="connector-entry">
         <button
           class="connector-row"
-          :class="{ chosen: selected === c.name && kind === 'catalogue' }"
+          :class="{ chosen: showDetail && selected === c.name && kind === 'catalogue' }"
           :aria-label="c.name"
           @click="open(c.name, 'catalogue')"
         >
@@ -146,7 +160,7 @@ watch(
       <div v-for="c in own" :key="'custom:' + c.id" class="connector-entry">
         <button
           class="connector-row"
-          :class="{ chosen: selected === c.id && kind === 'custom' }"
+          :class="{ chosen: showDetail && selected === c.id && kind === 'custom' }"
           :aria-label="c.name"
           @click="open(c.id, 'custom')"
         >
@@ -243,8 +257,8 @@ h3 {
   background: none;
   cursor: pointer;
 }
-.connector-row:hover,
-.connector-row.chosen {
+.connector-entry:hover,
+.connector-entry:has(.connector-row.chosen) {
   background: var(--hover);
   border-radius: 7px;
 }

@@ -29,6 +29,26 @@ async function open(page: Page) {
   await expect(page.getByRole('heading', { name: 'Skills', exact: true })).toBeVisible();
 }
 
+test('skill delete icon opens a confirmation before deletion', async ({ page }) => {
+  const name = `delete-dialog-${Date.now()}`;
+  await skill(page, name);
+  await open(page);
+  await page.getByRole('searchbox', { name: 'Search skills' }).fill(name);
+  await page.getByRole('button', { name, exact: true }).click();
+  const details = page.getByRole('dialog', { name });
+  await expect(details.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
+  await details.getByRole('button', { name: 'Delete skill', exact: true }).click();
+  const confirmation = page.getByRole('dialog', { name: 'Delete skill' });
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole('button', { name: 'Keep skill' }).click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(details).toBeVisible();
+  await details.getByRole('button', { name: 'Delete skill', exact: true }).click();
+  await confirmation.getByRole('button', { name: 'Delete skill', exact: true }).click();
+  await expect(details).toHaveCount(0);
+  await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
+});
+
 test('skills list opens modal C and preserves search', async ({ page }) => {
   const name = `review-helper-${Date.now()}`;
   await skill(page, name, true);

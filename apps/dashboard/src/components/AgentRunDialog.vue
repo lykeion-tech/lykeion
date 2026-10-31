@@ -4,6 +4,7 @@ import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 import RunTurn from './RunTurn.vue';
 import StudyEnvironment from './StudyEnvironment.vue';
+import HighlightedSource from './HighlightedSource.vue';
 import { useMembers, useRunMessages } from '../api/queries';
 import type { AgentRun, Runtime } from '../api/types';
 import { backendLabel } from '../lib/backends';
@@ -79,7 +80,6 @@ const environment = computed(() => {
     { key: 'Stage', value: columnName(r.board_column) },
   ].filter((e) => e.value);
 });
-const lines = (text: string) => text.replace(/\n$/, '').split('\n');
 
 const notice = ref('');
 async function copy(text: string) {
@@ -172,12 +172,7 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
                   <Icon name="copy" :size="13" />Copy
                 </button>
               </div>
-              <pre tabindex="0"><code><span
-                v-for="(line, i) in lines(c.code)"
-                :key="i"
-                class="code-line"
-              ><span class="line-number" aria-hidden="true">{{ i + 1 }}</span>{{ line }}
-</span></code></pre>
+              <HighlightedSource :code="c.code" :language="c.language" />
             </div>
           </section>
         </template>
@@ -208,12 +203,7 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
                       <Icon name="copy" :size="13" />Copy
                     </button>
                   </div>
-                  <pre tabindex="0"><code><span
-                    v-for="(line, j) in lines(cell.source)"
-                    :key="j"
-                    class="code-line"
-                  ><span class="line-number" aria-hidden="true">{{ j + 1 }}</span>{{ line }}
-</span></code></pre>
+                  <HighlightedSource :code="cell.source" :language="cell.language" />
                 </div>
                 <details v-if="cell.output" class="cell-output">
                   <summary>Show output</summary>

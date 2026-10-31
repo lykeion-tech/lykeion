@@ -7,6 +7,7 @@ import { useMe, useMembers } from '../../../api/queries';
 import { workspaceId } from '../../../api/session';
 import { ApiError } from '../../../api/client';
 import { useResourceDraft } from '../../../state/resource-draft';
+import SkillFileViewer from './SkillFileViewer.vue';
 const formattingFailed = ref(false);
 const PlainRecordedText = defineComponent({
   props: { content: { type: String, default: '' } },
@@ -174,11 +175,12 @@ async function cancelEdit() {
           <h2>{{ detail.data.value?.name || 'Skill' }}</h2>
           <button
             v-if="detail.data.value?.editable && tab !== 'editing'"
-            class="button"
+            class="icon-button"
+            aria-label="Edit"
             :disabled="!saved || busy"
             @click="tab = 'editing'"
           >
-            Edit</button
+            <Icon name="edit" :size="16" /></button
           ><button
             v-if="detail.data.value?.editable"
             class="icon-button"
@@ -186,7 +188,7 @@ async function cancelEdit() {
             :disabled="!saved || busy"
             @click="deleting = true"
           >
-            <Icon name="more" :size="16" /></button
+            <Icon name="trash" :size="16" /></button
           ><button class="icon-button" aria-label="Close skill" @click="close">
             <Icon name="close" :size="18" />
           </button>
@@ -212,16 +214,6 @@ async function cancelEdit() {
         <p v-if="detail.isPending.value" role="status">Loading skill…</p>
         <p v-if="detail.error.value" role="alert">{{ detail.error.value.message }}</p>
         <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
-        <div v-if="deleting" class="delete-confirm">
-          <p>
-            Delete {{ detail.data.value?.name }}? Studies already using it keep their routed
-            version.
-          </p>
-          <button class="button" @click="deleting = false">Keep skill</button>
-          <button class="button danger" :disabled="!saved || busy" @click="remove(close)">
-            Delete skill
-          </button>
-        </div>
         <template v-if="tab === 'overview' && detail.data.value"
           ><dl class="facts">
             <dt>Added by</dt>
@@ -274,7 +266,7 @@ async function cancelEdit() {
             ><strong>Binary file</strong>
             <p class="muted">{{ metadata.size }} bytes · SHA256 {{ metadata.sha256 }}</p></template
           >
-          <pre v-else class="file-preview">{{ preview }}</pre>
+          <SkillFileViewer v-else :path="path" :content="preview" />
         </template>
         <template v-if="tab === 'editing'"
           ><label class="editor-label" for="skill-content">SKILL.md</label
@@ -319,6 +311,18 @@ async function cancelEdit() {
           </button>
         </div>
       </footer>
+      <Modal v-if="deleting" class="delete-modal" title="Delete skill" @close="deleting = false">
+        <div class="delete-confirm">
+          <h3>Delete {{ detail.data.value?.name }}?</h3>
+          <p>Studies already using it keep their routed version.</p>
+          <div class="delete-actions">
+            <button class="button" :disabled="busy" @click="deleting = false">Keep skill</button>
+            <button class="button danger" :disabled="!saved || busy" @click="remove(close)">
+              Delete skill
+            </button>
+          </div>
+        </div>
+      </Modal>
     </section>
   </Modal>
 </template>
@@ -510,11 +514,33 @@ async function cancelEdit() {
   gap: 8px;
   margin-top: 12px;
 }
+.delete-modal {
+  width: 420px;
+  background: var(--surface);
+}
 .delete-confirm {
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 12px;
-  margin-bottom: 16px;
+  padding: 24px;
+}
+.delete-confirm h3 {
+  font-size: 16px;
+  line-height: 1.4;
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+.delete-confirm p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+.delete-actions .danger {
+  background: var(--danger-bg);
+  color: var(--danger-text);
 }
 button:focus-visible,
 textarea:focus-visible {

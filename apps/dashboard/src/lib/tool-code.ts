@@ -14,7 +14,19 @@ const languages = {
 };
 const loaded = new Map<string, Promise<void>>();
 export async function highlightToolCode(code: string, language: string) {
-  const lang = language.toLowerCase();
+  const name = language.toLowerCase();
+  const lang =
+    (
+      {
+        py: 'python',
+        shell: 'bash',
+        sh: 'bash',
+        zsh: 'bash',
+        js: 'javascript',
+        ts: 'typescript',
+        md: 'markdown',
+      } as Record<string, string>
+    )[name] ?? name;
   const grammar = languages[lang as keyof typeof languages];
   if (!grammar && lang !== 'text') return;
   highlighter ??= Promise.all([import('shiki/core'), import('shiki/engine/javascript')]).then(

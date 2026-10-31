@@ -49,13 +49,35 @@ async function save(value: string) {
       <header>
         <div>
           <h2>OpenAlex</h2>
-          <p>Literature search · built into the sources server</p>
+          <p>
+            Papers, preprints and abstracts across all fields, searched through the sources server.
+          </p>
+          <div class="chips"><span>Literature</span><span>key</span></div>
         </div>
         <button class="icon-button" aria-label="Close OpenAlex" @click="close">
           <Icon name="close" :size="18" />
         </button>
       </header>
       <div class="body">
+        <h3>Overview</h3>
+        <dl v-if="openalex.data.value" class="facts">
+          <dt>Availability</dt>
+          <dd>
+            {{
+              openalex.data.value.enabled
+                ? 'Available to this workspace'
+                : openalex.data.value.reason
+            }}
+          </dd>
+          <dt>Origin</dt>
+          <dd>Built into the sources server</dd>
+          <dt>Scope</dt>
+          <dd>Workspace</dd>
+        </dl>
+        <p v-else-if="openalex.isError.value" class="inline-error" role="alert">
+          Could not load OpenAlex availability.
+        </p>
+        <p v-else role="status" class="hint">Loading OpenAlex availability…</p>
         <div v-if="saved" class="notice saved" role="status">
           <strong>Key saved: about 1,000 OpenAlex searches a day for this workspace.</strong>
           <p>
@@ -109,30 +131,42 @@ async function save(value: string) {
 <style scoped>
 .openalex-modal,
 .openalex {
-  width: 520px;
+  width: 620px;
   max-width: 100%;
 }
 .openalex {
   display: flex;
   flex-direction: column;
   max-height: calc(90vh - 2px);
+  background: var(--surface);
 }
 header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   padding: 21px 28px;
-  border-bottom: 1px solid var(--border);
 }
 h2 {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 18px;
+  font-weight: 600;
   margin: 0;
 }
 header p {
   font-size: 12px;
   color: var(--muted);
   margin: 4px 0 0;
+}
+.chips {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+.chips span {
+  font-size: 11px;
+  background: var(--hover);
+  color: var(--muted);
+  border-radius: 5px;
+  padding: 4px 7px;
 }
 .icon-button {
   border: 0;
@@ -141,8 +175,31 @@ header p {
   cursor: pointer;
 }
 .body {
-  padding: 24px 28px;
+  padding: 16px 24px 24px;
   overflow: auto;
+  min-height: 0;
+  scrollbar-width: none;
+}
+.body::-webkit-scrollbar {
+  display: none;
+}
+.body h3 {
+  font-size: 16px;
+  margin: 0 0 16px;
+}
+.facts {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 24px;
+}
+.facts dt {
+  color: var(--muted);
+}
+.facts dd {
+  margin: 0;
 }
 .notice {
   padding: 12px 14px;

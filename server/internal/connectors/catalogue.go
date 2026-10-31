@@ -196,8 +196,7 @@ var Catalogue = []Entry{
 }
 
 // OpenAlex is the sources server's own literature search, not a catalogue
-// connector: a workspace may save a key for it, which raises its daily
-// OpenAlex budget, and nothing else about it is set per workspace.
+// connector: a workspace may enable it and save a key for its daily budget.
 var OpenAlex = Entry{Name: "openalex", Domain: Literature, Tier: Key, KeyQuery: "api_key", Keyless: true,
 	Purpose: "Papers, preprints and abstracts across all fields, searched through the sources server."}
 

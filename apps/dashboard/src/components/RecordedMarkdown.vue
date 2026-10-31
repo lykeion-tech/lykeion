@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { renderMarkdown } from '../lib/markdown';
 const props = defineProps<{ content: string }>();
 const rendered = computed(() => renderMarkdown(props.content));
+const body = ref<HTMLElement>();
 const notice = ref('');
 const timers = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>();
 let revision = 0;
@@ -13,6 +14,42 @@ function clearFeedback() {
   notice.value = '';
 }
 watch(() => props.content, clearFeedback);
+watch(
+  [rendered, body],
+  async ([value, element], _, onCleanup) => {
+    let cancelled = false;
+    onCleanup(() => (cancelled = true));
+    if (!element) return;
+    const blocks = [...element.querySelectorAll<HTMLElement>('pre code[data-language]')];
+    if (!blocks.some((block) => block.dataset.language)) return;
+    try {
+      const { highlightToolCode } = await import('../lib/tool-code');
+      await Promise.all(
+        blocks.map(async (block, index) => {
+          const language = block.dataset.language;
+          if (!language) return;
+          const lines = await highlightToolCode(value.codes[index] ?? '', language);
+          if (cancelled || !lines) return;
+          const fragment = document.createDocumentFragment();
+          lines.forEach((line, lineIndex) => {
+            if (lineIndex) fragment.append(document.createTextNode('\n'));
+            line.forEach((token) => {
+              const span = document.createElement('span');
+              span.textContent = token.content;
+              if (token.color) span.style.color = token.color;
+              fragment.append(span);
+            });
+          });
+          block.replaceChildren(fragment);
+          block.parentElement?.classList.add('syntax-highlighted');
+        }),
+      );
+    } catch {
+      // The escaped, unhighlighted source remains readable.
+    }
+  },
+  { immediate: true, flush: 'post' },
+);
 onBeforeUnmount(clearFeedback);
 function setCopied(button: HTMLButtonElement, copied: boolean) {
   const label = button.querySelector('span');
@@ -50,7 +87,7 @@ async function copy(event: MouseEvent) {
   <div class="recorded-markdown">
     <!-- The renderer escapes recorded text and disables raw HTML and active images. -->
     <!-- eslint-disable-next-line vue/no-v-html -->
-    <div class="markdown-body" @click="copy" v-html="rendered.html" />
+    <div ref="body" class="markdown-body" @click="copy" v-html="rendered.html" />
     <span class="copy-notice" role="status">{{ notice }}</span>
   </div>
 </template>
@@ -166,6 +203,10 @@ async function copy(event: MouseEvent) {
 .markdown-code pre code {
   padding: 0;
   background: none;
+}
+.markdown-code pre.syntax-highlighted {
+  background: #24292e;
+  color: #e1e4e8;
 }
 .markdown-table {
   max-width: 100%;

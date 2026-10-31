@@ -108,7 +108,7 @@ export function timeAgo(iso: string, now = Date.now()): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-// Each column lowest position first, then by number.
+// Each column shows the newest studies first.
 export function groupByColumn(cards: Card[]): Record<BoardColumn, Card[]> {
   const out = Object.fromEntries(boardColumns.map((c) => [c.id, [] as Card[]])) as Record<
     BoardColumn,
@@ -116,7 +116,7 @@ export function groupByColumn(cards: Card[]): Record<BoardColumn, Card[]> {
   >;
   for (const c of cards) out[boardColumnOf(c)].push(c);
   for (const list of Object.values(out))
-    list.sort((a, b) => a.position - b.position || a.number - b.number);
+    list.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.number - a.number);
   return out;
 }
 

@@ -62,6 +62,9 @@ import {
   LogOut,
   Send,
   Copy,
+  Trash2,
+  Eye,
+  Code2,
 } from '@lucide/vue';
 const props = withDefaults(defineProps<{ name: string; size?: number }>(), { size: 16 });
 const icons: Record<string, unknown> = {
@@ -126,6 +129,9 @@ const icons: Record<string, unknown> = {
   logout: LogOut,
   send: Send,
   copy: Copy,
+  trash: Trash2,
+  eye: Eye,
+  code: Code2,
 };
 const component = computed(() => icons[props.name] ?? Circle);
 </script>

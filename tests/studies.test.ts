@@ -110,16 +110,36 @@ describe('board columns', () => {
       boardColumnOf(card({ flag: 'escalated', ending: 'stopped', board_column: 'done' })),
     ).toBe('done');
   });
-  it('orders a column by position, then number', () => {
+  it('orders every column by creation time, newest first', () => {
     const g = groupByColumn([
-      card({ id: 'b', board_column: 'hypotheses', position: 2, number: 1 }),
-      card({ id: 'a', board_column: 'hypotheses', position: -1, number: 5 }),
-      card({ id: 'c', board_column: 'hypotheses', position: 2, number: 0 }),
+      card({
+        id: 'b',
+        board_column: 'hypotheses',
+        position: 2,
+        number: 1,
+        created_at: '2026-10-16T10:00:00Z',
+      }),
+      card({
+        id: 'a',
+        board_column: 'hypotheses',
+        position: -1,
+        number: 5,
+        created_at: '2026-10-15T10:00:00Z',
+      }),
+      card({
+        id: 'c',
+        board_column: 'hypotheses',
+        position: 2,
+        number: 0,
+        created_at: '2026-10-17T10:00:00Z',
+      }),
+      card({ id: 'old-done', board_column: 'done', created_at: '2026-10-15T10:00:00Z' }),
+      card({ id: 'new-done', board_column: 'done', created_at: '2026-10-17T10:00:00Z' }),
       card({ id: 'x', flag: 'escalated' }),
     ]);
-    expect(g.hypotheses.map((c) => c.id)).toEqual(['a', 'c', 'b']);
+    expect(g.hypotheses.map((c) => c.id)).toEqual(['c', 'b', 'a']);
     expect(g.blocked.map((c) => c.id)).toEqual(['x']);
-    expect(g.done).toEqual([]);
+    expect(g.done.map((c) => c.id)).toEqual(['new-done', 'old-done']);
   });
 });
 

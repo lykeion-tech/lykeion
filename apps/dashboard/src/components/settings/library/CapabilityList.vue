@@ -167,9 +167,12 @@ input {
   font: inherit;
   min-width: 0;
 }
-.capability-search:focus-within {
-  outline: 2px solid var(--primary-text);
-  outline-offset: 2px;
+input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+input::-webkit-search-cancel-button {
+  display: none;
 }
 .library-caption,
 .library-empty {

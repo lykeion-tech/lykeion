@@ -481,6 +481,15 @@ func TestAWorkspaceSearchesOpenAlexUnderItsOwnKey(t *testing.T) {
 	if f.h.OA.Key != "server-key-1" {
 		t.Fatal("a workspace's key replaced the server's")
 	}
+	if _, err := f.env.Owner.Exec(ctx, `UPDATE workspace_connector SET enabled = false WHERE workspace_id = $1 AND name = 'openalex'`, f.ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.h.openAlex(ctx, role); err == nil || !strings.Contains(err.Error(), "enables `openalex`") {
+		t.Fatalf("disabled OpenAlex should be unavailable: %v", err)
+	}
+	if _, err := f.env.Owner.Exec(ctx, `UPDATE workspace_connector SET enabled = true WHERE workspace_id = $1 AND name = 'openalex'`, f.ws); err != nil {
+		t.Fatal(err)
+	}
 	old, _ := (&connectors.Client{Secret: bytes.Repeat([]byte{9}, 32)}).Seal(f.ws, "openalex", "workspace-key-1")
 	f.env.Owner.Exec(ctx, `UPDATE workspace_connector SET key_ciphertext = $2 WHERE workspace_id = $1 AND name = 'openalex'`, f.ws, old)
 	if _, err := f.h.openAlex(ctx, role); err == nil || !strings.Contains(err.Error(), "saves it again in Connectors") {

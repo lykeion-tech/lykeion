@@ -159,6 +159,9 @@ func TestOwnersSaveTheWorkspacesOpenAlexKey(t *testing.T) {
 	if code := s.call(t, "PUT", "/api/connectors/openalex", b, w.ID, map[string]any{"revision": 0, "key": key}, nil); code != 403 {
 		t.Fatalf("a member set the key: %d", code)
 	}
+	if code := s.call(t, "PUT", "/api/connectors/openalex", b, w.ID, map[string]any{"revision": 0, "enabled": false}, nil); code != 403 {
+		t.Fatalf("a member changed availability: %d", code)
+	}
 	var got json.RawMessage
 	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 0, "key": key}, &got); code != 200 ||
 		strings.Contains(string(got), key) || !strings.Contains(string(got), `"key_set":true`) {
@@ -175,12 +178,18 @@ func TestOwnersSaveTheWorkspacesOpenAlexKey(t *testing.T) {
 			t.Fatal("OpenAlex joined the connector catalogue")
 		}
 	}
-	for _, body := range []map[string]any{{"revision": 1, "enabled": false}, {"revision": 1, "licence_confirmed": true}} {
+	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 1, "enabled": false}, &v); code != 200 || v.PolicyEnabled || v.Enabled || !v.KeySet {
+		t.Fatalf("disable while preserving key: %d %+v", code, v)
+	}
+	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 2, "enabled": true}, &v); code != 200 || !v.PolicyEnabled || !v.Enabled || !v.KeySet {
+		t.Fatalf("reenable while preserving key: %d %+v", code, v)
+	}
+	for _, body := range []map[string]any{{"revision": 3, "licence_confirmed": true}} {
 		if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, body, nil); code != 400 {
 			t.Errorf("PUT %v: %d, want 400", body, code)
 		}
 	}
-	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 1, "key": ""}, &v); code != 200 || v.KeySet {
+	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 3, "key": ""}, &v); code != 200 || v.KeySet {
 		t.Fatalf("clear the key: %d %+v", code, v)
 	}
 }

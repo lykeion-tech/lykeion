@@ -10,7 +10,7 @@ watch(
     let cancelled = false;
     onCleanup(() => (cancelled = true));
     lines.value = undefined;
-    if (props.live || !props.lang) return;
+    if (!props.lang) return;
     try {
       const { highlightToolCode } = await import('../lib/tool-code');
       const result = await highlightToolCode(

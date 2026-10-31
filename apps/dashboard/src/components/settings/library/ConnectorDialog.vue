@@ -1,173 +1,35 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed } from 'vue';
 import Modal from '../../Modal.vue';
 import Icon from '../../Icon.vue';
-import ConnectorConfigFields, {
-  emptyConnector,
-  connectorInput,
-  connectorProblem,
-} from './ConnectorConfigFields.vue';
-import {
-  useConnectorLibrary,
-  useWorkspaceMCPServers,
-  useLibraryMutations,
-} from '../../../api/library';
-import { useMe, useMembers, useWorkspaces } from '../../../api/queries';
-import { workspaceId } from '../../../api/session';
-import { ApiError } from '../../../api/client';
-import { useResourceDraft } from '../../../state/resource-draft';
+import { useConnectorLibrary, useWorkspaceMCPServers } from '../../../api/library';
+import { useMe, useMembers } from '../../../api/queries';
+
 const props = defineProps<{ kind: 'catalogue' | 'custom'; connectorId: string }>();
 const emit = defineEmits<{ close: [] }>();
 const catalogue = useConnectorLibrary(),
-  custom = useWorkspaceMCPServers(),
-  workspaces = useWorkspaces(),
-  members = useMembers(),
+  custom = useWorkspaceMCPServers();
+const members = useMembers(),
   me = useMe();
 const entry = computed(() => catalogue.data.value?.find((c) => c.name === props.connectorId));
 const server = computed(() => custom.data.value?.find((c) => c.id === props.connectorId));
 const row = computed(() => (props.kind === 'catalogue' ? entry.value : server.value));
-const role = computed(() => workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role);
-const allowed = computed(() =>
-  props.kind === 'catalogue'
-    ? role.value === 'owner'
-    : role.value === 'owner' || role.value === 'admin',
-);
 const query = computed(() => (props.kind === 'catalogue' ? catalogue : custom));
-const tab = ref<'overview' | 'configuration'>('overview'),
-  editing = ref(false),
-  deleting = ref(false),
-  busy = ref(false),
-  error = ref(''),
-  refused = ref(false);
-const identity = computed(() => `${workspaceId.value}:${props.kind}:${props.connectorId}`);
-const value = () => ({
-  enabled: entry.value?.policy_enabled ?? true,
-  key: '',
-  clearKey: false,
-  licence: entry.value?.licence_confirmed ?? false,
-  custom: emptyConnector(server.value?.name, server.value?.transport),
-});
-const saved = computed(() =>
-  row.value && allowed.value && !query.value.isError.value && !refused.value
-    ? { revision: row.value.revision, value: value() }
-    : undefined,
-);
-const form = useResourceDraft(identity, saved);
-const fields = computed({
-  get: () => form.draft.value?.custom ?? emptyConnector(),
-  set: (value) => {
-    if (form.draft.value) form.draft.value.custom = value;
-  },
-});
-const problem = computed(() =>
-  props.kind === 'custom' && fields.value ? connectorProblem(fields.value) : '',
-);
 const author = computed(() => {
   const id = server.value?.created_by;
   if (id === me.data.value?.id) return 'You';
   const person = members.data.value?.find((m) => m.user_id === id);
   return person?.name || person?.email || id;
 });
-let visit = 0,
-  refusalSnapshot = row.value;
-onUnmounted(() => visit++);
-watch([row, allowed], ([snapshot, permission]) => {
-  if (
-    refused.value &&
-    snapshot &&
-    snapshot !== refusalSnapshot &&
-    permission &&
-    !query.value.isError.value
-  )
-    refused.value = false;
-});
-watch(allowed, async (permission, previous) => {
-  if (!permission || previous || !refused.value) return;
-  const own = identity.value,
-    token = visit;
-  const fresh = await query.value.refetch();
-  if (own === identity.value && token === visit && allowed.value && !fresh.isError && row.value)
-    refused.value = false;
-});
-const mutations = useLibraryMutations();
-async function save() {
-  if (!form.canSave.value || !allowed.value || busy.value || problem.value) return;
-  const accept = form.adopt(),
-    own = identity.value,
-    token = visit,
-    revision = form.baseRevision.value!,
-    draft = form.draft.value!;
-  busy.value = true;
-  error.value = '';
-  try {
-    const response =
-      props.kind === 'catalogue'
-        ? await mutations.setConnector(props.connectorId, {
-            revision,
-            enabled: draft.enabled,
-            ...(entry.value?.tier === 'restricted' ? { licence_confirmed: draft.licence } : {}),
-            ...(draft.clearKey ? { key: '' } : draft.key ? { key: draft.key } : {}),
-          })
-        : await mutations.updateWorkspaceMCP(props.connectorId, {
-            revision,
-            ...connectorInput(draft.custom),
-          });
-    if (
-      own === identity.value &&
-      token === visit &&
-      accept({ revision: response.revision, value: value() })
-    ) {
-      if (!form.dirty.value) editing.value = false;
-    }
-  } catch (e) {
-    if (own !== identity.value || token !== visit) return;
-    error.value = (e as Error).message;
-    if (e instanceof ApiError && [403, 404].includes(e.status)) {
-      refusalSnapshot = row.value;
-      refused.value = true;
-      await workspaces.refetch();
-    }
-    if (e instanceof ApiError && [409, 403, 404].includes(e.status)) {
-      const fresh = await query.value.refetch();
-      if (own === identity.value && token === visit && !fresh.isError && allowed.value && row.value)
-        refused.value = false;
-    }
-  } finally {
-    if (own === identity.value && token === visit) busy.value = false;
-  }
-}
-async function remove(close: () => Promise<void>) {
-  if (!allowed.value || busy.value || !server.value) return;
-  if (!(await form.reset())) return;
-  const own = identity.value,
-    token = visit;
-  busy.value = true;
-  error.value = '';
-  try {
-    await mutations.deleteWorkspaceMCP(props.connectorId, server.value.revision);
-    if (own === identity.value && token === visit) await close();
-  } catch (e) {
-    if (own === identity.value && token === visit) {
-      error.value = (e as Error).message;
-      await query.value.refetch();
-      await workspaces.refetch();
-    }
-  } finally {
-    if (own === identity.value && token === visit) busy.value = false;
-  }
-}
-async function cancelEdit() {
-  if (await form.reset()) editing.value = false;
-}
 </script>
 <template>
   <Modal
     v-slot="{ close }"
     class="connector-modal"
     :title="`${row?.name ?? connectorId} connector`"
-    :before-close="async () => !form.dirty.value || (await form.reset())"
     @close="emit('close')"
-    ><section class="connector-detail">
+  >
+    <section class="connector-detail">
       <header>
         <div class="title">
           <h2>{{ row?.name ?? connectorId }}</h2>
@@ -177,8 +39,8 @@ async function cancelEdit() {
         </div>
         <p v-if="entry && kind === 'catalogue'" class="lede">{{ entry.purpose }}</p>
         <div class="chips">
-          <span>{{ kind === 'catalogue' ? entry?.domain : 'Custom' }}</span
-          ><span>{{
+          <span>{{ kind === 'catalogue' ? entry?.domain : 'Custom' }}</span>
+          <span>{{
             kind === 'catalogue'
               ? entry?.tier
               : server?.transport === 'url'
@@ -187,45 +49,35 @@ async function cancelEdit() {
           }}</span>
         </div>
       </header>
-      <nav class="tabs" role="tablist" aria-label="Connector details">
-        <button
-          v-for="id in ['overview', 'configuration'] as const"
-          :key="id"
-          role="tab"
-          :aria-selected="tab === id"
-          @click="tab = id"
-        >
-          {{ id === 'overview' ? 'Overview' : 'Configuration' }}
-        </button>
-      </nav>
       <div class="body">
         <p v-if="query.isPending.value" role="status">Loading connector…</p>
         <p v-if="query.error.value" role="alert">{{ query.error.value.message }}</p>
         <p v-if="!query.isPending.value && !row" role="alert">
-          This connector is no longer available. Your draft is preserved.
+          This connector is no longer available.
         </p>
-        <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-        <template v-if="tab === 'overview' && row"
-          ><dl class="facts">
-            <template v-if="kind === 'catalogue' && entry"
-              ><dt>Availability</dt>
+        <template v-if="row">
+          <h3>Overview</h3>
+          <dl class="facts">
+            <template v-if="kind === 'catalogue' && entry">
+              <dt>Availability</dt>
               <dd>{{ entry.enabled ? 'Available to this workspace' : entry.reason }}</dd>
               <dt>Origin</dt>
               <dd>Lykeion scientific catalogue</dd>
-              <dt>Source terms</dt>
-              <dd>
-                <a v-if="entry.terms" :href="entry.terms" target="_blank" rel="noreferrer"
-                  >View source terms ↗</a
-                >
-              </dd></template
-            ><template v-else
-              ><dt>Origin</dt>
+              <template v-if="entry.terms"
+                ><dt>Source terms</dt>
+                <dd>
+                  <a :href="entry.terms" target="_blank" rel="noreferrer">View source terms ↗</a>
+                </dd></template
+              >
+            </template>
+            <template v-else>
+              <dt>Origin</dt>
               <dd>Added to this workspace</dd>
               <dt>Added by</dt>
               <dd>{{ author }}</dd>
               <dt>Connection</dt>
-              <dd>{{ server?.transport === 'url' ? 'Remote URL' : 'Command' }}</dd></template
-            >
+              <dd>{{ server?.transport === 'url' ? 'Remote URL' : 'Command' }}</dd>
+            </template>
             <dt>Scope</dt>
             <dd>Workspace</dd>
           </dl>
@@ -235,129 +87,12 @@ async function cancelEdit() {
                 ? 'Available connectors can be selected for Teams and routed to agents.'
                 : 'Agents can use this connection through the recorded tool door.'
             }}
-          </p></template
-        ><template v-if="tab === 'configuration'"
-          ><p v-if="!allowed || refused" class="hint" role="status">
-            {{
-              kind === 'catalogue'
-                ? 'Only the workspace owner can change catalogue settings.'
-                : 'Only workspace owners and admins can change custom connectors.'
-            }}<template v-if="form.dirty.value"> Your draft is preserved.</template>
           </p>
-          <template v-if="kind === 'catalogue' && entry"
-            ><div class="setting">
-              <div>
-                <b>Workspace availability</b>
-              </div>
-              <input
-                :checked="form.draft.value?.enabled ?? entry.policy_enabled"
-                type="checkbox"
-                role="switch"
-                aria-label="Enable connector"
-                :disabled="!allowed || busy || refused"
-                @change="
-                  form.draft.value &&
-                  (form.draft.value.enabled = ($event.target as HTMLInputElement).checked)
-                "
-              />
-            </div>
-            <template v-if="entry.takes_key"
-              ><label class="field"
-                >API key<input
-                  v-if="form.draft.value"
-                  v-model="form.draft.value.key"
-                  type="password"
-                  aria-label="API key"
-                  autocomplete="new-password"
-                  placeholder="Enter an API key"
-                  :disabled="!allowed || busy || refused"
-                  @input="form.draft.value.clearKey = false"
-                />
-                <p class="hint">{{ entry.key_set ? 'Key saved' : 'No key saved' }}</p>
-                <p v-if="!entry.key_set && entry.enabled" class="hint">Available without a key.</p>
-                <p class="hint">Keys are sealed on the server and cannot be read back.</p></label
-              ><button
-                v-if="entry.key_set && allowed && form.draft.value"
-                class="link"
-                :disabled="busy || refused"
-                @click="
-                  form.draft.value.clearKey = true;
-                  form.draft.value.key = '';
-                "
-              >
-                Clear saved key
-              </button>
-              <p v-if="form.draft.value?.clearKey" class="hint">
-                The saved key will be cleared when you save.
-              </p></template
-            ><label v-if="entry.tier === 'restricted'" class="check"
-              ><input
-                :checked="form.draft.value?.licence ?? entry.licence_confirmed"
-                type="checkbox"
-                :disabled="!allowed || busy || refused"
-                @change="
-                  form.draft.value &&
-                  (form.draft.value.licence = ($event.target as HTMLInputElement).checked)
-                "
-              />I confirm this workspace is entitled to use this source under its licence.</label
-            ><a
-              v-if="entry.terms"
-              class="terms"
-              :href="entry.terms"
-              target="_blank"
-              rel="noreferrer"
-              >View source terms ↗</a
-            ></template
-          ><template v-else-if="server"
-            ><template v-if="editing && fields"
-              ><p class="hint replacement">
-                Saved configuration is write-only. Re-enter the complete configuration, including
-                every header, argument and environment value you want to keep.
-              </p>
-              <ConnectorConfigFields
-                v-model="fields"
-                :disabled="!allowed || busy || refused" /></template
-            ><template v-else
-              ><p class="hint">
-                Saved configuration is write-only. Replacing it requires re-entering the complete
-                connection.
-              </p>
-              <button v-if="allowed" class="button edit" @click="editing = true">
-                Edit configuration
-              </button></template
-            >
-            <div v-if="deleting" class="delete-confirm">
-              <p>Delete {{ server.name }} from this workspace? The remote server is not deleted.</p>
-              <button class="button" @click="deleting = false">Keep connector</button
-              ><button class="button danger" :disabled="busy || !allowed" @click="remove(close)">
-                Delete connector
-              </button>
-            </div>
-            <button v-else-if="allowed && !editing" class="link delete" @click="deleting = true">
-              Delete
-            </button></template
-          >
-          <div v-if="form.stale.value" class="draft-warning" role="status">
-            <p>Saved configuration changed. Your draft is preserved.</p>
-            <button class="button" @click="form.reset">Reload saved version</button>
-          </div></template
-        >
+        </template>
       </div>
-      <footer>
-        <button v-if="editing" class="button" @click="cancelEdit">Cancel</button
-        ><button v-else class="button" @click="close">Close</button
-        ><button
-          v-if="tab === 'configuration' && allowed && (kind === 'catalogue' || editing)"
-          class="button primary"
-          :disabled="!form.canSave.value || busy || !!problem || refused"
-          :title="problem"
-          @click="save"
-        >
-          Save changes
-        </button>
-      </footer>
-    </section></Modal
-  >
+      <footer><button class="button" @click="close">Close</button></footer>
+    </section>
+  </Modal>
 </template>
 <style scoped>
 .connector-modal,
@@ -427,9 +162,13 @@ header {
   color: var(--text);
 }
 .body {
-  padding: 24px;
+  padding: 16px 24px 24px;
   overflow: auto;
   min-height: 250px;
+}
+.body h3 {
+  font-size: 16px;
+  margin: 0 0 16px;
 }
 .facts {
   display: grid;

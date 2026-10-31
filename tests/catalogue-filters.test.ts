@@ -25,7 +25,10 @@ vi.mock('../apps/dashboard/src/api/library', () => {
         { name: 'genes', purpose: 'genetics', domain: 'Biology', policy_enabled: true },
       ]),
     useWorkspaceMCPServers: () => result([{ id: 'c', name: 'my connector', transport: 'url' }]),
-    useOpenAlexConnector: () => ({ data: ref({ key_set: false, revision: 0 }) }),
+    useOpenAlexConnector: () => ({
+      data: ref({ key_set: false, revision: 0, policy_enabled: true }),
+      isError: ref(false),
+    }),
   };
 });
 vi.mock('../apps/dashboard/src/api/queries', () => ({ useWorkspaces: () => ({ data: ref([]) }) }));

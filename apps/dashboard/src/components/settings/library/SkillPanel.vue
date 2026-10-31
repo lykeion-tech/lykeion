@@ -73,7 +73,7 @@ function created(id: string) {
       <div v-for="s in rows" :key="s.id" class="skill-entry">
         <button
           class="skill-row"
-          :class="{ chosen: selected === s.id }"
+          :class="{ chosen: showDetail && selected === s.id }"
           :aria-label="s.name"
           @click="
             selected = s.id;
@@ -141,8 +141,8 @@ function created(id: string) {
   padding: 14px 7px;
   cursor: pointer;
 }
-.skill-row:hover,
-.skill-row.chosen {
+.skill-entry:hover,
+.skill-entry:has(.skill-row.chosen) {
   background: var(--hover);
   border-radius: 7px;
 }

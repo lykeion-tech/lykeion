@@ -213,7 +213,7 @@ type OpenOut struct {
 // the workspace saved, or the server's when it saved none.
 func (h *Hosted) openAlex(ctx context.Context, role middleware.Role) (OpenAlex, error) {
 	oa := h.OA
-	if h.Conn == nil || h.Store == nil {
+	if h.Store == nil {
 		return oa, nil
 	}
 	var sealed []byte
@@ -222,10 +222,16 @@ func (h *Hosted) openAlex(ctx context.Context, role middleware.Role) (OpenAlex, 
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
+		if err != nil {
+			return err
+		}
+		if err = connectors.Ready(connectors.OpenAlex, &row, ""); err != nil {
+			return err
+		}
 		sealed = row.KeyCiphertext
-		return err
+		return nil
 	})
-	if err != nil || len(sealed) == 0 {
+	if err != nil || len(sealed) == 0 || h.Conn == nil {
 		return oa, err
 	}
 	if oa.Key, err = h.Conn.Open(role.WorkspaceID, connectors.OpenAlex.Name, sealed); err != nil {

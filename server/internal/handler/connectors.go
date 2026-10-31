@@ -79,7 +79,7 @@ func (h *H) listConnectors(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// openAlexConnector shows whether the workspace has saved an OpenAlex key.
+// openAlexConnector shows the workspace's OpenAlex availability and key status.
 func (h *H) openAlexConnector(w http.ResponseWriter, r *http.Request) {
 	var out connectorView
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
@@ -127,8 +127,8 @@ func (h *H) setConnector(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "revision is required")
 		return
 	}
-	if e.Name == connectors.OpenAlex.Name && (in.Enabled != nil || in.LicenceConfirmed != nil) {
-		writeErr(w, 400, "OpenAlex takes only a key")
+	if e.Name == connectors.OpenAlex.Name && in.LicenceConfirmed != nil {
+		writeErr(w, 400, "OpenAlex does not use licence confirmation")
 		return
 	}
 	if in.Key != nil && *in.Key != "" {
