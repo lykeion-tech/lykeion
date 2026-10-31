@@ -11,10 +11,6 @@ export const colorPresets = [
   '#ec4899',
 ];
 
-export function isHexColor(value: string) {
-  return /^#[0-9a-f]{6}$/i.test(value);
-}
-
 // Hue in degrees, saturation and brightness in percent. Greys have no hue, so `h` is null
 // and the caller keeps the hue it had.
 export function hexToHsv(value: string) {

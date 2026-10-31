@@ -38,10 +38,3 @@ export function readJSON<T>(key: string, fallback: T, from: Area = 'local'): T {
 export function writeJSON(key: string, value: unknown, to: Area = 'local'): boolean {
   return writeText(key, JSON.stringify(value), to);
 }
-
-// LocalResearchService tells unavailable storage from bad data itself, so it gets the raw
-// calls; the store is looked up on each call rather than captured at construction.
-export const localStore: Pick<Storage, 'getItem' | 'setItem'> = {
-  getItem: (key) => area('local').getItem(key),
-  setItem: (key, value) => area('local').setItem(key, value),
-};

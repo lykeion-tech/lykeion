@@ -133,19 +133,6 @@ export const useRuns = (id: MaybeRefOrGetter<string>) =>
       query.state.data?.some((r) => ['dispatched', 'running'].includes(r.status)) ? 5000 : false,
   });
 
-// A column's records, superseded ones included (marked by superseded_at); the
-// server answers null when there are none.
-export const useRecords = (id: MaybeRefOrGetter<string>, column: MaybeRefOrGetter<string>) =>
-  useQuery({
-    queryKey: computed(() => keys.records(ws.value, toValue(id), toValue(column))),
-    queryFn: async () =>
-      (await api<StudyRecord[] | null>(
-        'GET',
-        `/api/cards/${toValue(id)}/records?all=1&column=${encodeURIComponent(toValue(column))}`,
-      )) ?? [],
-    enabled: computed(() => inWorkspace.value && Boolean(toValue(id)) && Boolean(toValue(column))),
-  });
-
 // One kind's live records from every column of the study.
 export const useKindRecords = (id: MaybeRefOrGetter<string>, kind: string) =>
   useQuery({
@@ -156,21 +143,6 @@ export const useKindRecords = (id: MaybeRefOrGetter<string>, kind: string) =>
         `/api/cards/${toValue(id)}/records?kind=${encodeURIComponent(kind)}`,
       )) ?? [],
     enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
-  });
-
-// One live record of the study, from any column, as a list of none or one; a
-// record id of '' disables the read.
-export const useCardRecord = (id: MaybeRefOrGetter<string>, recordId: MaybeRefOrGetter<string>) =>
-  useQuery({
-    queryKey: computed(() => [...keys.recordsAll(ws.value, toValue(id)), 'id', toValue(recordId)]),
-    queryFn: async () =>
-      (await api<StudyRecord[] | null>(
-        'GET',
-        `/api/cards/${toValue(id)}/records?id=${encodeURIComponent(toValue(recordId))}`,
-      )) ?? [],
-    enabled: computed(
-      () => inWorkspace.value && Boolean(toValue(id)) && Boolean(toValue(recordId)),
-    ),
   });
 
 // A run's messages for one attempt. No event announces a message, so while the
@@ -406,21 +378,3 @@ export function uploadAttachment(
     xhr.send(form);
   });
 }
-
-export const useMachineColleagues = (
-  id: MaybeRefOrGetter<string>,
-  owner: MaybeRefOrGetter<boolean>,
-) =>
-  useQuery({
-    queryKey: computed(() => keys.machineColleagues(ws.value, toValue(id))),
-    queryFn: ({ queryKey, signal }) =>
-      api<import('./types').MachineColleagues>(
-        'GET',
-        `/api/machines/${encodeURIComponent(queryKey[3])}/colleagues`,
-        undefined,
-        undefined,
-        { workspace: queryKey[1], signal },
-      ),
-    enabled: computed(() => inWorkspace.value && !!toValue(id) && toValue(owner)),
-    refetchInterval: 30_000,
-  });

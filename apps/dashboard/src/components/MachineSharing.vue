@@ -153,8 +153,6 @@ async function save(confirm?: string[], stop = false) {
       affected.value = null;
     }
     await client.invalidateQueries({ queryKey: keys.runtimes(workspace) });
-    if (current())
-      await client.invalidateQueries({ queryKey: keys.machineColleagues(workspace, machine) });
     if (current() && client.getQueryState(keys.runtimes(workspace))?.status === 'success') reset();
   } catch (e) {
     if (current()) error.value = (e as Error).message;

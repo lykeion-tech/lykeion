@@ -570,21 +570,3 @@ export interface AffectedMachineRun {
   study_title: string;
   colleague: string;
 }
-export interface MachineColleagues {
-  runs: {
-    run_id: string;
-    colleague: string;
-    study_title: string;
-    harness: string;
-    started_at: string | null;
-    status: string;
-    input_tokens: number;
-    output_tokens: number;
-    cost_usd: number;
-  }[];
-  totals: {
-    colleague: string;
-    last_7_days: { tokens: number; cost_usd: number };
-    last_30_days: { tokens: number; cost_usd: number };
-  }[];
-}

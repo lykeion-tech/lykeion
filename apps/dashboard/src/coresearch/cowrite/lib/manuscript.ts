@@ -20,94 +20,6 @@ export interface Chat {
   running: boolean;
 }
 
-/** One file of a paper. Text files are CRDT documents; binaries are blobs. */
-export interface ManuscriptFile {
-  taskId: string;
-  path: string;
-  kind: "text" | "binary";
-  /** The accept-view's UTF-8 length for text; the blob's for binary. */
-  size: number;
-  sha256?: string;
-  /** Binary only: the Research artifact this is a copy of. */
-  from?: { artifactId: string; versionId: string };
-  updatedTs: number;
-  /** A member's id, or `chat:<chatId>` for a file a chat added. */
-  updatedBy: string;
-}
-
-export type HunkStatus = "pending" | "kept" | "undone" | "stale";
-
-export interface EditProposalHunk {
-  id: string;
-  status: HunkStatus;
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-}
-
-export interface EditProposalFile {
-  path: string;
-  added?: boolean;
-  removed?: boolean;
-  /** A binary the chat added or replaced: no hunks, applied at once. */
-  binary?: boolean;
-  hunks: EditProposalHunk[];
-}
-
-/** What one chat turn, a template switch or a version restore changed, as the researcher settles it. */
-export interface EditProposal {
-  id: string;
-  taskId: string;
-  chatId?: string;
-  runId?: string;
-  by: { kind: "chat" } | { kind: "template"; template: ManuscriptTemplateId } | { kind: "version"; seq: number };
-  ts: number;
-  files: EditProposalFile[];
-}
-
-export interface ManuscriptBuild {
-  id: string;
-  taskId: string;
-  seq: number;
-  status: "queued" | "running" | "ok" | "failed" | "aborted";
-  /** Who asked for this build. A shape rather than a bare id because whose
-   *  machine it runs on is decided from `userId`, and a build asked for by
-   *  something other than a person — an agent finishing a turn, say — would
-   *  answer that question differently. */
-  requestedBy: { kind: "user"; userId: string };
-  machineId?: string;
-  startedTs?: number;
-  endedTs?: number;
-  engine: "tectonic";
-  pdf?: { sha256: string; size: number; pages: number };
-  log?: { sha256: string; size: number };
-  synctex?: { sha256: string; size: number };
-  errors: TexError[];
-  warnings: number;
-  sources: { path: string; sha256: string }[];
-}
-
-export interface ManuscriptVersion {
-  id: string;
-  taskId: string;
-  seq: number;
-  ts: number;
-  by: { kind: "user"; userId: string } | { kind: "build"; buildId: string };
-  title: string;
-  files: { path: string; sha256: string }[];
-}
-
-export type ManuscriptTemplateId = "blank" | "neurips" | "icml" | "iclr" | "acl" | "cvpr" | "arxiv" | "thesis";
-
-export interface ManuscriptTemplate {
-  id: ManuscriptTemplateId;
-  label: string;
-  /** Style files the template carries beside `main.tex`, copied in on switch. */
-  styles: string[];
-  licence?: string;
-}
-
 /** One run of a `Y.Text` delta, as `Y.Text.toDelta()` answers it. */
 export interface TextDelta {
   insert: string;
@@ -150,34 +62,6 @@ export interface ManuscriptNote {
   kind: "comment" | "edit";
   text: string;
 }
-
-/**
- * A comment a member leaves on a passage of the paper, kept by the lab and
- * read by every member — unlike a `ManuscriptNote`, which is one member's
- * and lives only as long as their page.
- */
-export interface ManuscriptComment {
-  id: string;
-  taskId: string;
-  /** Same shape as `ManuscriptNote.anchor`: `from`/`to` are opaque strings
-   *  (encoded Yjs relative positions the UI makes); the lab stores them
-   *  verbatim. */
-  anchor: { path: string; quote: string; from: string; to: string; line: number };
-  text: string;
-  authorId: string;
-  /** User ids mentioned in the text, deduplicated, in the order given. */
-  mentions: string[];
-  createdTs: number;
-  /** Present once resolved; removed again on reopen. */
-  resolved?: { byUserId: string; ts: number };
-}
-
-/** The longest a comment's text may be, in characters, once trimmed. */
-export const MANUSCRIPT_COMMENT_MAX_CHARS = 10_000;
-
-export const MANUSCRIPT_TEXT_MAX_BYTES = 4 * 1024 * 1024;
-export const MANUSCRIPT_BINARY_MAX_BYTES = 25 * 1024 * 1024;
-export const MANUSCRIPT_UPDATE_MAX_BYTES = 64 * 1024;
 
 /** The researcher's own skeleton — what every new paper starts from. */
 export const BLANK_SKELETON = `\\documentclass[11pt]{article}
@@ -222,45 +106,6 @@ export function manuscriptPath(p: string): string | undefined {
   if (p.startsWith("/")) return undefined;
   if (segments.some((s) => s === "." || s === "..")) return undefined;
   return segments.join("/");
-}
-
-/**
- * A new comment as the lab keeps it — text trimmed, the anchor's path
- * normalised, mentions deduplicated in the order given — or the reason it
- * is refused, which a caller raises as `invalid`. One function for every
- * implementation, so the rules cannot drift between them. `isMember` answers
- * whether a user id is a current member of the lab.
- */
-export function manuscriptCommentInput(
-  input: { anchor: ManuscriptComment["anchor"]; text: string; mentions?: string[] },
-  isMember: (userId: string) => boolean,
-): { anchor: ManuscriptComment["anchor"]; text: string; mentions: string[] } | { refused: string } {
-  const text = typeof input?.text === "string" ? input.text.trim() : "";
-  if (text === "") return { refused: "a comment needs some text" };
-  if (text.length > MANUSCRIPT_COMMENT_MAX_CHARS)
-    return { refused: `a comment is at most ${MANUSCRIPT_COMMENT_MAX_CHARS} characters` };
-  const anchor = input.anchor;
-  if (
-    typeof anchor !== "object" || anchor === null ||
-    typeof anchor.path !== "string" || typeof anchor.quote !== "string" ||
-    typeof anchor.from !== "string" || typeof anchor.to !== "string" ||
-    typeof anchor.line !== "number" || !Number.isFinite(anchor.line)
-  )
-    return { refused: "a comment needs an anchor: path, quote, from, to and line" };
-  const path = manuscriptPath(anchor.path);
-  if (path === undefined) return { refused: `${anchor.path} is not a manuscript path` };
-  if (anchor.quote === "") return { refused: "a comment's anchor needs the passage it quotes" };
-  const given = input.mentions ?? [];
-  if (!Array.isArray(given) || given.some((m) => typeof m !== "string"))
-    return { refused: "mentions are a list of user ids" };
-  const mentions = [...new Set(given)];
-  const stranger = mentions.find((m) => !isMember(m));
-  if (stranger !== undefined) return { refused: `${stranger} is not a member of this lab` };
-  return {
-    anchor: { path, quote: anchor.quote, from: anchor.from, to: anchor.to, line: anchor.line },
-    text,
-    mentions,
-  };
 }
 
 /** The first line of a prompt, trimmed and cut at eighty characters — a chat's title until renamed. */

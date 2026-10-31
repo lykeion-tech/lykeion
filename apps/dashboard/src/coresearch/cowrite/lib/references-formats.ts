@@ -1,5 +1,5 @@
 /**
- * The three readers an import takes and the two writers an export gives
+ * The readers an import takes and the writer an export gives.
  * Pure, and in the contract, so every caller parses the same file the same
  * way. No YAML/BibTeX library: the shapes
  * a bibliography manager emits are regular enough to read in a page each,
@@ -7,7 +7,6 @@
  */
 import {
   normaliseIds,
-  type ImportFormat,
   type ImportRejection,
   type Paper,
   type PaperAuthor,
@@ -229,146 +228,6 @@ export function parseBibtex(text: string): ParsedReferences {
   return { entries, rejected };
 }
 
-// ---- RIS ----------------------------------------------------------------
-
-const RIS_TYPES: Record<string, string> = {
-  JOUR: "journal-article",
-  EJOUR: "journal-article",
-  CONF: "proceedings-article",
-  CPAPER: "proceedings-article",
-  BOOK: "book",
-  CHAP: "book-chapter",
-  THES: "thesis",
-  RPRT: "report",
-  UNPB: "preprint",
-};
-
-export function parseRis(text: string): ParsedReferences {
-  const entries: ParsedEntry[] = [];
-  const rejected: ImportRejection[] = [];
-  const records = text.split(/\r?\n/).reduce<string[][]>((acc, line) => {
-    if (/^TY\s{2}-/.test(line)) acc.push([line]);
-    else if (acc.length > 0) acc[acc.length - 1]!.push(line);
-    return acc;
-  }, []);
-  records.forEach((lines, n) => {
-    const fields = new Map<string, string[]>();
-    for (const line of lines) {
-      const m = /^([A-Z][A-Z0-9])\s{2}-\s?(.*)$/.exec(line);
-      if (!m) continue;
-      const list = fields.get(m[1]!) ?? [];
-      list.push(m[2]!.trim());
-      fields.set(m[1]!, list);
-    }
-    const first = (...tags: string[]) => tags.map((t) => fields.get(t)?.[0]).find((v) => v !== undefined && v !== "");
-    const title = first("TI", "T1") ?? "";
-    const label = `record ${n + 1}`;
-    if (title === "") { rejected.push({ entry: label, reason: "no-title" }); return; }
-    const year = readYear(first("PY", "Y1"));
-    if ("bad" in year) { rejected.push({ entry: label, reason: "bad-year", detail: year.bad }); return; }
-    const authors = [...(fields.get("AU") ?? []), ...(fields.get("A1") ?? [])]
-      .map(readAuthor)
-      .filter((a): a is PaperAuthor => a !== undefined);
-    const venue = first("JO", "JF", "T2");
-    const ty = first("TY") ?? "";
-    entries.push({
-      ids: normaliseIds({ doi: first("DO"), arxiv: arxivFromUrl(first("UR")) }),
-      title,
-      authors,
-      ...(year.year === undefined ? {} : { year: year.year }),
-      ...(venue === undefined ? {} : { venue }),
-      type: RIS_TYPES[ty] ?? "other",
-      ...(first("AB") === undefined ? {} : { abstract: first("AB")! }),
-    });
-  });
-  return { entries, rejected };
-}
-
-// ---- CSL-JSON -----------------------------------------------------------
-
-const CSL_TO_TYPE: Record<string, string> = {
-  "article-journal": "journal-article",
-  "paper-conference": "proceedings-article",
-  book: "book",
-  chapter: "book-chapter",
-  thesis: "thesis",
-  report: "report",
-  article: "article",
-};
-
-const TYPE_TO_CSL: Record<string, string> = {
-  "journal-article": "article-journal",
-  "proceedings-article": "paper-conference",
-  book: "book",
-  "book-chapter": "chapter",
-  thesis: "thesis",
-  report: "report",
-  preprint: "article",
-};
-
-export function parseCslJson(text: string): ParsedReferences {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    return { entries: [], rejected: [{ entry: "(file)", reason: "unparseable", detail: err instanceof Error ? err.message : String(err) }] };
-  }
-  if (!Array.isArray(parsed)) return { entries: [], rejected: [{ entry: "(file)", reason: "unparseable", detail: "not a JSON array" }] };
-  const entries: ParsedEntry[] = [];
-  const rejected: ImportRejection[] = [];
-  const seen = new Set<string>();
-  parsed.forEach((item, n) => {
-    const it = (item ?? {}) as Record<string, unknown>;
-    const key = typeof it.id === "string" ? it.id : typeof it.id === "number" ? String(it.id) : undefined;
-    const label = key ?? `item ${n + 1}`;
-    const title = typeof it.title === "string" ? it.title.trim() : "";
-    if (title === "") { rejected.push({ entry: label, reason: "no-title" }); return; }
-    const issued = (it.issued as { "date-parts"?: unknown } | undefined)?.["date-parts"];
-    const rawYear = Array.isArray(issued) && Array.isArray(issued[0]) ? issued[0][0] : undefined;
-    let year: number | undefined;
-    if (rawYear !== undefined) {
-      const y = readYear(String(rawYear));
-      if ("bad" in y) { rejected.push({ entry: label, reason: "bad-year", detail: y.bad }); return; }
-      year = y.year;
-    }
-    if (key !== undefined) {
-      if (seen.has(key)) { rejected.push({ entry: key, reason: "duplicate-in-file" }); return; }
-      seen.add(key);
-    }
-    const authors = (Array.isArray(it.author) ? it.author : [])
-      .map((a) => {
-        const au = (a ?? {}) as Record<string, unknown>;
-        if (typeof au.family === "string") return { family: au.family, ...(typeof au.given === "string" ? { given: au.given } : {}) };
-        if (typeof au.literal === "string") return readAuthor(au.literal);
-        return undefined;
-      })
-      .filter((a): a is PaperAuthor => a !== undefined);
-    const type = typeof it.type === "string" ? CSL_TO_TYPE[it.type] ?? "other" : undefined;
-    entries.push({
-      ...(key === undefined ? {} : { key }),
-      ids: normaliseIds({
-        doi: typeof it.DOI === "string" ? it.DOI : undefined,
-        pmid: typeof it.PMID === "string" ? it.PMID : undefined,
-        pmcid: typeof it.PMCID === "string" ? it.PMCID : undefined,
-        arxiv: arxivFromUrl(typeof it.URL === "string" ? it.URL : undefined),
-      }),
-      title,
-      authors,
-      ...(year === undefined ? {} : { year }),
-      ...(typeof it["container-title"] === "string" ? { venue: it["container-title"] } : {}),
-      ...(type === undefined ? {} : { type }),
-      ...(typeof it.abstract === "string" ? { abstract: it.abstract } : {}),
-    });
-  });
-  return { entries, rejected };
-}
-
-export function parseReferences(format: ImportFormat, text: string): ParsedReferences {
-  if (format === "bibtex") return parseBibtex(text);
-  if (format === "ris") return parseRis(text);
-  return parseCslJson(text);
-}
-
 // ---- writers ------------------------------------------------------------
 
 export interface ExportRow {
@@ -433,22 +292,4 @@ export function emitBibtex(rows: ExportRow[]): string {
     out.push(lines.join("\n"));
   }
   return out.join("\n");
-}
-
-export function emitCslJson(rows: ExportRow[]): string {
-  const sorted = [...rows].sort((x, y) => x.citeKey.localeCompare(y.citeKey));
-  const items = sorted.map(({ citeKey, paper }) => ({
-    id: citeKey,
-    type: TYPE_TO_CSL[paper.type ?? ""] ?? "article",
-    title: paper.title,
-    ...(paper.authors.length > 0 ? { author: paper.authors.map((a) => ({ family: a.family, ...(a.given === undefined ? {} : { given: a.given }) })) } : {}),
-    ...(paper.year === undefined ? {} : { issued: { "date-parts": [[paper.year]] } }),
-    ...(paper.venue === undefined ? {} : { "container-title": paper.venue }),
-    ...(paper.ids.doi === undefined ? {} : { DOI: paper.ids.doi }),
-    ...(paper.ids.pmid === undefined ? {} : { PMID: paper.ids.pmid }),
-    ...(paper.ids.pmcid === undefined ? {} : { PMCID: paper.ids.pmcid }),
-    ...(paper.ids.arxiv === undefined ? {} : { URL: `https://arxiv.org/abs/${paper.ids.arxiv}` }),
-    ...(paper.abstract === undefined ? {} : { abstract: paper.abstract }),
-  }));
-  return JSON.stringify(items, null, 2);
 }
