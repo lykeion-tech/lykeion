@@ -77,9 +77,8 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   await expect(splitter).toBeHidden();
   expect((await main.boundingBox())!.x).toBeLessThan(20);
   expect((await main.boundingBox())!.width).toBeGreaterThan(760);
-  expect((await meta.boundingBox())!.x + (await meta.boundingBox())!.width).toBeLessThanOrEqual(
-    800,
-  );
+  const mobileMeta = (await meta.boundingBox())!;
+  expect(mobileMeta.x + mobileMeta.width).toBeLessThanOrEqual(800);
   await page.screenshot({ path: `${artifacts}/mobile-800.png` });
 });
 
