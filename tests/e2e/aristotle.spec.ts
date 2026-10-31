@@ -175,7 +175,7 @@ test('starter settings deep-link saves and reflects in draft; Agents-first boots
   await expect(
     page
       .getByRole('table', { name: 'Agents' })
-      .getByRole('cell', { name: 'Aristotle You Research together' }),
+      .getByRole('cell', { name: 'Aristotle Research together' }),
   ).toBeVisible();
   await page.goto('/#/agents/aristotle?tab=settings');
   await page.getByRole('button', { name: 'Add starter', exact: true }).click();
@@ -528,7 +528,7 @@ test('Coresearch replies use readable and safe Markdown while a turn is active',
   );
   await page.goto('/#/coresearch/new');
   await page.getByRole('button', { name: 'Ground a research question' }).click();
-  const reply = page.locator('.rail-row--prose .lyk-reading').last();
+  const reply = page.locator('.turn-reply .lyk-reading').last();
   await expect(reply.getByRole('heading', { name: 'Findings' })).toBeVisible();
   await expect(reply.locator('strong')).toHaveText('clear');
   await expect(reply.locator('ul ul li')).toHaveText('Nested');
