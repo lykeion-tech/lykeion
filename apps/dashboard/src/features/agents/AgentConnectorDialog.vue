@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import Modal from '../ui/Modal.vue';
-import Icon from '../ui/Icon.vue';
-import { type AgentConnector, validateAgentConnectors } from '../lib/agent-connectors';
-import { useResourceDraft } from '../state/resource-draft';
+import Modal from '../../ui/Modal.vue';
+import Icon from '../../ui/Icon.vue';
+import { type AgentConnector, validateAgentConnectors } from './agent-connectors';
+import { useResourceDraft } from '../../state/resource-draft';
 
 const props = defineProps<{
   servers: AgentConnector[];

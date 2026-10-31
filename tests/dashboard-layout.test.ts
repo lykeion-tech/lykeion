@@ -92,4 +92,20 @@ describe('the dashboard source layout', () => {
       expect(existsSync(join(src, from)), from).toBe(false);
     }
   });
+
+  it('agents holds its files', () => {
+    const moved = [
+      ['views/AgentsView.vue', 'features/agents/AgentsView.vue'],
+      ['views/AgentDetail.vue', 'features/agents/AgentDetail.vue'],
+      ['views/agent-detail.css', 'features/agents/agent-detail.css'],
+      ['components/AgentConnectors.vue', 'features/agents/AgentConnectors.vue'],
+      ['components/AgentConnectorDialog.vue', 'features/agents/AgentConnectorDialog.vue'],
+      ['components/BackendDetailsDialog.vue', 'features/agents/BackendDetailsDialog.vue'],
+      ['lib/agent-connectors.ts', 'features/agents/agent-connectors.ts'],
+    ];
+    for (const [from, to] of moved) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
 });

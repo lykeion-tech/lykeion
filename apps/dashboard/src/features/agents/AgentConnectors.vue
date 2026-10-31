@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import Icon from '../ui/Icon.vue';
-import Modal from '../ui/Modal.vue';
+import Icon from '../../ui/Icon.vue';
+import Modal from '../../ui/Modal.vue';
 import AgentConnectorDialog from './AgentConnectorDialog.vue';
-import type { AgentConnector } from '../lib/agent-connectors';
+import type { AgentConnector } from './agent-connectors';
 const props = defineProps<{ servers: AgentConnector[]; editable: boolean; archived: boolean }>();
 const emit = defineEmits<{ save: [servers: AgentConnector[]]; remove: [name: string] }>();
 const allowed = computed(() => props.editable && !props.archived);

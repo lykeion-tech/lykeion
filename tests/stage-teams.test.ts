@@ -6,7 +6,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import AssignPicker from '../apps/dashboard/src/ui/AssignPicker.vue';
 import TeamDetail from '../apps/dashboard/src/features/teams/TeamDetail.vue';
 import TeamsView from '../apps/dashboard/src/features/teams/TeamsView.vue';
-import AgentsView from '../apps/dashboard/src/views/AgentsView.vue';
+import AgentsView from '../apps/dashboard/src/features/agents/AgentsView.vue';
 import CreateTask from '../apps/dashboard/src/views/CreateTask.vue';
 import TaskDetail from '../apps/dashboard/src/views/TaskDetail.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';

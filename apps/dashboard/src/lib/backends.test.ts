@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import { backends } from './backends';
-import BackendDetailsDialog from '../components/BackendDetailsDialog.vue';
+import BackendDetailsDialog from '../features/agents/BackendDetailsDialog.vue';
 
 it('offers exactly the supported backends', () => {
   expect(backends).toEqual([

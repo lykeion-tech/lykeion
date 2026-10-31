@@ -210,7 +210,7 @@ describe('computer setup shell arguments', () => {
 
 describe('agent connector validation', () => {
   it('agent connector removal returns an unchanged structured list without mutating input', async () => {
-    const { removeAgentConnector } = await import('../apps/dashboard/src/lib/agent-connectors');
+    const { removeAgentConnector } = await import('../apps/dashboard/src/features/agents/agent-connectors');
     const servers = [
       { name: 'lab-search', url: 'https://tools.lab.org/mcp' },
       { name: 'index', url: 'http://index.lab.org/mcp' },
@@ -221,7 +221,7 @@ describe('agent connector validation', () => {
     expect(removeAgentConnector(servers, 'missing')).not.toBe(servers);
   });
   it('agent connector validation applies the exact owning name, count and shape rules', async () => {
-    const { validateAgentConnectors } = await import('../apps/dashboard/src/lib/agent-connectors');
+    const { validateAgentConnectors } = await import('../apps/dashboard/src/features/agents/agent-connectors');
     const server = (name: string) => ({ name, url: 'https://tools.lab.org/mcp' });
     expect(validateAgentConnectors([])).toBeUndefined();
     expect(validateAgentConnectors([server('a' + 'b'.repeat(27))])).toBeUndefined();
@@ -248,7 +248,7 @@ describe('agent connector validation', () => {
     ).toBeTruthy();
   });
   it('agent connector URLs preserve http(s) and owning parser limits without browser normalization', async () => {
-    const { validateAgentConnectors } = await import('../apps/dashboard/src/lib/agent-connectors');
+    const { validateAgentConnectors } = await import('../apps/dashboard/src/features/agents/agent-connectors');
     for (const url of [
       'http://localhost:8080/mcp',
       'http://tools.lab.org/mcp',

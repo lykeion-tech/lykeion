@@ -4,7 +4,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
 import AristotleChat from '../apps/dashboard/src/coresearch/AristotleChat.vue';
-import AgentDetail from '../apps/dashboard/src/views/AgentDetail.vue';
+import AgentDetail from '../apps/dashboard/src/features/agents/AgentDetail.vue';
 import RailFabs from '../apps/dashboard/src/coresearch/RailFabs.vue';
 import ConversationRail from '../apps/dashboard/src/coresearch/ConversationRail.vue';
 import SidebarFooter from '../apps/dashboard/src/ui/SidebarFooter.vue';

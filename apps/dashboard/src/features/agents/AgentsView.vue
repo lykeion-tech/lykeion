@@ -1,23 +1,23 @@
 <script setup lang="ts">
-import SelectPicker from '../ui/SelectPicker.vue';
-import AvatarDisplay from '../ui/AvatarDisplay.vue';
-import Aristotle from '../components/Aristotle.vue';
+import SelectPicker from '../../ui/SelectPicker.vue';
+import AvatarDisplay from '../../ui/AvatarDisplay.vue';
+import Aristotle from '../../components/Aristotle.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
-import { api } from '../api/client';
-import { useAgents, useMe, useMembers, useRuntimes } from '../api/queries';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
-import type { AgentDefinition } from '../api/types';
-import Modal from '../ui/Modal.vue';
-import Icon from '../ui/Icon.vue';
-import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
-import '../coresearch/l2.css';
-import { backends, backendLabel } from '../lib/backends';
-import { matchesQuery } from '../lib/search';
-import { timeAgo } from '../lib/studies';
-import { agentDisplayName, agentNameWithoutCli } from '../lib/agent-name';
+import { api } from '../../api/client';
+import { useAgents, useMe, useMembers, useRuntimes } from '../../api/queries';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
+import type { AgentDefinition } from '../../api/types';
+import Modal from '../../ui/Modal.vue';
+import Icon from '../../ui/Icon.vue';
+import ModelSwitcher from '../../coresearch/cowrite/ModelSwitcher.vue';
+import '../../coresearch/l2.css';
+import { backends, backendLabel } from '../../lib/backends';
+import { matchesQuery } from '../../lib/search';
+import { timeAgo } from '../../lib/studies';
+import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 defineProps<{ create?: boolean }>();
 const list = useAgents(),
   me = useMe(),
@@ -380,7 +380,7 @@ async function save() {
     >
   </section>
 </template>
-<style src="../ui/directory.css" />
+<style src="../../ui/directory.css" />
 
 <style scoped>
 .new-agent-model-field {

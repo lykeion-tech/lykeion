@@ -702,7 +702,7 @@ function tabKey(event: KeyboardEvent, index: number) {
     </Modal>
   </section>
 </template>
-<style src="../../views/agent-detail.css" />
+<style src="../agents/agent-detail.css" />
 <style scoped>
 .team-work-search {
   display: inline-flex;
