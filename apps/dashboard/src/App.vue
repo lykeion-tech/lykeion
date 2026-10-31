@@ -27,7 +27,7 @@ import { useCoresearchProject } from './coresearch/api';
 import { useAristotle } from './coresearch/aristotle';
 import ConversationRail from './coresearch/ConversationRail.vue';
 import RailFabs from './coresearch/RailFabs.vue';
-import InboxRail from './components/InboxRail.vue';
+import InboxRail from './features/inbox/InboxRail.vue';
 const route = useRoute();
 const router = useRouter();
 const currentCoresearchProject = useCoresearchProject(() => String(route.params.projectId ?? ''));

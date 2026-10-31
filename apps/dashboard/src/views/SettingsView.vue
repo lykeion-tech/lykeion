@@ -7,7 +7,7 @@ import { themes } from '../theme';
 import Icon from '../ui/Icon.vue';
 import StoragePanel from '../components/settings/StoragePanel.vue';
 import MachinesView from './MachinesView.vue';
-import UpdatesView from './UpdatesView.vue';
+import UpdatesView from '../features/inbox/UpdatesView.vue';
 import AnalyticsPanel from '../components/settings/AnalyticsPanel.vue';
 import SkillPanel from '../components/settings/library/SkillPanel.vue';
 import ConnectorPanel from '../components/settings/library/ConnectorPanel.vue';

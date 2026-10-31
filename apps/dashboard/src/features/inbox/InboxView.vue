@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import Icon from '../ui/Icon.vue';
-import TaskDetail from './TaskDetail.vue';
-import AutoresearchRunDialog from '../features/autoresearch/AutoresearchRunDialog.vue';
-import { api } from '../api/client';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
-import { useInbox } from '../api/queries';
-import type { InboxItem } from '../api/types';
+import Icon from '../../ui/Icon.vue';
+import TaskDetail from '../../views/TaskDetail.vue';
+import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
+import { api } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
+import { useInbox } from '../../api/queries';
+import type { InboxItem } from '../../api/types';
 
 const props = defineProps<{ itemId?: string }>();
 const client = useQueryClient();
@@ -109,4 +109,4 @@ watch(
     />
   </section>
 </template>
-<style scoped src="../ui/resources.css"></style>
+<style scoped src="../../ui/resources.css"></style>

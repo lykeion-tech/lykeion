@@ -16,7 +16,7 @@ import AutoresearchView from './features/autoresearch/AutoresearchView.vue';
 import AgentsView from './views/AgentsView.vue';
 import AgentDetail from './views/AgentDetail.vue';
 import TaskDetail from './views/TaskDetail.vue';
-import InboxView from './views/InboxView.vue';
+import InboxView from './features/inbox/InboxView.vue';
 import ColleaguesView from './views/ColleaguesView.vue';
 import TeamsView from './views/TeamsView.vue';
 import TeamDetail from './views/TeamDetail.vue';

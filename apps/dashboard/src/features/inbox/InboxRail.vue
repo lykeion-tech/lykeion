@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import Icon from '../ui/Icon.vue';
-import { useCards, useInbox } from '../api/queries';
-import type { InboxItem } from '../api/types';
-import { inboxText, timeAgo } from '../lib/studies';
+import Icon from '../../ui/Icon.vue';
+import { useCards, useInbox } from '../../api/queries';
+import type { InboxItem } from '../../api/types';
+import { inboxText, timeAgo } from '../../lib/studies';
 
 const route = useRoute();
 const archived = ref(false);

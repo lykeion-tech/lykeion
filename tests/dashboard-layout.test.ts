@@ -48,4 +48,16 @@ describe('the dashboard source layout', () => {
       expect(existsSync(join(src, from)), from).toBe(false);
     }
   });
+
+  it('inbox holds its files', () => {
+    const moved = [
+      ['views/InboxView.vue', 'features/inbox/InboxView.vue'],
+      ['views/UpdatesView.vue', 'features/inbox/UpdatesView.vue'],
+      ['components/InboxRail.vue', 'features/inbox/InboxRail.vue'],
+    ];
+    for (const [from, to] of moved) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
 });
