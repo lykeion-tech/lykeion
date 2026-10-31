@@ -52,7 +52,7 @@ for (const width of [1512, 1920]) {
     await page.keyboard.press('ArrowRight');
     await expect(page.getByRole('tab', { name: 'Agents', exact: true })).toBeFocused();
     await expect(page.getByRole('tabpanel').locator('.team-member-profile')).toHaveCount(4);
-    await page.getByRole('tab', { name: 'Scientific settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Settings', exact: true }).click();
     await expect(page.getByRole('tabpanel')).toContainText('biology');
     await expect(page.getByRole('tabpanel')).toContainText('12 steps per column');
     await expect(page.getByRole('tabpanel')).toContainText("Does it say what it couldn't do?");
@@ -98,7 +98,7 @@ test('Team profile tabs and roles remain readable on a narrow viewport', async (
   expect(
     await page.locator('.team-detail-page').evaluate((el) => el.scrollWidth <= el.clientWidth),
   ).toBe(true);
-  await page.getByRole('tab', { name: 'Scientific settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('tabpanel')).toContainText('12 steps per column');
   await page.getByRole('tab', { name: 'Overview', exact: true }).click();
   await page.screenshot({ path: 'test-results/team-detail/narrow.png', fullPage: true });

@@ -6,6 +6,9 @@ RETURNING *;
 -- name: GetFieldPack :one
 SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND id = @id;
 
+-- name: SetFieldPackAvatar :one
+UPDATE field_pack SET avatar_url = @avatar_url WHERE workspace_id = @workspace_id AND id = @id RETURNING *;
+
 -- name: ListFieldPacks :many
 SELECT p.*, COALESCE((SELECT array_agg(a.approved_by ORDER BY a.approved_at) FROM field_pack_approval a
   WHERE a.workspace_id = p.workspace_id AND a.pack_id = p.id), '{}')::uuid[] AS approvals

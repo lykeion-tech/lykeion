@@ -57,7 +57,7 @@ func (q *Queries) ApproveFieldPack(ctx context.Context, arg ApproveFieldPackPara
 }
 
 const builtInStageTeam = `-- name: BuiltInStageTeam :one
-SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage FROM field_pack WHERE workspace_id = $1 AND source = 'shipped' AND stage = $2 AND domain = ''
+SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage, avatar_url FROM field_pack WHERE workspace_id = $1 AND source = 'shipped' AND stage = $2 AND domain = ''
 ORDER BY created_at, id LIMIT 1
 `
 
@@ -83,12 +83,13 @@ func (q *Queries) BuiltInStageTeam(ctx context.Context, arg BuiltInStageTeamPara
 		&i.CreatedAt,
 		&i.Domain,
 		&i.Stage,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
 
 const getFieldPack = `-- name: GetFieldPack :one
-SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage FROM field_pack WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage, avatar_url FROM field_pack WHERE workspace_id = $1 AND id = $2
 `
 
 type GetFieldPackParams struct {
@@ -112,6 +113,7 @@ func (q *Queries) GetFieldPack(ctx context.Context, arg GetFieldPackParams) (Fie
 		&i.CreatedAt,
 		&i.Domain,
 		&i.Stage,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
@@ -119,7 +121,7 @@ func (q *Queries) GetFieldPack(ctx context.Context, arg GetFieldPackParams) (Fie
 const insertFieldPack = `-- name: InsertFieldPack :one
 INSERT INTO field_pack (workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, domain, stage)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage
+RETURNING id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage, avatar_url
 `
 
 type InsertFieldPackParams struct {
@@ -162,6 +164,7 @@ func (q *Queries) InsertFieldPack(ctx context.Context, arg InsertFieldPackParams
 		&i.CreatedAt,
 		&i.Domain,
 		&i.Stage,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
@@ -185,7 +188,7 @@ func (q *Queries) IsFieldPackApprovedBy(ctx context.Context, arg IsFieldPackAppr
 }
 
 const listFieldPacks = `-- name: ListFieldPacks :many
-SELECT p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, COALESCE((SELECT array_agg(a.approved_by ORDER BY a.approved_at) FROM field_pack_approval a
+SELECT p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, p.avatar_url, COALESCE((SELECT array_agg(a.approved_by ORDER BY a.approved_at) FROM field_pack_approval a
   WHERE a.workspace_id = p.workspace_id AND a.pack_id = p.id), '{}')::uuid[] AS approvals
 FROM field_pack p WHERE p.workspace_id = $1 ORDER BY p.name, p.created_at
 `
@@ -203,6 +206,7 @@ type ListFieldPacksRow struct {
 	CreatedAt   time.Time       `json:"created_at"`
 	Domain      string          `json:"domain"`
 	Stage       string          `json:"stage"`
+	AvatarUrl   string          `json:"avatar_url"`
 	Approvals   []uuid.UUID     `json:"approvals"`
 }
 
@@ -228,6 +232,7 @@ func (q *Queries) ListFieldPacks(ctx context.Context, workspaceID uuid.UUID) ([]
 			&i.CreatedAt,
 			&i.Domain,
 			&i.Stage,
+			&i.AvatarUrl,
 			&i.Approvals,
 		); err != nil {
 			return nil, err
@@ -241,7 +246,7 @@ func (q *Queries) ListFieldPacks(ctx context.Context, workspaceID uuid.UUID) ([]
 }
 
 const listOwnPacks = `-- name: ListOwnPacks :many
-SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage FROM field_pack WHERE workspace_id = $1 AND uploaded_by = $2 ORDER BY name, created_at
+SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage, avatar_url FROM field_pack WHERE workspace_id = $1 AND uploaded_by = $2 ORDER BY name, created_at
 `
 
 type ListOwnPacksParams struct {
@@ -271,6 +276,7 @@ func (q *Queries) ListOwnPacks(ctx context.Context, arg ListOwnPacksParams) ([]F
 			&i.CreatedAt,
 			&i.Domain,
 			&i.Stage,
+			&i.AvatarUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -399,7 +405,7 @@ func (q *Queries) RenameFieldPack(ctx context.Context, arg RenameFieldPackParams
 const replaceFieldPack = `-- name: ReplaceFieldPack :one
 UPDATE field_pack SET sha256 = $1, manifest = $2, blob_key = $3, domain = $4, stage = $5
 WHERE workspace_id = $6 AND id = $7
-RETURNING id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage
+RETURNING id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage, avatar_url
 `
 
 type ReplaceFieldPackParams struct {
@@ -437,6 +443,7 @@ func (q *Queries) ReplaceFieldPack(ctx context.Context, arg ReplaceFieldPackPara
 		&i.CreatedAt,
 		&i.Domain,
 		&i.Stage,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
@@ -454,6 +461,37 @@ type SetCardPackParams struct {
 func (q *Queries) SetCardPack(ctx context.Context, arg SetCardPackParams) error {
 	_, err := q.db.Exec(ctx, setCardPack, arg.PackID, arg.WorkspaceID, arg.CardID)
 	return err
+}
+
+const setFieldPackAvatar = `-- name: SetFieldPackAvatar :one
+UPDATE field_pack SET avatar_url = $1 WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage, avatar_url
+`
+
+type SetFieldPackAvatarParams struct {
+	AvatarUrl   string    `json:"avatar_url"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SetFieldPackAvatar(ctx context.Context, arg SetFieldPackAvatarParams) (FieldPack, error) {
+	row := q.db.QueryRow(ctx, setFieldPackAvatar, arg.AvatarUrl, arg.WorkspaceID, arg.ID)
+	var i FieldPack
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Version,
+		&i.Sha256,
+		&i.Manifest,
+		&i.BlobKey,
+		&i.Source,
+		&i.UploadedBy,
+		&i.CreatedAt,
+		&i.Domain,
+		&i.Stage,
+		&i.AvatarUrl,
+	)
+	return i, err
 }
 
 const shippedPackExists = `-- name: ShippedPackExists :one

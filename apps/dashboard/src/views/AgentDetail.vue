@@ -18,6 +18,7 @@ import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import type { AgentDefinition, Card } from '../api/types';
 import Icon from '../components/Icon.vue';
+import EmojiIcon from '../components/EmojiIcon.vue';
 import { backends, backendLabel } from '../lib/backends';
 import { matchesQuery } from '../lib/search';
 import { agentConnectorIntegrationAvailable } from '../lib/agent-connectors';
@@ -239,9 +240,16 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           /></span>
         </nav>
         <div class="agent-identity">
-          <span class="agent-avatar"
-            ><Aristotle v-if="builtin" still /><Icon v-else name="bot" :size="26"
-          /></span>
+          <EmojiIcon
+            :key="workspaceId + ':' + id"
+            :value="agent.avatar_url || ''"
+            :editable="editable"
+            :busy="busy"
+            fallback="bot"
+            @select="(value) => patch({ avatar_url: value })"
+          >
+            <Aristotle v-if="builtin" still /><Icon v-else name="bot" :size="26" />
+          </EmojiIcon>
           <div>
             <div class="agent-title">
               <h1><AgentName :name="agent.name" :harness="agent.harness" /></h1>
@@ -295,9 +303,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <div v-if="tab === 'overview'" class="agent-overview">
         <div class="agent-activity">
           <h2>
-            Now<small>{{
-              active.length ? `${active.length} in progress` : 'No active work reported'
-            }}</small>
+            Now<small v-if="active.length">{{ `${active.length} in progress` }}</small>
           </h2>
           <p v-if="!active.length" class="muted">No assigned study is running.</p>
           <RouterLink v-for="c in active" :key="c.id" :to="'/studies/' + c.id" class="agent-study"
@@ -596,7 +602,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 <style src="./agent-detail.css" />
 
 <style scoped>
-.agent-avatar :deep(.aristotle-art) {
+:deep(.agent-avatar .aristotle-art) {
   width: 44px;
   height: 48px;
 }

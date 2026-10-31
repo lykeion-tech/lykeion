@@ -3,7 +3,7 @@ import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import Icon from './Icon.vue';
 import { Smile, Dog, Hamburger, Volleyball, Car, Lightbulb, Hash } from '@lucide/vue';
 import type { EmojiRecord } from '../data/emoji-data';
-defineProps<{ modelValue: string }>();
+defineProps<{ modelValue: string; emojiOnly?: boolean }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; close: [] }>();
 const host = ref<HTMLElement>();
 function outside(event: PointerEvent) {
@@ -128,7 +128,7 @@ async function upload(event: Event) {
     @keydown.esc.stop.prevent="emit('close')"
   >
     <template v-if="!expanded"
-      ><button type="button" class="upload" @click="file?.click()">
+      ><button v-if="!emojiOnly" type="button" class="upload" @click="file?.click()">
         <Icon name="upload" />Upload image</button
       ><small>Emoji</small>
       <div class="quick-emojis">
@@ -208,7 +208,11 @@ async function upload(event: Event) {
         <p v-if="catalog.length && !visible.some((group) => group.items.length)">No emojis found</p>
       </div></template
     >
+    <button v-if="emojiOnly && modelValue" type="button" class="more" @click="choose('')">
+      Remove emoji
+    </button>
     <input
+      v-if="!emojiOnly"
       ref="file"
       hidden
       type="file"

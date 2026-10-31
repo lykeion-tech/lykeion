@@ -29,6 +29,7 @@ type storeTeam struct {
 	Domain      string          `json:"domain"`
 	Stage       string          `json:"stage"`
 	Added       bool            `json:"added"`
+	AvatarURL   string          `json:"avatar_url"`
 }
 
 // shownManifest is a stored manifest without its version.
@@ -57,7 +58,7 @@ func (h *H) listTeams(w http.ResponseWriter, r *http.Request) {
 			}
 			out = append(out, storeTeam{ID: p.ID, WorkspaceID: p.WorkspaceID, Name: p.Name, Sha256: p.Sha256,
 				Manifest: manifest, Source: p.Source, UploadedBy: p.UploadedBy, CreatedAt: p.CreatedAt,
-				Domain: p.Domain, Stage: p.Stage, Added: p.Added})
+				Domain: p.Domain, Stage: p.Stage, Added: p.Added, AvatarURL: p.AvatarUrl})
 		}
 		return nil
 	})
@@ -74,8 +75,9 @@ func (h *H) getTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out struct {
-		ID       uuid.UUID       `json:"id"`
-		Manifest json.RawMessage `json:"manifest"`
+		ID        uuid.UUID       `json:"id"`
+		Manifest  json.RawMessage `json:"manifest"`
+		AvatarURL string          `json:"avatar_url"`
 	}
 	err := h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) error {
 		p, err := visiblePack(r, tx, user, id)
@@ -83,6 +85,7 @@ func (h *H) getTeam(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out.ID = p.ID
+		out.AvatarURL = p.AvatarUrl
 		out.Manifest, err = shownManifest(p.Manifest)
 		return err
 	})
@@ -91,6 +94,48 @@ func (h *H) getTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, out)
+}
+
+func (h *H) updateTeamAvatar(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		AvatarURL *string `json:"avatar_url"`
+	}
+	if err := readJSON(r, &in); err != nil || in.AvatarURL == nil || !validEmojiAvatar(*in.AvatarURL) {
+		writeErr(w, 400, "invalid emoji avatar")
+		return
+	}
+	var out struct {
+		ID        uuid.UUID `json:"id"`
+		AvatarURL string    `json:"avatar_url"`
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
+		p, err := visiblePack(r, tx, user, id)
+		if err != nil {
+			return err
+		}
+		if err = editable(r, tx, p); err != nil {
+			return err
+		}
+		p, err = tx.Q.SetFieldPackAvatar(r.Context(), db.SetFieldPackAvatarParams{WorkspaceID: ws, ID: id, AvatarUrl: *in.AvatarURL})
+		if err != nil {
+			return err
+		}
+		out.ID, out.AvatarURL = p.ID, p.AvatarUrl
+		return tx.Emit(r.Context(), "team.updated", nil, store.User(user), map[string]any{})
+	})
+	if answer(w, r, err) {
+		writeJSON(w, 200, out)
+	}
 }
 
 // teamAgents answers with the agents Add created or already had.

@@ -185,7 +185,7 @@ test('creating a Team from the template', async ({ page }) => {
   await expect(page.getByText('bioinformatician', { exact: true })).toBeVisible();
   await expect(page.getByText('data-specialist', { exact: true })).toBeVisible();
   await expect(page.getByText('Skills: aeon')).toBeVisible();
-  await page.getByRole('tab', { name: 'Scientific settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
   await expect(page.getByText('Every dataset named has its accession')).toBeVisible();
   await expect(page.getByText('20 steps per column')).toBeVisible();
 });

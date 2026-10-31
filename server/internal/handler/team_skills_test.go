@@ -77,6 +77,9 @@ func TestAUsedTeamCannotBeEdited(t *testing.T) {
 	if c, e := s.saveSkills(t, a, w.ID, r); c != 409 || !strings.Contains(e, "Used by 1 study") {
 		t.Fatalf("Team on an unreached column: %d %q", c, e)
 	}
+	if c := s.call(t, "PATCH", "/api/teams/"+r, a, w.ID, map[string]string{"avatar_url": "emoji:🧪"}, nil); c != 409 {
+		t.Fatalf("icon while Team in use: %d", c)
+	}
 	ar := s.addedTeam(t, a, w.ID, "ar", "grounding")
 	s.autoresearch(t, a, w.ID, map[string]any{"title": "Digest", "execution_mode": "create_card",
 		"assignee": teamAssignee(map[string]string{"grounding": ar})})
@@ -141,5 +144,8 @@ func TestBuiltInTeamsAreReadOnly(t *testing.T) {
 	id := s.builtInID(t, w.ID, "grounding")
 	if c, e := s.saveSkills(t, a, w.ID, id); c != 403 || e != "Built-in Teams can't be changed; duplicate it instead" {
 		t.Fatalf("save on a built-in Team: %d %q", c, e)
+	}
+	if c := s.call(t, "PATCH", "/api/teams/"+id, a, w.ID, map[string]string{"avatar_url": "emoji:🧪"}, nil); c != 403 {
+		t.Fatalf("icon on a built-in Team: %d", c)
 	}
 }

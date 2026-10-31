@@ -23,7 +23,7 @@ SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id FOR UPDATE;
 SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id FOR SHARE;
 
 -- name: UpdateAgent :one
-UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model, visibility = @visibility, conversation_starters = @conversation_starters, updated_at = now()
+UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model, visibility = @visibility, conversation_starters = @conversation_starters, avatar_url = @avatar_url, updated_at = now()
 WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL RETURNING *;
 
 -- name: ArchiveAgent :one

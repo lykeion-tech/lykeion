@@ -26,6 +26,7 @@ type Agent struct {
 	UpdatedAt            time.Time       `json:"updated_at"`
 	BuiltInKey           string          `json:"built_in_key"`
 	ConversationStarters json.RawMessage `json:"conversation_starters"`
+	AvatarUrl            string          `json:"avatar_url"`
 }
 
 type AgentRun struct {
@@ -595,6 +596,7 @@ type FieldPack struct {
 	CreatedAt   time.Time       `json:"created_at"`
 	Domain      string          `json:"domain"`
 	Stage       string          `json:"stage"`
+	AvatarUrl   string          `json:"avatar_url"`
 }
 
 type FieldPackApproval struct {

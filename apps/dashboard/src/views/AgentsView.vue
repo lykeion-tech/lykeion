@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Aristotle from '../components/Aristotle.vue';
+import AvatarDisplay from '../components/AvatarDisplay.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
@@ -241,7 +242,11 @@ async function save() {
           role="row"
           ><span class="agent-cell" role="cell"
             ><span class="avatar"
-              ><Aristotle v-if="a.built_in_key === 'aristotle'" still /><template v-else>{{
+              ><AvatarDisplay
+                v-if="a.avatar_url"
+                :value="a.avatar_url.slice(6)"
+                :size="20"
+              /><Aristotle v-else-if="a.built_in_key === 'aristotle'" still /><template v-else>{{
                 agentDisplayName(a.name)[0]
               }}</template></span
             ><span

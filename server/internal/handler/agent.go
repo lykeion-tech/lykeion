@@ -192,6 +192,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		Model                *string         `json:"model"`
 		Visibility           *string         `json:"visibility"`
 		BuiltInKey           *string         `json:"built_in_key"`
+		AvatarURL            *string         `json:"avatar_url"`
 		ConversationStarters json.RawMessage `json:"conversation_starters"`
 	}
 	if err := readJSON(r, &in); err != nil {
@@ -202,7 +203,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "built-in identity is immutable")
 		return
 	}
-	if in.Name == nil && in.Description == nil && in.Instructions == nil && in.Harness == nil && in.Model == nil && in.Visibility == nil && len(in.ConversationStarters) == 0 {
+	if in.Name == nil && in.Description == nil && in.Instructions == nil && in.Harness == nil && in.Model == nil && in.Visibility == nil && in.AvatarURL == nil && len(in.ConversationStarters) == 0 {
 		writeErr(w, 400, "nothing to change")
 		return
 	}
@@ -248,10 +249,16 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		if in.Visibility != nil {
 			a.Visibility = *in.Visibility
 		}
+		if in.AvatarURL != nil {
+			if !validEmojiAvatar(*in.AvatarURL) {
+				return cardInputError("invalid emoji avatar")
+			}
+			a.AvatarUrl = *in.AvatarURL
+		}
 		if err := validateAgent(a); err != nil {
 			return err
 		}
-		out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: id, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, ConversationStarters: a.ConversationStarters})
+		out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: id, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, ConversationStarters: a.ConversationStarters, AvatarUrl: a.AvatarUrl})
 		if err != nil {
 			return err
 		}

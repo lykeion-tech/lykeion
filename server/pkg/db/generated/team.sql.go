@@ -56,7 +56,7 @@ func (q *Queries) InsertTeamAgent(ctx context.Context, arg InsertTeamAgentParams
 }
 
 const storeTeams = `-- name: StoreTeams :many
-SELECT DISTINCT ON (p.name) p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
+SELECT DISTINCT ON (p.name) p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, p.avatar_url, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
   WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND t.user_id = $1))::bool AS added
 FROM field_pack p
 WHERE p.workspace_id = $2 AND (p.source = 'shipped' OR p.uploaded_by = $1)
@@ -84,6 +84,7 @@ type StoreTeamsRow struct {
 	CreatedAt   time.Time       `json:"created_at"`
 	Domain      string          `json:"domain"`
 	Stage       string          `json:"stage"`
+	AvatarUrl   string          `json:"avatar_url"`
 	Added       bool            `json:"added"`
 }
 
@@ -115,6 +116,7 @@ func (q *Queries) StoreTeams(ctx context.Context, arg StoreTeamsParams) ([]Store
 			&i.CreatedAt,
 			&i.Domain,
 			&i.Stage,
+			&i.AvatarUrl,
 			&i.Added,
 		); err != nil {
 			return nil, err

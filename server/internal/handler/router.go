@@ -313,6 +313,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/packs/{id}/approve", h.approvePack)
 			r.Get("/api/teams", h.listTeams)
 			r.Get("/api/teams/{id}", h.getTeam)
+			r.Patch("/api/teams/{id}", h.updateTeamAvatar)
 			r.Post("/api/teams/{id}/add", h.addTeam)
 			r.Get("/api/cards/{id}", h.getCard)
 			r.Patch("/api/cards/{id}/teams", h.setCardTeams)

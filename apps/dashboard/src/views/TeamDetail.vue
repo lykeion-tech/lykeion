@@ -11,6 +11,7 @@ import { addTeam, duplicateTeam, useTeam, useTeams } from '../api/queries';
 import { keys } from '../api/keys';
 import { workspaceId } from '../api/session';
 import Icon from '../components/Icon.vue';
+import EmojiIcon from '../components/EmojiIcon.vue';
 import TeamMemberProfile from '../components/TeamMemberProfile.vue';
 import { useTaskComposer } from '../state/task-composer';
 const props = defineProps<{ id: string }>();
@@ -88,11 +89,12 @@ const people = computed(() =>
       ]
     : [],
 );
-const tabs = ['Overview', 'Agents', 'Scientific settings'] as const;
+const tabs = ['Overview', 'Agents', 'Settings'] as const;
 const tab = ref<(typeof tabs)[number]>('Overview');
 const busy = ref(false),
   error = ref(''),
   created = ref<number | null>(null);
+const iconBusy = ref(false);
 let visit = 0;
 watch([workspaceId, () => props.id], () => {
   visit++;
@@ -106,7 +108,27 @@ watch([workspaceId, () => props.id], () => {
   copyName.value = null;
   copyBusy.value = false;
   copyError.value = '';
+  iconBusy.value = false;
 });
+async function saveIcon(value: string) {
+  if (iconBusy.value) return;
+  const ownVisit = visit,
+    ws = workspaceId.value,
+    id = props.id;
+  iconBusy.value = true;
+  error.value = '';
+  try {
+    await api('PATCH', `/api/teams/${id}`, { avatar_url: value }, undefined, { workspace: ws });
+    await Promise.all([
+      client.invalidateQueries({ queryKey: keys.team(ws, id) }),
+      client.invalidateQueries({ queryKey: keys.packs(ws) }),
+    ]);
+  } catch (e) {
+    if (visit === ownVisit) error.value = (e as Error).message;
+  } finally {
+    if (visit === ownVisit) iconBusy.value = false;
+  }
+}
 const { openComposer } = useTaskComposer();
 const stage = (value: string) =>
   value ? value[0]!.toUpperCase() + value.slice(1) : 'A set of stages';
@@ -159,7 +181,14 @@ function tabKey(event: KeyboardEvent, index: number) {
           ><span aria-current="page"><TeamName :name="manifest.name" /></span>
         </nav>
         <div class="agent-identity">
-          <span class="agent-avatar"><Icon name="network" :size="26" /></span>
+          <EmojiIcon
+            :key="workspaceId + ':' + id"
+            :value="detail.data.value?.avatar_url || ''"
+            :editable="store.isSuccess.value && !!row && !builtIn"
+            :busy="iconBusy"
+            fallback="network"
+            @select="saveIcon"
+          />
           <div>
             <div class="agent-title">
               <h1><TeamName :name="manifest.name" /></h1>
@@ -261,10 +290,6 @@ function tabKey(event: KeyboardEvent, index: number) {
             <dd>{{ stage(manifest.stage) }}</dd>
             <dt>Agents</dt>
             <dd>{{ people.length }}</dd>
-            <dt>Steps per column</dt>
-            <dd>{{ manifest.steps || 12 }}</dd>
-            <dt>Availability</dt>
-            <dd>{{ store.isSuccess.value ? availability : 'Loading…' }}</dd>
             <template v-if="row"
               ><dt>Source</dt>
               <dd>{{ builtIn ? 'Built into Lykeion' : 'Uploaded by you' }}</dd></template
@@ -299,7 +324,7 @@ function tabKey(event: KeyboardEvent, index: number) {
         </div>
       </section>
       <section
-        v-else-if="tab === 'Scientific settings'"
+        v-else-if="tab === 'Settings'"
         id="team-panel-2"
         class="agent-work"
         role="tabpanel"

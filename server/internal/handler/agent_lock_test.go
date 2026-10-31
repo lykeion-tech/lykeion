@@ -40,6 +40,9 @@ func TestAnAgentInUseCannotChange(t *testing.T) {
 	s.mustUpdate(t, `UPDATE "user" SET name = 'Ada' WHERE email = 'a@lab.org'`)
 	agent := s.newAgent(t, a, w.ID, "solo", "claude")
 	card := s.startStudy(t, a, w.ID, agent, "q")
+	if code := s.call(t, "PATCH", "/api/agents/"+agent, a, w.ID, map[string]string{"avatar_url": "emoji:🧪"}, nil); code != 409 {
+		t.Fatalf("icon while in use: %d", code)
+	}
 	want := "Used by study #1 (Ada). It can change once they finish or their owners delete them."
 	if code, msg := s.rename(t, a, w.ID, agent); code != 409 || msg != want {
 		t.Fatalf("patch: %d %q", code, msg)

@@ -40,8 +40,7 @@ export interface Workspace {
   settings?: Record<string, unknown>; // present in GET /api/workspaces/{id}
 }
 
-export type Column =
-  'grounding' | 'hypotheses' | 'experimentation' | 'validation' | 'done';
+export type Column = 'grounding' | 'hypotheses' | 'experimentation' | 'validation' | 'done';
 
 // One column of a study offered to its owner for a Team rating.
 export interface ColumnRating {
@@ -295,6 +294,7 @@ export interface ResearchDetail extends Research {
   studies: Card[];
 }
 export interface AgentDefinition {
+  avatar_url: string;
   built_in_key?: string;
   conversation_starters?: { label: string; prompt: string }[];
   id: string;
@@ -342,6 +342,7 @@ export interface TeamManifest {
 // A Team in the store; added is whether the caller has added it. A shipped
 // Team is built in: every workspace has it and it can't be changed.
 export interface StoreTeam {
+  avatar_url: string;
   id: string;
   created_at: string;
   name: string;
@@ -353,6 +354,7 @@ export interface StoreTeam {
 }
 
 export interface TeamDetail {
+  avatar_url: string;
   id: string;
   manifest: TeamManifest;
 }

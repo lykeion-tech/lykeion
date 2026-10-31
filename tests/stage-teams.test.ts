@@ -376,6 +376,55 @@ describe('AssignPicker', () => {
 });
 
 describe('TeamDetail', () => {
+  it('allows only an editable Team to choose an icon and saves it', async () => {
+    const fetch = vi.fn(
+      async (_path: RequestInfo | URL, init?: RequestInit) =>
+        new Response(init?.method === 'PATCH' ? '{"id":"t2","avatar_url":"emoji:🦉"}' : '{}', {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const builtIn = await mount(TeamDetail, () => ({ id: 't1' }), '/teams/t1');
+    expect(builtIn.nodes().some((n) => n.props['aria-label'] === 'Change avatar')).toBe(false);
+    builtIn.unmount();
+    const own = await mount(TeamDetail, () => ({ id: 't2' }), '/teams/t2');
+    try {
+      const edit = own.nodes().find((n) => n.props['aria-label'] === 'Change avatar');
+      expect(edit).toBeDefined();
+      (edit!.props.onClick as () => void)();
+      await nextTick();
+      const emoji = own.nodes().find((n) => n.props['aria-label'] === '🦉');
+      expect(emoji).toBeDefined();
+      (emoji!.props.onClick as () => void)();
+      await nextTick();
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/teams/t2',
+        expect.objectContaining({ method: 'PATCH', body: '{"avatar_url":"emoji:🦉"}' }),
+      );
+    } finally {
+      own.unmount();
+    }
+  });
+  it('shows the server refusal when a Team icon cannot be saved', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"error":"Team is in use"}', { status: 409 })),
+    );
+    const own = await mount(TeamDetail, () => ({ id: 't2' }), '/teams/t2');
+    try {
+      (
+        own.nodes().find((n) => n.props['aria-label'] === 'Change avatar')!.props
+          .onClick as () => void
+      )();
+      await nextTick();
+      (own.nodes().find((n) => n.props['aria-label'] === '🦉')!.props.onClick as () => void)();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await nextTick();
+      expect(own.text()).toContain('Team is in use');
+    } finally {
+      own.unmount();
+    }
+  });
   it('shows Duplicate this Team and no edit for a built-in Team', async () => {
     const t = await mount(TeamDetail, () => ({ id: 't1' }), '/teams/t1');
     try {

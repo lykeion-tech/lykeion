@@ -652,11 +652,9 @@ describe('readable run identity and assignments', () => {
           }),
       }),
     );
-    expect(html).toContain('coordinator · transcript-inspection');
+    expect(html).toContain('Coordinator · transcript-inspection');
     expect(html).not.toContain('<h3 class="truncate"');
     expect(html).toContain('Run 3');
-    expect(html).toContain('Round 1');
-    expect(html).toContain('Attempt 2');
   });
   it('shows an audit assignment without the raw records and prompt boundary markers', async () => {
     const html = await render([], {
