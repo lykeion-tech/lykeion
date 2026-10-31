@@ -2,8 +2,8 @@
 import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Pin, ListX } from '@lucide/vue';
-import Icon from '../ui/Icon.vue';
-import { useWorkspaceTabs, type Tab } from '../state/workspace-tabs';
+import Icon from '../../ui/Icon.vue';
+import { useWorkspaceTabs, type Tab } from '../../state/workspace-tabs';
 const props = defineProps<{ title: string; icon: string; collapsed: boolean }>();
 const emit = defineEmits<{ toggle: [] }>();
 const route = useRoute();

@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { WorkspaceMcpConfig } from '../../../api/library';
+import type { WorkspaceMcpConfig } from '../../../../api/library';
 export type ConnectorFields = {
   name: string;
   transport: 'url' | 'command';
@@ -55,7 +55,7 @@ export function connectorProblem(value: ConnectorFields) {
 }
 </script>
 <script setup lang="ts">
-import Icon from '../../../ui/Icon.vue';
+import Icon from '../../../../ui/Icon.vue';
 const value = defineModel<ConnectorFields>({ required: true });
 defineProps<{ disabled?: boolean }>();
 </script>

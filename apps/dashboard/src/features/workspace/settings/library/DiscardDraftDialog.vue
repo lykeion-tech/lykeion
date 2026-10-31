@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Modal from '../../../ui/Modal.vue';
-import { discardDialog, resolveDiscard } from '../../../state/resource-draft';
+import Modal from '../../../../ui/Modal.vue';
+import { discardDialog, resolveDiscard } from '../../../../state/resource-draft';
 </script>
 
 <template>

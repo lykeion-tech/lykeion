@@ -2,10 +2,10 @@
 import { nextTick, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
-import { api, ApiError } from '../api/client';
-import { authenticationRestored, finishAuthenticationRecovery } from '../api/auth-loss';
-import { workspaceId } from '../api/session';
-import { readText, writeText } from '../storage';
+import { api, ApiError } from '../../api/client';
+import { authenticationRestored, finishAuthenticationRecovery } from '../../api/auth-loss';
+import { workspaceId } from '../../api/session';
+import { readText, writeText } from '../../storage';
 
 const router = useRouter();
 const client = useQueryClient();

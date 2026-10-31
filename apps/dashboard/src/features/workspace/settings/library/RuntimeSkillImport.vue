@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import SelectPicker from '../../../ui/SelectPicker.vue';
+import SelectPicker from '../../../../ui/SelectPicker.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRuntimes, useMe } from '../../../api/queries';
-import { useResourceDraft } from '../../../state/resource-draft';
-import { workspaceId } from '../../../api/session';
+import { useRuntimes, useMe } from '../../../../api/queries';
+import { useResourceDraft } from '../../../../state/resource-draft';
+import { workspaceId } from '../../../../api/session';
 import {
   useLibraryMutations,
   useRuntimeSkillRequest,
   type RuntimeSkillInventory,
   type RuntimeSkillOperation,
-} from '../../../api/library';
+} from '../../../../api/library';
 const emit = defineEmits<{ created: [id: string]; close: [] }>();
 const runtimes = useRuntimes(),
   me = useMe(),

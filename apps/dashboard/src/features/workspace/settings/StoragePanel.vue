@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { useStorage } from '../../api/queries';
-import type { StorageMachine } from '../../api/types';
+import { useStorage } from '../../../api/queries';
+import type { StorageMachine } from '../../../api/types';
 const storage = useStorage();
 const labels = { workspaces: 'Workspaces', environments: 'Environments', state: 'Daemon state' };
 function bytes(value: number) {

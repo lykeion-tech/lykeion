@@ -163,4 +163,28 @@ describe('the dashboard source layout', () => {
       expect(existsSync(join(src, from)), from).toBe(false);
     }
   });
+
+  it('workspace holds settings and the library', () => {
+    const moved = [
+      ['components/WorkspaceTabs.vue', 'features/workspace/WorkspaceTabs.vue'],
+      ['views/SettingsView.vue', 'features/workspace/SettingsView.vue'],
+      ['views/SignInView.vue', 'features/workspace/SignInView.vue'],
+      ['views/AcceptInvite.vue', 'features/workspace/AcceptInvite.vue'],
+      ['views/OnboardingView.vue', 'features/workspace/OnboardingView.vue'],
+      ['views/ColleaguesView.vue', 'features/workspace/ColleaguesView.vue'],
+      ['components/settings/AnalyticsPanel.vue', 'features/workspace/settings/AnalyticsPanel.vue'],
+      ['components/settings/StoragePanel.vue', 'features/workspace/settings/StoragePanel.vue'],
+      ['components/settings/TokenCreationForm.vue', 'features/workspace/settings/TokenCreationForm.vue'],
+      ['components/settings/library/SkillPanel.vue', 'features/workspace/settings/library/SkillPanel.vue'],
+    ];
+    for (const [from, to] of moved) {
+      expect(existsSync(join(src, to)), to).toBe(true);
+      expect(existsSync(join(src, from)), from).toBe(false);
+    }
+  });
+
+  it('has no components or views folder', () => {
+    expect(existsSync(join(src, 'components'))).toBe(false);
+    expect(existsSync(join(src, 'views'))).toBe(false);
+  });
 });

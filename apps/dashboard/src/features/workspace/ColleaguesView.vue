@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import SelectPicker from '../ui/SelectPicker.vue';
+import SelectPicker from '../../ui/SelectPicker.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import Icon from '../ui/Icon.vue';
-import Modal from '../ui/Modal.vue';
-import { api } from '../api/client';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
-import { useInvitations, useMe, useMembers, useWorkspaces } from '../api/queries';
-import type { Member, Role } from '../api/types';
-import { timeAgo } from '../lib/studies';
+import Icon from '../../ui/Icon.vue';
+import Modal from '../../ui/Modal.vue';
+import { api } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
+import { useInvitations, useMe, useMembers, useWorkspaces } from '../../api/queries';
+import type { Member, Role } from '../../api/types';
+import { timeAgo } from '../../lib/studies';
 
 const client = useQueryClient();
 const me = useMe();
@@ -197,7 +197,7 @@ const invite = () =>
     </form>
   </Modal>
 </template>
-<style scoped src="../ui/resources.css"></style>
+<style scoped src="../../ui/resources.css"></style>
 <style scoped>
 .colleagues {
   max-width: 842px;

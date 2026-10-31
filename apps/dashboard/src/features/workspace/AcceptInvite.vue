@@ -2,10 +2,10 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
-import { api, ApiError } from '../api/client';
-import { keys } from '../api/keys';
-import { workspaceId } from '../api/session';
-import { writeText } from '../storage';
+import { api, ApiError } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
+import { writeText } from '../../storage';
 
 const props = defineProps<{ token: string }>();
 const router = useRouter();

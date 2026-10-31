@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { defineAsyncComponent, defineComponent, h, computed, onUnmounted, ref, watch } from 'vue';
-import Modal from '../../../ui/Modal.vue';
-import Icon from '../../../ui/Icon.vue';
-import { useSkillDetail, useSkillFile, useLibraryMutations } from '../../../api/library';
-import { useMe, useMembers } from '../../../api/queries';
-import { workspaceId } from '../../../api/session';
-import { ApiError } from '../../../api/client';
-import { useResourceDraft } from '../../../state/resource-draft';
+import Modal from '../../../../ui/Modal.vue';
+import Icon from '../../../../ui/Icon.vue';
+import { useSkillDetail, useSkillFile, useLibraryMutations } from '../../../../api/library';
+import { useMe, useMembers } from '../../../../api/queries';
+import { workspaceId } from '../../../../api/session';
+import { ApiError } from '../../../../api/client';
+import { useResourceDraft } from '../../../../state/resource-draft';
 import SkillFileViewer from './SkillFileViewer.vue';
 const formattingFailed = ref(false);
 const PlainRecordedText = defineComponent({
@@ -14,7 +14,7 @@ const PlainRecordedText = defineComponent({
   setup: (text) => () => h('div', { class: 'recorded-text-fallback' }, text.content),
 });
 const RecordedMarkdown = defineAsyncComponent({
-  loader: () => import('../../../ui/RecordedMarkdown.vue'),
+  loader: () => import('../../../../ui/RecordedMarkdown.vue'),
   loadingComponent: PlainRecordedText,
   errorComponent: PlainRecordedText,
   delay: 0,

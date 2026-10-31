@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
-import SkillPanel from '../apps/dashboard/src/components/settings/library/SkillPanel.vue';
-import ConnectorPanel from '../apps/dashboard/src/components/settings/library/ConnectorPanel.vue';
+import SkillPanel from '../apps/dashboard/src/features/workspace/settings/library/SkillPanel.vue';
+import ConnectorPanel from '../apps/dashboard/src/features/workspace/settings/library/ConnectorPanel.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 
 vi.mock('../apps/dashboard/src/api/library', () => {

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import Modal from '../../../ui/Modal.vue';
-import Icon from '../../../ui/Icon.vue';
+import Modal from '../../../../ui/Modal.vue';
+import Icon from '../../../../ui/Icon.vue';
 import RuntimeSkillImport from './RuntimeSkillImport.vue';
-import { useLibraryMutations } from '../../../api/library';
-import { useResourceDraft, guardResourceDrafts } from '../../../state/resource-draft';
-import { workspaceId } from '../../../api/session';
+import { useLibraryMutations } from '../../../../api/library';
+import { useResourceDraft, guardResourceDrafts } from '../../../../state/resource-draft';
+import { workspaceId } from '../../../../api/session';
 const emit = defineEmits<{ close: []; created: [id: string] }>();
 const method = ref<'menu' | 'manual' | 'local' | 'url' | 'runtime'>('menu');
 const titles = {

@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import Modal from '../../../ui/Modal.vue';
-import Icon from '../../../ui/Icon.vue';
+import Modal from '../../../../ui/Modal.vue';
+import Icon from '../../../../ui/Icon.vue';
 import ConnectorConfigFields, {
   emptyConnector,
   connectorInput,
   connectorProblem,
 } from './ConnectorConfigFields.vue';
-import { useLibraryMutations } from '../../../api/library';
-import { useWorkspaces } from '../../../api/queries';
-import { workspaceId } from '../../../api/session';
-import { useResourceDraft, guardResourceDrafts } from '../../../state/resource-draft';
+import { useLibraryMutations } from '../../../../api/library';
+import { useWorkspaces } from '../../../../api/queries';
+import { workspaceId } from '../../../../api/session';
+import { useResourceDraft, guardResourceDrafts } from '../../../../state/resource-draft';
 const emit = defineEmits<{ close: []; created: [id: string] }>();
 const workspaces = useWorkspaces();
 const allowed = computed(() =>

@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { workspaceId } from '../../../api/session';
+import { workspaceId } from '../../../../api/session';
 import {
   useConnectorLibrary,
   useOpenAlexConnector,
   useWorkspaceMCPServers,
-} from '../../../api/library';
-import { useWorkspaces } from '../../../api/queries';
-import { matchesQuery } from '../../../lib/search';
-import Icon from '../../../ui/Icon.vue';
+} from '../../../../api/library';
+import { useWorkspaces } from '../../../../api/queries';
+import { matchesQuery } from '../../../../lib/search';
+import Icon from '../../../../ui/Icon.vue';
 import AvailabilitySwitch from './AvailabilitySwitch.vue';
-import { useAvailabilityChanges } from '../../../state/availability';
+import { useAvailabilityChanges } from '../../../../state/availability';
 const policy = useAvailabilityChanges();
 import CapabilityList from './CapabilityList.vue';
 import ConnectorDialog from './ConnectorDialog.vue';

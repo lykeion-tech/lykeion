@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Icon from '../../../ui/Icon.vue';
+import Icon from '../../../../ui/Icon.vue';
 import { ref } from 'vue';
 const menu = ref<HTMLDetailsElement | null>(null);
 function closeMenu() {

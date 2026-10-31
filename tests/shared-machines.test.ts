@@ -3,7 +3,7 @@ import { createRenderer, h, nextTick, ref, ssrContextKey, type Component } from 
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import MachinesView from '../apps/dashboard/src/features/machines/MachinesView.vue';
-import SettingsView from '../apps/dashboard/src/views/SettingsView.vue';
+import SettingsView from '../apps/dashboard/src/features/workspace/SettingsView.vue';
 import CreateTask from '../apps/dashboard/src/features/studies/CreateTask.vue';
 import TaskDetail from '../apps/dashboard/src/features/studies/TaskDetail.vue';
 import AgentRunDialog from '../apps/dashboard/src/features/runs/AgentRunDialog.vue';

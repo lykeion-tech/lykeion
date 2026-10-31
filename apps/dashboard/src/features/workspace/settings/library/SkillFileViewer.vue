@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import Icon from '../../../ui/Icon.vue';
-import RecordedMarkdown from '../../../ui/RecordedMarkdown.vue';
-import type { highlightToolCode } from '../../../lib/tool-code';
+import Icon from '../../../../ui/Icon.vue';
+import RecordedMarkdown from '../../../../ui/RecordedMarkdown.vue';
+import type { highlightToolCode } from '../../../../lib/tool-code';
 
 const props = defineProps<{ path: string; content: string }>();
 const markdown = computed(() => /\.(md|markdown)$/i.test(props.path));
@@ -24,7 +24,7 @@ watch(
     tokens.value = undefined;
     if (!python.value) return;
     try {
-      const { highlightToolCode } = await import('../../../lib/tool-code');
+      const { highlightToolCode } = await import('../../../../lib/tool-code');
       const result = await highlightToolCode(content, 'python');
       if (!cancelled) tokens.value = result;
     } catch {

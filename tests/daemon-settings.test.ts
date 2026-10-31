@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { h, nextTick, ref, watch } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import OnboardingView from '../apps/dashboard/src/views/OnboardingView.vue';
+import OnboardingView from '../apps/dashboard/src/features/workspace/OnboardingView.vue';
 import { createDaemonSession, daemonSessionKey } from '../apps/dashboard/src/lib/daemon-session';
 import MachinesView from '../apps/dashboard/src/features/machines/MachinesView.vue';
 import { keys } from '../apps/dashboard/src/api/keys';

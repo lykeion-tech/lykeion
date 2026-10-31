@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 import { all, createTreeApp, node, textOf } from './daemon-tree';
-import ConnectorPanel from '../apps/dashboard/src/components/settings/library/ConnectorPanel.vue';
+import ConnectorPanel from '../apps/dashboard/src/features/workspace/settings/library/ConnectorPanel.vue';
 import { workspaceId } from '../apps/dashboard/src/api/session';
 
 const openalex = ref<Record<string, unknown> | undefined>();

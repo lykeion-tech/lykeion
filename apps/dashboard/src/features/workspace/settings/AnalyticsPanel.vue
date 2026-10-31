@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import SelectPicker from '../../ui/SelectPicker.vue';
-import { agentDisplayName } from '../../lib/agent-name';
+import SelectPicker from '../../../ui/SelectPicker.vue';
+import { agentDisplayName } from '../../../lib/agent-name';
 import { computed, ref, watch } from 'vue';
-import { useAnalytics, useResearches } from '../../api/queries';
-import { workspaceId } from '../../api/session';
-import type { AnalyticsMetrics } from '../../api/types';
+import { useAnalytics, useResearches } from '../../../api/queries';
+import { workspaceId } from '../../../api/session';
+import type { AnalyticsMetrics } from '../../../api/types';
 const scope = ref('all');
 const cadence = ref('daily');
 const range = ref('30d');

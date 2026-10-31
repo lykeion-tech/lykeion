@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { workspaceId } from '../../../api/session';
-import { useSkillLibrary } from '../../../api/library';
-import { matchesQuery } from '../../../lib/search';
-import Icon from '../../../ui/Icon.vue';
+import { workspaceId } from '../../../../api/session';
+import { useSkillLibrary } from '../../../../api/library';
+import { matchesQuery } from '../../../../lib/search';
+import Icon from '../../../../ui/Icon.vue';
 import AvailabilitySwitch from './AvailabilitySwitch.vue';
-import { useAvailabilityChanges } from '../../../state/availability';
+import { useAvailabilityChanges } from '../../../../state/availability';
 const policy = useAvailabilityChanges();
 import CapabilityList from './CapabilityList.vue';
 import SkillDialog from './SkillDialog.vue';

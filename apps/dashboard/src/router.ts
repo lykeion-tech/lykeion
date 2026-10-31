@@ -17,14 +17,14 @@ import AgentsView from './features/agents/AgentsView.vue';
 import AgentDetail from './features/agents/AgentDetail.vue';
 import TaskDetail from './features/studies/TaskDetail.vue';
 import InboxView from './features/inbox/InboxView.vue';
-import ColleaguesView from './views/ColleaguesView.vue';
+import ColleaguesView from './features/workspace/ColleaguesView.vue';
 import TeamsView from './features/teams/TeamsView.vue';
 import TeamDetail from './features/teams/TeamDetail.vue';
 import TeamForm from './features/teams/TeamForm.vue';
-import SettingsView from './views/SettingsView.vue';
-import SignInView from './views/SignInView.vue';
-import AcceptInvite from './views/AcceptInvite.vue';
-import OnboardingView from './views/OnboardingView.vue';
+import SettingsView from './features/workspace/SettingsView.vue';
+import SignInView from './features/workspace/SignInView.vue';
+import AcceptInvite from './features/workspace/AcceptInvite.vue';
+import OnboardingView from './features/workspace/OnboardingView.vue';
 
 declare module 'vue-router' {
   interface RouteMeta {
