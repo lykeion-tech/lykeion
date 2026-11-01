@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/sources"
@@ -107,6 +108,27 @@ func resolved(h sources.Hit, err error) (sources.Hit, error, error) {
 	return h, err, nil
 }
 
+// stopwords are the common English words a keyword search leaves out.
+var stopwords = strings.Fields(`a about after all also an and any are as at be been before between both but by can could
+did do does during each for from had has have how if in into is it its may might more most no not of on or other over
+should so such than that the their them then there these they this those through to under up was we were what when where
+whether which while who whom why will with within without would`)
+
+// keywords are the question's words, punctuation removed and stopwords
+// left out, at most 8 of them.
+func keywords(q string) string {
+	var out []string
+	for _, w := range strings.FieldsFunc(strings.ToLower(q), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		if len(out) == 8 {
+			break
+		}
+		if !slices.Contains(stopwords, w) {
+			out = append(out, w)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
 // Grounding reviews a Grounding column: the server's checks on each source,
 // Jev's per-criterion questions on those that pass, a recall search for
 // papers the agents left out, and Jev's pick of the weakest source.
@@ -199,8 +221,17 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		r.Items = append(r.Items, it)
 	}
 
-	query := strings.TrimSpace(in.Question + " " + strings.Join(in.Criteria, " "))
+	// The search asks with the research question alone; a question that
+	// finds nothing is asked once more by its keywords. An empty search does
+	// not fail the column: the Result shows it.
+	query := strings.TrimSpace(in.Question)
 	hits, err := s.Search(ctx, query)
+	if err == nil && len(hits) == 0 {
+		if k := keywords(query); k != "" && k != query {
+			query = k
+			hits, err = s.Search(ctx, query)
+		}
+	}
 	if err != nil {
 		return Result{}, fmt.Errorf("recall search: %w", err)
 	}
@@ -226,6 +257,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 			r.Missed = append(r.Missed, Item{Kind: KindPaper, Label: label, Status: Fail, Checks: cs})
 		}
 	}
+	r.Recall = &Recall{Query: query, Hits: len(hits), Screened: n}
 
 	for _, i := range noQualifying {
 		c := Check{ID: "none_qualify", By: "server", Status: Pass}

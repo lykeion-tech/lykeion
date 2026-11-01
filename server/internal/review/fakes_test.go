@@ -50,6 +50,7 @@ type fakeSources struct {
 	papers, datasets map[string]sources.Hit
 	outage           map[string]bool
 	hits             []sources.Hit
+	byQuery          map[string][]sources.Hit // when set, what each query finds instead of hits
 	queries          []string
 }
 
@@ -75,5 +76,8 @@ func (f *fakeSources) Dataset(_ context.Context, acc string) (sources.Hit, error
 
 func (f *fakeSources) Search(_ context.Context, q string) ([]sources.Hit, error) {
 	f.queries = append(f.queries, q)
+	if f.byQuery != nil {
+		return f.byQuery[q], nil
+	}
 	return f.hits, nil
 }

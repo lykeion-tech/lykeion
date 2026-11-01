@@ -132,8 +132,11 @@ func TestGroundingMissedPaper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.queries[0] != "Does X? "+strings.Join(crit3, " ") {
-		t.Errorf("query %q", s.queries[0])
+	if len(s.queries) != 1 || s.queries[0] != "Does X?" {
+		t.Errorf("queries %q", s.queries)
+	}
+	if r.Recall == nil || *r.Recall != (Recall{Query: "Does X?", Hits: 3, Screened: 2}) {
+		t.Errorf("recall %+v", r.Recall)
 	}
 	if len(a.noul) != 3 {
 		t.Errorf("want 1 item + 2 uncited candidates asked, got %d", len(a.noul))
@@ -364,5 +367,47 @@ func TestEveryNoQualifyingIsChecked(t *testing.T) {
 		if c := checkOf(it, "none_qualify"); c == nil || it.Status != Fail {
 			t.Errorf("%s: %+v", it.Key, it)
 		}
+	}
+}
+
+func TestGroundingRecallFallsBackToKeywords(t *testing.T) {
+	q := "What is the effect of fasting on the liver weight of adult mice?"
+	keywords := "effect fasting liver weight adult mice"
+	s := twoPapers()
+	s.byQuery = map[string][]sources.Hit{keywords: {{ID: "openalex:W7", DOI: "10.1/missed", Title: "Missed one"}}}
+	r, err := Grounding(context.Background(), &fakeAsker{}, s, GroundingInput{Question: q, Criteria: crit3,
+		Items: []db.Record{paper(t, "p1", "doi:10.1/a")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(s.queries, []string{q, keywords}) {
+		t.Errorf("queries %q", s.queries)
+	}
+	if r.Recall == nil || *r.Recall != (Recall{Query: keywords, Hits: 1, Screened: 1}) || len(r.Missed) != 1 {
+		t.Errorf("recall %+v, missed %+v", r.Recall, r.Missed)
+	}
+}
+
+func TestGroundingKeywordsAreAtMostEight(t *testing.T) {
+	s := twoPapers()
+	q := "Does one, two, three four five six seven eight nine ten change?"
+	if _, err := Grounding(context.Background(), &fakeAsker{}, s, GroundingInput{Question: q, Criteria: crit3,
+		Items: []db.Record{paper(t, "p1", "doi:10.1/a")}}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(s.queries, []string{q, "one two three four five six seven eight"}) {
+		t.Errorf("queries %q", s.queries)
+	}
+}
+
+func TestAnEmptyRecallIsShownNotFailed(t *testing.T) {
+	s := twoPapers()
+	r, err := Grounding(context.Background(), &fakeAsker{}, s, GroundingInput{Question: "Does fasting shrink the liver?", Criteria: crit3,
+		Items: []db.Record{paper(t, "p1", "doi:10.1/a")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Recall == nil || *r.Recall != (Recall{Query: "fasting shrink liver", Hits: 0, Screened: 0}) || Decide(r, 0) != DecidePass {
+		t.Errorf("recall %+v, decision %s", r.Recall, Decide(r, 0))
 	}
 }

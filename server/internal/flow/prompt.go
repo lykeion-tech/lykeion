@@ -124,7 +124,7 @@ func itemsPrompt(column string) string {
 			"- a dataset: `lyk record put dataset --content '{\"accession\":\"GSE12345\",\"text\":\"what it holds and why it fits\",\"cites\":[\"call:KEY\"]}'`, its accession or an https link;\n" +
 			"- if no source qualifies, say so instead of offering the nearest one: `lyk record put no_qualifying --content '{\"text\":\"what was searched and why nothing fits\"}'`.\n" +
 			"Jev checks each item: its id or accession must resolve through the sources server (a retracted paper fails), and it must meet every listed Grounding criterion " +
-			"(when the study lists none, the research question itself). The server also searches from the question and criteria and Jev screens what it finds: papers that fit and are not cited count against the column, " +
+			"(when the study lists none, the research question itself). The server also searches from the research question and Jev screens what it finds against the criteria: papers that fit and are not cited count against the column, " +
 			"and `no_qualifying` stands only if no paper qualifies. Declare only sources that meet every criterion; record near-misses as ordinary records, never as items.\n" +
 			withdraw
 	case board.Hypotheses:

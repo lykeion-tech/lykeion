@@ -48,11 +48,20 @@ type Weakest struct {
 	P   float64 `json:"p"`
 }
 
+// Recall is what the server's search for uncited papers found: the query
+// it last sent, the hits it returned and how many Jev screened.
+type Recall struct {
+	Query    string `json:"query"`
+	Hits     int    `json:"hits"`
+	Screened int    `json:"screened"`
+}
+
 type Result struct {
 	Column   string   `json:"column"`
 	Attempt  int      `json:"attempt"`
 	Items    []Item   `json:"items"`
 	Missed   []Item   `json:"missed,omitempty"`
+	Recall   *Recall  `json:"recall,omitempty"`
 	Weakest  *Weakest `json:"weakest,omitempty"`
 	Decision string   `json:"decision"`
 }
