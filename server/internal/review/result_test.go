@@ -48,8 +48,23 @@ func TestRedoNoteListsOnlyFailures(t *testing.T) {
 	bad := it("bad", Fail, Check{ID: "exists", Status: Pass}, Check{ID: "falsifiable", Status: Fail})
 	bad.Key = "r4"
 	r := Result{Items: []Item{it("good", Pass, Check{ID: "exists", Status: Pass}), bad}}
-	want := "Jev's review sent back these items:\n- bad (r4): falsifiable\n" + redoAnswer
+	want := "Jev's review sent back these items:\n- bad (r4):\n  - falsifiable\n" + redoAnswer
 	if got := RedoNote(r); got != want {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestRedoNoteShowsQuestionsAndDetails(t *testing.T) {
+	p := 0.126
+	bad := it("bad", Fail,
+		Check{ID: "supported", By: "jev", Question: "Does the cited evidence support making this prediction?", P: &p, Status: Fail},
+		Check{ID: "cited", By: "server", Detail: "no citation was found", Status: Fail},
+		Check{ID: "ok", By: "jev", Question: "fine?", Status: Pass})
+	bad.Key = "r4"
+	want := "Jev's review sent back these items:\n- bad (r4):\n" +
+		"  - supported: \"Does the cited evidence support making this prediction?\" (scored 0.13)\n" +
+		"  - cited: no citation was found\n" + redoAnswer
+	if got := RedoNote(Result{Items: []Item{bad}}); got != want {
 		t.Errorf("got %q", got)
 	}
 }

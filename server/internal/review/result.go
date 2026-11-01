@@ -156,7 +156,20 @@ func RedoNote(r Result) string {
 			if it.Key != "" {
 				name += " (" + it.Key + ")"
 			}
-			fmt.Fprintf(&b, "- %s: %s\n", name, strings.Join(ids(it.Checks, false, Fail), ", "))
+			fmt.Fprintf(&b, "- %s:\n", name)
+			for _, c := range it.Checks {
+				if c.Status != Fail || c.Warning {
+					continue
+				}
+				switch {
+				case c.Question != "" && c.P != nil:
+					fmt.Fprintf(&b, "  - %s: \"%s\" (scored %.2f)\n", c.ID, c.Question, *c.P)
+				case c.Detail != "":
+					fmt.Fprintf(&b, "  - %s: %s\n", c.ID, c.Detail)
+				default:
+					fmt.Fprintf(&b, "  - %s\n", c.ID)
+				}
+			}
 		}
 	}
 	for _, it := range r.Missed {
