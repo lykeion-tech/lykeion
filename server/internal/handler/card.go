@@ -41,8 +41,9 @@ type newCard struct {
 }
 
 const (
-	maxGroundingCriteria   = 12
-	maxGroundingCriterionN = 200
+	maxGroundingCriteria      = 12
+	maxGroundingCriterionN    = 200
+	maxGroundingCriteriaBytes = 4096
 )
 
 // checkGroundingCriteria trims the criteria and refuses a bad set. A study that
@@ -67,6 +68,11 @@ func checkGroundingCriteria(in []string, from, to string) ([]string, error) {
 			return nil, cardInputError("a Grounding criterion is repeated: " + c)
 		}
 		out = append(out, c)
+	}
+	// The study keeps the list as JSON text within maxGroundingCriteriaBytes;
+	// Postgres writes ", " between entries, one byte more than here.
+	if b, err := json.Marshal(out); err != nil || len(b)+len(out) > maxGroundingCriteriaBytes {
+		return nil, cardInputError(fmt.Sprintf("the Grounding criteria are too long together: at most %d bytes", maxGroundingCriteriaBytes))
 	}
 	return out, nil
 }

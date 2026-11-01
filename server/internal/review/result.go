@@ -123,10 +123,13 @@ func ids(cs []Check, warnings bool, statuses ...string) []string {
 func RedoNote(r Result) string {
 	var b strings.Builder
 	b.WriteString("Jev's review sent back these items:\n")
-	for _, it := range append(append([]Item{}, r.Items...), r.Missed...) {
+	for _, it := range r.Items {
 		if it.Status == Fail {
 			fmt.Fprintf(&b, "- %s: %s\n", it.Label, strings.Join(ids(it.Checks, false, Fail), ", "))
 		}
+	}
+	for _, it := range r.Missed {
+		fmt.Fprintf(&b, "- %s: consider this paper (it meets every criterion but was not cited)\n", it.Label)
 	}
 	b.WriteString("Redo only these. Items not listed stand.")
 	return b.String()

@@ -562,6 +562,36 @@ func TestARedeclaredPassStands(t *testing.T) {
 	}
 }
 
+func TestARoundsItemsCountOnceWhateverTheirCase(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.done(t, c.ID)
+	asked := len(stub.calls())
+	// The redo names the passed paper again in capitals, and declares its
+	// new paper twice.
+	l.item(t, c.ID, review.KindPaper, paper(strings.ToUpper(paperA)))
+	l.item(t, c.ID, review.KindPaper, paper(paperB2))
+	l.item(t, c.ID, review.KindPaper, paper(paperB2))
+	l.done(t, c.ID)
+	later := nouls(stub.calls()[asked:])
+	for _, call := range later {
+		if strings.Contains(call.State, strings.ToUpper(paperA)) {
+			t.Fatalf("the carried paper was asked again:\n%s", call.State)
+		}
+	}
+	if len(later) != 1 {
+		t.Fatalf("Jev was asked %d times about the redo, want once", len(later))
+	}
+	rs := l.reviews(t, c.ID, "grounding")
+	if len(rs) != 2 || len(rs[1].Items) != 2 {
+		t.Fatalf("review records: %+v", rs)
+	}
+}
+
 func TestExperimentationRedoCarriesPassedValues(t *testing.T) {
 	l := newLab(t)
 	l.jev(t, 200, levels(nil))

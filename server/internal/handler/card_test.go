@@ -1436,6 +1436,12 @@ func TestGroundingCriteriaRules(t *testing.T) {
 	for i := range many {
 		many[i] = fmt.Sprintf("c%d", i)
 	}
+	// Each is within the limits, but together they are more bytes than a
+	// study keeps.
+	wide := make([]string, 12)
+	for i := range wide {
+		wide[i] = fmt.Sprintf("%02d", i) + strings.Repeat("é", 198)
+	}
 	grounding := map[string]string{"from": "grounding", "to": "grounding"}
 	hypotheses := map[string]string{"from": "hypotheses", "to": "hypotheses"}
 	for _, tc := range []struct {
@@ -1449,6 +1455,7 @@ func TestGroundingCriteriaRules(t *testing.T) {
 		{"too long", grounding, []string{strings.Repeat("x", 201)}, ""},
 		{"duplicate", grounding, []string{"a", " a "}, ""},
 		{"blank", grounding, []string{"  "}, ""},
+		{"too large together", grounding, wide, "the Grounding criteria are too long together: at most 4096 bytes"},
 		{"not Grounding", hypotheses, []string{"a"}, "Grounding criteria are only for studies that include Grounding"},
 	} {
 		var e struct{ Error string }

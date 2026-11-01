@@ -48,6 +48,14 @@ func TestRedoNoteListsOnlyFailures(t *testing.T) {
 	}
 }
 
+func TestRedoNoteOffersMissedPapers(t *testing.T) {
+	r := Result{Missed: []Item{it("doi:10.1/m", Fail, Check{ID: "criterion:1", Status: Pass}, Check{ID: "missed", Status: Fail})}}
+	want := "Jev's review sent back these items:\n- doi:10.1/m: consider this paper (it meets every criterion but was not cited)\nRedo only these. Items not listed stand."
+	if got := RedoNote(r); got != want {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestCarryNote(t *testing.T) {
 	if CarryNote(Result{Column: "grounding", Items: []Item{it("a", Pass)}}) != "" {
 		t.Error("want empty")

@@ -110,6 +110,7 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 				rv.work = append(rv.work, r)
 			}
 		}
+		rv.items = latestItems(rv.items)
 		// A redo that declares no outputs keeps the last attempt's list.
 		if c.BoardColumn == board.Experimentation && len(rv.items) == 0 && declared != nil {
 			rv.items = []db.Record{*declared}
@@ -130,7 +131,9 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		}
 		// An item declared again keeps its earlier standing: it is not asked again.
 		rv.items = slices.DeleteFunc(rv.items, func(r db.Record) bool {
-			return slices.ContainsFunc(rv.carried, func(it review.Item) bool { return it.Kind == r.Kind && it.Label == review.LabelOf(r) })
+			return slices.ContainsFunc(rv.carried, func(it review.Item) bool {
+				return it.Kind == r.Kind && strings.EqualFold(it.Label, review.LabelOf(r))
+			})
 		})
 		var citeKeys, runKeys []string
 		for _, r := range rv.items {
@@ -182,6 +185,22 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		return nil
 	})
 	return rv, err
+}
+
+// latestItems keeps one of each item declared more than once in a round,
+// matched by kind and label without case: the last one declared.
+func latestItems(recs []db.Record) []db.Record {
+	seen := map[string]bool{}
+	var out []db.Record
+	for _, r := range slices.Backward(recs) {
+		k := r.Kind + "\x00" + strings.ToLower(review.LabelOf(r))
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, r)
+		}
+	}
+	slices.Reverse(out)
+	return out
 }
 
 // recordKey is the record a cite names: `call:c3` and `run:x2` name c3 and x2.
