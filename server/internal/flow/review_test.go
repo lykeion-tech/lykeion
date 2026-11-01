@@ -322,7 +322,7 @@ func TestTheAuditorsFindingsNeverReachJev(t *testing.T) {
 	})
 	c := l.study(t, "hypotheses", true, nil)
 	l.e.Kick(l.ws, c.ID)
-	note := l.item(t, c.ID, "note", map[string]any{"text": "Telomeres shorten with each division."})
+	note := l.groundingPaper(t, c.ID, paperA)
 	l.item(t, c.ID, review.KindHypothesis, review.HypothesisBody{Text: "Telomere length predicts senescence onset.",
 		Prediction: review.Prediction{Shape: "direction", Direction: "decrease"}, Control: review.Control{Text: "Young cells"}, Cites: []string{note}})
 	l.done(t, c.ID)
@@ -363,6 +363,65 @@ func TestTheAuditorsFindingsNeverReachJev(t *testing.T) {
 			t.Fatalf("hypothesis %s: %+v", it.Key, it)
 		}
 	}
+}
+
+func TestAHypothesisCitingItsOwnColumnFailsItsCites(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	stub.setNoul(func(q string) float64 {
+		if strings.Contains(q, "already contain the answer") {
+			return 0.1
+		}
+		return 0.9
+	})
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	ground := l.groundingPaper(t, c.ID, paperA)
+	prose := l.item(t, c.ID, "explanation", map[string]any{"text": "OWN-PROSE telomeres settle it."})
+	good := l.item(t, c.ID, review.KindHypothesis, review.HypothesisBody{Text: "Telomere length predicts senescence onset.",
+		Prediction: review.Prediction{Shape: "direction", Direction: "decrease"}, Control: review.Control{Text: "Young cells"}, Cites: []string{ground}})
+	bad := l.item(t, c.ID, review.KindHypothesis, review.HypothesisBody{Text: "Our explanation settles it.",
+		Prediction: review.Prediction{Shape: "direction", Direction: "increase"}, Control: review.Control{Text: "Young cells"}, Cites: []string{prose}})
+	l.done(t, c.ID)
+	l.settleAuditor(t, c.ID)
+	for _, call := range stub.calls() {
+		if strings.Contains(call.State, "OWN-PROSE") {
+			t.Fatalf("the agents' own prose reached Jev as evidence:\n%s", call.State)
+		}
+	}
+	rs := l.reviews(t, c.ID, "hypotheses")
+	if len(rs) != 1 {
+		t.Fatalf("%d reviews", len(rs))
+	}
+	for _, it := range rs[0].Items {
+		switch it.Key {
+		case good:
+			if it.Status != review.Pass {
+				t.Fatalf("the hypothesis citing the Grounding paper: %+v", it)
+			}
+		case bad:
+			if it.Status != review.Fail || it.Checks[0].ID != "cites_recorded" || it.Checks[0].Status != review.Fail {
+				t.Fatalf("the hypothesis citing its own column: %+v", it)
+			}
+		}
+	}
+}
+
+// groundingPaper writes a paper as the study's Grounding column declared it
+// and returns its key.
+func (l *lab) groundingPaper(t *testing.T, id uuid.UUID, paperID string) string {
+	t.Helper()
+	b, _ := json.Marshal(paper(paperID))
+	var key string
+	l.in(t, func(tx *store.Tx) (err error) {
+		if key, err = records.NextRecordKey(context.Background(), tx, id); err != nil {
+			return err
+		}
+		_, err = tx.Q.InsertRecord(context.Background(), db.InsertRecordParams{WorkspaceID: l.ws, CardID: id, BoardColumn: "grounding",
+			Kind: review.KindPaper, Role: "agent", Key: key, Body: b})
+		return err
+	})
+	return key
 }
 
 func TestExperimentationTracesValuesIntoSavedFiles(t *testing.T) {

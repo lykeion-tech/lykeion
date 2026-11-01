@@ -311,6 +311,12 @@ func TestAHypothesisMayCiteAGroundingRecord(t *testing.T) {
 	err := l.s.H.Store.InWorkspace(t.Context(), uuid.MustParse(l.ws), uuid.Nil, func(tx *store.Tx) error {
 		_, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(l.card.ID), BoardColumn: "grounding",
 			Kind: "paper", Role: "leader", Key: "r1", Body: json.RawMessage(`{"id":"arxiv:2106.01234","text":"a paper","cites":[]}`)})
+		if err != nil {
+			return err
+		}
+		// An agent's own prose in the Hypotheses column.
+		_, err = tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(l.card.ID), BoardColumn: "hypotheses",
+			Kind: "explanation", Role: "leader", Key: "r2", Body: json.RawMessage(`{"text":"telomeres explain it"}`)})
 		return err
 	})
 	if err != nil {
@@ -328,6 +334,9 @@ func TestAHypothesisMayCiteAGroundingRecord(t *testing.T) {
 	}
 	if c, e := post("r999"); c != 400 || e != "no recorded call, run or record has the key r999" {
 		t.Fatalf("an unknown record key: %d %q", c, e)
+	}
+	if c, e := post("r1", "r2"); c != 400 || e != "a hypothesis cites r2, which is not a Grounding paper or dataset; cite those, or a call:KEY" {
+		t.Fatalf("a hypothesis citing an explanation: %d %q", c, e)
 	}
 	if c, _ := post("paper"); c != 400 {
 		t.Fatalf("a cite that is no key: %d", c)

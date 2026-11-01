@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/middleware"
@@ -147,6 +148,11 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 					return service.Invalid("no recorded call, run or record has the key " + k)
 				}
 			}
+			if in.Kind == review.KindHypothesis {
+				if err := groundingCites(r.Context(), tx, role.CardID, cites); err != nil {
+					return err
+				}
+			}
 		}
 		key, err := records.NextRecordKey(r.Context(), tx, role.CardID)
 		if err != nil {
@@ -209,6 +215,25 @@ func recordCites(body json.RawMessage) ([]string, error) {
 		keys = append(keys, k)
 	}
 	return keys, nil
+}
+
+// groundingCites refuses a hypothesis whose bare record keys name anything
+// but a Grounding paper or dataset: the agents' own prose is no evidence.
+func groundingCites(ctx context.Context, tx *store.Tx, card uuid.UUID, cites []string) error {
+	bare := slices.DeleteFunc(slices.Clone(cites), func(k string) bool { return !recordKey.MatchString(k) })
+	if len(bare) == 0 {
+		return nil
+	}
+	recs, err := tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: card, Keys: bare})
+	if err != nil {
+		return err
+	}
+	for _, k := range bare {
+		if !slices.ContainsFunc(recs, func(r db.Record) bool { return r.Key == k && review.GroundingSource(r) }) {
+			return service.Invalid("a hypothesis cites " + k + ", which is not a Grounding paper or dataset; cite those, or a call:KEY")
+		}
+	}
+	return nil
 }
 
 func (h *H) listRecords(w http.ResponseWriter, r *http.Request) {

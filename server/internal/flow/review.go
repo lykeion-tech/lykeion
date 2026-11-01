@@ -18,7 +18,6 @@ import (
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
-	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -152,10 +151,10 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 			}
 			byKey := map[string]db.Record{}
 			for _, r := range cited {
-				// Records the server writes are not evidence, apart from the
-				// sources server's calls: an audit or a review cited here
-				// would reach Jev.
-				if r.Kind == "call" || !slices.Contains(service.ServerKinds, r.Kind) {
+				// A hypothesis rests on Grounding's sources and the sources
+				// server's calls alone: the agents' own prose, an audit or a
+				// review cited here would reach Jev as evidence.
+				if r.Kind == "call" || review.GroundingSource(r) {
 					byKey[r.Key] = r
 				}
 			}

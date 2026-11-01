@@ -180,3 +180,9 @@ func LabelOf(rec db.Record) string {
 	}
 	return clip(b.Text)
 }
+
+// GroundingSource says whether r is a paper or dataset Grounding declared:
+// with the sources server's calls, the only records a hypothesis may cite.
+func GroundingSource(r db.Record) bool {
+	return r.BoardColumn == board.Grounding && (r.Kind == KindPaper || r.Kind == KindDataset)
+}
