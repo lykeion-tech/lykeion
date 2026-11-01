@@ -23,6 +23,7 @@ import (
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
+	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -83,6 +84,10 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	role := middleware.RoleFrom(r.Context())
 	if err := service.MayWrite(role.Role, in.Kind); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if err := review.Validate(in.Kind, role.Column, in.Body); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
