@@ -114,8 +114,9 @@ const saveOutputs = "To keep a file or folder your scripts wrote, run `lyk outpu
 // column, and what Jev checks of each. Every one-line example is a body the
 // server accepts for that kind in that column.
 func itemsPrompt(column string) string {
-	const withdraw = "On a redo, answer each item Jev sent back: declare a corrected version, or withdraw it by its record key: " +
-		"`lyk record put withdrawn --content '{\"item\":\"r3\",\"reason\":\"why it no longer stands\"}'`. A sent-back item left unanswered fails again.\n"
+	const withdraw = "On a redo, answer each item Jev sent back: declare it again with the same id or text once it is fixed, or withdraw it by its record key: " +
+		"`lyk record put withdrawn --content '{\"item\":\"r3\",\"reason\":\"why it no longer stands\"}'`. " +
+		"A replacement with a different id or text is a new item, so also withdraw the old one. A sent-back item left unanswered fails again.\n"
 	switch column {
 	case board.Grounding:
 		return "Declare each source the column's answer rests on as an item, one record per source, citing the calls it was fetched in:\n" +

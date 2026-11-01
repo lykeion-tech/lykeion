@@ -98,6 +98,11 @@ func TestItemsPromptPerColumn(t *testing.T) {
 			t.Errorf("the Grounding prompt does not say %q", s)
 		}
 	}
+	for _, col := range []string{board.Grounding, board.Hypotheses, board.Experimentation} {
+		if !strings.Contains(itemsPrompt(col), "same id or text once it is fixed") || !strings.Contains(itemsPrompt(col), "so also withdraw the old one") {
+			t.Errorf("the %s prompt does not say how a sent-back item is answered", col)
+		}
+	}
 	if !strings.Contains(itemsPrompt(board.Hypotheses), "never look up this study's own answer") {
 		t.Errorf("the Hypotheses prompt does not forbid looking up the answer")
 	}

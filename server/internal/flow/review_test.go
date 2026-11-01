@@ -819,3 +819,47 @@ func TestHypothesesSharingTheirOpeningAreEachReviewed(t *testing.T) {
 		}
 	}
 }
+
+func TestAReviewWithoutIdentitiesMatchesByLabel(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
+	c := l.groundingStudy(t)
+	keyA := l.item(t, c.ID, review.KindPaper, paper(paperA))
+	keyB := l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.done(t, c.ID)
+	// The review as it was stored before items carried their identity.
+	if _, err := l.env.Owner.Exec(context.Background(), `UPDATE record SET body = jsonb_set(body, '{items}',
+		(SELECT jsonb_agg(i - 'identity') FROM jsonb_array_elements(body->'items') i)) WHERE card_id = $1 AND kind = 'review'`, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rs := l.reviews(t, c.ID, "grounding"); len(rs) != 1 || rs[0].Items[0].Identity != "" {
+		t.Fatalf("the stored review still has identities: %+v", rs)
+	}
+	asked := len(stub.calls())
+	l.item(t, c.ID, review.KindPaper, paper(strings.ToUpper(paperA)))
+	l.done(t, c.ID)
+	for _, call := range nouls(stub.calls()[asked:]) {
+		if strings.Contains(call.State, strings.ToUpper(paperA)) {
+			t.Fatalf("the passed paper was asked again:\n%s", call.State)
+		}
+	}
+	rs := l.reviews(t, c.ID, "grounding")
+	if len(rs) != 2 || rs[1].Decision != review.DecideBlock || len(rs[1].Items) != 2 {
+		t.Fatalf("review records: %+v", rs)
+	}
+	for _, it := range rs[1].Items {
+		switch it.Key {
+		case keyA:
+			if it.Status != review.Pass || !it.Carried {
+				t.Fatalf("paper A: %+v", it)
+			}
+		case keyB:
+			if it.Status != review.Fail || !it.Carried {
+				t.Fatalf("paper B: %+v", it)
+			}
+		default:
+			t.Fatalf("item %+v", it)
+		}
+	}
+}

@@ -156,7 +156,7 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if in.Kind == review.KindWithdrawn {
-			if err := withdrawable(r.Context(), tx, role.CardID, in.Body); err != nil {
+			if err := withdrawable(r.Context(), tx, role.CardID, role.Column, in.Body); err != nil {
 				return err
 			}
 		}
@@ -182,9 +182,10 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, rec)
 }
 
-// withdrawable refuses a withdrawal that names no live record of the study,
-// or a record that is neither an item nor reports values.
-func withdrawable(ctx context.Context, tx *store.Tx, card uuid.UUID, body json.RawMessage) error {
+// withdrawable refuses a withdrawal that names no live record of the study's
+// column, outputs (the review checks them again every attempt), or a record
+// that is neither an item nor reports values.
+func withdrawable(ctx context.Context, tx *store.Tx, card uuid.UUID, column string, body json.RawMessage) error {
 	var b review.WithdrawnBody
 	_ = json.Unmarshal(body, &b)
 	recs, err := tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: card, Keys: []string{b.Item}})
@@ -195,6 +196,12 @@ func withdrawable(ctx context.Context, tx *store.Tx, card uuid.UUID, body json.R
 		return service.Invalid("no record has the key " + b.Item)
 	}
 	rec := recs[0]
+	switch {
+	case rec.BoardColumn != column:
+		return service.Invalid("withdrawn names " + b.Item + ", a record of the " + rec.BoardColumn + " column: withdraw only this column's items")
+	case rec.Kind == review.KindOutputs:
+		return service.Invalid("outputs are checked again every attempt: declare the corrected list instead of withdrawing it")
+	}
 	if _, item := review.ColumnOf(rec.Kind); item || len(flow.MatchValues([]db.Record{rec}, nil)) > 0 {
 		return nil
 	}

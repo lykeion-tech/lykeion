@@ -162,8 +162,9 @@ func RedoNote(r Result) string {
 	for _, it := range r.Missed {
 		fmt.Fprintf(&b, "- %s: consider this paper (it meets every criterion but was not cited)\n", it.Label)
 	}
-	b.WriteString("Items not listed stand. Answer each listed item: declare a corrected version, or withdraw it with " +
+	b.WriteString("Items not listed stand. Answer each listed item: declare it again with the same id or text once it is fixed, or withdraw it with " +
 		"`lyk record put withdrawn --content '{\"item\":\"rN\",\"reason\":\"…\"}'`. " +
+		"A replacement with a different id or text is a new item, so also withdraw the old one. " +
 		"Items you leave unanswered count as failed, and a second failure blocks the study.")
 	return b.String()
 }

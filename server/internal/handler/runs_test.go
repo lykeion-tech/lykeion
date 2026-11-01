@@ -351,6 +351,8 @@ func TestAWithdrawalNamesAnItemOrAReportedValue(t *testing.T) {
 			{BoardColumn: "hypotheses", Kind: "hypothesis", Key: "r1", Body: json.RawMessage(`{"text":"h"}`)},
 			{BoardColumn: "hypotheses", Kind: "result", Key: "r2", Body: json.RawMessage(`{"text":"The effect is 0.12.","value":0.12}`)},
 			{BoardColumn: "hypotheses", Kind: "explanation", Key: "r3", Body: json.RawMessage(`{"text":"telomeres explain it"}`)},
+			{BoardColumn: "grounding", Kind: "paper", Key: "r4", Body: json.RawMessage(`{"id":"arxiv:2106.01234","text":"a paper","cites":[]}`)},
+			{BoardColumn: "hypotheses", Kind: "outputs", Key: "r5", Body: json.RawMessage(`{"files":["a.csv"]}`)},
 		} {
 			r.WorkspaceID, r.CardID, r.Role = tx.WS, uuid.MustParse(l.card.ID), "leader"
 			if _, err := tx.Q.InsertRecord(t.Context(), r); err != nil {
@@ -374,6 +376,12 @@ func TestAWithdrawalNamesAnItemOrAReportedValue(t *testing.T) {
 	}
 	if c, e := post("r3"); c != 400 || e != "withdrawn names r3, of kind explanation: name an item record or a record that reports values" {
 		t.Fatalf("withdrawing an explanation: %d %q", c, e)
+	}
+	if c, e := post("r4"); c != 400 || e != "withdrawn names r4, a record of the grounding column: withdraw only this column's items" {
+		t.Fatalf("withdrawing another column's paper: %d %q", c, e)
+	}
+	if c, e := post("r5"); c != 400 || e != "outputs are checked again every attempt: declare the corrected list instead of withdrawing it" {
+		t.Fatalf("withdrawing outputs: %d %q", c, e)
 	}
 	if c, e := post("r999"); c != 400 || e != "no record has the key r999" {
 		t.Fatalf("withdrawing an unknown key: %d %q", c, e)
