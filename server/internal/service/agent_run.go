@@ -3,6 +3,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -29,6 +30,7 @@ import (
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	"lykeion/server/internal/toolroute"
+	"lykeion/server/internal/workflow"
 	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -528,6 +530,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	var refused []db.AgentRun
 	teams := map[uuid.UUID]TeamClaim{}
 	agentSkills := map[uuid.UUID][]string{}
+	workflows := map[uuid.UUID]string{}
 	dispatchRefs := refs
 	err := s.runtimeBatch(ctx, user, refs, func(tx *store.Tx, ordered []RuntimeRef) error {
 		// Event locks also span workspaces; acquire them in canonical order,
@@ -779,6 +782,15 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							agentSkills[t.ID] = names
 						}
 					}
+					if team == nil && t.Kind != "coresearch" && t.CardID != nil {
+						slug, err := tx.Q.CardWorkflow(ctx, db.CardWorkflowParams{WorkspaceID: ref.WorkspaceID, ID: *t.CardID})
+						if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+							return err
+						}
+						if slug != nil {
+							workflows[t.ID] = *slug
+						}
+					}
 					var python string
 					var files []ClaimedAttachment
 					var services []ClaimedService
@@ -856,6 +868,17 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 				return nil, err
 			}
 			out[i].Skills = slices.DeleteFunc(skills, func(s toolroute.RoutedSkill) bool { return !slices.Contains(names, s.Name) })
+		}
+		// A Workflow study's run carries the Workflow as a skill; one dropped
+		// from the release is simply left out.
+		if slug, ok := workflows[out[i].AgentRun.ID]; ok {
+			if _, found := workflow.Get(slug); found {
+				var folder bytes.Buffer
+				if err := workflow.SkillTar(&folder, slug); err != nil {
+					return nil, err
+				}
+				out[i].Skills = append(out[i].Skills, toolroute.RoutedSkill{Name: workflow.SkillName(slug), Folder: folder.Bytes()})
+			}
 		}
 	}
 	return out, nil
