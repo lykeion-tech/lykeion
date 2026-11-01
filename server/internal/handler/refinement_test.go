@@ -24,7 +24,7 @@ func TestResearchCRUDAndStudyProperties(t *testing.T) {
 		t.Fatalf("update: %d %+v", code, res)
 	}
 	var card map[string]any
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "How?"}, &card)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "How?"}, &card)
 	id, owner := card["id"].(string), card["owner_id"].(string)
 	path := "/api/cards/" + id + "/properties"
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET board_column='grounding',rounds=2,spent_usd=1 WHERE id=$1`, id); err != nil {

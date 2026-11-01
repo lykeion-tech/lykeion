@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -122,12 +123,45 @@ func (s *server) seedCard(t *testing.T, tok, wsID, question string, agent *uuid.
 	return card{ID: c.ID.String(), Number: int(c.Number), Title: c.Title, BoardColumn: c.BoardColumn, OwnerID: c.OwnerID.String()}
 }
 
+// withCriteria gives a study that includes Grounding a criterion when the test
+// names none. A test that sets grounding_criteria, even to nil, keeps its own.
+func withCriteria(m map[string]any) map[string]any {
+	if _, ok := m["grounding_criteria"]; ok {
+		return m
+	}
+	from, to := board.Grounding, board.Validation
+	switch sc := m["scope"].(type) {
+	case map[string]string:
+		from, to = sc["from"], sc["to"]
+	case map[string]any:
+		from, _ = sc["from"].(string)
+		to, _ = sc["to"].(string)
+	}
+	if a, ok := m["assignee"].(map[string]any); ok && m["scope"] == nil && a["type"] == "team" {
+		if teams := reflect.ValueOf(a["teams"]); teams.Kind() == reflect.Map && teams.Len() == 1 {
+			from = teams.MapKeys()[0].String()
+			to = from
+		}
+	}
+	if board.StageIndex(from) > board.StageIndex(board.Grounding) || board.StageIndex(board.Grounding) > board.StageIndex(to) {
+		return m
+	}
+	out := map[string]any{"grounding_criteria": []string{"the sources are recorded"}}
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
 // call sends a JSON request with an optional bearer token and workspace, and
 // decodes the JSON answer into out when out is not nil.
 func (s *server) call(t *testing.T, method, path, token, ws string, in, out any) int {
 	path = csContinuation(t, s, path)
 	t.Helper()
 	var body io.Reader
+	if m, ok := in.(map[string]any); ok && method == "POST" && path == "/api/cards" {
+		in = withCriteria(m)
+	}
 	if in != nil {
 		b, _ := json.Marshal(in)
 		body = bytes.NewReader(b)

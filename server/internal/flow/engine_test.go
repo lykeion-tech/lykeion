@@ -25,6 +25,9 @@ type lab struct {
 	pack  db.FieldPack
 	man   pack.Manifest
 	team  map[string]uuid.UUID // member name → the owner's agent for it
+	// legacy has declare put each column under the old scoring, as for a
+	// column already under way when item review shipped.
+	legacy bool
 }
 
 func (l *lab) in(t *testing.T, fn func(tx *store.Tx) error) {
@@ -295,7 +298,7 @@ func TestAMidBoardRangeNamesOnlyItsOwnEarlierColumns(t *testing.T) {
 
 func TestTheAgentsAndJevSeeTheStudysTitle(t *testing.T) {
 	c := db.Card{Number: 3, BoardColumn: "grounding", Title: "Which PCSK9 variants lower LDL?", Question: "Focus on human genetics."}
-	p := prompt(c, "leader", nil, "", nil, nil)
+	p := prompt(c, "leader", nil, "", nil)
 	if !strings.Contains(p, c.Title) || !strings.Contains(p, c.Question) {
 		t.Fatalf("the prompt lacks the title or the description:\n%s", p)
 	}
@@ -304,7 +307,7 @@ func TestTheAgentsAndJevSeeTheStudysTitle(t *testing.T) {
 	}
 	// A study whose description repeats its title says it once.
 	c.Question = c.Title
-	if p := prompt(c, "leader", nil, "", nil, nil); strings.Count(p, c.Title) != 1 {
+	if p := prompt(c, "leader", nil, "", nil); strings.Count(p, c.Title) != 1 {
 		t.Fatalf("the title is repeated:\n%s", p)
 	}
 }

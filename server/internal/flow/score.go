@@ -80,14 +80,6 @@ func unavailableText(number int32, column string) string {
 	return fmt.Sprintf("Scoring is unavailable for study #%d's %s column. It stays there, and Lykeion keeps retrying.", number, title(column))
 }
 
-func preregisteredText(number int32, held, missed int) string {
-	return fmt.Sprintf("Study #%d's pre-registered results: %d held, %d missed.", number, held, missed)
-}
-
-func unconfirmedText(number int32, names []string) string {
-	return fmt.Sprintf("Study #%d's pre-registered results could not be confirmed twice: %s. Comment on the study to tell the Team what to fix.", number, strings.Join(names, ", "))
-}
-
 // Verdict reads a column's criterion levels: high when every level is 4 or
 // more, low when any is 2 or less, middle otherwise.
 func Verdict(levels []float64) string {
@@ -220,31 +212,25 @@ type scoring struct {
 	audit     string
 	auditNote string // why there is no audit
 	attempt   int
-	// On a pre-registered study's Experimentation column: its predicates,
-	// every run of the column, the earlier preregistration bodies oldest
-	// first, and the run the work names as its results.
-	preds   []Predicate
-	results []RunResults
-	prior   [][]byte
-	named   string
-	// On a column after Experimentation: the binding outcomes it is told.
-	decided []Decision
 }
 
 var (
 	callCite = regexp.MustCompile(`"call:([a-z0-9]+)"`)
 	runCite  = regexp.MustCompile(`"run:(x[0-9]+)"`)
-	namedRun = regexp.MustCompile(`^run:(x[0-9]+)$`)
 )
 
 // Score asks Jev to score the study's current column once it is declared
 // done and its auditor settled, then moves the study on, redoes the column or
-// blocks it. Jev is asked with no transaction open. When Jev cannot be reached
-// the study stays where it is, its owner hears once, and the next pass retries.
+// blocks it. A column reviewed item by item goes to reviewColumn instead. Jev
+// is asked with no transaction open. When Jev cannot be reached the study
+// stays where it is, its owner hears once, and the next pass retries.
 func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 	in, ok, err := e.readScoring(ctx, ws, card)
 	if err != nil || !ok {
 		return err
+	}
+	if usesReview(in.card) {
+		return e.reviewColumn(ctx, ws, in)
 	}
 	calls, err := LoadCalls(ctx, e.Blobs, in.calls)
 	var runs map[string]Run
@@ -263,6 +249,13 @@ func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 		e.Kick(ws, card)
 	}
 	return nil
+}
+
+func (e *Engine) retry() *jev.Retry {
+	if e.Retry != nil {
+		return e.Retry()
+	}
+	return jev.NewRetry()
 }
 
 func (e *Engine) now() time.Time {
@@ -294,36 +287,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 		}
 		var summary *db.Record
 		in = scoring{card: c, attempt: 1}
-		if c.BoardColumn == "experimentation" {
-			if err := json.Unmarshal(c.Predicates, &in.preds); err != nil {
-				return err
-			}
-		}
-		if in.decided, err = decidedOutcomes(ctx, tx, c); err != nil {
-			return err
-		}
 		for _, r := range recs {
-			if len(in.preds) > 0 {
-				switch {
-				case r.Kind == "run":
-					b := records.Body[struct {
-						Tool         string             `json:"tool"`
-						ExitStatus   int                `json:"exit_status"`
-						Results      map[string]float64 `json:"results"`
-						ResultsError string             `json:"results_error"`
-					}](r)
-					in.results = append(in.results, RunResults{Key: r.Key, Tool: b.Tool, ExitStatus: b.ExitStatus, Results: b.Results, ResultsError: b.ResultsError})
-				case r.Kind == "preregistration":
-					in.prior = append(in.prior, r.Body)
-				case r.Round == c.Round && r.Role != "server":
-					// The latest record naming a run wins.
-					if m := namedRun.FindStringSubmatch(records.Body[struct {
-						ResultsRun string `json:"results_run"`
-					}](r).ResultsRun); m != nil {
-						in.named = m[1]
-					}
-				}
-			}
 			switch {
 			case r.Kind == "outcome" && r.Round == c.Round:
 				return nil // already scored
@@ -423,10 +387,7 @@ func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch, va
 	if err != nil {
 		return nil, err
 	}
-	retry := jev.NewRetry()
-	if e.Retry != nil {
-		retry = e.Retry()
-	}
+	retry := e.retry()
 	var out map[string]jev.ScoreAnswer
 	for budget := maxJevInput - len(asked) - 256; ; budget /= 2 {
 		state := scoringState(in, quotes, values, budget)
@@ -485,7 +446,6 @@ func scoringState(in scoring, quotes []QuoteMatch, values []ValueMatch, budget i
 		tail.WriteString(fence.Untrusted("The quotes, as the agents wrote them", list))
 	}
 
-	tail.WriteString(outcomesBlock(in.decided))
 	tail.WriteString("\nValue check, done by Lykeion's code: each reported value looked up in the output of the runs its item cites, " +
 		"every printed number rounded to the decimal places the value states; an integer must be printed exactly.\n")
 	if len(values) == 0 {
@@ -632,13 +592,7 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			return err
 		}
 		if jerr != nil {
-			slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", jerr)
-			open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
-			if err != nil || open > 0 {
-				return err
-			}
-			return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "scoring_unavailable",
-				Text: unavailableText(c.Number, c.BoardColumn)})
+			return scoringUnavailable(ctx, tx, c, jerr)
 		}
 		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 			return err
@@ -663,32 +617,6 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			return err
 		}
 		var items []board.Item
-		var unconfirmed, why []string
-		again := false
-		if len(in.preds) > 0 {
-			prior := Binding(in.prior)
-			decisions := Decide(in.preds, prior, in.named, in.results, c.Round)
-			if err := writeServer(ctx, tx, c, "preregistration", map[string]any{"verdict": verdict, "predicates": decisions}); err != nil {
-				return err
-			}
-			held, missed := 0, 0
-			for _, d := range decisions {
-				switch d.Outcome {
-				case "held":
-					held++
-				case "missed":
-					missed++
-				default:
-					unconfirmed = append(unconfirmed, d.Name)
-					why = append(why, fmt.Sprintf("%s (%s)", d.Name, d.Reason))
-				}
-			}
-			// Said once: on the attempt that decides the last open predicate.
-			if held+missed == len(decisions) && held+missed > decided(prior) {
-				items = append(items, board.Item{Kind: "preregistered", Text: preregisteredText(c.Number, held, missed)})
-			}
-			again = lastJudgedUnconfirmed(in.prior)
-		}
 		weak := weakCriterion(lowest.Text, lowestLevel)
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
@@ -700,14 +628,6 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"
 			items = append(items, board.Item{Kind: "blocked", Text: blockedText(c.Number, c.BoardColumn, weak)})
-		case len(unconfirmed) > 0 && again:
-			next.State, next.BlockKind = "blocked", "unconfirmed_results"
-			items = append(items, board.Item{Kind: "blocked", Text: unconfirmedText(c.Number, unconfirmed)})
-		case len(unconfirmed) > 0:
-			next.Round = c.Round + 1
-			next.HandoffNote = "Jev scored the last attempt at this column well enough to move on, but these pre-registered results could not be confirmed: " +
-				strings.Join(why, "; ") + ". Redo the column: write each result key's number to the JSON object at $LYK_RESULTS from the script that computes it; " +
-				`then name that run in a record as {"results_run": "run:x<N>"}.`
 		default:
 			e.drawRatingSafely(ctx, tx, c)
 			last := board.StageIndex(c.BoardColumn) >= board.StageIndex(c.ScopeTo)
@@ -735,32 +655,16 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 	return moved, err
 }
 
-// decided counts the held and missed decisions.
-func decided(ds []Decision) int {
-	n := 0
-	for _, d := range ds {
-		if d.Outcome == "held" || d.Outcome == "missed" {
-			n++
-		}
+// scoringUnavailable leaves the study where it is and tells its owner once;
+// the next pass retries.
+func scoringUnavailable(ctx context.Context, tx *store.Tx, c db.Card, cause error) error {
+	slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", cause)
+	open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
+	if err != nil || open > 0 {
+		return err
 	}
-	return n
-}
-
-// lastJudgedUnconfirmed says whether the latest earlier attempt Jev scored
-// high or middle left a predicate unconfirmed: the one redo it was owed is
-// spent.
-func lastJudgedUnconfirmed(bodies [][]byte) bool {
-	for _, raw := range slices.Backward(bodies) {
-		var body struct {
-			Verdict    string     `json:"verdict"`
-			Predicates []Decision `json:"predicates"`
-		}
-		if json.Unmarshal(raw, &body) != nil || body.Verdict == "low" {
-			continue
-		}
-		return slices.ContainsFunc(body.Predicates, func(d Decision) bool { return d.Outcome == "unconfirmed" })
-	}
-	return false
+	return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "scoring_unavailable",
+		Text: unavailableText(c.Number, c.BoardColumn)})
 }
 
 // writeServer stores a record the server writes itself, under the study's
@@ -795,11 +699,11 @@ func resolveInbox(ctx context.Context, tx *store.Tx, card uuid.UUID, kind string
 	return nil
 }
 
-// unblock restarts the column of a study blocked by a second low score, or by
-// pre-registered results left unconfirmed twice, when its owner comments: the comment becomes the leader's (or agent's) note, and
+// unblock restarts the column of a study blocked by a second low score when
+// its owner comments: the comment becomes the leader's (or agent's) note, and
 // the redo count stays.
 func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, comment string) (bool, error) {
-	if c.State != "blocked" || (c.BlockKind != "low_score" && c.BlockKind != "unconfirmed_results") || c.Ending != "" || author != c.OwnerID {
+	if c.State != "blocked" || c.BlockKind != "low_score" || c.Ending != "" || author != c.OwnerID {
 		return false, nil
 	}
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: board.Working,

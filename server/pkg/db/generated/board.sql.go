@@ -210,7 +210,7 @@ func (q *Queries) CountKindRecords(ctx context.Context, arg CountKindRecordsPara
 }
 
 const getCardByNumber = `-- name: GetCardByNumber :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, predicates, workflow, workflow_release FROM card WHERE workspace_id = $1 AND number = $2
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column FROM card WHERE workspace_id = $1 AND number = $2
 `
 
 type GetCardByNumberParams struct {
@@ -252,9 +252,10 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 		&i.ScopeTo,
 		&i.Redos,
 		&i.Machine,
-		&i.Predicates,
 		&i.Workflow,
 		&i.WorkflowRelease,
+		&i.GroundingCriteria,
+		&i.LegacyColumn,
 	)
 	return i, err
 }
@@ -348,7 +349,7 @@ func (q *Queries) LiveCardRecordByKey(ctx context.Context, arg LiveCardRecordByK
 }
 
 const lockCard = `-- name: LockCard :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, predicates, workflow, workflow_release FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column FROM card WHERE id = $1 AND workspace_id = $2 FOR NO KEY UPDATE
 `
 
 type LockCardParams struct {
@@ -390,9 +391,10 @@ func (q *Queries) LockCard(ctx context.Context, arg LockCardParams) (Card, error
 		&i.ScopeTo,
 		&i.Redos,
 		&i.Machine,
-		&i.Predicates,
 		&i.Workflow,
 		&i.WorkflowRelease,
+		&i.GroundingCriteria,
+		&i.LegacyColumn,
 	)
 	return i, err
 }
@@ -537,7 +539,8 @@ func (q *Queries) RoundAgentRuns(ctx context.Context, arg RoundAgentRunsParams) 
 }
 
 const saveCardBoard = `-- name: SaveCardBoard :exec
-UPDATE card SET board_column = $1, state = $2, flag = $3, ending = $4,
+UPDATE card SET legacy_column = CASE WHEN board_column = $1 THEN legacy_column ELSE '' END,
+  board_column = $1, state = $2, flag = $3, ending = $4,
   end_reason = $5, rounds = $6,
   round = $7, handoff_note = $8, block_kind = $9, question = $10, version = version + 1
 WHERE id = $11 AND workspace_id = $12
@@ -558,7 +561,8 @@ type SaveCardBoardParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 }
 
-// spent_usd is never written here: F2's settle is its only writer.
+// spent_usd is never written here: F2's settle is its only writer. Leaving a
+// column clears legacy_column, as SaveCardFlow does.
 func (q *Queries) SaveCardBoard(ctx context.Context, arg SaveCardBoardParams) error {
 	_, err := q.db.Exec(ctx, saveCardBoard,
 		arg.BoardColumn,

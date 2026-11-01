@@ -82,7 +82,7 @@ func TestPeopleCommands(t *testing.T) {
 	}
 	lyk(t, "", "workspace", "create", "Smith Lab", "smith-lab")
 	lyk(t, "", "workspace", "switch", "smith-lab")
-	if got := lyk(t, "", "card", "new", "Does X raise Y in mouse liver?", "--predicate", "effect=effect > 0"); !strings.Contains(got, "#1") {
+	if got := lyk(t, "", "card", "new", "--criterion", "the sources are recorded", "Does X raise Y in mouse liver?"); !strings.Contains(got, "#1") {
 		t.Fatalf("card new: %s", got)
 	}
 	lyk(t, "", "card", "comment", "1", "Focus on the fasting state.")

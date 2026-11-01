@@ -32,6 +32,7 @@ func TestASummaryMayCiteACallAsCallKeyOrAsKey(t *testing.T) {
 
 func TestACallCitedOnlyInTheSummaryReachesTheScorer(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	js := l.jev(t, 200, levels(nil))
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 	c := l.scoped(t, "grounding", "grounding", a)
@@ -62,6 +63,7 @@ func TestACallCitedOnlyInTheSummaryReachesTheScorer(t *testing.T) {
 
 func TestASummaryCitingAHugeCallIsStillScored(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	js := l.jev(t, 200, levels(nil))
 	js.maxState = 40 << 10
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")

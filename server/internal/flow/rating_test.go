@@ -29,6 +29,7 @@ func always(hit bool) func() bool { return func() bool { return hit } }
 
 func TestARatingIsDrawnOnceWhenATeamColumnFinishes(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	l.jev(t, 200, levels(nil))
 	l.e.RatingDraw = always(true)
 	c := l.study(t, "hypotheses", true, nil)
@@ -52,6 +53,7 @@ func TestARatingIsDrawnOnceWhenATeamColumnFinishes(t *testing.T) {
 
 func TestTheDrawIgnoresTheResult(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	now := time.Now()
 	l.e.Now = func() time.Time { return now }
 	l.e.RatingDraw = always(true)
@@ -78,6 +80,7 @@ func TestTheDrawIgnoresTheResult(t *testing.T) {
 
 func TestTheCooldownHoldsForSevenDays(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	now := time.Now()
 	l.e.Now = func() time.Time { return now }
 	l.e.RatingDraw = always(true)
@@ -100,6 +103,7 @@ func TestTheCooldownHoldsForSevenDays(t *testing.T) {
 
 func TestAMissIsRecordedAndNotShown(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	l.jev(t, 200, levels(nil))
 	l.e.RatingDraw = always(false)
 	c := l.study(t, "hypotheses", true, nil)
@@ -111,6 +115,7 @@ func TestAMissIsRecordedAndNotShown(t *testing.T) {
 
 func TestARedoneColumnDrawsOnce(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	l.e.RatingDraw = always(true)
 	stub := l.jev(t, 200, levels(map[string]float64{"Does it say what it couldn't do?": 2}))
 	c := l.study(t, "hypotheses", true, nil)
@@ -137,6 +142,7 @@ func TestARedoneColumnDrawsOnce(t *testing.T) {
 
 func TestAColumnWithoutATeamNeverDraws(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	l.jev(t, 200, levels(nil))
 	l.e.RatingDraw = always(true)
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
@@ -178,6 +184,7 @@ func TestTheDefaultDrawHitsAboutOneInFive(t *testing.T) {
 
 func TestAFailedDrawStillMovesTheStudy(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	l.jev(t, 200, levels(nil))
 	l.e.RatingDraw = always(true)
 	if _, err := l.env.Owner.Exec(context.Background(), "REVOKE INSERT ON team_rating FROM lykeion_app"); err != nil {

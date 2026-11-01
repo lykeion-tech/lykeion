@@ -10,13 +10,7 @@ import { workspaceId } from '../../api/session';
 import { uploadAttachment, useCard, useCards, useMe, useWorkspace } from '../../api/queries';
 import { formatSize, useAttachments } from '../../lib/attachments';
 import type { Card } from '../../api/types';
-import {
-  coversExperimentation,
-  predicateKeys,
-  studyNumber,
-  type Picked,
-  type Range,
-} from '../../lib/studies';
+import { coversStage, studyNumber, type Picked, type Range } from '../../lib/studies';
 import { notify } from '../../state/notice';
 import type { Assignee } from '../../state/study-composer';
 import AssignPicker from '../../ui/AssignPicker.vue';
@@ -54,12 +48,13 @@ const error = ref('');
 const duplicate = ref<{ id: string; number: number } | null>(null);
 const menu = ref('');
 const form = ref<HTMLFormElement>();
-const results = ref<{ key: number; name: string; text: string }[]>([]);
-let nextResult = 0;
-const addResult = () => results.value.push({ key: nextResult++, name: '', text: '' });
-addResult();
-// The server's refusal of one pre-registered result, shown on its row.
-const resultError = ref<{ key: number; message: string } | null>(null);
+const maxCriteria = 12;
+const criteria = ref<{ key: number; text: string }[]>([]);
+let nextCriterion = 0;
+const addCriterion = () => criteria.value.push({ key: nextCriterion++, text: '' });
+addCriterion();
+// The server's refusal of the criteria, shown under them.
+const criteriaError = ref('');
 const files = useAttachments(uploadAttachment);
 const filesHint = 'Up to 100 files, 5 GB each, 10 GB in all; archives are unpacked for the agents';
 async function pick(event: Event) {
@@ -102,18 +97,14 @@ const teamColumns = computed(() => picker.value?.teamColumns ?? []);
 const sendsRange = computed(
   () => !(assignee.value && teamColumns.value.length === 1 && !picker.value?.set),
 );
-const preregisters = computed(
+const grounds = computed(
   () =>
     !workflowSlug.value &&
-    coversExperimentation(sendsRange.value ? range.value : null, teamColumns.value),
+    coversStage('grounding', sendsRange.value ? range.value : null, teamColumns.value),
 );
-const sentResults = computed(() =>
-  results.value
-    .map((row) => ({ key: row.key, name: row.name.trim(), text: row.text.trim() }))
-    .filter((row) => row.name || row.text),
+const sentCriteria = computed(() =>
+  criteria.value.map((row) => row.text.trim()).filter((text) => text),
 );
-const resultKeys = computed(() => predicateKeys(sentResults.value.map((row) => row.text)));
-const completeResults = computed(() => sentResults.value.filter((row) => row.name && row.text));
 
 // Chips that don't fit the row fold into a "⋯" chip: the due date, then the machine.
 const chipRow = ref<HTMLElement>();
@@ -146,8 +137,8 @@ watch(
   () => [
     picker.value?.name,
     range.value,
-    preregisters.value,
-    completeResults.value.length,
+    grounds.value,
+    sentCriteria.value.length,
     machine.value,
     deadline.value,
     menu.value,
@@ -205,7 +196,7 @@ const blocked = computed(
     busy.value ||
     !question.value.trim() ||
     unstaged.value ||
-    (preregisters.value && !completeResults.value.length) ||
+    (grounds.value && !sentCriteria.value.length) ||
     (!!workflowSlug.value && assignee.value?.type !== 'agent') ||
     files.uploading.value ||
     files.failed.value,
@@ -219,8 +210,8 @@ async function submit() {
   busy.value = true;
   error.value = '';
   duplicate.value = null;
-  resultError.value = null;
-  const sent = preregisters.value ? sentResults.value : [];
+  criteriaError.value = '';
+  const sent = grounds.value ? sentCriteria.value : [];
   // No Team picked sends no assignee, and the built-in Teams work the range;
   // a single Team keeps its own stage, so the server takes no range for it,
   // while a Team set always runs its range.
@@ -234,7 +225,7 @@ async function submit() {
     ...(assignee.value ? { assignee: assignee.value } : {}),
     ...(workflowSlug.value ? { workflow: workflowSlug.value } : {}),
     ...(sendsRange.value || workflowSlug.value ? { scope: range.value } : {}),
-    ...(sent.length ? { predicates: sent.map(({ name, text }) => ({ name, text })) } : {}),
+    ...(sent.length ? { grounding_criteria: sent } : {}),
   };
   try {
     await api<Card>('POST', '/api/cards', fields, undefined, { workspace });
@@ -250,37 +241,26 @@ async function submit() {
       title.value = question.value = deadline.value = machine.value = '';
       assignee.value = props.assignee ? { ...props.assignee } : null;
       range.value = workflowSlug.value ? { ...workflowRange } : initialRange();
-      results.value = [];
-      addResult();
+      criteria.value = [];
+      addCriterion();
       files.clear();
       await nextTick();
       form.value?.querySelector<HTMLInputElement>('.composer-title')?.focus();
     } else emit('close');
   } catch (e) {
     if (!current()) return;
-    const row = resultRow(sent, (e as Error).message);
+    const message = (e as Error).message;
     if (e instanceof ApiError && e.status === 409 && typeof e.body.card_id === 'string')
       duplicate.value = { id: e.body.card_id, number: Number(e.body.number) };
-    else if (row !== undefined) {
-      resultError.value = { key: row, message: (e as Error).message };
-      menu.value = 'results';
+    else if (grounds.value && /Grounding criteri/.test(message)) {
+      criteriaError.value = message;
+      menu.value = 'criteria';
     } else if (usedLastSet.value && /add this Team/.test((e as Error).message))
       error.value = "A Team in your last set isn't in your workspace any more";
     else error.value = (e as Error).message;
   } finally {
     if (current()) busy.value = false;
   }
-}
-// The server names a refused result by its name, or by its position when it
-// has none; the longest matching name wins.
-function resultRow(sent: { key: number; name: string }[], message: string): number | undefined {
-  const named = (label: string) =>
-    message.startsWith(`pre-registered result ${label} `) ||
-    message.startsWith(`pre-registered result ${label}:`);
-  const byName = sent
-    .filter((row) => row.name && named(row.name))
-    .sort((a, b) => b.name.length - a.name.length)[0];
-  return byName?.key ?? sent.find((row, i) => !row.name && named(String(i + 1)))?.key;
 }
 onMounted(() => document.addEventListener('pointerdown', outside));
 onUnmounted(() => document.removeEventListener('pointerdown', outside));
@@ -361,65 +341,55 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               <Icon name="close" :size="12" />
             </button>
           </span>
-          <div v-if="preregisters" class="property-anchor">
+          <div v-if="grounds" class="property-anchor">
             <button
               type="button"
-              :class="['property-pill', { required: !completeResults.length }]"
-              :aria-expanded="menu === 'results'"
-              :title="completeResults.length ? undefined : 'At least one result is needed'"
-              @click="openMenu('results')"
+              :class="['property-pill', { required: !sentCriteria.length }]"
+              :aria-expanded="menu === 'criteria'"
+              :title="sentCriteria.length ? undefined : 'At least one criterion is needed'"
+              @click="openMenu('criteria')"
             >
-              <Icon name="check" :size="14" />Pre-registered · {{ completeResults.length }}
+              <Icon name="check" :size="14" />Grounding criteria · {{ sentCriteria.length }}
             </button>
             <section
-              v-if="menu === 'results'"
-              class="composer-menu results-menu"
-              aria-label="Pre-registered results"
+              v-if="menu === 'criteria'"
+              class="composer-menu criteria-menu"
+              aria-label="Grounding criteria"
             >
               <div class="variables-header">
-                <span>Pre-registered results</span>
-                <button type="button" class="text-button" @click="addResult">Add result</button>
+                <span>Grounding criteria</span>
+                <button
+                  type="button"
+                  class="text-button"
+                  :disabled="criteria.length >= maxCriteria"
+                  @click="addCriterion"
+                >
+                  Add criterion
+                </button>
               </div>
               <p>
-                Conditions on the numbers this study's scripts write, decided once and kept. At
-                least one is needed.
+                What every source Grounding finds must meet, one short line each. At least one is
+                needed.
               </p>
               <div class="variable-rows">
-                <div
-                  v-for="(row, index) in results"
-                  :key="row.key"
-                  role="group"
-                  :aria-label="`Result ${index + 1}`"
-                >
-                  <div class="variable-row">
-                    <input
-                      v-model="row.name"
-                      placeholder="Name"
-                      maxlength="80"
-                      :aria-label="`Result name ${index + 1}`"
-                    />
-                    <input
-                      v-model="row.text"
-                      placeholder="Condition, e.g. accuracy >= 0.9"
-                      :aria-label="`Result condition ${index + 1}`"
-                    />
-                    <button
-                      type="button"
-                      class="text-button"
-                      :aria-label="`Remove result ${index + 1}`"
-                      @click="results = results.filter((r) => r.key !== row.key)"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                  <p v-if="resultError?.key === row.key" class="composer-error" role="alert">
-                    {{ resultError.message }}
-                  </p>
+                <div v-for="(row, index) in criteria" :key="row.key" class="variable-row">
+                  <input
+                    v-model="row.text"
+                    placeholder="e.g. Prospective cohort"
+                    maxlength="200"
+                    :aria-label="`Criterion ${index + 1}`"
+                  />
+                  <button
+                    type="button"
+                    class="text-button"
+                    :aria-label="`Remove criterion ${index + 1}`"
+                    @click="criteria = criteria.filter((r) => r.key !== row.key)"
+                  >
+                    Remove
+                  </button>
                 </div>
               </div>
-              <p v-if="resultKeys.length">
-                The scripts will have to write: {{ resultKeys.join(', ') }}
-              </p>
+              <p v-if="criteriaError" class="composer-error" role="alert">{{ criteriaError }}</p>
             </section>
           </div>
           <div v-if="folded < 2" class="property-anchor machine-chip">
@@ -685,20 +655,20 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 }
 /* Panels open upward and end at their chip, so they cover neither the footer
    nor the page's right edge. */
-.results-menu,
+.criteria-menu,
 .fold-menu {
   top: auto;
   bottom: calc(100% + 6px);
   left: auto;
   right: 0;
 }
-.results-menu {
+.criteria-menu {
   width: 460px;
   max-width: calc(100vw - 64px);
   padding: 10px;
   font-size: 12px;
 }
-.results-menu > p {
+.criteria-menu > p {
   margin: 4px 0 8px;
   padding: 0;
 }
@@ -952,9 +922,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   flex: 1;
   font: inherit;
 }
-.variable-row input:first-child {
-  flex: 0.7;
-}
 .composer-files ul {
   list-style: none;
   margin: 0;
@@ -978,7 +945,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   flex: 1;
 }
 .composer-files .composer-error,
-.results-menu .composer-error {
+.criteria-menu .composer-error {
   padding: 0;
 }
 .attachment-button {

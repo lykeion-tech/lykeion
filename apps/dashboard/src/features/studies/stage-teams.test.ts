@@ -740,14 +740,13 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
   });
 }
 
-async function openResults(t: Awaited<ReturnType<typeof mount>>) {
-  if (!t.input('Result name 1')) await t.click(/^Pre-registered · \d+$/);
+async function openCriteria(t: Awaited<ReturnType<typeof mount>>) {
+  if (!t.input('Criterion 1')) await t.click(/^Grounding criteria · \d+$/);
 }
 
-async function preregister(t: Awaited<ReturnType<typeof mount>>) {
-  await openResults(t);
-  await t.fill('Result name 1', 'Accurate');
-  await t.fill('Result condition 1', 'accuracy >= 0.9');
+async function addCriterion(t: Awaited<ReturnType<typeof mount>>) {
+  await openCriteria(t);
+  await t.fill('Criterion 1', 'Prospective cohort');
 }
 
 describe('no Follows from', () => {
@@ -778,7 +777,7 @@ describe('no Follows from', () => {
     const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       await t.fill('Describe your study', 'Question');
-      await preregister(t);
+      await addCriterion(t);
       await t.submit();
       expect(t.text()).toMatch(/An active study already asks this: \S*4/);
       expect(t.text()).not.toContain('Follows from');
@@ -820,7 +819,7 @@ describe('hidden services, no study variables', () => {
       expect(t.text()).not.toContain('Study variables');
       expect(t.button(/^Add variable$/)).toBeUndefined();
       await t.fill('Describe your study', 'Question');
-      await preregister(t);
+      await addCriterion(t);
       await t.submit();
       const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
       expect(JSON.parse(String(posted![1]?.body))).not.toHaveProperty('env');
@@ -886,7 +885,7 @@ describe('hidden services, no study variables', () => {
   });
 });
 
-describe('pre-registered results', () => {
+describe('Grounding criteria', () => {
   const posting = (status = 201, body = '{}') =>
     vi.fn(
       async (_path: RequestInfo | URL, init?: RequestInit) =>
@@ -896,77 +895,112 @@ describe('pre-registered results', () => {
     );
   const disabled = (t: Awaited<ReturnType<typeof mount>>) =>
     t.button(/^Create study/)?.props.disabled;
+  const sent = (fetch: ReturnType<typeof posting>) =>
+    JSON.parse(String(fetch.mock.calls.find((call) => call[0] === '/api/cards')![1]?.body));
 
-  it('asks for a result when the study runs Experimentation, and posts it', async () => {
+  it('shows Grounding criteria only when the scope includes Grounding', async () => {
     const fetch = posting();
     vi.stubGlobal('fetch', fetch);
     const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
-      expect(t.button(/^Pre-registered · 0$/)?.props.class).toContain('required');
-      await openResults(t);
-      expect(t.text()).toContain('Pre-registered results');
-      expect(t.input('Result name 1')?.value).toBe('');
-      expect(t.input('Result name 2')).toBeUndefined();
+      expect(t.button(/^Grounding criteria · 0$/)?.props.class).toContain('required');
+      await openCriteria(t);
+      expect(t.input('Criterion 1')?.value).toBe('');
+      await t.click(/Grounding → Validation/);
+      await t.change('From stage', 'hypotheses');
+      expect(t.button(/^Grounding criteria/)).toBeUndefined();
+      expect(t.input('Criterion 1')).toBeUndefined();
       await t.fill('Describe your study', 'Question');
-      expect(disabled(t)).toBe(true);
-      await t.fill('Result name 1', 'Accurate');
-      expect(disabled(t)).toBe(true);
-      await t.fill('Result condition 1', 'accuracy >= 0.9 and not loss > 1');
       expect(disabled(t)).toBe(false);
-      expect(t.text()).toContain('accuracy, loss');
-      await t.click(/^Add result$/);
-      expect(t.input('Result name 2')?.value).toBe('');
       await t.submit();
-      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
-      expect(JSON.parse(String(posted![1]?.body)).predicates).toEqual([
-        { name: 'Accurate', text: 'accuracy >= 0.9 and not loss > 1' },
+      const body = sent(fetch);
+      expect(body.scope).toEqual({ from: 'hypotheses', to: 'validation' });
+      expect(body).not.toHaveProperty('grounding_criteria');
+      expect(body).not.toHaveProperty('predicates');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('sends grounding_criteria in order', async () => {
+    const fetch = posting();
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
+    try {
+      await t.fill('Describe your study', 'Question');
+      await openCriteria(t);
+      await t.fill('Criterion 1', '  Prospective cohort ');
+      await t.click(/^Add criterion$/);
+      await t.fill('Criterion 2', 'Adult ICU patients');
+      await t.click(/^Add criterion$/);
+      await t.click(/^Add criterion$/);
+      await t.fill('Criterion 4', 'Lactate measured within 6 hours of admission');
+      expect(textOf(t.button(/^Grounding criteria/)!).trim()).toBe('Grounding criteria · 3');
+      const remove = t.nodes().find((n) => n.props['aria-label'] === 'Remove criterion 2')!;
+      (remove.props.onClick as () => void)();
+      await nextTick();
+      await t.click(/^Add criterion$/);
+      await t.fill('Criterion 4', 'Adult ICU patients');
+      await t.submit();
+      expect(sent(fetch).grounding_criteria).toEqual([
+        'Prospective cohort',
+        'Lactate measured within 6 hours of admission',
+        'Adult ICU patients',
       ]);
     } finally {
       t.unmount();
     }
   });
 
-  it('hides the section and sends no results when the scope stops before Experimentation', async () => {
-    const fetch = posting();
-    vi.stubGlobal('fetch', fetch);
+  it('blocks submit with no criterion when Grounding is in scope', async () => {
+    vi.stubGlobal('fetch', posting());
     const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
-      await t.click(/Grounding → Validation/);
-      await t.change('To stage', 'hypotheses');
-      expect(t.text()).not.toContain('Pre-registered results');
-      expect(t.button(/^Pre-registered/)).toBeUndefined();
       await t.fill('Describe your study', 'Question');
+      expect(disabled(t)).toBe(true);
+      await openCriteria(t);
+      await t.fill('Criterion 1', '   ');
+      expect(disabled(t)).toBe(true);
+      await t.fill('Criterion 1', 'Prospective cohort');
       expect(disabled(t)).toBe(false);
-      await t.submit();
-      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
-      const body = JSON.parse(String(posted![1]?.body));
-      expect(body.scope).toEqual({ from: 'grounding', to: 'hypotheses' });
-      expect(body.predicates).toBeUndefined();
+      expect(t.button(/^Grounding criteria/)?.props.class).not.toContain('required');
     } finally {
       t.unmount();
     }
   });
 
-  it('puts the server refusal on the row it names', async () => {
-    const message = 'pre-registered result Fast: unexpected token at 5';
+  it('takes at most 12 criteria of 200 characters', async () => {
+    vi.stubGlobal('fetch', posting());
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
+    try {
+      await openCriteria(t);
+      expect(t.input('Criterion 1')?.props.maxlength).toBe('200');
+      for (let i = 1; i < 12; i++) await t.click(/^Add criterion$/);
+      expect(t.input('Criterion 12')).toBeTruthy();
+      expect(t.button(/^Add criterion$/)?.props.disabled).toBe(true);
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('shows the server refusal under the section', async () => {
+    const message = 'a Grounding criterion is repeated: Prospective cohort';
     vi.stubGlobal('fetch', posting(400, JSON.stringify({ error: message })));
     const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
       await t.fill('Describe your study', 'Question');
-      await preregister(t);
-      await t.click(/^Add result$/);
-      await t.fill('Result name 2', 'Fast');
-      await t.fill('Result condition 2', 'time <');
+      await addCriterion(t);
+      await t.click(/^Grounding criteria · 1$/);
+      expect(t.input('Criterion 1')).toBeUndefined();
       await t.submit();
-      expect(t.alert('Result 2')).toBe(message);
-      expect(t.alert('Result 1')).toBeUndefined();
+      expect(t.alert('Grounding criteria')).toBe(message);
     } finally {
       t.unmount();
     }
   });
 });
 
-describe('pre-registered results for a single Team', () => {
+describe('Grounding criteria for a single Team', () => {
   const posting = () =>
     vi.fn(
       async (_path: RequestInfo | URL, init?: RequestInit) =>
@@ -978,24 +1012,20 @@ describe('pre-registered results for a single Team', () => {
     assignee: { type: 'team', teams: { [column]: 't1' } },
   });
 
-  it('asks for a result when the lone Team works Experimentation, and sends no scope', async () => {
+  it('asks for a criterion when the lone Team works Grounding, and sends no scope', async () => {
     const fetch = posting();
     vi.stubGlobal('fetch', fetch);
-    const t = await mount(CreateStudy, single('experimentation'), '/', seedStudy);
+    const t = await mount(CreateStudy, single('grounding'), '/', seedStudy);
     try {
-      await openResults(t);
-      expect(t.text()).toContain('Pre-registered results');
       await t.fill('Describe your study', 'Question');
       expect(t.button(/^Create study/)?.props.disabled).toBe(true);
-      await t.fill('Result name 1', 'Accurate');
-      expect(t.button(/^Create study/)?.props.disabled).toBe(true);
-      await t.fill('Result condition 1', 'accuracy >= 0.9');
+      await addCriterion(t);
       expect(t.button(/^Create study/)?.props.disabled).toBe(false);
       await t.submit();
       const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
       const body = JSON.parse(String(posted![1]?.body));
       expect(body.scope).toBeUndefined();
-      expect(body.predicates).toEqual([{ name: 'Accurate', text: 'accuracy >= 0.9' }]);
+      expect(body.grounding_criteria).toEqual(['Prospective cohort']);
     } finally {
       t.unmount();
     }
@@ -1006,15 +1036,14 @@ describe('pre-registered results for a single Team', () => {
     vi.stubGlobal('fetch', fetch);
     const t = await mount(CreateStudy, single('hypotheses'), '/', seedStudy);
     try {
-      expect(t.text()).not.toContain('Pre-registered results');
-      expect(t.button(/^Pre-registered/)).toBeUndefined();
+      expect(t.button(/^Grounding criteria/)).toBeUndefined();
       await t.fill('Describe your study', 'Question');
       expect(t.button(/^Create study/)?.props.disabled).toBe(false);
       await t.submit();
       const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
       const body = JSON.parse(String(posted![1]?.body));
       expect(body.scope).toBeUndefined();
-      expect(body.predicates).toBeUndefined();
+      expect(body).not.toHaveProperty('grounding_criteria');
     } finally {
       t.unmount();
     }
@@ -1042,7 +1071,7 @@ describe('the one-row New study window', () => {
       const order = [
         'Built-in Teams',
         'Grounding → Validation',
-        'Pre-registered · 0',
+        'Grounding criteria · 0',
         'Machines',
         'No deadline',
       ];
@@ -1052,8 +1081,8 @@ describe('the one-row New study window', () => {
         text,
       ).toBe(true);
       expect([...at].sort((a, b) => a - b)).toEqual(at);
-      expect(t.button(/^Pre-registered · 0$/)?.props.class).toContain('required');
-      for (const gone of ['Study variables', 'Follows from', 'Reporting'])
+      expect(t.button(/^Grounding criteria · 0$/)?.props.class).toContain('required');
+      for (const gone of ['Study variables', 'Follows from', 'Reporting', 'Pre-registered'])
         expect(t.text()).not.toContain(gone);
     } finally {
       t.unmount();
@@ -1076,7 +1105,7 @@ describe('the one-row New study window', () => {
       await t.click(/^HHypotheses Team$/);
       await t.click(/^Solo agent$/);
       await t.fill('Describe your study', 'Question');
-      await preregister(t);
+      await addCriterion(t);
       await t.submit();
       const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
       const body = JSON.parse(String(posted![1]?.body));
@@ -1087,21 +1116,18 @@ describe('the one-row New study window', () => {
     }
   });
 
-  it('opens the pre-registered results from their chip and counts the complete ones', async () => {
+  it('opens the Grounding criteria from their chip and counts the filled ones', async () => {
     vi.stubGlobal('fetch', posting());
     const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
     try {
-      expect(t.input('Result name 1')).toBeUndefined();
-      await t.click(/^Pre-registered · 0$/);
-      expect(t.input('Result name 1')?.value).toBe('');
-      await t.fill('Result name 1', 'Accurate');
-      expect(textOf(t.button(/^Pre-registered/)!).trim()).toBe('Pre-registered · 0');
-      await t.fill('Result condition 1', 'accuracy >= 0.9');
-      expect(textOf(t.button(/^Pre-registered/)!).trim()).toBe('Pre-registered · 1');
-      expect(t.button(/^Pre-registered/)?.props.class).not.toContain('required');
+      expect(t.input('Criterion 1')).toBeUndefined();
+      await t.click(/^Grounding criteria · 0$/);
+      expect(t.input('Criterion 1')?.value).toBe('');
+      await t.fill('Criterion 1', 'Prospective cohort');
+      expect(textOf(t.button(/^Grounding criteria/)!).trim()).toBe('Grounding criteria · 1');
       await t.click(/Grounding → Validation/);
-      await t.change('To stage', 'hypotheses');
-      expect(t.button(/^Pre-registered/)).toBeUndefined();
+      await t.change('From stage', 'hypotheses');
+      expect(t.button(/^Grounding criteria/)).toBeUndefined();
     } finally {
       t.unmount();
     }
@@ -1147,65 +1173,37 @@ describe('a study worked by one agent', () => {
   });
 });
 
-describe('pre-registered results on the study page', () => {
-  it('shows each result with its binding outcome, value, run and the other runs', async () => {
+describe('Grounding criteria on the study page', () => {
+  it('lists the criteria read-only in Details', async () => {
     const t = await mount(
       StudyDetail,
       () => ({ id: 'c' }),
       '/',
-      (c) =>
-        seedStudy(c, {
-          predicates: [
-            { name: 'Accurate', text: 'accuracy >= 0.9' },
-            { name: 'Fast', text: 'seconds < 10' },
-            { name: 'Small', text: 'params < 1000' },
-            { name: 'Later', text: 'loss < 1' },
-          ],
-          preregistration: [
-            {
-              name: 'Accurate',
-              text: 'accuracy >= 0.9',
-              outcome: 'held',
-              round: 1,
-              run: 'x2',
-              values: { accuracy: 0.93 },
-              others: [{ run: 'x1', values: { accuracy: 0.4 } }],
-              reason: '',
-            },
-            {
-              name: 'Fast',
-              text: 'seconds < 10',
-              outcome: 'missed',
-              round: 1,
-              run: 'x2',
-              values: { seconds: 12 },
-              others: [],
-              reason: '',
-            },
-            {
-              name: 'Small',
-              text: 'params < 1000',
-              outcome: 'unconfirmed',
-              round: 0,
-              run: '',
-              values: {},
-              others: [],
-              reason: 'no run wrote params',
-            },
-          ],
-        }),
+      (c) => seedStudy(c, { grounding_criteria: ['Prospective cohort', 'Adult ICU patients'] }),
     );
     try {
       await t.click(/^Properties$/);
-      const text = t.text();
-      expect(text).toContain('Pre-registered results');
-      expect(text).toContain('accuracy >= 0.9');
-      expect(text).toContain('held');
-      expect(text).toContain('accuracy = 0.93 in run x2');
-      expect(text).toContain('Other runs wrote: accuracy = 0.4 in run x1');
-      expect(text).toContain('missed');
-      expect(text).toContain('not confirmed yet: no run wrote params');
-      expect(text).toContain('Not decided yet');
+      const list = t.nodes().find((n) => n.props['aria-label'] === 'Grounding criteria');
+      expect(list).toBeTruthy();
+      expect(textOf(list!)).toContain('Prospective cohort');
+      expect(textOf(list!)).toContain('Adult ICU patients');
+      expect(all(list!).some((n) => ['input', 'textarea'].includes(n.tag))).toBe(false);
+      expect(t.text()).not.toContain('Pre-registered');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('shows no criteria block when the study has none', async () => {
+    const t = await mount(
+      StudyDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) => seedStudy(c),
+    );
+    try {
+      await t.click(/^Properties$/);
+      expect(t.text()).not.toContain('Grounding criteria');
     } finally {
       t.unmount();
     }
@@ -1218,7 +1216,7 @@ describe('study right-pane surfaces', () => {
     try {
       expect(t.text()).toContain('Open a surface');
       expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(false);
-      expect(t.text()).not.toContain('Pre-registered results');
+      expect(t.text()).not.toContain('Grounding criteria');
       expect(t.text()).not.toContain('Details');
       for (const label of ['Properties', 'Timeline', 'Files']) {
         await t.click(new RegExp(`^${label}$`));

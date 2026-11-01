@@ -11,6 +11,6 @@ can point to datasets a paper deposited. Every call is recorded and returns `cal
 - Search on the organism or system, the measurement type and the condition.
 - Before proposing a dataset, check from its metadata that it measures what the plan needs, on
   enough samples, with the groups the comparison needs.
-- Record it: `lyk record put dataset --cites call:KEY --content '{"text": "<accession>: <what it holds, why it fits>"}'`.
+- Record it: `lyk record put source --cites call:KEY --content '{"text": "<accession>: <what it holds, why it fits>"}'`.
 - Metadata is not the data: say what still has to be downloaded and whether that was possible.
 - If nothing fits, say so; never make up or simulate data and present it as real.

@@ -4,7 +4,14 @@ import "testing"
 
 const testWorkflow = "mendota-ice-phenology"
 
-func TestAWorkflowStudyNeedsNoPreRegistration(t *testing.T) {
+func (s *server) createWith(t *testing.T, tok, wsID string, body map[string]any) (int, map[string]any) {
+	t.Helper()
+	var out map[string]any
+	code := s.call(t, "POST", "/api/cards", tok, wsID, body, &out)
+	return code, out
+}
+
+func TestAWorkflowStudyIsCreated(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
@@ -32,8 +39,7 @@ func TestAWorkflowStudyIsRefused(t *testing.T) {
 		"unknown": {map[string]any{"workflow": "nope", "assignee": one, "scope": exp}, "no workflow named nope"},
 		"team": {map[string]any{"workflow": testWorkflow, "scope": exp,
 			"assignee": map[string]any{"type": "team", "teams": map[string]string{"experimentation": s.builtInID(t, w.ID, "experimentation")}}}, "a workflow study is worked by one agent"},
-		"range":      {map[string]any{"workflow": testWorkflow, "assignee": one, "scope": map[string]string{"from": "grounding", "to": "experimentation"}}, "a workflow study runs Experimentation only"},
-		"predicates": {map[string]any{"workflow": testWorkflow, "assignee": one, "scope": exp, "predicates": testPredicates}, "a workflow study has no pre-registered results"},
+		"range": {map[string]any{"workflow": testWorkflow, "assignee": one, "scope": map[string]string{"from": "grounding", "to": "experimentation"}}, "a workflow study runs Experimentation only"},
 	} {
 		tc.body["question"] = name
 		code, out := s.createWith(t, a, w.ID, tc.body)
@@ -43,25 +49,13 @@ func TestAWorkflowStudyIsRefused(t *testing.T) {
 	}
 }
 
-func TestAStudyWithoutAWorkflowStillPreRegisters(t *testing.T) {
-	s := newServer(t)
-	a := s.signIn(t, "a@lab.org")
-	w := s.workspace(t, a, "lab")
-	agent := s.newAgent(t, a, w.ID, "solo", "claude")
-	code, out := s.createWith(t, a, w.ID, map[string]any{"question": "q", "assignee": map[string]any{"type": "agent", "id": agent},
-		"scope": map[string]string{"from": "experimentation", "to": "experimentation"}})
-	if code != 400 || out["error"] != "a study that runs Experimentation needs at least one pre-registered result" {
-		t.Fatalf("%d %v", code, out)
-	}
-}
-
 func TestAStudyRecordsTheWorkflowRelease(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	agent := s.newAgent(t, a, w.ID, "solo", "claude")
 	code, out := s.createWith(t, a, w.ID, map[string]any{"question": "q", "assignee": map[string]any{"type": "agent", "id": agent},
-		"scope": map[string]string{"from": "experimentation", "to": "experimentation"}, "predicates": testPredicates})
+		"scope": map[string]string{"from": "experimentation", "to": "experimentation"}})
 	if rel, has := out["workflow_release"]; code != 201 || !has || rel != nil {
 		t.Fatalf("%d %v", code, out)
 	}

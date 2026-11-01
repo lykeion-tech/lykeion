@@ -239,7 +239,7 @@ func TestARecordMayCiteARun(t *testing.T) {
 	if c, e := post("run:x1", "call:c1"); c != 201 {
 		t.Fatalf("a run and a call cited: %d %s", c, e)
 	}
-	if c, e := post("run:x9"); c != 400 || e != "no recorded call or run has the key x9" {
+	if c, e := post("run:x9"); c != 400 || e != "no recorded call, run or record has the key x9" {
 		t.Fatalf("an unrecorded run: %d %q", c, e)
 	}
 	if c, _ := post("run:c1"); c != 400 {
@@ -291,45 +291,54 @@ func postScriptRun(t *testing.T, l *teamLab, extra map[string]any, tool string) 
 	return body
 }
 
-func TestARunScriptKeepsItsResults(t *testing.T) {
-	raw := `{"effect":0.31,"ci_low":0.1}`
-	body := postScriptRun(t, newTeamLab(t, 0), map[string]any{"results": raw}, "run_script")
-	got, _ := body["results"].(map[string]any)
-	if len(got) != 2 || got["effect"] != 0.31 || got["ci_low"] != 0.1 || body["results_sha256"] != hexSHA(raw) {
-		t.Fatalf("body %+v", body)
-	}
-}
-
-func TestMalformedResultsAreKeptAsAnError(t *testing.T) {
-	for _, raw := range []string{`[1]`, `{"effect":"0.3"}`, `{"effect":NaN}`, `{"effect":1e400}`, `{"CI_low":1}`, `{"a":{"b":1}}`, `{"effect":1,"effect":2}`, `not json`} {
-		body := postScriptRun(t, newTeamLab(t, 0), map[string]any{"results": raw}, "run_script")
-		if s, _ := body["results_error"].(string); s == "" || body["results"] != nil {
-			t.Fatalf("%s: %+v", raw, body)
-		}
-	}
-}
-
-func TestADaemonResultsErrorIsKept(t *testing.T) {
-	msg := "results file is over 64 KiB"
-	body := postScriptRun(t, newTeamLab(t, 0), map[string]any{"results_error": msg}, "run_script")
-	if body["results_error"] != msg || body["results"] != nil {
-		t.Fatalf("body %+v", body)
-	}
-}
-
-func TestRunCodeResultsAreIgnored(t *testing.T) {
-	body := postScriptRun(t, newTeamLab(t, 0), map[string]any{"results": `{"effect":1}`, "results_error": "x"}, "run_code")
-	if body["results"] != nil || body["results_sha256"] != nil || body["results_error"] != nil {
-		t.Fatalf("body %+v", body)
-	}
-}
-
-func TestAgentsCannotWritePreregistrationRecords(t *testing.T) {
+func TestPostRunIgnoresResultsFromOlderDaemons(t *testing.T) {
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)
-	var e struct{ Error string }
-	in := map[string]any{"kind": "preregistration", "body": map[string]any{}}
-	if c := l.s.call(t, "POST", "/api/role/records", leader.token, "", in, &e); c != 400 || e.Error != "preregistration records are written by the server" {
-		t.Fatalf("put preregistration: %d %q", c, e.Error)
+	in := map[string]any{"tool": "run_code", "language": "python", "code": "1", "output": "1", "exit_status": 0,
+		"results": []any{map[string]any{"name": "x"}}, "results_error": "old"}
+	if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, nil); c != 201 {
+		t.Fatalf("run %d", c)
+	}
+	if _, body := l.runRecord(t, leader.token, "x1"); body["results"] != nil || body["results_error"] != nil {
+		t.Fatalf("the record keeps results: %+v", body)
+	}
+}
+
+func TestAHypothesisMayCiteAGroundingRecord(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	// The paper Grounding declared, as that column left it.
+	err := l.s.H.Store.InWorkspace(t.Context(), uuid.MustParse(l.ws), uuid.Nil, func(tx *store.Tx) error {
+		_, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(l.card.ID), BoardColumn: "grounding",
+			Kind: "paper", Role: "leader", Key: "r1", Body: json.RawMessage(`{"id":"arxiv:2106.01234","text":"a paper","cites":[]}`)})
+		if err != nil {
+			return err
+		}
+		// An agent's own prose in the Hypotheses column.
+		_, err = tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(l.card.ID), BoardColumn: "hypotheses",
+			Kind: "explanation", Role: "leader", Key: "r2", Body: json.RawMessage(`{"text":"telomeres explain it"}`)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(cites ...string) (int, string) {
+		var e struct{ Error string }
+		body := map[string]any{"text": "h", "prediction": map[string]any{"shape": "direction", "direction": "increase"},
+			"control": map[string]any{"none": "no baseline"}, "cites": cites}
+		c := l.s.call(t, "POST", "/api/role/records", leader.token, "", map[string]any{"kind": "hypothesis", "body": body}, &e)
+		return c, e.Error
+	}
+	if c, e := post("r1"); c != 201 {
+		t.Fatalf("a hypothesis citing the Grounding paper: %d %s", c, e)
+	}
+	if c, e := post("r999"); c != 400 || e != "no recorded call, run or record has the key r999" {
+		t.Fatalf("an unknown record key: %d %q", c, e)
+	}
+	if c, e := post("r1", "r2"); c != 400 || e != "a hypothesis cites r2, which is not a Grounding paper or dataset; cite those, or a call:KEY" {
+		t.Fatalf("a hypothesis citing an explanation: %d %q", c, e)
+	}
+	if c, _ := post("paper"); c != 400 {
+		t.Fatalf("a cite that is no key: %d", c)
 	}
 }

@@ -215,32 +215,32 @@ func (q *Queries) CardWorkflow(ctx context.Context, arg CardWorkflowParams) (*st
 
 const createCard = `-- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, position,
-  scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, machine, predicates, workflow, workflow_release)
+  scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, machine, grounding_criteria, workflow, workflow_release)
 VALUES ($1, $2, $3, $4, $5, $6,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = $7::text), 1) - 1,
   COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'validation'),
   $10, $11, $7::text, $12, $13, $14, COALESCE($15::jsonb, '[]'::jsonb), $16, $17)
-RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, predicates, workflow, workflow_release
+RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column
 `
 
 type CreateCardParams struct {
-	WorkspaceID     uuid.UUID  `json:"workspace_id"`
-	Number          int32      `json:"number"`
-	Title           string     `json:"title"`
-	Question        string     `json:"question"`
-	OwnerID         uuid.UUID  `json:"owner_id"`
-	Deadline        *time.Time `json:"deadline"`
-	BoardColumn     string     `json:"board_column"`
-	ScopeFrom       string     `json:"scope_from"`
-	ScopeTo         string     `json:"scope_to"`
-	AssigneeType    *string    `json:"assignee_type"`
-	AssigneeID      *uuid.UUID `json:"assignee_id"`
-	Round           int32      `json:"round"`
-	ResearchID      *uuid.UUID `json:"research_id"`
-	Machine         *string    `json:"machine"`
-	Predicates      []byte     `json:"predicates"`
-	Workflow        *string    `json:"workflow"`
-	WorkflowRelease *string    `json:"workflow_release"`
+	WorkspaceID       uuid.UUID  `json:"workspace_id"`
+	Number            int32      `json:"number"`
+	Title             string     `json:"title"`
+	Question          string     `json:"question"`
+	OwnerID           uuid.UUID  `json:"owner_id"`
+	Deadline          *time.Time `json:"deadline"`
+	BoardColumn       string     `json:"board_column"`
+	ScopeFrom         string     `json:"scope_from"`
+	ScopeTo           string     `json:"scope_to"`
+	AssigneeType      *string    `json:"assignee_type"`
+	AssigneeID        *uuid.UUID `json:"assignee_id"`
+	Round             int32      `json:"round"`
+	ResearchID        *uuid.UUID `json:"research_id"`
+	Machine           *string    `json:"machine"`
+	GroundingCriteria []byte     `json:"grounding_criteria"`
+	Workflow          *string    `json:"workflow"`
+	WorkflowRelease   *string    `json:"workflow_release"`
 }
 
 // A new card goes to the top of its column. NextCardNumber has already locked
@@ -261,7 +261,7 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		arg.Round,
 		arg.ResearchID,
 		arg.Machine,
-		arg.Predicates,
+		arg.GroundingCriteria,
 		arg.Workflow,
 		arg.WorkflowRelease,
 	)
@@ -297,9 +297,10 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		&i.ScopeTo,
 		&i.Redos,
 		&i.Machine,
-		&i.Predicates,
 		&i.Workflow,
 		&i.WorkflowRelease,
+		&i.GroundingCriteria,
+		&i.LegacyColumn,
 	)
 	return i, err
 }
@@ -350,7 +351,7 @@ func (q *Queries) DeleteCard(ctx context.Context, arg DeleteCardParams) error {
 }
 
 const getCard = `-- name: GetCard :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, predicates, workflow, workflow_release FROM card WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column FROM card WHERE workspace_id = $1 AND id = $2
 `
 
 type GetCardParams struct {
@@ -392,9 +393,10 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.ScopeTo,
 		&i.Redos,
 		&i.Machine,
-		&i.Predicates,
 		&i.Workflow,
 		&i.WorkflowRelease,
+		&i.GroundingCriteria,
+		&i.LegacyColumn,
 	)
 	return i, err
 }
@@ -509,7 +511,7 @@ func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxPa
 }
 
 const listCards = `-- name: ListCards :many
-SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.machine, c.predicates, c.workflow, c.workflow_release,
+SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.machine, c.workflow, c.workflow_release, c.grounding_criteria, c.legacy_column,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
     AND t.status = 'queued' AND t.queue_reason IS NOT NULL)::boolean AS queued,
   COALESCE((SELECT t.role FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
@@ -520,42 +522,43 @@ ORDER BY c.board_column, c.position, c.number
 `
 
 type ListCardsRow struct {
-	ID              uuid.UUID       `json:"id"`
-	WorkspaceID     uuid.UUID       `json:"workspace_id"`
-	Number          int32           `json:"number"`
-	Title           string          `json:"title"`
-	Question        string          `json:"question"`
-	OwnerID         uuid.UUID       `json:"owner_id"`
-	Deadline        *time.Time      `json:"deadline"`
-	SpentUsd        float64         `json:"spent_usd"`
-	BoardColumn     string          `json:"board_column"`
-	State           string          `json:"state"`
-	Flag            string          `json:"flag"`
-	Ending          string          `json:"ending"`
-	EndReason       string          `json:"end_reason"`
-	Rounds          int32           `json:"rounds"`
-	Version         int64           `json:"version"`
-	CreatedAt       time.Time       `json:"created_at"`
-	Round           int32           `json:"round"`
-	HandoffNote     string          `json:"handoff_note"`
-	GatingUntil     *time.Time      `json:"gating_until"`
-	Position        float64         `json:"position"`
-	ResearchID      *uuid.UUID      `json:"research_id"`
-	AssigneeType    *string         `json:"assignee_type"`
-	AssigneeID      *uuid.UUID      `json:"assignee_id"`
-	Origin          string          `json:"origin"`
-	PackID          *uuid.UUID      `json:"pack_id"`
-	BlockKind       string          `json:"block_kind"`
-	ScopeFrom       string          `json:"scope_from"`
-	ScopeTo         string          `json:"scope_to"`
-	Redos           int32           `json:"redos"`
-	Machine         *string         `json:"machine"`
-	Predicates      json.RawMessage `json:"predicates"`
-	Workflow        *string         `json:"workflow"`
-	WorkflowRelease *string         `json:"workflow_release"`
-	Queued          bool            `json:"queued"`
-	Role            string          `json:"role"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	ID                uuid.UUID       `json:"id"`
+	WorkspaceID       uuid.UUID       `json:"workspace_id"`
+	Number            int32           `json:"number"`
+	Title             string          `json:"title"`
+	Question          string          `json:"question"`
+	OwnerID           uuid.UUID       `json:"owner_id"`
+	Deadline          *time.Time      `json:"deadline"`
+	SpentUsd          float64         `json:"spent_usd"`
+	BoardColumn       string          `json:"board_column"`
+	State             string          `json:"state"`
+	Flag              string          `json:"flag"`
+	Ending            string          `json:"ending"`
+	EndReason         string          `json:"end_reason"`
+	Rounds            int32           `json:"rounds"`
+	Version           int64           `json:"version"`
+	CreatedAt         time.Time       `json:"created_at"`
+	Round             int32           `json:"round"`
+	HandoffNote       string          `json:"handoff_note"`
+	GatingUntil       *time.Time      `json:"gating_until"`
+	Position          float64         `json:"position"`
+	ResearchID        *uuid.UUID      `json:"research_id"`
+	AssigneeType      *string         `json:"assignee_type"`
+	AssigneeID        *uuid.UUID      `json:"assignee_id"`
+	Origin            string          `json:"origin"`
+	PackID            *uuid.UUID      `json:"pack_id"`
+	BlockKind         string          `json:"block_kind"`
+	ScopeFrom         string          `json:"scope_from"`
+	ScopeTo           string          `json:"scope_to"`
+	Redos             int32           `json:"redos"`
+	Machine           *string         `json:"machine"`
+	Workflow          *string         `json:"workflow"`
+	WorkflowRelease   *string         `json:"workflow_release"`
+	GroundingCriteria json.RawMessage `json:"grounding_criteria"`
+	LegacyColumn      string          `json:"legacy_column"`
+	Queued            bool            `json:"queued"`
+	Role              string          `json:"role"`
+	UpdatedAt         time.Time       `json:"updated_at"`
 }
 
 // The board's cards. queued: an agent run of the card waits with a reason
@@ -602,9 +605,10 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.ScopeTo,
 			&i.Redos,
 			&i.Machine,
-			&i.Predicates,
 			&i.Workflow,
 			&i.WorkflowRelease,
+			&i.GroundingCriteria,
+			&i.LegacyColumn,
 			&i.Queued,
 			&i.Role,
 			&i.UpdatedAt,

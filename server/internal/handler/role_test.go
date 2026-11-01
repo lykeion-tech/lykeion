@@ -784,7 +784,7 @@ func (s *server) studyWithFiles(t *testing.T, jwt, ws string, names ...string) (
 		}
 	}
 	var c card
-	if code := s.call(t, "POST", "/api/cards", jwt, ws, map[string]any{"predicates": testPredicates, "question": "What do " + strings.Join(names, ", ") + " show?", "attachment_ids": ids}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", jwt, ws, map[string]any{"question": "What do " + strings.Join(names, ", ") + " show?", "attachment_ids": ids}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	return c, ids, s.running(t, jwt, ws, c.ID)

@@ -349,7 +349,8 @@ func (q *Queries) RunOutputTotals(ctx context.Context, arg RunOutputTotalsParams
 }
 
 const saveCardFlow = `-- name: SaveCardFlow :exec
-UPDATE card SET board_column = $1, state = $2, block_kind = $3, round = $4,
+UPDATE card SET legacy_column = CASE WHEN board_column = $1 THEN legacy_column ELSE '' END,
+  board_column = $1, state = $2, block_kind = $3, round = $4,
   redos = $5, handoff_note = $6, gating_until = NULL, version = version + 1
 WHERE id = $7 AND workspace_id = $8
 `
@@ -366,7 +367,8 @@ type SaveCardFlowParams struct {
 }
 
 // Moves a study on, restarts its column or blocks it once the column is
-// scored, and releases the scoring lease.
+// scored, and releases the scoring lease. Leaving a column clears
+// legacy_column: the old scoring holds only for the column it was set on.
 func (q *Queries) SaveCardFlow(ctx context.Context, arg SaveCardFlowParams) error {
 	_, err := q.db.Exec(ctx, saveCardFlow,
 		arg.BoardColumn,

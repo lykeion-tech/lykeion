@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"lykeion/server/internal/board"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/pack"
+	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -28,7 +28,8 @@ type Engine struct {
 	Store     *store.Store
 	AgentRuns *service.AgentRuns
 	Blobs     storage.Storage
-	Jev       *jev.Client // nil when the lab has no TypeSafe key
+	Jev       *jev.Client    // nil when the lab has no TypeSafe key
+	Sources   review.Sources // resolves Grounding's papers and datasets; nil reviews no Grounding column
 	Retry     func() *jev.Retry
 	Now       func() time.Time
 	Inline    bool // run kicks in the caller's goroutine; tests use it to stay deterministic
@@ -215,11 +216,7 @@ func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, n
 	if err != nil {
 		return "", err
 	}
-	decided, err := decidedOutcomes(ctx, tx, c)
-	if err != nil {
-		return "", err
-	}
-	p := prompt(c, role, comments, ws.ResearchContext, files, decided)
+	p := prompt(c, role, comments, ws.ResearchContext, files)
 	if note != "" {
 		p += "\n" + note + "\n"
 	}
@@ -243,21 +240,4 @@ func (e *Engine) enqueueWithInput(ctx context.Context, tx *store.Tx, c db.Card, 
 // its session within the attempt.
 func ContinuityScope(card uuid.UUID, role, column string, round int32) string {
 	return fmt.Sprintf("card:%s/column:%s/round:%d/role:%s", card, column, round, role)
-}
-
-// decidedOutcomes is the study's binding pre-registration outcomes, read only
-// for the columns that are told them.
-func decidedOutcomes(ctx context.Context, tx *store.Tx, c db.Card) ([]Decision, error) {
-	if board.StageIndex(c.BoardColumn) <= board.StageIndex(board.Experimentation) {
-		return nil, nil
-	}
-	recs, err := tx.Q.CardKindRecords(ctx, db.CardKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "preregistration"})
-	if err != nil {
-		return nil, err
-	}
-	bodies := make([][]byte, len(recs))
-	for i, r := range recs {
-		bodies[i] = r.Body
-	}
-	return Binding(bodies), nil
 }

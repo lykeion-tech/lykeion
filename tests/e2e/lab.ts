@@ -98,6 +98,15 @@ export async function newStudy(
       type: 'team',
       teams: { grounding: await labTeam(request, workspaceId) },
     };
+  // A study that includes Grounding needs a criterion; a lone Team works only
+  // its own column.
+  const scope = data.scope as { from: string } | undefined;
+  const teams = (data.assignee as { teams?: Record<string, string> }).teams;
+  const grounds = scope
+    ? scope.from === 'grounding'
+    : !teams || Object.keys(teams).length > 1 || 'grounding' in teams;
+  if (grounds && !('grounding_criteria' in data))
+    data.grounding_criteria = ['Peer-reviewed source'];
   const res = await request.post('/api/cards', {
     headers: { 'X-Workspace-ID': workspaceId },
     data,
@@ -106,13 +115,12 @@ export async function newStudy(
   return res.json();
 }
 
-// Fills the New study dialog's first pre-registered result.
-export async function preregister(dialog: Locator) {
-  const name = dialog.getByRole('textbox', { name: 'Result name 1' });
-  if (!(await name.isVisible()))
-    await dialog.getByRole('button', { name: /^Pre-registered · \d+$/ }).click();
-  await dialog.getByRole('textbox', { name: 'Result name 1' }).fill('effect');
-  await dialog.getByRole('textbox', { name: 'Result condition 1' }).fill('effect > 0');
+// Fills the New study dialog's first Grounding criterion.
+export async function groundingCriterion(dialog: Locator) {
+  const first = dialog.getByRole('textbox', { name: 'Criterion 1' });
+  if (!(await first.isVisible()))
+    await dialog.getByRole('button', { name: /^Grounding criteria · \d+$/ }).click();
+  await first.fill('Peer-reviewed source');
 }
 
 // Gives a study n evidence records in its current column and round, each with a

@@ -180,7 +180,7 @@ func TestWorkspaceReadsCarryTheEventCursor(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	other := s.workspace(t, a, "other")
 	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q"}, &c)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
 	latest := func(ws string) int64 {
 		var id int64
 		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT COALESCE(max(id), 0) FROM event WHERE workspace_id = $1`, ws).Scan(&id); err != nil {

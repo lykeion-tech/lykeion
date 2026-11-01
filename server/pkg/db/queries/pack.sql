@@ -60,8 +60,22 @@ SELECT
 -- name: AllWorkspaceIDs :many
 SELECT id::uuid AS id FROM all_workspace_ids();
 
--- name: ShippedPackExists :one
-SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND source = 'shipped') AS ok;
+-- name: ShippedPack :one
+SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND source = 'shipped';
+
+-- A shipped Team's row follows the pack Lykeion now ships; the id stays, so
+-- studies and added agents keep the Team.
+-- name: RefreshShippedPack :exec
+UPDATE field_pack SET version = @version, sha256 = @sha256, manifest = @manifest, blob_key = @blob_key, domain = @domain, stage = @stage
+WHERE workspace_id = @workspace_id AND id = @id AND source = 'shipped';
+
+-- The agents added from a shipped Team's member take its new instructions,
+-- unless their owner changed them.
+-- name: RefreshTeamAgentInstructions :exec
+UPDATE agent a SET instructions = @new_instructions::text, updated_at = now()
+FROM team_agent t
+WHERE t.workspace_id = @workspace_id AND t.pack_id = @pack_id AND t.member = @member
+  AND a.workspace_id = t.workspace_id AND a.id = t.agent_id AND a.instructions = @old_instructions::text;
 
 -- name: PackNameInUse :one
 SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = @workspace_id AND name = @name AND deleted_at IS NULL) AS used;

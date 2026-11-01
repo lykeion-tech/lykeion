@@ -14,9 +14,11 @@ SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(card_id)::uuid::text, 1))
 -- name: SetGatingLease :exec
 UPDATE card SET gating_until = sqlc.narg(gating_until) WHERE id = @id AND workspace_id = @workspace_id;
 
--- spent_usd is never written here: F2's settle is its only writer.
+-- spent_usd is never written here: F2's settle is its only writer. Leaving a
+-- column clears legacy_column, as SaveCardFlow does.
 -- name: SaveCardBoard :exec
-UPDATE card SET board_column = @board_column, state = @state, flag = @flag, ending = @ending,
+UPDATE card SET legacy_column = CASE WHEN board_column = @board_column THEN legacy_column ELSE '' END,
+  board_column = @board_column, state = @state, flag = @flag, ending = @ending,
   end_reason = @end_reason, rounds = @rounds,
   round = @round, handoff_note = @handoff_note, block_kind = @block_kind, question = @question, version = version + 1
 WHERE id = @id AND workspace_id = @workspace_id;

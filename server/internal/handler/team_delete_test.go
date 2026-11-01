@@ -34,7 +34,7 @@ func TestDeleteTeamBlockedWhenInUse(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	id := s.addedTeam(t, a, w.ID, "used", "grounding")
 	validation := s.addedTeam(t, a, w.ID, "validator", "validation")
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": id, "validation": validation})}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": id, "validation": validation})}, nil); code != 201 {
 		t.Fatalf("study: %d", code)
 	}
 	if code := s.call(t, "DELETE", "/api/teams/"+id, a, w.ID, nil, nil); code != 409 {
@@ -113,7 +113,7 @@ func TestDeleteTeamPreservesFinishedStudyAndAgentHistory(t *testing.T) {
 	id := s.addedTeam(t, a, w.ID, "history", "grounding")
 	validation := s.addedTeam(t, a, w.ID, "history-validator", "validation")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": id, "validation": validation})}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": id, "validation": validation})}, &c); code != 201 {
 		t.Fatalf("study: %d", code)
 	}
 	var agent, name string

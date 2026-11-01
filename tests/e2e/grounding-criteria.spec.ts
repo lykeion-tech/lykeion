@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { labWorkspace } from './lab';
 
-const question = `Does the screen hold above 0.9 accuracy? ${Date.now()}`;
+const question = `Which cohorts link lactate to ICU mortality? ${Date.now()}`;
 
 // The study is deleted once the test ends, pass or fail, so the shared
 // workspace's board is left as it was for the specs after this one.
@@ -16,28 +16,27 @@ test.afterEach(async ({ page }) => {
   }
 });
 
-test('a pre-registered result is created with the study and listed as not decided', async ({
-  page,
-}) => {
+test('Grounding criteria are created with the study and listed on its page', async ({ page }) => {
   await page.goto('/#/studies');
   await page.getByRole('button', { name: 'New', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New study' });
   await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-  await dialog.getByRole('button', { name: 'Pre-registered · 0', exact: true }).click();
-  const results = dialog.getByRole('region', { name: 'Pre-registered results' });
-  await expect(results.getByRole('textbox', { name: 'Result name 1' })).toHaveValue('');
+  await dialog.getByRole('button', { name: 'Grounding criteria · 0', exact: true }).click();
+  const criteria = dialog.getByRole('region', { name: 'Grounding criteria' });
+  await expect(criteria.getByRole('textbox', { name: 'Criterion 1' })).toHaveValue('');
   await expect(dialog.getByRole('button', { name: /^Create study/ })).toBeDisabled();
-  await results.getByRole('textbox', { name: 'Result name 1' }).fill('Accurate');
-  await results
-    .getByRole('textbox', { name: 'Result condition 1' })
-    .fill('accuracy >= 0.9 and loss < 1');
-  await expect(results).toContainText('The scripts will have to write: accuracy, loss');
+  const lines = ['Prospective cohort', 'Adult ICU patients', 'Lactate measured within 6 hours'];
+  for (const [i, line] of lines.entries()) {
+    if (i) await criteria.getByRole('button', { name: 'Add criterion', exact: true }).click();
+    await criteria.getByRole('textbox', { name: `Criterion ${i + 1}` }).fill(line);
+  }
   const saved = page.waitForResponse(
     (r) => r.url().endsWith('/api/cards') && r.request().method() === 'POST',
   );
   await dialog.getByRole('button', { name: /^Create study/ }).click();
   const response = await saved;
   expect(response.status(), await response.text()).toBe(201);
+  expect((await response.json()).grounding_criteria).toEqual(lines);
   await expect(dialog).toHaveCount(0);
 
   await page.getByText(question).first().click();
@@ -45,8 +44,6 @@ test('a pre-registered result is created with the study and listed as not decide
     .getByRole('complementary', { name: 'Right pane' })
     .getByRole('button', { name: 'Details', exact: true })
     .click();
-  const listed = page.locator('dl[aria-label="Pre-registered results"]');
-  await expect(listed).toContainText('Accurate');
-  await expect(listed).toContainText('accuracy >= 0.9 and loss < 1');
-  await expect(listed).toContainText('Not decided yet');
+  const listed = page.locator('ul[aria-label="Grounding criteria"]');
+  for (const line of lines) await expect(listed).toContainText(line);
 });

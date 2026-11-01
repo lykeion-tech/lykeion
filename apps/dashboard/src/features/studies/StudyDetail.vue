@@ -40,7 +40,7 @@ import {
   useRuntimes,
   useWorkspace,
 } from '../../api/queries';
-import type { Card, Preregistration } from '../../api/types';
+import type { Card } from '../../api/types';
 import {
   actionLabel,
   blockedActions,
@@ -132,23 +132,7 @@ const me = useMe();
 const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
-// Each pre-registered result with its binding decision, if it has one yet.
-const preregistered = computed(() =>
-  (c.value?.predicates ?? []).map((p) => ({
-    ...p,
-    decision: c.value?.preregistration?.find((d) => d.name === p.name),
-  })),
-);
-const outcomeText = (d?: Preregistration) =>
-  !d
-    ? 'Not decided yet'
-    : d.outcome === 'unconfirmed'
-      ? `not confirmed yet: ${d.reason}`
-      : d.outcome;
-const valuesIn = (values: Record<string, number> | null, run: string) =>
-  `${Object.entries(values ?? {})
-    .map(([k, v]) => `${k} = ${v}`)
-    .join(', ')} in run ${run}`;
+const criteria = computed(() => c.value?.grounding_criteria ?? []);
 const services = computed(() => c.value?.services ?? []);
 async function download(a: { id: string; name: string }) {
   try {
@@ -616,20 +600,11 @@ function pin() {
                 </li>
               </ul>
             </template>
-            <template v-if="preregistered.length">
-              <small>Pre-registered results</small>
-              <dl class="v study-variables" aria-label="Pre-registered results">
-                <div v-for="p in preregistered" :key="p.name">
-                  <dt>{{ p.name }}</dt>
-                  <dd>{{ p.text }}</dd>
-                  <dd>{{ outcomeText(p.decision) }}</dd>
-                  <dd v-if="p.decision?.run">{{ valuesIn(p.decision.values, p.decision.run) }}</dd>
-                  <dd v-if="p.decision?.others?.length">
-                    Other runs wrote:
-                    {{ p.decision.others.map((o) => valuesIn(o.values, o.run)).join('; ') }}
-                  </dd>
-                </div>
-              </dl>
+            <template v-if="criteria.length">
+              <small>Grounding criteria</small>
+              <ul class="v grounding-criteria" aria-label="Grounding criteria">
+                <li v-for="(text, i) in criteria" :key="i">{{ text }}</li>
+              </ul>
             </template>
             <p v-if="services.length" class="v services-note">
               This study has hidden services: {{ services.map((s) => s.name).join(', ') }}. Hidden
@@ -1642,7 +1617,8 @@ function pin() {
   font-size: 12px;
   margin: 0;
 }
-.details-body .attached-files {
+.details-body .attached-files,
+.details-body .grounding-criteria {
   list-style: none;
   padding: 0;
   display: flex;
@@ -1650,19 +1626,8 @@ function pin() {
   align-items: flex-start;
   gap: 4px;
 }
-.study-variables > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 6px;
+.grounding-criteria li {
   overflow-wrap: anywhere;
-}
-.study-variables dt {
-  font-weight: 500;
-}
-.study-variables dd {
-  margin: 0;
-  white-space: pre-wrap;
 }
 .details-body .services-note {
   grid-column: 1 / -1;

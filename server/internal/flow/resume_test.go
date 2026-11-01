@@ -167,6 +167,7 @@ func TestInterruptedAuditorWaitsForMachineAndItsReplacement(t *testing.T) {
 	for _, reason := range []string{"runtime_access_revoked", "runtime_access_denied"} {
 		t.Run(reason, func(t *testing.T) {
 			l := newLab(t)
+			l.legacy = true
 			j := l.jev(t, 200, func(string) float64 { return 4 })
 			c := l.study(t, "hypotheses", true, nil)
 			l.done(t, c.ID)

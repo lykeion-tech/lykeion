@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -18,8 +17,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
-	"lykeion/server/internal/flow"
-	"lykeion/server/internal/predicate"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -36,26 +33,52 @@ type newCard struct {
 	Assignee   *assigneeIn `json:"assignee"`
 	Scope      *scopeIn    `json:"scope"`
 	// AttachmentIDs are the caller's pending uploads the study takes as its files.
-	AttachmentIDs []uuid.UUID   `json:"attachment_ids"`
-	Services      []newService  `json:"services"`
-	Predicates    []predicateIn `json:"predicates"`
-	Workflow      *string       `json:"workflow"`
+	AttachmentIDs []uuid.UUID  `json:"attachment_ids"`
+	Services      []newService `json:"services"`
+	Workflow      *string      `json:"workflow"`
+	// GroundingCriteria are the researcher's own tests for Grounding's work.
+	GroundingCriteria []string `json:"grounding_criteria"`
 }
 
-// predicateIn is a result the study declares before it runs, as a name and a
-// condition over the numbers its script will report.
-type predicateIn struct {
-	Name string `json:"name"`
-	Text string `json:"text"`
+const (
+	maxGroundingCriteria      = 12
+	maxGroundingCriterionN    = 200
+	maxGroundingCriteriaBytes = 4096
+)
+
+// checkGroundingCriteria trims the criteria and refuses a bad set. A study that
+// includes Grounding needs at least one; any other takes none.
+func checkGroundingCriteria(in []string, from, to string) ([]string, error) {
+	includes := board.StageIndex(from) <= board.StageIndex(board.Grounding) && board.StageIndex(board.Grounding) <= board.StageIndex(to)
+	switch {
+	case !includes && len(in) > 0:
+		return nil, cardInputError("Grounding criteria are only for studies that include Grounding")
+	case includes && len(in) == 0:
+		return nil, cardInputError("a study that includes Grounding needs at least one Grounding criterion")
+	case len(in) > maxGroundingCriteria:
+		return nil, cardInputError(fmt.Sprintf("a study takes at most %d Grounding criteria", maxGroundingCriteria))
+	}
+	out := make([]string, 0, len(in))
+	for _, c := range in {
+		c = strings.TrimSpace(c)
+		switch {
+		case c == "" || utf8.RuneCountInString(c) > maxGroundingCriterionN:
+			return nil, cardInputError(fmt.Sprintf("a Grounding criterion is 1 to %d characters", maxGroundingCriterionN))
+		case slices.Contains(out, c):
+			return nil, cardInputError("a Grounding criterion is repeated: " + c)
+		}
+		out = append(out, c)
+	}
+	// The study keeps the list as JSON text within maxGroundingCriteriaBytes;
+	// Postgres writes ", " between entries, one byte more than here.
+	if b, err := json.Marshal(out); err != nil || len(b)+len(out) > maxGroundingCriteriaBytes {
+		return nil, cardInputError(fmt.Sprintf("the Grounding criteria are too long together: at most %d bytes", maxGroundingCriteriaBytes))
+	}
+	return out, nil
 }
-
-const maxPredicates = 8
-
-// maxPredicatesJSON stays under the card.predicates size check, leaving room for the stored keys.
-const maxPredicatesJSON = 6000
 
 // checkWorkflow refuses a study that names a Workflow but isn't one agent
-// working Experimentation alone with nothing pre-registered.
+// working Experimentation alone.
 func checkWorkflow(in newCard, from, to string, agent *uuid.UUID) error {
 	if in.Workflow == nil {
 		return nil
@@ -67,44 +90,6 @@ func checkWorkflow(in newCard, from, to string, agent *uuid.UUID) error {
 		return cardInputError("a workflow study is worked by one agent")
 	case from != board.Experimentation || to != board.Experimentation:
 		return cardInputError("a workflow study runs Experimentation only")
-	case len(in.Predicates) > 0:
-		return cardInputError("a workflow study has no pre-registered results")
-	}
-	return nil
-}
-
-// checkPredicates refuses predicates a study cannot be pre-registered with.
-func checkPredicates(in []predicateIn, from, to string) error {
-	runs := board.StageIndex(from) <= board.StageIndex(board.Experimentation) && board.StageIndex(board.Experimentation) <= board.StageIndex(to)
-	switch {
-	case !runs && len(in) > 0:
-		return cardInputError("only a study that runs Experimentation has pre-registered results")
-	case runs && len(in) == 0:
-		return cardInputError("a study that runs Experimentation needs at least one pre-registered result")
-	case len(in) > maxPredicates:
-		return cardInputError("a study can pre-register at most " + strconv.Itoa(maxPredicates) + " results")
-	}
-	seen := map[string]bool{}
-	for i, p := range in {
-		label := "pre-registered result " + strconv.Itoa(i+1)
-		if p.Name != "" {
-			label = "pre-registered result " + p.Name
-		}
-		switch {
-		case p.Name == "" || utf8.RuneCountInString(p.Name) > 80:
-			return cardInputError(label + " needs a name of 1 to 80 characters")
-		case strings.ContainsFunc(p.Name, func(r rune) bool { return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' }):
-			return cardInputError(label + " has a line break or control character in its name")
-		case seen[p.Name]:
-			return cardInputError(label + " repeats a name")
-		}
-		seen[p.Name] = true
-		if _, err := predicate.Parse(p.Text); err != nil {
-			return cardInputError(label + ": " + err.Error())
-		}
-	}
-	if b, _ := json.Marshal(in); len(b) > maxPredicatesJSON {
-		return cardInputError("the pre-registered results are too large; shorten their names or texts")
 	}
 	return nil
 }
@@ -323,8 +308,6 @@ type studyView struct {
 	// Attachments are the files attached at creation, never their storage.
 	Attachments []attachmentView  `json:"attachments"`
 	Services    []serviceNameView `json:"services"`
-	// Preregistration is each predicate's binding outcome so far.
-	Preregistration []flow.Decision `json:"preregistration"`
 }
 
 type serviceNameView struct {
@@ -369,15 +352,6 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 	if err := machineView(r.Context(), tx, &v); err != nil {
 		return v, err
 	}
-	recs, err := tx.Q.CardKindRecords(r.Context(), db.CardKindRecordsParams{WorkspaceID: c.WorkspaceID, CardID: c.ID, Kind: "preregistration"})
-	if err != nil {
-		return v, err
-	}
-	bodies := make([][]byte, len(recs))
-	for i, rec := range recs {
-		bodies[i] = rec.Body
-	}
-	v.Preregistration = flow.Binding(bodies)
 	return v, nil
 }
 
@@ -423,10 +397,15 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		in.Title = titleFrom(in.Question)
 	}
 	from, to, chosen, agent, err := studyScope(in)
-	if err == nil && in.Workflow != nil {
+	if err == nil {
 		err = checkWorkflow(in, from, to, agent)
-	} else if err == nil {
-		err = checkPredicates(in.Predicates, from, to)
+	}
+	var criteria []byte
+	if err == nil {
+		var list []string
+		if list, err = checkGroundingCriteria(in.GroundingCriteria, from, to); err == nil {
+			criteria, err = json.Marshal(list)
+		}
 	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
@@ -482,7 +461,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		params := db.CreateCardParams{
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
 			Deadline: in.Deadline, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
-			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow,
+			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow, GroundingCriteria: criteria,
 		}
 		if in.Workflow != nil {
 			release := workflow.Release()
@@ -493,9 +472,6 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-		}
-		if params.Predicates, err = json.Marshal(append([]predicateIn{}, in.Predicates...)); err != nil {
-			return err
 		}
 		// No card may ask what an active card asks. The workspace lock makes two
 		// identical cards created at once see each other.

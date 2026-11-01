@@ -16,3 +16,5 @@ description: analysis code is written or run for the study
   "values": [{"name": "...", "value": 0.0}], "cites": ["run:KEY"]}'`.
 - If a package or file is missing, say so; do not swap in a different method silently.
 - Never edit numbers by hand between the run and the record.
+- Save each file the results come from with `lyk output put <path>`, then declare every file the
+  column saved in one `outputs` item (`lyk record put outputs`); only the latest counts.

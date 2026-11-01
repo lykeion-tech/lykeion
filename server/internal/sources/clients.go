@@ -36,6 +36,23 @@ type Hit struct {
 	Year      int    `json:"year,omitempty"`
 	Abstract  string `json:"abstract,omitempty"`
 	Retracted bool   `json:"retracted,omitempty"`
+	PMID      string `json:"pmid,omitempty"`
+}
+
+// ErrNotFound marks an answer that the record does not exist, as opposed to
+// an upstream that could not answer.
+var ErrNotFound = errors.New("not found")
+
+// statusError is an upstream's non-200 answer; a 404 or 410 is ErrNotFound.
+type statusError struct {
+	msg  string
+	code int
+}
+
+func (e statusError) Error() string { return e.msg }
+
+func (e statusError) Is(target error) bool {
+	return target == ErrNotFound && (e.code == http.StatusNotFound || e.code == http.StatusGone)
 }
 
 type Doc struct {
@@ -81,7 +98,7 @@ func get(ctx context.Context, h *http.Client, u string) ([]byte, error) {
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s", shown(req.URL), resp.Status)
+		return nil, statusError{fmt.Sprintf("GET %s: %s", shown(req.URL), resp.Status), resp.StatusCode}
 	}
 	return b, err
 }
@@ -140,11 +157,14 @@ type oaWork struct {
 	Year      int              `json:"publication_year"`
 	Retracted bool             `json:"is_retracted"`
 	Inv       map[string][]int `json:"abstract_inverted_index"`
+	IDs       struct {
+		PMID string `json:"pmid"`
+	} `json:"ids"`
 }
 
 func (w oaWork) hit() Hit {
 	return Hit{ID: "openalex:" + path.Base(w.ID), Title: w.Title, DOI: strings.TrimPrefix(w.DOI, "https://doi.org/"),
-		Year: w.Year, Abstract: invertedAbstract(w.Inv), Retracted: w.Retracted}
+		Year: w.Year, Abstract: invertedAbstract(w.Inv), Retracted: w.Retracted, PMID: strings.TrimPrefix(w.IDs.PMID, "https://pubmed.ncbi.nlm.nih.gov/")}
 }
 
 func invertedAbstract(inv map[string][]int) string {
@@ -290,14 +310,14 @@ func (a *Arxiv) Search(ctx context.Context, q string) ([]Hit, error) {
 func (a *Arxiv) Get(ctx context.Context, id string) (Doc, error) {
 	id = arxivVer.ReplaceAllString(id, "")
 	if !arxivRef.MatchString(id) {
-		return Doc{}, fmt.Errorf("arxiv id %q: want 2106.01234 or hep-th/9901001", id)
+		return Doc{}, fmt.Errorf("arxiv id %q: want 2106.01234 or hep-th/9901001: %w", id, ErrNotFound)
 	}
 	hits, err := a.query(ctx, url.Values{"id_list": {id}})
 	if err != nil {
 		return Doc{}, err
 	}
 	if len(hits) == 0 || hits[0].Title == "" {
-		return Doc{}, fmt.Errorf("arxiv: %s not found", id)
+		return Doc{}, fmt.Errorf("arxiv: %s %w", id, ErrNotFound)
 	}
 	return Doc{Hit: hits[0], Text: hits[0].Abstract}, nil
 }
@@ -311,6 +331,7 @@ type epmcResult struct {
 	ID          string `json:"id"`
 	Source      string `json:"source"`
 	PMCID       string `json:"pmcid"`
+	PMID        string `json:"pmid"`
 	DOI         string `json:"doi"`
 	Title       string `json:"title"`
 	Abstract    string `json:"abstractText"`
@@ -326,7 +347,7 @@ func (r epmcResult) hit() Hit {
 		id = "europepmc:" + r.PMCID
 	}
 	year, _ := strconv.Atoi(r.PubYear)
-	return Hit{ID: id, Title: r.Title, DOI: r.DOI, Year: year, Abstract: r.Abstract,
+	return Hit{ID: id, Title: r.Title, DOI: r.DOI, Year: year, Abstract: r.Abstract, PMID: r.PMID,
 		Retracted: slices.Contains(r.PubTypeList.PubType, "Retracted Publication")}
 }
 
@@ -365,7 +386,7 @@ func (e EuropePMC) Get(ctx context.Context, id string) (Doc, error) {
 		return Doc{}, err
 	}
 	if len(hits) == 0 {
-		return Doc{}, fmt.Errorf("europepmc: %s not found", id)
+		return Doc{}, fmt.Errorf("europepmc: %s %w", id, ErrNotFound)
 	}
 	d := Doc{Hit: hits[0], Text: hits[0].Abstract}
 	if strings.HasPrefix(id, "PMC") {
@@ -516,5 +537,5 @@ func (g GEO) OpenWithMetadata(ctx context.Context, accession string) (DatasetDoc
 		}
 		return DatasetDocument{Structure: b.String(), MetadataSources: refs}, nil
 	}
-	return DatasetDocument{}, fmt.Errorf("geo: %s not found", accession)
+	return DatasetDocument{}, fmt.Errorf("geo: %s %w", accession, ErrNotFound)
 }

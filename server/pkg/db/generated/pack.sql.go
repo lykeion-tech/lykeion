@@ -397,6 +397,66 @@ func (q *Queries) PackNameTaken(ctx context.Context, arg PackNameTakenParams) (b
 	return taken, err
 }
 
+const refreshShippedPack = `-- name: RefreshShippedPack :exec
+UPDATE field_pack SET version = $1, sha256 = $2, manifest = $3, blob_key = $4, domain = $5, stage = $6
+WHERE workspace_id = $7 AND id = $8 AND source = 'shipped'
+`
+
+type RefreshShippedPackParams struct {
+	Version     string          `json:"version"`
+	Sha256      string          `json:"sha256"`
+	Manifest    json.RawMessage `json:"manifest"`
+	BlobKey     string          `json:"blob_key"`
+	Domain      string          `json:"domain"`
+	Stage       string          `json:"stage"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	ID          uuid.UUID       `json:"id"`
+}
+
+// A shipped Team's row follows the pack Lykeion now ships; the id stays, so
+// studies and added agents keep the Team.
+func (q *Queries) RefreshShippedPack(ctx context.Context, arg RefreshShippedPackParams) error {
+	_, err := q.db.Exec(ctx, refreshShippedPack,
+		arg.Version,
+		arg.Sha256,
+		arg.Manifest,
+		arg.BlobKey,
+		arg.Domain,
+		arg.Stage,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	return err
+}
+
+const refreshTeamAgentInstructions = `-- name: RefreshTeamAgentInstructions :exec
+UPDATE agent a SET instructions = $1::text, updated_at = now()
+FROM team_agent t
+WHERE t.workspace_id = $2 AND t.pack_id = $3 AND t.member = $4
+  AND a.workspace_id = t.workspace_id AND a.id = t.agent_id AND a.instructions = $5::text
+`
+
+type RefreshTeamAgentInstructionsParams struct {
+	NewInstructions string    `json:"new_instructions"`
+	WorkspaceID     uuid.UUID `json:"workspace_id"`
+	PackID          uuid.UUID `json:"pack_id"`
+	Member          string    `json:"member"`
+	OldInstructions string    `json:"old_instructions"`
+}
+
+// The agents added from a shipped Team's member take its new instructions,
+// unless their owner changed them.
+func (q *Queries) RefreshTeamAgentInstructions(ctx context.Context, arg RefreshTeamAgentInstructionsParams) error {
+	_, err := q.db.Exec(ctx, refreshTeamAgentInstructions,
+		arg.NewInstructions,
+		arg.WorkspaceID,
+		arg.PackID,
+		arg.Member,
+		arg.OldInstructions,
+	)
+	return err
+}
+
 const renameFieldPack = `-- name: RenameFieldPack :exec
 UPDATE field_pack SET name = $1::text, manifest = jsonb_set(manifest, '{name}', to_jsonb($1::text))
 WHERE workspace_id = $2 AND name = $3 AND source <> 'shipped' AND deleted_at IS NULL
@@ -510,20 +570,36 @@ func (q *Queries) SetFieldPackAvatar(ctx context.Context, arg SetFieldPackAvatar
 	return i, err
 }
 
-const shippedPackExists = `-- name: ShippedPackExists :one
-SELECT EXISTS (SELECT 1 FROM field_pack WHERE workspace_id = $1 AND name = $2 AND source = 'shipped') AS ok
+const shippedPack = `-- name: ShippedPack :one
+SELECT id, workspace_id, name, version, sha256, manifest, blob_key, source, uploaded_by, created_at, domain, stage, avatar_url, deleted_at, visibility FROM field_pack WHERE workspace_id = $1 AND name = $2 AND source = 'shipped'
 `
 
-type ShippedPackExistsParams struct {
+type ShippedPackParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	Name        string    `json:"name"`
 }
 
-func (q *Queries) ShippedPackExists(ctx context.Context, arg ShippedPackExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, shippedPackExists, arg.WorkspaceID, arg.Name)
-	var ok bool
-	err := row.Scan(&ok)
-	return ok, err
+func (q *Queries) ShippedPack(ctx context.Context, arg ShippedPackParams) (FieldPack, error) {
+	row := q.db.QueryRow(ctx, shippedPack, arg.WorkspaceID, arg.Name)
+	var i FieldPack
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Version,
+		&i.Sha256,
+		&i.Manifest,
+		&i.BlobKey,
+		&i.Source,
+		&i.UploadedBy,
+		&i.CreatedAt,
+		&i.Domain,
+		&i.Stage,
+		&i.AvatarUrl,
+		&i.DeletedAt,
+		&i.Visibility,
+	)
+	return i, err
 }
 
 const teamUses = `-- name: TeamUses :one

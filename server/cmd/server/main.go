@@ -181,6 +181,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			return fmt.Errorf("SOURCES_EXCLUDE_FILE: %w", err)
 		}
 	}
+	engine.Sources = sources.Lookup{OpenAlex: hosted.OA, Arxiv: hosted.AX, EuropePMC: hosted.EPMC, GEO: hosted.GEO, Exclude: hosted.Exclude}
 	var mail auth.Mailer = auth.LogMailer{}
 	if addr := getenv("SMTP_ADDR"); addr != "" {
 		mail = auth.SMTPMailer{Addr: addr, From: getenv("SMTP_FROM"), User: getenv("SMTP_USER"), Pass: getenv("SMTP_PASS")}
