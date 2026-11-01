@@ -216,9 +216,13 @@ func TestNoCriteriaUsesTheQuestion(t *testing.T) {
 	if len(a.noul) != 1 || len(a.noul[0].Questions) != 1 {
 		t.Fatalf("noul %+v", a.noul)
 	}
-	q := a.noul[0].Questions["criterion:1"]
-	if !strings.HasPrefix(q, "Does this source bear directly on the research question as it was asked") || !strings.Contains(q, "Does fasting shrink the liver") {
+	// People write the question, so it reaches Jev fenced in the state,
+	// never in the instructions.
+	if q := a.noul[0].Questions["criterion:1"]; q != "Does this source bear directly on the research question as it was asked?" {
 		t.Errorf("question %q", q)
+	}
+	if st := a.noul[0].State; !strings.Contains(st, "UNTRUSTED") || !strings.Contains(st, "Research question: Does fasting shrink the liver?") {
+		t.Errorf("the question is not fenced in the state:\n%s", st)
 	}
 	if s.queries[0] != "Does fasting shrink the liver?" {
 		t.Errorf("query %q", s.queries[0])

@@ -27,11 +27,11 @@ const maxCandidates = 20
 const weakestInstructions = "Which of these sources is least supported as meeting the research question's conditions?"
 
 // criteriaQuestions are the per-criterion Noul questions. A study with no
-// criteria is screened against the research question itself.
-func criteriaQuestions(question string, criteria []string) map[string]string {
+// criteria is screened against the research question itself, which reaches
+// Jev fenced in the state: people write it.
+func criteriaQuestions(criteria []string) map[string]string {
 	if len(criteria) == 0 {
-		return map[string]string{"criterion:1": "Does this source bear directly on the research question as it was asked: " +
-			strings.TrimSuffix(strings.TrimSpace(question), "?") + "?"}
+		return map[string]string{"criterion:1": "Does this source bear directly on the research question as it was asked?"}
 	}
 	qs := make(map[string]string, len(criteria))
 	for i, c := range criteria {
@@ -40,10 +40,10 @@ func criteriaQuestions(question string, criteria []string) map[string]string {
 	return qs
 }
 
-// screen asks Jev every criterion about one source. Jev reads only the
-// source itself, never who declared it.
-func screen(ctx context.Context, a Asker, qs map[string]string, label, title, text, abstract string) ([]Check, error) {
-	state := ItemState("Grounding", label+"\n"+title+"\n"+text, []string{abstract}, MaxState)
+// screen asks Jev every criterion about one source, with the question's
+// fenced context first. Jev reads only the source itself, never who declared it.
+func screen(ctx context.Context, a Asker, qs map[string]string, framing []string, label, title, text, abstract string) ([]Check, error) {
+	state := ItemState("Grounding", label+"\n"+title+"\n"+text, append(slices.Clone(framing), abstract), MaxState)
 	ps, err := a.Noul(ctx, state, qs)
 	if err != nil {
 		return nil, err
@@ -115,7 +115,11 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 	if len(in.Items) == 0 && len(in.Carried) == 0 {
 		return r, nil
 	}
-	qs := criteriaQuestions(in.Question, in.Criteria)
+	qs := criteriaQuestions(in.Criteria)
+	var asking []string
+	if len(in.Criteria) == 0 {
+		asking = []string{"Research question: " + in.Question}
+	}
 	cited := map[string]bool{}
 	cite := func(keys []string) {
 		for _, k := range keys {
@@ -183,7 +187,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		}
 		it.Checks = served(hit, missing)
 		if ItemStatus(it.Checks) == Pass {
-			cs, err := screen(ctx, a, qs, it.Label, title, text, abstract)
+			cs, err := screen(ctx, a, qs, asking, it.Label, title, text, abstract)
 			if err != nil {
 				return Result{}, err
 			}
@@ -213,7 +217,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		if label == "" {
 			label = h.ID
 		}
-		cs, err := screen(ctx, a, qs, label, h.Title, "", h.Abstract)
+		cs, err := screen(ctx, a, qs, asking, label, h.Title, "", h.Abstract)
 		if err != nil {
 			return Result{}, err
 		}
