@@ -1,6 +1,23 @@
 import { expect, test } from '@playwright/test';
 import { installAristotleFixture } from './aristotle-fixture';
 
+for (const [theme, surface, accent] of [
+  ['dawn', 'rgb(42, 35, 44)', 'rgb(170, 66, 120)'],
+  ['pale', 'rgb(42, 45, 64)', 'rgb(128, 84, 196)'],
+] as const) {
+  test(`${theme}: Coresearch uses the selected palette`, async ({ page }) => {
+    await installAristotleFixture(page);
+    await page.addInitScript(
+      (theme) => localStorage.setItem('lykeion.preferences', JSON.stringify({ theme })),
+      theme,
+    );
+    await page.goto('/#/coresearch');
+    const coresearch = page.locator('.coresearch.aristotle-chat');
+    await expect(coresearch).toHaveCSS('background-color', surface);
+    await expect(coresearch.locator('.start-link').first()).toHaveCSS('color', accent);
+  });
+}
+
 test('a new conversation can select an agent and use its starters', async ({ page }) => {
   const fixture = await installAristotleFixture(page, true);
   await page.route('**/api/agents', async (route) => {

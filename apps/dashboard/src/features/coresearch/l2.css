@@ -2928,6 +2928,12 @@
   --seed-accent: #d25e65;
   --seed-on-accent: #ffffff;
 }
+:root:is([data-palette='dawn'], [data-palette='pale']) .coresearch {
+  --seed-bg: var(--surface);
+  --seed-ink: var(--text);
+  --seed-surface: var(--input);
+  --seed-accent: var(--palette-accent);
+}
 .coresearch {
   height: 100%;
 }

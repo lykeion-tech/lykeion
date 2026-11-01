@@ -92,6 +92,7 @@ export function applyTheme(id: unknown) {
   for (const key of ['surface', 'canvas', 'input', 'text', 'muted', 'border', 'selected'] as const)
     root.style.setProperty('--' + key, theme[key]);
   root.style.setProperty('--primary', theme.accent);
+  root.style.setProperty('--palette-accent', theme.accent);
   root.style.setProperty('--primary-text', theme.accentText);
   root.style.setProperty('--on-primary', theme.onAccent);
   root.style.setProperty('--hover', theme.input);
