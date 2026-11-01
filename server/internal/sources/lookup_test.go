@@ -160,9 +160,41 @@ func TestLookupNotFoundIsNotAnOutage(t *testing.T) {
 	if _, err := l.Dataset(ctx, link.URL); !errors.Is(err, ErrNotFound) {
 		t.Errorf("a 404 link: %v", err)
 	}
-	code = http.StatusBadGateway
-	if _, err := l.Dataset(ctx, link.URL); err == nil || errors.Is(err, ErrNotFound) {
-		t.Errorf("a 502 link: %v, want an outage", err)
+}
+
+// A link is the agent's choice, so a link that does not answer fails its
+// item; only Lykeion's own upstreams have outages.
+func TestLookupBrokenLinkIsNotFound(t *testing.T) {
+	ctx := context.Background()
+	var methods []string
+	head := http.StatusOK
+	link := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		switch {
+		case r.URL.Path == "/down":
+			w.WriteHeader(http.StatusBadGateway)
+		case r.Method == http.MethodHead:
+			w.WriteHeader(head)
+		default:
+			fmt.Fprint(w, strings.Repeat("x", 1<<20))
+		}
+	}))
+	defer link.Close()
+	defer func(c *http.Client) { linkClient = c }(linkClient)
+	linkClient = link.Client()
+	if _, err := (Lookup{}).Dataset(ctx, link.URL+"/down"); !errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "502") {
+		t.Errorf("a 502 link: %v, want not found with the status", err)
+	}
+	for _, code := range []int{http.StatusMethodNotAllowed, http.StatusNotImplemented} {
+		head, methods = code, nil
+		if h, err := (Lookup{}).Dataset(ctx, link.URL+"/data"); err != nil || h.ID != link.URL+"/data" || strings.Join(methods, " ") != "HEAD GET" {
+			t.Errorf("HEAD %d then GET 200: %+v %v %v", code, h, err, methods)
+		}
+	}
+	dead := httptest.NewTLSServer(http.NotFoundHandler())
+	dead.Close()
+	if _, err := (Lookup{}).Dataset(ctx, dead.URL); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a link nothing answers: %v, want not found", err)
 	}
 }
 

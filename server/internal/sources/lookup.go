@@ -2,9 +2,8 @@ package sources
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -27,6 +26,24 @@ type Lookup struct {
 // linkClient checks dataset links. Agents choose the links, so it refuses
 // private and reserved addresses.
 var linkClient = connectors.Guarded()
+
+// maxProbe is the most of a link's GET body read before it is dropped.
+const maxProbe = 4 << 10
+
+// probe asks a dataset link with method and returns its status.
+func probe(ctx context.Context, method, link string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, link, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := linkClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, maxProbe))
+	resp.Body.Close()
+	return resp.StatusCode, nil
+}
 
 // maxRecall bounds the recall candidates one search returns.
 const maxRecall = 20
@@ -54,31 +71,28 @@ func (l Lookup) Paper(ctx context.Context, id string) (Hit, error) {
 	return d.Hit, err
 }
 
-// Dataset takes a GEO accession, or an https link that answers a HEAD with
-// 2xx. A link that is not https, answers 4xx, names no host, or leads to an
-// address the server may not reach is ErrNotFound: the agent chose it.
+// Dataset takes a GEO accession, or an https link that answers with 2xx. The
+// agent chose the link, so a link that is not https, names no host, leads to
+// an address the server may not reach, or does not answer with 2xx is
+// ErrNotFound, never an outage.
 func (l Lookup) Dataset(ctx context.Context, accession string) (Hit, error) {
 	if strings.Contains(accession, "://") {
 		if !strings.HasPrefix(accession, "https://") {
 			return Hit{}, fmt.Errorf("dataset link %q: want https: %w", accession, ErrNotFound)
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodHead, accession, nil)
-		if err != nil {
-			return Hit{}, err
+		code, err := probe(ctx, http.MethodHead, accession)
+		// Some servers answer only GET.
+		if err == nil && (code == http.StatusMethodNotAllowed || code == http.StatusNotImplemented) {
+			code, err = probe(ctx, http.MethodGet, accession)
 		}
-		resp, err := linkClient.Do(req)
-		if dns := (*net.DNSError)(nil); errors.As(err, &dns) && dns.IsNotFound || errors.Is(err, connectors.ErrRefused) {
+		if ctx.Err() != nil {
+			return Hit{}, ctx.Err()
+		}
+		if err != nil {
 			return Hit{}, fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
-		if err != nil {
-			return Hit{}, err
-		}
-		resp.Body.Close()
-		switch {
-		case resp.StatusCode >= 400 && resp.StatusCode < 500:
-			return Hit{}, fmt.Errorf("HEAD %s: %s: %w", accession, resp.Status, ErrNotFound)
-		case resp.StatusCode < 200 || resp.StatusCode > 299:
-			return Hit{}, fmt.Errorf("HEAD %s: %s", accession, resp.Status)
+		if code < 200 || code > 299 {
+			return Hit{}, fmt.Errorf("dataset link %s: %d %s: %w", accession, code, http.StatusText(code), ErrNotFound)
 		}
 		return Hit{ID: accession}, nil
 	}
