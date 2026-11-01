@@ -331,9 +331,9 @@ export function inboxText(
       return `${study} ${finished ? 'finished' : 'moved on'} with a middling score: ${criterion}`;
     }
     case 'blocked': {
-      const column = /'s (\w+) column failed Jev's review twice/.exec(item.text)?.[1];
+      const column = /'s (\w+) column failed Jev's review (?:again|twice)/.exec(item.text)?.[1];
       return column
-        ? `${study}'s ${columnName(column)} column failed Jev's review twice and is waiting for you`
+        ? `${study}'s ${columnName(column)} column failed Jev's review again and is waiting for you`
         : `${study} scored low twice and is waiting for you`;
     }
     case 'no_tool': {

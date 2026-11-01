@@ -246,9 +246,9 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 			continue
 		}
 		n++
-		label := h.DOI
-		if label == "" {
-			label = h.ID
+		label := h.ID
+		if h.DOI != "" {
+			label = "doi:" + h.DOI
 		}
 		cs, err := screen(ctx, a, qs, asking, label, h.Title, "", h.Abstract)
 		if err != nil {

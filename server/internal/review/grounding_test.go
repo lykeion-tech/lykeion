@@ -141,7 +141,7 @@ func TestGroundingMissedPaper(t *testing.T) {
 	if len(a.noul) != 3 {
 		t.Errorf("want 1 item + 2 uncited candidates asked, got %d", len(a.noul))
 	}
-	if len(r.Missed) != 1 || r.Missed[0].Label != "10.1/missed" || r.Missed[0].Status != Fail || r.Missed[0].Key != "" {
+	if len(r.Missed) != 1 || r.Missed[0].Label != "doi:10.1/missed" || r.Missed[0].Status != Fail || r.Missed[0].Key != "" {
 		t.Fatalf("missed %+v", r.Missed)
 	}
 	if Decide(r, 0) != DecideRedo {

@@ -217,7 +217,7 @@ func TestSecondFailureBlocks(t *testing.T) {
 		t.Fatalf("after a second failure: %s %s %s", got.BoardColumn, got.State, got.BlockKind)
 	}
 	want := reviewBlockedText(c.Number, "grounding", paperB2)
-	if want != "Study #"+fmt.Sprint(c.Number)+"'s Grounding column failed Jev's review twice: "+paperB2+". Comment on the study to tell the Team what to fix." {
+	if want != "Study #"+fmt.Sprint(c.Number)+"'s Grounding column failed Jev's review again after its redo. Still failing: "+paperB2+". Comment on the study to tell the Team what to fix." {
 		t.Fatalf("blocked wording: %q", want)
 	}
 	if items := l.inbox(t, c.ID, "blocked"); len(items) != 1 || items[0] != want {

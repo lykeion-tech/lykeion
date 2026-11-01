@@ -80,3 +80,17 @@ func TestItemsOnlyInTheirColumn(t *testing.T) {
 		t.Error("note is not an item")
 	}
 }
+
+func TestClipCutsAtWordBoundaryWithEllipsis(t *testing.T) {
+	short := "short label"
+	if got := clip(short); got != short {
+		t.Errorf("short label changed: %q", got)
+	}
+	long := strings.Repeat("word ", 20) // 100 characters
+	if got, want := clip(long), strings.TrimSpace(strings.Repeat("word ", 16))+"…"; got != want {
+		t.Errorf("word cut: %q, want %q", got, want)
+	}
+	if got, want := clip(strings.Repeat("é", 100)), strings.Repeat("é", 80)+"…"; got != want {
+		t.Errorf("rune cut: %q", got)
+	}
+}

@@ -441,11 +441,11 @@ describe('Grounding criteria and review blocks', () => {
       studies.inboxText(
         {
           kind: 'blocked',
-          text: "Study #3's grounding column failed Jev's review twice: paper P1 (meets every criterion). Comment on the study to tell the Team what to fix.",
+          text: "Study #3's grounding column failed Jev's review again after its redo. Still failing: paper P1 (meets every criterion). Comment on the study to tell the Team what to fix.",
         },
         '#3',
       ),
-    ).toBe("#3's Grounding column failed Jev's review twice and is waiting for you");
+    ).toBe("#3's Grounding column failed Jev's review again and is waiting for you");
     expect(studies.inboxText({ kind: 'blocked', text: 'Study #3 scored low twice.' }, '#3')).toBe(
       '#3 scored low twice and is waiting for you',
     );

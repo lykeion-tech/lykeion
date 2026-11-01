@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"lykeion/server/internal/board"
 	db "lykeion/server/pkg/db/generated"
@@ -41,10 +42,23 @@ func ValueIdentity(v ValueCheck) string {
 
 const describedQuestion = "Does the sentence describe this number correctly: what it measures, its direction and its unit?"
 
-// clip is s cut to its first 80 characters.
+// clip is s cut to at most 80 characters at the last word boundary (or at
+// 80 when it has no space), with an ellipsis when anything was cut.
 func clip(s string) string {
 	r := []rune(s)
-	return string(r[:min(80, len(r))])
+	if len(r) <= 80 {
+		return s
+	}
+	cut := 80
+	if r[80] != ' ' {
+		for i := 79; i > 0; i-- {
+			if r[i] == ' ' {
+				cut = i
+				break
+			}
+		}
+	}
+	return strings.TrimRight(string(r[:cut]), " ") + "…"
 }
 
 // Experimentation reviews an Experimentation column: the server checks that

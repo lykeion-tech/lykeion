@@ -35,7 +35,7 @@ const maxOutputText = 8 << 20
 // reviewBlockedText is the Inbox item for a column that failed its review
 // after its one redo; failed lists the labels of the items that failed.
 func reviewBlockedText(number int32, column, failed string) string {
-	return fmt.Sprintf("Study #%d's %s column failed Jev's review twice: %s. Comment on the study to tell the Team what to fix.", number, title(column), failed)
+	return fmt.Sprintf("Study #%d's %s column failed Jev's review again after its redo. Still failing: %s. Comment on the study to tell the Team what to fix.", number, title(column), failed)
 }
 
 // usesReview says whether the study's current column is reviewed item by item:
