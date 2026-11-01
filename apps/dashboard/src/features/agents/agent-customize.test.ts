@@ -70,7 +70,9 @@ it('saves standalone selections and keeps shipped Team capabilities read-only', 
   };
   await client.refetchQueries({ queryKey: ['ws', 'lab', 'agent-capabilities', 'agent'] });
   await nextTick();
-  expect(textOf(root)).toContain("Built-in Teams can't be changed");
+  expect(textOf(root)).toContain(
+    "Built-in Agents can't be changed. Duplicate the Agent to customize it.",
+  );
   expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Save skills')).toBe(
     false,
   );

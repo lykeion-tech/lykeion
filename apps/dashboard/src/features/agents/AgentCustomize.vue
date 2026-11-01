@@ -173,7 +173,6 @@ async function save(kind: 'skills' | 'connectors') {
         <div class="capability-heading">
           <div>
             <h3 id="skills-heading">Skills</h3>
-            <p>Skills assigned to this agent for its studies.</p>
           </div>
           <button
             type="button"
@@ -232,7 +231,6 @@ async function save(kind: 'skills' | 'connectors') {
         <div class="capability-heading">
           <div>
             <h3 id="connectors-heading">Connectors</h3>
-            <p>Data connectors available to this agent in its studies.</p>
           </div>
           <button
             type="button"
@@ -327,7 +325,7 @@ async function save(kind: 'skills' | 'connectors') {
         </div>
       </section>
       <p v-if="team?.source === 'shipped'" class="builtin-note">
-        Built-in Teams can't be changed. Duplicate the Team to customize it.
+        Built-in Agents can't be changed. Duplicate the Agent to customize it.
       </p>
       <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
     </template>
@@ -335,6 +333,9 @@ async function save(kind: 'skills' | 'connectors') {
 </template>
 
 <style scoped>
+.agent-customize h2 {
+  margin-bottom: 20px;
+}
 .builtin-note {
   margin: 28px 0 0;
   font-size: 12px;
