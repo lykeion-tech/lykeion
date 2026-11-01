@@ -26,10 +26,14 @@ const code: NonNullable<typeof markdown.renderer.rules.fence> = (tokens, index, 
 markdown.renderer.rules.fence = code;
 markdown.renderer.rules.code_block = code;
 
-export function renderMarkdown(content: string) {
+export function renderMarkdown(content: string, breaks = true) {
   const env = { codes: [] as string[] };
   // Raw HTML is disabled; all text, code and attributes are escaped by the parser.
-  return { html: markdown.render(content, env), codes: env.codes };
+  const tokens = markdown.parse(content, env);
+  return {
+    html: markdown.renderer.render(tokens, { ...markdown.options, breaks }, env),
+    codes: env.codes,
+  };
 }
 
 // Block structure for component renderers. Inline HTML uses exactly the same

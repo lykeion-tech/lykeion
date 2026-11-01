@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { LAB, labFixture } from './lab';
 
-test('Properties is the larger heading; Execution log and Details are smaller headings with their own disclosures', async ({
-  page,
-}) => {
+test('Execution shows Runs directly and Details keeps its disclosure', async ({ page }) => {
   const fixture = await labFixture(page.request);
   await page.addInitScript(
     (id) => localStorage.setItem('lykeion.workspace', id),
@@ -19,32 +17,21 @@ test('Properties is the larger heading; Execution log and Details are smaller he
   await choose('Properties');
   const properties = meta.getByRole('heading', { name: 'Properties', level: 2, exact: true });
   await expect(properties).toBeVisible();
-  const propertiesSize = await properties.evaluate((el) =>
-    parseFloat(getComputedStyle(el).fontSize),
-  );
-  for (const [surface, name, body] of [
-    ['Execution log & timeline', 'Execution log', '.execution-body'],
-    ['Details', 'Details', '.details-body'],
-  ] as const) {
-    await choose(surface);
-    const heading = meta.getByRole('heading', { name, level: 3, exact: true });
-    await expect(heading).toBeVisible();
-    await expect(heading).toHaveCSS('font-size', '14px');
-    await expect(heading).toHaveCSS('font-weight', '600');
-    expect(await heading.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeLessThan(
-      propertiesSize,
-    );
-    const button = heading.getByRole('button', { name, exact: true });
-    await expect(button).toHaveAttribute('aria-expanded', 'true');
-    await expect(meta.locator(body)).toBeVisible();
-    await button.click();
-    await expect(button).toHaveAttribute('aria-expanded', 'false');
-    await expect(meta.locator(body)).toHaveCount(0);
-    await button.focus();
-    await page.keyboard.press('Enter');
-    await expect(button).toHaveAttribute('aria-expanded', 'true');
-    await expect(meta.locator(body)).toBeVisible();
-  }
+  await choose('Timeline');
+  await expect(meta.getByRole('heading', { name: 'Runs', exact: true })).toBeVisible();
+  await expect(meta.locator('.run-metrics')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Runs', exact: true })).toHaveCount(0);
+  await choose('Details');
+  const heading = meta.getByRole('heading', { name: 'Details', level: 3, exact: true });
+  const button = heading.getByRole('button', { name: 'Details', exact: true });
+  await expect(button).toHaveAttribute('aria-expanded', 'true');
+  await expect(meta.locator('.details-body')).toBeVisible();
+  await button.click();
+  await expect(button).toHaveAttribute('aria-expanded', 'false');
+  await expect(meta.locator('.details-body')).toHaveCount(0);
+  await button.focus();
+  await page.keyboard.press('Enter');
+  await expect(meta.locator('.details-body')).toBeVisible();
 });
 
 test('a truncated workspace tab keeps its close icon centered beside its title and still closes', async ({

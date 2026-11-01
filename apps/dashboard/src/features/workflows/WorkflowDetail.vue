@@ -120,10 +120,10 @@ const unavailable = computed(
             </tr>
           </tbody>
         </table>
-        <RecordedMarkdown :content="stripComments(w.readme)" />
+        <RecordedMarkdown :content="stripComments(w.readme)" :breaks="false" />
       </div>
       <div v-else-if="tab === 'Instruction'" class="workflow-body" role="tabpanel">
-        <RecordedMarkdown :content="stripComments(w.instruction)" />
+        <RecordedMarkdown :content="stripComments(w.instruction)" :breaks="false" />
       </div>
       <div v-else class="workflow-body workflow-files" role="tabpanel">
         <div class="workflow-tree">
@@ -165,7 +165,11 @@ const unavailable = computed(
         <div class="workflow-preview">
           <p v-if="!chosen" class="workflow-count">Select a file to preview it.</p>
           <p v-else-if="unavailable">Preview unavailable ({{ chosen.size }} bytes)</p>
-          <RecordedMarkdown v-else-if="isMarkdown(chosen.path)" :content="stripComments(preview)" />
+          <RecordedMarkdown
+            v-else-if="isMarkdown(chosen.path)"
+            :content="stripComments(preview)"
+            :breaks="false"
+          />
           <pre v-else>{{ preview }}</pre>
         </div>
       </div>

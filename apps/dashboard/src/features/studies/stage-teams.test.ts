@@ -1219,8 +1219,14 @@ describe('study right-pane surfaces', () => {
       expect(t.text()).toContain('Open a surface');
       expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(false);
       expect(t.text()).not.toContain('Pre-registered results');
-      for (const label of ['Properties', 'Execution log & timeline', 'Details', 'Files']) {
+      expect(t.text().indexOf('Files')).toBeLessThan(t.text().indexOf('Details'));
+      for (const label of ['Properties', 'Timeline', 'Files', 'Details']) {
         await t.click(new RegExp(`^${label}$`));
+        if (label === 'Timeline') {
+          expect(t.text()).toContain('No runs yet.');
+          expect(t.text()).toContain('Spent');
+          expect(t.text()).not.toContain('Open timeline');
+        }
         expect(t.nodes().some((n) => n.props['aria-label'] === 'Back to surfaces')).toBe(true);
         expect(t.nodes().some((n) => n.props.class === 'surface-title')).toBe(false);
         const back = t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!;

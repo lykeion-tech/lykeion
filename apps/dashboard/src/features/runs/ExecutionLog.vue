@@ -1,35 +1,15 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
 import type { AgentRun } from '../../api/types';
-import {
-  activeRun,
-  durationLabel,
-  milliseconds,
-  runDuration,
-  runTimeline,
-} from './run-timeline';
+import { durationLabel, milliseconds, runDuration, runTimeline } from './run-timeline';
 import { roleLabel } from '../../lib/studies';
-import Icon from '../../ui/Icon.vue';
-import Modal from '../../ui/Modal.vue';
 const props = defineProps<{ runs: AgentRun[]; title: string }>();
-const expanded = ref(true),
-  showRuns = ref(false),
-  clock = ref(Date.now());
+const clock = ref(Date.now());
 const interval = setInterval(() => {
   clock.value = Date.now();
 }, 1000);
 onUnmounted(() => clearInterval(interval));
 const data = computed(() => runTimeline(props.runs, clock.value));
-const elapsedMinutes = computed(() =>
-  data.value.elapsed === null ? null : Math.floor(data.value.elapsed / 60_000),
-);
-const rows = computed(() => [
-  ...data.value.runs.filter(activeRun),
-  ...data.value.runs
-    .filter((r) => !activeRun(r))
-    .reverse()
-    .slice(0, 3),
-]);
 const lanes = computed(() => [...new Set(data.value.runs.map((r) => r.role))]);
 const money = (n: number) => `$${n.toFixed(2)}`;
 const stamp = (n: number) =>
@@ -46,77 +26,10 @@ function position(run: AgentRun) {
 }
 </script>
 <template>
-  <section class="execution-log">
-    <div class="execution-heading">
-      <h3>
-        <button :aria-expanded="expanded" @click="expanded = !expanded">
-          Execution log <Icon :name="expanded ? 'down' : 'right'" :size="11" />
-        </button>
-      </h3>
-      <button class="execution-total" aria-label="Open Runs" @click="showRuns = true">
-        {{ count(runs.length) }} · {{ money(data.total) }}
-      </button>
-    </div>
-    <div v-if="expanded" class="execution-body">
-      <button class="spend-strip" aria-label="Open cost timeline" @click="showRuns = true">
-        <svg
-          class="cost-plot"
-          viewBox="0 0 1000 100"
-          preserveAspectRatio="none"
-          aria-label="Recorded cumulative cost"
-        >
-          <path :d="data.area" class="cost-fill" />
-          <path :d="data.path" class="cost-stroke" /></svg
-        ><span class="duration-track"
-          ><i
-            v-for="run in data.runs.filter((r) => r.started_at)"
-            :key="run.id"
-            :style="position(run)"
-        /></span>
-      </button>
-      <div v-if="runs.length" class="time-axis">
-        <time>{{ stamp(data.first) }}</time
-        ><time>{{ stamp(data.last) }}</time>
-      </div>
-      <p v-if="runs.length" class="execution-timing">
-        <template v-if="elapsedMinutes !== null">
-          {{ elapsedMinutes }} {{ elapsedMinutes === 1 ? 'minute' : 'minutes' }} elapsed
-        </template>
-        <template v-else>{{ durationLabel(data.elapsed) }} elapsed</template>
-      </p>
-      <p v-else class="execution-timing">No runs yet.</p>
-      <p v-if="rows.some((r) => !activeRun(r))" class="latest-label">Latest</p>
-      <div
-        v-for="run in rows"
-        :key="run.id"
-        class="execution-row"
-        :data-status="run.status"
-        :title="`${run.status} · ${run.board_column} · Round ${run.round} · Attempt ${run.attempt}`"
-      >
-        <span class="avatar">{{ roleLabel(run.role)[0] }}</span
-        ><span class="run-label"
-          >{{ roleLabel(run.role)
-          }}<small>Round {{ run.round }} · Attempt {{ run.attempt || '—' }}</small></span
-        ><span class="run-outcome"
-          ><span v-if="activeRun(run)">{{ run.status }}</span
-          ><span v-else class="run-status-mark" :class="run.status">{{
-            run.status === 'completed' ? '✓' : run.status === 'failed' ? '!' : '⊘'
-          }}</span>
-          {{ money(run.cost_usd) }}</span
-        >
-      </div>
-      <button class="open-timeline" @click="showRuns = true">
-        <Icon name="expand" :size="12" />Open timeline
-      </button>
-    </div>
-  </section>
-  <Modal v-if="showRuns" title="Runs" wide class="runs-modal" @close="showRuns = false">
+  <section class="execution-log" aria-label="Execution log">
     <div class="runs-dialog">
       <header class="runs-title">
         <h2>Runs</h2>
-        <button class="icon-button" aria-label="Close Runs" @click="showRuns = false">
-          <Icon name="close" :size="16" />
-        </button>
       </header>
       <p class="runs-subtitle">{{ title }}</p>
       <div class="run-metrics">
@@ -134,95 +47,69 @@ function position(run: AgentRun) {
           <small>Runs</small><span>{{ runs.length }}</span>
         </div>
       </div>
-      <div class="cost-legend">
-        <span>— Cumulative recorded cost</span><span>▪ Run · width is duration</span>
-      </div>
-      <div class="timeline-chart">
-        <svg
-          class="cost-plot"
-          viewBox="0 0 1000 100"
-          preserveAspectRatio="none"
-          aria-label="Recorded cumulative cost"
-        >
-          <path :d="data.area" class="cost-fill" />
-          <path :d="data.path" class="cost-stroke" /></svg
-        ><span class="cost-axis">{{ money(data.total) }}</span>
-      </div>
-      <div v-for="role in lanes" :key="role" class="timeline-lane">
-        <span>{{ roleLabel(role) }}</span>
-        <div class="duration-track">
-          <i
-            v-for="run in data.runs.filter((r) => r.role === role && r.started_at)"
-            :key="run.id"
-            :style="position(run)"
-            :title="`${roleLabel(role)} · ${durationLabel(runDuration(run, clock))}`"
-          />
+      <p v-if="!runs.length" class="timing-note">No runs yet.</p>
+      <template v-if="runs.length">
+        <div class="cost-legend">
+          <span>— Cumulative recorded cost</span><span>▪ Run · width is duration</span>
         </div>
-      </div>
-      <div class="time-axis chart-time-axis">
-        <time>{{ new Date(data.first).toLocaleString() }}</time
-        ><time>{{ new Date(data.last).toLocaleString() }}</time>
-      </div>
-      <p v-if="data.partial" class="timing-note">
-        Full attempt timing is unavailable. Agent time shows recorded latest attempts only.
-      </p>
-      <section v-for="[day, group] in data.groups" :key="day" class="run-day">
-        <header>
-          <span>{{ day }}</span
-          ><span
-            >{{ count(group.length) }} ·
-            {{ money(group.reduce((sum, r) => sum + r.cost_usd, 0)) }}</span
+        <div class="timeline-chart">
+          <svg
+            class="cost-plot"
+            viewBox="0 0 1000 100"
+            preserveAspectRatio="none"
+            aria-label="Recorded cumulative cost"
           >
-        </header>
-        <div v-for="run in group" :key="run.id" class="timeline-row">
-          <time>{{ stamp(milliseconds(run.started_at ?? run.created_at) ?? clock) }}</time
-          ><span class="timeline-role"
-            >{{ roleLabel(run.role)
-            }}<small
-              >{{ run.board_column }} · Round {{ run.round }} · Attempt
-              {{ run.attempt || '—' }}</small
-            ></span
-          ><span>{{ run.status }}</span
-          ><span>{{ durationLabel(runDuration(run, clock)) }}</span
-          ><span>{{ money(run.cost_usd) }}</span>
+            <path :d="data.area" class="cost-fill" />
+            <path :d="data.path" class="cost-stroke" /></svg
+          ><span class="cost-axis">{{ money(data.total) }}</span>
         </div>
-      </section>
+        <div v-for="role in lanes" :key="role" class="timeline-lane">
+          <span>{{ roleLabel(role) }}</span>
+          <div class="duration-track">
+            <i
+              v-for="run in data.runs.filter((r) => r.role === role && r.started_at)"
+              :key="run.id"
+              :style="position(run)"
+              :title="`${roleLabel(role)} · ${durationLabel(runDuration(run, clock))}`"
+            />
+          </div>
+        </div>
+        <div class="time-axis chart-time-axis">
+          <time>{{ new Date(data.first).toLocaleString() }}</time
+          ><time>{{ new Date(data.last).toLocaleString() }}</time>
+        </div>
+        <p v-if="data.partial" class="timing-note">
+          Full attempt timing is unavailable. Agent time shows recorded latest attempts only.
+        </p>
+        <section v-for="[day, group] in data.groups" :key="day" class="run-day">
+          <header>
+            <span>{{ day }}</span
+            ><span
+              >{{ count(group.length) }} ·
+              {{ money(group.reduce((sum, r) => sum + r.cost_usd, 0)) }}</span
+            >
+          </header>
+          <div v-for="run in group" :key="run.id" class="timeline-row">
+            <time>{{ stamp(milliseconds(run.started_at ?? run.created_at) ?? clock) }}</time
+            ><span class="timeline-role"
+              >{{ roleLabel(run.role)
+              }}<small
+                >{{ run.board_column }} · Round {{ run.round }} · Attempt
+                {{ run.attempt || '—' }}</small
+              ></span
+            ><span>{{ run.status }}</span
+            ><span>{{ durationLabel(runDuration(run, clock)) }}</span
+            ><span>{{ money(run.cost_usd) }}</span>
+          </div>
+        </section>
+      </template>
       <p class="timing-note">Costs are recorded by the server. Token breakdown is unavailable.</p>
     </div>
-  </Modal>
+  </section>
 </template>
 <style scoped>
-.execution-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.execution-heading h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 20px;
-}
-.execution-heading h3 button {
-  padding: 0;
-  font: inherit;
-}
-.execution-heading button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-.execution-heading .execution-total {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 12px;
-}
-.spend-strip {
-  width: 100%;
-  display: block;
-  padding: 4px 4px 0;
+.execution-log {
+  container-type: inline-size;
 }
 .cost-plot {
   display: block;
@@ -263,58 +150,9 @@ function position(run: AgentRun) {
   color: var(--muted);
   margin: 3px 4px;
 }
-.execution-timing,
-.latest-label {
-  font-size: 12px;
-  color: var(--muted);
-  margin: 8px 4px 14px;
-}
-.execution-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 4px;
-  font-size: 12px;
-}
-.run-label {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.run-label small {
-  display: block;
-  font-size: 10px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-.run-outcome {
-  margin-left: auto;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.run-status-mark {
-  color: var(--muted);
-}
-.run-status-mark.completed {
-  color: #39824e;
-}
-.run-status-mark.failed {
-  color: var(--error-text);
-}
-.open-timeline {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 10px 4px;
-  font-size: 12px;
-}
-.runs-modal {
-  width: 1028px !important;
-}
 .runs-dialog {
   width: 100%;
-  padding: 20px 24px;
-  min-height: min(850px, 85vh);
+  min-width: 0;
 }
 .runs-title {
   display: flex;
@@ -347,7 +185,7 @@ function position(run: AgentRun) {
   color: var(--muted);
 }
 .run-metrics strong {
-  font-size: 24px;
+  font-size: 15px;
   font-weight: 600;
 }
 .run-metrics span {
@@ -452,29 +290,38 @@ function position(run: AgentRun) {
 .timeline-row > span:last-child {
   text-align: right;
 }
-@media (max-width: 650px) {
+@container (max-width: 650px) {
   .run-metrics {
     gap: 15px;
     flex-wrap: wrap;
-  }
-  .runs-dialog {
-    padding: 16px;
   }
   .timeline-chart {
     margin-left: 0;
   }
   .timeline-lane > span {
-    width: 70px;
+    width: 45px;
   }
   .chart-time-axis {
     margin-left: 0;
+    margin-right: 0;
+    gap: 8px;
+  }
+  .chart-time-axis time:last-child {
+    text-align: right;
   }
   .timeline-row {
-    gap: 8px;
+    gap: 6px;
     font-size: 11px;
+    flex-wrap: wrap;
   }
   .timeline-row > span:not(.timeline-role) {
-    width: 48px;
+    width: auto;
+  }
+  .timeline-role {
+    flex-basis: calc(100% - 70px);
+  }
+  .timeline-row > span:last-child {
+    margin-left: auto;
   }
 }
 </style>

@@ -26,6 +26,12 @@ afterEach(() => {
   resolveDiscard(false);
 });
 async function mount(withFile = false) {
+  const session = new Map<string, string>();
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => session.get(key) ?? null,
+    setItem: (key: string, value: string) => session.set(key, value),
+    removeItem: (key: string) => session.delete(key),
+  });
   vi.stubGlobal('window', { innerWidth: 1500, addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal('document', {
     activeElement: null,

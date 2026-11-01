@@ -1,6 +1,26 @@
 import { expect, test } from '@playwright/test';
 import { installAristotleFixture } from './aristotle-fixture';
 
+test('returning to a conversation restores whether its experiment pane was open', async ({
+  page,
+}) => {
+  await installAristotleFixture(page, true);
+  await page.goto('/#/coresearch');
+  await expect(page).toHaveURL(/coresearch\/conversations\/welcome$/);
+  await page.getByRole('textbox', { name: 'Message the agent' }).fill('Test pane restoration');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page).toHaveURL(/coresearch\/conversations\/accepted$/);
+  await page.getByRole('button', { name: 'Open experiment surfaces' }).click();
+  await expect(page.getByRole('heading', { name: 'Open a surface' })).toBeVisible();
+  await page.goto('/#/studies');
+  await page.goto('/#/coresearch/conversations/accepted');
+  await expect(page.getByRole('heading', { name: 'Open a surface' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close pane' }).click();
+  await page.goto('/#/studies');
+  await page.goto('/#/coresearch/conversations/accepted');
+  await expect(page.getByRole('button', { name: 'Open experiment surfaces' })).toBeVisible();
+});
+
 test('Back leaves the restored Coresearch conversation and Forward returns to it', async ({
   page,
 }) => {

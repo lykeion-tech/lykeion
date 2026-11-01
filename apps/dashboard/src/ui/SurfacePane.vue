@@ -117,6 +117,10 @@ function keyboard(event: KeyboardEvent) {
 function close() {
   emit('update:open', false);
 }
+function showChooser() {
+  emit('update:focused', false);
+  emit('update:active', null);
+}
 </script>
 <template>
   <button
@@ -138,7 +142,7 @@ function close() {
     aria-label="Right pane"
   >
     <div
-      v-if="!focused"
+      v-if="active && !focused"
       class="surface-separator"
       role="separator"
       tabindex="0"
@@ -155,13 +159,14 @@ function close() {
         v-if="active"
         class="surface-icon"
         aria-label="Back to surfaces"
-        @click="emit('update:active', null)"
+        @click="showChooser"
       >
         <Icon name="back" />
       </button>
       <span v-if="!hideTitle" class="surface-title">{{ title }}</span>
       <span class="surface-spacer" />
       <button
+        v-if="active"
         class="surface-icon"
         :aria-label="focused ? 'Restore pane size' : 'Maximize pane'"
         :aria-pressed="focused"
@@ -182,7 +187,7 @@ function close() {
           class="surface-choice"
           @click="emit('update:active', item.id)"
         >
-          <Icon :name="item.icon" />{{ item.label }}
+          <Icon :name="item.icon" /><span>{{ item.label }}</span>
         </button>
       </div>
       <slot v-else :active="active" />
@@ -271,7 +276,7 @@ function close() {
 }
 .surface-icon:hover,
 .surface-choice:hover {
-  background: var(--surface-2, #eee);
+  background: color-mix(in srgb, currentColor 8%, transparent);
 }
 .surface-icon:focus-visible,
 .surface-choice:focus-visible {
@@ -304,28 +309,37 @@ function close() {
 }
 
 .surface-chooser {
-  margin: auto;
-  width: min(270px, 90%);
+  margin: 0 auto auto;
+  transform: translateY(-15%);
+  position: relative;
+  top: 35%;
+  width: max-content;
+  max-width: 90%;
   padding: 18px 0;
 }
-.surface-chooser h2 {
+.surface-pane .surface-chooser h2 {
   text-align: center;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   margin: 0 0 12px;
 }
 .surface-choice {
   width: 100%;
-  display: flex;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   border: 0;
   border-radius: 5px;
-  padding: 9px;
+  padding: 9px 4px;
   background: transparent;
   color: inherit;
   text-align: left;
   font: inherit;
   cursor: pointer;
+}
+.surface-choice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 </style>

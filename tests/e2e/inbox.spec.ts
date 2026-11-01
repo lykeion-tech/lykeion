@@ -252,6 +252,7 @@ test('embedded Properties keeps its own width and responds to the actual Inbox c
       .toBe(true);
   const splitter = study.getByRole('separator', { name: 'Resize right pane' });
   await expect(study.getByRole('heading', { name: card.title })).toBeVisible();
+  await meta.getByRole('button', { name: 'Properties', exact: true }).click();
   await page.setViewportSize({ width: 1100, height: 982 });
   await expectPaneMode();
   // With the rail open the study is still wide enough to dock the pane.

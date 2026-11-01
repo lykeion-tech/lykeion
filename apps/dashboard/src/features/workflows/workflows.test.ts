@@ -9,6 +9,18 @@ import StudyDetail from '../studies/StudyDetail.vue';
 import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
 import { byDomain, stripComments } from '../../lib/workflows';
+import { renderMarkdown } from '../../lib/markdown';
+
+it('wraps Workflow source lines naturally while preserving explicit breaks and code', () => {
+  const result = renderMarkdown(
+    'First source line\ncontinues here.\n\nHard break  \nnext line.\n\n```\na\nb\n```',
+    false,
+  );
+  expect(result.html).toContain('First source line\ncontinues here.');
+  expect(result.html).toContain('Hard break<br>\nnext line.');
+  expect(result.codes).toEqual(['a\nb\n']);
+  expect(renderMarkdown('one\ntwo').html).toContain('one<br>\ntwo');
+});
 import type { WorkflowSummary } from '../../api/types';
 
 const summary = (slug: string, name: string, domain: string, tags: string[]): WorkflowSummary => ({

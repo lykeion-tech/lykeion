@@ -293,10 +293,19 @@ async function openFile(file: FileRow) {
 .experiment-surface-layout :deep(.surface-pane) {
   min-height: 0;
 }
+.experiment-surface-layout :deep(.surface-chooser h2) {
+  font-weight: 700;
+}
 .experiment-surface-layout :deep(.task-rightpane-card) {
   border: 0;
   border-radius: 0;
   height: 100%;
+}
+.experiment-surface-layout :deep(.task-rightpane-card),
+.experiment-surface-layout :deep(.notebook-panel),
+.experiment-surface-layout :deep(.compute-panel),
+.experiment-surface-layout :deep(.artifact-pane) {
+  background: var(--surface);
 }
 .experiment-toggle {
   margin-left: auto;

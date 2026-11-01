@@ -15,6 +15,7 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(`/#/studies/${f.card_id}`);
   const meta = page.locator('aside[aria-label="Right pane"]');
+  await meta.getByRole('button', { name: 'Properties', exact: true }).click();
   const splitter = page.getByRole('separator', { name: 'Resize right pane' });
   const main = page.locator('.task-main');
   await expect(meta).toHaveCSS('width', '364px');

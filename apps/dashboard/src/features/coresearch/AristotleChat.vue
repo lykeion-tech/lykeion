@@ -157,6 +157,8 @@ const experimentWidth = useElementWidth(experimentLayout);
 const activePane = ref<string | null>(null),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
   activeFile = ref<FileRow>();
+let paneKey = '';
+let restoringPane = false;
 const inspectorProject = computed(() =>
   experiment.value && paneMode.value !== 'closed' ? (conversation.value?.project_id ?? '') : '',
 );
@@ -165,12 +167,26 @@ const project = useCoresearchProject(() => inspectorProject.value),
   files = useCoresearchFiles(() => inspectorProject.value);
 const chat = computed(() => chats.data.value?.find((c) => c.id === conversation.value?.chat_id));
 watch(
-  () => [workspaceId.value, conversation.value?.id],
-  () => {
-    paneMode.value = 'closed';
+  () => [workspaceId.value, me.data.value?.id, conversation.value?.id],
+  ([workspace, user, conversationId]) => {
+    restoringPane = true;
+    paneKey =
+      workspace && user && conversationId
+        ? `lykeion.experiment-pane-open:${workspace}:${user}:${conversationId}`
+        : '';
+    paneMode.value = paneKey && readText(paneKey, 'session') === 'true' ? 'split' : 'closed';
     activePane.value = null;
     activeFile.value = undefined;
+    restoringPane = false;
   },
+  { immediate: true, flush: 'sync' },
+);
+watch(
+  paneMode,
+  (mode) => {
+    if (paneKey && !restoringPane) writeText(paneKey, String(mode !== 'closed'), 'session');
+  },
+  { flush: 'sync' },
 );
 async function selectPane(id: string | null) {
   if (activePane.value === 'files' && !(await guardResourceDrafts())) return;
@@ -827,10 +843,19 @@ async function stop() {
 .experiment-surface-layout :deep(.surface-pane) {
   min-height: 0;
 }
+.experiment-surface-layout :deep(.surface-chooser h2) {
+  font-weight: 700;
+}
 .experiment-surface-layout :deep(.task-rightpane-card) {
   border: 0;
   border-radius: 0;
   height: 100%;
+}
+.experiment-surface-layout :deep(.task-rightpane-card),
+.experiment-surface-layout :deep(.notebook-panel),
+.experiment-surface-layout :deep(.compute-panel),
+.experiment-surface-layout :deep(.artifact-pane) {
+  background: var(--surface);
 }
 .experiment-toggle {
   margin-left: auto;

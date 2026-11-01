@@ -43,6 +43,8 @@ it('opens a single surface, returns to the chooser, and restores it after closin
     await nextTick();
   };
   expect(textOf(root)).toContain('Open a surface');
+  expect(all(root).some((n) => n.props.role === 'separator')).toBe(false);
+  expect(all(root).some((n) => n.props['aria-label'] === 'Maximize pane')).toBe(false);
   await click('Files');
   expect(textOf(root)).toContain('Content files');
   await click('Maximize pane');
@@ -54,6 +56,8 @@ it('opens a single surface, returns to the chooser, and restores it after closin
   expect(textOf(root)).toContain('Content files');
   await click('Back to surfaces');
   expect(textOf(root)).toContain('Open a surface');
+  expect(focused.value).toBe(false);
+  expect(all(root).some((n) => n.props.role === 'separator')).toBe(false);
   app.unmount();
 });
 
@@ -71,7 +75,7 @@ it('exposes a keyboard resizable separator and dismissible narrow overlay', asyn
     render: () =>
       h(SurfacePane, {
         open: true,
-        active: null,
+        active: 'files',
         focused: false,
         surfaces: [],
         'onUpdate:open': (v: boolean) => {
@@ -122,7 +126,7 @@ it('drags the separator and retains the preferred width when remounted', async (
       render: () =>
         h(SurfacePane, {
           open: true,
-          active: null,
+          active: 'files',
           focused: false,
           surfaces: [],
           widthKey: 'test-pane',
@@ -263,7 +267,7 @@ it('limits a split pane to leave room in the actual study container', async () =
     render: () =>
       h(SurfacePane, {
         open: true,
-        active: null,
+        active: 'files',
         focused: false,
         surfaces: [],
         containerWidth: 800,

@@ -15,6 +15,7 @@
 }
 .experiment-surface-layout :deep(.surface-header) {
   height: 49px;
+  border-bottom: 0;
 }
 .aristotle-header :deep(.aristotle-art) {
   width: 32px;

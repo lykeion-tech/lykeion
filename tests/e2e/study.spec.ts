@@ -99,9 +99,8 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/recorded-spend-inspector.png',
   });
-  await surface('Execution log & timeline');
-  await meta.getByRole('button', { name: 'Open timeline', exact: true }).click();
-  const runDialog = page.getByRole('dialog', { name: 'Runs', exact: true });
+  await surface('Timeline');
+  const runDialog = meta.locator('.execution-log');
   await expect(runDialog.locator('.run-metrics')).toContainText('$0.01');
   await expect(runDialog.locator('.timeline-chart .cost-stroke')).not.toHaveAttribute(
     'd',
@@ -110,7 +109,6 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/recorded-spend-timeline.png',
   });
-  await runDialog.getByRole('button', { name: 'Close Runs' }).click();
   await page.getByRole('button', { name: 'Close pane' }).click();
   await expect(meta).toHaveCount(0);
 });
@@ -825,6 +823,7 @@ test('Properties stays the same width on the right and resizes inward', async ({
   await page.goto(`/#/studies/${study.id}`);
   const area = page.getByRole('region', { name: 'Study', exact: true });
   const properties = area.getByRole('complementary', { name: 'Right pane' });
+  await properties.getByRole('button', { name: 'Properties', exact: true }).click();
   const splitter = area.getByRole('separator', { name: 'Resize right pane' });
   await expect(properties).toHaveCSS('width', '364px');
   const pane = (await properties.boundingBox())!;

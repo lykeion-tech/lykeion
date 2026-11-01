@@ -43,25 +43,18 @@ test('inspector resize and real Project persist; disclosures and Runs use record
     'data-value',
     research.id,
   );
-  await openSurface(page, 'Execution log & timeline');
-  await expect(
-    inspector.getByRole('button', { name: 'Execution log', exact: true }),
-  ).toHaveAttribute('aria-expanded', 'true');
-  await inspector.getByRole('button', { name: 'Execution log', exact: true }).click();
-  await expect(inspector.locator('.execution-body')).toHaveCount(0);
-  await inspector.getByRole('button', { name: 'Execution log', exact: true }).click();
+  await openSurface(page, 'Timeline');
+  await expect(inspector.locator('.execution-log .run-metrics')).toBeVisible();
   await page.evaluate(() => localStorage.setItem('lykeion.study-inspector-width', '364'));
   await page.reload();
   await expect(inspector).toHaveCSS('width', '364px');
-  await openSurface(page, 'Execution log & timeline');
-  await inspector.getByRole('button', { name: 'Open timeline', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Runs', exact: true });
+  await openSurface(page, 'Timeline');
+  const dialog = inspector.locator('.execution-log');
   await expect(dialog.getByText('Latest-attempt time', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Attempt 2', { exact: false }).first()).toBeVisible();
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/timeline.png',
   });
-  await dialog.getByRole('button', { name: 'Close Runs' }).click();
   await openSurface(page, 'Details');
   await inspector.getByRole('button', { name: 'Details', exact: true }).click();
   await expect(inspector.getByRole('button', { name: 'Change', exact: true })).toHaveCount(0);
@@ -92,6 +85,7 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   await page.mouse.up();
   await expect(page.locator('.sidebar')).toHaveCSS('width', '260px');
   const pane = page.locator('aside[aria-label="Right pane"]');
+  await openSurface(page, 'Properties');
   const inspector = page.getByRole('separator', { name: 'Resize right pane' });
   await inspector.focus();
   await page.keyboard.press('Home');
@@ -115,17 +109,14 @@ test('Execution log and Details independently disclose; Runs keeps recorded cost
   const f = await labFixture(page.request);
   await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
   await page.goto(`/#/studies/${f.card_id}`);
-  const meta = await openSurface(page, 'Execution log & timeline');
-  await expect(meta.getByRole('button', { name: 'Execution log', exact: true })).toBeVisible();
-  await meta.getByRole('button', { name: 'Execution log', exact: true }).click();
-  await expect(meta.locator('.execution-body')).toHaveCount(0);
+  const meta = await openSurface(page, 'Timeline');
+  await expect(meta.locator('.execution-log .run-metrics')).toBeVisible();
   await openSurface(page, 'Details');
   await expect(meta.locator('.details-body')).toBeVisible();
   await meta.getByRole('button', { name: 'Details', exact: true }).click();
   await expect(meta.locator('.details-body')).toHaveCount(0);
-  await openSurface(page, 'Execution log & timeline');
-  await meta.getByRole('button', { name: 'Open Runs', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Runs', exact: true });
+  await openSurface(page, 'Timeline');
+  const dialog = meta.locator('.execution-log');
   await expect(dialog.getByText('Latest-attempt time', { exact: true })).toBeVisible();
   await expect(dialog.locator('.timeline-row')).toHaveCount(1);
   const runs = await (

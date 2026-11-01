@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { renderMarkdown } from '../lib/markdown';
-const props = defineProps<{ content: string }>();
-const rendered = computed(() => renderMarkdown(props.content));
+const props = withDefaults(defineProps<{ content: string; breaks?: boolean }>(), { breaks: true });
+const rendered = computed(() => renderMarkdown(props.content, props.breaks));
 const body = ref<HTMLElement>();
 const notice = ref('');
 const timers = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>();

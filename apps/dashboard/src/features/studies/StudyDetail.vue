@@ -102,9 +102,9 @@ const activeSurface = ref<string | null>(null);
 const paneFocused = ref(false);
 const studySurfaces = [
   { id: 'properties', label: 'Properties', icon: 'settings' },
-  { id: 'execution', label: 'Execution log & timeline', icon: 'chart' },
-  { id: 'details', label: 'Details', icon: 'list' },
+  { id: 'execution', label: 'Timeline', icon: 'chart' },
   { id: 'files', label: 'Files', icon: 'file' },
+  { id: 'details', label: 'Details', icon: 'list' },
 ];
 const propertyBusy = ref(false);
 async function saveProperty(body: Record<string, unknown>) {
@@ -666,6 +666,7 @@ function pin() {
 </template>
 <style scoped>
 .study-detail :deep(.surface-header) {
+  height: 49px;
   border-bottom: 0;
 }
 .study-meta.surface-content {
@@ -847,7 +848,7 @@ function pin() {
   min-height: 0;
 }
 .study-heading {
-  height: 56px;
+  height: 49px;
   border-bottom: 1px solid var(--border);
   flex: none;
   padding: 0 20px;
