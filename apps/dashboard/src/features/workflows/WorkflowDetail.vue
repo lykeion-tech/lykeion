@@ -15,11 +15,26 @@ const filter = ref('');
 const selected = ref('');
 const preview = ref('');
 const previewFailed = ref(false);
-const files = computed(() =>
-  (w.value?.files ?? [])
+const open = ref<string[]>([]);
+// Top-level folders first, each holding its files; loose files follow.
+const tree = computed(() => {
+  const matched = (w.value?.files ?? [])
     .filter((f) => matchesQuery(f.path, filter.value))
-    .sort((a, b) => a.path.localeCompare(b.path)),
-);
+    .sort((a, b) => a.path.localeCompare(b.path));
+  const folders = new Map<string, typeof matched>();
+  const loose: typeof matched = [];
+  for (const f of matched) {
+    const slash = f.path.indexOf('/');
+    if (slash < 0) loose.push(f);
+    else folders.set(f.path.slice(0, slash), [...(folders.get(f.path.slice(0, slash)) ?? []), f]);
+  }
+  return { folders: [...folders], loose };
+});
+const expanded = (name: string) => !!filter.value || open.value.includes(name);
+const toggle = (name: string) =>
+  (open.value = open.value.includes(name)
+    ? open.value.filter((x) => x !== name)
+    : [...open.value, name]);
 const chosen = computed(() => w.value?.files.find((f) => f.path === selected.value));
 const hours = (n: number) => Math.round((n / 3600) * 10) / 10;
 const rows = computed(() => {
@@ -41,17 +56,17 @@ watch(
   () => {
     selected.value = '';
     preview.value = '';
+    previewFailed.value = false;
+    open.value = [];
+    filter.value = '';
   },
 );
-// Only markdown and text are previewed; everything else keeps its size.
-const previewable = (path: string) =>
-  /\.(md|markdown|txt|sh|py|toml|json|ya?ml|csv|cfg|ini|r|jl|tex)$|(^|\/)[^./]+$/i.test(path);
 async function select(path: string) {
   selected.value = path;
   preview.value = '';
   previewFailed.value = false;
   const file = w.value?.files.find((f) => f.path === path);
-  if (!file?.embedded || !previewable(path)) return;
+  if (!file?.embedded) return;
   try {
     const text = await (await workflowFile(props.slug, path)).text();
     if (selected.value === path) preview.value = text;
@@ -61,9 +76,7 @@ async function select(path: string) {
 }
 const isMarkdown = (path: string) => /\.(md|markdown)$/i.test(path);
 const unavailable = computed(
-  () =>
-    !!chosen.value &&
-    (!chosen.value.embedded || !previewable(chosen.value.path) || previewFailed.value),
+  () => !!chosen.value && (!chosen.value.embedded || previewFailed.value),
 );
 </script>
 <template>
@@ -120,7 +133,23 @@ const unavailable = computed(
               aria-label="Search files"
           /></label>
           <ul>
-            <li v-for="f in files" :key="f.path">
+            <li v-for="[name, list] in tree.folders" :key="name">
+              <button type="button" :aria-expanded="expanded(name)" @click="toggle(name)">
+                {{ expanded(name) ? '▾' : '▸' }} {{ name }}
+              </button>
+              <ul v-if="expanded(name)" class="workflow-nested">
+                <li v-for="f in list" :key="f.path">
+                  <button
+                    type="button"
+                    :aria-current="selected === f.path ? 'true' : undefined"
+                    @click="select(f.path)"
+                  >
+                    {{ f.path.slice(name.length + 1) }}
+                  </button>
+                </li>
+              </ul>
+            </li>
+            <li v-for="f in tree.loose" :key="f.path">
               <button
                 type="button"
                 :aria-current="selected === f.path ? 'true' : undefined"
@@ -189,6 +218,9 @@ const unavailable = computed(
 .workflow-tree button[aria-current='true'],
 .workflow-tree button:hover {
   background: var(--fill-card);
+}
+.workflow-nested {
+  padding-left: 16px !important;
 }
 .workflow-count {
   color: var(--muted);

@@ -103,6 +103,7 @@ async function mount(component: Component, props: Record<string, unknown>) {
     files: [
       { path: 'instruction.md', size: 5, embedded: true },
       { path: 'tests/test.sh', size: 900, embedded: false },
+      { path: 'solution/solve.sh', size: 12, embedded: true },
     ],
   });
   const router = createRouter({
@@ -139,11 +140,29 @@ describe('Workflows pages', () => {
     const m = await mount(WorkflowDetail, { slug: 'b' });
     expect(m.text()).toContain('Workflows');
     await m.click(/^Files$/);
-    expect(m.text()).toContain('tests/test.sh');
-    await m.click(/^tests\/test\.sh$/);
+    expect(m.text()).toContain('tests');
+    expect(m.text()).not.toContain('test.sh');
+    await m.click(/tests$/);
+    expect(m.text()).toContain('test.sh');
+    await m.click(/^test\.sh$/);
     expect(m.text()).toContain('Preview unavailable');
     expect(m.text()).toContain('900');
     expect(fetch).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('previews any embedded file as text', async () => {
+    const fetchMock = vi.fn(async () => new Response('echo solved'));
+    vi.stubGlobal('fetch', fetchMock);
+    const m = await mount(WorkflowDetail, { slug: 'b' });
+    await m.click(/^Files$/);
+    await m.click(/solution$/);
+    await m.click(/^solve\.sh$/);
+    await new Promise((r) => setTimeout(r, 0));
+    await nextTick();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain('solution%2Fsolve.sh');
+    expect(m.text()).toContain('echo solved');
     vi.unstubAllGlobals();
   });
 });
