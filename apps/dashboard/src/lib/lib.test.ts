@@ -28,7 +28,7 @@ import {
   repositoryUrl,
   validCreateFields,
 } from './settings';
-import { matchesQuery, paletteEntries, rankPaletteEntries } from './search';
+import { matchesQuery, paletteEntries, paletteSelection, rankPaletteEntries } from './search';
 import { environmentView } from '../features/studies/environment';
 import type {
   AgentRun,
@@ -65,6 +65,19 @@ describe('workspace search palette', () => {
       '/studies/s2',
     ]);
     expect(rankPaletteEntries(entries, 'unfindable')).toEqual([]);
+  });
+  it('keeps a row someone chose through a refresh, otherwise follows the top', () => {
+    const before = rankPaletteEntries(paletteEntries(researches, studies, 'LAB'), '');
+    const added = { id: 's4', title: 'A new study', number: 4, research_id: null } as Card;
+    const refreshed = rankPaletteEntries(
+      paletteEntries(researches, [added, ...studies], 'LAB'),
+      '',
+    );
+    const chosen = before.findIndex((entry) => entry.path === '/studies/s2');
+    expect(refreshed[paletteSelection(before, refreshed, chosen, true)]?.path).toBe('/studies/s2');
+    expect(paletteSelection(before, refreshed, chosen, false)).toBe(0);
+    const gone = rankPaletteEntries(paletteEntries(researches, [studies[0]!], 'LAB'), '');
+    expect(paletteSelection(before, gone, chosen, true)).toBe(0);
   });
 });
 

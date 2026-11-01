@@ -74,3 +74,18 @@ export function rankPaletteEntries(entries: PaletteEntry[], query: string): Pale
     .sort((left, right) => right.score - left.score)
     .map(({ entry }) => entry);
 }
+
+// The top entry stays selected until someone moves the selection. After that a
+// refreshed list keeps their entry selected wherever it moved, and falls back
+// to the top once it is gone.
+export function paletteSelection(
+  previous: PaletteEntry[],
+  next: PaletteEntry[],
+  active: number,
+  keep: boolean,
+): number {
+  if (!keep) return 0;
+  const chosen = previous[active]?.id;
+  const index = next.findIndex((entry) => entry.id === chosen);
+  return index < 0 ? 0 : index;
+}
