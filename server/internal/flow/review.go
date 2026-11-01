@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -17,6 +18,8 @@ import (
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -48,7 +51,7 @@ func usesReview(c db.Card) bool {
 type reviewing struct {
 	criteria []string
 	items    []db.Record          // this round's item records
-	carried  []review.Item        // the last review's items that did not fail
+	carried  []review.Item        // the last attempt's items that did not fail
 	cited    map[string]db.Record // what the hypotheses cite, by the cite as written
 	saved    []string             // names of the files saved in this column
 	work     []db.Record          // this round's records that may report values, and the column's outputs
@@ -63,8 +66,10 @@ type reviewing struct {
 func (e *Engine) reviewColumn(ctx context.Context, ws uuid.UUID, in scoring) error {
 	rv, err := e.readReview(ctx, ws, in.card)
 	var res review.Result
-	if err == nil {
-		res, err = e.runReview(ctx, in, rv)
+	if err != nil {
+		err = fmt.Errorf("reading the %s review's inputs: %w", in.card.BoardColumn, err)
+	} else if res, err = e.runReview(ctx, in, rv); err != nil {
+		err = fmt.Errorf("%s review: %w", in.card.BoardColumn, err)
 	}
 	moved, werr := e.applyReview(ctx, ws, in, res, err)
 	if werr != nil {
@@ -86,33 +91,47 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		if err != nil {
 			return err
 		}
-		var last *db.Record
+		var last, declared *db.Record
 		for _, r := range recs {
 			col, item := review.ColumnOf(r.Kind)
 			switch {
-			case r.Kind == "review" && r.Round < c.Round:
+			case r.Kind == "review" && r.Round == c.Round-1:
 				last = &r
 			case r.Kind == "output":
 				rv.work = append(rv.work, r)
 				rv.saved = append(rv.saved, records.Body[struct{ Name string }](r).Name)
 			case r.Round != c.Round:
+				if r.Kind == review.KindOutputs {
+					declared = &r
+				}
 			case item && col == c.BoardColumn:
 				rv.items = append(rv.items, r)
 			case r.Kind != "call" && r.Kind != "run":
 				rv.work = append(rv.work, r)
 			}
 		}
+		// A redo that declares no outputs keeps the last attempt's list.
+		if c.BoardColumn == board.Experimentation && len(rv.items) == 0 && declared != nil {
+			rv.items = []db.Record{*declared}
+		}
+		// The previous attempt's items that did not fail stand; a failed item
+		// the redo does not declare again is withdrawn. Outputs are checked
+		// afresh each attempt.
 		if last != nil {
 			var prev review.Result
 			if err := json.Unmarshal(last.Body, &prev); err != nil {
 				return fmt.Errorf("review %s: %w", last.Key, err)
 			}
 			for _, it := range prev.Items {
-				if it.Status != review.Fail {
+				if it.Status != review.Fail && it.Kind != review.KindOutputs {
 					rv.carried = append(rv.carried, it)
 				}
 			}
 		}
+		// An item declared again keeps its earlier standing: it is not asked again.
+		rv.items = slices.DeleteFunc(rv.items, func(r db.Record) bool {
+			return slices.ContainsFunc(rv.carried, func(it review.Item) bool { return it.Kind == r.Kind && it.Label == review.LabelOf(r) })
+		})
 		var citeKeys, runKeys []string
 		for _, r := range rv.items {
 			if r.Kind == review.KindHypothesis {
@@ -133,7 +152,12 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 			}
 			byKey := map[string]db.Record{}
 			for _, r := range cited {
-				byKey[r.Key] = r
+				// Records the server writes are not evidence, apart from the
+				// sources server's calls: an audit or a review cited here
+				// would reach Jev.
+				if r.Kind == "call" || !slices.Contains(service.ServerKinds, r.Kind) {
+					byKey[r.Key] = r
+				}
 			}
 			rv.cited = map[string]db.Record{}
 			for _, r := range rv.items {
@@ -182,7 +206,7 @@ func (e *Engine) runReview(ctx context.Context, in scoring, rv reviewing) (revie
 		if e.Sources == nil {
 			return review.Result{}, errNoSources
 		}
-		return review.Grounding(ctx, a, e.Sources, review.GroundingInput{Question: asked(in.card), Criteria: rv.criteria,
+		return review.Grounding(ctx, a, lookup{e.Sources}, review.GroundingInput{Question: asked(in.card), Criteria: rv.criteria,
 			Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
 	case board.Hypotheses:
 		return review.Hypotheses(ctx, a, review.HypothesesInput{Question: asked(in.card), Items: rv.items, Cited: rv.cited,
@@ -190,14 +214,17 @@ func (e *Engine) runReview(ctx context.Context, in scoring, rv reviewing) (revie
 	case board.Experimentation:
 		runs, err := LoadRuns(ctx, e.Blobs, rv.runs)
 		if err != nil {
-			return review.Result{}, err
+			return review.Result{}, fmt.Errorf("reading run output: %w", err)
 		}
 		files, err := e.outputTexts(ctx, rv.work)
 		if err != nil {
-			return review.Result{}, err
+			return review.Result{}, fmt.Errorf("reading saved files: %w", err)
 		}
+		values := slices.DeleteFunc(valueChecks(MatchValuesIn(rv.work, runs, files), rv.work, runs, files), func(v review.ValueCheck) bool {
+			return slices.ContainsFunc(rv.carried, func(it review.Item) bool { return it.Label == review.ValueLabel(v) })
+		})
 		return review.Experimentation(ctx, a, review.ExperimentationInput{Declared: rv.items, Saved: rv.saved,
-			Values: valueChecks(MatchValuesIn(rv.work, runs, files), rv.work, runs, files), Attempt: in.attempt})
+			Values: values, Carried: rv.carried, Attempt: in.attempt})
 	}
 	return review.Result{}, fmt.Errorf("no item review for the %s column", in.card.BoardColumn)
 }
@@ -284,7 +311,8 @@ func around(out, value string) string {
 	return s
 }
 
-// retryAsker asks Jev with the engine's retry around each request.
+// retryAsker asks Jev with the engine's retry around each request, and says
+// in its errors that Jev failed.
 type retryAsker struct{ e *Engine }
 
 func (a retryAsker) Noul(ctx context.Context, state string, qs map[string]string) (out map[string]float64, err error) {
@@ -292,6 +320,9 @@ func (a retryAsker) Noul(ctx context.Context, state string, qs map[string]string
 		out, err = a.e.Jev.Noul(ctx, state, qs)
 		return err
 	})
+	if err != nil {
+		err = fmt.Errorf("asking Jev: %w", err)
+	}
 	return out, err
 }
 
@@ -300,7 +331,36 @@ func (a retryAsker) Choice(ctx context.Context, state, instructions string, opti
 		out, err = a.e.Jev.Choice(ctx, state, instructions, options)
 		return err
 	})
+	if err != nil {
+		err = fmt.Errorf("asking Jev: %w", err)
+	}
 	return out, err
+}
+
+// lookup says in its errors that the sources lookup failed; not-found
+// answers stay recognisable.
+type lookup struct{ s review.Sources }
+
+func (l lookup) Paper(ctx context.Context, id string) (sources.Hit, error) {
+	h, err := l.s.Paper(ctx, id)
+	return h, lookupErr(err)
+}
+
+func (l lookup) Dataset(ctx context.Context, accession string) (sources.Hit, error) {
+	h, err := l.s.Dataset(ctx, accession)
+	return h, lookupErr(err)
+}
+
+func (l lookup) Search(ctx context.Context, query string) ([]sources.Hit, error) {
+	hs, err := l.s.Search(ctx, query)
+	return hs, lookupErr(err)
+}
+
+func lookupErr(err error) error {
+	if err == nil || errors.Is(err, sources.ErrNotFound) {
+		return err
+	}
+	return fmt.Errorf("sources lookup: %w", err)
 }
 
 // applyReview writes the review and its outcome and acts on the decision, as

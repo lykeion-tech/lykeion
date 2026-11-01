@@ -167,7 +167,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 			if err := json.Unmarshal(rec.Body, &b); err != nil {
 				return Result{}, fmt.Errorf("record %s: %w", rec.Key, err)
 			}
-			it.Label = string([]rune(b.Text)[:min(80, len([]rune(b.Text)))])
+			it.Label = LabelOf(rec)
 			noQualifying = append(noQualifying, len(r.Items))
 			r.Items = append(r.Items, it)
 			continue

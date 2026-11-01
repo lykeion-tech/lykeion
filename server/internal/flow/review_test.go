@@ -330,11 +330,15 @@ func TestTheAuditorsFindingsNeverReachJev(t *testing.T) {
 	if err := l.env.Owner.QueryRow(context.Background(), "SELECT id FROM agent_run WHERE card_id = $1 AND role = 'auditor'", c.ID).Scan(&run); err != nil {
 		t.Fatalf("no auditor run: %v", err)
 	}
-	l.in(t, func(tx *store.Tx) error {
-		_, err := records.WriteAs(context.Background(), tx, service.Writer{Card: c.ID, AgentRun: run, Column: "hypotheses", Role: "auditor", Round: c.Round},
+	var audit db.Record
+	l.in(t, func(tx *store.Tx) (err error) {
+		audit, err = records.WriteAs(context.Background(), tx, service.Writer{Card: c.ID, AgentRun: run, Column: "hypotheses", Role: "auditor", Round: c.Round},
 			"audit", map[string]any{"text": "SECRET-AUDIT", "findings": []string{"SECRET-AUDIT finding"}})
 		return err
 	})
+	// A hypothesis citing the audit does not bring it to Jev.
+	cheat := l.item(t, c.ID, review.KindHypothesis, review.HypothesisBody{Text: "The audit settles it.",
+		Prediction: review.Prediction{Shape: "direction", Direction: "increase"}, Control: review.Control{Text: "Young cells"}, Cites: []string{audit.Key}})
 	l.settleAuditor(t, c.ID)
 	calls := stub.calls()
 	if len(nouls(calls)) == 0 {
@@ -345,8 +349,19 @@ func TestTheAuditorsFindingsNeverReachJev(t *testing.T) {
 			t.Fatalf("the auditor's findings reached Jev:\n%s", call.State)
 		}
 	}
-	if got := l.card(t, c.ID); got.State != "done" {
-		t.Fatalf("the reviewed column did not finish the study: %s", got.State)
+	rs := l.reviews(t, c.ID, "hypotheses")
+	if len(rs) != 1 {
+		t.Fatalf("%d reviews", len(rs))
+	}
+	for _, it := range rs[0].Items {
+		if want := review.Pass; it.Key == cheat {
+			want = review.Fail
+			if it.Status != want || it.Checks[0].ID != "cites_recorded" || it.Checks[0].Status != review.Fail {
+				t.Fatalf("the hypothesis citing the audit: %+v", it)
+			}
+		} else if it.Status != want {
+			t.Fatalf("hypothesis %s: %+v", it.Key, it)
+		}
 	}
 }
 
@@ -410,5 +425,154 @@ func TestAroundCutsOnCharacterBoundaries(t *testing.T) {
 	}
 	if around(out, "0.99") != "" {
 		t.Fatal("a value the text does not hold was found")
+	}
+}
+
+func TestAnUndeclaredFailureIsWithdrawn(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.done(t, c.ID)
+	l.done(t, c.ID) // the redo declares nothing new
+	rs := l.reviews(t, c.ID, "grounding")
+	if len(rs) != 2 || rs[1].Decision != review.DecidePass || len(rs[1].Items) != 1 || rs[1].Items[0].Label != paperA || !rs[1].Items[0].Carried {
+		t.Fatalf("review records: %+v", rs)
+	}
+	if got := l.card(t, c.ID); got.BoardColumn != "hypotheses" || got.State != "working" {
+		t.Fatalf("after the withdrawn failure: %s %s", got.BoardColumn, got.State)
+	}
+}
+
+func TestNothingLeftIsNeverAPass(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.done(t, c.ID)
+	l.done(t, c.ID) // the redo declares nothing
+	rs := l.reviews(t, c.ID, "grounding")
+	if len(rs) != 2 || rs[0].Decision != review.DecideRedo || rs[1].Decision != review.DecideBlock || len(rs[1].Items) != 0 {
+		t.Fatalf("review records: %+v", rs)
+	}
+	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "low_score" {
+		t.Fatalf("after an empty redo: %s %s", got.State, got.BlockKind)
+	}
+}
+
+func TestARedeclaredPassStands(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.done(t, c.ID)
+	// Asked again, A would now fail: it no longer resolves.
+	l.e.Sources = stubSources{missing: map[string]bool{paperA: true, paperB: true}}
+	asked := len(stub.calls())
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.item(t, c.ID, review.KindPaper, paper(paperB2))
+	l.done(t, c.ID)
+	for _, call := range nouls(stub.calls()[asked:]) {
+		if strings.Contains(call.State, paperA) {
+			t.Fatalf("the carried paper was asked again:\n%s", call.State)
+		}
+	}
+	rs := l.reviews(t, c.ID, "grounding")
+	if len(rs) != 2 || rs[1].Decision != review.DecidePass {
+		t.Fatalf("review records: %+v", rs)
+	}
+	n := 0
+	for _, it := range rs[1].Items {
+		if it.Label == paperA {
+			n++
+			if !it.Carried || it.Status != review.Pass {
+				t.Fatalf("paper A: %+v", it)
+			}
+		}
+	}
+	if n != 1 || len(rs[1].Items) != 2 {
+		t.Fatalf("paper A counted %d times among %+v", n, rs[1].Items)
+	}
+}
+
+func TestExperimentationRedoCarriesPassedValues(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "experimentation", "experimentation", a)
+	ctx := context.Background()
+	insert := func(recs ...db.InsertRecordParams) {
+		t.Helper()
+		l.e.Kick(l.ws, c.ID)
+		cur := l.card(t, c.ID)
+		l.in(t, func(tx *store.Tx) error {
+			for _, r := range recs {
+				r.WorkspaceID, r.CardID, r.BoardColumn, r.Round = l.ws, c.ID, "experimentation", cur.Round
+				if _, err := tx.Q.InsertRecord(ctx, r); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+	insert(
+		db.InsertRecordParams{Kind: "output", Role: "agent", Key: "o1", Body: []byte(`{"name":"fit.csv","size_bytes":3,"content_type":"text/csv"}`)},
+		db.InsertRecordParams{Kind: "run", Role: "server", Key: "x1", Body: []byte(`{"tool":"run_script","output":"effect 0.123456\n","exit_status":0}`)},
+		db.InsertRecordParams{Kind: "run", Role: "server", Key: "x2", Body: []byte(`{"tool":"run_script","output":"control 7\n","exit_status":1}`)},
+		db.InsertRecordParams{Kind: "result", Role: "agent", Key: "r1", Body: []byte(`{"text":"The effect is 0.12.","cites":["run:x1"],"value":0.12}`)},
+		db.InsertRecordParams{Kind: "result", Role: "agent", Key: "r2", Body: []byte(`{"text":"The control is 7.","cites":["run:x2"],"value":7}`)},
+		db.InsertRecordParams{Kind: review.KindOutputs, Role: "agent", Key: "r3", Body: []byte(`{"files":["fit.csv"]}`)},
+	)
+	l.done(t, c.ID)
+	insert(
+		db.InsertRecordParams{Kind: "run", Role: "server", Key: "x3", Body: []byte(`{"tool":"run_script","output":"control 7\n","exit_status":0}`)},
+		db.InsertRecordParams{Kind: "result", Role: "agent", Key: "r4", Body: []byte(`{"text":"The control is 7.","cites":["run:x3"],"value":7}`)},
+	)
+	l.done(t, c.ID)
+	rs := l.reviews(t, c.ID, "experimentation")
+	if len(rs) != 2 || rs[0].Decision != review.DecideRedo || rs[1].Decision != review.DecidePass {
+		t.Fatalf("review records: %+v", rs)
+	}
+	got := map[string]string{}
+	for _, it := range rs[1].Items {
+		got[it.Key] = fmt.Sprintf("%s carried=%v", it.Status, it.Carried)
+	}
+	if got["r1"] != "pass carried=true" || got["r4"] != "pass carried=false" || got["r3"] != "pass carried=false" || len(got) != 3 {
+		t.Fatalf("attempt 2's items: %v", got)
+	}
+	if card := l.card(t, c.ID); card.State != "done" {
+		t.Fatalf("the redone column did not finish: %s", card.State)
+	}
+}
+
+func TestASecondScoreOfAReviewedRoundIsANoOp(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	l.e.Sources = stubSources{}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.done(t, c.ID)
+	// Put the study back where it was reviewed, as a pass that read it
+	// before the review was written would see it.
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE card SET board_column = 'grounding', state = 'working', round = $2, redos = 0 WHERE id = $1", c.ID, c.Round); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Score(context.Background(), l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.e.applyReview(context.Background(), l.ws, scoring{card: l.card(t, c.ID), attempt: 1},
+		review.Result{Column: "grounding", Items: []review.Item{{Key: "r9", Status: review.Pass}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind IN ('review', 'outcome')", c.ID); n != 2 {
+		t.Fatalf("%d review and outcome records, want one of each", n)
+	}
+	if got := l.card(t, c.ID); got.BoardColumn != "grounding" || got.Round != c.Round {
+		t.Fatalf("a second pass moved the study: %s round %d", got.BoardColumn, got.Round)
 	}
 }

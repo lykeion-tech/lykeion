@@ -24,7 +24,13 @@ type ExperimentationInput struct {
 	Declared []db.Record // outputs records of this round (latest wins)
 	Saved    []string    // names of output files saved in this column
 	Values   []ValueCheck
+	Carried  []Item // value items that did not fail on an earlier attempt
 	Attempt  int
+}
+
+// ValueLabel is the label of a reported value's item.
+func ValueLabel(v ValueCheck) string {
+	return clip(v.Value + ": " + v.Sentence)
 }
 
 const describedQuestion = "Does the sentence describe this number correctly: what it measures, its direction and its unit?"
@@ -67,7 +73,7 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 	r.Items = append(r.Items, out)
 
 	for _, v := range in.Values {
-		it := Item{Key: v.Record, Kind: "value", Label: clip(v.Value + ": " + v.Sentence)}
+		it := Item{Key: v.Record, Kind: "value", Label: ValueLabel(v)}
 		traced := Check{ID: "traced", By: "server", Detail: v.Where, Status: Pass}
 		if !v.Found {
 			traced.Detail, traced.Status = "not printed by a script run that succeeded, nor in its saved files", Fail
@@ -88,6 +94,10 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 		}
 		it.Status = ItemStatus(it.Checks)
 		r.Items = append(r.Items, it)
+	}
+	for _, c := range in.Carried {
+		c.Carried = true
+		r.Items = append(r.Items, c)
 	}
 	return r, nil
 }

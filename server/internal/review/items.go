@@ -11,6 +11,7 @@ import (
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/service"
+	db "lykeion/server/pkg/db/generated"
 )
 
 const (
@@ -160,4 +161,22 @@ func prediction(p Prediction) string {
 
 func control(c Control) string {
 	return check((c.Text != "") != (c.None != ""), "control needs exactly one of text or none")
+}
+
+// LabelOf is the label the reviewers give an item record: a paper's id, a
+// dataset's accession, otherwise the first 80 characters of its text.
+func LabelOf(rec db.Record) string {
+	var b struct {
+		ID        string `json:"id"`
+		Accession string `json:"accession"`
+		Text      string `json:"text"`
+	}
+	_ = json.Unmarshal(rec.Body, &b)
+	switch rec.Kind {
+	case KindPaper:
+		return b.ID
+	case KindDataset:
+		return b.Accession
+	}
+	return clip(b.Text)
 }

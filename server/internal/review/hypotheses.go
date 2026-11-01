@@ -54,7 +54,7 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 		if err := json.Unmarshal(rec.Body, &b); err != nil {
 			return Result{}, fmt.Errorf("record %s: %w", rec.Key, err)
 		}
-		it := Item{Key: rec.Key, Kind: rec.Kind, Label: string([]rune(b.Text)[:min(80, len([]rune(b.Text)))])}
+		it := Item{Key: rec.Key, Kind: rec.Kind, Label: LabelOf(rec)}
 		// The research question comes first, fenced: people write it.
 		evidence := []string{"Research question: " + in.Question}
 		cite := Check{ID: "cites_recorded", By: "server", Status: Pass}
