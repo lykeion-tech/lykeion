@@ -15,6 +15,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	db "lykeion/server/pkg/db/generated"
@@ -23,11 +25,13 @@ import (
 // Run is a recorded execution as value matching needs it: its whole output,
 // read from the blob when the record's body kept only a cut of it.
 // Unreadable is set when that blob is gone, and Stdout then holds only the
-// cut the body kept.
+// cut the body kept. AgentRunID is the agent run that made the run, zero
+// when the record names none.
 type Run struct {
 	Tool, Stdout string
 	ExitStatus   int
 	Unreadable   bool
+	AgentRunID   uuid.UUID
 }
 
 // ValueMatch is one reported value found in a record. Matched is set when a
@@ -37,10 +41,11 @@ type Run struct {
 // the value's item cites nothing, CallsOnly when it cites database calls but
 // no run. Unchecked names a cited run whose full output could not be read,
 // for a value no run that counts was seen to print; only a script run that
-// succeeded is named, since no other run could make the value match.
+// succeeded is named, since no other run could make the value match. File
+// names the output record whose text held a value its runs did not print.
 type ValueMatch struct {
 	Record, Value        string
-	Run                  string
+	Run, File            string
 	Matched, Exploration bool
 	Failed               bool
 	ExitStatus           int
@@ -67,6 +72,9 @@ func LoadRuns(ctx context.Context, blobs storage.Storage, recs []db.Record) (map
 			continue
 		}
 		run := Run{Tool: body.Tool, Stdout: body.Output, ExitStatus: body.ExitStatus}
+		if rec.AgentRunID != nil {
+			run.AgentRunID = *rec.AgentRunID
+		}
 		if rec.BlobKey != "" {
 			rc, err := blobs.Get(ctx, rec.BlobKey)
 			if errors.Is(err, storage.ErrNotFound) {
@@ -189,25 +197,53 @@ func roundTo(r *big.Rat, d int) *big.Rat {
 // Records of the free kinds report no values, and server-written records are
 // not the agent's reports; both are skipped.
 func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
-	// printed holds each run's numbers, rounded once per number of places;
-	// places -1 keeps them exact, for integer values.
+	return MatchValuesIn(recs, runs, nil)
+}
+
+// MatchValuesIn is MatchValues where a value no cited run printed may also be
+// found, by the same rounding rule, in the text of a file saved by the agent
+// run that made a cited script run that exited with status 0. files holds the
+// text of output records by key; only the output records in recs whose text
+// is in files are read.
+func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]string) []ValueMatch {
+	saved := map[uuid.UUID][]string{}
+	for _, rec := range recs {
+		if _, ok := files[rec.Key]; ok && rec.Kind == "output" && rec.AgentRunID != nil {
+			saved[*rec.AgentRunID] = append(saved[*rec.AgentRunID], rec.Key)
+		}
+	}
+	for _, ks := range saved {
+		slices.Sort(ks)
+	}
+	// printed holds the numbers of each run, or of each file under its
+	// output key, rounded once per number of places; places -1 keeps them
+	// exact, for integer values.
 	type at struct {
-		run    string
+		file   bool
+		key    string
 		places int
 	}
-	toks := map[string][]*big.Rat{}
+	type src struct {
+		file bool
+		key  string
+	}
+	toks := map[src][]*big.Rat{}
 	printed := map[at]map[string]bool{}
-	prints := func(k string, n number) bool {
-		key := at{k, n.places}
+	in := func(file bool, k string, n number) bool {
+		key := at{file, k, n.places}
 		if n.integer {
 			key.places = -1
 		}
 		set, ok := printed[key]
 		if !ok {
-			t, ok := toks[k]
+			t, ok := toks[src{file, k}]
 			if !ok {
-				t = tokens(runs[k].Stdout)
-				toks[k] = t
+				text := runs[k].Stdout
+				if file {
+					text = files[k]
+				}
+				t = tokens(text)
+				toks[src{file, k}] = t
 			}
 			set = map[string]bool{}
 			for _, r := range t {
@@ -220,6 +256,7 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 		}
 		return set[n.r.RatString()]
 	}
+	prints := func(k string, n number) bool { return in(false, k, n) }
 	var out []ValueMatch
 	for _, rec := range recs {
 		if slices.Contains(service.FreeKinds, rec.Kind) || slices.Contains(service.ServerKinds, rec.Kind) {
@@ -256,6 +293,22 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 				}
 				if r.Unreadable && counts(r) && unchecked == "" {
 					unchecked = k
+				}
+			}
+		files:
+			for _, k := range cites {
+				if m.Matched || !ok {
+					break
+				}
+				r, cited := runs[k]
+				if !cited || !counts(r) || r.AgentRunID == uuid.Nil {
+					continue
+				}
+				for _, f := range saved[r.AgentRunID] {
+					if in(true, f, n) {
+						m.Matched, m.Run, m.File = true, k, f
+						break files
+					}
 				}
 			}
 			// Only an unreadable run that counts may hide the match, so it

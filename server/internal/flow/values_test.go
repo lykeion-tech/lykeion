@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 	db "lykeion/server/pkg/db/generated"
@@ -298,5 +300,43 @@ func TestAValueCitingOnlyCallsIsNotUncited(t *testing.T) {
 	want := []ValueMatch{{Record: "r1", Value: "1", CallsOnly: true}, {Record: "r2", Value: "1", Run: "x1", Matched: true}, {Record: "r3", Value: "1", Uncited: true}}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestValueFoundInSavedFile(t *testing.T) {
+	agent, other := uuid.New(), uuid.New()
+	withRun := func(r db.Record, id uuid.UUID) db.Record { r.AgentRunID = &id; return r }
+	work := []db.Record{
+		valueRec("r1", "result", map[string]any{"cites": []string{"run:x1"}, "value": 0.91}),
+		withRun(valueRec("o1", "output", map[string]any{"name": "metrics.csv"}), agent),
+		withRun(valueRec("o2", "output", map[string]any{"name": "other.csv"}), other),
+	}
+	runs := map[string]Run{"x1": {Tool: "run_script", Stdout: "saved metrics\n", AgentRunID: agent}}
+	files := map[string]string{"o1": "metric,value\nauc,0.912\n", "o2": "auc,0.77\n"}
+	got := MatchValuesIn(work, runs, files)
+	if len(got) != 1 || !got[0].Matched || got[0].File != "o1" || got[0].Run != "x1" {
+		t.Fatalf("value in the run's saved file: %+v", got)
+	}
+	// A cited run that does not count is passed over, not the end of the search.
+	runs["x0"] = Run{Tool: "run_code", Stdout: "", AgentRunID: other}
+	work[0] = valueRec("r1", "result", map[string]any{"cites": []string{"run:x0", "run:x1"}, "value": 0.91})
+	if got := MatchValuesIn(work, runs, files); !got[0].Matched || got[0].File != "o1" {
+		t.Fatalf("value after a run that does not count: %+v", got)
+	}
+	// A file saved by another agent run does not count.
+	work[0] = valueRec("r1", "result", map[string]any{"cites": []string{"run:x1"}, "value": 0.77})
+	if got := MatchValuesIn(work, runs, files); got[0].Matched || got[0].File != "" {
+		t.Fatalf("value only in another run's file: %+v", got)
+	}
+	// A run that exited non-zero leaves its saved files unchecked.
+	runs["x1"] = Run{Tool: "run_script", Stdout: "saved metrics\n", ExitStatus: 1, AgentRunID: agent}
+	work[0] = valueRec("r1", "result", map[string]any{"cites": []string{"run:x1"}, "value": 0.91})
+	if got := MatchValuesIn(work, runs, files); got[0].Matched {
+		t.Fatalf("file of a failed run counted: %+v", got)
+	}
+	loaded, err := LoadRuns(context.Background(), storage.Local{Dir: t.TempDir()},
+		[]db.Record{withRun(valueRec("x1", "run", map[string]any{"tool": "run_script"}), agent)})
+	if err != nil || loaded["x1"].AgentRunID != agent {
+		t.Fatalf("LoadRuns keeps the agent run: %+v, %v", loaded, err)
 	}
 }
