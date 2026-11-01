@@ -41,6 +41,9 @@ func TestHypothesesQuestions(t *testing.T) {
 			t.Errorf("%s: %q", k, got[k])
 		}
 	}
+	if !fenced(a.noul[0].State, "Research question: q") {
+		t.Errorf("research question not fenced in state: %s", a.noul[0].State)
+	}
 	if s := a.noul[0].State; !strings.Contains(s, "claim h1") || !strings.Contains(s, "contributes doi:10.1/a") || !strings.Contains(s, "increase") {
 		t.Errorf("state lacks text, prediction or evidence: %s", s)
 	}
@@ -113,8 +116,15 @@ func TestHypothesesWeakest(t *testing.T) {
 	if c.Instructions != "Which of these hypotheses is least supported by its cited evidence?" || c.Options["hyp:1"] != "Hypothesis 1" {
 		t.Errorf("choice: %+v", c)
 	}
-	if strings.Contains(c.State, "hyp:") && strings.Contains(strings.Join(mapVals(c.Options), ""), "claim") {
-		t.Error("options must be neutral")
+	for _, h := range []string{"claim h1", "claim h2"} {
+		for k, v := range c.Options {
+			if strings.Contains(k, h) || strings.Contains(v, h) {
+				t.Errorf("option %s=%s carries hypothesis text", k, v)
+			}
+		}
+		if !fenced(c.State, h) {
+			t.Errorf("choice state lacks fenced %q: %s", h, c.State)
+		}
 	}
 	a.choice = "hyp:9"
 	if _, err := Hypotheses(context.Background(), a, HypothesesInput{Question: "q",
@@ -124,12 +134,9 @@ func TestHypothesesWeakest(t *testing.T) {
 	}
 }
 
-func mapVals(m map[string]string) []string {
-	var o []string
-	for _, v := range m {
-		o = append(o, v)
-	}
-	return o
+// fenced reports whether an untrusted fence in state opens with text.
+func fenced(state, text string) bool {
+	return strings.Contains(state, "-BEGIN\n"+text)
 }
 
 func TestHypothesesNoItemsIsAFail(t *testing.T) {

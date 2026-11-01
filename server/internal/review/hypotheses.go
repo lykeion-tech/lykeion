@@ -55,7 +55,8 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 			return Result{}, fmt.Errorf("record %s: %w", rec.Key, err)
 		}
 		it := Item{Key: rec.Key, Kind: rec.Kind, Label: string([]rune(b.Text)[:min(80, len([]rune(b.Text)))])}
-		var evidence []string
+		// The research question comes first, fenced: people write it.
+		evidence := []string{"Research question: " + in.Question}
 		cite := Check{ID: "cites_recorded", By: "server", Status: Pass}
 		for _, k := range b.Cites {
 			c, ok := in.Cited[k]
