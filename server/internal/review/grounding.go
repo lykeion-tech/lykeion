@@ -3,7 +3,9 @@ package review
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"lykeion/server/internal/board"
@@ -74,18 +76,35 @@ func served(h sources.Hit, err error) []Check {
 	return append(cs, Check{ID: "not_retracted", By: "server", Status: Pass})
 }
 
-// citeKeys are the forms a cited paper may take in a search hit: its id and
-// DOI, compared without case. An arXiv id also stands for its arXiv DOI.
+// citeKeys are the forms a declared paper id takes among search hits'
+// identities. An arXiv id also stands for its arXiv DOI.
 func citeKeys(id string) []string {
 	id = strings.ToLower(id)
-	kind, ref, _ := strings.Cut(id, ":")
-	switch kind {
-	case "doi":
-		return []string{id, ref}
-	case "arxiv":
-		return []string{id, "10.48550/arxiv." + ref}
+	if ref, ok := strings.CutPrefix(id, "arxiv:"); ok {
+		return []string{id, "doi:10.48550/arxiv." + ref}
 	}
 	return []string{id}
+}
+
+// hitKeys are a resolved source's identities: its id, DOI and PMID, without case.
+func hitKeys(h sources.Hit) []string {
+	keys := []string{strings.ToLower(h.ID)}
+	if h.DOI != "" {
+		keys = append(keys, "doi:"+strings.ToLower(h.DOI))
+	}
+	if h.PMID != "" {
+		keys = append(keys, "pmid:"+h.PMID)
+	}
+	return keys
+}
+
+// resolved is a lookup's hit, with not-found told apart from an upstream
+// that could not answer: only the second stops the review.
+func resolved(h sources.Hit, err error) (sources.Hit, error, error) {
+	if err != nil && !errors.Is(err, sources.ErrNotFound) {
+		return h, nil, err
+	}
+	return h, err, nil
 }
 
 // Grounding reviews a Grounding column: the server's checks on each source,
@@ -98,25 +117,35 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 	}
 	qs := criteriaQuestions(in.Question, in.Criteria)
 	cited := map[string]bool{}
-	cite := func(ids ...string) {
-		for _, id := range ids {
-			for _, k := range citeKeys(id) {
-				cited[k] = true
-			}
+	cite := func(keys []string) {
+		for _, k := range keys {
+			cited[k] = true
 		}
 	}
+	// A carried paper is resolved again so that every identity it has
+	// upstream counts as cited, not only the id the agent wrote.
 	for _, c := range in.Carried {
-		cite(c.Label)
+		if c.Kind != KindPaper {
+			continue
+		}
+		cite(citeKeys(c.Label))
+		h, missing, err := resolved(s.Paper(ctx, c.Label))
+		if err != nil {
+			return Result{}, fmt.Errorf("paper %s: %w", c.Label, err)
+		}
+		if missing == nil && h.ID != "" {
+			cite(hitKeys(h))
+		}
 	}
 
 	var asked []Item
 	var askedText []string
-	noQualifying := -1
+	var noQualifying []int
 	for _, rec := range in.Items {
 		it := Item{Key: rec.Key, Kind: rec.Kind}
 		var title, text, abstract string
 		var hit sources.Hit
-		var err error
+		var missing, err error
 		switch rec.Kind {
 		case KindPaper:
 			var b PaperBody
@@ -124,35 +153,35 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 				return Result{}, fmt.Errorf("record %s: %w", rec.Key, err)
 			}
 			it.Label, text = b.ID, b.Text
-			hit, err = s.Paper(ctx, b.ID)
-			cite(b.ID)
+			hit, missing, err = resolved(s.Paper(ctx, b.ID))
+			cite(citeKeys(b.ID))
 		case KindDataset:
 			var b DatasetBody
 			if err := json.Unmarshal(rec.Body, &b); err != nil {
 				return Result{}, fmt.Errorf("record %s: %w", rec.Key, err)
 			}
 			it.Label, text = b.Accession, b.Text
-			hit, err = s.Dataset(ctx, b.Accession)
+			hit, missing, err = resolved(s.Dataset(ctx, b.Accession))
 		case KindNoQualifying:
 			var b NoQualifyingBody
 			if err := json.Unmarshal(rec.Body, &b); err != nil {
 				return Result{}, fmt.Errorf("record %s: %w", rec.Key, err)
 			}
 			it.Label = string([]rune(b.Text)[:min(80, len([]rune(b.Text)))])
-			noQualifying = len(r.Items)
+			noQualifying = append(noQualifying, len(r.Items))
 			r.Items = append(r.Items, it)
 			continue
 		default:
 			continue
 		}
-		if err == nil && hit.ID != "" {
-			cite(hit.ID)
-			if hit.DOI != "" {
-				cite("doi:" + hit.DOI)
-			}
+		if err != nil {
+			return Result{}, fmt.Errorf("%s %s: %w", rec.Kind, it.Label, err)
+		}
+		if missing == nil && hit.ID != "" {
+			cite(hitKeys(hit))
 			title, abstract = hit.Title, hit.Abstract
 		}
-		it.Checks = served(hit, err)
+		it.Checks = served(hit, missing)
 		if ItemStatus(it.Checks) == Pass {
 			cs, err := screen(ctx, a, qs, it.Label, title, text, abstract)
 			if err != nil {
@@ -160,7 +189,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 			}
 			it.Checks = append(it.Checks, cs...)
 			asked = append(asked, it)
-			askedText = append(askedText, it.Key+": "+it.Label+"\n"+title+"\n"+text)
+			askedText = append(askedText, it.Label+"\n"+title+"\n"+text)
 		}
 		it.Status = ItemStatus(it.Checks)
 		r.Items = append(r.Items, it)
@@ -176,7 +205,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		if n == maxCandidates {
 			break
 		}
-		if h.Retracted || cited[strings.ToLower(h.ID)] || (h.DOI != "" && cited[strings.ToLower(h.DOI)]) {
+		if h.Retracted || slices.ContainsFunc(hitKeys(h), func(k string) bool { return cited[k] }) {
 			continue
 		}
 		n++
@@ -194,13 +223,13 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		}
 	}
 
-	if noQualifying >= 0 {
+	for _, i := range noQualifying {
 		c := Check{ID: "none_qualify", By: "server", Status: Pass}
 		if len(r.Missed) > 0 {
 			c.Status, c.Detail = Fail, fmt.Sprintf("%d papers meet every criterion", len(r.Missed))
 		}
-		r.Items[noQualifying].Checks = []Check{c}
-		r.Items[noQualifying].Status = c.Status
+		r.Items[i].Checks = []Check{c}
+		r.Items[i].Status = c.Status
 	}
 
 	for _, c := range in.Carried {
@@ -208,16 +237,26 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		r.Items = append(r.Items, c)
 	}
 
+	// Jev's options are neutral names; what each source says, written by
+	// agents, reaches Jev only fenced in the state.
 	if len(asked) >= 2 {
 		options := make(map[string]string, len(asked))
-		for _, it := range asked {
-			options[it.Key] = it.Label
+		keys := make(map[string]string, len(asked))
+		var names []string
+		for i, it := range asked {
+			opt, name := fmt.Sprintf("source:%d", i+1), fmt.Sprintf("Source %d", i+1)
+			options[opt], keys[opt] = name, it.Key
+			names = append(names, fmt.Sprintf("Evidence %d is %s.", i+1, name))
 		}
-		ans, err := a.Choice(ctx, ItemState("Grounding", strings.Join(askedText, "\n\n"), nil, MaxState), weakestInstructions, options)
+		ans, err := a.Choice(ctx, ItemState("Grounding", strings.Join(names, "\n"), askedText, MaxState), weakestInstructions, options)
 		if err != nil {
 			return Result{}, err
 		}
-		r.Weakest = &Weakest{Key: ans.Choice, P: ans.Probabilities[ans.Choice]}
+		key, ok := keys[ans.Choice]
+		if !ok {
+			return Result{}, fmt.Errorf("jev chose %q, not one of the options", ans.Choice)
+		}
+		r.Weakest = &Weakest{Key: key, P: ans.Probabilities[ans.Choice]}
 	}
 	return r, nil
 }

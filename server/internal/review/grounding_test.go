@@ -70,7 +70,7 @@ func TestGroundingServerFailSkipsJev(t *testing.T) {
 }
 
 func TestGroundingAsksEachCriterion(t *testing.T) {
-	a := &fakeAsker{choice: "p2"}
+	a := &fakeAsker{choice: "source:2"}
 	r, err := Grounding(context.Background(), a, twoPapers(), GroundingInput{Question: "q", Criteria: crit3,
 		Items: []db.Record{paper(t, "p1", "doi:10.1/a"), paper(t, "p2", "doi:10.1/b")}})
 	if err != nil {
@@ -100,7 +100,7 @@ func TestGroundingAsksEachCriterion(t *testing.T) {
 	if !strings.Contains(a.noul[0].State, "Paper A") || !strings.Contains(a.noul[0].State, "abstract A") || !strings.HasPrefix(a.noul[0].State, "Stage: Grounding\n") {
 		t.Errorf("state: %s", a.noul[0].State)
 	}
-	if len(a.choices) != 1 || a.choices[0].Options["p1"] != "doi:10.1/a" || a.choices[0].Instructions != "Which of these sources is least supported as meeting the research question's conditions?" {
+	if len(a.choices) != 1 || a.choices[0].Options["source:1"] != "Source 1" || a.choices[0].Instructions != "Which of these sources is least supported as meeting the research question's conditions?" {
 		t.Fatalf("choice: %+v", a.choices)
 	}
 	if r.Weakest == nil || *r.Weakest != (Weakest{Key: "p2", P: 0.6}) {
@@ -226,7 +226,7 @@ func TestNoCriteriaUsesTheQuestion(t *testing.T) {
 }
 
 func TestGroundingStateIsBlind(t *testing.T) {
-	a := &fakeAsker{choice: "p1"}
+	a := &fakeAsker{choice: "source:1"}
 	in := GroundingInput{Question: "q", Criteria: crit3,
 		Items: []db.Record{paper(t, "p1", "doi:10.1/a"), paper(t, "p2", "doi:10.1/b"),
 			rec(t, "d1", KindDataset, DatasetBody{Accession: "GSE1", Text: "liver data"})}}
@@ -259,6 +259,106 @@ func TestGroundingStateIsBlind(t *testing.T) {
 			if strings.Contains(strings.ToLower(s), strings.ToLower(bad)) {
 				t.Errorf("Jev saw %q in %q", bad, s)
 			}
+		}
+	}
+}
+
+func TestGroundingChoiceOptionsAreNeutral(t *testing.T) {
+	a := &fakeAsker{choice: "source:1"}
+	r, err := Grounding(context.Background(), a, twoPapers(), GroundingInput{Question: "q", Criteria: crit3,
+		Items: []db.Record{paper(t, "p1", "doi:10.1/a"), paper(t, "p2", "doi:10.1/b")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := a.choices[0]
+	if len(c.Options) != 2 || c.Options["source:2"] != "Source 2" {
+		t.Fatalf("options %v", c.Options)
+	}
+	for k, o := range c.Options {
+		for _, agent := range []string{"doi:10.1/a", "doi:10.1/b", "p1", "p2", "contributes"} {
+			if strings.Contains(k+o, agent) {
+				t.Errorf("option %s=%q holds the agent's %q", k, o, agent)
+			}
+		}
+	}
+	if !strings.Contains(c.State, "doi:10.1/a") || !strings.Contains(c.State, "Source 2") || strings.Count(c.State, "-BEGIN\n") < 3 {
+		t.Errorf("each source is fenced in the state: %s", c.State)
+	}
+	if r.Weakest == nil || r.Weakest.Key != "p1" {
+		t.Errorf("weakest %+v", r.Weakest)
+	}
+}
+
+func TestGroundingRejectsAnUnknownChoice(t *testing.T) {
+	_, err := Grounding(context.Background(), &fakeAsker{choice: "p1"}, twoPapers(), GroundingInput{Question: "q", Criteria: crit3,
+		Items: []db.Record{paper(t, "p1", "doi:10.1/a"), paper(t, "p2", "doi:10.1/b")}})
+	if err == nil {
+		t.Error("a choice outside the options: no error")
+	}
+}
+
+func TestGroundingOutageIsAnError(t *testing.T) {
+	ds := rec(t, "d1", KindDataset, DatasetBody{Accession: "GSE1", Text: "liver data"})
+	for name, in := range map[string]GroundingInput{
+		"paper":   {Items: []db.Record{paper(t, "p1", "doi:10.1/down")}},
+		"dataset": {Items: []db.Record{ds}},
+		"carried": {Carried: []Item{{Key: "p0", Kind: KindPaper, Label: "doi:10.1/down", Status: Pass}}},
+	} {
+		s := &fakeSources{outage: map[string]bool{"doi:10.1/down": true, "GSE1": true}}
+		in.Question, in.Criteria = "q", crit3
+		if _, err := Grounding(context.Background(), &fakeAsker{}, s, in); err == nil {
+			t.Errorf("%s: an upstream outage gave no error", name)
+		}
+	}
+	r, err := Grounding(context.Background(), &fakeAsker{}, &fakeSources{}, GroundingInput{Question: "q", Criteria: crit3, Items: []db.Record{ds}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := checkOf(r.Items[0], "exists"); c == nil || c.Status != Fail {
+		t.Errorf("an unknown accession: %+v", r.Items[0])
+	}
+}
+
+func TestGroundingCarriedPmidIsNotMissed(t *testing.T) {
+	s := &fakeSources{
+		papers: map[string]sources.Hit{"pmid:123": {ID: "europepmc:MED:123", DOI: "10.5/Liver", PMID: "123"}},
+		hits:   []sources.Hit{{ID: "openalex:W5", DOI: "10.5/liver"}},
+	}
+	carried := Item{Key: "p0", Kind: KindPaper, Label: "pmid:123", Status: Pass}
+	r, err := Grounding(context.Background(), &fakeAsker{}, s, GroundingInput{Question: "q", Criteria: crit3, Carried: []Item{carried}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Missed) != 0 || Decide(r, 0) != DecidePass {
+		t.Errorf("the carried paper came back as missed: %+v", r.Missed)
+	}
+}
+
+func TestGroundingPmidWithoutDOIIsNotMissed(t *testing.T) {
+	s := &fakeSources{
+		papers: map[string]sources.Hit{"pmid:456": {ID: "europepmc:MED:456", Title: "No DOI", PMID: "456"}},
+		hits:   []sources.Hit{{ID: "openalex:W6", PMID: "456"}},
+	}
+	r, err := Grounding(context.Background(), &fakeAsker{}, s, GroundingInput{Question: "q", Criteria: crit3,
+		Items: []db.Record{paper(t, "p1", "pmid:456")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Missed) != 0 {
+		t.Errorf("the declared paper came back as missed: %+v", r.Missed)
+	}
+}
+
+func TestEveryNoQualifyingIsChecked(t *testing.T) {
+	s := &fakeSources{hits: []sources.Hit{{ID: "openalex:W7"}}}
+	r, err := Grounding(context.Background(), &fakeAsker{}, s, GroundingInput{Question: "q", Criteria: crit3,
+		Items: []db.Record{rec(t, "n1", KindNoQualifying, NoQualifyingBody{Text: "none"}), rec(t, "n2", KindNoQualifying, NoQualifyingBody{Text: "still none"})}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range r.Items {
+		if c := checkOf(it, "none_qualify"); c == nil || it.Status != Fail {
+			t.Errorf("%s: %+v", it.Key, it)
 		}
 	}
 }

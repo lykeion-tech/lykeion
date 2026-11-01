@@ -44,25 +44,33 @@ func (f *fakeAsker) Choice(_ context.Context, state, instructions string, option
 	return jev.Answer{Choice: f.choice, Probabilities: map[string]float64{f.choice: 0.6}}, nil
 }
 
-// fakeSources resolves the ids it holds; any other id errors.
+// fakeSources resolves the ids it holds; ids in outage fail as an upstream
+// would, and any other id is not found.
 type fakeSources struct {
 	papers, datasets map[string]sources.Hit
+	outage           map[string]bool
 	hits             []sources.Hit
 	queries          []string
 }
 
 func (f *fakeSources) Paper(_ context.Context, id string) (sources.Hit, error) {
+	if f.outage[id] {
+		return sources.Hit{}, errors.New("GET upstream: 503 Service Unavailable")
+	}
 	if h, ok := f.papers[id]; ok {
 		return h, nil
 	}
-	return sources.Hit{}, errors.New("not found")
+	return sources.Hit{}, sources.ErrNotFound
 }
 
 func (f *fakeSources) Dataset(_ context.Context, acc string) (sources.Hit, error) {
+	if f.outage[acc] {
+		return sources.Hit{}, errors.New("GET upstream: 503 Service Unavailable")
+	}
 	if h, ok := f.datasets[acc]; ok {
 		return h, nil
 	}
-	return sources.Hit{}, errors.New("not found")
+	return sources.Hit{}, sources.ErrNotFound
 }
 
 func (f *fakeSources) Search(_ context.Context, q string) ([]sources.Hit, error) {
