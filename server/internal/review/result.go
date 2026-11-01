@@ -29,7 +29,7 @@ type Check struct {
 }
 
 type Item struct {
-	Key     string  `json:"key"`   // record key; "" for a missed paper
+	Key     string  `json:"key"` // record key; "" for a missed paper
 	Kind    string  `json:"kind"`
 	Label   string  `json:"label"` // the paper id, accession, or the first 80 characters of the text
 	Status  string  `json:"status"`

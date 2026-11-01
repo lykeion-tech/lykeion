@@ -1,11 +1,10 @@
 package review
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-func it(label, status string, cs ...Check) Item { return Item{Label: label, Status: status, Checks: cs} }
+func it(label, status string, cs ...Check) Item {
+	return Item{Label: label, Status: status, Checks: cs}
+}
 
 func TestStatusThresholds(t *testing.T) {
 	for p, want := range map[float64]string{0.70: Pass, 0.6999: Unclear, 0.35: Unclear, 0.3499: Fail} {
@@ -65,7 +64,7 @@ func TestCarryNoteIncludesWarnings(t *testing.T) {
 		it("run", Pass, Check{ID: "seed", Status: Fail, Warning: true}, Check{ID: "ok", Status: Pass, Warning: true}),
 	}}
 	got := CarryNote(r)
-	if !strings.Contains(got, "- run: seed") || strings.Contains(got, "ok") {
+	if got != "Unclear in Experimentation (carried forward, check them as you work):\n- run: seed" {
 		t.Errorf("got %q", got)
 	}
 	if Decide(r, 0) != DecidePass {
