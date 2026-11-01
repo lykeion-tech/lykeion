@@ -158,7 +158,7 @@ func TestRedoKeepsPassesAndRechecksOnlyFailures(t *testing.T) {
 	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
 	c := l.groundingStudy(t)
 	keyA := l.item(t, c.ID, review.KindPaper, paper(paperA))
-	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	keyB := l.item(t, c.ID, review.KindPaper, paper(paperB))
 	l.done(t, c.ID)
 	got := l.card(t, c.ID)
 	if got.BoardColumn != "grounding" || got.State != "working" || got.Redos != 1 || got.Round != c.Round+1 {
@@ -169,6 +169,7 @@ func TestRedoKeepsPassesAndRechecksOnlyFailures(t *testing.T) {
 	}
 	asked := len(stub.calls())
 	l.item(t, c.ID, review.KindPaper, paper(paperB2))
+	l.withdraw(t, c.ID, keyB)
 	l.done(t, c.ID)
 	later := nouls(stub.calls()[asked:])
 	if len(later) == 0 {
@@ -188,8 +189,8 @@ func TestRedoKeepsPassesAndRechecksOnlyFailures(t *testing.T) {
 		if it.Key == keyA {
 			carried = it.Carried && it.Status == review.Pass
 		}
-		if it.Label == paperB {
-			t.Fatalf("the failed paper was carried: %+v", it)
+		if it.Label == paperB && it.Status != review.Withdrawn {
+			t.Fatalf("the replaced paper was not withdrawn: %+v", it)
 		}
 	}
 	if !carried {
@@ -206,9 +207,10 @@ func TestSecondFailureBlocks(t *testing.T) {
 	l.e.Sources = stubSources{missing: map[string]bool{paperB: true, paperB2: true}}
 	c := l.groundingStudy(t)
 	l.item(t, c.ID, review.KindPaper, paper(paperA))
-	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	keyB := l.item(t, c.ID, review.KindPaper, paper(paperB))
 	l.done(t, c.ID)
 	l.item(t, c.ID, review.KindPaper, paper(paperB2))
+	l.withdraw(t, c.ID, keyB)
 	l.done(t, c.ID)
 	got := l.card(t, c.ID)
 	if got.State != "blocked" || got.BlockKind != "low_score" || got.BoardColumn != "grounding" {
@@ -490,21 +492,95 @@ func TestAroundCutsOnCharacterBoundaries(t *testing.T) {
 	}
 }
 
-func TestAnUndeclaredFailureIsWithdrawn(t *testing.T) {
+// withdraw writes the agent's withdrawal of the item record key.
+func (l *lab) withdraw(t *testing.T, id uuid.UUID, key string) string {
+	t.Helper()
+	return l.item(t, id, review.KindWithdrawn, map[string]any{"item": key, "reason": "It does not resolve."})
+}
+
+func TestAnUnansweredFailureIsCarriedAsFailed(t *testing.T) {
 	l := newLab(t)
 	l.jev(t, 200, levels(nil))
 	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
 	c := l.groundingStudy(t)
 	l.item(t, c.ID, review.KindPaper, paper(paperA))
-	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	keyB := l.item(t, c.ID, review.KindPaper, paper(paperB))
 	l.done(t, c.ID)
-	l.done(t, c.ID) // the redo declares nothing new
+	l.done(t, c.ID) // the redo answers nothing
 	rs := l.reviews(t, c.ID, "grounding")
-	if len(rs) != 2 || rs[1].Decision != review.DecidePass || len(rs[1].Items) != 1 || rs[1].Items[0].Label != paperA || !rs[1].Items[0].Carried {
+	if len(rs) != 2 || rs[1].Decision != review.DecideBlock || len(rs[1].Items) != 2 {
 		t.Fatalf("review records: %+v", rs)
+	}
+	for _, it := range rs[1].Items {
+		if it.Key == keyB && (it.Status != review.Fail || !it.Carried || it.Checks[0].ID != "exists") {
+			t.Fatalf("the unanswered failure: %+v", it)
+		}
+	}
+	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "low_score" {
+		t.Fatalf("after an unanswered failure: %s %s", got.State, got.BlockKind)
+	}
+}
+
+func TestAWithdrawnFailureLeavesTheRest(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
+	c := l.groundingStudy(t)
+	keyA := l.item(t, c.ID, review.KindPaper, paper(paperA))
+	keyB := l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.done(t, c.ID)
+	l.withdraw(t, c.ID, keyB)
+	l.withdraw(t, c.ID, keyA) // A passed: withdrawing it is ignored
+	l.done(t, c.ID)
+	rs := l.reviews(t, c.ID, "grounding")
+	if len(rs) != 2 || rs[1].Decision != review.DecidePass || len(rs[1].Items) != 2 {
+		t.Fatalf("review records: %+v", rs)
+	}
+	for _, it := range rs[1].Items {
+		switch it.Key {
+		case keyA:
+			if it.Status != review.Pass || !it.Carried {
+				t.Fatalf("paper A: %+v", it)
+			}
+		case keyB:
+			want := review.Check{ID: "withdrawn", By: "agent", Detail: "It does not resolve.", Status: review.Withdrawn}
+			if it.Status != review.Withdrawn || len(it.Checks) != 1 || it.Checks[0] != want {
+				t.Fatalf("the withdrawn paper: %+v", it)
+			}
+		default:
+			t.Fatalf("item %+v", it)
+		}
 	}
 	if got := l.card(t, c.ID); got.BoardColumn != "hypotheses" || got.State != "working" {
 		t.Fatalf("after the withdrawn failure: %s %s", got.BoardColumn, got.State)
+	}
+}
+
+func TestARedeclaredFailureIsReviewedAgain(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.done(t, c.ID)
+	// B resolves now; the redo declares it again, in capitals.
+	l.e.Sources = stubSources{}
+	asked := len(stub.calls())
+	again := l.item(t, c.ID, review.KindPaper, paper(strings.ToUpper(paperB)))
+	l.done(t, c.ID)
+	later := nouls(stub.calls()[asked:])
+	if len(later) != 1 || !strings.Contains(later[0].State, strings.ToUpper(paperB)) {
+		t.Fatalf("the redeclared paper was not asked again: %d calls", len(later))
+	}
+	rs := l.reviews(t, c.ID, "grounding")
+	if len(rs) != 2 || rs[1].Decision != review.DecidePass || len(rs[1].Items) != 2 {
+		t.Fatalf("review records: %+v", rs)
+	}
+	for _, it := range rs[1].Items {
+		if it.Key == again && (it.Carried || it.Status != review.Pass) {
+			t.Fatalf("the redeclared paper: %+v", it)
+		}
 	}
 }
 
@@ -513,11 +589,12 @@ func TestNothingLeftIsNeverAPass(t *testing.T) {
 	l.jev(t, 200, levels(nil))
 	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
 	c := l.groundingStudy(t)
-	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	keyB := l.item(t, c.ID, review.KindPaper, paper(paperB))
 	l.done(t, c.ID)
-	l.done(t, c.ID) // the redo declares nothing
+	l.withdraw(t, c.ID, keyB) // the redo withdraws its only item
+	l.done(t, c.ID)
 	rs := l.reviews(t, c.ID, "grounding")
-	if len(rs) != 2 || rs[0].Decision != review.DecideRedo || rs[1].Decision != review.DecideBlock || len(rs[1].Items) != 0 {
+	if len(rs) != 2 || rs[0].Decision != review.DecideRedo || rs[1].Decision != review.DecideBlock || len(rs[1].Items) != 1 || rs[1].Items[0].Status != review.Withdrawn {
 		t.Fatalf("review records: %+v", rs)
 	}
 	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "low_score" {
@@ -531,13 +608,14 @@ func TestARedeclaredPassStands(t *testing.T) {
 	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
 	c := l.groundingStudy(t)
 	l.item(t, c.ID, review.KindPaper, paper(paperA))
-	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	keyB := l.item(t, c.ID, review.KindPaper, paper(paperB))
 	l.done(t, c.ID)
 	// Asked again, A would now fail: it no longer resolves.
 	l.e.Sources = stubSources{missing: map[string]bool{paperA: true, paperB: true}}
 	asked := len(stub.calls())
 	l.item(t, c.ID, review.KindPaper, paper(paperA))
 	l.item(t, c.ID, review.KindPaper, paper(paperB2))
+	l.withdraw(t, c.ID, keyB)
 	l.done(t, c.ID)
 	for _, call := range nouls(stub.calls()[asked:]) {
 		if strings.Contains(call.State, paperA) {
@@ -557,7 +635,7 @@ func TestARedeclaredPassStands(t *testing.T) {
 			}
 		}
 	}
-	if n != 1 || len(rs[1].Items) != 2 {
+	if n != 1 || len(rs[1].Items) != 3 {
 		t.Fatalf("paper A counted %d times among %+v", n, rs[1].Items)
 	}
 }
@@ -568,9 +646,10 @@ func TestARoundsItemsCountOnceWhateverTheirCase(t *testing.T) {
 	l.e.Sources = stubSources{missing: map[string]bool{paperB: true}}
 	c := l.groundingStudy(t)
 	l.item(t, c.ID, review.KindPaper, paper(paperA))
-	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	keyB := l.item(t, c.ID, review.KindPaper, paper(paperB))
 	l.done(t, c.ID)
 	asked := len(stub.calls())
+	l.withdraw(t, c.ID, keyB)
 	// The redo names the passed paper again in capitals, and declares its
 	// new paper twice.
 	l.item(t, c.ID, review.KindPaper, paper(strings.ToUpper(paperA)))
@@ -587,7 +666,7 @@ func TestARoundsItemsCountOnceWhateverTheirCase(t *testing.T) {
 		t.Fatalf("Jev was asked %d times about the redo, want once", len(later))
 	}
 	rs := l.reviews(t, c.ID, "grounding")
-	if len(rs) != 2 || len(rs[1].Items) != 2 {
+	if len(rs) != 2 || len(rs[1].Items) != 3 {
 		t.Fatalf("review records: %+v", rs)
 	}
 }
@@ -624,6 +703,7 @@ func TestExperimentationRedoCarriesPassedValues(t *testing.T) {
 	insert(
 		db.InsertRecordParams{Kind: "run", Role: "server", Key: "x3", Body: []byte(`{"tool":"run_script","output":"control 7\n","exit_status":0}`)},
 		db.InsertRecordParams{Kind: "result", Role: "agent", Key: "r4", Body: []byte(`{"text":"The control is 7.","cites":["run:x3"],"value":7}`)},
+		db.InsertRecordParams{Kind: review.KindWithdrawn, Role: "agent", Key: "r5", Body: []byte(`{"item":"r2","reason":"Replaced by r4."}`)},
 	)
 	l.done(t, c.ID)
 	rs := l.reviews(t, c.ID, "experimentation")
@@ -634,7 +714,8 @@ func TestExperimentationRedoCarriesPassedValues(t *testing.T) {
 	for _, it := range rs[1].Items {
 		got[it.Key] = fmt.Sprintf("%s carried=%v", it.Status, it.Carried)
 	}
-	if got["r1"] != "pass carried=true" || got["r4"] != "pass carried=false" || got["r3"] != "pass carried=false" || len(got) != 3 {
+	if got["r1"] != "pass carried=true" || got["r4"] != "pass carried=false" || got["r3"] != "pass carried=false" ||
+		got["r2"] != "withdrawn carried=true" || len(got) != 4 {
 		t.Fatalf("attempt 2's items: %v", got)
 	}
 	if card := l.card(t, c.ID); card.State != "done" {

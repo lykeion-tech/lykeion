@@ -129,7 +129,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 	// A carried paper is resolved again so that every identity it has
 	// upstream counts as cited, not only the id the agent wrote.
 	for _, c := range in.Carried {
-		if c.Kind != KindPaper {
+		if c.Kind != KindPaper || c.Status == Withdrawn {
 			continue
 		}
 		cite(citeKeys(c.Label))

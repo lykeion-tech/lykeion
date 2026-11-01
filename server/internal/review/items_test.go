@@ -47,6 +47,13 @@ func TestValidateItems(t *testing.T) {
 		{"outputs none", KindOutputs, board.Experimentation, `{"files":[]}`, false},
 		{"outputs too many", KindOutputs, board.Experimentation, `{"files":["` + strings.Repeat(`a","`, 50) + `a"]}`, false},
 		{"not an item", "note", board.Grounding, `{"text":"x"}`, true},
+		{"withdrawn ok", KindWithdrawn, board.Grounding, `{"item":"r3","reason":"it does not resolve"}`, true},
+		{"withdrawn in hypotheses", KindWithdrawn, board.Hypotheses, `{"item":"r3","reason":"r"}`, true},
+		{"withdrawn in experimentation", KindWithdrawn, board.Experimentation, `{"item":"r3","reason":"r"}`, true},
+		{"withdrawn in validation", KindWithdrawn, board.Validation, `{"item":"r3","reason":"r"}`, false},
+		{"withdrawn no key", KindWithdrawn, board.Grounding, `{"item":"arxiv:2106.01234","reason":"r"}`, false},
+		{"withdrawn no reason", KindWithdrawn, board.Grounding, `{"item":"r3","reason":""}`, false},
+		{"withdrawn long reason", KindWithdrawn, board.Grounding, `{"item":"r3","reason":"` + long + `"}`, false},
 	}
 	for _, c := range cases {
 		err := Validate(c.kind, c.col, []byte(c.body))

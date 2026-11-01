@@ -342,3 +342,43 @@ func TestAHypothesisMayCiteAGroundingRecord(t *testing.T) {
 		t.Fatalf("a cite that is no key: %d", c)
 	}
 }
+
+func TestAWithdrawalNamesAnItemOrAReportedValue(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	err := l.s.H.Store.InWorkspace(t.Context(), uuid.MustParse(l.ws), uuid.Nil, func(tx *store.Tx) error {
+		for _, r := range []db.InsertRecordParams{
+			{BoardColumn: "hypotheses", Kind: "hypothesis", Key: "r1", Body: json.RawMessage(`{"text":"h"}`)},
+			{BoardColumn: "hypotheses", Kind: "result", Key: "r2", Body: json.RawMessage(`{"text":"The effect is 0.12.","value":0.12}`)},
+			{BoardColumn: "hypotheses", Kind: "explanation", Key: "r3", Body: json.RawMessage(`{"text":"telomeres explain it"}`)},
+		} {
+			r.WorkspaceID, r.CardID, r.Role = tx.WS, uuid.MustParse(l.card.ID), "leader"
+			if _, err := tx.Q.InsertRecord(t.Context(), r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(item string) (int, string) {
+		var e struct{ Error string }
+		c := l.s.call(t, "POST", "/api/role/records", leader.token, "", map[string]any{"kind": "withdrawn", "body": map[string]any{"item": item, "reason": "dropped"}}, &e)
+		return c, e.Error
+	}
+	for _, k := range []string{"r1", "r2"} {
+		if c, e := post(k); c != 201 {
+			t.Fatalf("withdrawing %s: %d %s", k, c, e)
+		}
+	}
+	if c, e := post("r3"); c != 400 || e != "withdrawn names r3, of kind explanation: name an item record or a record that reports values" {
+		t.Fatalf("withdrawing an explanation: %d %q", c, e)
+	}
+	if c, e := post("r999"); c != 400 || e != "no record has the key r999" {
+		t.Fatalf("withdrawing an unknown key: %d %q", c, e)
+	}
+	if c, _ := post("arxiv:2106.01234"); c != 400 {
+		t.Fatalf("withdrawing what is no key: %d", c)
+	}
+}

@@ -114,6 +114,8 @@ const saveOutputs = "To keep a file or folder your scripts wrote, run `lyk outpu
 // column, and what Jev checks of each. Every one-line example is a body the
 // server accepts for that kind in that column.
 func itemsPrompt(column string) string {
+	const withdraw = "On a redo, answer each item Jev sent back: declare a corrected version, or withdraw it by its record key: " +
+		"`lyk record put withdrawn --content '{\"item\":\"r3\",\"reason\":\"why it no longer stands\"}'`. A sent-back item left unanswered fails again.\n"
 	switch column {
 	case board.Grounding:
 		return "Declare each source the column's answer rests on as an item, one record per source, citing the calls it was fetched in:\n" +
@@ -123,7 +125,8 @@ func itemsPrompt(column string) string {
 			"- if no source qualifies, say so instead of offering the nearest one: `lyk record put no_qualifying --content '{\"text\":\"what was searched and why nothing fits\"}'`.\n" +
 			"Jev checks each item: its id or accession must resolve through the sources server (a retracted paper fails), and it must meet every listed Grounding criterion " +
 			"(when the study lists none, the research question itself). The server also searches from the question and criteria and Jev screens what it finds: papers that fit and are not cited count against the column, " +
-			"and `no_qualifying` stands only if no paper qualifies. Declare only sources that meet every criterion; record near-misses as ordinary records, never as items.\n"
+			"and `no_qualifying` stands only if no paper qualifies. Declare only sources that meet every criterion; record near-misses as ordinary records, never as items.\n" +
+			withdraw
 	case board.Hypotheses:
 		return "Declare each hypothesis as an item: `lyk record put hypothesis --content '{\"text\":\"the hypothesis\",\"prediction\":{\"shape\":\"direction\",\"direction\":\"increase\"},\"control\":{\"text\":\"the baseline it is compared with\"},\"cites\":[\"r3\",\"call:KEY\"]}'`.\n" +
 			"The prediction takes one of three shapes: a direction (`{\"shape\":\"direction\",\"direction\":\"increase\"}`, or `decrease` or `no_change`); " +
@@ -131,11 +134,13 @@ func itemsPrompt(column string) string {
 			"or a numeric range with its uncertainty (`{\"shape\":\"range\",\"low\":0.2,\"high\":0.4,\"uncertainty\":\"90% interval\"}`). " +
 			"The control is `{\"text\":\"…\"}`, or `{\"none\":\"why there is none\"}`. " +
 			"Each hypothesis cites at least one record of this study: a Grounding record by its key (`r3`), or a recorded call (`call:KEY`) for a source you fetched. " +
-			"Jev checks that each prediction is specific enough to be proven wrong and that its cited evidence supports it, and fails a hypothesis whose cited evidence already holds the answer: never look up this study's own answer.\n"
+			"Jev checks that each prediction is specific enough to be proven wrong and that its cited evidence supports it, and fails a hypothesis whose cited evidence already holds the answer: never look up this study's own answer.\n" +
+			withdraw
 	case board.Experimentation:
 		return "Before you finish, declare the files the column produced, as saved with `lyk output put`, in one record that lists them all (only the latest counts): `lyk record put outputs --content '{\"files\":[\"results.csv\"]}'`. " +
 			"The server checks each declared file was saved. Every reported number goes in a `value` field citing the `run_script` run that printed it, " +
-			"and must appear in that run's output (the run exited 0) or in a saved file. Jev checks that each number is described correctly; a number described wrongly is flagged as a warning.\n"
+			"and must appear in that run's output (the run exited 0) or in a saved file. Jev checks that each number is described correctly; a number described wrongly is flagged as a warning.\n" +
+			withdraw
 	}
 	return ""
 }

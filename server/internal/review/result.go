@@ -9,6 +9,9 @@ const (
 	Pass    = "pass"
 	Unclear = "unclear"
 	Fail    = "fail"
+	// Withdrawn is an item the agents dropped after it failed; it neither
+	// passes nor fails the column.
+	Withdrawn = "withdrawn"
 )
 
 const (
@@ -84,17 +87,22 @@ func ItemStatus(cs []Check) string {
 
 // Decide: any item failing, any missed paper, or no items at all is redo
 // while no redo was used, else block; any unclear item is carry; else pass.
+// Withdrawn items do not count.
 func Decide(r Result, redos int32) string {
-	bad := len(r.Items) == 0 || len(r.Missed) > 0
-	unclear := false
+	bad := len(r.Missed) > 0
+	unclear, standing := false, 0
 	for _, it := range r.Items {
 		switch it.Status {
 		case Fail:
 			bad = true
 		case Unclear:
 			unclear = true
+		case Withdrawn:
+			continue
 		}
+		standing++
 	}
+	bad = bad || standing == 0
 	switch {
 	case bad && redos == 0:
 		return DecideRedo
@@ -128,13 +136,19 @@ func RedoNote(r Result) string {
 	b.WriteString("Jev's review sent back these items:\n")
 	for _, it := range r.Items {
 		if it.Status == Fail {
-			fmt.Fprintf(&b, "- %s: %s\n", it.Label, strings.Join(ids(it.Checks, false, Fail), ", "))
+			name := it.Label
+			if it.Key != "" {
+				name += " (" + it.Key + ")"
+			}
+			fmt.Fprintf(&b, "- %s: %s\n", name, strings.Join(ids(it.Checks, false, Fail), ", "))
 		}
 	}
 	for _, it := range r.Missed {
 		fmt.Fprintf(&b, "- %s: consider this paper (it meets every criterion but was not cited)\n", it.Label)
 	}
-	b.WriteString("Redo only these. Items not listed stand.")
+	b.WriteString("Items not listed stand. Answer each listed item: declare a corrected version, or withdraw it with " +
+		"`lyk record put withdrawn --content '{\"item\":\"rN\",\"reason\":\"…\"}'`. " +
+		"Items you leave unanswered count as failed, and a second failure blocks the study.")
 	return b.String()
 }
 

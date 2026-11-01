@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
@@ -154,6 +155,11 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if in.Kind == review.KindWithdrawn {
+			if err := withdrawable(r.Context(), tx, role.CardID, in.Body); err != nil {
+				return err
+			}
+		}
 		key, err := records.NextRecordKey(r.Context(), tx, role.CardID)
 		if err != nil {
 			return err
@@ -174,6 +180,25 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, rec)
+}
+
+// withdrawable refuses a withdrawal that names no live record of the study,
+// or a record that is neither an item nor reports values.
+func withdrawable(ctx context.Context, tx *store.Tx, card uuid.UUID, body json.RawMessage) error {
+	var b review.WithdrawnBody
+	_ = json.Unmarshal(body, &b)
+	recs, err := tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: card, Keys: []string{b.Item}})
+	if err != nil {
+		return err
+	}
+	if len(recs) == 0 {
+		return service.Invalid("no record has the key " + b.Item)
+	}
+	rec := recs[0]
+	if _, item := review.ColumnOf(rec.Kind); item || len(flow.MatchValues([]db.Record{rec}, nil)) > 0 {
+		return nil
+	}
+	return service.Invalid("withdrawn names " + b.Item + ", of kind " + rec.Kind + ": name an item record or a record that reports values")
 }
 
 var (

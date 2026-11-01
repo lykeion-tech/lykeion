@@ -20,6 +20,7 @@ const (
 	KindNoQualifying = "no_qualifying" // grounding: "no paper qualifies"
 	KindHypothesis   = "hypothesis"    // hypotheses
 	KindOutputs      = "outputs"       // experimentation: the files the run must produce
+	KindWithdrawn    = "withdrawn"     // any reviewed column: an item sent back and dropped
 )
 
 type PaperBody struct {
@@ -57,6 +58,10 @@ type HypothesisBody struct {
 type OutputsBody struct {
 	Files []string `json:"files"` // file names as saved with `lyk output put`
 }
+type WithdrawnBody struct {
+	Item   string `json:"item"` // the key of the item record withdrawn, e.g. "r3"
+	Reason string `json:"reason"`
+}
 
 var columns = map[string]string{
 	KindPaper:        board.Grounding,
@@ -65,6 +70,11 @@ var columns = map[string]string{
 	KindHypothesis:   board.Hypotheses,
 	KindOutputs:      board.Experimentation,
 }
+
+// withdrawnIn are the columns reviewed item by item, where an item may be withdrawn.
+var withdrawnIn = []string{board.Grounding, board.Hypotheses, board.Experimentation}
+
+var itemKey = regexp.MustCompile(`^r[0-9]+$`)
 
 var paperID = regexp.MustCompile(`^(arxiv:\d{4}\.\d{4,5}|arxiv:[a-z-]+/\d{7}|doi:10\.\d{4,9}/\S+|pmid:\d{1,9})$`)
 
@@ -78,10 +88,14 @@ func ColumnOf(kind string) (column string, ok bool) {
 // column; kinds that are not items pass unchecked. It returns service.Invalid.
 func Validate(kind, column string, body []byte) error {
 	want, ok := ColumnOf(kind)
-	if !ok {
+	switch {
+	case kind == KindWithdrawn:
+		if !slices.Contains(withdrawnIn, column) {
+			return service.Invalid("withdrawn records are written in the Grounding, Hypotheses or Experimentation column")
+		}
+	case !ok:
 		return nil
-	}
-	if column != want {
+	case column != want:
 		return service.Invalid(kind + " records are written in the " + strings.ToUpper(want[:1]) + want[1:] + " column")
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
@@ -111,6 +125,13 @@ func Validate(kind, column string, body []byte) error {
 		var b OutputsBody
 		if msg = decode(dec, &b); msg == "" {
 			msg = check(len(b.Files) >= 1 && len(b.Files) <= 50, "outputs lists 1 to 50 file names")
+		}
+	case KindWithdrawn:
+		var b WithdrawnBody
+		if msg = decode(dec, &b); msg == "" {
+			n := utf8.RuneCountInString(b.Reason)
+			msg = first(check(itemKey.MatchString(b.Item), "item must be the key of the item record withdrawn, such as r3"),
+				check(n >= 1 && n <= 2000, "reason must be 1 to 2000 characters"))
 		}
 	}
 	if msg != "" {

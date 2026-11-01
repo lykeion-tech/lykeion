@@ -51,7 +51,7 @@ func usesReview(c db.Card) bool {
 type reviewing struct {
 	criteria []string
 	items    []db.Record          // this round's item records
-	carried  []review.Item        // the last attempt's items that did not fail
+	carried  []review.Item        // the last attempt's items that stand, withdrawn or failed unanswered
 	cited    map[string]db.Record // what the hypotheses cite, by the cite as written
 	saved    []string             // names of the files saved in this column
 	work     []db.Record          // this round's records that may report values, and the column's outputs
@@ -92,11 +92,16 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 			return err
 		}
 		var last, declared *db.Record
+		var withdrawn []db.Record
 		for _, r := range recs {
 			col, item := review.ColumnOf(r.Kind)
 			switch {
 			case r.Kind == "review" && r.Round == c.Round-1:
 				last = &r
+			case r.Kind == review.KindWithdrawn:
+				if r.Round == c.Round {
+					withdrawn = append(withdrawn, r)
+				}
 			case r.Kind == "output":
 				rv.work = append(rv.work, r)
 				rv.saved = append(rv.saved, records.Body[struct{ Name string }](r).Name)
@@ -115,16 +120,15 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		if c.BoardColumn == board.Experimentation && len(rv.items) == 0 && declared != nil {
 			rv.items = []db.Record{*declared}
 		}
-		// The previous attempt's items that did not fail stand; a failed item
-		// the redo does not declare again is withdrawn. Outputs are checked
-		// afresh each attempt.
+		// The previous attempt's passed and unclear items stand. Outputs are
+		// checked afresh each attempt.
+		var prev review.Result
 		if last != nil {
-			var prev review.Result
 			if err := json.Unmarshal(last.Body, &prev); err != nil {
 				return fmt.Errorf("review %s: %w", last.Key, err)
 			}
 			for _, it := range prev.Items {
-				if it.Status != review.Fail && it.Kind != review.KindOutputs {
+				if (it.Status == review.Pass || it.Status == review.Unclear) && it.Kind != review.KindOutputs {
 					rv.carried = append(rv.carried, it)
 				}
 			}
@@ -135,6 +139,19 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 				return sameItem(it, r)
 			})
 		})
+		// A failed item must be answered: declared again, it is reviewed
+		// again; withdrawn, it no longer counts; left unanswered, it fails again.
+		for _, it := range prev.Items {
+			if it.Status != review.Fail || it.Kind == review.KindOutputs ||
+				slices.ContainsFunc(rv.items, func(r db.Record) bool { return sameItem(it, r) }) {
+				continue
+			}
+			if reason, ok := withdrawal(it, withdrawn, recs); ok {
+				it.Status = review.Withdrawn
+				it.Checks = []review.Check{{ID: "withdrawn", By: "agent", Detail: reason, Status: review.Withdrawn}}
+			}
+			rv.carried = append(rv.carried, it)
+		}
 		var citeKeys, runKeys []string
 		for _, r := range rv.items {
 			if r.Kind == review.KindHypothesis {
@@ -185,6 +202,23 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		return nil
 	})
 	return rv, err
+}
+
+// withdrawal is the reason given by the last of withdrawn naming the item,
+// by its record key or by a record declaring the same item; recs are the
+// column's records the names are looked up in.
+func withdrawal(it review.Item, withdrawn, recs []db.Record) (string, bool) {
+	for _, w := range slices.Backward(withdrawn) {
+		b := records.Body[review.WithdrawnBody](w)
+		if b.Item == it.Key {
+			return b.Reason, true
+		}
+		i := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == b.Item })
+		if i >= 0 && sameItem(it, recs[i]) {
+			return b.Reason, true
+		}
+	}
+	return "", false
 }
 
 // sameItem says whether r declares the item an earlier review saw. Reviews

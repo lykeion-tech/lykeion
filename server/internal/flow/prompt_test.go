@@ -66,9 +66,9 @@ var putExample = regexp.MustCompile(`lyk record put (\w+)(?: --cites \S+)? --con
 
 func TestItemsPromptPerColumn(t *testing.T) {
 	kinds := map[string][]string{
-		board.Grounding:       {"paper", "dataset", "no_qualifying"},
-		board.Hypotheses:      {"hypothesis"},
-		board.Experimentation: {"outputs"},
+		board.Grounding:       {"paper", "dataset", "no_qualifying", "withdrawn"},
+		board.Hypotheses:      {"hypothesis", "withdrawn"},
+		board.Experimentation: {"outputs", "withdrawn"},
 	}
 	for col, want := range kinds {
 		p := itemsPrompt(col)

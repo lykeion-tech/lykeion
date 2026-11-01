@@ -28,6 +28,8 @@ func TestDecide(t *testing.T) {
 		{"missed", Result{Items: []Item{ok}, Missed: []Item{it("p", Fail)}}, 0, DecideRedo},
 		{"unclear", Result{Items: []Item{ok, it("b", Unclear)}}, 0, DecideCarry},
 		{"pass", Result{Items: []Item{ok}}, 0, DecidePass},
+		{"withdrawn neither passes nor fails", Result{Items: []Item{ok, it("b", Withdrawn)}}, 0, DecidePass},
+		{"only withdrawn", Result{Items: []Item{it("b", Withdrawn)}}, 1, DecideBlock},
 		{"warning only", Result{Items: []Item{{Label: "a", Status: ItemStatus([]Check{{ID: "w", Status: Fail, Warning: true}})}}}, 0, DecidePass},
 	}
 	for _, c := range cases {
@@ -37,12 +39,15 @@ func TestDecide(t *testing.T) {
 	}
 }
 
+const redoAnswer = "Items not listed stand. Answer each listed item: declare a corrected version, or withdraw it with " +
+	"`lyk record put withdrawn --content '{\"item\":\"rN\",\"reason\":\"…\"}'`. " +
+	"Items you leave unanswered count as failed, and a second failure blocks the study."
+
 func TestRedoNoteListsOnlyFailures(t *testing.T) {
-	r := Result{Items: []Item{
-		it("good", Pass, Check{ID: "exists", Status: Pass}),
-		it("bad", Fail, Check{ID: "exists", Status: Pass}, Check{ID: "falsifiable", Status: Fail}),
-	}}
-	want := "Jev's review sent back these items:\n- bad: falsifiable\nRedo only these. Items not listed stand."
+	bad := it("bad", Fail, Check{ID: "exists", Status: Pass}, Check{ID: "falsifiable", Status: Fail})
+	bad.Key = "r4"
+	r := Result{Items: []Item{it("good", Pass, Check{ID: "exists", Status: Pass}), bad}}
+	want := "Jev's review sent back these items:\n- bad (r4): falsifiable\n" + redoAnswer
 	if got := RedoNote(r); got != want {
 		t.Errorf("got %q", got)
 	}
@@ -50,7 +55,7 @@ func TestRedoNoteListsOnlyFailures(t *testing.T) {
 
 func TestRedoNoteOffersMissedPapers(t *testing.T) {
 	r := Result{Missed: []Item{it("doi:10.1/m", Fail, Check{ID: "criterion:1", Status: Pass}, Check{ID: "missed", Status: Fail})}}
-	want := "Jev's review sent back these items:\n- doi:10.1/m: consider this paper (it meets every criterion but was not cited)\nRedo only these. Items not listed stand."
+	want := "Jev's review sent back these items:\n- doi:10.1/m: consider this paper (it meets every criterion but was not cited)\n" + redoAnswer
 	if got := RedoNote(r); got != want {
 		t.Errorf("got %q", got)
 	}
