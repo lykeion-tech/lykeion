@@ -58,6 +58,9 @@ func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 		Error      string `json:"error"`
 		ExitStatus *int   `json:"exit_status"`
 		Packages   string `json:"packages"`
+		// Older daemons still send these; they are read and dropped.
+		Results      json.RawMessage `json:"results"`
+		ResultsError string          `json:"results_error"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid run: "+err.Error())

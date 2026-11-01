@@ -291,3 +291,16 @@ func postScriptRun(t *testing.T, l *teamLab, extra map[string]any, tool string) 
 	return body
 }
 
+
+func TestPostRunIgnoresResultsFromOlderDaemons(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	in := map[string]any{"tool": "run_code", "language": "python", "code": "1", "output": "1", "exit_status": 0,
+		"results": []any{map[string]any{"name": "x"}}, "results_error": "old"}
+	if c := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, nil); c != 201 {
+		t.Fatalf("run %d", c)
+	}
+	if _, body := l.runRecord(t, leader.token, "x1"); body["results"] != nil || body["results_error"] != nil {
+		t.Fatalf("the record keeps results: %+v", body)
+	}
+}
