@@ -261,7 +261,7 @@ test('embedded Properties keeps its own width and responds to the actual Inbox c
   await railToggle.click();
   await expectPaneMode();
   expect(await floats()).toBe(false);
-  await expect(meta).toHaveCSS('width', '364px');
+  await expect(meta).toHaveCSS('width', '240px');
   await expect(meta).toBeVisible();
   expect((await meta.boundingBox())!.x).toBeGreaterThan(
     (await study.locator('.task-main').boundingBox())!.x,
@@ -270,17 +270,17 @@ test('embedded Properties keeps its own width and responds to the actual Inbox c
   await railToggle.click();
   await expectPaneMode();
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await expect(meta).toHaveCSS('width', '364px');
+  await expect(meta).toHaveCSS('width', '240px');
   await splitter.focus();
   await page.keyboard.press('ArrowLeft');
-  await expect(meta).toHaveCSS('width', '374px');
+  await expect(meta).toHaveCSS('width', '250px');
   expect(await page.evaluate(() => localStorage.getItem('lykeion.study-inspector-width'))).toBe(
     '424',
   );
   const compactPreference = await page.evaluate(() =>
     localStorage.getItem('lykeion.embedded-study-inspector-width'),
   );
-  expect(compactPreference).toBe('374');
+  expect(compactPreference).toBe('250');
   await page.keyboard.press('End');
   await expect(meta).toHaveCSS('width', '640px');
   await page.setViewportSize({ width: 1200, height: 982 });
@@ -332,17 +332,18 @@ test('embedded Properties keeps its own width and responds to the actual Inbox c
     await page.evaluate(() => localStorage.getItem('lykeion.embedded-study-inspector-width')),
   ).toBe('260');
   await page.goto(`/#/studies/${card.id}`);
-  await expect(meta).toHaveCSS('width', '424px');
+  await expect(meta).toHaveCSS('width', '240px');
+  await meta.getByRole('button', { name: 'Properties', exact: true }).click();
   await splitter.focus();
   await page.keyboard.press('ArrowLeft');
-  await expect(meta).toHaveCSS('width', '434px');
+  await expect(meta).toHaveCSS('width', '250px');
   expect(
     await page.evaluate(() => localStorage.getItem('lykeion.embedded-study-inspector-width')),
   ).toBe('260');
   await page.goto(`/#/inbox/${item.id}`);
-  await expect(meta).toHaveCSS('width', '260px');
+  await expect(meta).toHaveCSS('width', '240px');
   expect(await page.evaluate(() => localStorage.getItem('lykeion.study-inspector-width'))).toBe(
-    '434',
+    '250',
   );
 });
 

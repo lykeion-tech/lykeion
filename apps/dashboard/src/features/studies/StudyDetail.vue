@@ -496,6 +496,8 @@ function pin() {
       v-model:active="activeSurface"
       v-model:focused="paneFocused"
       :surfaces="studySurfaces"
+      :default-width="240"
+      :restore-width="false"
       hide-title
       :container-width="studyWidth || undefined"
       :width-key="

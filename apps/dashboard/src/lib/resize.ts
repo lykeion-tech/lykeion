@@ -17,8 +17,9 @@ export function usePaneResize(
   max: number,
   direction = 1,
   available = () => window.innerWidth - 420,
+  restore = true,
 ) {
-  const stored = Number(readText(key));
+  const stored = restore ? Number(readText(key)) : NaN;
   const preferred = ref(
     Number.isFinite(stored) && stored >= min && stored <= max ? stored : initial,
   );
@@ -99,5 +100,8 @@ export function usePaneResize(
     cleanup?.();
     window.removeEventListener('resize', resized);
   });
-  return { width, minimum, maximum, keydown, pointerdown };
+  function reset() {
+    preferred.value = initial;
+  }
+  return { width, minimum, maximum, keydown, pointerdown, reset };
 }

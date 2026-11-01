@@ -2,16 +2,21 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import { usePaneResize } from '../lib/resize';
-const props = defineProps<{
-  open: boolean;
-  active: string | null;
-  focused: boolean;
-  surfaces: { id: string; label: string; icon: string }[];
-  widthKey?: string;
-  containerWidth?: number;
-  focusKey?: string;
-  hideTitle?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    active: string | null;
+    focused: boolean;
+    surfaces: { id: string; label: string; icon: string }[];
+    widthKey?: string;
+    containerWidth?: number;
+    focusKey?: string;
+    hideTitle?: boolean;
+    defaultWidth?: number;
+    restoreWidth?: boolean;
+  }>(),
+  { restoreWidth: true },
+);
 const emit = defineEmits<{
   'update:open': [boolean];
   'update:active': [string | null];
@@ -19,7 +24,7 @@ const emit = defineEmits<{
 }>();
 const resize = usePaneResize(
   props.widthKey ?? 'lykeion.surface-pane-width',
-  364,
+  props.defaultWidth ?? 364,
   240,
   640,
   -1,
@@ -30,6 +35,7 @@ const resize = usePaneResize(
       ? available
       : Math.max(160, available - 400);
   },
+  props.restoreWidth !== false,
 );
 const title = computed(() => props.surfaces.find((s) => s.id === props.active)?.label ?? '');
 const pane = ref<HTMLElement>();
@@ -53,6 +59,7 @@ watch(
   () => props.open,
   async (open) => {
     if (open) {
+      if (props.restoreWidth === false) resize.reset();
       opener =
         typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
       await nextTick();
@@ -155,12 +162,7 @@ function showChooser() {
       @keydown="resize.keydown"
     />
     <header class="surface-header">
-      <button
-        v-if="active"
-        class="surface-icon"
-        aria-label="Back to surfaces"
-        @click="showChooser"
-      >
+      <button v-if="active" class="surface-icon" aria-label="Back to surfaces" @click="showChooser">
         <Icon name="back" />
       </button>
       <span v-if="!hideTitle" class="surface-title">{{ title }}</span>
@@ -310,9 +312,8 @@ function showChooser() {
 
 .surface-chooser {
   margin: 0 auto auto;
-  transform: translateY(-15%);
   position: relative;
-  top: 35%;
+  top: calc(35% - 28px);
   width: max-content;
   max-width: 90%;
   padding: 18px 0;
@@ -323,7 +324,7 @@ function showChooser() {
   font-weight: 600;
   margin: 0 0 12px;
 }
-.surface-choice {
+.surface-pane .surface-choice {
   width: 100%;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
@@ -333,7 +334,7 @@ function showChooser() {
   border-radius: 5px;
   padding: 9px 4px;
   background: transparent;
-  color: inherit;
+  color: var(--text);
   text-align: left;
   font: inherit;
   cursor: pointer;

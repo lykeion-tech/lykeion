@@ -3,6 +3,44 @@ import { h, nextTick, ref } from 'vue';
 import SurfacePane from './SurfacePane.vue';
 import { all, createTreeApp, node, textOf } from '../../../../tests/daemon-tree';
 
+it('starts and reopens at its default width even when a wider width was saved', async () => {
+  const oldWindow = globalThis.window;
+  const oldStorage = globalThis.localStorage;
+  Object.assign(globalThis, {
+    window: { innerWidth: 1500, addEventListener() {}, removeEventListener() {} },
+    localStorage: { getItem: () => '640', setItem() {}, removeItem() {} },
+  });
+  const open = ref(true);
+  const root = node('root');
+  const app = createTreeApp({
+    render: () =>
+      h(SurfacePane, {
+        open: open.value,
+        active: 'files',
+        focused: false,
+        surfaces: [],
+        defaultWidth: 240,
+        restoreWidth: false,
+      }),
+  });
+  app.mount(root);
+  await nextTick();
+  const pane = () => all(root).find((n) => n.props['aria-label'] === 'Right pane')!;
+  const width = () => (pane().props.style as Record<string, string>)['--surface-width'];
+  expect(width()).toBe('240px');
+  const separator = all(root).find((n) => n.props.role === 'separator')!;
+  (separator.props.onKeydown as (e: unknown) => void)({ key: 'End', preventDefault() {} });
+  await nextTick();
+  expect(width()).toBe('640px');
+  open.value = false;
+  await nextTick();
+  open.value = true;
+  await nextTick();
+  expect(width()).toBe('240px');
+  app.unmount();
+  Object.assign(globalThis, { window: oldWindow, localStorage: oldStorage });
+});
+
 it('opens a single surface, returns to the chooser, and restores it after closing', async () => {
   Object.assign(globalThis, {
     window: { innerWidth: 1200, addEventListener() {}, removeEventListener() {} },

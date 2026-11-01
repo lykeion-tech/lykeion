@@ -47,7 +47,7 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   await expect(inspector.locator('.execution-log .run-metrics')).toBeVisible();
   await page.evaluate(() => localStorage.setItem('lykeion.study-inspector-width', '364'));
   await page.reload();
-  await expect(inspector).toHaveCSS('width', '364px');
+  await expect(inspector).toHaveCSS('width', '240px');
   await openSurface(page, 'Timeline');
   const dialog = inspector.locator('.execution-log');
   await expect(dialog.getByText('Latest-attempt time', { exact: true })).toBeVisible();
@@ -100,7 +100,7 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   await page.goto(`/#/studies/${f.card_id}`);
   await page.reload();
   await expect(page.locator('.sidebar')).toHaveCSS('width', '260px');
-  await expect(pane).toHaveCSS('width', '310px');
+  await expect(pane).toHaveCSS('width', '240px');
 });
 
 test('Execution log and Details independently disclose; Runs keeps recorded costs and attempt timing honest', async ({

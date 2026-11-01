@@ -825,7 +825,7 @@ test('Properties stays the same width on the right and resizes inward', async ({
   const properties = area.getByRole('complementary', { name: 'Right pane' });
   await properties.getByRole('button', { name: 'Properties', exact: true }).click();
   const splitter = area.getByRole('separator', { name: 'Resize right pane' });
-  await expect(properties).toHaveCSS('width', '364px');
+  await expect(properties).toHaveCSS('width', '240px');
   const pane = (await properties.boundingBox())!;
   const content = (await area.locator('.task-main').boundingBox())!;
   const container = (await area.boundingBox())!;
@@ -834,15 +834,15 @@ test('Properties stays the same width on the right and resizes inward', async ({
   expect(pane.x - content.x - content.width).toBeCloseTo(0, 0);
   await splitter.focus();
   await page.keyboard.press('ArrowLeft');
-  await expect(properties).toHaveCSS('width', '374px');
+  await expect(properties).toHaveCSS('width', '250px');
   await page.keyboard.press('ArrowRight');
-  await expect(properties).toHaveCSS('width', '364px');
+  await expect(properties).toHaveCSS('width', '240px');
   const handle = (await splitter.boundingBox())!;
   await page.mouse.move(handle.x + handle.width / 2, handle.y + 200);
   await page.mouse.down();
   await page.mouse.move(handle.x - 40 + handle.width / 2, handle.y + 200);
   await page.mouse.up();
-  await expect(properties).toHaveCSS('width', '404px');
+  await expect(properties).toHaveCSS('width', '280px');
 });
 
 test('study content and composer share a wider measure and only the corner button opens a run', async ({
