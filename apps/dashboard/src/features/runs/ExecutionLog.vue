@@ -48,9 +48,6 @@ function position(run: AgentRun) {
       </div>
       <p v-if="!runs.length" class="timing-note">No runs yet.</p>
       <template v-if="runs.length">
-        <div class="cost-legend">
-          <span>— Cumulative recorded cost</span><span>▪ Run · width is duration</span>
-        </div>
         <div class="timeline-chart">
           <svg
             class="cost-plot"
@@ -184,14 +181,6 @@ function position(run: AgentRun) {
 }
 .run-metrics span {
   font-size: 15px;
-}
-.cost-legend {
-  display: flex;
-  justify-content: flex-end;
-  gap: 16px;
-  font-size: 11px;
-  color: var(--muted);
-  margin: 10px 0 24px;
 }
 .timeline-chart {
   position: relative;

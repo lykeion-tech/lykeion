@@ -132,7 +132,12 @@ async function openFile(file: FileRow) {
         >
           <div class="task-main" data-column="conversation" :hidden="paneMode === 'focus'">
             <div class="task-stage-row">
-              <button type="button" aria-label="Open experiment surfaces" @click="toggleSurfaces">
+              <button
+                type="button"
+                class="experiment-toggle"
+                aria-label="Open experiment surfaces"
+                @click="toggleSurfaces"
+              >
                 <Icon name="panel" :size="16" aria-hidden="true" />
               </button>
             </div>
@@ -199,8 +204,7 @@ async function openFile(file: FileRow) {
                         atBottom = true;
                         scrollBottom();
                       "
-                      ></ChatComposer
-                    >
+                    ></ChatComposer>
                   </div>
                 </div>
               </section>
@@ -309,5 +313,11 @@ async function openFile(file: FileRow) {
 }
 .experiment-toggle {
   margin-left: auto;
+}
+.experiment-toggle:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+.experiment-surface-layout :deep(.surface-choice) {
+  font-weight: 500;
 }
 </style>

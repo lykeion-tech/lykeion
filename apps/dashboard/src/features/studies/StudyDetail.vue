@@ -97,14 +97,12 @@ onMounted(() => {
   studyObserver.observe(studyElement.value);
 });
 onUnmounted(() => studyObserver?.disconnect());
-const detailsOpen = ref(true);
 const activeSurface = ref<string | null>(null);
 const paneFocused = ref(false);
 const studySurfaces = [
   { id: 'execution', label: 'Timeline', icon: 'chart' },
   { id: 'files', label: 'Files', icon: 'file' },
   { id: 'properties', label: 'Properties', icon: 'settings' },
-  { id: 'details', label: 'Details', icon: 'list' },
 ];
 const propertyBusy = ref(false);
 async function saveProperty(body: Record<string, unknown>) {
@@ -258,7 +256,6 @@ watch(
   [workspaceId, () => props.id],
   () => {
     generation++;
-    detailsOpen.value = true;
     activeSurface.value = null;
     paneFocused.value = false;
     propertyBusy.value = false;
@@ -359,7 +356,7 @@ function pin() {
           </button>
           <button
             v-if="!showMeta"
-            class="icon-button"
+            class="icon-button study-pane-toggle"
             :aria-pressed="showMeta"
             aria-label="Toggle details"
             @click="showMeta = !showMeta"
@@ -598,17 +595,7 @@ function pin() {
             {{ read.query.error.value?.message }}
             <button @click="read.query.refetch()">Retry {{ read.label }}</button>
           </div>
-        </div>
-        <div v-else-if="active === 'execution'" class="study-meta surface-content">
-          <ExecutionLog :runs="runs.data.value ?? []" />
-        </div>
-        <div v-else-if="active === 'details'" class="study-meta surface-content">
-          <h3 class="details-heading">
-            <button :aria-expanded="detailsOpen" @click="detailsOpen = !detailsOpen">
-              Details <Icon :name="detailsOpen ? 'down' : 'right'" :size="11" />
-            </button>
-          </h3>
-          <div v-if="detailsOpen" class="details-body">
+          <div class="details-body">
             <small>Owner</small>
             <div class="v metadata-owner">
               <span class="avatar">{{ name(c.owner_id)[0] }}</span
@@ -657,6 +644,9 @@ function pin() {
               <div class="v">{{ name(creator) }}</div></template
             >
           </div>
+        </div>
+        <div v-else-if="active === 'execution'" class="study-meta surface-content">
+          <ExecutionLog :runs="runs.data.value ?? []" />
         </div>
         <StudyOutputs v-else-if="active === 'files'" :card-id="id" />
       </template>
@@ -1630,24 +1620,15 @@ function pin() {
 .study-properties :deep(.execution-log) {
   margin-top: 26px;
 }
-.details-heading {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 20px;
-  margin: 0 0 16px;
-}
-.details-heading button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0;
-  font: inherit;
-}
 .details-body {
   display: grid;
   grid-template-columns: 75px minmax(0, 1fr);
   gap: 14px 6px;
   align-items: center;
+  margin-top: 20px;
+}
+.study-pane-toggle:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 .details-body > small {
   color: var(--muted);

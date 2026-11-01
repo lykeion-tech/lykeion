@@ -32,6 +32,12 @@ it('starts and reopens at its default width even when a wider width was saved', 
   (separator.props.onKeydown as (e: unknown) => void)({ key: 'End', preventDefault() {} });
   await nextTick();
   expect(width()).toBe('640px');
+  const back = all(root).find((n) => n.props['aria-label'] === 'Back to surfaces')!;
+  (back.props.onClick as () => void)();
+  await nextTick();
+  expect(width()).toBe('240px');
+  (separator.props.onKeydown as (e: unknown) => void)({ key: 'End', preventDefault() {} });
+  await nextTick();
   open.value = false;
   await nextTick();
   open.value = true;

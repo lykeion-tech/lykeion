@@ -841,7 +841,7 @@ describe('hidden services, no study variables', () => {
         }),
     );
     try {
-      await t.click(/^Details$/);
+      await t.click(/^Properties$/);
       expect(t.text()).toContain('Attached files');
       expect(t.text()).not.toContain('Study variables');
       expect(t.text()).not.toContain('DATASET');
@@ -858,7 +858,7 @@ describe('hidden services, no study variables', () => {
       (c) => seedStudy(c, { services }),
     );
     try {
-      await t.click(/^Details$/);
+      await t.click(/^Properties$/);
       expect(t.text()).not.toContain('This study has hidden services:');
     } finally {
       t.unmount();
@@ -876,7 +876,7 @@ describe('hidden services, no study variables', () => {
         }),
     );
     try {
-      await t.click(/^Details$/);
+      await t.click(/^Properties$/);
       expect(t.text()).toContain(
         "This study has hidden services: grader, database. Hidden services can't be fully isolated on every machine; don't use them to keep secrets.",
       );
@@ -1196,7 +1196,7 @@ describe('pre-registered results on the study page', () => {
         }),
     );
     try {
-      await t.click(/^Details$/);
+      await t.click(/^Properties$/);
       const text = t.text();
       expect(text).toContain('Pre-registered results');
       expect(text).toContain('accuracy >= 0.9');
@@ -1213,15 +1213,22 @@ describe('pre-registered results on the study page', () => {
 });
 
 describe('study right-pane surfaces', () => {
-  it('opens the chooser and shows properties, execution, details and files one at a time', async () => {
+  it('opens the chooser and shows properties, execution and files one at a time', async () => {
     const t = await mount(StudyDetail, () => ({ id: 'c' }), '/', seedStudy);
     try {
       expect(t.text()).toContain('Open a surface');
       expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(false);
       expect(t.text()).not.toContain('Pre-registered results');
-      expect(t.text().indexOf('Files')).toBeLessThan(t.text().indexOf('Details'));
-      for (const label of ['Properties', 'Timeline', 'Files', 'Details']) {
+      expect(t.text()).not.toContain('Details');
+      for (const label of ['Properties', 'Timeline', 'Files']) {
         await t.click(new RegExp(`^${label}$`));
+        if (label === 'Properties') {
+          expect(t.text()).toContain('Owner');
+          expect(t.text()).toContain('Deadline');
+          expect(t.text()).toContain('Created');
+          expect(t.text()).toContain('Updated');
+          expect(t.text()).not.toContain('Details');
+        }
         if (label === 'Timeline') {
           expect(t.text()).toContain('No runs yet.');
           expect(t.text()).toContain('Spent');

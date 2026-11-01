@@ -125,6 +125,7 @@ function close() {
   emit('update:open', false);
 }
 function showChooser() {
+  if (props.restoreWidth === false) resize.reset();
   emit('update:focused', false);
   emit('update:active', null);
 }
@@ -276,9 +277,9 @@ function showChooser() {
   border-radius: 5px;
   cursor: pointer;
 }
-.surface-icon:hover,
-.surface-choice:hover {
-  background: color-mix(in srgb, currentColor 8%, transparent);
+.surface-pane .surface-icon:hover,
+.surface-pane .surface-choice:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 .surface-icon:focus-visible,
 .surface-choice:focus-visible {

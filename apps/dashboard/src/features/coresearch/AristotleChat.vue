@@ -860,4 +860,10 @@ async function stop() {
 .experiment-toggle {
   margin-left: auto;
 }
+.experiment-toggle:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+.experiment-surface-layout :deep(.surface-choice) {
+  font-weight: 500;
+}
 </style>
