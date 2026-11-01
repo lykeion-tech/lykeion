@@ -165,3 +165,29 @@ func TestLookupNotFoundIsNotAnOutage(t *testing.T) {
 		t.Errorf("a 502 link: %v, want an outage", err)
 	}
 }
+
+func TestLookupKeepsExcludedPapersBack(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/works":
+			fmt.Fprint(w, `{"results":[{"id":"https://openalex.org/W1","title":"Hidden","doi":"https://doi.org/10.1/hidden"},{"id":"https://openalex.org/W2","title":"Open","doi":"https://doi.org/10.1/open"}]}`)
+		case strings.HasPrefix(r.URL.Path, "/works/"):
+			fmt.Fprint(w, `{"id":"https://openalex.org/W1","title":"Hidden","doi":"https://doi.org/10.1/hidden"}`)
+		default:
+			fmt.Fprint(w, `{"resultList":{"result":[{"id":"9","source":"MED","title":"By PMID","doi":"10.1/hidden","pmid":"9"}]}}`)
+		}
+	}))
+	defer up.Close()
+	l := Lookup{OpenAlex: OpenAlex{Base: up.URL, HTTP: up.Client()}, EuropePMC: EuropePMC{Base: up.URL, HTTP: up.Client()},
+		Exclude: excluded(t, "10.1/hidden")}
+	ctx := context.Background()
+	hits, err := l.Search(ctx, "q")
+	if err != nil || len(hits) != 1 || hits[0].DOI != "10.1/open" {
+		t.Fatalf("search: %+v %v", hits, err)
+	}
+	for _, id := range []string{"doi:10.1/hidden", "pmid:9"} {
+		if h, err := l.Paper(ctx, id); !errors.Is(err, ErrNotFound) || h.ID != "" {
+			t.Errorf("%s, excluded: %+v %v, want not found", id, h, err)
+		}
+	}
+}

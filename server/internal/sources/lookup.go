@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 
 	"lykeion/server/internal/connectors"
@@ -18,6 +19,9 @@ type Lookup struct {
 	Arxiv     *Arxiv
 	EuropePMC EuropePMC
 	GEO       GEO
+	// Exclude keeps these papers out of every answer, as the hosted sources
+	// server does; nil keeps nothing back.
+	Exclude *Exclusions
 }
 
 // linkClient checks dataset links. Agents choose the links, so it refuses
@@ -43,6 +47,9 @@ func (l Lookup) Paper(ctx context.Context, id string) (Hit, error) {
 		d, err = l.EuropePMC.Get(ctx, "MED:"+ref)
 	default:
 		return Hit{}, fmt.Errorf("paper id %q: want doi:…, arxiv:… or pmid:…: %w", id, ErrNotFound)
+	}
+	if err == nil && (l.Exclude.Match(id) || l.Exclude.Hides(d.Hit)) {
+		return Hit{}, fmt.Errorf("paper %s: %w", id, ErrNotFound)
 	}
 	return d.Hit, err
 }
@@ -82,8 +89,9 @@ func (l Lookup) Dataset(ctx context.Context, accession string) (Hit, error) {
 	return Hit{ID: accession, Abstract: d.Structure}, nil
 }
 
-// Search asks OpenAlex, keeping at most maxRecall hits.
+// Search asks OpenAlex, keeping at most maxRecall hits that are not excluded.
 func (l Lookup) Search(ctx context.Context, query string) ([]Hit, error) {
 	hits, err := l.OpenAlex.Search(ctx, query)
+	hits = slices.DeleteFunc(hits, l.Exclude.Hides)
 	return hits[:min(len(hits), maxRecall)], err
 }
