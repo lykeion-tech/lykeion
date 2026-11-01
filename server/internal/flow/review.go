@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -67,7 +68,7 @@ func (e *Engine) reviewColumn(ctx context.Context, ws uuid.UUID, in scoring) err
 	var res review.Result
 	if err != nil {
 		err = fmt.Errorf("reading the %s review's inputs: %w", in.card.BoardColumn, err)
-	} else if res, err = e.runReview(ctx, in, rv); err != nil {
+	} else if res, err = e.runReview(ctx, ws, in, rv); err != nil {
 		err = fmt.Errorf("%s review: %w", in.card.BoardColumn, err)
 	}
 	moved, werr := e.applyReview(ctx, ws, in, res, err)
@@ -195,17 +196,18 @@ func recordKey(cite string) string {
 
 // runReview asks the column's reviewer. It reads blobs and asks Jev and the
 // sources, so no transaction is open.
-func (e *Engine) runReview(ctx context.Context, in scoring, rv reviewing) (review.Result, error) {
+func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv reviewing) (review.Result, error) {
 	if e.Jev == nil {
 		return review.Result{}, errNoJev
 	}
-	a := retryAsker{e}
+	p := &reviewPass{e: e, ws: ws, card: in.card, retry: e.retry(), renewed: e.now()}
+	a := retryAsker{p}
 	switch in.card.BoardColumn {
 	case board.Grounding:
 		if e.Sources == nil {
 			return review.Result{}, errNoSources
 		}
-		return review.Grounding(ctx, a, lookup{e.Sources}, review.GroundingInput{Question: asked(in.card), Criteria: rv.criteria,
+		return review.Grounding(ctx, a, lookup{e.Sources, p}, review.GroundingInput{Question: asked(in.card), Criteria: rv.criteria,
 			Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
 	case board.Hypotheses:
 		return review.Hypotheses(ctx, a, review.HypothesesInput{Question: asked(in.card), Items: rv.items, Cited: rv.cited,
@@ -310,13 +312,49 @@ func around(out, value string) string {
 	return s
 }
 
-// retryAsker asks Jev with the engine's retry around each request, and says
+// leaseRenewal is how often a running review extends its scoring lease. A
+// request, with the retry's waits, ends well inside one lease, so a review
+// that renews before each request keeps it; a crashed one lets it run out.
+const leaseRenewal = 2 * time.Minute
+
+// reviewPass is one review's state across its requests: the one retry
+// budget they share and when the lease was last extended.
+type reviewPass struct {
+	e       *Engine
+	ws      uuid.UUID
+	card    db.Card
+	retry   *jev.Retry
+	renewed time.Time
+}
+
+// keep extends the scoring lease once leaseRenewal has passed, while the
+// study is still where it was read and still leased.
+func (p *reviewPass) keep(ctx context.Context) error {
+	now := p.e.now()
+	if now.Sub(p.renewed) < leaseRenewal {
+		return nil
+	}
+	p.renewed = now
+	return p.e.Store.InWorkspace(ctx, p.ws, uuid.Nil, func(tx *store.Tx) error {
+		c, err := lockCard(ctx, tx, p.card.ID)
+		if err != nil || c.GatingUntil == nil || !current(c, p.card.BoardColumn, p.card.Round) {
+			return err
+		}
+		until := now.Add(scoringLease)
+		return tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{GatingUntil: &until, ID: c.ID, WorkspaceID: tx.WS})
+	})
+}
+
+// retryAsker asks Jev with the review's retry around each request, and says
 // in its errors that Jev failed.
-type retryAsker struct{ e *Engine }
+type retryAsker struct{ p *reviewPass }
 
 func (a retryAsker) Noul(ctx context.Context, state string, qs map[string]string) (out map[string]float64, err error) {
-	err = a.e.retry().Do(ctx, func() (err error) {
-		out, err = a.e.Jev.Noul(ctx, state, qs)
+	if err := a.p.keep(ctx); err != nil {
+		return nil, fmt.Errorf("extending the scoring lease: %w", err)
+	}
+	err = a.p.retry.Do(ctx, func() (err error) {
+		out, err = a.p.e.Jev.Noul(ctx, state, qs)
 		return err
 	})
 	if err != nil {
@@ -326,8 +364,11 @@ func (a retryAsker) Noul(ctx context.Context, state string, qs map[string]string
 }
 
 func (a retryAsker) Choice(ctx context.Context, state, instructions string, options map[string]string) (out jev.Answer, err error) {
-	err = a.e.retry().Do(ctx, func() (err error) {
-		out, err = a.e.Jev.Choice(ctx, state, instructions, options)
+	if err := a.p.keep(ctx); err != nil {
+		return jev.Answer{}, fmt.Errorf("extending the scoring lease: %w", err)
+	}
+	err = a.p.retry.Do(ctx, func() (err error) {
+		out, err = a.p.e.Jev.Choice(ctx, state, instructions, options)
 		return err
 	})
 	if err != nil {
@@ -337,20 +378,32 @@ func (a retryAsker) Choice(ctx context.Context, state, instructions string, opti
 }
 
 // lookup says in its errors that the sources lookup failed; not-found
-// answers stay recognisable.
-type lookup struct{ s review.Sources }
+// answers stay recognisable. It keeps the review's lease as it goes.
+type lookup struct {
+	s review.Sources
+	p *reviewPass
+}
 
 func (l lookup) Paper(ctx context.Context, id string) (sources.Hit, error) {
+	if err := l.p.keep(ctx); err != nil {
+		return sources.Hit{}, fmt.Errorf("extending the scoring lease: %w", err)
+	}
 	h, err := l.s.Paper(ctx, id)
 	return h, lookupErr(err)
 }
 
 func (l lookup) Dataset(ctx context.Context, accession string) (sources.Hit, error) {
+	if err := l.p.keep(ctx); err != nil {
+		return sources.Hit{}, fmt.Errorf("extending the scoring lease: %w", err)
+	}
 	h, err := l.s.Dataset(ctx, accession)
 	return h, lookupErr(err)
 }
 
 func (l lookup) Search(ctx context.Context, query string) ([]sources.Hit, error) {
+	if err := l.p.keep(ctx); err != nil {
+		return nil, fmt.Errorf("extending the scoring lease: %w", err)
+	}
 	hs, err := l.s.Search(ctx, query)
 	return hs, lookupErr(err)
 }

@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
@@ -633,5 +636,47 @@ func TestASecondScoreOfAReviewedRoundIsANoOp(t *testing.T) {
 	}
 	if got := l.card(t, c.ID); got.BoardColumn != "grounding" || got.Round != c.Round {
 		t.Fatalf("a second pass moved the study: %s round %d", got.BoardColumn, got.Round)
+	}
+}
+
+func TestALongReviewKeepsItsLease(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	makeRetry, retries := l.e.Retry, 0
+	l.e.Retry = func() *jev.Retry { retries++; return makeRetry() }
+	l.e.Sources = stubSources{}
+	start := time.Now().Truncate(time.Microsecond)
+	var clock atomic.Int64
+	l.e.Now = func() time.Time { return start.Add(time.Duration(clock.Load())) }
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.item(t, c.ID, review.KindPaper, paper(paperB2))
+	// Each of Jev's answers takes four minutes; the review outlives the
+	// lease it was read under unless it extends it.
+	var leases []time.Time
+	stub.setNoul(func(string) float64 {
+		clock.Add(int64(4 * time.Minute))
+		var until *time.Time
+		if err := l.env.Owner.QueryRow(context.Background(), "SELECT gating_until FROM card WHERE id = $1", c.ID).Scan(&until); err != nil || until == nil {
+			t.Errorf("no lease mid-review: %v", err)
+		} else {
+			leases = append(leases, *until)
+		}
+		return 0.9
+	})
+	l.done(t, c.ID)
+	if got := l.card(t, c.ID); got.BoardColumn != "hypotheses" || got.GatingUntil != nil {
+		t.Fatalf("after the review: %s, lease %v", got.BoardColumn, got.GatingUntil)
+	}
+	if len(leases) != 3 {
+		t.Fatalf("%d leases seen", len(leases))
+	}
+	// The third paper was looked up at minute 8.
+	if now := l.e.now(); leases[2].Before(start.Add(8*time.Minute + scoringLease)) {
+		t.Fatalf("the lease was not extended: it runs to %v at the third answer (%v)", leases[2], now)
+	}
+	if retries != 1 {
+		t.Fatalf("one review made %d retry budgets", retries)
 	}
 }
