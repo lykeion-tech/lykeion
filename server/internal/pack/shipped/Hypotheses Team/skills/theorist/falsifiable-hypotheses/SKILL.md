@@ -14,6 +14,9 @@ For each hypothesis:
 - **Rests on**: the records it rests on, in the hypothesis's `cites` (at least one): a Grounding
   record by its key (`r3`) or a retrieved source's `call:KEY`; reasoning from background
   knowledge is labelled in the text, never cited.
+  Each prediction must be backed by a cited source that itself reports the effect or relationship
+  predicted; a prediction more specific or stronger than its sources (a precise effect size they do
+  not report) fails Jev's check that the cited evidence supports it.
 
 Declare each hypothesis as a `hypothesis` item (`lyk record put hypothesis`), its prediction in
 one of three shapes: a direction, a choice between named outcomes, or a numeric range with its

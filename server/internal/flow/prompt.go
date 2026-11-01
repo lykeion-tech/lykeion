@@ -135,7 +135,7 @@ func itemsPrompt(column string) string {
 			"or a numeric range with its uncertainty (`{\"shape\":\"range\",\"low\":0.2,\"high\":0.4,\"uncertainty\":\"90% interval\"}`). " +
 			"The control is `{\"text\":\"…\"}`, or `{\"none\":\"why there is none\"}`. " +
 			"Each hypothesis cites at least one record of this study: a Grounding record by its key (`r3`), or a recorded call (`call:KEY`) for a source you fetched. " +
-			"Jev checks that each prediction is specific enough to be proven wrong and that its cited evidence supports it, and fails a hypothesis whose cited evidence already holds the answer: never look up this study's own answer.\n" +
+			"Jev checks that each prediction is specific enough to be proven wrong and that its cited evidence supports it (a source must itself report the effect you predict, so a prediction stronger or more precise than its sources fails), and fails a hypothesis whose cited evidence already holds the answer: never look up this study's own answer.\n" +
 			withdraw
 	case board.Experimentation:
 		return "Before you finish, declare the files the column produced, as saved with `lyk output put`, in one record that lists them all (only the latest counts): `lyk record put outputs --content '{\"files\":[\"results.csv\"]}'`. " +
