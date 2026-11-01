@@ -101,9 +101,9 @@ const detailsOpen = ref(true);
 const activeSurface = ref<string | null>(null);
 const paneFocused = ref(false);
 const studySurfaces = [
-  { id: 'properties', label: 'Properties', icon: 'settings' },
   { id: 'execution', label: 'Timeline', icon: 'chart' },
   { id: 'files', label: 'Files', icon: 'file' },
+  { id: 'properties', label: 'Properties', icon: 'settings' },
   { id: 'details', label: 'Details', icon: 'list' },
 ];
 const propertyBusy = ref(false);
@@ -598,10 +598,7 @@ function pin() {
           </div>
         </div>
         <div v-else-if="active === 'execution'" class="study-meta surface-content">
-          <ExecutionLog
-            :runs="runs.data.value ?? []"
-            :title="number + ' · ' + studyDisplayTitle(c.title)"
-          />
+          <ExecutionLog :runs="runs.data.value ?? []" />
         </div>
         <div v-else-if="active === 'details'" class="study-meta surface-content">
           <h3 class="details-heading">

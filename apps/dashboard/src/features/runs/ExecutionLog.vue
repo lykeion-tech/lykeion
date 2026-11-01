@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref } from 'vue';
 import type { AgentRun } from '../../api/types';
 import { durationLabel, milliseconds, runDuration, runTimeline } from './run-timeline';
 import { roleLabel } from '../../lib/studies';
-const props = defineProps<{ runs: AgentRun[]; title: string }>();
+const props = defineProps<{ runs: AgentRun[] }>();
 const clock = ref(Date.now());
 const interval = setInterval(() => {
   clock.value = Date.now();
@@ -29,9 +29,8 @@ function position(run: AgentRun) {
   <section class="execution-log" aria-label="Execution log">
     <div class="runs-dialog">
       <header class="runs-title">
-        <h2>Runs</h2>
+        <h2>Execution log</h2>
       </header>
-      <p class="runs-subtitle">{{ title }}</p>
       <div class="run-metrics">
         <div>
           <small>Spent</small><strong>{{ money(data.total) }}</strong>
@@ -161,12 +160,7 @@ function position(run: AgentRun) {
 }
 .runs-title h2 {
   font-size: 16px;
-  font-weight: 500;
-}
-.runs-subtitle {
-  font-size: 13px;
-  color: var(--muted);
-  margin-top: 6px;
+  font-weight: 700;
 }
 .run-metrics {
   display: flex;

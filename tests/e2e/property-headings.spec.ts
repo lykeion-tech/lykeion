@@ -18,7 +18,7 @@ test('Execution shows Runs directly and Details keeps its disclosure', async ({ 
   const properties = meta.getByRole('heading', { name: 'Properties', level: 2, exact: true });
   await expect(properties).toBeVisible();
   await choose('Timeline');
-  await expect(meta.getByRole('heading', { name: 'Runs', exact: true })).toBeVisible();
+  await expect(meta.getByRole('heading', { name: 'Execution log', exact: true })).toBeVisible();
   await expect(meta.locator('.run-metrics')).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Runs', exact: true })).toHaveCount(0);
   await choose('Details');
