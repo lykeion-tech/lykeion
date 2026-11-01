@@ -657,6 +657,10 @@ function pin() {
 .study-detail :deep(.surface-header) {
   height: 49px;
   border-bottom: 0;
+  padding-right: 18px;
+}
+.study-detail :deep(.surface-header .surface-icon[aria-label='Close pane']) {
+  transform: translateY(-0.5px);
 }
 .study-meta.surface-content {
   padding: 24px 20px 24px;

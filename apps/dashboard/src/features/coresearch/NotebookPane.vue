@@ -192,8 +192,8 @@ async function perform() {
   max-height: min(48vh, 360px);
   border-radius: 7px;
   overflow-y: auto;
-  background: #24282e;
-  color: #e5e8ec;
+  background: var(--surface);
+  color: var(--text);
 }
 .notebook-console-head {
   display: flex;
@@ -202,8 +202,8 @@ async function perform() {
   gap: 8px;
   flex-wrap: wrap;
   padding: 8px 10px;
-  border-bottom: 1px solid #ffffff25;
-  color: #c1c8d0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
   font-size: 12px;
 }
 .notebook-console-head label {
@@ -215,10 +215,10 @@ async function perform() {
   width: 110px;
   max-width: 100%;
   padding: 3px 6px;
-  border: 1px solid #747d87;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: #30353c;
-  color: #f1f3f5;
+  background: var(--surface);
+  color: var(--text);
   font: inherit;
 }
 .notebook-console-history {
@@ -226,25 +226,25 @@ async function perform() {
   overflow-y: auto;
 }
 .notebook-console-history :deep(.nbp-cell) {
-  border-color: #ffffff25;
-  color: #e5e8ec;
+  border-color: var(--border);
+  color: var(--text);
 }
 .notebook-console-history :deep(.code-block) {
-  background: #30353c;
-  border-color: #66707c;
-  color: #e5e8ec;
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
 }
 .notebook-console-history :deep(.nbp-cell-meta),
 .notebook-console-history :deep(.nbp-gutter),
 .notebook-console-history :deep(.nbp-cell-by),
 .notebook-console-history :deep(.nbp-cell-lang) {
-  color: #c1c8d0;
+  color: var(--text);
 }
 .notebook-console-input {
   display: flex;
   gap: 10px;
   padding: 12px;
-  color: #a8cee9;
+  color: var(--text);
   font: 13px/1.5 var(--font-mono, monospace);
 }
 .notebook-console-input textarea {
@@ -255,11 +255,12 @@ async function perform() {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #f1f3f5;
+  color: var(--text);
   font: inherit;
 }
 .notebook-console-input textarea::placeholder {
-  color: #b2bac4;
+  color: var(--text);
+  opacity: 1;
 }
 .notebook-console-footer {
   display: flex;
@@ -267,7 +268,7 @@ async function perform() {
   align-items: center;
   gap: 8px;
   padding: 0 10px 10px;
-  color: #c1c8d0;
+  color: var(--text);
   font-size: 12px;
 }
 .notebook-console-footer button {

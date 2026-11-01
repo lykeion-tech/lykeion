@@ -863,6 +863,12 @@ async function stop() {
 .experiment-toggle:hover {
   background: color-mix(in srgb, var(--text) 12%, transparent);
 }
+.experiment-surface-layout :deep(.surface-header) {
+  padding-right: 12px;
+}
+.experiment-surface-layout :deep(.surface-header .surface-icon[aria-label='Close pane']) {
+  transform: translateY(-0.5px);
+}
 .experiment-surface-layout :deep(.surface-choice) {
   font-weight: 500;
 }
