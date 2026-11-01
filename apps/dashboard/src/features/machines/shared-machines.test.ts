@@ -824,9 +824,8 @@ describe('Shared machines', () => {
     const t = await mount(CreateStudy, () => ({}));
     try {
       await t.fill('Describe your study', 'Question');
-      await t.click(/^Pre-registered · 0$/);
-      await t.fill('Result name 1', 'Accurate');
-      await t.fill('Result condition 1', 'accuracy >= 0.9');
+      await t.click(/^Grounding criteria · 0$/);
+      await t.fill('Criterion 1', 'Prospective cohort');
       if (machine) {
         await t.click(/^Machines$/);
         await t.click(/^Bench$/);

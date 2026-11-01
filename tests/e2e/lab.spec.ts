@@ -83,6 +83,7 @@ test('the lab daemon records a failed result and the engine files an Inbox item'
     data: {
       question: 'Can the lab record a real failed execution?',
       assignee: { type: 'team', teams: { grounding: await labTeam(request, workspace.id) } },
+      grounding_criteria: ['Peer-reviewed source'],
     },
   });
   expect(cardResponse.status()).toBe(201);

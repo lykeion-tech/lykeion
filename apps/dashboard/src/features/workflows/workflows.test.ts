@@ -317,13 +317,13 @@ describe('Starting a study with a Workflow', () => {
         }),
     );
 
-  it('a workflow study sends its workflow and no predicates', async () => {
+  it('a workflow study sends its workflow and no Grounding criteria', async () => {
     const fetchMock = posting();
     vi.stubGlobal('fetch', fetchMock);
     const t = await mountStudy(CreateStudy, { workflow: 'b' });
     try {
       expect(t.text()).toContain('Workflow: Zeta flow');
-      expect(t.text()).not.toContain('Pre-registered');
+      expect(t.text()).not.toContain('Grounding criteria');
       await t.click(/Built-in Teams/);
       await t.click(/^Solo agent$/);
       await t.fill('Describe your study', 'Question');
@@ -333,20 +333,20 @@ describe('Starting a study with a Workflow', () => {
       expect(body.workflow).toBe('b');
       expect(body.assignee).toEqual({ type: 'agent', id: 'a1' });
       expect(body.scope).toEqual({ from: 'experimentation', to: 'experimentation' });
-      expect(body).not.toHaveProperty('predicates');
+      expect(body).not.toHaveProperty('grounding_criteria');
     } finally {
       t.unmount();
     }
   });
 
-  it('removing the workflow restores pre-registration', async () => {
+  it('removing the workflow restores the Grounding criteria', async () => {
     vi.stubGlobal('fetch', posting());
     const t = await mountStudy(CreateStudy, { workflow: 'b' });
     try {
-      expect(t.text()).not.toContain('Pre-registered');
+      expect(t.text()).not.toContain('Grounding criteria');
       await t.click(/^Remove workflow$/);
       expect(t.text()).not.toContain('Workflow: Zeta flow');
-      expect(t.text()).toContain('Pre-registered');
+      expect(t.text()).toContain('Grounding criteria');
     } finally {
       t.unmount();
     }

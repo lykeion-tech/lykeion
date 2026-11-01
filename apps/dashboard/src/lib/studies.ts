@@ -222,7 +222,6 @@ export function transcript(
 const blockLabels: Record<BlockKind, string> = {
   '': '',
   low_score: 'low score',
-  unconfirmed_results: 'unconfirmed results',
 };
 export const blockLabel = (kind: BlockKind): string => blockLabels[kind];
 
@@ -331,13 +330,11 @@ export function inboxText(
       const finished = item.text.includes(' and the study finished;');
       return `${study} ${finished ? 'finished' : 'moved on'} with a middling score: ${criterion}`;
     }
-    case 'blocked':
-      return item.text.includes('could not be confirmed')
-        ? `${study}'s pre-registered results couldn't be confirmed and it is waiting for you`
+    case 'blocked': {
+      const column = /'s (\w+) column failed Jev's review twice/.exec(item.text)?.[1];
+      return column
+        ? `${study}'s ${columnName(column)} column failed Jev's review twice and is waiting for you`
         : `${study} scored low twice and is waiting for you`;
-    case 'preregistered': {
-      const tally = /pre-registered results: (.+?)\.?$/.exec(item.text)?.[1];
-      return tally ? `${study}'s pre-registered results: ${tally}` : null;
     }
     case 'no_tool': {
       const need = /what it needed: ([\s\S]+)$/.exec(item.text)?.[1];
@@ -359,19 +356,12 @@ export type Picked =
   | { type: 'team'; teams: Record<string, string>; agent_id?: string };
 export type Range = { from: string; to: string };
 
-// Whether a study runs Experimentation: its range when the form sends one,
-// else the lone Team's column.
-export function coversExperimentation(range: Range | null, teamColumns: string[]): boolean {
-  if (!range) return teamColumns.includes('experimentation');
+// Whether a study runs the stage: its range when the form sends one, else the
+// lone Team's column.
+export function coversStage(stage: Column, range: Range | null, teamColumns: string[]): boolean {
+  if (!range) return teamColumns.includes(stage);
   const at = (s: string) => stages.indexOf(s as Column);
-  return at(range.from) <= at('experimentation') && at('experimentation') <= at(range.to);
-}
-
-// The result keys pre-registered conditions read, for display only; the
-// server parses the conditions.
-export function predicateKeys(texts: string[]): string[] {
-  const words = texts.flatMap((t) => t.match(/[a-z][a-z0-9_]*/g) ?? []);
-  return [...new Set(words.filter((w) => !['and', 'or', 'not'].includes(w)))];
+  return at(range.from) <= at(stage) && at(stage) <= at(range.to);
 }
 
 // Use the current round's recorded conclusion, or its latest assigned step.

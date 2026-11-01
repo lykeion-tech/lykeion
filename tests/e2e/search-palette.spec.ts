@@ -23,7 +23,7 @@ test('search opens with researches and standalone and nested studies, previews a
         title,
         question: title,
         research_id,
-        predicates: [{ name: 'effect', text: 'effect > 0' }],
+        grounding_criteria: ['Peer-reviewed source'],
       },
     });
     expect(response.status()).toBe(201);

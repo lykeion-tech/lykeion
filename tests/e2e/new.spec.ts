@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { chooseCompact, labPack, labTeam, labWorkspace, preregister } from './lab';
+import { chooseCompact, labPack, labTeam, labWorkspace, groundingCriterion } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-14-artifacts';
 const shots = 'test-results/teams-scoring';
@@ -97,7 +97,7 @@ test.describe('new study', () => {
       .getByRole('textbox', { name: 'Study title' })
       .fill('Beta-cell ALDH1A3 in type 2 diabetes');
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await preregister(dialog);
+    await groundingCriterion(dialog);
     await dialog.getByRole('button', { name: 'No deadline' }).click();
     const chosen = page.locator('.composer-calendar [aria-current="date"]');
     const day = await chosen.getAttribute('data-date');
@@ -116,7 +116,7 @@ test.describe('new study', () => {
 
     await page.getByRole('button', { name: 'New', exact: true }).click();
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await preregister(dialog);
+    await groundingCriterion(dialog);
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog.getByRole('status')).toContainText('An active study already asks this');
     await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue(
@@ -135,7 +135,7 @@ test.describe('new study', () => {
     await dialog.getByRole('switch', { name: 'Create another' }).check();
     const question = `Lithium and telomere length ${Date.now()}?`;
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await preregister(dialog);
+    await groundingCriterion(dialog);
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue('');
     await expect(dialog).toBeVisible();
@@ -203,14 +203,14 @@ test.describe('new study', () => {
         question: `The earlier set study ${Date.now()}`,
         assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
         scope: { from: 'grounding', to: 'validation' },
-        predicates: [{ name: 'effect', text: 'effect > 0' }],
+        grounding_criteria: ['Peer-reviewed source'],
       },
     });
     expect(earlier.status()).toBe(201);
     const question = `The set again ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await preregister(dialog);
+    await groundingCriterion(dialog);
     await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /Your last set/ }).click();
     await expect(dialog.getByRole('button', { name: 'Assignee: Your Team set' })).toBeVisible();
@@ -236,6 +236,7 @@ test.describe('new study', () => {
     await expect(
       dialog.getByRole('button', { name: 'Stages: Grounding → Hypotheses' }),
     ).toBeVisible();
+    await groundingCriterion(dialog);
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
     const study = (await studyOf(page, question)) as Awaited<ReturnType<typeof studyOf>> & {
@@ -281,7 +282,7 @@ test.describe('new study', () => {
         question: `A set study ${Date.now()}`,
         assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
         scope: { from: 'grounding', to: 'validation' },
-        predicates: [{ name: 'effect', text: 'effect > 0' }],
+        grounding_criteria: ['Peer-reviewed source'],
       },
     });
     expect(made.status()).toBe(201);
@@ -289,7 +290,7 @@ test.describe('new study', () => {
     await dialog
       .getByRole('textbox', { name: 'Describe your study' })
       .fill(`Refused set ${Date.now()}`);
-    await preregister(dialog);
+    await groundingCriterion(dialog);
     await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /Your last set/ }).click();
     await page.route('**/api/cards', (route) =>
@@ -350,7 +351,7 @@ test.describe('new study', () => {
     const question = `A set of one ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await preregister(dialog);
+    await groundingCriterion(dialog);
     await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
     await dialog.getByRole('menuitem', { name: 'New set…' }).click();
     await chooseCompact(page, 'Hypotheses Team', 'ui-hyp');
@@ -405,7 +406,7 @@ test.describe('new study', () => {
     await expect(
       dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),
     ).toBeEnabled();
-    await preregister(dialog);
+    await groundingCriterion(dialog);
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
     const study = await studyOf(page, question);
@@ -446,7 +447,7 @@ test.describe('new study', () => {
       for (const name of [
         `Assignee: ${agent.name}`,
         'Stages: Grounding → Validation',
-        'Pre-registered · 0',
+        'Grounding criteria · 0',
         'No deadline',
       ])
         await expect(row.getByRole('button', { name, exact: true })).toBeVisible();

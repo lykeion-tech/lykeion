@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { chooseCompact, labPack, preregister, withBuiltInTeams } from './lab';
+import { chooseCompact, labPack, groundingCriterion, withBuiltInTeams } from './lab';
 
 async function workspace(request: APIRequestContext) {
   const created = await request.post('/api/workspaces', {
@@ -152,7 +152,7 @@ test('a workspace without a built-in Team shows why a study can’t start', asyn
   await dialog
     .getByRole('textbox', { name: 'Describe your study' })
     .fill(`Who works this without built-in Teams? ${Date.now()}`);
-  await preregister(dialog);
+  await groundingCriterion(dialog);
   await dialog.getByRole('button', { name: /^Create study/ }).click();
   await expect(dialog.getByRole('alert')).toHaveText('No built-in Team for Grounding');
 });

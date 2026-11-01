@@ -29,6 +29,7 @@ test('Team agent skills save in place, and not while a study uses the Team', asy
     data: {
       question: `Locking skill-selection study ${Date.now()}`,
       assignee: { type: 'team', teams: { grounding: original.id } },
+      grounding_criteria: ['Peer-reviewed source'],
     },
   });
   expect(study.status()).toBe(201);

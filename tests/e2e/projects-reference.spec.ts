@@ -1,6 +1,6 @@
 import { selectPicker } from './select-picker';
 import { expect, test } from '@playwright/test';
-import { labWorkspace, preregister } from './lab';
+import { labWorkspace, groundingCriterion } from './lab';
 
 test('Projects has the reference table and scopes its board and saved Properties to one project', async ({
   page,
@@ -24,7 +24,7 @@ test('Projects has the reference table and scopes its board and saved Properties
       title: 'Linked research study',
       question: 'Which sources establish this project board fixture?',
       research_id: project.id,
-      predicates: [{ name: 'effect', text: 'effect > 0' }],
+      grounding_criteria: ['Peer-reviewed source'],
     },
   });
   expect(card.status()).toBe(201);
@@ -33,7 +33,7 @@ test('Projects has the reference table and scopes its board and saved Properties
     data: {
       title: 'Outside this project',
       question: 'An unrelated question outside the project.',
-      predicates: [{ name: 'effect', text: 'effect > 0' }],
+      grounding_criteria: ['Peer-reviewed source'],
     },
   });
   expect(unrelated.status()).toBe(201);
@@ -134,7 +134,7 @@ test('an empty project creates a study already linked to its board', async ({ pa
   await modal
     .getByPlaceholder('Describe what you want to do, in your own words')
     .fill('How can this project create a durable linked study?');
-  await preregister(modal);
+  await groundingCriterion(modal);
   await modal.getByRole('button', { name: /^Create study/ }).click();
   await expect(modal).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Created inside project/ })).toBeVisible();

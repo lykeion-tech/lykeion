@@ -91,23 +91,11 @@ export interface Card {
   off_label: string[];
   attachments: { id: string; name: string; size_bytes: number; content_type: string }[];
   services: { name: string }[];
-  predicates: { name: string; text: string }[];
-  // Each pre-registered result's binding outcome so far; GET /api/cards/:id only.
-  preregistration?: Preregistration[] | null;
+  // What every Grounding source must meet, as the researcher wrote them.
+  grounding_criteria: string[];
 }
 
-export interface Preregistration {
-  name: string;
-  text: string;
-  outcome: 'held' | 'missed' | 'unconfirmed';
-  round: number;
-  run: string;
-  values: Record<string, number> | null;
-  others: { run: string; values: Record<string, number> | null }[] | null;
-  reason: string;
-}
-
-export type BlockKind = '' | 'low_score' | 'unconfirmed_results';
+export type BlockKind = '' | 'low_score';
 
 export interface Comment {
   id: string;
@@ -205,7 +193,6 @@ export interface InboxItem {
     | 'autoresearch_report'
     | 'middle_score'
     | 'blocked'
-    | 'preregistered'
     | 'no_tool'
     | 'scoring_unavailable'
     | 'done';
