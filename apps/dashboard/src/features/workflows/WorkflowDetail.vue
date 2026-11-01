@@ -5,8 +5,10 @@ import RecordedMarkdown from '../../ui/RecordedMarkdown.vue';
 import { useWorkflow, workflowFile } from '../../api/workflows';
 import { domainLabel } from '../../lib/workflows';
 import { matchesQuery } from '../../lib/search';
+import { useStudyComposer } from '../../state/study-composer';
 
 const props = defineProps<{ slug: string }>();
+const { openComposer } = useStudyComposer();
 const workflow = useWorkflow(() => props.slug);
 const w = computed(() => workflow.data.value);
 const tabs = ['README', 'Instruction', 'Files'] as const;
@@ -96,7 +98,11 @@ const unavailable = computed(
               <h1>{{ w.name }}</h1>
             </div>
             <div class="agent-actions">
-              <button class="button primary" type="button">
+              <button
+                class="button primary"
+                type="button"
+                @click="openComposer(undefined, undefined, slug)"
+              >
                 <Icon name="plus" :size="14" />Start study with this workflow
               </button>
             </div>

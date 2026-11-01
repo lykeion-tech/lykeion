@@ -639,6 +639,7 @@ onUnmounted(() => {
       v-if="composer.open"
       :assignee="composer.assignee"
       :project-id="composer.projectId"
+      :workflow="composer.workflow"
       @close="closeComposer()"
     />
     <div

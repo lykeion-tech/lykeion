@@ -20,9 +20,11 @@ import {
 import { notify } from '../../state/notice';
 import type { Assignee } from '../../state/study-composer';
 import AssignPicker from '../../ui/AssignPicker.vue';
+import { useWorkflows } from '../../api/workflows';
+import { domainEmoji } from '../../lib/workflows';
 import MachinePicker from '../machines/MachinePicker.vue';
 
-const props = defineProps<{ assignee?: Assignee; projectId?: string }>();
+const props = defineProps<{ assignee?: Assignee; projectId?: string; workflow?: string }>();
 const emit = defineEmits<{ close: [] }>();
 const client = useQueryClient();
 const cards = useCards();
@@ -74,7 +76,24 @@ function initialRange(): Range {
     ? { from: columns[0]!, to: columns[0]! }
     : { from: 'grounding', to: 'validation' };
 }
-const range = ref<Range>(initialRange());
+const workflowSlug = ref(props.workflow ?? '');
+const workflows = useWorkflows();
+const workflowInfo = computed(() =>
+  workflows.data.value?.workflows.find((w) => w.slug === workflowSlug.value),
+);
+const workflowRange: Range = { from: 'experimentation', to: 'experimentation' };
+const range = ref<Range>(workflowSlug.value ? { ...workflowRange } : initialRange());
+// Picking an agent resets the range; a Workflow keeps it on Experimentation.
+watch(range, (r) => {
+  if (workflowSlug.value && (r.from !== workflowRange.from || r.to !== workflowRange.to))
+    range.value = { ...workflowRange };
+});
+// The Workflow needs one agent, so a Team picked before it is dropped.
+if (workflowSlug.value && assignee.value?.type !== 'agent') assignee.value = null;
+function dropWorkflow() {
+  workflowSlug.value = '';
+  range.value = initialRange();
+}
 const picker = ref<InstanceType<typeof AssignPicker>>();
 const usedLastSet = ref(false);
 
@@ -83,8 +102,10 @@ const teamColumns = computed(() => picker.value?.teamColumns ?? []);
 const sendsRange = computed(
   () => !(assignee.value && teamColumns.value.length === 1 && !picker.value?.set),
 );
-const preregisters = computed(() =>
-  coversExperimentation(sendsRange.value ? range.value : null, teamColumns.value),
+const preregisters = computed(
+  () =>
+    !workflowSlug.value &&
+    coversExperimentation(sendsRange.value ? range.value : null, teamColumns.value),
 );
 const sentResults = computed(() =>
   results.value
@@ -185,6 +206,7 @@ const blocked = computed(
     !question.value.trim() ||
     unstaged.value ||
     (preregisters.value && !completeResults.value.length) ||
+    (!!workflowSlug.value && assignee.value?.type !== 'agent') ||
     files.uploading.value ||
     files.failed.value,
 );
@@ -210,7 +232,8 @@ async function submit() {
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
     ...(files.ids.value.length ? { attachment_ids: files.ids.value } : {}),
     ...(assignee.value ? { assignee: assignee.value } : {}),
-    ...(sendsRange.value ? { scope: range.value } : {}),
+    ...(workflowSlug.value ? { workflow: workflowSlug.value } : {}),
+    ...(sendsRange.value || workflowSlug.value ? { scope: range.value } : {}),
     ...(sent.length ? { predicates: sent.map(({ name, text }) => ({ name, text })) } : {}),
   };
   try {
@@ -226,7 +249,7 @@ async function submit() {
     if (another.value) {
       title.value = question.value = deadline.value = machine.value = '';
       assignee.value = props.assignee ? { ...props.assignee } : null;
-      range.value = initialRange();
+      range.value = workflowSlug.value ? { ...workflowRange } : initialRange();
       results.value = [];
       addResult();
       files.clear();
@@ -321,10 +344,23 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             v-model="assignee"
             v-model:range="range"
             one-agent
+            :agent-only="!!workflowSlug"
             :last-set="lastSet"
             @open="closeMenu"
             @picked="(last) => (usedLastSet = last)"
           />
+          <span v-if="workflowSlug" class="property-pill workflow-chip">
+            {{ workflowInfo ? domainEmoji(workflowInfo.domain) : '🧪' }} Workflow:
+            {{ workflowInfo?.name ?? workflowSlug }}
+            <button
+              type="button"
+              class="text-button"
+              aria-label="Remove workflow"
+              @click="dropWorkflow"
+            >
+              <Icon name="close" :size="12" />
+            </button>
+          </span>
           <div v-if="preregisters" class="property-anchor">
             <button
               type="button"

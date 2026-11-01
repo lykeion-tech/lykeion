@@ -20,6 +20,7 @@ import AgentRunDialog from '../runs/AgentRunDialog.vue';
 import ExecutionLog from '../runs/ExecutionLog.vue';
 import ColumnRating from './ColumnRating.vue';
 import { api } from '../../api/client';
+import { useWorkflows } from '../../api/workflows';
 import { formatSize } from '../../lib/attachments';
 import { studyDisplayTitle } from '../../lib/studies';
 import { agentDisplayName } from '../../lib/agent-name';
@@ -77,6 +78,7 @@ const openRatings = computed(() => (ratings.data.value ?? []).filter((r) => !r.d
 const runs = useRuns(() => props.id);
 const members = useMembers();
 const agents = useAgents();
+const workflows = useWorkflows();
 const researches = useResearches();
 const studyElement = ref<HTMLElement>();
 const studyWidth = ref(0);
@@ -533,6 +535,20 @@ function pin() {
                   ><span v-if="i">, </span><TeamName :name="team" /></template></template
               ><template v-else>{{ assigneeName }}</template></span
             ><span v-if="worksAlone" class="chip">No auditor</span>
+          </div>
+          <div v-if="c.workflow" class="property-row">
+            <small>Workflow</small>
+            <span class="v">
+              <RouterLink
+                v-if="workflows.data.value?.workflows.some((w) => w.slug === c?.workflow)"
+                :to="`/workflows/${c.workflow}`"
+                >Workflow:
+                {{
+                  workflows.data.value.workflows.find((w) => w.slug === c?.workflow)!.name
+                }}</RouterLink
+              >
+              <template v-else>This workflow is no longer available</template>
+            </span>
           </div>
           <div class="property-row">
             <label for="study-research">Project</label

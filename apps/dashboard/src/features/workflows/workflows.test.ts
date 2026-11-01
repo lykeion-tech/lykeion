@@ -4,6 +4,9 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import WorkflowsView from './WorkflowsView.vue';
 import WorkflowDetail from './WorkflowDetail.vue';
+import CreateStudy from '../studies/CreateStudy.vue';
+import StudyDetail from '../studies/StudyDetail.vue';
+import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
 import { byDomain } from '../../lib/workflows';
 import type { WorkflowSummary } from '../../api/types';
@@ -50,6 +53,12 @@ type Node = {
   querySelectorAll(): Node[];
   addEventListener(): void;
   removeEventListener(): void;
+  querySelector(): null;
+  contains(): boolean;
+  focus(): void;
+  showModal(): void;
+  getRootNode(): null;
+  getBoundingClientRect(): { right: number };
 };
 const node = (tag: string, text = ''): Node => ({
   tag,
@@ -60,6 +69,12 @@ const node = (tag: string, text = ''): Node => ({
   querySelectorAll: () => [],
   addEventListener() {},
   removeEventListener() {},
+  querySelector: () => null,
+  contains: () => true,
+  focus() {},
+  showModal() {},
+  getRootNode: () => null,
+  getBoundingClientRect: () => ({ right: 0 }),
 });
 const textOf = (n: Node): string => n.text + n.children.map(textOf).join('');
 const all = (n: Node): Node[] => [n, ...n.children.flatMap(all)];
@@ -164,5 +179,164 @@ describe('Workflows pages', () => {
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain('solution%2Fsolve.sh');
     expect(m.text()).toContain('echo solved');
     vi.unstubAllGlobals();
+  });
+});
+
+describe('Starting a study with a Workflow', () => {
+  const seed = (c: QueryClient, extra: Record<string, unknown> = {}) => {
+    c.setQueryData(keys.me, { id: 'u1' });
+    c.setQueryData(keys.workspace('w'), { name: 'Lab' });
+    c.setQueryData(keys.cards('w'), []);
+    c.setQueryData(keys.runtimes('w'), []);
+    c.setQueryData(keys.researches('w'), []);
+    c.setQueryData(keys.teams('w', '', ''), []);
+    c.setQueryData(keys.agents('w'), [
+      { id: 'a1', name: 'Solo agent', visibility: 'workspace', owner_id: 'u1', archived_at: null },
+    ]);
+    c.setQueryData(keys.members('w'), []);
+    for (const key of [keys.comments, keys.events, keys.runs, keys.ratings])
+      c.setQueryData(key('w', 'c'), []);
+    c.setQueryData(keys.records('w', 'c', 'experimentation'), []);
+    c.setQueryData(keys.card('w', 'c'), {
+      id: 'c',
+      number: 1,
+      title: 'Study',
+      question: 'Question',
+      owner_id: 'u1',
+      board_column: 'experimentation',
+      state: 'working',
+      flag: '',
+      ending: '',
+      block_kind: '',
+      scope_from: 'experimentation',
+      scope_to: 'experimentation',
+      round: 1,
+      redos: 0,
+      teams: {},
+      off_label: [],
+      attachments: [],
+      services: [],
+      assignee_type: 'agent',
+      assignee_id: 'a1',
+      created_at: '2026-10-25T10:00:00Z',
+      updated_at: '2026-10-25T10:00:00Z',
+      ...extra,
+    });
+  };
+  async function mountStudy(component: Component, props: Record<string, unknown>, extra = {}) {
+    workspaceId.value = 'w';
+    const g = globalThis as { document?: unknown };
+    g.document ??= { addEventListener() {}, removeEventListener() {} };
+    vi.stubGlobal('window', { innerWidth: 1512, addEventListener() {}, removeEventListener() {} });
+    vi.stubGlobal('Document', class {});
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal('ShadowRoot', class {});
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
+    });
+    seed(queryClient, extra);
+    queryClient.setQueryData(keys.workflows, { release: '1.2', workflows: fixtures });
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:p(.*)*', component }],
+    });
+    await router.push('/');
+    const app = createApp({ render: () => h(component, props) });
+    app.use(VueQueryPlugin, { queryClient });
+    app.use(router);
+    app.provide(ssrContextKey, {});
+    const root = node('root');
+    app.mount(root);
+    await nextTick();
+    const click = async (label: RegExp) => {
+      const b = all(root).find(
+        (n) => n.tag === 'button' && label.test(String(n.props['aria-label'] ?? textOf(n).trim())),
+      );
+      expect(b, textOf(root)).toBeTruthy();
+      (b!.props.onClick as () => void)();
+      await nextTick();
+    };
+    const fill = async (label: string, value: string) => {
+      const field = all(root).find((n) => n.props['aria-label'] === label);
+      expect(field, label).toBeTruthy();
+      (field!.props['onUpdate:modelValue'] as (value: string) => void)(value);
+      await nextTick();
+    };
+    const submit = async () => {
+      const form = all(root).find((n) => n.tag === 'form');
+      await (form!.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+      await nextTick();
+    };
+    return {
+      text: () => textOf(root),
+      click,
+      fill,
+      submit,
+      unmount: () => {
+        app.unmount();
+        queryClient.clear();
+        workspaceId.value = '';
+        vi.unstubAllGlobals();
+      },
+    };
+  }
+  const posting = () =>
+    vi.fn(
+      async (_path: RequestInfo | URL, init?: RequestInit) =>
+        new Response(init?.method === 'POST' ? '{}' : '[]', {
+          status: init?.method === 'POST' ? 201 : 200,
+        }),
+    );
+
+  it('a workflow study sends its workflow and no predicates', async () => {
+    const fetchMock = posting();
+    vi.stubGlobal('fetch', fetchMock);
+    const t = await mountStudy(CreateStudy, { workflow: 'b' });
+    try {
+      expect(t.text()).toContain('Workflow: Zeta flow');
+      expect(t.text()).not.toContain('Pre-registered');
+      await t.click(/Built-in Teams/);
+      await t.click(/^Solo agent$/);
+      await t.fill('Describe your study', 'Question');
+      await t.submit();
+      const posted = fetchMock.mock.calls.find((call) => call[0] === '/api/cards');
+      const body = JSON.parse(String(posted![1]?.body));
+      expect(body.workflow).toBe('b');
+      expect(body.assignee).toEqual({ type: 'agent', id: 'a1' });
+      expect(body.scope).toEqual({ from: 'experimentation', to: 'experimentation' });
+      expect(body).not.toHaveProperty('predicates');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('removing the workflow restores pre-registration', async () => {
+    vi.stubGlobal('fetch', posting());
+    const t = await mountStudy(CreateStudy, { workflow: 'b' });
+    try {
+      expect(t.text()).not.toContain('Pre-registered');
+      await t.click(/^Remove workflow$/);
+      expect(t.text()).not.toContain('Workflow: Zeta flow');
+      expect(t.text()).toContain('Pre-registered');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('a dropped workflow is named as unavailable', async () => {
+    vi.stubGlobal('fetch', posting());
+    const t = await mountStudy(StudyDetail, { id: 'c' }, { workflow: 'gone' });
+    try {
+      await t.click(/^Properties$/);
+      expect(t.text()).toContain('This workflow is no longer available');
+    } finally {
+      t.unmount();
+    }
   });
 });

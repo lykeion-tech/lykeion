@@ -80,6 +80,7 @@ export interface Card {
   queued: boolean; // GET /api/cards only
   role: string; // GET /api/cards only; '' when no run is queued, dispatched or running
   pack_id: string | null;
+  workflow?: string | null;
   block_kind: BlockKind;
   scope_from: Exclude<Column, 'done'>;
   scope_to: Exclude<Column, 'done'>;

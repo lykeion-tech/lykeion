@@ -8,18 +8,20 @@ const composer = reactive<{
   open: boolean;
   assignee?: Assignee;
   projectId?: string;
+  workflow?: string;
 }>({
   open: false,
 });
 
-function openComposer(assignee?: Assignee, projectId?: string) {
-  Object.assign(composer, { open: true, assignee, projectId });
+function openComposer(assignee?: Assignee, projectId?: string, workflow?: string) {
+  Object.assign(composer, { open: true, assignee, projectId, workflow });
 }
 function closeComposer() {
   Object.assign(composer, {
     open: false,
     assignee: undefined,
     projectId: undefined,
+    workflow: undefined,
   });
 }
 

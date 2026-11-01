@@ -17,6 +17,8 @@ import { useStudyComposer } from '../state/study-composer';
 const props = defineProps<{
   agents?: boolean;
   oneAgent?: boolean;
+  // A Workflow study is worked by one agent over a fixed stage.
+  agentOnly?: boolean;
   lastSet?: Picked | null;
   menuBelow?: boolean;
 }>();
@@ -39,7 +41,7 @@ const setPick = ref<Picked | null>(null);
 const set = computed(() => !!assignee.value && toRaw(assignee.value) === toRaw(setPick.value));
 
 const addedTeams = computed(() =>
-  (store.data.value ?? []).filter((t) => t.added || t.source === 'shipped'),
+  props.agentOnly ? [] : (store.data.value ?? []).filter((t) => t.added || t.source === 'shipped'),
 );
 const stageName = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : '');
 // The owner of the study or Autoresearch is the researcher, so a private agent
@@ -83,7 +85,9 @@ const matchingCustomTeams = computed(() =>
 const matchingAgents = computed(() =>
   assignableAgents.value.filter((a) => matchesQuery(a.name, query.value)),
 );
-const showSets = computed(() => matchesQuery('team sets new set your last set', query.value));
+const showSets = computed(
+  () => !props.agentOnly && matchesQuery('team sets new set your last set', query.value),
+);
 // A study's stages with no Team in the set get built-in Teams; an
 // Autoresearch's get an agent.
 const gaps = computed(() => !!props.agents && stages.some((s) => !setSlots.value[s]));
@@ -277,7 +281,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             ? 'Stages: choose a stage'
             : `Stages: ${stageName(range.from)}${range.from === range.to ? '' : ' → ' + stageName(range.to)}`
         "
-        :disabled="assignee?.type === 'team' && !unstaged"
+        :disabled="agentOnly || (assignee?.type === 'team' && !unstaged)"
         @click="openMenu('stages')"
       >
         <Icon name="circle" :size="14" />{{
